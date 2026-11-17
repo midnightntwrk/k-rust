@@ -658,7 +658,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   text of a construct fixture, stated for every H about `c.withHooks H` (namespaces `DevOr` to
   `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
   without the device, where the result differs (at a named H where that reading makes the point
-  one where every clause fails, under every H where no function is at the point).
+  one where every clause fails, under every H where no function is at the point). `reflectionAsOwn`
+  (`DevRefl`), `keyFunctionAsRequires` (`DevKey`), `equationPriority` (`DevPrio`, on
+  `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
+  interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
+  the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
 - `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
   e2-macro): the four macro and alias symbols the text declares and does not apply are not read
   (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing

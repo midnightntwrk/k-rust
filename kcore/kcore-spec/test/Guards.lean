@@ -74,6 +74,25 @@
     where the result differs: under every H where no function is at the point, and at a named H
     where the other reading makes the point one where every clause fails (the interpretation's:
     `DevAndEns.andEns_asRequires_H7`, `DevOrBot.orBot_unread_H7`).
+  - `reflectionAsOwn` (`DevRefl`, e6-configuration's text): for every H the value of
+    `#configuration` is H's answer, kept where it is of sort K (`conf_value`, with G6); the point
+    is reached: under `Hk` `go` steps to `wrap(.K)` (`go_step_Hk`), under `HookParams.none` it has
+    no successor (test/Configuration.lean). That `Γ` over all H entails neither is not stated in
+    `Γ`'s models here.
+  - `keyFunctionAsRequires` (`DevKey`, `keyfn-partial`'s text): for every H `look(1)` steps to the
+    entry of `k(1)`, `kf(1)` being `k(1)` by its equation (`key_steps`); the point is reached:
+    `kf(2)` is the interpretation's, and under `Hk` `look(2)` steps to that entry (`look2_Hk`). The
+    bridge between the text's rule, whose left side applies the function, and the read one is not
+    stated: the kernel has no pattern applying a function.
+  - `equationPriority` (`DevPrio`, on `Faithful.PrioTextWitness.c`, two equations of priorities 50
+    and 60 that both apply): for every H a model of the theory with each equation under its own
+    premise is a model of `Γ` (`prio_gamma_of_text`); the point is reached: that theory has no
+    model, `Γ` has one (`PrioTextWitness.not_model_text`, `has_model`). For one semantics: the
+    entailment for every semantics is not stated.
+  - `owiseAsPriority` (`DevOwise`, `owise2`'s text): for every H the `[owise]` equations give the
+    values where no other equation applies and do not override one that applies (`owise_values`);
+    the point is reached: with the `[owise]` equations not read, `f(1, 5)` is the interpretation's
+    (`owise_unread_H9`).
 -/
 import KcoreSpec
 
@@ -1359,6 +1378,202 @@ theorem orBot_unread_H7 : Eval (c1.withHooks H7) f [int 3] (some (int 7)) :=
 
 end DevOrBot
 
+/-! ## The other notes: `reflectionAsOwn`, `keyFunctionAsRequires`, `equationPriority`, `owiseAsPriority` -/
+
+/-! ### `reflectionAsOwn`: a K-REFLECTION symbol is a parameter symbol -/
+
+-- `<k> go => wrap(#configuration) ... </k>` with K-REFLECTION imported (the construct fixture
+-- e6-configuration).
+namespace DevRefl
+
+definition_of defn from "f2-examples/e6cfg.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def cfgSym : Sym := 389
+def go : Sym := 386
+def wrap : Sym := 387
+def expS : Srt := 32
+theorem names_ok : c.symName cfgSym = "Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K" ∧
+    c.symName go = "Lblgo" ∧ c.symName wrap = "Lblwrap" ∧ c.sortName expS = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj expS Srt.kitem e)
+def Go : Config c := ⟨cfg (.ctor go []), by decide +kernel⟩
+def WrapK : Config c := ⟨cfg (.ctor wrap [.ctor dotk []]), by decide +kernel⟩
+
+/-- `#configuration` is a parameter symbol with no registry hook, no open generator, of result
+sort K. -/
+theorem conf_param : (c.lookupParam cfgSym).map (fun k => (k.impl, k.raw, k.sig.result)) =
+    some (none, false, Srt.k) := by decide +kernel
+
+/-- **`reflectionAsOwn`, for every interpretation**: the value of `#configuration` is the
+interpretation's answer, kept where it is of sort K: the text states nothing else of it. -/
+theorem conf_value (H : HookParams) :
+    (c.withHooks H).paramVal cfgSym [] =
+      (H.app cfgSym []).filter fun v => (c.withHooks H).sortOf v == some Srt.k := by
+  have hl : (c.withHooks H).lookupParam cfgSym = c.lookupParam cfgSym := rfl
+  have hp := conf_param
+  unfold Semantics.paramVal
+  rw [hl]
+  cases hk : c.lookupParam cfgSym with
+  | none => rw [hk] at hp; cases hp
+  | some k =>
+    rw [hk] at hp
+    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hp
+    obtain ⟨hi, hraw, hres⟩ := hp
+    simp only [hi, hraw, hres, Bool.false_eq_true, ↓reduceIte]
+    rfl
+
+/-- The interpretation that gives `#configuration` the empty K sequence. -/
+def Hk : HookParams := ⟨fun f _ => if f = cfgSym then some (.ctor dotk []) else none⟩
+
+/-- **The point is reached**: under `Hk`, `go` steps to `wrap(.K)`; under `HookParams.none` it has
+no successor (test/Configuration.lean, `stuck_go`). Over all interpretations the text fixes
+neither. -/
+theorem go_step_Hk : Step (c.withHooks Hk) (cfgH noRaw Go Hk) (cfgH noRaw WrapK Hk) :=
+  step_atH hok hsr hmr noRaw Hk (n := 50) (by decide +kernel)
+
+end DevRefl
+
+/-! ### `keyFunctionAsRequires`: a function applied as a map key in a left side -/
+
+-- `<k> look(I) => V ... </k> <tab> kf(I) |-> V ... </tab>`, `kf(1) => k(1)` its one equation
+-- (`f2-examples/keyfn-partial.k`).
+namespace DevKey
+
+definition_of defn from "f2-examples/keyfn-partial.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def kCell : Sym := 389
+def baseCell : Sym := 391
+def memCell : Sym := 393
+def tabCell : Sym := 395
+def kk : Sym := 398
+def look : Sym := 399
+def kf : Sym := 402
+def key : Srt := 38
+theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName baseCell = "Lbl'-LT-'base'-GT-'" ∧
+    c.symName memCell = "Lbl'-LT-'mem'-GT-'" ∧ c.symName tabCell = "Lbl'-LT-'tab'-GT-'" ∧ c.symName kk = "Lblk" ∧
+    c.symName look = "Lbllook" ∧ c.symName kf = "Lblkf" ∧ c.sortName key = "Key" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+/-- The table `k(1) |-> 3`. -/
+def tab : GroundTerm := .map Srt.map [(.inj key Srt.kitem (.ctor kk [int 1]), .inj Srt.int Srt.kitem (int 3))]
+def cfg (pgm : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kCell [.ctor kseq [pgm, .ctor dotk []]], .ctor baseCell [int 0],
+    .ctor memCell [.map Srt.map []], .ctor tabCell [tab], .ctor counterLabel [int 0]]
+def Look1 : Config c := ⟨cfg (.ctor look [int 1]), by decide +kernel⟩
+def Look2 : Config c := ⟨cfg (.ctor look [int 2]), by decide +kernel⟩
+def Three : Config c := ⟨cfg (.inj Srt.int Srt.kitem (int 3)), by decide +kernel⟩
+
+/-- **`keyFunctionAsRequires`, for every interpretation**: with the table `k(1) |-> 3`, `look(1)`
+steps to 3: `kf(1)` is `k(1)` by its equation, a key of the table. -/
+theorem key_steps (H : HookParams) : Step (c.withHooks H) (cfgH noRaw Look1 H) (cfgH noRaw Three H) :=
+  step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H
+
+/-- The interpretation that gives `kf(2)` the value `k(1)` and nothing else. -/
+def Hk : HookParams := ⟨fun f vs => if f = kf ∧ vs = [int 2] then some (.ctor kk [int 1]) else none⟩
+
+/-- **The point is reached**: no equation of `kf` applies at 2, so `kf(2)` is the interpretation's.
+Under `Hk` it is `k(1)`, a key of the table, and `look(2)` steps to 3; under `HookParams.none` it
+has no value and `look(2)` has no successor (test/KeyFunction.lean, the compiled step). -/
+theorem look2_Hk : Step (c.withHooks Hk) (cfgH noRaw Look2 Hk) (cfgH noRaw Three Hk) :=
+  step_atH hok hsr hmr noRaw Hk (n := 50) (by decide +kernel)
+
+end DevKey
+
+/-! ### `equationPriority`: an equation is read under the negation of the smaller priorities -/
+
+-- `Faithful.PrioTextWitness.c`: `f() = 1` of priority 50 and `f() = 2` of priority 60.
+namespace DevPrio
+
+open Faithful.PrioTextWitness
+
+kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.withHooks H) = fnItems c
+kernel_rfl fnItemsText_withHooks : ∀ (c : Semantics) (H : HookParams),
+  fnItemsText (c.withHooks H) = fnItemsText c
+
+/-- **`equationPriority`, for every interpretation**: a model of the theory with each equation
+under its own premise, as the text writes it (`ΓFnText`), is a model of `Γ`, whose second equation
+is under the negation of the first: the text entails what is read. -/
+theorem prio_gamma_of_text (H : HookParams) {M : Type} {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP ΓFnText (c.withHooks H)) : I ⊧ᴵP Γ (c.withHooks H) := by
+  have hD : KoreAML.DefOK I :=
+    KoreAML.defOK_of fun x => hI _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))))))
+  have htext : ∀ {it : KoreAML.Item}, it ∈ fnItemsText c → I ⊧ᴵ it.pat := fun {it} h =>
+    hI _ (Or.inl (Or.inl (Or.inr (Or.inl ⟨it, by rw [fnItemsText_withHooks]; exact h, rfl⟩))))
+  intro φ hφ
+  rcases hφ with ((((((h | h) | h) | h) | h) | h) | h)
+  · exact hI φ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl h))))))
+  · exact hI φ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h))))))
+  · exact hI φ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr h)))))
+  · exact hI φ (Or.inl (Or.inl (Or.inl (Or.inr h))))
+  · rcases h with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+    · rw [fnItems_withHooks, fnItems_eq] at hit
+      rcases List.mem_append.mp hit with hit | hit
+      · rcases List.mem_cons.mp hit with rfl | hit
+        · exact htext (by rw [fnItemsText_eq]; exact List.mem_cons_self ..)
+        rcases List.mem_cons.mp hit with rfl | hit
+        · exact item2C_of hD (htext (by rw [fnItemsText_eq]; exact List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+        · cases hit
+      · exact htext (by rw [fnItemsText_eq]; exact List.mem_append_right _ hit)
+    · exact hI _ (Or.inl (Or.inl (Or.inr (Or.inr ⟨x, rfl⟩))))
+  · exact hI φ (Or.inl (Or.inr h))
+  · exact hI φ (Or.inr h)
+
+end DevPrio
+
+/-! ### `owiseAsPriority`: an `[owise]` equation is the clause of priority 200 -/
+
+-- `f(0, _) => 0`, `f(_, 0) => 1`, `f(1, Y) => Y [owise]`, `f(X, 1) => X [owise]`
+-- (`f2-examples/owise2.k`).
+namespace DevOwise
+
+definition_of defn from "f2-examples/owise2.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def f : Sym := 387
+theorem names_ok : c.symName f = "Lblf" := by decide +kernel
+noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
+theorem prios : fn.clauses.map (·.prio) = [50, 50, 200, 200] := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hfn : c.lookupFn f = some fn := rfl
+
+/-- **`owiseAsPriority`, for every interpretation**: `f(1, 5)` is 5 and `f(7, 1)` is 7, by the
+`[owise]` equations, where neither other equation applies; `f(1, 0)` is 1, by `f(_, 0) => 1`, which
+the `[owise]` equation `f(1, Y) => Y` (it would give 0) does not override. -/
+theorem owise_values (H : HookParams) :
+    Eval (c.withHooks H) f [int 1, int 5] (some (int 5)) ∧ Eval (c.withHooks H) f [int 7, int 1] (some (int 7)) ∧
+    Eval (c.withHooks H) f [int 1, int 0] (some (int 1)) :=
+  ⟨eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H,
+   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H,
+   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H⟩
+
+/-- The `[owise]` equations not read: `f` has its two other clauses alone. -/
+noncomputable def c1 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then
+      { g with clauses := g.clauses.filter fun cl => cl.prio != 200 } else g }
+noncomputable abbrev fn1 : Fn := c1.fns[0]'(by decide +kernel)
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+private theorem hfn1 : c1.lookupFn f = some fn1 := rfl
+
+/-- The interpretation that gives `f(1, 5)` the value 9 and nothing else. -/
+def H9 : HookParams := ⟨fun g vs => if g = f ∧ vs = [int 1, int 5] then some (int 9) else none⟩
+
+/-- **The point is reached**: read so, `f(1, 5)` is a point where every clause fails, the
+interpretation's: 9 under `H9`. -/
+theorem owise_unread_H9 : Eval (c1.withHooks H9) f [int 1, int 5] (some (int 9)) :=
+  eval_atH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) H9 (n := 10) (by decide +kernel)
+
+end DevOwise
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -1399,6 +1614,13 @@ end KCore.Guards
 #print axioms KCore.Guards.DevBot.bot_unread_value
 #print axioms KCore.Guards.DevOrBot.orBot_value
 #print axioms KCore.Guards.DevOrBot.orBot_unread_H7
+#print axioms KCore.Guards.DevRefl.conf_value
+#print axioms KCore.Guards.DevRefl.go_step_Hk
+#print axioms KCore.Guards.DevKey.key_steps
+#print axioms KCore.Guards.DevKey.look2_Hk
+#print axioms KCore.Guards.DevPrio.prio_gamma_of_text
+#print axioms KCore.Guards.DevOwise.owise_values
+#print axioms KCore.Guards.DevOwise.owise_unread_H9
 
 /-! ## The table of readings (DONE-0 C6)
 
@@ -1465,11 +1687,11 @@ def GuardEntry.line (ctor : String) (e : GuardEntry) : String :=
 -- table:begin
 def readingNote : ReadingNote → GuardEntry
   | .reflectionAsOwn =>
-    { status := .pending "GUARD.notes-other",
-      guard := [.decl ``KCore.Guards.fnRest_nil_eq_paramVal],
-      companion := [.test "test/Configuration.lean" "stuck_go"],
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevRefl.conf_value, .decl ``KCore.Guards.fnRest_nil_eq_paramVal_everyH],
+      companion := [.decl ``KCore.Guards.DevRefl.go_step_Hk, .test "test/Configuration.lean" "stuck_go"],
       invariant := [``KCore.Semantics.paramVal],
-      note := "G6 gives a reflection symbol, a parameter, the interpretation's value; the companion that Γ over all H fixes neither ⊥ nor a value (param_undetermined, REVIEW-RN section 3) is not written" }
+      note := "on e6-configuration's text, every H: #configuration's value is H's answer, kept where it is of sort K (conf_value), as a function with no clause (G6); the point is reached: under Hk go steps to wrap(.K), under HookParams.none it has no successor (stuck_go), so the text fixes neither; the statement in Γ's models (param_undetermined, REVIEW-RN section 3: over all H, Γ entails neither ⊥ nor a value) is not written" }
   | .streamRule =>
     { status := .readerTest,
       guard := [.test "test/StreamIO.lean" "#guard_msgs"],
@@ -1552,19 +1774,24 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.decl ``KCore.setvar_in_drop, .test "test/SetVarOwise.lean" "f_one"],
       note := "setvar_in_drop is the entailment on the translated sentence, f_one an evaluation at the parsed semantics; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor" }
   | .keyFunctionAsRequires =>
-    { status := .pending "GUARD.notes-other",
-      guard := [.test "test/KeyFunction.lean" "#guard_msgs"],
-      note := "reader verdicts only; the bridge between the text's rule and the read one (REVIEW-RN RN12) is not written" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevKey.key_steps, .test "test/KeyFunction.lean" "#guard_msgs"],
+      companion := [.decl ``KCore.Guards.DevKey.look2_Hk, .test "test/KeyFunction.lean" "look(2): []"],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Semantics.fnRest],
+      note := "on keyfn-partial's text, every H: look(1) steps to the entry of k(1), kf(1) being k(1) by its equation; the point is reached: kf(2) is a point where no equation applies, under Hk it is k(1) and look(2) steps to that entry, under HookParams.none look(2) has no successor (the compiled step, AtNone.steps); the bridge between the text's rule and the read one (REVIEW-RN RN12) is not written: the kernel has no pattern applying a function (functionInPattern)" }
   | .equationPriority =>
-    { status := .pending "GUARD.notes-other",
-      guard := [.decl ``KCore.Faithful.PrioTextWitness.gamma_of_text],
-      companion := [.decl ``KCore.Faithful.PrioTextWitness.not_model_text],
-      invariant := [``KCore.Faithful.prioEquation],
-      note := "text entails Γ and the companion at one hand-built semantics; the statement for every semantics (as G8 for rules) is not written" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevPrio.prio_gamma_of_text, .decl ``KCore.Faithful.PrioTextWitness.gamma_of_text],
+      companion := [.decl ``KCore.Faithful.PrioTextWitness.not_model_text, .decl ``KCore.Faithful.PrioTextWitness.has_model],
+      invariant := [``KCore.Faithful.prioEquation, ``KCore.Faithful.lowerClauses],
+      note := "on PrioTextWitness.c (f() = 1 of priority 50, f() = 2 of priority 60), every H: a model of the theory with each equation under its own premise, as the text writes it, is a model of Γ (c.withHooks H), whose second equation is under the negation of the first; the point is reached: the text's theory has no model there and Γ has one; one hand-built semantics: the entailment for every semantics (as G8 for rules) is not written, the competitors' bound variables changing the translated sentence's variable table" }
   | .owiseAsPriority =>
-    { status := .pending "GUARD.notes-other",
-      guard := [.test "test/OwisePriority.lean" "#guard_msgs", .test "test/OwiseSeveral.lean" "f_prios"],
-      note := "reader verdicts and evaluations at the parsed semantics only; that the text premise and Γ's are one is the reader's check (fnFrom, fnPairs, excludes), stated by no theorem" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevOwise.owise_values, .test "test/OwisePriority.lean" "#guard_msgs",
+        .test "test/OwiseSeveral.lean" "f_prios"],
+      companion := [.decl ``KCore.Guards.DevOwise.owise_unread_H9],
+      invariant := [``KCore.Faithful.prioEquation, ``KCore.Cert.evalFC_withHooks, ``KCore.Semantics.fnRest],
+      note := "on owise2's text (two equations and two [owise] equations), every H: f(1, 5) = 5 and f(7, 1) = 7 by the [owise] equations, f(1, 0) = 1 by the equation the [owise] one does not override; the companion is the [owise] equations not read, where f(1, 5) is a point every clause fails at, 9 under H9; that the text's premise (one negated disjunct per other equation) and Γ's (the clauses of a smaller priority) are one is the reader's check (fnFrom, fnPairs, excludes), stated by no theorem" }
   | .owiseDisjunctNarrower =>
     { status := .pending "GUARD.final",
       guard := [.decl ``KCore.owise_disjunct_narrower],
