@@ -264,3 +264,4 @@ import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
+import KcoreSpec.LibEvFun
