@@ -110,27 +110,77 @@ theorem mem_gens {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
     have : p.2 = N := by simpa using hr
     exact Or.inr (Or.inr (Or.inl ⟨p.1, by rw [← this]; exact hp, rfl⟩))
 
-/-- Under `HypModelCore` no parameter is raw, so no generator is an open generator. -/
-theorem mem_gens_core (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
+/-- **A raw parameter is an open generator**: `lookupOpen` answers for its name. Under
+`HypModelCore` no parameter is raw (`paramsPlain`), so this is where the reading of the generators
+takes that fact; once `paramsPlain` admits raw parameters it holds by its `raw` branch (no registry
+number: `lookupOpen`'s guard), the parameter itself meeting `find?`'s test. -/
+theorem HypModelCore.raw_open (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
+    c.isOpenGen (.ctor k.sig) = true :=
+  absurd hr (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
+
+/-- The generators `consItemsK` writes functionality, injectivity and distinctness for (those that
+are no open generator): the constructors, the overloading symbols and the injections. -/
+theorem mem_gensF (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     (∃ k ∈ c.ctorSigs, k.result = N ∧ g = .ctor k) ∨ (∃ o ∈ c.ovls, o.sig.result = N ∧ g = .ctor o.sig) ∨
       (∃ a, (a, N) ∈ c.subsorts ∧ g = .inj a) := by
-  rcases mem_gens hg with h1 | h2 | h3 | ⟨k, hk, hraw, -, -⟩
+  obtain ⟨hg, ho⟩ := List.mem_filter.mp hg
+  rcases mem_gens hg with h1 | h2 | h3 | ⟨k, hk, hraw, -, rfl⟩
   · exact Or.inl h1
   · exact Or.inr (Or.inl h2)
   · exact Or.inr (Or.inr h3)
-  · exact absurd hraw (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
+  · simp [h.raw_open hk hraw] at ho
+
+/-- The generators that are no open generator, listed: the constructors, the overloading symbols
+and the injections of `gens`, in its order. -/
+theorem gensF_eq (h : HypModelCore c) (N : Srt) :
+    (c.gens N).filter (!c.isOpenGen ·) =
+      (c.ctorSigs.filter (·.result == N)).map .ctor ++ (c.ovlSigs.filter (·.result == N)).map .ctor ++
+        (sortBy id ((c.subsorts.filter (·.2 == N)).map (·.1))).map .inj := by
+  unfold Semantics.gens
+  simp only [List.filter_append]
+  have h1 : ((c.ctorSigs.filter (·.result == N)).map Gen.ctor).filter (!c.isOpenGen ·) =
+      (c.ctorSigs.filter (·.result == N)).map Gen.ctor :=
+    List.filter_eq_self.mpr fun g hg => by
+      obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
+      simp [isOpenGen_ctor h.genWf (List.mem_filter.mp hk).1]
+  have h2 : ((c.ovlSigs.filter (·.result == N)).map Gen.ctor).filter (!c.isOpenGen ·) =
+      (c.ovlSigs.filter (·.result == N)).map Gen.ctor :=
+    List.filter_eq_self.mpr fun g hg => by
+      obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
+      simp [isOpenGen_ovl h.genWf (List.mem_filter.mp hk).1]
+  have h3 : ((((c.params.filter (·.raw)).map (·.sig)).filter (·.result == N)).map Gen.ctor).filter
+      (!c.isOpenGen ·) = [] :=
+    List.filter_eq_nil_iff.mpr fun g hg => by
+      obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp (List.mem_filter.mp hk).1
+      obtain ⟨hp, hr⟩ := List.mem_filter.mp hp
+      simp [h.raw_open hp hr]
+  have h4 : ((sortBy id ((c.subsorts.filter (·.2 == N)).map (·.1))).map Gen.inj).filter (!c.isOpenGen ·) =
+      (sortBy id ((c.subsorts.filter (·.2 == N)).map (·.1))).map Gen.inj :=
+    List.filter_eq_self.mpr fun g hg => by
+      obtain ⟨a, -, rfl⟩ := List.mem_map.mp hg
+      rfl
+  rw [h1, h2, h3, h4, List.append_nil]
 
 theorem gens_ovl {o : OvlSig} (ho : o ∈ c.ovls) : Gen.ctor o.sig ∈ c.gens o.sig.result := by
   unfold Semantics.gens
   exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
     (List.mem_map.mpr ⟨o.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem ho, by simp⟩, rfl⟩)))
 
+/-- A raw parameter is a generator of its result sort. -/
+theorem gens_open {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) : Gen.ctor k.sig ∈ c.gens k.sig.result := by
+  unfold Semantics.gens
+  exact List.mem_append_left _ (List.mem_append_right _
+    (List.mem_map.mpr ⟨k.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem (List.mem_filter.mpr ⟨hk, hr⟩), by simp⟩, rfl⟩))
+
 /-- The argument sorts of a generator of a constructor sort are numbered. -/
 theorem gen_args_numbered (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
     ∀ s ∈ g.argSorts, s < nRegSorts + c.sortNames.length := by
-  rcases mem_gens_core h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, ha, rfl⟩
+  rcases mem_gens hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, ha, rfl⟩ | ⟨k, hk, -, -, rfl⟩
   · exact fun s hs => h.symSorts (ctor_kernel hk) s (List.mem_cons_of_mem _ hs)
   · exact fun s hs => h.symSorts (ovl_kernel ho) s (List.mem_cons_of_mem _ hs)
+  rotate_left
+  · exact fun s hs => h.symSorts (kernel_param hk) s (List.mem_cons_of_mem _ hs)
   · intro s hs
     rw [show (Gen.inj a).argSorts = [a] from rfl, List.mem_singleton] at hs
     subst hs
@@ -252,13 +302,36 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
+/-- **An open generator's raw value is its generator's application** at the transition `T`. -/
+theorem gs_open (h : HypModelCore c) {f : Sym} {ws : List GroundTerm} {kp : ParamSig}
+    (hko : c.lookupOpen f = some kp) (hws : c.sortsOf ws = some kp.sig.args) (hkr : c.keepsRaw f ws = true)
+    (hv : c.sortOf (.ctor f ws) = some kp.sig.result) (N : String) :
+    GS (stdI_T c T) N (Gen.toK c (.ctor kp.sig)) (ws.map Elem.val) (.val (.ctor f ws)) := by
+  obtain ⟨hlp, hi⟩ := h.open_param hko
+  obtain ⟨hkp, hraw, hn, -⟩ := c.lookupOpen_spec hko
+  subst hn
+  obtain ⟨hc, hh⟩ := h.paramKinds hkp
+  have hp : c.isParam kp.sig.name = true := by
+    unfold Semantics.isParam; rw [hlp]; rfl
+  have hraw' : (c.hooks.app kp.sig.name ws).getD (.ctor kp.sig.name ws) = .ctor kp.sig.name ws := by
+    unfold Semantics.keepsRaw at hkr
+    cases ha : c.hooks.app kp.sig.name ws with
+    | none => rfl
+    | some w =>
+      rw [ha] at hkr
+      exact GroundTerm.cmp_eq _ _ (by simpa using hkr)
+  have hpv : c.paramVal kp.sig.name ws = some (.ctor kp.sig.name ws) :=
+    (paramVal_raw_sorted hlp hraw hi).mpr ⟨hraw'.symm, hv⟩
+  exact (symE_vals (T := T) h.namesK (kernel_param hkp) (sortsOf_len hws) _).mpr
+    ((result_param hc hh hp _).mpr ⟨_, rfl, hpv⟩)
+
 /-- **A generator builds one value of its sort** from values of its argument sorts. -/
-theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N)
+theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
     {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
     (∀ m, GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
       c.sortOf (genVal c N g vs) = some N := by
   have hn := h.namesK
-  rcases mem_gens_core h hg with ⟨k, hk, rfl, rfl⟩ | ⟨o, ho, rfl, rfl⟩ | ⟨a, ha, rfl⟩
+  rcases mem_gensF h hg with ⟨k, hk, rfl, rfl⟩ | ⟨o, ho, rfl, rfl⟩ | ⟨a, ha, rfl⟩
   · simp only [genVal, norm_ctor h hk]
     refine ⟨fun m => gs_ctor hn hk _ (sortsOf_len hvs) m, ?_⟩
     exact result_sorted h (ctor_kernel hk) hvs ((result_ctor (isCtor_of_mem hk) _).mpr rfl)
@@ -276,8 +349,18 @@ theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen}
 
 end AtT
 
+/-- **An open generator's raw value is its generator's application**: the symbol applied to the
+arguments' elements is the parameter's value (`result`), which is the raw application where the
+interpretation leaves it raw (`paramVal_raw_sorted`). From the parameter the symbol names, with no
+registry hook (`HypModelCore.open_param`). -/
+theorem gs_open (h : HypModelCore c) {f : Sym} {ws : List GroundTerm} {kp : ParamSig}
+    (hko : c.lookupOpen f = some kp) (hws : c.sortsOf ws = some kp.sig.args) (hkr : c.keepsRaw f ws = true)
+    (hv : c.sortOf (.ctor f ws) = some kp.sig.result) (N : String) :
+    GS (stdI c) N (Gen.toK c (.ctor kp.sig)) (ws.map Elem.val) (.val (.ctor f ws)) :=
+  AtT.gs_open (c := c) (T := StepM c) h hko hws hkr hv N
+
 /-- **A generator builds one value of its sort** from values of its argument sorts. -/
-theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N)
+theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
     {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
     (∀ m, GS (stdI c) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
       c.sortOf (genVal c N g vs) = some N :=
@@ -315,10 +398,10 @@ theorem injNormal_inj' (h : HypModelCore c) {a N : Srt} {v w : GroundTerm} (hv :
       simp only [injNormal, GroundTerm.inj.injEq, true_and] at he
       exact he
 
-theorem genVal_inj (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) {vs ws : List GroundTerm}
+theorem genVal_inj (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) {vs ws : List GroundTerm}
     (hvs : c.sortsOf vs = some g.argSorts) (hws : c.sortsOf ws = some g.argSorts)
     (he : genVal c N g vs = genVal c N g ws) : vs = ws := by
-  rcases mem_gens_core h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, -, rfl⟩
+  rcases mem_gensF h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, -, rfl⟩
   · simp only [genVal, norm_ctor h hk, GroundTerm.ctor.injEq] at he
     exact he.2
   · exact OvlLaws.norm_inj h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho) hvs hws he
@@ -477,7 +560,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
+theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
@@ -485,7 +568,7 @@ theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length]) hgd
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h (List.mem_filter.mp hg).1) (by simp [xs_length]) hgd
   obtain ⟨hgs, hsort⟩ := gs_gen (T := T) h hN hg hvs
   rw [KoreAML.interp_sExists]
   refine ⟨.val (genVal c N g vs), ?_, ?_⟩
@@ -501,7 +584,7 @@ theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
 
 end AtT
 
-theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
+theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     stdI c ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat :=
   AtT.sat_funItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
 
@@ -509,7 +592,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
+theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
@@ -517,7 +600,7 @@ theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  have hnum := gen_args_numbered h hg
+  have hnum := gen_args_numbered h (List.mem_filter.mp hg).1
   obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts hnum (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ hw))
   obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g.argSorts hnum (by simp [xs_length])
@@ -541,7 +624,7 @@ theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
 
 end AtT
 
-theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
+theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     stdI c ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat :=
   AtT.sat_injItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
 
@@ -549,7 +632,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+theorem sat_dist_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       genVal c N g vs ≠ genVal c N g' ws) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat := by
@@ -559,9 +642,9 @@ theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h (List.mem_filter.mp hg).1) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ hw))
-  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
+  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h (List.mem_filter.mp hg').1) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_right _ hw))
   rw [KoreAML.interp_notEqual defOK_std]
   intro heq
@@ -571,7 +654,7 @@ theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
 
 end AtT
 
-theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+theorem sat_dist_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       genVal c N g vs ≠ genVal c N g' ws) :
     stdI c ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat :=
@@ -652,12 +735,9 @@ theorem keys_inj : ∀ S : List Srt, (S.map Gen.inj).filterMap genKey = []
   | a :: S => by simp only [List.map_cons, List.filterMap_cons, genKey, keys_inj S]
 
 theorem pairs_ctor_names (h : HypModelCore c) {N : Srt} {k k' : CtorSig}
-    (hp : (Gen.ctor k, Gen.ctor k') ∈ pairs (c.gens N)) : k.name ≠ k'.name := by
-  have hnd : ((c.gens N).filterMap genKey).Nodup := by
-    unfold Semantics.gens
-    rw [show c.params.filter (·.raw) = [] from List.filter_eq_nil_iff.mpr fun k hk => by
-      simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk]]
-    simp only [List.map_nil, List.filter_nil, List.append_nil]
+    (hp : (Gen.ctor k, Gen.ctor k') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·))) : k.name ≠ k'.name := by
+  have hnd : (((c.gens N).filter (!c.isOpenGen ·)).filterMap genKey).Nodup := by
+    rw [gensF_eq h N]
     rw [List.filterMap_append, List.filterMap_append, keys_ctor, keys_ctor, keys_inj, List.append_nil]
     have ho : (c.ovlSigs.map (·.name)).Nodup := by
       simpa [Semantics.ovlSigs, Function.comp_def] using h.ovlsOnce
@@ -747,8 +827,8 @@ def UncG (c : Semantics) : Gen → List GroundTerm → Prop
 omit hN in
 /-- A generator of N that is a constructor or an overloading symbol: its signature is the one its
 name finds, of result sort N. -/
-theorem gen_known {k : CtorSig} (hg : Gen.ctor k ∈ c.gens N) : OvlLaws.KnownSig c k ∧ k.result = N := by
-  rcases mem_gens_core h hg with ⟨k', hk', hr, he⟩ | ⟨o, ho, hr, he⟩ | ⟨a, -, he⟩
+theorem gen_known {k : CtorSig} (hg : Gen.ctor k ∈ (c.gens N).filter (!c.isOpenGen ·)) : OvlLaws.KnownSig c k ∧ k.result = N := by
+  rcases mem_gensF h hg with ⟨k', hk', hr, he⟩ | ⟨o, ho, hr, he⟩ | ⟨a, -, he⟩
   · cases he
     refine ⟨?_, hr⟩
     unfold OvlLaws.KnownSig
@@ -767,9 +847,9 @@ theorem gen_known {k : CtorSig} (hg : Gen.ctor k ∈ c.gens N) : OvlLaws.KnownSi
 omit hN in
 /-- At arguments its uncovered guards accept, a constructor or overloading generator builds its raw
 application. -/
-theorem genVal_unc {k : CtorSig} (hg : Gen.ctor k ∈ c.gens N) {vs : List GroundTerm}
+theorem genVal_unc {k : CtorSig} (hg : Gen.ctor k ∈ (c.gens N).filter (!c.isOpenGen ·)) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some k.args) (hu : UncG c (.ctor k) vs) : genVal c N (.ctor k) vs = .ctor k.name vs := by
-  rcases mem_gens_core h hg with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+  rcases mem_gensF h hg with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
   · cases he; exact norm_ctor h hk' vs
   · cases he
     have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
@@ -881,7 +961,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       UncG c g vs → UncG c g' ws → genVal c N g vs ≠ genVal c N g' ws) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g)
@@ -892,11 +972,11 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h (List.mem_filter.mp hg).1) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hw))))
-  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
+  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h (List.mem_filter.mp hg').1) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ hw))))
-  have unc : ∀ (g0 : Gen), g0 ∈ c.gens N → ∀ (x : List EVar) (us : List GroundTerm) (z : EVar), z ∉ x →
+  have unc : ∀ (g0 : Gen), g0 ∈ (c.gens N).filter (!c.isOpenGen ·) → ∀ (x : List EVar) (us : List GroundTerm) (z : EVar), z ∉ x →
       x.map e.evalEvar = us.map Elem.val → c.sortsOf us = some g0.argSorts →
       (∀ w ∈ (match ovlArgsOf c g0 with
         | some covs => [KoreAML.Cons.uncoveredP (g0.argSorts.map c.sortName) covs x z]
@@ -906,7 +986,7 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N
     | inj a => trivial
     | ctor k =>
       intro hio
-      rcases mem_gens_core h hg0 with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+      rcases mem_gensF h hg0 with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
       · cases he; rw [isOvl_of_ctorSigs hk'] at hio; cases hio
       · cases he
         have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
@@ -931,7 +1011,7 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N
 
 end AtT
 
-theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       UncG c g vs → UncG c g' ws → genVal c N g vs ≠ genVal c N g' ws) :
     stdI c ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g)
@@ -942,7 +1022,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : KoreAML.Item}
+theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·))) {it : KoreAML.Item}
     (hit : it ∈ (match g, g' with
       | .inj a, .inj b =>
         if c.le a b || c.le b a then []
@@ -958,9 +1038,9 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
   obtain ⟨hg, hg'⟩ := pairs_mem hp
   have hci : ∀ (f : Sym) (b : Srt) (vs ws : List GroundTerm), GroundTerm.ctor f vs ≠ injNormal b N (ws.headD (.ctor 0 [])) :=
     fun f b vs ws he => by have := injNormal_isInj b N (ws.headD (.ctor 0 [])); rw [← he] at this; cases this
-  have hctor : ∀ {k : CtorSig}, Gen.ctor k ∈ c.gens N → c.isOvl k.name = false → k ∈ c.ctorSigs := by
+  have hctor : ∀ {k : CtorSig}, Gen.ctor k ∈ (c.gens N).filter (!c.isOpenGen ·) → c.isOvl k.name = false → k ∈ c.ctorSigs := by
     intro k hk hio
-    rcases mem_gens_core h hk with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+    rcases mem_gensF h hk with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
     · cases he; exact hk'
     · cases he
       rw [(OvlLaws.ovl_facts h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho)).2.1] at hio
@@ -1036,12 +1116,12 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
         exact hci k'.name a ws vs he.symm
     | inj b =>
       have ha : (a, N) ∈ c.subsorts := by
-        rcases mem_gens_core h hg with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨a', ha', he⟩
+        rcases mem_gensF h hg with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨a', ha', he⟩
         · cases he
         · cases he
         · cases he; exact ha'
       have hb : (b, N) ∈ c.subsorts := by
-        rcases mem_gens_core h hg' with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨b', hb', he⟩
+        rcases mem_gensF h hg' with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨b', hb', he⟩
         · cases he
         · cases he
         · cases he; exact hb'
@@ -1068,7 +1148,7 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
 
 end AtT
 
-theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : KoreAML.Item}
+theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·))) {it : KoreAML.Item}
     (hit : it ∈ (match g, g' with
       | .inj a, .inj b =>
         if c.le a b || c.le b a then []
@@ -1475,23 +1555,29 @@ theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
     exact (hinh e a).mp (trOr_noJunk_inh (ctx := ⟨t, []⟩) ha)
   · intro ha
     obtain ⟨w, rfl, hw⟩ := inSort_val ha
-    have hgen : ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧ genVal c N g vs = w := by
+    have hgen : ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧
+        GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) (.val w) := by
+      have hF : ∀ g ∈ (c.gens N).filter (!c.isOpenGen ·), ∀ vs, c.sortsOf vs = some g.argSorts →
+          genVal c N g vs = w → ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧
+            GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) (.val w) :=
+        fun g hg vs hvs he => ⟨g, (List.mem_filter.mp hg).1, vs, hvs, ((gs_gen (T := T) h hN hg hvs).1 _).mpr (by rw [he])⟩
       rcases consSort_shape h.genWf hN hw with ⟨f, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
-      · rcases c.sortOf_ctor_iff.mp hw with ⟨k, hk, hws, rfl⟩ | ⟨-, o, hlo, hws, hu, rfl⟩ | ⟨-, -, kp, hko, -⟩
+      · rcases c.sortOf_ctor_iff.mp hw with ⟨k, hk, hws, rfl⟩ | ⟨-, o, hlo, hws, hu, rfl⟩ | ⟨-, -, kp, hko, hws, hkr, rfl⟩
         rotate_right
-        · exact absurd (c.lookupOpen_spec hko).2.1 (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ (c.lookupOpen_spec hko).1])
+        · obtain ⟨hkp, hraw, -, -⟩ := c.lookupOpen_spec hko
+          exact ⟨.ctor kp.sig, gens_open hkp hraw, ws, hws, gs_open h hko hws hkr hw _⟩
         · obtain ⟨hkm, rfl⟩ := lookupSig_spec hk
-          exact ⟨.ctor k, gens_ctor hkm, ws, hws, norm_ctor h hkm ws⟩
+          exact hF _ (gensF_ctor h.genWf hkm) ws hws (norm_ctor h hkm ws)
         · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some hlo
           obtain ⟨hon, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
-          refine ⟨.ctor o.sig, gens_ovl hom, ws, hws, ?_⟩
+          refine hF _ (gensF_of_ovl h.genWf hom) ws hws ?_
           show c.norm o.sig.name ws = _
           rw [hon]
           exact OvlLaws.norm_fixed h.ovlHyp hlo hw
       · obtain ⟨hab, hni, hw0, rfl⟩ := sortOf_inj.mp hw
-        exact ⟨.inj a, gens_inj hab, [w0], sortsOf_cons.mpr ⟨a, [], hw0, sortsOf_nil, rfl⟩,
-          by simp [genVal, injNormal_of_not hni]⟩
-    obtain ⟨g, hg, vs, hvs, rfl⟩ := hgen
+        exact hF _ (gensF_inj hab) [w0] (sortsOf_cons.mpr ⟨a, [], hw0, sortsOf_nil, rfl⟩)
+          (by simp [genVal, injNormal_of_not hni])
+    obtain ⟨g, hg, vs, hvs, hgs⟩ := hgen
     obtain ⟨bs, body, hm, hsorts, hnd, htr⟩ := noJunkDisjuncts_gen (c.sortName N) [] ((c.gens N).map (Gen.toK c))
       (Gen.toK c g) (List.mem_map.mpr ⟨g, hg, rfl⟩)
     refine trOrList_intro ((hinh e _).mpr ha) hm ?_
@@ -1499,7 +1585,7 @@ theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
     have hgd := guards_of hn hsorts hvs (gen_args_numbered h hg)
     refine existsAll_upd hn t _ body e _ hgd ?_
     rw [htr, genPat_interp]
-    refine ⟨vs.map Elem.val, ?_, ((gs_gen h hN hg hvs).1 _).mpr rfl⟩
+    refine ⟨vs.map Elem.val, ?_, hgs⟩
     -- the binders' indices are distinct: their keys are, and all lie in the table
     have hkt : ∀ b ∈ bs, KoreAML.evarKey b ∈ t := fun b hb =>
       List.mem_eraseDups.mpr (List.mem_append_right _ (by
@@ -1746,7 +1832,8 @@ theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
   dsimp only at hit
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
-  · obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hit
+  · -- the open generators' law items: `OpenLaws` (V2.d1-model-laws), not in `HypModelCore`
+    obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hit
     simp [Semantics.params_raw_of_sortedOKCl h.sound.1 k hk] at hit
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
@@ -1760,12 +1847,12 @@ theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
       · rcases List.mem_append.mp hit with hit | hit
         · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
           obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hg'
-          exact sat_funItem h hN (List.mem_filter.mp hg).1
+          exact sat_funItem h hN hg
         · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
           obtain ⟨g, hg, rfl⟩ := List.mem_map.mp (List.mem_filter.mp hg').1
-          exact sat_injItem h hN (List.mem_filter.mp hg).1
+          exact sat_injItem h hN hg
       · obtain ⟨⟨g, g'⟩, hp, hit⟩ := List.mem_flatMap.mp hit
-        exact sat_pairItem h hN (pairs_filter_sub hp) hit
+        exact sat_pairItem h hN hp hit
     · split at hit
       · exact absurd hit List.not_mem_nil
       · rw [List.mem_singleton.mp hit]
