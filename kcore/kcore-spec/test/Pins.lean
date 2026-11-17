@@ -7,6 +7,8 @@
   `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
+  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
+  reaches, are restated here, with `Clause.DecidesAt`.
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
   `Quot.sound` (`#guard_msgs` fails the file on any other list). Run from kcore-spec, after the
@@ -178,6 +180,23 @@ example (c : Semantics) (ref : StepFn) : CompleteC₀ c ref =
 
 example (c : Semantics) : Consistent c =
     (∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc c ∪ Γstep c)) := rfl
+
+/-- `FnDet`: every function has at most one result at each argument list. -/
+example (c : Semantics) : FnDet c = (∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r') := rfl
+
+/-- `FnSolves`: where a clause decides, the function's values are that clause's. `Clause.DecidesAt`,
+which it reads, is in no review cone, so its text is here too. -/
+example (c : Semantics) : FnSolves c =
+    (∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+      cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+        EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) := rfl
+
+example (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) :
+    cl.DecidesAt c fn σ vs =
+    (cl.AppliesAt c σ vs ∧
+      ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
+        ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats vs →
+          ¬ ∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) := rfl
 
 /-- `StepIs`: `ref` lists exactly the configurations `Step` reaches in one step. -/
 example (c : Semantics) (ref : StepFn) : StepIs c ref =
