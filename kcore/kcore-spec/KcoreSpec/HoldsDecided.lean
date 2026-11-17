@@ -73,24 +73,24 @@ theorem holds_decided (h : HypSoundCore c) (hft : FnTerminates c) :
     obtain ⟨b', hb'⟩ := holds_decided h hft q hok.2 (hσ.mono fun i hi => List.mem_append_right _ hi)
     exact ⟨!b || b', .implies hb hb'⟩
   | .ceil s t, vars, σ, hok, hσ => by
-    rw [Semantics.condOK, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [beq_iff_eq] at hok
     rw [varOccsCond] at hσ
     obtain ⟨r, hr⟩ := evalTerm_total_at h hft fns_headsOK hσ hok
     exact ⟨r.isSome, .ceil hr⟩
   | .equals s t u, vars, σ, hok, hσ => by
-    rw [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [varOccsCond] at hσ
     obtain ⟨r, hr⟩ := evalTerm_total_at h hft fns_headsOK (hσ.mono fun i hi => List.mem_append_left _ hi) hok.1
     obtain ⟨r', hr'⟩ := evalTerm_total_at h hft fns_headsOK (hσ.mono fun i hi => List.mem_append_right _ hi) hok.2
     exact ⟨sameResult r r', .equals hr hr'⟩
   | .mem s t u, vars, σ, hok, hσ => by
-    rw [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [varOccsCond] at hσ
     obtain ⟨r, hr⟩ := evalTerm_total_at h hft fns_headsOK (hσ.mono fun i hi => List.mem_append_left _ hi) hok.1
     obtain ⟨r', hr'⟩ := evalTerm_total_at h hft fns_headsOK (hσ.mono fun i hi => List.mem_append_right _ hi) hok.2
     exact ⟨r.isSome && sameResult r r', .mem hr hr'⟩
   | .exMatch ys s p t body, vars, σ, hok, hσ => by
-    rw [Semantics.condOK, Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [varOccsCond] at hσ
     obtain ⟨r, hr⟩ := evalTerm_total_at h hft fns_headsOK (hσ.mono fun i hi => List.mem_append_left _ hi) hok.1.2
     cases r with

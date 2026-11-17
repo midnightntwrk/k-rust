@@ -112,16 +112,16 @@ theorem varOccsCond_lt_twoT : ∀ (p : Cond) {vars : List Srt}, c.condOK vars p 
     · exact varOccsCond_lt_twoT p hok.1 i hi
     · exact varOccsCond_lt_twoT q hok.2 i hi
   | .ceil s t, vars, hok, i, hi => by
-    rw [Semantics.condOK, beq_iff_eq] at hok; rw [varOccsCond] at hi
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [beq_iff_eq] at hok; rw [varOccsCond] at hi
     exact varOccs_lt t hok i hi
   | .equals s t u, vars, hok, i, hi | .mem s t u, vars, hok, i, hi => by
-    rw [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [varOccsCond, List.mem_append] at hi
     rcases hi with hi | hi
     · exact varOccs_lt t hok.1 i hi
     · exact varOccs_lt u hok.2 i hi
   | .exMatch ys s p t body, vars, hok, i, hi => by
-    rw [Semantics.condOK, Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     rw [varOccsCond, List.mem_append] at hi
     rcases hi with hi | hi
     · exact varOccs_lt t hok.1.2 i hi
@@ -289,7 +289,7 @@ theorem tr_condKore_twoT (hD : KoreAML.DefOK I) : ∀ (p : Cond) {vars : List Sr
       (tr_kore_congr t fun i hi => (hf i (by rw [varOccsCond]; exact List.mem_append_left _ hi)).2.2)
       (tr_kore_congr u fun i hi => (hf i (by rw [varOccsCond]; exact List.mem_append_right _ hi)).2.2)
   | .exMatch ys s p t body, vars, tbl, tbl', e, e', S, hok, hk, hf => by
-    rw [Semantics.condOK, Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
     obtain ⟨⟨hpS, -⟩, hbody⟩ := hok
     let bs := ((List.range ys.length).zip ys).map fun (j, y) => Cond.binder c ((canonVars c vars).length + j) y
     have hkore : Cond.kore c (canonVars c vars) (srtOf c S) (.exMatch ys s p t body) =

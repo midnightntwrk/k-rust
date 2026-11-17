@@ -396,7 +396,7 @@ theorem holds_implies' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I
 /-- **`ceil`, once for every interpretation with the atoms' facts.** -/
 theorem holds_ceil' (F : AtomFacts c I) (s : Srt) (t : Term) : HoldsDen' c I (.ceil s t) := by
   intro vars P σ b tbl e S hok _ hP hr _ hS hh a ha
-  rw [Semantics.condOK, beq_iff_eq] at hok
+  rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi => hP i (by rw [varOccsCond]; exact hi) (varOccs_lt t hok i hi)
   have hs : s < nRegSorts + c.sortNames.length := F.termNum hok fun i hi s' hs' => by
     obtain ⟨-, -, v, -, hsv, -⟩ := hr i (hPt i hi)
@@ -453,7 +453,7 @@ theorem term_read (F : AtomFacts c I) {vars : List Srt} {P : Nat → Prop} {σ :
 /-- **`equals`, once for every interpretation with the atoms' facts.** -/
 theorem holds_equals' (F : AtomFacts c I) (s : Srt) (t u : Term) : HoldsDen' c I (.equals s t u) := by
   intro vars P σ b tbl e S hok _ hP hr _ hS hh a ha
-  rw [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+  rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) (varOccs_lt t hok.1 i hi)
   have hPu : ∀ i ∈ varOccs u, P i := fun i hi =>
@@ -509,7 +509,7 @@ theorem holds_equals' (F : AtomFacts c I) (s : Srt) (t u : Term) : HoldsDen' c I
 /-- **`mem`, once for every interpretation with the atoms' facts.** -/
 theorem holds_mem' (F : AtomFacts c I) (s : Srt) (t u : Term) : HoldsDen' c I (.mem s t u) := by
   intro vars P σ b tbl e S hok _ hP hr _ hS hh a ha
-  rw [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+  rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) (varOccs_lt t hok.1 i hi)
   have hPu : ∀ i ∈ varOccs u, P i := fun i hi =>
@@ -775,7 +775,7 @@ sort (`Cond.bound`). -/
 theorem holds_exMatch' (F : AtomFacts c I) (G : BinderFacts c I) : ExMatchCase c I := by
   intro ys s p t body ih vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hok
-  obtain ⟨⟨hpS, htS⟩, hokB⟩ := hok
+  obtain ⟨⟨⟨hpS, htS⟩, hokB⟩, -⟩ := hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
   obtain ⟨hbnd, hbdB⟩ := hbd
   have hlen : (vars ++ ys).length = vars.length + ys.length := by simp

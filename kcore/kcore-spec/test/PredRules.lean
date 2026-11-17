@@ -179,4 +179,22 @@ example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
 
 end StepValues
 
+/-! ## Numbered sorts of a condition (`KCore.Semantics.condOK`, `KCore.Faithful.Model.rule_vars_numCN`)
+
+  `condOK` refuses an atom at a sort the definition does not have: `⌈Z⌉` at the sort 999, Z of
+  that sort, is well sorted as a term and refused. At `rNot`, `rOr` and `rC` (a variable held by
+  `pre` only, or by `post` only) every variable has a numbered sort. -/
+
+theorem condOK_unnumbered : c.condOK [999] (.ceil 999 (.var 0)) = false ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [999] (.var 0) = some 999 ∧
+    ¬ (999 < nRegSorts + c.sortNames.length) := by
+  decide +kernel
+
+example (h : Faithful.Model.HypModelCore c) :
+    (∀ i < rNot.vars.length, rNot.vars.getD i 0 < nRegSorts + c.sortNames.length) ∧
+    (∀ i < rOr.vars.length, rOr.vars.getD i 0 < nRegSorts + c.sortNames.length) ∧
+    (∀ i < rC.vars.length, rC.vars.getD i 0 < nRegSorts + c.sortNames.length) :=
+  ⟨Faithful.Model.rule_vars_numCN h rNot_pp.1, Faithful.Model.rule_vars_numCN h rOr_pp.1,
+    Faithful.Model.rule_vars_numCN h rC_pp.1⟩
+
 end PredRules

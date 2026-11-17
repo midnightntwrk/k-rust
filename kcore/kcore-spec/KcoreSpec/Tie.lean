@@ -139,18 +139,24 @@ def clauseSorted (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
 
 /-- Every term of a condition is well sorted: a term at the sort its connective names, over the
 right-hand side's context, and a pattern of an `exMatch` over a left-hand side's (`patCtxAll`);
-a binder extends the variable sorts by the sorts it binds. -/
+a binder extends the variable sorts by the sorts it binds. The sort an atom names is a numbered
+sort of the definition (`s < nRegSorts + c.sortNames.length`): a condition about a sort the
+definition does not have states nothing about its values, and through it every variable the
+condition holds has a numbered sort. -/
 def condOK (vars : List Srt) : Cond → Bool
   | .top | .bot => true
   | .not p => condOK vars p
   | .and p q | .or p q | .implies p q => condOK vars p && condOK vars q
-  | .ceil s t => sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s
+  | .ceil s t => sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s &&
+      decide (s < nRegSorts + c.sortNames.length)
   | .equals s t u | .mem s t u =>
-      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s &&
-      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars u == some s
+      (sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s &&
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars u == some s) &&
+      decide (s < nRegSorts + c.sortNames.length)
   | .exMatch ys s p t body =>
-      sortOfTerm c.patCtxAll (vars ++ ys) p == some s &&
-      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body
+      (sortOfTerm c.patCtxAll (vars ++ ys) p == some s &&
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body) &&
+      decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
 
 /-- A rule is well sorted: its left-hand side has the configuration sort in a left-hand side's

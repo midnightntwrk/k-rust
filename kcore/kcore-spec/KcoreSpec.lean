@@ -161,6 +161,7 @@ import KcoreSpec.OpenStep
 import KcoreSpec.OpenSuccessor
 import KcoreSpec.OpenCompete
 import KcoreSpec.OpenModel
+import KcoreSpec.CondNumbered
 import KcoreSpec.OpenConsistent
 import KcoreSpec.OpenSplit
 import KcoreSpec.OpenFamOpen
