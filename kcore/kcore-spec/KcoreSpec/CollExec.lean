@@ -398,13 +398,53 @@ end
 def clauseMatches (c : Semantics) (cl : Clause) (vs : List GroundTerm) : List Subst :=
   cmatch c cl.vars cl.pats vs
 
-/-- A rule's matches at x, each with its `requires`: `some true` (applies), `some false` (does
-not), `none` (out of fuel). -/
+/-- A rule's predicate the executable step evaluates: `\top`, an `\equals` or an `\in` atom, or a
+conjunction of such. -/
+def predAtoms : Cond → Bool
+  | .top | .equals .. | .mem .. => true
+  | .and p q => predAtoms p && predAtoms q
+  | _ => false
+
+/-- A predicate's truth value under σ with `n` units of evaluation fuel, as `Holds` states it:
+`\top` is true, `\equals` compares its two terms' results (`sameResult`), `\in` asks that and a
+value, a conjunction is the conjunction of its two values; `none` where a term ran out of fuel or
+the predicate has another shape (`predAtoms`). -/
+def predVal (c : Semantics) (n : Nat) (σ : Subst) : Cond → Option Bool
+  | .top => some true
+  | .equals _ t u => match evalT c n σ t, evalT c n σ u with
+    | some r, some r' => some (sameResult r r')
+    | _, _ => none
+  | .mem _ t u => match evalT c n σ t, evalT c n σ u with
+    | some r, some r' => some (r.isSome && sameResult r r')
+    | _, _ => none
+  | .and p q => match predVal c n σ p, predVal c n σ q with
+    | some b, some b' => some (b && b')
+    | _, _ => none
+  | _ => none
+
+/-- A match from its `requires` value and its `pre` value: `some false` where either is false
+(`RuleReqFails` is either), `some true` where both are true, otherwise `none` (out of fuel). -/
+def appVal : Option Bool → Option Bool → Option Bool
+  | some false, _ => some false
+  | _, some false => some false
+  | some true, some true => some true
+  | _, _ => none
+
+/-- The `requires` value of a rule's match: `some true` where there is none, else its value read
+as a Boolean (`none`: out of fuel). -/
+def reqVal (c : Semantics) (n : Nat) (r : Rule) (σ : Subst) : Option Bool :=
+  match r.req with
+  | none => some true
+  | some t => (evalT c n σ t).map isTrue
+
+/-- The value of a rule's match: its `requires` and its `pre` (`appVal`). -/
+def matchVal (c : Semantics) (n : Nat) (r : Rule) (σ : Subst) : Option Bool :=
+  appVal (reqVal c n r σ) (predVal c n σ r.pre)
+
+/-- A rule's matches at x, each with its `requires` and its `pre` (`matchVal`): `some true`
+(applies), `some false` (does not), `none` (out of fuel). -/
 def ruleMatches (c : Semantics) (n : Nat) (r : Rule) (x : GroundTerm) : List (Subst × Option Bool) :=
-  (cmatch c r.vars [r.lhs] [x]).map fun σ =>
-    (σ, match r.req with
-      | none => some true
-      | some t => (evalT c n σ t).map isTrue)
+  (cmatch c r.vars [r.lhs] [x]).map fun σ => (σ, matchVal c n r σ)
 
 /-- A match's `ensures` (as `Exec.ensVal`): `some true` where there is none, else its value read
 as a Boolean (`none`: out of fuel). -/
@@ -415,8 +455,8 @@ def ensVal (c : Semantics) (n : Nat) (r : Rule) (σ : Subst) : Option Bool :=
 
 /-- The successors of a configuration with `n` units of evaluation fuel (as `Exec.successorsN`):
 among the rules that apply (or might, out of fuel), those of the smallest priority; for each of
-their matches whose `requires` is `true`, the configuration the right-hand side evaluates to,
-where the `ensures` is `true`. -/
+their matches whose `requires` and `pre` are `true`, the configuration the right-hand side
+evaluates to, where the `ensures` and the `post` are `true`. -/
 def successorsN (c : Semantics) (n : Nat) (x : GroundTerm) : List GroundTerm :=
   let ms := c.rules.map fun r => (r, ruleMatches c n r x)
   let applying := ms.filter fun (_, l) => l.any fun (_, b) => b != some false
@@ -427,7 +467,8 @@ def successorsN (c : Semantics) (n : Nat) (x : GroundTerm) : List GroundTerm :=
       l.filterMap fun (σ, b) =>
         if b == some true then match evalT c n σ r.rhs with
           | some (some y) =>
-            if c.sortOf y == some topCellSort && ensVal c n r σ == some true then some y else none
+            if c.sortOf y == some topCellSort && ensVal c n r σ == some true &&
+              predVal c n σ r.post == some true then some y else none
           | _ => none
         else none
 
@@ -435,11 +476,14 @@ def successorsN (c : Semantics) (n : Nat) (x : GroundTerm) : List GroundTerm :=
 def successors (c : Semantics) (x : GroundTerm) : List GroundTerm :=
   (successorsN c Exec.fuel x).foldl (fun acc y => if acc.any (same · y) then acc else acc ++ [y]) []
 
-/-- Whether some rule might apply at x but its `requires`, right-hand side or `ensures` ran out of
-fuel: then an empty or partial successor list is not a verdict. -/
+/-- Whether at some match of a rule its `requires` or its `pre` ran out of fuel, or, where both are
+`true`, its right-hand side, its `ensures` or its `post`: then an empty or partial successor list
+is not a verdict. -/
 def outOfFuel (c : Semantics) (n : Nat) (x : GroundTerm) : Bool :=
   c.rules.any fun r => (ruleMatches c n r x).any fun (σ, b) =>
-    b == none || (b == some true && ((evalT c n σ r.rhs).isNone || ensVal c n r σ == none))
+    reqVal c n r σ == none || predVal c n σ r.pre == none ||
+      (b == some true && ((evalT c n σ r.rhs).isNone || ensVal c n r σ == none ||
+        predVal c n σ r.post == none))
 
 /-! ## Readiness: the patterns the candidates are meant to reach -/
 
@@ -471,23 +515,23 @@ def readyL (c : Semantics) (vars : List Srt) (ps : List Term) : Bool :=
 /-- **The readiness check**: the conditions the executable step's theorems read, decidable on the
 core: well sorted (`sortedOK`, under `okAll`), `srReady`, `matchReadyO` (`matchReady` with
 well-formed overloads, `overloadsOK`, in place of none), every clause's and rule's left-hand
-side ready, binding all of its variables, every rule's predicates `\top` (the executable step
-reads no `pre` or `post` of a rule), and no clause `aside` (`asideFree`: the executable
-evaluation stops at the first clause that applies, `aside` or not). -/
+side ready, binding all of its variables, every rule's predicates `\top` or conjunctions of
+`\equals` and `\in` atoms (`predAtoms`, which `predVal` evaluates), and no clause `aside`
+(`asideFree`: the executable evaluation stops at the first clause that applies, `aside` or not). -/
 def execReady (c : Semantics) : Bool :=
   c.sortedOK && c.srReady && c.matchReadyO &&
   c.allFns.all (fun fn => fn.clauses.all fun cl =>
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
-    r.pre.isTop && r.post.isTop) &&
+    predAtoms r.pre && predAtoms r.post) &&
   c.asideFree
 
-/-- A rule of a core `execReady` accepts has `\top` predicates and a left side that binds every
-variable. -/
-theorem rule_plain_of_execReady {c : Semantics} (hr : execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
-    r.pre = .top ∧ r.post = .top ∧ binds r.vars.length (varOccs r.lhs) = true := by
+/-- A rule of a core `execReady` accepts has predicates `predVal` evaluates and a left side that
+binds every variable. -/
+theorem rule_atoms_of_execReady {c : Semantics} (hr : execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
+    predAtoms r.pre = true ∧ predAtoms r.post = true ∧ binds r.vars.length (varOccs r.lhs) = true := by
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
   obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.2 r hmem
-  exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost, hb⟩
+  exact ⟨hpre, hpost, hb⟩
 
 end KCore.CExec

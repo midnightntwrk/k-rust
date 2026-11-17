@@ -3,12 +3,14 @@
 
   A clause's premise carries its predicate at the sort variable `R` (`withPre`). `holdsAt_atR` reads
   it there from the reading of one truth value `Holds` gives (`HoldsAt`, which a recursion on
-  evaluations supplies: `holds_den4Cl`): `holds_atR` at one evaluation. `withPre_interp` splits the
-  premise of a clause whose predicate is not `\top`. `nodeFacts_of_core`: every model of `Γc` of a
-  definition `coreOK` accepts has the constructors' facts.
+  evaluations supplies: `holds_den4ClPre`): `holds_atR` at one evaluation. `preRead_of` gives what
+  the clause lemmas ask of the model for a clause's predicate (`PreRead`, ClausePreRead.lean), so
+  that `eval_den4ClPre` and `exclEmptyCl_ofCl` hold for clauses with a predicate in the premise.
+  `nodeFacts_of_core`: every model of `Γc` of a definition `coreOK` accepts has the constructors'
+  facts.
 -/
 import KcoreSpec.CondResort
-import KcoreSpec.HoldsNode
+import KcoreSpec.ClausePreRead
 
 set_option autoImplicit false
 
@@ -73,16 +75,57 @@ theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {p : Cond}
   exact hp rfl hσ hok hbd hP hr (fun k hk0 => hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) p _ k hk0))
     hS a0 ha0
 
-omit [Inhabited M] in
-/-- The premise of a clause whose predicate is not `\top`, read: the premise without the predicate
-and the predicate at `R`. -/
-theorem withPre_interp {vs : List KoreAML.Var} {cl : Clause} {prem : Kore.Pattern} (hne : cl.pre.isTop = false)
-    {tbl : KoreAML.VarTable} {e : Valuation M} {m : M} :
-    (KoreAML.tr ⟨tbl, []⟩ (withPre c vs cl prem)).interpret I e m ↔
-      (KoreAML.tr ⟨tbl, []⟩ prem).interpret I e m ∧
-        (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c vs KoreAML.R cl.pre)).interpret I e m := by
-  unfold withPre
-  rw [hne, if_neg (by simp), tr_and2, KoreAML.interp_sAnd]
+/-- **A clause's predicate is read in I** (`PreRead`): in an interpretation with the constructors'
+facts, the binders' where the predicate holds a binder, and the elements of well-sorted terms in
+their sorts, for a predicate that is well sorted with binders that range where values and elements
+agree. The truth value `Holds` gives is read at `R` by `holdsAt_atR`, the sorts of the variables
+outside the clause's patterns and conditions being any (`condOK_congrVars`,
+`condKore_congrCanon`); the predicate at `R` is the predicate at Bool (`cond_crossAt`), which reads
+its variables' elements only (`tr_condKore_twoT`). -/
+theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = true → BinderFacts c I)
+    (hT : TermsInSort c I) (hok : c.condOK cl.vars cl.pre = true)
+    (hbd : Cond.bound c cl.vars.length cl.pre = true) : PreRead c I cl where
+  node := F
+  binder := G
+  atR := by
+    intro vars σ b tbl e σr hH hlen hagl hσ hrd hk hRm hR hσr a ha
+    have hocc : ∀ i, i ∈ varOccsCond vars.length cl.pre → i ∈ varOccsCond cl.vars.length cl.pre :=
+      fun i hi => by rw [← hlen]; exact hi
+    have hagP : ∀ i ∈ varOccsCond vars.length cl.pre, vars[i]? = cl.vars[i]? := fun i hi =>
+      hagl i (Clause.pre_leftVarsRH i (hocc i hi))
+    have hokV : c.condOK vars cl.pre = true := by rw [condOK_congrVars cl.pre hlen hagP]; exact hok
+    have hkore : Cond.kore c (canonVars c vars) KoreAML.R cl.pre =
+        Cond.kore c (canonVars c cl.vars) KoreAML.R cl.pre := condKore_congrCanon KoreAML.R cl.pre hlen hagP
+    have hlt : ∀ i ∈ varOccsCond vars.length cl.pre, i < vars.length := varOccsCond_lt_twoT cl.pre hokV
+    have hkey : ∀ i ∈ varOccsCond vars.length cl.pre, canonKey c vars i = canonKey c cl.vars i := fun i hi => by
+      unfold canonKey; rw [canonVars_getD_congrVars c hlen (hagP i hi)]
+    have hr : Reads c I vars (fun i => i ∈ varOccsCond vars.length cl.pre) σ tbl e := fun i hi => by
+      have hi' := hlt i hi
+      obtain ⟨v, hv, hsv⟩ := hσ i vars[i] (List.getElem?_eq_getElem hi')
+      refine ⟨hi', ?_, v, hv, ?_, ?_⟩
+      · rw [hkey i hi]
+        exact hk _ (Model.condKore_keys KoreAML.R cl.pre (bound := []) (by rw [← hlen]; exact hi') (hocc i hi) rfl).2
+      · rw [hsv, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi']; rfl
+      · rw [hkey i hi]; exact hrd i (hocc i hi) v hv
+    rw [← hkore]
+    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hσ hokV (by rw [hlen]; exact hbd) (fun i hi _ => hi) hr
+      (by rw [hkore]; exact hk) hRm hR hσr a ha
+  toBool := by
+    intro tbl tbl' e e' σr m mB hk hRm hk' hf hR hσr hm hmB h
+    have hS : Srt.bool < nRegSorts + c.sortNames.length := F.valNum (sortOf_bool (c := c) true)
+    obtain ⟨τS, hσS, hτS⟩ := F.sort hS
+    have hRe : e.evalEvar (tbl.ev (.sortVar "R")) = σr :=
+      ((hR _).mp (by rw [trSort_R, KoreAML.interp_evar])).symm ▸ rfl
+    have hlt := varOccsCond_lt_twoT cl.pre hok
+    have hkey : ∀ i ∈ varOccsCond cl.vars.length cl.pre, canonKey c cl.vars i ∈ tbl := fun i hi =>
+      hk _ (Model.condKore_keys KoreAML.R cl.pre (bound := []) (hlt i hi) hi rfl).2
+    have hkey' : ∀ i ∈ varOccsCond cl.vars.length cl.pre, canonKey c cl.vars i ∈ tbl' := fun i hi =>
+      hk' _ (Model.condKore_keys (srtOf c Srt.bool) cl.pre (bound := []) (hlt i hi) hi rfl).2
+    have h1 := (cond_crossAt F.defOK F.ceilDef F.sort hT hτS hσS hσr cl.pre hok hk hRm
+      (fun i hi => ⟨hkey i hi, (hf i hi).1⟩) hRe m mB hm ((KoreAML.interp_inhOf_of (hτS tbl' e')).mp hmB)).mp h
+    exact (tr_condKore_twoT F.defOK cl.pre hok
+      (fun k hk0 => ⟨hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) cl.pre _ k hk0), hk' k hk0⟩)
+      (fun i hi => ⟨hkey i hi, hkey' i hi, (hf i hi).2⟩) mB).mp h1
 
 end
 

@@ -1,0 +1,28 @@
+id = "t06-final-configuration"
+kind = "text"
+subject = "A final configuration: one to which no rule can be applied; the final configurations of a run are those reachable by every choice of rule."
+
+rests_on = ["kk:t01-rule-applies"]
+
+[text]
+files = ["t06-final-configuration.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "Rewriting goes on while some rule can be applied; a configuration to which no rule can be applied is final. Where several rules apply, the final configurations from a configuration are all those reachable by the choices of rule. In the text the final configurations from a(1) are c(1) and c(2) (a(1) steps to b(1) and to c(1); b(1) steps to c(2)), and from a(0) they are b(0) and c(0) (b(0) is final: the rule for b does not apply, 0 >Int 0 being false). Whether a configuration to which a rule applies with a result that has no value is one to which a rule can be applied is kk:t03-applied-rule-blocks's question, not this entry's."
+reason = """
+(1) Rewriting proceeds by applying rules until no top-level rewrite rule can be applied, and the configuration at that point is the final configuration (k-tutorial 13_rewrite_rules/README.md:82-85). Where more than one rule applies, any of them may, and the search lists all final configurations reachable by each choice (README.md:87-93).
+(2) A rule applies where its left side matches and its requires is true (kk:t01-rule-applies). At a(1) both rules for a apply, giving b(1) and c(1); at b(1) the rule for b applies (1 >Int 0) and gives c(2); no rule applies to c(1) or c(2). At a(0): b(0) and c(0), and no rule applies to either.
+(3) No sentence names a configuration where a rule applies and nothing results (the manual uses the word once more, of alias rules applied before unparsing the final configuration, user_manual.md:1273-1274); the statement leaves it to kk:t03-applied-rule-blocks."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:82-85 (K 7.1.337)"
+quote = "Rewriting proceeds by iteratively applying rules, also called **taking steps**, until no top-level rewrite rule can be applied. At this point the configuration becomes the **final configuration** and is output by `krun`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:87-93 (K 7.1.337)"
+quote = "However, it is **non-deterministic** which rule applies. In theory, it could be any of them. By passing the `--search` flag to `krun`, you are able to tell `krun` to explore all possible non-deterministic choices, and generate a complete list of all possible final configurations reachable by each nondeterminstic choice that can be made."

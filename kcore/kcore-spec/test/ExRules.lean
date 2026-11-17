@@ -129,11 +129,11 @@ example : c.rulePlainOpen exTwo ≠ true :=
 section AtT
 open Faithful Faithful.Model
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- The rules of the definition have `ruleSorted` and `rulePlainEx`. -/
 theorem hrulesC : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
-  Semantics.ruleFactsEx_of_coreTop coreOK (by decide +kernel)
+  Semantics.ruleFactsEx_of_coreAll coreOK (by decide +kernel)
 
 /-- The transition of a rule's own instances. -/
 def ownT (r : Rule) (x y : GroundTerm) : Prop := ∃ σ, StepMAt c r σ x y
@@ -306,8 +306,8 @@ end ExRules
 
 /-! ## The landed and pinned statements, as terms over the new ones
 
-  A pinned statement is a term over the `_ex` statement where the rules' predicates are `\top`
-  (`htop`): `coreOK` gives `rulePlainPP` of a rule, which is `rulePlainEx` there. -/
+  A pinned statement is a term over the `_ex` statement where the rules have `rulePlainEx`
+  (`hex`), with `ruleSorted` from `coreOK`. -/
 
 namespace ExRules
 
@@ -316,17 +316,17 @@ theorem hrulesEx_of_openC {c : Semantics}
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
   fun r hr => ⟨(hrules r hr).1, (Semantics.rulePlainOpen_iff_ex.mp (hrules r hr).2).1⟩
 
-/-- The rules' facts of a semantics `coreOK` accepts whose rules have `\top` predicates. -/
+/-- The rules' facts of a semantics `coreOK` accepts whose rules have `rulePlainEx`. -/
 theorem hrulesEx_of_coreC {c : Semantics} (h : c.coreOK = true)
-    (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) :
+    (hex : c.rules.all c.rulePlainEx = true) :
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
-  Semantics.ruleFactsEx_of_coreTop h htop
+  Semantics.ruleFactsEx_of_coreAll h hex
 
 example : type_of% @stdI_modelOpen := fun c h hm hl hr => stdI_model_ex c h hm hl (hrulesEx_of_openC hr)
 example : type_of% @consistent_open := fun c h hd hs hl hr => consistent_ex c h hd hs hl (hrulesEx_of_openC hr)
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@consistent_of c) := fun h hd hs hl => consistent_ex c h hd hs hl (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@consistent_of c) := fun h hd hs hl => consistent_ex c h hd hs hl (hrulesEx_of_coreC h hex)
 example : type_of% @has_model_choice_open := fun c h hf hr => has_model_choice_ex c h hf (hrulesEx_of_openC hr)
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@has_model_choice c) := fun h hf => has_model_choice_ex c h hf (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@has_model_choice c) := fun h hf => has_model_choice_ex c h hf (hrulesEx_of_coreC h hex)
 
 end ExRules
 
@@ -355,7 +355,7 @@ theorem coreR : cR.coreOK = true ∧ cR.readsConfined = true ∧
     exA.exs.any (fun i => (exA.vars[i]?.map cR.confined).getD false) = false ∧
     exB.exs.any (fun i => (exB.vars[i]?.map cR.confined).getD false) = true ∧
     exTwo.exs.any (fun i => (exTwo.vars[i]?.map cR.confined).getD false) = true := by
-  decide +kernel
+  decide_cheap
 
 section FamValue
 open Faithful
@@ -400,7 +400,7 @@ example (hf : FnHyp cR) (x y : Config cR) (r : Rule) (σ : Subst) (hs : ∃ y₀
     ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy cR r σ' x y :=
   famEx_values_ex cR coreR.1 hf (hrulesEx_of_coreC coreR.1 (by decide +kernel)) x y r σ hs hy
 
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@famEx_values c) := fun h hf => famEx_values_ex c h hf (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@famEx_values c) := fun h hf => famEx_values_ex c h hf (hrulesEx_of_coreC h hex)
 
 /-! ## The outcomes of a match (`KCore.Faithful.famOpen_stepEx`, `KCore.famOpen_values_ex`)
 
@@ -442,8 +442,8 @@ example (hf : FnHyp cR) (x : Config cR) (r : Rule) (hr : r ∈ cR.rules) (σ : S
   famOpen_values_ex cR coreR.1 hf x r hr (hrulesEx_of_coreC coreR.1 (by decide +kernel) r hr).1 (hrulesEx_of_coreC coreR.1 (by decide +kernel) r hr).2
     σ hu hcf ys hys
 
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@famOpen_values c) := fun h hf x r hr =>
-  famOpen_values_ex c h hf x r hr (hrulesEx_of_coreC h htop r hr).1 (hrulesEx_of_coreC h htop r hr).2
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@famOpen_values c) := fun h hf x r hr =>
+  famOpen_values_ex c h hf x r hr (hrulesEx_of_coreC h hex r hr).1 (hrulesEx_of_coreC h hex r hr).2
 
 end ExRules
 
@@ -518,7 +518,7 @@ example (x : GroundTerm) : (NotApplies c exA x → NotApplies c (Faithful.ruleDr
 example := sound_at_ex c coreOK hrulesC
 
 example : type_of% @sound_at_open := fun c h hr => sound_at_ex c h (hrulesEx_of_openC hr)
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@sound_at c) := fun h => sound_at_ex c h (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@sound_at c) := fun h => sound_at_ex c h (hrulesEx_of_coreC h hex)
 
 end ExRules
 
@@ -615,16 +615,16 @@ example (hf : FnHyp c) (x : GroundTerm) : StepDecided c x :=
   stepDecided_of_rules_ex (hypSound_of_core coreOK) hf.1 hrulesC x
 
 example : type_of% @complete_at_open := fun c h hr => complete_at_ex c h (hrulesEx_of_openC hr)
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@complete_at c) := fun h => complete_at_ex c h (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@complete_at c) := fun h => complete_at_ex c h (hrulesEx_of_coreC h hex)
 example : type_of% @Faithful.stepDecided_of_rules := @fun _ h hft hr x =>
   stepDecided_of_rules_ex h hft (hrulesEx_of_openC hr) x
 
 /-- `CompleteC` from `complete_at_ex` and `stepDecided_of_rules_ex`, as `complete_hyp` reads
 `complete_at`. -/
 example (c : Semantics) (ref : OutFn) (h : c.coreOK = true) (hf : FnHyp c)
-    (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : CompleteC c ref :=
-  fun href x => complete_at_ex c h (hrulesEx_of_coreC h htop) x
-    (stepDecided_of_rules_ex (hypSound_of_core h) hf.1 (hrulesEx_of_coreC h htop) x.val) (ref x.val)
+    (hex : c.rules.all c.rulePlainEx = true) : CompleteC c ref :=
+  fun href x => complete_at_ex c h (hrulesEx_of_coreC h hex) x
+    (stepDecided_of_rules_ex (hypSound_of_core h) hf.1 (hrulesEx_of_coreC h hex) x.val) (ref x.val)
     (fun y r σ hop hs => ((href x).1 y.val).mpr ⟨y.property, r, σ, hop, hs⟩) (href x).2.2 hf.2.2.2.2.1.2
 
 end ExRules
@@ -672,16 +672,16 @@ example (hf : FnHyp cR) : ExactC cR := exact_ex cR coreR.1 hf (hrulesEx_of_coreC
 example : type_of% @step_of_successorOpen := @fun c h hf hr _ _ _ hI x y e hs =>
   step_of_successor_ex c h hf (hrulesEx_of_openC hr) hI x y e hs
 example : type_of% @exact_open := fun c h hf hr => exact_ex c h hf (hrulesEx_of_openC hr)
-example (c : Semantics) (htop : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) : type_of% (@exact_hyp c) := fun h hf => exact_ex c h hf (hrulesEx_of_coreC h htop)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@exact_hyp c) := fun h hf => exact_ex c h hf (hrulesEx_of_coreC h hex)
 
 end ExRules
 
 /-! # After the flip: a definition `coreOK` accepts with a rule with existential variables
 
-  `rulesPlain` asks `rulePlainPP` of each rule (`Semantics.rulesPlain_iff_pp`), not
+  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), not
   `r.exs = []`. `cX`, the text's semantics with `exTwo` (`a() => b(?X:Int) ensures ?B:Bool`: X by
   arm A, B by arm B), has `coreOK` and `rulesPlain` (`coreX`), and `exTwo` is one of its rules. At
-  `cX`'s rules, whose facts `coreOK` and their `\top` predicates give (`Semantics.ruleFactsEx_of_coreTop`): `satRulesGoal_T` and
+  `cX`'s rules, whose facts `coreOK` and their `rulePlainEx`, decided, give (`Semantics.ruleFactsEx_of_coreAll`): `satRulesGoal_T` and
   `stdI_T_model` at `StepM` with `hsome` read at `exTwo`, `satStepGoal_T`, `stdI_model_ex`,
   `consistent_ex`, `has_model_choice_ex` at `Step`, `stepMBy_of_stepBy_ex` and `stepBy_of_stepMBy_ex`
   at a step by `exTwo`, `famEx_values_ex`, `sound_at_ex`, `complete_at_ex`, `step_successor_ex`; and
@@ -694,7 +694,7 @@ namespace ExRules
 noncomputable abbrev cX : Semantics := { c with rules := c.rules ++ [exTwo] }
 
 theorem coreX : cX.coreOK = true ∧ cX.rulesPlain = true ∧ exTwo.exs = [2, 3] := by
-  decide +kernel
+  decide_cheap
 
 theorem exTwo_memX : exTwo ∈ cX.rules := List.mem_append_right _ (List.mem_singleton_self _)
 
@@ -702,9 +702,9 @@ theorem exTwo_memX : exTwo ∈ cX.rules := List.mem_append_right _ (List.mem_sin
 theorem exs_someX : ∃ r ∈ cX.rules, r.exs ≠ [] :=
   ⟨exTwo, exTwo_memX, by rw [coreX.2.2]; exact List.cons_ne_nil _ _⟩
 
-/-- The rules' facts at `cX`, from `coreOK` and the rules' `\top` predicates. -/
+/-- The rules' facts at `cX`, from `coreOK` and the rules' `rulePlainEx`, decided. -/
 theorem hrulesX : ∀ r ∈ cX.rules, cX.ruleSorted r = true ∧ cX.rulePlainEx r = true :=
-  Semantics.ruleFactsEx_of_coreTop coreX.1 (by decide +kernel)
+  Semantics.ruleFactsEx_of_coreAll coreX.1 (by decide +kernel)
 
 section FlipX
 open Faithful Faithful.Model

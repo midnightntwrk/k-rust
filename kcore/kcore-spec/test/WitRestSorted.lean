@@ -92,12 +92,12 @@ theorem meets_others : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fn
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
     c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_subsortsOK : c.subsortsOK = false := by decide +kernel
 
-theorem c0_core : c0.coreOK = true := by decide +kernel
+theorem c0_core : c0.coreOK = true := by decide_cheap
 
 /-- Every constructor item of `c` but `KCellOpt`'s no-junk axiom is one of `c0`; that axiom has
 the injection from `KCell` as a disjunct twice (`gens_dup`), `c0`'s once. -/
@@ -107,7 +107,8 @@ theorem cons_sub : (consItemsK c).all (fun it => it.label == "cons-nojunk SortKC
 
 theorem gens_dup : (c.gens (nRegSorts + 1)).length = 3 ∧ (c0.gens (nRegSorts + 1)).length = 2 := by decide +kernel
 
-theorem sig_same : (sigItems c).map (·.pat) = (sigItems c0).map (·.pat) := by decide +kernel
+-- `sigItems` does not read the subsorts, so the two sides are one term once `c0` is unfolded.
+theorem sig_same : (sigItems c).map (·.pat) = (sigItems c0).map (·.pat) := rfl
 theorem fn_same : (fnItems c).map (·.pat) = (fnItems c0).map (·.pat) := by decide +kernel
 theorem coll_same : c.allColls.flatMap (collAxioms c) = c0.allColls.flatMap (collAxioms c0) := by decide +kernel
 
@@ -181,8 +182,8 @@ theorem meets_others : c.subsortsOK = true ∧
     c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
     c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_clauseSorted : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = false := by
   decide +kernel
@@ -214,8 +215,8 @@ theorem meets_others : c.subsortsOK = true ∧
     c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true ∧
     c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true ∧
     c.overloadsOK = true ∧ FnHyp c :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_ruleSorted : c.rules.all c.ruleSorted = false := by decide +kernel
 

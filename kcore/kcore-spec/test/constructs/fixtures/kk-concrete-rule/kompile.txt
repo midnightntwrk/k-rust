@@ -1,0 +1,13 @@
+command: kompile --backend haskell t105-concrete-rule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+kk krs/semantics/kore/texts/t105-concrete-rule/t105-concrete-rule.k: sha256 ed715f4ebe3d4beac2f586704236e8c7c229517f41317adb20bfa7faa98284ed
+definition.kore bytes: 84817
+definition.kore sha256: ac7e46c42d17d20327dc54b4637b9360acb4d67ceed85274f8e8d5fa53a9b1de
+stripped sha256: 0fd5450467b6ea4ba087fd79e61c0a3bf9da070c1c3cd6825bd2e5d8a8858238
+main module: 244 sentences, 19 not in base's, in kore.txt
+same_as e2-concrete-rule: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  T105-CONCRETE-RULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using T105-CONCRETE-RULE as default.

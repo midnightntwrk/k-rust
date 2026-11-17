@@ -1,0 +1,3 @@
+# The K text of the Kore-in-K entry kk:t105-concrete-rule (krs/semantics/kore/texts), copied by kfix.py run: the sample of a fixture whose text is an entry's. Its text is e2-concrete-rule's with the main module renamed, so the two kompiled texts are equal after stripping.
+kk = "t105-concrete-rule"
+same_as = "e2-concrete-rule"

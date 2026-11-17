@@ -43,8 +43,9 @@ def Definition.namesOK (d : Definition) : Bool :=
     d.sem.hooksApart && d.sem.predsApart && d.sem.idsOK
 
 /-- Which variables the left side of a rule leaves open the values decide, an existential variable
-of the right side among them: each is held by the right side under constructors, or of a confined
-sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
+of the right side among them: each is held by the right side under constructors, injections and
+the symbols under which a value's element has values' elements as arguments (`heldOccs`), or of a
+confined sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
 `ensures` or `post` holds; and a rule that competes with a larger one has open condition variables
 of confined sorts, or closed conditions. A rule's predicates `pre` and `post` are not asked to be
 `\top`. -/
@@ -52,7 +53,7 @@ def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
   let conf := fun i => (r.vars[i]?.map c.confined).getD false
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
-  r.opens.all (fun i => (ctorOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
+  r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
 /-- Clauses bind no variable by `\exists` and have no predicate; and a clause's open condition
@@ -297,6 +298,32 @@ theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true
   have hro := h.2 r hr
   simp only [Semantics.ruleOK, Bool.and_eq_true] at hro
   exact c.rulePredsOK_top (Cond.eq_top_of_isTop hro.1.2) (Cond.eq_top_of_isTop hro.2)
+
+/-- **The readiness condition of the ok track without the `\top` shape**: as `ok`, with each rule
+`ruleOKM` (`ruleOK` less its two `\top` predicates) and its predicates well sorted
+(`rulePredsOK`). -/
+def Semantics.okM (c : Semantics) : Bool :=
+  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+    c.rules.all c.ruleOKM && c.rules.all c.rulePredsOK
+
+theorem Semantics.okM_of_ok {c : Semantics} (h : c.ok = true) : c.okM = true := by
+  simp only [Semantics.ok, Semantics.okM, Bool.and_eq_true, List.all_eq_true] at h ⊢
+  refine ⟨⟨h.1, fun r hr => (c.ruleOK_iff.mp (h.2 r hr)).1⟩, fun r hr => ?_⟩
+  obtain ⟨-, hpre, hpost⟩ := c.ruleOK_iff.mp (h.2 r hr)
+  exact c.rulePredsOK_top (Cond.eq_top_of_isTop hpre) (Cond.eq_top_of_isTop hpost)
+
+theorem Semantics.okAll_of_okM {c : Semantics} (h : c.okM = true) : c.okAll = true := by
+  simp only [Semantics.okM, Semantics.okAll, Bool.and_eq_true, List.all_eq_true] at h ⊢
+  exact ⟨⟨⟨h.1.1.1, c.fnsOKAll_of h.1.1.2⟩, fun r hr => c.ruleOKAll_of_M (h.1.2 r hr)⟩, h.2⟩
+
+/-- A rule of a semantics `okM` accepts has no existential variable and a left side that binds
+every variable (`ruleOKM`). -/
+theorem Semantics.okM_rule {c : Semantics} (h : c.okM = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.exs = [] ∧ binds r.vars.length (varOccs r.lhs) = true := by
+  simp only [Semantics.okM, Bool.and_eq_true, List.all_eq_true] at h
+  have hro := h.1.2 r hr
+  simp only [Semantics.ruleOKM, Bool.and_eq_true] at hro
+  exact ⟨List.isEmpty_iff.mp hro.2, hro.1.1.1.1.2⟩
 
 /-- `okAll` checks each condition of `sortedOK`. -/
 theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) : c.sortedOK = true := by

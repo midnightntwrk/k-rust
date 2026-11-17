@@ -1,0 +1,45 @@
+id = "t166-macro"
+kind = "text"
+subject = "Productions tagged macro, macro-rec, alias and alias-rec, with one rule each, used in a function equation: what the kompiled text holds of them."
+retro = ["S5"]
+origin = "kcore-spec fixture e2-macro"
+
+[text]
+files = ["t166-macro.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The macro rules are applied during compilation: f(X) is (X + 1) + (X + 2) + (X + 3) + (X + 4), and the text holds that equation with each use expanded. The text holds no sentence about the four macro symbols beyond their declarations: an application of m1, m2, a1 or a2 left in a KORE text has no meaning from the text."
+reason = '''
+(1) macro, alias, macro-rec and alias-rec mark a macro production; macro rules are applied statically during compilation on all terms they match (user_manual.md:1265-1271).
+(2) The text's equation of f has the four uses expanded (kore.txt:79-94), and the four symbols are declared with macro{}() and no rule of theirs is in the text (kore.txt:2, 4, 8, 10). Attributes are hints and state nothing (kore-syntax.md:223-228): no sentence gives m1(5) a value.'''
+
+[ruling.kore]
+statement = '''The four symbols are declared with macro{}() (and alias, alias-rec, macro-rec) (kore.txt:2, 4, 8, 10), no axiom names them, and f's equation is \equals(f(X0), ((X + 1) + (X + 2) + (X + 3)) + (X + 4)) (kore.txt:89-92).'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:8"
+quote = '''symbol Lblm1{}(SortInt{}) : SortInt{} [functional{}(), injective{}(), macro{}(), symbol'Kywd'{}("m1")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:92"
+quote = '''Lbl'UndsPlus'Int'Unds'{}(Lbl'UndsPlus'Int'Unds'{}(Lbl'UndsPlus'Int'Unds'{}(Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("1")),Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("2")))'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1265-1271 (K 7.1.337)"
+quote = "A production can be tagged with the `macro`, `alias`, `macro-rec`, or `alias-rec` attributes. In all cases, what this signifies is that this is a macro production. Macro rules are rules where the top symbol of the left-hand-side are macro labels. Macro rules are applied statically during compilation on all terms that they match, and statically before program execution on the initial configuration. Currently, macro rules are required to not have side conditions, although they can contain sort checks."
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[observe]]
+file = "kore.txt"
+absent = "Lblm1{}(Var"

@@ -1,0 +1,58 @@
+id = "t33-string-bool-compare"
+kind = "text"
+subject = "The values of ==String and <String on two strings, and of ==Bool on two Bool values."
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1865 (K 7.1.337)", quote = '''syntax Bool ::= String "==String" String [function, total, comm, hook(STRING.eq)]''' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["STRING.eq", "STRING.lt", "BOOL.eq"]
+statement = "S1 ==String S2 is true where the two strings are the same sequence of characters and false otherwise. S1 <String S2 is the strict lexicographic order: true where S1 is a proper prefix of S2, or where at the first position at which they differ the character of S1 comes before that of S2, characters being ordered by their code points; false otherwise. B1 ==Bool B2 is true where the two Bool values are the same and false otherwise. All three are total."
+points = [
+  { at = "\"a\" ==String \"a\"", value = "true" },
+  { at = "\"a\" ==String \"b\"", value = "false" },
+  { at = "\"a\" <String \"b\"", value = "true" },
+  { at = "\"b\" <String \"a\"", value = "false" },
+  { at = "\"a\" <String \"ab\"", value = "true" },
+  { at = "\"a\" <String \"a\"", value = "false" },
+  { at = "true ==Bool false", value = "false" },
+  { at = "false ==Bool false", value = "true" },
+]
+reason = """
+(1) domains.md:1860-1862: strings can be compared for equality, and one can be less than another according to the natural lexicographic ordering of strings. The declarations make ==String and <String total (domains.md:1865, 1869).
+(2) A string is a sequence of characters written between double quotes, each character a code point (domains.md:1681-1683, 1688-1690). Equality of two strings is equality of the sequences.
+(3) A lexicographic ordering compares two sequences at their first differing position by the order of the elements there, a proper prefix coming first; as a strict order it is false of a string and itself. The order of two characters the text gives is that of their code points: a character is converted to and from its integer code point (domains.md:1738-1739), and no other order of characters is named. The points above use characters of the Basic Latin block only, where no other reading of natural would order them otherwise.
+(4) domains.md:1112: ==Bool checks the equality of two boolean values; the declaration makes it total (domains.md:1128)."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1860-1862 (K 7.1.337)"
+quote = "You can compare whether two strings are equal or unequal, or whether one string is less than, less than or equal to, greater than, or greater than or equal to another according to the natural lexicographic ordering of strings."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1865-1869 (K 7.1.337)"
+quote = '''syntax Bool ::= String "==String" String [function, total, comm, hook(STRING.eq)] ... syntax Bool ::= String "<String" String [function, total, hook(STRING.lt)]'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1681-1683 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of Unicode strings in K."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1738-1739 (K 7.1.337)"
+quote = "You can convert between a character (as represented by a string containing a single code point) and an integer in O(1) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1112 (K 7.1.337)"
+quote = "* Check equality of two boolean values."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1128 (K 7.1.337)"
+quote = '''Bool "==Bool" Bool [function, total, symbol(_==Bool_), left, comm, smt-hook(=), hook(BOOL.eq)]'''

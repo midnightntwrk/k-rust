@@ -187,11 +187,18 @@ abbrev OutFn := GroundTerm → List Outcome
 
 /-! ## What a definition reads beyond the plain shapes -/
 
+/-- The condition holds a binder (`exMatch`, `ex`, `all`). -/
+def Cond.hasBinder : Cond → Bool
+  | .exMatch .. | .ex .. | .all .. => true
+  | .not p => hasBinder p
+  | .and p q | .or p q | .implies p q => hasBinder p || hasBinder q
+  | _ => false
+
 /-- The definition reads a confined sort: a rule or a clause has a variable its patterns do not
-bind, or a condition with a binder. -/
+bind, or a `pre` or a `post` with a binder. -/
 def Semantics.readsConfined (c : Semantics) : Bool :=
-  c.rules.any (fun r => !r.opens.isEmpty || !r.pre.isTop || !r.post.isTop) ||
-  c.fns.any fun f => f.clauses.any fun cl => !cl.opens.isEmpty || !cl.pre.isTop || !cl.post.isTop
+  c.rules.any (fun r => !r.opens.isEmpty || r.pre.hasBinder || r.post.hasBinder) ||
+  c.fns.any fun f => f.clauses.any fun cl => !cl.opens.isEmpty || cl.pre.hasBinder || cl.post.hasBinder
 
 /-- The definition uses no shape beyond the plain ones: no rule or clause binds a variable by
 `\exists` on its right side or has a predicate, every rule's left side and every clause's patterns
@@ -229,11 +236,11 @@ theorem Semantics.readsConfined_of_plain {c : Semantics} (h : c.plain = true) : 
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun f hf' => ?_⟩
   · obtain ⟨h1, h2, h3⟩ := hrule r hr'
-    simp [h1, h2, h3]
+    simp [h1, Cond.eq_top_of_isTop h2, Cond.eq_top_of_isTop h3, Cond.hasBinder]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'
     obtain ⟨h1, h2, h3⟩ := hcl f hf' cl hcl'
-    simp [h1, h2, h3]
+    simp [h1, Cond.eq_top_of_isTop h2, Cond.eq_top_of_isTop h3, Cond.hasBinder]
 
 /-! ## Conditions over variables the left side does not bind -/
 

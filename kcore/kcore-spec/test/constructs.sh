@@ -15,6 +15,9 @@
 # keys (Parse.AttrKeyE2) are the names of E2's rows that reach KORE, and Parse.attrVerdict at each
 # row is the row's status (DONE-0 C4 part 2). Then
 # test/constructs/modifiers.py check: the pair table [C3] (DONE-0 C3). Then
+# test/constructs/kklink.py: every Kore-in-K entry id a row or a fixture names (kk) is an entry of
+# krs/semantics/kore, and every row's kk_sha is that entry's present ruling hash (a row whose hash
+# is not current is reported stale, not failed). Then
 # test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
 # construct depends on it" (DONE-0 C5 part 4). Then test/constructs/coverage.py check: the
@@ -68,6 +71,7 @@ python3 -I test/constructs/kfix.py check || rc=1
 python3 -I test/constructs/units.py || rc=1
 python3 -I test/constructs/closed.py || rc=1
 python3 -I test/constructs/modifiers.py check || rc=1
+python3 -I test/constructs/kklink.py || rc=1
 python3 -I test/constructs/provisional.py || rc=1
 python3 -I test/constructs/coverage.py check || rc=1
 test/provenance.sh || rc=1

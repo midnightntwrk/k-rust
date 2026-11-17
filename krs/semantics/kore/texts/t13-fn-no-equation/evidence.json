@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "acef0465ebb68e42f24d9ac0e7cc8e63abd15fddf3041e292df34ab6f328518d",
+  "t13-fn-no-equation.k": "ca18d74603b87f2855d46ed4cadf5cf828b7b89589c96e6fcbd0ffcd9237b3c6"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t13-fn-no-equation.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "6b27c45e4938c89a7ad2ce3b2992b9078449349deba18c246dfe3263c31b9d94",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

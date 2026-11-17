@@ -1,0 +1,51 @@
+id = "t142-float-inexact-rounding"
+kind = "text"
+subject = "Int2Float and roundFloat at a value that is no datum of the target format, here Int2Float(5, 2, 3), halfway between the two data 4 and 6 of the format p2x3."
+retro = ["FL3"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1661 (K 7.1.337)", quote = "syntax Float ::= Int2Float(Int, precision: Int, exponentBits: Int) [function, hook(FLOAT.int2float)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated, under both readings. Int2Float converts an integer to a floating-point number with the specified precision and exponent range (domains.md:1653-1654); roundFloat rounds a float to a specified precision and exponent range (1579-1582). Neither sentence names a direction of rounding, and neither declaration carries an smt-hook (1609, 1661). Where the integer is a datum of the format, both readings give it. 5 is no datum of p2x3: with two bits of precision the data near it are 4 and 6, and it lies halfway.
+Where the readings part: the value at an inexact point, and at a tie. The literal sentence's 'nearest possible value' (1481-1483) is about literals and names no tie rule either. The two readings are the two answers to the owner question on how far the naming of IEEE 754 reaches; it is not answered.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1653-1658 (K 7.1.337)"
+quote = "You can convert an integer to a floating-point number with the specified precision and exponent range. You can also convert a floating-point number to the nearest integer. This operation rounds to the nearest integer, but it also avoids the double-rounding that is present in `ceilFloat` and `floorFloat` if the nearest integer is not representable in the specified floating-point type."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1579-1588 (K 7.1.337)"
+quote = "* Round a floating-point number to a specified precision and exponent range (`roundFloat`). The resulting `Float` will yield the specified values when calling `precisionFloat` and `exponentBitsFloat` and when performing further computation. * Round a float to the next lowest floating-point value which is an integer (`floorFloat`). * Round a float to the next highest floating-point value which is an integer (`ceilFloat`). * Round a float to the next closest floating-point value which is an integer, in the direction of zero (`truncFloat`)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1609 (K 7.1.337)"
+quote = "| roundFloat(Float, precision: Int, exponentBits: Int) [function, hook(FLOAT.round)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1661 (K 7.1.337)"
+quote = "syntax Float ::= Int2Float(Int, precision: Int, exponentBits: Int) [function, hook(FLOAT.int2float)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1478-1483 (K 7.1.337)"
+quote = "The value of a floating-point literal is computed as follows: First the mantissa is read as a rational number. Then it is multiplied by 10 to the power of the exponent, which is interpreted as an integer, and defaults to zero if it is not present. Finally, it is rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type, with the number of bits of precision and exponent specified by the suffix."
+
+[[reading]]
+name = "scoped"
+statement = "The section's generic naming of IEEE 754 (domains.md:1461, 1464-1467) states no value: an operation's value is stated only by its own sentence, by the representation the literal sentence names (1478-1490), by the equality sentence (1631-1638), and by what an smt-hook attribute's own words spell."
+answer = "Int2Float(5, 2, 3) has no stated value: 4, 6, another float, or none, as an interpretation gives (Int2Float is not total)."
+consequence = "A consumer may compute Int2Float only where the integer is a datum of the format."
+
+[[reading]]
+name = "incorporated"
+statement = "The section's naming of IEEE 754 incorporates the standard's definition of each operation, generalized to every format pNxM."
+answer = "Int2Float(5, 2, 3) is 4 in p2x3: the standard's default rounding, to nearest with ties to the even significand."
+consequence = "Every inexact conversion has the standard default rounding's value."

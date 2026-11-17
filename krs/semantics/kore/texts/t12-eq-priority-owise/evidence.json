@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t12-eq-priority-owise.k": "0ef7df61d5b5b60d79ee8d96941097460b1bea737ef248e584f6117db55c4c3f"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t12-eq-priority-owise.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "2439c8177d8b893bcd6b1d8014ad65162f871b46eefea51a887cd57878608c05",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

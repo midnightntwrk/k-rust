@@ -1,0 +1,46 @@
+id = "t160-strict-hybrid"
+kind = "text"
+subject = "The attribute hybrid on a production strict in both arguments, pair(Exp, Exp) [hybrid, strict]: what it adds to the definition of isKResult."
+retro = ["S1"]
+origin = "kcore-spec fixture c3-strict-hybrid"
+
+[text]
+files = ["t160-strict-hybrid.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "hybrid adds the sentence isKResult(pair(K0, K1)) = true where isKResult(K0) and isKResult(K1) are both true: pair(1, 2) is a result. isKResult is a function whose equations are the ones the text holds, this among them; it is not determined by the sort declarations alone, which make no pair a KResult."
+reason = '''
+(1) The manual says hybrid treats a strict production as a result once its arguments are fully evaluated, and that it is equivalent to the added axiom isKResult(BE1 || BE2) => true requires isKResult(BE1) for a production strict in its first argument (user_manual.md:1970-1985). All strict positions are considered collectively when determining the hybrid predicates (user_manual.md:2057-2059); pair is strict in both, so the condition is that both arguments are results.
+(2) The text states isKResult(pair(K0, K1)) = true under that condition (kore.txt:460-476, observed): the sentence the manual describes.
+(3) A reading that builds isKResult from the subsorts of KResult alone gives false at pair(1, 2) and so contradicts (2); the heating and cooling rules of plus, whose conditions are isKResult and its negation, then step pair(1, 2) + 3 differently.'''
+
+[ruling.kore]
+statement = 'The written equation is \implies(\equals(isKResult(K0) andBool isKResult(K1), true) and X0 in pair(K0, K1), \equals(isKResult(X0), true)) (kore.txt:460-476).'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:462-468"
+quote = '''\equals{SortBool{},R}( Lbl'Unds'andBool'Unds'{}(LblisKResult{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK0:SortExp{}),dotk{}())),LblisKResult{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK1:SortExp{}),dotk{}()))), \dv{SortBool{}}("true")), \and{R} ( \in{SortK{}, R} ( X0:SortK{}, kseq{}(inj{SortExp{}, SortKItem{}}(Lblpair{}(VarK0:SortExp{},VarK1:SortExp{})),dotk{}())'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1970-1985 (K 7.1.337)"
+quote = 'In certain situations, it is desirable to treat a particular production which has the `strict` attribute as a result if the term has had its arguments fully evaluated. This can be accomplished by means of the `hybrid` attribute: ```k syntax KResult ::= Bool syntax BExp ::= Bool | BExp "||" BExp [strict(1), hybrid] ``` This attribute is equivalent in this case to the following additional axiom being added to the definition of `isKResult`: ```k rule isKResult(BE1:BExp || BE2:BExp) => true requires isKResult(BE1)'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2057-2059 (K 7.1.337)"
+quote = "We can also say `seqstrict(left; 1; right; 2)`, in which case we additionally must evaluate the left argument before the right argument. Note, all strict positions are considered collectively when determining the evaluation order of `seqstrict` or the `hybrid` predicates."
+
+[[observe]]
+file = "kore.txt"
+contains = "kseq{}(inj{SortExp{}, SortKItem{}}(Lblpair{}(VarK0:SortExp{},VarK1:SortExp{})),dotk{}())"

@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t109-smt-lemma-rule.k": "0910133239c8eef991b43ad694434c8056defc25efa4a81ddcbeb8dbd266cab2"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t109-smt-lemma-rule.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Invalid term in smt-lemma detected. All terms in smt-lemma\nrules require smt-hook or smtlib labels\n\tSource(t109-smt-lemma-rule.k)\n\tLocation(3,8,3,30)\n\t3 |\t  rule <k> a(X) => X ... </k> [smt-lemma]\n\t  .\t       ^~~~~~~~~~~~~~~~~~~~~~\n[Error] Compiler: Invalid term in smt-lemma detected. All terms in smt-lemma\nrules require smt-hook or smtlib labels\n\tSource(t109-smt-lemma-rule.k)\n\tLocation(3,12,3,16)\n\t3 |\t  rule <k> a(X) => X ... </k> [smt-lemma]\n\t  .\t           ^~~~\n[Error] Compiler: Had 2 structural errors after macro expansion.\n  while executing phase \"expand macros\" on sentence at\n\tSource(t109-smt-lemma-rule.k)\n\tLocation(3,8,3,30)\n[Warning] Compiler: Could not find main syntax module with name\nT109-SMT-LEMMA-RULE-SYNTAX in definition.  Use --syntax-module to specify one.\nUsing T109-SMT-LEMMA-RULE as default.",
+  "release": "K v7.1.337"
+ }
+}

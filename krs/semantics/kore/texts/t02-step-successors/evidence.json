@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t02-step-successors.k": "87d83e28d24d11e50005cddd5119c7c61fb21c51a4317eae29e659a834742d34"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t02-step-successors.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3223500d24dcba19ecf93572982148259f20ab229c4cf30d4007da794b0c777f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -1,0 +1,47 @@
+id = "t18-as-pattern"
+kind = "text"
+subject = "An as-pattern in an equation's left side, f(a(_) #as E) => b(E), beside f(_) => a(0) [owise]: what the pattern matches and what it binds."
+retro = ["M3"]
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t18-as-pattern.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "P #as E matches what P matches and binds E to the matched term: f(a(1)) = b(a(1)). Where P does not match the pattern does not either: f(b(a(1))) = a(0), by the [owise] equation."
+reason = '''
+(1) In Pattern #as V the pattern is matched, its variables are bound if it matches, and the term it matched is bound to V (user_manual.md:2097-2099). So at a(1) the pattern a(_) matches and E is a(1); the equation applies (kk:t11-eq-applies) and gives b(a(1)).
+(2) At b(a(1)) the pattern a(_) does not match: a and b are distinct constructors of Exp (the kompiled text states it, [ruling.kore]). The first equation does not apply, and the owise equation gives a(0) (user_manual.md:1711-1713; kk:t12-eq-priority-owise).
+(3) The as-pattern is the intersection of the pattern with a variable, [ruling.kore]; this entry does not cover the intersection of two patterns neither of which is a variable.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2097-2099 (K 7.1.337)"
+quote = "In this case, Pattern, including any variables, is matched and the resulting variables are added to the substitution if matching succeeds. Furthermore, the term matched by Pattern is added to the substitution as V."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[ruling.kore]
+statement = '''The as-pattern is written \and(a(_Gen0), VarE) in the premise X0 \in \and(a(_Gen0), VarE) (kore.txt:95-98): the intersection of a(_Gen0) with the one element VarE denotes (introduction-to-matching-logic.tex:727, 732-736), nonempty exactly where VarE is an a(n), and then X0 is VarE. The right side is b(VarE) (kore.txt:101-105). The text states that a and b are distinct (kore.txt:64), so the [owise] premise, which negates that X0 is an a(n) (kore.txt:109-127), holds at b(a(1)). The kompiled sentences state what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:95-98"
+quote = '''\in{SortExp{}, R} ( X0:SortExp{}, \and{SortExp{}}(Lbla{}(Var'Unds'Gen0:SortInt{}),VarE:SortExp{}) ),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:64"
+quote = '''axiom{}\not{SortExp{}} (\and{SortExp{}} (Lbla{}(X0:SortInt{}), Lblb{}(Y0:SortExp{}))) [constructor{}()] // no confusion different constructors'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'

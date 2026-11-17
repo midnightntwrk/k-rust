@@ -6,9 +6,10 @@
   symbols: the first arm reads the variables the right side holds under constructors, injections
   and the symbols of H (`occsUnder c H`), and a variable counts as decided, where `rulePlainPP`
   asks a confined sort, also if a cut of `pre` holds it (`memHeldH c H` over the left side's
-  variables). `Semantics.rulePlainHO1` is `rulePlainPP` with `heldOccs` in the first arm.
-  `rulePlainPP` gives `rulePlainHO1`, which gives `rulePlainHeldH` at `Semantics.holds`, and
-  `rulePlainHeldH` is monotone in H.
+  variables). `Semantics.rulePlainHO1` (PredPlain.lean), what `rulesPlain` asks of one rule, gives
+  `rulePlainHeldH` at `Semantics.holds`, so `coreOK` and `HypModelCore` give it of each rule
+  (`Semantics.ruleFactsHeld_of_core`, `HypModelCore.ruleFactsHeld`); `rulePlainHeldH` is monotone
+  in H.
 
   `rule_step_values_held` is `rule_step_values_pp`'s statement for a rule with `rulePlainHeldH`, in
   a model where each symbol of H that is no constructor has `HeldBack`: an open variable the right
@@ -31,15 +32,6 @@ def Semantics.rulePlainHeldH (c : Semantics) (H : Sym → Bool) (r : Rule) : Boo
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
   r.opens.all (fun i => (occsUnder c H r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
-  (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
-
-/-- `rulePlainPP` with the first arm reading `heldOccs`: the variables the right side holds under
-constructors, injections and the symbols `Semantics.holds` names. -/
-def Semantics.rulePlainHO1 (c : Semantics) (r : Rule) : Bool :=
-  let conf := fun i => (r.vars[i]?.map c.confined).getD false
-  let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
-  let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
-  r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
 /-- **What `rulePlainHeldH` says of an open variable**: the right side holds it, or its sort is
@@ -97,19 +89,6 @@ theorem Semantics.rulePlainHeldH_mono {c : Semantics} {H H' : Sym → Bool} (hH 
     · exact Or.inl (Or.inr fun i hi => (h3 i hi).imp id (hm i))
     · exact Or.inr h4
 
-/-- A rule with `rulePlainPP` has `rulePlainHO1`: the right side holds under `heldOccs` what it
-holds under constructors. -/
-theorem Semantics.rulePlainHO1_of_pp {c : Semantics} {r : Rule} (hp : c.rulePlainPP r = true) :
-    c.rulePlainHO1 r = true := by
-  simp only [Semantics.rulePlainPP, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true] at hp
-  simp only [Semantics.rulePlainHO1, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true]
-  refine ⟨fun i hi => ?_, hp.2⟩
-  rcases hp.1 i hi with (hA | hB) | hC
-  · exact Or.inl (Or.inl (List.contains_iff_mem.mpr
-      (ctorOccs_subset_heldOccs c _ i (List.contains_iff_mem.mp hA))))
-  · exact Or.inl (Or.inr hB)
-  · exact Or.inr hC
-
 /-- A rule with `rulePlainHO1` has `rulePlainHeldH` at `Semantics.holds`. -/
 theorem Semantics.rulePlainHeldH_of_HO1 {c : Semantics} {r : Rule} (hp : c.rulePlainHO1 r = true) :
     c.rulePlainHeldH c.holds r = true := by
@@ -125,6 +104,19 @@ theorem Semantics.rulePlainHeldH_of_HO1 {c : Semantics} {r : Rule} (hp : c.ruleP
     · exact Or.inl (Or.inl (Or.inr h2))
     · exact Or.inl (Or.inr fun i hi => Or.inl (h3 i hi))
     · exact Or.inr h4
+
+/-- What `coreOK` gives of each rule: `ruleSorted`, and `rulePlainHeldH` at the symbols
+`Semantics.holds` names. -/
+theorem Semantics.ruleFactsHeld_of_core {c : Semantics} (h : c.coreOK = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH c.holds r = true := fun r hr =>
+  ⟨(Semantics.ruleFactsHO1_of_core h r hr).1,
+    Semantics.rulePlainHeldH_of_HO1 (Semantics.ruleFactsHO1_of_core h r hr).2⟩
+
+/-- What `HypModelCore` gives of each rule: `ruleSorted`, and `rulePlainHeldH` at the symbols
+`Semantics.holds` names. -/
+theorem Faithful.Model.HypModelCore.ruleFactsHeld {c : Semantics} (h : Faithful.Model.HypModelCore c) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH c.holds r = true := fun _ hr =>
+  ⟨(h.ruleFactsHO1 hr).1, Semantics.rulePlainHeldH_of_HO1 (h.ruleFactsHO1 hr).2⟩
 
 namespace Faithful
 

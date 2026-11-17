@@ -16,6 +16,8 @@
     refused by `lawUnmatched`, nor the laws of
     `_Map_`, `_Set_` and `_List_` the text states, nor `_Set_`'s idempotence.
   - `f2-examples/projuser.kompile.kore`: no law read, none refused.
+  - `f2-examples/openmixedunheld.kompile.kore`: a sort whose only values apply an open generator,
+    where a rule needs a value of it: refused `unheldVariable` (the last section).
 -/
 import KcoreSpec
 
@@ -67,3 +69,25 @@ info: []
   IO.println (← readOf "f2-examples/commctor.kompile.kore")
   IO.println (← readOf "f2-examples/lawfn.kompile.kore")
   IO.println (← readOf "f2-examples/projuser.kompile.kore")
+
+/-! ## A sort whose only values apply an open generator
+
+`f2-examples/openmixedunheld.kompile.kore` (fixture e2-open-mixed-unheld): e2-open-mixed's sorts,
+`A ::= x | y` and `B ::= A "&" A` with `&` an open generator, and two rules that need a value of B
+where they are read without a variable of the axiom: `c(_:B) #Or e() => d(x)` (the rule of the
+disjunct `e()` does not hold the variable) and `g(#Exists Z:B. x) => d(y)`. Every value of B
+applies `&`, and at an interpretation that answers `&` outside B, B has no value; the reader
+exhibits a value only where it applies no open generator (`Parse.rawFree_of_exhibit`), exhibits
+none of B, and refuses both axioms `unheldVariable`. Where it exhibits a value, `Γ` entails an
+element of the sort at every interpretation (`Faithful.inhabited_of_exhibit_withHooks`). -/
+
+example := @Faithful.inhabited_of_exhibit_withHooks
+
+/--
+info: sentence 229 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (Var'Unds'Gen0:B: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state))
+sentence 230 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (VarZ':B: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for r in ← refusalsOf "f2-examples/openmixedunheld.kompile.kore" .unheldVariable do
+    IO.println r

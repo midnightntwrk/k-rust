@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t123-req-and.k": "60573754facd95cb3cd6eec6c64ea77542501f9449093fade5486b90aff7664d"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t123-req-and.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "43705db7722d7eadf1bde915e2b22ce388775b8087a1e50c6208b3311169702a",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

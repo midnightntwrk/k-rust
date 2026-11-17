@@ -62,6 +62,31 @@ mutual
         evalTs_congr n (fun i hi => ha i (by simp [varOccsList, hi]))]
 end
 
+/-- A predicate's value depends on σ only through the variables, for a predicate whose terms are
+well sorted (`condOK`). -/
+theorem predVal_congr {vars : List Srt} {n : Nat} {σ σ' : Subst}
+    (hag : ∀ i < vars.length, σ.lookup i = σ'.lookup i) :
+    ∀ {p : Cond}, c.condOK vars p = true → predVal c n σ p = predVal c n σ' p
+  | .top, _ => rfl
+  | .equals s t u, hc => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    simp only [predVal]
+    rw [evalT_congr n (t := t) (fun i hi => hag i (sortOfTerm_vars ht i hi)),
+      evalT_congr n (t := u) (fun i hi => hag i (sortOfTerm_vars hu i hi))]
+  | .mem s t u, hc => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    simp only [predVal]
+    rw [evalT_congr n (t := t) (fun i hi => hag i (sortOfTerm_vars ht i hi)),
+      evalT_congr n (t := u) (fun i hi => hag i (sortOfTerm_vars hu i hi))]
+  | .and p q, hc => by
+    simp only [Semantics.condOK, Bool.and_eq_true] at hc
+    simp only [predVal]
+    rw [predVal_congr hag hc.1, predVal_congr hag hc.2]
+  | .bot, _ | .not _, _ | .or _ _, _ | .implies _ _, _ | .ceil _ _, _ | .exMatch _ _ _ _ _, _
+  | .ex _ _, _ | .all _ _, _ => rfl
+
 theorem candResult_false {n : Nat} {x : Clause} {σ : Subst} (h : clauseReq c n x σ = some false) :
     candResult c n (x, σ, clauseReq c n x σ) = none := by
   unfold candResult; simp [h]
@@ -264,6 +289,52 @@ theorem evalT_mono_le {n m : Nat} (hle : n ≤ m) {σ : Subst} {t : Term} {r : O
   induction hle with
   | refl => exact h
   | step _ ih => exact evalT_mono hsc hcc hcm hfd _ ih hL hσ ht
+
+/-- More fuel gives a predicate the same value. -/
+theorem predVal_mono_le {vars : List Srt} {σ : Subst} (hσ : c.WellSorted vars σ) :
+    ∀ {p : Cond} {n m : Nat} {b : Bool}, n ≤ m → c.condOK vars p = true → predVal c n σ p = some b →
+      predVal c m σ p = some b
+  | .top, _, _, _, _, _, h => by simpa [predVal] using h
+  | .equals s t u, n, m, b, hle, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases he : CExec.evalT c n σ t with
+    | none => simp [predVal, he] at h
+    | some r =>
+      cases he' : CExec.evalT c n σ u with
+      | none => simp [predVal, he, he'] at h
+      | some r' =>
+        simp only [predVal, he, he'] at h
+        simp only [predVal, evalT_mono_le hsc hcc hcm hfd hle he Exec.headsOK_fns hσ ht,
+          evalT_mono_le hsc hcc hcm hfd hle he' Exec.headsOK_fns hσ hu]
+        exact h
+  | .mem s t u, n, m, b, hle, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases he : CExec.evalT c n σ t with
+    | none => simp [predVal, he] at h
+    | some r =>
+      cases he' : CExec.evalT c n σ u with
+      | none => simp [predVal, he, he'] at h
+      | some r' =>
+        simp only [predVal, he, he'] at h
+        simp only [predVal, evalT_mono_le hsc hcc hcm hfd hle he Exec.headsOK_fns hσ ht,
+          evalT_mono_le hsc hcc hcm hfd hle he' Exec.headsOK_fns hσ hu]
+        exact h
+  | .and p q, n, m, b, hle, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true] at hc
+    cases hp : predVal c n σ p with
+    | none => simp [predVal, hp] at h
+    | some b₁ =>
+      cases hq : predVal c n σ q with
+      | none => simp [predVal, hp, hq] at h
+      | some b₂ =>
+        simp only [predVal, hp, hq] at h
+        simp only [predVal, predVal_mono_le hσ hle hc.1 hp, predVal_mono_le hσ hle hc.2 hq]
+        exact h
+  | .bot, _, _, _, _, _, h | .not _, _, _, _, _, _, h | .or _ _, _, _, _, _, _, h
+  | .implies _ _, _, _, _, _, _, h | .ceil _ _, _, _, _, _, _, h | .exMatch _ _ _ _ _, _, _, _, _, _, h
+  | .ex _ _, _, _, _, _, _, h | .all _ _, _, _, _, _, _, h => by simp [predVal] at h
 
 theorem evalTs_mono_le {n m : Nat} (hle : n ≤ m) {σ : Subst} {ts : List Term}
     {rs : List (Option GroundTerm)} {vars : List Srt} {L : List CtorSig} {ss : List Srt}
@@ -755,17 +826,54 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
     (by intros; trivial)
     h
 
+/-- **A predicate's `Holds` value is computed with some fuel**, for a predicate `predVal`
+evaluates whose terms are well sorted, where no clause is `aside`. -/
+theorem predVal_exec (hna : c.AsideFree) {vars : List Srt} {σ : Subst} (hσ : c.WellSorted vars σ) :
+    ∀ {p : Cond} {k : Nat} {b : Bool}, predAtoms p = true → c.condOK vars p = true →
+      Holds c k σ p b → ∃ N, ∀ m, N ≤ m → predVal c m σ p = some b
+  | .top, _, _, _, _, h => ⟨0, fun _ _ => by cases h; rfl⟩
+  | .equals s t u, _, _, _, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases h with
+    | equals h₁ h₂ =>
+      obtain ⟨n₁, e₁⟩ := EvalTerm.exec hsc hcc hcm hfd hna h₁ vars _ s Exec.headsOK_fns hσ ht
+      obtain ⟨n₂, e₂⟩ := EvalTerm.exec hsc hcc hcm hfd hna h₂ vars _ s Exec.headsOK_fns hσ hu
+      refine ⟨max n₁ n₂, fun m hm => ?_⟩
+      simp only [predVal, evalT_mono_le hsc hcc hcm hfd (m := m) (by omega) e₁ Exec.headsOK_fns hσ ht,
+        evalT_mono_le hsc hcc hcm hfd (m := m) (by omega) e₂ Exec.headsOK_fns hσ hu]
+  | .mem s t u, _, _, _, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases h with
+    | mem h₁ h₂ =>
+      obtain ⟨n₁, e₁⟩ := EvalTerm.exec hsc hcc hcm hfd hna h₁ vars _ s Exec.headsOK_fns hσ ht
+      obtain ⟨n₂, e₂⟩ := EvalTerm.exec hsc hcc hcm hfd hna h₂ vars _ s Exec.headsOK_fns hσ hu
+      refine ⟨max n₁ n₂, fun m hm => ?_⟩
+      simp only [predVal, evalT_mono_le hsc hcc hcm hfd (m := m) (by omega) e₁ Exec.headsOK_fns hσ ht,
+        evalT_mono_le hsc hcc hcm hfd (m := m) (by omega) e₂ Exec.headsOK_fns hσ hu]
+  | .and p q, _, _, ha, hc, h => by
+    simp only [predAtoms, Bool.and_eq_true] at ha
+    simp only [Semantics.condOK, Bool.and_eq_true] at hc
+    cases h with
+    | and h₁ h₂ =>
+      obtain ⟨N₁, hN₁⟩ := predVal_exec hna hσ ha.1 hc.1 h₁
+      obtain ⟨N₂, hN₂⟩ := predVal_exec hna hσ ha.2 hc.2 h₂
+      exact ⟨max N₁ N₂, fun m hm => by simp only [predVal, hN₁ m (by omega), hN₂ m (by omega)]⟩
+  | .bot, _, _, ha, _, _ | .not _, _, _, ha, _, _ | .or _ _, _, _, ha, _, _ | .implies _ _, _, _, ha, _, _
+  | .ceil _ _, _, _, ha, _, _ | .exMatch _ _ _ _ _, _, _, ha, _, _ | .ex _ _, _, _, ha, _, _
+  | .all _ _, _, _, ha, _, _ => by simp [predAtoms] at ha
 
 end
 
-/-- A rule all of whose smaller-priority competitors have only `requires` values `some false`, and
-one of its matches with `requires` `true`, a configuration as right-hand side and `ensures` `true`,
-is listed. -/
+/-- A rule all of whose smaller-priority competitors have only match values `some false`, and one
+of its matches with value `true`, a configuration as right-hand side, `ensures` `true` and `post`
+`true`, is listed. -/
 theorem successorsN_of {n : Nat} {x y : GroundTerm} {r : Rule} (hr : r ∈ c.rules)
     (hlow : ∀ r' ∈ c.rules, r'.prio < r.prio → ∀ σb ∈ ruleMatches c n r' x, σb.2 = some false)
     {σ : Subst} (hσ : (σ, some true) ∈ ruleMatches c n r x)
     (he : CExec.evalT c n σ r.rhs = some (some y)) (hy : c.sortOf y = some topCellSort)
-    (hens : ensVal c n r σ = some true) :
+    (hens : ensVal c n r σ = some true) (hpost : predVal c n σ r.post = some true) :
     y ∈ CExec.successorsN c n x := by
   unfold CExec.successorsN
   dsimp only
@@ -793,7 +901,7 @@ theorem successorsN_of {n : Nat} {x y : GroundTerm} {r : Rule} (hr : r ∈ c.rul
   rw [List.mem_flatMap]
   refine ⟨(r, ruleMatches c n r x), List.mem_filter.mpr ⟨hin, by simp⟩, ?_⟩
   rw [List.mem_filterMap]
-  exact ⟨(σ, some true), hσ, by simp [he, hy, hens]⟩
+  exact ⟨(σ, some true), hσ, by simp [he, hy, hens, hpost]⟩
 
 /-- **The executable step lists exactly the `Step` successors**, for some fuel, on a core that
 `execReady` accepts and whose functions have at most one result at each argument list: the
@@ -811,14 +919,16 @@ theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
   have hrc := ruleComplete_of_ready hr
   have hna : c.AsideFree := asideFree_of_ready hr
   constructor
-  · rintro ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩
+  · rintro ⟨r, hr, σ, hσ, hmatch, hreq, hpre, heval, hens, hpost, hprio⟩
     obtain ⟨hrq, hrt⟩ := ruleSorted_of hok hr
     have hen := ruleSorted_ens_of hok hr
+    have hpc := ruleSorted_preds_of hok hr
+    have hat := rule_atoms_of_execReady hready hr
     obtain ⟨σ₀, hσ₀m, hag⟩ := hrc r hr x.val σ x.property (hσ.at _) hmatch
     have hcongr : ∀ t m, (∀ i ∈ varOccs t, i < r.vars.length) →
         CExec.evalT c m σ₀ t = CExec.evalT c m σ t :=
       fun t m hv => evalT_congr m (fun i hi => hag i (hv i hi))
-    -- fuel for the rule's own `requires` and right-hand side
+    -- fuel for the rule's own `requires`, `pre`, right-hand side, `ensures` and `post`
     obtain ⟨nq, hnq⟩ : ∃ nq, ∀ t, r.req = some t → CExec.evalT c nq σ t = some (some (bool true)) := by
       cases hreqc : r.req with
       | none => exact ⟨0, fun t ht => nomatch ht⟩
@@ -836,69 +946,85 @@ theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
           (reqOK_some hen)
         exact ⟨n, fun t' ht' => by cases ht'; exact hn⟩
     obtain ⟨nr, hnr⟩ := EvalTerm.exec hsc hcc hcm hfd hna heval r.vars _ topCellSort headsOK_fns hσ hrt
+    obtain ⟨np, hnp⟩ := predVal_exec hsc hcc hcm hfd hna hσ hat.1 hpc.1 hpre
+    obtain ⟨nt, hnt⟩ := predVal_exec hsc hcc hcm hfd hna hσ hat.2.1 hpc.2 hpost
     -- fuel for every listed match of every rule of a smaller priority
     let low := (c.rules.filter (·.prio < r.prio)).flatMap fun r' =>
       (cmatch c r'.vars [r'.lhs] [x.val]).map (r', ·)
     obtain ⟨N, hN⟩ := fuel_list
       (P := fun n (a : Rule × Subst) => a.1 ∈ c.rules ∧ c.WellSorted a.1.vars a.2 ∧
-        ∃ t v, a.1.req = some t ∧ CExec.evalT c n a.2 t = some v ∧ v ≠ some (bool true))
-      (fun n a ⟨har, haw, t, v, ht, he, hv⟩ => by
-        obtain ⟨hrq', -⟩ := ruleSorted_of hok har
-        rw [ht] at hrq'
-        exact ⟨har, haw, t, v, ht, evalT_mono hsc hcc hcm hfd n he headsOK_fns haw (reqOK_some hrq'), hv⟩)
+        ((∃ t v, a.1.req = some t ∧ CExec.evalT c n a.2 t = some v ∧ v ≠ some (bool true)) ∨
+          predVal c n a.2 a.1.pre = some false))
+      (fun n a ⟨har, haw, hor⟩ => by
+        refine ⟨har, haw, ?_⟩
+        rcases hor with ⟨t, v, ht, he, hv⟩ | hp
+        · obtain ⟨hrq', -⟩ := ruleSorted_of hok har
+          rw [ht] at hrq'
+          exact Or.inl ⟨t, v, ht, evalT_mono hsc hcc hcm hfd n he headsOK_fns haw (reqOK_some hrq'), hv⟩
+        · exact Or.inr (predVal_mono_le hsc hcc hcm hfd haw (Nat.le_succ n) (ruleSorted_preds_of hok har).1 hp))
       (l := low) (fun a ha => by
         obtain ⟨r', hr', ha⟩ := List.mem_flatMap.mp ha
         obtain ⟨hr', hlt⟩ := List.mem_filter.mp hr'
         obtain ⟨σ', hσ', rfl⟩ := List.mem_map.mp ha
         obtain ⟨hσw, hpvs⟩ := cmatch_sound hσ'
-        obtain ⟨t, v, ht, he, hv⟩ := (hprio r' hr' (by simpa using hlt) σ' (hσw.at _) (patVal_of_patVals hpvs)).req_of_top
-          (rule_plain_of_execReady hready hr').1
-        obtain ⟨hrq', -⟩ := ruleSorted_of hok hr'
-        rw [ht] at hrq'
-        obtain ⟨n, hn⟩ := EvalTerm.exec hsc hcc hcm hfd hna he r'.vars _ Srt.bool headsOK_fns hσw
-          (reqOK_some hrq')
-        exact ⟨n, hr', hσw, t, v, ht, hn, hv⟩)
-    refine ⟨max N (max nq (max nr ne)), ?_⟩
+        cases hprio r' hr' (by simpa using hlt) σ' (hσw.at _) (patVal_of_patVals hpvs) with
+        | intro ht he hv =>
+          obtain ⟨hrq', -⟩ := ruleSorted_of hok hr'
+          rw [ht] at hrq'
+          obtain ⟨n, hn⟩ := EvalTerm.exec hsc hcc hcm hfd hna he r'.vars _ Srt.bool headsOK_fns hσw
+            (reqOK_some hrq')
+          exact ⟨n, hr', hσw, Or.inl ⟨_, _, ht, hn, hv⟩⟩
+        | pre hf =>
+          obtain ⟨n, hn⟩ := predVal_exec hsc hcc hcm hfd hna hσw (rule_atoms_of_execReady hready hr').1
+            (ruleSorted_preds_of hok hr').1 hf
+          exact ⟨n, hr', hσw, Or.inr (hn n (Nat.le_refl _))⟩)
+    obtain ⟨M, hM⟩ : ∃ M, M = max N (max nq (max nr (max ne (max np nt)))) := ⟨_, rfl⟩
+    refine ⟨M, ?_⟩
     rw [List.any_eq_true]
     refine ⟨y.val, ?_, same_iff.mpr rfl⟩
-    have hrhs : CExec.evalT c (max N (max nq (max nr ne))) σ₀ r.rhs = some (some y.val) := by
+    have hrhs : CExec.evalT c M σ₀ r.rhs = some (some y.val) := by
       rw [hcongr r.rhs _ (sortOfTerm_vars hrt)]
       exact evalT_mono_le hsc hcc hcm hfd (by omega) hnr headsOK_fns hσ hrt
     refine successorsN_of hr (fun r' hr' hlt σb hσb => ?_) (σ := σ₀)
-      (ruleMatches_mem.mpr ⟨hσ₀m, ?_⟩) hrhs y.property ?_
+      (ruleMatches_mem.mpr ⟨hσ₀m, ?_⟩) hrhs y.property ?_ ?_
     · obtain ⟨σ', b⟩ := σb
       obtain ⟨hσ', rfl⟩ := ruleMatches_mem.mp hσb
       have hmem : (r', σ') ∈ low :=
         List.mem_flatMap.mpr ⟨r', List.mem_filter.mpr ⟨hr', by simpa using hlt⟩,
           List.mem_map.mpr ⟨σ', hσ', rfl⟩⟩
-      obtain ⟨t, v, ht, he, hv⟩ : ∃ t v, r'.req = some t ∧
-          CExec.evalT c (max N (max nq (max nr ne))) σ' t = some v ∧ v ≠ some (bool true) :=
-        (hN _ hmem _ (Nat.le_max_left _ _)).2.2
-      show reqVal c _ r' σ' = some false
-      unfold reqVal
-      rw [ht]
-      simp only [he, Option.map_some, Option.some.injEq]
-      cases hb : isTrue v
-      · rfl
-      · exact absurd (isTrue_iff.mp hb) hv
-    · unfold reqVal
-      cases hreqc : r.req with
-      | none => rfl
-      | some t =>
-        rw [hreqc] at hrq
-        have hq : CExec.evalT c (max N (max nq (max nr ne))) σ₀ t = some (some (bool true)) := by
-          rw [hcongr t _ (sortOfTerm_vars (reqOK_some hrq))]
-          exact evalT_mono_le hsc hcc hcm hfd (by omega) (hnq t hreqc) headsOK_fns hσ (reqOK_some hrq)
-        simp [hq, isTrue_iff]
+      show matchVal c _ r' σ' = some false
+      rcases (hN _ hmem M (by omega)).2.2 with ⟨t, v, ht, he, hv⟩ | hp
+      · refine appVal_false.mpr (Or.inl ?_)
+        unfold reqVal
+        rw [ht]
+        simp only [he, Option.map_some, Option.some.injEq]
+        cases hb : isTrue v
+        · rfl
+        · exact absurd (isTrue_iff.mp hb) hv
+      · exact appVal_false.mpr (Or.inr hp)
+    · have hq : reqVal c M r σ₀ = some true := by
+        unfold reqVal
+        cases hreqc : r.req with
+        | none => rfl
+        | some t =>
+          rw [hreqc] at hrq
+          have hq : CExec.evalT c M σ₀ t = some (some (bool true)) := by
+            rw [hcongr t _ (sortOfTerm_vars (reqOK_some hrq))]
+            exact evalT_mono_le hsc hcc hcm hfd (by omega) (hnq t hreqc) headsOK_fns hσ (reqOK_some hrq)
+          simp [hq, isTrue_iff]
+      show some true = appVal (reqVal c M r σ₀) (predVal c M σ₀ r.pre)
+      rw [hq, predVal_congr hag hpc.1, hnp M (by omega)]
+      rfl
     · unfold ensVal
       cases hensc : r.ens with
       | none => rfl
       | some t =>
         rw [hensc] at hen
-        have hq : CExec.evalT c (max N (max nq (max nr ne))) σ₀ t = some (some (bool true)) := by
+        have hq : CExec.evalT c M σ₀ t = some (some (bool true)) := by
           rw [hcongr t _ (sortOfTerm_vars (reqOK_some hen))]
           exact evalT_mono_le hsc hcc hcm hfd (by omega) (hne t hensc) headsOK_fns hσ (reqOK_some hen)
         simp [hq, isTrue_iff]
+    · rw [predVal_congr hag hpc.2, hnt M (by omega)]
   · rintro ⟨n, hn⟩
     rw [List.any_eq_true] at hn
     obtain ⟨z, hz, hs⟩ := hn

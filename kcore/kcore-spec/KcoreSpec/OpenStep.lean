@@ -1,13 +1,14 @@
 /-
   KCore. The evaluations a step reads, for a rule whose left side need not bind every variable.
 
-  - `Semantics.rulePlainOpen`: what `rulesPlain` asks of one rule, with `\top` predicates and no
-    existential variable: each open variable held by the right side under constructors, of a
-    confined sort, or held by closed conditions no variable of which the right side, the `ensures`
-    or `post` holds, and a rule that competes with a larger one has open condition variables of
-    confined sorts or closed conditions. `rulesPlain` asks `Semantics.rulePlainPP` of each rule
-    (`Semantics.rulesPlain_iff_pp`, PredPlain.lean), which is `rulePlainOpen` less `r.exs = []` and
-    the `\top` predicates.
+  - `Semantics.rulePlainOpen`: a rule with `\top` predicates and no existential variable, each
+    open variable held by the right side under constructors and injections, of a confined sort, or
+    held by closed conditions no variable of which the right side, the `ensures` or `post` holds,
+    and a rule that competes with a larger one has open condition variables of confined sorts or
+    closed conditions. `rulesPlain` asks `Semantics.rulePlainHO1` of each rule
+    (`Semantics.rulesPlain_iff_held`, PredPlain.lean), which is `rulePlainOpen` less `r.exs = []`
+    and the `\top` predicates, with the first arm reading also the variables the right side holds
+    under the symbols `Semantics.holds` names.
   - A term has a result, and a defined result has the term's sort, under a σ that gives the
     variables the term holds values of their sorts (`evalTerm_total_at`, `EvalTerm.sorted_at`):
     other variables are not read.
@@ -17,8 +18,8 @@
     (`WellSortedAt r.vars r.leftVars`), the variables of the `requires` being among those; its right
     side and `ensures` under a σ that gives every variable one (`WellSorted r.vars`); its predicates
     are `\top`. No variable is asked to be bound by the left side.
-  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainPP`
-    (`Semantics.ruleFactsPP_of_sortedOK`, `Semantics.ruleFactsPP_of_core`, PredPlain.lean); under
+  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainHO1`
+    (`Semantics.ruleFactsHO1_of_sortedOK`, `Semantics.ruleFactsHO1_of_core`, PredPlain.lean); under
     `coreOK` and `FnHyp` every configuration is `StepDecided` (`stepDecided_of_fnHyp`,
     HoldsDecided.lean, which reads `ruleSorted` only).
 -/
@@ -30,7 +31,8 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `rulesPlain` asks of the rule r, with `\top` predicates and no existential variable. -/
+/-- What `rulesPlain` asks of the rule r with the first arm reading constructors and injections
+only (`ctorOccs`), with `\top` predicates and no existential variable. -/
 def Semantics.rulePlainOpen (c : Semantics) (r : Rule) : Bool :=
   r.exs.isEmpty && r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false

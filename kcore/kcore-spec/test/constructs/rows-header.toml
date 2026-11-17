@@ -42,6 +42,11 @@
 #             Parse.ReadingNote to a fixture directory whose account.txt prints the note (a read
 #             class, a per-sentence reading, or a count above 0); kfix.py check fails unless each
 #             is so and every constructor is named once at least.
+#   kk, kk_sha  on a row or a `cases` entry of any list: kk the Kore-in-K entries (ids of
+#             krs/semantics/kore/texts or cases, findings/KK-redesign.md section 5.2) whose reading the
+#             row rests on, and kk_sha a table from each id to the entry's ruling hash when the row was
+#             written (krs/semantics/kore/tools/check.py --ruling-sha ID). test/constructs/kklink.py
+#             fails on an id that names no entry and reports a row whose hash is not current as stale.
 #   reasons   on a row or a nested table (cases, also_refused, split) of any list: a list of
 #             "RefusalReason.x", "InertReason.x", "UnreadReason.x" or "ReadingNote.x", constructors
 #             of the four inductives of KcoreSpec/Parse.lean: what the reader answers on the

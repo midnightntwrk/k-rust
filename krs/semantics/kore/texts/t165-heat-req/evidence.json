@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t165-heat-req.k": "2a2f6860a03d3dcc573a543f8f49f983bb74f8b639bc37574df2a42e4e7c7596"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t165-heat-req.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "8f6f5e657c55298632376d08c345ae9007ac2586b7d0d53d82893074b4eae1d1",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

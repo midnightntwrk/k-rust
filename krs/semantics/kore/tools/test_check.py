@@ -385,6 +385,39 @@ class PassRule(unittest.TestCase):
         text = '{"finals":["b(1)"],"finals_canonical":null,"kompile":"accepts","readings":[]}'
         self.assertEqual(check.answer_hash(entry), hashlib.sha256(text.encode()).hexdigest())
 
+    # the ruling hash a rows.toml row of kcore-spec cites (check.py --ruling-sha)
+
+    def test_ruling_hash_reads_the_ruling_and_the_readings_only(self):
+        d = self.p.entry('c01-x', UNSETTLED.format(interpreter='blocks'), {})
+        with open(os.path.join(d, 'entry.toml'), 'rb') as f:
+            entry = tomllib.load(f)
+        text = json.dumps({'ruling': entry['ruling'], 'reading': entry['reading']}, sort_keys=True,
+                          separators=(',', ':'), ensure_ascii=False)
+        h = check.ruling_hash(entry)
+        self.assertEqual(h, hashlib.sha256(text.encode()).hexdigest())
+        # a disposition, a note or the subject leaves it; a basis or a reading's consequence moves it
+        same = dict(entry, subject='Another subject.', disposition=[{'implementation': 'llvm'}],
+                    note=[{'implementation': 'llvm', 'text': 'x'}])
+        self.assertEqual(check.ruling_hash(same), h)
+        moved = json.loads(json.dumps(entry))
+        moved['ruling']['basis'][0]['quote'] = 'Another sentence.'
+        self.assertNotEqual(check.ruling_hash(moved), h)
+        moved = json.loads(json.dumps(entry))
+        moved['reading'][1]['consequence'] = 'Another consequence.'
+        self.assertNotEqual(check.ruling_hash(moved), h)
+
+    def test_command_ruling_sha(self):
+        d = self.p.entry('t01-x', TEXT_RULING, {}, kind='text')
+        with open(os.path.join(d, 'entry.toml'), 'rb') as f:
+            h = check.ruling_hash(tomllib.load(f))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = check.main(['--ruling-sha', 'kk:t01-x', 't01-x'], package=self.p.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), f't01-x {h}\nt01-x {h}\n')
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(check.main(['--ruling-sha', 't02-none'], package=self.p.root), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

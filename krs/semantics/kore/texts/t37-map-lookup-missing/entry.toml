@@ -1,0 +1,34 @@
+id = "t37-map-lookup-missing"
+kind = "text"
+subject = "The value of a map lookup M[K]: the value paired with K where K is a key of M, and none where it is not."
+retro = ["H7"]
+rests_on = ["kk:t31-int-division"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:271 (K 7.1.337)", quote = '''syntax KItem ::= Map "[" KItem "]" [function, hook(MAP.lookup), symbol(Map:lookup)]''' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = "MAP.lookup"
+statement = "M[K] is the value M pairs with K where K is a key of M, and has no value where K is not a key of M."
+points = [
+  { at = "(1 |-> 2) (3 |-> 4) [3]", value = "4" },
+  { at = "(1 |-> 2) [5]", value = "no value" },
+  { at = ".Map [1]", value = "no value" },
+]
+reason = """
+(1) domains.md:265-268: the lookup gives the value associated with the key of a map, and the value is #False if the key is not in the map: no value (kk:t31-int-division on #False).
+(2) A key is paired with at most one value (domains.md:223-225), so the value at a key of the map is one value.
+(3) The declaration has function and no total (domains.md:271), which agrees with (1)."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:265-268 (K 7.1.337)"
+quote = "You can look up the value associated with the key of a map in O(log(N)) time. ... The value is `#False` if the key is not in the map (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:223-225 (K 7.1.337)"
+quote = "Each key can be paired with an arbitrary value, and can be used to reference its associated value. Multiple bindings for the same key are not allowed."

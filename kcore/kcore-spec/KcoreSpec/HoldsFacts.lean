@@ -1175,12 +1175,7 @@ theorem holds_den_of (F : AtomFacts c I) (G : BinderFacts c I) (X : ExMatchCase 
   | .ex s body => holds_ex' F G s (holds_den_of F G X body)
   | .all s body => holds_all' F G s (holds_den_of F G X body)
 
-/-- The condition holds a binder. -/
-def hasBinder : Cond → Bool
-  | .exMatch .. | .ex .. | .all .. => true
-  | .not p => hasBinder p
-  | .and p q | .or p q | .implies p q => hasBinder p || hasBinder q
-  | _ => false
+export Cond (hasBinder)
 
 /-- **The Holds lemma, the binders' facts and the `exMatch` case asked only of a condition with a
 binder.** -/

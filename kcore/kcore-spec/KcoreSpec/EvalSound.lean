@@ -129,9 +129,9 @@ def ClauseCtx (c : Semantics) : Prop :=
       reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧
       cl.pre = .top)
 
-theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := by
-  simp only [Semantics.ok, Bool.and_eq_true] at hok
-  obtain ⟨⟨⟨⟨_, ⟨⟨_, hpl⟩, _⟩⟩, _⟩, hfns⟩, _⟩ := hok
+theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
+  simp only [Semantics.okM, Bool.and_eq_true] at hok
+  obtain ⟨⟨⟨⟨⟨_, ⟨⟨_, hpl⟩, _⟩⟩, _⟩, hfns⟩, _⟩, _⟩ := hok
   intro fn hfn'
   rcases List.mem_append.mp hfn' with hfn | hfn
   rotate_left
@@ -148,6 +148,8 @@ theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := by
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     have htop : cl.pre = .top := Semantics.allFns_preTop hpl fn hfn' cl hcl
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop⟩
+
+theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
 
 theorem binds_all {n : Nat} {occs : List Nat} (h : binds n occs = true) : ∀ i < n, i ∈ occs := by
   simp only [binds, List.all_eq_true] at h

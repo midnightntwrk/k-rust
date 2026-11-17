@@ -532,13 +532,13 @@ theorem fails_of_not_excl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.
   ⟨hi, fun cl hcl σ hap => hf cl hcl σ ⟨hap.1.at _, hap.2.1, hap.2.2.1⟩⟩
 
 omit h hfn in
-theorem varsOf_not_exclCl {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) (hpre : cl.pre = .top) {i : Nat}
+theorem varsOf_not_exclCl {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) (_hpre : cl.pre = .top) {i : Nat}
     (hi : i < cl.vars.length) (hil : i ∈ cl.leftVars) :
     canonKey c cl.vars i ∈ KoreAML.varsOf (.not KoreAML.R (KoreAML.anyOf
       (cls.map fun cl => exclusion c fn cl (canonClausePres cl)))) := by
   simp only [KoreAML.varsOf]
   rw [anyOf_eq]
-  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusionCl hpre hi hil))
+  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusionCl hi hil))
 
 namespace AtT
 

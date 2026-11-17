@@ -1,0 +1,56 @@
+id = "t128-eq-rhs-bottom"
+kind = "text"
+subject = "A function equation whose right side is #Bottom under a requires, f(X) => #Bottom requires X <Int 0, beside f(X) => X [owise]: what an empty right side of an equation states."
+retro = ["M7"]
+origin = "kcore-spec fixture e3-ml-eq-rhs-bottom"
+
+[text]
+files = ["t128-eq-rhs-bottom.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The text states that f(x) has no value at every x < 0, and that f(x) = x at every x >= 0. The empty right side of an equation states exactly that the application denotes nothing where the premise holds."
+reason = '''
+(1) The first equation is written \implies(\equals(X <Int 0, true) and X0 in X, \equals(f(X0), \and(\bottom, \top))) (kore.txt:101-117). \bottom denotes nothing (introduction-to-matching-logic.tex:679-681), and so does its intersection with top (:734-736). The equality is the whole carrier where both sides denote the same set (:880-885). So where x < 0 the equation states that f(x) denotes the empty set: f has no value there.
+(2) The owise equation is written with the premise that no x' with x' < 0 equals the argument (kore.txt:63-98): it states f(x) = x where x < 0 does not hold, that is at x >= 0.
+(3) <Int compares two integers (domains.md:1324-1325), so the two premises split the integers, and the two equations agree on no point and conflict on none.'''
+
+[ruling.kore]
+statement = '''The first equation's right side is \and{SortInt{}}(\bottom{SortInt{}}(), \top{SortInt{}}()) (kore.txt:115-117); the axioms state what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:113-117"
+quote = '\equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( \bottom{SortInt{}}(), \top{SortInt{}}())))'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:898-902 (K 7.1.337)"
+quote = 'Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."

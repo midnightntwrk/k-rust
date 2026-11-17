@@ -52,7 +52,7 @@ example : c.symName 391 = "Lblf" ∧ c.symName 389 = "Lblg" ∧ c.symName 390 = 
     c.symName intMul = "Lbl'UndsStar'Int'Unds'" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- S is not confined; Bool is. -/
 example : c.confined 32 = false ∧ c.confined Srt.int = false ∧ c.confined Srt.bool = true := by decide +kernel
@@ -133,7 +133,7 @@ theorem coreBH : cBH.coreOK = true ∧ cBH.readsConfined = true ∧
     (cBH.clauseSortedOpen fH (cBH.fns.map Fn.sig) clH = true ∧ cBH.clausePlainOpen clH = true) ∧
     clB.needsWitness cBH = false ∧ clH.needsWitness cBH = true ∧
     clH.openCondVars.any (fun i => (clH.vars[i]?.map cBH.confined).getD false) = false := by
-  decide +kernel
+  decide_cheap
 
 /-- **`exclEmptyCl_of` at `clB` and `clH`, clauses of `cBH`**, in every model of `Γc cBH`: that
 `cBH` reads a confined sort is decided; `clH`'s owed `CondDecided` is the one hypothesis. -/
@@ -201,14 +201,16 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     · rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (Nat.lt_irrefl _)
   have := fun {σ' : Subst} {r : Option GroundTerm} (hσ' : c2.WellSorted clG.vars σ') (hm : PatVals c2 σ' clG.pats ws)
       (hr : ∀ v, r = some v → c2.sortOf v = some gG.result) ihright ihreq =>
-    Faithful.clause_den4Cl (r := r) hI hnn hsc hph hfn2 hmemG hws hσ' hm hpG hpreG hpostG hexG hoG hrG hhG heG hr ihright ihreq
+    Faithful.clause_den4Cl (r := r) hI hnn hsc hph hfn2 hmemG hws hσ' hm hpG (by rw [hpreG, Semantics.condOK]) hpostG hexG hoG hrG hhG heG hr ihright ihreq
+      (fun hpt => by rw [hpreG] at hpt; simp [Cond.isTop] at hpt)
       (fun cl' hcl' ha hlt => (hlowG cl' hcl' ha hlt).elim)
   have := fun {σ' : Subst} {r : Option GroundTerm} (hσ' : c2.WellSorted clO.vars σ') (hm : PatVals c2 σ' clO.pats ws)
       (hr : ∀ v, r = some v → c2.sortOf v = some gG.result) ihright ihreq =>
-    Faithful.clause_den4Cl (r := r) hI hnn hsc hph hfn2 hmemO hws hσ' hm hpO hpreO hpostO hexO hoO hrO hhO heO hr ihright ihreq
+    Faithful.clause_den4Cl (r := r) hI hnn hsc hph hfn2 hmemO hws hσ' hm hpO (by rw [hpreO, Semantics.condOK]) hpostO hexO hoO hrO hhO heO hr ihright ihreq
+      (fun hpt => by rw [hpreO] at hpt; simp [Cond.isTop] at hpt)
       (fun cl' hcl' ha hlt => by
         rw [hlowO cl' hcl' ha hlt]
-        exact ⟨hpreG, hpG, fun t ht => Faithful.varOccs_lt t (hrG t ht), hE, hF, hM⟩)
+        exact ⟨by rw [hpreG, Semantics.condOK], hpG, fun t ht => Faithful.varOccs_lt t (hrG t ht), hE, hF, hM⟩)
   trivial
 
 /-! ## `readsConfined_of_coreCl`, `Γc_coreCl`, `openDecided_of_coreCl` -/
@@ -241,7 +243,7 @@ example : Faithful.ClauseOpenFacts c2 gG (c2.fns.map Fn.sig) clG := Faithful.cla
 
 /-- `c2`, whose clause `clG` has a variable its patterns do not bind, meets `coreOK`, which gives the
 clause facts of every clause of `c2`. -/
-theorem coreOK2 : c2.coreOK = true := by decide +kernel
+theorem coreOK2 : c2.coreOK = true := by decide_cheap
 example : ∀ fn ∈ c2.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c2 L ∧ Faithful.ClauseOpenFacts c2 fn L cl :=
   Faithful.clauseOpenFacts_of_sortedOK (Semantics.coreOK_parts coreOK2).1
 

@@ -1,0 +1,25 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-OPEN-MIXED-UNHELD: 269 sentences
+  1 inert import [generated]
+  171 read [generated]
+  52 read [builtin]
+  7 read [user]
+  7 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  7 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 read orSplit [user]
+  1 read existsAsVariable [user]
+  1 inert simplification [generated]
+connective readings per sentence: 2
+      sentence 229: orSplit
+      sentence 230: existsAsVariable
+stage refusals (of sentences classified read): 2
+  2 unheldVariable
+      sentence 229 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (Var'Unds'Gen0:B: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state))
+        [user] (no label) at e2-open-mixed-unheld.k:5: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(\or{SortKItem{}}(Lblc{}(Var'Unds'Gen0:SortB{}), Lble{}()), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbld{}(Lblx{}()), Var' …
+      sentence 230 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (VarZ':B: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state))
+        [user] (no label) at e2-open-mixed-unheld.k:6: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblg{}(\exists{SortA{}}(VarZ:SortB{}, Lblx{}())), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbld{}(Lbly{}()), Var'Unds'DotV …
+finish: sentence 229 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (Var'Unds'Gen0:B: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state))
+(exit 0)

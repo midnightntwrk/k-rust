@@ -1,0 +1,68 @@
+id = "t13-fn-no-equation"
+kind = "text"
+subject = "A function applied at arguments where no equation applies: g(1), where g has the one equation g(0) => 1. What the text states of the application there."
+retro = ["F1"]
+
+[text]
+files = ["t13-fn-no-equation.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual says a function has at most one value at each argument; kompile writes the function attribute and no axiom stating it (kore.txt:2), so the kompiled sentences do not bound g(1) to one element."
+
+[ruling]
+status = "unsettled"
+reason = """
+(1) A symbol is interpreted as a function into the subsets of its result sort's carrier (introduction-to-matching-logic.tex:704-713), so g(1) denotes some set of integers.
+(2) The function attribute bounds that set to at most one element (user_manual.md:540-544). The one equation states g(0) = 1 and nothing at 1: its argument pattern 0 does not denote 1 (kk:t11-eq-applies states what an equation states). No sentence of the text speaks of the arguments at which no equation applies, and g is not declared total, so nothing bounds the set from below either.
+(3) So the text admits a model where g(1) denotes nothing and, for each integer n, a model where it denotes n. The K sources name the same freedom for one of their own functions: the replace function of the STRING module is undefined where its equations do not apply, and that is said to allow several behaviours, #Bottom among them, none contradicting the equations (domains.md:1908-1910).
+(4) The readings below differ in what they take g(1) to be; the application kept as a term is no reading, since a term g(1) that is not an integer is no element of the carrier of Int."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''A \emph{matching logic $(S,\Sigma)$-model} $M$ consists of: An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty; and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1908-1910 (K 7.1.337)"
+quote = "// Note that the replace function is undefined when Count < 0. This allows different backends to // implement their own behavior without contradicting these semantics. For instance, a symbolic // backend can return #Bottom for that case, while a concrete backend can throw an exception."
+
+[[reading]]
+name = "closure-none"
+statement = "An application at arguments no equation applies to has no value."
+answer = "g(1) denotes nothing; any term containing it as an argument denotes nothing."
+consequence = "A rule whose right side holds g(1) gives no successor from a configuration that needs it."
+
+[[reading]]
+name = "any-member"
+statement = "An application at arguments no equation applies to has one value of its sort, the same at every occurrence, which the text does not name."
+answer = "g(1) is some integer n; the text does not say which."
+consequence = "A rule whose right side holds g(1) has a successor, holding an integer the text does not determine."
+
+[[reading]]
+name = "rest"
+statement = "The text does not choose: for each interpretation the application has either no value or one value of its sort, as that interpretation gives."
+answer = "g(1) is, per interpretation, nothing or one integer; a statement true of the text holds under each choice."
+consequence = "Only what holds under both closure-none and every choice of any-member is a consequence of the text."
+
+[ruling.kore]
+statement = '''g carries function{}() and no functional axiom (kore.txt:2), and its one axiom states g(X0) = 1 where X0 is 0 (kore.txt:63-78). No axiom names g at another argument, and none bounds the values of g to at most one: at the KORE level function{}() is an attribute, a hint whose semantic content should correspond to an axiom (kore-syntax.md:223-228), and no such axiom is written. So the kompiled sentences admit g(1) to denote any subset of Int; the bound of one value is the K text's sentence (user_manual.md:540-544).'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''symbol Lblg{}(SortInt{}) : SortInt{} [function{}(), symbol'Kywd'{}("g")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. ... All semantic information contained in attributes should correspond to axioms declared explicitly. ... The meaning of particular attributes is implementation-defined."
+
+[[note]]
+implementation = "kcore"
+text = "KCore states the interpretation's value at such a point, none where the interpretation gives none (Eval.rest, Semantics.fnRest): the reading rest; at HookParams.none this is closure-none. kore.k computes closure-none (bot)."

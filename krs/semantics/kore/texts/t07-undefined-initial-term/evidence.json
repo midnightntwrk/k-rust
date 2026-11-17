@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t07-undefined-initial-term.k": "f9a47eadfc76f22995f1d82e95a7ca8369c4ccdad1182da8888eeaab6f5424b5"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t07-undefined-initial-term.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3d2260a47fd32af12489c9e2313cd674be16a057d9376c6e7326e9c48580f859",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

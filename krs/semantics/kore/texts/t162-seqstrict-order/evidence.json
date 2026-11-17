@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t162-seqstrict-order.k": "add216242c65e49dab9ad08b341313cc2855330cf4b49bb133c537372c827b5e"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t162-seqstrict-order.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "68216aa23c6b5eae05359c877af2d896e6275e134c1e6521961f409cdfb40b53",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

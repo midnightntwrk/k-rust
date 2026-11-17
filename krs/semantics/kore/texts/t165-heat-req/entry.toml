@@ -1,0 +1,51 @@
+id = "t165-heat-req"
+kind = "text"
+subject = "A rule written by the author with [heat] and a requires, and no variable named HOLE: a(X) => b(X) requires X >Int 0 [heat]."
+retro = ["S4"]
+origin = "kcore-spec fixture c3-rule-heat-req"
+
+[text]
+files = ["t165-heat-req.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The written rule states that a(x) steps to b(x) at every x > 0, as the rule without the attribute does. kompile conjoins notBool isKResult(HOLE) to the requires with HOLE a variable of sort K that no side of the rule holds; since some element of K is no result (a(0) is none), the conjunct excludes no instance of the rule."
+reason = '''
+(1) The manual says that in heating and cooling rules the variable named HOLE is the term heated or cooled, and that the compiler generates the isKResult(HOLE) and notBool isKResult(HOLE) side conditions (user_manual.md:1812-1817); a user may write such rules directly (user_manual.md:1807-1810). It says nothing of a heat rule with no variable named HOLE.
+(2) The written condition is X >Int 0 andBool notBool isKResult(HOLE) = true, HOLE a variable of sort K free in the axiom (kore.txt:103-111). An axiom holds at every valuation of its variables (introduction-to-matching-logic.tex:767-768). At a valuation where isKResult(HOLE) is true the left side is empty and the axiom states nothing; at one where it is false the condition is X >Int 0. KResult holds Int only, and a(0) is a Cmd, so the text's isKResult equations give isKResult(a(0)) = false: such a valuation exists.
+(3) So the axiom states a(x) => b(x) where x > 0, by (2), and nothing more. A rewrite axiom \rewrites(L, R) is L -> next R: at every valuation every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980).'''
+
+[ruling.kore]
+statement = 'The rule is one \rewrites axiom whose condition is \equals(X >Int 0 andBool notBool isKResult(HOLE), true) with HOLE:SortK free (kore.txt:103-111).'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:107"
+quote = '''Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")),LblnotBool'Unds'{}(LblisKResult{}(VarHOLE:SortK{}))),'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1812-1817 (K 7.1.337)"
+quote = "One other thing to note is that in the above sentences, `HOLE` is just a variable, but it has special meaning in the context of sentences with the `heat` or `cool` attribute. In heating or cooling rules, the variable named `HOLE` is considered to be the term being heated or cooled and the compiler will generate `isKResult(HOLE)` and `notBool isKResult(HOLE)` side conditions appropriately to ensure that the backend does not loop infinitely. The module"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1807-1810 (K 7.1.337)"
+quote = "cooling rules and should be handled in the manner just described. Nothing stops the user from writing such heating and cooling rules directly if they wish, although we describe other more convenient syntax for most of the advanced cases below."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[observe]]
+file = "kore.txt"
+contains = "LblnotBool'Unds'{}(LblisKResult{}(VarHOLE:SortK{}))"

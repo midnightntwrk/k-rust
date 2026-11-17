@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t160-strict-hybrid.k": "cd0271255b12b6120fe816ddfc93a2cf0c25c0b5b9149d8a3342cee197493c54"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t160-strict-hybrid.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "62290fd2b9f6ab85411269311a3914b35b3430d5ac9079f7b2d0e05be7c2f40f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

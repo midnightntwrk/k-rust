@@ -1,0 +1,56 @@
+id = "t176-count-empty-needle"
+kind = "text"
+subject = 'countAllOccurrences with an empty needle, here countAllOccurrences("ab", ""): the symbol is total and its equation, read at the empty needle, gives c = 1 + c.'
+retro = ["ST5"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1855 (K 7.1.337)", quote = 'syntax Int ::= "countAllOccurrences" "(" haystack: String "," needle: String ")" [function, total, hook(STRING.countAllOccurrences)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. countAllOccurrences is total (domains.md:1855; user_manual.md:546-548). Its second equation states countAllOccurrences(S, T) = 1 + countAllOccurrences(substrString(S, findString(S, T, 0) + lengthString(T), lengthString(S)), T) where findString(S, T, 0) >= 0 (1898-1899). The empty string occurs at index 0 of every string, so findString("ab", "", 0) is 0 (1763-1765), and the substring from 0 to the length is "ab" itself (1751-1755): the equation states c = 1 + c for c = countAllOccurrences("ab", ""). No integer satisfies it.
+Where the readings part. The equations read as written have no model with that value, since the symbol is total. The prose counts the number of times a string occurs within another (1848-1849) and does not say how many times the empty string occurs: read by the prose, a value exists and is not given. replaceAll(S, "", R) is replace at that count (1917) and shares the point.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1855 (K 7.1.337)"
+quote = 'syntax Int ::= "countAllOccurrences" "(" haystack: String "," needle: String ")" [function, total, hook(STRING.countAllOccurrences)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-548 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1896-1899 (K 7.1.337)"
+quote = "rule countAllOccurrences(Source:String, ToCount:String) => 0 requires findString(Source, ToCount, 0) <Int 0 rule countAllOccurrences(Source:String, ToCount:String) => 1 +Int countAllOccurrences(substrString(Source, findString(Source, ToCount, 0) +Int lengthString(ToCount), lengthString(Source)), ToCount) requires findString(Source, ToCount, 0) >=Int 0"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1763-1765 (K 7.1.337)"
+quote = "You can find the first (respectively, last) occurrence of a substring, starting at a certain `index`, in another string in O(N*M) time. Returns `-1` if the substring is not found."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1751-1755 (K 7.1.337)"
+quote = "1. the range generated includes the character at `startIndex` but excludes the character at `endIndex`, i.e., the range is `[startIndex..endIndex)`. 2. this function is only defined on valid indices (i.e., it is defined when `startIndex < endIndex` and `endIndex` is less than or equal to the string length)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1848-1849 (K 7.1.337)"
+quote = "You can also count the number of times a string occurs within another string using `countAllOccurrences`."
+
+[[reading]]
+name = "letter"
+statement = "The equations of the module hold as written."
+answer = 'The text has no model: countAllOccurrences("ab", "") would be an integer c with c = 1 + c.'
+consequence = "Every text that imports STRING has no model, since the equation is stated for every string; a consumer of the letter can derive anything."
+
+[[reading]]
+name = "prose"
+statement = "The prose counts occurrences and does not count those of the empty string; the equation is not read at the empty needle."
+answer = 'countAllOccurrences("ab", "") is some integer, not named'
+consequence = "The point is unstated, as at kk:t170-substr-invalid-indices."

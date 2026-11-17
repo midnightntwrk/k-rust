@@ -1,0 +1,56 @@
+id = "t143-float-special-operands"
+kind = "text"
+subject = "The Float operations at a zero divisor, at an infinite or NaN operand, and the sign of a zero result: 1.0 /Float 0.0, floorFloat(Infinity), 1.0 -Float 1.0."
+retro = ["FL4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1566 (K 7.1.337)", quote = '| Float "/Float" Float [function, left, smt-hook((fp.div roundNearestTiesToEven #1 #2)), hook(FLOAT.div)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated, under both readings. The prose computes the quotient /Float of two floats (domains.md:1556-1558) and rounds a float to the next lowest floating-point value which is an integer (floorFloat, 1583-1584). It writes no #False for any point of FLOAT, where INT writes that division by zero is #False (1233-1234): so no point of FLOAT is stated to have no value. floorFloat is total (1610): it has at least one value at every argument (user_manual.md:546-548); /Float is not total. The sign of a zero result is given at two points only: 0.0 -Float 0.0 is positive zero and --Float 0.0 negative zero (1552-1554).
+Where the readings part: what a zero divisor, an infinity or a NaN gives, and the sign of the other zero results (1.0 -Float 1.0). The prose's sentences have no referent there (there is no next lowest integer of an infinity). The two readings are the two answers to the owner question on how far the naming of IEEE 754 reaches; it is not answered.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1552-1559 (K 7.1.337)"
+quote = "* Compute the unary negation `--Float` of a float. `--Float X` is distinct from `0.0 -Float X`. For example, `0.0 -Float 0.0` is positive zero. `--Float 0.0` is negative zero. * Compute the exponentation `^Float` of two floats. * Compute the product `*Float`, quotient `/Float`, or remainder `%Float` of two floats. The remainder is computed based on rounding the quotient of the two floats to the nearest integer. * Compute the sum `+Float` or difference `-Float` of two floats."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1566 (K 7.1.337)"
+quote = '| Float "/Float" Float [function, left, smt-hook((fp.div roundNearestTiesToEven #1 #2)), hook(FLOAT.div)]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1579-1588 (K 7.1.337)"
+quote = "* Round a floating-point number to a specified precision and exponent range (`roundFloat`). The resulting `Float` will yield the specified values when calling `precisionFloat` and `exponentBitsFloat` and when performing further computation. * Round a float to the next lowest floating-point value which is an integer (`floorFloat`). * Round a float to the next highest floating-point value which is an integer (`ceilFloat`). * Round a float to the next closest floating-point value which is an integer, in the direction of zero (`truncFloat`)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1610 (K 7.1.337)"
+quote = "| floorFloat(Float) [function, total, hook(FLOAT.floor)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "* Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-548 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to"
+
+[[reading]]
+name = "scoped"
+statement = "The section's generic naming of IEEE 754 (domains.md:1461, 1464-1467) states no value: an operation's value is stated only by its own sentence, by the representation the literal sentence names (1478-1490), by the equality sentence (1631-1638), and by what an smt-hook attribute's own words spell."
+answer = "1.0 /Float 0.0: no stated value, and not stated to have none. floorFloat(Infinity): a value exists (total) and the text does not say which. 1.0 -Float 1.0: a zero, its sign not stated."
+consequence = "Each such point takes the value an interpretation gives; none of them is the bottom form, since FLOAT writes no #False."
+
+[[reading]]
+name = "incorporated"
+statement = "The section's naming of IEEE 754 incorporates the standard's definition of each operation, generalized to every format pNxM."
+answer = "The standard's values: 1.0 /Float 0.0 is +Infinity, floorFloat(Infinity) is Infinity, 1.0 -Float 1.0 is positive zero."
+consequence = "Each such point has the standard's value, owed by reference and not checked here."
