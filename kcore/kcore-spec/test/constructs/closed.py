@@ -136,7 +136,6 @@ PINNED = [
     ("RefusalReason.missingEquation", "R2-release.C4"),
     ("RefusalReason.counterShape", "R2-release.C4"),
     ("RefusalReason.pgmSort", "R2-release.C4"),
-    ("RefusalReason.builtinModule", "R2-release.C4"),
     ("RefusalReason.builtinIncomplete", "R2-release.C4"),
     ("RefusalReason.inertMismatch", "R2-release.C4"),
     ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
