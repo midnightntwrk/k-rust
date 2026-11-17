@@ -47,6 +47,7 @@ import KcoreSpec.FaithfulTr
 import KcoreSpec.TieUnion
 import KcoreSpec.FaithfulStage1
 import KcoreSpec.FaithfulStep
+import KcoreSpec.ClauseRhsNil
 import KcoreSpec.FaithfulNeg
 import KcoreSpec.FaithfulStage2
 import KcoreSpec.FaithfulStage3
