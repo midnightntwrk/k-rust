@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t216-simp-owise.k": "05c995925d69e24ed1b31c422a1e0721ff025c32880df33be1cbb0654d23b01a"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t216-simp-owise.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "526437c16fb56615a4878ad66cdda1d41549ba2537eeb55aaf58d6505efe16af",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

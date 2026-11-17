@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "9e36c3ac80a5bf7316dcfdcfe99e9a8b981bae69e8c71bb2e290d87791452906",
+  "t212-eq-owise-prio40.k": "b09695236d11213cdd6c9f7ddbd138a9ae1983b64fb8864975954e0fb8261864"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t212-eq-owise-prio40.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3b3ed04bd4fab4d5128b8217031c9e4d3d8eb563b3a2c56e31f7b49d2e1545cf",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

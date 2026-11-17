@@ -1,0 +1,70 @@
+id = "t217-simp-ens"
+kind = "text"
+subject = "A simplification with an ensures, f(f(X)) => f(X) ensures X >=Int 0, beside the equation f(X) => X of priority 40: what the text states of f(f(x)) at x < 0, where the ensures is false and the left side has a value."
+retro = ["P8"]
+origin = "kcore-spec fixture c3-simp-ens"
+rests_on = ["kk:t11-eq-applies", "kk:t10-fn-innermost", "kk:t15-eq-ensures"]
+
+[text]
+files = ["t217-simp-ens.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) The equation of priority 40 states f(x) = x at every integer (kk:t11-eq-applies), so f(f(x)) = x at every x (kk:t10-fn-innermost): the left side of the simplification has a value everywhere.
+(2) The simplification states f(f(x)) = f(x) with its ensures x >= 0 as part of its result, as an ensures is in an equation (kk:t15-eq-ensures): at x >= 0 it states f(f(x)) = x, true of f; at x < 0 its right side has no value while its left side has one.
+(3) The manual makes the author responsible for a simplification's soundness and asks that it preserve definedness, an ensures that is false being one way to state where the left side has no value (user_manual.md:1409-1414, 1442-1448). Here the ensures is false where the left side has a value: the simplification is not sound.
+What the text does not determine:
+(4) What a text with an unsound simplification means. If the simplification is a sentence of the theory, it and the equation state f(f(-1)) as -1 and as nothing, and the text has no model. If it is a claim about the main semantics (user_manual.md:1388-1389, a rule outside the main semantics), the text's meaning is the equation's and the claim is false at x < 0. No sentence says which."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1388-1389 (K 7.1.337)"
+quote = "The simplification attribute identifies rules outside the main semantics that are used to simplify function patterns."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1409-1414 (K 7.1.337)"
+quote = "Because of this, users must ensure that simplification rules are sound regardless of their order of application. This differs from the `priority` attribute in that rules with the `priority` attribute _must_ be applied in their priority order by the backend."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1442-1446 (K 7.1.337)"
+quote = "In particular, rules with the simplification attribute must preserve definedness; that is, if the left-hand side refers to any partial function then: -   the right-hand side must be `#Bottom` when the left-hand side is `#Bottom`, or"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[reading]]
+name = "sentence"
+statement = "The simplification is a sentence of the theory, as the equation is."
+answer = "No model: f(f(-1)) is -1 by the equation and nothing by the simplification."
+consequence = "Nothing is concluded about a configuration that needs f."
+
+[[reading]]
+name = "claim"
+statement = "The simplification is a claim about the function the equations define, not a sentence that defines it; a false claim does not change f."
+answer = "f(f(-1)) = -1, f(x) = x at every x; the simplification is false at x < 0."
+consequence = "A configuration that needs f(f(-1)) holds -1."
+
+[ruling.kore]
+statement = "kompile writes the simplification as the axiom f(f(X)) = f(X) and (X >=Int 0 = true), with the ensures as a conjunct of the right side and the attribute simplification (kore.txt:81-90), beside f(X0) = X (kore.txt:63-78). As axioms the two have no common model at X = -1: the written sentences follow the reading sentence."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:90"
+quote = '''[UNIQUE'Unds'ID{}("fdb8429005e181d688fb7d3d5c7731b8308545fe6bcc38752e101e84267b02e2"), simplification{}("")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lbl'Unds-GT-Eqls'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0"))'''

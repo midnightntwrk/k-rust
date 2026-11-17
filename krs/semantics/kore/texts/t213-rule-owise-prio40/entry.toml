@@ -1,0 +1,54 @@
+id = "t213-rule-owise-prio40"
+kind = "text"
+subject = "A rewrite rule with both owise and priority(40), alone in the text: which priority the rule has, and what it states of a(X)."
+retro = ["P5"]
+origin = "kcore-spec fixture c3-rule-prio-owise-one"
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise"]
+
+[text]
+files = ["t213-rule-owise-prio40.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) The rule matches every a(x) and has no requires, and it is the one rule of the text: whatever its priority, it applies at a(x) and a(x) steps to b(x) alone (kk:t01-rule-applies, kk:t02-step-successors).
+What the text does not determine:
+(2) owise sets the rule's priority to 200 (user_manual.md:1739-1741) and priority(40) to 40 (user_manual.md:1732); no sentence says which of the two holds (kk:t04-rule-priority-owise gives each its number and says nothing of both on one rule). Beside another rule of a priority between 40 and 200 the two readings would give different successors; that text is kk:t112-prio-owise-written-rejected, which kompile rejects. Here the readings differ in the rule's number and in nothing it steps to."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1746 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`. This has a couple of implications: 1. Multiple rules with the owise attribute all have the same priority and thus can apply in any order. 2. Rules with priority higher than `200` apply **after** all rules with the `owise` attribute have been tried."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1732 (K 7.1.337)"
+quote = "You can specify the priority of a rule with the `priority` attribute."
+
+[[reading]]
+name = "priority-40"
+statement = "priority(40) holds: the rule has priority 40."
+answer = "The rule has priority 40; a(1) steps to b(1)."
+consequence = "Beside a rule of priority 50 that matches a(x), the rule of 40 blocks it."
+
+[[reading]]
+name = "owise-200"
+statement = "owise holds: the rule has priority 200."
+answer = "The rule has priority 200; a(1) steps to b(1)."
+consequence = "Beside a rule of priority 50 that matches a(x), that rule blocks this one."
+
+[ruling.kore]
+statement = "kompile writes the rule as one rewrite axiom with no premise about any other rule and both attributes, owise and priority 40 (kore.txt:96-103). The meaning of an attribute is implementation-defined (kore-syntax.md:222-228): the written sentence states that a(x) steps to b(x), and nothing of the rule's priority."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:103"
+quote = '''[UNIQUE'Unds'ID{}("36f093ab2f7a870986b6d3030c037fc7085d5b48ca9df69c336303b8dc0b9e6f"), owise{}(), priority{}("40")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
