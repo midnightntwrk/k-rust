@@ -294,7 +294,9 @@ theorem fnModel_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = 
     · exact sortPreds_agree hp
   have hd := fnDet_of_coherent hco
   exact ⟨hd, Faithful.Model.fnSolves_of_total (hypSound_of_core h) hd
-    fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs⟩
+    (fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs)
+    fun fn hfn cl hcl hne vs σ hdec =>
+      (hmi fn.label fn (lookupFn_of_core h hfn) cl hcl).2 hne fn.label fn vs σ (lookupFn_of_core h hfn) hcl hdec⟩
 
 /-- **Every function has a result at arguments of its sorts, from `FnFacts`** with the held
 variables asked of the held-named functions only: termination by the rank and the self calls'
