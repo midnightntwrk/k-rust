@@ -336,4 +336,47 @@ example {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hex :
 
 end FamExPost
 
+/-! ## A competitor with a `pre` in a model of `Γc` (`KCore.Faithful.applies_iff_pp`): `rNot` -/
+
+section Compete
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `rNot`'s conditions need no witness, its `pre` has no binder, and its open variable G is of a
+sort that is not confined. -/
+theorem compete_facts : rNot.needsWitness c = false ∧ HoldsShape.hasBinder rNot.pre = false ∧
+    (rNot.opens.any fun i => (rNot.vars[i]?.map c.confined).getD false) = false := by
+  decide +kernel
+
+/-- `applies_iff_pp` at `rNot`, a rule of a larger priority and the table hypothesis assumed. -/
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hlarger : c.rules.any (fun r'' => rNot.prio < r''.prio) = true) {x : Config c}
+    (hd : ∀ σ, c.WellSortedAt rNot.vars rNot.leftVars σ → PatVal c σ rNot.lhs x.val →
+      (∀ t, rNot.req = some t → ∃ v, EvalTerm c σ t v) ∧ ∃ b, Holds c rNot.vars.length σ rNot.pre b)
+    {tbl : KoreAML.VarTable} (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
+    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (e : ML.Valuation M) :
+    ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) ↔
+      NotApplies c rNot x.val :=
+  applies_iff_pp coreOK hI hcw rNot_pp.1 rNot_pp.2.1 hlarger
+    (fun h => absurd h (by rw [compete_facts.2.2]; decide))
+    (fun h => absurd h (by rw [compete_facts.2.1]; decide))
+    (fun h => absurd h (by rw [compete_facts.1]; decide)) hd hkeys hkP e
+
+/-- `applies_of_values_pp` at `rNot`: no rule of a larger priority is read. -/
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {x : Config c}
+    {σ : Subst} (hσ : c.WellSortedAt rNot.vars rNot.leftVars σ) (hpv : PatVal c σ rNot.lhs x.val)
+    (hpre : Holds c rNot.vars.length σ rNot.pre true)
+    {tbl : KoreAML.VarTable} (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
+    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (e : ML.Valuation M) :
+    (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) :=
+  applies_of_values_pp coreOK hI hcw rNot_pp.1 (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hσ hpv
+    (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpre hkeys hkP e
+
+end Compete
+
 end PredRules

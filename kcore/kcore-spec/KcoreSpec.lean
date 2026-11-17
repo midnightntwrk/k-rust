@@ -210,6 +210,7 @@ import KcoreSpec.HoldsFacts
 import KcoreSpec.HoldsFactsCore
 import KcoreSpec.CondTwoTables
 import KcoreSpec.StepValuesPP
+import KcoreSpec.CompetePP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
