@@ -16,14 +16,15 @@
     `[owise]`): `fn_shape` shows that each of the 30 items of `fnItems` is the translation of one
     text sentence, in the order `fnText` lists them (`FnShape`, a kernel decision); variable names
     and the `[owise]` exclusions' binders give equal patterns. The entailments `fns_entailed` (E)
-    and `fns_from_text` (the converse) are stated under `FnShape`, which `fn_shape` gives.
+    and `fns_from_text` (the converse) follow.
   - The rule (155): Γ's item (`prioRuleK`, with the premise `⌈rhs ∧ ens⌉`) is a consequence of the
     text's sentence (`rule_from_text`, W1, every H).
   - No junk of Bool, Int, KConfigVar (115, 121, 124), `\or{S}(\top{S}(), \bottom{S}())`: entailed
     by Γ, for every H (`nojunk_trivial_entailed`): they are logical truths.
   - No junk of Cmd and the cells (116 to 120, 122, 123): each translation is one of Γ's constructor
     items (`nojunk_items`, E by equality). KItem's (125) is Γ's item with its disjuncts in the text's
-    order (`nojunk_kitem_order`): `Semantics.gens` lists the same generators in another order.
+    order (`nojunk_kitem_order`): `Semantics.gens` lists the same generators in another order, and
+    Γ entails the sentence, for every H (`nojunk_kitem_entailed`).
   - Set idempotence (61): Γ with it has no model, for every H (`idem_refuted`).
   - Library sample, 166 (`I -Int 0 = I`, a `simplification`): holds at every value of `I` in every
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
@@ -32,12 +33,12 @@
     sentences, ten library sentences (171, `X <<Int 0 = X`, among them): no direction.
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
-  translation (under `FnShape`), a rule item entailed by sentence 155, or one of the five parts Γ
-  defines by predicates (`Families`), or definedness.
+  translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
+  predicates (`Families`), or definedness.
 
   The fixture's expectations (C7 form (a)), from `Pre H` (the 30 function sentences as written, Γ's
   rule item, the families; it has a model with the step's closure, `pre_model`, from `consistent`),
-  each by the cut from Γ's theorem (`cutΓ`, `gamma_from`), under `FnShape`: `half_4`
+  each by the cut from Γ's theorem (`cutΓ`, `gamma_from`): `half_4`
   (`half(4) = 2`), `half_neg4` (`half(-4) = ⊥`), `run_neg4` (`run(-4)` has no successor, with the
   step's closure). The text's rule sentence 155 itself is not a premise: with Γ it has no model.
 -/
@@ -158,23 +159,23 @@ theorem fnShape_of_eq (h : ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kern
 theorem fn_shape : FnShape :=
   fnShape_of_eq (by decide +kernel)
 
-/-- **E for the 30 equations** (under `FnShape`): Γ entails each, for every H. -/
-theorem fns_entailed (hs : FnShape) (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
+/-- **E for the 30 equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
   intro ad had M _ I hI
   have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
-    rw [hs]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
+    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
   obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
   exact hI _ (mem_Γ_fns (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))
 
-/-- **The converse for `fnItems`** (under `FnShape`): each item is a text sentence's
-translation, the j-th's `fnText[j]`. -/
-theorem fns_from_text (hs : FnShape) (H : HookParams) :
+/-- **The converse for `fnItems`**: each item is a text sentence's translation, the j-th's
+`fnText[j]`. -/
+theorem fns_from_text (H : HookParams) :
     ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
       ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
   intro j it hj
   rw [fnItems_withHooks] at hj
   have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
-  rw [hs, List.getElem?_map] at h1
+  rw [fn_shape, List.getElem?_map] at h1
   cases hf : fnText[j]? with
   | none => rw [hf] at h1; cases h1
   | some ad =>
@@ -301,6 +302,17 @@ theorem nojunk_kitem_members :
   decide +kernel
 theorem nojunk_kitem_not_gens_order :
     (c.gens Srt.kitem).map (Gen.toK c) ≠ (gensInOrder c defn.pres Srt.kitem).map (Gen.toK c) := by decide +kernel
+
+/-- **E for 125**: Γ entails KItem's no-junk sentence, for every H. Γ's item is the sentence over
+the same generators in another order, and a no-junk item entails the one over any list that holds
+its generators (`noJunkItem_of_subset`). -/
+theorem nojunk_kitem_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax125).pat := by
+  intro M _ I hI
+  rw [nojunk_kitem_order]
+  refine noJunkItem_of_subset (defOK hI) (gs := (c.gens Srt.kitem).map (Gen.toK c))
+    (fun g hg => (List.isPerm_iff.mp nojunk_kitem_members).mem_iff.mpr hg) ?_
+  exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := Srt.kitem)
+    (show Srt.kitem ∈ consSorts c by decide +kernel) (show (c.gens Srt.kitem).isEmpty = false by decide +kernel), rfl⟩)
 
 /-! ## Set idempotence (61): refuted -/
 
@@ -449,11 +461,10 @@ def Families (H : HookParams) : Premises KoreAML.Sym :=
 of sentence 155, a consequence of it by `rule_from_text`), and the families. -/
 def Pre (H : HookParams) : Premises KoreAML.Sym := TextFns ∪ ΓRules (cH H) ∪ Families H
 
-/-- **The origin of each premise of Γ** (under `FnShape`, for its `ΓFns` case):
-a function equation is the translation of a text sentence; a rule item is a consequence of
+/-- **The origin of each premise of Γ**: a function equation is the translation of a text sentence; a rule item is a consequence of
 sentence 155 (and is the reading `ruleRightDefined`); everything else is one of the five parts
 defined by predicates (`Families`). -/
-theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
+theorem gamma_origin (H : HookParams) : ∀ φ, Γ (cH H) φ →
     (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ (ΓRules (cH H) φ ∧ (itemsPremises [trS U.ax155] ⊧ φ)) ∨
       Families H φ ∨ (∃ x : EVar, φ = @definedness KoreAML.Sym _ x) := by
   intro φ h
@@ -464,7 +475,7 @@ theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
   · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inr h))))
   · rcases h with ⟨it, hit, rfl⟩ | hx
     · rw [fnItems_withHooks] at hit
-      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := hs ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
+      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := fn_shape ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
       obtain ⟨ad, had, he⟩ := List.mem_map.mp hmem
       exact Or.inl ⟨ad, had, he⟩
     · exact Or.inr (Or.inr (Or.inr hx))
@@ -473,10 +484,10 @@ theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
     · exact Or.inr (Or.inr (Or.inr hx))
   · exact Or.inr (Or.inr (Or.inl (Or.inr h)))
 
-/-- Every premise of Γ is a consequence of `Pre` (under `FnShape`). -/
-theorem gamma_from (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
+/-- Every premise of Γ is a consequence of `Pre`. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
   intro φ h M _ I hI
-  rcases gamma_origin hs H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
+  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
   · exact hI _ (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩)))
   · exact hI _ (Or.inl (Or.inr hr))
   · exact hI _ (Or.inr hf)
@@ -486,18 +497,18 @@ theorem gamma_from (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ → Pr
 theorem cutΓ {G T : Premises KoreAML.Sym} {ψ : P} (h : ∀ φ, G φ → T ⊧ φ) (hψ : G ⊧ ψ) : T ⊧ ψ :=
   fun hT => hψ fun φ hφ => h φ hφ hT
 
-/-- **`Pre` with the step's closure has a model, for every H** (under `FnShape`): every model of Γ
+/-- **`Pre` with the step's closure has a model, for every H**: every model of Γ
 with the step's closure is one, the function sentences being entailed (`fns_entailed`). The
 derivations below are therefore not vacuous; the text's own rule sentence is not in `Pre`, since
 with Γ it has no model (TIE-0 F3: `run(-4)` would need a successor in the empty set). -/
-theorem pre_model (hs : FnShape) (H : HookParams) :
+theorem pre_model (H : HookParams) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) := by
   obtain ⟨M, hM, I, hI⟩ := consistent H
   have hΓ : I ⊧ᴵP Γ (cH H) := fun φ h => hI φ (Or.inl (Or.inl h))
   refine ⟨M, hM, I, fun φ h => ?_⟩
   rcases h with ((h | h) | h) | h
   · rcases h with ⟨ad, had, rfl⟩ | ⟨x, rfl⟩
-    · exact fns_entailed hs H ad had hΓ
+    · exact fns_entailed H ad had hΓ
     · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))))))
   · exact hΓ _ (mem_Γ_rules h)
   · rcases h with (((h | h) | h) | h) | h
@@ -568,14 +579,14 @@ noncomputable def halfAt (H : HookParams) (n : Int) : P := KoreAML.den (symApp (
 
 /-- **`half(4) = 2`, derived from `Pre`**: from the 30 function sentences as written (sentence 211
 among them), the rule's reading, and the families (here the graphs of `/Int` and `>=Int`), for
-every H; `Pre` has a model (`pre_model`). Under `FnShape`. -/
-theorem half_4 (hs : FnShape) (H : HookParams) : Pre H ⊧ (halfAt H 4 ≡ den (cH H) (int 2)) :=
-  cutΓ (gamma_from hs H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+every H; `Pre` has a model (`pre_model`). -/
+theorem half_4 (H : HookParams) : Pre H ⊧ (halfAt H 4 ≡ den (cH H) (int 2)) :=
+  cutΓ (gamma_from H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsH4 H))
 
-/-- **`half(-4)` has no value, derived from `Pre`**, for every H (under `FnShape`). -/
-theorem half_neg4 (hs : FnShape) (H : HookParams) : Pre H ⊧ (halfAt H (-4) ≡ ⊥) :=
-  cutΓ (gamma_from hs H) (eval_none_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+/-- **`half(-4)` has no value, derived from `Pre`**, for every H. -/
+theorem half_neg4 (H : HookParams) : Pre H ⊧ (halfAt H (-4) ≡ ⊥) :=
+  cutΓ (gamma_from H) (eval_none_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsHm4 H))
 
 /-- The configuration with `it` in the k cell and the counter at 0. -/
@@ -590,14 +601,14 @@ theorem run_stuck (H : HookParams) : ∀ y, ¬ Step (cH H) (XH H) y :=
   Cert.stuckCheck_sound hok hsr hmr H (coherent H) (n := 100) (x := XH H)
     (show Cert.stuckCheck c 100 X.val = true by decide +kernel)
 
-/-- **`run(-4)` has no successor, derived from `Pre` with the step's closure**, for every H
-(under `FnShape`): `⟦run(-4)⟧ → ◦⊥`. The closure (`Γstep`) is a family with no sentence (TIE-0 L6),
+/-- **`run(-4)` has no successor, derived from `Pre` with the step's closure**, for every H:
+`⟦run(-4)⟧ → ◦⊥`. The closure (`Γstep`) is a family with no sentence (TIE-0 L6),
 and the rule enters as its reading (Γ's item), not as the text's sentence 155. -/
-theorem run_neg4 (hs : FnShape) (H : HookParams) :
+theorem run_neg4 (H : HookParams) :
     (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (XH H).val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
   cutΓ (fun φ h => by
       rcases h with h | h
-      · exact fun hT => gamma_from hs H φ h (fun ψ hψ => hT ψ (Or.inl hψ))
+      · exact fun hT => gamma_from H φ h (fun ψ hψ => hT ψ (Or.inl hψ))
       · exact fun hT => hT φ (Or.inr h))
     (complete_at_step _ (coreOKH H) ((Semantics.readsConfined_withHooks c H).trans readsConfined_c) (XH H)
       (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) []
@@ -699,6 +710,164 @@ theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject
     "Lbl'Unds-LT--LT-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
   decide +kernel
 
+/-! ## The account: every sentence of the user module is in exactly one class
+
+The classes are those of the tie's directions. The lists are checked for one thing here, that they
+partition the 263 sentences; what holds of a class is its own theorem, stated over its list. -/
+
+/-- Per class, the indices (`AxiomDecl.index`) of its sentences.
+- function equation: the 30 of `fnText`, equal to Γ's items;
+- rewrite rule: 155, of which Γ's item is a consequence;
+- priority equation: an equation with `priority(n)` that is not `owise` (none here);
+- constructor functional, subsort, injectivity, distinctness, no junk: the constructor sentences;
+- function functional: the `functional` sentence of a function of the definition (the 15 sort
+  predicates), which Γ does not hold;
+- hooked functional: the `functional` sentence of a symbol Γ states by its graph (`freshInt`'s
+  among them, 83: the registry interprets it);
+- collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
+- library: an equation or a lemma of the builtin library over symbols Γ has;
+- set idempotence: 61, refuted;
+- no direction: a sentence that applies a symbol Γ does not have. -/
+def classes : List (String × List Nat) :=
+  [("function equation", [211, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232,
+      233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243]),
+   ("rewrite rule", [155]),
+   ("priority equation", []),
+   ("constructor functional", [22, 24, 26, 28, 78, 103, 104, 108]),
+   ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]),
+   ("injectivity", [23, 25, 27, 29, 79, 109]),
+   ("distinctness", [80]),
+   ("no junk", [115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125]),
+   ("function functional", [84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98]),
+   ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
+   ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
+   ("library", [126, 127, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+      148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 173,
+      174, 175, 176, 177, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
+      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264, 266]),
+   ("set idempotence", [61]),
+   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 128, 129, 157, 171, 172, 178, 179, 189, 208, 210, 212, 213,
+      214, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
+
+/-- The indices of a class. -/
+def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
+
+/-- **The account**: the class lists partition the user module's sentences. Their concatenation is
+a permutation of the sentences' indices, which are distinct, so each sentence is in one class and
+in it once. -/
+theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧
+    (userAxioms.map (·.index)).Nodup := by
+  rw [userAxioms_eq]; decide +kernel
+
+/-- The class sizes. -/
+theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
+    [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
+     ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
+     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("no direction", 36)] := by
+  decide +kernel
+
+/-- The class lists agree with the lists the class theorems are stated over: the function
+equations are `fnText`'s, the rule is 155, the no-junk sentences are the three trivial ones and
+the eight over generators, the refuted one is 61. -/
+theorem account_lists : (classOf "function equation").isPerm (fnText.map (·.index)) = true ∧
+    classOf "rewrite rule" = [U.ax155.index] ∧
+    classOf "no junk" = [U.ax115, U.ax116, U.ax117, U.ax118, U.ax119, U.ax120, U.ax121, U.ax122, U.ax123, U.ax124,
+      U.ax125].map (·.index) ∧
+    classOf "set idempotence" = [U.ax61.index] := by decide +kernel
+
+/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
+aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+theorem account_absent : userAxioms.all (fun ad =>
+    (classOf "no direction").contains ad.index !=
+      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+  rw [userAxioms_eq]; decide +kernel
+
+/-! ## The tie's statement definitions on this text
+
+`AtValues` and `EntailsAtValues` at sentence 166, `symbolsOf` at the rule, `surplusItem` at two sort
+constants, `attrsAgree` at the whole text. -/
+
+theorem shapesOK_c : c.shapesOK = true := by decide +kernel
+
+/-- The one sort named `Int` is the registry's. -/
+theorem int_of_name (S : Srt) (h : KoreAML.srt (c.sortName S) = KoreAML.srt "Int") : S = Srt.int := by
+  by_cases hS : S < nRegSorts + c.sortNames.length
+  · exact (by decide +kernel : ∀ S ∈ List.range (nRegSorts + c.sortNames.length),
+      KoreAML.srt (c.sortName S) = KoreAML.srt "Int" → S = Srt.int) S (List.mem_range.mpr hS) h
+  · exfalso
+    have hlt : ¬ S < nRegSorts := fun h' => hS (Nat.lt_of_lt_of_le h' (Nat.le_add_right _ _))
+    have hge : c.sortNames.length ≤ S - nRegSorts :=
+      Nat.le_sub_of_add_le (by rw [Nat.add_comm]; exact Nat.le_of_not_lt hS)
+    have he : c.sortName S = "" := by
+      unfold Semantics.sortName
+      simp only [hlt, ↓reduceIte]
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]; rfl
+    rw [he] at h
+    exact absurd h (by decide)
+/-- **Sentence 166 is entailed at values** (`EntailsAtValues`, direction Ev), for every H: a
+valuation that sends the sentence's one free variable to a value's element sends it to an
+integer's, where `lib166` gives the sentence. -/
+theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax166 (trS U.ax166).pat := by
+  intro M _ I hI e hat m
+  obtain ⟨v, S, hS, hv, hden⟩ := hat "VarI" (KoreAML.srt "Int") (by decide +kernel)
+  have hS' : S = Srt.int := int_of_name S hS
+  subst hS'
+  obtain ⟨n, rfl⟩ := shape_int shapesOK_c (by rw [← Semantics.sortOf_withHooks _ H noRaw]; exact hv)
+  exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
+
+/-- The symbols the rule's sentence applies. -/
+theorem symbolsOf_155 : symbolsOf U.ax155.ax.pattern =
+    ["Lbl'-LT-'generatedTop'-GT-'", "Lbl'-LT-'k'-GT-'", "kseq", "inj", "Lblrun", "dotk",
+     "Lbl'-LT-'generatedTop'-GT-'", "Lbl'-LT-'k'-GT-'", "kseq", "inj", "Lbldone", "Lblhalf", "dotk"] := by
+  decide +kernel
+
+/-- The text declares no sort `Float`, so Γ's sort constant of Float is surplus; it declares `Int`,
+whose sort constant is not. -/
+theorem surplus_float : surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.float)) = true ∧
+    surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.int)) = false := by decide +kernel
+
+/-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,
+collection symbols, priorities. -/
+theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
+
+/-! ## The registry family: a String literal's value item
+
+The text declares no sort `String` and `defn` names none; Γ holds, for each String literal, that
+it denotes one element of String. That premise is a member of the registry family at the detached
+name `SortString`. -/
+
+def Dstring : KoreAML.Sym → Prop := fun σ => σ = .sort "SortString"
+
+theorem string_undeclared : kore.sortDecls.all (·.name != "SortString") = true := by decide +kernel
+
+/-- No symbol with a signature in `defn`'s own lists (constructors, functions, parameter symbols,
+overloading symbols) has String among its sorts. -/
+theorem string_unnamed : (c.ctorSigs ++ c.allFns.map Fn.sig ++ c.params.map (·.sig) ++ c.ovlSigs).all
+    (fun k => !(k.result :: k.args).contains Srt.string) = true := by decide +kernel
+
+/-- The value item of the String literal `"abc"`. -/
+noncomputable def strItem (H : HookParams) : KoreAML.P :=
+  KoreAML.sExists ⟨1⟩ (sortP ((cH H).sortName Srt.string)) (den (cH H) (.dv Srt.string (.tok "abc")) ≡ .evar ⟨1⟩)
+
+theorem str_sort (H : HookParams) : (cH H).sortOf (.dv Srt.string (.tok "abc")) = some Srt.string := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+
+/-- The item is a premise of Γ, for every H. -/
+theorem strItem_mem (H : HookParams) : Γ (cH H) (strItem H) :=
+  Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, Srt.string, str_sort H, rfl⟩)))))))
+
+/-- **The item is a `RegistryItem` at the name `SortString`**, for every H. -/
+theorem strItem_registry (H : HookParams) : RegistryItem (cH H) Dstring (strItem H) :=
+  Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, Srt.string, ⟨by decide, (by decide +kernel : c.sortName Srt.string = "String") ▸ rfl⟩,
+    str_sort H, rfl⟩))))
+
+/-- The item names the detached symbol, so it is not a premise of the theory without the family. -/
+theorem strItem_not_own (H : HookParams) : ¬ Γown (cH H) Dstring (strItem H) := fun h =>
+  h.2 (.sort "SortString") (by
+    have : strItem H = KoreAML.sExists ⟨1⟩ (sortP "String") (den c (.dv Srt.string (.tok "abc")) ≡ .evar ⟨1⟩) := rfl
+    rw [this]; decide +kernel) rfl
+
 /-! ## The statements for a definition, their `RightHeld` argument decided -/
 
 /-- `sound`, `sound_withHooks` and `exact` at `defn`, the argument `RightHeld` left to its default
@@ -730,3 +899,9 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.run_neg4
 #print axioms KCore.TieEns.lib166
 #print axioms KCore.TieEns.absent_syms
+#print axioms KCore.TieEns.lib166_at_values
+#print axioms KCore.TieEns.defs_attrsAgree
+#print axioms KCore.TieEns.strItem_registry
+#print axioms KCore.TieEns.account
+#print axioms KCore.TieEns.account_absent
+#print axioms KCore.TieEns.nojunk_kitem_entailed

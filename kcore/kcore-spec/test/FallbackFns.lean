@@ -16,7 +16,7 @@
       (`run_stuck`), and the executable step lists none (`run_stuck_none`).
   - `nc`: one function `F(Int) : Int` declared `[total]` with no equation (the case `clauses = []`):
     every argument is a point where every clause fails. Under `HookParams.none` it has no value
-    anywhere and `FnHyp` fails (`nc_noValue`, `nc_not_fnHyp`); under `Hc`, which gives it `0`
+    anywhere and `FnHyp` fails (`AtNone.nc_noValue`, `AtNone.nc_not_fnHyp`); under `Hc`, which gives it `0`
     everywhere, `RestTotal` holds (`nc_restTotal`), so it is total (`total_of_restTotal_nil`) and
     `FnHyp` holds (`nc_fnHyp`).
   - `EnsReq`: `f2-examples/ensreq.kompile.kore`, `f(X) => 1 ensures X >Int 0` and
@@ -184,6 +184,9 @@ theorem nc_lookup : nc.lookupFn F = some fnF := rfl
 /-- The interpretation that gives `F` the value 0 at every argument list. -/
 def Hc : HookParams := ⟨fun f _ => if f = F then some (int 0) else none⟩
 
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
 /-- Under the interpretation that gives nothing, `F` has no value at 0. -/
 theorem nc_noValue : ¬ ∃ v, Eval nc F [int 0] (some v) := by
   rintro ⟨v, h⟩
@@ -203,6 +206,8 @@ theorem nc_noValue : ¬ ∃ v, Eval nc F [int 0] (some v) := by
 /-- So `FnHyp` fails there: `F` is declared total. -/
 theorem nc_not_fnHyp : ¬ FnHyp nc := fun h =>
   nc_noValue (h.2.1 fnF (List.mem_singleton_self _) rfl [int 0] (by decide +kernel))
+
+end AtNone
 
 theorem nc_restTotal : RestTotal nc Hc := by
   intro fn hfn _ vs _
@@ -378,7 +383,7 @@ end KCore.FallbackFnsTest
 #print axioms KCore.FallbackFnsTest.Ens.half_neg4_H7
 #print axioms KCore.FallbackFnsTest.Ens.run_stuck
 #print axioms KCore.FallbackFnsTest.Ens.run_stuck_none
-#print axioms KCore.FallbackFnsTest.NoClause.nc_not_fnHyp
+#print axioms KCore.FallbackFnsTest.NoClause.AtNone.nc_not_fnHyp
 #print axioms KCore.FallbackFnsTest.NoClause.nc_fnHyp
 #print axioms KCore.FallbackFnsTest.EnsTotal.et_not_fnHyp
 #print axioms KCore.FallbackFnsTest.EnsReq.f0_none
