@@ -1,0 +1,33 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(3)}))",
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2)}))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(11),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)}))",
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(12),inj{SortInt,SortKItem}(3)}))",
+    "inj{SortS,SortKItem}(Lblout'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(13),inj{SortInt,SortKItem}(2)}))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "24c6b324226e5bcddc54395579e9c2dbe7ec6b9f2573fff979e5775653246a61",
+  "pgm": "904a6b1aecb049b9169d87e2c7c37785b28188226c003c2d8ecf975ce111888f"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "99c4b5ee07c32531bfeab09259392b1c309f86bc654ab2acaee08c96e7d5f6c1",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

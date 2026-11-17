@@ -23,10 +23,9 @@ Files of an entry:
 | `entry.toml` | by hand | section 2. **No tool writes or changes it.** |
 | the K text | by hand | `def.k` and `pgm` for a case; `<id>.k` or `<id>.kore` for a text entry; none for a hook entry that quotes a declaration |
 | `evidence.json` | `tools/case.py` only | section 4 |
-| `kompile.txt`, `kore.txt` | `tools/case.py` only | kompile's command, release, exit code and messages; the sentences the text adds to an empty module, without their `Source` and `Location` attributes, so that no absolute path is committed |
+| `kompile.txt`, `kore.txt` | `tools/case.py` only | kompile's command, release, exit code and messages, with the entry's directory and K's paths replaced by names; the sentences the text adds to an empty module (those of the main module that come from no builtin file of K and that the main module of an empty module does not hold), each after a line `//@ N`, N its index among the main module's sentences, without their `Source` and `Location` attributes and with the variables kompile generates renumbered, so that no absolute path is committed and a rebuild of the same text writes the same file. No `kore.txt` where kompile refused the text |
 | `pgm.kore`, `kore.pgm`, `symbols.json` | `tools/case.py`, cases only | the initial term's KORE, the encoded program for `kore.k`, and the encoder's numbering |
 
-A case whose ruling is `pending` (section 2.3) has `expected.json` in place of `evidence.json`: the two backends' recorded results and the SHA-256 of `def.k` and `pgm` they were computed from.
 
 ## 2. `entry.toml`
 
@@ -117,7 +116,7 @@ reason = "Why the result is not the ruling, or no reading."
 
 ### 2.3 `pending`
 
-`status = "pending"` marks a case whose ruling is not written yet. Its `[ruling]` holds nothing else, and its dispositions (all of the form `difference`) state how `kore.k`'s result differs from a backend's recorded result. `tools/check.py` admits a pending entry only under `--allow-pending`.
+`status = "pending"` marks an entry whose ruling is not written yet, a case or a text entry. Its `[ruling]` holds nothing else, and the dispositions of a pending case (all of the form `difference`) state how `kore.k`'s result differs from a backend's recorded result. `tools/check.py` admits a pending entry only under `--allow-pending`.
 
 ## 3. The ruling of a text entry
 
@@ -165,9 +164,9 @@ Written by `tools/case.py`, never by hand.
   ```
 
   with the readings in the order of `entry.toml`.
-- `kompile` is absent for an entry with `kompile = "not-run"`. Its `exit` is 0 exactly when `[text].kompile` is `accepts`. `kore.txt` is the hash of the entry's `kore.txt`, absent where kompile wrote none.
-- `ruling_canonical` is the hand-written `finals` (`settled`), and each reading's (`readings`, by name; a reading with a prose `answer` has no key), in the canonical text `tools/korek.py` prints. It is a translation of the ruling and changes no word of it.
-- A row of `implementations` holds `finals` (canonical texts, sorted), or `error` where the implementation failed. `kcore` is optional. For a text entry the rows hold what was observed of each implementation on the text, and there may be none.
+- `kompile` is absent for an entry that has no K text to kompile (a KORE text, a quoted declaration). Its `exit` is 0 exactly when `[text].kompile` is `accepts`; `message` is kompile's output where it refused the text, else `null`. `kore.txt` is the hash of the entry's `kore.txt`, absent where kompile wrote none.
+- `ruling_canonical` (a case only) is the hand-written `finals` (`settled`), and each reading's (`readings`, by name; a reading with a prose `answer` has no key), in the canonical text `tools/korek.py` prints. It is a translation of the ruling and changes no word of it. `tools/case.py` parses each term with `kast` against the kompiled `def.k`: the term the `<k>` cell holds, for a configuration of one cell; the top cell, for one of several. Where `kast` does not parse the terms (a cell collection of several instances, or of none), the entry carries `finals_canonical` in place of `finals`, taken as written. It is `{}` while the ruling is `pending`.
+- A row of `implementations` holds `version` and `finals` (canonical texts, sorted), or `error` where the implementation failed. `kcore` is optional, added by `tools/case.py --import kcore=FILE` with `imported_from`, the SHA-256 of FILE. A row is kept only while the K text it was computed from is unchanged. For a text entry the rows hold what was observed of each implementation on the text, and there may be none.
 - `kore.k`'s result is not stored: `tools/check.py` runs it and treats it as one more implementation.
 
 ## 5. What `tools/check.py` checks
@@ -186,4 +185,4 @@ An implementation that differs from the ruling under a disposition is not a fail
 A text entry is checked for causes 1 and 2.
 What the script does not check: that a `quote` stands at its `locator`, that the reason follows from the basis, and the rule on `source = "kompiled"`.
 
-A pending case, under `--allow-pending`: stale when `def.k` or `pgm` differs from the hashes in its `expected.json` (or `evidence.json`); it passes when `kore.k`'s result equals each recorded result no disposition names and differs from each one a disposition names.
+A pending case, under `--allow-pending`: stale as any entry (section 5, cause 2); it passes when `kore.k`'s result equals each recorded result no disposition names and differs from each one a disposition names.
