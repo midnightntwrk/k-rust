@@ -10,9 +10,10 @@
 #                one configuration); kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance; ref-kimp's row
-#                statements coreOK_defn, consistent, sound_at, complete_at, run_exact and totals (every
-#                [total] function is Total); the noninterference results over kimp, imp-sec,
-#                imp-sec-leaky, vault, vault-leaky
+#                statements coreOK_defn, consistent, sound_at, complete_at, run_exact, totals (every
+#                [total] function is Total) and totals_withHooks (the same at every hook
+#                interpretation H); the noninterference results over kimp, imp-sec, imp-sec-leaky,
+#                vault, vault-leaky
 #   tripwire     in the code (comments and strings removed) of KcoreSpec, KcoreGen.lean, GammaD.lean,
 #                examples and test: no `sorry`, `native_decide`, `decide +native`, `bv_decide`,
 #                `implemented_by`, `extern` attribute, `debug.skipKernelTC`, nor an `axiom`
