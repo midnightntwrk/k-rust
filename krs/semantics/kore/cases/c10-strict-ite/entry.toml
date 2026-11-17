@@ -1,13 +1,91 @@
 id = "c10-strict-ite"
 kind = "case"
-subject = "#if is a function of its three arguments: an undefined branch makes it undefined even where the condition does not select it, and so does an undefined operand of andBool."
+subject = "#if with a branch that has no value, in the right side of a rule beside a rule of larger priority number whose requires has an andBool operand with no value: what #if denotes there, and whether a(0) is final."
+retro = ["H1"]
+rests_on = ["kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t32-keq-ite"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a(0) no successor by the first rule (user_manual.md:1166-1173); the first axiom kompile writes has b(ite(X ==Int 0, 1, 10 /Int X)) in its right side (kore.txt:104), empty at X = 0, and read as a rewrite axiom it is false in every model where a(0) in the k cell is an element: as written the text has no model holding a(0), rather than one where a(0) has no successor by that rule."
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) The first rule has priority 40, the second 50 (user_manual.md:1748-1749). At a(0) the first matches with no requires. Its right side is b(#if 0 ==Int 0 #then 1 #else 10 /Int 0 #fi): 10 /Int 0 has no value (domains.md:1233-1234; kk:t31-int-division), and #if applied to an argument that has no value has none, whichever argument its condition selects (kk:t30-hooks-strict, kk:t32-keq-ite); domains.md:2314-2317 speaks of which argument is returned and of the order of evaluation, not of a value at an argument that has none. So the right side has no value at a(0) (kk:t10-fn-innermost), and the first rule gives a(0) no successor (user_manual.md:1166-1173). b(1) is reached by no reading.
+(2) Where the second rule is tried at a(0), its requires 0 =/=Int 0 andBool 10 /Int 0 >Int 0 has an operand with no value, so it has none (kk:t30-hooks-strict) and is not true: the second rule does not apply (user_manual.md:1154-1157). c(0) is reached by no reading.
+What the text does not determine:
+(3) Whether the first rule, matched with a right side that has no value, blocks the second at a(0), and whether a(0) is final: kk:t03-applied-rule-blocks's question, on a pair of rules of its shape. The readings are that entry's, with the final configurations each gives.
+(4) The written sentences state more than (1): [ruling.kore], and frontend_difference."""
+interpreter = "applied-blocks"
+separates = ["undefined-result-does-not-block", "undefined-step-is-final"]
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2314-2317 (K 7.1.337)"
+quote = "`#if #then #else #fi` - polymorphic conditional function. If the first argument evaluates to `true`, the second argument is returned. Otherwise, the third argument is returned. Note that this does not short-circuit on symbolic backends."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[reading]]
+name = "applied-blocks"
+statement = "The first rule applies at a(0), its left side matching and no requires standing against it, and gives nothing; the second is not tried (kk:t03-applied-rule-blocks, reading applied-blocks)."
+finals = []
+consequence = "a(0) has no successor, and a rule applies to it, so it is not final: there is no final configuration."
+
+[[reading]]
+name = "undefined-rhs-does-not-block"
+statement = "The first rule, whose right side has no value at a(0), has been tried and failed; the second is tried and does not apply, (2) (kk:t03-applied-rule-blocks, reading undefined-rhs-does-not-block)."
+finals = ["a(0)"]
+consequence = "No rule applies to a(0), which is final."
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom; neither names the other, and the first carries priority 40 as an attribute (kore.txt:98-115). The right side of the first holds ite(X ==Int 0, 1, 10 /Int X) (kore.txt:104); 10 /Int X denotes nothing at X = 0, and so does the application of ite to it, a symbol's interpretation being extended to argument sets (introduction-to-matching-logic.tex:714-716, 728-729), so at that instance the first axiom holds only where its left side has no element; a is a constructor with a functional axiom (kore.txt:60). The written sentences have no model in which a(0) in the k cell is an element, and state no blocking of one rule by another."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:104"
+quote = '''Lblb'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(Lblite{SortInt{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")),\dv{SortInt{}}("1"),Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("10"),VarX:SortInt{})))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:60"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"

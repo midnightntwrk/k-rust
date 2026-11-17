@@ -1,13 +1,81 @@
 id = "c13-inj-bool"
 kind = "case"
 subject = "A function of sort Val whose result, an Int, is placed at sort Exp (composed injections); an undefined function result under an injection; Bool literals in left sides; an injected Bool against a pattern of sort Bool and an injected Int against it; a selected #if branch."
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t16-match-inj", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t32-keq-ite"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(0) no successor by the rule go(I) => out(d(I)) and the three others of its priority (user_manual.md:1166-1173); the axiom kompile writes for that rule has out(d(I)) in its right side (kore.txt:138), and d(0) denotes nothing, so read as a rewrite axiom it is false in every model where go(0) in the k cell is an element: as written the text has no model holding go(0), rather than one where go(0) has the three successors of the other rules."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["out(0)", "false", "true"]
+reason = """
+(1) The four rules for go have priority 50 and none has a requires (user_manual.md:1748-1749): at go(0) each whose result has a value gives a successor, and a rule whose result has none gives none (kk:t02-step-successors; user_manual.md:1166-1173).
+(2) w(0) = 0, the Int 0 injected into Val (kk:t11-eq-applies), and out takes an Exp: out(w(0)) is out applied to the injection into Exp of 0 injected into Val, which is 0 injected into Exp (kk:t16-match-inj; prelude.kore:50-51). The rule out(B:Bool) => flag(B) does not match it: B:Bool matches a Bool injected into Exp, and 0 is an Int, Int not being Bool or below it (kk:t16-match-inj). So out(0) is final (kk:t06-final-configuration).
+(3) d(0) = (10 /Int 0) +Int (10 %Int 0): division by zero has no value (domains.md:1233-1234; kk:t31-int-division), and so neither has +Int of it (kk:t30-hooks-strict) nor out(d(0)) (kk:t10-fn-innermost). That rule gives go(0) no successor; the others of its priority are tried all the same, being of one number.
+(4) 0 >Int 0 is false and 0 ==Int 0 true (domains.md:1324-1325): go(0) steps to sel(false) and to sel(true). sel(false) matches only the rule sel(false) => false, the boolean values being two (domains.md:1084), and steps to false, which no rule's left side matches. sel(true) steps to #if true #then true #else false #fi, which is true (kk:t32-keq-ite; domains.md:2314-2316), and no rule's left side matches true.
+(5) So go(0) has the three successors out(0), false and true, each final, and the final configurations are those three: no flag(_) is reached, (2) excluding the rule for out at out(0)."""
+
+[[ruling.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50-51 (K 7.1.337)"
+quote = "symbol inj{From, To}(From) : To [sortInjection{}()] axiom {S1, S2, S3, R} \\equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1)) [simplification{}()]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2314-2316 (K 7.1.337)"
+quote = "`#if #then #else #fi` - polymorphic conditional function. If the first argument evaluates to `true`, the second argument is returned. Otherwise, the third argument is returned."
+
+[ruling.kore]
+statement = "Each rule for go is one rewrite axiom (kore.txt:132-193). The right side of the one for out(d(I)) holds d(I) (kore.txt:138), and d's equation gives d(0) = (10 /Int 0) +Int (10 %Int 0) (kore.txt:209), which denotes nothing, so that instance of the axiom holds only where its left side has no element; go is a constructor with a functional axiom (kore.txt:94). The written sentences have no model in which go(0) in the k cell is an element, while the manual's transition gives go(0) the three successors out(0), false and true."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:138"
+quote = '''Lblout'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Exp{}(inj{SortInt{}, SortExp{}}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'Int{}(VarI:SortInt{})))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:209"
+quote = '''Lbl'UndsPlus'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("10"),VarI:SortInt{}),Lbl'UndsPerc'Int'Unds'{}(\dv{SortInt{}}("10"),VarI:SortInt{}))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:94"
+quote = '''axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"

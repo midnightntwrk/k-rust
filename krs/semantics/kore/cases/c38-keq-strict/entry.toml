@@ -1,13 +1,66 @@
 id = "c38-keq-strict"
 kind = "case"
 subject = "==K with an undefined operand: _==K_ is a function of its two arguments, so the application is undefined and the rule that builds it has no successor; the rule of the same priority gives the final configuration."
+retro = ["H1"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t32-keq-ite"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(0) no successor by the rule for r and the successor ok(0) by the other rule (user_manual.md:1166-1173); the axiom kompile writes for the rule for r has r(10 /Int I ==K 1) in its right side (kore.txt:113), empty at I = 0, and read as a rewrite axiom it is false in every model where go(0) in the k cell is an element: as written the text has no model holding go(0), rather than one where go(0) has the one successor ok(0)."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["ok(0)"]
+reason = """
+(1) Both rules have priority 50 (user_manual.md:1748-1749), and both left sides match go(0), with no requires. The successors of go(0) are the results of the rules that apply at the least priority number at which some rule applies (kk:t02-step-successors): the rule for ok is tried at go(0) whatever the rule for r does there, and it applies: ok(0) is a successor.
+(2) The rule for r has the right side r(10 /Int 0 ==K 1). Division by zero has no value (domains.md:1233-1234; kk:t31-int-division), ==K applied to an argument that has no value has none (kk:t30-hooks-strict, kk:t32-keq-ite), and r applied to it has none (kk:t10-fn-innermost). The transition a rule represents ends in a state RHS #And ENS (user_manual.md:1166-1173); where that pattern has no value there is no such state, so this rule gives go(0) no successor, and r(true) and r(false) are reached by no rule.
+(3) So go(0) has the one successor ok(0). No rule's left side matches ok(0), so it is final (kk:t06-final-configuration). The final configurations are ok(0) alone.
+(4) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2325-2326 (K 7.1.337)"
+quote = 'K "==K" K [function, total, comm, smt-hook(=), hook(KEQUAL.eq), symbol(_==K_), group(equalEqualK)]'
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom, of one priority (kore.txt:98-115). The right side of the rule for r holds r(10 /Int I ==K 1) (kore.txt:113), which denotes nothing at I = 0, the interpretation of each symbol being extended to argument sets (introduction-to-matching-logic.tex:714-716), so that instance of the axiom holds only where its left side has no element; go is a constructor with a functional axiom (kore.txt:64), so the written sentences have no model in which go(0) in the k cell is an element, while the manual's transition gives go(0) the one successor ok(0)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:113"
+quote = '''Lblr'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool{}(Lbl'UndsEqlsEqls'K'Unds'{}(kseq{}(inj{SortInt{}, SortKItem{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("10"),VarI:SortInt{})),dotk{}()),kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),dotk{}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:64"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
