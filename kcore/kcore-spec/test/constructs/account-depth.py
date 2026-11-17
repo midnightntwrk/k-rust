@@ -1,12 +1,14 @@
 """`kcore account` of one text kompiled in two places (FIX-core.account-trunc-path): each fixture's
 cached text (kfix.py's cache, no kompile) with its paths restored twice, FIXTURE/ as a directory one
 level under .lake/kfix/NAME/depth and as one twelve levels further down, BUILTIN/ as K's builtin
-directory and as a made-up one (FAKE, 223 characters; K 7.1.337's in the nix store is 121) (the reader tells a builtin Source by its
-`/include/kframework/builtin/` suffix only), each account normalised back (FIXTURE/, BUILTIN/). The two
-accounts of a text must be equal: the account's lines may not depend on where a text was kompiled.
+directory and as kfix.FAKE_BUILTIN (kfix.account_deep), each account normalised back (FIXTURE/,
+BUILTIN/). The two accounts of a text must be equal: the account's lines may not depend on where a
+text was kompiled. `kfix.py accounts` makes the same comparison for every text it checks (against its
+account at .lake/kfix/NAME/account); this script is the comparison alone, without account.txt.
 Known-bad: a `kcore` that cuts a line at a fixed number of characters of the raw sentence (Source
 paths counted, before FIX-core.account-trunc-path) prints different lines for e2-registry-symbol-name
-(a user Source before the cut) and e3-mint (a builtin Source and a user Source before the cut).
+(a user Source before the cut) and e3-mint (a builtin Source and a user Source before the cut); with
+such a binary as KCORE_BIN both this script and `kfix.py accounts` exit 1 there.
 
 Usage (from kcore-spec, K_RUST or K_KOMPILE naming a K installation):
   python3 -I test/constructs/account-depth.py [NAME...]   (default: every kompiled fixture)
@@ -17,7 +19,6 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kfix
 
-FAKE = "/" + "/".join(["made-up-k-installation-path"] * 7) + "/include/kframework/builtin"
 
 
 def main(names):
@@ -32,7 +33,7 @@ def main(names):
             continue
         base = os.path.join(kfix.WORK, name, "depth")
         a = kfix.account_at(kore, os.path.join(base, "s"), kfix.builtin_dir())
-        b = kfix.account_at(kore, os.path.join(base, *(["deeper"] * 12), "s"), FAKE)
+        b = kfix.account_deep(kore, name)
         if a == b:
             same.append(name); continue
         diff.append(name)

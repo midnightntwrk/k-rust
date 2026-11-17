@@ -10,7 +10,9 @@ Usage (from kcore-spec):
   python3 -I test/constructs/kfix.py accounts [--write] [NAME...]
                                                      `kcore account` of each fixture's text from the
                                                      cache below (no kompile) against account.txt;
-                                                     --write re-records account.txt
+                                                     --write re-records account.txt; each kompiled
+                                                     text is also read with other paths restored
+                                                     and must give the same account
   python3 -I test/constructs/kfix.py cache-import DIR...
                                                      put DIR/NAME/definition.norm.kore (DIR another
                                                      tree's .lake/kfix) into the cache when its sha256
@@ -83,7 +85,7 @@ line `N read NOTE [...]` or `sentence I: ... NOTE ...` (the per-sentence reading
 `... (NOTE): N`, with N > 0. `check` also fails unless each `notes` entry is so, and every
 constructor of ReadingNote is a key of some `notes` table.
 """
-import hashlib, os, re, shutil, subprocess, sys, time, tomllib
+import difflib, hashlib, os, re, shutil, subprocess, sys, time, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(K, "test"))
@@ -94,7 +96,13 @@ WORK = os.path.join(K, ".lake/kfix")
 # the k-rust checkout: $K_RUST, or the nearest directory above holding Cargo.toml and crates/k-rust
 KR = relsource.krust_root() or "K_RUST-unset"
 KOMPILE = os.environ.get("K_KOMPILE", os.path.join(KR, "k/result/bin/kompile"))
-KCORE = os.path.join(K, ".lake/build/bin/kcore")
+# the kcore binary `run` and `accounts` call: $KCORE_BIN (e.g. an older build, to show a check fails
+# on it), else this workspace's
+KCORE = os.environ.get("KCORE_BIN") or os.path.join(K, ".lake/build/bin/kcore")
+# a made-up builtin directory (223 characters; K 7.1.337's in the nix store is 121): `accounts` and
+# account-depth.py restore BUILTIN/ as it for the second account of a text (the reader tells a builtin
+# Source by its /include/kframework/builtin/ suffix only)
+FAKE_BUILTIN = "/" + "/".join(["made-up-k-installation-path"] * 7) + "/include/kframework/builtin"
 LISTS = ["E1", "E2", "E3", "E7", "E8"]
 LIMIT = 200_000
 WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "MemorySwapMax=0"]
@@ -531,12 +539,22 @@ def account_at(kore, src, bd):
     return norm(a.stdout + a.stderr, src).replace(bd + "/", "BUILTIN/") + f"(exit {a.returncode})\n"
 
 
+def account_deep(kore, name):
+    """`kcore account` of a cached text kompiled elsewhere: FIXTURE/ restored twelve directory levels
+    below .lake/kfix/NAME/depth and BUILTIN/ as FAKE_BUILTIN, normalised back. It must equal the
+    account at the usual place (FIX-core.account-trunc-path): an account line may not depend on where
+    the text was kompiled or where K is installed."""
+    return account_at(kore, os.path.join(WORK, name, "depth", *(["deeper"] * 12), "s"), FAKE_BUILTIN)
+
+
 def accounts(names, write):
     """Each fixture's account from its cached text against account.txt, serially; with write, the
-    differing ones re-recorded. Exit 1 when one differs (without write) or a text is not cached."""
+    differing ones re-recorded. Each kompiled fixture's text is also read a second time kompiled
+    elsewhere (account_deep), which must give the same account (with or without write). Exit 1 when
+    one differs (without write), a second account differs, or a text is not cached."""
     if not os.path.isdir(builtin_dir()):
         raise SystemExit(f"kfix accounts: no K builtin directory {builtin_dir()}: set K_RUST or K_KOMPILE")
-    same, diff, missing = [], [], []
+    same, diff, missing, depth = [], [], [], []
     for name in names:
         acc = os.path.join(FX, name, "account.txt")
         c = conf(name)
@@ -545,6 +563,12 @@ def accounts(names, write):
         got = account_of(name, c)
         if got is None:
             missing.append(name); continue
+        if "kore" not in c:
+            deep = account_deep(cache_get(recorded_sha(name)), name)
+            if deep != got:
+                depth.append(name)
+                sys.stdout.writelines(difflib.unified_diff(
+                    got.splitlines(True), deep.splitlines(True), f"{name} (here)", f"{name} (deep)"))
         if got == open(acc).read():
             same.append(name); continue
         diff.append(name)
@@ -552,8 +576,10 @@ def accounts(names, write):
             open(acc, "w").write(got)
     print(f"kfix accounts: {len(same)} equal, {len(diff)} {'re-recorded' if write else 'differ'}"
           + (": " + " ".join(diff) if diff else "") + f", {len(missing)} not in the cache {CACHE}"
-          + (": " + " ".join(missing) if missing else ""))
-    return 1 if missing or (diff and not write) else 0
+          + (": " + " ".join(missing) if missing else "")
+          + f"; {len(depth)} whose account kompiled elsewhere differs"
+          + (": " + " ".join(depth) if depth else ""))
+    return 1 if missing or depth or (diff and not write) else 0
 
 
 def cache_import(dirs):

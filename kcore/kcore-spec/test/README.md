@@ -356,7 +356,13 @@ in the main module) and `account.txt` (`kcore account`); the kompiled text itsel
 not committed: `run` keeps it in a per-user cache outside the tree keyed by its sha256
 (`$KCORE_KFIX_CACHE`, default `~/.cache/kcore-kfix/SHA.kore`), from which `kfix.py accounts`
 checks every `account.txt` without kompiling (`kfix.py cache-import DIR...` seeds it from another
-tree's `.lake/kfix`; kfix.py's header has the details). A row names its fixture and the sentences that carry it, or, where no sentence
+tree's `.lake/kfix`; kfix.py's header has the details). `accounts` also reads each kompiled text a
+second time with its paths restored elsewhere (twelve directories deeper, K's builtin directory as a
+made-up 223-character one) and fails unless the two accounts are equal: an account line may not
+depend on where the text was kompiled (FIX-core.account-trunc-path); `test/constructs/account-depth.py
+[NAME...]` is that comparison alone. Both exit 1 with a `kcore` that cuts lines with the paths counted
+(`KCORE_BIN` names the binary to call; the build before 71c82c6b2 fails at e2-registry-symbol-name
+and e3-mint). A row names its fixture and the sentences that carry it, or, where no sentence
 does, the class and the evidence: a pair of fixtures whose texts are equal (`same_as`, erased) or
 kompile's error (rejected). `kfix.py check` (run by `constructs.sh`) fails unless
 every pointer resolves in the committed files. The fixtures are evidence for TRIAGE; they set no
