@@ -942,3 +942,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   spelling is one-to-one, and the two patterns have one translation under their own tables (`tie`);
   a spelling that gives the free variable the binder's canonical name is not one-to-one and changes
   the translation (`clash`).
+- `test/TieEnsOwise.lean`: the tie of the function equations on `f2-examples/ens-owise.kompile.kore`
+  (a user `[owise]` equation whose exclusion binds a variable of its outer variable's sort). 30 of
+  Γ's 31 equations are their text sentences' translations, pattern for pattern (`shape`); the
+  `[owise]` equation of `half` is not (`owise_differs`): the text has two keys for the exclusion's
+  bound variable and the equation's own, Γ's sentence one (`owise_tables`), so the text's pattern
+  is Γ's with a free variable renamed (`owise_renamed`) and the two are satisfied by the same
+  interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
+  (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
+  partitions the 264 sentences of the user module.
