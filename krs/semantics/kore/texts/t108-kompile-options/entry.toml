@@ -1,0 +1,36 @@
+id = "t108-kompile-options"
+kind = "text"
+subject = "kompile's options that change the KORE text it writes (--backend llvm, --hook-namespaces, --md-selector, --enable-kore-antileft): whether an option is part of what the K text states."
+retro = ["T3"]
+origin = "kcore-spec fixture e8-ref"
+
+[text]
+files = ["t108-kompile-options.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "What is read is the theory of the KORE text kompile wrote, under the command recorded with it (kompile.txt); an option of kompile is not a sentence of the K text. A text written from the same K file under another option is another text and is read by its own sentences; where it differs from this one (an attribute added, a hook kept or dropped, a module selected, a left side written as an alias), it differs as a text."
+reason = """
+(1) A K language definition becomes a matching logic theory, and the tools of the K framework are best-effort implementations of proof search in it (introduction-to-matching-logic.tex:1291-1294). A theory is a signature and a set of axioms (:697-698). So what a KORE text states is its signature and its axioms, whatever command wrote it.
+(2) The K text of this entry is one file; the command that wrote kore.txt is recorded in kompile.txt with its options. A different option is a different input to the tool, not a sentence of the K file, and the text it writes is read by (1) as written.
+(3) The entry rules nothing about the texts other options give beyond (1): each of them is its own text; what is observed of four of them is recorded in the notes."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1291-1294 (K 7.1.337)"
+quote = '''That is, a \K language definition becomes a matching logic theory, and the various tools that are part of the \K framework become best-effort implementations of targeted proof search using the deduction system'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:697-698 (K 7.1.337)"
+quote = '''A matching logic \emph{theory} is a triple $(S, \Sigma, A)$ where $(S,\Sigma)$ is a signature and $A$ is a set of patterns called \emph{axioms}.'''
+
+[[observe]]
+file = "kompile.txt"
+contains = "command: kompile --backend haskell t108-kompile-options.k -o out"
+
+[[note]]
+implementation = "kompile"
+text = "Observed on this K text in kcore-spec (fixtures e8-backend-llvm, e8-hook-namespaces, e8-enable-kore-antileft, each against e8-ref; e8-md-selector against e8-md): with --backend llvm every sentence that differs carries the simplification attribute; with --hook-namespaces FOO the hook FOO.bar of fh is kept as a hook; with --enable-kore-antileft the left sides are written as aliases ruleNLHS; with --md-selector the constructors of the selected code blocks only are in the text."

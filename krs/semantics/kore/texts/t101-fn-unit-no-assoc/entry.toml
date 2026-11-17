@@ -1,0 +1,29 @@
+id = "t101-fn-unit-no-assoc"
+kind = "text"
+subject = "A total function production with unit(zero) and no assoc: whether the frontend delivers a KORE text."
+retro = ["A1"]
+origin = "kcore-spec fixture e2-fn-unit"
+
+[text]
+files = ["t101-fn-unit-no-assoc.k"]
+kompile = "rejects"
+frontend = "differs"
+frontend_difference = "The manual describes unit on a production with no condition on assoc and says that K generates the axioms; kompile refuses unit without assoc on this function production (exit 113, Unimplemented case when removing unit applications: unit attribute but no assoc)."
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'Unimplemented case when removing unit applications: unit attribute but no assoc'). The K text itself states, by the manual, that zero is a unit of pu; no sentence of the manual makes that conditional on assoc or says that such a text is refused."
+reason = """
+(1) What the frontend delivers: no definition. kompile's message is recorded in kompile.txt; the refusal is a fact about the tool and its release, and names a case the tool does not implement.
+(2) What the manual says of the K text: the unit attribute indicates that the production has a unit, and K generates the axioms of the concept (user_manual.md:958-963). The sentence names unit apart from assoc and puts no condition on it. So the manual describes this text, and does not foresee its refusal: the frontend differs from the manual here.
+(3) The two rules of the text, zero => 0 and pu(A, B) => A +Int B, agree with the unit law at every integer (0 + B and A + 0), so the refusal is not that of a text whose sentences conflict."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[[observe]]
+file = "kompile.txt"
+contains = "Unimplemented case when removing unit applications"

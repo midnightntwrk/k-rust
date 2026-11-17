@@ -1,0 +1,14 @@
+command: kompile --backend haskell t101-fn-unit-no-assoc.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Internal: Unimplemented case when removing unit applications: unit
+  attribute but no assoc
+  	Source(t101-fn-unit-no-assoc.k)
+  	Location(4,18,4,72)
+  	4 |	  syntax Int ::= pu(Int, Int) [function, total, unit(zero), symbol(pu)]
+  	  .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  T101-FN-UNIT-NO-ASSOC-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using T101-FN-UNIT-NO-ASSOC as default.

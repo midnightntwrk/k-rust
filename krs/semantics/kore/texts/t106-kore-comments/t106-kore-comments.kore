@@ -1,0 +1,10 @@
+[]
+/* A block comment before the module. */
+module T106-KORE-COMMENTS
+  sort SortExp{} []
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}()]
+  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}()]
+// rule a() => b() [a comment that names a rule]
+  axiom{} \not{SortExp{}} (\and{SortExp{}} (Lbla{}(), Lblb{}())) [constructor{}()] // no confusion different constructors
+// rule a comment that is followed by no axiom
+endmodule []

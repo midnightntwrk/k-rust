@@ -1,0 +1,27 @@
+id = "t109-smt-lemma-rule"
+kind = "text"
+subject = "smt-lemma on a rewrite rule whose symbols have no smt-hook or smtlib: whether the frontend delivers a KORE text."
+retro = ["T4"]
+origin = "kcore-spec fixture e2-smt-lemma-rule"
+
+[text]
+files = ["t109-smt-lemma-rule.k"]
+kompile = "rejects"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'All terms in smt-lemma rules require smt-hook or smtlib labels'). The manual states the condition the rule fails: every symbol present in an smt-lemma rule must have an smt-hook or smtlib attribute, and the symbol a has neither."
+reason = """
+(1) The manual says that smt-lemma can be applied to a rule, and that every symbol present in the rule must have an smt-hook(...) or smtlib(...) attribute (user_manual.md:2392-2395).
+(2) The rule a(X) => X holds the symbol a, declared with no such attribute. So the text breaks the condition of (1), and kompile refuses it (kompile.txt): the refusal is the one the manual's sentence foresees."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2392-2395 (K 7.1.337)"
+quote = "`smt-lemma` can be applied to a rule to encode it as a conditional equality when sending queries to Z3. A rule `rule LHS => RHS requires REQ` will be encoded as the conditional equality `(=> REQ (= (LHS RHS))`. Every symbol present in the rule must have an `smt-hook(...)` or `smtlib(...)` attribute."
+
+[[observe]]
+file = "kompile.txt"
+contains = "Invalid term in smt-lemma detected"

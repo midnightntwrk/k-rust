@@ -1,0 +1,42 @@
+id = "t102-fn-comm"
+kind = "text"
+subject = "A total function production with comm: what the K text says of commutativity, and what the sentences kompile writes state of it."
+retro = ["A1"]
+origin = "kcore-spec fixture c3-fn-comm"
+
+[text]
+files = ["t102-fn-comm.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual says that the comm attribute indicates that the production is commutative and that K generates the axioms; kompile writes neither a commutativity axiom nor a comm{}() attribute on the symbol Lblpl (kore.txt:2)."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "By the K text, pl is commutative: pl(A, B) and pl(B, A) denote the same value for all integers A and B. The text's one rule gives pl(A, B) the value of A +Int B, at which the law holds as well."
+reason = """
+(1) The manual says that the comm attribute indicates that a production is commutative, and that K generates the axioms of the concept (user_manual.md:958-963). So the K text states pl(A, B) = pl(B, A).
+(2) The rule pl(A, B) => A +Int B gives pl the sum of its arguments, and the sum of two integers does not depend on their order: the law of (1) holds of the value the rule gives, so the two sentences of the text agree.
+(3) What the kompiled text states is ruled in [ruling.kore]: there commutativity is a consequence of the equation, not a sentence."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[ruling.kore]
+statement = "The kompiled text holds no commutativity sentence for Lblpl and no comm{}() attribute on its declaration (kore.txt:2). Its equation states Lblpl{}(X0, X1) = X0 +Int X1 at every pair of integers (kore.txt:79-82), from which pl(A, B) = pl(B, A) follows at integers as a consequence."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''symbol Lblpl{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), functional{}(), symbol'Kywd'{}("pl"), total{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:79-82"
+quote = '''\equals{SortInt{},R} ( Lblpl{}(X0:SortInt{},X1:SortInt{}), \and{SortInt{}} ( Lbl'UndsPlus'Int'Unds'{}(VarA:SortInt{},VarB:SortInt{}),'''
+
+[[observe]]
+file = "kore.txt"
+absent = "comm{}()"

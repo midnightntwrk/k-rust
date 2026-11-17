@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t102-fn-comm.k": "e3c3943c231d062a0603aca00be628fd6f7c8f5be6e94b407e80e12c1f0bd4a6"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t102-fn-comm.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "ceb46c7f8fa55d262fae1498d64fc95c1388d9ab86126613377981a300414415",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
