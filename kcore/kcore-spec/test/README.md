@@ -945,6 +945,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (decided). `holds_atT_fixed` and `holds_stdI_fixed` at the two accepted conditions under
   `FnHyp`, the truth value from `holds_decided`; `Cond.boundV_none`, `Cond.boundV_of_bound` at
   instances.
+- `test/HoldsBinderFixed.lean`: the Holds lemma at an `ex` binder of a sort that is not confined,
+  in every model of `Γc` (KcoreSpec/HoldsBinderFixed.lean). `CE.holds_binder_fixed` (the `ex` case
+  over `Cond.boundV c val`) and `CE.holds_entails_fixed` (every condition) at `val := c.valued`,
+  whose sorts have a value (`Semantics.valued_value`); with `val` admitting no sort,
+  `holds_entails_fixed` gives the lemma over `Cond.bound` (`Cond.boundV_none`). The axioms of
+  these, of `holds_den_fixed`, `fixes_value_read` and `fixes_value`.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
