@@ -38,12 +38,34 @@
   - `eqTwice`, `#Exists B. #Exists B. B`: refused `existentialRhs`.
   - `eqNoTerm`, `#Exists B. {B #Equals notBool X}`: refused `manyValuedRightSide` (`\top`).
   - `eqInner`, `#Exists B. (B #And #Exists C. {C #Equals B})`: refused `manyValuedRightSide`.
-  - `eqAnd`, `#Exists B. (B #And notBool X)`: refused `patternConnective` (two term conjuncts).
+  - `eqAnd`, `#Exists B. (B #And notBool X)`, two term conjuncts: a fresh Z after B in `exs`,
+    `rhs Z`, `post (Z ∈ B) ∧ (Z ∈ notBool(X))`.
   - `eqPlain`, `f(X) => notBool X #And {X #Equals true}`, no binder: `exs = []`, the predicate in
     `post`.
   Kernel-checked (`kernel_rfl`, `decide +kernel`): `ceRead` on the equation of
   `e3-eq-exists-partial-ml` written by hand (`Hand.eqB`; `tie` checks that it is the scanned
   text's), on `eqTwoB`, and the refusals' reasons.
+
+  ## and-terms-eq: a conjunction of terms at a term position (`Parse.cutAnd`)
+
+  - `e3-ml-eq-rhs-and-term`, `h(X) => f(X) #And g(X)`: one clause over `[X:Int, #Cut0:Int]`,
+    `exs [1]`, `rhs #Cut0`, `post (#Cut0 ∈ f(X)) ∧ (#Cut0 ∈ g(X))`; `fixedExs [1]` (both
+    memberships are over X), so `clauseCE` is true at the unconfined Int.
+  Hand-written (`HandAnd`, over the names `N2`, f, g, h : Int → Int):
+  - `eqVar`, `h(X) => X #And g(X)`, a conjunct that is a variable of the clause: `post (Z ∈ X) ∧
+    (Z ∈ g(X))`.
+  - `eqUnder`, `h(X) => f(f(X) #And g(X))`, the conjunction under an application: `rhs f(Z)`.
+  - `eqPred`, `h(X) => f(g(X) #And {X >Int 0 #Equals true})`: no cut, the predicate lifted out of
+    the application into `post`.
+  - `eqNested`, `h(X) => f(X) #And (g(X) #And X)`: one cut, three memberships.
+  - `eqInner`, `h(X) => f(X) #And g(X #And f(X))`: two cuts, the inner one first in `exs`.
+  - `eqOr`, `h(X) => f(X) #And (g(X) #Or X)`: refused `manyValuedRightSide` (`\or`).
+  A conjunct that applies a function whose equation has a `requires` is read as any application
+  (the reading function does not look at g's equations); what the clause gives where g has no
+  value is a fact of `Eval`, the fixture tests' after the wiring.
+  Kernel-checked: `cutAnd` on the fixture's right side (the fresh variable's name among them),
+  `ceRead` on the fixture's equation written by hand (`HandAnd.eqH`, tied to the text) and on
+  `eqInner`.
 -/
 import KcoreSpec
 
@@ -298,7 +320,10 @@ eqArg: refused KCore.Parse.RefusalReason.existentialRhs (VarX)
 eqTwice: refused KCore.Parse.RefusalReason.existentialRhs (VarB: bound twice)
 eqNoTerm: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
 eqInner: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
-eqAnd: refused KCore.Parse.RefusalReason.patternConnective (\and)
+eqAnd:
+  [0] vars [X:Bool, B:Bool, 'Hash'Cut0:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1, 2] post (('Hash'Cut0 ∈[Bool] B) ∧ ('Hash'Cut0 ∈[Bool] LblnotBool'Unds'(X)))
 eqPlain:
   [0] vars [X:Bool] pats [X] req none prio 50 aside false
       pre ⊤
@@ -344,7 +369,7 @@ theorem ceRead_refused :
     let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
     reason eqUnheld = some .existentialRhs ∧ reason eqArg = some .existentialRhs ∧
     reason eqTwice = some .existentialRhs ∧ reason eqNoTerm = some .manyValuedRightSide ∧
-    reason eqInner = some .manyValuedRightSide ∧ reason eqAnd = some .patternConnective := by
+    reason eqInner = some .manyValuedRightSide := by
   decide +kernel
 
 end Hand
@@ -356,8 +381,140 @@ end Hand
 /-- info: 'ExClauseReader.Hand.ceRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.ceRead_refused
 
-/-! Opaque constants `ceRead` reaches (test/OpaqueAudit.lean's walk): `String.Internal.append`,
-through the details of refusals only. -/
+/-! ## and-terms-eq -/
+
+/--
+info: e3-ml-eq-rhs-and-term Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] Lblf(X)) ∧ ('Hash'Cut0 ∈[Int] Lblg(X)))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  run "e3-ml-eq-rhs-and-term" ["Lblh"]
+
+namespace HandAnd
+
+open KoreAML (ev ap srt evar)
+
+/-- f, g, h : Int → Int, the symbols `nRegSyms` to `nRegSyms + 2`. -/
+def N2 : Names :=
+  { sorts := [], syms := ["Lblf", "Lblg", "Lblh"]
+    keyFns := [(nRegSyms, "Int"), (nRegSyms + 1, "Int"), (nRegSyms + 2, "Int")] }
+
+def int : Kore.KSort := srt "Int"
+def X : Kore.Pattern := ev "VarX" int
+def f (p : Kore.Pattern) : Kore.Pattern := ap "Lblf" [p]
+def g (p : Kore.Pattern) : Kore.Pattern := ap "Lblg" [p]
+def gt0 : Kore.Pattern :=
+  .equals (srt "Bool") int (ap "Lbl'Unds-GT-'Int'Unds'" [X, .dv int "0"]) (.dv (srt "Bool") "true")
+
+def eqn (rhs : Kore.Pattern) : RawEqn := ⟨"Lblh", [X], none, none, rhs, [], none, false⟩
+
+/-- `h(X) => f(X) #And g(X)`: the equation of `e3-ml-eq-rhs-and-term` (`tie`). -/
+def eqH : RawEqn := eqn (.and int [f X, g X])
+def eqVar : RawEqn := eqn (.and int [X, g X])
+def eqUnder : RawEqn := eqn (f (.and int [f X, g X]))
+def eqPred : RawEqn := eqn (f (.and int [g X, gt0]))
+def eqNested : RawEqn := eqn (.and int [f X, .and int [g X, X]])
+def eqInner : RawEqn := eqn (.and int [f X, g (.and int [X, f X])])
+def eqOr : RawEqn := eqn (.and int [f X, .or int [g X, X]])
+
+end HandAnd
+
+/--
+info: e3-ml-eq-rhs-and-term Lblh: the hand-written equation is the text's: true
+-/
+#guard_msgs in
+#eval tie "e3-ml-eq-rhs-and-term" "Lblh" HandAnd.eqH
+
+/--
+info: eqH:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] sym0(X)) ∧ ('Hash'Cut0 ∈[Int] sym1(X)))
+eqVar:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] X) ∧ ('Hash'Cut0 ∈[Int] sym1(X)))
+eqUnder:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0('Hash'Cut0) ens none exs [1] post (('Hash'Cut0 ∈[Int] sym0(X)) ∧ ('Hash'Cut0 ∈[Int] sym1(X)))
+eqPred:
+  [0] vars [X:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0(sym1(X)) ens none exs [] post (Lbl'Unds-GT-'Int'Unds'(X, 0) =[Bool] true)
+eqNested:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1(X)) ∧ ('Hash'Cut0 ∈[Int] X)))
+eqInner:
+  [0] vars [X:Int, 'Hash'Cut0:Int, 'Hash'Cut1:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut1 ens none exs [1, 2] post (('Hash'Cut0 ∈[Int] X) ∧ (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut1 ∈[Int] sym0(X)) ∧ ('Hash'Cut1 ∈[Int] sym1('Hash'Cut0)))))
+eqOr: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+-/
+#guard_msgs in
+open HandAnd in
+#eval show IO Unit from do
+  showHand "eqH" (ceRead N2 eqH)
+  showHand "eqVar" (ceRead N2 eqVar)
+  showHand "eqUnder" (ceRead N2 eqUnder)
+  showHand "eqPred" (ceRead N2 eqPred)
+  showHand "eqNested" (ceRead N2 eqNested)
+  showHand "eqInner" (ceRead N2 eqInner)
+  showHand "eqOr" (ceRead N2 eqOr)
+
+namespace HandAnd
+
+def F : Sym := nRegSyms
+def G : Sym := nRegSyms + 1
+def x : Term := .var 0
+
+/-- `cutAnd` on the fixture's right side, in the kernel: the fresh variable `Var'Hash'Cut0` of the
+conjunction's sort in the position, the next number, the one cut, no predicate. -/
+theorem cutAnd_eqH : cutAnd ["VarX"] 0 eqH.rhs =
+    (KoreAML.ev "Var'Hash'Cut0" int, 1, [(KoreAML.evar "Var'Hash'Cut0" int, int, [f X, g X])], []) := by
+  kernel_rfl
+
+/-- A name of the text's is not taken: the fresh variable is primed. -/
+theorem cutAnd_primed : (cutAnd ["VarX", "Var'Hash'Cut0"] 0 eqH.rhs).1 = KoreAML.ev "Var'Hash'Cut0'" int := by
+  kernel_rfl
+
+/-- **`ceRead` on the fixture's equation, in the kernel**: one clause over `[X:Int, #Cut0:Int]`,
+the fresh variable existential and in the position, the two memberships in `post`. -/
+theorem ceRead_eqH : ceRead N2 eqH = .ok
+    ({ vars := [Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 1, ens := none, prio := 50,
+       aside := false, exs := [1],
+       post := .and (.mem Srt.int (.var 1) (.app F [x])) (.mem Srt.int (.var 1) (.app G [x])) },
+     [⟨"X", "Int"⟩, ⟨"'Hash'Cut0", "Int"⟩]) := by
+  kernel_rfl
+
+/-- Two cuts: the inner conjunction's variable first. -/
+theorem ceRead_eqInner : ceRead N2 eqInner = .ok
+    ({ vars := [Srt.int, Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 2, ens := none,
+       prio := 50, aside := false, exs := [1, 2],
+       post := .and (.mem Srt.int (.var 1) x) (.and (.mem Srt.int (.var 1) (.app F [x]))
+         (.and (.mem Srt.int (.var 2) (.app F [x])) (.mem Srt.int (.var 2) (.app G [.var 1])))) },
+     [⟨"X", "Int"⟩, ⟨"'Hash'Cut0", "Int"⟩, ⟨"'Hash'Cut1", "Int"⟩]) := by
+  kernel_rfl
+
+end HandAnd
+
+/-- info: 'ExClauseReader.HandAnd.cutAnd_eqH' depends on axioms: [propext] -/
+#guard_msgs in #print axioms HandAnd.cutAnd_eqH
+/-- info: 'ExClauseReader.HandAnd.cutAnd_primed' depends on axioms: [propext] -/
+#guard_msgs in #print axioms HandAnd.cutAnd_primed
+/-- info: 'ExClauseReader.HandAnd.ceRead_eqH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.ceRead_eqH
+/-- info: 'ExClauseReader.HandAnd.ceRead_eqInner' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.ceRead_eqInner
+
+/-! Opaque constants `ceRead` and `cutAnd` reach (test/OpaqueAudit.lean's walk):
+`String.Internal.append`, through the details of refusals only. -/
 
 open Lean in
 def opaqueReach (roots : List Name) : MetaM (List Name) := do
@@ -378,9 +535,12 @@ def opaqueReach (roots : List Name) : MetaM (List Name) := do
     | _ => pure ()
   return out.mergeSort (·.toString < ·.toString)
 
-/-- info: KCore.Parse.ceRead: [String.Internal.append] -/
+/--
+info: KCore.Parse.ceRead: [String.Internal.append]
+KCore.Parse.cutAnd: []
+-/
 #guard_msgs in
 #eval show Lean.MetaM Unit from do
-  for root in [``ceRead] do IO.println s!"{root}: {← opaqueReach [root]}"
+  for root in [``ceRead, ``cutAnd] do IO.println s!"{root}: {← opaqueReach [root]}"
 
 end ExClauseReader
