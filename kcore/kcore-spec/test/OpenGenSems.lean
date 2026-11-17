@@ -754,4 +754,278 @@ theorem commCtor_confined_value (H : HookParams) (ht : OpenTotal (CommCtor.c.wit
 #print axioms commCtor_confined_value
 #print axioms EndRaw.not_lawLibRawFree_c2
 
+/-! ## e2-idem-ctor: the expectations (CN-4 §3.4 V7)
+
+- For every H with `OpenLaws`: `x | x` is `x` (the idempotence axiom at `x`).
+- At `lawHooks c HookParams.none`: `(x | y) | y` is a value of Exp distinct from `x | y` (the text
+  leaves it open; `lawHooks` merges equal arguments only).
+- At `HookParams.none`: `OpenIdem` fails at `x` (`or(x, x)` is the raw application, a value other
+  than `x`), so `OpenLaws` fails. -/
+namespace IdemCtor
+
+def xV : GroundTerm := .ctor xS []
+def yV : GroundTerm := .ctor yS []
+
+theorem sort_x (H : HookParams) : (c.withHooks H).sortOf xV = some exp :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+theorem or_mem (H : HookParams) : orP ∈ (c.withHooks H).params := List.mem_singleton_self _
+
+theorem idem_x (H : HookParams) (hl : OpenLaws (c.withHooks H)) :
+    (c.withHooks H).paramVal orS [xV, xV] = some xV :=
+  (hl orP (or_mem H) rfl).2 rfl xV (sort_x H)
+
+theorem lawHooks_values :
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS [.ctor orS [xV, yV], yV] =
+      some (.ctor orS [.ctor orS [xV, yV], yV]) ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [.ctor orS [xV, yV], yV]) = some exp ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [xV, yV]) = some exp ∧
+    GroundTerm.ctor orS [.ctor orS [xV, yV], yV] ≠ .ctor orS [xV, yV] := by
+  decide +kernel
+
+theorem none_raw : (c.withHooks HookParams.none).paramVal orS [xV, xV] = some (.ctor orS [xV, xV]) := by
+  decide +kernel
+theorem not_openIdem_none : ¬ OpenIdem (c.withHooks HookParams.none) orS exp := fun h =>
+  absurd ((h xV (sort_x _)).symm.trans none_raw) (by decide +kernel)
+theorem not_openLaws_none : ¬ OpenLaws (c.withHooks HookParams.none) := fun h =>
+  not_openIdem_none ((h orP (or_mem _) rfl).2 rfl)
+
+end IdemCtor
+
+#print axioms IdemCtor.idem_x
+#print axioms IdemCtor.lawHooks_values
+#print axioms IdemCtor.not_openLaws_none
+
+/-! ## e2-comm-ctor: the expectations (CN-4 §4.7)
+
+- `coreOK` (`commCtor_coreOK`).
+- For every H with `OpenLaws` and `OpenTotal`: `Consistent`, `SoundC`, `CompleteC` and `ExactC`
+  (`OpenTotal` is a named obligation no proof reads: it keeps the interpretations to those under
+  which the text's `functional` sentences hold).
+- At `lawHooks c H`, for every H: the same, both obligations discharged.
+- At `HookParams.none`: `OpenTotal` holds and `OpenLaws` fails: `or(or(x,x),x)` and `or(x,or(x,x))`
+  are two raw values, so associativity fails at `x, x, x`. -/
+namespace CommCtor
+
+def xV : GroundTerm := .ctor xS []
+
+theorem headlines (H : HookParams) (hl : OpenLaws (c.withHooks H)) (_ht : OpenTotal (c.withHooks H)) :
+    Consistent (c.withHooks H) ∧ SoundC (c.withHooks H) ∧ (∀ ref, CompleteC (c.withHooks H) ref) ∧
+      ExactC (c.withHooks H) :=
+  have hc := (Semantics.coreOK_withHooks c H).trans commCtor_coreOK
+  have hf := commCtor_fnHyp H hl
+  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 hl, sound_hyp _ hc hf,
+    fun ref => complete_hyp _ ref hc hf, exact_hyp _ hc hf⟩
+
+theorem headlines_lawHooks (H : HookParams) :
+    Consistent (c.withHooks (lawHooks c H)) ∧ SoundC (c.withHooks (lawHooks c H)) ∧
+      (∀ ref, CompleteC (c.withHooks (lawHooks c H)) ref) ∧ ExactC (c.withHooks (lawHooks c H)) :=
+  headlines (lawHooks c H) (openLaws_lawHooks c commCtor_coreOK H) (openTotal_lawHooks c commCtor_coreOK H)
+
+/-- At `HookParams.none` the two nestings of `x, x, x` under `or` are two raw values of Exp. -/
+theorem none_values :
+    ((c.withHooks HookParams.none).paramVal orS [xV, xV]).bind
+        (fun ab => (c.withHooks HookParams.none).paramVal orS [ab, xV]) =
+      some (.ctor orS [.ctor orS [xV, xV], xV]) ∧
+    ((c.withHooks HookParams.none).paramVal orS [xV, xV]).bind
+        (fun bd => (c.withHooks HookParams.none).paramVal orS [xV, bd]) =
+      some (.ctor orS [xV, .ctor orS [xV, xV]]) ∧
+    (c.withHooks HookParams.none).sortOf (.ctor orS [.ctor orS [xV, xV], xV]) = some exp ∧
+    (c.withHooks HookParams.none).sortOf (.ctor orS [xV, .ctor orS [xV, xV]]) = some exp ∧
+    GroundTerm.ctor orS [.ctor orS [xV, xV], xV] ≠ .ctor orS [xV, .ctor orS [xV, xV]] := by
+  decide +kernel
+
+theorem not_openLaws_none : ¬ OpenLaws (c.withHooks HookParams.none) := fun h => by
+  have ha := (h orP (by decide +kernel) rfl).1 rfl xV xV xV (by decide +kernel)
+  exact absurd (Option.some.inj ((none_values.1.symm.trans ha).trans none_values.2.1)) none_values.2.2.2.2
+
+theorem openTotal_none : OpenTotal (c.withHooks HookParams.none) := commCtor_openTotal_none_core
+
+end CommCtor
+
+#print axioms CommCtor.headlines
+#print axioms CommCtor.headlines_lawHooks
+#print axioms CommCtor.not_openLaws_none
+
+/-! ## e2-open-rule: the expectations (CN-4 §4.7)
+
+`and` has no law, so `OpenLaws` holds under every interpretation.
+
+- For every H with `OpenTotal`: `<k> go </k>` (counter 0) has one successor, `<k> v </k>` with v
+  the value H gives `x & y`.
+- `same(x & y, y & x)` is `false` at `HookParams.none` (two raw values) and `true` at `Hswap`,
+  which answers `and(x, y)` at `and [y, x]`.
+- At `Hbad`, which answers `go` (of KItem, not Exp) at every application of `and`, `and [x, y]` has
+  no value and `OpenTotal` fails.
+- The configuration named, `<k> go </k>`, applies no open generator (`rawFree`): it is a
+  configuration under every interpretation. -/
+namespace OpenRule
+
+def xV : GroundTerm := .ctor xS []
+def yV : GroundTerm := .ctor yS []
+/-- The counter cell at 0. -/
+def cnt : GroundTerm := .ctor counterLabel [int 0]
+/-- `<k> go </k>`. -/
+def goV : GroundTerm := .ctor topLabel [.ctor kS [.ctor kseq [.ctor goS [], .ctor dotk []]], cnt]
+/-- `<k> v </k>`, v a value of Exp. -/
+def afterV (v : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kS [.ctor kseq [injNormal exp Srt.kitem v, .ctor dotk []]], cnt]
+
+theorem go_rawFree : c.rawFree goV = true ∧ c.sortOf goV = some topCellSort ∧
+    c.rawFree cnt = true ∧ c.sortOf cnt = some Srt.counter ∧
+    c.rawFree xV = true ∧ c.sortOf xV = some exp ∧ c.rawFree yV = true ∧ c.sortOf yV = some exp := by
+  decide +kernel
+
+/-- `<k> go </k>` as a configuration under H. -/
+def goCfg (H : HookParams) : Config (c.withHooks H) :=
+  ⟨goV, (Semantics.sortOf_withHooks_rawFree c H go_rawFree.1).trans go_rawFree.2.1⟩
+
+theorem and_mem (H : HookParams) : andP ∈ (c.withHooks H).params := List.mem_singleton_self _
+
+theorem openLaws_any (H : HookParams) : OpenLaws (c.withHooks H) := fun k hk _ => by
+  have hk' : k = andP := List.mem_singleton.mp hk
+  subst hk'
+  exact ⟨fun h => (by cases h), fun h => (by cases h)⟩
+
+theorem sorts_xy (H : HookParams) : (c.withHooks H).sortsOf [xV, yV] = some [exp, exp] :=
+  OvlLaws.sortsOf_cons_iff.mpr
+    ⟨(Semantics.sortOf_withHooks_rawFree c H go_rawFree.2.2.2.2.1).trans go_rawFree.2.2.2.2.2.1,
+     OvlLaws.sortsOf_cons_iff.mpr
+      ⟨(Semantics.sortOf_withHooks_rawFree c H go_rawFree.2.2.2.2.2.2.1).trans go_rawFree.2.2.2.2.2.2.2, rfl⟩⟩
+
+/-- The rule's right side under a σ that gives the counter cell: `<k> v </k>`, v the value of
+`x & y`. -/
+theorem go_rhs (H : HookParams) {v : GroundTerm} (hv : (c.withHooks H).paramVal andS [xV, yV] = some v)
+    {σ : Subst} (h0 : σ.lookup 0 = some cnt) :
+    EvalTerm (c.withHooks H) σ ruleGo.rhs (some (afterV v)) := by
+  have hx : EvalTerm (c.withHooks H) σ (.app xS []) (some xV) :=
+    EvalTerm.ctor (rs := []) (show c.isCtor xS = true by decide +kernel) .nil
+  have hy : EvalTerm (c.withHooks H) σ (.app yS []) (some yV) :=
+    EvalTerm.ctor (rs := []) (show c.isCtor yS = true by decide +kernel) .nil
+  have hand : EvalTerm (c.withHooks H) σ (.app andS [.app xS [], .app yS []]) (some v) :=
+    EvalTerm.param (rs := [some xV, some yV]) (show c.isCtor andS = false by decide +kernel)
+      (by decide +kernel) (show c.isParam andS = true by decide +kernel) (.cons hx (.cons hy .nil)) hv.symm
+  have hinj : EvalTerm (c.withHooks H) σ (.inj exp Srt.kitem (.app andS [.app xS [], .app yS []]))
+      (some (injNormal exp Srt.kitem v)) := EvalTerm.inj hand
+  have hdot : EvalTerm (c.withHooks H) σ (.app dotk []) (some (.ctor dotk [])) :=
+    EvalTerm.ctor (rs := []) (show c.isCtor dotk = true by decide +kernel) .nil
+  have hseq : EvalTerm (c.withHooks H) σ (item (.app andS [.app xS [], .app yS []]))
+      (some (.ctor kseq [injNormal exp Srt.kitem v, .ctor dotk []])) :=
+    EvalTerm.ctor (rs := [some (injNormal exp Srt.kitem v), some (.ctor dotk [])])
+      (show c.isCtor kseq = true by decide +kernel) (.cons hinj (.cons hdot .nil))
+  have hk : EvalTerm (c.withHooks H) σ (.app kS [item (.app andS [.app xS [], .app yS []])])
+      (some (.ctor kS [.ctor kseq [injNormal exp Srt.kitem v, .ctor dotk []]])) :=
+    EvalTerm.ctor (rs := [some (.ctor kseq [injNormal exp Srt.kitem v, .ctor dotk []])])
+      (show c.isCtor kS = true by decide +kernel) (.cons hseq .nil)
+  have hvar : EvalTerm (c.withHooks H) σ (.var 0) (some cnt) := h0 ▸ EvalTerm.var
+  exact EvalTerm.ctor (rs := [some (.ctor kS [.ctor kseq [injNormal exp Srt.kitem v, .ctor dotk []]]), some cnt])
+    (show c.isCtor topLabel = true by decide +kernel) (.cons hk (.cons hvar .nil))
+
+/-- A match of the rule's left side at `<k> go </k>` gives the counter cell to its variable. -/
+theorem go_match (H : HookParams) {σ : Subst} (hm : PatVal (c.withHooks H) σ ruleGo.lhs goV) :
+    σ.lookup 0 = some cnt := by
+  have hm' : PatVal (c.withHooks H) σ
+      (.app topLabel [.app kS [.app kseq [.app goS [], .app dotk []]], .var 0])
+      (.ctor topLabel [.ctor kS [.ctor kseq [.ctor goS [], .ctor dotk []]], cnt]) := hm
+  have hct : (c.withHooks H).isCtor topLabel = true := show c.isCtor topLabel = true by decide +kernel
+  cases hm' with
+  | ctor _ hs =>
+    cases hs with
+    | cons _ hs2 =>
+      cases hs2 with
+      | cons h2 _ =>
+        cases h2 with
+        | var h => exact h
+  | hook hp _ _ => exact absurd hp (by decide +kernel)
+  | coll hc _ _ _ => rw [hct] at hc; cases hc
+  | ovl hc _ _ _ => rw [hct] at hc; cases hc
+
+/-- **For every H with `OpenTotal`, `<k> go </k>` has one successor.** -/
+theorem go_one (H : HookParams) (ht : OpenTotal (c.withHooks H)) :
+    ∃ y : Config (c.withHooks H), ∀ y', Step (c.withHooks H) (goCfg H) y' ↔ y' = y := by
+  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (ht andP (and_mem H) rfl [xV, yV] (sorts_xy H))
+  have hc : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c H).trans openRule_coreOK
+  have hd := (fnModel_of_fnHyp hc (openRule_fnHyp H (openLaws_any H))).1
+  obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core hc
+  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
+  have hcnt : (c.withHooks H).sortOf cnt = some Srt.counter :=
+    (Semantics.sortOf_withHooks_rawFree c H go_rawFree.2.2.1).trans go_rawFree.2.2.2.1
+  have hσ : (c.withHooks H).WellSorted ruleGo.vars [(0, cnt)] := fun i s hs => by
+    match i, hs with
+    | 0, hs => exact ⟨cnt, rfl, by cases hs; exact hcnt⟩
+    | i + 1, hs => simp [ruleGo] at hs
+  have he := go_rhs H hv (σ := [(0, cnt)]) rfl
+  have hsort : (c.withHooks H).sortOf (afterV v) = some topCellSort :=
+    EvalTerm.sorted hsc he (L := (c.withHooks H).fns.map Fn.sig) (headsOK_fns _) hσ
+      (show sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) ruleGo.vars ruleGo.rhs = some topCellSort by
+        decide +kernel) rfl
+  refine ⟨⟨afterV v, hsort⟩, fun y' => ⟨fun hs => ?_, fun e => ?_⟩⟩
+  · cases hs with
+    | rule r mem σ _ hmatch _ _ heval _ _ _ =>
+      have hr : r = ruleGo := List.mem_singleton.mp mem
+      subst hr
+      exact Subtype.ext (Option.some.inj
+        (EvalTerm.functional_of_fnDet hd heval (go_rhs H hv (go_match H hmatch))))
+  · subst e
+    have hct : ∀ f, c.isCtor f = true → (c.withHooks H).isCtor f = true := fun _ h => h
+    refine Step.rule ruleGo (List.mem_singleton_self _) [(0, cnt)] hσ ?_ (fun _ h => by cases h) .top he
+      (fun _ h => by cases h) .top (fun r' hr' hlt => ?_)
+    · exact PatVal.ctor (hct _ (by decide +kernel))
+        (.cons (PatVal.ctor (hct _ (by decide +kernel))
+          (.cons (PatVal.ctor (hct _ (by decide +kernel))
+            (.cons (PatVal.ctor (hct _ (by decide +kernel)) .nil)
+              (.cons (PatVal.ctor (hct _ (by decide +kernel)) .nil) .nil))) .nil))
+          (.cons (PatVal.var rfl) .nil))
+    · have hr : r' = ruleGo := List.mem_singleton.mp hr'
+      subst hr
+      exact absurd hlt (Nat.lt_irrefl _)
+
+/-- `same(x & y, y & x)`. -/
+def sameT : Term := .app sameS [.app andS [.app xS [], .app yS []], .app andS [.app yS [], .app xS []]]
+
+/-- The interpretation answering `and(x, y)` at `and [y, x]`, and nothing elsewhere. -/
+def Hswap : HookParams :=
+  ⟨fun f vs => if f == andS && decide (vs = [yV, xV]) then some (.ctor andS [xV, yV]) else none⟩
+
+/-- The interpretation answering `go`, of sort KItem, at every application of `and`. -/
+def Hbad : HookParams := ⟨fun f _ => if f == andS then some (.ctor goS []) else none⟩
+
+/-- A closed term's computed result is its result (`CExec.evalT_sound`). -/
+theorem evalTerm_of_exec {c : Semantics} (hr : CExec.execReady c = true) {t : Term}
+    {r : Option GroundTerm} {s : Srt} (n : Nat) (he : CExec.evalT c n [] t = some r)
+    (ht : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [] t = some s) : EvalTerm c [] t r := by
+  obtain ⟨-, hsc, hcc, hcm, -⟩ := CExec.execReady_parts hr
+  exact CExec.evalT_sound hsc hcc hcm n he (headsOK_fns _) (fun i s hs => by simp at hs) ht
+
+/-- At `HookParams.none`, `x & y` and `y & x` are two raw values and `same` of them is `false`. -/
+theorem same_none : EvalTerm (c.withHooks HookParams.none) [] sameT (some (bool false)) :=
+  evalTerm_of_exec (by decide +kernel) 50 (by decide +kernel) (s := Srt.bool) (by decide +kernel)
+
+/-- At `Hswap`, `y & x` is `and(x, y)`, the value of `x & y`, and `same` of them is `true`. -/
+theorem same_swap : EvalTerm (c.withHooks Hswap) [] sameT (some (bool true)) :=
+  evalTerm_of_exec (by decide +kernel) 50 (by decide +kernel) (s := Srt.bool) (by decide +kernel)
+
+theorem swap_values :
+    (c.withHooks Hswap).paramVal andS [xV, yV] = some (.ctor andS [xV, yV]) ∧
+    (c.withHooks Hswap).paramVal andS [yV, xV] = some (.ctor andS [xV, yV]) ∧
+    (c.withHooks HookParams.none).paramVal andS [xV, yV] = some (.ctor andS [xV, yV]) ∧
+    (c.withHooks HookParams.none).paramVal andS [yV, xV] = some (.ctor andS [yV, xV]) := by
+  decide +kernel
+
+/-- At `Hbad` the answer at `and [x, y]` is no value of Exp: `and` has no value there, and
+`OpenTotal` fails. -/
+theorem bad_none : (c.withHooks Hbad).paramVal andS [xV, yV] = none := by decide +kernel
+theorem not_openTotal_bad : ¬ OpenTotal (c.withHooks Hbad) := fun h => by
+  have : ((c.withHooks Hbad).paramVal andS [xV, yV]).isSome = true :=
+    h andP (and_mem Hbad) rfl [xV, yV] (sorts_xy Hbad)
+  rw [bad_none] at this
+  cases this
+
+end OpenRule
+
+#print axioms OpenRule.go_one
+#print axioms OpenRule.same_none
+#print axioms OpenRule.same_swap
+#print axioms OpenRule.not_openTotal_bad
+
 end KCore.OpenGenSems
