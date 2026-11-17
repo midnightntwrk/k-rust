@@ -122,12 +122,13 @@ def ΓSig (c : Semantics) : Premises KoreAML.Sym := fun φ =>
 /-! ## 2. The constructors -/
 
 /-- Two generators whose applications may denote one element where an overloading symbol's
-arguments are covered: an overloading symbol and an injection, or two constructor generators, one an
-overloading symbol, whose overload closures meet (`ovlClosure`). Their distinctness is stated at
-uncovered arguments only. -/
+arguments are covered: an overloading symbol and an injection, or two constructor generators, one a
+function-overloaded symbol (`fnOvl`: at covered arguments its application is the function's value,
+which may be any element of the sort), or one an overloading symbol and their overload closures
+meet (`ovlClosure`). Their distinctness is stated at uncovered arguments only. -/
 def _root_.KCore.Semantics.distGuarded (c : Semantics) : Gen → Gen → Bool
-  | .ctor k, .ctor k' => (c.isOvl k.name || c.isOvl k'.name) &&
-      (c.ovlClosure k.name).any (c.ovlClosure k'.name).contains
+  | .ctor k, .ctor k' => c.fnOvl (.ctor k) || c.fnOvl (.ctor k') ||
+      (c.isOvl k.name || c.isOvl k'.name) && (c.ovlClosure k.name).any (c.ovlClosure k'.name).contains
   | .ctor k, .inj _ => c.isOvl k.name
   | .inj _, .ctor k' => c.isOvl k'.name
   | .inj _, .inj _ => false
@@ -164,6 +165,9 @@ def lawItemsK (c : Semantics) : List KoreAML.Item :=
 
 /-- The constructors' items, over `consSorts`: per sort, the functionality and injectivity of each
 generator that is no open generator (`isOpenGen`: the text states neither of an open generator),
+at uncovered arguments only for a function-overloaded symbol (`fnOvl`, with the argument sorts of
+every overload: at covered arguments the overload equation gives the application the function's
+value, of which the function's own equations say whether it exists and what it is),
 the distinctness of each pair of those (Cons-Dist for constructors and for injections without a
 common lower bound, Cons-Dist′ with one, `distLbItem`; none for comparable injections; at uncovered
 arguments for a pair `distGuarded` names), and no-junk over every generator; then the coherence
@@ -178,8 +182,12 @@ def consItemsK (c : Semantics) : List KoreAML.Item :=
   let perSort := (consSorts c).flatMap fun N =>
     let gs := c.gens N
     let fr := gs.filter (!c.isOpenGen ·)
-    (fr.map (Gen.toK c)).map (KoreAML.Cons.funItem (n N)) ++
-    ((fr.map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (n N)) ++
+    (fr.map fun g =>
+      if c.fnOvl g then KoreAML.Cons.funUncItem (n N) (Gen.toK c g) ((ovlArgs g).getD [])
+      else KoreAML.Cons.funItem (n N) (Gen.toK c g)) ++
+    ((fr.filter fun g => !(Gen.toK c g).argSorts.isEmpty).map fun g =>
+      if c.fnOvl g then KoreAML.Cons.injUncItem (n N) (Gen.toK c g) ((ovlArgs g).getD [])
+      else KoreAML.Cons.injItem (n N) (Gen.toK c g)) ++
     (pairs fr).flatMap (fun (g, g') => match g, g' with
       | .inj a, .inj b =>
         if c.le a b || c.le b a then []
@@ -195,6 +203,50 @@ def consItemsK (c : Semantics) : List KoreAML.Item :=
     (c.subsorts.filter (·.1 == b)).map fun (_, e) => KoreAML.Cons.cohItem (n a) (n b) (n e)
   let ovlEqs := c.ovls.flatMap fun o => (c.ovlOver o).map fun kg => KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)
   perSort ++ coh ++ ovlEqs ++ lawItemsK c
+
+/-- No generator is a function-overloaded symbol in a semantics without one. -/
+theorem fnOvl_eq_false {c : Semantics} (h : c.fnOvlSyms = []) (g : Gen) : c.fnOvl g = false := by
+  cases g <;> simp [Semantics.fnOvl, h]
+
+/-- For a semantics without a function-overloaded symbol, `distGuarded` names a pair of constructor
+generators exactly where one is an overloading symbol and their overload closures meet. -/
+theorem distGuarded_eq_of_noFnOvl {c : Semantics} (h : c.fnOvlSyms = []) (k k' : CtorSig) :
+    c.distGuarded (.ctor k) (.ctor k') =
+      ((c.isOvl k.name || c.isOvl k'.name) && (c.ovlClosure k.name).any (c.ovlClosure k'.name).contains) := by
+  simp [Semantics.distGuarded, fnOvl_eq_false h]
+
+/-- For a semantics without a function-overloaded symbol, the constructors' items are the
+functionality and the injectivity of each generator at every argument. -/
+theorem consItemsK_eq_of_noFnOvl {c : Semantics} (h : c.fnOvlSyms = []) :
+    consItemsK c =
+      let n := c.sortName
+      let ovlArgs := fun (g : Gen) => match g with
+        | .ctor k => if c.isOvl k.name then (c.lookupOvl k.name).map fun o => (c.ovlOver o).map fun kg => kg.args.map n
+          else none
+        | .inj _ => none
+      let perSort := (consSorts c).flatMap fun N =>
+        let gs := c.gens N
+        let fr := gs.filter (!c.isOpenGen ·)
+        (fr.map (Gen.toK c)).map (KoreAML.Cons.funItem (n N)) ++
+        ((fr.map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (n N)) ++
+        (pairs fr).flatMap (fun (g, g') => match g, g' with
+          | .inj a, .inj b =>
+            if c.le a b || c.le b a then []
+            else match c.lowerBounds a b with
+              | [] => [KoreAML.Cons.distItem (n N) (Gen.toK c g) (Gen.toK c g')]
+              | lbs => [distLbItem (n N) (n a) (n b) (lbs.map n)]
+          | _, _ =>
+            if c.distGuarded g g' then
+              [KoreAML.Cons.distUncItem (n N) (Gen.toK c g) (Gen.toK c g') (ovlArgs g) (ovlArgs g')]
+            else [KoreAML.Cons.distItem (n N) (Gen.toK c g) (Gen.toK c g')]) ++
+        (if gs.isEmpty then [] else [KoreAML.Cons.noJunkItem (n N) (gs.map (Gen.toK c))])
+      let coh := c.subsorts.flatMap fun (a, b) =>
+        (c.subsorts.filter (·.1 == b)).map fun (_, e) => KoreAML.Cons.cohItem (n a) (n b) (n e)
+      let ovlEqs := c.ovls.flatMap fun o => (c.ovlOver o).map fun kg => KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)
+      perSort ++ coh ++ ovlEqs ++ lawItemsK c := by
+  unfold consItemsK
+  simp only [fnOvl_eq_false h, Bool.false_eq_true, ↓reduceIte, List.map_map, List.filter_map]
+  rfl
 
 /-- **The constructors.** Per constructor sort, each generator is a total function, injective, and
 apart from the others, and the sort holds nothing but what its generators build where it has a

@@ -8,7 +8,9 @@
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
   `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
-  reaches, are restated here, with `Clause.DecidesAt`.
+  reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
+  to a KORE text (`AtValues`, `EntailsAtValues`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
+  checks it is made of) and the classes of an account with their directions (`tieClasses`).
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
   `Quot.sound` (`#guard_msgs` fails the file on any other list). Run from kcore-spec, after the
@@ -235,6 +237,151 @@ example (c : Semantics) (r : Rule) : prioRuleK₀ c r =
        .rewrites C (.and C [Term.kore c vs r.lhs, reqPat C (r.req.map (Term.kore c vs)), rightDef]) right
      else .rewrites C (.and C [Term.kore c vs r.lhs, reqPat C (r.req.map (Term.kore c vs)),
          .not C (anyOfC C comps), rightDef]) right) := rfl
+
+/-! ## The tie's statement definitions (C14) and the classes' directions -/
+
+example (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (e : Valuation M) (a : Kore.Axiom) :
+    AtValues c I e a =
+    (∀ n s, KoreAML.VarKey.evar n s ∈ (KoreAML.freeOf [] a.pattern).eraseDups →
+      ∃ (v : GroundTerm) (S : Srt), srtOf c S = s ∧ c.sortOf v = some S ∧
+        (den c v).interpret I e (e.evalEvar ((KoreAML.tableOf a.sortVars a.pattern).ev (.evar n s)))) := rfl
+
+example (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : EntailsAtValues c ad φ =
+    (∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c →
+      ∀ e, AtValues c I e ad.ax → ∀ m, φ.interpret I e m) := rfl
+
+example (h : Kore.SymbolIdent) (ss : List Kore.KSort) (ps : List Kore.Pattern) :
+    symbolsOf (.app h ss ps) = h.ident.name :: symbolsOfList ps ∧
+    symbolsOf (.leftAssoc h ss ps) = h.ident.name :: symbolsOfList ps ∧
+    symbolsOf (.rightAssoc h ss ps) = h.ident.name :: symbolsOfList ps := ⟨rfl, rfl, rfl⟩
+example (v : Kore.VarPattern) (str : String) (s s' : Kore.KSort) :
+    symbolsOf (.var v) = [] ∧ symbolsOf (.string str) = [] ∧ symbolsOf (.top s) = [] ∧
+    symbolsOf (.bottom s) = [] ∧ symbolsOf (.dv s' str) = [] := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example (s s' : Kore.KSort) (x : Kore.EVar) (X : Kore.SVar) (p : Kore.Pattern) :
+    symbolsOf (.not s p) = symbolsOf p ∧ symbolsOf (.next s p) = symbolsOf p ∧
+    symbolsOf (.exist s x p) = symbolsOf p ∧ symbolsOf (.forall s x p) = symbolsOf p ∧
+    symbolsOf (.mu X p) = symbolsOf p ∧ symbolsOf (.nu X p) = symbolsOf p ∧
+    symbolsOf (.ceil s s' p) = symbolsOf p ∧ symbolsOf (.floor s s' p) = symbolsOf p :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+example (s s' : Kore.KSort) (p q : Kore.Pattern) (ps : List Kore.Pattern) :
+    symbolsOf (.and s ps) = symbolsOfList ps ∧ symbolsOf (.or s ps) = symbolsOfList ps ∧
+    symbolsOf (.implies s p q) = symbolsOf p ++ symbolsOf q ∧ symbolsOf (.iff s p q) = symbolsOf p ++ symbolsOf q ∧
+    symbolsOf (.rewrites s p q) = symbolsOf p ++ symbolsOf q ∧
+    symbolsOf (.equals s s' p q) = symbolsOf p ++ symbolsOf q ∧
+    symbolsOf (.in s s' p q) = symbolsOf p ++ symbolsOf q ∧
+    symbolsOfList [] = [] ∧ symbolsOfList (p :: ps) = symbolsOf p ++ symbolsOfList ps :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+example (s : Srt) : regSrtK s = KoreAML.srt (regSortNames.getD s "") := rfl
+
+example (k : Kore.Definition) (it : KoreAML.Item) : surplusItem k it =
+    ((List.range nRegSorts).any (fun s =>
+      let n := "Sort" ++ regSortNames.getD s ""
+      !(k.sortDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&
+        it.pat == (KoreAML.sortConstantItem ⟨n, [], false⟩).pat) ||
+    hookSigs.any (fun h =>
+      let n := regSymNames.getD h.name ""
+      !(k.symbolDecls.any fun sd => sd.name == n && sd.params.isEmpty) &&
+        it.pat == (KoreAML.arityItem ⟨n, [], h.args.map regSrtK, regSrtK h.result, false, []⟩).pat)) := rfl
+
+section AttrsAgreePins
+open AttrsAgree
+
+example (k : Kore.Definition) (d : Definition) : attrsAgree k d =
+    (ctors k d.sem && fns k d.sem && hooks k d.sem && colls k d.sem && prios k d.sem) := rfl
+
+example (as : List Kore.AppPattern) (a : String) : strArg as a =
+    ((as.find? (·.head.ident.name == a)).bind fun p => match p.args with
+      | [.string s] => some s
+      | _ => none) := rfl
+
+example (as : List Kore.AppPattern) (a : String) : symArg as a =
+    ((as.find? (·.head.ident.name == a)).bind fun p => match p.args with
+      | [.app h _ []] => some h.ident.name
+      | _ => none) := rfl
+
+example (as : List Kore.AppPattern) (a : String) : has as a = as.any (·.head.ident.name == a) := rfl
+
+example (k : Kore.Definition) : symDecls k =
+    (k.modules.flatMap fun m => m.sentences.filterMap fun
+      | .symbol s => some (s.symbol.ident.ident.name, s.attributes)
+      | .hookedSymbol s => some (s.symbol.ident.ident.name, s.attributes)
+      | _ => none) := rfl
+
+example (k : Kore.Definition) : AttrsAgree.sortDecls k =
+    (k.modules.flatMap fun m => m.sentences.filterMap fun
+      | .sort s => some (s.sort.ident.name, s.attributes)
+      | .hookedSort s => some (s.sort.ident.name, s.attributes)
+      | _ => none) := rfl
+
+example (as : List Kore.AppPattern) : prioOf as =
+    (if has as "owise" then 200 else match (strArg as "priority").bind String.toNat? with
+      | some n => n
+      | none => 50) := rfl
+
+example (s s' s'' : Kore.KSort) (prem rhs : Kore.Pattern) (h : Kore.SymbolIdent) (ss : List Kore.KSort)
+    (ps : List Kore.Pattern) :
+    eqnHead (.implies s prem (.equals s' s'' (.app h ss ps) rhs)) = some h.ident.name ∧
+    eqnHead (.equals s' s'' (.app h ss ps) rhs) = some h.ident.name ∧
+    eqnHead (.rewrites s prem rhs) = none ∧ eqnHead (.and s ps) = none := ⟨rfl, rfl, rfl, rfl⟩
+
+example (s : Kore.KSort) (p q : Kore.Pattern) :
+    isRewrite (.rewrites s p q) = true ∧ isRewrite (.implies s p q) = false ∧ isRewrite (.equals s s p q) = false :=
+  ⟨rfl, rfl, rfl⟩
+
+example (k : Kore.Definition) (c : Semantics) : ctors k c =
+    ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : fns k c =
+    ((symDecls k).all fun (n, as) =>
+      let fn := has as "function" && !has as "hook"
+      let isFn := c.allFns.any (c.symName ·.label == n)
+      let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
+      (!isFn || fn) && (!(fn && own) || isFn)) := rfl
+
+example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : hooks k c =
+    ((symDecls k).all (fun (n, as) =>
+      match strArg as "hook" with
+      | some h =>
+        (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
+        (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
+      | none =>
+        (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
+        c.params.all fun p => c.symName p.sig.name != n)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : colls k c =
+    (let declared := (AttrsAgree.sortDecls k).filterMap fun (n, as) =>
+       match symArg as "unit", symArg as "element", symArg as "concat" with
+       | some u, some e, some cc => some (n, u, e, cc)
+       | _, _, _ => none
+     let own := fun (cs : CollSig) =>
+       ("Sort" ++ c.sortName cs.sort, c.symName cs.unit, c.symName cs.elem, c.symName cs.concat)
+     declared.all (fun x => c.allColls.any fun cs => own cs == x) &&
+       c.colls.all fun cs => declared.contains (own cs)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : prios k c =
+    (let axs := k.axiomDecls.map (·.ax)
+     ((axs.filter (isRewrite ·.pattern)).map (prioOf ·.attributes) == c.rules.map (·.prio)) &&
+     c.allFns.all fun f =>
+       let n := c.symName f.label
+       ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
+           (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
+
+end AttrsAgreePins
+
+example : tieClasses =
+    [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
+     ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
+     ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
+     ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
+     ("set idempotence", .refuted), ("no direction", .none)] := rfl
+
+/-- The directions, by their constructors: seven, in this order. -/
+example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx, TieDir.atValues.ctorIdx,
+    TieDir.hypothesis.ctorIdx, TieDir.refuted.ctorIdx, TieDir.none.ctorIdx) = (0, 1, 2, 3, 4, 5, 6) := rfl
+example (d : TieDir) : d.ctorIdx < 7 := by cases d <;> decide
 
 /-! ## The theorems (each `example : <the type, written out> := @name`) -/
 

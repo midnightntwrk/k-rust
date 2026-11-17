@@ -1016,22 +1016,62 @@ end
 
 end OvlLaws
 
+/-- No overloading symbol overloads a function, where the overloading symbols are well formed and
+no function is named like a constructor (`fnsApart`): each overloaded symbol is a constructor or an
+overloading symbol, and neither is a function's label. -/
+theorem fnOvlSyms_nil_of_apart {c : Semantics} (hok : c.overloadsOK = true)
+    (hfa : Faithful.Model.fnsApart c = true) : c.fnOvlSyms = [] := by
+  unfold Semantics.fnOvlSyms
+  rw [List.map_eq_nil_iff, List.filter_eq_nil_iff]
+  intro o ho hany
+  obtain ⟨g, hg, hfn⟩ := List.any_eq_true.mp hany
+  obtain ⟨fn, hfnm, hl⟩ := List.any_eq_true.mp hfn
+  have hl : fn.label = g := by simpa using hl
+  have hmem : fn ∈ c.allFns := List.mem_append_left _ hfnm
+  have hok' := hok
+  simp only [Semantics.overloadsOK, List.all_eq_true] at hok'
+  have hat : ∀ o' ∈ c.ovls, ∃ i, (o', i) ∈ c.ovls.zipIdx := fun o' ho' => by
+    obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
+    exact ⟨i, by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he⟩
+  obtain ⟨i, hi⟩ := hat o ho
+  have hoi := hok' (o, i) hi
+  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
+  rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
+  · have := List.all_eq_true.mp hfa fn hmem
+    simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+    have hc := this.1.1
+    rw [hl, Semantics.isCtor, h1] at hc
+    cases hc
+  · obtain ⟨o', ho', hn⟩ := List.any_eq_true.mp h2
+    obtain ⟨j, hj⟩ := hat o' (List.mem_of_mem_take ho')
+    have hoj := hok' (o', j) hj
+    simp only [Bool.and_eq_true] at hoj
+    have hnf := (c.isOvl_parts hoj.1.1.1.1.1.1.1).2.2.2.1
+    rw [c.lookupFn_eq, List.find?_eq_none] at hnf
+    have := hnf fn hmem
+    rw [hl, beq_iff_eq.mp hn] at this
+    simp at this
+
 /-- **What the readings of `Γ` over every model take of the overloading symbols**: their
-declarations are well formed (`overloadsOK`), the subsorts are irreflexive, and a sort of an
+declarations are well formed (`overloadsOK`), the subsorts are irreflexive, a sort of an
 overloading symbol and a sort of a symbol it overloads have distinct names unless they are one sort,
-so that the overload's items tell them apart (`namesApartK` and `sortsNumbered` give it). Found by
-instance resolution in the proofs that read `Γ`. -/
+so that the overload's items tell them apart (`namesApartK` and `sortsNumbered` give it), and no
+overloading symbol overloads a function (`fnOvlSyms`: `Γ` states the functionality and the
+injectivity of a function-overloaded symbol at uncovered arguments only, and these readings take
+them at every argument; `overloadsOK` and `fnsApart` give it). Found by instance resolution in the
+proofs that read `Γ`. -/
 class OvlOK (c : Semantics) : Prop where
   ok : c.overloadsOK = true
   irrefl : ∀ a, (a, a) ∉ c.subsorts
   names : ∀ o ∈ c.ovls, ∀ kg ∈ c.ovlOver o, ∀ A ∈ kg.result :: kg.args, ∀ B ∈ o.sig.result :: o.sig.args,
     c.sortName A = c.sortName B → A = B
+  noFn : c.fnOvlSyms = []
 
 /-- `OvlOK` of a semantics without overloading symbols and with irreflexive subsorts. -/
 theorem OvlOK.of_nil {c : Semantics} (hno : c.ovls = []) (hirr : c.subsorts.all (fun p => p.1 != p.2) = true) :
     OvlOK c :=
   ⟨by simp [Semantics.overloadsOK, hno], fun a ha => by have := List.all_eq_true.mp hirr _ ha; simp at this,
-    fun o ho => by rw [hno] at ho; cases ho⟩
+    fun o ho => (by rw [hno] at ho; cases ho), by simp [Semantics.fnOvlSyms, hno]⟩
 
 /-- `idsOK` numbers each overloading symbol once: their names are without repetition. -/
 theorem ovlsOnce_of_ids {c : Semantics} (h : c.idsOK = true) : (c.ovls.map (·.sig.name)).Nodup := by
