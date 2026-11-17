@@ -37,8 +37,8 @@ Nested entries by status:
 | E6 | 7 | 4 | 0 | 0 | 0 | 3 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 166 | 75 | 1 | 7 | 1 | 82 | 0 | 0 |
+| C3 | 31 | 11 | 0 | 2 | 1 | 17 | 0 | 0 |
+| all | 166 | 75 | 1 | 8 | 1 | 81 | 0 | 0 |
 
 Refused rows by class:
 
@@ -67,10 +67,10 @@ Refused nested entries by class:
 | E6 | 3 | 1 | 1 | 1 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
-| C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 82 | 25 | 10 | 41 | 6 |
+| C3 | 17 | 8 | 4 | 2 | 3 |
+| all | 81 | 25 | 10 | 40 | 6 |
 
-## Entries of class R-c (69)
+## Entries of class R-c (68)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -140,7 +140,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | C3 | `comm x constructor production` | row | refused |  |  | P2.d2-kompiled |  |
 | C3 | `assoc x constructor production` | row | refused |  |  | P2.d2-kompiled |  |
 | C3 | `idem x constructor production` | row | refused |  |  | P2.d2-kompiled |  |
-| C3 | `unit x constructor production` | cases[0] | refused |  |  | V13.unit-open |  |
 | C3 | `assoc x function` | row | refused |  |  | P3.fnLaw |  |
 | C3 | `idem x function` | row | refused |  |  | P3.fnLaw |  |
 | C3 | `unit x function` | row | refused |  |  | P3.fnLaw |  |
@@ -1839,7 +1838,7 @@ Not core:
 | `assoc x constructor production` | refused | R-c | as comm x constructor production, and the text gains the associativity axiom of plus, which the account names lawAxiom: plus is an open generator of Exp under a law. Refused before d2 (designs/CN-4-constructs.md section 5, row openGenerator: before d2, every open generator), class R-c, unit P2 (sect… |  | P2.d2-kompiled | c3-ctor-assoc |  |  | fixtures/c3-ctor-assoc (Exp "+" Exp [assoc, symbol(plus)]): kompile.txt exit 0; kore.txt the declaration of Lblplus with functional and without constructor and injective, the associativity axiom, no no-confusion axiom naming Lblplus, Lblplus still in Exp's no-junk axiom; account.txt \`1 refused openG… |
 | `idem x constructor production` | refused | R-c | as assoc x constructor production with the idempotency axiom: plus is an open generator of Exp under a law the account names lawAxiom. Refused before d2, class R-c, unit P2 (designs/CN-4-constructs.md section 5, row openGenerator; section 4.11 item 2) |  | P2.d2-kompiled | c3-ctor-idem |  |  | fixtures/c3-ctor-idem (Exp "+" Exp [idem, symbol(plus)]): kompile.txt exit 0; kore.txt the declaration of Lblplus with functional and idem and without constructor and injective, the idempotency axiom, no no-confusion axiom naming Lblplus, Lblplus still in Exp's no-junk axiom; account.txt \`1 refused… |
 | `unit x constructor production` | inert |  | the key leaves an attribute on a constructor's declaration and no sentence: the text states plus a free constructor of Exp, distinct from .E and x and injective, exactly as without the key, and the reader reads it so; the Semantics are equal. The attribute corresponds to no axiom: 'All semantic info… |  |  | c3-ctor-unit |  |  | fixtures/c3-ctor-unit (fixture.toml differs\_from c3-ctor-law-base): kompile.txt exit 0 (predicted, weakly, exit 113 with fixtures/e2-fn-unit's message: failed); the two kompiled texts differ in Lblplus's declaration only: constructor, functional, injective in both, unit{}(Lbl'Stop'E{}()) in c3-ctor-… |
-| cases[0]: beside assoc, Exp "+" Exp [assoc, unit(.E), symbol(plus)] (e2-unit-ctor against c3-ctor-assoc) | refused | R-c | the refusal is assoc's open generator (entry assoc x constructor production: refused openGenerator, the associativity axiom lawAxiom); the unit key adds the attribute alone: the two kompiled texts differ in Lblplus's declaration only and kompile writes no unit sentence. V13.unit-open is the ticket a… |  | V13.unit-open | e2-unit-ctor |  |  | fixtures/e2-unit-ctor (Exp "+" Exp [assoc, unit(.E), symbol(plus)]; fixture.toml differs\_from c3-ctor-assoc, the same text without unit(.E)): kompile.txt exit 0, \`differs\_from c3-ctor-assoc: different after stripping\`; the two kompiled texts differ in Lblplus's declaration only, which carries unit{}… |
+| cases[0]: beside assoc, Exp "+" Exp [assoc, unit(.E), symbol(plus)] (e2-unit-ctor against c3-ctor-assoc) | inert |  | the unit key leaves an attribute on the declaration of the open generator plus and no sentence: kompile writes the associativity axiom (read, ParamSig.assoc) and no unit axiom, so the text states plus total, associative and one of Exp's generators, exactly as c3-ctor-assoc, and the reader reads it s… |  |  | e2-unit-ctor |  |  | fixtures/e2-unit-ctor (Exp "+" Exp [assoc, unit(.E), symbol(plus)]; fixture.toml differs\_from c3-ctor-assoc, the same text without unit(.E)): kompile.txt exit 0, \`differs\_from c3-ctor-assoc: different after stripping\`; the two kompiled texts differ in Lblplus's declaration only, which carries unit{}… |
 | `assoc x function` | refused | R-c | the status is the account's, not the Semantics line's: the text gains one sentence, the associativity of pl, an equation between applications of a function that no clause of pl states; the reader parses the text and reads pl from its equation alone, so the Semantics are equal to the companion's (kco… |  | P3.fnLaw | e2-fn-assoc |  |  | fixtures/e2-fn-assoc (pl(Int, Int) [function, total, assoc, symbol(pl)], rule pl(A, B) => A +Int B; fixture.toml differs\_from c3-fn-law-base, the same text without assoc): kompile.txt exit 0, \`differs\_from c3-fn-law-base: different after stripping\`; kore.txt the associativity axiom of Lblpl, the dec… |
 | `idem x function` | refused | R-c | as assoc x function, with the idempotency of pm: the declaration gains the attribute and the text one law axiom that no clause of pm states; the reader reads pm from its equation (Semantics equal) and the account refuses the axiom (lawAxiom). Refused, class R-c (designs/CN-4-constructs.md section 5,… |  | P3.fnLaw | e2-fn-idem |  |  | fixtures/e2-fn-idem (pm(Int, Int) [function, total, idem, symbol(pm)], rule pm(A, B) => maxInt(A, B); fixture.toml differs\_from c3-fn-idem-base, the same text without idem): kompile.txt exit 0, \`differs\_from c3-fn-idem-base: different after stripping\`; kore.txt the idempotency axiom of Lblpm and ide… |
 | `unit x function` | refused | R-c | the key adds the two unit laws of pu at zero, equations between applications of functions that no clause states; the reader reads pu and zero from their equations (Semantics equal) and the account refuses the two axioms (lawAxiom, unit), two refusals beyond the companion's one for assoc. Unlike a co… |  | P3.fnLaw | e2-fn-assoc-unit |  |  | fixtures/e2-fn-assoc-unit (pu(Int, Int) [function, total, assoc, unit(zero), symbol(pu)] beside zero [function, total], rule zero => 0, rule pu(A, B) => A +Int B; fixture.toml differs\_from c3-fn-assoc-zero, the same text without unit(zero)): kompile.txt exit 0, \`differs\_from c3-fn-assoc-zero: differ… |

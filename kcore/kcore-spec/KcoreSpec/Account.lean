@@ -685,6 +685,40 @@ def openFunctionalSentences (k : Kore.Definition) (d : Definition) : List (Nat �
         | _ => none
       else none
 
+/-- The `unit` attributes the reader ignores: a symbol declaration of the user module carrying
+`unit{}(u)` whose symbol `d` reads as a constructor or an open generator, where no axiom of the
+module with the attribute `unit` states a law of that symbol (`lawHead?`): the sentence's index, the
+symbol and the unit named. A theory is its sentences, and an attribute is no sentence: with no
+sentence `f(K, u) = K` or `f(u, K) = K` the text states no unit law of `f`, so the declaration read
+without the attribute reads the theory the text states. Nothing is added for it (`ParamSig` has no
+unit; `Γ` holds no unit item). Where the text writes the unit sentences (of a function, read into
+`Presentation.laws`; of a collection's concatenation) the attribute is not listed. -/
+def unitIgnored (k : Kore.Definition) (d : Definition) : List (Nat × String × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let named := fun (f : String) =>
+      c.ctors.any (fun g => c.symName g.name == f) ||
+        c.params.any (fun g => g.raw && c.symName g.sig.name == f)
+    let unitSentence := fun (f : String) => m.sentences.any fun s => match s with
+      | .axiom a => hasAttr a.attributes "unit" && lawHead? a == some f
+      | _ => false
+    m.sentences.zipIdx.filterMap fun (s, i) => match s with
+      | .symbol ss =>
+        let f := ss.symbol.ident.ident.name
+        match ss.attributes.find? (·.head.ident.name == "unit") with
+        | some u =>
+          if named f && !unitSentence f then
+            let us := match u.args with
+              | [.app h _ _] => h.ident.name
+              | _ => ""
+            some (off + i, f, us)
+          else none
+        | none => none
+      | _ => none
+
 /-! ## The library's modules in a K installation's text
 
 A sentence of a K installation's builtin file is read as the library module's sentence it equals

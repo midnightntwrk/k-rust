@@ -2809,6 +2809,11 @@ def account (koreFile : String) : IO UInt32 := do
     unless fl.isEmpty do
       IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
       for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
+    -- printed only when a constructor or an open generator carries a unit attribute
+    let ui := Parse.unitIgnored k d
+    unless ui.isEmpty do
+      IO.println s!"unit attributes of constructors and open generators, ignored (the text holds no unit sentence of the symbol; nothing read): {ui.length}"
+      for (i, f, u) in ui do IO.println s!"      sentence {i} ({f}): unit ({u}) ignored: no unit sentence of {f}"
     IO.println s!"rules with an `ensures`: {Parse.rulesWithEnsures d}"
     IO.println s!"rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): {Parse.rulesRightDefined d}"
     let fp := Parse.functionInPattern k d
