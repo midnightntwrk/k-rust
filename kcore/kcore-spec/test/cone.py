@@ -15,13 +15,16 @@ rewritten. Not compared: the lines outside every range that a declaration's mean
 (`variable`, `open`, `namespace`, `notation`, `set_option`); a change there shows only through a
 declaration whose elaborated type changes text, or through the roots section.
 
-Usage: python3 -I test/cone.py COMMITTED NEW (--old-rev REV | --old-src DIR) [--new-src DIR] [--diff] [--roots FILE]
+Usage: python3 -I test/cone.py COMMITTED NEW (--old-git REV | --old-rev REV | --old-src DIR) [--new-src DIR] [--diff] [--roots FILE]
        python3 -I test/cone.py COMMITTED NEW --names-only [--roots FILE]
 
 Run from the package root (kcore-spec/). The source of module `A.B.C` is looked up as
 `A/B/C.lean` under the package root, `../aml-port` and `../kore-lean`, in that order.
---old-rev REV reads the committed tree's sources with `jj file show -r REV` (the revision the
-committed cone was computed at); --old-src DIR reads them from DIR, another package root.
+The committed tree is the one the committed cone was computed at. --old-git REV reads its sources
+from the git revision REV: `git archive REV` of the package's parent directory (kcore/, which holds
+the package and ../aml-port, ../kore-lean) into a temporary directory, then as --old-src (e.g.
+`--old-git main` on a git worktree, for a cone computed at main). --old-rev REV reads them with
+`jj file show -r REV` (a jj workspace); --old-src DIR reads them from DIR, another package root.
 --new-src defaults to `.`. --diff prints a unified diff of each changed declaration's text.
 --names-only skips the text comparison and says so (exit 1 still on names and line counts).
 --roots FILE (test/roots.toml) checks first that NEW was computed from FILE: its `# roots:` line
@@ -30,8 +33,9 @@ line when there are none), and each opaque declaration's reason is on its `#   o
 otherwise.
 
 Exit 1 when the names, the line count, a declaration's own line count, a declaration's text or
-the roots section differ; exit 2 when a source cannot be read."""
-import argparse, difflib, os, re, subprocess, sys, tomllib
+the roots section differ; exit 2 when a source cannot be read (or REV of --old-git cannot be
+archived)."""
+import argparse, difflib, io, os, re, subprocess, sys, tarfile, tempfile, tomllib
 
 ROOTS = ['.', '../aml-port', '../kore-lean']
 
@@ -94,16 +98,44 @@ class Sources:
 
 ap = argparse.ArgumentParser()
 ap.add_argument('committed'); ap.add_argument('new')
-ap.add_argument('--old-rev'); ap.add_argument('--old-src')
+ap.add_argument('--old-rev'); ap.add_argument('--old-src'); ap.add_argument('--old-git')
 ap.add_argument('--new-src', default='.')
 ap.add_argument('--diff', action='store_true')
 ap.add_argument('--names-only', action='store_true')
 ap.add_argument('--roots')
 args = ap.parse_args()
-if not args.names_only and (args.old_rev is None) == (args.old_src is None):
-    print("cone: give exactly one of --old-rev REV or --old-src DIR (the committed cone's tree), "
-          'or --names-only to skip the text comparison')
+if not args.names_only and [args.old_rev, args.old_src, args.old_git].count(None) != 2:
+    print("cone: give exactly one of --old-git REV, --old-rev REV or --old-src DIR (the committed "
+          "cone's tree), or --names-only to skip the text comparison")
     sys.exit(2)
+
+
+def git_tree(rev):
+    """Extract the package's parent directory at git revision `rev` into a temporary directory;
+    return (the TemporaryDirectory, the package root inside it)."""
+    def git(*a):
+        r = subprocess.run(['git', *a], capture_output=True)
+        if r.returncode != 0:
+            print(f'cone: git {" ".join(a)} failed: {r.stderr.decode().strip()}')
+            sys.exit(2)
+        return r.stdout
+    top = git('rev-parse', '--show-toplevel').decode().strip()
+    prefix = git('rev-parse', '--show-prefix').decode().strip().rstrip('/')
+    parent = os.path.dirname(prefix)
+    if not prefix or not parent:
+        print(f'cone: --old-git needs the package root inside a subdirectory of the git tree (prefix {prefix!r})')
+        sys.exit(2)
+    data = git('-C', top, 'archive', '--format=tar', rev, '--', parent)
+    tmp = tempfile.TemporaryDirectory(prefix='cone-old-git-')
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:
+        t.extractall(tmp.name, filter='data')
+    return tmp, os.path.join(tmp.name, prefix)
+
+
+old_tmp = None
+if args.old_git is not None and not args.names_only:
+    old_tmp, args.old_src = git_tree(args.old_git)
+    print(f'cone: committed tree read from git {args.old_git}')
 
 if args.roots is not None:
     spec = tomllib.load(open(args.roots, 'rb'))
