@@ -271,12 +271,6 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
   | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
     exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
-  | clauseEx hfn hcl _ _ _ _ _ hne =>
-    rw [lookups.2] at hfn; cases hfn
-    exact absurd (hExs hcl) hne
-  | exNone hfn hcl hne =>
-    rw [lookups.2] at hfn; cases hfn
-    exact absurd (hExs hcl) hne
 
 /-! ## `FnDet` and `FnSolves` -/
 
