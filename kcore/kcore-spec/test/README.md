@@ -434,6 +434,18 @@ shows, and, for each catch-all (`CATCHALL`: a reason given by an arm that takes 
 arms of its function did not match), the entries citing it with their fixture and reason sentence:
 the list DONE-0 C4 asks the gate to read.
 
+`python3 -I test/constructs/closed.py corpus` is DONE-0 C4 part 3, over the corpus. Run
+`test/corpus.py` first (a few minutes; `lake build kcore` before it, so that its logs are of a kcore
+built at the tree): it writes one log per text to `.lake/corpus/log`. The mode reads the log of each
+text of `test/corpus.expected` (options `--log DIR`, `--expected FILE`) and lists every refusal of the
+reader's stages and of the account (reason and detail), every sentence read and not accounted for,
+every `inertMismatch` and every failing `coreOK` (its conjuncts its reason). Each distinct item is
+mapped to the entries of `rows.toml` that name it: the entry names its reason, and a fixture of the
+entry prints the same reason and detail, or the entry's `evidence` quotes the item (the corpus texts'
+sha16 and the account line, as the cases of a corpus refusal carry them). It prints the counts and
+each item with its texts and entries, and exits 1 on an item no entry names, on a text without its
+log, on a log line of no known form, and on a log whose items disagree with the text's verdict.
+
 `KcoreSpec/ParseAttr.lean` is DONE-0 C4 part 2's enumeration: `Parse.AttrKeyE2`, one constructor per
 attribute name of E2's rows of a class other than `frontend` (the keys a KORE sentence may carry),
 found from kompile's spelling by `AttrKeyE2.ofName?`, and `Parse.attrVerdict`, a match over every
