@@ -16,11 +16,26 @@
   For every H meeting `Semantics.libAdmitted` (so for `HookParams.lib`, `_lib`):
   - 374 (`replaceAll`, 1917: `replaceAllEq`), 377 (`rfindChar`, 1893: `rfindCharEq`).
 
-  The other sentences of these sections are not tied here: 294 (`countAllOccurrences`' second
-  equation, 1898), which no interpretation meets at the empty needle (`LibProbe.unmet`); 296
-  (`findChar`, 1891), whose right side applies `#if` at Int, which `LibEv`'s terms do not express
-  (its condition is `findCharEq`); 228 to 232 (`Int2Bytes`, 2250 to 2258), which apply
-  `Int2BytesNoLen`, no symbol of Γ.
+  The other sentences of these sections are not tied here:
+  - 294 (`countAllOccurrences`' second equation, 1898): at the empty needle its two sides have the
+    same value exactly where the interpretation gives the count no value (`cr0_iff`), so under
+    `HookParams.none` (`count294_none`) and under no interpretation meeting `silentTotal`
+    (`count294_not_holds`, the function form fails). These are statements about the values of the
+    sides (`LibEv.val`), not about models of Γ: no refutation in models is stated. The argument
+    that Γ refutes the sentence for every interpretation does not go through, since the sides
+    agree at the empty needle under an interpretation giving the count no value there; so the
+    sentence is put in no refuted class.
+  - 296 (`findChar`, 1891): its right side applies `#if` at Int, `ite{SortInt}`, a symbol Γ does
+    not have here: the reader numbers an instance of `ite` from its use in a sentence it reads, a
+    parameter symbol of the text (`Parse.iteName`, implemented by `kIte`), and no such sentence of
+    this text applies it; Γ's one `ite` is `kIte`, at KItem (LibProbe's run prints 296 as not
+    probed, applying `ite{Int}`). The names `symbolsOf` reads carry no sort parameters, so by them
+    296 applies only Γ's names (`ite296_names`). Where an instance is Γ's, it is a parameter symbol,
+    which `LibEv`'s terms do not apply either (they apply interpreted symbols: `val` reads
+    `Semantics.hv`, `srt?` reads `hookSigs`). Its condition on the interpretation is `findCharEq`.
+  - 228 to 232 (`Int2Bytes` at three arguments, 2250 to 2258): each applies `Int2BytesNoLen`, a
+    symbol Γ does not have, and 229 `~Int` too, their only such symbols (`int2BytesNoLen_absent`);
+    LibProbe's run prints each as not probed, applying symbols Γ does not have.
 -/
 import KcoreSpec
 
@@ -129,6 +144,173 @@ theorem ev374_lib : EntailsAtValues (cH HookParams.lib) U.ax374 (trS U.ax374).pa
 theorem ev377_lib : EntailsAtValues (cH HookParams.lib) U.ax377 (trS U.ax377).pat :=
   ev377 HookParams.lib (libAdmitted_lib_of_coreOK coreOK)
 
+/-! ## 294 (domains.md 1898) at the empty needle
+
+The sentence is no condition `Semantics.libAdmitted` names. At the empty needle its `requires`
+holds and it states that the count is its own successor (`cr0_parts`), so its two sides have one
+value there exactly where the interpretation gives the count no value (`cr0_iff`): under
+`HookParams.none` at every Source (`count294_none`); under no interpretation meeting `silentTotal`,
+which gives the count a value there as the `functional` sentence of `countAllOccurrences` asks
+(`count294_not_holds`). These are facts about the sides' values (`LibEv.val`); they relate to
+models of Γ through `FnEqn.entailed` only in the direction of entailment, and no refutation in
+models is stated. -/
+
+section
+open LibEv
+
+/-- **domains.md 1898**, 294: `countAllOccurrences(Source, ToCount) => 1 +Int
+countAllOccurrences(substrString(Source, findString(Source, ToCount, 0) +Int lengthString(ToCount),
+lengthString(Source)), ToCount) requires findString(Source, ToCount, 0) >=Int 0`. -/
+def fnCountRec : FnEqn :=
+  ⟨[("VarSource", Srt.string), ("VarToCount", Srt.string)], stringCountAll,
+    [(Srt.string, .var 0, none), (Srt.string, .var 1, none)], Srt.int,
+    some (.app intGe [stFind 0 1, intT 0]),
+    .app intAdd [intT 1, .app stringCountAll
+      [.app stringSubstr [.var 0, .app intAdd [stFind 0 1, .app stringLength [.var 1]], .app stringLength [.var 0]],
+       .var 1]]⟩
+
+/-- The point at the empty needle: `Source` and `X0` the String `a`, `ToCount` and `X1` `""`. -/
+def cr0 (a : String) : Subst := [(0, foS a), (1, foS ""), (2, foS a), (3, foS "")]
+
+/-- At the empty needle the `requires` is `true` (`findString(a, "", 0)` is 0), the patterns
+match, the left side is the count at `(a, "")` and the right side one more than it
+(`substrString(a, 0, lengthString(a))` is `a`). -/
+theorem cr0_parts (c : Semantics) (a : String) :
+    val c (cr0 a) (.app intGe [stFind 0 1, intT 0]) = some (bool true) ∧
+    FnEqn.Matches c (cr0 a) 2 fnCountRec.pats ∧
+    val c (cr0 a) fnCountRec.lhs = c.hv stringCountAll [foS a, foS ""] ∧
+    val c (cr0 a) fnCountRec.rhs =
+      (c.hv stringCountAll [foS a, foS ""]).bind fun k => c.hv intAdd [int 1, k] := by
+  have hfind : c.hv stringFind [foS a, foS "", int 0] = some (int 0) := by
+    rw [st_hv_find0]
+    simp [st_occ_nil, KStr.positions, List.range_succ_eq_map, KStr.firstOr]
+  have hlen0 : c.hv stringLength [foS ""] = some (int 0) := st_hv_length ""
+  have hsub : c.hv stringSubstr [foS a, int 0, int (a.toList.length : Int)] = some (foS a) := by
+    rw [st_hv_substr a 0 _ (by omega) (by omega)]
+    simp [st_foS_strV]
+  have l0 : (cr0 a).lookup 0 = some (foS a) := rfl
+  have l1 : (cr0 a).lookup 1 = some (foS "") := rfl
+  have l2 : (cr0 a).lookup 2 = some (foS a) := rfl
+  have l3 : (cr0 a).lookup 3 = some (foS "") := rfl
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · simp [stFind, val, valList, allSome, l0, l1, intT, dv_int, hfind, fhv_intGe]
+  · simp [FnEqn.Matches, fnCountRec, val, l0, l1, l2, l3]
+  · simp [fnCountRec, FnEqn.lhs, FnEqn.xTerms, val, valList, allSome, l2, l3]
+  · simp [fnCountRec, stFind, val, valList, allSome, l0, l1, intT, dv_int, hfind, hlen0, hv_intAdd,
+      st_hv_length, hsub]
+    cases c.hv stringCountAll [foS a, foS ""] <;> rfl
+
+/-- Where the interpretation gives the count no value at the empty needle, both sides have none. -/
+theorem cr0_none (c : Semantics) (a : String) (h : c.hv stringCountAll [foS a, foS ""] = none) :
+    val c (cr0 a) fnCountRec.lhs = val c (cr0 a) fnCountRec.rhs := by
+  obtain ⟨-, -, hl, hr⟩ := cr0_parts c a
+  rw [hl, hr, h]; rfl
+
+/-- Where it gives the count an Int value n, the right side is n + 1. -/
+theorem cr0_int (c : Semantics) (a : String) (n : Int) (h : c.hv stringCountAll [foS a, foS ""] = some (int n)) :
+    val c (cr0 a) fnCountRec.lhs ≠ val c (cr0 a) fnCountRec.rhs := by
+  obtain ⟨-, -, hl, hr⟩ := cr0_parts c a
+  rw [hl, hr, h, Option.bind_some, hv_intAdd]
+  intro he
+  have : n = 1 + n := by simpa [int] using he
+  omega
+
+/-- Under an interpretation meeting `silentTotal`, where Int values are literals, the count at the
+empty needle is an Int value. -/
+theorem cr0_total {c : Semantics} (hs : c.shapesOK = true) (ht : c.silentTotal) (a : String) :
+    ∃ n, c.hv stringCountAll [foS a, foS ""] = some (int n) := by
+  have hk : lookupSig hookSigs stringCountAll = some ⟨stringCountAll, [Srt.string, Srt.string], Srt.int⟩ := by
+    decide +kernel
+  have hmem := (lookupSig_spec hk).1
+  have hvs : c.sortsOf [foS a, foS ""] = some [Srt.string, Srt.string] := by
+    simp [Semantics.sortsOf, foS, Semantics.sortOf, dvOK]
+  have hh : hook stringCountAll [foS a, foS ""] = some none := rfl
+  have hsil : silent stringCountAll [foS a, foS ""] = true := rfl
+  have hf := ht _ hmem (by decide) _ hvs hh hsil
+  obtain ⟨w, hw⟩ := Option.isSome_iff_exists.mp hf
+  have hws : c.sortOf w = some Srt.int := by
+    unfold Semantics.fallback at hw
+    rw [hk] at hw
+    simp only [Option.filter_eq_some_iff, beq_iff_eq] at hw
+    exact hw.2
+  obtain ⟨n, rfl⟩ := shape_int hs hws
+  refine ⟨n, ?_⟩
+  unfold Semantics.hv
+  rw [Semantics.hookRes_of_silent hh hsil, hw]
+  rfl
+
+/-- A value of the count at the empty needle is the interpretation's, of sort Int. -/
+theorem cr0_value_sort (c : Semantics) (a : String) {w : GroundTerm}
+    (h : c.hv stringCountAll [foS a, foS ""] = some w) : c.sortOf w = some Srt.int := by
+  have hh : hook stringCountAll [foS a, foS ""] = some none := rfl
+  have hsil : silent stringCountAll [foS a, foS ""] = true := rfl
+  unfold Semantics.hv at h
+  rw [Semantics.hookRes_of_silent hh hsil] at h
+  unfold Semantics.fallback at h
+  rw [show lookupSig hookSigs stringCountAll = some ⟨stringCountAll, [Srt.string, Srt.string], Srt.int⟩ by
+    decide +kernel] at h
+  simp only [Option.join_some, Option.filter_eq_some_iff, beq_iff_eq] at h
+  exact h.2
+
+/-- **The instance at the empty needle holds exactly where the interpretation gives the count no
+value there**, in every semantics whose Int values are literals. -/
+theorem cr0_iff {c : Semantics} (hs : c.shapesOK = true) (a : String) :
+    val c (cr0 a) fnCountRec.lhs = val c (cr0 a) fnCountRec.rhs ↔
+      c.hv stringCountAll [foS a, foS ""] = none := by
+  constructor
+  · intro he
+    cases hw : c.hv stringCountAll [foS a, foS ""] with
+    | none => rfl
+    | some w =>
+      obtain ⟨n, rfl⟩ := shape_int hs (cr0_value_sort c a hw)
+      exact absurd he (cr0_int c a n hw)
+  · exact cr0_none c a
+
+theorem pat294 : U.ax294.ax.pattern = fnCountRec.patR := by decide +kernel
+
+/-- Under `HookParams.none` the instance at the empty needle holds at every Source. -/
+theorem count294_none (a : String) :
+    val (cH HookParams.none) (cr0 a) fnCountRec.lhs = val (cH HookParams.none) (cr0 a) fnCountRec.rhs :=
+  cr0_none _ a (hv_none rfl rfl)
+
+/-- Under every interpretation meeting `silentTotal`, the equation fails at the empty needle: the
+function form does not hold. -/
+theorem count294_not_holds (H : HookParams) (ht : (cH H).silentTotal) : ¬ fnCountRec.Holds (cH H) := by
+  intro hH
+  obtain ⟨n, hn⟩ := cr0_total (shapesOKH H) ht ""
+  obtain ⟨hq, hm, -, -⟩ := cr0_parts (cH H) ""
+  refine cr0_int (cH H) "" n hn (hH (cr0 "") ?_ (fun q hq' => by cases hq'; exact hq) hm)
+  intro i p hp
+  have hs : (cH H).sortOf (foS "") = some Srt.string := by simp [foS, Semantics.sortOf, dvOK]
+  match i, hp with
+  | 0, hp => cases hp; exact ⟨_, rfl, hs⟩
+  | 1, hp => cases hp; exact ⟨_, rfl, hs⟩
+  | 2, hp => cases hp; exact ⟨_, rfl, hs⟩
+  | 3, hp => cases hp; exact ⟨_, rfl, hs⟩
+
+end
+
+/-! ## 228 to 232 (domains.md 2250 to 2258): no symbol of Γ
+
+Each applies `Int2BytesNoLen` (the three-argument `Int2Bytes`, `symbol(Int2BytesNoLen)`, no
+`hook`), which Γ does not have; it is the one symbol of each that Γ lacks, but for 229 (a negative
+Int), which applies `~Int` too (`int2BytesNoLen_absent`). -/
+
+/-- The symbols a sentence applies that Γ does not have (the injection aside). -/
+noncomputable def absentOf (ad : AxiomDecl) : List String :=
+  (symbolsOf ad.ax.pattern).filter fun n => !(n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))
+
+theorem int2BytesNoLen_absent :
+    [U.ax228, U.ax229, U.ax230, U.ax231, U.ax232].map absentOf =
+      [["LblInt2BytesNoLen"], ["LblInt2BytesNoLen", "Lbl'Tild'Int'Unds'"], ["LblInt2BytesNoLen"],
+       ["LblInt2BytesNoLen"], ["LblInt2BytesNoLen"]] := by decide +kernel
+
+/-- 296 (domains.md 1891) applies `ite{SortInt}`. `symbolsOf` reads an application's head name and
+not its sort parameters, so it reads that instance as `Lblite`, the name of Γ's `kIte` (`ite` at
+KItem): by the names alone, 296 applies no symbol Γ lacks. -/
+theorem ite296_names : (symbolsOf U.ax296.ax.pattern).contains "Lblite" = true ∧ absentOf U.ax296 = [] := by
+  decide +kernel
+
 end KCore.LibEvStrFlt
 
 /-- info: 'KCore.LibEvStrFlt.ev226' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -169,3 +351,13 @@ end KCore.LibEvStrFlt
 #guard_msgs in #print axioms KCore.LibEvStrFlt.ev374
 /-- info: 'KCore.LibEvStrFlt.ev377' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvStrFlt.ev377
+/-- info: 'KCore.LibEvStrFlt.count294_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.count294_none
+/-- info: 'KCore.LibEvStrFlt.count294_not_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.count294_not_holds
+/-- info: 'KCore.LibEvStrFlt.cr0_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.cr0_iff
+/-- info: 'KCore.LibEvStrFlt.int2BytesNoLen_absent' depends on axioms: [propext] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.int2BytesNoLen_absent
+/-- info: 'KCore.LibEvStrFlt.ite296_names' depends on axioms: [propext] -/
+#guard_msgs in #print axioms KCore.LibEvStrFlt.ite296_names
