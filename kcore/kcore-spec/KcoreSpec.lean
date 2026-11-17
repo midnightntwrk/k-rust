@@ -249,6 +249,7 @@ import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
 import KcoreSpec.DetachedB
 import KcoreSpec.TieLemmas
+import KcoreSpec.TieTokKItem
 import KcoreSpec.TieRule
 import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues

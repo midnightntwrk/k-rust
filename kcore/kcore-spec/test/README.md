@@ -364,7 +364,7 @@ declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating d
 What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
 (declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
 that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
-connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, a `readAs`, `unread` or `inert` class, an inert constructor
+connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, `tokKItem`, a `readAs`, `unread` or `inert` class, an inert constructor
 axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
 `--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
 by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
@@ -782,6 +782,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
   interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
   the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
+  `tokKItem` has `Faithful.noJunk_omitted_refuted` (for every semantics and every H, a no-junk
+  sentence that leaves out an injection from a sort with a value has no model with `Γ`) and
+  test/TokKItem.lean's instance.
+- `test/TokKItem.lean`: `ReadingNote.tokKItem` on `f2-examples/hashsort.kompile.kore` (a token
+  sort `#Tok` that KItem's no-junk sentence, axiom 125, does not list and no subsort axiom puts
+  below KItem; the reading adds `#Tok < KItem`): the sentence entails `Γ`'s no-junk item of KItem in
+  every interpretation with definedness (`text_entails_item`); for every H, `Γ` with it has no model
+  (`tok_refuted`, from `Faithful.noJunk_omitted_refuted`) and `Γ` has one (`consistent`), so `Γ`
+  does not entail it (`text_not_entailed`).
 - `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
   e2-macro): the four macro and alias symbols the text declares and does not apply are not read
   (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing

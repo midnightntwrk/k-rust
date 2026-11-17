@@ -689,6 +689,23 @@ inductive ReadingNote where
   arguments, which the sentence entails; whether g is so is not decided
   (`Parse.overloadFunctions`). -/
   | overloadFunction
+  /-- A sort X of the definition that KItem's no-junk axiom (`\or{SortKItem{}}(…)`, `scanOr`) does
+  not list, read below KItem all the same; where the text states no `subsort{X, KItem}` axiom
+  either (a token sort whose name begins with `#`, `syntax #Tok [token]`), the reading adds the
+  subsort X < KItem. Every sort of the definition is below KItem (`Semantics.sortsBelowKItem`,
+  `Semantics.subsorts`), so `inj{X, KItem}` is one of KItem's generators (`Semantics.gens`) and
+  `Γ`'s no-junk item of KItem lists it. K's text states that every sort is a KItem
+  (user_manual.md:504, 515; kast.md:363 `syntax {Sort} KItem ::= Sort`), and the text itself applies
+  `inj{X, KItem}` (in the equations of the sort predicate `isX`), which denotes elements of KItem
+  only with X below KItem. The text's sentence entails `Γ`'s item (an item over more generators is
+  a consequence, `Faithful.noJunkItem_of_subset`), not conversely: where X has an element (a token's
+  domain value), `inj{X, KItem}` of it is an element of KItem (Cons-Fun) apart from the image of
+  every other generator (Cons-Dist), and the text's sentence says it is in one of them, so the
+  text's sentence with `Γ` has no model. The reading keeps the subsort that the text's application
+  of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so
+  (`classify` reads a sentence alone, and which sorts the definition has it does not know): the
+  account lists the sentences and the sorts (`tokKItemOmitted`). -/
+  | tokKItem
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
