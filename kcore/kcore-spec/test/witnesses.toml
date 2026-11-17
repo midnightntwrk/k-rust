@@ -61,12 +61,14 @@ evidence = "test/WitRestFaithA.lean"
 [[conjunct]]
 key = "faithCoreOK.4"
 text = "KCore.Faithful.collsOK c"
-witness = "none"
+witness = "KcoreSpec.ModelCollUnitWitness"
+note = "a list collection whose unit parameter is implemented by the library list's element symbol: the unit's graph is empty while the empty list is a value; the module shows every other conjunct of coreOK and FnHyp, and no model; with the library's unit coreOK holds (c0_coreOK)"
 
 [[conjunct]]
 key = "faithCoreOK.5"
 text = "KCore.Faithful.patHeadsOK c"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: a range-map collection whose unit, a registry symbol, is declared twice with one signature, first implemented by the range map's unit, then by the list's unit, meets every other leaf of coreOK and FnHyp); every other way to fail it is excluded by kindsApart, overloadsOK's first part, collsOK, idsOK's numbering and namesApartK (argued); Γ has a model (argued): paramVal reads the first declaration, so Γ is that of the semantics without the repetition (which meets coreOK, kernel-checked) up to a repeated item; the conjunct is asked for the downward reading of left-hand sides, not for a model"
+evidence = "test/WitRestFaithB.lean"
 
 [[conjunct]]
 key = "faithCoreOK.6"
@@ -77,7 +79,8 @@ note = "two constructors with one name; the module shows Hyp and no model, not e
 [[conjunct]]
 key = "faithCoreOK.7"
 text = "KCore.Faithful.Model.LitsApart c"
-witness = "none"
+witness = "KcoreSpec.ModelLitsWitness"
+note = "a library token sort Int: the token 1 and the integer 1 are two values of Int written by one KORE literal, which the distinctness axiom refutes; the module shows every other conjunct of coreOK and FnHyp, and no model"
 
 [[conjunct]]
 key = "faithCoreOK.8"

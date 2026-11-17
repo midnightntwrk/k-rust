@@ -152,6 +152,8 @@ import KcoreSpec.ModelStrict
 import KcoreSpec.ModelJunkNonemptyWitness
 import KcoreSpec.ModelFnSolvesWitness
 import KcoreSpec.ModelLibIntWitness
+import KcoreSpec.ModelCollUnitWitness
+import KcoreSpec.ModelLitsWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
