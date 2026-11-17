@@ -48,12 +48,14 @@ The encoder stops with an error naming the construct when it meets one outside t
 | `kore.k` | The interpreter: module `KORE`, syntax module `KORE-SYNTAX`; 556 lines, 248 rules and equations (11 rewrite rules for the search, the rest equations of 72 functions). |
 | `tools/korek.py` | The KORE text reader; the encoder of kompile's `definition.kore` and the initial term's KORE into a program of `kore.k`; the decoders of `krun --search`'s and `kore.k`'s results into one canonical text. |
 | `tools/test_korek.py` | Tests of the encoder's attribute checks (a `simplification` or `non-executable` axiom, a `macro` symbol, an unknown attribute refused) and of its shape checks (a variable the left side does not bind, a right side under `\exists`, a predicate that is not a term equal to `true`, each refused by name); needs no K. |
-| `tools/case.py` | Builds a case's encoded program and its reference expected result (needs K). |
+| `tools/case.py` | Writes the tool-written files of an entry (`evidence.json`, `kompile.txt`, `kore.txt`, and a case's encoded program), never its `entry.toml`; checks the quotes of the entries' bases against a K checkout (needs K; `--verify-quotes` needs only the checkout). |
+| `tools/test_case.py` | Tests of `case.py` on hand-built text entries, with kompile stood in for: what `kore.txt` holds, a refusal recorded as a result, the refusal to build without `entry.toml`, the `kcore` import, the reading of `kast`'s output, the quote check; needs no K. |
 | `tools/check.py` | Checks each entry's record (`SCHEMA.md`, section 5) and runs `kore.k` on every case (needs only `krust`; `--no-run` needs only Python). |
 | `tools/test_check.py` | Tests of `check.py`'s pass rule on hand-built entries; needs no K and no `krust`. |
 | `SCHEMA.md` | The schema of an entry: `entry.toml`, the evidence, and what `tools/check.py` checks. |
 | `COVERAGE.toml` | One row per constructor of KCore's `Clause`, `Rule`, `Term`, `Lit` and of the KORE `Pattern` its reader reads, and per attribute that reader reads: `covered`, with the `kore.k` rules and the cases, or `absent`, with the reason. |
 | `cases/<id>/` | One case, below. |
+| `texts/<id>/` | One text entry: its K text (`<id>.k`, or a KORE text, or none for a quoted declaration), `entry.toml`, and, written by `tools/case.py`, `evidence.json`, `kompile.txt` and `kore.txt` as for a case (`SCHEMA.md`). |
 | `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 68 mutations of `kore.k`. |
 | `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
 | `kill-matrix.json` | For each mutation, its status, every case that kills it and the cases on which its run gave no comparable result. |
@@ -66,15 +68,17 @@ The encoder stops with an error naming the construct when it meets one outside t
 | --- | --- |
 | `def.k` | The object definition: module `CASE`, syntax module `CASE-SYNTAX`, `configuration <k> $PGM:S </k>` (or a top cell holding `<k> $PGM:S </k>` and other cells), rewrite rules on the closed `<k>` cell (`<k> L => R </k>`). Its first comment says what the case tests. |
 | `pgm` | The initial term, in `CASE-SYNTAX`. |
-| `entry.toml` | The entry (`SCHEMA.md`), written by hand: the subject, the ruling's status, and a `[[disposition]]` with its reason for each backend whose recorded result `kore.k`'s differs from. Every case's ruling is `pending`: none is written yet. |
+| `entry.toml` | The entry (`SCHEMA.md`), written by hand: the subject, the ruling's status, and a `[[disposition]]` with its reason for each backend whose recorded result `kore.k`'s differs from. Every case's ruling is `pending`: none is written yet. No tool writes it. |
 | `pgm.kore` | `kast pgm --output kore` against `def.k` kompiled for the haskell backend: the initial term of sort `S`. The initial configuration is the value of kompile's `initGeneratedTopCell` at the map `$PGM \|-> PGM`: for the one cell `<k>`, `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`; the encoder unfolds kompile's initializer equations to build it, and keeps the item `inj{S,KItem}(PGM)` of a one-cell configuration or the top cell of a configuration of several cells. |
 | `kore.pgm`, `symbols.json` | The encoded program for `kore.k` (start sort `Pgm`) and the encoder's numbering of symbols and sorts; for a case with collections, `collections` names each collection sort's kind and its concatenation, unit and element symbols. |
-| `expected.json` | The reference result. For each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search` (for a configuration of several cells, the top cell `Lbl'-LT-'t'-GT-'(…)`, whose `<k>` cell holds `kseq(item,dotk())`), as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a collection as `SortMap{k|->v,…}` and `SortSet{x,…}` with its elements' texts sorted, `SortList[x,…]` in order, whatever order a backend prints them in; a result under a condition carries it, ` if defined(…)`, ` if A=B`, ` if not(…)`, joined by ` and `), sorted; or `error`, the backend's failure without its temporary paths. `reference` names the K release and backend that produced each; `backends_agree`; `inputs`, the SHA-256 of `def.k` and `pgm` the results were computed from. |
+| `evidence.json` | The evidence (`SCHEMA.md`, section 4). `inputs`: the SHA-256 of `def.k`, of `pgm` and of the answer fields of `entry.toml`. `kompile`: the release, command and exit code of the haskell kompile, and the SHA-256 of `kore.txt`. `ruling_canonical`: the finals of the ruling and of its readings in the canonical text below (empty while the ruling is `pending`). `implementations`: for each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `version`, the K release and backend that produced the result, and `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search` (for a configuration of several cells, the top cell `Lbl'-LT-'t'-GT-'(…)`, whose `<k>` cell holds `kseq(item,dotk())`), as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a collection as `SortMap{k|->v,…}` and `SortSet{x,…}` with its elements' texts sorted, `SortList[x,…]` in order, whatever order a backend prints them in; a result under a condition carries it, ` if defined(…)`, ` if A=B`, ` if not(…)`, joined by ` and `), sorted; or `error`, the backend's failure without its temporary paths; and, where one was imported, the `kcore` row. |
+| `kompile.txt` | The haskell kompile's command, release, exit code and messages, with the case's and the build's directories and K's store paths replaced by names. |
+| `kore.txt` | The sentences `def.k` adds to an empty module: those of the kompiled text's main module that come from no builtin file of K and that the main module of an empty module, kompiled alike, does not hold; each after a line `//@ N`, N its index among the main module's sentences, without its `Source` and `Location` attributes and with the variables kompile generates renumbered. |
 
 The kompiled object definition is not committed.
 `kompile` writes the absolute path of `def.k` and of K's own installation into the `Source` attributes of `definition.kore`, and a case's `definition.kore` is about 250 KB, almost all of it K's builtin modules.
 `def.k` and `pgm` are the sources; `tools/case.py` rebuilds the kompiled text in its build directory, and the encoder selects the object definition's axioms by that build's `Source` path.
-What a harness needs without K is committed: `pgm.kore` (which names no path), `kore.pgm`, `symbols.json` and `expected.json`.
+What a harness needs without K is committed: `pgm.kore` (which names no path), `kore.pgm`, `symbols.json`, `evidence.json`, and `kore.txt`, the case's own sentences.
 A harness that reads KORE definitions kompiles `def.k` itself, as `tools/case.py` does.
 
 ## Building a case
@@ -83,13 +87,18 @@ From this directory, with the pinned K toolchain (`k/result/bin` at the reposito
 
 ```sh
 export K_KOMPILE=$PWD/../../../k/result/bin/kompile
-python3 tools/case.py --all              # every case
-python3 tools/case.py cases/<id>         # one case
-python3 tools/case.py --refresh --all    # also recompute expected.json whose inputs did not change
+python3 tools/case.py --all                  # every case
+python3 tools/case.py cases/<id> texts/<id>  # named entries
+python3 tools/case.py --no-backends --all    # kompile, kast and the encoder only
+python3 tools/case.py --refresh --all        # also rerun the backends whose inputs did not change
+python3 tools/case.py --import kcore=FILE cases/<id>    # add the kcore row (format: the script's docstring)
+python3 tools/case.py --verify-quotes ../../../k --all  # each basis's quote at its locator in the K checkout (cases and texts)
 ```
 
-A new case is a directory `cases/<id>/` with `def.k` and `pgm`; `tools/case.py cases/<id>` writes the rest.
-The reference runs are cached in `expected.json` by the SHA-256 of `def.k` and `pgm`; with unchanged inputs only the haskell kompile (for the encoder) and `kast` run again.
+A new case is a directory `cases/<id>/` with `def.k`, `pgm` and a hand-written `entry.toml`; `tools/case.py cases/<id>` writes the rest, and stops at an entry without `entry.toml`, which it never creates or changes.
+A text entry is built the same way: its K file is kompiled (`kompile --backend haskell FILE`, in a copy of the entry's directory), and a refusal of kompile is recorded as the result (exit code and message, no `kore.txt`); an exit code other than the one `[text].kompile` states is reported, and `tools/check.py` fails the entry on it.
+`ruling_canonical` is computed with `kast` against the haskell-kompiled `def.k`, in module `CASE`: each final of a one-cell configuration is the term the `<k>` cell holds, parsed by the program parser at sort `KItem`; each final of a configuration of several cells is the top cell, parsed by the rule parser with no compilation step. A final that does not parse stops the entry with an error naming it. `kast` parses neither a cell collection of two or more instances (`Invalid sort predicate`) nor one of none (it gives the cell no argument), so the finals of c35 and c36 are to be written as `finals_canonical`, the canonical text itself.
+The reference runs are cached in `evidence.json` by the SHA-256 of `def.k` and `pgm`; with unchanged inputs only the haskell kompile (itself cached in the build directory by the same hashes), `kast` and the encoder run again, and `--no-backends` never runs a backend.
 A case costs about 15 to 80 s of reference runs (two kompiles, two searches; an llvm search that fails takes up to a minute), each under a 120 s timeout and a 12 GiB memory scope.
 Keep the object search finite: on a cycle the haskell backend's search does not stop, and only the timeout ends it.
 
@@ -152,7 +161,7 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 | c50-fn-ensures | an equation with an `ensures` (`half(N) => N /Int 2 ensures N >=Int 0`): `half(4)` is 2, `half(-4)` has no value, so `run(-4)` has no successor and is not final | 1 | 2 finals |
 | c51-fn-ensures-owise | c50 beside `half(_) => 0 [owise]`: the first equation decides at -4, so the `[owise]` one does not apply and `half(-4)` has no value, not 0 | 1 | 2 finals |
 
-Both results are kept in each `expected.json`, labelled with the K release and backend that produced them.
+Both results are kept in each `evidence.json`, labelled with the K release and backend that produced them.
 Both backends give final configurations on 35 cases and agree on 29 of them (all but c10, c28, c43, c44, c50 and c51); the llvm backend fails on 15 cases and the haskell backend on 1 (c33).
 `kore.k`'s result equals every recorded result except the 24 that the `[[disposition]]` blocks of the cases' `entry.toml` name, each with its reason:
 
@@ -168,7 +177,7 @@ Both backends give final configurations on 35 cases and agree on 29 of them (all
 
 ## Rerunning the cases
 
-One command runs `kore.k` on every case and compares each result with the case's expected result; no K reference tool runs, since `expected.json` is the cached reference result.
+One command runs `kore.k` on every case and compares each result with the case's expected result; no K reference tool runs, since `evidence.json` holds the cached reference results.
 It needs a release `krust` (the repository's `k-rust` command-line tool) built from this tree:
 
 ```sh
@@ -178,7 +187,7 @@ python3 tools/check.py --allow-pending   # every case; or name cases: tools/chec
 
 `tools/check.py` takes `krust` from `$KRUST`, else `$CARGO_TARGET_DIR/release/krust`, else the repository's `target/release/krust`, and exits 2 when there is none.
 It kompiles `kore.k` once with `krust kcompile` (cached in its build directory by the SHA-256 of `kore.k` and of `krust`), runs each case's `kore.pgm` with `krust krun --sort Pgm`, decodes the result with the case's `symbols.json`, and compares it with each backend's recorded result (a backend's error differs from every result).
-A case whose ruling is `pending` is admitted under `--allow-pending` and passes when, for each backend, the two are equal and no `[[disposition]]` of its `entry.toml` names that backend, or they differ and one does; a case whose `def.k` or `pgm` no longer has the SHA-256 its `expected.json` records fails as stale, and an `entry.toml` that does not have the form of `SCHEMA.md` fails as a schema fault.
+A case whose ruling is `pending` is admitted under `--allow-pending` and passes when, for each backend, the two are equal and no `[[disposition]]` of its `entry.toml` names that backend, or they differ and one does; a case whose `def.k` or `pgm` no longer has the SHA-256 its `evidence.json` records fails as stale (as does one whose answer fields, or `kore.txt`, differ from the hashes recorded there), and an `entry.toml` that does not have the form of `SCHEMA.md` fails as a schema fault.
 `SCHEMA.md`, section 5, states the rule for an entry with a ruling: its record is consistent with itself, and an implementation that differs from the ruling under a disposition does not fail it.
 It prints one line per case and a `PASS` or `FAIL` summary, and exits 0 only when every case passes.
 
@@ -283,4 +292,4 @@ Done: the definition, with `Map`, `Set` and `List`; the encoder and the case bui
 
 Not verified here: the reading of KORE is argued in `kore.k`'s header and checked against the two backends on these 51 cases and against KCore's oracle (above); no case exercises a definition outside the fragment, so the encoder's refusals are untested; this tree's encoder was rerun on every case from its kompiled text and reproduces every committed `kore.pgm` and `symbols.json` (c41's were re-encoded: the committed ones came from the encoder before the `ensures` change and differed only in the numbers of two symbols); a `Map` or `Set` value's canonical order is `cmp`'s, which the decoders replace by the order of the elements' texts, so the order itself is checked only through `kore.k`'s own equalities (c25); kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
 
-Next: conditions on results and the other cell multiplicities (above); a KRS port of `kore.k`, if wanted, as a unit of its own (above); and feeding the cases to a harness that runs other KORE implementations on `def.k` (kompiled) and `pgm.kore`, comparing with `expected.json`.
+Next: conditions on results and the other cell multiplicities (above); a KRS port of `kore.k`, if wanted, as a unit of its own (above); and feeding the cases to a harness that runs other KORE implementations on `def.k` (kompiled) and `pgm.kore`, comparing with the `implementations` of `evidence.json`.

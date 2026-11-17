@@ -1,0 +1,27 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblok'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int(0))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "[hook_INT_tdiv]: Division by zero: 10 / 0; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "c6a8fcb0315687c7425b3de081faf7cc980b822913bbed2c966463b88d7b3549",
+  "pgm": "9d09b88df8e6f6dd150b7b96fd3feaa52f1894a7d5474b961cc28ea71c451b14"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "6f505525b62a26aa8e4f7c4a7e5ddcaa545f9a138ba7a825ec4ced27f47dd842",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

@@ -1,0 +1,10 @@
+id = "t93-rhs-unbound-variable"
+kind = "text"
+subject = "A rewrite rule whose right side holds a variable that its left side does not bind, written without the ? of an existential variable: whether the K text has a sentence."
+
+[text]
+files = ["t93-rhs-unbound-variable.k"]
+kompile = "rejects"
+
+[ruling]
+status = "pending"
