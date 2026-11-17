@@ -1,8 +1,10 @@
 /-
-  The Holds lemma one constructor at a time (KcoreSpec/HoldsNode.lean): each lemma exists and
-  rests on no axiom beyond Lean's. Run from the package root: `lake env lean -j1 test/HoldsNode.lean`.
+  The Holds lemma one constructor at a time (KcoreSpec/HoldsNode.lean), along an evaluation of a
+  function's clauses (`holds_den4Cl`, KcoreSpec/OpenClauseDen.lean) and at the sort variable `R`
+  (KcoreSpec/ClausePreTie.lean): each lemma exists and rests on no axiom beyond Lean's. Run from the
+  package root: `lake env lean -j1 test/HoldsNode.lean`.
 -/
-import KcoreSpec.HoldsNode
+import KcoreSpec.ClausePreTie
 
 open KCore KCore.HoldsShape
 
@@ -21,3 +23,8 @@ open KCore KCore.HoldsShape
 #print axioms holdsAt_ex
 #print axioms holdsAt_all
 #print axioms holdsAt_exMatch
+#print axioms termAt_of_all
+#print axioms KCore.Faithful.holds_den4Cl
+#print axioms nodeFacts_of_core
+#print axioms holdsAt_atR
+#print axioms withPre_interp
