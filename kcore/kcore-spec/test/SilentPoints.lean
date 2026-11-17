@@ -186,9 +186,8 @@ theorem readsConfined_c : c.readsConfined = false := by decide +kernel
 /-- With no function, `FnHyp` holds under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) := by
   have h : (c.withHooks H).fns = [] := fns_nil
-  have hok : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
   have hrc : (c.withHooks H).readsConfined = false := (Semantics.readsConfined_withHooks c H).trans readsConfined_c
-  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_core hok⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
+  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := c.withHooks H) (show ∀ k ∈ c.params, k.raw = false by decide +kernel)⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
 /-! ## Values -/
@@ -297,10 +296,9 @@ theorem c2_enumShapes : c2.enumShapesOK = false := by decide +kernel
 
 theorem fnHyp2 (H : HookParams) : FnHyp (c2.withHooks H) := by
   have h : (c2.withHooks H).fns = [] := fns_nil
-  have hok : (c2.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c2 H).trans c2_coreOK
   have hrc : (c2.withHooks H).readsConfined = false :=
     (Semantics.readsConfined_withHooks c2 H).trans readsConfined_c
-  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_core hok⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
+  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := c2.withHooks H) (show ∀ k ∈ c2.params, k.raw = false by decide +kernel)⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
 /-- `Bytes2Int(b"a", mid, Signed)` and `Int2Bytes(1, 0, mid)`, `mid` the added constructor. -/
@@ -351,10 +349,9 @@ theorem c3_coreOK : c3.coreOK = true := by decide +kernel
 
 theorem fnHyp3 (H : HookParams) : FnHyp (c3.withHooks H) := by
   have h : (c3.withHooks H).fns = [] := rfl
-  have hok : (c3.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c3 H).trans c3_coreOK
   have hrc : (c3.withHooks H).readsConfined = false :=
     (Semantics.readsConfined_withHooks c3 H).trans (by decide +kernel)
-  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_core hok⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
+  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := c3.withHooks H) (show ∀ k ∈ c3.params, k.raw = false by decide +kernel)⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
 /-- `[5, 3) r|-> 7`; `lookup` and `find_range` off the keys (of `[0,3) ↦ 7`, at 5); update,

@@ -108,7 +108,7 @@ theorem obligations_hold : Obligations defn :=
    ag_agree,
    fun p hp => by rw [match_obligations] at hp; exact absurd hp List.not_mem_nil,
    fun o ho => by rw [lazy_obligations] at ho; exact absurd ho List.not_mem_nil,
-   openDecided_of_readsConfined readsConfined_defn, openLaws_of_core RefFprio.coreOK_defn⟩
+   openDecided_of_readsConfined readsConfined_defn, openLaws_of_plain (by decide +kernel)⟩
 
 theorem sound_defn : Sound defn := RefFprio.sound obligations_hold
 

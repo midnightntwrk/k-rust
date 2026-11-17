@@ -257,7 +257,7 @@ theorem fnHyp_c : FnHyp c := by
      fun f hf => by rw [h2] at hf; exact absurd hf List.not_mem_nil,
      fun f hf => by rw [h3] at hf; exact absurd hf List.not_mem_nil,
      fun p hp => by rw [h4] at hp; exact absurd hp List.not_mem_nil,
-     openDecided_of_readsConfined h5, openLaws_of_sortedOK sortedOK_c⟩
+     openDecided_of_readsConfined h5, openLaws_of_plain (by decide +kernel)⟩
 
 /-- **`ClausesAgree`** of `negExp`: the `aside` clause and the user clause compete (the `aside` one is
 of the smaller priority) and meet at no argument. -/

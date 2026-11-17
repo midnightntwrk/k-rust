@@ -127,7 +127,7 @@ theorem sortedOK : c.sortedOK = true := by decide +kernel
 theorem fnHyp : FnHyp c :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
     fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
-    openDecided_of_readsConfined (by decide +kernel), openLaws_of_sortedOK sortedOK⟩
+    openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK` holds, and `FnHyp`. -/

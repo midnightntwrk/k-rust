@@ -594,7 +594,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
 end NoModel
 
 /-- `OpenLaws`, the remaining hypothesis of `consistent_of`, from `coreOK`. -/
-theorem openLaws : OpenLaws c := openLaws_of_core coreOK
+theorem openLaws : OpenLaws c := openLaws_of_plain (by decide +kernel)
 
 /-- **Not `Consistent`**: `Γ` is part of `Γc ∪ Γstep`. -/
 theorem not_consistent : ¬ Consistent c := fun ⟨M, hM, I, hI⟩ =>

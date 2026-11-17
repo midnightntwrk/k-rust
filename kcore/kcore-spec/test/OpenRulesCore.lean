@@ -533,7 +533,7 @@ theorem fnHypOW : FnHyp cOW :=
 theorem decidedOW (x : Config cOW) : StepDecided cOW x.val := stepDecided_of_fnHyp shapeOW.1 fnHypOW x
 theorem fnModelOW : FnDet cOW ∧ FnSolves cOW := fnModel_of_fnHyp shapeOW.1 fnHypOW
 theorem consOW : Consistent cOW :=
-  consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (openLaws_of_core shapeOW.1)
+  consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (openLaws_of_plain (by decide +kernel))
 
 /-- `complete_at` at `cOW` with `StepDecided` proved: only the outcomes `hval`, `hfam` are taken. -/
 example (x : Config cOW) (os : List Outcome)

@@ -55,8 +55,8 @@ example (hd : FnDet c) (hs : FnSolves c) :
     (stdI_T c (fun _ _ => False) ⊧ᴵ boolClosed c) ∧
     (stdI_T c (fun _ _ => True) ⊧ᴵP ΓCons c) ∧ (stdI_T c (fun _ _ => True) ⊧ᴵP ΓDomains c) := by
   have h := hypModel_of_fn coreOK hd hs
-  have p0 := model_parts_T h coreOK (openLaws_of_core coreOK) (fun _ _ => False)
-  have p1 := model_parts_T h coreOK (openLaws_of_core coreOK) (fun _ _ => True)
+  have p0 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => False)
+  have p1 := model_parts_T h coreOK (openLaws_of_plain (by decide +kernel)) (fun _ _ => True)
   exact ⟨p0.1, p0.2.2.2.2.1, p0.2.2.2.2.2.2 boolLit, p1.2.1, p1.2.2.1⟩
 
 /-- Under the empty transition `true` denotes its own element, and no value has a successor. -/

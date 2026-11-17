@@ -47,7 +47,7 @@ theorem fnHyp : FnHyp c :=
    fun _ h => absurd h (by rw [names_ok.2.2.2.2.2]; exact List.not_mem_nil),
    fun _ h => absurd h (by rw [names_ok.2.2.2.2.2]; exact List.not_mem_nil),
    fun _ h => absurd h (by rw [names_ok.2.2.2.2.2]; exact List.not_mem_nil),
-   openDecided_of_readsConfined (by decide +kernel), openLaws_of_sortedOK sortedOK⟩
+   openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 theorem hyp : HypModelCore c := hypModel_of_fnHyp coreOK fnHyp
 

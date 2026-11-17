@@ -5,8 +5,8 @@
   patterns do not bind are decided by the text (`OpenDecided`), and the interpretation satisfies the
   laws the text writes for its open generators (`OpenLaws`). Both hold where nothing beyond the
   plain shapes is used (`openDecided_of_plain`, `openLaws_of_plain`); `OpenLaws` holds for every
-  semantics `coreOK` accepts (`openLaws_of_core`), and `OpenDecided` for every one that reads no
-  confined sort (`openDecided_of_readsConfined`).
+  semantics without an open generator (`openLaws_of_plain`), and `OpenDecided` for every one that
+  reads no confined sort (`openDecided_of_readsConfined`).
 -/
 import KcoreSpec.Faithful
 import KcoreSpec.OpenValues
@@ -107,10 +107,6 @@ theorem Semantics.params_raw_of_sortedOK {c : Semantics} (h' : c.sortedOK = true
 theorem Semantics.params_raw_of_core {c : Semantics} (h : c.coreOK = true) : ∀ k ∈ c.params, k.raw = false :=
   Semantics.params_raw_of_sortedOK (Semantics.coreOK_parts h).1
 
-/-- `OpenLaws` of a semantics `sortedOK` accepts: it has no open generator. -/
-theorem openLaws_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : OpenLaws c :=
-  openLaws_of_plain (Semantics.params_raw_of_sortedOK h)
-
 /-- **`OpenTotal` where the interpretation answers nothing**: each open generator's application to
 values of its argument sorts is then its raw application, a value of its result sort
 (`paramVal_raw_keep`). From, for each raw parameter, the parameter its name finds (`lookupParam`),
@@ -144,10 +140,6 @@ every open generator has a value, its raw application, at every argument list of
 theorem openTotal_none (c : Semantics) (h : c.coreOK = true) : OpenTotal (c.withHooks HookParams.none) :=
   -- the parameters, the lookups and the constructors do not read the interpretation
   openTotal_of_noAnswer (c := c.withHooks HookParams.none) (fun _ _ => rfl) (fun k hk hr => Semantics.raw_open_core (c := c) h k hk hr)
-
-/-- `OpenLaws` of a semantics `coreOK` accepts. -/
-theorem openLaws_of_core {c : Semantics} (h : c.coreOK = true) : OpenLaws c :=
-  openLaws_of_sortedOK (Semantics.coreOK_parts h).1
 
 /-- A semantics that reads no confined sort has no rule or clause with an open variable. -/
 theorem Semantics.opens_of_readsConfined {c : Semantics} (hrc : c.readsConfined = false) :

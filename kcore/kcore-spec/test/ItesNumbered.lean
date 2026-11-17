@@ -142,7 +142,7 @@ theorem sortedOK : c.sortedOK = true := by decide +kernel
 theorem fnHyp : FnHyp c :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
     fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
-    openDecided_of_readsConfined (by decide +kernel), openLaws_of_sortedOK sortedOK⟩
+    openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 /-- Every condition of `coreOK` but `itesApart` holds, the second half of `itesApart` holds, and
 `FnHyp`. -/

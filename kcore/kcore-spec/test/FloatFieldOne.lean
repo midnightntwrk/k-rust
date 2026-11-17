@@ -220,9 +220,8 @@ theorem readsConfined_c : c.readsConfined = false := by decide +kernel
 
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) := by
   have h : (c.withHooks H).fns = [] := fns_nil
-  have hok : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
   have hrc : (c.withHooks H).readsConfined = false := (Semantics.readsConfined_withHooks c H).trans readsConfined_c
-  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_core hok⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
+  refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := c.withHooks H) (show ∀ k ∈ c.params, k.raw = false by decide +kernel)⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
 /-- `0.0` of binary64, a value of sort Float. -/

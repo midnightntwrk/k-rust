@@ -82,7 +82,7 @@ theorem cO_coreOK : cO.coreOK = true := by decide +kernel
 theorem cO_fnHyp : FnHyp cO :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
     fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
-    openDecided_of_readsConfined (by decide +kernel), openLaws_of_sortedOK cO_sortedOK⟩
+    openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 theorem hypO : HypModelCore cO := hypModel_of_fnHyp cO_coreOK cO_fnHyp
 
