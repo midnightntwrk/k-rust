@@ -1,0 +1,19 @@
+# Row imp: the kompile command that produced examples/ref-kimp/RefKimp/definition.kore (the same
+# bytes as f2-examples/ref-kimp.kore), read by test/imp-kompile.sh.
+#
+# ${imp} is the imp-semantics checkout at `revision`, ${out} the output directory. The text
+# committed is kompile's definition.kore with the user `Source` paths made relative to the checkout
+# (test/relsource.py): ${imp} is written `imp-semantics`.
+k_version = "7.1.337"
+revision = "683a773418add3bcae8ded47c2b24e94494e1988"
+argv = [
+  "kompile", "${imp}/src/kimp/kdist/imp-semantics/imp.k",
+  "--backend", "haskell",
+  "--main-module", "IMP",
+  "--syntax-module", "IMP-SYNTAX",
+  "--output-definition", "${out}",
+  "--warnings", "none",
+  "-I", "${imp}/src/kimp/kdist/imp-semantics",
+]
+text = "examples/ref-kimp/RefKimp/definition.kore"
+sha256 = "7d7458126160e8378e6f3dae7a6bc22b72d84f82961c2127d66fc4a1f30b3c64"

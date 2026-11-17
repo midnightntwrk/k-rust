@@ -31,6 +31,9 @@
 #               and the kompiled texts in .lake/kore-in-k; test/agree-kore-in-k.expected);
 #               `skipped` (neither ok nor red) when .lake/kore-in-k is absent: the texts are built
 #               from a corpus outside this tree (test/README.md, "The kore-in-k corpus")
+#   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
+#               option set the rows are stated for, and the text has the recorded SHA-256 (nothing
+#               is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
 #   not-plain   test/not-plain.sh: the generator's text for a definition that is not `plain`
 #               (`kcore gen --as-not-plain`), on peano (--core) and prio (--wf), built
@@ -127,12 +130,13 @@ fi
 LP=$(lake env printenv LEAN_PATH)
 
 # native checks
-order="$order regen roundtrip corpus agree agree-kore-in-k"
+order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile"
 check regen scoreboard test/regen.sh -j "$J"
 check roundtrip scoreboard test/roundtrip.sh
 check corpus scoreboard python3 -I test/corpus.py -j "$J" --expected test/corpus.expected
 check agree scoreboard test/agree.sh
 check agree-kore-in-k scoreboard agreeKoreInK
+check imp-kompile scoreboard test/imp-kompile.sh
 
 # Lean checks, the longest first
 order="$order pins pins-peano axioms witnesses cone member not-plain pred-sorted user cs2"
