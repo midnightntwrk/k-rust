@@ -217,6 +217,16 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop) {P : Nat �
         ∃ v, EvalTerm c σ (.var 2) (some v) ∧ EvalTerm c σ (.var 3) (some v)) :=
   trueV_stdI h T rNot.pre (by decide +kernel) (by decide +kernel) hP hr hk hS a ha
 
+/-- `applies_iff_T_pp` at `rNot`: a configuration is in `rNot`'s `applies` exactly where
+`RuleAppliesV`, no truth value of its pre asked for. -/
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop) {tbl : KoreAML.VarTable}
+    (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
+    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (e : ML.Valuation Elem) {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
+    (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret (stdI_T c T) e (.val x) ↔
+      RuleAppliesV c rNot x :=
+  applies_iff_T_pp h rNot_pp.1 hkeys hkP e hx
+
 end TrueValue
 
 end PredRules
