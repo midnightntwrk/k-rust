@@ -367,6 +367,12 @@ example : ∀ {c : Semantics} (h : c.coreOK = true) (hr : CExec.execReady c = tr
         (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList ((CExec.successorsN c n x.val).map (den c))))) ∧
       ∀ y ∈ CExec.successorsN c n x.val, Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y)) := @CExec.run_exact
 
+/-- The members of the executor's list at a fuel where nothing ran out are `Step`'s successors:
+what the list of `CExec.run_exact` is, stated without reading `CExec.successorsN`'s body. -/
+example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n : Nat} {x y : Config c}
+    (hf : CExec.outOfFuel c n x.val = false), Step c x y ↔ y.val ∈ CExec.successorsN c n x.val :=
+  @CExec.step_iff_at
+
 /-! ## Their axioms: `#guard_msgs in #print axioms`, the list exactly -/
 
 /-- info: 'KCore.sound_hyp' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -470,5 +476,8 @@ example : ∀ {c : Semantics} (h : c.coreOK = true) (hr : CExec.execReady c = tr
 
 /-- info: 'KCore.CExec.run_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.CExec.run_exact
+
+/-- info: 'KCore.CExec.step_iff_at' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.CExec.step_iff_at
 
 end KCore.Pins
