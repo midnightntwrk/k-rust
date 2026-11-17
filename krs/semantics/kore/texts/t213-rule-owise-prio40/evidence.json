@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "9e36c3ac80a5bf7316dcfdcfe99e9a8b981bae69e8c71bb2e290d87791452906",
+  "t213-rule-owise-prio40.k": "b49e07e62aef7969a68276bd2fb2912cf9f3d31a6c01ff41aa50ea1c021d207e"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t213-rule-owise-prio40.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "094bff06a08739bb70c979867c53270fcdb94d750ea1e4813ddcd15137198e32",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

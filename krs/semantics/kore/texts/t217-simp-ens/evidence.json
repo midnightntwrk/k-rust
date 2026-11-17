@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "2d7562c054b9294ff1bbe5c0b070d14a54671ec5c30a185b49ecfc429d39786a",
+  "t217-simp-ens.k": "e478c10221b4a03d7380ea6f9f311aea22ebcf526c175e16bad6a386fb092ffe"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t217-simp-ens.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "d36ba73cf160aa681e62216879d951b8af346d8b9189e016a4a09c785c640240",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

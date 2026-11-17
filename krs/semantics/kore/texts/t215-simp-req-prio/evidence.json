@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t215-simp-req-prio.k": "36377c5e76f97cfb8a2990b74f6239ffe5f31387a8f7ff1075430c725faf1140"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t215-simp-req-prio.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "ad931217d302ef54af5145b37d0fb8d75c7ca20127b58304b5535fca7a21923f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
