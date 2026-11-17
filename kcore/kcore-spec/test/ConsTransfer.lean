@@ -51,7 +51,38 @@ example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧�
     extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩).pat :=
   transfer_idem hD hI hc k hn hf hSs h
 
+/-- A sentence at its sort variable. -/
+example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat)
+    {O : String → Prop}
+    (hO : ∀ N, O N → ¬ D (.sort N) ∧ ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort N) a ↔ a = σ)
+    {R : EVar} (hRt : R ≠ KoreAML.topVar) (hne : ∃ τ, KoreAML.IsSort I τ ∧ ∃ m, KoreAML.Inh I τ m)
+    {G : List (EVar × String)} (hG : ∀ p ∈ G, O p.2) (hR : R ∉ G.map (·.1)) {π : KoreAML.P}
+    (hπ : RPred D O R G π)
+    (h : I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
+      (π ≡ KoreAML.inhOf (.evar R))) :
+    extModel c D I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
+      (π ≡ KoreAML.inhOf (.evar R)) :=
+  transfer_R hD hI hc hO hRt hne hG hR hπ h
+
+/-- A function equation with its sort variable: the equation of the clause `f(A) = A`. -/
+example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat)
+    (hne : ∃ τ, KoreAML.IsSort I τ ∧ ∃ m, KoreAML.Inh I τ m) (f s : String)
+    (hn : ¬ D (.sort ("Sort" ++ s))) (hf : ¬ D (.symbol f))
+    (hSs : ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ s)) a ↔ a = σ)
+    (h : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] }⟩).pat) :
+    extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] }⟩).pat :=
+  transfer_fnEq hD hI hc hne f s hn hf hSs h
+
 end
+
+/-- `fnEqIdPat` is the pattern `equationAx` writes for a clause with one argument pattern, a
+variable, that variable as right side, no `requires` and no `ensures`. -/
+example (f s : String) :
+    KoreAML.equationAx f [s] s (premise [s] none [KoreAML.ev "VarA" (KoreAML.srt s)])
+      (KoreAML.ev "VarA" (KoreAML.srt s)) (.top (KoreAML.srt s)) [] =
+    .axiom { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] } := rfl
 
 /-- info: 'KCore.Cons.ext_embeds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Cons.ext_embeds
@@ -65,3 +96,7 @@ end
 #guard_msgs in #print axioms KCore.Cons.transfer_collNoJunk
 /-- info: 'KCore.Cons.transfer_idem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Cons.transfer_idem
+/-- info: 'KCore.Cons.transfer_R' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.Cons.transfer_R
+/-- info: 'KCore.Cons.transfer_fnEq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.Cons.transfer_fnEq
