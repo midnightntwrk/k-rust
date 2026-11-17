@@ -170,8 +170,8 @@ witness = "none"
 [[conjunct]]
 key = "overloadsOK.3"
 text = "(KCore.iteSort? (c.symName o.sig.name)).isNone"
-witness = "none: not found in the no-model form; the conjunct is not implied by the others, Γ has a model (argued), and the step to a value applying the symbol appears not to be entailed (conjectured: SoundC's den y ⇒ famEx; no rule-bearing definition built, not kernel-checked)"
-evidence = "test/OvlIteName.lean"
+witness = "none: not found in the no-model form; the conjunct is needed for soundness instead: a semantics failing it alone, with FnHyp, has a theory with a model and SoundC false, the successor of a step to a value applying the symbol not being entailed to be in the family (kernel-checked: test/OvlIteSoundC.lean, consistent and not_sound)"
+evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 
 [[conjunct]]
 key = "overloadsOK.4"

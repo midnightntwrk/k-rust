@@ -28,14 +28,12 @@
     to a Bool's element first, and `itesApart` leaves no other symbol at X. Building that model in
     the kernel is the canonical model's construction without the conjunct, which it reads through
     `OvlLaws.ovl_parts` (its fourth part, in FaithfulCollPat.lean's `kernel_arity` steps).
-  - Conjectured: the step to a value applying the symbol is not entailed. For a rule
-    `… => Lblite{X}(1)`, `Step` gives the successor `.ctor o [1]`, whose `den` is the plain head
-    applied to 1, while `famEx c r σ` (the rule's right-hand side, `ruleRight`, through `Term.kore`)
-    applies `Lblite{SortX}`. `SoundC`'s second conjunct asks `Γc ⊧ (den y ⇒ famEx c r σ)`, and `Γ`
-    equates the two heads nowhere, so a model of `Γc` reading `Lblite ⬝ SortX` as another element of
-    K (the arity item allows any) would refute it. `c` has no rule: no rule-bearing definition was
-    built and `¬ SoundC` is not kernel-checked. If it holds, the conjunct is asked for soundness,
-    not for `Γ`'s model.
+  - The step to a value applying the symbol is not entailed. For a rule `… => Lblite{X}(1)`,
+    `Step` gives the successor `.ctor o [1]`, whose `den` is the plain head applied to 1, while
+    `famEx c r σ` (the rule's right-hand side, `ruleRight`, through `Term.kore`) applies
+    `Lblite{SortX}`, and `Γ` equates the two heads nowhere. `c` here has no rule; test/OvlIteSoundC.lean
+    adds one and kernel-checks that its theory with the step's closure has a model and that
+    `SoundC` fails: the conjunct is asked for soundness, not for `Γ`'s model.
 -/
 import KcoreSpec
 
