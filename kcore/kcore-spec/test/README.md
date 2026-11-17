@@ -678,7 +678,31 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
   `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
   `rest_undetermined` says that where every clause of a function fails `Γ` over all H entails
-  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause).
+  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause). Every `UnreadReason`
+  has its entry: `setIdempotence` is guarded by G7 with `idem_refuted` (test/TieEns.lean) and
+  `setIdem_reached` (were `_Set_` a key of `silentTable`, its value at a common member would be
+  the interpretation's); the five others name the reader test that fixes their verdict. The nine
+  reader devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`, `bottomAsEnsures`,
+  `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`) each have a guard on the kompiled
+  text of a construct fixture, stated for every H about `c.withHooks H` (namespaces `DevOr` to
+  `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
+  without the device, where the result differs (at a named H where that reading makes the point
+  one where every clause fails, under every H where no function is at the point). `reflectionAsOwn`
+  (`DevRefl`), `keyFunctionAsRequires` (`DevKey`), `equationPriority` (`DevPrio`, on
+  `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
+  interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
+  the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
+- `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
+  e2-macro): the four macro and alias symbols the text declares and does not apply are not read
+  (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
+  unaccounted, `f`'s clause applying none of them.
+- `test/H12Witnesses.lean`: a constructor whose result sort has other values is outside `coreOK`,
+  by `Faithful.genWf`: hand-built semantics over one frame, in the kernel. A library constructor
+  into Int or Map fails `genWf`'s third conjunct (the sort enters `consSorts` and is a literal or
+  collection sort), an own constructor into them its first (the sort is no constructor sort); into
+  an own carrier sort and into an own Map collection sort both routes fail the first; each beside
+  its control without the constructor, `coreOK = true`. A library constructor into MInt keeps
+  `coreOK`; into RangeMap, a collection sort of the kernel, it fails the third conjunct.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
