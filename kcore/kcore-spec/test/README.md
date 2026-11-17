@@ -1254,6 +1254,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   places that size test/TieKimpSig.lean's ranges. It prints Lean text; the kernel checks every
   place in the file that names it. A reorder of `consItemsK` or `sigItems` is a regeneration.
   About 8 min (the search runs in the interpreter), 0.2 GiB.
+- `test/imp-tie.toml`, `test/imp-tie.sh`: row imp's tie, per class of the account of kimp's user
+  module: the count, the direction, how many are kernel-checked in it on kimp's text (proved, at
+  values, refuted, without direction) with the theorems, and the remainder with its reason (the
+  classes stated at values and the refuted ones are checked on other texts only; the function
+  `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
+  `consistent`). The script checks the record by text against test/TieKimp.lean's `account_sizes`,
+  `tieClasses` and the files of the theorems it names.
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
