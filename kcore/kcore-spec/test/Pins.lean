@@ -398,7 +398,7 @@ example : tieClasses =
      ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
      ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
      ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
-     ("set idempotence", .refuted), ("no direction", .none)] := rfl
+     ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("no direction", .none)] := rfl
 
 /-- The directions, by their constructors: seven, in this order. -/
 example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx, TieDir.atValues.ctorIdx,
