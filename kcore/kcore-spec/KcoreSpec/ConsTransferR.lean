@@ -5,7 +5,8 @@
   Such a sentence is not of the class `OwnSorted` (ConsTransfer.lean): in the extension `R` also
   ranges over the detached sort names. `RPred` is the class of its patterns: the definedness
   symbols `⌈ψ⌉{S,R}` at a sort `S` outside `D` and a pattern `ψ` of the class that lies within `S`,
-  `⊤_R`, negation and conjunction at `R`, and a quantifier at a sort outside `D`. Each denotes the
+  `⊤_R`, negation and conjunction at `R`, and a quantifier at a sort outside `D`, whose variable
+  may be one of the free variables (it then hides that variable in its body). Each denotes the
   sort `R` or nothing, and which of the two does not depend on `R` (`rpred_inv`): a definedness
   symbol reads only whether `ψ` has an element, in the model and, at a detached sort name, in the
   extension.
@@ -38,7 +39,7 @@ inductive RPred (D : KoreAML.Sym → Prop) (O : String → Prop) (R : EVar) : Li
   | top {G} : RPred D O R G (KoreAML.sTop (.evar R))
   | not {G π} : RPred D O R G π → RPred D O R G (KoreAML.sNot (.evar R) π)
   | and {G π π'} : RPred D O R G π → RPred D O R G π' → RPred D O R G (KoreAML.sAnd π π')
-  | ex {G x N π} : O N → x ≠ R → x ∉ G.map (·.1) → RPred D O R ((x, N) :: G) π →
+  | ex {G x N π} : O N → x ≠ R → RPred D O R ((x, N) :: G.filter (·.1 ≠ x)) π →
       RPred D O R G (KoreAML.sExists x (KoreAML.sym (.sort N)) π)
 
 namespace RPred
@@ -46,6 +47,15 @@ variable {D : KoreAML.Sym → Prop} {O : String → Prop} {R : EVar} {G : List (
   {π π' φ ψ : KoreAML.P} {N : String}
 
 theorem sBot : RPred D O R G (KoreAML.sBot (.evar R)) := .not .top
+
+/-- A quantifier whose variable is none of the free variables. -/
+theorem exFresh {x : EVar} (hN : O N) (hx : x ≠ R) (hG : x ∉ G.map (·.1)) (h : RPred D O R ((x, N) :: G) π) :
+    RPred D O R G (KoreAML.sExists x (KoreAML.sym (.sort N)) π) := by
+  refine .ex hN hx ?_
+  have : G.filter (·.1 ≠ x) = G := List.filter_eq_self.mpr fun p hp =>
+    decide_eq_true fun hh => hG (hh ▸ List.mem_map.mpr ⟨p, hp, rfl⟩)
+  rw [this]
+  exact h
 theorem sOr (h1 : RPred D O R G π) (h2 : RPred D O R G π') : RPred D O R G (KoreAML.sOr (.evar R) π π') :=
   .not (.and (.not h1) (.not h2))
 theorem sImp (h1 : RPred D O R G π) (h2 : RPred D O R G π') : RPred D O R G (KoreAML.sImp (.evar R) π π') :=
@@ -86,13 +96,14 @@ theorem ownSorted (hRt : R ≠ KoreAML.topVar) (h : RPred D O R G π) :
       · exact absurd hy List.not_mem_nil) (.inl rfl) (.evar (List.mem_cons_self ..))
   | not _ ih => exact .sNot (.evar (List.mem_cons_self ..)) ih.toOld
   | and _ _ ih1 ih2 => exact .sAnd ih1 ih2.toOld
-  | ex hN _ _ _ ih =>
+  | ex hN _ _ ih =>
     refine .sEx (V' := []) (.sortC (hO _ hN)) nil_sub (.inl rfl) (ih.mono (fun y hy => ?_) (fun _ h => h))
     simp only [List.map_cons, List.mem_cons] at hy ⊢
     rcases hy with h | h | h
     · exact .inr (.inl h)
     · exact .inl h
-    · exact .inr (.inr h)
+    · obtain ⟨p, hp, rfl⟩ := List.mem_map.mp h
+      exact .inr (.inr (List.mem_map.mpr ⟨p, (List.mem_filter.mp hp).1, rfl⟩))
 
 end RPred
 
@@ -245,7 +256,7 @@ theorem rpred_inv {n : String} {G : List (EVar × String)} {π : KoreAML.P} (h :
       exact ⟨fun h => ⟨⟨h.1.1, h.2.1⟩, h.1.2⟩, fun h => ⟨⟨h.1.1, h.2⟩, ⟨h.1.2, h.2⟩⟩⟩
     · rw [KoreAML.interp_sAnd, h2, h4]
       exact ⟨fun h => ⟨⟨h.1.1, h.2.1⟩, h.1.2⟩, fun h => ⟨⟨h.1.1, h.2⟩, ⟨h.1.2, h.2⟩⟩⟩
-  | @ex G x N π hN hxR hxG _ ih =>
+  | @ex G x N π hN hxR _ ih =>
     intro e e' hr hs hτ hR'
     obtain ⟨hnD, σ, hσ, hσN⟩ := hO _ hN
     have hS : ∀ (e : Valuation M) (a : M), (KoreAML.sym (.sort N)).interpret I e a ↔ a = σ := fun _ a => hσN a
@@ -262,14 +273,16 @@ theorem rpred_inv {n : String} {G : List (EVar × String)} {π : KoreAML.P} (h :
           · rw [Function.update_noteq hy', Function.update_noteq hy']
             rcases List.mem_cons.mp hy with h | h
             · exact absurd h hy'
-            · exact hr.1 y h, nil_sub⟩
+            · obtain ⟨p, hp, rfl⟩ := List.mem_map.mp h
+              exact hr.1 _ (List.mem_map.mpr ⟨p, (List.mem_filter.mp hp).1, rfl⟩), nil_sub⟩
         (fun p hp => by
           show (KoreAML.inhOf (KoreAML.sym (.sort p.2))).interpret I _ (Function.update e.evalEvar x a p.1)
           rcases List.mem_cons.mp hp with rfl | hp
           · rw [Function.update_same]; exact (KoreAML.interp_inhOf_of (hS _)).mpr ha
-          · have hne : p.1 ≠ x := fun hh => hxG (hh ▸ List.mem_map.mpr ⟨p, hp, rfl⟩)
+          · have hp' := List.mem_filter.mp hp
+            have hne : p.1 ≠ x := of_decide_eq_true hp'.2
             rw [Function.update_noteq hne]
-            exact hs p hp)
+            exact hs p hp'.1)
         (by show IsSort I (Function.update e.evalEvar x a R); rw [Function.update_noteq hRx]; exact hτ)
         (by show Function.update e'.evalEvar x (.inl a) R = _; rw [Function.update_noteq hRx]; exact hR')
       obtain ⟨tv, h1, h2⟩ := h

@@ -84,6 +84,12 @@ example (f s : String) :
       (KoreAML.ev "VarA" (KoreAML.srt s)) (.top (KoreAML.srt s)) [] =
     .axiom { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] } := rfl
 
+/-- A quantifier at the sort variable `R` may bind one of the free variables: `∃x:N. ⊤_R` where `x`
+is free at the sort `N'`. -/
+example {D : KoreAML.Sym → Prop} {O : String → Prop} {R x : EVar} {N N' : String} (hN : O N) (hx : x ≠ R) :
+    RPred D O R [(x, N')] (KoreAML.sExists x (KoreAML.sym (.sort N)) (KoreAML.sTop (.evar R))) :=
+  .ex hN hx .top
+
 /-- info: 'KCore.Cons.ext_embeds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Cons.ext_embeds
 /-- info: 'KCore.Cons.transfer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
