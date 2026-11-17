@@ -47,7 +47,7 @@ that kast does not parse, or whose parse holds a variable or applies a symbol to
 arguments than its declaration's, stops the entry with an error naming the term. kast's rule
 parser refuses a cell collection of two or more instances, and gives one of none an application
 of the wrong arity: such finals are written as finals_canonical, the canonical text itself, which
-is taken as written. A reading whose answer is prose has no key; a pending ruling has none.
+is taken as written. A reading whose answer is prose has no key.
 
 implementations. The haskell backend (krun --search) and the llvm backend (kompiled with
 --enable-search) are run on a case, and their final configurations written as canonical text
