@@ -3116,7 +3116,7 @@ sentences the text lacks (module by module, as `roundtrip` finds them), each cla
 (the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
 what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
 stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
-account gives it (`Parse.connReadings`, `keysAsRequires`, a `readAs`, `unread` or `inert` class; an
+account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, a `readAs`, `unread` or `inert` class; an
 inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
 read in another form under a note is a named reading (C14's weaker or more, with its note); one
 without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
@@ -3188,6 +3188,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let off := Parse.preludeLength k
   let conn := Parse.connReadings k
   let keys := Parse.keysAsRequires k
+  -- the `[owise]` equations read with a premise narrower than the text's
+  let narrowed := (Parse.owiseNarrowed k d).map (·.1)
   -- the inert constructor axioms the account finds not induced by `d`'s constructors (`uninduced`):
   -- the others `d` holds as values, written or not
   let uninduced := (Parse.uninduced k d).filterMap (·.index)
@@ -3200,7 +3202,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         | .unread r => [s!"unread {r.name}"]
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
-      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else [])
+      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
+      (if narrowed.contains n then ["owiseDisjunctNarrower"] else [])
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty

@@ -364,7 +364,7 @@ declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating d
 What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
 (declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
 that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
-connective reading, `keysAsRequires`, a `readAs`, `unread` or `inert` class, an inert constructor
+connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, a `readAs`, `unread` or `inert` class, an inert constructor
 axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
 `--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
 by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
