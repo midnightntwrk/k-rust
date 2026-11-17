@@ -1,19 +1,64 @@
 id = "c21-map-concat"
 kind = "case"
 subject = "Map concatenation is defined on maps with disjoint keys: M (1 |-> 3) where M has the key 1 is undefined, so that rule has no successor; M (2 |-> 3) is the union; M .Map is M."
+retro = ["A4"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t34-collection-values", "kk:t36-map-concat"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(M0) no successor by the rule for r(1, _) and the successors of the two others (user_manual.md:1166-1173); the axiom kompile writes for that rule has M (1 |-> 3) in its right side (kore.txt:94), empty where M has the key 1, and read as a rewrite axiom it is false in every model where go(M0) in the k cell is an element: as written the text has no model holding go(M0), rather than one where go(M0) has the two successors of the other rules."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(2, 1 |-> 2 2 |-> 3 7 |-> 8)", "r(3, 1 |-> 2 7 |-> 8)"]
+reason = """
+(1) M0 is the map of 1 |-> 2 and 7 |-> 8 (kk:t34-collection-values). The three rules for go have priority 50 and no requires (user_manual.md:1748-1749): each rule whose result has a value gives go(M0) a successor, whatever the others give (kk:t02-step-successors).
+(2) M0 (1 |-> 3): M0 and the map of 1 |-> 3 have the key 1 in common, so their concatenation is #False, no value (domains.md:227-229, 223-225; kk:t36-map-concat), and so is r(1, M0 (1 |-> 3)) (kk:t10-fn-innermost). The transition of that rule ends in RHS #And ENS (user_manual.md:1166-1173), which has no value: it gives go(M0) no successor, and r(1, _) is reached by no rule.
+(3) M0 (2 |-> 3): no key in common, so it is the map of the pairs of both, 1 |-> 2, 2 |-> 3 and 7 |-> 8 (kk:t36-map-concat): go(M0) steps to r(2, 1 |-> 2 2 |-> 3 7 |-> 8). M0 .Map is M0, .Map being the unit (kk:t36-map-concat): go(M0) steps to r(3, 1 |-> 2 7 |-> 8).
+(4) No rule's left side matches r(_, _); the two successors are final (kk:t06-final-configuration). The final configurations are those two.
+(5) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:223-225 (K 7.1.337)"
+quote = "The `Map` sort represents a generalized associative array. Each key can be paired with an arbitrary value, and can be used to reference its associated value. Multiple bindings for the same key are not allowed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[ruling.kore]
+statement = "Each rule for go is one rewrite axiom, of one priority (kore.txt:88-115). The right side of the first holds M (1 |-> 3), the symbol _Map_ applied to M and 1 |-> 3 (kore.txt:94); _Map_ is the concatenation of maps, which denotes nothing where they have a key in common (kk:t36-map-concat), so at M = M0 that axiom holds only where its left side has no element; go is a constructor with a functional axiom (kore.txt:62). The written sentences have no model in which go(M0) in the k cell is an element, while the manual's transition gives go(M0) the two final configurations of the other rules."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:94"
+quote = '''Lbl'Unds'Map'Unds'{}(VarM:SortMap{},Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3"))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:62"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map{}(K0:SortMap{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on M (1 |-> 3) where M has the key 1 ([hook_MAP_concat]: Duplicate \
-keys in map concatenation). K's MAP module states that the concatenation of maps with a common \
-key is #False: MAP.concat is defined on maps with disjoint keys. That rule's result is \
-undefined, and the rules of the same priority give the final configurations."""
+reason = "The llvm backend aborts on M (1 |-> 3) where M has the key 1 ([hook_MAP_concat]: Duplicate keys in map concatenation) and reports no final configuration; the ruling has the two final configurations of the other rules."
