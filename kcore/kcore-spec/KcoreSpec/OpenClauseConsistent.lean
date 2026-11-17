@@ -122,10 +122,10 @@ theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hl : OpenLaws c)
 (`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose interpretation satisfies the
 open generators' laws (`OpenLaws`): the value model. Nothing is asked
 of the sorts of the variables a clause's patterns and conditions do not hold. -/
-theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hov : OvlOK c]
+theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c) : Consistent c := by
   have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
-  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm hl fun _ hr => hm.ruleFactsEx hr⟩
+  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm hl (hm.ruleFactsEx_of_top htop)⟩
 
 end KCore

@@ -24,6 +24,7 @@
 -/
 import KcoreSpec.OpenCompete
 import KcoreSpec.ExPlain
+import KcoreSpec.PredPlain
 import KcoreSpec.ModelFns
 import KcoreSpec.ModelUndefRhsWitness
 import KcoreSpec.ModelJunkWitness
@@ -111,6 +112,21 @@ theorem HypModelCore.ruleFactsEx (h : HypModelCore c) {r : Rule} (hr : r ∈ c.r
     c.ruleSorted r = true ∧ c.rulePlainEx r = true := by
   obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
   exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_ex.mp hrp r hr⟩
+
+/-- The facts on a rule of a definition that `HypModelCore`'s `sortedOKCl` gives, its predicates
+left aside: `ruleSorted` and `rulePlainPP`. -/
+theorem HypModelCore.ruleFactsPP (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
+    c.ruleSorted r = true ∧ c.rulePlainPP r = true := by
+  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
+  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulePlainPP_of_ex (Semantics.rulesPlain_iff_ex.mp hrp r hr)⟩
+
+/-- Where every rule has `\top` predicates, `HypModelCore` gives `ruleSorted` and `rulePlainEx` of
+each rule: `rulePlainEx` is `rulePlainPP` with `\top` predicates. -/
+theorem HypModelCore.ruleFactsEx_of_top (h : HypModelCore c)
+    (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun r hr =>
+  ⟨(h.ruleFactsPP hr).1, Semantics.rulePlainEx_iff_pp.mpr
+    ⟨by rw [(htop r hr).1]; rfl, by rw [(htop r hr).2]; rfl, (h.ruleFactsPP hr).2⟩⟩
 
 mutual
   /-- The variables of a sorted term of a numbered sort have numbered sorts, in a context whose
@@ -504,7 +520,8 @@ a substitution σ of values at every variable, a configuration x is in L exactly
 premises hold of the rule at x under σ: the left side matches x, the `requires` and `ensures`
 evaluate to `true`, no rule of a smaller priority applies, and the right side has a value. -/
 theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
-    (hp : c.rulePlainOpen r = true) :
+    (hp : c.rulePlainOpen r = true)
+    (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true) :
     ∃ L, prioRuleK c r = .rewrites (srtOf c topCellSort) L (.and (srtOf c topCellSort)
         [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]) ∧
@@ -574,7 +591,7 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
         ((KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret (stdI c) e (.val x) ↔
           RuleApplies c r' x) := by
       intro r' hr' hp'
-      obtain ⟨hs', hpo'⟩ := h.ruleFactsEx hr'
+      obtain ⟨hs', hpo'⟩ := hrules r' hr'
       have hφ : applies c r' (canonRulePres r') ∈ comps :=
         List.mem_map.mpr ⟨r', List.mem_filter.mpr ⟨hr', by simpa using hp'⟩, rfl⟩
       refine applies_iff_T (T := StepM c) h hs' hpo' (fun i hi hil => hk _ ?_) e hx
@@ -637,12 +654,13 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
 `rulePlainOpen`: its guards give every variable of the rule, held by the left side or not, a value
 of its sort, and where the left part holds `StepM` steps by the rule to the right side's value. -/
 theorem sat_rule_open (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) (hs : c.ruleSorted r = true)
-    (hp : c.rulePlainOpen r = true) :
+    (hp : c.rulePlainOpen r = true)
+    (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", { sortVars := [], pattern := prioRuleK c r, attributes := [] }⟩).pat := by
   have hn := h.namesK
   obtain ⟨-, -, -, -, hrhss⟩ := ruleSorted_partsOpen hs hp
   have hnum := rule_vars_numOpen h hs hp
-  obtain ⟨L, hP, hLk, hLread⟩ := rule_premise_open h hs hp
+  obtain ⟨L, hP, hLk, hLread⟩ := rule_premise_open h hs hp hrules
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let R : Kore.Pattern := .and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]
@@ -686,7 +704,7 @@ theorem sat_rule_open (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) (hs :
     rw [KoreAML.interp_inhOf_of (srtOf_top_den h e), inh_srt] at ha
     obtain ⟨x, rfl, hx⟩ := inSort_val ha
     obtain ⟨hmatch, hreq, hprio, y, hy, hens⟩ := (hLread tbl e _ x hvarsL hσ hx hvar).mp hL
-    exact rhs_next h hr hσ hvar (tr_term h hvar (termOK_of_sorted h fns_headsOK hrhss)) hx hmatch hreq hprio hy hens
+    exact rhs_next h hr (Semantics.rulePlainOpen_top hp).2.1 (Semantics.rulePlainOpen_top hp).2.2 hσ hvar (tr_term h hvar (termOK_of_sorted h fns_headsOK hrhss)) hx hmatch hreq hprio hy hens
 
 /-- **`SatRulesGoal`** for a definition whose rules have `ruleSorted` and `rulePlainOpen`. -/
 theorem satRulesGoal_open (h : HypModelCore c)
@@ -694,6 +712,7 @@ theorem satRulesGoal_open (h : HypModelCore c)
   refine sat_itemsPremises c fun it hit => ?_
   obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hit
   exact sat_rule_open h hr (hrules r hr).1 (hrules r hr).2
+    fun r' hr' => ⟨(hrules r' hr').1, (Semantics.rulePlainOpen_iff_ex.mp (hrules r' hr').2).1⟩
 
 end Model
 

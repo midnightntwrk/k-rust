@@ -10,7 +10,7 @@
   has a result at arguments of its sorts (`FnTerminates`) and that the right sides are well sorted
   (`SortCtx`, `sortCtx_of_allCl`): a well-sorted term has a result under a well-sorted substitution
   (`Model.evalTerm_totalCl`), and a rule's conditions and right side are well sorted
-  (`rule_ctxCl`, `rule_ctx_ensCl`, `Semantics.sortedOKCl_ruleTop`). This is `stepDecided_of_coreCl`;
+  (`rule_ctxCl`, `rule_ctx_ensCl`), its predicates `\top`. This is `stepDecided_of_coreCl`;
   `stepDecided_of_fnHypCl` takes `FnTerminates` from `FnHyp`.
 -/
 import KcoreSpec.FaithfulCompleteAt
@@ -107,12 +107,12 @@ variable {c : Semantics}
 /-- **Every configuration is `StepDecided`** where every function has a result at arguments of its
 sorts, for a semantics `sortedOKCl` and `srReady` accept whose overloading
 symbols are as `Γ`'s readings take them: no fact on the clauses beyond their right sides' sorts. -/
-theorem stepDecided_of_coreCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hsr : c.srReady = true) (hov : OvlOK c)
+theorem stepDecided_of_coreCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) (hov : OvlOK c)
     (hft : FnTerminates c) (x : GroundTerm) : StepDecided c x := by
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
   intro r hr _
   obtain ⟨-, hreqs, hrhss⟩ := rule_ctxCl hok hr
-  obtain ⟨hpre, hpost⟩ := Semantics.sortedOKCl_ruleTop hok hr
+  obtain ⟨hpre, hpost⟩ := htop _ hr
   have hensS := rule_ctx_ensCl hok hr
   refine ⟨fun σ hσ _ => ⟨fun t ht => Model.evalTerm_totalCl hsc hov hft fns_headsOK (Rule.wellSorted_of_at (hb r hr) hσ)
       (hreqs t ht), true, hpre ▸ .top⟩,
@@ -126,8 +126,8 @@ open Faithful
 /-- **`stepDecided_of_fnHyp` with the clauses asked `clauseSortedOpen` and `clausePlainOpen`** (in
 `sortedOKCl`) in place of `sortedOK`'s clause conjuncts, and no fact on the sorts of the variables
 their patterns and conditions do not hold. -/
-theorem stepDecided_of_fnHypCl {c : Semantics} (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hsr : c.srReady = true) (hov : OvlOK c)
+theorem stepDecided_of_fnHypCl {c : Semantics} (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) (hov : OvlOK c)
     (hf : FnHyp c) (x : Config c) : StepDecided c x.val :=
-  stepDecided_of_coreCl hok hb hsr hov hf.1 x.val
+  stepDecided_of_coreCl hok hb htop hsr hov hf.1 x.val
 
 end KCore

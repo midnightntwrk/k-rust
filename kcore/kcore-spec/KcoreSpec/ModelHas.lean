@@ -47,12 +47,13 @@ theorem has_model_step_of_hyp (h : HypModelCore c) (h2 : SatConsGoal c) (h5 : Sa
   has_model_step_of c (satSigGoal h) h2 (satDomainsGoal h) (satCollsGoal h) h5 h6 h7 (satFallbackGoal h)
 
 /-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model. Of the
-rules it reads `ruleSorted` and `rulePlainEx` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
-theorem has_model_core (h : HypModelCore c) (hl : OpenLaws c) :
+rules it reads `ruleSorted` and `rulePlainEx` (`satRulesGoal_StepM`, `satStepGoal_StepM`), so it is
+stated for rules with `\top` predicates. -/
+theorem has_model_core (h : HypModelCore c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
   has_model_step_of c (satSigGoal h) (satConsGoal h hl) (satDomainsGoal h) (satCollsGoal h) (satFnsGoal h)
-    (satRulesGoal_StepM h (fun _ hr => h.ruleFactsEx hr))
-    (satStepGoal_StepM h (fun _ hr => h.ruleFactsEx hr)) (satFallbackGoal h)
+    (satRulesGoal_StepM h (h.ruleFactsEx_of_top htop))
+    (satStepGoal_StepM h (h.ruleFactsEx_of_top htop)) (satFallbackGoal h)
 
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
 (`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/
@@ -61,9 +62,9 @@ theorem HypModel.core (h : HypModel c) : HypModelCore c :=
   HypModel.core_of h hd (fnSolves_of_total h.sound.core hd h.hyp.core.2.2.1)
 
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/
-theorem has_model (h : HypModel c) (hl : OpenLaws c) :
+theorem has_model (h : HypModel c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  has_model_core h.core hl
+  has_model_core h.core htop hl
 
 end Model
 
@@ -74,7 +75,7 @@ theorem hypModel : Model.HypModel c :=
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
+  Model.has_model hypModel (Semantics.rulesTop_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel))
 
 end UndefRhsWitness
 
@@ -86,7 +87,7 @@ theorem hypModel : Model.HypModel c :=
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
+  Model.has_model hypModel (Semantics.rulesTop_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel))
 
 end JunkWitness
 

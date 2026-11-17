@@ -221,7 +221,7 @@ theorem stepGo : StepBy c3 r3 σ3 Go Zero := by
 `<k> 0 </k>`, nothing assumed (no clause needs a witness). -/
 example : Faithful.Γc c3 ⊧ (Faithful.famEx c3 r3 σ3 ≡ den c3 Zero.val) :=
   Faithful.famEx_closedCl c3 decided.1 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 decided.2.2.2.2.2.2.1
-    stepGo r3_shape.2.2.2.2 (fun _ hfn _ hcl hw => (noWit hfn hcl hw).elim)
+    stepGo r3_shape.2.2.2.2 (Cond.eq_top_of_isTop (by decide +kernel)) (fun _ hfn _ hcl hw => (noWit hfn hcl hw).elim)
 
 /-- info: 'KCore.Faithful.famEx_closedCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Faithful.famEx_closedCl
@@ -510,8 +510,8 @@ successor of `<k> go </k>` is `<k> 0 </k>`, the evaluation at `go` decided by `s
 witness, no rule leaves a variable open). -/
 example : (Faithful.Γc c3 ∪ Faithful.Γstep c3) ⊧
     (den c3 Go.val ⇒ KoreAML.allNext (KoreAML.disjList ([Outcome.val Zero.val].map (Outcome.pat c3)))) :=
-  complete_atCl c3 decided.1 rulesBind3 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 Go
-    (Faithful.stepDecided_of_coreCl decided.1 rulesBind3 decided.2.1 ovl3 fnTerminates3 Go.val) _
+  complete_atCl c3 decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 Go
+    (Faithful.stepDecided_of_coreCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 ovl3 fnTerminates3 Go.val) _
     (fun y r σ _ hs => by rw [succ_go hs]; exact List.mem_singleton_self _)
     (fun r hr hop => by
       obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hr
