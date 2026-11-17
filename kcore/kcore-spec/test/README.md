@@ -1148,6 +1148,17 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
+  equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
+  `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
+  library's one statement of the equation (`LibEv.FnEqn.entailed_reg`; `KcoreSpec/LibEvFnLib.lean`,
+  `LibEvFnBoolInt.lean`, `LibEvFnColl.lean`): sentences 174, 180, 246, 247; 173, 183, 184, 187, 188,
+  192, 193, 198, 199, 202, 203, 204, 206, 209, 248, 249 (BOOL and INT); 207, 264 (`|Set`,
+  `pushList`). Axioms guarded.
+- `test/LibEvLawEns.lean`: the nine collection laws of `f2-examples/ens.kompile.kore` (sentences 53,
+  54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
+  entailed at values for every H, each from the library's one statement of the law
+  (`KcoreSpec/LibEvLaw.lean`, through `LibEv.Law.entailed_reg`). Axioms guarded.
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
