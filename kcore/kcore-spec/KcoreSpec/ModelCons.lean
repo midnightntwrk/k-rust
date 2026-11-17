@@ -1,24 +1,27 @@
 /-
-  KCore. The value model satisfies the constructors' axioms (`SatConsGoal`).
+  KCore. The value model satisfies the items of the constructors' axioms.
 
-  A generator of a constructor sort N builds, from values of its argument sorts, one value of N
-  (`genVal`): a constructor the constructor term, an overloading symbol the normal form (`norm`),
-  the injection from a subsort `a` the value `injNormal a N v`. So each generator is a function
+  A generator of a constructor sort N builds, from values of its argument sorts that no function
+  overload of it covers, one value of N (`genVal`, `gs_gen`): a constructor the constructor term,
+  an overloading symbol the normal form (`norm`), the injection from a subsort `a` the value
+  `injNormal a N v`. So each generator that is no function-overloaded symbol is a function
   (Cons-Fun); it is injective (Cons-Inj): a constructor term determines its arguments, `norm` is
-  injective (`OvlLaws.norm_inj`), and `injNormal a N` is injective on values of `a`, since an
+  injective (`OvlLaws.norm_inj_ovlF`), and `injNormal a N` is injective on values of `a`, since an
   injection is never nested and no sort is below itself. Two generators build different values
   (Cons-Dist): two constructors of distinct names (`ctorsOnce`, `ovlsOnce`) build different terms,
-  a normal form's raw application is of a symbol of its overload closure (`OvlLaws.norm_head`), so
-  generators whose closures do not meet build different values, at uncovered arguments an
-  overloading symbol builds its raw application (Cons-Dist at uncovered arguments), a constructor
-  term is no injection, and two injections from incomparable sorts build one value only from an
-  injection of one value of a common lower bound (Cons-Dist′, and Cons-Dist where there is none).
-  The values of N are exactly what its generators build (Cons-NoJunk, `consSort_shape`; a raw
-  overloading application is its own normal form, `OvlLaws.norm_fixed`), injections compose
-  (Cons-Coh), and each overload equation holds (`OvlLaws.norm_ovlEq`).
+  a normal form's raw application is of a symbol of its overload closure
+  (`OvlLaws.norm_head_ovlF`), so generators whose closures do not meet build different values, at
+  uncovered arguments an overloading symbol builds its raw application (Cons-Dist at uncovered
+  arguments), a constructor term is no injection, and two injections from incomparable sorts build
+  one value only from an injection of one value of a common lower bound (Cons-Dist′, and Cons-Dist
+  where there is none). The values of N are exactly what its generators build (Cons-NoJunk,
+  `consSort_shape`; a raw overloading application is its own normal form,
+  `OvlLaws.norm_fixed_ovlF`), and injections compose (Cons-Coh). The items of a function-overloaded
+  symbol, the overload equations and `SatConsGoal` are in ModelConsFn.lean.
 -/
 import KcoreSpec.ModelColls
 import KcoreSpec.NamesApart
+import KcoreSpec.OvlLawsFn
 
 set_option autoImplicit false
 
@@ -326,9 +329,11 @@ theorem gs_open (h : HypModelCore c) {f : Sym} {ws : List GroundTerm} {kp : Para
   exact (symE_vals (T := T) h.namesK (kernel_param hkp) (sortsOf_len hws) _).mpr
     ((result_param hc hh hp _).mpr ⟨_, rfl, hpv⟩)
 
-/-- **A generator builds one value of its sort** from values of its argument sorts. -/
+/-- **A generator builds one value of its sort** from values of its argument sorts that no function
+overload of it covers. -/
 theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
-    {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts)
+    (hnc : ∀ k, g = .ctor k → c.fnCover k.name vs = none) :
     (∀ m, GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
       c.sortOf (genVal c N g vs) = some N := by
   have hn := h.namesK
@@ -336,10 +341,11 @@ theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen}
   · simp only [genVal, norm_ctor h hk]
     refine ⟨fun m => gs_ctor hn hk _ (sortsOf_len hvs) m, ?_⟩
     exact result_sorted h (ctor_kernel hk) hvs ((result_ctor (isCtor_of_mem hk) _).mpr rfl)
-  · have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
-    obtain ⟨-, hio, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
-    exact ⟨fun m => gs_ovl hn ho hio _ (sortsOf_len hvs) (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) m,
-      OvlLaws.sortOf_norm h.ovlHyp hlo hvs⟩
+  · have hlo := OvlLaws.lookupOvl_of_nodup h.ovlsOnce ho
+    have F := h.ovlHyp.fnFacts
+    have hnf := hnc _ rfl
+    exact ⟨fun m => gs_ovl hn ho (F.isOvl o ho) _ (sortsOf_len hvs) hnf m,
+      OvlLaws.sortOf_norm_ovlF h.ovlHyp F hlo hvs hnf⟩
   · obtain ⟨v, rfl, hv⟩ := sortsOf_single hvs
     obtain ⟨hsa, hsN⟩ := h.subSorts ha
     refine ⟨fun m => ?_, sortOf_injNormal h.trans ha hv⟩
@@ -361,12 +367,30 @@ theorem gs_open (h : HypModelCore c) {f : Sym} {ws : List GroundTerm} {kp : Para
     GS (stdI c) N (Gen.toK c (.ctor kp.sig)) (ws.map Elem.val) (.val (.ctor f ws)) :=
   AtT.gs_open (c := c) (T := StepM c) h hko hws hkr hv N
 
-/-- **A generator builds one value of its sort** from values of its argument sorts. -/
+/-- **A generator builds one value of its sort** from values of its argument sorts that no function
+overload of it covers. -/
 theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
-    {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts)
+    (hnc : ∀ k, g = .ctor k → c.fnCover k.name vs = none) :
     (∀ m, GS (stdI c) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
       c.sortOf (genVal c N g vs) = some N :=
   AtT.gs_gen (c := c) (T := StepM c) (h := h) (N := N) (hN := hN) (g := g) (hg := hg) (vs := vs) (hvs := hvs)
+    (hnc := hnc)
+
+/-- No function overload covers anything at a generator that is no function-overloaded symbol. -/
+theorem fnCover_none_of_fnOvl_false (h : HypModelCore c) {g : Gen} (hnf : c.fnOvl g = false) (vs : List GroundTerm) :
+    ∀ k, g = .ctor k → c.fnCover k.name vs = none := by
+  rintro k rfl
+  cases hlo : c.lookupOvl k.name with
+  | none => exact c.fnCover_of_lookupOvl_none hlo vs
+  | some o =>
+    obtain ⟨-, -, hio, -⟩ := OvlLaws.ovl_facts_ovlF h.ovlHyp.fnFacts hlo
+    refine OvlLaws.fnCover_none_of_not_fnOvl (fun hm => ?_) vs
+    simp [Semantics.fnOvl, hio, hlo, hm] at hnf
+
+/-- A constructor is no function-overloaded symbol. -/
+theorem fnOvl_ctor_false {k : CtorSig} (hio : c.isOvl k.name = false) : c.fnOvl (.ctor k) = false := by
+  simp [Semantics.fnOvl, hio]
 
 /-! ## Injections -/
 
@@ -402,11 +426,13 @@ theorem injNormal_inj' (h : HypModelCore c) {a N : Srt} {v w : GroundTerm} (hv :
 
 theorem genVal_inj (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) {vs ws : List GroundTerm}
     (hvs : c.sortsOf vs = some g.argSorts) (hws : c.sortsOf ws = some g.argSorts)
+    (hnv : ∀ k, g = .ctor k → c.fnCover k.name vs = none) (hnw : ∀ k, g = .ctor k → c.fnCover k.name ws = none)
     (he : genVal c N g vs = genVal c N g ws) : vs = ws := by
   rcases mem_gensF h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, -, rfl⟩
   · simp only [genVal, norm_ctor h hk, GroundTerm.ctor.injEq] at he
     exact he.2
-  · exact OvlLaws.norm_inj h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho) hvs hws he
+  · exact OvlLaws.norm_inj_ovlF h.ovlHyp h.ovlHyp.fnFacts (OvlLaws.lookupOvl_of_nodup h.ovlsOnce ho) hvs hws
+      (hnv _ rfl) (hnw _ rfl) he
   · obtain ⟨v, rfl, hv⟩ := sortsOf_single hvs
     obtain ⟨w, rfl, hw⟩ := sortsOf_single hws
     simp only [genVal, List.headD_cons] at he
@@ -562,7 +588,7 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
+theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hnf : c.fnOvl g = false) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
@@ -571,7 +597,7 @@ theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
   obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h (List.mem_filter.mp hg).1) (by simp [xs_length]) hgd
-  obtain ⟨hgs, hsort⟩ := gs_gen (T := T) h hN hg hvs
+  obtain ⟨hgs, hsort⟩ := gs_gen (T := T) h hN hg hvs (fnCover_none_of_fnOvl_false h hnf vs)
   rw [KoreAML.interp_sExists]
   refine ⟨.val (genVal c N g vs), ?_, ?_⟩
   · rw [KoreAML.interp_member defOK_std]
@@ -586,15 +612,15 @@ theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
 
 end AtT
 
-theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
+theorem sat_funItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hnf : c.fnOvl g = false) :
     stdI c ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat :=
-  AtT.sat_funItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
+  AtT.sat_funItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN) (hnf := hnf)
 
 namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
+theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hnf : c.fnOvl g = false) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
@@ -612,9 +638,12 @@ theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
   rw [KoreAML.interp_equal defOK_std] at heq
   have hv : genVal c N g vs = genVal c N g ws := by
     have := heq (.val (genVal c N g vs))
-    rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs).1, (gs_gen h hN hg hws).1] at this
+    rw [interp_genPat_vars, interp_genPat_vars, hxs, hys,
+      (gs_gen h hN hg hvs (fnCover_none_of_fnOvl_false h hnf vs)).1,
+      (gs_gen h hN hg hws (fnCover_none_of_fnOvl_false h hnf ws)).1] at this
     exact Elem.val.inj (this.mp rfl)
-  have hvw : vs = ws := genVal_inj h hg hvs hws hv
+  have hvw : vs = ws := genVal_inj h hg hvs hws (fnCover_none_of_fnOvl_false h hnf vs)
+    (fnCover_none_of_fnOvl_false h hnf ws) hv
   subst hvw
   rw [← hys] at hxs
   apply KoreAML.interp_conjList
@@ -626,15 +655,16 @@ theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
 
 end AtT
 
-theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
+theorem sat_injItem {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hnf : c.fnOvl g = false) :
     stdI c ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat :=
-  AtT.sat_injItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
+  AtT.sat_injItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN) (hnf := hnf)
 
 namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
 theorem sat_dist_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hnf : c.fnOvl g = false) (hnf' : c.fnOvl g' = false)
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       genVal c N g vs ≠ genVal c N g' ws) :
     stdI_T c T ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat := by
@@ -651,16 +681,20 @@ theorem sat_dist_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)
   rw [KoreAML.interp_notEqual defOK_std]
   intro heq
   have := heq (.val (genVal c N g vs))
-  rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs).1, (gs_gen h hN hg' hws).1] at this
+  rw [interp_genPat_vars, interp_genPat_vars, hxs, hys,
+    (gs_gen h hN hg hvs (fnCover_none_of_fnOvl_false h hnf vs)).1,
+    (gs_gen h hN hg' hws (fnCover_none_of_fnOvl_false h hnf' ws)).1] at this
   exact hne vs ws hvs hws (Elem.val.inj (this.mp rfl))
 
 end AtT
 
 theorem sat_dist_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) (hg' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hnf : c.fnOvl g = false) (hnf' : c.fnOvl g' = false)
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       genVal c N g vs ≠ genVal c N g' ws) :
     stdI c ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat :=
   AtT.sat_dist_of (c := c) (T := StepM c) (g := g) (g' := g') (hg := hg) (hg' := hg') (hne := hne) (h := h) (hN := hN)
+    (hnf := hnf) (hnf' := hnf')
 
 end
 
@@ -843,7 +877,7 @@ theorem gen_known {k : CtorSig} (hg : Gen.ctor k ∈ (c.gens N).filter (!c.isOpe
       rw [inj_of_nodup_map h.ctorNames k'' hm k hk' hn]
       rfl
   · cases he
-    exact ⟨(OvlLaws.ovl_facts h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho)).2.2.2.1, hr⟩
+    exact ⟨(OvlLaws.ovl_facts_ovlF h.ovlHyp.fnFacts (OvlLaws.lookupOvl_of_nodup h.ovlsOnce ho)).2.2.2.2.1, hr⟩
   · cases he
 
 omit hN in
@@ -854,10 +888,36 @@ theorem genVal_unc {k : CtorSig} (hg : Gen.ctor k ∈ (c.gens N).filter (!c.isOp
   rcases mem_gensF h hg with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
   · cases he; exact norm_ctor h hk' vs
   · cases he
-    have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
-    obtain ⟨-, hio, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
-    exact (OvlLaws.norm_eq_raw_iff h.ovlHyp hlo hvs).mpr (hu hio)
+    have hlo := OvlLaws.lookupOvl_of_nodup h.ovlsOnce ho
+    have hio := h.ovlHyp.fnFacts.isOvl o ho
+    exact (OvlLaws.norm_eq_raw_iff_ovlF h.ovlHyp h.ovlHyp.fnFacts hlo hvs
+      (OvlLaws.fnCover_none_of_uncovered (hu hio))).mpr (hu hio)
   · cases he
+
+omit hN in
+/-- No function overload covers arguments a generator's uncovered guards accept. -/
+theorem fnCover_none_of_uncG {g : Gen} {vs : List GroundTerm} (hu : UncG c g vs) :
+    ∀ k, g = .ctor k → c.fnCover k.name vs = none := by
+  rintro k rfl
+  cases hlo : c.lookupOvl k.name with
+  | none => exact c.fnCover_of_lookupOvl_none hlo vs
+  | some o =>
+    obtain ⟨-, -, hio, -⟩ := OvlLaws.ovl_facts_ovlF h.ovlHyp.fnFacts hlo
+    exact OvlLaws.fnCover_none_of_uncovered (hu hio)
+
+omit h hN in
+/-- A symbol an overloading symbol overloads is a kernel symbol: a constructor, an overloading
+symbol or a function. -/
+theorem over_kernel {o : OvlSig} {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : kg ∈ kernelSyms c := by
+  cases hb : c.ovlByFn kg with
+  | true =>
+    obtain ⟨fn, hfn, -, hsig⟩ := OvlLaws.byFn_fn hkg hb
+    rw [hsig]
+    exact fn_sig_mem (List.mem_append_left _ hfn)
+  | false =>
+    rcases OvlLaws.knownSig_mem (OvlLaws.known_of_not_byFn hkg hb) with hm | hm
+    · exact ctor_kernel hm
+    · exact List.mem_append_right _ hm
 
 namespace AtT
 
@@ -874,8 +934,7 @@ theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (h
     c.uncovered o.sig.name vs = true := by
   have H := h.ovlHyp
   have hn := h.namesK
-  have hlo := OvlLaws.lookupOvl_of_mem H ho
-  obtain ⟨-, -, -, -, -, hover, -⟩ := OvlLaws.ovl_facts H hlo
+  have hlo := OvlLaws.lookupOvl_of_nodup h.ovlsOnce ho
   simp only [Semantics.uncovered, hlo, List.all_eq_true, Bool.not_eq_true']
   intro kg hkg
   cases hcv : c.ovlCovers o.sig kg vs with
@@ -894,11 +953,7 @@ theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (h
   simp only [List.getElem_zip, List.getElem_map, Prod.mk.injEq] at hie
   obtain ⟨⟨rfl, rfl⟩, rfl⟩ := hie
   dsimp only at hF
-  have hkk := (hover kg hkg).1
-  have hkern : kg ∈ kernelSyms c := by
-    rcases OvlLaws.knownSig_mem hkk with hm | hm
-    · exact ctor_kernel hm
-    · exact List.mem_append_right _ hm
+  have hkern : kg ∈ kernelSyms c := over_kernel hkg
   have hA := h.symSorts hkern _ (List.mem_cons_of_mem _ (List.getElem_mem (show i < kg.args.length by omega)))
   have hB := h.symSorts (ovl_kernel ho) _ (List.mem_cons_of_mem _ (List.getElem_mem (show i < o.sig.args.length by omega)))
   have hAB : kg.args[i]'(by omega) ≠ o.sig.args[i]'(by omega) := by
@@ -1008,7 +1063,8 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen 
   rw [KoreAML.interp_notEqual defOK_std]
   intro heq
   have := heq (.val (genVal c N g vs))
-  rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs).1, (gs_gen h hN hg' hws).1] at this
+  rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs (fnCover_none_of_uncG h hu)).1,
+    (gs_gen h hN hg' hws (fnCover_none_of_uncG h hu')).1] at this
   exact hne vs ws hvs hws hu hu' (Elem.val.inj (this.mp rfl))
 
 end AtT
@@ -1045,7 +1101,7 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
     rcases mem_gensF h hk with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
     · cases he; exact hk'
     · cases he
-      rw [(OvlLaws.ovl_facts h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho)).2.1] at hio
+      rw [h.ovlHyp.fnFacts.isOvl o ho] at hio
       cases hio
     · cases he
   cases g with
@@ -1062,13 +1118,18 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
         exact pairs_ctor_names h hp he.1
       · simp only [hdg, Bool.false_eq_true, ↓reduceIte, List.mem_singleton] at hit
         rw [hit]
-        refine sat_dist_of h hN hg hg' fun vs ws hvs hws he => ?_
-        obtain ⟨A, f, us, hf, hfk⟩ := OvlLaws.norm_head h.ovlHyp hkk.1 hvs
-        obtain ⟨A', f', us', hf', hfk'⟩ := OvlLaws.norm_head h.ovlHyp hkk'.1 hws
+        have hfo : c.fnOvl (.ctor k) = false ∧ c.fnOvl (.ctor k') = false := by
+          simp only [Semantics.distGuarded, Bool.or_eq_true, not_or, Bool.not_eq_true] at hdg
+          exact hdg.1
+        refine sat_dist_of h hN hg hg' hfo.1 hfo.2 fun vs ws hvs hws he => ?_
+        obtain ⟨A, f, us, hf, hfk⟩ := OvlLaws.norm_head_ovlF h.ovlHyp h.ovlHyp.fnFacts hkk.1 hvs
+          (fnCover_none_of_fnOvl_false h hfo.1 vs _ rfl)
+        obtain ⟨A', f', us', hf', hfk'⟩ := OvlLaws.norm_head_ovlF h.ovlHyp h.ovlHyp.fnFacts hkk'.1 hws
+          (fnCover_none_of_fnOvl_false h hfo.2 ws _ rfl)
         simp only [genVal] at he
         rw [hf, hf', hkk.2, hkk'.2] at he
         obtain ⟨rfl, -⟩ := OvlLaws.lift_ctor_inj he
-        rw [distGuarded_eq_of_noFnOvl h.noFn] at hdg
+        simp only [Semantics.distGuarded, hfo.1, hfo.2, Bool.or_self, Bool.false_or] at hdg
         simp only [Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true,
           List.contains_iff_mem, not_and] at hdg
         cases ho : c.isOvl k.name || c.isOvl k'.name with
@@ -1096,7 +1157,7 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
       · have hdg' : c.distGuarded (.ctor k) (.inj b) = false := by simpa [Semantics.distGuarded] using hdg
         simp only [hdg', Bool.false_eq_true, ↓reduceIte, List.mem_singleton] at hit
         rw [hit]
-        refine sat_dist_of h hN hg hg' fun vs ws _ _ he => ?_
+        refine sat_dist_of h hN hg hg' (fnOvl_ctor_false (by simpa using hdg)) rfl fun vs ws _ _ he => ?_
         simp only [genVal] at he
         rw [norm_ctor h (hctor hg (by simpa using hdg))] at he
         exact hci k.name b vs ws he
@@ -1113,7 +1174,7 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
       · have hdg' : c.distGuarded (.inj a) (.ctor k') = false := by simpa [Semantics.distGuarded] using hdg
         simp only [hdg', Bool.false_eq_true, ↓reduceIte, List.mem_singleton] at hit
         rw [hit]
-        refine sat_dist_of h hN hg hg' fun vs ws _ _ he => ?_
+        refine sat_dist_of h hN hg hg' rfl (fnOvl_ctor_false (by simpa using hdg)) fun vs ws _ _ he => ?_
         simp only [genVal] at he
         rw [norm_ctor h (hctor hg' (by simpa using hdg))] at he
         exact hci k'.name a ws vs he.symm
@@ -1138,7 +1199,7 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
         | nil =>
           rw [hl] at hit
           rw [List.mem_singleton.mp hit]
-          refine sat_dist_of h hN hg hg' fun vs ws hvs hws he => ?_
+          refine sat_dist_of h hN hg hg' rfl rfl fun vs ws hvs hws he => ?_
           obtain ⟨v, rfl, hv⟩ := sortsOf_single hvs
           obtain ⟨w, rfl, hw⟩ := sortsOf_single hws
           obtain ⟨x, -, hxl, -⟩ := inj_inj_eq hle hv hw he
@@ -1561,24 +1622,28 @@ theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
     have hgen : ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧
         GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) (.val w) := by
       have hF : ∀ g ∈ (c.gens N).filter (!c.isOpenGen ·), ∀ vs, c.sortsOf vs = some g.argSorts →
+          (∀ k, g = .ctor k → c.fnCover k.name vs = none) →
           genVal c N g vs = w → ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧
             GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) (.val w) :=
-        fun g hg vs hvs he => ⟨g, (List.mem_filter.mp hg).1, vs, hvs, ((gs_gen (T := T) h hN hg hvs).1 _).mpr (by rw [he])⟩
+        fun g hg vs hvs hnc he => ⟨g, (List.mem_filter.mp hg).1, vs, hvs,
+          ((gs_gen (T := T) h hN hg hvs hnc).1 _).mpr (by rw [he])⟩
       rcases consSort_shape h.genWf hN hw with ⟨f, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
       · rcases c.sortOf_ctor_iff.mp hw with ⟨k, hk, hws, rfl⟩ | ⟨-, o, hlo, hws, hu, rfl⟩ | ⟨-, -, kp, hko, hws, hkr, rfl⟩
         rotate_right
         · obtain ⟨hkp, hraw, -, -⟩ := c.lookupOpen_spec hko
           exact ⟨.ctor kp.sig, gens_open hkp hraw, ws, hws, gs_open h hko hws hkr hw _⟩
         · obtain ⟨hkm, rfl⟩ := lookupSig_spec hk
-          exact hF _ (gensF_ctor h.genWf hkm) ws hws (norm_ctor h hkm ws)
+          exact hF _ (gensF_ctor h.genWf hkm) ws hws
+            (fnCover_none_of_fnOvl_false h (fnOvl_ctor_false (isOvl_of_ctorSigs hkm)) ws) (norm_ctor h hkm ws)
         · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some hlo
-          obtain ⟨hon, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
-          refine hF _ (gensF_of_ovl h.genWf hom) ws hws ?_
+          obtain ⟨-, hon, -⟩ := OvlLaws.ovl_facts_ovlF h.ovlHyp.fnFacts hlo
+          refine hF _ (gensF_of_ovl h.genWf hom) ws hws
+            (fun k hk => by cases hk; rw [hon]; exact OvlLaws.fnCover_none_of_uncovered hu) ?_
           show c.norm o.sig.name ws = _
           rw [hon]
-          exact OvlLaws.norm_fixed h.ovlHyp hlo hw
+          exact OvlLaws.norm_fixed_ovlF h.ovlHyp h.ovlHyp.fnFacts hlo hw
       · obtain ⟨hab, hni, hw0, rfl⟩ := sortOf_inj.mp hw
-        exact hF _ (gensF_inj hab) [w0] (sortsOf_cons.mpr ⟨a, [], hw0, sortsOf_nil, rfl⟩)
+        exact hF _ (gensF_inj hab) [w0] (sortsOf_cons.mpr ⟨a, [], hw0, sortsOf_nil, rfl⟩) (fun k hk => by cases hk)
           (by simp [genVal, injNormal_of_not hni])
     obtain ⟨g, hg, vs, hvs, hgs⟩ := hgen
     obtain ⟨bs, body, hm, hsorts, hnd, htr⟩ := noJunkDisjuncts_gen (c.sortName N) [] ((c.gens N).map (Gen.toK c))
@@ -1685,13 +1750,6 @@ theorem sat_coh (h : HypModelCore c) {a b d : Srt} (hab : (a, b) ∈ c.subsorts)
 
 /-! ## The overload equations -/
 
-/-- A constructor's or an overloading symbol's result at values is its normal form. -/
-theorem result_known (h : HypModelCore c) {k : CtorSig} (hk : OvlLaws.KnownSig c k) (vs : List GroundTerm)
-    (x : Elem) : result c k vs x ↔ x = .val (c.norm k.name vs) := by
-  rcases OvlLaws.knownSig_cases h.ovlHyp hk with ⟨hct, hn⟩ | ⟨-, o, hlo, rfl⟩
-  · rw [result_ctor (by simp [Semantics.isCtor, hct]), OvlLaws.norm_none hn]
-  · exact result_ovl (OvlLaws.ovl_facts h.ovlHyp hlo).2.1 (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) x
-
 theorem known_kernel {k : CtorSig} (hk : OvlLaws.KnownSig c k) : k ∈ kernelSyms c := by
   rcases OvlLaws.knownSig_mem hk with hm | hm
   · exact ctor_kernel hm
@@ -1769,59 +1827,6 @@ theorem liftArgs_den (hn : NamesApartK c) {e : Valuation Elem} (F : (String × S
       All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
         ((((as.map c.sortName).zip (bs.map c.sortName)).zip xs).map F) ((liftAll as bs us).map Elem.val) :=
   AtT.liftArgs_den (c := c) (T := StepM c) (hn := hn) (e := e) (F := F) (hF := hF)
-
-namespace AtT
-
-variable {T : GroundTerm → GroundTerm → Prop}
-
-/-- **Each overload equation holds**: `f(lift x̄) = lift (g(x̄))` (`OvlLaws.norm_ovlEq`). -/
-theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
-    stdI_T c T ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat := by
-  have hn := h.namesK
-  have H := h.ovlHyp
-  have hlo := OvlLaws.lookupOvl_of_mem H ho
-  obtain ⟨-, hio, -, -, -, hover, -⟩ := OvlLaws.ovl_facts H hlo
-  obtain ⟨hkk, hpair, -⟩ := hover kg hkg
-  obtain ⟨hl, -, -⟩ := OvlLaws.pairOK_parts hpair
-  have hkn := fun s hs => h.symSorts (known_kernel hkk) s (List.mem_cons_of_mem _ hs)
-  have hon := fun s hs => h.symSorts (ovl_kernel ho) s (List.mem_cons_of_mem _ hs)
-  have hkr := h.symSorts (known_kernel hkk) _ (List.mem_cons_self ..)
-  have hor := h.symSorts (ovl_kernel ho) _ (List.mem_cons_self ..)
-  intro e m
-  unfold KoreAML.Cons.ovlEqItem
-  dsimp only
-  simp only [toK, List.length_map]
-  refine guarded_intro fun hgd => ?_
-  obtain ⟨as, hxs, has⟩ := memGuards_vals (T := T) hn _ kg.args hkn (by simp [xs_length]) hgd
-  have hal := (OvlLaws.sortsOf_iff.mp has).1
-  rw [KoreAML.interp_equal defOK_std]
-  intro b
-  rw [interp_symList _ _ ((liftAll kg.args o.sig.args as).map Elem.val)
-    (liftArgs_den hn _ (fun A B xi => rfl) kg.args o.sig.args _ as hkn hon hxs hl hal) b,
-    symE_vals hn (ovl_kernel ho) (by simp [OvlLaws.length_liftAll]; omega) b,
-    result_ovl hio (OvlLaws.fnCover_none_of_ok h.ovlOK _ _),
-    OvlLaws.norm_ovlEq H hlo hkg has]
-  have hin : ∀ m, (KoreAML.appList (KoreAML.sym (.symbol (c.symName kg.name)))
-      ((KoreAML.Cons.xs 0 kg.args.length).map Pattern.evar)).interpret (stdI_T c T) e m ↔
-      m = .val (c.norm kg.name as) := fun m => by
-    rw [interp_symList _ _ (as.map Elem.val) (evars_den _ _ hxs) m,
-      symE_vals hn (known_kernel hkk) (by omega) m, result_known h hkk]
-  by_cases hres : kg.result = o.sig.result
-  · simp only [hres, beq_self_eq_true, ↓reduceIte, OvlLaws.lift_self]
-    exact (hin b).symm
-  · have hne : (c.sortName kg.result == c.sortName o.sig.result) = false := by
-      rw [beq_eq_false_iff_ne]
-      intro hs
-      exact hres (hn.2.2 _ (List.mem_range.mpr hkr) _ (List.mem_range.mpr hor) hs)
-    simp only [hne, Bool.false_eq_true, ↓reduceIte]
-    rw [inj_sing hn hkr hor hin b, OvlLaws.lift_ne hres]
-
-end AtT
-
-/-- **Each overload equation holds**: `f(lift x̄) = lift (g(x̄))` (`OvlLaws.norm_ovlEq`). -/
-theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
-    stdI c ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat :=
-  AtT.sat_ovlEq (c := c) (T := StepM c) (h := h) (o := o) (ho := ho) (kg := kg) (hkg := hkg)
 
 /-! ## The law sentences of the open generators
 
@@ -2071,72 +2076,6 @@ theorem sat_idemItem (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params)
     (hb : k.sig.args = [k.sig.result, k.sig.result]) (hi : OpenIdem c k.sig.name k.sig.result) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩).pat :=
   AtT.sat_idemItem (c := c) (T := StepM c) h hk hb hi
-
-/-! ## The constructors' axioms -/
-
-namespace AtT
-
-variable {T : GroundTerm → GroundTerm → Prop}
-
-/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms, the law sentences
-of the open generators where the interpretation satisfies the laws (`OpenLaws`). -/
-theorem satConsGoal (h : HypModelCore c) (hl : OpenLaws c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
-  refine sat_itemsPremises c fun it hit => ?_
-  rw [consItemsK_eq_of_noFnOvl h.noFn] at hit
-  dsimp only at hit
-  rcases List.mem_append.mp hit with hit | hit
-  rotate_left
-  · -- the open generators' law items, each from its conjunct of `OpenLaws`
-    obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hit
-    split at hit
-    · rename_i hraw
-      rcases List.mem_append.mp hit with hit | hit
-      · split at hit
-        · rename_i ha
-          rw [List.mem_singleton.mp hit]
-          exact sat_assocItem h hk (h.law_binary hk hraw (.inl ha)) ((hl k hk hraw).1 ha)
-        · exact absurd hit List.not_mem_nil
-      · split at hit
-        · rename_i hi
-          rw [List.mem_singleton.mp hit]
-          exact sat_idemItem h hk (h.law_binary hk hraw (.inr hi)) ((hl k hk hraw).2 hi)
-        · exact absurd hit List.not_mem_nil
-    · exact absurd hit List.not_mem_nil
-  rcases List.mem_append.mp hit with hit | hit
-  rotate_left
-  · obtain ⟨o, ho, hit⟩ := List.mem_flatMap.mp hit
-    obtain ⟨kg, hkg, rfl⟩ := List.mem_map.mp hit
-    exact sat_ovlEq h ho hkg
-  rcases List.mem_append.mp hit with hit | hit
-  · obtain ⟨N, hN, hit⟩ := List.mem_flatMap.mp hit
-    rcases List.mem_append.mp hit with hit | hit
-    · rcases List.mem_append.mp hit with hit | hit
-      · rcases List.mem_append.mp hit with hit | hit
-        · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
-          obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hg'
-          exact sat_funItem h hN hg
-        · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
-          obtain ⟨g, hg, rfl⟩ := List.mem_map.mp (List.mem_filter.mp hg').1
-          exact sat_injItem h hN hg
-      · obtain ⟨⟨g, g'⟩, hp, hit⟩ := List.mem_flatMap.mp hit
-        exact sat_pairItem h hN hp hit
-    · split at hit
-      · exact absurd hit List.not_mem_nil
-      · rw [List.mem_singleton.mp hit]
-        exact sat_noJunk h hN
-  · obtain ⟨⟨a, b⟩, hab, hit⟩ := List.mem_flatMap.mp hit
-    obtain ⟨⟨b0, d⟩, hbd0, rfl⟩ := List.mem_map.mp hit
-    obtain ⟨hbd, hb0⟩ := List.mem_filter.mp hbd0
-    have hb : b0 = b := by simpa using hb0
-    rw [hb] at hbd
-    exact sat_coh h hab hbd
-
-end AtT
-
-/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms, the law sentences of the
-open generators where the interpretation satisfies the laws (`OpenLaws`). -/
-theorem satConsGoal (h : HypModelCore c) (hl : OpenLaws c) : SatConsGoal c :=
-  AtT.satConsGoal (c := c) (T := StepM c) (h := h) (hl := hl)
 
 end Model
 
