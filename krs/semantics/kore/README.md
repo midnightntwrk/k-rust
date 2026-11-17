@@ -57,6 +57,7 @@ The encoder stops with an error naming the construct when it meets one outside t
 | `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 68 mutations of `kore.k`. |
 | `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
 | `kill-matrix.json` | For each mutation, its status, every case that kills it and the cases on which its run gave no comparable result. |
+| `tools/test_mutations.py` | Checks that every mutation is killed or marked equivalent with its argument, and names the premises it breaks; needs no K and no kink. |
 | `tools/killmatrix.py` | Reduces `kink-flow run --full`'s JSON document to `kill-matrix.json`. |
 
 ### A case
@@ -191,6 +192,7 @@ Two cases have no oracle: c39 (KCore's reader refuses the sort name `Id`, a name
 
 The corpus is a kink-flow corpus of a K definition, as `kink/examples/imp` is: `FLOW.toml` names `kore.k` and its modules, and its programs are the cases' `kore.pgm` (start sort `Pgm`).
 Each mutation of `MUTATIONS.toml` is a wrong reading of KORE, stated in its `misunderstanding` and written as text edits of `kore.k`'s labelled rules.
+Each `misunderstanding` ends with `[premise: …]`, the premises of the reading above that the mutation breaks, by the names `MUTATIONS.toml`'s header gives the 16 of them; a mutation no case kills is marked equivalent (`expect = "survive"`) with its argument. `python3 tools/test_mutations.py` checks both against `kill-matrix.json` and `kink.lock`, without kink.
 A case kills a mutation when the mutant's result on it, every final configuration of the object definition, differs from `kore.k`'s.
 
 Build kink-flow in a target directory of its own (the portable profile, no Z3), then run from this directory:

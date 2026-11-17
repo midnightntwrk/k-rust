@@ -1,10 +1,35 @@
 # Mutations of kore.k: each is a wrong reading of KORE's semantics (`misunderstanding`).
+#
+# Every mutation is killed by a case (kink.lock, kill-matrix.json), or is marked equivalent
+# (`expect = "survive"`) with the argument in its `misunderstanding`. Each `misunderstanding` ends
+# with `[premise: NAME, ...]`: the premises of kore.k's reading (its header; README.md, "The
+# reading of KORE") that the mutation breaks. tools/test_mutations.py checks both. The premises:
+#
+#   innermost: a function application is evaluated innermost, arguments first; an undefined argument makes it undefined; a constructor application is a value
+#   equation: an equation applies when its argument patterns match and its requires evaluates to true; one applicable equation of the least priority gives the result ([owise] is priority 200, no attribute 50); an application no equation applies to has no value
+#   rule: a rewrite rule applies when its left side matches and its requires evaluates to true; the successors are the defined results of the applicable rules of the least priority; a rule whose result is undefined still blocks the rules of larger priority
+#   order: equations and rules are tried by ascending priority, the equations of one priority in the order of the text, and the first that applies decides
+#   final: a configuration is final when no rule applies to it; one to which rules apply, all with undefined results, has no successor and is not final; an undefined term is no configuration
+#   rule-ensures: a rule's ensures is part of its result: where it is not true the rule has applied with an empty result
+#   equation-ensures: an equation's ensures is part of its right side: where the equation applies and it is not true the application has no value, and no other equation gives one
+#   total: a function declared total is evaluated as any other
+#   matching: matching is syntactic up to injections along the reflexive-transitive closure of the stated subsorts; injections compose; a variable seen twice is bound to equal values; an as-pattern binds its variable to what its pattern matches
+#   hooks: a hook is strict and computes the operation its hook names; /Int and %Int are undefined on a zero divisor
+#   keq: ==K and =/=K compare two values, and equal values are equal terms
+#   string-bool: a String domain value is its text; ==String is the equality of texts, <String their lexicographic order, ==Bool the equality of Bool values
+#   tokens: a domain value of a token sort is a value of that sort; a sort predicate isS is a function with the equations kompile writes
+#   collections: a Map, Set or List value is canonical; _Map_ and _Set_ are defined on disjoint maps and sets only; _List_ is total, associative and not commutative; a lookup of a missing key is undefined; a collection is strict in its elements
+#   collection-patterns: a collection pattern of element patterns and at most one frame matches every split of its subject; a rule gives one result for each substitution whose requires holds, an equation the result of the first
+#   cells: a cell collection is a Map from its key cell to its instances
+#
+# No mutation breaks `total`: it has no rule of its own in kore.k, where a total function is
+# evaluated by the rules of every function (`equation`).
 
 # --- priorities and [owise] ---------------------------------------------------------------
 
 [[mutation]]
 id = "owise-first"
-misunderstanding = "an [owise] axiom is tried first (priority 0) instead of last"
+misunderstanding = "an [owise] axiom is tried first (priority 0) instead of last [premise: equation, rule]"
   [[mutation.edit]]
   rule = "KORE.prio-owise"
   find = "=> 200"
@@ -12,7 +37,7 @@ misunderstanding = "an [owise] axiom is tried first (priority 0) instead of last
 
 [[mutation]]
 id = "owise-as-default"
-misunderstanding = "[owise] is read as an ordinary axiom of the default priority 50"
+misunderstanding = "[owise] is read as an ordinary axiom of the default priority 50 [premise: equation, rule]"
   [[mutation.edit]]
   rule = "KORE.prio-owise"
   find = "=> 200"
@@ -20,7 +45,7 @@ misunderstanding = "[owise] is read as an ordinary axiom of the default priority
 
 [[mutation]]
 id = "priority-ignored"
-misunderstanding = "the priority attribute is ignored: every axiom without [owise] has priority 50"
+misunderstanding = "the priority attribute is ignored: every axiom without [owise] has priority 50 [premise: equation, rule]"
   [[mutation.edit]]
   rule = "KORE.prio-given"
   find = "=> P"
@@ -28,7 +53,7 @@ misunderstanding = "the priority attribute is ignored: every axiom without [owis
 
 [[mutation]]
 id = "rule-owise-ignored"
-misunderstanding = "[owise] is honoured for function equations but ignored for rewrite rules"
+misunderstanding = "[owise] is honoured for function equations but ignored for rewrite rules [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.rprio"
   find = "=> prio(P, O)"
@@ -36,7 +61,7 @@ misunderstanding = "[owise] is honoured for function equations but ignored for r
 
 [[mutation]]
 id = "fn-owise-ignored"
-misunderstanding = "[owise] is honoured for rewrite rules but ignored for function equations"
+misunderstanding = "[owise] is honoured for rewrite rules but ignored for function equations [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.cprio"
   find = "=> prio(P, O)"
@@ -44,7 +69,7 @@ misunderstanding = "[owise] is honoured for rewrite rules but ignored for functi
 
 [[mutation]]
 id = "rule-priority-reversed"
-misunderstanding = "among applicable rewrite rules the largest priority number wins"
+misunderstanding = "among applicable rewrite rules the largest priority number wins [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.rprio"
   find = "=> prio(P, O)"
@@ -52,7 +77,7 @@ misunderstanding = "among applicable rewrite rules the largest priority number w
 
 [[mutation]]
 id = "fn-priority-reversed"
-misunderstanding = "among applicable equations the largest priority number wins"
+misunderstanding = "among applicable equations the largest priority number wins [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.cprio"
   find = "=> prio(P, O)"
@@ -60,7 +85,7 @@ misunderstanding = "among applicable equations the largest priority number wins"
 
 [[mutation]]
 id = "fn-first-applicable"
-misunderstanding = "equations are tried in the order of the text and the first applicable one gives the value, whatever the priorities"
+misunderstanding = "equations are tried in the order of the text and the first applicable one gives the value, whatever the priorities [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.cprio"
   find = "=> prio(P, O)"
@@ -68,7 +93,7 @@ misunderstanding = "equations are tried in the order of the text and the first a
 
 [[mutation]]
 id = "fn-last-of-priority"
-misunderstanding = "among applicable equations of the least priority the last one gives the value. Argued survivor: two equations of one priority that both apply with different values make the definition inconsistent (the function would have two values), so on a consistent object definition the first and the last applicable equation of a priority agree; no case of a consistent definition kills it"
+misunderstanding = "among applicable equations of the least priority the last one gives the value. Equivalent on every consistent object definition, by this argument: two equations of one priority that both apply with different values make the definition inconsistent (the function would have two values), so on a consistent object definition the first and the last applicable equation of a priority agree; no case of a consistent definition kills it [premise: order]"
 expect = "survive"
   [[mutation.edit]]
   rule = "KORE.else-some"
@@ -77,7 +102,7 @@ expect = "survive"
 
 [[mutation]]
 id = "rule-priority-ignored"
-misunderstanding = "every applicable rewrite rule gives a successor, whatever its priority"
+misunderstanding = "every applicable rewrite rule gives a successor, whatever its priority [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.rprio"
   find = "=> prio(P, O)"
@@ -87,7 +112,7 @@ misunderstanding = "every applicable rewrite rule gives a successor, whatever it
 
 [[mutation]]
 id = "rule-requires-ignored"
-misunderstanding = "a rewrite rule's requires is not checked: a failing requires is treated as true"
+misunderstanding = "a rewrite rule's requires is not checked: a failing requires is treated as true [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.fire-holds"
   find = "eval(D, inst(R, B)) ==K bv(true)"
@@ -99,7 +124,7 @@ misunderstanding = "a rewrite rule's requires is not checked: a failing requires
 
 [[mutation]]
 id = "fn-requires-ignored"
-misunderstanding = "an equation's requires is not checked: a failing requires is treated as true"
+misunderstanding = "an equation's requires is not checked: a failing requires is treated as true [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.try-holds"
   find = "eval(D, inst(Req, B)) ==K bv(true)"
@@ -111,7 +136,7 @@ misunderstanding = "an equation's requires is not checked: a failing requires is
 
 [[mutation]]
 id = "rule-undefined-requires-holds"
-misunderstanding = "a rewrite rule applies unless its requires is false: an undefined requires holds"
+misunderstanding = "a rewrite rule applies unless its requires is false: an undefined requires holds [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.fire-holds"
   find = "==K bv(true)"
@@ -123,7 +148,7 @@ misunderstanding = "a rewrite rule applies unless its requires is false: an unde
 
 [[mutation]]
 id = "fn-undefined-requires-holds"
-misunderstanding = "an equation applies unless its requires is false: an undefined requires holds"
+misunderstanding = "an equation applies unless its requires is false: an undefined requires holds [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.try-holds"
   find = "==K bv(true)"
@@ -137,14 +162,14 @@ misunderstanding = "an equation applies unless its requires is false: an undefin
 
 [[mutation]]
 id = "subsort-dropped"
-misunderstanding = "inj{A,B}(P) matches only injections from A itself: a subsort injection is dropped from matching"
+misunderstanding = "inj{A,B}(P) matches only injections from A itself: a subsort injection is dropped from matching [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-inj-sub"
   delete = true
 
 [[mutation]]
 id = "subsort-not-transitive"
-misunderstanding = "only the stated subsorts hold: the subsort relation is not closed under transitivity"
+misunderstanding = "only the stated subsorts hold: the subsort relation is not closed under transitivity [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.above-hit"
   find = "leq(Y, B, All)"
@@ -152,7 +177,7 @@ misunderstanding = "only the stated subsorts hold: the subsort relation is not c
 
 [[mutation]]
 id = "subsort-unchecked"
-misunderstanding = "an injected value matches a pattern of any sort below the same target, whatever its own sort"
+misunderstanding = "an injected value matches a pattern of any sort below the same target, whatever its own sort [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-inj-sub"
   find = " andBool leq(C, A, S)"
@@ -160,7 +185,7 @@ misunderstanding = "an injected value matches a pattern of any sort below the sa
 
 [[mutation]]
 id = "subsort-reversed"
-misunderstanding = "the subsort relation is read backwards when matching an injection"
+misunderstanding = "the subsort relation is read backwards when matching an injection [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-inj-sub"
   find = "leq(C, A, S)"
@@ -168,14 +193,14 @@ misunderstanding = "the subsort relation is read backwards when matching an inje
 
 [[mutation]]
 id = "inj-not-composed"
-misunderstanding = "inj{A,B}(inj{C,A}(V)) is kept nested instead of being inj{C,B}(V)"
+misunderstanding = "inj{A,B}(inj{C,A}(V)) is kept nested instead of being inj{C,B}(V) [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.inj-compose"
   delete = true
 
 [[mutation]]
 id = "inj-composed-outer-source"
-misunderstanding = "composing injections keeps the outer source sort: inj{A,B}(inj{C,A}(V)) is inj{A,B}(V)"
+misunderstanding = "composing injections keeps the outer source sort: inj{A,B}(inj{C,A}(V)) is inj{A,B}(V) [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.inj-compose"
   find = "mkInj(_, B, ij(C, _, T)) => ij(C, B, T)"
@@ -185,7 +210,7 @@ misunderstanding = "composing injections keeps the outer source sort: inj{A,B}(i
 
 [[mutation]]
 id = "nonlinear-ignored"
-misunderstanding = "a variable seen twice in a left side is matched independently; the first binding is kept"
+misunderstanding = "a variable seen twice in a left side is matched independently; the first binding is kept [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.bind-same"
   find = "requires T ==K U"
@@ -196,7 +221,7 @@ misunderstanding = "a variable seen twice in a left side is matched independentl
 
 [[mutation]]
 id = "dv-any-value"
-misunderstanding = "a domain value in a pattern matches any domain value of its sort"
+misunderstanding = "a domain value in a pattern matches any domain value of its sort [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-int"
   find = " requires I ==Int J"
@@ -204,7 +229,7 @@ misunderstanding = "a domain value in a pattern matches any domain value of its 
 
 [[mutation]]
 id = "bool-dv-any-value"
-misunderstanding = "a Bool domain value in a pattern matches either Bool"
+misunderstanding = "a Bool domain value in a pattern matches either Bool [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-bool"
   find = " requires X ==Bool Y"
@@ -212,7 +237,7 @@ misunderstanding = "a Bool domain value in a pattern matches either Bool"
 
 [[mutation]]
 id = "symbol-unchecked"
-misunderstanding = "an application pattern matches an application of any symbol with arguments that match"
+misunderstanding = "an application pattern matches an application of any symbol with arguments that match [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-app"
   find = " requires F ==Int G"
@@ -222,7 +247,7 @@ misunderstanding = "an application pattern matches an application of any symbol 
 
 [[mutation]]
 id = "args-unevaluated"
-misunderstanding = "applications are not evaluated innermost: an application's arguments are left as built"
+misunderstanding = "applications are not evaluated innermost: an application's arguments are left as built [premise: innermost]"
   [[mutation.edit]]
   rule = "KORE.ev-app"
   find = "apply(D, F, evalTs(D, As))"
@@ -230,7 +255,7 @@ misunderstanding = "applications are not evaluated innermost: an application's a
 
 [[mutation]]
 id = "init-unevaluated"
-misunderstanding = "the initial term's function applications are not evaluated before the first step"
+misunderstanding = "the initial term's function applications are not evaluated before the first step [premise: innermost]"
   [[mutation.edit]]
   rule = "KORE.init"
   find = "start(D, eval(D, T))"
@@ -238,7 +263,7 @@ misunderstanding = "the initial term's function applications are not evaluated b
 
 [[mutation]]
 id = "rule-rhs-unevaluated"
-misunderstanding = "a rewrite rule's right side is a configuration as built: its function applications are not evaluated"
+misunderstanding = "a rewrite rule's right side is a configuration as built: its function applications are not evaluated [premise: innermost]"
   [[mutation.edit]]
   rule = "KORE.fire-holds"
   find = "=> eval(D, inst(Rhs, B)) ;"
@@ -246,7 +271,7 @@ misunderstanding = "a rewrite rule's right side is a configuration as built: its
 
 [[mutation]]
 id = "undefined-arg-passed"
-misunderstanding = "an undefined argument does not make an application undefined: functions are applied to it"
+misunderstanding = "an undefined argument does not make an application undefined: functions are applied to it [premise: innermost]"
   [[mutation.edit]]
   rule = "KORE.apply-bot"
   delete = true
@@ -257,7 +282,7 @@ misunderstanding = "an undefined argument does not make an application undefined
 
 [[mutation]]
 id = "no-equation-kept"
-misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (bot); the equations leave such a point open, so the mutant differs from the HookParams.none member of KCore's family, which kore.k is, not from the text"
+misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (bot); the equations leave such a point open, so the mutant differs from the HookParams.none member of KCore's family, which kore.k is, not from the text [premise: equation]"
   [[mutation.edit]]
   rule = "KORE.result-none"
   find = "result(_, _, none) => bot"
@@ -265,7 +290,7 @@ misunderstanding = "a function application no equation applies to stays as it is
 
 [[mutation]]
 id = "ite-lazy"
-misunderstanding = "#if is evaluated lazily: an undefined branch it does not select does not make it undefined"
+misunderstanding = "#if is evaluated lazily: an undefined branch it does not select does not make it undefined [premise: hooks]"
   [[mutation.edit]]
   rule = "KORE.hook-bot"
   find = "requires hasBot(As)"
@@ -281,7 +306,7 @@ misunderstanding = "#if is evaluated lazily: an undefined branch it does not sel
 
 [[mutation]]
 id = "hook-undefined-is-zero"
-misunderstanding = "a hook applied outside its domain (a division by zero) gives 0 instead of \\bottom"
+misunderstanding = "a hook applied outside its domain (a division by zero) gives 0 instead of \\bottom [premise: hooks]"
   [[mutation.edit]]
   rule = "KORE.op-undef"
   find = "=> bot"
@@ -289,7 +314,7 @@ misunderstanding = "a hook applied outside its domain (a division by zero) gives
 
 [[mutation]]
 id = "tdiv-as-ediv"
-misunderstanding = "INT.tdiv (/Int) is read as Euclidean division"
+misunderstanding = "INT.tdiv (/Int) is read as Euclidean division [premise: hooks]"
   [[mutation.edit]]
   rule = "KORE.op-div"
   find = "X /Int Y"
@@ -297,7 +322,7 @@ misunderstanding = "INT.tdiv (/Int) is read as Euclidean division"
 
 [[mutation]]
 id = "tmod-as-emod"
-misunderstanding = "INT.tmod (%Int) is read as the Euclidean remainder"
+misunderstanding = "INT.tmod (%Int) is read as the Euclidean remainder [premise: hooks]"
   [[mutation.edit]]
   rule = "KORE.op-mod"
   find = "X %Int Y"
@@ -307,7 +332,7 @@ misunderstanding = "INT.tmod (%Int) is read as the Euclidean remainder"
 
 [[mutation]]
 id = "nondeterminism-first-match"
-misunderstanding = "non-determinism collapsed: only the first applicable rule of the least priority gives a successor"
+misunderstanding = "non-determinism collapsed: only the first applicable rule of the least priority gives a successor [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.drop-keep"
   find = "=> T ; drop(X, Ts)"
@@ -315,7 +340,7 @@ misunderstanding = "non-determinism collapsed: only the first applicable rule of
 
 [[mutation]]
 id = "undefined-step-is-final"
-misunderstanding = "a configuration whose applicable rules all have undefined results is final"
+misunderstanding = "a configuration whose applicable rules all have undefined results is final [premise: final]"
   [[mutation.edit]]
   rule = "KORE.visit-step"
   find = "visit(D, _, next(Ss), Fr, Seen, F) => push(D, Ss, Fr, Seen, F)"
@@ -323,7 +348,7 @@ misunderstanding = "a configuration whose applicable rules all have undefined re
 
 [[mutation]]
 id = "undefined-result-does-not-block"
-misunderstanding = "a rule whose result is undefined does not apply, so it does not block rules of larger priority"
+misunderstanding = "a rule whose result is undefined does not apply, so it does not block rules of larger priority [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.fa-take"
   find = "app(fire(D, L, R, Rhs, T),"
@@ -331,7 +356,7 @@ misunderstanding = "a rule whose result is undefined does not apply, so it does 
 
 [[mutation]]
 id = "bottom-is-configuration"
-misunderstanding = "an undefined result is a successor configuration (\\bottom is a state)"
+misunderstanding = "an undefined result is a successor configuration (\\bottom is a state) [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.step-some"
   find = "next(drop(bot, R ; Rs))"
@@ -339,7 +364,7 @@ misunderstanding = "an undefined result is a successor configuration (\\bottom i
 
 [[mutation]]
 id = "undefined-result-empties-step"
-misunderstanding = "an undefined result among the rules of the least priority that apply makes the whole step undefined: the defined results of the other rules of that priority are dropped"
+misunderstanding = "an undefined result among the rules of the least priority that apply makes the whole step undefined: the defined results of the other rules of that priority are dropped [premise: rule]"
   [[mutation.edit]]
   rule = "KORE.step-some"
   find = "next(drop(bot, R ; Rs))"
@@ -347,7 +372,7 @@ misunderstanding = "an undefined result among the rules of the least priority th
 
 [[mutation]]
 id = "undefined-init-is-final"
-misunderstanding = "an undefined initial term is itself a final configuration"
+misunderstanding = "an undefined initial term is itself a final configuration [premise: final]"
   [[mutation.edit]]
   rule = "KORE.init-bot"
   find = "done(.Ts)"
@@ -357,7 +382,7 @@ misunderstanding = "an undefined initial term is itself a final configuration"
 
 [[mutation]]
 id = "keq-undefined-false"
-misunderstanding = "==K is total in the sense of always giving a Bool: an undefined operand makes it false instead of undefined"
+misunderstanding = "==K is total in the sense of always giving a Bool: an undefined operand makes it false instead of undefined [premise: hooks, keq]"
   [[mutation.edit]]
   rule = "KORE.hook-bot"
   find = "strictHook(_, As) => bot requires hasBot(As)"
@@ -369,7 +394,7 @@ misunderstanding = "==K is total in the sense of always giving a Bool: an undefi
 
 [[mutation]]
 id = "token-any-value"
-misunderstanding = "a token literal in a pattern matches any token of its sort"
+misunderstanding = "a token literal in a pattern matches any token of its sort [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.m-tok"
   find = "requires S ==Int T andBool X ==String Y"
@@ -377,7 +402,7 @@ misunderstanding = "a token literal in a pattern matches any token of its sort"
 
 [[mutation]]
 id = "token-sort-ignored"
-misunderstanding = "a token is its text: tokens of two sorts with one text are one value, in matching and in ==K, whatever the sorts of the tokens and of the injections that place them in a larger sort"
+misunderstanding = "a token is its text: tokens of two sorts with one text are one value, in matching and in ==K, whatever the sorts of the tokens and of the injections that place them in a larger sort [premise: tokens, keq]"
   [[mutation.edit]]
   rule = "KORE.m-tok"
   find = "requires S ==Int T andBool X ==String Y"
@@ -393,7 +418,7 @@ misunderstanding = "a token is its text: tokens of two sorts with one text are o
 
 [[mutation]]
 id = "as-first-subst-only"
-misunderstanding = "an as-pattern binds its variable under the first substitution of its pattern only, so an alias of a collection pattern with a frame gives one successor instead of one for each split"
+misunderstanding = "an as-pattern binds its variable under the first substitution of its pattern only, so an alias of a collection pattern with a frame gives one successor instead of one for each split [premise: matching, collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.as-bind"
   find = "=> cat(bindVar(X, T, B, look(X, B)), bindAfter(X, T, Ms))"
@@ -401,7 +426,7 @@ misunderstanding = "an as-pattern binds its variable under the first substitutio
 
 [[mutation]]
 id = "as-alias-rebinds"
-misunderstanding = "an as-pattern's variable is bound afresh even when the left side has already bound it, instead of having to equal that binding"
+misunderstanding = "an as-pattern's variable is bound afresh even when the left side has already bound it, instead of having to equal that binding [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.as-bind"
   find = "cat(bindVar(X, T, B, look(X, B)),"
@@ -411,7 +436,7 @@ misunderstanding = "an as-pattern's variable is bound afresh even when the left 
 
 [[mutation]]
 id = "ensures-ignored"
-misunderstanding = "an ensures is not evaluated: a rule or an equation gives its right side whatever the ensures is"
+misunderstanding = "an ensures is not evaluated: a rule or an equation gives its right side whatever the ensures is [premise: rule-ensures, equation-ensures]"
   [[mutation.edit]]
   rule = "KORE.ev-en"
   find = "=> ensure(eval(D, E), eval(D, T))"
@@ -419,7 +444,7 @@ misunderstanding = "an ensures is not evaluated: a rule or an equation gives its
 
 [[mutation]]
 id = "ensures-false-not-applied"
-misunderstanding = "a rule whose ensures is false has not applied, as one whose requires is false: it gives no result and does not block the rules of larger priority, and a configuration to which only such rules apply is final"
+misunderstanding = "a rule whose ensures is false has not applied, as one whose requires is false: it gives no result and does not block the rules of larger priority, and a configuration to which only such rules apply is final [premise: rule-ensures]"
   [[mutation.edit]]
   rule = "KORE.ensure-fails"
   find = "=> bot"
@@ -431,7 +456,7 @@ misunderstanding = "a rule whose ensures is false has not applied, as one whose 
 
 [[mutation]]
 id = "ensures-as-requires"
-misunderstanding = "an equation whose ensures is not true has not applied, as one whose requires is not true: the next equation of its priority, a larger priority or the [owise] equation gives the value, instead of the application having no value (rules keep their reading: the marker of a false ensures is no successor and still blocks)"
+misunderstanding = "an equation whose ensures is not true has not applied, as one whose requires is not true: the next equation of its priority, a larger priority or the [owise] equation gives the value, instead of the application having no value (rules keep their reading: the marker of a false ensures is no successor and still blocks) [premise: equation-ensures]"
   [[mutation.edit]]
   rule = "KORE.ensure-fails"
   find = "=> bot"
@@ -453,7 +478,7 @@ misunderstanding = "an equation whose ensures is not true has not applied, as on
 
 [[mutation]]
 id = "subst-first-only"
-misunderstanding = "a rewrite rule gives one successor, from the first substitution of its left side whose requires holds, instead of one for each such substitution"
+misunderstanding = "a rewrite rule gives one successor, from the first substitution of its left side whose requires holds, instead of one for each such substitution [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.fire-holds"
   find = "; fireM(D, R, Rhs, Ms)"
@@ -461,7 +486,7 @@ misunderstanding = "a rewrite rule gives one successor, from the first substitut
 
 [[mutation]]
 id = "fn-first-subst-only"
-misunderstanding = "an equation is tried with the first substitution of its argument patterns only: when that substitution's requires fails, the equation does not apply"
+misunderstanding = "an equation is tried with the first substitution of its argument patterns only: when that substitution's requires fails, the equation does not apply [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.try-refuted"
   find = "=> tryM(D, Req, Rhs, Ms)"
@@ -469,7 +494,7 @@ misunderstanding = "an equation is tried with the first substitution of its argu
 
 [[mutation]]
 id = "frame-dropped"
-misunderstanding = "the frame variable of a collection pattern is dropped: the pattern matches whatever elements are left, and the frame is bound to the empty collection"
+misunderstanding = "the frame variable of a collection pattern is dropped: the pattern matches whatever elements are left, and the frame is bound to the empty collection [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.mc-frame"
   find = "match(F, co(K, C, Es), B, S)"
@@ -477,7 +502,7 @@ misunderstanding = "the frame variable of a collection pattern is dropped: the p
 
 [[mutation]]
 id = "col-pattern-open"
-misunderstanding = "a collection pattern without a frame variable matches a collection that has more elements than its element patterns, as if it had a frame"
+misunderstanding = "a collection pattern without a frame variable matches a collection that has more elements than its element patterns, as if it had a frame [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.mc-done"
   find = "matchCol(_, _, .Ts, .Ts, B, _)"
@@ -485,7 +510,7 @@ misunderstanding = "a collection pattern without a frame variable matches a coll
 
 [[mutation]]
 id = "col-first-split-only"
-misunderstanding = "an element pattern of a Map or Set pattern is matched against the first element only: only the first split of the subject is tried"
+misunderstanding = "an element pattern of a Map or Set pattern is matched against the first element only: only the first split of the subject is tried [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.ch-cons"
   find = ", choose(K, C, P, Ps, app(Pre, E ; .Ts), Post, B, S))"
@@ -495,7 +520,7 @@ misunderstanding = "an element pattern of a Map or Set pattern is matched agains
 
 [[mutation]]
 id = "map-duplicate-keys"
-misunderstanding = "Map concatenation is total: maps with a common key concatenate to a map holding both entries of that key"
+misunderstanding = "Map concatenation is total: maps with a common key concatenate to a map holding both entries of that key [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.inse-overlap"
   find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
@@ -503,7 +528,7 @@ misunderstanding = "Map concatenation is total: maps with a common key concatena
 
 [[mutation]]
 id = "map-concat-overrides"
-misunderstanding = "Map concatenation is a right-biased union: of two entries with one key, the right-hand one is kept"
+misunderstanding = "Map concatenation is a right-biased union: of two entries with one key, the right-hand one is kept [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.inse-overlap"
   find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
@@ -511,7 +536,7 @@ misunderstanding = "Map concatenation is a right-biased union: of two entries wi
 
 [[mutation]]
 id = "col-unordered"
-misunderstanding = "a collection value keeps its elements in the order they were added, so that the one map built in two orders gives two different values"
+misunderstanding = "a collection value keeps its elements in the order they were added, so that the one map built in two orders gives two different values [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.inse-before"
   find = "insE(_, E, F ; Fs) => E ; F ; Fs"
@@ -519,7 +544,7 @@ misunderstanding = "a collection value keeps its elements in the order they were
 
 [[mutation]]
 id = "map-lookup-missing-defined"
-misunderstanding = "a lookup of a missing key is not undefined: the application stays as it is, as an application of a function no equation applies to does"
+misunderstanding = "a lookup of a missing key is not undefined: the application stays as it is, as an application of a function no equation applies to does [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.op-lookup"
   find = "=> valueOr(A, bot, Es)"
@@ -531,7 +556,7 @@ misunderstanding = "a lookup of a missing key is not undefined: the application 
 
 [[mutation]]
 id = "map-update-duplicates"
-misunderstanding = "a Map update of a present key adds a second entry for it instead of replacing its value"
+misunderstanding = "a Map update of a present key adds a second entry for it instead of replacing its value [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.pute-replace"
   find = "=> E ; Fs"
@@ -544,7 +569,7 @@ misunderstanding = "a Map update of a present key adds a second entry for it ins
 
 [[mutation]]
 id = "map-entry-by-position"
-misunderstanding = "an entry pattern of a Map pattern (an instance of a cell collection) takes the entry at its position, as a List's element pattern does, instead of any entry: the instance of a key is found only when it comes first"
+misunderstanding = "an entry pattern of a Map pattern (an instance of a cell collection) takes the entry at its position, as a List's element pattern does, instead of any entry: the instance of a key is found only when it comes first [premise: collection-patterns, cells]"
   [[mutation.edit]]
   rule = "KORE.mc-choose"
   find = "requires isElem(P) andBool K =/=K list"
@@ -560,7 +585,7 @@ misunderstanding = "an entry pattern of a Map pattern (an instance of a cell col
 
 [[mutation]]
 id = "col-frame-not-rebuilt"
-misunderstanding = "a collection built on a right side holds only the elements written there: a part of the collection's sort, such as the frame that holds the instances a rule does not mention, contributes nothing"
+misunderstanding = "a collection built on a right side holds only the elements written there: a part of the collection's sort, such as the frame that holds the instances a rule does not mention, contributes nothing [premise: cells]"
   [[mutation.edit]]
   rule = "KORE.join-col"
   find = "=> join(co(K, C, Es), app(Fs, Ps))"
@@ -568,7 +593,7 @@ misunderstanding = "a collection built on a right side holds only the elements w
 
 [[mutation]]
 id = "map-keyed-by-entry"
-misunderstanding = "Map entries (instances of a cell collection) are told apart by the whole entry and not by the key: two entries of one key with different values are both kept, and only two equal entries overlap"
+misunderstanding = "Map entries (instances of a cell collection) are told apart by the whole entry and not by the key: two entries of one key with different values are both kept, and only two equal entries overlap [premise: collections, cells]"
   [[mutation.edit]]
   rule = "KORE.ckey-kv"
   find = "ckey(kv(A, _), kv(B, _)) => cmp(A, B)"
@@ -578,7 +603,7 @@ misunderstanding = "Map entries (instances of a cell collection) are told apart 
 
 [[mutation]]
 id = "set-idempotent"
-misunderstanding = "Set concatenation is idempotent: sets with a common element concatenate to their union"
+misunderstanding = "Set concatenation is idempotent: sets with a common element concatenate to their union [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.inse-overlap"
   find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
@@ -586,7 +611,7 @@ misunderstanding = "Set concatenation is idempotent: sets with a common element 
 
 [[mutation]]
 id = "set-union-partial"
-misunderstanding = "the union |Set is read as the concatenation of sets: undefined on a common element"
+misunderstanding = "the union |Set is read as the concatenation of sets: undefined on a common element [premise: hooks]"
   [[mutation.edit]]
   rule = "KORE.op-union"
   find = "=> co(set, C, union(Es, Fs))"
@@ -594,7 +619,7 @@ misunderstanding = "the union |Set is read as the concatenation of sets: undefin
 
 [[mutation]]
 id = "list-match-commutative"
-misunderstanding = "a List pattern is matched as a Set pattern is: an element pattern takes any element of the list, not the one at its position"
+misunderstanding = "a List pattern is matched as a Set pattern is: an element pattern takes any element of the list, not the one at its position [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.mc-choose"
   find = "requires isElem(P) andBool K =/=K list"
@@ -605,7 +630,7 @@ misunderstanding = "a List pattern is matched as a Set pattern is: an element pa
 
 [[mutation]]
 id = "list-split-at-head"
-misunderstanding = "a List frame followed by more patterns is split off at the head only: it takes the empty prefix, and the patterns after it the whole list"
+misunderstanding = "a List frame followed by more patterns is split off at the head only: it takes the empty prefix, and the patterns after it the whole list [premise: collection-patterns]"
   [[mutation.edit]]
   rule = "KORE.sp-next"
   find = "=> split(C, F, Ps, app(Pre, E ; .Ts), Post, B, S)"
@@ -613,7 +638,7 @@ misunderstanding = "a List frame followed by more patterns is split off at the h
 
 [[mutation]]
 id = "list-as-set"
-misunderstanding = "List concatenation is read as Set concatenation: commutative, its elements ordered by value, undefined on a repeated element"
+misunderstanding = "List concatenation is read as Set concatenation: commutative, its elements ordered by value, undefined on a repeated element [premise: collections]"
   [[mutation.edit]]
   rule = "KORE.join-list"
   find = "=> join(co(list, C, app(Es, E ; .Ts)), Ps)"
@@ -623,7 +648,7 @@ misunderstanding = "List concatenation is read as Set concatenation: commutative
 
 [[mutation]]
 id = "string-lt-reversed"
-misunderstanding = "<String is read as the reverse of the lexicographic order of texts"
+misunderstanding = "<String is read as the reverse of the lexicographic order of texts [premise: string-bool]"
   [[mutation.edit]]
   rule = "KORE.op-str-lt"
   find = "bv(X <String Y)"
@@ -631,7 +656,7 @@ misunderstanding = "<String is read as the reverse of the lexicographic order of
 
 [[mutation]]
 id = "string-eq-prefix"
-misunderstanding = "==String holds when the texts share their first character, not when they are equal"
+misunderstanding = "==String holds when the texts share their first character, not when they are equal [premise: string-bool]"
   [[mutation.edit]]
   rule = "KORE.op-str-eq"
   find = "bv(X ==String Y)"
@@ -639,7 +664,7 @@ misunderstanding = "==String holds when the texts share their first character, n
 
 [[mutation]]
 id = "bool-eq-as-and"
-misunderstanding = "==Bool is read as andBool: two false operands are not equal"
+misunderstanding = "==Bool is read as andBool: two false operands are not equal [premise: string-bool]"
   [[mutation.edit]]
   rule = "KORE.op-bool-eq"
   find = "bv(X ==Bool Y)"
