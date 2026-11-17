@@ -263,3 +263,5 @@ import KcoreSpec.TieRename
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.FixesValue
+import KcoreSpec.HasValue
+import KcoreSpec.HasValueValue
