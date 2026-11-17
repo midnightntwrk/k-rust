@@ -116,7 +116,7 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
   -- `post` has a truth value at a substitution of values that agrees with the valuation on the
   -- variables that are not existential: on the variables in scope it is an extension of σ
   have hdecG : ∀ (ok : Nat → Bool), (∀ j, j < cl.vars.length → j ∉ cl.exs → ok j = true) → ∀ σ₁,
-      c.WellSorted cl.vars σ₁ → AtElems c I tbl cl.vars e ok σ₁ → ∃ b, Holds c cl.vars.length σ₁ cl.post b := by
+      c.WellSorted cl.vars σ₁ → AtElems c I tbl cl.vars e ok (fun _ => True) σ₁ → ∃ b, Holds c cl.vars.length σ₁ cl.post b := by
     intro ok hokU σ₁ hσ₁ hat
     have hl₁ : ∀ j, j < cl.vars.length → ∃ v, σ₁.lookup j = some v ∧ c.sortOf v = some (cl.vars.getD j 0) :=
       fun j hj => hσ₁ j _ (hsj j hj)
@@ -130,7 +130,7 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
         by_cases hil : i < cl.vars.length
         · rw [hl₂ i hil]
           obtain ⟨v, hv, hsv, hev⟩ := hunivV i hil hi
-          obtain ⟨v₁, hv₁, hev₁⟩ := hat i (hokU i hil hi) hil
+          obtain ⟨v₁, hv₁, hev₁⟩ := hat i (hokU i hil hi) trivial hil
           have hev₁ : elemOf c I v₁ = e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i)) := hev₁
           obtain ⟨v₁', hv₁', hsv₁⟩ := hl₁ i hil
           rw [hv₁] at hv₁'; cases hv₁'
