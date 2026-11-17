@@ -81,7 +81,7 @@ theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
   obtain ⟨L, _, hclk⟩ := clauseCtx_of hok fn hmem
-  obtain ⟨hpt, _, _, _, hrt, hens⟩ := hclk cl hcl
+  obtain ⟨hpt, _, _, _, hrt, hens, _⟩ := hclk cl hcl
   cases hfx : c.clauseFixed cl with
   | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt) hrt hens hfx
   | false =>

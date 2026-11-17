@@ -1141,9 +1141,9 @@ theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
         (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
         (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim⟩
-  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq⟩ ⟨hσ', hm', hq'⟩ hd _ _ _ =>
+  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
-      fun vs σ' σ ⟨hσ', hm', hq'⟩ ⟨hσ, hm, hq⟩ hd _ _ _ =>
+      fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩

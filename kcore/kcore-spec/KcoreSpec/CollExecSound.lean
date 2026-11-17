@@ -145,9 +145,10 @@ sort, over the function signatures of some list L. -/
 def CClauseCtx (c : Semantics) : Prop :=
   ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses,
     reqOK (c.rhsCtx L) cl.vars cl.req = true ∧ sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
-      reqOK (c.rhsCtx L) cl.vars cl.ens = true
+      reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧ cl.pre = .top
 
 theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
+  have htop := Semantics.sortedOK_preTop hok
   replace hok := Semantics.sortedOK_sorted hok
   simp only [Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨⟨_, hfns⟩, _⟩ := hok
@@ -156,9 +157,10 @@ theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   · refine ⟨c.fns.map Fn.sig, Exec.headsOK_fns, fun cl hcl => ?_⟩
     have := hfns fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
-    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2⟩
+    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl⟩
   · exact ⟨[], fun k hk => (nomatch hk), fun cl h =>
-      ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2⟩⟩
+      ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2,
+        htop fn hfn' cl h⟩⟩
 
 /-! ## The clauses' candidates, as `firstClause` computes them -/
 
@@ -361,7 +363,7 @@ mutual
         obtain ⟨⟨cl', σ, b⟩, hmem, hres⟩ := List.exists_of_findSome?_eq_some hfind
         obtain ⟨hcl', hσm, rfl⟩ := mem_candidates.mp hmem
         obtain ⟨hcf, hpr⟩ := hin cl' hcl'
-        obtain ⟨hreq, hrhs, hensOK⟩ := hclk cl' hcf
+        obtain ⟨hreq, hrhs, hensOK, htop⟩ := hclk cl' hcf
         obtain ⟨hσw, hpv⟩ := cmatch_sound hσm
         unfold candResult at hres
         simp only at hres
@@ -379,7 +381,7 @@ mutual
           unfold candBody at hres
           split at hres
           · rename_i he
-            refine .clause hfn hcf hσw hpv hreqE hprioE (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+            refine .clause hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
             unfold clauseEns at he
             rw [ht] at he hensOK
             obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
@@ -393,7 +395,7 @@ mutual
             · rename_i t ht
               rw [ht] at hensOK
               obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
-              exact .ensFails hfn hcf hσw hpv hreqE hprioE ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
+              exact .ensFails hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
                 (fun h => by rw [isTrue_iff.mpr h] at he'; cases he')
           · cases hres
         · cases hres
