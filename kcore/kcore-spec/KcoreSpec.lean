@@ -306,3 +306,5 @@ import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
 import KcoreSpec.ClausePreTie
 import KcoreSpec.TieRuleLhs
+import KcoreSpec.LibEvSetVar
+import KcoreSpec.LibEvCeil

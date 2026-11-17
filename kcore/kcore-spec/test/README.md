@@ -1317,6 +1317,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   `SetVarsAtValues` (`ceil126_at`); so Γ with the sentence has no model (`ceil126_refuted`), and
   where Γ has a model the sentence is neither `EntailsAtValues` nor `EntailsAtSetValues`
   (`ceil126_not_at_values`, `ceil126_not_at_set_values`). Axioms guarded.
+- `test/LibEvCeilEns.lean`: the definedness lemmas over set variables of
+  `f2-examples/ens.kompile.kore` from the library's statements (`KcoreSpec/LibEvCeil.lean`, over
+  `KcoreSpec/LibEvSetVar.lean`): 126, 127, 130 (`%Int`, `/Int`, `modInt`, domains.md 1393, 1392,
+  1394), 128, 129 (`<<Int`, `>>Int`, 1396, 1395) and 266 (`#Ceil(@K0 |-> @K1 @Rest)`). For each and
+  every H: `sN_at`, in every model of Γ the sentence fails at a valuation meeting `AtValues` and
+  `SetVarsAtValues` (`@I2` two values, one where the left side is defined and one where the test
+  is `false`; `@Rest` a map without the key and one with it); `sN_refuted`, Γ with it has no model;
+  `sN_one`, the companion `LibEv.SvAtMostOne`: it holds at every valuation at values whose set
+  variables hold at most one element. Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any

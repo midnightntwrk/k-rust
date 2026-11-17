@@ -653,20 +653,21 @@ structure Two where
   unevaluated : List String
   deriving BEq, Repr
 
-/-- The library's definedness lemmas of `/Int`, `%Int` and `modInt` (domains.md 1392 to 1394) and
-the generated one of a map with one entry and a rest, `#Ceil(@K0 |-> @K1 @Rest)`, as `Two` names
-them. -/
+/-- The library's definedness lemmas of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (domains.md
+1392 to 1396) and the generated one of a map with one entry and a rest, `#Ceil(@K0 |-> @K1 @Rest)`,
+as `Two` names them, in text order. -/
 def ceilLemmas : List String :=
-  ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394",
+  ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1396", "18 domains.md:1395", "18 domains.md:1394",
    "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"]
 
 /-- What both texts give at two-element sets, apart from row 18's count (which is of the first
-grid): of the twelve sentences with a set variable over Γ's symbols, the eight Bool ones
-(domains.md 1176 to 1179, 1181 to 1184) hold there, and the four of `ceilLemmas` have a
+grid): of the fourteen sentences with a set variable over Γ's symbols, the eight Bool ones
+(domains.md 1176 to 1179, 1181 to 1184) hold there, and the six of `ceilLemmas` have a
 counterexample: with `@I2 = {0, d}` the left side holds and `@I2 =/=Int 0` denotes both `false` and
-`true`; with `@Rest` two maps, one holding the key and one not, the left side holds and
-`@K0 in_keys(@Rest)` denotes both. -/
-def expectedTwo : Two := { sentences := 12, hold := 8, refuted := ceilLemmas, hOnly := [], unevaluated := [] }
+`true`; with `@I2` a negative and a non-negative shift, `@I2 >=Int 0` denotes both; with `@Rest`
+two maps, one holding the key and one not, the left side holds and `@K0 in_keys(@Rest)` denotes
+both. -/
+def expectedTwo : Two := { sentences := 14, hold := 8, refuted := ceilLemmas, hOnly := [], unevaluated := [] }
 def expectedFltTwo : Two := expectedTwo
 /-- `allbuiltins.kompile.kore` holds six more sentences with a set variable over Γ's symbols. Two
 hold at two-element sets (domains.md 449, 450: `@Key in_keys(.Map)` against `#Ceil(@Key)`), and four
