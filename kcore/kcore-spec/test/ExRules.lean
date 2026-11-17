@@ -129,7 +129,7 @@ example : c.rulePlainOpen exTwo ≠ true :=
 section AtT
 open Faithful Faithful.Model
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- The rules of the definition have `ruleSorted` and `rulePlainEx`. -/
 theorem hrulesC : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
@@ -355,7 +355,7 @@ theorem coreR : cR.coreOK = true ∧ cR.readsConfined = true ∧
     exA.exs.any (fun i => (exA.vars[i]?.map cR.confined).getD false) = false ∧
     exB.exs.any (fun i => (exB.vars[i]?.map cR.confined).getD false) = true ∧
     exTwo.exs.any (fun i => (exTwo.vars[i]?.map cR.confined).getD false) = true := by
-  decide +kernel
+  decide_cheap
 
 section FamValue
 open Faithful
@@ -694,7 +694,7 @@ namespace ExRules
 noncomputable abbrev cX : Semantics := { c with rules := c.rules ++ [exTwo] }
 
 theorem coreX : cX.coreOK = true ∧ cX.rulesPlain = true ∧ exTwo.exs = [2, 3] := by
-  decide +kernel
+  decide_cheap
 
 theorem exTwo_memX : exTwo ∈ cX.rules := List.mem_append_right _ (List.mem_singleton_self _)
 

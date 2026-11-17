@@ -52,7 +52,7 @@ example : c.symName 391 = "Lblf" ∧ c.symName 389 = "Lblg" ∧ c.symName 390 = 
     c.symName intMul = "Lbl'UndsStar'Int'Unds'" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- S is not confined; Bool is. -/
 example : c.confined 32 = false ∧ c.confined Srt.int = false ∧ c.confined Srt.bool = true := by decide +kernel
@@ -133,7 +133,7 @@ theorem coreBH : cBH.coreOK = true ∧ cBH.readsConfined = true ∧
     (cBH.clauseSortedOpen fH (cBH.fns.map Fn.sig) clH = true ∧ cBH.clausePlainOpen clH = true) ∧
     clB.needsWitness cBH = false ∧ clH.needsWitness cBH = true ∧
     clH.openCondVars.any (fun i => (clH.vars[i]?.map cBH.confined).getD false) = false := by
-  decide +kernel
+  decide_cheap
 
 /-- **`exclEmptyCl_of` at `clB` and `clH`, clauses of `cBH`**, in every model of `Γc cBH`: that
 `cBH` reads a confined sort is decided; `clH`'s owed `CondDecided` is the one hypothesis. -/
@@ -241,7 +241,7 @@ example : Faithful.ClauseOpenFacts c2 gG (c2.fns.map Fn.sig) clG := Faithful.cla
 
 /-- `c2`, whose clause `clG` has a variable its patterns do not bind, meets `coreOK`, which gives the
 clause facts of every clause of `c2`. -/
-theorem coreOK2 : c2.coreOK = true := by decide +kernel
+theorem coreOK2 : c2.coreOK = true := by decide_cheap
 example : ∀ fn ∈ c2.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c2 L ∧ Faithful.ClauseOpenFacts c2 fn L cl :=
   Faithful.clauseOpenFacts_of_sortedOK (Semantics.coreOK_parts coreOK2).1
 
