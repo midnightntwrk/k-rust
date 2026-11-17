@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.1
 definition.kore bytes: 208742
 definition.kore sha256: 2895925a65de085f37eacd18dd6f0471c4856ea5bd6f78e5a01031000ae0d8fa
-stripped sha256: e95ebac666f284d2272eb63e0bdc9ced50076fd476ab5345a149ebbcac163436
+stripped sha256: 10a9f327461a2bb8a9dedb7d75abc315d363238b05b454a9a972150732b68968
 main module: 417 sentences, 61 not in base's, in kore.txt
 output:
   [Warning] Compiler: Symbols mul and plus are in the same associativity group,

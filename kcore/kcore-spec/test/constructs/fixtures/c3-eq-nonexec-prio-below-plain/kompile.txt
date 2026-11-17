@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.1
 definition.kore bytes: 203529
 definition.kore sha256: 2301a1f84567a561ae936a0681944c0483634823030b6b94c961d7eee75fe7f2
-stripped sha256: 1842104f173f71725f13b8dd1d8802917646ef102e955f947a03635f60f267ac
+stripped sha256: a1336e896b720ef5bbd95d76dfce64a1b80a10d4c2ee5da9a292b8f05edbfd2b
 main module: 392 sentences, 35 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name

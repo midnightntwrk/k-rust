@@ -3,7 +3,7 @@ exit: 0
 seconds: 1.9
 definition.kore bytes: 203915
 definition.kore sha256: 33d07168de8db93ddb3ed93f9aab7f6e47eccf4cbc7573031ccf3fb76ad788c4
-stripped sha256: f4aac5f12b93f4cedf654333b8b1e53c5632d3869afb5870f6230b3df9db9e8b
+stripped sha256: b6cbe1c67595d07f69c194420f4ba72bb8fa3b060b839aabbf12f11e17b20b6c
 main module: 392 sentences, 35 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name FOO-SYNTAX in

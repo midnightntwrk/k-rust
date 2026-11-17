@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 271796
 definition.kore sha256: 803cf58c3cf4a80d19b7722f4b2e9d64073cec06c16c5d58ee080c74268490ae
-stripped sha256: ccad927c43ff27aad798f15ed603f1f6d997a0e6f283ce495e5725b8d189a4d7
+stripped sha256: 27c6e5250f79a79c0315122d065f10ac24b7c38ec779b5f4d2f55cc90028be12
 main module: 495 sentences, 2 not in e7-constfold's, in kore.txt
 differs_from e7-constfold: different after stripping
 output:

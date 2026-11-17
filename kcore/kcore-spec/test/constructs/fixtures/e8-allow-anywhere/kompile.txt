@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 205625
 definition.kore sha256: 89aa4d3850827d032745856ab1666be678b8700d3ae97583eb70773d61df2944
-stripped sha256: 1119a8a60b7643115e285926c9920dc9bece2ecefba13df1f1b5c1b9f816afba
+stripped sha256: 87d4afb6d8eb8d7411d2a981ebc2b17a77e5dd35080d694432e99c0372694638
 main module: 405 sentences, 49 not in base's, in kore.txt
 output:
   [Warning] Compiler: Removed anywhere rule for Haskell backend execution; this

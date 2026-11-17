@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 210706
 definition.kore sha256: f34b374c729397705a06cf4cd3a34f150344b80c7aead175c39eb2f18dbd41c5
-stripped sha256: 67a3b02ea95940ee82f5d5eebf683c41616544332b45236c7603faf86e255e3f
+stripped sha256: ee2b53d3e7e91387803ad864ff840c796641be45bcec370a98a9849137eb318a
 main module: 416 sentences, 62 not in base's, in kore.txt
 differs_from c3-rule-kres-req: different after stripping
 output:

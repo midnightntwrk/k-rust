@@ -4,7 +4,7 @@ seconds: 2.9
 external krs/semantics/kore/kore.k: sha256 273c2d8bb931a9d8a65865edeb1170a27e549583efc832c17de44ef9a3d97fba
 definition.kore bytes: 914395
 definition.kore sha256: d9c7a418e3bbec052e5937e9b6adc4371c53d0d6b757e5bbbe61c52cb6dae614
-stripped sha256: 79180ee31e5b40e683da083427471e1fd0ee81f56be6ea78819d9f99bd6e9c01
+stripped sha256: eae7f867b00427d9084a03b5c9068c71ce32cc6bc84db1ab31341d93344b34fa
 main module: 1175 sentences, 768 not in base's (674638 bytes, over 200000): kore.txt holds the 368 with a Source in the fixture
 kore.txt: not written (fixture.toml kore_txt = false); the command regenerates the text
 output:

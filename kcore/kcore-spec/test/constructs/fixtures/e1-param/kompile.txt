@@ -3,7 +3,7 @@ exit: 0
 seconds: 1.9
 definition.kore bytes: 125100
 definition.kore sha256: 72f845cba2b9a4e6dbbf061ac64dea7592ddf4b7fe0e45905bb040b9b7b7d7d6
-stripped sha256: 4f3711a73f89743bc7416dc14c390f4e8e67daf1f49d6fe52fcf429cbcf86186
+stripped sha256: d65eae7e1988702973db8feffc2ea20cc2ff0c80ec0768607f60e92465c97d99
 main module: 285 sentences, 16 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name E1-PARAM-SYNTAX

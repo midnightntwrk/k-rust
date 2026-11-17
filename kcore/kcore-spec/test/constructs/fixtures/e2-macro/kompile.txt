@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.1
 definition.kore bytes: 204365
 definition.kore sha256: 4c194af42d453084377b5a4b5a95b627f21a4ac91d34840ca49e1a9face21170
-stripped sha256: 3de938afadb0ccd17c2ed0ba4ec1dd3b6fe2267b7a41e45f1281b765de9d63fe
+stripped sha256: e3a3bc1038ba777c5adfbfb80607a92ca250f24b70226a0137877d1c5fd725cd
 main module: 399 sentences, 42 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name E2-MACRO-SYNTAX

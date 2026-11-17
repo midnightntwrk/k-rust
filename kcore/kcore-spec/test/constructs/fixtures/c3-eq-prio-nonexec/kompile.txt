@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.1
 definition.kore bytes: 203469
 definition.kore sha256: e7efb2793ced8008813d210f6063b11854a7cc0ff699b8ab2e4a8878e9e2591f
-stripped sha256: aadf61ce9a263b863b65f370d911e6a24ff145391a36f170ec8ee2583a81cf82
+stripped sha256: c0cd5ba463b88405c5e6c5bda0c1fce6efc3cb4b81582c2faffd1fb3a8182b1c
 main module: 392 sentences, 35 not in base's, in kore.txt
 differs_from c3-eq-prio-nonexec-plain: different after stripping
 output:

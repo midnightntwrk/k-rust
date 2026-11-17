@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.3
 definition.kore bytes: 90203
 definition.kore sha256: 95269bcd8583d0cd6bb5c6b52f94fb87e06982999c3184db5c161a84b856b6dc
-stripped sha256: 5d0391432ce6115d8133ad9dc2795bce1f00601caad1955aae01477e27180fe2
+stripped sha256: 84ef5d0d61e2d173d7a830b1f6568b9ebcca716815649a11a06f0ac6ab526063
 main module: 262 sentences, 37 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name E2-TOKEN-SYNTAX

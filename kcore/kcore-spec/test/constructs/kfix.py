@@ -6,7 +6,8 @@ Usage (from kcore-spec):
   python3 -I test/constructs/kfix.py check [LIST...]  check rows.toml's pointers (lists E1 E2 E3 E7 E8
                                                      by default) against the files
   python3 -I test/constructs/kfix.py rehash [NAME...] rewrite kompile.txt's stripped sha256 and
-                                                     verdicts from the cached text of the same run
+                                                     verdicts from the text of the same run (this
+                                                     tree's .lake/kfix or the cache: no kompile)
   python3 -I test/constructs/kfix.py accounts [--write] [NAME...]
                                                      `kcore account` of each fixture's text from the
                                                      cache below (no kompile) against account.txt;
@@ -23,7 +24,9 @@ A fixture directory holds its K text(s) and fixture.toml:
   extra    options after `--backend haskell` (default none: R-12's option set)
   expect   "ok" (default) or "error": an error fixture records kompile's message and nothing else
   same_as  another fixture whose kompiled text this one's must equal after removing the Source and
-           Location attributes and the main module's name, putting each disjunction's disjuncts in a
+           Location attributes, the comments (whitespace to the KORE lexer, so no sentence holds
+           one) and the main module's name (its `module` line, symbol labels and rule labels
+           holding it), putting each disjunction's disjuncts in a
            fixed order (kompile's order changes from run to run; \\or is commutative and associative)
            and renumbering the variables kompile generates (their numbers change from run to run)
            (`stripped`) (an option or a construct that changes no
@@ -46,7 +49,7 @@ A fixture directory holds its K text(s) and fixture.toml:
 memory wrapper, and writes into the fixture directory:
   kompile.txt  the command, exit code, seconds, size and sha256 of definition.kore with paths
                replaced (FIXTURE/ for the fixture's directory, BUILTIN/ for K's builtin directory),
-               the sha256 with Source, Location and module names removed, the same_as / differs_from
+               the sha256 with Source, Location, comments and module names removed, the same_as / differs_from
                verdict, and kompile's output (paths replaced)
   kore.txt     the sentences of the main module that come from no builtin file (no Source under
                BUILTIN/) and are not sentences of fixture `base`'s main module: what the text adds
@@ -54,9 +57,10 @@ memory wrapper, and writes into the fixture directory:
                sentences (a `// rule` comment kompile writes counts with the axiom it precedes).
                The whole text is not committed (80 to 650 KB each); kompile.txt's command
                regenerates it. Kompile numbers its generated variables differently from run to
-               run, so the text's sha256 can change; the stripped sha256 (Source, Location and
-               module names removed, disjunctions in a fixed order, generated variables
-               renumbered: `stripped`) is the one to compare.
+               run, so the text's sha256 can change; the stripped sha256 (Source, Location,
+               comments and module names removed, disjunctions in a fixed order, generated
+               variables renumbered: `stripped`) is the one to compare. kore.txt keeps the
+               `// rule` comment lines (rows quote them to locate a sentence); `stripped` does not.
   account.txt  `kcore account out/definition.kore` (the workspace's .lake/build/bin/kcore)
 
 The kompiled texts are not committed. `run` also keeps each one, as kompile.txt hashes it (paths
@@ -252,13 +256,10 @@ def disjunctions_sorted(t):
     so every arrangement of one set of disjuncts denotes the same pattern; kompile writes some
     disjunctions (the negated left sides of an [owise] equation's siblings, for one) in an order
     that changes from run to run, so the stripped text fixes one arrangement. Disjuncts are
-    themselves rewritten first; `// rule` / `// claim` comment lines and string literals are left
-    as they are."""
+    themselves rewritten first; string literals are left as they are. It is applied to a text
+    without comments (`stripped` removes them first)."""
     out, i, n = [], 0, len(t)
     while i < n:
-        if t.startswith("// ", i) and (i == 0 or t[i - 1] == "\n"):
-            e = t.find("\n", i); e = n if e < 0 else e
-            out.append(t[i:e]); i = e; continue
         if t[i] == '"':
             e = _string_end(t, i); out.append(t[i:e]); i = e; continue
         if t.startswith(OR, i):
@@ -287,23 +288,63 @@ def main_name(kore):
 
 
 def unmodule(t, name):
-    """t with the main module's name `name` replaced by MAIN where a symbol's label holds it: K's
-    label `..._NAME_Sort...` is written `...Unds'NAME'Unds'Sort...`, the `_` before the name being
-    the end of the mangled run before it (`'Unds'NAME` after a letter, `'LParUndsRParUnds'NAME`
-    after `(_)`). Only that name: another token in that place (a sort such as K, a library
-    module's name) is kept, so that two texts differing there are not made equal."""
+    """t with the main module's name `name` replaced by MAIN where a symbol's label holds it, and
+    where a sentence's `label` attribute starts with it. K's symbol label `..._NAME_Sort...` is
+    written `...Unds'NAME'Unds'Sort...`, the `_` before the name being the end of the mangled run
+    before it (`'Unds'NAME` after a letter, `'LParUndsRParUnds'NAME` after `(_)`). A rule's label is
+    qualified by its module: kompile writes `label{}("NAME.neg1-cool")` on each heating and cooling
+    axiom of a strict production (and `label(NAME.neg1-cool)` in the `// rule` comment over it),
+    so two texts with strict productions in differently named main modules would never compare
+    equal. Only that name: another token in that place (a sort such as K, a library module's name)
+    is kept, so that two texts differing there are not made equal."""
     if not name:
         return t
-    return re.sub(r"(?<=Unds)'" + re.escape(name) + r"'(?=Unds')", "'MAIN'", t)
+    t = re.sub(r"(?<=Unds)'" + re.escape(name) + r"'(?=Unds')", "'MAIN'", t)
+    return re.sub(r"(?<=label\{\}\(\")" + re.escape(name) + r"(?=\.)", "MAIN", t)
+
+
+COMMENT = re.compile(r'"|//|/\*')
+
+
+def uncommented(t):
+    """t without its comments, as the KORE lexer reads it (KoreParser/Parser.lean, `ws`): `//` to
+    the end of the line and `/* ... */`, outside string literals. A comment is whitespace there,
+    so no sentence KCore reads holds one. A `//` comment that is a whole line goes with its line
+    end (kompile writes its `// rule`, `// claim` and section comments as whole lines; the cached
+    texts hold no other comment); another `//` comment goes up to its line end, and a `/* */`
+    comment is replaced by one space where no whitespace or text boundary is beside it (it
+    separates tokens as whitespace does), else by nothing. Whitespace is otherwise kept as it is."""
+    out, i, n = [], 0, len(t)
+    while True:
+        m = COMMENT.search(t, i)
+        if not m:
+            out.append(t[i:]); break
+        j = m.start()
+        out.append(t[i:j])
+        if m[0] == '"':
+            e = _string_end(t, j); out.append(t[j:e]); i = e; continue
+        if m[0] == "//":
+            e = t.find("\n", j); e = n if e < 0 else e
+            i = min(e + 1, n) if j == 0 or t[j - 1] == "\n" else e
+            continue
+        e = t.find("*/", j + 2)
+        if e < 0:
+            raise ValueError("kfix: unterminated /* comment")
+        i = e + 2
+        if 0 < j and not t[j - 1].isspace() and i < n and not t[i].isspace():
+            out.append(" ")
+    return "".join(out)
 
 
 def stripped(kore):
     """The text compared by same_as / differs_from and hashed as `stripped sha256`: Source and
-    Location attributes removed, module names replaced (each `module` line's, and the main
+    Location attributes removed, comments removed (uncommented: KCore's KORE parser drops them, so
+    no reading depends on one), module names replaced (each `module` line's, and the main
     module's where a label holds it: unmodule), disjunctions in a fixed order
     (disjunctions_sorted), and generated variables renumbered (alpha), in that order so that
     neither the module names nor the generated variables' numbers fix a disjunct's place."""
     t = ATTR.sub("", kore).replace("[, ", "[").replace("[,", "[")
+    t = uncommented(t)
     t = unmodule(t, main_name(t))
     t = re.sub(r"^module \S+", "module MAIN", t, flags=re.M)
     return alpha(disjunctions_sorted(t))
@@ -476,32 +517,49 @@ def run(name):
     return secs
 
 
+def recorded_text(name):
+    """The text of the run kompile.txt records (its sha256 the recorded definition.kore sha256):
+    this tree's .lake/kfix/NAME/definition.norm.kore when it is that text, else the cache's; None
+    when neither holds it."""
+    h = recorded_sha(name)
+    if not h:
+        return None
+    p = os.path.join(WORK, name, "definition.norm.kore")
+    if os.path.exists(p):
+        kore = open(p).read()
+        if sha(kore) == h:
+            return kore
+    return cache_get(h)
+
+
 def rehash(names):
-    """Rewrite kompile.txt's `stripped sha256` and same_as / differs_from lines from the cached
-    .lake/kfix/NAME/definition.norm.kore when its sha256 is the recorded definition.kore sha256 (the
-    same run's text), after a change to `stripped`; the fixtures with no such cache are listed, to
-    be run."""
+    """Rewrite kompile.txt's `stripped sha256` and same_as / differs_from lines from the text of the
+    same run (recorded_text: no kompile), after a change to `stripped` or to fixture.toml's
+    relation (a recorded same_as / differs_from line of the same pair is replaced by the relation
+    fixture.toml names); the fixtures whose run, or whose pair's run, is held nowhere are listed,
+    to be run."""
     stale, done = [], 0
     for name in names:
         kt = os.path.join(FX, name, "kompile.txt")
         t = open(kt).read() if os.path.exists(kt) else ""
         if "\nstripped sha256: " not in t:
             continue
-        cp = os.path.join(WORK, name, "definition.norm.kore")
-        m = re.search(r"^definition\.kore sha256: (\w+)$", t, re.M)
-        if not (m and os.path.exists(cp) and sha(open(cp).read()) == m[1]):
+        kore = recorded_text(name)
+        if kore is None:
             stale.append(name); continue
-        kore = open(cp).read()
         t = re.sub(r"^stripped sha256: \w+$", f"stripped sha256: {sha(stripped(kore))}", t, flags=re.M)
         c = conf(name)
         for rel in ("same_as", "differs_from"):
             if rel in c:
-                op = os.path.join(WORK, c[rel], "definition.norm.kore")
-                if not os.path.exists(op):
+                other = recorded_text(c[rel])
+                if other is None:
                     stale.append(name); break
-                eq = stripped(open(op).read()) == stripped(kore)
-                t = re.sub(rf"^{rel} \S+: \w+ after stripping$",
-                           f"{rel} {c[rel]}: {'equal' if eq else 'different'} after stripping", t, flags=re.M)
+                eq = stripped(other) == stripped(kore)
+                line = f"{rel} {c[rel]}: {'equal' if eq else 'different'} after stripping"
+                t, k = re.subn(rf"^(?:same_as|differs_from) {re.escape(c[rel])}: \w+ after stripping$",
+                               line, t, flags=re.M)
+                if k != 1:
+                    stale.append(name); break
         else:
             open(kt, "w").write(t); done += 1
     print(f"kfix rehash: {done} rewritten, {len(stale)} with no cache of their run"
@@ -646,6 +704,58 @@ def check_notes(rows):
     return bad
 
 
+D1_TEXT = """module A
+  import B []
+// rule f() => 1 requires true [label(A.r)]
+  axiom{R} \\rewrites{S}(Lblf{}(), \\dv{S}("1 // one /* two */")) [label{}("A.r"), UNIQUE'Unds'ID{}("u1")]
+endmodule []
+"""
+D1_STRICT = "c3-strict-base"
+
+
+def check_stripped():
+    """D1 of `stripped` (findings/C3-unbound-rulings.md section 1, C3.kfix-stripped-comments): two
+    texts differing only in a comment, or only in the main module's name, are equal; two texts
+    differing in a sentence, in a string literal holding `//` or `/*`, or in a label naming
+    another module are different. On D1_TEXT and, when cached, D1_STRICT's kompiled text (strict
+    productions: a heating and a cooling label per argument)."""
+    t = D1_TEXT
+    equal = [
+        t.replace("// rule f() => 1 requires true [label(A.r)]", "// rule something else"),
+        t.replace("// rule f() => 1 requires true [label(A.r)]\n", ""),
+        t.replace("  import B []", "  import B []// trailing").replace("endmodule []", "/* x */endmodule []"),
+        t.replace("  axiom{R}", "  /* x\n y */axiom{R}"),
+        t.replace("module A", "module A2").replace("label{}(\"A.r\")", "label{}(\"A2.r\")")
+         .replace("label(A.r)", "label(A2.r)"),
+    ]
+    different = [
+        t.replace("Lblf{}()", "Lblg{}()"),
+        t.replace("1 // one /* two */", "1 // one /* three */"),
+        t.replace("1 // one /* two */", "1 // won /* two */"),
+        t.replace("label{}(\"A.r\")", "label{}(\"B.r\")"),
+        t.replace("label{}(\"A.r\")", "label{}(\"A.s\")"),
+    ]
+    bad = [f"D1 of stripped: equal case {i} differs" for i, u in enumerate(equal) if stripped(u) != stripped(t)]
+    bad += [f"D1 of stripped: different case {i} is equal" for i, u in enumerate(different)
+            if stripped(u) == stripped(t)]
+    if '"1 // one /* two */"' not in stripped(t):
+        bad.append("D1 of stripped: a string literal holding // or /* is cut")
+    kore = recorded_text(D1_STRICT)
+    if kore is not None:
+        name = main_name(kore)
+        renamed = re.sub(rf"(?<![\w-]){re.escape(name)}(?![\w-])", name + "-RENAMED", kore)
+        if renamed == kore or stripped(renamed) != stripped(kore):
+            bad.append(f"D1 of stripped: {D1_STRICT} with its main module renamed differs")
+        lab = re.search(r'label\{\}\("' + re.escape(name) + r'\.([\w-]+)"\)', kore)
+        if not lab or stripped(kore.replace(lab[0], lab[0].replace(lab[1], lab[1] + "x"), 1)) == stripped(kore):
+            bad.append(f"D1 of stripped: {D1_STRICT} with one rule label changed is equal")
+        if "// rule" not in kore or "// rule" in stripped(kore):
+            bad.append(f"D1 of stripped: {D1_STRICT}'s // rule comments not removed")
+    print(f"kfix stripped D1: {len(equal)} equal and {len(different)} different cases on a small text"
+          + (f", {D1_STRICT} renamed and relabelled" if kore is not None else f"; {D1_STRICT} not cached"))
+    return bad
+
+
 def check(lists):
     rows = tomllib.load(open(os.path.join(K, "test/constructs/rows.toml"), "rb"))
     bad, n, cache = [], {}, {}
@@ -686,7 +796,8 @@ def check(lists):
             if rel in c and f"{rel} {c[rel]}:" not in t:
                 bad.append(f"fixture {f}: {rel} not recorded")
     bad += check_notes(rows)
-    ks = [f for f in sorted(os.listdir(FX)) if recorded_sha(f)]
+    bad += check_stripped()
+    ks =[f for f in sorted(os.listdir(FX)) if recorded_sha(f)]
     print(f"kfix cache {CACHE}: {sum(1 for f in ks if cache_get(recorded_sha(f)) is not None)} of "
           f"{len(ks)} kompiled texts")
     for l in lists:

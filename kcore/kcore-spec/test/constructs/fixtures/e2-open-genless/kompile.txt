@@ -3,9 +3,9 @@ exit: 0
 seconds: 2.5
 definition.kore bytes: 138167
 definition.kore sha256: 22f6b6b2e9b819031fe53445c75b230693a729d23e0c04536aa0eff97aaa21d7
-stripped sha256: 781b25bdf7fd3dbbf47e5d9f650d91767bce3d0ec359fa911f6b9e9327e54b6c
+stripped sha256: 5f6f7968a56f16912367c1a76a4567f72894497cc7cdf687c99294b2b34b4e92
 main module: 327 sentences, 59 not in base's, in kore.txt
-differs_from c3-unbound-req-nokey: different after stripping
+same_as c3-unbound-req-nokey: equal after stripping
 output:
   [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
   with underscore if this is intentional.

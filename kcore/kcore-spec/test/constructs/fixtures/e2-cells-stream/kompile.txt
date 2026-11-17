@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.7
 definition.kore bytes: 789439
 definition.kore sha256: fce5e7275ddfb1f9b16acd932b8754d05598f101b939cb84ac67df1de8c50f82
-stripped sha256: bd8bfab4075b6dea52fd4fb8f82a568a695b82cb2cfc26fe42b1c25d14f57be7
+stripped sha256: f512fbd7c646c9500c10ed360fb9921c0bb3ea43331d5e709ba4051890646b83
 main module: 3336 sentences, 2817 not in base's (505919 bytes, over 200000): kore.txt holds the 21 with a Source in the fixture or matching keep ['parseInput|ostream|initInCell|initOutCell|STDIN|STDOUT']
 output:
   [Warning] Compiler: Could not find main syntax module with name

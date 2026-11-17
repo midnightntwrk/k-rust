@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 210473
 definition.kore sha256: c9024adf889b2cbdb052361441e1cc3920f516a6d2a7fe6460de940eebb9467e
-stripped sha256: 8304d91b6877e85dea69020588ed9fbe278677a0d754cde76b02245726598f75
+stripped sha256: a617688302b64168bbeb5c30b98934db1cf0199ae90a54dbcd172c311121411f
 main module: 416 sentences, 84 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name

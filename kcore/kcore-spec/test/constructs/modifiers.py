@@ -4,8 +4,9 @@
 A fixture with `same_as` or `differs_from` in its fixture.toml (test/constructs/kfix.py) is a text
 and the same text without one modifier (its companion). For each such pair `run` compares
   text       the user module's sentences of the two kompiled texts (kfix.py's `stripped`: Source and
-             Location removed, module names replaced, disjunctions ordered, generated variables
-             renumbered), as sets;
+             Location removed, comments removed (a `// rule` comment is whitespace to the KORE
+             parser and no sentence), module names replaced (in rule labels too), disjunctions
+             ordered, generated variables renumbered), as sets;
   Semantics  the lines `kcore sem-fields` prints of each (every field of `Fn`, `Clause` and `Rule`,
              and one line per sort, constructor and parameter symbol, the symbols read with no
              clause, with the registry hook that interprets each or none; symbols and sorts by

@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.4
 definition.kore bytes: 242667
 definition.kore sha256: 5445845c46a0b7eb24772abf10f52a7d4e88be4a706e6472af13b4eae798421d
-stripped sha256: 49d44a27cedb65c8e8f854feaa6127950f1c22ae70d74588c6a4bc3bff82079a
+stripped sha256: 6b3c1df1b02faf2287ba501c78d6aea56d0c5201282004761594d46ad10a92db
 main module: 481 sentences, 127 not in base's, in kore.txt
 differs_from c3-strict-base: different after stripping
 output:

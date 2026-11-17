@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.6
 definition.kore bytes: 223417
 definition.kore sha256: e820d75a08f5e73b8a856c0585d72f018988830d6b8f648f75a14231dcaef45f
-stripped sha256: 199d1e9f4d03b6803fc9e8babd727f5f7f51bc98bb811420a380ca87f8ec8483
+stripped sha256: e79efa7aa9d6bd57d1d6cf35a8ac3af00159b98b3a2aa7ae0ea988277faf880b
 main module: 441 sentences, 85 not in base's, in kore.txt
 output:
   [Warning] Compiler: The zero-argument form of `symbol` is deprecated. Replace
