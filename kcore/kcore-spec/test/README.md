@@ -386,6 +386,17 @@ conjunct of its `requires`), leaves the account of `f2-examples/ens.kompile.kore
 `test/TieEns.lean` at `fn_shape`, `half_neg4`, `run_stuck` (2 min 19 s); on fixture `c3-eq-req-ens`
 its account is unchanged too, and that row names no theorem module yet.
 
+The kernel mutants (`[kernel.*]` in the same file) are changes of `Eval` or `Step.rule`, by
+constructor and premise: the rest read as no value, an `ensures` that falls through or is not
+read, a clause's or a rule's priority not read, a parameter symbol or a silent point without a
+value, a rule's `requires` or `ensures` not read. None is built. Each names its refutation
+instance, a kernel-checked statement about `c.withHooks H` at an H other than `HookParams.none`
+(or for every H) that the changed definition makes false, and the argument. `test/mutants.sh
+--kernel` lists them and checks that each named file holds each named theorem.
+`test/KernelMutants.lean` holds the instance for a rule's `ensures` (`ensrule`: `assume(true)`
+steps and `assume(false)` has no successor, for every H). The rule priority's instance
+(`EnsRulePrio.stuck_ft`, test/EnsuresRule.lean) is stated at the reader's interpretation only.
+
 ## The construct lists: `test/constructs/`
 
 DONE-0 C1's eight key lists E1 to E8, extracted from K 7.1.337 by `test/constructs/extract.sh`

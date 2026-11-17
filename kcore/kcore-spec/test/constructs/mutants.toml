@@ -40,3 +40,83 @@ patch = '''
    | some ex =>
      let (bs, body) := binders eqnFuel ex
 '''
+
+# Kernel mutants (DONE-0 C8 part 1, "Only kernel mutants (a change of `Eval`, `Step`) are shown by
+# argument, through the refutation instance"): each a named change of a constructor or a premise of
+# `Eval` (KcoreSpec/Evaluation.lean) or of `Step.rule` (KcoreSpec/Step.lean). A kernel mutant is
+# not built: the library's proofs are about the kernel as written. It is shown by the refutation
+# instance: a kernel-checked statement about `c.withHooks H`, at an interpretation H other than
+# `HookParams.none` (one for every H holds at each such H), that the changed definition makes
+# false; `argument` says what the changed definition derives there. `test/mutants.sh --kernel`
+# lists the entries and checks that each named file holds each named theorem; it runs no mutant.
+#
+# [kernel."NAME"]
+#   summary    the change, by constructor and premise
+#   breaks     what the constructor or premise states, and what K's text says there
+#   refutation the statements the change makes false, "FILE: Declaration" (a test file relative to
+#              kcore-spec and the declaration's full name)
+#   at         the interpretation of the instance: a named H other than HookParams.none, or "every H"
+#   argument   what the mutant derives at the instance, against the statement
+
+[kernel."rest-none"]
+summary = "Eval.rest gives no value (none) where every clause fails, in place of the function's rest c.fnRest fn vs"
+breaks = "Eval.rest: where no equation of f applies at vs the text states nothing about f(vs), neither a value nor that there is none; the value is the interpretation's (Semantics.fnRest), and Γ states that value (ΓFallback)"
+refutation = ["test/Guards.lean: KCore.Guards.g0_refuted", "test/Guards.lean: KCore.Guards.Proj.projInt_dotk_open", "test/Guards.lean: KCore.Guards.RestOpen.F0_undetermined"]
+at = "Hc (F ↦ 0 everywhere), H0 (project:Int(.K) ↦ 0)"
+argument = "g0_refuted derives Eval (nc.withHooks Hc) F [0] (some 0) by Eval.rest, and projInt_dotk_open derives Eval (c.withHooks H0) project:Int [.K] (some 0) on K 7.1.337's starinit text; with the change the only result at a point where every clause fails is none, so neither is derivable and the universal statement g0_refuted denies holds. At HookParams.none the two kernels agree at these points, which is why the instance is at another H. F0_undetermined: Γ (nc.withHooks Hc) holds F(0) = 0 in every model, so the changed Eval's none there contradicts the evaluation's soundness in Γ (eval_none_sound_core: Eval c f vs none gives Γ c ⊧ f(vs) ≡ ⊥)."
+
+[kernel."ens-falls-through"]
+summary = "Eval.ensFails is removed and a clause whose ensures is not true counts as failing (Fails): the next clause, or the rest, decides"
+breaks = "Eval.ensFails: an equation f(X) = t ∧ (C = true) states that f(X) is t ∧ ⊥, nothing, where the clause decides and C is not true; the rest is not read there"
+refutation = ["test/FallbackFns.lean: KCore.FallbackFnsTest.Ens.half_neg4_H7", "test/Guards.lean: KCore.Guards.Ens.half_neg4_none", "test/Guards.lean: KCore.Guards.DevAndEns.andEns_values"]
+at = "H7 (half(-4) ↦ 7 as its rest, FallbackFnsTest.Ens.fnRest_H7); every H"
+argument = "on K 7.1.337's ens text half(N) => N /Int 2 ensures N >=Int 0 is half's only clause; at -4 it decides and its ensures is false. With the change the clause fails at -4, every clause fails, and Eval.rest gives half(-4) the rest, 7 under H7: Eval (c.withHooks H7) half [-4] (some 7), and none is not derivable, against half_neg4_H7 and half_neg4_none at H7. KCore.Guards.DevAndEns.andEns_asRequires_H7 is the same value computed by the kernel as written on the text re-read with the ensures as a requires."
+
+[kernel."ens-ignored"]
+summary = "Eval.clause loses hens and Eval.ensFails is removed: a clause that decides gives its right side's value whatever its ensures"
+breaks = "Eval.clause's premise hens with Eval.ensFails: the equation's right side is t ∧ (C = true), so f(X) has t's value only where C is true"
+refutation = ["test/FallbackFns.lean: KCore.FallbackFnsTest.Ens.half_neg4_noValue", "test/Ensures.lean: Ens.half_neg4", "test/Guards.lean: KCore.Guards.DevAndEns.andEns_values"]
+at = "every H"
+argument = "on the ens text, at -4 the changed Eval.clause derives Eval (c.withHooks H) half [-4] (some (-2)) (-4 /Int 2), which half_neg4_noValue and Ens.half_neg4 deny for every H; on e3-ml-eq-rhs-and-pred's text it derives f(0) = 0 against andEns_values' Eval (c.withHooks H) f [0] none (with Eval's functionality, Eval.functional)."
+
+[kernel."eval-prio-ignored"]
+summary = "Eval.clause and Eval.ensFails lose hprio: a clause decides where it applies, whatever the clauses of a smaller priority do"
+breaks = "the priority premise of a function's equations (prioEquation, T1): an equation of priority p, [owise] among them, holds under the negation of the equations of a smaller priority"
+refutation = ["test/Ensures.lean: EnsOwise.half_neg4", "test/Guards.lean: KCore.Guards.DevBot.bot_values"]
+at = "every H"
+argument = "on the ens-owise text (half(N) => N /Int 2 ensures N >=Int 0 beside half(_) => 0 [owise]) the first clause decides at -4 with its ensures false; with the change the [owise] clause, of priority 200, decides there too and derives Eval (c.withHooks H) half [-4] (some 0), which EnsOwise.half_neg4 denies for every H. On e3-ml-eq-rhs-bottom's text the [owise] clause derives f(-1) = -1 against bot_values (the value the kernel as written gives the text with the first equation unread, KCore.Guards.DevBot.bot_unread_value)."
+
+[kernel."param-none"]
+summary = "EvalTerm.param gives no value (none) in place of (allSome rs).bind (c.paramVal f)"
+breaks = "EvalTerm.param: a hooked symbol no registry interprets, and a function symbol without a read equation, has the interpretation's value at defined arguments (Semantics.paramVal); the text states neither a value nor that there is none"
+refutation = ["test/Guards.lean: KCore.Guards.DevRefl.go_step_Hk"]
+at = "Hk (#configuration ↦ .K)"
+argument = "on e6-configuration's text go steps to wrap(#configuration); under Hk the parameter's value is .K (KCore.Guards.DevRefl.conf_value) and go_step_Hk derives the step to wrap(.K). With the change the right side has no value under any H, Step.rule's heval has no instance, and go has no successor under Hk, against go_step_Hk. At HookParams.none the two kernels agree (test/Configuration.lean, stuck_go)."
+
+[kernel."silent-none"]
+summary = "EvalTerm.hook reads hook f vs in place of c.hookRes f vs: at a silent point of an interpreted symbol the result is none, not the interpretation's value"
+breaks = "Semantics.hookRes at a key of silentTable: where K's text says nothing of an interpreted operation's value, the value is the interpretation's (Semantics.fallback), and Γ states it (ΓFallback)"
+refutation = ["test/SilentPoints.lean: KCore.SilentPointsTest.pts_undetermined", "test/SilentPoints.lean: KCore.SilentPointsTest.undetermined"]
+at = "constH v (the interpretation giving v everywhere), at one point of every key of silentTable"
+argument = "undetermined's first conjunct: under constH v, Γ (c.withHooks (constH v)) holds f(vs) = v in every model (gamma_fallback), and it has a model. The changed kernel evaluates the application to none there while every model of Γ gives it v, so the evaluation is not sound for Γ at c.withHooks (constH v) (FaithfulSound.lean: a term evaluated to none denotes ⊥ in every model of Γ), at every point of pts. At HookParams.none the two kernels agree."
+
+[kernel."step-req-ignored"]
+summary = "Step.rule loses hreq (and NotApplies reads no requires): a rule steps wherever its left side matches"
+breaks = "Step.rule's premise hreq: the rule axiom's left side is lhs ∧ (req = true), so the rule says nothing of a configuration at which its requires is not true"
+refutation = ["test/Guards.lean: KCore.Guards.DevAndBool.and_steps", "test/FallbackFns.lean: KCore.FallbackFnsTest.EnsReq.a_stuck"]
+at = "every H; H7 (f(0) ↦ 7 as its rest, FallbackFnsTest.EnsReq.rest_H7)"
+argument = "on e3-ml-req-and-var's text (go(B) => done requires true ∧ B) the changed Step.rule steps go(false) to done, against and_steps' second conjunct for every H. On the ensreq text (a => b requires f(0) ==Int 7, f(0) without a value since its clause's ensures fails) it steps a to b, against a_stuck for every H, H7 among them."
+
+[kernel."step-ens-ignored"]
+summary = "Step.rule loses hens: a rule steps to its right side whatever its ensures"
+breaks = "Step.rule's premise hens: the rule axiom's right side is rhs ∧ (ens = true), empty where the ensures is not true, so the rule gives no successor there"
+refutation = ["test/KernelMutants.lean: KCore.KernelMutants.EnsRule.ens_everyH"]
+at = "every H"
+argument = "on the ensrule text (assume(B) => ok() ensures B) the changed Step.rule steps assume(false) to ok(), against ens_everyH's second conjunct for every H; its first conjunct shows the rule steps where the ensures is true."
+
+[kernel."step-prio-ignored"]
+summary = "Step.rule loses hprio: a rule steps where it applies, whatever the rules of a smaller priority do"
+breaks = "the priority premise of the rules (prioRuleK, T1): a rule of priority p holds under the negation of the left sides and requires of the rules of a smaller priority"
+refutation = ["test/EnsuresRule.lean: EnsRulePrio.stuck_ft"]
+at = "the interpretation the reader gives the text only: no statement at another H is written"
+argument = "on the ensrule-prio text (assume(B, C) => ok() requires C ensures B of priority 50 beside assume(_, _) => stuck() of priority 60) the rule of priority 50 applies at assume(false, true) with its ensures false; the changed Step.rule steps assume(false, true) to stuck() by the rule of priority 60, against stuck_ft. The text applies no function and no parameter symbol, so the evaluation reads no interpretation; the statement for every H is not written (Cert.stuckCheck does not accept a configuration at which a rule applies without a successor, so Cert.stuckCheck_sound does not give it)."

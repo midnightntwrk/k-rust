@@ -23,6 +23,8 @@
 #
 # Usage (from anywhere; the library and kcore built in this tree):
 #   test/mutants.sh [--keep] [--list] [NAME...]   ($KCORE_MUTANTS: another mutants file)
+#   test/mutants.sh --kernel    the kernel mutants ([kernel.*]: a change of Eval or Step, shown by
+#                               argument, not run): each listed, each refutation's theorem found
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
 exec python3 -I - "$K" "$@" <<'PY'
@@ -40,6 +42,24 @@ DECL = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable
 
 ms = tomllib.load(open(os.environ.get("KCORE_MUTANTS") or os.path.join(K, "test/constructs/mutants.toml"), "rb")).get("mutant", {})
 rows = tomllib.load(open(os.path.join(K, "test/constructs/rows.toml"), "rb"))
+if "--kernel" in args:
+    # the kernel mutants: listed, and each refutation's file checked to hold its theorem
+    ks = tomllib.load(open(os.environ.get("KCORE_MUTANTS") or os.path.join(K, "test/constructs/mutants.toml"), "rb")).get("kernel", {})
+    bad = 0
+    for n, m in ks.items():
+        print(f"{n}: {m.get('summary', '')}")
+        print(f"  at: {m.get('at', '')}")
+        refs = m.get("refutation", [])
+        if not refs or not m.get("argument") or not m.get("breaks") or not m.get("at"):
+            print("  error: an entry names its refutation, at, breaks and argument"); bad += 1
+        for ref in refs:
+            f, _, d = ref.partition(": ")
+            fp = os.path.join(K, f)
+            ok = os.path.isfile(fp) and re.search(rf"^(?:private )?theorem {re.escape(d.split('.')[-1])}\b", open(fp, encoding="utf-8").read(), re.M)
+            print(f"  {'refuted by' if ok else 'error: no theorem'} {d} ({f})")
+            bad += 0 if ok else 1
+    print(f"mutants: {len(ks)} kernel mutants listed, " + ("each refutation found" if not bad else f"{bad} errors"))
+    sys.exit(1 if bad else 0)
 if listing:
     for n, m in ms.items():
         print(f"{n}: {m.get('summary', '')} (row {m.get('row')}; fixture {m.get('fixture')}; expect {m.get('expect')})")
