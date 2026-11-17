@@ -1,0 +1,14 @@
+command: kompile --backend haskell e3-vars-req.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.9
+output:
+  [Error] Compiler: Existential variable ?Z found in LHS. Existential variables
+  are only allowed in the RHS.
+  	Source(FIXTURE/e3-vars-req.k)
+  	Location(4,43,4,45)
+  	4 |	  rule <k> c() => d(?Z:Int) </k> requires ?Z >Int 0
+  	  .	                                          ^~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-VARS-REQ as default.

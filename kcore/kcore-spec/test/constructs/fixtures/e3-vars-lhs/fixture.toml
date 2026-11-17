@@ -1,0 +1,3 @@
+# Probe: ?Z on the left side, which the right side also holds. kompile 7.1.337 rejects it: "Existential variable
+# ?Z found in LHS".
+expect = "error"
