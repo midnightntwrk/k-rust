@@ -1281,7 +1281,17 @@ table above, on the tree before String and Bytes). Not investigated here.
   `ow_keys`): item and sentence agree up to the order of the operands of their sorted disjunctions
   and the names of their variables (`ow_same`, `TieAlpha.acEqB` from `KcoreSpec/TieAlphaOr.lean`,
   one decision per position), so Γ entails each sentence for every H (`ow_entailed`) and each item
-  is its sentence's consequence (`ow_from_text`). 6.9 GiB, 111 s.
+  is its sentence's consequence (`ow_from_text`). 6.9 GiB, 123 s.
+- `test/TieKkW2.lean`: kore.k's 10 rules in the direction W2: Γ's axiom is the sentence with the
+  definedness of its right side as a third conjunct of its left side, whose second conjunct is
+  `\top` or the `requires` equation at the configuration sort (`w2_checked`, one decision); in a
+  model of Γ, for every H, each sentence holds where its right side holds an element
+  (`rules_w2_all`, `rules_w2`). 1.9 GiB, 22 s.
+- `test/TieKkDecls.lean`: kore.k's declarations in the direction E (row 19): the item of each of
+  the 32 sort declarations without sort parameters is in `sigItems c` (`sorts_in_sig`); each of the
+  306 symbol declarations without sort parameters names no symbol of Γ (65, `noSym_count`) or its
+  item is the arity item of the first of Γ's symbols under its name (`syms_in_sig`, by ranges);
+  so Γ entails each such item for every H (`decls_entailed`). 5.8 GiB, 212 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
