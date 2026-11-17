@@ -401,7 +401,7 @@ theorem listHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {k
     (hev : g ws = some v) : c.sortOf v = some k.result := by
   simp only [listHooks, List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hmem
   rcases hmem with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
-    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   · rw [show lookupSig hookSigs listConcat = some ⟨listConcat, [Srt.list, Srt.list], Srt.list⟩ by
       decide] at hk
     cases hk
@@ -473,6 +473,72 @@ theorem listHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {k
     dsimp only at hws hev ⊢
     split at hev
     · obtain rfl := Option.some.inj hev; exact sortOf_int _
+    · cases hev
+  · rw [show lookupSig hookSigs listSet = some ⟨listSet, [Srt.list, Srt.int, Srt.kitem], Srt.list⟩ by
+      decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [sortsOf_eq_cons] at hws
+      have ha := listOK_of hws.1
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨_, _, hev⟩ := hev
+      split at hev
+      · obtain rfl := Option.some.inj hev
+        exact sortOf_list_of fun e he => (List.mem_or_eq_of_mem_set he).elim (ha e) (fun h => h ▸ hws.2.2.1)
+      · cases hev
+    · cases hev
+  · rw [show lookupSig hookSigs listMake = some ⟨listMake, [Srt.int, Srt.kitem], Srt.list⟩ by
+      decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [sortsOf_eq_cons] at hws
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨_, _, hev⟩ := hev
+      split at hev
+      · obtain rfl := Option.some.inj hev
+        exact sortOf_list_of fun e he => (List.eq_of_mem_replicate he) ▸ hws.2.1
+      · cases hev
+    · cases hev
+  · rw [show lookupSig hookSigs listUpdateAll = some ⟨listUpdateAll, [Srt.list, Srt.int, Srt.list], Srt.list⟩ by
+      decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [sortsOf_eq_cons] at hws
+      have hd := listOK_of hws.1
+      have hs := listOK_of hws.2.2.1
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨_, _, hev⟩ := hev
+      split at hev
+      · obtain rfl := Option.some.inj hev
+        refine sortOf_list_of fun e he => ?_
+        simp only [List.mem_append] at he
+        rcases he with (he | he) | he
+        · exact hd e (List.mem_of_mem_take he)
+        · exact hs e he
+        · exact hd e (List.mem_of_mem_drop he)
+      · cases hev
+    · cases hev
+  · rw [show lookupSig hookSigs listFill = some ⟨listFill, [Srt.list, Srt.int, Srt.int, Srt.kitem], Srt.list⟩ by
+      decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [sortsOf_eq_cons] at hws
+      have hd := listOK_of hws.1
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨_, _, _, _, hev⟩ := hev
+      split at hev
+      · obtain rfl := Option.some.inj hev
+        refine sortOf_list_of fun e he => ?_
+        simp only [List.mem_append] at he
+        rcases he with (he | he) | he
+        · exact hd e (List.mem_of_mem_take he)
+        · exact (List.eq_of_mem_replicate he) ▸ hws.2.2.2.1
+        · exact hd e (List.mem_of_mem_drop he)
+      · cases hev
     · cases hev
 
 /-! ## The interpreted Float symbols return values of their declared result sort -/
@@ -1149,13 +1215,13 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
-    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   all_goals
     simp only [lookupSig_eq, hookSigs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
       List.find?_cons, boolNot, boolAnd, boolAndThen, boolOr, boolOrElse, boolXor, boolImplies,
       boolEq, boolNe, intAdd, intSub, intMul, intTDiv, intTMod, intEDiv, intEMod, intMin, intMax,
       intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, intShr, intShl, intLog2, intPowMod,
-      intBitRange, intSignExtBitRange, kEq, kNe,
+      intBitRange, intSignExtBitRange, intPow, kEq, kNe,
       mapUnit, mapElem,
       mapConcat, mapUpdate, mapRemove, mapLookup, mapLookupOrDefault, mapInKeys, mapSize,
       mapRemoveAll, mapKeys, setUnit, setElem, setConcat, setUnion, setIntersect, setDifference,

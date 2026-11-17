@@ -62,6 +62,22 @@
 
   The sort row `LIST.List` (DOM 902-903, 914, 919): `list_value`, `list_ext`, `list_only`; a sort
   has no argument list, so no key of `silentTable` is about it.
+
+  The four rows `LIST.update`, `LIST.make`, `LIST.updateAll`, `LIST.fill` (`stRows`, the last
+  section), none declared `total`. The prose names one value on a region of each: "a new `List`
+  with a new value at a particular index" (DOM 974-975), at an index of the list; "a list with
+  `length` elements, each containing `value`" (984-985), at `length ≥ 0`; "a new `List` which is
+  equal to `dest` except the `N` elements starting at `index` are replaced with the contents of
+  `src`" (993-994), at `0 ≤ index` and `index + N ≤ K`; "a new `List` where the `length` elements
+  starting at `index` are replaced with `value`" (1003-1004), within the list. There `hook` gives
+  that value at every argument list (`set_at`, `make_at`, `updateAll_at`, `fill_at`; `set_spec`,
+  `updateAll_spec` by the elements of the result) and Γ states it under every interpretation
+  (`stVals_gamma`). Elsewhere the prose writes no `#False` ("Having `index + N > K` yields an
+  exception", 995, is of a run): `hook` gives no value and every such point is silent
+  (`st_silent`, `stOff`), where Γ states the interpretation's (the schema of
+  test/SilentPoints.lean). A negative index of `L[I <- V]` is off the list: whether it counts from
+  the back, as `L[I]`'s does (961-963), is not said, so no one value is stated there and the point
+  is silent.
 -/
 import KcoreSpec
 
@@ -154,13 +170,18 @@ def sig (f : Sym) : CtorSig := (lookupSig hookSigs f).getD default
 /-- The eight supported operation rows of LIST: the symbol and its `hook` attribute in the prose's
 productions (DOM 930 `LIST.concat`, 938 `LIST.unit`, 946 `LIST.element`, 954 `LIST.push`,
 968 `LIST.get`, 1017 `LIST.range`, 1026 `LIST.in`, 1039 `LIST.size`). The ninth row is the sort
-(`LIST.List`, DOM 914). LIST's other hooks (`update` DOM 978, `make` 988, `updateAll` 998, `fill`
-1007 are parameters in rows.toml; `getMInt` 969, `updateMInt` 979, `sizeMInt` 1040 are refused)
-are not supported rows. -/
+(`LIST.List`, DOM 914). Four more, `update` (DOM 978), `make` (988), `updateAll` (998) and `fill`
+(1007), are `stRows` (the last section); `getMInt` 969, `updateMInt` 979, `sizeMInt` 1040 are
+refused. -/
 def listRows : List (Sym × String) :=
   [(listConcat, "LIST.concat"), (listUnit, "LIST.unit"), (listElem, "LIST.element"),
    (listPush, "LIST.push"), (listGet, "LIST.get"), (listRange, "LIST.range"),
    (listIn, "LIST.in"), (listSize, "LIST.size")]
+
+/-- `L[I <- V]`, `makeList`, `updateList`, `fillList`: the symbol and its `hook` attribute (DOM 978,
+988, 998, 1007), none declared `total`. -/
+def stRows : List (Sym × String) :=
+  [(listSet, "LIST.update"), (listMake, "LIST.make"), (listUpdateAll, "LIST.updateAll"), (listFill, "LIST.fill")]
 
 /-- The two the prose does not declare `total` (DOM 968, 1017). -/
 def partials : List Sym := [listGet, listRange]
@@ -168,9 +189,10 @@ def partials : List Sym := [listGet, listRange]
 /-- The six the prose declares `total` (DOM 930, 938, 946, 954, 1026, 1039). -/
 def totals : List Sym := [listConcat, listUnit, listElem, listPush, listIn, listSize]
 
-/-- The rows are the registry's entries with a `LIST.` hook, each with its hook name. -/
+/-- The rows are the registry's entries with a `LIST.` hook, each with its hook name, before the
+four of `stRows`. -/
 theorem listRows_registry :
-    regHookNames.filter (fun e => e.2.toList.take 5 == "LIST.".toList) = listRows := by
+    regHookNames.filter (fun e => e.2.toList.take 5 == "LIST.".toList) = listRows ++ stRows := by
   decide +kernel
 
 /-- The signatures, as the prose's productions give them (the lines of `listRows`). -/
@@ -756,7 +778,7 @@ theorem opens_undetermined : ∀ p ∈ opens ++ opensOver,
 /-- info: 'KCore.HooksListTest.covered_range' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms covered_range
 
-/-- info: 'KCore.HooksListTest.total_not_silent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'KCore.HooksListTest.total_not_silent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms total_not_silent
 
 /-- info: 'KCore.HooksListTest.off_hookRes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -773,5 +795,162 @@ theorem opens_undetermined : ∀ p ∈ opens ++ opensOver,
 
 /-- info: 'KCore.HooksListTest.get_at_back' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms get_at_back
+
+/-! ## `L[I <- V]`, `makeList`, `updateList`, `fillList`
+
+The four rows of `stRows`, none declared `total` (DOM 978, 988, 998, 1007). Each is a key of
+`silentTable` with `fun _ => true`: where `hook` gives no value the prose names none and writes no
+`#False`, so the point is silent. On the described region `hook` gives the one value the prose
+names. -/
+
+/-- The signatures, as the prose's productions give them. -/
+def stSigs : List (Sym × List Srt × Srt) :=
+  [(listSet, [Srt.list, Srt.int, Srt.kitem], Srt.list), (listMake, [Srt.int, Srt.kitem], Srt.list),
+   (listUpdateAll, [Srt.list, Srt.int, Srt.list], Srt.list),
+   (listFill, [Srt.list, Srt.int, Srt.int, Srt.kitem], Srt.list)]
+
+theorem stRows_sig : (stRows.map (·.1) == stSigs.map (·.1) &&
+    stSigs.all (fun r => decide (sig r.1 ∈ hookSigs) && (sig r.1).name == r.1 &&
+      (sig r.1).args == r.2.1 && (sig r.1).result == r.2.2) &&
+    stRows.all (fun r => partialHooks.contains r.1 && regHookOf r.2 == some r.1)) = true := by
+  decide +kernel
+
+/-- No library module has one of the four among its parameter symbols. -/
+theorem st_not_param : (List.range library.length).all (fun i =>
+    (libParams [i]).all fun p => !(stRows.map (·.1)).contains p.sig.name) = true := by
+  decide +kernel
+
+/-- **Every point of the four where `hook` gives no value is silent.** -/
+theorem st_silent : ∀ r ∈ stRows, ∀ vs : List GroundTerm, silent r.1 vs = true := by
+  intro r hr vs
+  simp only [stRows, List.mem_cons, List.not_mem_nil, or_false] at hr
+  rcases hr with rfl | rfl | rfl | rfl <;> rfl
+
+/-- "You can create a new `List` with a new value at a particular index" (DOM 974-975), at an index
+of the list, `0 ≤ I < size`: the list with `V` at `I`. Off it (a negative index among them: the
+prose's convention of DOM 961-963 is stated of `L[I]`), no value and silent. -/
+theorem set_at (a : List GroundTerm) (i : Int) (v : GroundTerm) :
+    hook listSet [lst a, int i, v] =
+      some (if 0 ≤ i ∧ i < a.length then some (lst (a.set i.toNat v)) else none) := by
+  show some ((asInt (int i)).bind fun i => if 0 ≤ i ∧ i < a.length then
+    some (GroundTerm.list Srt.list (a.set i.toNat v)) else none) = _
+  simp [asInt, int]
+
+/-- "a list with `length` elements, each containing `value`" (DOM 984-985), at `length ≥ 0`. -/
+theorem make_at (n : Int) (v : GroundTerm) :
+    hook listMake [int n, v] = some (if 0 ≤ n then some (lst (List.replicate n.toNat v)) else none) := by
+  show some ((asInt (int n)).bind fun n => if 0 ≤ n then
+    some (GroundTerm.list Srt.list (List.replicate n.toNat v)) else none) = _
+  simp [asInt, int]
+
+/-- "a new `List` which is equal to `dest` except the `N` elements starting at `index` are replaced
+with the contents of `src`" (DOM 993-994), `N` the size of `src`, at `0 ≤ index` and
+`index + N ≤ size(dest)`. -/
+theorem updateAll_at (d : List GroundTerm) (i : Int) (s : List GroundTerm) :
+    hook listUpdateAll [lst d, int i, lst s] =
+      some (if 0 ≤ i ∧ i + s.length ≤ d.length then
+        some (lst (d.take i.toNat ++ s ++ d.drop (i.toNat + s.length))) else none) := by
+  show some ((asInt (int i)).bind fun i => if 0 ≤ i ∧ i + s.length ≤ d.length then
+    some (GroundTerm.list Srt.list (d.take i.toNat ++ s ++ d.drop (i.toNat + s.length))) else none) = _
+  simp [asInt, int]
+
+/-- "a new `List` where the `length` elements starting at `index` are replaced with `value`"
+(DOM 1003-1004), at `0 ≤ index`, `0 ≤ length` and `index + length ≤ size`. -/
+theorem fill_at (d : List GroundTerm) (i n : Int) (v : GroundTerm) :
+    hook listFill [lst d, int i, int n, v] =
+      some (if 0 ≤ i ∧ 0 ≤ n ∧ i + n ≤ d.length then
+        some (lst (d.take i.toNat ++ List.replicate n.toNat v ++ d.drop (i.toNat + n.toNat))) else none) := by
+  show some ((asInt (int i)).bind fun i => (asInt (int n)).bind fun n => if 0 ≤ i ∧ 0 ≤ n ∧ i + n ≤ d.length then
+    some (GroundTerm.list Srt.list (d.take i.toNat ++ List.replicate n.toNat v ++ d.drop (i.toNat + n.toNat)))
+    else none) = _
+  simp [asInt, int]
+
+/-- In range, `L[I <- V]` has `V` at `I` and the elements of `L` at every other index, and the
+size of `L` (the list "with a new value at a particular index"). -/
+theorem set_spec {a : List GroundTerm} {i : Int} (v : GroundTerm) (h0 : 0 ≤ i) (h1 : i < a.length) :
+    ∃ r, hook listSet [lst a, int i, v] = some (some (lst r)) ∧ r.length = a.length ∧
+      r[i.toNat]? = some v ∧ ∀ j, j ≠ i.toNat → r[j]? = a[j]? := by
+  refine ⟨a.set i.toNat v, by rw [set_at, if_pos ⟨h0, h1⟩], List.length_set, ?_, ?_⟩
+  · rw [List.getElem?_set_self (by omega)]
+  · intro j hj; rw [List.getElem?_set_ne (Ne.symm hj)]
+
+/-- In range, `updateList(D, I, S)` has the elements of `S` at `I` … `I + size(S) - 1` and those of
+`D` elsewhere, and the size of `D`. -/
+theorem updateAll_spec {d s : List GroundTerm} {i : Int} (h0 : 0 ≤ i) (h1 : i + s.length ≤ d.length) :
+    ∃ r, hook listUpdateAll [lst d, int i, lst s] = some (some (lst r)) ∧ r.length = d.length ∧
+      (∀ j < s.length, r[i.toNat + j]? = s[j]?) ∧
+      (∀ j, (j < i.toNat ∨ i.toNat + s.length ≤ j) → r[j]? = d[j]?) := by
+  refine ⟨d.take i.toNat ++ s ++ d.drop (i.toNat + s.length), by rw [updateAll_at, if_pos ⟨h0, h1⟩], ?_, ?_, ?_⟩
+  · simp only [List.length_append, List.length_take, List.length_drop]; omega
+  · intro j hj
+    have ht : (d.take i.toNat).length = i.toNat := by rw [List.length_take]; omega
+    rw [List.append_assoc, List.getElem?_append_right (by omega), ht, Nat.add_sub_cancel_left,
+      List.getElem?_append_left hj]
+  · intro j hj
+    have ht : (d.take i.toNat).length = i.toNat := by rw [List.length_take]; omega
+    rcases hj with hj | hj
+    · rw [List.append_assoc, List.getElem?_append_left (by omega), List.getElem?_take_of_lt hj]
+    · rw [List.append_assoc, List.getElem?_append_right (by omega), ht, List.getElem?_append_right (by omega),
+        List.getElem?_drop]
+      congr 1; omega
+
+/-- In-range points, each derived from the prose: `[1, 2][1 <- 3]` is `[1, 3]` (the value at index
+1, the second, replaced); `makeList(2, 7)` is `[7, 7]`, `makeList(0, 7)` is `.List`;
+`updateList([1, 2, 3], 1, [8, 9])` is `[1, 8, 9]` (the two elements from index 1 replaced by 8 and
+9); `fillList([1, 2, 3], 1, 2, 7)` is `[1, 7, 7]` (the two elements from index 1 replaced by 7). -/
+def stVals : List Pt :=
+  [⟨listSet, "LIST.update", [.ls [1, 2], .i 1, .k 3], .ls [1, 3]⟩,
+   ⟨listMake, "LIST.make", [.i 2, .k 7], .ls [7, 7]⟩, ⟨listMake, "LIST.make", [.i 0, .k 7], .ls []⟩,
+   ⟨listUpdateAll, "LIST.updateAll", [.ls [1, 2, 3], .i 1, .ls [8, 9]], .ls [1, 8, 9]⟩,
+   ⟨listFill, "LIST.fill", [.ls [1, 2, 3], .i 1, .i 2, .k 7], .ls [1, 7, 7]⟩]
+
+theorem stVals_ok : stVals.all (fun p => stRows.contains (p.f, p.name) && decide (sig p.f ∈ hookSigs) &&
+    (sig p.f).name == p.f && (sig p.f).args == p.xs.map A.srt && (sig p.f).result == p.v.srt &&
+    hook p.f (p.xs.map A.val) == some (some p.v.val)) = true := by
+  decide +kernel
+
+/-- **At each in-range point Γ states the value under every interpretation**, in every semantics
+with Int below KItem. -/
+theorem stVals_gamma : ∀ p ∈ stVals, ∀ (c : Semantics), IntBelow c → ∀ H : HookParams,
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map A.val) ≡ den (c.withHooks H) p.v.val) := by
+  intro p hp c hI H
+  have h := List.all_eq_true.mp stVals_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨-, hk⟩, hname⟩, hargs⟩, -⟩, hh⟩ := h
+  have hvs : (c.withHooks H).sortsOf (p.xs.map A.val) = some (sig p.f).args := by
+    rw [hargs]; exact A.sortsOf (hI.withHooks H) _
+  exact gamma_val _ hk hvs (by rw [hname]; exact hh)
+
+/-- Off-range points: `[1][1 <- 3]` (an index equal to the size), `[1][-1 <- 3]` (a negative index:
+whether it counts from the back, as of `L[I]`, is not said), `makeList(-1, 7)`,
+`updateList([1, 2], 1, [8, 9])` (`index + N > K`, which "yields an exception", DOM 995, no
+`#False`), `updateList([1], -1, .List)`, `fillList([1], 0, 2, 7)`, `fillList([1], 0, -1, 7)`: `hook`
+gives no value, and the point is silent. The value component is not read. -/
+def stOff : List Pt :=
+  [⟨listSet, "LIST.update", [.ls [1], .i 1, .k 3], .ls []⟩,
+   ⟨listSet, "LIST.update", [.ls [1], .i (-1), .k 3], .ls []⟩,
+   ⟨listMake, "LIST.make", [.i (-1), .k 7], .ls []⟩,
+   ⟨listUpdateAll, "LIST.updateAll", [.ls [1, 2], .i 1, .ls [8, 9]], .ls []⟩,
+   ⟨listUpdateAll, "LIST.updateAll", [.ls [1], .i (-1), .ls []], .ls []⟩,
+   ⟨listFill, "LIST.fill", [.ls [1], .i 0, .i 2, .k 7], .ls []⟩,
+   ⟨listFill, "LIST.fill", [.ls [1], .i 0, .i (-1), .k 7], .ls []⟩]
+
+theorem stOff_ok : stOff.all (fun p => stRows.contains (p.f, p.name) && (sig p.f).args == p.xs.map A.srt &&
+    hook p.f (p.xs.map A.val) == some none && silent p.f (p.xs.map A.val)) = true := by
+  decide +kernel
+
+/-- `HookParams.lib` (LibAdmitted.lean) gives none of the four a value at any point, as it gave
+none while they were parameter symbols: the values above are `hook`'s, at points where it gave
+none, and off range it gives none still. -/
+theorem lib_st_none : ∀ r ∈ stRows, ∀ vs : List GroundTerm, HookParams.lib.app r.1 vs = none := by
+  intro r hr vs
+  simp only [stRows, List.mem_cons, List.not_mem_nil, or_false] at hr
+  rcases hr with rfl | rfl | rfl | rfl <;> rfl
+
+#print axioms set_spec
+#print axioms updateAll_spec
+#print axioms stVals_gamma
+#print axioms st_silent
+#print axioms lib_st_none
 
 end KCore.HooksListTest

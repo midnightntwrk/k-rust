@@ -257,7 +257,12 @@ def pts : List Pt :=
    ⟨floatLe, [t18, t18], bool true⟩, ⟨floatLt, [t18, f64 0], bool true⟩, ⟨floatGe, [f64 0, t18], bool true⟩,
    ⟨floatGt, [t18, t18], bool true⟩, ⟨floatEq, [t18, t18], bool true⟩, ⟨floatNe, [t18, t18], bool false⟩,
    ⟨floatIsNaN, [n18], bool false⟩, ⟨floatIsInfinite, [t18], bool true⟩,
-   ⟨intPowMod, [int 2, int 3, int 5], int 0⟩]
+   ⟨intPowMod, [int 2, int 3, int 5], int 0⟩,
+   ⟨intPow, [int 2, int (-1)], int 0⟩,
+   ⟨listSet, [lst [ki 1], int 1, ki 3], lst []⟩, ⟨listSet, [lst [ki 1], int (-1), ki 3], lst []⟩,
+   ⟨listMake, [int (-1), ki 7], lst []⟩,
+   ⟨listUpdateAll, [lst [ki 1, ki 2], int 1, lst [ki 8, ki 9]], lst []⟩,
+   ⟨listFill, [lst [ki 1], int 0, int 2, ki 7], lst []⟩]
 
 /-- RANGEMAP's seven keys of `silentTable`. -/
 def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
@@ -430,7 +435,12 @@ def vals : List Pt :=
    ⟨setInclusion, [st [], st []], bool true⟩,
    ⟨floatNeg, [f64 0x3FF0000000000000], f64 0xBFF0000000000000⟩,
    ⟨floatLe, [f64 0, f64 0x3FF0000000000000], bool true⟩,
-   ⟨floatIsNaN, [f64 0x7FF8000000000000], bool true⟩]
+   ⟨floatIsNaN, [f64 0x7FF8000000000000], bool true⟩,
+   ⟨intPow, [int 2, int 10], int 1024⟩, ⟨intPow, [int (-2), int 3], int (-8)⟩,
+   ⟨listSet, [lst [ki 1, ki 2], int 1, ki 3], lst [ki 1, ki 3]⟩,
+   ⟨listMake, [int 2, ki 7], lst [ki 7, ki 7]⟩,
+   ⟨listUpdateAll, [lst [ki 1, ki 2, ki 3], int 1, lst [ki 8, ki 9]], lst [ki 1, ki 8, ki 9]⟩,
+   ⟨listFill, [lst [ki 1, ki 2, ki 3], int 1, int 2, ki 7], lst [ki 1, ki 7, ki 7]⟩]
 
 theorem vals_hook : vals.all (fun p => hook p.f p.vs == some (some p.v)) = true := by decide +kernel
 

@@ -70,6 +70,11 @@
   the `smt-hook`'s Euclidean `mod` (DOM 1251) differ at a negative power the modulus does not
   divide, and DOM 1228 says nothing of a negative exponent. None of the three is a parameter symbol
   of a library module (`bit_not_param`).
+
+  The row `INT.pow` (the last section), not declared `total` (DOM 1250): "Compute the
+  exponentiation `^Int` of two integers" (DOM 1228). At `b ≥ 0` the one value is `a` to the power
+  `b` (`pow_at`, `pow_gamma`, `powVals`); at `b < 0` the sentence names no integer and writes no
+  `#False`, so `hook` gives none and the point is silent (`pow_neg`, `2 ^Int -1` among them).
 -/
 import KcoreSpec
 
@@ -125,11 +130,12 @@ def binTotals : List Sym :=
   [intAdd, intSub, intMul, intMin, intMax, intLt, intLe, intGt, intGe, intEq, intNe]
 
 /-- The rows are the registry's entries with an `INT.` hook, each with its hook name, before the
-three of `shiftRows` and the three of `bitRows` (the last two sections). -/
+three of `shiftRows`, the three of `bitRows` and `^Int` (the last three sections). -/
 theorem intRows_registry :
     regHookNames.filter (fun e => e.2.toList.take 4 == "INT.".toList) =
       intRows ++ [(intShr, "INT.shr"), (intShl, "INT.shl"), (intLog2, "INT.log2"),
-        (intPowMod, "INT.powmod"), (intBitRange, "INT.bitRange"), (intSignExtBitRange, "INT.signExtendBitRange")] := by
+        (intPowMod, "INT.powmod"), (intBitRange, "INT.bitRange"), (intSignExtBitRange, "INT.signExtendBitRange"),
+        (intPow, "INT.pow")] := by
   decide +kernel
 
 /-- Each row's symbol has a signature among `hookSigs`, of Int arguments: two, and a result Int
@@ -955,6 +961,61 @@ theorem covered_bitRange {c : Semantics} (hs : c.shapesOK = true) {vs : List Gro
 #print axioms powmod_silent
 #print axioms covered_bitRange
 #print axioms bit_not_param
+
+/-! ## `^Int` -/
+
+/-- The row `INT.pow` (DOM 1250, not declared `total`): its KORE name, its signature Int, Int : Int
+among `hookSigs`, among `partialHooks`, the registry's symbol of its `hook` attribute, and no
+parameter symbol of a library module. -/
+theorem pow_row : regSymNames.getD intPow "" = "Lbl'UndsXor-'Int'Unds'" ∧
+    sig intPow = ⟨intPow, [Srt.int, Srt.int], Srt.int⟩ ∧ sig intPow ∈ hookSigs ∧
+    partialHooks.contains intPow = true ∧ regHookOf "INT.pow" = some intPow ∧
+    (List.range library.length).all (fun i => (libParams [i]).all fun p => p.sig.name != intPow) = true := by
+  decide +kernel
+
+theorem hook_pow (vs : List GroundTerm) :
+    hook intPow vs = some (int2 vs fun a b => if b < 0 then none else some (int (a ^ b.toNat))) := rfl
+
+/-- "Compute the exponentiation `^Int` of two integers" (DOM 1228), at `b ≥ 0`: `a` to the power `b`,
+the product of `b` factors `a` (1 at `b = 0`, the empty product). -/
+theorem pow_at (a : Int) {b : Int} (hb : 0 ≤ b) :
+    hook intPow [int a, int b] = some (some (int (a ^ b.toNat))) := by
+  rw [hook_pow, int2_at, if_neg (by omega)]
+
+/-- At a negative exponent the sentence names no integer and writes no `#False`: `hook` gives no
+value, and the point is silent (Γ states the interpretation's value). -/
+theorem pow_neg (a : Int) {b : Int} (hb : b < 0) :
+    hook intPow [int a, int b] = some none ∧ silent intPow [int a, int b] = true :=
+  ⟨by rw [hook_pow, int2_at, if_pos hb], rfl⟩
+
+/-- `2 ^Int -1`: silent, not without value. -/
+example : hook intPow [int 2, int (-1)] = some none ∧ silent intPow [int 2, int (-1)] = true := by
+  decide +kernel
+
+/-- Points, each derived from the sentence: `2 ^Int 10` is 1024, `-2 ^Int 3` is -8, `7 ^Int 0` is 1,
+`0 ^Int 2` is 0. -/
+def powVals : List SPt :=
+  [⟨intPow, [2, 10], int 1024⟩, ⟨intPow, [-2, 3], int (-8)⟩, ⟨intPow, [7, 0], int 1⟩, ⟨intPow, [0, 2], int 0⟩]
+
+theorem powVals_ok : powVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some (some p.v)) = true := by
+  decide +kernel
+
+/-- **At a non-negative exponent Γ of every semantics states the power under every
+interpretation.** -/
+theorem pow_gamma (c : Semantics) (H : HookParams) (a : Int) {b : Int} (hb : 0 ≤ b) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intPow) [int a, int b] ≡ den (c.withHooks H) (int (a ^ b.toNat))) := by
+  obtain ⟨-, e, m, -⟩ := pow_row
+  exact gamma_val _ m (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b]) (by rw [e]; exact pow_at a hb)
+
+/-- `HookParams.lib` (LibAdmitted.lean) gives `^Int` no value at any point, as it gave none while
+`^Int` was a parameter symbol: at `b ≥ 0` the value is `hook`'s, and at `b < 0` it gives none still. -/
+theorem lib_pow_none (vs : List GroundTerm) : HookParams.lib.app intPow vs = none := rfl
+
+#print axioms pow_at
+#print axioms pow_neg
+#print axioms pow_gamma
+#print axioms lib_pow_none
 
 /-- info: 'KCore.HooksIntTest.shiftBots_entails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms shiftBots_entails
