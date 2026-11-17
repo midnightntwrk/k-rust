@@ -244,4 +244,12 @@ import KcoreSpec.TieLemmas
 import KcoreSpec.MemHeldValues
 import KcoreSpec.StepValuesHeld
 import KcoreSpec.CompeteHeld
+import KcoreSpec.SatRuleHeld
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.ModelTotalHeld
+import KcoreSpec.CompleteHeld
+import KcoreSpec.HeldBackAll
+import KcoreSpec.FamExValuesHeld
+import KcoreSpec.SoundHeld
+import KcoreSpec.ExactHeld
 import KcoreSpec.HoldsModelFixed
