@@ -337,9 +337,7 @@ open Faithful Faithful.Model in
 /-- `coreOK`, conjunct by conjunct, the sort checks from the tables. -/
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (Semantics.faithCoreOK_of_parts (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
+    (by decide_cheap)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 end StrBytes

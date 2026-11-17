@@ -123,6 +123,6 @@ example (hf : FnHyp c3) (x : Config c3) : StepDecided c3 x.val :=
   stepDecided_of_fnHypCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 (OvlOK.of_nil decided.2.2.1 decided.2.2.2) hf x
 
 /-- `sortedOKCl_of_sortedOK` at the text's semantics. -/
-example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide +kernel)).1
+example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide_cheap)).1
 
 end RightHeldStepTest
