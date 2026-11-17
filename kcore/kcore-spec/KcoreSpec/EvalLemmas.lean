@@ -64,6 +64,7 @@ theorem EvalTerm.ctor_inv {f : Sym} {ts : List Term} {r : Option GroundTerm}
   | call h _ _ _ _ _ => cases ht; rw [hc] at h; cases h
   | callUndef h _ _ _ _ => cases ht; rw [hc] at h; cases h
   | ovl h _ _ => cases ht; rw [hc] at h; cases h
+  | ovlFn h _ => cases ht; rw [hc] at h; cases h
   | _ => cases ht
 
 /-- An application of a function (neither a constructor nor a hook nor a parameter nor an
@@ -81,6 +82,7 @@ theorem EvalTerm.call_inv {f : Sym} {ts : List Term} {r : Option GroundTerm}
   | call _ _ hts hvs hf _ => cases ht; exact ⟨_, hts, .inl ⟨_, hvs, hf⟩⟩
   | callUndef _ _ hts hvs _ => cases ht; exact ⟨_, hts, .inr ⟨hvs, rfl⟩⟩
   | ovl _ h _ => cases ht; rw [ho] at h; cases h
+  | ovlFn _ h => cases ht; rw [ho] at h; cases h
   | _ => cases ht
 
 /-- A parameter symbol's application has the value `paramVal` gives its arguments' results. -/
@@ -96,11 +98,13 @@ theorem EvalTerm.param_inv {f : Sym} {ts : List Term} {r : Option GroundTerm}
   | ctor h _ => cases ht; rw [hc] at h; cases h
   | hook _ h _ _ _ => cases ht; rw [hh] at h; cases h
   | ovl _ ho _ => cases ht; rw [(c.isOvl_parts ho).2.2.1] at hp; cases hp
+  | ovlFn _ ho => cases ht; rw [(c.isOvl_parts ho).2.2.1] at hp; cases hp
   | _ => cases ht
 
-/-- An overloading symbol's application has the normal form of its arguments' results. -/
+/-- An overloading symbol's application has the normal form of its arguments' results, where no
+function it overloads covers anything. -/
 theorem EvalTerm.ovl_inv {f : Sym} {ts : List Term} {r : Option GroundTerm}
-    (ho : c.isOvl f = true) (h : EvalTerm c σ (.app f ts) r) :
+    (ho : c.isOvl f = true) (hnf : ∀ vs, c.fnCover f vs = none) (h : EvalTerm c σ (.app f ts) r) :
     ∃ rs, EvalTerms c σ ts rs ∧ r = (allSome rs).map (c.norm f) := by
   have hp := c.isOvl_parts ho
   generalize ht : Term.app f ts = t at h
@@ -111,6 +115,7 @@ theorem EvalTerm.ovl_inv {f : Sym} {ts : List Term} {r : Option GroundTerm}
   | hook _ h _ _ _ => cases ht; rw [hp.2.1] at h; cases h
   | param _ _ h _ _ => cases ht; rw [hp.2.2.1] at h; cases h
   | call _ _ _ _ hf _ => cases ht; rw [hf.isOvl_false] at ho; cases ho
+  | ovlFn _ _ _ _ _ hcov => cases ht; rw [hnf] at hcov; cases hcov
   | _ => cases ht
 
 theorem EvalTerm.var_inv {i : Nat} {r : Option GroundTerm} (h : EvalTerm c σ (.var i) r) :

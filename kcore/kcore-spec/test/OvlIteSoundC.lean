@@ -677,6 +677,7 @@ theorem ovl_f : c.isOvl fSig.name = true := by decide +kernel
 
 theorem eval_f : EvalTerm c [] (.app fSig.name [.dv Srt.int (.int 1)]) (some (.ctor fSig.name [.dv Srt.int (.int 1)])) := by
   have := EvalTerm.ovl (c := c) (σ := []) ctor_f ovl_f (.cons (EvalTerm.dv (s := Srt.int) (lit := .int 1)) .nil)
+    (fun vs _ => OvlLaws.fnCover_none_of_noFnOvl (by decide +kernel) _ vs)
   rwa [show (allSome [some (GroundTerm.dv Srt.int (.int 1))]).map (c.norm fSig.name) =
     some (.ctor fSig.name [.dv Srt.int (.int 1)]) by rw [← norm_f]; rfl] at this
 

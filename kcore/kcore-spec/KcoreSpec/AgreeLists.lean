@@ -421,6 +421,7 @@ theorem lits_false {σ : Subst} : ∀ {t : Term}, EvalTerm c σ t (some (bool fa
       | call _ hhk _ _ _ _ => cases ht; rw [isHook_and] at hhk; cases hhk
       | callUndef _ _ _ _ _ => cases ht; cases hr
       | ovl _ ho _ => cases ht; have hhk := (c.isOvl_parts ho).2.1; rw [isHook_and] at hhk; cases hhk
+      | ovlFn _ ho => cases ht; have hhk := (c.isOvl_parts ho).2.1; rw [isHook_and] at hhk; cases hhk
       | _ => cases ht
     · refine ⟨.app f [t₁, t₂], true, ?_, h⟩
       simp [lits, hf]
@@ -450,6 +451,7 @@ theorem lits_false {σ : Subst} : ∀ {t : Term}, EvalTerm c σ t (some (bool fa
       | call _ hhk _ _ _ _ => cases ht; rw [isHook_not] at hhk; cases hhk
       | callUndef _ _ _ _ _ => cases ht; cases hr
       | ovl _ ho _ => cases ht; have hhk := (c.isOvl_parts ho).2.1; rw [isHook_not] at hhk; cases hhk
+      | ovlFn _ ho => cases ht; have hhk := (c.isOvl_parts ho).2.1; rw [isHook_not] at hhk; cases hhk
       | _ => cases ht
     · exact ⟨.app f [t], true, by simp [lits, hf], h⟩
   | .dv s l, h => by

@@ -125,7 +125,8 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
         cases h2; cases h1
         rw [hl] at hvs
         simp [allSome] at hvs)
-    (fun _ ho _ _ h => by cases h; exact absurd ho (by rw [isOvlF]; decide))
+    (fun _ ho _ _ _ h => by cases h; exact absurd ho (by rw [isOvlF]; decide))
+    (fun _ ho _ _ _ _ _ _ _ h => by cases h; exact absurd ho (by rw [isOvlF]; decide))
     trivial
     (fun _ _ _ _ => trivial)
     (by intros; trivial)
@@ -163,6 +164,7 @@ theorem appF_none' {σ : Subst} {t : Term} {w : GroundTerm} (ht : ∀ r, EvalTer
     cases hts with
     | cons h1 h2 => cases h2; rw [ht _ h1] at hvs; simp [allSome] at hvs
   | ovl _ ho _ => exact absurd ho (by rw [isOvlF]; decide)
+  | ovlFn _ ho => exact absurd ho (by rw [isOvlF]; decide)
 
 /-- `¬⌈f(0)⌉` has no truth value, whatever the rules. -/
 theorem p_undecided' : ∀ n σ b, ¬ Holds (cR rs) n σ p b := by

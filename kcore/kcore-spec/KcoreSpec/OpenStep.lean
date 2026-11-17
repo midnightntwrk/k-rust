@@ -136,7 +136,9 @@ mutual
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovl (f := f) (rs := rs) hk ho hts => by
+    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by
+      rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
+    | .ovl (f := f) (rs := rs) hk ho hts _ => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
@@ -197,7 +199,7 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs⟩
+      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

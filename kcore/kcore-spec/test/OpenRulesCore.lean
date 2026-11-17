@@ -379,6 +379,7 @@ theorem witW : clW.Witnessed cOC := by
     | call h hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef h hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl h ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn h ho => exact absurd ho (by decide +kernel)
 
 /-- `exclEmptyCl_of` at `clB`, `clP`, `clW` in every model of `Γc cOC`: that `cOC` reads a confined
 sort and that `clW` is decided are proved, not assumed. -/
@@ -448,6 +449,7 @@ theorem witOW : clW.Witnessed cOW := by
     | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl _ ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- The clause that needs a witness, `clW`, is `Witnessed`; no other clause needs one. -/
 theorem hcW : ∀ fn ∈ cOW.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cOW = true → cl.CondDecided cOW := by

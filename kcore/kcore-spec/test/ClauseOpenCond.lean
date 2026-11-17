@@ -140,6 +140,7 @@ theorem call_kr_only {σ : Subst} (h1 : σ.lookup 1 = some hole) {r : Option Gro
     cases hts with
     | cons ha hs => cases ha; cases hs; rw [h1] at hvs; cases hvs
   | ovl _ ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- The `requires` under a σ giving HOLE `hole`: `true andBool true`, so `true` ... -/
 theorem req_true {σ : Subst} (h1 : σ.lookup 1 = some hole) :
@@ -167,6 +168,7 @@ theorem req_only {σ : Subst} (h1 : σ.lookup 1 = some hole) {r : Option GroundT
   | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
   | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
   | ovl _ ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- **`clCool` is `Witnessed`** at HOLE := `kseq(inj{Int,KItem}(0), dotk)`. -/
 theorem witnessed : clCool.Witnessed c := by
@@ -282,10 +284,12 @@ theorem not_witnessed : ¬ clH.Witnessed c := by
         | call _ hk2 _ _ _ _ => exact absurd hk2 (by decide +kernel)
         | callUndef _ hk3 _ _ _ => exact absurd hk3 (by decide +kernel)
         | ovl _ hk4 _ => exact absurd hk4 (by decide +kernel)
+        | ovlFn _ hk4 => exact absurd hk4 (by decide +kernel)
   | param _ hhk _ _ _ => exact absurd hhk (by decide +kernel)
   | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
   | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
   | ovl _ ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 end Title
 
@@ -420,6 +424,7 @@ theorem not_witnessed : ¬ clG.Witnessed c := by
     cases hts with
     | cons ha hs => cases ha; cases hs; rw [hv] at hvs'; cases hvs'
   | ovl _ ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 end Genless
 

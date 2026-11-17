@@ -159,6 +159,7 @@ theorem witOW : clW.Witnessed cOW := by
     | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl _ ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- **`OpenDecided` at `cOW` from the one owed clause** (`openClauses_of_owed`). -/
 theorem odOW : OpenDecided cOW :=

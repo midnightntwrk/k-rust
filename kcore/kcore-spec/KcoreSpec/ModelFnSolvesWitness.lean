@@ -152,7 +152,11 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
           cases h2; cases h1
           rw [hl] at hvs
           simp [allSome] at hvs)
-    (fun _ ho _ _ => fun h => by
+    (fun _ ho _ _ _ => fun h => by
+      rcases h with h | h <;> cases h
+      · exact absurd ho (by rw [isOvlEq]; decide)
+      · exact absurd ho (by rw [isOvlF]; decide))
+    (fun _ ho _ _ _ _ _ _ _ => fun h => by
       rcases h with h | h <;> cases h
       · exact absurd ho (by rw [isOvlEq]; decide)
       · exact absurd ho (by rw [isOvlF]; decide))
@@ -200,10 +204,12 @@ theorem req1_none {σ : Subst} {w : GroundTerm} (hl : σ.lookup 0 = some w) (hw 
         cases hts' with
         | cons h1' h2' => cases h2'; cases h1'; rw [hl] at hvs; simp [allSome] at hvs
       | ovl _ ho _ => exact absurd ho (by rw [isOvlF]; decide)
+      | ovlFn _ ho => exact absurd ho (by rw [isOvlF]; decide)
   | param _ _ hp _ _ => exact absurd hp (by rw [isParamEq]; decide)
   | call _ hh _ _ _ _ => exact absurd hh (by decide)
   | callUndef _ hh _ _ _ => exact absurd hh (by decide)
   | ovl _ ho _ => exact absurd ho (by rw [isOvlEq]; decide)
+  | ovlFn _ ho => exact absurd ho (by rw [isOvlEq]; decide)
 
 /-- **`FnDet` holds**: the deciders confirm coherence, every clause fixed by its patterns and no
 agreement named (`matchIndependentAll_of_sortedOK`, `clausesAgree_of_sortedOK`). -/

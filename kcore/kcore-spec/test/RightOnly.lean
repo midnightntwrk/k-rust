@@ -494,11 +494,13 @@ theorem hdet_k (σ : Subst) : HDet c σ clI.rhs := by
       | call h => rw [k_ctor] at h; cases h
       | callUndef h => rw [k_ctor] at h; cases h
       | ovl h => rw [k_ctor] at h; cases h
+      | ovlFn h => rw [k_ctor] at h; cases h
     | hook h => rw [k_ctor] at h; cases h
     | param h => rw [k_ctor] at h; cases h
     | call h => rw [k_ctor] at h; cases h
     | callUndef h => rw [k_ctor] at h; cases h
     | ovl h => rw [k_ctor] at h; cases h
+    | ovlFn h => rw [k_ctor] at h; cases h
   · rw [EvalTerm.var_inv h1, EvalTerm.var_inv h2]
 
 theorem hfnI : c.lookupFn fIL = some fI := rfl

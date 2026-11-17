@@ -305,6 +305,7 @@ theorem not_inv_false {σ : Subst} {t : Term} (h : EvalTerm c σ (.app boolNot [
   | call _ hhk _ _ _ _ => cases ht; rw [isHook_not] at hhk; cases hhk
   | callUndef _ _ _ _ _ => cases ht; cases hr
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_not] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_not] at this; cases this
   | _ => cases ht
 
 /-- A `requires` false: its negation (`negT`) is true. -/
@@ -794,12 +795,14 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       obtain ⟨ws, rfl⟩ := ihts L hL vars hσ _ hargs fs hfs htt.2
       rw [allSome_map_some] at hvs; cases hvs)
     -- overloading symbols: the normal form of the arguments' values
-    (fun {σ f ts rs} _ _ _ ihts => by
+    (fun {σ f ts rs} _ _ _ _ ihts => by
       intro L hL vars hσ s ht fs hfs htt
       simp only [Semantics.totalTermG, Bool.and_eq_true] at htt
       obtain ⟨k, _, hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨ws, rfl⟩ := ihts L hL vars hσ _ hargs fs hfs htt.2
       exact ⟨_, by rw [allSome_map_some]; rfl⟩)
+    -- no function overload covers the arguments of an overloading symbol
+    (fun _ _ _ _ _ hcov _ _ _ => by rw [hc.sort.ovl.fnCover_none] at hcov; cases hcov)
     -- argument lists
     (fun _ _ _ _ _ _ _ _ _ => ⟨[], rfl⟩)
     (fun {σ t ts r rs} _ _ ih1 ih2 => by
