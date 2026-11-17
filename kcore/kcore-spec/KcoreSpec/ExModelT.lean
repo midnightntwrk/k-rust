@@ -29,6 +29,7 @@ import KcoreSpec.ModelFnsCl
 import KcoreSpec.Confined
 import KcoreSpec.OpenConsistent
 import KcoreSpec.ExPlain
+import KcoreSpec.CondKoreVars
 
 set_option autoImplicit false
 
@@ -93,75 +94,6 @@ theorem ruleRight_eqEx {r : Rule} (hpost : r.post = .top) (hlt : ∀ i ∈ r.exs
   dsimp only
   rw [filterMap_getElem?_of_lt _ _ (by rw [canonVars_length]; exact hlt)]
   simp only [hpost, Cond.conj, Cond.isTop, if_true, List.append_nil, List.foldr_map]
-
-/-- Under the binders of `existsAll`, the bound variables are the binders', innermost first, and
-the outer ones. -/
-theorem freeOf_existsAll_eqEx {S : Kore.KSort} {body : Kore.Pattern} :
-    ∀ (bs : List Kore.EVar) (bound : List KoreAML.VarKey),
-    KoreAML.freeOf bound (KoreAML.existsAll S bs body) =
-      KoreAML.freeOf ((bs.map KoreAML.evarKey).reverse ++ bound) body
-  | [], bound => rfl
-  | b :: bs, bound => by
-    show KoreAML.freeOf bound (.exist S b (KoreAML.existsAll S bs body)) = _
-    rw [KoreAML.freeOf, freeOf_existsAll_eqEx bs]
-    simp [List.reverse_cons, List.append_assoc]
-
-theorem varsOf_existsAll_bodyEx {S : Kore.KSort} {body : Kore.Pattern} {k : KoreAML.VarKey}
-    (hk : k ∈ KoreAML.varsOf body) : ∀ (bs : List Kore.EVar), k ∈ KoreAML.varsOf (KoreAML.existsAll S bs body)
-  | [] => hk
-  | b :: bs => by
-    show k ∈ KoreAML.varsOf (.exist S b (KoreAML.existsAll S bs body))
-    rw [KoreAML.varsOf]
-    exact List.mem_append_right _ (varsOf_existsAll_bodyEx hk bs)
-
-mutual
-  /-- A variable of a term that a list of bound keys does not hold is free in its pattern. -/
-  theorem kore_freeOfBEx (c : Semantics) (vs : List KoreAML.Var) {bound : List KoreAML.VarKey} :
-      ∀ (t : Term) {i : Nat}, i ∈ varOccs t → bound.contains (KoreAML.evarKey (vs.getD i default).kore) = false →
-      KoreAML.evarKey (vs.getD i default).kore ∈ KoreAML.freeOf bound (Term.kore c vs t)
-    | .var j, i, h, hb => by
-      rw [varOccs] at h
-      have hij := mem_one h
-      subst hij
-      rw [Term.kore]; unfold KoreAML.varAt; rw [KoreAML.freeOf]
-      simp only [hb]
-      simp
-    | .app f ts, i, h, hb => by
-      rw [varOccs] at h
-      rw [kore_app]
-      obtain ⟨hd, ss, he, _⟩ := symApp_cases c f (Term.koreList c vs ts)
-      rw [he, KoreAML.freeOf]
-      exact kore_freeOfListBEx c vs ts h hb
-    | .inj a b t, i, h, hb => by
-      rw [varOccs] at h
-      rw [Term.kore]; unfold KoreAML.injP; rw [KoreAML.freeOf, KoreAML.freeOfList, KoreAML.freeOfList]
-      simp only [List.append_nil]
-      exact kore_freeOfBEx c vs t h hb
-    | .as t j, i, h, hb => by
-      rw [varOccs] at h
-      rw [Term.kore, KoreAML.freeOf, KoreAML.freeOfList, KoreAML.freeOfList, KoreAML.freeOfList]
-      simp only [List.append_nil, List.mem_append]
-      rcases List.mem_append.mp h with h | h
-      · exact Or.inl (kore_freeOfBEx c vs t h hb)
-      · right
-        have hij := mem_one h
-        subst hij
-        unfold KoreAML.varAt; rw [KoreAML.freeOf]
-        simp only [hb]
-        simp
-    | .dv s lit, i, h, _ => by rw [varOccs] at h; cases h
-  theorem kore_freeOfListBEx (c : Semantics) (vs : List KoreAML.Var) {bound : List KoreAML.VarKey} :
-      ∀ (ts : List Term) {i : Nat}, i ∈ varOccsList ts →
-      bound.contains (KoreAML.evarKey (vs.getD i default).kore) = false →
-      KoreAML.evarKey (vs.getD i default).kore ∈ KoreAML.freeOfList bound (Term.koreList c vs ts)
-    | [], i, h, _ => by rw [varOccsList] at h; cases h
-    | t :: ts, i, h, hb => by
-      rw [varOccsList] at h
-      rw [Term.koreList, KoreAML.freeOfList]
-      rcases List.mem_append.mp h with h | h
-      · exact List.mem_append_left _ (kore_freeOfBEx c vs t h hb)
-      · exact List.mem_append_right _ (kore_freeOfListBEx c vs ts h hb)
-end
 
 /-- The keys of the binders of a rule's right side. -/
 theorem ruleExBinders_keys {r : Rule} :

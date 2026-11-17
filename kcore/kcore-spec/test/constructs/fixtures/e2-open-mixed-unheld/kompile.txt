@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-open-mixed-unheld.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 92422
+definition.kore sha256: 5fff54a61e69ffdce5cd992e35526dfd389e2d8a14cf060d24ced25dd7e42e03
+stripped sha256: 601b8e20cf58d83009b7d1cdeee381fa19f0cb3494adec9d028e2eeff36cb5e7
+main module: 272 sentences, 47 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Z' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-open-mixed-unheld.k)
+  	Location(6,22,6,23)
+  	6 |	  rule <k> g(#Exists Z:B. x) => d(y) ... </k>
+  	  .	                     ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-MIXED-UNHELD-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-MIXED-UNHELD as default.

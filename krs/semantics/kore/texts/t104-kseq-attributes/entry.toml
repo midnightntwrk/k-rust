@@ -1,0 +1,47 @@
+id = "t104-kseq-attributes"
+kind = "text"
+subject = "The K sequence ~> of KAST: what the K text states of it (associative with unit .K), and whether it states that sequences are free (distinct when built differently, every element of K a sequence)."
+retro = ["A5"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/kast.md:98-100 (K 7.1.337)", quote = 'syntax K ::= ".K" [symbol(#EmptyK)] | "." [symbol(#EmptyK), deprecated, unparseAvoid] syntax K ::= K "~>" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]' }
+kompile = "not-run"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+What is stated, under both readings. KAST declares .K and K ~> K with assoc and unit(#EmptyK) (kast.md:98-100). By the manual these attributes indicate that the production is associative and has the unit .K (user_manual.md:958-963). So the K text states (K1 ~> K2) ~> K3 = K1 ~> (K2 ~> K3), and K ~> .K = .K ~> K = K.
+What no sentence states. That two sequences built from different items, or from items in a different order, are different elements; that .K is different from every sequence of one or more items; that every element of K is a finite sequence of KItems. No sentence of the manual, of kast.md or of domains.md says any of the three. In the KORE text the symbol of the sequence carries the attributes constructor, functional and injective, and no axiom of the text names it (see the note); attributes are hints, and their semantic information should correspond to axioms declared explicitly (kore-syntax.md:223-228), so those attributes state nothing.
+So the text does not determine whether K is the free sequences of KItems."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:98-100 (K 7.1.337)"
+quote = 'syntax K ::= ".K" [symbol(#EmptyK)] | "." [symbol(#EmptyK), deprecated, unparseAvoid] syntax K ::= K "~>" K [symbol(#KSequence), left, assoc, unit(#EmptyK)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[reading]]
+name = "free-sequences"
+statement = "The elements of K are the finite sequences of KItems: ~> is concatenation, .K the empty sequence, and two sequences are equal exactly when they hold the same items in the same order. This is what the attributes constructor and injective of the KORE symbol name."
+answer = "a ~> b and b ~> a are different for different KItems a and b; a ~> K is never .K; a sequence is matched against a pattern of its first item and the rest by one split only."
+consequence = "A rule whose left side is a sequence pattern matches a given sequence at one item and rest at most, and .K matches only the empty sequence."
+
+[[reading]]
+name = "stated-laws-only"
+statement = "K is any set with an associative operation ~> whose unit is .K: only the laws the text states hold, and the attributes of the KORE symbol state nothing."
+answer = "Whether a ~> b equals b ~> a, and whether a ~> K can equal .K, is not determined: there are models of the stated laws where they are equal and models where they are not."
+consequence = "A reader that matches a sequence by one split, or that tells .K from a non-empty sequence, adds a statement the text does not make."
+
+[[note]]
+implementation = "kompile"
+text = "Every kompiled text declares kseq{}(SortKItem{}, SortK{}) : SortK{} and dotk{}() : SortK{} with constructor{}(), functional{}() and injective{}() (for example kcore-spec fixture hw-h1-fun, hw-h1-fun.kore lines 10-11), and no functional, injectivity, no-confusion or no-junk axiom names kseq, dotk or SortK there. Those declarations are not in this entry's evidence: they are part of every text, also of an empty module."

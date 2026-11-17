@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t164-context-alias.k": "d11fb01bbccea202c10a7dff60cd3744aa44744098f375e6fb406b844f02ec1c"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t164-context-alias.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "981ac1ec7aba40a41eebd91d4db12b98680be63eda09eb7573c5e9d917570f5a",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

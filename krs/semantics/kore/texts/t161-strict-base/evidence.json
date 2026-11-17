@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t161-strict-base.k": "9a78d6edeef389a8851d0188b1eda4d122feaf2ee8853151b36491641854c379"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t161-strict-base.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "37f23280b0aee0ccbc6342bcfef795f17b11bce552955199345638304a109321",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

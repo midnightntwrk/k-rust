@@ -168,7 +168,7 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
     exact hsv
   rw [if_neg hp] at hx
   by_cases ho : c.isOvl k.name = true
-  · rw [if_pos ho] at hx
+  · rw [if_pos ho, ovlRes_none (OvlLaws.fnCover_none_of_ok h.ovlOK _ _)] at hx
     subst hx
     obtain ⟨-, -, -, -, hsome⟩ := c.isOvl_parts ho
     obtain ⟨o, hlo⟩ := Option.isSome_iff_exists.mp hsome

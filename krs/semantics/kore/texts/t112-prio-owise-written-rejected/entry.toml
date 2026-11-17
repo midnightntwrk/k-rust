@@ -1,0 +1,47 @@
+id = "t112-prio-owise-written-rejected"
+kind = "text"
+subject = "A rule with [owise, priority(40)] beside a second rewrite rule: kompile writes a definition and then rejects it in validating it (exit 113). Whether the K text has a meaning."
+retro = ["T5", "P5"]
+origin = "kcore-spec fixture c3-rule-prio-owise-one-comp"
+
+[text]
+files = ["t112-prio-owise-written-rejected.k"]
+kompile = "rejects"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+(1) A K definition becomes a matching logic theory, and the tools of the K framework are best-effort implementations of proof search in it (introduction-to-matching-logic.tex:1291-1294). No sentence of the manual says that a definition kompile rejects has no meaning, and none says that it has one; the manual says nothing of kompile's exit status or of a validation stage.
+(2) The refusal recorded here (kompile.txt) is a fact about the tool, its release and its stage: a definition was written and its validation rejected the combination of the two attributes on one axiom, with a message that asks to report the error.
+(3) Of the K sentences themselves: owise sets the priority of the rule to 200 (user_manual.md:1739-1741), and the rule also writes priority(40). No sentence says which of the two marks holds (retro row P5). That is what the text leaves open under the first reading; under the second there is nothing to read."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1291-1294 (K 7.1.337)"
+quote = '''That is, a \K language definition becomes a matching logic theory, and the various tools that are part of the \K framework become best-effort implementations of targeted proof search using the deduction system'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "The number `200` is not chosen at random. In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[reading]]
+name = "sentences-as-written"
+statement = "A K definition means what its sentences state; the refusal says that the tool does not accept it."
+answer = "The two rules are the text. The first carries two priority marks, 200 by owise and 40, and no sentence says which holds: a(X) steps to b(X), or to c(), or to both, as the mark that holds decides (row P5, not determined)."
+consequence = "A consumer may read the text, and must name the reading of the two marks it takes."
+
+[[reading]]
+name = "not-a-definition"
+statement = "A K definition is a text kompile accepts; a text it writes and then rejects is no definition."
+answer = "There is nothing to read: the K text has no meaning as a definition."
+consequence = "A consumer refuses the text, as it refuses a text the frontend rejects outright."
+
+[[observe]]
+file = "kompile.txt"
+contains = "An axiom cannot have the following  combination of attributes"
+
+[[note]]
+implementation = "kompile"
+text = "The refusal is kompile's validation of the definition it wrote (the message is kore-exec 0.1.155's, kompile.txt). The text with the first rule alone (kcore-spec fixture c3-rule-prio-owise-one) is accepted, exit 0: the refusal depends on a second rewrite axiom, not on the two marks alone. kompile.txt holds a process number in the message's first line, which differs from run to run."

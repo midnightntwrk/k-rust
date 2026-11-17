@@ -14,11 +14,12 @@ differs f2-examples/c3-eq-req-owise.kompile.kore
 differs f2-examples/c3-eq-req-prio-comp.kompile.kore
 differs f2-examples/c3-eq-req-prio.kompile.kore
 differs f2-examples/c3-eq-req-total.kompile.kore
+differs f2-examples/cells.kompile.kore
 differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
 exact f2-examples/colls-list.kore
 differs f2-examples/colls.kore
-cannot f2-examples/commctor.kompile.kore
+differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
@@ -108,7 +109,7 @@ differs f2-examples/opengenless.kompile.kore
 differs f2-examples/openh.kompile.kore
 cannot f2-examples/openlinked.kompile.kore
 cannot f2-examples/openlinkedbool.kompile.kore
-cannot f2-examples/openrule.kompile.kore
+differs f2-examples/openrule.kompile.kore
 differs f2-examples/optcell.kompile.kore
 differs f2-examples/ovlconf.kompile.kore
 differs f2-examples/ovlfun.kompile.kore
@@ -133,6 +134,8 @@ differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
 cannot f2-examples/regeq.kompile.kore
 differs f2-examples/rhsempty.kompile.kore
+differs f2-examples/rhsemptyowise.kompile.kore
+differs f2-examples/rhsemptypeer.kompile.kore
 differs f2-examples/rhsint.kompile.kore
 differs f2-examples/rhsunit.kompile.kore
 cannot f2-examples/rsn.kompile.kore

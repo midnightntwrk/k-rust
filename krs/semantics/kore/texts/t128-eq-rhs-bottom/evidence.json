@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t128-eq-rhs-bottom.k": "c4dfa21e0f5b6f97f0c50280af48b113386a1ee0e2201f53ffb48bd4025e7ad8"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t128-eq-rhs-bottom.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "e5786c357a8ae30d2496cb745eaf2f63fd67da30d7b7d726d418200df311c37a",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

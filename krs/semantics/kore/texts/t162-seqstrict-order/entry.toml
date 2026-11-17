@@ -1,0 +1,36 @@
+id = "t162-seqstrict-order"
+kind = "text"
+subject = "The attribute seqstrict on +: the heating rule of a later argument requires the earlier ones to be results."
+retro = ["S2"]
+origin = "kcore-spec fixture c3-seqstrict-order"
+
+[text]
+files = ["t162-seqstrict-order.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "seqstrict stands for the heating and cooling rules of strict, with one more condition: the heating rule of the second argument of + requires isKResult of the first. So K0 + K1 heats K1 only once K0 is a result."
+reason = '''
+(1) seqstrict forces an evaluation order of the arguments (user_manual.md:1847-1848), and the rules it generates heat an argument only where the arguments before it in the order are results (user_manual.md:1865-1871).
+(2) The text's heating rule of + at its second argument requires isKResult(K0) andBool notBool isKResult(HOLE) (kore.txt:315-323); the other rules are those of strict.'''
+
+[ruling.kore]
+statement = 'The heating rule of plus at its second argument is a \rewrites axiom whose condition is isKResult(K0 ~> .K) andBool notBool isKResult(HOLE ~> .K) = true (kore.txt:315-323).'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:317-319"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblplus{}(VarK0:SortExp{},VarHOLE:SortExp{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds'andBool'Unds'{}(Lbl'Unds'andBool'Unds'{}(LblisKResult{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK0:SortExp{}),dotk{}())),\dv{SortBool{}}("true")),LblnotBool'Unds'{}(LblisKResult{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarHOLE:SortExp{}),dotk{}())))),'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1847-1848 (K 7.1.337)"
+quote = "If you want to force a specific evaluation order of the arguments, you can use the variant `seqstrict` to do so. For example, this would make the boolean"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1865-1871 (K 7.1.337)"
+quote = "This will generate rules like this in the case of `_||_` (note that `BE1` will not be heated unless `isKResult(BE2)` is true, meaning that `BE2` must be evaluated first): ```k rule <k> BE1:BExp || HOLE:BExp => HOLE ~> BE1 || [] ... </k> [heat] rule <k> HOLE:BExp || BE2:BExp => HOLE ~> [] || BE2 ... </k> requires isKResult(BE2) [heat]"

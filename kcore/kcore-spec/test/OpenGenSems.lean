@@ -1,7 +1,8 @@
 /-
   Hand-built semantics with open generators (`ParamSig.raw`), one per text, for the checks of
-  CN-4 §4.7 (the reader refuses an open generator, `RefusalReason.openGenerator`, so these are
-  built by hand). No expectation is stated here; each namespace checks only that its numbering is
+  CN-4 §4.7. The reader reads an open generator the text declares `functional` as a `raw`
+  parameter where its result sort is a constructor sort whose constructors are nullary
+  (`Parse.openGenFault`); `OpenRule.textCheck` reads e2-open-rule's text. No expectation is stated here; each namespace checks only that its numbering is
   the one `idsOK` asks and that `lookupOpen` finds each open generator and no constructor. Run from
   the package root: `lake env lean -j1 test/OpenGenSems.lean`. Kernel-checked.
 
@@ -167,7 +168,9 @@ def declOf (ss : List Kore.Sentence) (n : String) : Option (List Kore.KSort × K
       else none
     | _ => none
 
-/-- `c` against the text: the reader's refusal with the law axioms the text states of `and`; `and`,
+/-- `c` against the text: the reader's open generators (`and : Exp Exp → Exp`), `coreOK` of the
+semantics read and the inert constructor axioms it does not induce (none: Exp's no-junk axiom
+lists `and`, as `Γ` does); `and`,
 `go`, `same`, `x` and `y` declared with `c`'s signatures and kinds (an open generator: `functional`
 alone; constructors; a function); the text's one rewrite axiom is `ruleGo`'s two sides as
 `Term.kore` writes them at `c`'s names, with the text's variable name; `same`'s one equation has
@@ -178,10 +181,13 @@ def textCheck : IO Unit := do
   | .ok k =>
     let ss := (k.modules.getLast?.map (·.sentences)).getD []
     let E := KoreAML.srt "Exp"
-    -- the reader's verdict, with the law axioms the text states of `and`
+    -- the reader's verdict: `and` an open generator
     match Parse.parse k with
     | .error r => IO.println s!"parse: refused {r.reason.name} {r.detail}"
-    | .ok _ => IO.println "parse: read"
+    | .ok d =>
+      let cr := d.sem
+      IO.println s!"parse: read; open generators {(cr.params.filter (·.raw)).map fun p =>
+        (cr.symName p.sig.name, p.sig.args.map cr.sortName, cr.sortName p.sig.result)}; coreOK {cr.coreOK}; uninduced {(Parse.uninduced k d).length}"
     -- the declarations (:6, :8, :14, :16, :18)
     IO.println s!"and: {declOf ss (c.symName andS) == some ([E, E], E, ["functional"])}"
     IO.println s!"go: {declOf ss (c.symName goS) == some ([], KoreAML.srt "KItem", ["constructor", "functional", "injective"])}"
@@ -206,7 +212,7 @@ def textCheck : IO Unit := do
     IO.println s!"same's equation: {eqs.map fun (p, r) => (p == KCore.premise [c.sortName exp, c.sortName exp] none (Term.koreList c vc clSame.pats), r == Kore.Pattern.and (KoreAML.srt "Bool") [Term.kore c vc clSame.rhs, .top (KoreAML.srt "Bool")])}"
 
 /--
-info: parse: refused openGenerator Lbland: neither function nor constructor; law axioms: none
+info: parse: read; open generators [(Lbland, ([Exp, Exp], Exp))]; coreOK true; uninduced 0
 and: true
 go: true
 same: true

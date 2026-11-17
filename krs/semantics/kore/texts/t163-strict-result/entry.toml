@@ -1,0 +1,31 @@
+id = "t163-strict-result"
+kind = "text"
+subject = "The attribute result(Val) on a strict production neg: which sort check its heating and cooling rules use."
+retro = ["S2"]
+origin = "kcore-spec fixture c3-strict-result"
+
+[text]
+files = ["t163-strict-result.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "result(Val) replaces isKResult by isVal in the conditions of the production's heating and cooling rules: neg(HOLE) heats where notBool isVal(HOLE) and cools where isVal holds of the item. The other productions keep isKResult."
+reason = '''
+(1) With the result attribute, the sort check used by seqstrict and by the heat and cool attributes is isBool, for result(Bool), instead of isKResult (user_manual.md:1953-1963).
+(2) The text's heating rule of neg requires notBool isVal(HOLE) (kore.txt:271-279), and its cooling rule isVal of the item (kore.txt:204-214); pair, + and twice keep isKResult.'''
+
+[ruling.kore]
+statement = 'The heating rule of neg is a \rewrites axiom whose condition is notBool isVal(HOLE ~> .K) = true (kore.txt:271-279).'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:273-275"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblneg{}(VarHOLE:SortExp{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds'andBool'Unds'{}(\dv{SortBool{}}("true"),LblnotBool'Unds'{}(LblisVal{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarHOLE:SortExp{}),dotk{}())))),'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1953-1963 (K 7.1.337)"
+quote = 'Sometimes it is necessary to be able to evaluate a term to a different sort than `KResult`. This is done by means of adding the `result` attribute to a strict production, a context, or an explicit heating or cooling rule: ```k syntax BExp ::= Bool | BExp "||" BExp [seqstrict(2,1), result(Bool)] ``` In this case, the sort check used by `seqstrict` and by the `heat` and `cool` attributes will be `isBool` instead of `isKResult`. This particular example'

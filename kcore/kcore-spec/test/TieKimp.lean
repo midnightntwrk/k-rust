@@ -67,6 +67,8 @@ theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map tr
 - collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
 - library: an equation or a lemma of the builtin library over symbols Γ has;
 - set idempotence: 573;
+- set-variable lemma: the definedness lemmas over set variables (671 to 675: `%Int`, `/Int`,
+  `<<Int`, `>>Int`, `modInt`; 904: kompile's `#Ceil(@K0 |-> @K1 @Rest)`), refuted at sets of values;
 - no direction: a sentence that applies a symbol Γ does not have. -/
 def classes : List (String × List Nat) :=
   [("function equation", [838, 839, 840, 841, 842, 843, 844, 845, 846, 847, 848, 849, 850, 851, 852, 853, 854, 855, 856, 857, 858,
@@ -110,12 +112,13 @@ def classes : List (String × List Nat) :=
       556, 561, 568, 576, 584, 585, 586, 587, 588, 589, 590, 591, 593, 595, 598, 599, 612, 633, 634, 635, 636,
       639, 640, 641, 642, 643, 644]),
    ("collection law", [565, 566, 567, 569, 570, 571, 572, 574, 575]),
-   ("library", [671, 672, 675, 676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693,
-      694, 695, 696, 697, 698, 699, 779, 781, 782, 783, 784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 796,
-      797, 798, 799, 800, 803, 804, 805, 806, 807, 808, 809, 810, 811, 813, 814, 815, 816, 817, 818, 819, 820,
-      821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 832, 877, 878, 879, 880, 881, 882, 902, 904]),
+   ("library", [676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693,
+      694, 695, 696, 697, 698, 699, 779, 781, 782, 783, 784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 794, 795, 796,
+      797, 798, 799, 800, 801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 813, 814, 815, 816, 817, 818, 819, 820,
+      821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 832, 877, 878, 879, 880, 881, 882, 902]),
    ("set idempotence", [573]),
-   ("no direction", [477, 502, 521, 592, 594, 611, 645, 654, 673, 674, 780, 794, 795, 801, 802, 812, 831, 833, 834, 835, 836,
+   ("set-variable lemma", [671, 672, 673, 674, 675, 904]),
+   ("no direction", [477, 502, 521, 592, 594, 611, 645, 654, 780, 812, 831, 833, 834, 835, 836,
       837, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901, 903])]
 
 /-- The indices of a class. -/
@@ -136,7 +139,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 39), ("rewrite rule", 79), ("priority equation", 0), ("constructor functional",
      54), ("subsort", 25), ("injectivity", 49), ("distinctness", 437), ("no junk", 16), ("function functional", 20), ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence",
-     1), ("no direction", 42)] := by
+     1), ("set-variable lemma", 6), ("no direction", 36)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/

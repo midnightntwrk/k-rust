@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t127-rule-rhs-bottom.k": "69aff1322801729ddd4fb75fb842eb5d73bc8c50ba6ddadf825b878927c01b76"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t127-rule-rhs-bottom.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "1240d9c488edf1544110ce416a4d20415609afab27a89d87126a7c853dde3cc2",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -68,6 +68,7 @@ import KcoreSpec.ModelColls
 import KcoreSpec.ModelHas
 import KcoreSpec.ModelRead
 import KcoreSpec.ModelCons
+import KcoreSpec.ModelOvlFn
 import KcoreSpec.ModelPat
 import KcoreSpec.ModelRules
 import KcoreSpec.ModelStep
@@ -111,6 +112,7 @@ import KcoreSpec.NamesApart
 import KcoreSpec.NatMap
 import KcoreSpec.OrderLaws
 import KcoreSpec.OvlLaws
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.Params
 import KcoreSpec.Parse
 import KcoreSpec.Prelude
@@ -282,6 +284,8 @@ import KcoreSpec.ConsTransfer
 import KcoreSpec.ConsTransferR
 import KcoreSpec.ConsTransferInst
 import KcoreSpec.ConsRegistrySat
+import KcoreSpec.ConsTransferSig
+import KcoreSpec.ConsTransferCons
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
@@ -306,8 +310,19 @@ import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
 import KcoreSpec.ClausePreTie
+import KcoreSpec.CondVarsCongr
+import KcoreSpec.CondKoreVars
+import KcoreSpec.ClausePreRead
 import KcoreSpec.TieRuleLhs
 import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
 import KcoreSpec.LibEvStr
+import KcoreSpec.TieRulePair
+import KcoreSpec.InertEvUser
+import KcoreSpec.TieOvlConf
+import KcoreSpec.TieReqBool
+import KcoreSpec.TieAlphaOr
+import KcoreSpec.GenEqsNames
+import KcoreSpec.TieRuleGuard
+import KcoreSpec.ModelFnsPre

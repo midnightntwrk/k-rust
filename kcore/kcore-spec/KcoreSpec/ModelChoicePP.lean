@@ -19,6 +19,7 @@
 import KcoreSpec.SatRulePP
 import KcoreSpec.ExConsistent
 import KcoreSpec.CondTwoTables
+import KcoreSpec.CondKoreVars
 
 set_option autoImplicit false
 
@@ -34,17 +35,6 @@ variable {c : Semantics}
 
 /-! ## Free variables -/
 
-/-- A free variable of a conjunction is free in one of its members. -/
-theorem mem_freeOf_and {S : Kore.KSort} {bound : List KoreAML.VarKey} {k : KoreAML.VarKey} :
-    ∀ {ps : List Kore.Pattern}, k ∈ KoreAML.freeOf bound (.and S ps) → ∃ p ∈ ps, k ∈ KoreAML.freeOf bound p
-  | [], h => by simp [KoreAML.freeOf, KoreAML.freeOfList] at h
-  | q :: qs, h => by
-    rw [KoreAML.freeOf, KoreAML.freeOfList] at h
-    rcases List.mem_append.mp h with h | h
-    · exact ⟨q, List.mem_cons_self .., h⟩
-    · obtain ⟨p, hp, h'⟩ := mem_freeOf_and (S := S) (ps := qs) (by rw [KoreAML.freeOf]; exact h)
-      exact ⟨p, List.mem_cons_of_mem _ hp, h'⟩
-
 /-- A member of a condition's conjuncts is its pattern. -/
 theorem mem_condConj {vs : List KoreAML.Var} {S : Kore.KSort} {p : Cond} {φ : Kore.Pattern}
     (h : φ ∈ Cond.conj c vs S p) : φ = Cond.kore c vs S p := by
@@ -52,115 +42,6 @@ theorem mem_condConj {vs : List KoreAML.Var} {S : Kore.KSort} {p : Cond} {φ : K
   split at h
   · cases h
   · simpa using h
-
-/-- **A free variable of a well-sorted condition's pattern is a variable of the condition in
-scope**, and the bound keys do not hold it. -/
-theorem freeOf_condKore (S : Kore.KSort) : ∀ (p : Cond) {vars : List Srt} {bound : List KoreAML.VarKey}
-    {k : KoreAML.VarKey}, c.condOK vars p = true →
-    k ∈ KoreAML.freeOf bound (Cond.kore c (canonVars c vars) S p) →
-    bound.contains k = false ∧ ∃ i ∈ varOccsCond vars.length p, k = canonKey c vars i
-  | .top, _, _, _, _, h => by simp [Cond.kore, KoreAML.freeOf] at h
-  | .bot, _, _, _, _, h => by simp [Cond.kore, KoreAML.freeOf] at h
-  | .not p, vars, bound, k, hok, h => by
-    rw [Semantics.condOK] at hok
-    simp only [Cond.kore, KoreAML.freeOf] at h
-    rw [varOccsCond]
-    exact freeOf_condKore S p hok h
-  | .and p q, vars, bound, k, hok, h | .or p q, vars, bound, k, hok, h => by
-    rw [Semantics.condOK, Bool.and_eq_true] at hok
-    simp only [Cond.kore, KoreAML.freeOf, KoreAML.freeOfList, List.append_nil, List.mem_append] at h
-    rw [varOccsCond]
-    rcases h with h | h
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S p hok.1 h
-      exact ⟨hb, i, List.mem_append_left _ hi, rfl⟩
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S q hok.2 h
-      exact ⟨hb, i, List.mem_append_right _ hi, rfl⟩
-  | .implies p q, vars, bound, k, hok, h => by
-    rw [Semantics.condOK, Bool.and_eq_true] at hok
-    simp only [Cond.kore, KoreAML.freeOf, List.mem_append] at h
-    rw [varOccsCond]
-    rcases h with h | h
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S p hok.1 h
-      exact ⟨hb, i, List.mem_append_left _ hi, rfl⟩
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S q hok.2 h
-      exact ⟨hb, i, List.mem_append_right _ hi, rfl⟩
-  | .ceil s t, vars, bound, k, _, h => by
-    simp only [Cond.kore, KoreAML.freeOf] at h
-    obtain ⟨hb, i, hi, rfl⟩ := freeOf_kore_bound c _ t h
-    rw [varOccsCond]
-    exact ⟨hb, i, hi, rfl⟩
-  | .equals s t u, vars, bound, k, _, h | .mem s t u, vars, bound, k, _, h => by
-    simp only [Cond.kore, KoreAML.freeOf, List.mem_append] at h
-    rw [varOccsCond]
-    rcases h with h | h
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_kore_bound c _ t h
-      exact ⟨hb, i, List.mem_append_left _ hi, rfl⟩
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_kore_bound c _ u h
-      exact ⟨hb, i, List.mem_append_right _ hi, rfl⟩
-  | .ex s body, vars, bound, k, hok, h | .all s body, vars, bound, k, hok, h => by
-    rw [Semantics.condOK] at hok
-    simp only [Cond.kore] at h
-    rw [KoreAML.freeOf, binder_keyStdI, canonVars_snocStdI] at h
-    obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S body hok h
-    have hlt : i < vars.length + 1 := by
-      have := varOccsCond_lt_twoT body hok i hi; simpa using this
-    have hne : i ≠ vars.length := fun he => by
-      subst he; simp at hb
-    have hi' : i < vars.length := by omega
-    rw [canonKey_appendStdI hi']
-    rw [canonKey_appendStdI hi'] at hb
-    refine ⟨by simp only [List.contains_cons, Bool.or_eq_false_iff] at hb; exact hb.2, i, ?_, rfl⟩
-    rw [varOccsCond]
-    exact List.mem_filter.mpr ⟨by simpa using hi, by simpa using hi'⟩
-  | .exMatch ys s p t body, vars, bound, k, hok, h => by
-    rw [Semantics.condOK] at hok
-    simp only [Bool.and_eq_true, beq_iff_eq] at hok
-    obtain ⟨⟨⟨hpS, -⟩, hbody⟩, -⟩ := hok
-    let bs := ((List.range ys.length).zip ys).map
-      (fun (j, y) => Cond.binder c ((canonVars c vars).length + j) y)
-    have hbs : canonVars c vars ++ bs = canonVars c (vars ++ ys) := canonVars_appendStdI c vars ys
-    change k ∈ KoreAML.freeOf bound (KoreAML.existsAll S (bs.map KoreAML.Var.kore)
-        (.and S [.in (srtOf c s) S (Term.kore c (canonVars c vars) t) (Term.kore c (canonVars c vars ++ bs) p),
-          Cond.kore c (canonVars c vars ++ bs) S body])) at h
-    rw [freeOf_existsAll_eqEx, hbs] at h
-    -- the binders' keys are the canonical keys past the variables in scope
-    have hB : ∀ j, vars.length ≤ j → j < (vars ++ ys).length →
-        (((bs.map KoreAML.Var.kore).map KoreAML.evarKey).reverse ++ bound).contains
-          (canonKey c (vars ++ ys) j) = true := fun j hj hj' => by
-      rw [List.contains_append, Bool.or_eq_true]
-      left
-      apply List.contains_iff_mem.mpr
-      rw [List.mem_reverse, binders_eqStdI, List.map_map]
-      exact List.mem_map.mpr ⟨j, List.mem_range'_1.mpr ⟨hj, by simp at hj'; omega⟩, rfl⟩
-    have hbound : ∀ {k}, (((bs.map KoreAML.Var.kore).map KoreAML.evarKey).reverse ++ bound).contains k = false →
-        bound.contains k = false := fun hb => by
-      rw [List.contains_append, Bool.or_eq_false_iff] at hb; exact hb.2
-    -- a variable under the binders that they do not hold is in scope
-    have hin : ∀ i, i < (vars ++ ys).length →
-        (((bs.map KoreAML.Var.kore).map KoreAML.evarKey).reverse ++ bound).contains
-          (canonKey c (vars ++ ys) i) = false → i < vars.length := fun i hi hb =>
-      Classical.byContradiction fun hn => by
-        rw [hB i (by omega) hi] at hb; cases hb
-    rcases mem_freeOf_and h with ⟨φ, hφ, hk⟩
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rw [varOccsCond]
-    rcases hφ with rfl | rfl
-    · rw [KoreAML.freeOf, List.mem_append] at hk
-      rcases hk with hk | hk
-      · obtain ⟨hb, i, hi, rfl⟩ := freeOf_kore_bound c _ t hk
-        exact ⟨hbound hb, i, List.mem_append_left _ hi, rfl⟩
-      · obtain ⟨hb, i, hi, rfl⟩ := freeOf_kore_bound c _ p hk
-        have hlt := varOccs_lt p hpS i hi
-        have hi' := hin i hlt hb
-        refine ⟨hbound hb, i, List.mem_append_right _ (List.mem_filter.mpr
-          ⟨List.mem_append_left _ hi, by simpa using hi'⟩), ?_⟩
-        exact canonKey_appendStdI hi'
-    · obtain ⟨hb, i, hi, rfl⟩ := freeOf_condKore S body hbody hk
-      have hlt := varOccsCond_lt_twoT body hbody i hi
-      have hi' := hin i hlt hb
-      refine ⟨hbound hb, i, List.mem_append_right _ (List.mem_filter.mpr
-        ⟨List.mem_append_right _ (by simpa using hi), by simpa using hi'⟩), ?_⟩
-      exact canonKey_appendStdI hi'
 
 /-- **A well-sorted rule's `applies` pattern has no free variable**, whatever its `pre`: it binds
 the variables of its left side and conditions, the only ones it holds. -/

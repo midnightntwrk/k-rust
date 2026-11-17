@@ -1,0 +1,25 @@
+id = "t106-kore-comments"
+kind = "text"
+subject = "Comments in a KORE text, among them a // rule comment with no axiom after it: whether a comment states anything."
+retro = ["T1"]
+
+[text]
+files = ["t106-kore-comments.kore"]
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "no-sentence"
+statement = "A comment in a KORE text states nothing: the text with its comments removed holds the same declarations and axioms. A // rule comment names no axiom, and one with no axiom after it (the last comment of this text) adds nothing."
+reason = """
+(1) KORE allows line comments and non-nested block comments, and comments are whitespace; whitespace only breaks the source text into tokens (kore-syntax.md:9-15).
+(2) So a comment is no sentence and is part of none: the text holds one sort, two symbols and one axiom whatever its comments say, and the comment `// rule a() => b() ...` before the axiom does not make the axiom a rule of that name, nor does the last comment, which no axiom follows, add one."""
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:9-15 (K 7.1.337)"
+quote = "Kore allows C-style comments: - `//` line comment - `/*` block comment (non-nested) `*/` Comments are considered whitespace. The only lexical function of whitespace is to break the source text into tokens."
+
+[[note]]
+implementation = "kompile"
+text = "kompile writes a // rule comment before each axiom it writes for a rule; with --disable-ceil-simplification-rules the comment of a #Ceil simplification stays without its axiom (kcore-spec fixture e8-disable-ceil-simplification-rules)."

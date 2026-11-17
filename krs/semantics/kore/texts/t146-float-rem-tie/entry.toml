@@ -1,0 +1,42 @@
+id = "t146-float-rem-tie"
+kind = "text"
+subject = "%Float at a quotient halfway between two integers: 5.0 %Float 2.0, quotient 2.5."
+retro = ["FL7"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1567 (K 7.1.337)", quote = '| Float "%Float" Float [function, left, smt-hook((fp.rem roundNearestTiesToEven #1 #2)), hook(FLOAT.rem)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The remainder is computed based on rounding the quotient of the two floats to the nearest integer (domains.md:1556-1558): x - y * n with n the integer nearest to x / y. 5.0 / 2.0 is 2.5, and the integers 2 and 3 are equally near it.
+The sentence names no tie rule. The attribute's roundNearestTiesToEven (1567) is a mode of the operation, as on the four rows beside it (1565-1570), where it is the rounding of the operation's result to the format; its words do not say that it rounds the quotient to an integer.
+So the text gives two candidate values.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1552-1559 (K 7.1.337)"
+quote = "* Compute the unary negation `--Float` of a float. `--Float X` is distinct from `0.0 -Float X`. For example, `0.0 -Float 0.0` is positive zero. `--Float 0.0` is negative zero. * Compute the exponentation `^Float` of two floats. * Compute the product `*Float`, quotient `/Float`, or remainder `%Float` of two floats. The remainder is computed based on rounding the quotient of the two floats to the nearest integer. * Compute the sum `+Float` or difference `-Float` of two floats."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1567 (K 7.1.337)"
+quote = '| Float "%Float" Float [function, left, smt-hook((fp.rem roundNearestTiesToEven #1 #2)), hook(FLOAT.rem)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1562-1570 (K 7.1.337)"
+quote = 'syntax Float ::= "--Float" Float [function, total, smt-hook(fp.neg), hook(FLOAT.neg)] > Float "^Float" Float [function, left, hook(FLOAT.pow)] > left: Float "*Float" Float [function, left, smt-hook((fp.mul roundNearestTiesToEven #1 #2)), hook(FLOAT.mul)] | Float "/Float" Float [function, left, smt-hook((fp.div roundNearestTiesToEven #1 #2)), hook(FLOAT.div)] | Float "%Float" Float [function, left, smt-hook((fp.rem roundNearestTiesToEven #1 #2)), hook(FLOAT.rem)] > left: Float "+Float" Float [function, left, smt-hook((fp.add roundNearestTiesToEven #1 #2)), hook(FLOAT.add)] | Float "-Float" Float [function, left, smt-hook((fp.sub roundNearestTiesToEven #1 #2)), hook(FLOAT.sub)]'
+
+[[reading]]
+name = "quotient-2"
+statement = "The quotient 2.5 is rounded to 2 (to the even integer, as the attribute's mode would do if it applied to the quotient)."
+answer = "5.0 %Float 2.0 = 1.0"
+consequence = "The remainder at a tie is taken with the even quotient."
+
+[[reading]]
+name = "quotient-3"
+statement = "The quotient 2.5 is rounded to 3."
+answer = "5.0 %Float 2.0 = -1.0"
+consequence = "The remainder at this tie is negative."
