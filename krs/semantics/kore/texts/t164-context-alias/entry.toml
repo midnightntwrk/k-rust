@@ -1,0 +1,31 @@
+id = "t164-context-alias"
+kind = "text"
+subject = "strict(c) on a production, with the default context alias [c]: <k> HERE:K ... </k>: whether naming the alias changes the text."
+retro = ["S3"]
+origin = "kcore-spec fixture c3-strict-alias"
+rests_on = ["kk:t106-kore-comments", "kk:t107-generated-names"]
+
+[text]
+files = ["t164-context-alias.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "same-text"
+other = "kk:t161-strict-base"
+statement = "With the context alias that places the production at the front of the <k> cell, strict(c) on twice gives the text of strict on twice: the two texts (this one and kk:t161-strict-base) differ in the module name, in the UNIQUE_ID attributes of twice's two rules and in their comments only, none of which states anything. An alias whose context is not the default one is not ruled here."
+reason = '''
+(1) A context alias is a template for contexts, instantiated against a production by strict and seqstrict; strict(c) instantiates the contexts of the alias c for each argument, and HERE marks where the production is placed (user_manual.md:2011-2014, 2038-2045).
+(2) The alias c here is <k> HERE:K ... </k>: the production at the front of the <k> cell, the place the rules of strict heat it from (kk:t161-strict-base).
+(3) Observed: the kompiled texts of the two K texts, with their module names replaced by one name, differ in four lines, the comments and the UNIQUE_ID attributes of twice's heating and cooling rules. A comment states nothing (kk:t106-kore-comments), nor does the UNIQUE_ID attribute (kk:t107-generated-names).'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2011-2014 (K 7.1.337)"
+quote = "tedious. For this purpose, K has a concept called a _context alias_. A context alias is a bit like a template for describing contexts. The template can then be instantiated against particular productions using the `strict` and `seqstrict` attributes."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2038-2045 (K 7.1.337)"
+quote = "Essentially, we have given a name to this evaluation strategy in the form of the rule label on the context alias sentences (in this case, `c`). We can then say that we want to use this evaluation strategy to evaluate particular arguments of particular productions by referring to it by name in a `strict` attribute. For example, `strict(c)` will instantiate these contexts once for each argument of the production, whereas `strict(c; 1)` will instantiate it only for the first argument. The special variable `HERE` is used to tell the compiler where you want to place the production that is to be heated or cooled."

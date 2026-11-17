@@ -1,0 +1,47 @@
+id = "t161-strict-base"
+kind = "text"
+subject = "The attribute strict on productions of one, two and two arguments (neg, pair, +, twice), with KResult ::= Int | Val: the heating and cooling rules it stands for."
+retro = ["S2"]
+origin = "kcore-spec fixture c3-strict-base"
+
+[text]
+files = ["t161-strict-base.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "strict on a production stands for one heating and one cooling rule per argument position: the heating rule takes the argument HOLE out of the production onto the front of the <k> sequence, followed by a freezer of the rest, where notBool isKResult(HOLE) holds; the cooling rule puts it back where isKResult(HOLE) holds. They are ordinary rewrite rules over the <k> sequence; HOLE is a variable of the left side, and the conditions are over isKResult, a function of the text."
+reason = '''
+(1) The strictness attributes define evaluation strategies by injecting heating and cooling rules for the subterms, and need KResult to say what a result is (user_manual.md:1773-1776); for a strict production the manual writes the rules out (user_manual.md:1785-1797).
+(2) The variable named HOLE is the term heated or cooled, and the compiler generates isKResult(HOLE) and notBool isKResult(HOLE) side conditions so that the rules do not loop (user_manual.md:1812-1817).
+(3) The text holds those rules: the heating rule of plus's first argument requires notBool isKResult(HOLE) (kore.txt:304-312), and its cooling rule requires isKResult of the item before the freezer (kore.txt:238-246). Each is a \rewrites axiom like any rule. A rewrite axiom \rewrites(L, R) is L -> next R: at every valuation every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980).'''
+
+[ruling.kore]
+statement = 'The heating rule of plus at its first argument is \rewrites(<k>(plus(HOLE, K1) ~> R) with notBool isKResult(HOLE ~> .K) = true, <k>(HOLE ~> #freezerplus0_(K1 ~> .K) ~> R)) (kore.txt:304-312); the cooling rule is the reverse with isKResult(_Gen0 ~> .K) = true, _Gen0 the item HOLE stands for (kore.txt:238-246).'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:306-308"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblplus{}(VarHOLE:SortExp{},VarK1:SortExp{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds'andBool'Unds'{}(\dv{SortBool{}}("true"),LblnotBool'Unds'{}(LblisKResult{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarHOLE:SortExp{}),dotk{}())))),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:240-242"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(\and{SortKItem{}}(inj{SortExp{}, SortKItem{}}(VarHOLE:SortExp{}),Var'Unds'Gen0:SortKItem{}),kseq{}(Lbl'Hash'freezerplus0'Unds'{}(kseq{}(inj{SortExp{}, SortKItem{}}(VarK1:SortExp{}),dotk{}())),Var'Unds'DotVar1:SortK{}))),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds'andBool'Unds'{}(\dv{SortBool{}}("true"),LblisKResult{}(kseq{}(Var'Unds'Gen0:SortKItem{},dotk{}()))),'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1773-1776 (K 7.1.337)"
+quote = "The strictness attributes allow defining evaluation strategies without having to explicitly make rules which implement them. This is done by injecting *heating* and *cooling* rules for the subterms. For this to work, you need to define what a *result* is for K, by extending the `KResult` sort."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1785-1797 (K 7.1.337)"
+quote = 'This generates two heating rules (where the hole syntaxes `"[]" "+" AExp` and `AExp "+" "[]"` is automatically added to create an evaluation context): ```k rule [addExp1-heat]: <k> HOLE:AExp + AE2:AExp => HOLE ~> [] + AE2 ... </k> [heat] rule [addExp2-heat]: <k> AE1:AExp + HOLE:AExp => HOLE ~> AE1 + [] ... </k> [heat] ``` And two corresponding cooling rules: ```k rule [addExp1-cool]: <k> HOLE:AExp ~> [] + AE2 => HOLE + AE2 ... </k> [cool] rule [addExp2-cool]: <k> HOLE:AExp ~> AE1 + [] => AE1 + HOLE ... </k> [cool]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1812-1817 (K 7.1.337)"
+quote = "One other thing to note is that in the above sentences, `HOLE` is just a variable, but it has special meaning in the context of sentences with the `heat` or `cool` attribute. In heating or cooling rules, the variable named `HOLE` is considered to be the term being heated or cooled and the compiler will generate `isKResult(HOLE)` and `notBool isKResult(HOLE)` side conditions appropriately to ensure that the backend does not loop infinitely. The module"
