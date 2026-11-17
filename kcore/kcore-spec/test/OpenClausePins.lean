@@ -573,7 +573,8 @@ example : (Faithful.Γc c3 ∪ Faithful.Γstep c3) ⊧
 /-- **`fnModel_of_fnHyp` and `consistent_of` at `c3`**: the theory of `c3` with the step's closure
 has a model. -/
 example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHyp core3 fnHyp3
-example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (openLaws_of_plain (by decide +kernel))
+example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (clausePreDecided_of_fnHyp core3 fnHyp3)
+  (openLaws_of_plain (by decide +kernel))
 
 /-- **The headline statements at `c3`.** -/
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3

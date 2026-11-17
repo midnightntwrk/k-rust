@@ -1,6 +1,6 @@
 /-
   The witness of findings/R3-consistent-pp-shape-decision.md section 3.2: the hypotheses of the pinned `consistent_of` (`coreOK`, `FnDet`,
-  `FnSolves`, `OpenLaws`) do not give a condition over a function call a truth value under `Holds`.
+  `FnSolves`, `ClausePreDecided`, `OpenLaws`) do not give a condition over a function call a truth value under `Holds`.
   Run from the package root: `lake env lean -j1 test/WitPPUndecided.lean`.
 
   `c₀` is `FnSolvesWitness.c` with the one equation `f(X) => f(X)` (`f : Int → Int`) in place of its
@@ -22,8 +22,8 @@
   `rulesPlain` does not ask a rule's `pre` and `post` to be `⊤`, so `c₁` has `rulesPlain` and
   `coreOK` (`c₁_rulesPlain`, `c₁_coreOK`), and its rule's `pre` has no `Holds` derivation
   (`c₁_undecided`): under `coreOK` a rule's predicate need not have a truth value. `c₁` meets the
-  four hypotheses of the pinned `consistent_of` (`c₁_coreOK`, `c₁_fnDet`, `c₁_fnSolves`,
-  `c₁_openLaws`), so `Consistent c₁` (`c₁_consistent`), at that theorem's pinned type. `c₁` has no
+  hypotheses of the pinned `consistent_of` (`c₁_coreOK`, `c₁_fnDet`, `c₁_fnSolves`,
+  `c₁_openLaws`, and `ClausePreDecided`, its clauses' predicates being `⊤`), so `Consistent c₁` (`c₁_consistent`), at that theorem's pinned type. `c₁` has no
   `Step` and no `StepM` step at all (`c₁_no_step`, `c₁_no_stepM`): both ask `Holds … pre true`.
 -/
 import KcoreSpec
@@ -278,9 +278,10 @@ theorem c₁_fnSolves : FnSolves c₁ := fnSolves' [r]
 
 theorem c₁_openLaws : OpenLaws c₁ := openLaws_of_plain (by decide +kernel)
 
-/-- **`Consistent c₁`**, by the pinned `consistent_of` at its four hypotheses: the rule's `pre` has no
+/-- **`Consistent c₁`**, by the pinned `consistent_of` at its hypotheses: the rule's `pre` has no
 truth value under `Holds`, and `Γc` with the step's closure has a model nevertheless. -/
-theorem c₁_consistent : Consistent c₁ := consistent_of c₁ c₁_coreOK c₁_fnDet c₁_fnSolves c₁_openLaws
+theorem c₁_consistent : Consistent c₁ := consistent_of c₁ c₁_coreOK c₁_fnDet c₁_fnSolves
+  (clausePreDecided_of_isTop (by decide +kernel)) c₁_openLaws
 
 /-- **No `Step` of `c₁`**: its one rule asks `Holds … pre true`. -/
 theorem c₁_no_step (x y : Config c₁) : ¬ Step c₁ x y := by

@@ -29,11 +29,12 @@
   in which `h(x)` is the set of `Eval`'s values of `h` at x (none), satisfies neither sentence; and
   Int is one of `distinctSorts`, whose distinct values are distinct elements in a model of `Γ`
   (`values_apart`), so no interpretation satisfies both. A statement that gives a model of `Γ` from
-  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone (`consistent_of`) is therefore false at `d` once
+  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d` once
   `clausesPlain` admits `preU`: with a predicate in the premise it needs that each clause's own
   predicate has a truth value where its patterns match (as `holds_decided` gives where every
   function has a result, `FnTerminates`), which `PrioDecided` asks of the clauses of a smaller
-  priority only.
+  priority only. `consistent_of` asks it (`ClausePreDecided`), and `d` does not meet it
+  (`not_clausePreDecided`).
 -/
 import KcoreSpec
 
@@ -198,7 +199,9 @@ mutual
       | cons h1 hs =>
         cases hs; cases h1
         rw [hl] at hvs; simp [allSome] at hvs
-    | _, _, _, .ovl _ ho _, ht, _, _, _ => by
+    | _, _, _, .ovl _ ho _ _, ht, _, _, _ => by
+      cases ht; rw [kinds.2.2.2] at ho; cases ho
+    | _, _, _, .ovlFn _ ho _ _ _ _ _, ht, _, _, _ => by
       cases ht; rw [kinds.2.2.2] at ho; cases ho
   termination_by structural _ _ _ h => h
 end
@@ -210,6 +213,14 @@ theorem noPre {σ : Subst} {v : GroundTerm} (hl : σ.lookup 0 = some v) (hv : d.
   | or h1 _ =>
     cases h1 with
     | ceil he => exact noLT he rfl v hl hv
+
+/-- **`d` does not meet `ClausePreDecided`**: the predicate of `h`'s first clause has no truth value
+where its pattern matches the Int 0. -/
+theorem not_clausePreDecided : ¬ ClausePreDecided d := by
+  intro hp
+  have hv : d.sortOf (.dv Srt.int (.int 0)) = some Srt.int := by decide +kernel
+  obtain ⟨_, hb⟩ := hp hFn (by simp [d]) hCl1 (by simp [hFn]) (sg _) [_] (sg_sortedAt hv _) (sg_match _)
+  exact noPre rfl hv hb
 
 /-- No clause of `h` applies. -/
 theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : List GroundTerm}
@@ -319,6 +330,8 @@ theorem sentences :
 #guard_msgs in #print axioms fnSolves
 /-- info: 'KCore.ClausePreUndecided.noH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms noH
+/-- info: 'KCore.ClausePreUndecided.not_clausePreDecided' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms not_clausePreDecided
 
 end ClausePreUndecided
 
