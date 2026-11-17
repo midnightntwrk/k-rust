@@ -273,7 +273,7 @@ end SatRule
   `KCore.consistent_pp`, `KCore.has_model_choice_pp`)
 
   At the definition (rules with a pre, a post and an existential variable): the closure holds at T
-  wherever T steps are `StepV` steps, the theory has a model under `FnDet` and `FnSolves` alone,
+  wherever T steps are `StepV` steps, the theory has a model under `FnDet` and `FnSolves` (`OpenLaws` decided: no open generator),
   and the choice among instances is free under `FnHyp`. -/
 
 section ModelChoice
@@ -287,7 +287,7 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
 example : ∀ r' ∈ c.rules, ∀ {k}, k ∈ KoreAML.freeOf [] (applies c r' (canonRulePres r')) → False :=
   fun r' hr' _ hk => freeOf_appliesPP (rules_pp r' hr').1 hk
 
-example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs rules_pp
+example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs (openLaws_of_plain (by decide +kernel)) rules_pp
 
 example (hf : FnHyp c) (T : Config c → Config c → Prop) (hsub : ∀ x y, T x y → Step c x y)
     (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)

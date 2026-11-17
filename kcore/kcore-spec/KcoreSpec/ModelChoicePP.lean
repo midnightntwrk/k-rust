@@ -11,7 +11,7 @@
     `StepV` for `StepMAt` and `StepM`.
   - `stdI_T_model_pp`: `stdI_T_model` with `StepV`, `StepVBy` and `rulePlainPP`.
   - `consistent_pp`: `Γc c` with the step's closure has a model, `stdI_T c (StepV c)`, under
-    `coreOK`, `FnDet`, `FnSolves` and the per-rule facts; no termination or decidedness asked.
+    `coreOK`, `FnDet`, `FnSolves`, `OpenLaws` and the per-rule facts; no termination or decidedness asked.
   - `stepVBy_of_stepBy` (`FnDet`) and `stepBy_of_stepVBy` (`coreOK`, `FnDet`, `FnTerminates`):
     the bridge between `StepBy` and `StepVBy` at configurations.
   - `has_model_choice_pp`: `has_model_choice_ex`'s statement with `rulePlainPP`, under `FnHyp`.
@@ -482,8 +482,9 @@ open ML Faithful Faithful.Model
 
 /-- **The value model at a transition T is a model of `Γc` with the step's closure**, for rules with
 `ruleSorted` and `rulePlainPP`: `stdI_T_model` with `StepV` for `StepM` in `hsub` and `StepVBy` for
-`StepMBy` in `hall` and `hsome`. -/
-theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c)
+`StepMBy` in `hall` and `hsome`, and `stdI_T_model`'s `hl` (the open generators' laws hold in the
+value model). -/
+theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
     (T : GroundTerm → GroundTerm → Prop)
     (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
@@ -491,7 +492,7 @@ theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore
     (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) := by
-  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h (openLaws_of_plain (Semantics.params_raw_of_core h)) T
+  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
@@ -508,13 +509,14 @@ theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore
 
 /-- **The theory of a definition whose rules have `pre` and `post` is consistent**: for a semantics
 that `coreOK` accepts, whose functions have at most one result (`FnDet`) and whose evaluation
-solves the equations (`FnSolves`), and whose rules have `ruleSorted` and `rulePlainPP`, `Γc c` with
+solves the equations (`FnSolves`), whose open generators' laws hold in the value model (`OpenLaws`,
+as `consistent_open` asks), and whose rules have `ruleSorted` and `rulePlainPP`, `Γc c` with
 the step's closure has a model: the value model at its own step, `stdI_T c (StepV c)`. No function
 is asked to terminate and no condition to have a truth value. -/
-theorem consistent_pp (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
+theorem consistent_pp (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true) : Consistent c :=
   ⟨Elem, inferInstance, stdI_T c (StepV c),
-    stdI_T_model_pp c h (hypModel_of_fn h hd hs) hrules (StepV c) (fun _ _ _ _ hT => hT)
+    stdI_T_model_pp c h (hypModel_of_fn h hd hs) hl hrules (StepV c) (fun _ _ _ _ hT => hT)
       (fun r σ _ _ hb _ => ⟨r, σ, hb⟩) (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩)⟩
 
 /-! ## `StepBy` and `StepVBy` -/
@@ -577,7 +579,7 @@ theorem has_model_choice_pp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
   have hm := hypModel_of_fnHyp h hf
   have hfd := (fnModel_of_fnHyp h hf).1
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
-  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_pp c h hm hrules (liftT_ex c T) ?_ ?_ ?_,
+  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_pp c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
   · intro x y hx hy hT
     obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))
