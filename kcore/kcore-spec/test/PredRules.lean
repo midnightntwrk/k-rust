@@ -269,4 +269,34 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
 
 end SatRule
 
+/-! ## The closure, the model and the choice (`KCore.Faithful.Model.satStepGoal_pp`,
+  `KCore.consistent_pp`, `KCore.has_model_choice_pp`)
+
+  At the definition (rules with a pre, a post and an existential variable): the closure holds at T
+  wherever T steps are `StepV` steps, the theory has a model under `FnDet` and `FnSolves` alone,
+  and the choice among instances is free under `FnHyp`. -/
+
+section ModelChoice
+open Faithful Faithful.Model
+
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
+    (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y) :
+    stdI_T c T ⊧ᴵP Γstep c :=
+  satStepGoal_pp h rules_pp T hsub
+
+example : ∀ r' ∈ c.rules, ∀ {k}, k ∈ KoreAML.freeOf [] (applies c r' (canonRulePres r')) → False :=
+  fun r' hr' _ hk => freeOf_appliesPP (rules_pp r' hr').1 hk
+
+example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs rules_pp
+
+example (hf : FnHyp c) (T : Config c → Config c → Prop) (hsub : ∀ x y, T x y → Step c x y)
+    (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)
+    (hsome : ∀ x y r σ, StepBy c r σ x y → ∃ y' σ',
+       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
+      ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
+  has_model_choice_pp c coreOK hf rules_pp T hsub hall hsome
+
+end ModelChoice
+
 end PredRules

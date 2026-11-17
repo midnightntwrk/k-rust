@@ -199,6 +199,7 @@ import KcoreSpec.HoldsModel
 import KcoreSpec.TrueV
 import KcoreSpec.AppliesPP
 import KcoreSpec.SatRulePP
+import KcoreSpec.ModelChoicePP
 import KcoreSpec.PredPlain
 import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs
