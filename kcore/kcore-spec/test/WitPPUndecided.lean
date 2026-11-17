@@ -19,11 +19,11 @@
   `Eval`, `EvalTerm` and `Holds` do not read the rules: `f_none'` and `p_undecided'` state the same of
   `cR rs`, `c₀` with any rule list `rs`.
 
-  Not here, waiting for R3.flip: the rule-bearing part. Today's `rulesPlain` asks every rule's `pre`
-  and `post` to be `⊤` (`c₁_not_rulesPlain`: `c₁`, `c₀` with one closed rule whose `pre` is `p`,
-  fails it, so `c₁.coreOK = false`), so under today's `coreOK` every rule's predicates are decided by
-  `Holds.top`. After R3.flip, on `c₁`: `coreOK` by decision, no `Step` and no `StepM` step from the
-  rule's configuration, and `Consistent c₁` as an instance of the unchanged `consistent_of`.
+  The rule-bearing part: `c₁`, `c₀` with one closed rule whose `pre` is `p`. `rulesPlain` does not
+  ask a rule's `pre` and `post` to be `⊤`, so `c₁` has `rulesPlain` and `coreOK` (`c₁_rulesPlain`,
+  `c₁_coreOK`), and its rule's `pre` has no `Holds` derivation (`c₁_undecided`): under `coreOK` a
+  rule's predicate need not have a truth value. Not here: that `c₁` has no `Step` and no `StepM`
+  step from the rule's configuration, and `Consistent c₁` as an instance of `consistent_of`.
 -/
 import KcoreSpec
 
@@ -246,11 +246,11 @@ def r : Rule := { vars := [], lhs := x₀, req := none, rhs := x₀, ens := none
 
 def c₁ : Semantics := cR [r]
 
-/-- Today's `rulesPlain` refuses `c₁` (its rule's `pre` is not `⊤`), so `c₁` is outside `coreOK`
-until R3.flip; the rule is well sorted. -/
-theorem c₁_not_rulesPlain : c₁.rulesPlain = false := by decide +kernel
+/-- `rulesPlain` accepts `c₁` (its rule's `pre` is not `⊤`), the rule is well sorted, and `c₁` has
+`coreOK`. -/
+theorem c₁_rulesPlain : c₁.rulesPlain = true := by decide +kernel
 theorem c₁_ruleSorted : c₁.rules.all c₁.ruleSorted = true := by decide +kernel
-theorem c₁_not_coreOK : c₁.coreOK = false := by decide +kernel
+theorem c₁_coreOK : c₁.coreOK = true := by decide +kernel
 
 theorem c₁_undecided : ∀ n σ b, ¬ Holds c₁ n σ r.pre b := p_undecided' [r]
 

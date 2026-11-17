@@ -7,8 +7,8 @@
   `show1` prints, for a text, the landed reader's answer, then the definition `parseWith
   connRuleOf` builds: each rule with a predicate (its names, sorts, `exs`, `opens`, `pre`, `post`,
   `ruleSorted`, `rulePlainPP`, `openRefusal`), and the failing `wf` conjuncts with `rulesPlain`
-  and `coreOK` (`rulesPlain` asks `\top` predicates of every rule, so it fails where a rule has
-  one).
+  and `coreOK` (`rulesPlain` asks `rulePlainPP` of every rule, so a rule with a predicate does not
+  fail it: each definition here has `wf`, `rulesPlain` and `coreOK`).
 
   ## rhs-connective
   - `mlror` (e3-ml-rule-rhs-or, `go => a() #Or b()`): the landed reader refuses `\or`; read as
@@ -96,13 +96,13 @@ mlror rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, Generate
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 386 []))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror: connRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlror: connRuleOf: wf failing []; rulesPlain true; coreOK true
 mlror \not: landed reader: KCore.Parse.RefusalReason.patternConnective \not
 mlror \not rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
   post KCore.Cond.not (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror \not: connRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlror \not: connRuleOf: wf failing []; rulesPlain true; coreOK true
 mlror \top: landed reader: KCore.Parse.RefusalReason.patternConnective \top
 mlror \top rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
@@ -116,7 +116,7 @@ mlror c(or-not) rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   (KCore.Cond.not (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 386 [])))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror c(or-not): connRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlror c(or-not): connRuleOf: wf failing []; rulesPlain true; coreOK true
 mlor: landed reader: read, 2 rules
 mlor: connRuleOf: wf failing []; rulesPlain true; coreOK true; rules as the landed reader's true
 ## lhs-not
@@ -128,7 +128,7 @@ mlnot rule 0: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars 
     (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.var 3)))
   post KCore.Cond.top
   ruleSorted true; rulePlainPP true; openRefusal none
-mlnot: connRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlnot: connRuleOf: wf failing []; rulesPlain true; coreOK true
 mlnot larger: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars [Exp, K, GeneratedCounterCell, Exp] exs [] opens [3]
   pre KCore.Cond.not
   (KCore.Cond.and

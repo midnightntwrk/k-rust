@@ -42,18 +42,18 @@ def Definition.namesOK (d : Definition) : Bool :=
   KoreAML.nodup (D.sortDecls.map (·.name)) && KoreAML.nodup (D.symbolDecls.map (·.name) ++ D.aliasNames) &&
     d.sem.hooksApart && d.sem.predsApart && d.sem.idsOK
 
-/-- Rules use no predicate of either side. The last conjunct says which variables the left side
-leaves open the values decide, an existential variable of the right side among them: each is held
-by the right side under constructors, or of a confined sort, or held by closed conditions
-(`OpenDecided`) no variable of which the right side, the `ensures` or `post` holds; and a rule that
-competes with a larger one has open condition variables of confined sorts, or closed conditions. -/
+/-- Which variables the left side of a rule leaves open the values decide, an existential variable
+of the right side among them: each is held by the right side under constructors, or of a confined
+sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
+`ensures` or `post` holds; and a rule that competes with a larger one has open condition variables
+of confined sorts, or closed conditions. A rule's predicates `pre` and `post` are not asked to be
+`\top`. -/
 def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
-  r.pre.isTop && r.post.isTop &&
-  (let conf := fun i => (r.vars[i]?.map c.confined).getD false
-   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
-   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
-   r.opens.all (fun i => (ctorOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
-   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed))
+  let conf := fun i => (r.vars[i]?.map c.confined).getD false
+  let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
+  let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
+  r.opens.all (fun i => (ctorOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
+  (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
 /-- Clauses bind no variable by `\exists` and have no predicate; and a clause's open condition
 variables are of confined sorts, or its conditions are closed (`OpenDecided`). -/
@@ -172,13 +172,6 @@ theorem sortedOK_sorted {c : Semantics} (h : c.sortedOK = true) :
       c.rules.all c.ruleSorted) = true := by
   simp only [sortedOK, Bool.and_eq_true] at h ⊢; exact h.1.1.1
 
-/-- A rule of a semantics `rulesPlain` accepts has `\top` predicates. -/
-theorem rulesPlain_ruleTop {c : Semantics} (h : c.rulesPlain = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.pre = .top ∧ r.post = .top := by
-  simp only [rulesPlain, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨hpre, hpost⟩, -⟩ := h r hr
-  exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
-
 /-- Rules whose predicates `Cond.isTop` accepts have `\top` predicates: the decidable form of the
 hypothesis the lemmas for rules without predicates take. -/
 theorem rulesTop_of_isTop {c : Semantics}
@@ -227,12 +220,6 @@ theorem sortedOK_exsNil {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr :
   have hs := sortedOK_sorted h
   simp only [Bool.and_eq_true, List.all_eq_true] at hs
   exact exs_nil_of_binds (hs.2 r hr) hb
-
-/-- A rule of a semantics `sortedOK` accepts has `\top` predicates. -/
-theorem sortedOK_ruleTop {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.pre = .top ∧ r.post = .top := by
-  simp only [sortedOK, Bool.and_eq_true] at h
-  exact rulesPlain_ruleTop h.1.1.2 hr
 
 theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.clauseOKAll f H cl = true)
     (hb : (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true) :
@@ -324,11 +311,6 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) : c.sor
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
   exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl)
 
-/-- A rule of a semantics `okAll` accepts has `\top` predicates (`sortedOK_ruleTop`). -/
-theorem Semantics.okAll_ruleTop {c : Semantics} (h : c.okAll = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.pre = .top ∧ r.post = .top :=
-  Semantics.sortedOK_ruleTop (Semantics.sortedOK_of_okAll h) hr
-
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
 variable (`ruleOK`). -/
 theorem Semantics.ok_rule {c : Semantics} (h : c.ok = true) {r : Rule} (hr : r ∈ c.rules) :
@@ -397,7 +379,7 @@ conjuncts of `faithOK`, so that a definition `wf` refuses has a failing row. -/
 def Definition.report (d : Definition) : List (String × Bool) :=
   [("names declared once, none named like a hook, functions named apart, own sorts and symbols numbered in order", d.namesOK),
    ("declarations over declared sorts", d.sem.declsOK),
-   ("rules plain (rulesPlain): \\top predicates, open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
+   ("rules plain (rulesPlain): open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
    ("clauses plain (clausesPlain): no existential variable, \\top predicates, open condition variables confined or closed conditions", d.sem.clausesPlain),
    ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),

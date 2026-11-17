@@ -106,19 +106,12 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
   · rw [ht] at hreq; simpa [reqOK] using hreq
   · rw [ht] at hens; simpa [reqOK] using hens
 
-/-- The facts on a rule of a definition that `HypModelCore`'s `sortedOKCl` gives: `ruleSorted` and
-`rulePlainEx`. -/
-theorem HypModelCore.ruleFactsEx (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
-    c.ruleSorted r = true ∧ c.rulePlainEx r = true := by
-  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_ex.mp hrp r hr⟩
-
 /-- The facts on a rule of a definition that `HypModelCore`'s `sortedOKCl` gives, its predicates
 left aside: `ruleSorted` and `rulePlainPP`. -/
 theorem HypModelCore.ruleFactsPP (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
     c.ruleSorted r = true ∧ c.rulePlainPP r = true := by
   obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulePlainPP_of_ex (Semantics.rulesPlain_iff_ex.mp hrp r hr)⟩
+  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_pp.mp hrp r hr⟩
 
 /-- Where every rule has `\top` predicates, `HypModelCore` gives `ruleSorted` and `rulePlainEx` of
 each rule: `rulePlainEx` is `rulePlainPP` with `\top` predicates. -/
