@@ -1,3 +1,4 @@
+# counts (kcore agree's summary): agree 72, agree-at-none 2, differ 4, differ-at-none 0, no-reference 16, not-runnable 4; an -at-none verdict read the interpretation of the parameters and is outside the agree and differ counts
 agree c01-fn-prio/haskell by:CExec
 agree c01-fn-prio/llvm by:CExec
 agree c02-rule-prio/haskell by:CExec
@@ -18,7 +19,7 @@ agree c09-undef-requires/haskell by:CExec
 no-reference c09-undef-requires/llvm
 agree c10-strict-ite/haskell by:CExec  # was differ: a(0) is reached at which a rule applies (prio 40, right side b(#if 0 ==Int 0 #then 1 #else 10 /Int 0 #fi) without a value, #if strict), so not final; no final, as recorded
 differ c10-strict-ite/llvm by:CExec
-agree c11-fn-no-equation/haskell by:CExec  # was differ: a(3) is reached at which a rule applies (right side b(half(3)), half without an equation at 3), so not final; the recorded final under defined(half(3)) is none in KCore
+agree-at-none c11-fn-no-equation/haskell by:CExec  # was differ: a(3) is reached at which a rule applies (right side b(half(3)), half without an equation at 3), so not final; the recorded final under defined(half(3)) is none in KCore; the expected's condition defined(half(3)) is decided by half's rest at 3, the interpretation's: agree at HookParams.none only
 no-reference c11-fn-no-equation/llvm
 agree c12-undef-init/haskell by:CExec
 no-reference c12-undef-init/llvm
@@ -80,7 +81,7 @@ agree c40-as-patterns/haskell by:CExec
 agree c40-as-patterns/llvm by:CExec
 agree c41-total-requires/haskell by:CExec
 agree c41-total-requires/llvm by:CExec
-agree c42-total-no-equation/haskell by:CExec  # the conditions read by condHolds: even(3) has no value in KCore (no equation applies; total is not read by Eval), so true=even(3) is false and not(...) true: no(3); FnHyp's totality of even fails (kcore fn-facts: TOTAL even cover)
+agree-at-none c42-total-no-equation/haskell by:CExec  # the conditions read by condHolds: even(3) has no value in KCore (no equation applies; total is not read by Eval), so true=even(3) is false and not(...) true: no(3); FnHyp's totality of even fails (kcore fn-facts: TOTAL even cover); even(3) is even's rest, the interpretation's: agree at HookParams.none only
 no-reference c42-total-no-equation/llvm
 agree c43-ensures/haskell by:CExec  # was differ: the ensures is the rule's ens; at a(0) the rule applies (no requires) and its ensures 0 >Int 0 is false, so a(0) is an undefined-result configuration (not compared); b(1) is the one final
 differ c43-ensures/llvm by:CExec  # KCore b(1); the backend gives b(0) too (ensures not checked)

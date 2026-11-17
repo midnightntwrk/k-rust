@@ -12,7 +12,10 @@
       lhs ∧ ⌈req = true⌉ ∧ pre ∧ ¬ ⋁_{r' ∈ higher} ∃x̄'. (lhs' ∧ ⌈req' = true⌉ ∧ pre')  ⇒  rhs,
   the same negated-competitor premise kompile writes for an `[owise]` equation; Γ_D reads the
   `priority` and `owise` attributes into it (KCORE-SPEC.md §4). Whether r' could also produce a
-  defined right-hand side does not matter: a rule that applies blocks the lower priorities.
+  defined right-hand side does not matter: a rule that applies blocks the lower priorities. Where
+  r''s result is empty through its `ensures`, the K manual says the rule applies
+  (user_manual.md:1161-1163); where its right-hand side has no value, no K sentence decides whether
+  it applies, and reading it as applying (blocking) is a named choice.
   The right side is `rhs` where the `ensures` evaluates to `true`; `NotApplies` reads neither.
   `NotApplies` is a positive statement (the `requires` *evaluates* to false or undefined, or `pre`
   *is* false), so Step stays a non-recursive inductive with one constructor for every definition.

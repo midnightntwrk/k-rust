@@ -25,6 +25,10 @@
     items (`nojunk_items`, E by equality). KItem's (125) is Γ's item with its disjuncts in the text's
     order (`nojunk_kitem_order`): `Semantics.gens` lists the same generators in another order, and
     Γ entails the sentence, for every H (`nojunk_kitem_entailed`).
+  - Constructor sentences (30: `functional` of the 8 constructors, the 15 `subsort` sentences, 6
+    no-confusion sentences of one constructor, 1 of two): entailed by Γ, for every H
+    (`cons_entailed`), each from the constructor items `consItemsK` holds for its generators
+    (`cons_checked`).
   - Set idempotence (61): Γ with it has no model, for every H (`idem_refuted`).
   - Library sample, 166 (`I -Int 0 = I`, a `simplification`): holds at every value of `I` in every
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
@@ -46,34 +50,6 @@ import KcoreSpec
 
 set_option autoImplicit false
 set_option maxRecDepth 1000000
-
-open Lean Elab Command in
-/-- `user_axioms NAME from "file" module "M"`: a constant `NAME.axN` for each axiom of the module M
-(N its `AxiomDecl.index` among the text's axioms), and `NAME.all`, their list in text order. The
-constants are literals; `userAxioms_eq` checks them against the text's literal. -/
-syntax (name := userAxiomsCmd) "user_axioms " ident " from " str " module " str : command
-
-open Lean Elab Command in
-@[command_elab userAxiomsCmd] def elabUserAxioms : CommandElab
-  | `(user_axioms $id:ident from $path:str module $m:str) => do
-    let input ← IO.FS.readFile path.getString
-    let k ← match Kore.parseDefinition input with
-      | .error e => throwError "user_axioms: {e}"
-      | .ok k => pure k
-    let ns := (← getCurrNamespace) ++ id.getId
-    let ty := mkConst ``KoreAML.AxiomDecl
-    let mut consts : List Expr := []
-    for ad in k.axiomDecls do
-      if ad.module == m.getString then
-        let n := ns ++ Name.mkSimple s!"ax{ad.index}"
-        let v := mkApp3 (mkConst ``KoreAML.AxiomDecl.mk) (toExpr ad.index) (toExpr ad.module) (toExpr ad.ax)
-        let d : DefinitionVal := { name := n, levelParams := [], type := ty, value := v, hints := .regular 0, safety := .safe }
-        liftCoreM <| addDecl <| .defnDecl d
-        consts := consts ++ [mkConst n]
-    let l ← liftTermElabM <| Meta.mkListLit ty consts
-    let d : DefinitionVal := { name := ns ++ `all, levelParams := [], type := mkApp (mkConst ``List [0]) ty, value := l, hints := .regular 0, safety := .safe }
-    liftCoreM <| addDecl <| .defnDecl d
-  | _ => throwUnsupportedSyntax
 
 namespace KCore.TieEns
 
@@ -783,6 +759,34 @@ theorem account_absent : userAxioms.all (fun ad =>
       (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
   rw [userAxioms_eq]; decide +kernel
 
+/-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
+
+/-- The sentences of the four classes, in text order. -/
+noncomputable def consText : List AxiomDecl := U.all.filter fun ad =>
+  (classOf "constructor functional" ++ classOf "subsort" ++ classOf "injectivity" ++ classOf "distinctness").contains
+    ad.index
+
+theorem consText_length : consText.length = 30 := by decide +kernel
+
+/-- Each of the 30 is a constructor sentence Γ's constructor items entail (`tieConsB`): for a
+constructor sort and generators of it, the sentence has the form of the generator's `functional`
+or `subsort` sentence, or of a no-confusion sentence, and `consItemsK c` holds the items it follows
+from (Cons-Fun; Cons-Fun and Cons-Inj; two Cons-Fun and Cons-Dist). -/
+theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true := by decide +kernel
+
+/-- None of the 30 reads a declaration or an alias: its translation with the text's declarations
+is its translation with none. -/
+theorem cons_trS : consText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- **E for the constructor sentences**: Γ entails each of the 30, for every H. -/
+theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  rw [of_decide_eq_true (List.all_eq_true.mp cons_trS ad had)]
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  exact tieCons_entailed (c := cH H) (a := ad.ax)
+    ((tieConsB_withHooks c H ad.ax).trans (List.all_eq_true.mp cons_checked ad had)) ad.index ad.module hI
+
 /-! ## The tie's statement definitions on this text
 
 `AtValues` and `EntailsAtValues` at sentence 166, `symbolsOf` at the rule, `surplusItem` at two sort
@@ -905,3 +909,4 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.account
 #print axioms KCore.TieEns.account_absent
 #print axioms KCore.TieEns.nojunk_kitem_entailed
+#print axioms KCore.TieEns.cons_entailed

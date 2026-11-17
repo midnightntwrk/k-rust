@@ -18,6 +18,10 @@ argument sorts), the sort predicates among them: no function is named. -/
 theorem terminates : ∀ f, Terminates c f :=
   terminates_of_nil okAll srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert named_terminates
 
+/-- Every function terminates, for every interpretation of the parameters. -/
+theorem terminates_withHooks (H : HookParams) : ∀ f, Terminates (c.withHooks H) f :=
+  terminates_of_nil_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert named_terminates H
+
 /-- The functions declared `[total]` whose totality is named (`totalObligations`: the second
 conjunct of `KCore.Obligations`). -/
 theorem named_totals : defn.sem.totalObligations = [419] := by decide +kernel
@@ -27,5 +31,12 @@ of its argument sorts), the sort predicates among them, given the named ones' to
 theorem totals (htot : ∀ g ∈ ([419] : List Sym), Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   totals_of_order okAll srReady (Semantics.ovlCase_of (by decide +kernel)) terminates (by rw [named_totals]; exact htot)
+
+/-- Every function declared `[total]` is total, for every interpretation of the parameters, given
+the named ones' totality under it. -/
+theorem totals_withHooks (H : HookParams)
+    (htot : ∀ g ∈ ([419] : List Sym), Total (c.withHooks H) g) :
+    ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
+  totals_of_order_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H (terminates_withHooks H) (by rw [named_totals]; exact htot)
 
 end Colls
