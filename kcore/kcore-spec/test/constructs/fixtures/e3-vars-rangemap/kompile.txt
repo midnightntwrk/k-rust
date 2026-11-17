@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-rangemap.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.0
+definition.kore bytes: 226525
+definition.kore sha256: b96dbbaa8654f08603eaaafcec02c3e572e0017d359d6f600005506c1e69eb94
+stripped sha256: d937b71f5ca2e8c068c2d294d6e3e210a941f81f3caa0d9a60e732c59c43333d
+main module: 465 sentences, 113 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-rangemap.k)
+  	Location(6,53,6,55)
+  	6 |	  rule <k> go() => .K ... </k> <r> _ => [0, 1) r|-> ?V:Int </r>
+  	  .	                                                    ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-RANGEMAP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-VARS-RANGEMAP as default.
