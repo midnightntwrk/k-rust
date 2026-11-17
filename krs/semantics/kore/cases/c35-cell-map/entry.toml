@@ -1,10 +1,33 @@
 id = "c35-cell-map"
 kind = "case"
 subject = "A cell collection (multiplicity=\"*\", type=\"Map\", keyed by the child cell <id>): a rule adds an instance beside the others, a rule removes the instance of a key, and a rule rewrites a child of the one instance of a key among three; the instances are created in an order other than that of their keys."
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t34-collection-values", "kk:t36-map-concat", "kk:t38-collection-patterns", "kk:t39-cell-collection-map"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals_canonical = ["Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblend'Unds'CASE-SYNTAX'Unds'Cmds()),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(21)),Lbl'-LT-'id'-GT-'(3)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(3),Lbl'-LT-'bal'-GT-'(30))}))"]
+reason = """
+(1) The <acct> cells are a collection of any number of instances, read as a map from the content of an instance's <id> to the whole instance (kk:t39-cell-collection-map; user_manual.md:1036-1038, 1094-1103). The collection has no configuration variable, so the initial configuration holds no instance (user_manual.md:1039-1041): the program starts in <k> with <accts> empty.
+(2) Each configuration below has exactly one rule whose left side matches, at one substitution, so each has exactly one successor (kk:t02-step-successors, kk:t38-collection-patterns). new(3, 30) adds the instance of key 3 with <bal> 30 beside the rest, the empty collection; new(1, 10) and new(2, 20) add the instances of keys 1 and 2 beside the others. No two instances have one key, so each concatenation has a value (kk:t36-map-concat), and the map does not depend on the order in which the instances were added (kk:t34-collection-values).
+(3) inc(2): the left side names <id> 2, so it matches the instance of key 2, the others being the rest (kk:t39-cell-collection-map, kk:t38-collection-patterns); its <bal> 20 becomes 20 +Int 1, that is 21 (domains.md:1238). del(1): the instance of key 1 is removed, leaving the instances of keys 2 and 3.
+(4) <k> then holds end, which no rule's left side matches: the configuration is final, and it is the only one the search reaches with no successor (kk:t06-final-configuration). It holds in <k> the term end, and in <accts> the instance of key 2 with <bal> 21 and the instance of key 3 with <bal> 30.
+(5) The final configuration is written in the canonical text, since kast does not parse a collection of two instances: each symbol by its name in kore.txt with its arguments, an injection as inj{A,B}(v), an integer as its numeral, and the collection, whose sort is AcctCellMap (kore.txt:20), as SortAcctCellMap{K|->V,...} with the texts of its pairs in sorted order, a map being given by its pairs and not their order (kk:t34-collection-values). The key of a pair is the instance's <id> cell, its value the whole <acct> instance."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1036-1042 (K 7.1.337)"
+quote = "Declaring `multiplicity=\"*\"` indicates that the cell may appear any number of times in a runtime configuration. Setting `multiplicity=\"?\"` indicates that the cell may only appear exactly 0 or 1 times in a runtime configuration. If there are no configuration variables present in the cell collection, the initial configuration will start with exactly 0 instances of the cell collection."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1094-1103 (K 7.1.337)"
+quote = "Declaring `type=\"Map\"` indicates that the first sub-cell will be used as a cell-key. This means that matching on those cells will be done as a map-lookup operation if the cell-key is mentioned in the rule (for performance)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

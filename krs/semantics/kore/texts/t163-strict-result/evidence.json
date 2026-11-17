@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t163-strict-result.k": "e0946808290c0cb94a960213c2e9180d7713d9f095d0ddade1d789e4f1f4cc50"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t163-strict-result.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "9cdd5ef0b01d58dd6af0df0b703e1329cb869a0e6d2e3fda8e6d30e5ffef1efa",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

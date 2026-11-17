@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "f62d7acedfd93c92718cbd8996a9464c3de0f8d30e1b6b8062eabf4710b62a85",
+  "t14-total-no-equation.k": "a1ec9d502419a727c5daad315ee17bdbead6286f9f021e47f92403d78a010753"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t14-total-no-equation.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "d7e91112a056d83a941717cda3ab11dca13fd276a96ded4601e6080cbb31a1ca",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

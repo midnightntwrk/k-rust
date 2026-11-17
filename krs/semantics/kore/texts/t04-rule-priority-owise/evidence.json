@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t04-rule-priority-owise.k": "6910e79528538156815c14322f459ee68eef4e5161925390cfe525ac1fdb22fa"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t04-rule-priority-owise.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "62253fdd485ae4275936e100168de743ea66d44ca140af64d33a9d54520d3372",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

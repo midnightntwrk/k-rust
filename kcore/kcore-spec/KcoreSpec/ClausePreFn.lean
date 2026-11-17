@@ -90,6 +90,7 @@ through `condOK` alone. -/
 theorem fnSolves_of_total_pre (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c)
     (hpre : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true) : FnSolves c :=
   fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
+    (fun fn hfn => Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn))
     (prioDecided_of_total_pre hs ht hpre) (coDefined_of_total hs ht)
 
 end Model

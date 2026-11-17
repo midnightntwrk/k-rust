@@ -1,0 +1,45 @@
+id = "t17-nonlinear"
+kind = "text"
+subject = "A variable seen twice in an equation's left side, same(X, X) => 1, beside same(_, _) => 0 [owise]: at which arguments the first equation applies."
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t17-nonlinear.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A variable that occurs twice in a left side stands for one value at both places: same(X, X) applies exactly at two equal arguments. same(2, 2) = 1 and same(2, 3) = 0."
+reason = '''
+(1) Under a valuation a variable denotes the one element the valuation gives it (introduction-to-matching-logic.tex:727), at each of its occurrences. So the pattern same(X, X) denotes same(v, v) for each integer v, and the first equation applies at (2, 2) and at no pair of distinct integers (kk:t11-eq-applies); 2 and 3 are distinct integers (domains.md:1324-1325 compares them).
+(2) The owise equation applies where the other has been tried and failed (user_manual.md:1711-1713; kk:t12-eq-priority-owise): at (2, 3), giving 0. At (2, 2) the first applied, so the owise equation gives nothing there.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = '''The first axiom's premise is X0 \in VarX and X1 \in VarX, one variable for both arguments (kore.txt:63-76): it holds where X0 and X1 are the same element. The owise axiom's premise negates that some one integer _Gen0 is both arguments (kore.txt:85-106), so it holds exactly at two distinct integers. The kompiled sentences state what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:66-74"
+quote = '''\and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, VarX:SortInt{} ),\and{R} ( \in{SortInt{}, R} ( X1:SortInt{}, VarX:SortInt{} ),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:87-100"
+quote = '''\not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \top{R}(), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ),\and{R} ( \in{SortInt{}, R} ( X1:SortInt{}, Var'Unds'Gen0:SortInt{} ),'''

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t34-collection-values.k": "e5a5cf5cd544d22a0cc885097f5d8b925d2150e9dbbe41bbc7e909277bd2d93e"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t34-collection-values.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "06db45681c3e5e9e444f6be37a99aaad96e410e8c1b497c23ea16175b4983267",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

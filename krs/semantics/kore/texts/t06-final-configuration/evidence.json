@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t06-final-configuration.k": "858c9da00948f423102c26a50ed50d1a697672b0766d14f3ca23593a16d0de9c"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t06-final-configuration.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "4f12a271a06973c6f26cc2f48e8353acff577e6de6769954e9a993db068c4137",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -371,6 +371,7 @@ theorem fnDet_withHooks (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.ma
   fnDet_of_coherent (Det.coherentAll_of_nil ((Semantics.ok_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr)
     ((clausesFixed_withHooks c H).trans hcf) ((Semantics.agreeObligations_withHooks c H).trans hag))
+    (Semantics.fnsNoExs_of_ok ((Semantics.ok_withHooks c H).trans hok))
 
 open Det in
 /-- **`FnDet` and `FnSolves` without the totality facts**: from `coreOK`, the held variables' facts,
@@ -395,7 +396,7 @@ theorem fnModel_noTotal {ord : List Sym} (h : c.coreOK = true)
     rcases List.mem_append.mp hmem with hu | hp
     · exact hag fn hu
     · exact sortPreds_agree hp
-  have hd := fnDet_of_coherent hco
+  have hd := fnDet_of_coherent hco (Semantics.fnsNoExs_of_sortedOK hok)
   exact ⟨hd, Faithful.Model.fnSolves_of_total (hypSound_of_core h) hd
     fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs⟩
 

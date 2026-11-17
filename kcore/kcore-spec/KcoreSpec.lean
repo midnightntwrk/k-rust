@@ -69,6 +69,7 @@ import KcoreSpec.ModelHas
 import KcoreSpec.ModelRead
 import KcoreSpec.ModelCons
 import KcoreSpec.ModelOvlFn
+import KcoreSpec.ModelConsFn
 import KcoreSpec.ModelPat
 import KcoreSpec.ModelRules
 import KcoreSpec.ModelStep
@@ -259,7 +260,6 @@ import KcoreSpec.StepValuesHeld
 import KcoreSpec.CompeteHeld
 import KcoreSpec.SatRuleHeld
 import KcoreSpec.ModelChoiceHeld
-import KcoreSpec.ModelTotalHeld
 import KcoreSpec.CompleteHeld
 import KcoreSpec.HeldBackAll
 import KcoreSpec.FamExValuesHeld
@@ -285,6 +285,9 @@ import KcoreSpec.ConsTransferR
 import KcoreSpec.ConsTransferInst
 import KcoreSpec.ConsRegistrySat
 import KcoreSpec.ConsTransferSig
+import KcoreSpec.ConsTransferCons
+import KcoreSpec.ConsTransferDomains
+import KcoreSpec.ConsTransferFrag
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
@@ -325,3 +328,4 @@ import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
+import KcoreSpec.CoreDecide

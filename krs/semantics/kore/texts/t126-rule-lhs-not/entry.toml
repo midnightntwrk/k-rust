@@ -1,0 +1,68 @@
+id = "t126-rule-lhs-not"
+kind = "text"
+subject = "A rewrite rule whose left side holds #Not(a()) under a constructor, c(#Not(a())) => a(); kompile writes it as c(#Not(a() #as _Gen0)) => _Gen0, with a variable the K text does not hold."
+retro = ["M6"]
+origin = "kcore-spec fixture e3-ml-rule-lhs-not"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t126-rule-lhs-not.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The K text states that c(x) steps to a() for every x other than a(); the written axiom, with its free variable _Gen0 on both sides, states in addition that every c(x), c(a()) included, steps to every element e of Exp other than a()."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "By the K text, every configuration c(x), for every element x of Exp other than a(), has the successor a(); of c(a()) the rule states nothing."
+reason = '''
+(1) #Not is the matching-logic negation of ML-SYNTAX (kast.md:140), the complement in the carrier of its sort (introduction-to-matching-logic.tex:732-733). a() is a constructor of Exp and denotes one element. So #Not(a()) denotes every element of Exp but a().
+(2) An application to a union of arguments is the union of the applications, and an application to an argument that denotes nothing denotes nothing (kk:t10-fn-innermost, point (2)). So c(#Not(a())), under the cells, denotes the configurations holding c(x) for every x other than a().
+(3) A rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)). So each such configuration has the successor a().'''
+
+[ruling.kore]
+statement = '''The written axiom is \rewrites(c(\not(\and(a(), _Gen0))), _Gen0) under the cells (kore.txt:51, 54), _Gen0 a free variable of sort Exp. It holds at every valuation of _Gen0. At _Gen0 = a(), \and(a(), a()) is {a()} and the axiom states the K text's sentence: c(x) for x other than a() steps to a(). At _Gen0 = e for an element e other than a(), \and(a(), e) is empty, its negation is the whole carrier, and the axiom states that every c(x), c(a()) included, has the successor e. So the written text states that c(x) steps to every element of Exp other than a(), for every x, besides what the K text states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:51"
+quote = '''Lblc{}(\not{SortExp{}}(\and{SortExp{}}(Lbla{}(),Var'Unds'Gen0:SortExp{}))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:54"
+quote = "kseq{}(inj{SortExp{}, SortKItem{}}(Var'Unds'Gen0:SortExp{}),Var'Unds'DotVar1:SortK{})"
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:728-730 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$ for all $\sigma\in\Sigma_{s_1...s_n,s}$ and appropriate $\varphi_1,...,\varphi_n$'
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lblc{}(\not{SortExp{}}(\and{SortExp{}}(Lbla{}(),Var'Unds'Gen0:SortExp{})))'''

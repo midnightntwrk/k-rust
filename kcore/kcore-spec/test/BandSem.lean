@@ -144,7 +144,7 @@ theorem lawHooks_lib :
     OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
     (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
   ⟨KCore.openLaws_lawHooks c coreOK HookParams.lib, KCore.openTotal_lawHooks c coreOK HookParams.lib,
-    libAdmitted_lawHooks c coreOK HookParams.lib (libAdmitted_lib c (by decide +kernel))⟩
+    libAdmitted_lawHooks c coreOK HookParams.lib (libAdmitted_lib c (by decide +kernel)) lib_app_rmConcat_none⟩
 
 /-- **`consistent_of` at the band**: for every H, the theory of `c` at `lawHooks c H` has a model,
 `OpenLaws` being `openLaws_lawHooks H`. `c` has no function, so `FnSolves` holds of it; `FnDet`

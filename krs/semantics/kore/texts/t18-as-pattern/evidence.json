@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t18-as-pattern.k": "b9bcf99a7069bddeb0d6e70e8b4f09af769db5b4e5c0406a65925ba5c2f49fef"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t18-as-pattern.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "6d8224c88ef6e0e937ce4df8bf5555c74a77c0f2976539c3bf34973502cd554a",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

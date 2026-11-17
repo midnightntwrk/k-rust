@@ -86,8 +86,8 @@ theorem rhs_eval : EvalTerm c [] rhsT (some (.ctor kconfigValue [.ctor dotk []])
 /-- The function is `#KConfigValue(.K)` at its one argument list: its clause applies. -/
 theorem eval_f : Eval c fl [] (some (.ctor kconfigValue [.ctor dotk []])) :=
   .clause lookup_f (List.mem_singleton_self _) (fun _ _ h => by simp [cl] at h) .nil (fun _ h => by cases h) .top
-    (fun _ h _ hlt => by rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (Nat.lt_irrefl _)) rhs_eval
-    (fun _ h => by simp [cl] at h)
+    (fun _ h _ hlt => by rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (Nat.lt_irrefl _)) rfl rhs_eval
+    (fun _ h => by simp [cl] at h) .top
 
 theorem hyp : Hyp c := by
   refine ⟨okAll, srReady, fun g hg vs hvs => ?_, fun g hg ht => ?_, fun g hg => ?_, fun g hg cl' hcl' => ?_,
@@ -107,8 +107,9 @@ theorem hyp : Hyp c := by
     cases hp
   · rw [List.mem_singleton.mp hg] at hcl'
     rw [List.mem_singleton.mp hcl']
+    refine (matchIndependent_iff_noExs rfl).mpr ?_
     intro vs σ σ' _ _ _ _ _ _
-    exact Or.inl ⟨rfl, rfl, fun i hi => (by simp [cl, rhsT, varOccs, varOccsList] at hi),
+    exact Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl, rhsT, varOccs, varOccsList] at hi),
       fun t ht => (by simp [cl] at ht)⟩
 
 theorem hypSound : HypSound c :=

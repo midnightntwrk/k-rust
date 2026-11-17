@@ -72,11 +72,11 @@ def c : Semantics :=
 /-- `c` without the second declaration of `r`. -/
 def c0 : Semantics := { c with params := c.params.eraseIdx 1 }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
 
 instance : OvlOK c := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 theorem fnHyp : FnHyp c :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
@@ -88,10 +88,10 @@ theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApar
     c.overloadsOK = true ∧ namesNumbered c = true ∧ genWf c = true ∧ collSortsOK c = true ∧
     collsOK c = true ∧ namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧
     itesApart c = true ∧ kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_patHeadsOK : patHeadsOK c = false := by decide +kernel
 

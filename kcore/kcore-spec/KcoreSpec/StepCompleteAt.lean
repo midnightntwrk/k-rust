@@ -58,7 +58,7 @@ def execReadyRest (c : Semantics) : Bool :=
   c.allFns.all (fun fn => fn.clauses.all fun cl =>
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
-    r.pre.isTop && r.post.isTop) &&
+    predAtoms r.pre && predAtoms r.post) &&
   c.asideFree
 
 theorem execReady_of_rest (h : c.coreOK = true) (hsr : c.srReady = true) (hr : execReadyRest c = true) :
@@ -69,9 +69,17 @@ theorem execReady_of_rest (h : c.coreOK = true) (hsr : c.srReady = true) (hr : e
 
 kernel_rfl execReady_withHooks : ∀ (c : Semantics) (H : HookParams), execReady (c.withHooks H) = execReady c
 
+/-- A predicate `predVal` evaluates has no binder. -/
+theorem hasBinder_of_predAtoms : ∀ {p : Cond}, predAtoms p = true → p.hasBinder = false
+  | .top, _ | .equals .., _ | .mem .., _ => rfl
+  | .and p q, h => by
+    simp only [predAtoms, Bool.and_eq_true] at h
+    simp [Cond.hasBinder, hasBinder_of_predAtoms h.1, hasBinder_of_predAtoms h.2]
+
 /-- A semantics `coreOK` accepts and `execReady` makes ready reads no confined sort: `execReady`
 asks every rule's left side and every clause's patterns to bind each of its variables and every
-rule's predicates to be `top`, and `coreOK`'s `sortedOK` asks every clause's to be `top`. -/
+rule's predicates to be conjunctions of atoms, which hold no binder, and `coreOK`'s `sortedOK`
+asks every clause's to be `top`. -/
 theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = true) :
     c.readsConfined = false := by
   have hok := (Semantics.coreOK_parts h).1
@@ -80,13 +88,13 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
   obtain ⟨⟨⟨-, hfn⟩, -⟩, -⟩ := hr
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun fn hfn' => ?_⟩
-  · obtain ⟨hpre, hpost, hb⟩ := rule_plain_of_execReady hready hr'
-    simp [Rule.opens_of_binds hb, hpre, hpost, Cond.isTop]
+  · obtain ⟨hpre, hpost, hb⟩ := rule_atoms_of_execReady hready hr'
+    simp [Rule.opens_of_binds hb, hasBinder_of_predAtoms hpre, hasBinder_of_predAtoms hpost]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl
     obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_clause hok hfn' hcl
     have hb := (hfn fn (by simp [Semantics.allFns, hfn']) cl hcl).2
-    simp [Clause.opens_of_binds hb, hpre, hpost, Cond.isTop]
+    simp [Clause.opens_of_binds hb, hpre, hpost, Cond.hasBinder]
 
 /-- **A run at a fuel where nothing ran out is exact in matching logic**: with the step's closure,
 every successor of x is one `successorsN c n x` lists, and each one it lists is a successor of x in

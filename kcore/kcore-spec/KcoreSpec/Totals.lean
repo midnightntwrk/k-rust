@@ -695,9 +695,10 @@ end
 /-! ## A function with total clauses is total -/
 
 /-- As `eval_result`, with values: the right-hand sides of the clauses that apply have values, no
-clause has an `ensures`, and a clause without `requires` applies (one that cannot fail), so some
-clause applies. -/
+clause has an `ensures`, an existential variable or a right side's predicate other than `\top`,
+and a clause without `requires` applies (one that cannot fail), so some clause applies. -/
 theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm}
+    (hx : ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top)
     (hh : ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars)
     (hreq : ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
       (∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r) ∧ ∃ b, Holds c cl.vars.length σ cl.pre b)
@@ -719,8 +720,8 @@ theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : Li
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
       · obtain ⟨v, hv⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
         exact ⟨v, Eval.clause hfn hcl hσ hm hq hp' (fun cl' hcl' _ hlt =>
-          hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩) hv
-          fun t ht => by rw [hnoens cl hcl] at ht; cases ht⟩
+          hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩) (hx cl hcl).1 hv
+          (fun t ht => by rw [hnoens cl hcl] at ht; cases ht) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
   obtain ⟨cl, hcl, _, ha⟩ := hcov
   exact key (cl.prio + 1) cl.prio (by omega) ⟨cl, hcl, rfl, ha⟩
 
@@ -778,7 +779,7 @@ theorem sortPreds_totalN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPreds) 
       subst hi
       exact ⟨w, lookup_cons_self _ _ _, hw⟩
     | succ i => simp at hi
-  refine eval_defined (lookupFn_of_memN hc hmem)
+  refine eval_defined (lookupFn_of_memN hc hmem) (hc.plain fn hmem)
     (fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl))
     (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hshape cl hcl).1] at ht; cases ht), true,
       Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
@@ -818,7 +819,7 @@ theorem total_of_partsN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hterm : ∀ 
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ m ih =>
     intro vs hvs hlt
-    refine eval_defined hlook hb (fun cl hcl σ hσ _ => ⟨fun t ht => req_resultN hc hterm hfn hcl hσ ht, true,
+    refine eval_defined hlook (hc.plain fn hfn) hb (fun cl hcl σ hσ _ => ⟨fun t ht => req_resultN hc hterm hfn hcl hσ ht, true,
         Clause.holds_preTop (hclk cl hcl).2 σ⟩)
       (fun cl hcl σ ha => ?_) ?_ hnoens
     · refine evalTerm_defined hc.sort hs hL ha.1 cl.rhs (hrs cl hcl) (hrhs cl hcl)

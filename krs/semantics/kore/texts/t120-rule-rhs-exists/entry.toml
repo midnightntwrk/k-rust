@@ -1,0 +1,56 @@
+id = "t120-rule-rhs-exists"
+kind = "text"
+subject = "A rewrite rule whose right side holds an existential variable ?Y, constrained by its ensures: what the existential right side states, and the scope of its binder."
+retro = ["M1"]
+rests_on = ["kk:t02-step-successors"]
+
+[text]
+files = ["t120-rule-rhs-exists.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The rule states that every configuration a(x) has a successor among the configurations d(y) with y > x; it names no particular y, and it does not state that a(x) steps to each of them. ?Y is bound at the top of the right side, so it is no variable of the left side, and the regular variable X is quantified over the whole rule, outside the binder."
+reason = '''
+(1) A ? variable is existential; in a rewrite rule it is quantified at the top of the right side, and the regular variables are universally quantified on top of the whole rule (user_manual.md:2438-2446). So the rule is: for every x, a(x) => (exists y. d(y) with the ensures y >Int x).
+(2) A rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)).
+(3) An existential pattern denotes the union, over every value of its variable, of what its body denotes (introduction-to-matching-logic.tex:737-741). The ensures stands as the equality of y >Int x with true, a predicate: the whole carrier where both sides denote the same set, empty otherwise (:880-885). >Int compares two integers (domains.md:1324-1325). So at x the right side denotes the configurations d(y) for the integers y > x.
+(4) By (2), each a(x) has a successor in that set: at least one, not named. A binder that binds a variable of a sort with elements adds no condition.'''
+
+[ruling.kore]
+statement = '''The rule is written \rewrites(\and(L, \top), \exists ?Y:Int. \and(R, \equals(?Y >Int X, true))) (kore.txt:89-97): the binder stands over the right side and its ensures, and the left side's variable X is free in the axiom. It states what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:93-97"
+quote = '''\exists{SortGeneratedTopCell{}} (Var'Ques'Y:SortInt{}, \and{SortGeneratedTopCell{}} ( Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbld{}(Var'Ques'Y:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-'Int'Unds'{}(Var'Ques'Y:SortInt{},VarX:SortInt{}), \dv{SortBool{}}("true")))))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2438-2446 (K 7.1.337)"
+quote = "K uses question mark variables of the form `?X` to refer to existential variables, and uses `ensures` to specify logical constraints on those variables. These variables are only allowed to appear in the RHS of a K rule. If the rules represent rewrite (semantic) steps or verification claims, then the `?` variables are existentially quantified at the top of the RHS; otherwise, if they represent equations, the `?` variables are quantified at the top of the entire rule."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[observe]]
+file = "kore.txt"
+contains = '''\exists{SortGeneratedTopCell{}} (Var'Ques'Y:SortInt{},'''

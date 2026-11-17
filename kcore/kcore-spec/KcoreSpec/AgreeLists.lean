@@ -540,7 +540,7 @@ orders: `fnExclusiveOK`'s three cases, the `requires` exclusive in either order,
 whose list patterns are apart. -/
 theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true) (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveL heads f = true) :
-    ClausesAgree c f := by
+    ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
@@ -604,8 +604,8 @@ theorem clausesAgree_of_L {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srR
   · have hf := hok
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
-    exact fnExclusiveL_sound (Exec.matchCtx_of hmr) (fun _ _ => ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) hx
+    exact (fnExclusiveL_sound (Exec.matchCtx_of hmr) (fun _ _ => ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
+      (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligationsL, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa using hx⟩, rfl⟩

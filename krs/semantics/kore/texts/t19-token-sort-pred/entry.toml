@@ -1,0 +1,52 @@
+id = "t19-token-sort-pred"
+kind = "text"
+subject = "A token sort Id (syntax Id ::= r\"[a-z]+\" [token]) below Exp, and the sort predicates isId and isExp that kompile generates: what a token denotes, and of which terms each predicate holds."
+rests_on = ["kk:t16-match-inj"]
+
+[text]
+files = ["t19-token-sort-pred.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual says isFoo tells whether a term of sort K is a Foo, so isId is false of n(x). kompile writes isId(X0) = true where X0 is the sequence of one injected Id (kore.txt:145-160) and false where X0 is no such sequence, and no axiom that the sequence of an injected n(t) is not the sequence of an injected Id; so the kompiled sentences state the true half and leave isId(n(x)) open."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A token of Id is an element of sort Id (written as a domain value of Id), and so, injected, of Exp and of KItem. isId of a K sequence of one term is true where that term is an Id and false otherwise; isExp is true where it is an Exp, an Id included: isId(x) and isExp(x) are true for a token x, isId(n(x)) is false and isExp(n(x)) true."
+reason = '''
+(1) The token attribute says that the sort is inhabited by domain values and has no constructors (user_manual.md:610-612): the tokens of Id are its elements.
+(2) K generates, for every sort Foo, a function isFoo of a K argument, with isFoo(F:Foo) => true and isFoo(_) => false [owise], and isFoo tells whether a term of sort K is a Foo (user_manual.md:1360-1365, 1372-1374). So isId(x) is true for a token x and isId(n(x)) false; isExp(n(x)) is true.
+(3) A token x is an Exp through the subsort Id < Exp, as a term of a smaller sort matches a pattern of a larger one through the injections (kk:t16-match-inj): isExp(x) is true.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:610-612 (K 7.1.337)"
+quote = "The `token` attribute signals to the Kore generator that the associated sort will be inhabited by domain values. Sorts inhabited by domain values must not have any constructors declared."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1360-1365 (K 7.1.337)"
+quote = "syntax Bool ::= isFoo(K) [function] ... rule isFoo(F:Foo) => true rule isFoo(_) => false [owise]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1372-1374 (K 7.1.337)"
+quote = "Essentially, `isFoo` for some sort `Foo` will tell you whether a particular term of sort `K` is a `Foo`,"
+
+[ruling.kore]
+statement = '''Id is declared with domain values (kore.txt:2) and is a subsort of Exp and of KItem (kore.txt:16, 20). isId's equations are written isId(X0) = true where X0 is kseq(inj{Id,KItem}(VarId), dotk) (kore.txt:145-160), and false under the owise premise that X0 is no such sequence; isExp's alike with inj{Exp,KItem} (kore.txt:91-106). For a token x, isExp's premise holds with VarExp the element inj{Id,Exp}(x), by the prelude's composition of injections (as in kk:t16-match-inj). The text holds no axiom that kseq is injective or that the injection of n(t) into Exp differs from the injection of an Id: isId(n(x)) = false is the K text's (the manual's sentence), not a consequence of the kompiled sentences.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''sort SortId{} [hasDomainValues{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:149-152"
+quote = '''\in{SortK{}, R} ( X0:SortK{}, kseq{}(inj{SortId{}, SortKItem{}}(VarId:SortId{}),dotk{}()) ),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:20"
+quote = '''axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, inj{SortId{}, SortExp{}} (From:SortId{}))) [subsort{SortId{}, SortExp{}}()] // subsort'''

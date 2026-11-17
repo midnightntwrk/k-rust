@@ -422,8 +422,11 @@ theorem ul_facts (hids : c.idsOK = true) {s : Srt}
     · exact Or.inl hs)
   exact ⟨hsb, fun he => hk (he ▸ hsb)⟩
 
-theorem ok_subsortsOK {c : KCore.Semantics} (hok : c.ok = true) : c.subsortsOK = true := by
-  unfold KCore.Semantics.ok at hok; simp only [Bool.and_eq_true] at hok; exact hok.1.1.2
+theorem okM_subsortsOK {c : KCore.Semantics} (hok : c.okM = true) : c.subsortsOK = true := by
+  unfold KCore.Semantics.okM at hok; simp only [Bool.and_eq_true] at hok; exact hok.1.1.1.2
+
+theorem ok_subsortsOK {c : KCore.Semantics} (hok : c.ok = true) : c.subsortsOK = true :=
+  okM_subsortsOK (KCore.Semantics.okM_of_ok hok)
 
 theorem sortedOK_subsortsOK {c : KCore.Semantics} (hok : c.sortedOK = true) : c.subsortsOK = true := by
   have hok := KCore.Semantics.sortedOK_sorted hok; simp only [Bool.and_eq_true] at hok; exact hok.1.1

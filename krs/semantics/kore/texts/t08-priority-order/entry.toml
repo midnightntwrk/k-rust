@@ -1,0 +1,32 @@
+id = "t08-priority-order"
+kind = "text"
+subject = "Priorities are tried in ascending order: where a rule of a smaller number applies, a rule of a larger number is not tried, so its requires and right side are not evaluated and whatever they denote does not change the step."
+rests_on = ["kk:t01-rule-applies", "kk:t04-rule-priority-owise"]
+
+[text]
+files = ["t08-priority-order.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A rule of a larger priority number is tried only where every rule of a smaller number has been shown not to apply. Where one of a smaller number applies, the larger one's requires and right side are not evaluated, and what they denote does not change the step. In the text a(1) steps to b(1) alone, whatever loop(1) denotes. At a(0) the rule of priority 50 does not apply and the rule of priority 60 is tried; what loop(0) denotes, and so the step at a(0), is not this entry's subject."
+reason = """
+(1) Rules are tried in increasing order of priority (user_manual.md:1727-1730); a rule of a larger number is tried only after one of a smaller number has been shown not to apply (user_manual.md:1722-1724). The requires is evaluated before the rule is applied (user_manual.md:1154-1157): of a rule that is not tried, neither is.
+(2) The text's first rule for a has priority 50, the second 60 (kk:t04-rule-priority-owise). At a(1) the first applies (1 >Int 0 is true, kk:t01-rule-applies): a(1) steps to b(1), and the second is not tried, so loop(1) is not read.
+(3) At a(0) the first does not apply (0 >Int 0 is false) and the second is tried. Its requires is loop(0), and what the one equation of loop, loop(X) => loop(X +Int 1), leaves loop(0) to denote is outside this entry."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1727-1730 (K 7.1.337)"
+quote = "Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "The requires clause is an additional predicate (function-like term of sort `Bool`), which is to be evaluated before applying the rule."

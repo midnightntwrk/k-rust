@@ -90,7 +90,7 @@ theorem names_ok : c.sortName sS = "S" ∧ c.sortName sE = "Empty" ∧ c.sortNam
     c.symName isMk = "LblisMk" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- S is not confined: its generator `mk` takes Empty, which has no generator. -/
 theorem not_confined : c.confined sS = false ∧ c.confined sE = false := by decide +kernel
@@ -463,7 +463,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT
     c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -817,7 +817,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName isKResult = "LblisKResu
     c.symName symC = "Lblc" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r1 : Rule := c.rules[1]'(by decide +kernel)
 noncomputable def r6 : Rule := c.rules[6]'(by decide +kernel)

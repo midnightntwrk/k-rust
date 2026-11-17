@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t15-eq-ensures.k": "781076930f6d018d0485b5a70e64aa880bd16cace027f130b348bd4ec8a815f5"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t15-eq-ensures.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "db85e394de81cbf3b0f018836b7c0453d4f4dd88f8dea687541768b46458f8b4",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

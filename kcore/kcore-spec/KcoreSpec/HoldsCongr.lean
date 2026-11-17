@@ -301,4 +301,34 @@ theorem Clause.fails_of_not_appliesRH {c : Semantics} {cl : Clause} (hh : c.Held
     exact ReqFails.intro ht (Exec.EvalTerm.congr he fun i hi => hag i (Clause.req_leftVarsRH ht i hi))
       fun h => hne (h ▸ he)
 
+/-! ## A result of a clause where it decides is a result of its function -/
+
+/-- **A result of a clause at a match where it decides is a result of its function**
+(`Eval.clause`, `Eval.ensFails`, `Eval.clauseEx`, `Eval.exNone`, the `Decides` premise as their
+`hprio`). For a clause with existential variables that gives a value, the instance that gives it
+is the match of the derivation: it is the given match on the patterns, the `requires` and the
+predicate, which hold no existential variable an instance varies. -/
+theorem Clause.Res.eval {c : Semantics} {f : Sym} {fn : Fn} {cl : Clause} {σ : Subst} {vs : List GroundTerm}
+    {r : Option GroundTerm} (hr : cl.Res c σ r) (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
+    (hd : cl.Decides c fn σ vs) : Eval c f vs r := by
+  obtain ⟨⟨hσ, hm, hq, hpre⟩, hp⟩ := hd
+  rcases hr with ⟨hex, (⟨he, hpost, hrhs⟩ | ⟨t, w, ht, he, hw, rfl⟩)⟩ |
+    ⟨hne, (⟨σ₁, v, ha, hσ₁, ⟨grhs, gens, gpost⟩, hall, rfl⟩ | ⟨rfl, hsome, hall⟩)⟩
+  · exact .clause hfn hmem hσ hm hq hpre hp hex hrhs he hpost
+  · exact .ensFails hfn hmem hσ hm hq hpre hp hex ht he hw
+  · have hl : ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := fun i hi =>
+      ha i (by simp [Clause.exsFree, hi])
+    exact .clauseEx hfn hmem hσ₁
+      (PatVals.congr_varsRH hm fun j hj => hl j (List.mem_append_left _ hj))
+      (fun t ht => Exec.EvalTerm.congr (hq t ht) fun i hi => (hl i (Clause.req_leftVarsRH ht i hi)).symm)
+      (Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm) hp hne grhs gens gpost
+      (fun σ'' ha'' hs'' => hall σ'' (ha.trans ha'') hs'')
+  · exact .exNone hfn hmem hne (hσ.at _) hm hq hpre hp hsome hall
+
+/-- One result at each argument list gives the coherence of every two clauses: each clause's
+result at its match is an `Eval` result (`Clause.Res.eval`), and `FnDet` equates the two. -/
+theorem Coherent.of_fnDet {c : Semantics} (hd : FnDet c) (cl cl' : Clause) : Coherent c cl cl' := by
+  intro vs σ σ' _ _ _ _ _ ⟨f, fn, hfn, hmem, hmem', hdec, hdec'⟩
+  exact .inr fun r r' h1 h2 => hd _ _ _ _ (h1.eval hfn hmem hdec) (h2.eval hfn hmem' hdec')
+
 end KCore

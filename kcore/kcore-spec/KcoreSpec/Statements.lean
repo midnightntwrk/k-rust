@@ -187,11 +187,18 @@ abbrev OutFn := GroundTerm → List Outcome
 
 /-! ## What a definition reads beyond the plain shapes -/
 
+/-- The condition holds a binder (`exMatch`, `ex`, `all`). -/
+def Cond.hasBinder : Cond → Bool
+  | .exMatch .. | .ex .. | .all .. => true
+  | .not p => hasBinder p
+  | .and p q | .or p q | .implies p q => hasBinder p || hasBinder q
+  | _ => false
+
 /-- The definition reads a confined sort: a rule or a clause has a variable its patterns do not
-bind, or a condition with a binder. -/
+bind, or a `pre` or a `post` with a binder. -/
 def Semantics.readsConfined (c : Semantics) : Bool :=
-  c.rules.any (fun r => !r.opens.isEmpty || !r.pre.isTop || !r.post.isTop) ||
-  c.fns.any fun f => f.clauses.any fun cl => !cl.opens.isEmpty || !cl.pre.isTop || !cl.post.isTop
+  c.rules.any (fun r => !r.opens.isEmpty || r.pre.hasBinder || r.post.hasBinder) ||
+  c.fns.any fun f => f.clauses.any fun cl => !cl.opens.isEmpty || cl.pre.hasBinder || cl.post.hasBinder
 
 /-- The definition uses no shape beyond the plain ones: no rule or clause binds a variable by
 `\exists` on its right side or has a predicate, every rule's left side and every clause's patterns
@@ -229,11 +236,11 @@ theorem Semantics.readsConfined_of_plain {c : Semantics} (h : c.plain = true) : 
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun f hf' => ?_⟩
   · obtain ⟨h1, h2, h3⟩ := hrule r hr'
-    simp [h1, h2, h3]
+    simp [h1, Cond.eq_top_of_isTop h2, Cond.eq_top_of_isTop h3, Cond.hasBinder]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'
     obtain ⟨h1, h2, h3⟩ := hcl f hf' cl hcl'
-    simp [h1, h2, h3]
+    simp [h1, Cond.eq_top_of_isTop h2, Cond.eq_top_of_isTop h3, Cond.hasBinder]
 
 /-! ## Conditions over variables the left side does not bind -/
 
@@ -272,6 +279,10 @@ theorem Semantics.coreOK_parts {c : Semantics} (h : c.coreOK = true) :
     c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧ c.predsApart = true ∧ c.idsOK = true := by
   simp only [Semantics.coreOK, Bool.and_eq_true] at h
   exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2⟩
+
+/-- No clause of a function of a definition `coreOK` accepts has an existential variable. -/
+theorem Semantics.fnsNoExs_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.FnsNoExs :=
+  Semantics.fnsNoExs_of_sortedOK (Semantics.coreOK_parts h).1
 
 /-- `coreOK`'s condition on the overloading symbols. -/
 theorem Semantics.coreOK_ovls {c : Semantics} (h : c.coreOK = true) : c.overloadsOK = true := by

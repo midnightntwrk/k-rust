@@ -1,0 +1,42 @@
+id = "t178-replaceat-end-bound"
+kind = "text"
+subject = 'replaceAtBytes(dest, index, src) where index + N equals the length of dest, N the length of src: here replaceAtBytes(b"abcd", 2, b"XY").'
+retro = ["BY2"]
+rests_on = ["kk:t177-bytes-valid-index"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:2152 (K 7.1.337)", quote = "syntax Bytes ::= replaceAtBytes(dest: Bytes, index: Int, src: Bytes) [function, hook(BYTES.replaceAt)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The result is dest except the N elements starting at index replaced with the contents of src (domains.md:2143-2144), and it is #False if index + N is not a valid index (2147). N is the length of src: the sentence names the N elements replaced with src's contents, and the declaration has no argument N (2148's 'values for index and N' is a slip of the prose). index + N = 4 is not a valid index of a Bytes of length 4 (kk:t177-bytes-valid-index). At index < 0 with index + N = L the #False is stated and the description names no N elements: no value.
+Where the readings part. At 0 <= index with index + N = L the two sentences disagree: the description names a value whose N positions are each a valid index (2, 3), and the letter of the #False sentence excludes it. Which of two sentences in conflict holds is not said; the owner question on two sentences of one text in conflict is open.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2143-2148 (K 7.1.337)"
+quote = "You can modify a `Bytes` to return a `Bytes` which is equal to `dest` except the `N` elements starting at `index` are replaced with the contents of `src` in O(N) time. If `--llvm-mutable-bytes` is active, this will not create a new `Bytes` object and will instead modify the original on concrete backends. The result is `#False` if `index` + `N` is not a valid index. This function accepts both `Int` and `MInt` values for `index` and `N`. Currently, only 64-bit and"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2152 (K 7.1.337)"
+quote = "syntax Bytes ::= replaceAtBytes(dest: Bytes, index: Int, src: Bytes) [function, hook(BYTES.replaceAt)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2101-2105 (K 7.1.337)"
+quote = "You can set the value of a particular byte in a `Bytes` object in O(1) time, either with index and value as `Int` or as an `MInt`. Currently, only 64-bit and 256-bit `MInt` types are supported. The result is `#False` if `value` is not in the range [0..255] or if `index` is not a valid index (ie, less than zero or greater than or equal to the length of the `Bytes` term)."
+
+[[reading]]
+name = "letter"
+statement = "The #False sentence holds by its letter."
+answer = 'replaceAtBytes(b"abcd", 2, b"XY") has no value'
+consequence = "Every replacement that reaches the last byte of dest has no value, replaceAtBytes(B, 0, B) included."
+
+[[reading]]
+name = "description"
+statement = "The description holds where each replaced position is a valid index; the #False sentence is read of the positions."
+answer = 'replaceAtBytes(b"abcd", 2, b"XY") = b"abXY"'
+consequence = "The #False sentence then excludes only an end past the bytes."

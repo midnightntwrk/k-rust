@@ -90,7 +90,7 @@ noncomputable abbrev cO : Semantics := { c with rules := c.rules ++ [ok1, okB, o
 /-- **`cO` has `coreOK`, reads a confined sort, and four of its rules leave a variable open.** -/
 theorem coreO : cO.coreOK = true ∧ cO.readsConfined = true ∧
     ok1.opens = [2] ∧ okB.opens = [2] ∧ ok2.opens = [2] ∧ okBc.opens = [2] ∧ plain.opens = [] := by
-  decide +kernel
+  decide_cheap
 
 /-- The rules' facts, and which arm each open variable passes. -/
 theorem facts :
@@ -221,20 +221,19 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
 pattern is where it applies (`applies_iff_open`). -/
 example (hd : FnDet cO) (hs : FnSolves cO) : True := by
   have h := hypModel_of_fn coreO.1 hd hs
-  have := Faithful.Model.sat_rule_open h (r := ok1) m1 facts.1.1 facts.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := okB) mB facts.2.1.1 facts.2.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := ok2) m2 facts.2.2.1.1 facts.2.2.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := okBc) mBc facts.2.2.2.1 facts.2.2.2.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.sat_rule_open h (r := ok1) m1 facts.1.1 facts.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := okB) mB facts.2.1.1 facts.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := ok2) m2 facts.2.2.1.1 facts.2.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := okBc) mBc facts.2.2.2.1 facts.2.2.2.2 (h.ruleFactsEx_of_all (by decide +kernel))
   have := @Faithful.Model.applies_iff_open cO h okB facts.2.1.1 facts.2.1.2.1
   have := @Faithful.Model.applies_iff_open cO h ok2 facts.2.2.1.1 facts.2.2.1.2.1
   trivial
 
-/-- The rules' open facts at `cO`: `ruleSorted` and `rulePlainEx` from `coreOK` and the rules'
-`\top` predicates (decided), and no rule of `cO` has an existential variable (decided), which with
+/-- The rules' open facts at `cO`: `ruleSorted` from `coreOK` and `rulePlainEx` decided, and no rule of `cO` has an existential variable (decided), which with
 `rulePlainEx` is `rulePlainOpen`. -/
 theorem hopenO : ∀ r ∈ cO.rules, cO.ruleSorted r = true ∧ cO.rulePlainOpen r = true := by
   have hex : ∀ r ∈ cO.rules, r.exs = [] := by decide +kernel
-  have hfacts := Semantics.ruleFactsEx_of_coreTop coreO.1 (by decide +kernel)
+  have hfacts := Semantics.ruleFactsEx_of_coreAll coreO.1 (by decide +kernel)
   exact fun r hr => ⟨(hfacts r hr).1, Semantics.rulePlainOpen_iff_ex.mpr ⟨(hfacts r hr).2, hex r hr⟩⟩
 
 /-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts `hopenO`. -/
@@ -351,7 +350,7 @@ theorem coreOC : cOC.coreOK = true ∧ cOC.readsConfined = true ∧ rB.opens = [
     clP.openCondVars.any (fun i => (clP.vars[i]?.map cOC.confined).getD false) = false ∧
     clW.needsWitness cOC = true ∧
     clW.openCondVars.any (fun i => (clW.vars[i]?.map cOC.confined).getD false) = false := by
-  decide +kernel
+  decide_cheap
 
 /-- **`clW` is `Witnessed`** at H := 0: `0 ==Int 0` evaluates to `true`, and by inversion of the
 hook to nothing else. -/
@@ -417,7 +416,7 @@ theorem shapeOW : cOW.coreOK = true ∧ rB.opens = [1] ∧ clW.needsWitness cOW 
     clW.opens = [0] ∧ gText.all (fun cl => !cl.needsWitness cOW) = true ∧
     (c.fns.drop 1).all (fun fn => fn.clauses.all fun cl => !cl.needsWitness cOW) = true ∧
     cOW.rules.all (fun r => !r.needsWitness cOW) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- The account's owed facts at `cOW`: no rule's `CondDecided`; `clW`'s, the first clause of the first
 function, over H (index 0). -/

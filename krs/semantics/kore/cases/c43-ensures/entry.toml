@@ -1,21 +1,64 @@
 id = "c43-ensures"
 kind = "case"
 subject = "A rule whose ensures is not true: where the ensures holds the rule gives its right side; where it is false the rule has applied with an empty result, so that configuration has no successor and is not final."
+retro = ["R3"]
+rests_on = ["kk:t02-step-successors", "kk:t05-rule-ensures-result", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a(0) no successor by the rule for a (user_manual.md:1159-1173); the axiom kompile writes has the ensures as a conjunct of its right side (kore.txt:102-104), and read as a rewrite axiom it is false in every model where a(0) in the k cell is an element: as written the text has no model holding a(0), which go steps to, rather than one where a(0) has no successor."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(1)"]
+reason = """
+(1) The two rules for go have priority 50 (user_manual.md:1748-1749) and both apply at go: its successors are a(1) and a(0) (kk:t02-step-successors).
+(2) The rule a(I) => b(I) ensures I >Int 0 matches both. Its transition ends in b(I) #And (I >Int 0): where the ensures is true the result is b(I), and where it is not the result has no value, the rule having applied all the same (kk:t05-rule-ensures-result; user_manual.md:1159-1163). At a(1), 1 >Int 0 is true (domains.md:1324-1325): a(1) steps to b(1). At a(0), 0 >Int 0 is false: the rule applies and gives no successor.
+(3) No rule's left side matches b(1), so it is final. A rule applies to a(0) (2), so a(0) is not a configuration to which no rule can be applied, and it is not final (kk:t06-final-configuration); it has no successor, so nothing is reached from it. b(0) is reached by no rule: the ensures is not dropped from the transition. The final configurations from go are b(1) alone.
+(4) Reading the ensures as a further requires would make the rule not apply at a(0), and a(0) final. user_manual.md:1161-1163 excludes it: the ensures is added if the rule applies, and the rule is applied where it makes the term undefined.
+(5) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "Finally is the *ensures clause*, represented here as `ENS`. The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case. Note that concrete backends (eg. the LLVM backend) are free to ignore the ensures clause."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "The rule for a is one rewrite axiom whose right side is the configuration pattern of b(I) and the conjunct \\equals(I >Int 0, true) at sort Bool (kore.txt:97-105). At I = 0 the equality denotes the empty set and so does the right side, so the axiom holds only where its left side has no element. a is a constructor with a functional axiom (kore.txt:60), and the rules for go state that go has a successor among the configurations of a(0) (kore.txt:108-114): the written sentences have no model in which go or a(0) in the k cell is an element, while the manual's transition gives go the final configuration b(1)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:102-104"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-'Int'Unds'{}(VarI:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true"))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:60"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:882-883 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
-false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
-where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
-not final (the K manual, "Rule Structure": the ensures may make the term undefined, and the \
-backend applies the rule anyway). The haskell backend's result is \
-kore.k's, b(1) alone."""
+reason = "The llvm backend does not evaluate the ensures (the manual lets a concrete backend ignore it, user_manual.md:1163-1164): it steps a(0) to b(0), a final configuration the ruling does not have."

@@ -1,10 +1,47 @@
 id = "c03-nondet"
 kind = "case"
 subject = "Rules of one priority give several successors; paths meet again (diamonds) and end in several distinct final configurations."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["fin(0)", "fin(1)", "fin(10)", "fin(20)"]
+reason = """
+(1) The four rules have priority 50 (user_manual.md:1748-1749). At a configuration each rule whose left side matches and whose requires is true applies (kk:t01-rule-applies), and the successors are the results of all of them (kk:t02-step-successors). Call them R1 p(X, Y) => p(X -Int 1, Y) requires X >Int 0, R2 p(X, Y) => p(X, Y -Int 1) requires Y >Int 0, R3 p(0, 0) => fin(0), and R4 p(X, Y) => fin(X *Int 10 +Int Y) requires X ==Int 0 orBool Y ==Int 0. The integer operations are those of domains.md:1232, 1238 and 1324-1325, and true orBool B is true and false orBool B is B (domains.md:1155, 1157).
+(2) p(2, 1): R1 gives p(1, 1) and R2 gives p(2, 0); R3 does not match; R4's requires 2 ==Int 0 orBool 1 ==Int 0 is false.
+(3) p(1, 1): R1 gives p(0, 1), R2 gives p(1, 0), R4's requires is false. p(2, 0): R1 gives p(1, 0); R2's requires 0 >Int 0 is false; R4's is true and gives fin(20). p(0, 1): R1's requires is false; R2 gives p(0, 0); R4 gives fin(1). p(1, 0): R1 gives p(0, 0); R2's requires is false; R4 gives fin(10). p(0, 0): R1's and R2's requires are false; R3 gives fin(0) and R4 gives fin(0 *Int 10 +Int 0), that is fin(0).
+(4) No rule's left side matches fin(n), so each fin(n) reached is final, and every p(x, y) reached has a successor, so none is final (kk:t06-final-configuration). The final configurations from p(2, 1) are those reachable by every choice of rule: fin(0), fin(1), fin(10) and fin(20), each reached by several paths, and no other."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1232 (K 7.1.337)"
+quote = "Compute the product `*Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1155 (K 7.1.337)"
+quote = "rule true orBool _:Bool => true"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1157 (K 7.1.337)"
+quote = "rule false orBool B:Bool => B"

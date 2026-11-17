@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t166-macro.k": "3ffa9f53480c5d3c556a6595e92b200f7b60bab8eead98645eaaade2b860a1da"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t166-macro.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "504d5b08725f3608552028e8839d55d288b2025a498321255ccfb5cb56cedda4",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

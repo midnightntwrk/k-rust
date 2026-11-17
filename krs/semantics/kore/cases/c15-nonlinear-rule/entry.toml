@@ -1,10 +1,31 @@
 id = "c15-nonlinear-rule"
 kind = "case"
 subject = "A variable seen twice in a rule's left side: the rule does not apply to distinct values."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t06-final-configuration", "kk:t17-nonlinear"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["diff"]
+reason = """
+(1) Under a valuation a variable denotes the one element the valuation gives it, at each of its occurrences (introduction-to-matching-logic.tex:727), so a left side in which X occurs twice matches exactly where the two places hold one value (kk:t17-nonlinear, which rules it for an equation's left side; a rule's left side is a pattern read the same way). The left side two(X, X) therefore matches two(1, 2) at no valuation, 1 and 2 being distinct integers (domains.md:1324-1325): the rule of priority 50 does not apply (kk:t01-rule-applies), and same is no successor.
+(2) Its having been shown not to apply, the rule of priority 60 is tried (kk:t04-rule-priority-owise; user_manual.md:1722-1724). Its left side two(_, _) matches with no requires: two(1, 2) steps to diff alone (kk:t02-step-successors).
+(3) No rule's left side matches diff, so it is final (kk:t06-final-configuration). The final configurations are diff alone."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."

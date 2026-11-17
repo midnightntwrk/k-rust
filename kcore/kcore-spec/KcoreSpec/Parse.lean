@@ -931,20 +931,23 @@ def decimal? (cs : List Char) : Option (Nat × Int) :=
   else (digitsVal (ip ++ fp) 0).bind fun m => (expPart? r).map fun x => (m, x - fp.length)
 
 /-- A Float literal's text (K's FLOAT-SYNTAX: `[+-]?` then a decimal, `Infinity`, or `NaN`
-unsigned, then a suffix) as the literal of its datum: the decimal's value rounded to the format,
-nearest ties to even (`UnpackedFloat.ofScientific`), the sign applied after (rounding is symmetric,
-and `-0.0` is negative zero), encoded (`KFloat.packBits`). `none` for another text or a format
-without a model. -/
+unsigned, then a suffix) as the literal of its datum: the decimal's value rounded to the nearest
+value of the format where the text states which that is (`KFloat.ofDecimal?`, domains.md 1478-1483),
+the sign applied after (rounding is symmetric, and `-0.0` is negative zero), encoded
+(`KFloat.packBits`). `none` for another text, a format without a model, and a decimal whose datum
+the text does not state: one halfway between two data of the format, above its largest finite
+value, or nonzero and rounding to zero. -/
 def floatLit? (text : String) : Option Lit := do
   let (body, p, e) ← floatSuffix text.toList
   let s ← KFloat.spec? p e
+  let s' ← KFloat.spec? (p + 1) e
   let (neg, mag) := match body with
     | '-' :: r => (true, r)
     | '+' :: r => (false, r)
     | r => (false, r)
   let u ← if body == "NaN".toList then some Float.Model.UnpackedFloat.notANumber
     else if mag == "Infinity".toList then some (Float.Model.UnpackedFloat.infinity .positive)
-    else (decimal? mag).map fun (m, x) => Float.Model.UnpackedFloat.ofScientific s m x
+    else (decimal? mag).bind fun (m, x) => KFloat.ofDecimal? s s' m x
   pure (.float p e (KFloat.packBits s (if neg then u.neg else u)))
 
 /-- A literal of sort `s`, read from its text. -/
@@ -2238,15 +2241,15 @@ def eqnInfo? (as : List Kore.AppPattern) : Option KoreAML.Meta :=
 def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
   (source? attrs).bind fun s => if s == msrc then none else some s
 
-/-- An equation's priority, with it where the presentation writes it `priority{}("n")`
-(`ClausePres.prioAttr`): `priority{}("n")`'s n; for a symbol-overload axiom (`overloadEqn?`) 0,
-written so, the attribute that gives it being none `emit` writes; otherwise 200 for an `[owise]`
-equation (one with competitors) and 50 for the others. -/
+/-- An equation's priority, with it where the text writes it `priority{}("n")`
+(`ClausePres.prioAttr`): `priority{}("n")`'s n; otherwise 0 for a symbol-overload axiom
+(`overloadEqn?`, whose `symbol-overload` attribute `emit` writes back, `ClausePres.overload`), 200
+for an `[owise]` equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
-  let explicit := ((attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0).orElse fun _ =>
-    if hasAttr e.attrs "symbol-overload" then some 0 else none
-  (explicit, explicit.getD (if e.competitors.isSome || e.dom then 200 else 50))
+  let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+  (explicit, explicit.getD (if hasAttr e.attrs "symbol-overload" then 0
+    else if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
 with primes and 0, 1, the fewest primes for which neither is an element variable the equation
@@ -2338,7 +2341,8 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   let aside := nonExec e
   match excl with
   | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
-      ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome⟩)
+      ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome,
+       (overloadSyms? e.attrs).map (·.2)⟩)
   | some ex =>
     let (bs, body) := binders eqnFuel ex
     let (_, evs) ← match body with
@@ -2363,7 +2367,7 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
             rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside },
           ⟨vs'.map (·.name), m, π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name),
            attrStr? e.attrs "label",
-           srcOver msrc e.attrs, explicit.isSome⟩)
+           srcOver msrc e.attrs, explicit.isSome, (overloadSyms? e.attrs).map (·.2)⟩)
 
 /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 def clause? (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) :=
@@ -4284,9 +4288,12 @@ def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Refus
 
 A rule read without a variable of the axiom it comes from (`splitRule`, `unheldBinders`) needs an
 element of the variable's sort. The reader exhibits a value: a ground term built from literals,
-empty collections, constructors and injections, so applying no open generator, of which the built
-semantics gives the sort (`sortOf_of_exhibit`). `Γ` then entails an element of the sort in every
-model (`Faithful.inhabited_of_value`). A sort without one found is refused (`unheldVariable`): the
+empty collections, constructors and injections, checked to apply no open generator
+(`rawFree_of_exhibit`), of which the built semantics gives the sort (`sortOf_of_exhibit`). Its sort
+then reads no interpretation of the parameters, and `Γ` entails an element of the sort in every
+model at every interpretation (`Faithful.inhabited_of_exhibit_withHooks`). At a sort whose only
+values apply an open generator no value is exhibited: at an interpretation that answers the
+generator outside the sort, the sort has no value. A sort without one found is refused (`unheldVariable`): the
 search may miss a value, and a refusal states nothing. -/
 
 /-- The value of each sort first in `l`. -/
@@ -4330,13 +4337,14 @@ def exhibitN (c : Semantics) : Nat → List (Srt × GroundTerm) → List (Srt ×
 
 /-- A value of the sort `s` the reader exhibits (`exhibitSeeds`, then rounds of `exhibitRound`,
 each adding a sort, as many as there are constructors and subsort pairs), checked: one the
-semantics gives the sort `s`. -/
+semantics gives the sort `s` and that applies no open generator (`Semantics.rawFree`), so that it
+is a value of `s` at every interpretation of the parameters (`Faithful.sortOf_withHooks_of_exhibit`). -/
 def exhibit? (c : Semantics) (s : Srt) : Option GroundTerm :=
   ((exhibitN c (c.ctorSigs.length + c.subsorts.length) (exhibitSeeds c)).lookup s).filter
-    fun v => c.sortOf v == some s
+    fun v => c.sortOf v == some s && c.rawFree v
 
-theorem sortOf_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.sortOf v = some s := by
+theorem exhibit_parts {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
+    c.sortOf v = some s ∧ c.rawFree v = true := by
   unfold exhibit? at h
   generalize List.lookup s _ = o at h
   cases o with
@@ -4344,8 +4352,19 @@ theorem sortOf_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibi
   | some w =>
     simp only [Option.filter] at h
     split at h
-    · rename_i hw; cases h; exact beq_iff_eq.mp hw
+    · rename_i hw; cases h
+      rw [Bool.and_eq_true] at hw
+      exact ⟨beq_iff_eq.mp hw.1, hw.2⟩
     · cases h
+
+theorem sortOf_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
+    c.sortOf v = some s :=
+  (exhibit_parts h).1
+
+/-- An exhibited value applies no open generator. -/
+theorem rawFree_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
+    c.rawFree v = true :=
+  (exhibit_parts h).2
 
 /-- Why a rule read from a rewrite axiom without some of its variables (`unheldBinders` of its left
 side, `splitRule`) is not read: a variable whose sort has no value the reader exhibits

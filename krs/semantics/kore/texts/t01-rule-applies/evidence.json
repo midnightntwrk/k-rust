@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t01-rule-applies.k": "94167088b56a34e05a8a4c8588b3c030cfc897d33b176a05793017395b82ed1d"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t01-rule-applies.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "5cea60dc52e49db04f9334b22a17f49a23b8d42c624fd5224e980340aa131a5f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

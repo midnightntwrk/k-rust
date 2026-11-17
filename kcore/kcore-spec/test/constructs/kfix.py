@@ -35,6 +35,11 @@ A fixture directory holds its K text(s) and fixture.toml:
            kompiles another fixture's text); kore.txt then holds the sentences not in that
            fixture's main module instead of base's (base's still where that fixture is an error
            fixture, which has no main module)
+  kk       the id of a Kore-in-K entry (krs/semantics/kore/texts/ID or cases/ID of this tree) whose
+           K text is this fixture's: the files of its [text] are copied beside the fixture's, as
+           text_from copies a fixture's, and main defaults to the first of them; kompile.txt records
+           each one's path and sha256 (`kk FILE: sha256 ...`). The fixture directory then holds no K
+           text of its own: the entry's is the one copy
   external files of the k-rust checkout (K_RUST, paths relative to it) copied beside the text
            before kompiling; kompile.txt records each one's sha256
   kore_txt false: write no kore.txt (a large text no row points into, such as kore.k's)
@@ -365,9 +370,28 @@ def sha(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 
+# the Kore-in-K catalogue of this tree (krs/semantics/kore), whose entries a fixture's `kk` names
+CATALOGUE = os.path.join(os.path.dirname(os.path.dirname(K)), "krs/semantics/kore")
+
+
+def kk_files(entry_id):
+    """The paths of the K text files of the Kore-in-K entry `entry_id`; SystemExit when it names no
+    entry or the entry has no K text."""
+    for sub in ("texts", "cases"):
+        d = os.path.join(CATALOGUE, sub, entry_id)
+        if os.path.isfile(os.path.join(d, "entry.toml")):
+            files = tomllib.load(open(os.path.join(d, "entry.toml"), "rb")).get("text", {}).get("files")
+            if not files:
+                raise SystemExit(f"kfix: kk entry {entry_id} has no K text ([text].files)")
+            return [os.path.join(d, f) for f in files]
+    raise SystemExit(f"kfix: kk = {entry_id!r} names no entry of {os.path.relpath(CATALOGUE, K)}")
+
+
 def conf(name):
     p = os.path.join(FX, name, "fixture.toml")
     c = tomllib.load(open(p, "rb")) if os.path.exists(p) else {}
+    if "kk" in c and "main" not in c:
+        c["main"] = os.path.basename(kk_files(c["kk"])[0])
     c.setdefault("main", name + ".k")
     c.setdefault("extra", [])
     c.setdefault("expect", "ok")
@@ -450,6 +474,11 @@ def run(name):
                 shutil.copy(os.path.join(FX, c["text_from"], f), src)
                 origin[f] = os.path.relpath(os.path.join(FX, c["text_from"], f), relsource.TREE)
     ext = []
+    for f in kk_files(c["kk"]) if "kk" in c else []:
+        shutil.copy(f, src)
+        origin[os.path.basename(f)] = os.path.relpath(f, relsource.TREE)
+        ext.append(f"kk {os.path.relpath(f, os.path.dirname(os.path.dirname(K)))}: sha256 "
+                   f"{hashlib.sha256(open(f, 'rb').read()).hexdigest()}")
     for rel in c.get("external", []):
         shutil.copy(os.path.join(KR, rel), src)
         origin[os.path.basename(rel)] = rel
@@ -829,10 +858,19 @@ def check(lists):
         for m in re.finditer(r"^(same_as|differs_from) (\S+): (\w+)", t, re.M):
             if (m[1] == "same_as") != (m[3] == "equal"):
                 bad.append(f"fixture {f}: {m[1]} {m[2]} is {m[3]}")
-        c = conf(f)
+        try:
+            c = conf(f)
+        except SystemExit as err:
+            bad.append(f"fixture {f}: {err}"); continue
         for rel in ("same_as", "differs_from"):
             if rel in c and f"{rel} {c[rel]}:" not in t:
                 bad.append(f"fixture {f}: {rel} not recorded")
+        for kf in kk_files(c["kk"]) if "kk" in c else []:
+            line = (f"kk {os.path.relpath(kf, os.path.dirname(os.path.dirname(K)))}: sha256 "
+                    f"{hashlib.sha256(open(kf, 'rb').read()).hexdigest()}")
+            if line not in t:
+                bad.append(f"fixture {f}: kompile.txt does not record the present text of kk {c['kk']} "
+                           f"({os.path.basename(kf)}): kfix.py run {f}")
     bad += check_notes(rows)
     bad += check_stripped()
     ks =[f for f in sorted(os.listdir(FX)) if recorded_sha(f)]

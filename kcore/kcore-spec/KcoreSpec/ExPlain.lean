@@ -9,7 +9,7 @@
   variables of confined sorts or closed conditions. An existential variable is in no condition of the
   left side, so it passes by the first two arms only. `rulePlainOpen` is `rulePlainEx` with no
   existential variable (`rulePlainOpen_iff_ex`); the predicates of a rule with `rulePlainEx` are
-  `\top` (`rulePlainEx_top`). `rulesPlain` asks less of a rule: `rulePlainPP` (PredPlain.lean).
+  `\top` (`rulePlainEx_top`). `rulesPlain` asks less of a rule: `rulePlainHO1` (PredPlain.lean).
 -/
 import KcoreSpec.OpenStep
 
@@ -17,8 +17,9 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `rulesPlain` asks of the rule r, and `\top` predicates; its left side need not bind
-every variable and it may have existential variables. -/
+/-- What `rulesPlain` asks of the rule r with the first arm reading constructors and injections
+only (`ctorOccs`), and `\top` predicates; its left side need not bind every variable and it may
+have existential variables. -/
 def Semantics.rulePlainEx (c : Semantics) (r : Rule) : Bool :=
   r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false

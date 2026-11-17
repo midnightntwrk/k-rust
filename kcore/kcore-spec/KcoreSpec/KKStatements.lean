@@ -119,12 +119,10 @@ example (r : Rule) : r.opens.isEmpty = binds r.vars.length (varOccs r.lhs) :=
 example (cl : Clause) : cl.opens.isEmpty = binds cl.vars.length (varOccsList cl.pats) :=
   opens_isEmpty_iff_binds _ _
 
-/-- What `execReady` gives of `ruleShapeOK`: all but `exs`. -/
+/-- What `execReady` gives of `ruleShapeOK`: the left side binds every variable. -/
 example {c : Semantics} (hr : CExec.execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
-    (r.opens.isEmpty && r.pre.isTop && r.post.isTop) = true := by
-  obtain ⟨hpre, hpost, hb⟩ := CExec.rule_plain_of_execReady hr hmem
-  have ho : r.opens.isEmpty = true := (opens_isEmpty_iff_binds _ _).trans hb
-  rw [ho, hpre, hpost]; rfl
+    r.opens.isEmpty = true :=
+  (opens_isEmpty_iff_binds _ _).trans (CExec.rule_atoms_of_execReady hr hmem).2.2
 
 /-! ## The members the statements are about -/
 
@@ -145,10 +143,10 @@ end
 
 /-! ## The facts the form rests on -/
 
-/-- `hco` is the hypothesis `Eval.functional` takes at `d₀`, and `EvalTerm.functional`'s. -/
-example {d : Semantics} (hco : CoherentAll (d₀ d)) {f : Sym} {vs : List GroundTerm}
+/-- `hco` and `hno` are the hypotheses `Eval.functional` takes at `d₀`, and `EvalTerm.functional`'s. -/
+example {d : Semantics} (hco : CoherentAll (d₀ d)) (hno : (d₀ d).FnsNoExs) {f : Sym} {vs : List GroundTerm}
     {r r' : Option GroundTerm} (h : Eval (d₀ d) f vs r) (h' : Eval (d₀ d) f vs r') : r = r' :=
-  Eval.functional hco h h'
+  Eval.functional hco hno h h'
 
 /-- At `d₀` no premise of `Eval`, `EvalTerm` reads an interpretation: a hook's result is `hook`'s,
 a function's rest is undefined, and a parameter without `impl` has no value unless it is an open

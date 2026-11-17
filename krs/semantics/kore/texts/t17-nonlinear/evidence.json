@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t17-nonlinear.k": "abaade596d834bb1f293c12bdf3af9fd9561671797a1de22d78f7c83b88d39e4"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t17-nonlinear.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3387ef2a5d82bb1a9533f41c5aed67c98d18970379d0989d6cfb44a6140d98d9",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -399,8 +399,9 @@ theorem open_paramVal_Hx :
 /-! ### `lawHooks` is admitted where H is (`libAdmitted_lawHooks_of`)
 
 CommCtor has two open generators. Its open generators bear no registry number, and every value of a
-sort the library's sentences read applies none (`shapesOK`, `floatShapeOK`), so `lawHooks c H` is
-admitted wherever H is; at `HookParams.lib`, admitted in every semantics with `floatShapeOK`
+sort the library's sentences other than `_RangeMap_`'s associativity read applies none (`shapesOK`,
+`floatShapeOK`), so `lawHooks c H` is admitted wherever H is and gives `_RangeMap_` no value; at
+`HookParams.lib`, admitted in every semantics with `floatShapeOK`
 (`libAdmitted_lib`), so is `lawHooks c HookParams.lib`, which differs from it at `and` and `or`. -/
 
 theorem comm_reg : ∀ k ∈ CommCtor.c.params, k.raw = true → nRegSyms ≤ k.sig.name := by decide +kernel
@@ -410,7 +411,7 @@ theorem comm_lawLibRawFree : CommCtor.c.lawLibRawFree :=
 
 theorem comm_lawHooks_lib : (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)).libAdmitted :=
   libAdmitted_lawHooks_of comm_reg comm_lawLibRawFree HookParams.lib
-    (libAdmitted_lib CommCtor.c (by decide +kernel))
+    (libAdmitted_lib CommCtor.c (by decide +kernel)) lib_app_rmConcat_none
 
 example : (lawHooks CommCtor.c HookParams.lib).app CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []] =
       some (.ctor CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []]) ∧
@@ -609,7 +610,7 @@ theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) :
     OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
     (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
   ⟨openLaws_lawHooks c h HookParams.lib, openTotal_lawHooks c h HookParams.lib,
-    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib_of_coreOK h)⟩
+    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib_of_coreOK h) lib_app_rmConcat_none⟩
 
 theorem commCtor_lawHooks_lib :
     OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
@@ -626,7 +627,7 @@ theorem idemCtor_lawHooks_lib :
   ⟨idemCtor_openLaws_lawHooks HookParams.lib, idemCtor_openTotal_lawHooks HookParams.lib,
     libAdmitted_lawHooks_of idemCtor_reg
       (lawLibRawFree_of_shapes (by decide +kernel) (by decide +kernel) idemCtor_reg) HookParams.lib
-      (libAdmitted_lib IdemCtor.c (by decide +kernel))⟩
+      (libAdmitted_lib IdemCtor.c (by decide +kernel)) lib_app_rmConcat_none⟩
 
 /-! ## `coreOK` admits the four semantics
 
@@ -658,9 +659,10 @@ theorem commCtor_lawShape_core : ∀ k ∈ CommCtor.c.params, k.raw = true → L
 theorem commCtor_openTotal_none_core : OpenTotal (CommCtor.c.withHooks HookParams.none) :=
   openTotal_none _ commCtor_coreOK
 
-theorem commCtor_libAdmitted_lawHooks (H : HookParams) (ha : (CommCtor.c.withHooks H).libAdmitted) :
+theorem commCtor_libAdmitted_lawHooks (H : HookParams) (ha : (CommCtor.c.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) :
     (CommCtor.c.withHooks (lawHooks CommCtor.c H)).libAdmitted :=
-  libAdmitted_lawHooks _ commCtor_coreOK H ha
+  libAdmitted_lawHooks _ commCtor_coreOK H ha hrm
 
 theorem commCtor_lawHooks_lib_core :
     OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧

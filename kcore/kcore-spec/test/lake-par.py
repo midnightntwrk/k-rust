@@ -99,6 +99,15 @@ def committed_gib():
     # the room every running lean process (this tree's and the others') has left to grow
     return sum(max(0.0, max(est_gib(k), rss) - rss) for rss, k, _ in lean_procs())
 
+HERE = os.getcwd().rstrip("/") + "/"
+
+def started_all():
+    # every module this run launched has its lean process on the machine (or has finished)
+    vis = {a for _, _, args in lean_procs() for a in args.split() if a.endswith(".lean")}
+    return all(p.poll() is not None or
+               any(v.startswith(HERE) and v.endswith("/" + m.replace(".", "/") + ".lean") for v in vis)
+               for m, (p, _, _) in running.items())
+
 def phase1():
     # modules importing no KcoreSpec module pull the other packages (aml-port, kore-lean) in;
     # build those one at a time so no two runs compile the same dependency
@@ -130,6 +139,10 @@ while pending or running:
         for m in list(pending):
             if len(running) >= CAP: break
             if not all(d in done for d in deps[m]): continue
+            # a module launched but whose lean process has not appeared yet is in no one's
+            # committed_gib (this run's or another tree's), so admitting more now would charge
+            # nothing for it: wait until every running module of this tree is visible
+            if not started_all(): break
             # a run just started has not grown yet, so MemAvailable alone would admit too many at
             # once: charge every running lean process the room it has left, and this module its peak
             if avail_gib() - committed_gib() - est_gib(m.replace(".", "/") + ".lean") < RESERVE: break

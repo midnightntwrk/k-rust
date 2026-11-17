@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t126-rule-lhs-not.k": "5564a5911134b482a3caa2a895ed0f26cecb048d4b013064aea1cdf4e868fc04"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t126-rule-lhs-not.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "d33c98d6007346afeb652d8ffb3d9b167da0b08d65455eca494f3b2f8f632ec3",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

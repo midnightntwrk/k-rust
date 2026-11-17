@@ -204,9 +204,12 @@ def b (t : String) : GroundTerm := bytesV t.toList
 def f64 (n : Nat) : GroundTerm := .dv Srt.float (.float 53 11 n)
 def f32 (n : Nat) : GroundTerm := .dv Srt.float (.float 24 8 n)
 def be : GroundTerm := .ctor bigEndianBytes []
-/-- `1.0p1x8` and `NaNp1x8`, values of a format with a field of 1 (`KFloat.thinOK`). -/
+/-- `1.0p1x8`, a value of a format with a field of 1 (`KFloat.thinOK`). -/
 def t18 : GroundTerm := .dv Srt.float (.float 1 8 127)
-def n18 : GroundTerm := .dv Srt.float (.float 1 8 512)
+/-- `1.0p2x1` and `NaNp2x1`, values of a format of one exponent bit, where neither the comparisons
+nor `isNaN` and `isInfinite` are computed (`asDatum`). -/
+def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
+def n21 : GroundTerm := .dv Srt.float (.float 2 1 8)
 def sig (f : Sym) : CtorSig := (lookupSig hookSigs f).getD default
 
 /-! ## The schema at one point of every key -/
@@ -254,9 +257,9 @@ def pts : List Pt :=
    ⟨floatSqrt, [f64 0x8000000000000000], f64 0⟩,
    ⟨floatNeg, [t18], f64 0⟩, ⟨floatAbs, [t18], f64 0⟩, ⟨floatFloor, [t18], f64 0⟩,
    ⟨floatCeil, [t18], f64 0⟩, ⟨floatTrunc, [t18], f64 0⟩,
-   ⟨floatLe, [t18, t18], bool true⟩, ⟨floatLt, [t18, f64 0], bool true⟩, ⟨floatGe, [f64 0, t18], bool true⟩,
-   ⟨floatGt, [t18, t18], bool true⟩, ⟨floatEq, [t18, t18], bool true⟩, ⟨floatNe, [t18, t18], bool false⟩,
-   ⟨floatIsNaN, [n18], bool false⟩, ⟨floatIsInfinite, [t18], bool true⟩]
+   ⟨floatLe, [t21, t21], bool true⟩, ⟨floatLt, [t21, f64 0], bool true⟩, ⟨floatGe, [f64 0, t21], bool true⟩,
+   ⟨floatGt, [t21, t21], bool true⟩, ⟨floatEq, [t21, t21], bool true⟩, ⟨floatNe, [t21, t21], bool false⟩,
+   ⟨floatIsNaN, [n21], bool false⟩, ⟨floatIsInfinite, [t21], bool true⟩]
 
 /-- RANGEMAP's seven keys of `silentTable`. -/
 def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
