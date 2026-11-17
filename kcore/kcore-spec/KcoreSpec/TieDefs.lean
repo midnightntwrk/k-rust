@@ -112,10 +112,17 @@ def sortDecls (k : Kore.Definition) : List (String × List Kore.AppPattern) :=
     | .hookedSort s => some (s.sort.ident.name, s.attributes)
     | _ => none
 
+/-- The number a non-empty string of decimal digits writes. Read off the string's characters, so
+that the kernel reduces it at a literal (it does not reduce `String.toNat?`). -/
+def digitsNat (s : String) : Option Nat :=
+  let cs := s.toList
+  if cs.isEmpty || !cs.all Char.isDigit then none
+  else some (cs.foldl (fun a ch => a * 10 + (ch.toNat - 48)) 0)
+
 /-- The priority an axiom's attributes state: 200 for `owise`, n for `priority{}("n")`, 50
 otherwise. -/
 def prioOf (as : List Kore.AppPattern) : Nat :=
-  if has as "owise" then 200 else match (strArg as "priority").bind String.toNat? with
+  if has as "owise" then 200 else match (strArg as "priority").bind digitsNat with
     | some n => n
     | none => 50
 

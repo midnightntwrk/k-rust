@@ -1148,3 +1148,19 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
+  `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
+  C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
+  copied to `f2-examples/NAME.kompile.kore` with its paths restored), on the literal `defn`, for
+  every H. Each: `wf_defn`, `coreOK`, `defs_attrsAgree`; `shape` (each of Γ's function equations
+  is its text sentence's translation, or that with a variable renamed: `TiePair.shapeB`,
+  KcoreSpec/TiePairs.lean), `fns_entailed`, `fns_from_text`; `cons_entailed` (the constructor
+  sentences, `tieConsB`); `account` (the two classes are sentences of the user module, apart, with
+  the count of the rest); `consistent`; the expectations by the cut from `Pre H` (every equation of
+  the function as written, or as Γ's item for one read under the priority premise, with the
+  families), which has a model (`pre_model`). C3EqEnsPrioComp: the equation without the attribute
+  is in Γ under the negation of the clause of priority 40; its sentence entails Γ's item (`w1`) and
+  is the item without that premise (`w_text`); `f_5`, `f_neg1` are through the reading.
+  C3EqEnsTotal: `eval_neg1`, `not_total`, `not_fnHyp`, `not_obl` (`total_named = [f]`), `fnModelH`
+  and `consistent` by `consistent_of`, a model of Γc alone. C3EqEnsTotalHolds: `eval_all`, `total_f`,
+  `obl`, `model_total` (`has_model_total`). About 3 to 5 minutes and 8 GiB each.

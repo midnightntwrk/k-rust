@@ -265,3 +265,4 @@ import KcoreSpec.TieRename
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
+import KcoreSpec.TiePairs
