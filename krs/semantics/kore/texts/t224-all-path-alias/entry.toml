@@ -1,0 +1,39 @@
+id = "t224-all-path-alias"
+kind = "text"
+subject = "A rule in a module carrying all-path, as kompile writes it: \\rewrites(l, weakAlwaysFinally(r)), with the prelude's alias weakAlwaysFinally. What the axiom states."
+retro = ["R7"]
+origin = "kcore-spec fixture hw-allpath-alias (the text kompile writes for fixture e2-all-path, one parenthesis restored)"
+rests_on = ["kk:t02-step-successors"]
+
+[text]
+files = ["t224-all-path-alias.kore"]
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "weakAlwaysFinally is an alias whose definition is the identity, weakAlwaysFinally{A}(@X:A) := @X:A, so the axiom denotes what \\rewrites(l, r) denotes: every configuration a() ~> K has a successor b() ~> K, as the rule without the attribute states. The alias's name says nothing beyond its definition: the axiom states no fixpoint over successors. The prelude defines weakExistsFinally and allPathGlobally the same way."
+reason = """
+(1) The manual says all-path and one-path tell what kind of reachability claim a rule is, on a rule or on a module (user_manual.md:2317-2326).
+(2) The prelude defines the three aliases by their alias sentences, each the identity on its argument (prelude.kore:57-59). An alias sentence defines the alias's application by := as its pattern, whose only free variables are the declared ones (kore-syntax.md:270-271, 310-314), so an application of the alias denotes that pattern with the argument in place of @X. So weakAlwaysFinally(r) denotes r.
+(3) The axiom is then \\rewrites(l, r) (t224-all-path-alias.kore:19-26): every element of l has a successor in r (kk:t02-step-successors, point (4)). The K text this was written from, a module carrying all-path with the one rule a() => b(), is refused in K 7.1.337 at kompile's own output, one parenthesis short (exit 113); the text here is that output with the parenthesis restored, so this entry rules on the sentences, not on what kompile delivers."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2317-2326 (K 7.1.337)"
+quote = "As the Haskell backend can handle both one-path and all-path reachability claims, but both these are encoded as rewrite rules in K, these attributes can be used to clarify what kind of claim a rule is."
+
+[[ruling.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:57-59 (K 7.1.337)"
+quote = "alias weakExistsFinally{A}(A) : A where weakExistsFinally{A}(@X:A) := @X:A [] alias weakAlwaysFinally{A}(A) : A where weakAlwaysFinally{A}(@X:A) := @X:A [] alias allPathGlobally{A}(A) : A where allPathGlobally{A}(@X:A) := @X:A []"
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:270-271 (K 7.1.337)"
+quote = '<sentence-alias> ::= "alias" <alias> "(" <sorts> ")" ":" <sort> "where" <application-pattern> ":=" <pattern> "[" <attributes> "]"'
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:310-314 (K 7.1.337)"
+quote = "4.  In any alias sentence, a. the variables on the left-hand side are distinct, and b. their number and sorts agrees with the declaration of the alias; c. the pattern is valid and its sort agrees with the declared result sort; d. the pattern contains no free variables other than the declared variables."
