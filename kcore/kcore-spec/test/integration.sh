@@ -10,6 +10,14 @@
 #   pins-kimp   test/pins-kimp.sh: row imp's statements (consistent, sound_at, complete_at, run_exact)
 #               on kimp's text generated with --wf
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
+#   axioms-tests  the same of the declarations of every test/X file (test/Guards.lean and the fixture
+#               modules among them): each test/X row runs its file with `#axioms_here`
+#               (KcoreSpec/AxiomsCheck.lean) appended, and this row, after them, requires that line's
+#               verdict in every row's log (a run killed or timed out before it fails the row)
+#   axioms-packages  the same of every declaration of each row package (ROWPKGS: ref-kimp, and ref-kk
+#               when examples/ref-kk exists), after the user row has built them: every module of
+#               its modules.txt (which must list every module of the package's library) and of its
+#               User/ imported, `#axioms_modules` over the library and User
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
 #               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE), its
@@ -48,7 +56,7 @@
 #               ref-peano it reads; `skipped` when the k2lean directory ($K2LEAN) is absent
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
-#               PrintNames, a command-line tool)
+#               PrintNames, a command-line tool), each with `#axioms_here` appended (axioms-tests)
 #
 # The native checks run first, then the Lean checks, JOBS at once: JOBS is the available memory
 # (`free -g` at start) over 12 GiB, between 1 and 8, or $INTEGRATION_JOBS. Every Lean and `kcore`
@@ -83,6 +91,47 @@ check() {
 pool() { while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done; check "$@" & }
 lean1() { LEAN_PATH=$LP cap 2400 "$TC/bin/lean" -j1 "$1"; }
 cone() { lean1 test/ConeV.lean && test/cone-row.sh .lake/cone-v.txt; }
+# leanAx FILE: FILE checked as lean1 does, from a copy in .lake/axioms-tests with the import of
+# KcoreSpec.AxiomsCheck put first and `#axioms_here` appended (a message's line number is FILE's plus one)
+leanAx() {
+  local w=.lake/axioms-tests/$(basename "$1")
+  mkdir -p .lake/axioms-tests
+  { echo "import KcoreSpec.AxiomsCheck"; cat "$1"; printf '\n#axioms_here\n'; } > "$w"
+  lean1 "$w"
+}
+# axiomsTests FILE...: each test/X row's log holds `#axioms_here`'s verdict line; prints each count
+axiomsTests() {
+  local f l v bad=0 n=0
+  for f in "$@"; do
+    l=$R/${f//\//_}.log
+    v=$(grep -o 'axioms: [0-9]* declarations of this file, each within propext, Classical.choice, Quot.sound' "$l" 2>/dev/null)
+    if [ -n "$v" ]; then echo "$f: ${v#axioms: }"; n=$((n + ${v//[^0-9]/}))
+    else echo "$f: no verdict"; grep -A3 'depend on other axioms' "$l" 2>/dev/null; bad=1; fi
+  done
+  [ $bad -eq 0 ] || { echo "axioms-tests: a file without a verdict"; return 1; }
+  echo "axioms: $n declarations of $# test files, each within propext, Classical.choice, Quot.sound"
+}
+# the row packages: those of DONE-0's two rows
+ROWPKGS="ref-kimp ref-kk"
+axiomsPackages() {
+  local p d lib f m n=0 miss
+  for p in $ROWPKGS; do
+    d=examples/$p
+    [ -d "$d" ] || { echo "$p: no package"; continue; }
+    lib=$(sed -n 's/^name = "\(.*\)"$/\1/p' "$d/lakefile.toml" | head -1)
+    miss=$( (cd "$d" && find "$lib" -name '*.lean' | sed 's/\.lean$//; s|/|.|g'; echo "$lib") | sort \
+      | comm -23 - <(sort "$d/modules.txt"))
+    [ -z "$miss" ] || { echo "$p: modules not in modules.txt: $miss"; return 1; }
+    [ -f "$d/.lake/build/lib/lean/$lib.olean" ] || { echo "$p: not built"; return 1; }
+    f=.lake/axioms-tests/pkg-$p.lean; mkdir -p .lake/axioms-tests
+    { echo "import KcoreSpec.AxiomsCheck"; sed 's/^/import /' "$d/modules.txt"
+      for m in "$d"/User/*.lean; do [ -f "$m" ] && echo "import User.$(basename "$m" .lean)"; done
+      echo "#axioms_modules $lib User"; } > "$f"
+    LEAN_PATH=$K/$d/.lake/build/lib/lean:$LP cap 1200 "$TC/bin/lean" -j1 "$f" || { echo "$p: failed"; return 1; }
+    n=$((n + 1))
+  done
+  [ $n -gt 0 ] || { echo "no row package"; return 1; }
+}
 agreeKoreInK() {
   [ -d .lake/kore-in-k ] || { echo "texts not built"; return 77; }
   test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected
@@ -142,6 +191,7 @@ check imp-kompile scoreboard test/imp-kompile.sh
 
 # Lean checks, the longest first
 order="$order pins pins-peano pins-kimp axioms witnesses cone member not-plain pred-sorted user cs2"
+testx=""
 while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done
 { check user scoreboard userModules; check cs2 scoreboard cs2; } &
 pool pred-sorted scoreboard predSorted
@@ -157,10 +207,13 @@ for f in test/*.lean; do
   case $(basename "$f" .lean) in
     Pins|PinsPeano|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted) continue;;
   esac
-  order="$order ${f%.lean}"
-  pool "${f%.lean}" scoreboard lean1 "$f"
+  order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
+  pool "${f%.lean}" scoreboard leanAx "$f"
 done
 wait
+order="$order axioms-tests axioms-packages"
+check axioms-tests required axiomsTests $testx
+check axioms-packages required axiomsPackages
 table "$order" > "$R/table.txt"; rc=$?
 cat "$R/table.txt"
 exit $rc
