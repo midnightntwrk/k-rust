@@ -454,10 +454,10 @@ def c2 : Semantics :=
   { c with symNames := c.symNames ++ ["LblmyE"]
            params := [{ sig := ⟨nRegSyms + 4, [Srt.int], Srt.endianness⟩, raw := true }] }
 
-/-- `coreOK` refuses it (V2.d1-flip), by `paramsPlain`'s raw branch alone, which asks `shapesOK`
+/-- `coreOK` refuses it, by `paramsPlain`'s raw branch alone, which asks `shapesOK`
 (false by `enumShapesOK`): every other conjunct of `coreOK` holds, `genWf` among them, and the
-other conjuncts of the raw branch (no hook, no law, a number outside the registry, no ite name,
-`floatShapeOK`). -/
+other conjuncts of the raw branch (no hook, no law, a number outside the registry, no ite name);
+`floatShapeOK` holds too. -/
 theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.shapesOK = false ∧
     c2.enumShapesOK = false ∧ c2.floatShapeOK = true ∧ Faithful.genWf c2 = true ∧
     c2.params.all (fun k => k.raw && k.impl.isNone && !k.assoc && !k.idem &&
@@ -469,6 +469,23 @@ theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.sha
 
 /-- `c` itself is refused as well. -/
 theorem coreOK_refuses_c : c.coreOK = false ∧ c.paramsPlain = false := by decide +kernel
+
+/-- `c2` with its parameter not raw. -/
+def c2n : Semantics :=
+  { c2 with params := [{ sig := ⟨nRegSyms + 4, [Srt.int], Srt.endianness⟩, raw := false }] }
+
+/-- The raw parameter is the cause of the refusal: the same semantics with the parameter not raw
+meets `coreOK` and `shapesOK`. -/
+theorem coreOK_c2n : c2n.coreOK = true ∧ c2n.shapesOK = true := by decide +kernel
+
+/-- The reason holds at `c2`: a value of Endianness applies its raw parameter, so the hypothesis
+of `libAdmitted_lawHooks_of` is false there. -/
+theorem not_lawLibRawFree_c2 : ¬ c2.lawLibRawFree := fun h => by
+  have hv : (c2.withHooks HookParams.none).sortOf (.ctor (nRegSyms + 4) [int 1]) = some Srt.endianness := by
+    decide +kernel
+  have := h HookParams.none (.ctor (nRegSyms + 4) [int 1]) Srt.endianness (by decide) hv
+  have hf : c2.rawFree (.ctor (nRegSyms + 4) [int 1]) = false := by decide +kernel
+  rw [hf] at this; cases this
 
 end EndRaw
 
@@ -573,19 +590,20 @@ theorem idemCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (IdemCtor.c.wit
 
 /-! ## The three together at `lawHooks c HookParams.lib` (V2.d3-example)
 
-CN-4 §4.7 item 2's example, at its statement less the hypothesis `hl` (CN-4b §12): in a semantics
-meeting `coreOK` and `floatShapeOK`, `lawHooks c HookParams.lib`
+CN-4 §4.7 item 2's example, at its statement less the hypotheses `hl` (CN-4b §12) and `hf`
+(`coreOK` gives `floatShapeOK`, `floatShapeOK_of_coreOK`): in a semantics
+meeting `coreOK`, `lawHooks c HookParams.lib`
 satisfies the laws (`openLaws_lawHooks`), gives every open generator a value at every argument
 list of its sorts (`openTotal_lawHooks`) and is admitted by the library's sentences
-(`libAdmitted_lawHooks` from `libAdmitted_lib`). `coreOK` admits open generators of
-`paramsPlain`'s raw shape (V2.d1-flip); the instances below state the same three at CommCtor
-and IdemCtor, which have open generators, from the `_of` forms whose hypotheses they meet
-(`commCtor_lawShape`, `idemCtor_lawShape`, `comm_reg`, `comm_lawLibRawFree`, `idemCtor_reg`). -/
-theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) (hf : c.floatShapeOK = true) :
+(`libAdmitted_lawHooks` from `libAdmitted_lib_of_coreOK`). The instances below state the same
+three at CommCtor and IdemCtor, which have open generators, from the `_of` forms whose hypotheses
+they meet (`commCtor_lawShape`, `idemCtor_lawShape`, `comm_reg`, `comm_lawLibRawFree`,
+`idemCtor_reg`); the instances from `coreOK` are in the next section. -/
+theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) :
     OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
     (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
   ⟨openLaws_lawHooks c h HookParams.lib, openTotal_lawHooks c h HookParams.lib,
-    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib c hf)⟩
+    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib_of_coreOK h)⟩
 
 theorem commCtor_lawHooks_lib :
     OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
@@ -603,5 +621,137 @@ theorem idemCtor_lawHooks_lib :
     libAdmitted_lawHooks_of idemCtor_reg
       (lawLibRawFree_of_shapes (by decide +kernel) (by decide +kernel) idemCtor_reg) HookParams.lib
       (libAdmitted_lib IdemCtor.c (by decide +kernel))⟩
+
+/-! ## `coreOK` admits the four semantics
+
+Each of the four meets `coreOK`. At CommCtor, whose `or` is raw with a law, the library's
+statements for a semantics meeting `coreOK` are read with a raw parameter at hand (not vacuously):
+`paramsPlain`'s raw branch (`raw_of_core`), `raw_open_core`, `lawShape_core`, `openTotal_none`,
+`libAdmitted_lawHooks`, and the three of `lawHooks_lib` (also at IdemCtor). -/
+
+theorem commCtor_coreOK : CommCtor.c.coreOK = true := by decide +kernel
+theorem idemCtor_coreOK : IdemCtor.c.coreOK = true := by decide +kernel
+theorem openMixed_coreOK : OpenMixed.c.coreOK = true := by decide +kernel
+theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide +kernel
+
+theorem commCtor_raw_or : CommCtor.orP.impl = none ∧
+    ((CommCtor.orP.assoc || CommCtor.orP.idem) = true →
+      CommCtor.orP.sig.args = [CommCtor.orP.sig.result, CommCtor.orP.sig.result]) ∧
+    nRegSyms ≤ CommCtor.orP.sig.name ∧ iteSort? (CommCtor.c.symName CommCtor.orP.sig.name) = none ∧
+    CommCtor.c.shapesOK = true :=
+  Semantics.raw_of_core commCtor_coreOK (k := CommCtor.orP) (by decide +kernel) rfl
+
+theorem commCtor_raw_open : ∀ k ∈ CommCtor.c.params, k.raw = true → ∃ kp, CommCtor.c.lookupParam k.sig.name = some kp ∧
+    CommCtor.c.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
+    lookupSig CommCtor.c.ctorSigs k.sig.name = none ∧ CommCtor.c.lookupOvl k.sig.name = none :=
+  Semantics.raw_open_core commCtor_coreOK
+
+theorem commCtor_lawShape_core : ∀ k ∈ CommCtor.c.params, k.raw = true → LawShape CommCtor.c k :=
+  Semantics.lawShape_core commCtor_coreOK
+
+theorem commCtor_openTotal_none_core : OpenTotal (CommCtor.c.withHooks HookParams.none) :=
+  openTotal_none _ commCtor_coreOK
+
+theorem commCtor_libAdmitted_lawHooks (H : HookParams) (ha : (CommCtor.c.withHooks H).libAdmitted) :
+    (CommCtor.c.withHooks (lawHooks CommCtor.c H)).libAdmitted :=
+  libAdmitted_lawHooks _ commCtor_coreOK H ha
+
+theorem commCtor_lawHooks_lib_core :
+    OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
+    OpenTotal (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
+    (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)).libAdmitted :=
+  lawHooks_lib CommCtor.c commCtor_coreOK
+
+theorem idemCtor_lawHooks_lib_core :
+    OpenLaws (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)) ∧
+    OpenTotal (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)) ∧
+    (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)).libAdmitted :=
+  lawHooks_lib IdemCtor.c idemCtor_coreOK
+
+/-! ## The headlines at a semantics with an open generator
+
+`FnHyp` of a semantics none of whose lists names a fact, under an interpretation H that satisfies
+its open generators' laws: the deciders' lists are those of the data (they do not read H), and
+`OpenLaws` is the hypothesis. With it `consistent_of`, `sound_hyp`, `complete_hyp` and `exact_hyp`
+apply, every hypothesis discharged: at CommCtor (two open generators, one with a law; no rule, no
+function) and at OpenRule (an open generator, a rule and a function), each at `lawHooks c
+HookParams.none`, whose laws `openLaws_lawHooks` gives. -/
+
+theorem fnHyp_of_laws {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued = true)
+    (h1 : c.rankObligations [] ++ c.decObligationsL = []) (h2 : c.totalObligationsRP [] [] = [])
+    (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
+    (h5 : c.owedRules = []) (h6 : c.owedClauses = [])
+    (H : HookParams) (hl : OpenLaws (c.withHooks H)) : FnHyp (c.withHooks H) :=
+  fnHyp_of_fnObligations (ord := []) (tp := []) ((Semantics.coreOK_withHooks c H).trans hc)
+    (Semantics.rightHeld_withHooks_of_valued hv H) ParamsTotal.nil
+    ((FnFacts.of_nil_laws
+      (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
+      ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)
+      ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
+      ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4) hl).obligations
+     ⟨openRules_of_owed (by rw [Semantics.owedRules_withHooks, h5]; intro i hi; cases hi),
+      openClauses_of_owed (by rw [Semantics.owedClauses_withHooks, h6]; intro p hp; cases hp)⟩)
+
+theorem commCtor_fnHyp (H : HookParams) (hl : OpenLaws (CommCtor.c.withHooks H)) :
+    FnHyp (CommCtor.c.withHooks H) :=
+  fnHyp_of_laws commCtor_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
+
+theorem openRule_fnHyp (H : HookParams) (hl : OpenLaws (OpenRule.c.withHooks H)) :
+    FnHyp (OpenRule.c.withHooks H) :=
+  fnHyp_of_laws openRule_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
+
+/-- CommCtor at `lawHooks c HookParams.none`. -/
+abbrev cL : Semantics := CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.none)
+/-- OpenRule at `lawHooks c HookParams.none`. -/
+abbrev cR : Semantics := OpenRule.c.withHooks (lawHooks OpenRule.c HookParams.none)
+
+theorem cL_coreOK : cL.coreOK = true := (Semantics.coreOK_withHooks CommCtor.c _).trans commCtor_coreOK
+theorem cL_laws : OpenLaws cL := openLaws_lawHooks CommCtor.c commCtor_coreOK HookParams.none
+theorem cL_total : OpenTotal cL := openTotal_lawHooks CommCtor.c commCtor_coreOK HookParams.none
+theorem cL_fnHyp : FnHyp cL := commCtor_fnHyp _ cL_laws
+theorem cL_consistent : Consistent cL :=
+  consistent_of cL cL_coreOK (fnModel_of_fnHyp cL_coreOK cL_fnHyp).1 (fnModel_of_fnHyp cL_coreOK cL_fnHyp).2 cL_laws
+theorem cL_sound : SoundC cL := sound_hyp cL cL_coreOK cL_fnHyp
+theorem cL_complete (ref : OutFn) : CompleteC cL ref := complete_hyp cL ref cL_coreOK cL_fnHyp
+theorem cL_exact : ExactC cL := exact_hyp cL cL_coreOK cL_fnHyp
+
+/-- A value of `cL` applies the open generator `and`: its values are not all `rawFree`. -/
+theorem cL_value : cL.sortOf (.ctor CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []]) = some CommCtor.exp ∧
+    cL.rawFree (.ctor CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []]) = false := by decide +kernel
+
+theorem cR_coreOK : cR.coreOK = true := (Semantics.coreOK_withHooks OpenRule.c _).trans openRule_coreOK
+theorem cR_laws : OpenLaws cR := openLaws_lawHooks OpenRule.c openRule_coreOK HookParams.none
+theorem cR_total : OpenTotal cR := openTotal_lawHooks OpenRule.c openRule_coreOK HookParams.none
+theorem cR_fnHyp : FnHyp cR := openRule_fnHyp _ cR_laws
+theorem cR_consistent : Consistent cR :=
+  consistent_of cR cR_coreOK (fnModel_of_fnHyp cR_coreOK cR_fnHyp).1 (fnModel_of_fnHyp cR_coreOK cR_fnHyp).2 cR_laws
+theorem cR_sound : SoundC cR := sound_hyp cR cR_coreOK cR_fnHyp
+theorem cR_complete (ref : OutFn) : CompleteC cR ref := complete_hyp cR ref cR_coreOK cR_fnHyp
+theorem cR_exact : ExactC cR := exact_hyp cR cR_coreOK cR_fnHyp
+
+/-- `cR` has a rule and a function, and a value that applies its open generator. -/
+theorem cR_parts : cR.rules.length = 1 ∧ cR.fns.length = 1 ∧
+    cR.sortOf (.ctor OpenRule.andS [.ctor OpenRule.xS [], .ctor OpenRule.yS []]) = some OpenRule.exp ∧
+    cR.rawFree (.ctor OpenRule.andS [.ctor OpenRule.xS [], .ctor OpenRule.yS []]) = false := by decide +kernel
+
+/-- **A confined sort has a value** (`confined_has_value`) at a semantics with open generators:
+a confined sort of CommCtor has a value under every interpretation that gives the open generators
+values (`OpenTotal`). -/
+theorem commCtor_confined_value (H : HookParams) (ht : OpenTotal (CommCtor.c.withHooks H)) {s : Srt}
+    (hs : (CommCtor.c.withHooks H).confined s = true) : ∃ v, (CommCtor.c.withHooks H).sortOf v = some s :=
+  confined_has_value ((Semantics.coreOK_withHooks CommCtor.c H).trans commCtor_coreOK) hs ht
+
+#print axioms cL_consistent
+#print axioms cL_sound
+#print axioms cL_complete
+#print axioms cL_exact
+#print axioms cR_consistent
+#print axioms cR_sound
+#print axioms cR_complete
+#print axioms cR_exact
+#print axioms commCtor_confined_value
+#print axioms EndRaw.not_lawLibRawFree_c2
 
 end KCore.OpenGenSems

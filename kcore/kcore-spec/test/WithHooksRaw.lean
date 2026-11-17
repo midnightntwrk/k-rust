@@ -80,13 +80,13 @@ theorem cM_rest :
 
 /-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no
 implementation, two arguments of its result sort where it has a law, a number
-outside the registry and no ite name, with `shapesOK` and `floatShapeOK`. -/
+outside the registry and no ite name, with `shapesOK`. -/
 def paramsRuled (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
       decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
-      c.shapesOK && c.floatShapeOK
+      c.shapesOK
     else !k.assoc && !k.idem)
 
 theorem cM_params : paramsRuled cM = true ∧ (cM.params.any (·.raw)) = true := by decide +kernel
@@ -97,6 +97,20 @@ example (c : Semantics) : c.paramsPlain = (paramsRuled c && c.carriersOK) := rfl
 /-- `coreOK` admits it (V2.d1-flip): a semantics with an open generator at which the two transport
 lemmas fail without `hr`. -/
 theorem cM_coreOK : cM.coreOK = true := by decide +kernel
+
+/-- What `coreOK` gives of `cM`'s open generator: the parameter and the open generator its name
+finds, with no hook, no constructor and no overloading symbol of its name (`raw_open_core`), so a
+value at every argument list under `HookParams.none` (`openTotal_none`). -/
+theorem cM_raw_open : ∀ k ∈ cM.params, k.raw = true → ∃ kp, cM.lookupParam k.sig.name = some kp ∧
+    cM.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
+    lookupSig cM.ctorSigs k.sig.name = none ∧ cM.lookupOvl k.sig.name = none :=
+  Semantics.raw_open_core cM_coreOK
+theorem cM_openTotal_none : OpenTotal (cM.withHooks HookParams.none) := openTotal_none _ cM_coreOK
+
+/-- `cM`'s raw parameter is the open generator `lookupOpen` answers for, and `and(x, x)` is a value
+of B at `HookParams.none`. -/
+theorem cM_value : (cM.withHooks HookParams.none).sortOf (.ctor andS [.ctor xS [], .ctor xS []]) = some sB ∧
+    cM.lookupOpen andS = some andP ∧ cM.isOpenGen (.ctor andP.sig) = true := by decide +kernel
 
 /-! ## `RightHeld` of the data does not give `RightHeld` at `Hm` -/
 

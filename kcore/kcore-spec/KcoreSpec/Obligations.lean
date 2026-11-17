@@ -98,19 +98,19 @@ theorem Semantics.sortedOK_clause {c : Semantics} (h : c.sortedOK = true) {fn : 
 
 /-- What `paramsPlain` asks of an open generator (its `raw` branch): no registry hook,
 two arguments of its result sort where it has a law, a number outside the registry, no name
-like an `ite`'s, and `shapesOK` and `floatShapeOK` of the semantics. -/
+like an `ite`'s, and `shapesOK` of the semantics. -/
 theorem Semantics.raw_of_paramsPlain {c : Semantics} (h : c.paramsPlain = true) {k : ParamSig}
     (hk : k ∈ c.params) (hr : k.raw = true) :
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
-    c.shapesOK = true ∧ c.floatShapeOK = true := by
+    c.shapesOK = true := by
   simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at h
   have hp := h.1 k hk
   simp only [hr, ↓reduceIte, Bool.and_eq_true, Option.isNone_iff_eq_none, Bool.not_eq_true',
     Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
-  obtain ⟨⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩ := hp
-  refine ⟨h1, fun hl => ?_, h4, h5, h6, h7⟩
+  obtain ⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩ := hp
+  refine ⟨h1, fun hl => ?_, h4, h5, h6⟩
   rcases h3 with h3 | h3
   · rw [hl] at h3; cases h3
   · exact h3
@@ -121,7 +121,7 @@ theorem Semantics.raw_of_sortedOK {c : Semantics} (h : c.sortedOK = true) {k : P
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
-    c.shapesOK = true ∧ c.floatShapeOK = true := by
+    c.shapesOK = true := by
   simp only [Semantics.sortedOK, Bool.and_eq_true] at h
   exact Semantics.raw_of_paramsPlain h.2 hk hr
 
@@ -131,7 +131,7 @@ theorem Semantics.raw_of_core {c : Semantics} (h : c.coreOK = true) {k : ParamSi
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
-    c.shapesOK = true ∧ c.floatShapeOK = true :=
+    c.shapesOK = true :=
   Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
 
 /-- `idsOK` numbers each parameter outside the registry once: their names are without repetition. -/
@@ -212,7 +212,7 @@ theorem Semantics.raw_open_core {c : Semantics} (h : c.coreOK = true) :
       c.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
       lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none := by
   intro k hk hr
-  obtain ⟨hi, -, hreg, -, -, -⟩ := Semantics.raw_of_core h hk hr
+  obtain ⟨hi, -, hreg, -, -⟩ := Semantics.raw_of_core h hk hr
   obtain ⟨hlp, hlo⟩ := Semantics.raw_lookup (Semantics.coreOK_parts h).2.2.2.2 hk hr hreg
   have hfa := (Semantics.coreOK_parts h).2.1
   simp only [Semantics.faithCoreOK, Bool.and_eq_true] at hfa

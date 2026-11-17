@@ -263,6 +263,17 @@ theorem FnFacts.of_nil {c : Semantics} {ord tp : List Sym}
    fun p hp => by rw [h4] at hp; exact absurd hp List.not_mem_nil,
    openLaws_of_plain fun k hk => by simpa using List.all_eq_true.mp h5 k hk⟩
 
+/-- With none of the four lists naming a fact, `FnFacts` is `OpenLaws`: the form for a semantics
+with an open generator, whose laws no decider settles. -/
+theorem FnFacts.of_nil_laws {c : Semantics} {ord tp : List Sym}
+    (h1 : c.rankObligations ord ++ c.decObligationsL = []) (h2 : c.totalObligationsRP ord tp = [])
+    (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
+    (hl : OpenLaws c) : FnFacts c ord tp :=
+  ⟨fun f hf => by rw [h1] at hf; exact absurd hf List.not_mem_nil,
+   fun f hf => by rw [h2] at hf; exact absurd hf List.not_mem_nil,
+   fun f hf => by rw [h3] at hf; exact absurd hf List.not_mem_nil,
+   fun p hp => by rw [h4] at hp; exact absurd hp List.not_mem_nil, hl⟩
+
 /-- **`fnModel_of_fnFacts` with the held variables asked of the held-named functions only**
 (`HeldOwed` of each function `Semantics.heldObligations` names, in place of `RightHeld`):
 termination by `terminates_of_rankLN`; the totality part of `HeldOwed` is not read. -/
