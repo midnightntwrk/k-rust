@@ -1153,3 +1153,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/InertEvFixtures.lean`: the fixture sentences of the inert classes `collectionLaw`,
+  `parametricFunctional` and `vacuousLeft`, each entailed by `Γ (c.withHooks H)` for every H from the
+  library's statement of its class (`KcoreSpec/InertEv.lean`; the guards `inertListLaw_everyH`,
+  `inertIteFunctional_everyH`, `inertVacuousLeft_everyH` of `test/Guards.lean` are those statements at
+  `c.withHooks H`): ens's sentences 53, 54, 55 (associativity and the two units of `_List_`) at
+  values; lazy's sentence 39 (`functional` of `ite{S}`) at `SortInt{}`, the definition's parameter
+  `Lblite{Int}`, at values; the rule of e3-ml-rule-lhs-bottom, whose left side holds `#Bottom`, for
+  every semantics. Axioms guarded.
