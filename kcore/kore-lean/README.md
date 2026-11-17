@@ -26,7 +26,7 @@ files new in this port carry a header that names the same license.
 | `KoreParser/Stats.lean` | small total functions over the AST, and kernel-checked examples (new) |
 | `RoundTrip.lean` | the `roundtrip` executable, which is also the `lake test` driver (new) |
 | `test/features.kore` | a hand-written definition that uses every construct of the grammar (new) |
-| `test/Eval.lean` | `#eval` of the total functions on `../milestone-1/kore/definition.kore` (new) |
+| `test/Eval.lean` | `#eval` of the total functions on `../kcore-spec/examples/peano/Peano/definition.kore` (the milestone-1 subject, Source paths relative) (new) |
 | `scripts/generate-kore.sh` | regenerates the KORE of the k-rust examples and of IMP with krust (new) |
 
 ## AST
@@ -136,7 +136,7 @@ Run from this directory:
 
 ```sh
 lake build
-lake test                        # unit checks, ../milestone-1/kore/{definition,syntaxDefinition}.kore, test/features.kore
+lake test                        # unit checks, ../kcore-spec/examples/peano/Peano/definition.kore, test/peano-syntaxDefinition.kore (milestone-1's texts, Source paths relative), test/features.kore
 scripts/generate-kore.sh gen > gen.list   # the examples' and IMP's KORE, into gen/ (ignored by .gitignore)
 lake exe roundtrip $(cat gen.list)
 lake env lean test/Eval.lean     # axioms by top connective, and \and/\or arities, of definition.kore

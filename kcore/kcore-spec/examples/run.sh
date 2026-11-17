@@ -16,7 +16,7 @@ on() { case "$want" in *" $1 "*) return 0;; esac; return 1; }
 # gen KORE NAME NS OPTION...: `kcore gen` into examples/NAME (skipped with --build-only)
 gen() { [ $only = 1 ] && return 0; a=$1 b=$2; shift 2; gen/gen.sh "$a" "examples/$b" "$@" || exit 1; }
 step() { echo "=== $*"; "$@" || exit 1; }
-if on peano; then gen ../milestone-1/kore/definition.kore peano Peano --tie --cert term=examples/runs/peano-term.cert.json
+if on peano; then gen examples/peano/Peano/definition.kore peano Peano --tie --cert term=examples/runs/peano-term.cert.json
   step gen/build.sh --tie examples/peano User.Statements User.Facts User.Proofs User.Cert User.Reach User.Faithful User.Faithful3 User.Model User.Course; fi
 if on prio; then gen f2-examples/prio.kore prio Prio --wf --cert goD=examples/runs/prio-goD.cert.json --cert goB=examples/runs/prio-goB.cert.json; step gen/build.sh examples/prio User.Cert User.Course; fi
 if on kink-imp; then gen f2-examples/imp.kore kink-imp KinkImp --wf; step gen/build.sh examples/kink-imp User.Overlaps; fi
@@ -30,7 +30,7 @@ if on ph; then gen f2-examples/ph.kore ph Ph --wf; step gen/build.sh examples/ph
 if on kimp-ni; then step gen/build.sh --only --with examples/kimp --with examples/imp-sec --with examples/imp-sec-leaky \
   examples/kimp-ni NI.Names NI.Spec NI.Incl NI.Examples NI.Kind NI.Leak NI.Keyed; fi
 # DOMAINS, BYTES and KEVM's plugin KRYPTO: the builtin modules' hooks and KRYPTO's are parameters
-if on kryp; then gen ../findings/work/p23/probe/out/kryp/definition.kore kryp Kryp --wf; step gen/build.sh examples/kryp; fi
+if on kryp; then gen examples/kryp/Kryp/definition.kore kryp Kryp --wf; step gen/build.sh examples/kryp; fi
 # noninterference for a secret cell (`--high sec`, Kinds/NI.lean): vault's decided by the condition,
 # vault-leaky's one obligation refuted by two runs (User.Leak)
 if on vault; then gen f2-examples/vault.kore vault Vault --wf --high sec; step gen/build.sh examples/vault; fi

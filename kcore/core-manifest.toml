@@ -20,7 +20,7 @@ path = "kcore-spec"
 roots = ["KCore.SoundC", "KCore.CompleteC", "KCore.ExactC", "KCore.StepIs", "KCore.Semantics.coreOK", "KCore.FnHyp"]
 headline = ["KCore.sound_hyp (c) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c", "KCore.complete_hyp (c) (ref) (h : c.coreOK = true) (hf : FnHyp c) : CompleteC c ref"]
 cone_size = "3,910 lines in 762 declarations"
-declarations_authority = "core-cone.txt beside this file lists every declaration of the cone by module with its line range (findings/work/review-cone/core-hyp.txt at the commit); the declarations fields below name the main ones of each layer"
+declarations_authority = "core-cone.txt beside this file lists every declaration of the cone by module with its line range (cone (v), which kcore-spec/test/ReviewCone.lean writes to kcore-spec/.lake/review-cone-core-hyp.txt and kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt, the NEW that kcore-spec/test/cone.py compares with this file, at the commit); the declarations fields below name the main ones of each layer"
 changed = "2026-11-14, from 82f6879b (release run passed on c68b1a1a; release gate by a Fable agent: PASS): silent points, the mechanism with an EMPTY table: silentTable, silent, Semantics.fallback, Semantics.hookRes and Faithful.ΓFallback are added; EvalTerm's hook case, Faithful.Γ, ΓDomains and Semantics.paramVal read them; with the table empty every definition means what it meant at 82f6879b. The deciders handle overloading symbols (no cone change). The two theorems' statements are unchanged"
 
 [[layer]]

@@ -353,7 +353,10 @@ kompile at a time under the memory wrapper, about 2 s each). Each fixture keeps 
 `kompile.txt` (the command, exit code, sha256 of the kompiled text, kompile's messages),
 `kore.txt` (the sentences the text adds to the empty module of fixture `base`, each after its index
 in the main module) and `account.txt` (`kcore account`); the kompiled text itself is regenerated,
-not committed. A row names its fixture and the sentences that carry it, or, where no sentence
+not committed: `run` keeps it in a per-user cache outside the tree keyed by its sha256
+(`$KCORE_KFIX_CACHE`, default `~/.cache/kcore-kfix/SHA.kore`), from which `kfix.py accounts`
+checks every `account.txt` without kompiling (`kfix.py cache-import DIR...` seeds it from another
+tree's `.lake/kfix`; kfix.py's header has the details). A row names its fixture and the sentences that carry it, or, where no sentence
 does, the class and the evidence: a pair of fixtures whose texts are equal (`same_as`, erased) or
 kompile's error (rejected). `kfix.py check` (run by `constructs.sh`) fails unless
 every pointer resolves in the committed files. The fixtures are evidence for TRIAGE; they set no

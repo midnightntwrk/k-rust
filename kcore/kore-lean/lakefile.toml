@@ -3,8 +3,8 @@ version = "0.1.0"
 defaultTargets = ["KoreParser", "roundtrip"]
 testDriver = "roundtrip"
 testDriverArgs = [
-  "../milestone-1/kore/definition.kore",
-  "../milestone-1/kore/syntaxDefinition.kore",
+  "../kcore-spec/examples/peano/Peano/definition.kore",
+  "test/peano-syntaxDefinition.kore",
   "test/features.kore",
 ]
 

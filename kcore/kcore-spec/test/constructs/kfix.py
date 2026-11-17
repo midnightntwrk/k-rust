@@ -7,6 +7,14 @@ Usage (from kcore-spec):
                                                      by default) against the files
   python3 -I test/constructs/kfix.py rehash [NAME...] rewrite kompile.txt's stripped sha256 and
                                                      verdicts from the cached text of the same run
+  python3 -I test/constructs/kfix.py accounts [--write] [NAME...]
+                                                     `kcore account` of each fixture's text from the
+                                                     cache below (no kompile) against account.txt;
+                                                     --write re-records account.txt
+  python3 -I test/constructs/kfix.py cache-import DIR...
+                                                     put DIR/NAME/definition.norm.kore (DIR another
+                                                     tree's .lake/kfix) into the cache when its sha256
+                                                     is the one NAME's kompile.txt records
 
 A fixture directory holds its K text(s) and fixture.toml:
   main     the file kompiled (default NAME.k)
@@ -48,6 +56,17 @@ memory wrapper, and writes into the fixture directory:
                module names removed, disjunctions in a fixed order, generated variables
                renumbered: `stripped`) is the one to compare.
   account.txt  `kcore account out/definition.kore` (the workspace's .lake/build/bin/kcore)
+
+The kompiled texts are not committed. `run` also keeps each one, as kompile.txt hashes it (paths
+replaced: definition.norm.kore), in a cache outside the tree keyed by that sha256:
+CACHE/SHA.kore, CACHE = $KCORE_KFIX_CACHE, default $XDG_CACHE_HOME/kcore-kfix (~/.cache/kcore-kfix
+when XDG_CACHE_HOME is unset): one per user, shared by every worktree of the user, never committed.
+A fixture's text is found there by kompile.txt's `definition.kore sha256` alone, so a stale entry
+cannot be read for another text. `run` reads fixture `base`'s (and a same_as / differs_from
+fixture's) text from the cache when this tree's .lake/kfix has no run of it; `accounts` reads every
+fixture's text from it (restoring BUILTIN/ as K's builtin directory, so K_RUST or K_KOMPILE must name
+a K installation, and FIXTURE/ as .lake/kfix/NAME/account); `check` prints how many kompiled texts the
+cache holds. A new tree is seeded with `cache-import` from another tree's .lake/kfix.
 
 A row of rows.toml names its fixture (`fixture`) and either the sentences that carry it (`sentence`,
 substrings of that fixture's kore.txt, or of kompile.txt for an error fixture) or why no sentence of
@@ -295,6 +314,46 @@ def conf(name):
     return c
 
 
+CACHE = os.environ.get("KCORE_KFIX_CACHE") or os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "kcore-kfix")
+
+
+def recorded_sha(name):
+    """kompile.txt's `definition.kore sha256` of a kompiled fixture (one with a stripped sha256),
+    else None (an error fixture, a `kore` fixture, a fixture not run)."""
+    kt = os.path.join(FX, name, "kompile.txt")
+    t = open(kt).read() if os.path.exists(kt) else ""
+    m = re.search(r"^definition\.kore sha256: (\w+)$", t, re.M)
+    return m[1] if m and "\nstripped sha256: " in t else None
+
+
+def cache_put(kore):
+    os.makedirs(CACHE, exist_ok=True)
+    p = os.path.join(CACHE, sha(kore) + ".kore")
+    if not os.path.exists(p):
+        tmp = f"{p}.{os.getpid()}.tmp"
+        open(tmp, "w").write(kore)
+        os.replace(tmp, p)
+
+
+def cache_get(h):
+    """The cached text of sha256 h, or None; an entry whose content is not of sha256 h is not read."""
+    p = os.path.join(CACHE, h + ".kore")
+    if not os.path.exists(p):
+        return None
+    kore = open(p).read()
+    return kore if sha(kore) == h else None
+
+
+def norm_text(name):
+    """Fixture NAME's text as kompile.txt hashes it: this tree's last run of it, else the cache's."""
+    p = os.path.join(WORK, name, "definition.norm.kore")
+    if os.path.exists(p):
+        return open(p).read()
+    h = recorded_sha(name)
+    return cache_get(h) if h else None
+
+
 def run_kore(name, c):
     """A fixture of a KORE text kompile does not write (fixture.toml `kore`): its account only."""
     for f in ("kore.txt", "account.txt"):
@@ -354,15 +413,16 @@ def run(name):
         rep += [f"definition.kore bytes: {len(kore.encode())}", f"definition.kore sha256: {sha(kore)}",
                 f"stripped sha256: {sha(stripped(kore))}"]
         open(os.path.join(w, "definition.norm.kore"), "w").write(kore)
+        cache_put(kore)
         ss = sentences(main_module(kore))
         ref = c.get("text_from", "base")
         if name == "base":
             keep = set()
         else:
-            bp = os.path.join(WORK, ref, "definition.norm.kore")
-            if not os.path.exists(bp):
+            bt = norm_text(ref)
+            if bt is None:
                 raise SystemExit(f"kfix: run fixture {ref} before {name}")
-            keep = {alpha(g) for g in sentences(main_module(open(bp).read()))}
+            keep = {alpha(g) for g in sentences(main_module(bt))}
         delta = [f"//@ {i}\n{g}" for i, g in enumerate(ss)
                  if alpha(g) not in keep and "Source(BUILTIN/" not in g]
         size = sum(len(g) for g in delta)
@@ -385,10 +445,10 @@ def run(name):
             norm(a.stdout + a.stderr, src) + f"(exit {a.returncode})\n")
         for rel in ("same_as", "differs_from"):
             if rel in c:
-                op = os.path.join(WORK, c[rel], "definition.norm.kore")
-                if not os.path.exists(op):
+                ot = norm_text(c[rel])
+                if ot is None:
                     raise SystemExit(f"kfix: run fixture {c[rel]} before {name}")
-                eq = stripped(open(op).read()) == stripped(kore)
+                eq = stripped(ot) == stripped(kore)
                 rep.append(f"{rel} {c[rel]}: {'equal' if eq else 'different'} after stripping")
         # the text left in .lake (the one copied into the tree) names each source by the file it
         # is a copy of, relative (test/relsource.py); the outputs above were computed before
@@ -439,6 +499,74 @@ def rehash(names):
     print(f"kfix rehash: {done} rewritten, {len(stale)} with no cache of their run"
           + (": " + " ".join(stale) if stale else ""))
     return 1 if stale else 0
+
+
+def account_of(name, c):
+    """`kcore account` of fixture NAME's text as `run` writes account.txt, the text read from the
+    cache (a kompiled fixture) or from kcore-spec (a `kore` fixture); None when the cache lacks it."""
+    env = {**os.environ, "LEAN_NUM_THREADS": "1"}
+    if "kore" in c:
+        a = subprocess.run([*WRAP, "timeout", "300", KCORE, "account", c["kore"]], cwd=K,
+                           capture_output=True, text=True, env=env)
+        return a.stdout + a.stderr + f"(exit {a.returncode})\n"
+    h = recorded_sha(name)
+    kore = cache_get(h) if h else None
+    if kore is None:
+        return None
+    src = os.path.join(WORK, name, "account")
+    raw = kore.replace("BUILTIN/", builtin_dir() + "/").replace("FIXTURE/", src + "/").replace("FIXTURE", src)
+    if norm(raw, src) != kore:
+        raise SystemExit(f"kfix: {name}: the cached text's paths cannot be restored")
+    os.makedirs(os.path.join(src, "out"), exist_ok=True)
+    open(os.path.join(src, "out/definition.kore"), "w").write(raw)
+    a = subprocess.run([*WRAP, "timeout", "300", KCORE, "account", "out/definition.kore"], cwd=src,
+                       capture_output=True, text=True, env=env)
+    return norm(a.stdout + a.stderr, src) + f"(exit {a.returncode})\n"
+
+
+def accounts(names, write):
+    """Each fixture's account from its cached text against account.txt, serially; with write, the
+    differing ones re-recorded. Exit 1 when one differs (without write) or a text is not cached."""
+    if not os.path.isdir(builtin_dir()):
+        raise SystemExit(f"kfix accounts: no K builtin directory {builtin_dir()}: set K_RUST or K_KOMPILE")
+    same, diff, missing = [], [], []
+    for name in names:
+        acc = os.path.join(FX, name, "account.txt")
+        c = conf(name)
+        if not os.path.exists(acc) or not ("kore" in c or recorded_sha(name)):
+            continue
+        got = account_of(name, c)
+        if got is None:
+            missing.append(name); continue
+        if got == open(acc).read():
+            same.append(name); continue
+        diff.append(name)
+        if write:
+            open(acc, "w").write(got)
+    print(f"kfix accounts: {len(same)} equal, {len(diff)} {'re-recorded' if write else 'differ'}"
+          + (": " + " ".join(diff) if diff else "") + f", {len(missing)} not in the cache {CACHE}"
+          + (": " + " ".join(missing) if missing else ""))
+    return 1 if missing or (diff and not write) else 0
+
+
+def cache_import(dirs):
+    """Put DIR/NAME/definition.norm.kore into the cache when its sha256 is NAME's recorded one."""
+    have, put, none = 0, 0, []
+    for name in sorted(os.listdir(FX)):
+        h = recorded_sha(name)
+        if not h:
+            continue
+        if cache_get(h) is not None:
+            have += 1; continue
+        for d in dirs:
+            p = os.path.join(d, name, "definition.norm.kore")
+            if os.path.exists(p) and sha(open(p).read()) == h:
+                cache_put(open(p).read()); put += 1; break
+        else:
+            none.append(name)
+    print(f"kfix cache {CACHE}: {have} present, {put} imported, {len(none)} found nowhere"
+          + (": " + " ".join(none) if none else ""))
+    return 1 if none else 0
 
 
 def reading_notes():
@@ -525,6 +653,9 @@ def check(lists):
             if rel in c and f"{rel} {c[rel]}:" not in t:
                 bad.append(f"fixture {f}: {rel} not recorded")
     bad += check_notes(rows)
+    ks = [f for f in sorted(os.listdir(FX)) if recorded_sha(f)]
+    print(f"kfix cache {CACHE}: {sum(1 for f in ks if cache_get(recorded_sha(f)) is not None)} of "
+          f"{len(ks)} kompiled texts")
     for l in lists:
         n.setdefault(l, [0, 0])
         print(f"kfix {l}: {n[l][0]} rows with sentences, {n[l][1]} rows with no_sentence")
@@ -546,6 +677,11 @@ if __name__ == "__main__":
         sys.exit(check(sys.argv[2:] or LISTS))
     if sys.argv[1:2] == ["rehash"]:
         sys.exit(rehash(sys.argv[2:] or sorted(os.listdir(FX))))
+    if sys.argv[1:2] == ["accounts"]:
+        w = "--write" in sys.argv[2:]
+        sys.exit(accounts([x for x in sys.argv[2:] if x != "--write"] or sorted(os.listdir(FX)), w))
+    if sys.argv[1:2] == ["cache-import"]:
+        sys.exit(cache_import(sys.argv[2:]))
     if sys.argv[1:2] != ["run"]:
         raise SystemExit(__doc__)
     names = sys.argv[2:] or sorted(os.listdir(FX))

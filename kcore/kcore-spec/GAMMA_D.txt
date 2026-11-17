@@ -1,4 +1,4 @@
-# Γ_D of ../milestone-1/kore/definition.kore
+# Γ_D of examples/peano/Peano/definition.kore
 # Γ^AML: 141 axioms; AML(Γ): 202 axioms; 154838 AML pattern nodes
 
 ## Γ^AML (the encoding: TRANSLATION.md G-rules)

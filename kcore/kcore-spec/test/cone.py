@@ -18,6 +18,8 @@ declaration whose elaborated type changes text, or through the roots section.
 Usage: python3 -I test/cone.py COMMITTED NEW (--old-git REV | --old-rev REV | --old-src DIR) [--new-src DIR] [--diff] [--roots FILE]
        python3 -I test/cone.py COMMITTED NEW --names-only [--roots FILE]
 
+COMMITTED is the committed cone (v), ../core-cone.txt; NEW is cone (v) as test/ConeV.lean writes it
+(.lake/cone-v.txt) or test/ReviewCone.lean (.lake/review-cone-core-hyp.txt), the same cone.
 Run from the package root (kcore-spec/). The source of module `A.B.C` is looked up as
 `A/B/C.lean` under the package root, `../aml-port` and `../kore-lean`, in that order.
 The committed tree is the one the committed cone was computed at. --old-git REV reads its sources

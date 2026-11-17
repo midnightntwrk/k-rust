@@ -5,7 +5,7 @@
   with `--raw i,j,…`, the same with AML primitives only (no notation recognized);
   (F0's `--spec` mode, which printed F0's verdict and its Γ_cons, was removed with F0 in P1.4;
   GAMMA_CONS.txt is its last output.)
-  Default file: ../milestone-1/kore/definition.kore.
+  Default file: examples/peano/Peano/definition.kore (the milestone-1 subject, KcoreSpec/Kore/Subject.lean).
 -/
 import KcoreSpec.Kore.Translate
 import KcoreSpec.Kore.Print
@@ -19,10 +19,10 @@ def printItem (it : Item) : IO Unit := do
 def main (args : List String) : IO UInt32 := do
   let (file, sel) := match args with
     | [f, "--axioms", is] => (f, some is)
-    | ["--axioms", is] => ("../milestone-1/kore/definition.kore", some is)
-    | ["--raw", is] => ("../milestone-1/kore/definition.kore", some ("raw:" ++ is))
+    | ["--axioms", is] => ("examples/peano/Peano/definition.kore", some is)
+    | ["--raw", is] => ("examples/peano/Peano/definition.kore", some ("raw:" ++ is))
     | [f] => (f, none)
-    | _ => ("../milestone-1/kore/definition.kore", none)
+    | _ => ("examples/peano/Peano/definition.kore", none)
   let t0 ← IO.monoMsNow
   let input ← IO.FS.readFile file
   let .ok d := Kore.parseDefinition input

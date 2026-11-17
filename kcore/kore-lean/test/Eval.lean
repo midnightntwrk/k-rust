@@ -28,7 +28,7 @@ end Kore
 open Kore
 
 #eval show IO Unit from do
-  let .ok d ← parseFile "../milestone-1/kore/definition.kore" | throw (IO.userError "parse failed")
+  let .ok d ← parseFile "../kcore-spec/examples/peano/Peano/definition.kore" | throw (IO.userError "parse failed")
   IO.println s!"modules: {d.modules.map (·.name)}"
   IO.println s!"axioms: {d.axioms.length}, pattern nodes: {d.axiomNodes}"
   IO.println s!"axioms by top connective: {d.axiomsByTopConnective}"

@@ -1,6 +1,7 @@
 # review cone: (v) KCore core: soundness and completeness over a semantics, from the hypothesis on its functions
 # roots: KCore.SoundC, KCore.CompleteC, KCore.ExactC, KCore.StepIs, KCore.Semantics.coreOK, KCore.FnHyp
 # computed by #review_cone (KcoreSpec/ReviewCone.lean); rule: types of reached declarations, values of reached non-theorem definitions, proofs not entered, Init/Std/Lean trusted
+# written by kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt and by kcore-spec/test/ReviewCone.lean to kcore-spec/.lake/review-cone-core-hyp.txt; kcore-spec/test/cone.py compares either with this file
 
 ## KcoreSpec.Kore.Base  (8 declarations, 33 lines)
   12-17      structure  KoreAML.CtorSig                              via KoreAML.Gen
