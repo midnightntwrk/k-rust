@@ -727,4 +727,55 @@ end IdemCtor
 #print axioms IdemCtor.lawHooks_values
 #print axioms IdemCtor.not_openLaws_none
 
+/-! ## e2-comm-ctor: the expectations (CN-4 §4.7)
+
+- `coreOK` (`commCtor_coreOK`).
+- For every H with `OpenLaws` and `OpenTotal`: `Consistent`, `SoundC`, `CompleteC` and `ExactC`
+  (`OpenTotal` is a named obligation no proof reads: it keeps the interpretations to those under
+  which the text's `functional` sentences hold).
+- At `lawHooks c H`, for every H: the same, both obligations discharged.
+- At `HookParams.none`: `OpenTotal` holds and `OpenLaws` fails: `or(or(x,x),x)` and `or(x,or(x,x))`
+  are two raw values, so associativity fails at `x, x, x`. -/
+namespace CommCtor
+
+def xV : GroundTerm := .ctor xS []
+
+theorem headlines (H : HookParams) (hl : OpenLaws (c.withHooks H)) (_ht : OpenTotal (c.withHooks H)) :
+    Consistent (c.withHooks H) ∧ SoundC (c.withHooks H) ∧ (∀ ref, CompleteC (c.withHooks H) ref) ∧
+      ExactC (c.withHooks H) :=
+  have hc := (Semantics.coreOK_withHooks c H).trans commCtor_coreOK
+  have hf := commCtor_fnHyp H hl
+  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 hl, sound_hyp _ hc hf,
+    fun ref => complete_hyp _ ref hc hf, exact_hyp _ hc hf⟩
+
+theorem headlines_lawHooks (H : HookParams) :
+    Consistent (c.withHooks (lawHooks c H)) ∧ SoundC (c.withHooks (lawHooks c H)) ∧
+      (∀ ref, CompleteC (c.withHooks (lawHooks c H)) ref) ∧ ExactC (c.withHooks (lawHooks c H)) :=
+  headlines (lawHooks c H) (openLaws_lawHooks c commCtor_coreOK H) (openTotal_lawHooks c commCtor_coreOK H)
+
+/-- At `HookParams.none` the two nestings of `x, x, x` under `or` are two raw values of Exp. -/
+theorem none_values :
+    ((c.withHooks HookParams.none).paramVal orS [xV, xV]).bind
+        (fun ab => (c.withHooks HookParams.none).paramVal orS [ab, xV]) =
+      some (.ctor orS [.ctor orS [xV, xV], xV]) ∧
+    ((c.withHooks HookParams.none).paramVal orS [xV, xV]).bind
+        (fun bd => (c.withHooks HookParams.none).paramVal orS [xV, bd]) =
+      some (.ctor orS [xV, .ctor orS [xV, xV]]) ∧
+    (c.withHooks HookParams.none).sortOf (.ctor orS [.ctor orS [xV, xV], xV]) = some exp ∧
+    (c.withHooks HookParams.none).sortOf (.ctor orS [xV, .ctor orS [xV, xV]]) = some exp ∧
+    GroundTerm.ctor orS [.ctor orS [xV, xV], xV] ≠ .ctor orS [xV, .ctor orS [xV, xV]] := by
+  decide +kernel
+
+theorem not_openLaws_none : ¬ OpenLaws (c.withHooks HookParams.none) := fun h => by
+  have ha := (h orP (by decide +kernel) rfl).1 rfl xV xV xV (by decide +kernel)
+  exact absurd (Option.some.inj ((none_values.1.symm.trans ha).trans none_values.2.1)) none_values.2.2.2.2
+
+theorem openTotal_none : OpenTotal (c.withHooks HookParams.none) := commCtor_openTotal_none_core
+
+end CommCtor
+
+#print axioms CommCtor.headlines
+#print axioms CommCtor.headlines_lawHooks
+#print axioms CommCtor.not_openLaws_none
+
 end KCore.OpenGenSems
