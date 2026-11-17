@@ -1302,6 +1302,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   139: `@B1 andBool @B2` at `true`, 1181, 1182; 147, 140: `@B1 orBool @B2` at `false`, 1183, 1184),
   `EntailsAtSetValues` for every H, from `LibEv.boolNotSet_ev`, `boolAndSet_ev`, `boolOrSet_ev`
   (`KcoreSpec/LibEvBoolSet.lean`, over `KcoreSpec/LibEvSetVar.lean`). Axioms guarded.
+- `test/LibEvStrFlt.lean`: STRING's and BYTES' library sentences over Γ's symbols of
+  `f2-examples/silentflt.kompile.kore`, entailed at values from the library's statements
+  (`KcoreSpec/LibEvStr.lean`): for every H, 226, 227, 233, 234, 252, 257, 261, 264, 295, 297, 372,
+  375, 376, 378 in the function form (domains.md 1787 to 1911), 260 (`==K` at Strings, 1925) and
+  194, 195 (`#Ceil` of the padding of Bytes, 2241, 2242, `LibEv.CeilEqn`); for every H meeting
+  `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
+  `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
+  2258). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
