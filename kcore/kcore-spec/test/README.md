@@ -939,6 +939,19 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   from the two witnesses and `sound_fn` (`Cool.owed`, `Cool.sound`, `Cool.fnHyp`); at
   e2-open-genless `Consistent` by `consistent_of_fnFacts`, the rule 0 not `Witnessed`, and `Owed`
   exactly where the theory refutes its condition (`Genless.owed_iff_refuted`).
+- `test/NonExecOwiseTie.lean`, `test/nonexec-owise-gen.sh`: the tie on the two texts of a
+  `non-executable` equation beside an `[owise]` one, their own kompiled texts
+  (`f2-examples/owisenx.kompile.kore`, `owisenxagree.kompile.kore`), for every H. e5-owise-nonexec:
+  `wf`, `coreOK`, `agree_named = [choose]`; Γ's items for `choose` are the text's sentences (the
+  `non-executable` one as written, the `[owise]` one not literally but up to a renaming of element
+  variables, free and bound, both ways: `alphaB`, `satisfies_of_alphaB`); `Eval` gives `a` and `b` at (b, a); not `FnDet`, not
+  `ClausesAgree`, not `FnSolves`; Γ has no model (`no_model`), not `Consistent`; `Eval`'s one
+  result at (b, b) and at (a, y), facts about `Eval` only. e5-owise-nonexec-agree: the same
+  equalities, `ClausesAgree` of `choose`, the package's `FnFacts`, `Consistent`, and `choose(b, a)`
+  and `choose(b, b)` equal to `b` from the text's sentences (form (a)). The script checks the two
+  texts against their fixtures (sha256, account) and generates both packages (`--core`) into
+  `.lake/nonexec-owise`: `agree_named`, `namedFacts`, `Obl`, no `obl_nil`, every statement of a model
+  or of the semantics taking `hob`, and builds them.
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
