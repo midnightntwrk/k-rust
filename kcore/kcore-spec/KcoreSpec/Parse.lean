@@ -98,8 +98,10 @@ inductive RefusalReason where
   | unknownSymbol
   /-- An application of an alias of K's prelude: in a term, or heading a rewrite axiom's right side
   (`weakAlwaysFinally{S}(\and(rhs, ens))`, kompile's form of a rule of a module carrying all-path or
-  one-path; the detail names the alias). Refused by name and not expanded (FIX-core.allpath-alias-refuse,
-  ruled R-a): the refusal states nothing of the sentence. -/
+  one-path; the detail names the alias) where the alias is not at one sort and one argument or the
+  text's alias sentence for it is not the identity on its argument (`aliasIsIdentity`; where it is,
+  the right side is read as the argument, `ReadingNote.identityAlias`). Refused by name and not
+  expanded: the refusal states nothing of the sentence. -/
   | aliasApplication
   /-- A symbol applied with sort arguments (other than `inj` and `ite`) that is not an instance the
   definition has (`instName`): a hooked or constructor instance, one of a symbol outside the user's
@@ -616,6 +618,17 @@ inductive ReadingNote where
   sentence alone, and the `[owise]` sentence alone is also the one written beside an equation whose
   disjunct is exact): the account lists the `[owise]` equations read so (`owiseNarrowed`). -/
   | owiseDisjunctNarrower
+  /-- A rewrite axiom whose right side is an application `σ{S}(φ)` of an alias of K's prelude
+  (`preludeAliases`; kompile writes `weakAlwaysFinally{S}(\and(rhs, ens))` for a rule of a module
+  carrying all-path, `weakExistsFinally` for one-path), read as the axiom with φ in its place
+  (`unaliasRule`). The text defines the alias by its own alias sentence, and the reading is made
+  only where every alias sentence of that name in the text is `σ{A}(X:A) := X:A` (`aliasIsIdentity`,
+  checked on the sentence; `identityAliases`): an alias application denotes its body with the
+  argument for the parameter, here the argument itself, so the two axioms denote the same at every
+  interpretation. The right side otherwise headed by such an alias (another body, more than one
+  argument or sort) is refused `aliasApplication`. An alias applied inside a term is refused
+  `aliasApplication` (`Names.symE`). -/
+  | identityAlias
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -701,8 +714,55 @@ structure Names where
   (`hookEqualityUnstated`) -/
   eqUnstated : List (Sym × String) := []
 
-/-- The aliases K's prelude declares: their applications are refused by name. -/
+/-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
+axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
 def preludeAliases : List String := ["weakExistsFinally", "weakAlwaysFinally", "allPathGlobally"]
+
+/-- The alias sentence is the identity on its argument: `alias σ{A}(A) : A where σ{A}(X:A) := X:A`,
+one sort variable A, one argument sort and the result sort A, the left side σ applied at A to one
+variable of sort A (an element or a set variable), and the body that variable. An application
+`σ{S}(φ)` then denotes φ. -/
+def aliasIsIdentity (a : Kore.SentenceAlias) : Bool :=
+  match a.alias.sortVars, a.sorts, a.app.args with
+  | [A], [s], [.var x] =>
+    let xs := match x with
+      | .evar v => v.sort
+      | .svar v => v.sort
+    decide (s = .var A) && decide (a.sort = .var A) && decide (xs = .var A) &&
+      decide (a.app.head = a.alias.ident) && decide (a.app.sorts = [.var A]) &&
+      decide (a.body = .var x)
+  | _, _, _ => false
+
+/-- The aliases of `preludeAliases` that the prelude modules define each by alias sentences all
+`aliasIsIdentity` (at least one). `parse` reads a text only where its modules before the user module
+are `preludeModules` and refuses an alias sentence of the user module (`aliasDeclaration`), so these
+are the text's own alias sentences. -/
+def identityAliases : List String :=
+  let als := (preludeModules.flatMap (·.sentences)).filterMap fun
+    | .alias a => some a
+    | _ => none
+  preludeAliases.filter fun n =>
+    let own := als.filter (·.alias.ident.ident.name == n)
+    !own.isEmpty && own.all aliasIsIdentity
+
+/-- A rewrite axiom's right side `σ{S}(φ)` with σ in `identityAliases`, one sort argument and one
+argument: φ, itself so unwrapped; `none` for a right side not so headed. -/
+def unaliasRhs? : Kore.Pattern → Option Kore.Pattern
+  | .app h [_] [φ] =>
+    -- the name first: no other right side reads the prelude
+    if preludeAliases.contains h.ident.name && identityAliases.contains h.ident.name then
+      some ((unaliasRhs? φ).getD φ)
+    else none
+  | _ => none
+
+/-- A rewrite axiom with its right side read through the identity aliases (`unaliasRhs?`,
+`ReadingNote.identityAlias`); any other axiom as itself. -/
+def unaliasRule (a : Kore.Axiom) : Kore.Axiom :=
+  match a.pattern with
+  | .rewrites s l r => match unaliasRhs? r with
+    | some φ => { a with pattern := .rewrites s l φ }
+    | none => a
+  | _ => a
 
 namespace Names
 def sym? (N : Names) (n : String) : Option Sym :=
@@ -2438,11 +2498,14 @@ where
     if (N.sym? h.ident.name).isNone then fail .aliasApplication h.ident.name else fail .ruleShape
   -- a right side headed by an alias of K's prelude (`preludeAliases`): kompile's right side for a
   -- rule of a module carrying all-path or one-path, `weakAlwaysFinally{S}(\and(rhs, ens))`
+  -- `scanRewrites` has read the right side through it where its alias sentence is the identity
+  -- (`unaliasRule`); here at another body, or not one sort and one argument
   | .rewrites _ _ (.app h _ _) =>
     if preludeAliases.contains h.ident.name then
       fail .aliasApplication s!"{h.ident.name}: an alias of K's prelude heading the right side of the \
-        rewrite axiom (the form kompile writes for a rule of a module carrying all-path or one-path); \
-        not read as its argument"
+        rewrite axiom (the form kompile writes for a rule of a module carrying all-path or one-path), \
+        not at one sort and one argument or not defined by the text as the identity on its argument \
+        (aliasIsIdentity); not read as its argument"
     else fail .ruleShape
   | _ => fail .ruleShape
 
@@ -3028,10 +3091,11 @@ def scanRewrite : Kore.Sentence → Option Kore.Axiom
   | .axiom a => match a.pattern with | .rewrites .. => some a | _ => none
   | _ => none
 
-/-- The rules of a rewrite axiom: one per disjunct of its left side (`splitRule`, `orSplit`). -/
+/-- The rules of a rewrite axiom: one per disjunct of its left side (`splitRule`, `orSplit`), its right
+side read through the identity aliases (`unaliasRule`, `identityAlias`). -/
 def scanRewrites (s : Kore.Sentence) : List Kore.Axiom :=
   match scanRewrite s with
-  | some a => splitRule a
+  | some a => splitRule (unaliasRule a)
   | none => []
 
 def scanEvent : Kore.Sentence → Option (Sum String (String × String))
@@ -3227,14 +3291,19 @@ def isCellCollAxiom (a : Kore.Axiom) : Bool :=
   | _, _ => false
 
 /-- Every note a rewrite axiom or an equation is read through, from the sentence alone, in the order
-`orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
+`identityAlias` (the right side read through an alias, `unaliasRule`; the rest of a rewrite axiom's
+notes are then of the axiom so read), `orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
 `setVarInDropped` (`svinShape`), the right side's
 (`bottomAsEnsures`, else `andAsEnsures`, `andTermsWeaker` and the notes of the conditions it
 lifts: a lifted predicate is `andAsEnsures`; on a rule a lifted `t ∧ u` of two terms is
 `andTermsWeaker`, on an equation it is refused), the `requires`'
 (`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `andAtBool`) and the `ensures`',
 `orBottom`; each once. -/
-def connNotes (a : Kore.Axiom) : List ReadingNote :=
+def connNotes (a₀ : Kore.Axiom) : List ReadingNote :=
+  let a := unaliasRule a₀
+  let al := match a₀.pattern with
+    | .rewrites _ _ r => if (unaliasRhs? r).isSome then [ReadingNote.identityAlias] else []
+    | _ => []
   let cond := fun (b : Kore.Pattern) =>
     if isPred b then [ReadingNote.predicateAtBool]
     else if (boolConj b).length > 1 then [ReadingNote.andAtBool] else []
@@ -3264,7 +3333,7 @@ def connNotes (a : Kore.Axiom) : List ReadingNote :=
         (if (svinShape e).toOption.join.isSome then [ReadingNote.setVarInDropped] else []) ++
           side true e.rhs ++ conds [e.req, e.ens] ++ orB e.rhs
       | none => []
-  notes.eraseDups
+  (al ++ notes).eraseDups
 
 /-- The note of a rewrite axiom or an equation read through a connective: the first of
 `connNotes`. -/
