@@ -1,0 +1,2 @@
+# pair comm on a simplification x comm on its symbol (TRIAGE-B c3.pair 14): g [function, total, comm] with the simplification g(X, 0) => X [simplification, comm]; differs_from c3-simp-comm-base, the text without comm on the simplification. TRIAGE-B: kompile writes the axiom twice, arguments swapped on the left (inert, simplifications)
+differs_from = "c3-simp-comm-base"

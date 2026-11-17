@@ -1,0 +1,2 @@
+# comm on a simplification whose symbol is not comm (TRIAGE-B c3.pair 14: "kompile requires the symbol to be comm"): c3-simp-comm without comm on g. Observed: kompile prints `[Error] Compiler: Used 'comm' attribute on simplification rule but g is not comm.` and exits 0 with a definition that holds the simplification once; same_as c3-simp-comm-base, whose g is comm and whose simplification is not (comm on a function's production writes no sentence: c3-fn-comm same_as c3-fn-law-base)
+same_as = "c3-simp-comm-base"
