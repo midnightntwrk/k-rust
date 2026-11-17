@@ -246,6 +246,7 @@ import KcoreSpec.ExistsHoist
 import KcoreSpec.HeldValues
 import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
+import KcoreSpec.DetachedB
 import KcoreSpec.TieLemmas
 import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues
