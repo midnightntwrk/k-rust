@@ -187,10 +187,10 @@ def fnJoin : Fn :=
 
 /-- The clause of `matchCol` from kore.k's rule `mc-head`. -/
 def mcHead : Clause :=
-  { vars := [34, 3, 33, 46, 32, 43, 33, 43],
-    pats := [.as (.app 427 []) 0, .var 1, .app 407 [.var 2, .var 5], .app 407 [.var 6, .var 7], .var 3, .var 4],
+  { vars := [46, 32, 33, 43, 33, 43, 3, 34],
+    pats := [.as (.app 427 []) 7, .var 6, .app 407 [.var 2, .var 3], .app 407 [.var 4, .var 5], .var 0, .var 1],
     req := some (.app 478 [.var 2]),
-    rhs := .app 501 [.var 0, .var 1, .var 5, .var 7, .app 486 [.var 2, .var 6, .var 3, .var 4], .var 4],
+    rhs := .app 501 [.var 7, .var 6, .var 3, .var 5, .app 486 [.var 2, .var 4, .var 0, .var 1], .var 1],
     ens := none,
     prio := 50,
     aside := false,
@@ -200,10 +200,10 @@ def mcHead : Clause :=
 
 /-- The clause of `matchCol` from kore.k's rule `mc-frame`. -/
 def mcFrame : Clause :=
-  { vars := [33, 43, 46, 32, 3, 34],
-    pats := [.var 5, .var 4, .app 407 [.var 0, .app 406 []], .var 1, .var 2, .var 3],
-    req := some (.app 3 [.app 478 [.var 0]]),
-    rhs := .app 486 [.var 0, .app 416 [.var 5, .var 4, .var 1], .var 2, .var 3],
+  { vars := [3, 33, 43, 46, 34, 32],
+    pats := [.var 4, .var 0, .app 407 [.var 1, .app 406 []], .var 2, .var 3, .var 5],
+    req := some (.app 3 [.app 478 [.var 1]]),
+    rhs := .app 486 [.var 1, .app 416 [.var 4, .var 0, .var 2], .var 3, .var 5],
     ens := none,
     prio := 50,
     aside := false,
@@ -226,10 +226,10 @@ def mcChoose : Clause :=
 
 /-- The clause of `matchCol` from kore.k's rule `mc-done`. -/
 def mcDone : Clause :=
-  { vars := [34, 3, 46, 32],
-    pats := [.var 0, .var 1, .app 406 [], .app 406 [], .var 2, .var 3],
+  { vars := [34, 3, 32, 46],
+    pats := [.var 0, .var 1, .app 406 [], .app 406 [], .var 3, .var 2],
     req := none,
-    rhs := .app 428 [.var 2, .app 403 []],
+    rhs := .app 428 [.var 3, .app 403 []],
     ens := none,
     prio := 50,
     aside := false,
@@ -239,10 +239,10 @@ def mcDone : Clause :=
 
 /-- The clause of `matchCol` from kore.k's rule `mc-split`. -/
 def mcSplit : Clause :=
-  { vars := [32, 43, 43, 43, 46, 33, 33, 3],
-    pats := [.app 427 [], .var 7, .app 407 [.var 5, .as (.app 407 [.var 6, .var 1]) 2], .var 3, .var 4, .var 0],
-    req := some (.app 3 [.app 478 [.var 5]]),
-    rhs := .app 504 [.var 7, .var 5, .var 2, .app 406 [], .var 3, .var 4, .var 0],
+  { vars := [3, 33, 33, 46, 32, 43, 43, 43],
+    pats := [.app 427 [], .var 0, .app 407 [.var 1, .as (.app 407 [.var 2, .var 5]) 6], .var 7, .var 3, .var 4],
+    req := some (.app 3 [.app 478 [.var 1]]),
+    rhs := .app 504 [.var 0, .var 1, .var 6, .app 406 [], .var 7, .var 3, .var 4],
     ens := none,
     prio := 50,
     aside := false,

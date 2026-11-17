@@ -20,7 +20,6 @@ def namedFacts : List String := [
   "termination (a call not ranked below it) eval(_,_)_KORE_Term_Def_Term kore.k:194",
   "termination (a call not ranked below it) evalIf(_,_,_,_,_)_KORE_Res_Def_Ts_Clauses_Int_Res kore.k:248",
   "termination (a call not ranked below it) evalTs(_,_)_KORE_Ts_Def_Ts kore.k:211",
-  "termination (a call not ranked below it) leq(_,_,_)_KORE_Bool_Int_Int_Subs kore.k:359",
   "termination (a call not ranked below it) match(_,_,_,_)_KORE_Ms_Term_Term_Bind_Subs kore.k:281",
   "termination (a call not ranked below it) matchCol(_,_,_,_,_,_)_KORE_Ms_Kind_Int_Ts_Ts_Bind_Subs kore.k:314",
   "termination (a call not ranked below it) matchK(_,_,_,_)_KORE_Ms_Ms_Ts_Ts_Subs kore.k:302",
@@ -29,9 +28,10 @@ def namedFacts : List String := [
   "termination (a call not ranked below it) split(_,_,_,_,_,_,_)_KORE_Ms_Int_Term_Ts_Ts_Ts_Bind_Subs kore.k:331",
   "termination (a call not ranked below it) splitOn(_,_,_,_,_,_,_)_KORE_Ms_Int_Term_Ts_Ts_Ts_Bind_Subs kore.k:334",
   "termination (a call not ranked below it) stepIf(_,_,_,_,_)_KORE_Step_Def_Rules_Term_Int_Ts kore.k:138",
-  "termination (a self call not decreasing) join(_,_)_KORE_Term_Term_Ts kore.k:405",
-  "agreement cmpI(_,_)_KORE_Int_Int_Int kore.k:523",
-  "agreement join(_,_)_KORE_Term_Term_Ts kore.k:405",
+  "termination (a self call not decreasing) above(_,_,_,_,_)_KORE_Bool_Int_Int_Subs_Subs_Subs kore.k:363",
+  "termination (a self call not decreasing) join(_,_)_KORE_Term_Term_Ts kore.k:408",
+  "agreement cmpI(_,_)_KORE_Int_Int_Int kore.k:526",
+  "agreement join(_,_)_KORE_Term_Term_Ts kore.k:408",
   "agreement matchCol(_,_,_,_,_,_)_KORE_Ms_Kind_Int_Ts_Ts_Bind_Subs kore.k:314"]
 
 /-- **The facts the deciders leave of `FnHyp`** (14 functions' termination, 0

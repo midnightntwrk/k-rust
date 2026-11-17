@@ -1319,18 +1319,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`rules_from_text`); in a model of Γ, for every H, the sentence holds where its right side holds
   an element (W2, `rules_w2_all`, `rules_w2`). 4.9 GiB, 100 s.
 - `test/TieKk.lean`: layer 1 of the tie on kore.k's text as kompile wrote it
-  (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 833 sentences): `account`
-  partitions them into the tie's classes (`account_sizes`: function equation 301, rewrite rule 10,
+  (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 834 sentences): `account`
+  partitions them into the tie's classes (`account_sizes`: function equation 302, rewrite rule 10,
   constructor functional 52, subsort 32, injectivity 35, distinctness 115, no junk 28, function
-  functional 32, hooked functional 62, collection law 9, library 108, set idempotence 1, no
-  direction 48), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
+  functional 32, hooked functional 62, collection law 9, library 102, set idempotence 1,
+  set-variable lemma 6, no direction 48), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
 - `test/TieKkAttrs.lean`: `attrs_agree` on kore.k's text, from its five conjuncts, each one kernel
   decision. 9.2 GiB, 145 s.
 - `test/TieKkSig.lean`: `sig_origin` on kore.k's text (347 items: 277 declared, 70 surplus), by 17
   ranges joined by `tieAll_range`. 10.1 GiB, 486 s.
-- `test/TieKkFns.lean`: kore.k's function equations in the order of Γ's items (`fnText`): at 294
-  of the 301 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
-  `fn48_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
+- `test/TieKkFns.lean`: kore.k's function equations in the order of Γ's items (`fnText`): at 295
+  of the 302 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
+  `fn49_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
   consequence (`fns_from_text`); the 7 others are `[owise]` equations whose exclusion lists the
   other equations in another order, or binds with other keys, tied in `test/TieKkOwise.lean`.
   5.5 GiB, 202 s.

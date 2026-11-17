@@ -172,7 +172,7 @@ id = "subsort-not-transitive"
 misunderstanding = "only the stated subsorts hold: the subsort relation is not closed under transitivity [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.above-hit"
-  find = "leq(Y, B, All)"
+  find = "Y ==Int B orBool above(Y, B, All, All, F)"
   replace = "Y ==Int B"
 
 [[mutation]]
