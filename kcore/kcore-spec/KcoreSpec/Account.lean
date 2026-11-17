@@ -54,6 +54,15 @@ def predFaults (S : Scan) (E : Env) : List Fault :=
     | .error _ => []
   | _, _ => []
 
+/-- Every sentence of the counter's getter and of the cell tree's initializers that the reader
+refuses (`initFaults`), where the productions, the rules and the core are read. -/
+def initContentFaults (m : Kore.Module) (S : Scan) (E : Env) : List Fault :=
+  match (prodSyms S E).mapM (symProd E S.eqs), S.rewrites.mapM (ruleOf E.N E.src) with
+  | .ok sp, .ok rules => match coreOf S E (prodsOf S E sp) rules with
+    | .ok core => initFaults E.N E.src m.sentences S.eqs (functionalSyms S.events) core (Cell.top E.config)
+    | .error _ => []
+  | _, _ => []
+
 /-- Every refusal of the text: the prelude's, each sentence `classify` refuses, and the stages'
 on the sentences read: the names, then each production and each rule (all of them), then the
 assembly when those pass. -/
@@ -86,7 +95,10 @@ def refusals (k : Kore.Definition) : List Refusal :=
             | .unheldVariable, us@(_ :: _), _ => us.map toR
             -- every equation `coreOf` refuses by `predEqnFaults`, not only the first
             | _, _, ps@(p :: _) => if p.reason == f.reason && p.detail == f.detail then ps.map toR else [toR f]
-            | _, _, _ => [toR f]
+            -- every sentence `presOf` refuses by `initFaults`, not only the first
+            | _, _, _ => match initContentFaults m S E with
+              | is@(p :: _) => if p.reason == f.reason && p.detail == f.detail then is.map toR else [toR f]
+              | [] => [toR f]
           | .ok _ => []
         else ps ++ rs
     pre ++ cls ++ stages
@@ -138,8 +150,8 @@ as `S`, named as `E`) accounts for:
 - a symbol-overload axiom of an overloading symbol is one of `d`'s overloads (`Semantics.ovls`: the
   symbol, and the symbol it overloads among its `over`), which `Γ` states (`KoreAML.Cons.ovlEqItem`);
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
-  one), or the first equation of a cell's initializer or of `getGeneratedCounterCell`, whose ids
-  and values `d`'s presentation holds; or an equation of a sort predicate `isX` that is a clause
+  one), or the equation of `getGeneratedCounterCell` or of a cell's initializer, each no symbol of
+  `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
   of that predicate (which KCore defines from the sort order), or of a sort's projection that `d`
   does not read (`predProjOK?`; a projection a sentence applies is a function of `d` with its
   equation, `Presentation.libProjs`); or, generated (without a user source), a constructor
@@ -147,7 +159,7 @@ as `S`, named as `E`) accounts for:
   (`kconfigOwnSentence`); any other generated equation is refused
   (`RefusalReason.generatedEquation`);
 - a `functional` axiom is a constructor's (its place among the productions), a cell
-  initializer's, a projection's (none is declared total, and a projection applied is a function
+  initializer's whose equation's right side has exactly one value (`initFunctionalOK`), a projection's (none is declared total, and a projection applied is a function
   with its equation or, without one, a parameter), or a function's of `d` that `d` reads total: one of
   its own declared `total` (`Fn.total`, whose totality is decided or an obligation) or one of the
   registry's; or a parameter's: the registry's, or one of `d`'s own declared `total`
@@ -163,21 +175,13 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
   let cells := Cell.all d.pres.topCell
   let initLabels := cells.map (·.initLabel c)
-  let uidLabels := ["LblgetGeneratedCounterCell"]
+  -- the cell whose initializer `f` is, where that is no symbol of the registry or of `d`
+  let initCell := fun (f : String) => if symOfDefn c f then none else cells.find? (·.initLabel c == f)
   let fnLabels := c.fns.map fun f => c.symName f.label
   -- `project:X` and a named argument's `project:#c:x` (`Lblproject'ColnHash'…`)
   let isProj := fun (f : String) => (dropPrefix? "Lblproject'Coln" f).isSome
   let isPredOrProj := fun (f : String) => isProj f || match dropPrefix? "Lblis" f with
     | some X => sortHas X
-    | none => false
-  -- the first equation of `f` (its first `[owise]` one when `owise`) is `e`
-  let first := fun (e : RawEqn) (owise : Bool) =>
-    match S.eqs.find? fun e' => e'.fn == e.fn && e'.competitors.isSome == owise with
-    | some e' => decide (e'.attrs = e.attrs)
-    | none => false
-  let firstAny := fun (e : RawEqn) =>
-    match S.eqs.find? (·.fn == e.fn) with
-    | some e' => decide (e'.attrs = e.attrs)
     | none => false
   -- the definition's own parameters and their presentations: a `functional` axiom of one is what
   -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
@@ -202,8 +206,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- every equation of a function is one of its clauses, each `[owise]` one among them (a
       -- selector-domain axiom: a clause of the projection, or generated with it)
       fnLabels.contains e.fn || ovlPair a.attributes ||
-      (uidLabels.contains e.fn && first e e.competitors.isSome) ||
-      (initLabels.contains e.fn && firstAny e) ||
+      -- the getter's equation and a tree initializer's, by their content
+      (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
+      ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||
       -- a sort predicate's equation that is its clause, or a sort's projection's that no symbol
       -- of `d` reads (`predProjOK?`), whoever wrote it; or, generated (no user source), a
       -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
@@ -214,7 +219,7 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
         (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f) ||
-        initLabels.contains f ||
+        ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
         isProj f
       | some (.inr (x, y)) =>
         let libNames := ((importsOf E.imports).flatMap (·.sorts)).map (regSortNames.getD · "")

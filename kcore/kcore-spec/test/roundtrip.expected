@@ -1,5 +1,6 @@
 cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
+differs f2-examples/cells.kompile.kore
 differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
 exact f2-examples/colls-list.kore
