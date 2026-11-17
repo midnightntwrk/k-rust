@@ -1,13 +1,73 @@
 id = "c44-ensures-priority"
 kind = "case"
 subject = "A rule whose ensures is false and an overlapping rule of larger priority number: the first rule has applied with an empty result, so the second does not apply and a(0) has no successor; where the ensures holds the first rule gives b(1)."
+retro = ["R3"]
+rests_on = ["kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t05-rule-ensures-result", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a(0) no successor (user_manual.md:1159-1173, 1722-1724); the axiom kompile writes for the rule of priority 50 has the ensures as a conjunct of its right side (kore.txt:114-116), and read as a rewrite axiom it is false in every model where a(0) in the k cell is an element: as written the text has no model holding a(0), which go steps to, rather than one where a(0) has no successor."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(1)"]
+reason = """
+(1) The two rules for go have priority 50 (user_manual.md:1748-1749) and both apply at go: its successors are a(1) and a(0) (kk:t02-step-successors).
+(2) The rules for a have the numbers 50 (a(I) => b(I) ensures I >Int 0) and 60 (a(I) => c(I)); the second is tried only where the first has been shown not to apply (kk:t04-rule-priority-owise; user_manual.md:1722-1724).
+(3) The first rule matches a(1) and a(0). A false ensures does not stop a rule from applying: the rule has applied, its result has no value, and the rules of a larger priority number are not tried (kk:t05-rule-ensures-result; user_manual.md:1159-1163). At a(1), 1 >Int 0 is true (domains.md:1324-1325): a(1) steps to b(1), and the rule of priority 60 is not tried. At a(0), 0 >Int 0 is false: the first rule applies with an empty result, so a(0) has no successor, and the rule of priority 60 is not tried there either: c(0) is no successor.
+(4) No rule's left side matches b(1), so it is final. A rule applies to a(0), so it is not final (kk:t06-final-configuration). The final configurations from go are b(1) alone.
+(5) The readings this excludes: that the first rule, its ensures false, has applied with an empty result but does not block, which would let the rule of priority 60 step a(0) to c(0), excluded by user_manual.md:1722-1724, the rule of priority 60 being tried only where the first has been shown not to apply, which an applied rule has not (kk:t05-rule-ensures-result); and that the ensures is a further requires, under which the first rule does not apply at a(0) and the rule of priority 60 steps it to c(0), excluded by user_manual.md:1161-1163, the rule being applied where its ensures makes the term undefined. Both give c(0) beside b(1), so this text does not tell them apart; a text with no rule of a larger number beside the rule does, a(0) being final under the second and not under the first.
+(6) The written sentences state more than (3): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "Finally is the *ensures clause*, represented here as `ENS`. The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case. Note that concrete backends (eg. the LLVM backend) are free to ignore the ensures clause."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "The rule of priority 50 is one rewrite axiom whose right side is the configuration pattern of b(I) and the conjunct \\equals(I >Int 0, true) at sort Bool (kore.txt:109-117); the rule of priority 60 is another, which names no other rule and carries its priority as an attribute (kore.txt:120-126). At I = 0 the equality denotes the empty set and so does the first right side, so the first axiom holds only where its left side has no element. a is a constructor with a functional axiom (kore.txt:62), and go has a successor among the configurations of a(0) (kore.txt:129-135): the written sentences have no model in which go or a(0) in the k cell is an element, and state no blocking of the second rule by the first; the manual's transition gives go the final configuration b(1)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:114-116"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-'Int'Unds'{}(VarI:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true"))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:126"
+quote = '''priority{}("60")'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:62"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
 
 [[disposition]]
 implementation = "llvm"

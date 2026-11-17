@@ -1,10 +1,42 @@
 id = "c02-rule-prio"
 kind = "case"
 subject = "Rewrite rules of several priorities: a rule whose requires fails does not block a larger priority; one that applies does; an [owise] rule applies only where nothing else does."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["d(6)"]
+reason = """
+(1) The rules for a have the priority numbers 10, 20 and 30; the rule c(X) => d(X +Int 1) has 50 and the [owise] rule for c has 200 (kk:t04-rule-priority-owise). They are tried in that order, and a rule of a larger number only where every rule of a smaller one has been shown not to apply (kk:t04-rule-priority-owise, kk:t02-step-successors).
+(2) At a(5) the rule of number 10 matches, and its requires 5 >Int 100 is false (domains.md:1324-1325), so it does not apply and blocks nothing (kk:t01-rule-applies): b(5) is no successor. The rule of number 20 matches and 5 >Int 0 is true, so it applies: a(5) steps to c(5). The rule of number 30 is not tried, so d(5) is no successor.
+(3) At c(5) the rule of number 50 matches with no requires and applies: c(5) steps to d(5 +Int 1), that is d(6) (domains.md:1238). The [owise] rule, of number 200, is not tried there, so a(0 -Int 5) is no successor and no configuration a(-5) is reached.
+(4) No rule's left side matches d(6), so no rule can be applied to it and it is final (kk:t06-final-configuration). It is the one configuration the search reaches with no successor: the final configurations are d(6) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

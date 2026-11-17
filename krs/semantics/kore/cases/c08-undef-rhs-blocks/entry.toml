@@ -1,13 +1,72 @@
 id = "c08-undef-rhs-blocks"
 kind = "case"
-subject = "A rule that applies with an undefined right side (a division by zero) has no successor, and it blocks the rule of larger priority: the configuration has no successor and is not final."
+subject = "A rule whose left side matches with no requires and whose right side is undefined (a division by zero), beside a rule of larger priority number: whether it blocks that rule, so that the configuration has no successor and is not final, or the rule of larger priority number gives the successor."
+retro = ["R1"]
+rests_on = ["kk:t03-applied-rule-blocks", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a(0) no successor by the first rule (user_manual.md:1166-1173); the first axiom kompile writes has b(10 /Int X) in its right side (kore.txt:104), empty at X = 0, and read as a rewrite axiom it is false in every model where a(0) in the k cell is an element: as written the text has no model holding a(0), rather than one where a(0) has no successor by that rule."
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading shares: at a(0) the rule of priority 40 matches with no requires, and its right side b(10 /Int 0) has no value, so it gives a(0) no successor (kk:t03-applied-rule-blocks, points (1) and (2)); the rule of priority 50 would give c(0), and no rule's left side matches c(0), which would be final (kk:t06-final-configuration; user_manual.md:1748-1749).
+What the text does not determine is kk:t03-applied-rule-blocks's question, on this very pair of rules: whether the first rule, applied with a result that has no value, blocks the rule of a larger priority number (user_manual.md:1711-1713, 1722-1724 speak of rules tried and failed, or shown not to apply, and no sentence has the right side as its subject). The readings are that entry's, with the final configurations from a(0) each gives."""
+interpreter = "applied-blocks"
+separates = ["undefined-result-does-not-block"]
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[reading]]
+name = "applied-blocks"
+statement = "The first rule applies at a(0), its left side matching and no requires standing against it, and gives nothing; the rule of priority 50 is not tried (kk:t03-applied-rule-blocks, reading applied-blocks)."
+finals = []
+consequence = "a(0) has no successor, and a rule applies to it, so it is not final: there is no final configuration."
+
+[[reading]]
+name = "undefined-rhs-does-not-block"
+statement = "The first rule, whose right side has no value under its match, has been tried and failed; the rule of priority 50 is tried (kk:t03-applied-rule-blocks, reading undefined-rhs-does-not-block)."
+finals = ["c(0)"]
+consequence = "a(0) steps to c(0) alone, which is final."
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom; neither names the other, and the first carries priority 40 as an attribute (kore.txt:99-105, 108-114). The right side of the first holds 10 /Int X (kore.txt:104), which denotes nothing at X = 0, so at that instance the first axiom holds only where its left side has no element; a is a constructor with a functional axiom (kore.txt:60). The written sentences have no model in which a(0) in the k cell is an element, and state no blocking of one rule by another."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:104-105"
+quote = '''Lblb'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("10"),VarX:SortInt{})) ... priority{}("40")'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:60"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
 
 [[disposition]]
 implementation = "llvm"

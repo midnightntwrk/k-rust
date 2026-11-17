@@ -1,13 +1,39 @@
 id = "c09-undef-requires"
 kind = "case"
 subject = "A requires that is undefined (a division by zero) is not true: the rule does not apply and does not block the rule of larger priority."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t30-hooks-strict", "kk:t31-int-division"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["c(0)"]
+reason = """
+(1) At a(0) the rule of priority 40 matches with X = 0. Its requires is 10 /Int 0 >Int 0. Division by zero has no value (domains.md:1233-1234; kk:t31-int-division), and the hooked function >Int applied to an argument that has no value has none (kk:t30-hooks-strict). So the requires does not evaluate to true, and the rule does not apply (user_manual.md:1154-1157): it gives no step at a(0) and blocks nothing (kk:t01-rule-applies). b(0) is no successor.
+(2) Its having been shown not to apply, the rule of priority 50 is tried (user_manual.md:1722-1724, 1748-1749). It matches with no requires and applies: a(0) steps to c(0) alone (kk:t02-step-successors).
+(3) No rule's left side matches c(0), so it is final (kk:t06-final-configuration). The final configurations are c(0) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
 
 [[disposition]]
 implementation = "llvm"
