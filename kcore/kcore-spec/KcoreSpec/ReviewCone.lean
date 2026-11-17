@@ -5,10 +5,17 @@
       #review_cone "title" [root₁, root₂, …]
       #review_cone "title" [root₁, root₂, …] to "path/to/output.txt"
       #review_cone "title" [root₁, …] opaque [d₁, …] to "path/to/output.txt"
+      #review_cone_roots "test/roots.toml" to "path/to/output.txt"
 
   `opaque [d₁, …]`: the listed definitions are read by their type only (their value is not
   entered), for a definition whose every use in the roots is a property that a root asserts of
-  it (as `refStep` in soundness and completeness, declared `opaque` at the freeze).
+  it (as `refStep` in soundness and completeness, declared `opaque` at the freeze). Such a
+  definition is listed by its lines up to the first line containing `:=`, as a theorem is, so that
+  a comparison of the listed texts compares its signature and not its body.
+
+  `#review_cone_roots FILE`: the title, the roots and the opaque declarations, each with the reason
+  it is left out, read from FILE (`RootList`, `parseRootList`); the reasons are printed under the
+  header's opaque line.
 
   The cone is the least set of declarations that contains the roots and is closed under:
   - the constants occurring in the type of a reached declaration;
@@ -32,8 +39,8 @@
 
   Output, per listed declaration: name, kind, module, the source line range that
   `Lean.findDeclarationRanges?` records for it (the whole command, doc comment included; for a
-  theorem, which is listed only as a root, up to the first line containing `:=`, so its proof is
-  not counted), and the listed declaration whose type or value first met it (`via`). Per
+  theorem, which is listed only as a root, and for a definition read as opaque, up to the first
+  line containing `:=`, so its proof or value is not counted), and the listed declaration whose type or value first met it (`via`). Per
   module: the number of declarations and the number of distinct source lines they cover. The
   lines between declarations (module doc comments, `namespace`, `variable`, `open`, blank lines
   between commands) are not counted.
@@ -260,8 +267,9 @@ def statementEnd (src : String) (a b : Nat) : Nat :=
 def entryOf (s : State) (n : Name) : MetaM Entry := do
   let env ← getEnv
   let mut lines := (← findDeclarationRanges? n).map fun r => (r.range.pos.line, r.range.endPos.line)
-  if let (some (.thmInfo _), some (a, b), some m) := (env.find? n, lines, moduleOf? env n) then
-    if let some src ← sourceOf? m then lines := some (a, statementEnd src a b)
+  if let (some ci, some (a, b), some m) := (env.find? n, lines, moduleOf? env n) then
+    if (ci matches .thmInfo _) || s.cut.contains n then
+      if let some src ← sourceOf? m then lines := some (a, statementEnd src a b)
   return { name := n, via := (s.via.find? n).getD .anonymous, kind := ← kindOf env n, module := (moduleOf? env n).getD `«(this file)»,
            lines }
 
@@ -276,7 +284,8 @@ def coveredLines (rs : List (Nat × Nat)) : Nat :=
     if b < a' then (t, last) else (t + (b - a' + 1), b)) (0, 0)
   total
 
-def report (title : String) (roots cut : Array Name) (s : State) : MetaM String := do
+def report (title : String) (roots cut : Array Name) (s : State) (reasons : Array (Name × String) := #[]) :
+    MetaM String := do
   let env ← getEnv
   let entries ← s.listed.mapM (entryOf s)
   -- modules in import order
@@ -286,6 +295,7 @@ def report (title : String) (roots cut : Array Name) (s : State) : MetaM String 
   out := out ++ s!"# roots: {", ".intercalate (roots.toList.map toString)}\n"
   unless cut.isEmpty do
     out := out ++ s!"# read as opaque (type only, value not entered): {", ".intercalate (cut.toList.map toString)}\n"
+    for (n, r) in reasons do out := out ++ s!"#   opaque {n}: {r}\n"
   out := out ++ "# computed by #review_cone (KcoreSpec/ReviewCone.lean); rule: types of reached declarations, values of reached non-theorem definitions, proofs not entered, Init/Std/Lean trusted\n\n"
   let mut summary : Array (Name × Nat × Nat × Option Nat) := #[]
   for m in mods do
@@ -354,6 +364,107 @@ syntax (name := reviewConeCmd)
     let text ← liftTermElabM do
       let ((), s) ← (run names cut).run {}
       report title.getString names cut s
+    match path with
+    | some p => IO.FS.writeFile p.getString text; logInfo m!"wrote {p.getString}"
+    | none => logInfo text
+  | _ => throwUnsupportedSyntax
+
+/-! ## The root list file -/
+
+/-- A root list: the cone's title, its roots, and the declarations read as opaque with the reason
+each is left out. -/
+structure RootList where
+  title : String := ""
+  roots : Array Name := #[]
+  cut : Array (Name × String) := #[]
+
+def trimChars (cs : List Char) : List Char :=
+  ((cs.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse
+
+/-- A quoted string without escapes at the start of `cs`: its content and the characters after it. -/
+def quoted? : List Char → Option (String × List Char)
+  | '"' :: rest =>
+    let body := rest.takeWhile (· != '"')
+    match rest.dropWhile (· != '"') with
+    | '"' :: after => if body.contains '\\' then none else some (String.ofList body, after)
+    | _ => none
+  | _ => none
+
+/-- `key = REST` at the start of `cs`: the key and REST, trimmed. -/
+def keyEq? (cs : List Char) : Option (String × List Char) :=
+  let key := cs.takeWhile fun ch => ch.isAlphanum || ch == '_'
+  match trimChars (cs.drop key.length) with
+  | '=' :: rest => if key.isEmpty then none else some (String.ofList key, trimChars rest)
+  | _ => none
+
+/-- Read a root list from the text of a file in the subset of TOML that test/roots.toml is written
+in, line by line: `title = "..."`; `roots = [`, then one quoted name per line (a comma after it
+allowed) up to a line `]`; the table `[opaque]`, then `"Name" = "reason"` lines; `#` comments and
+blank lines. Any other line is an error, so that the file means what a TOML reader reads in it. -/
+def parseRootList (text : String) : Except String RootList := do
+  let mut r : RootList := {}
+  -- 0: top level; 1: inside `roots = [`; 2: in the table `[opaque]`
+  let mut sec : Nat := 0
+  let mut i := 0
+  for l in text.splitOn "\n" do
+    i := i + 1
+    let cs := trimChars l.toList
+    if cs.isEmpty || cs.head? == some '#' then continue
+    let bad := fun (why : String) => s!"line {i}: {why}: {l}"
+    if sec == 1 then
+      if cs == [']'] then
+        sec := 0
+        continue
+      match quoted? cs with
+      | some (n, rest) =>
+        unless trimChars rest == [] || trimChars rest == [','] do throw (bad "a root is one quoted name, with a comma after it or none")
+        r := { r with roots := r.roots.push n.toName }
+      | none => throw (bad "a root is one quoted name")
+    else if cs == "[opaque]".toList then
+      sec := 2
+    else if sec == 2 then
+      match quoted? cs with
+      | some (n, rest) =>
+        match trimChars rest with
+        | '=' :: v =>
+          match quoted? (trimChars v) with
+          | some (why, after) =>
+            unless trimChars after == [] do throw (bad "nothing after the reason")
+            r := { r with cut := r.cut.push (n.toName, why) }
+          | none => throw (bad "the reason is one quoted string")
+        | _ => throw (bad "an opaque declaration is \"Name\" = \"reason\"")
+      | none => throw (bad "an opaque declaration is \"Name\" = \"reason\"")
+    else
+      match keyEq? cs with
+      | some ("title", v) =>
+        match quoted? v with
+        | some (t, after) =>
+          unless trimChars after == [] do throw (bad "nothing after the title")
+          r := { r with title := t }
+        | none => throw (bad "the title is one quoted string")
+      | some ("roots", v) =>
+        if v == ['['] then sec := 1 else throw (bad "the roots are `roots = [` and one name per line")
+      | _ => throw (bad "not a line of a root list")
+  if sec == 1 then throw "the roots list has no closing `]`"
+  if r.title.isEmpty then throw "no title"
+  return r
+
+syntax (name := reviewConeRootsCmd) "#review_cone_roots " str (" to " str)? : command
+
+@[command_elab reviewConeRootsCmd] def elabReviewConeRoots : CommandElab := fun stx => do
+  match stx with
+  | `(#review_cone_roots $file $[to $path]?) =>
+    let f := file.getString
+    let rl ← match parseRootList (← IO.FS.readFile f) with
+      | .ok r => pure r
+      | .error e => throwError "{f}: {e}"
+    let env ← getEnv
+    for n in rl.roots ++ rl.cut.map (·.1) do
+      unless env.contains n do throwError "{f}: no declaration {n}"
+    let cut := rl.cut.map (·.1)
+    let text ← liftTermElabM do
+      let ((), s) ← (run rl.roots cut).run {}
+      report rl.title rl.roots cut s rl.cut
     match path with
     | some p => IO.FS.writeFile p.getString text; logInfo m!"wrote {p.getString}"
     | none => logInfo text

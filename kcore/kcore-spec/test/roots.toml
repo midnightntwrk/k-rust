@@ -1,0 +1,26 @@
+# The roots of the review cone (v), the cone `core-cone.txt` freezes (DONE-0 C5 part 3), and the
+# declarations read as opaque. Read by `#review_cone_roots` (KcoreSpec/ReviewCone.lean) from
+# test/ConeV.lean, which integration's cone row runs, and from test/ReviewCone.lean (v); test/cone.py
+# --roots checks that the cone it compares was computed from this file.
+#
+# Adding a root is one line in `roots`; the cone row's comparison then prints each declaration newly
+# reached (`added:`). A declaration read as opaque is one line of `[opaque]`, its name and the reason
+# it is left out: its value is not entered, and the cone lists it by its lines up to its first `:=`,
+# so that test/cone.py compares its signature and not its body.
+#
+# The file is read line by line, a subset of TOML: `title = "..."`, `roots = [` with one quoted name
+# per line and `]` on a line of its own, the table `[opaque]` with `"Name" = "reason"` lines, `#`
+# comments and blank lines; no escapes, no comment after a value.
+
+title = "(v) KCore core: soundness and completeness over a semantics, from the hypothesis on its functions"
+
+roots = [
+  "KCore.SoundC",
+  "KCore.CompleteC",
+  "KCore.ExactC",
+  "KCore.StepIs",
+  "KCore.Semantics.coreOK",
+  "KCore.FnHyp",
+]
+
+[opaque]

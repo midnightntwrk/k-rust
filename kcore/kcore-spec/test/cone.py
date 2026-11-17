@@ -15,8 +15,8 @@ rewritten. Not compared: the lines outside every range that a declaration's mean
 (`variable`, `open`, `namespace`, `notation`, `set_option`); a change there shows only through a
 declaration whose elaborated type changes text, or through the roots section.
 
-Usage: python3 -I test/cone.py COMMITTED NEW (--old-rev REV | --old-src DIR) [--new-src DIR] [--diff]
-       python3 -I test/cone.py COMMITTED NEW --names-only
+Usage: python3 -I test/cone.py COMMITTED NEW (--old-rev REV | --old-src DIR) [--new-src DIR] [--diff] [--roots FILE]
+       python3 -I test/cone.py COMMITTED NEW --names-only [--roots FILE]
 
 Run from the package root (kcore-spec/). The source of module `A.B.C` is looked up as
 `A/B/C.lean` under the package root, `../aml-port` and `../kore-lean`, in that order.
@@ -24,10 +24,14 @@ Run from the package root (kcore-spec/). The source of module `A.B.C` is looked 
 committed cone was computed at); --old-src DIR reads them from DIR, another package root.
 --new-src defaults to `.`. --diff prints a unified diff of each changed declaration's text.
 --names-only skips the text comparison and says so (exit 1 still on names and line counts).
+--roots FILE (test/roots.toml) checks first that NEW was computed from FILE: its `# roots:` line
+lists FILE's roots in order, its `# read as opaque` line FILE's opaque declarations in order (no such
+line when there are none), and each opaque declaration's reason is on its `#   opaque` line; exit 1
+otherwise.
 
 Exit 1 when the names, the line count, a declaration's own line count, a declaration's text or
 the roots section differ; exit 2 when a source cannot be read."""
-import argparse, difflib, os, re, subprocess, sys
+import argparse, difflib, os, re, subprocess, sys, tomllib
 
 ROOTS = ['.', '../aml-port', '../kore-lean']
 
@@ -94,11 +98,37 @@ ap.add_argument('--old-rev'); ap.add_argument('--old-src')
 ap.add_argument('--new-src', default='.')
 ap.add_argument('--diff', action='store_true')
 ap.add_argument('--names-only', action='store_true')
+ap.add_argument('--roots')
 args = ap.parse_args()
 if not args.names_only and (args.old_rev is None) == (args.old_src is None):
     print("cone: give exactly one of --old-rev REV or --old-src DIR (the committed cone's tree), "
           'or --names-only to skip the text comparison')
     sys.exit(2)
+
+if args.roots is not None:
+    spec = tomllib.load(open(args.roots, 'rb'))
+    want_roots = spec.get('roots', [])
+    want_opaque = list(spec.get('opaque', {}).items())
+    got_roots, got_opaque, got_reasons = None, [], {}
+    for l in open(args.new).read().split('\n'):
+        if l.startswith('# roots: '):
+            got_roots = l[len('# roots: '):].split(', ')
+        elif l.startswith('# read as opaque (type only, value not entered): '):
+            got_opaque = l.split(': ', 1)[1].split(', ')
+        elif l.startswith('#   opaque '):
+            n, r = l[len('#   opaque '):].split(': ', 1)
+            got_reasons[n] = r
+        elif not l.startswith('#'):
+            break
+    bad = []
+    if got_roots != want_roots: bad.append(f'roots {got_roots} != {want_roots}')
+    if got_opaque != [n for n, _ in want_opaque]: bad.append(f'opaque {got_opaque} != {[n for n, _ in want_opaque]}')
+    for n, r in want_opaque:
+        if got_reasons.get(n) != r: bad.append(f'reason of {n}: {got_reasons.get(n)!r} != {r!r}')
+    if bad:
+        print(f'cone: {args.new} was not computed from {args.roots}: ' + '; '.join(bad))
+        sys.exit(1)
+    print(f'cone: computed from {args.roots} ({len(want_roots)} roots, {len(want_opaque)} read as opaque)')
 
 O, ol, od, oroots = parse(args.committed)
 N, nl, nd, nroots = parse(args.new)

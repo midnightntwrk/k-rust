@@ -9,8 +9,9 @@
 #   pins-peano  test/pins-peano.sh: the statements a generated package states, on peano
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
-#   cone        the review cone (v) (test/ConeV.lean) against the committed one, `../core-cone.txt`
-#               or $KCORE_CONE: declaration names, line count and each declaration's own line count (test/cone.py); never rewritten
+#   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
+#               committed one, `../core-cone.txt` or $KCORE_CONE: that it was computed from test/roots.toml,
+#               declaration names, line count and each declaration's own line count (test/cone.py); never rewritten
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
 # updates one file):
 #   regen       every example package regenerated natively from its own NAME/definition.kore,
@@ -76,7 +77,7 @@ lean1() { LEAN_PATH=$LP cap 2400 "$TC/bin/lean" -j1 "$1"; }
 cone() {
   local ref=${KCORE_CONE:-../core-cone.txt}
   [ -f "$ref" ] || { echo "no committed cone at $ref"; return 1; }
-  lean1 test/ConeV.lean && python3 -I test/cone.py "$ref" .lake/cone-v.txt
+  lean1 test/ConeV.lean && python3 -I test/cone.py "$ref" .lake/cone-v.txt --roots test/roots.toml
 }
 agreeKoreInK() {
   [ -d .lake/kore-in-k ] || { echo "texts not built"; return 77; }

@@ -11,7 +11,8 @@
   (iv)  the core: soundness and completeness over a semantics, with what they assume of it
         (`Semantics.coreOK`, `CoreObligations`), written to ../findings/work/review-cone/core.txt;
   (v)   the core with the semantic hypothesis on the functions (`FnHyp`) in place of the named
-        obligations, written to ../findings/work/review-cone/core-hyp.txt;
+        obligations, its roots and opaque declarations the list test/roots.toml (test/ConeV.lean
+        computes the same cone), written to ../findings/work/review-cone/core-hyp.txt;
   (vi)  the texts the statements over the plain step read (`SoundC₀`, `CompleteC₀` and the lemmas
         that say each edited declaration is the plain one where the definition is plain), written
         to ../findings/work/review-cone/core-old.txt;
@@ -33,8 +34,7 @@ import KcoreSpec.ReviewCone
 #review_cone "(iv) KCore core: soundness and completeness over a semantics" [KCore.SoundC, KCore.CompleteC, KCore.ExactC, KCore.StepIs, KCore.Semantics.coreOK, KCore.CoreObligations]
   to "../findings/work/review-cone/core.txt"
 
-#review_cone "(v) KCore core: soundness and completeness over a semantics, from the hypothesis on its functions" [KCore.SoundC, KCore.CompleteC, KCore.ExactC, KCore.StepIs, KCore.Semantics.coreOK, KCore.FnHyp]
-  to "../findings/work/review-cone/core-hyp.txt"
+#review_cone_roots "test/roots.toml" to "../findings/work/review-cone/core-hyp.txt"
 
 #review_cone "(vi) KCore: the texts before U1" [KCore.SoundC₀, KCore.CompleteC₀, KCore.step_plain,
     KCore.eval_plain, KCore.evalTerm_plain, KCore.fails_plain, KCore.applies_of_binds,
