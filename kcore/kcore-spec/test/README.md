@@ -1267,7 +1267,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   of the 301 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
   `fn48_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
   consequence (`fns_from_text`); the 7 others are `[owise]` equations whose exclusion lists the
-  other equations in another order, or binds with other keys, and are not shown. 5.5 GiB, 202 s.
+  other equations in another order, or binds with other keys, tied in `test/TieKkOwise.lean`.
+  5.5 GiB, 202 s.
 - `test/TieKkRules.lean`: kore.k's 10 rules: the j-th item of `ruleItems` is a consequence of the
   j-th rewrite sentence, for every H (`rules_from_text`, W1). 3.3 GiB, 9 s.
 - `test/TieKkCons.lean`: kore.k's 234 constructor sentences (functional, subsort, injectivity,
@@ -1276,6 +1277,11 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieKkNoJunk.lean`: kore.k's 28 no-junk sentences, each entailed by Γ for every H: 22 are
   Γ's items, 5 are `\or(\top, \bottom)` of sorts without constructors, KItem's is Γ's item with
   its disjuncts permuted. 6.8 GiB, 25 s.
+- `test/TieKkOwise.lean`: the 7 `[owise]` equations of kore.k that `TieKkFns` leaves (`owAt`,
+  `ow_keys`): item and sentence agree up to the order of the operands of their sorted disjunctions
+  and the names of their variables (`ow_same`, `TieAlpha.acEqB` from `KcoreSpec/TieAlphaOr.lean`,
+  one decision per position), so Γ entails each sentence for every H (`ow_entailed`) and each item
+  is its sentence's consequence (`ow_from_text`). 6.9 GiB, 111 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
