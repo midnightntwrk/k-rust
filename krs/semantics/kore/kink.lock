@@ -110,6 +110,11 @@ status = "killed"
 killer = "cases/c04-subsort/kore.pgm"
 
 [[run.mutation]]
+id = "subsort-walk-out-holds"
+status = "killed"
+killer = "cases/c52-subsort-one-entry/kore.pgm"
+
+[[run.mutation]]
 id = "inj-not-composed"
 status = "killed"
 killer = "cases/c13-inj-bool/kore.pgm"
@@ -381,7 +386,6 @@ work_factor = 4
 # unchecked: a check did not decide); `undecided`, those the records cannot decide.
 [coverage.rules]
 open = [
-  "rule:KORE.above-dry",
 ]
 argued = [
   { id = "rule:KORE.leq-refl", standing = "text" },
