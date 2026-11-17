@@ -11,7 +11,11 @@
   reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
   to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
   `SetVarsAtMostOne`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
-  checks it is made of) and the classes of an account with their directions (`tieClasses`).
+  checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
+  the rows' statements: `kore.k`'s three (`KK.SuccsSound`, `KK.SuccsStuck`, `KK.SuccsComplete`, with
+  `KK.SuccsAt`, `KK.d₀`, `KK.K₀`, `KK.Sig`, `KK.St` and `CoherentAll`), and the all-path claims the
+  consumer's statement is made of (`Reachability.AllPath`, `CPath`, `Progress`); the consumer's
+  statement, which is about ref-kimp's semantics, is pinned in test/PinsKimp.lean.
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
   `Quot.sound` (`#guard_msgs` fails the file on any other list). Run from kcore-spec, after the
@@ -404,6 +408,68 @@ example : tieClasses =
 example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx, TieDir.atValues.ctorIdx,
     TieDir.hypothesis.ctorIdx, TieDir.refuted.ctorIdx, TieDir.none.ctorIdx) = (0, 1, 2, 3, 4, 5, 6) := rfl
 example (d : TieDir) : d.ctorIdx < 7 := by cases d <;> decide
+
+/-! ## The rows' statements: `kore.k`'s step function (C10 part 2) and what the consumer's claim
+statement is built from (C9 part 5; the statement itself, about ref-kimp's semantics, is pinned in
+test/PinsKimp.lean) -/
+
+/-- `KK.Sig`: its seven fields, in order, with their types. -/
+example : (K : Semantics) → (succs : Sym) → (emb : KK.T → GroundTerm) → (embD : KK.D → GroundTerm) →
+    (embSt : KK.St → GroundTerm) → (enc : GroundTerm → KK.T) → (encDef : Semantics → Option KK.D) →
+    KK.Sig := @KK.Sig.mk
+example (S : KK.Sig) : S = ⟨S.K, S.succs, S.emb, S.embD, S.embSt, S.enc, S.encDef⟩ := rfl
+
+/-- `KK.St`: `stuck` and `next L`, nothing else. -/
+example (s : KK.St) : s = .stuck ∨ ∃ L, s = .next L := by
+  cases s with
+  | stuck => exact .inl rfl
+  | next L => exact .inr ⟨L, rfl⟩
+
+example (d : Semantics) : KK.d₀ d = d.withHooks HookParams.none := rfl
+example (S : KK.Sig) : KK.K₀ S = S.K.withHooks HookParams.none := rfl
+example (S : KK.Sig) (E : KK.D) (x : GroundTerm) (r : Option GroundTerm) :
+    KK.SuccsAt S E x r = Eval (S.K.withHooks HookParams.none) S.succs [S.embD E, S.emb (S.enc x)] r := rfl
+
+example (S : KK.Sig) : KK.SuccsSound S =
+    ∀ {d : Semantics} {E : KK.D}, CExec.execReady d = true → S.encDef d = some E →
+      ∀ (x : Config (d.withHooks HookParams.none)) {L : List KK.T},
+        KK.SuccsAt S E x.val (some (S.embSt (.next L))) → ∀ {y' : KK.T}, y' ∈ L →
+        ∃ y : Config (d.withHooks HookParams.none), S.enc y.val = y' ∧ Step (d.withHooks HookParams.none) x y :=
+  rfl
+
+example (S : KK.Sig) : KK.SuccsStuck S =
+    ∀ {d : Semantics} {E : KK.D}, CExec.execReady d = true → S.encDef d = some E →
+      ∀ (x : Config (d.withHooks HookParams.none)), KK.SuccsAt S E x.val (some (S.embSt .stuck)) →
+        ∀ r ∈ d.rules, NotApplies (d.withHooks HookParams.none) r x.val := rfl
+
+example (S : KK.Sig) : KK.SuccsComplete S =
+    ∀ {d : Semantics} {E : KK.D}, CExec.execReady d = true → CoherentAll (d.withHooks HookParams.none) →
+      S.encDef d = some E → ∀ {x y : Config (d.withHooks HookParams.none)} {s : GroundTerm},
+        KK.SuccsAt S E x.val (some s) → Step (d.withHooks HookParams.none) x y →
+        ∃ L, s = S.embSt (.next L) ∧ S.enc y.val ∈ L := rfl
+
+/-- `CoherentAll`, the hypothesis of `SuccsComplete`. -/
+example (c : Semantics) : CoherentAll c =
+    ∀ f fn, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, ∀ cl' ∈ fn.clauses,
+      (cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
+        (cl'.aside = true ∧ cl'.prio < cl.prio)) →
+      Coherent c cl cl' := rfl
+
+/-- The all-path claims the consumer's statement is made of: `Progress`, `CPath` by its two
+constructors and nothing else, `AllPath`. -/
+example {α : Type} (r : α → α → Prop) (x : α) : Reachability.Progress r x = ∃ y, r x y := rfl
+example {α : Type} (r : α → α → Prop) (x : α) (l : List α) : Reachability.CPath r x l ↔
+    (l = [x] ∧ ¬ Reachability.Progress r x) ∨ ∃ y l', l = x :: l' ∧ r x y ∧ Reachability.CPath r y l' :=
+  ⟨fun h => by
+    cases h with
+    | stuck h => exact .inl ⟨rfl, h⟩
+    | cons h hl => exact .inr ⟨_, _, rfl, h, hl⟩,
+   fun h => by
+    rcases h with ⟨rfl, h⟩ | ⟨y, l', rfl, h, hl⟩
+    · exact .stuck h
+    · exact .cons h hl⟩
+example {α : Type} (r : α → α → Prop) (P Q : α → Prop) : Reachability.AllPath r P Q =
+    ∀ x, P x → ∀ l, Reachability.CPath r x l → ∃ z ∈ l, Q z := rfl
 
 /-! ## The theorems (each `example : <the type, written out> := @name`) -/
 
