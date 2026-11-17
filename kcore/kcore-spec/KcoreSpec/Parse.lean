@@ -2400,7 +2400,7 @@ has the rule's steps. Kept in the presentation when written with no argument or 
 def ruleAttrIgnored : List (String × String) :=
   [("cool", "marks a cooling rule of a strictness declaration; the axiom states the rule"),
    ("cool-like", "marks a rule as cooling-like for strictness; the axiom states the rule"),
-   ("preserves-definedness", "the author's claim that the right side is defined where the left side matches; every rule is read with the premise that it is (ReadingNote.ruleRightDefined)"),
+   ("preserves-definedness", "no K text gives it a meaning (kore-syntax.md:223-229; the user manual has no occurrence); kompile writes it on the axiom and no sentence beside it (e2-rule/kore.txt:193-199); the axiom states the rule"),
    ("format", "a printing form"),
    ("colors", "a printing form"),
    ("symbol'Kywd'", "a name"),
