@@ -921,3 +921,9 @@ Memory: the peaks of 10 GiB and more are each package's `NS.Wf.Faith` (ImpSec an
 10,562 MiB, Kimp 10,285, RefKimp 10,273, KinkImp 9,980, Kryp 9,959), under the 12 GiB scope with
 1.4 GiB to spare; the tied packages' `Tie.Faith` peaked lower (under 8,100 MiB per package in the
 table above, on the tree before String and Bytes). Not investigated here.
+- `test/OccurrenceOrder.lean`: `KoreAML.tr_occurrence_order` at a predicate with a binder
+  (`∃ y:Exp. y ∈ b ∧ ¬ (y ∈ G)` over symrule's semantics): the pattern as a text spells it (binder
+  `VarY`, free variable `VarG`) is `Cond.kore`'s with its canonical names respelled (`text_eq`), the
+  spelling is one-to-one, and the two patterns have one translation under their own tables (`tie`);
+  a spelling that gives the free variable the binder's canonical name is not one-to-one and changes
+  the translation (`clash`).
