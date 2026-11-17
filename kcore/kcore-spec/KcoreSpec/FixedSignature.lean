@@ -125,6 +125,10 @@ structure CtorSig where
 @[match_pattern, reducible] def intMax : Sym := 26
 @[match_pattern, reducible] def intAbs : Sym := 27
 @[match_pattern, reducible] def freshInt : Sym := 28
+/-- INT's `>>Int`, `<<Int` and `log2Int`: library symbols with fixed numbers (BuiltinNames.lean). -/
+@[match_pattern, reducible] def intShr : Sym := 211
+@[match_pattern, reducible] def intShl : Sym := 212
+@[match_pattern, reducible] def intLog2 : Sym := 216
 @[match_pattern, reducible] def kEq : Sym := 29
 @[match_pattern, reducible] def kNe : Sym := 30
 @[match_pattern, reducible] def mapUnit : Sym := 31
@@ -560,6 +564,7 @@ def hookSigs : List CtorSig :=
     fun f => ⟨f, [Srt.int, Srt.int], Srt.int⟩) ++
   ([intLt, intLe, intGt, intGe, intEq, intNe].map fun f => ⟨f, [Srt.int, Srt.int], Srt.bool⟩) ++
   [⟨intAbs, [Srt.int], Srt.int⟩, ⟨freshInt, [Srt.int], Srt.int⟩,
+   ⟨intShr, [Srt.int, Srt.int], Srt.int⟩, ⟨intShl, [Srt.int, Srt.int], Srt.int⟩, ⟨intLog2, [Srt.int], Srt.int⟩,
    ⟨kEq, [Srt.k, Srt.k], Srt.bool⟩, ⟨kNe, [Srt.k, Srt.k], Srt.bool⟩,
    ⟨mapUnit, [], Srt.map⟩, ⟨mapElem, [Srt.kitem, Srt.kitem], Srt.map⟩, ⟨mapConcat, [Srt.map, Srt.map], Srt.map⟩,
    ⟨mapUpdate, [Srt.map, Srt.kitem, Srt.kitem], Srt.map⟩, ⟨mapRemove, [Srt.map, Srt.kitem], Srt.map⟩,
@@ -636,6 +641,7 @@ def bytesPartial : List Sym :=
   [bytesUpdate, bytesGet, bytesSubstr, bytesReplaceAt, bytesMemset, bytesPadRight, bytesPadLeft, int2Bytes]
 
 /-- The interpreted symbols not known total here (`hook` can be undefined): division and modulo,
+the two shifts (undefined at a negative amount) and `log2Int` (undefined at a number not above 0),
 `_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup`,
 `List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model;
 those FLOAT declares `total` are listed too, so no check counts on their totality: the seven of
@@ -650,7 +656,7 @@ The library's text declares every other one `total` (KCORE-AUDIT.md). -/
 def partialHooks : List Sym :=
   [intTDiv, intTMod, intEDiv, intEMod, mapConcat, setConcat, mapLookup, listGet, listRange] ++ floatResFloat ++
     floatResBool ++ floatResInt ++ stringPartial ++ bytesPartial ++
-    [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
+    [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll] ++ [intShr, intShl, intLog2]
 
 /-- The `hook{}` attribute of each interpreted hooked symbol, as the builtin texts declare it
 (checked against them by test/Member.lean). A hooked symbol whose hook is one of these
@@ -683,6 +689,9 @@ def regHookNames : List (Sym × String) :=
    (intEq, "INT.eq"),
    (intNe, "INT.ne"),
    (intAbs, "INT.abs"),
+   (intShr, "INT.shr"),
+   (intShl, "INT.shl"),
+   (intLog2, "INT.log2"),
    (kEq, "KEQUAL.eq"),
    (kNe, "KEQUAL.ne"),
    (mapUnit, "MAP.unit"),

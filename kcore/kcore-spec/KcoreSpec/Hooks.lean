@@ -42,7 +42,10 @@
   argument sorts, ⊥ where it is undefined. So the domain theories
   are not written by hand symbol by symbol; they are read off this one function, which is what a
   reviewer checks against K's documented meaning of each hook (domains.md): Int is ℤ with
-  truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0;
+  truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0,
+  `X <<Int N` the product X · 2^N and `X >>Int N` the arithmetic right shift, the floor of X / 2^N,
+  both undefined at a negative N (domains.md 1238-1242), `log2Int(X)` the index of the highest bit
+  set of a positive X, undefined at X ≤ 0 (1298-1301);
   Float is IEEE 754 binary floating point of each value's format, every result rounded to nearest,
   ties to even; a String is a sequence of code points and a Bytes value one of bytes, positions
   counted from 0; Bool is the two-element Boolean
@@ -156,7 +159,12 @@ def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (intEq, fun vs => int2 vs fun x y => some (bool (decide (x = y)))),
    (intNe, fun vs => int2 vs fun x y => some (bool (decide (x ≠ y)))),
    (intAbs, fun vs => match vs with | [a] => (asInt a).map fun x => int x.natAbs | _ => none),
-   (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none)]
+   (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none),
+   (intShr, fun vs => int2 vs fun x n => if n < 0 then none else some (int (x.fdiv (2 ^ n.toNat)))),
+   (intShl, fun vs => int2 vs fun x n => if n < 0 then none else some (int (x * 2 ^ n.toNat))),
+   (intLog2, fun vs => match vs with
+     | [a] => (asInt a).bind fun x => if 0 < x then some (int x.toNat.log2) else none
+     | _ => none)]
 
 def kHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(kEq, fun vs => match vs with | [a, b] => some (bool (GroundTerm.cmp a b == .eq)) | _ => none),
@@ -679,10 +687,6 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (stringFindChar, fun _ => true), (stringRfindChar, fun _ => true),
    (string2Int, fun _ => true), (string2Base, fun _ => true), (stringReplace, fun _ => true),
    (string2Bool, fun _ => true),
-   (bytesReplaceAt, fun vs => match vs with
-     | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
-         decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))
-     | _ => false),
    (bytesMemset, fun _ => true), (bytes2Int, fun _ => true), (int2Bytes, fun _ => true),
    (floatSqrt, fun _ => true),
    (floatNeg, fun _ => true), (floatAbs, fun _ => true), (floatFloor, fun _ => true),

@@ -30,7 +30,8 @@
   has no model. A sentence's sort variables (`R`, `Q0`) are not instantiated: its predicates denote
   every element or none in any sort.
 
-  Grids: Int -3 … 3 and 2^64 + 1; Bool both; KItem the injections of 0, 1, 2, true and of a user
+  Grids: Int -3 … 3 and 2^64 + 1 (a sentence applying `<<Int` or `>>Int` without 2^64 + 1, a shift
+  amount of which names a number of that many bits); Bool both; KItem the injections of 0, 1, 2, true and of a user
   constructor of one Int argument applied to 0; K `.K` and four sequences; Map, Set, List six
   values each over the KItems 0, 1, 2 (empty, one entry, two, overlapping and disjoint);
   String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN and `p1x2`'s 1.0, ∞,
@@ -569,6 +570,8 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
       let syms := (appsOf ad.ax.pattern).eraseDups
       let absent := syms.filter (!gNames.contains ·)
       let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place := placeOf ad.ax.attributes, syms, absent }
+      -- a shift by 2^64 + 1 is a number of that many bits: its sentences are probed on the small grid
+      let small := small || syms.any ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].contains
       let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
       res := res ++ [r]
   IO.println s!"Γ's instances of ite: {gNames.filter (·.startsWith "Lblite")}"

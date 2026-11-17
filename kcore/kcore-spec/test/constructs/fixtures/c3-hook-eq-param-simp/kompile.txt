@@ -1,9 +1,9 @@
 command: kompile --backend haskell c3-hook-eq-param-simp.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 1.9
+seconds: 2.5
 definition.kore bytes: 202317
-definition.kore sha256: e549396c634094adf89656c080b3afa4ca74ead8e09a4c48216732c09e040b43
-stripped sha256: 2a5c278f6bf880a64daf87dada4d6a96646bea55f4dbb45abc5c17061ff261e9
+definition.kore sha256: 84b67a5f01699d705a0d964c3847a0b28f54536674c5a9074b6f894c90001330
+stripped sha256: 62b312832ffda848547b5fddf3d9f7f15b8641ba410c74384238cc8cde6b193c
 main module: 391 sentences, 34 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name

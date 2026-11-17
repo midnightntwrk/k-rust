@@ -9,7 +9,7 @@
   point (`Semantics.paramVal`). Run from the package root: `lake env lean -j1 test/HookEqFn.lean`.
 
   `F(Int) : Int`, an own symbol (`nRegSyms + 100`), with the one equation `F(0) => 1` (the shape of
-  the fixture `c3-hook-eq-param`, `lg(1) => 0` on `hook(INT.log2)`). `cF` reads it as a function
+  the fixture `c3-hook-eq-param`, `lg(1) => 0` on `hook(INT.rand)`). `cF` reads it as a function
   with that clause; `cP` reads the symbol without the equation, as a parameter; `H7` gives `F` the
   value 7 at every argument list.
   - Under every interpretation `F(0)` is 1 (`fn_at_0`) and has no other result (`fn_at_0_only`):

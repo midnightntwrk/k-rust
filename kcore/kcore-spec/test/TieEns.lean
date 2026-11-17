@@ -28,9 +28,11 @@
   - Set idempotence (61): Γ with it has no model, for every H (`idem_refuted`).
   - Library sample, 166 (`I -Int 0 = I`, a `simplification`): holds at every value of `I` in every
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
-  - Sentences applying a symbol Γ does not have (`absent_syms` for five of them): the cell
+  - Sentences applying a symbol Γ does not have (`absent_syms` for four of them): the cell
     initializers and the counter's getter, the 14 projections, seven hooked symbols' `functional`
-    sentences, ten library sentences (171, `X <<Int 0 = X`, among them): no direction.
+    sentences, two library sentences (157 and 189) over symbols without a hook here: no direction.
+    The library's six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is
+    `X <<Int 0 = X`) apply symbols Γ interprets and are of the class library.
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
   translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
@@ -702,12 +704,18 @@ theorem lib166 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation Kor
 /-! ## Symbols the text's sentences apply that Γ has no symbol for
 
 The cell initializers and the counter's getter (82, 210, 212 to 214), the projections (250 to 263),
-seven hooked symbols' `functional` sentences (36, 40, 42, 73, 75, 113, 114) and ten library
-sentences (128, 129, 157, 171, 172, 178, 179, 189 and others) apply a symbol that is not among
-Γ's symbols (`kernelSyms`): Γ states nothing of it, so no direction holds for these sentences. -/
+seven hooked symbols' `functional` sentences (36, 40, 42, 73, 75, 113, 114) and two library
+sentences (157, 189) apply a symbol that is not among
+Γ's symbols (`kernelSyms`): Γ states nothing of it, so no direction holds for these sentences.
+`<<Int` and `>>Int` are symbols of Γ (interpreted hooks), so the sentences over them alone are
+not of this kind (`shift_syms`, `account_absent`). -/
 
-theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject'Coln'Int", "Lbl'UndsAnd-'Int'Unds'",
-    "Lbl'Unds-LT--LT-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
+theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject'Coln'Int",
+    "Lbl'UndsAnd-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
+  decide +kernel
+
+theorem shift_syms : ["Lbl'Unds-LT--LT-'Int'Unds'", "Lbl'Unds-GT--GT-'Int'Unds'"].all
+    (fun n => (kernelSyms c).any (fun k => c.symName k.name == n)) = true := by
   decide +kernel
 
 /-! ## The account: every sentence of the user module is in exactly one class
@@ -742,12 +750,12 @@ def classes : List (String × List Nat) :=
    ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
       56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
    ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
-   ("library", [126, 127, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
-      148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 173,
-      174, 175, 176, 177, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
+   ("library", [126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+      148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
+      174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
       199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264, 266]),
    ("set idempotence", [61]),
-   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 128, 129, 157, 171, 172, 178, 179, 189, 208, 210, 212, 213,
+   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 157, 189, 208, 210, 212, 213,
       214, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
 
 /-- The indices of a class. -/
@@ -764,7 +772,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
      ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
-     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("no direction", 36)] := by
+     ("hooked functional", 48), ("collection law", 9), ("library", 88), ("set idempotence", 1), ("no direction", 30)] := by
   decide +kernel
 
 /-- The class lists agree with the lists the class theorems are stated over: the function

@@ -674,13 +674,18 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
-- `test/HooksInt.lean`: the 17 supported hook rows of INT (the sort and sixteen operations) against
+- `test/HooksInt.lean`: the 20 supported hook rows of INT (the sort, sixteen operations and, in the last section, three more) against
   domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
   result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
   `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
   remainder), each with one solution, and the prose's rules between them at every pair; no row is a
   key of `silentTable`, and every argument list of a signature is covered (a value, or at divisor
   0 the prose's `#False`, where Γ states ⊥ under every interpretation).
+  The three rows `INT.shr`, `INT.shl`, `INT.log2` (last section): the left shift by n ≥ 0 is
+  x · 2^n, the arithmetic right shift the floor of x / 2^n, the log of x > 0 the index of its
+  highest set bit, each by a property with one solution; at a negative amount and at x ≤ 0 the
+  prose says `#False`, `hook` gives no value, the point is not silent and Γ states ⊥ under every
+  interpretation; none of the three is a parameter symbol of a library module.
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
   cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under
