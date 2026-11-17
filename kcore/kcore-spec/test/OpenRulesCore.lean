@@ -221,20 +221,19 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
 pattern is where it applies (`applies_iff_open`). -/
 example (hd : FnDet cO) (hs : FnSolves cO) : True := by
   have h := hypModel_of_fn coreO.1 hd hs
-  have := Faithful.Model.sat_rule_open h (r := ok1) m1 facts.1.1 facts.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := okB) mB facts.2.1.1 facts.2.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := ok2) m2 facts.2.2.1.1 facts.2.2.1.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.sat_rule_open h (r := okBc) mBc facts.2.2.2.1 facts.2.2.2.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.sat_rule_open h (r := ok1) m1 facts.1.1 facts.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := okB) mB facts.2.1.1 facts.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := ok2) m2 facts.2.2.1.1 facts.2.2.1.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.sat_rule_open h (r := okBc) mBc facts.2.2.2.1 facts.2.2.2.2 (h.ruleFactsEx_of_all (by decide +kernel))
   have := @Faithful.Model.applies_iff_open cO h okB facts.2.1.1 facts.2.1.2.1
   have := @Faithful.Model.applies_iff_open cO h ok2 facts.2.2.1.1 facts.2.2.1.2.1
   trivial
 
-/-- The rules' open facts at `cO`: `ruleSorted` and `rulePlainEx` from `coreOK` and the rules'
-`\top` predicates (decided), and no rule of `cO` has an existential variable (decided), which with
+/-- The rules' open facts at `cO`: `ruleSorted` from `coreOK` and `rulePlainEx` decided, and no rule of `cO` has an existential variable (decided), which with
 `rulePlainEx` is `rulePlainOpen`. -/
 theorem hopenO : ∀ r ∈ cO.rules, cO.ruleSorted r = true ∧ cO.rulePlainOpen r = true := by
   have hex : ∀ r ∈ cO.rules, r.exs = [] := by decide +kernel
-  have hfacts := Semantics.ruleFactsEx_of_coreTop coreO.1 (by decide +kernel)
+  have hfacts := Semantics.ruleFactsEx_of_coreAll coreO.1 (by decide +kernel)
   exact fun r hr => ⟨(hfacts r hr).1, Semantics.rulePlainOpen_iff_ex.mpr ⟨(hfacts r hr).2, hex r hr⟩⟩
 
 /-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts `hopenO`. -/

@@ -740,11 +740,11 @@ theorem model_with_eqns (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (N 
         G n w = some v → I ⊧ᴵ (symP n ⬝ den c w ≡ den c v)) ∧
       ∀ x y : Config c, StepM c x.val y.val ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hm := hypModel_of_fnHyp h hf
-  have hrules := Semantics.ruleFactsPP_of_core h
+  have hrules := Semantics.ruleFactsHeld_of_core h
   have hiff : ∀ {x y : GroundTerm}, StepV c x y ↔ StepM c x y :=
     stepV_iff_stepM h (fnModel_of_fnHyp h hf).1 hf.1 (fun r hr => (hrules r hr).1)
   have hI : stdI_T c (StepM c) ⊧ᴵP (Γc c ∪ Γstep c) :=
-    stdI_T_model_pp c h hm hf.2.2.2.2.2 hrules (StepM c)
+    stdI_T_model_held c h hm hf.2.2.2.2.2 hrules (StepM c)
       (fun _ _ _ _ hT => hiff.mpr hT) (fun r σ _ _ hb _ => hiff.mp ⟨r, σ, hb⟩)
       (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, hiff.mp ⟨r, σ, hb⟩⟩)
   refine ⟨stdPatch c (StepM c) N (valApp G), stdPatch_model c _ N _ hr hfree hI,
