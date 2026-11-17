@@ -938,6 +938,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   texts against their fixtures (sha256, account) and generates both packages (`--core`) into
   `.lake/nonexec-owise`: `agree_named`, `namedFacts`, `Obl`, no `obl_nil`, every statement of a model
   or of the semantics taking `hob`, and builds them.
+- `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
+  hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
+  read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
+  (`GenEqs.sortPredEqn_in_Γ`), the `[owise]` one's disjunct read back as the clause it negates
+  (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
+  `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
+  `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
