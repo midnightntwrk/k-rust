@@ -149,6 +149,15 @@ theorem norm_facts :
     c.sortOf (.ctor plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))]) = none := by
   decide +kernel
 
+/-- The function overload `plusInt` covers `inj{Int,Exp}(1), inj{Int,Exp}(2)` (`fnCover`), and no
+function overload covers two arguments that are no injections from Int. -/
+theorem fnCover_facts :
+    c.fnCover plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] =
+      some ⟨plusInt, [Srt.int, Srt.int], Srt.int⟩ ∧
+    c.fnCover plusExp [.ctor plusExp [], .ctor plusExp []] = none ∧
+    c.fnCover plusInt [.dv Srt.int (.int 1), .dv Srt.int (.int 2)] = none := by
+  decide +kernel
+
 /-- The uncovered items of `plusExp` are guarded by the function's argument sorts. -/
 theorem cons_covs :
     ((Faithful.consItemsK c).any fun it =>
@@ -263,6 +272,13 @@ theorem norm_facts :
     ovlfun.uncovered capGas [.inj nS gasS (.ctor z [])] = false ∧
     ovlfun.norm capGas [.inj nS gasS (.ctor z [])] = .ctor capGas [.inj nS gasS (.ctor z [])] ∧
     ovlfun.sortOf (.ctor capGas [.inj nS gasS (.ctor z [])]) = none := by
+  decide +kernel
+
+/-- The function overload `capN` covers `inj{N,Gas}(z)` (`fnCover`); no function overload covers
+`inf`. -/
+theorem fnCover_facts :
+    (ovlfun.fnCover capGas [.inj nS gasS (.ctor z [])]).map (·.name) = some capN ∧
+    ovlfun.fnCover capGas [.ctor inf []] = none := by
   decide +kernel
 
 /-- `capGas(inj{N,Gas}(z))`. -/

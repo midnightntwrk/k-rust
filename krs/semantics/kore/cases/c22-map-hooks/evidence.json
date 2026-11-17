@@ -1,0 +1,29 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'KItem'Unds'KItem'Unds'KItem'Unds'Map'Unds'Map'Unds'Map'Unds'Map'Unds'Bool'Unds'Bool'Unds'Int(inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(0),SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(7),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(9),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},true,false,2))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'KItem'Unds'KItem'Unds'KItem'Unds'Map'Unds'Map'Unds'Map'Unds'Map'Unds'Bool'Unds'Bool'Unds'Int(inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(0),SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(7),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(9),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)},true,false,2))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "532654729d370c1a2352572f96dac517eac70cf95eb7e6ec61f69eebcfb8f477",
+  "pgm": "f1b019066fb73437009e3b27e11265c393b48ea17e2bfe30092f1b7b95414d9c"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "384ef7b6032a3fa74f5aae4196379c00378a27a120968789423b8afc7b0242ce",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

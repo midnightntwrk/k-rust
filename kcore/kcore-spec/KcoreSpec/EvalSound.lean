@@ -74,7 +74,8 @@ mutual
       | param hk hhk hp hts hr => exact .param hk hhk hp (EvalTerms.congr hts ha') hr
       | call hk hhk hts hvs hf hp => exact .call hk hhk (EvalTerms.congr hts ha') hvs hf hp
       | callUndef hk hhk hts hvs hp => exact .callUndef hk hhk (EvalTerms.congr hts ha') hvs hp
-      | ovl hk ho hts => exact .ovl hk ho (EvalTerms.congr hts ha')
+      | ovl hk ho hts hnf => exact .ovl hk ho (EvalTerms.congr hts ha') hnf
+      | ovlFn hk ho hts hvs hlo hcov hf => exact .ovlFn hk ho (EvalTerms.congr hts ha') hvs hlo hcov hf
   termination_by structural t => t
   theorem EvalTerms.congr {σ σ' : Subst} : ∀ {ts : List Term} {rs : List (Option GroundTerm)},
       EvalTerms c σ ts rs → (∀ i ∈ varOccsList ts, σ.lookup i = σ'.lookup i) → EvalTerms c σ' ts rs

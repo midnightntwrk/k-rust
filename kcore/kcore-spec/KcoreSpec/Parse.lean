@@ -78,10 +78,10 @@ inductive RefusalReason where
   | cellCollectionInjection
   /-- An alias declaration: KCore reads no alias, whose applications stand for its body. -/
   | aliasDeclaration
-  /-- An axiom kompile writes for a `symbol-overload` pair whose first symbol is no overloading
-  symbol (`overloadForm` for one that is) and that is not an equation of the overloading function:
-  one not of the form `f(p̄) = r`, or between symbols one of which is not a function (a function
-  agreeing with a constructor on its subsorts, which no clause of the function states as read). -/
+  /-- An axiom kompile writes for a `symbol-overload` pair that is not an equation `f(p̄) = r` of
+  its first symbol f (`overloadEqn?`), or whose first symbol is neither an overloading symbol
+  (`overloadForm` for one that is) nor a function of the definition (whose clause it is, aside, of
+  priority 0: `overloadEqn?`). -/
   | overloadAxiom
   /-- An axiom of no form the reader reads or knows inert. -/
   | axiomShape
@@ -695,6 +695,23 @@ inductive ReadingNote where
   arguments, which the sentence entails; whether g is so is not decided
   (`Parse.overloadFunctions`). -/
   | overloadFunction
+  /-- A sort X of the definition that KItem's no-junk axiom (`\or{SortKItem{}}(…)`, `scanOr`) does
+  not list, read below KItem all the same; where the text states no `subsort{X, KItem}` axiom
+  either (a token sort whose name begins with `#`, `syntax #Tok [token]`), the reading adds the
+  subsort X < KItem. Every sort of the definition is below KItem (`Semantics.sortsBelowKItem`,
+  `Semantics.subsorts`), so `inj{X, KItem}` is one of KItem's generators (`Semantics.gens`) and
+  `Γ`'s no-junk item of KItem lists it. K's text states that every sort is a KItem
+  (user_manual.md:504, 515; kast.md:363 `syntax {Sort} KItem ::= Sort`), and the text itself applies
+  `inj{X, KItem}` (in the equations of the sort predicate `isX`), which denotes elements of KItem
+  only with X below KItem. The text's sentence entails `Γ`'s item (an item over more generators is
+  a consequence, `Faithful.noJunkItem_of_subset`), not conversely: where X has an element (a token's
+  domain value), `inj{X, KItem}` of it is an element of KItem (Cons-Fun) apart from the image of
+  every other generator (Cons-Dist), and the text's sentence says it is in one of them, so the
+  text's sentence with `Γ` has no model. The reading keeps the subsort that the text's application
+  of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so
+  (`classify` reads a sentence alone, and which sorts the definition has it does not know): the
+  account lists the sentences and the sorts (`tokKItemOmitted`). -/
+  | tokKItem
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -2089,9 +2106,11 @@ def pairExcl : List RawEqn → List Kore.Pattern → List (RawEqn × Option Kore
       | some (i, d) => (e, some d) :: pairExcl es (ds.eraseIdx i)
       | none => (e, some unexcluded) :: pairExcl es ds
 
-/-- An equation declared `non-executable`: an axiom of the text that kompile's `[owise]` premise
-does not negate, read as an `aside` clause. -/
-def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable"
+/-- An equation that no premise of the text negates, read as an `aside` clause: one declared
+`non-executable`, which kompile's `[owise]` premise does not negate, or a symbol-overload axiom
+(`overloadEqn?`), which states its equation with no premise and which no `[owise]` premise
+negates (the premise's disjuncts are as many as the other equations, `fnFrom`). -/
+def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || hasAttr e.attrs "symbol-overload"
 
 /-- As `pairExcl`, the equations declared `non-executable` (`nonExec`) with no disjunct: no
 disjunct of an `[owise]` equation's exclusion excludes them. -/
@@ -2136,8 +2155,10 @@ def appendEqns : List RawEqn :=
 
 /-- A symbol-overload axiom as an equation of the overloading symbol `f`:
 `\equals(f(p̄), r) [symbol-overload{}(f(), g())]` states `f(p̄) = r` (`f(inj{Int,Gas}(K)) =
-inj{Int,Gas}(g(K))`), a clause of `f` of the default priority when `f` and `g` are functions
-(`envOf`). -/
+inj{Int,Gas}(g(K))`). When `f` is a function (`envOf`) it is a clause of `f`, `aside` (`nonExec`)
+and of priority 0 (`eqnPrio`): the sentence states `f(p̄) = r` wherever `p̄` matches, with no
+premise, so its clause is the one below which no clause is (`Eval.clause` reads no clause
+before it) and which no other clause's premise negates. -/
 def overloadEqn? (a : Kore.Axiom) : Option RawEqn :=
   match a.attributes, a.pattern with
   | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app _ [] []]⟩], .equals _ _ (.app h [] args) rhs =>
@@ -2217,11 +2238,14 @@ def eqnInfo? (as : List Kore.AppPattern) : Option KoreAML.Meta :=
 def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
   (source? attrs).bind fun s => if s == msrc then none else some s
 
-/-- An equation's priority: `priority{}("n")`'s n, otherwise 200 for an `[owise]` equation (one
-with competitors) and 50 for the others. -/
+/-- An equation's priority, with it where the presentation writes it `priority{}("n")`
+(`ClausePres.prioAttr`): `priority{}("n")`'s n; for a symbol-overload axiom (`overloadEqn?`) 0,
+written so, the attribute that gives it being none `emit` writes; otherwise 200 for an `[owise]`
+equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
-  let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+  let explicit := ((attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0).orElse fun _ =>
+    if hasAttr e.attrs "symbol-overload" then some 0 else none
   (explicit, explicit.getD (if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
@@ -3998,8 +4022,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the definition's own hooked symbols are its parameter symbols, but those read as functions
   let paramNames := (S.userHooked.filter (!hookFnSym S ·)).map (·.symbol.ident.ident.name)
   -- an overload axiom of an overloading symbol is the kernel's overload equation (`ovlEqMissing`) of
-  -- a constructor, an overloading symbol or a function with equations; any other is an equation of
-  -- the overloading function, both symbols functions
+  -- a constructor, an overloading symbol or a function with equations; one whose first symbol is a
+  -- function is a clause of that function (`overloadEqn?`), whatever the second symbol is
   let fnDecls := notOvl (((S.userSyms ++ genSyms).filter (!isCtorDecl ·)).map (·.symbol.ident.ident.name))
   let _ ← S.eqs.mapM fun e => match overloadSyms? e.attrs with
     | some (f, g) =>
@@ -4011,7 +4035,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
             | some m => fail .overloadForm m
           else fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition"
         | _, _ => fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition")
-      else if fnDecls.contains f && fnDecls.contains g then pure ()
+      else if fnDecls.contains f then pure ()
       else Rd.within (.attrs e.attrs) (fail .overloadAxiom f)
     | none => pure ()
   let N₀ : Names := { sorts := ownSortNames, macros := S.macros, own := libProjNames, carriers := S.carriers

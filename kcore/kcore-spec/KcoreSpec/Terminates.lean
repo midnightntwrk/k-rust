@@ -110,7 +110,7 @@ mutual
       · cases hhk : isHook f
         · cases hpar : c.isParam f
           · cases hov : c.isOvl f with
-            | true => exact ⟨_, EvalTerm.ovl hct hov hts⟩
+            | true => exact ⟨_, EvalTerm.ovl hct hov hts (fun vs _ => hc.ovl.fnCover_none f vs)⟩
             | false =>
             cases hvs : allSome rs with
             | none => exact ⟨none, EvalTerm.callUndef hct hhk hts hvs hpar⟩

@@ -315,6 +315,7 @@ theorem not_agree_C : ¬ ClausesAgree cC (negFn [ovlCl, userCl, cl0]) := fun h =
       | call hc _ _ _ _ _ => cases hc
       | callUndef hc _ _ _ _ => cases hc
       | ovl hc _ _ => cases hc
+      | ovlFn hc _ => cases hc
     rw [key r h1, key r' h2]
   have hdec0 : cl0.Decides cC (negFn [ovlCl, userCl, cl0]) [(0, i3)] [i3] :=
     ⟨appliesC_cl0, fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _)⟩

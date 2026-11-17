@@ -80,6 +80,7 @@ mutual
       | call hc _ _ _ _ _ => rw [hct] at hc; cases hc
       | callUndef hc _ _ _ _ => rw [hct] at hc; cases hc
       | ovl hc _ _ => rw [hct] at hc; cases hc
+      | ovlFn hc _ => rw [hct] at hc; cases hc
   theorem gvalList_eval {σ : Subst} : ∀ {ts : List Term} {rs : List (Option GroundTerm)},
       c.groundValueList ts = true → EvalTerms c σ ts rs → rs = (gvalList ts).map some
     | [], _, _, h => by cases h; rfl
@@ -168,6 +169,7 @@ theorem kEq_inv {σ : Subst} {t u : Term} (h : EvalTerm c σ (.app kEq [t, u]) (
   | call _ hh _ _ _ _ => cases ht; rw [isHook_kEq] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [isHook_kEq] at hh; cases hh
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_kEq] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_kEq] at this; cases this
 
 /-- An Int comparison hook: on two Ints, the truth of `P`; elsewhere undefined. -/
 theorem int2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} {P : Int → Int → Prop}
@@ -211,6 +213,7 @@ theorem int2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} {P : Int → Int
   | call _ hh _ _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [hhk] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [hhk] at this; cases this
 
 theorem hook_intLt (vs : List GroundTerm) : hook intLt vs = some (int2 vs fun x y => some (bool (decide (x < y)))) := rfl
 theorem hook_intLe (vs : List GroundTerm) : hook intLe vs = some (int2 vs fun x y => some (bool (decide (x ≤ y)))) := rfl
@@ -527,6 +530,7 @@ theorem or_inv {σ : Subst} {t₁ t₂ : Term} (h : EvalTerm c σ (.app boolOr [
   | call _ hhk _ _ _ _ => cases ht; rw [isHook_or] at hhk; cases hhk
   | callUndef _ _ _ _ _ => cases ht; cases hr
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_or] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_or] at this; cases this
   | _ => cases ht
 
 /-! ## Patterns apart (`overlap`) -/

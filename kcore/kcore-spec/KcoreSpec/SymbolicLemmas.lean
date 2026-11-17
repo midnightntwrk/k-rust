@@ -490,6 +490,7 @@ theorem EvalTerm.hook_iff {f : Sym} {ts : List Term} {r : Option GroundTerm}
     | call _ h _ _ _ _ => cases ht; rw [hh] at h; cases h
     | callUndef _ h _ _ _ => cases ht; rw [hh] at h; cases h
     | ovl _ ho _ => cases ht; rw [(c.isOvl_parts ho).2.1] at hh; cases hh
+    | ovlFn _ ho => cases ht; rw [(c.isOvl_parts ho).2.1] at hh; cases hh
     | _ => cases ht
   · rintro ⟨_, hts, hh', hund⟩
     exact .hook hc hh hts hh' hund

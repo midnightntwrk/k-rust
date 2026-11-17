@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
-| E3 | 67 | 26 | 0 | 1 | 0 | 40 | 0 | 0 |
+| E3 | 68 | 27 | 0 | 1 | 0 | 40 | 0 | 0 |
 | E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
 | E6 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 156 | 70 | 1 | 7 | 1 | 77 | 0 | 0 |
+| all | 157 | 71 | 1 | 7 | 1 | 77 | 0 | 0 |
 
 Refused rows by class:
 
@@ -549,6 +549,7 @@ Not core:
 | `KAST:KList::=KList "," KList` | supported |  | KAST notation (\`foo(bar(.KList))\`, backquoted labels, \`#token("x","Id")\`) is another spelling of a term: the kompiled sentence holds the same application or domain value the concrete syntax gives. | none (reader already reads it) |  | e3-kast | no | yes | fixtures/e3-kast: account \`parse: ok; wf true\`; the row's \`sentence\` |
 | `K-TOP-SORT:KItem::=KBott` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-casts |  |  | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
 | `K-TOP-SORT:KItem::=Sort` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-casts |  |  | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
+| cases[0]: a sort whose name begins with \`#\` (\`syntax #Tok [token]\`): KItem's no-junk sentence lists no \`inj{#Tok, KItem}\` and no s… | supported |  | every sort is a KItem (user\_manual.md:504, 515; kast.md:363 \`syntax {Sort} KItem ::= Sort\`), and the text applies \`inj{#Tok, KItem}\`, which denotes elements of KItem only with \`#Tok\` below KItem: the reading adds the subsort \`#Tok &lt; KItem\` (Semantics.sortsBelowKItem), and Γ's no-junk item of KItem l… |  |  | e3-hash-sort |  |  | fixtures/e3-hash-sort (the text of f2-examples/hashsort.k, modules renamed): kore.txt holds KItem's no-junk sentence without a disjunct for \`#Tok\` and no \`subsort{Sort'Hash'Tok{}, SortKItem{}}\` axiom; account.txt \`KItem no-junk axioms read with a generator inj{X, KItem} they do not list, X a sort of… |
 | `KSEQ:K::=".K"` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-kseq | yes | no | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
 | `KSEQ:K::="."` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-kseq | yes | yes | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
 | `KSEQ:K::=K "~>" K` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-kseq | yes | no | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
@@ -784,10 +785,10 @@ Not core:
 | `genNoConfusionAxioms:axiom#1` | inert |  | B22 inert |  |  |  |  |  | K-coverage.md Part B rows 22 |
 | `genNoConfusionAxioms:axiom#2` | inert |  | B23 inert |  |  |  |  |  | K-coverage.md Part B rows 23 |
 | `genNoJunkAxiom:axiom#1` | inert |  | B24 inert |  |  |  |  |  | K-coverage.md Part B rows 24 |
-| `genOverloadedAxiom:axiom#1` | supported |  | The site writes \`\\equals(f(inj x̄), inj(g(x̄))) [symbol-overload(f, g)]\`. It is an equation with f at its head. Where f and g are functions it is a clause of f (B27, overloadEqn?); where f is an overloading symbol in the reader's sense it is the kernel's overload (OvlSig, overloadForm). | none (reader only) |  |  |  |  | Parse.lean:822-828 (overloadEqn?), :76-82 (overloadAxiom), :169-176 (overloadForm); test/README.md: 20 of the 343 coreOK corpus texts hold a symbol-overload axiom |
-| cases[0]: B27 f and g functions | supported |  |  |  |  |  |  |  |  |
+| `genOverloadedAxiom:axiom#1` | supported |  | The site writes \`\\equals(f(inj x̄), inj(g(x̄))) [symbol-overload(f, g)]\`. It is an equation with f at its head. Where f is a function it is a clause of f, aside and of priority 0: it states its equation with no premise, and no [owise] premise kompile writes negates it (B27, overloadEqn?, nonExec, eq… | none (reader only) |  |  |  |  | Parse.lean overloadEqn?, RefusalReason.overloadAxiom, RefusalReason.overloadForm; test/README.md: 20 of the 343 coreOK corpus texts hold a symbol-overload axiom |
+| cases[0]: B27 f and g functions | supported |  |  |  |  |  |  |  | fixtures/e5-ovl-fn-fn/account.txt: \`equations read as aside clauses (…): 1\`, \`sentence 277 (negExp)\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; fixtures/e5-ovl-fn-fn-owise/account.txt: read, \`functions whose equations' agreement no decider confirms (…): 1: negExp\` (the [owise]… |
 | cases[1]: f an overloading symbol, the axiom of OvlSig form | supported |  |  |  |  |  |  |  |  |
-| cases[2]: f a function, g a constructor | supported |  | the axiom is \`f(p̄) = r\` with a constructor term on the right: a clause of f like any other. The reader refuses it today (overloadAxiom: "between symbols one of which is not a function"); nothing in the text makes it other than an equation of f | none (reader only) |  |  |  |  |  |
+| cases[2]: f a function, g a constructor | supported |  | the axiom is \`f(p̄) = r\` with a constructor term on the right: a clause of f like any other, read as B27's (aside, priority 0); nothing in the text makes it other than an equation of f | none (reader only) |  |  |  |  | fixtures/e5-ovl-fn-fn-ctor/account.txt: \`stage refusals (of sentences classified read): 0\`, \`sentence 287 (sExp)\` among the aside clauses, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` |
 | cases[3]: f a constructor (not an overloading symbol), g a function | refused | R-c |  | KCore.OvlSig, KCore.Semantics.ctorSigs |  |  |  |  |  |
 | cases[4]: overloadForm: an overloading symbol whose axiom is not of OvlSig form | refused | R-c |  | KCore.OvlSig |  |  |  |  |  |
 | `convertRule:claim#1` | inert |  | B56 inert |  |  |  |  |  | K-coverage.md Part B rows 56 |

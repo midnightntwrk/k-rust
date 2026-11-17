@@ -1,0 +1,25 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "[hook_INT_tdiv]: Division by zero: 1 / 0; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "86c8729e1e576719180a4dada575b1b85f470b313452e9cf554f3163ed336e2f",
+  "pgm": "c0c519059eaa03459382db987dd867afee610e4ef9efdfd1935ab665ad741315"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "cc859d40c915ded357ec030110e9550bf3e9f10e09b900eedbd86b50474760db",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

@@ -1,0 +1,21 @@
+command: kompile --backend haskell t93-rhs-unbound-variable.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Compiler: Found variable Y on right hand side of rule, not bound on
+  left hand side. Did you mean "?Y"?
+  	Source(t93-rhs-unbound-variable.k)
+  	Location(6,22,6,23)
+  	6 |	  rule <k> a(X) => b(Y) ... </k> requires X >Int 0
+  	  .	                     ^
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(t93-rhs-unbound-variable.k)
+  	Location(6,22,6,23)
+  	6 |	  rule <k> a(X) => b(Y) ... </k> requires X >Int 0
+  	  .	                     ^
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T93-RHS-UNBOUND-VARIABLE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using T93-RHS-UNBOUND-VARIABLE as default.

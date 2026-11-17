@@ -1,0 +1,28 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(1,10)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))",
+    "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(2,20)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "[hook_MAP_concat]: Duplicate keys in map concatenation; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "da70df6d36ee4fba22e99377bbdbe24d0b7e23dbdceebb139371e5c6fb9f4863",
+  "pgm": "298452b91996a3765175bfc779d815439f6bf74e951d81fd42f616a199e88a57"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "66c1f5cabd273e7b17ec5cb86b923a0762b286b1333e0766d8345baae4a6949d",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

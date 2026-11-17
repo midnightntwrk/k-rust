@@ -24,7 +24,10 @@
   signature's items) and `wf defn = true` (test/TieKimpWf.lean, conjunct by conjunct). One kernel
   decision of either exceeds 12 GiB on this text.
 
-  The other class theorems of layer 2 are not stated here.
+  Layer 2 in files of their own, on the same literals: the 79 rewrite rules (test/TieKimpRules.lean:
+  W1, W2 and the converse for `ruleItems`); the constructor and no-junk sentences
+  (test/TieKimpCons.lean: `cons_entailed`, `nojunk_entailed`); the declarations
+  (test/TieKimpDecls.lean: `decls_entailed`).
 -/
 import KcoreSpec
 

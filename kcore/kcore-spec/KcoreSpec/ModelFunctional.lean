@@ -25,6 +25,7 @@
   is `stdI` (`has_model_total_pp`).
 -/
 import KcoreSpec.ModelChoicePP
+import KcoreSpec.Sound
 
 set_option autoImplicit false
 
@@ -455,8 +456,7 @@ theorem has_model_total_pp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
 /-- The per-rule facts of a semantics that `coreOK` accepts: `ruleSorted` and `rulePlainPP`. -/
 theorem ruleFactsTotal_of_core {c : Semantics} (h : c.coreOK = true) :
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true :=
-  fun r hr => ⟨(Semantics.ruleFactsEx_of_core h r hr).1,
-    Semantics.rulePlainPP_of_ex (Semantics.ruleFactsEx_of_core h r hr).2⟩
+  Semantics.ruleFactsPP_of_core h
 
 /-- **The model conjunct of `SoundC` holds with the totality axioms**: for a semantics that
 `coreOK` accepts and whose functions meet `FnHyp`, the value model satisfies `Γ c`, the step's

@@ -364,7 +364,7 @@ declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating d
 What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
 (declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
 that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
-connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, a `readAs`, `unread` or `inert` class, an inert constructor
+connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, `tokKItem`, a `readAs`, `unread` or `inert` class, an inert constructor
 axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
 `--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
 by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
@@ -782,6 +782,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
   interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
   the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
+  `tokKItem` has `Faithful.noJunk_omitted_refuted` (for every semantics and every H, a no-junk
+  sentence that leaves out an injection from a sort with a value has no model with `Γ`) and
+  test/TokKItem.lean's instance.
+- `test/TokKItem.lean`: `ReadingNote.tokKItem` on `f2-examples/hashsort.kompile.kore` (a token
+  sort `#Tok` that KItem's no-junk sentence, axiom 125, does not list and no subsort axiom puts
+  below KItem; the reading adds `#Tok < KItem`): the sentence entails `Γ`'s no-junk item of KItem in
+  every interpretation with definedness (`text_entails_item`); for every H, `Γ` with it has no model
+  (`tok_refuted`, from `Faithful.noJunk_omitted_refuted`) and `Γ` has one (`consistent`), so `Γ`
+  does not entail it (`text_not_entailed`).
 - `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
   e2-macro): the four macro and alias symbols the text declares and does not apply are not read
   (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
@@ -1195,7 +1204,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   `post := or (mem Z a) (mem Z b)`, and the text with the `\or` replaced by `\not{Exp}(a)`, `\top{Exp}()`
   and `c(\or(a, \not(b)))`. lhs-not: mlnot read as `c(Z) => G`, `pre := not (and (mem Z a) (mem Z G))`,
   and beside a rule of a larger priority `openRequires` at Exp. Each prints `ruleSorted`, `rulePlainPP`,
-  `openRefusal` and the definition's `rulesPlain`, which still asks `\top` predicates. mlor: a text the
+  `openRefusal` and the definition's `rulesPlain` and `coreOK`, true of each (a predicate does not fail `rulesPlain`). mlor: a text the
   landed reader reads has the same rules. Kernel: `cut_right`, `cut_left`.
 - `test/SetVarRewrite.lean`: `KCore.setvar_rewrite_singleton` at the rewrite axiom of e3-setvar-rewrite
   (`c(@S, @S) => d(@S)`): the axiom's translation is `sRewrites` of two `SvCtx` at the set variable
@@ -1224,6 +1233,26 @@ table above, on the tree before String and Bytes). Not investigated here.
   through the registry up to its own name. 7.2 GiB (the largest range), 189 s.
 - `test/TieKimpWf.lean`: `wf defn = true` on kimp's literal, conjunct by conjunct (`wf_of_parts`,
   `ok_of_T` on the tables, `faithOK_of_parts`, `itesApart_of_codes`). 3.3 GiB, 36 s.
+- `test/TieKimpCons.lean`: kimp's constructor sentences (rows 8, 11 to 14). Γ entails, for every H,
+  each of the 565 sentences of the classes constructor functional, subsort, injectivity and
+  distinctness (`cons_entailed`; `cons_account`, `cons_kinds`): each is read at a sort and
+  generators that `consPairs` names, from Γ's items at the places in `consItemsK c` it names
+  (`consAt_entailed`; the places are hints the kernel checks: `tieConsB`'s search through the
+  1304 items peaks at 10.3 GiB for 20 sentences, 2.4 GiB with the places named), decided by six
+  ranges joined by `tieAll_range`. Γ
+  entails each of the 16 no-junk sentences (`nojunk_entailed`): four are logical truths, ten Γ's
+  items pattern for pattern (`nojunk_items`), Expr's and KItem's Γ's items with their generators
+  in another order (`nojunk_order`, `noJunkItem_of_subset`). 4.7 GiB, 112 s.
+- `test/TieKimpDecls.lean`: kimp's declarations (row 19): the item of each of the 155 declarations
+  without sort parameters of a sort or a symbol Γ has is an item of `sigItems c` at a place
+  `declPos` names (`decls_in_sig`, four ranges), so Γ entails it for every H (`decls_entailed`);
+  `decl_counts` accounts for the text's 21 sort and 187 symbol declarations. 6.1 GiB, 127 s.
+- `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
+  read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
+  the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
+  (W1, `rules_entail`), so each item of `ruleItems` is a consequence of its sentence for every H
+  (`rules_from_text`); in a model of Γ, for every H, the sentence holds where its right side holds
+  an element (W2, `rules_w2_all`, `rules_w2`). 4.9 GiB, 100 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
@@ -1288,6 +1317,20 @@ table above, on the tree before String and Bytes). Not investigated here.
   `SetVarsAtValues` (`ceil126_at`); so Γ with the sentence has no model (`ceil126_refuted`), and
   where Γ has a model the sentence is neither `EntailsAtValues` nor `EntailsAtSetValues`
   (`ceil126_not_at_values`, `ceil126_not_at_set_values`). Axioms guarded.
+- `test/LibEvCeilEns.lean`: the definedness lemmas over set variables of
+  `f2-examples/ens.kompile.kore` from the library's statements (`KcoreSpec/LibEvCeil.lean`, over
+  `KcoreSpec/LibEvSetVar.lean`): 126, 127, 130 (`%Int`, `/Int`, `modInt`, domains.md 1393, 1392,
+  1394), 128, 129 (`<<Int`, `>>Int`, 1396, 1395) and 266 (`#Ceil(@K0 |-> @K1 @Rest)`). For each and
+  every H: `sN_at`, in every model of Γ the sentence fails at a valuation meeting `AtValues` and
+  `SetVarsAtValues` (`@I2` two values, one where the left side is defined and one where the test
+  is `false`; `@Rest` a map without the key and one with it); `sN_refuted`, Γ with it has no model;
+  `sN_one`, the companion `LibEv.SvAtMostOne`: it holds at every valuation at values whose set
+  variables hold at most one element. Axioms guarded.
+- `test/LibEvBoolSetEns.lean`: the eight Bool predicate sentences over set variables of
+  `f2-examples/ens.kompile.kore` (154, 142, 148, 141: `notBool @B`, domains.md 1176 to 1179; 153,
+  139: `@B1 andBool @B2` at `true`, 1181, 1182; 147, 140: `@B1 orBool @B2` at `false`, 1183, 1184),
+  `EntailsAtSetValues` for every H, from `LibEv.boolNotSet_ev`, `boolAndSet_ev`, `boolOrSet_ev`
+  (`KcoreSpec/LibEvBoolSet.lean`, over `KcoreSpec/LibEvSetVar.lean`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
@@ -1296,6 +1339,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   model of `Γc` (`holds_entails_atR`). `modelR`: the Holds lemma at `R` in the value model at any
   T, at `pNot`, `pEx`, `pAll`, `pMatch` (`holdsT_atR`, `termsInSort_stdI`). The variables of the
   pattern at Int are variables of the pattern at `R` (`condKore_varsOf_resort`).
+- `test/HoldsNode.lean`: the Holds lemma one constructor of `Holds` at a time
+  (KcoreSpec/HoldsNode.lean: `HoldsAt`, `TermAt`, `holdsAt_*`, `termAt_of_all`), along an evaluation
+  (`holds_den4Cl`) and at the sort variable `R` (KcoreSpec/ClausePreTie.lean); each lemma's axioms
+  are printed.
   C3EqReqPrioComp, C3EqPrioTotalComp: `clauses_eq` (the function's two clauses as literals);
   `written_refuted` (Γ with the narrowed sentence as written has no model, for every H: at 5 it
   gives 0 where Γ gives 5) and `no_model_written` (neither has `Pre H` with that sentence in place
@@ -1313,3 +1360,33 @@ table above, on the tree before String and Bytes). Not investigated here.
   function equation as written (`fns_entailed`); the expectations are from the sentences as
   written (`PreW H`, which has a model, `preW_model`): NoteAndEns `f_1` (`f(1) = 1`) and `f_0`
   (`f(0)` has no value), NoteOrBot `f_3`. About 3 minutes and 8 GiB each.
+- `test/NoteBotEns.lean`: the tie (C14) of the reading note `bottomAsEnsures` on its construct
+  fixture's kompiled text (`f2-examples/mleqbot`), for every H, in the same form. Sentence 201
+  (right side `\and{Int}(\bottom{Int}(), \top{Int}())`) is Γ's item (right side X with the `ensures`
+  false) under `TieRhs.rhsMap TieRhs.botTop` (`w_text`); the two hold together in a model of
+  definedness, `ΓSig` and `ΓDomains` (`w_iff`: the values `false` and `true` of Bool are two
+  elements, `TieRhs.ensFalse_empty`), so Γ entails every function equation as written
+  (`fns_entailed`) and the sentence with the two families entails the item (`w1`). Expectations
+  from the sentences as written: `f_neg1` (`f(-1)` has no value), `f_2` (`f(2) = 2`, the `[owise]`
+  sentence). About 4 minutes.
+- `test/NoteOrSplit.lean`, `NoteTopVar.lean`, `NoteExVar.lean`: the tie (C14) of the reading notes
+  `orSplit`, `topAsVariable` and `existsAsVariable` on their construct fixtures' kompiled texts
+  (`f2-examples/mlor`, `mltop`, `mlex`), for every H. The rule sentence is of class *weaker*: it is
+  the item of the rewrite axiom with the text's left side at the table of Γ's axiom (`rule_text0`;
+  `TieRuleLhs.itemAt`, KcoreSpec/TieRuleLhs.lean), every element of Γ's left side is one of the
+  text's (`left0`: a disjunct in the disjunction, a variable of Exp in `\top{SortExp{}}`, the body
+  in the `\exists`, under a monotone application context), so the sentence entails each of Γ's
+  rule items (`rule_from_text`, `TieRuleLhs.rule_w1`; for `orSplit` with `ΓDomains`, which puts
+  the values `a()` and `b()` in Exp). Function equations `shape`, `fns_entailed`; `cons_entailed`;
+  `account`; `consistent`. Expectations from `Pre H` (`pre_model`): the steps `or_a`, `or_b`,
+  `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
+  `attrsAgree` is false (`attrs_prios`: one rewrite axiom, two rules); its other four parts hold.
+  About 4 minutes each.
+- `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
+  fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
+  (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
+  `⌈1 /Int X⌉ = true` at Bool is read as `false = true`: Γ's left side holds nothing in a model of
+  definedness, `ΓSig` and `ΓDomains` (`left0_empty`), so W1 (`rule_from_text`) holds without the
+  sentence; that the sentence's own left side is empty is not shown (the header says what it
+  needs). Expectation from `Pre H`, through the reading (the priority premise): `ceil_other`
+  (`go(1)` steps to `other`). About 4 minutes.

@@ -169,7 +169,9 @@ as `S`, named as `E`) accounts for:
 - a `subsort` axiom is one of `d`'s subsorts or one of the library's below a sort of `d` (its
   place, `eventOf`), one of the library's (`Lib.subsorts`) or of the cells' (`cellSubsorts`), or
   a sort of `d` below KItem, as every sort is in KCore;
-- KItem's no-junk axiom gives the presentation's place of the fixed constructors. -/
+- KItem's no-junk axiom gives the presentation's place of the fixed constructors; a sort of `d`
+  below KItem that it does not list is read below KItem all the same (`ReadingNote.tokKItem`,
+  listed by `tokKItemOmitted`). -/
 def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence) : Bool :=
   let c := d.sem
   let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
@@ -370,6 +372,35 @@ def owiseNarrowed (k : Kore.Definition) (d : Definition) : List (Nat × String �
         if e.fn == o.fn && e.competitors.isNone && !nonExec e &&
             ds.any (fun d => ((svinExcl? e d).map (·.1)).getD false)
         then some (off + i, o.fn, off + j) else none
+
+/-- The sort X a disjunct `\exists{KItem}(V:X, inj{X, KItem}(V))` of KItem's no-junk axiom names. -/
+def tokKItemDisjunctSort? : Kore.Pattern → Option String
+  | .exist _ _ (.app h [A, _] _) => if h.ident.name == "inj" then sortName? A else none
+  | _ => none
+
+/-- The user module's KItem no-junk axioms read (`scanOr`) that leave out a sort of `d` below KItem
+(`ReadingNote.tokKItem`): each with its place and the sorts X whose `inj{X, KItem}` is one of
+KItem's generators (`Semantics.gens`) and none of its disjuncts, each with whether the text states
+the subsort (a `subsort{X, KItem}` axiom). -/
+def tokKItemOmitted (k : Kore.Definition) (d : Definition) : List (Nat × List (String × Bool)) :=
+  let c := d.sem
+  let srcs := (c.gens Srt.kitem).filterMap fun g => match g with
+    | .inj b => some (c.sortName b)
+    | .ctor _ => none
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let off := preludeLength k
+    let stated := m.sentences.filterMap fun s => match scanEvent s with
+      | some (.inr (x, y)) => if y == "KItem" then some x else none
+      | _ => none
+    m.sentences.zipIdx.filterMap fun (s, i) => if !isRead s then none else match scanOr s with
+      | some ds =>
+        let named := ds.filterMap tokKItemDisjunctSort?
+        match srcs.filter (!named.contains ·) with
+        | [] => none
+        | xs => some (off + i, xs.map fun x => (x, stated.contains x))
+      | none => none
 
 /-- The user module's equations classified read, and its `[simplification]` axioms, that carry a
 key of `eqnAttrInert`: each with its place, the key and why it is inert, beside `simplification`

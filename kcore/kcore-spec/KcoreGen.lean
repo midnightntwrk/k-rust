@@ -2846,6 +2846,13 @@ def account (koreFile : String) : IO UInt32 := do
       for (i, f, j) in on.take 10 do
         IO.println s!"      sentence {i} ({f}): its disjunct for sentence {j}, read with its set variable's memberships dropped, holds one element variable at both arguments"
       IO.println "      if the two right sides differ at two distinct arguments, the text has no model (kompile 7.1.337 writes the exclusion of a set-variable equation at equal arguments)"
+    -- printed only when KItem's no-junk axiom leaves out a sort of `d` below KItem
+    let tk := Parse.tokKItemOmitted k d
+    unless tk.isEmpty do
+      IO.println s!"KItem no-junk axioms read with a generator inj\{X, KItem} they do not list, X a sort of d below KItem (tokKItem): {tk.length}"
+      for (i, xs) in tk.take 10 do
+        IO.println s!"      sentence {i}: {", ".intercalate (xs.map fun (x, st) => s!"{x} ({if st then "the text states the subsort" else "the reading adds the subsort, which the text does not state"})")}"
+      IO.println "      the text's sentence entails Γ's no-junk item of KItem; where such a sort has an element, the text's sentence with Γ has no model"
     -- printed only when some equation carries such a key
     let ia := Parse.eqnAttrsInert k
     unless ia.isEmpty do
@@ -2889,12 +2896,15 @@ def account (koreFile : String) : IO UInt32 := do
       -- index of its sentence (found by the clause's `UNIQUE'Unds'ID`) and its function
       let asides := (withPres d.sem.fns d.pres.fns).flatMap fun (f, fp) =>
         ((withPres f.clauses fp.clauses).filter (·.1.aside)).map fun (_, cp) =>
+          -- a symbol-overload axiom, which has no id, by its first symbol
           let i? := m.sentences.findIdx? fun (s : Kore.Sentence) => match s with
-            | .axiom a => KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID" == some cp.info.uid
+            | .axiom a => if cp.info.uid.isEmpty then
+                ((Parse.overloadSyms? a.attributes).map fun (g : String × String) => g.1) == some (d.sem.symName f.label)
+              else KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID" == some cp.info.uid
             | _ => false
           ((i?.map (off + ·)), decodeK (d.sem.symName f.label))
       unless asides.isEmpty do
-        IO.println s!"equations read as aside clauses (non-executable: no [owise] premise negates them, Clause.aside; such an equation competes with every equation of a larger priority of its function): {asides.length}"
+        IO.println s!"equations read as aside clauses (non-executable, or a symbol-overload axiom of a function: no [owise] premise negates them, Clause.aside; such an equation competes with every equation of a larger priority of its function): {asides.length}"
         for (i?, fn) in asides do
           IO.println s!"      sentence {(i?.map toString).getD "?"} ({fn})"
       IO.println s!"parse: ok; wf {wf d}; failing: {(d.report.filter (!·.2)).map (·.1)}"
@@ -3250,7 +3260,7 @@ sentences the text lacks (module by module, as `roundtrip` finds them), each cla
 (the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
 what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
 stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
-account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, a `readAs`, `unread` or `inert` class; an
+account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
 inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
 read in another form under a note is a named reading (C14's weaker or more, with its note); one
 without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
@@ -3324,6 +3334,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let keys := Parse.keysAsRequires k
   -- the `[owise]` equations read with a premise narrower than the text's
   let narrowed := (Parse.owiseNarrowed k d).map (·.1)
+  -- KItem's no-junk axioms read with a generator they do not list
+  let tokOmitted := (Parse.tokKItemOmitted k d).map (·.1)
   -- the inert constructor axioms the account finds not induced by `d`'s constructors (`uninduced`):
   -- the others `d` holds as values, written or not
   let uninduced := (Parse.uninduced k d).filterMap (·.index)
@@ -3337,7 +3349,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
       ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
-      (if narrowed.contains n then ["owiseDisjunctNarrower"] else [])
+      (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
+      (if tokOmitted.contains n then ["tokKItem"] else [])
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty

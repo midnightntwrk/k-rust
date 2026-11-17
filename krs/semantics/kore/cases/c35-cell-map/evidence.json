@@ -1,0 +1,29 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblend'Unds'CASE-SYNTAX'Unds'Cmds()),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(21)),Lbl'-LT-'id'-GT-'(3)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(3),Lbl'-LT-'bal'-GT-'(30))}))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblend'Unds'CASE-SYNTAX'Unds'Cmds()),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(21)),Lbl'-LT-'id'-GT-'(3)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(3),Lbl'-LT-'bal'-GT-'(30))}))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "6d36a4aa8b83b28efdc92a8ccab95725aed04969c7833cb1aea45c37f7beaa7c",
+  "pgm": "a6e68aecd48241acf0a4657d4bd69233a5b75c80d82deb83c5990ecf940d654c"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "3e8efd5c12afceed997813f7cdc05381384c389d2c5d265257db9e6ae5129eb3",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

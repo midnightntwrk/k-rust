@@ -304,7 +304,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
       · rw [if_pos ho] at hr
         subst hr
         refine ⟨_, ?_, rfl⟩
-        have := EvalTerm.ovl (σ := σ) hc' ho hws
+        have := EvalTerm.ovl (σ := σ) hc' ho hws (fun vs _ => OvlLaws.fnCover_none_of_ok h.ovlOK _ vs)
         rw [allSome_map] at this
         exact this
       rw [if_neg ho] at hr
@@ -354,7 +354,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
         subst hr
         exact key rs ws hts hvs ((result_fn hc hh hp (Eval.isOvl_false hf) _).mpr ⟨v, rfl, hf⟩)
       | callUndef => cases hr
-      | ovl hc ho hts =>
+      | ovl hc ho hts _hnf =>
         rename_i rs
         cases hws : allSome rs with
         | none => rw [hws] at hr; cases hr
@@ -363,6 +363,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
           simp only [Option.map_some, Option.some.injEq] at hr
           subst hr
           exact key rs ws hts hws ((result_ovl ho _).mpr rfl)
+      | ovlFn _ _ _ _ _ hcov => rw [OvlLaws.fnCover_none_of_ok h.ovlOK] at hcov; cases hcov
 
 end AtT
 

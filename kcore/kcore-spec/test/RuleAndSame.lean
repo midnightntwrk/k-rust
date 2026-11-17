@@ -39,6 +39,7 @@ abbrev withRules (c : Semantics) (rs : List Rule) : Semantics := { c with rules 
 kernel_rfl sortOf_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).sortOf = c.sortOf
 kernel_rfl collVal_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).collVal = c.collVal
 kernel_rfl norm_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).norm = c.norm
+kernel_rfl fnCover_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).fnCover = c.fnCover
 kernel_rfl paramVal_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).paramVal = c.paramVal
 kernel_rfl hookRes_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).hookRes = c.hookRes
 kernel_rfl fnRest_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).fnRest = c.fnRest
@@ -106,9 +107,10 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (fun hk hhk hp _ hr ih => .param hk hhk hp ih (by rw [paramVal_withRules]; exact hr))
     (fun hk hhk _ hvs _ hp ihts ihf => .call hk hhk ihts hvs ihf hp)
     (fun hk hhk _ hvs hp ih => .callUndef hk hhk ih hvs hp)
-    (fun hk ho _ ih => by
-      have := EvalTerm.ovl (c := withRules c rs) hk ho ih
+    (fun hk ho _ hnf ih => by
+      have := EvalTerm.ovl (c := withRules c rs) hk ho ih (fun vs hv => by rw [fnCover_withRules]; exact hnf vs hv)
       rwa [norm_withRules] at this)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => .ovlFn hk ho ihts hvs hlo (by rw [fnCover_withRules]; exact hcov) ihf)
     .nil (fun _ _ ih1 ih2 => .cons ih1 ih2)
     .top .bot (fun _ ih => .not ih) (fun _ _ ih ih' => .and ih ih') (fun _ _ ih ih' => .or ih ih')
     (fun _ _ ih ih' => .implies ih ih') (fun _ ih => .ceil ih) (fun _ _ ih ih' => .equals ih ih')
@@ -204,7 +206,8 @@ mutual
         | param hk hhk hp hts hr => exact .param hk hhk hp (evalTerms_repl hab hts) hr
         | call hk hhk hts hvs hf hp => exact .call hk hhk (evalTerms_repl hab hts) hvs hf hp
         | callUndef hk hhk hts hvs hp => exact .callUndef hk hhk (evalTerms_repl hab hts) hvs hp
-        | ovl hk ho hts => exact .ovl hk ho (evalTerms_repl hab hts)
+        | ovl hk ho hts hnf => exact .ovl hk ho (evalTerms_repl hab hts) hnf
+        | ovlFn hk ho hts hvs hlo hcov hf => exact .ovlFn hk ho (evalTerms_repl hab hts) hvs hlo hcov hf
   termination_by structural T => T
   theorem evalTerms_repl {c : Semantics} {σ : Subst} {a b : Term}
       (hab : ∀ r, EvalTerm c σ a r → EvalTerm c σ b r) :
@@ -313,6 +316,7 @@ theorem intEq_true_iff {c : Semantics} (hic : c.isCtor intEq = false) (hio : c.i
     | call hk hhk _ _ _ _ => cases hT; exact absurd hhk (by decide)
     | callUndef hk hhk _ _ _ => cases hT; exact absurd hhk (by decide)
     | ovl hk ho _ => cases hT; rw [hio] at ho; cases ho
+    | ovlFn hk ho => cases hT; rw [hio] at ho; cases ho
     | var => cases hT
     | dv => cases hT
     | inj _ => cases hT
@@ -534,6 +538,7 @@ theorem kEq_true_iff {c : Semantics} (hic : c.isCtor kEq = false) (hio : c.isOvl
     | call hk hhk _ _ _ _ => cases hT; exact absurd hhk (by decide)
     | callUndef hk hhk _ _ _ => cases hT; exact absurd hhk (by decide)
     | ovl hk ho _ => cases hT; rw [hio] at ho; cases ho
+    | ovlFn hk ho => cases hT; rw [hio] at ho; cases ho
     | var => cases hT
     | dv => cases hT
     | inj _ => cases hT
