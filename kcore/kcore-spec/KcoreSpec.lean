@@ -68,6 +68,7 @@ import KcoreSpec.ModelColls
 import KcoreSpec.ModelHas
 import KcoreSpec.ModelRead
 import KcoreSpec.ModelCons
+import KcoreSpec.ModelOvlFn
 import KcoreSpec.ModelPat
 import KcoreSpec.ModelRules
 import KcoreSpec.ModelStep
