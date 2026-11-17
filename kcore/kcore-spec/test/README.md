@@ -652,7 +652,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause). Every `UnreadReason`
   has its entry: `setIdempotence` is guarded by G7 with `idem_refuted` (test/TieEns.lean) and
   `setIdem_reached` (were `_Set_` a key of `silentTable`, its value at a common member would be
-  the interpretation's); the five others name the reader test that fixes their verdict.
+  the interpretation's); the five others name the reader test that fixes their verdict. The nine
+  reader devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`, `bottomAsEnsures`,
+  `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`) each have a guard on the kompiled
+  text of a construct fixture, stated for every H about `c.withHooks H` (namespaces `DevOr` to
+  `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
+  without the device, where the result differs (at a named H where that reading makes the point
+  one where every clause fails, under every H where no function is at the point).
 - `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
   e2-macro): the four macro and alias symbols the text declares and does not apply are not read
   (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing

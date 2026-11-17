@@ -62,6 +62,18 @@
     occur in R" for every sentence needs the translation's invariance under renumbering, which
     no theorem states. Instance at a sort the instance's signature gives no constructor:
     `existsDropped_empty`, `c(X:Int) => \exists Z:Empty. d(X:Int)`.
+  - The reader's devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`,
+    `bottomAsEnsures`, `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`), each on the
+    kompiled text of its construct fixture (namespaces `DevOr` to `DevOrBot`): the steps, or the
+    values, the law of the note gives, stated for every H about `c.withHooks H`. The checks that
+    decide them on the data read no interpretation (`Cert.checkStep_withHooks`,
+    `Cert.stuckCheck_sound`, `Cert.evalFC_withHooks`), which is what carries them to every H; a
+    function has no value under every H only where a clause decides and its `ensures` is not `true`
+    (`Eval.ensFails`), so `Γ` entails ⊥ there. Each has its companion, the semantics of the same
+    text read without the device (the sentence not read, or read by the law the note rejects),
+    where the result differs: under every H where no function is at the point, and at a named H
+    where the other reading makes the point one where every clause fails (the interpretation's:
+    `DevAndEns.andEns_asRequires_H7`, `DevOrBot.orBot_unread_H7`).
 -/
 import KcoreSpec
 
@@ -865,6 +877,488 @@ theorem existsDropped_empty :
 
 end ExistsDropped
 
+/-! ## The reader's devices: what the checks on the data give under every interpretation -/
+
+section EveryH
+open KCore.Exec KCore.Cert
+variable {c : Semantics}
+
+/-- A configuration of the data is one under every interpretation, where no parameter is an open
+generator. -/
+def cfgH (hr : ∀ k ∈ c.params, k.raw = false) (x : Config c) (H : HookParams) : Config (c.withHooks H) :=
+  ⟨x.val, by rw [Semantics.sortOf_withHooks _ _ hr]; exact x.property⟩
+
+/-- A step some rule's check accepts on the data, which reads no interpretation
+(`Cert.checkStep_withHooks`), is a step under every interpretation. -/
+theorem step_everyH (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hr : ∀ k ∈ c.params, k.raw = false) {x y : Config c} {n : Nat}
+    (hc : c.rules.any (fun r => checkStep c n r x.val y.val) = true) (H : HookParams) :
+    Step (c.withHooks H) (cfgH hr x H) (cfgH hr y H) := by
+  obtain ⟨r, hmem, hc⟩ := List.any_eq_true.mp hc
+  obtain ⟨_, hstep⟩ := step_of_listed ((Semantics.ok_withHooks c H).trans hok)
+    ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr)
+    (x := cfgH hr x H)
+    (listed_of_checkStep (c := c.withHooks H) (r := r) hmem ((checkStep_withHooks c H hr n r _ _).trans hc))
+  exact hstep
+
+/-- A configuration `stuckCheck` accepts on the data has no successor under any interpretation. -/
+theorem stuck_everyH (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hr : ∀ k ∈ c.params, k.raw = false) (hcf : c.clausesFixed = true) (hag : c.agreeObligations = [])
+    (hna : c.asideFree = true) {x : Config c} {n : Nat} (h : stuckCheck c n x.val = true) (H : HookParams) :
+    ∀ y, ¬ Step (c.withHooks H) (cfgH hr x H) y :=
+  stuckCheck_sound hok hsr hmr H
+    (Det.coherentAll_of_nil ((Semantics.ok_withHooks c H).trans hok) ((Semantics.srReady_withHooks c H).trans hsr)
+      ((Semantics.matchReady_withHooks c H).trans hmr) ((Semantics.clausesFixed_withHooks c H).trans hcf)
+      ((Semantics.agreeObligations_withHooks c H).trans hag))
+    (x := cfgH hr x H) h hna hr
+
+/-- A successor the executable step lists under the interpretation H is a step under H. -/
+theorem step_atH (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hr : ∀ k ∈ c.params, k.raw = false) {x y : Config c} (H : HookParams) {n : Nat}
+    (h : (successorsN (c.withHooks H) n x.val).any (same · y.val) = true) :
+    Step (c.withHooks H) (cfgH hr x H) (cfgH hr y H) := by
+  obtain ⟨_, hstep⟩ := step_of_listed ((Semantics.ok_withHooks c H).trans hok)
+    ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr)
+    (x := cfgH hr x H) h
+  exact hstep
+
+/-- A function's result the executable evaluation finds under the interpretation H is its result
+under H. -/
+theorem eval_atH (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hr : ∀ k ∈ c.params, k.raw = false) {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some fn.args) (H : HookParams) {n : Nat} {r : Option GroundTerm}
+    (h : evalF (c.withHooks H) n f vs = some r) : Eval (c.withHooks H) f vs r := by
+  have hok' := (Semantics.ok_withHooks c H).trans hok
+  have hsr' := (Semantics.srReady_withHooks c H).trans hsr
+  have hmr' := (Semantics.matchReady_withHooks c H).trans hmr
+  exact evalF_sound (sortCtx_of hok' hsr' (ovlCase_of hmr')) (clauseCtx_of hok') (matchCtx_of hmr') n h
+    (by rw [Semantics.lookupFn_withHooks]; exact hfn) (by rw [Semantics.sortsOf_withHooks c H hr]; exact hvs)
+
+end EveryH
+
+/-- The configuration with `it` in the k cell `kCell` and the counter at 0. -/
+def cfgOf (kCell : Sym) (it : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kCell [.ctor kseq [it, .ctor dotk []]], .ctor counterLabel [.dv Srt.int (.int 0)]]
+
+/-! ### `orSplit`: one rule per disjunct of a left side -/
+
+-- `c(a() #Or b()) => a()` (the construct fixture e7-guardors).
+namespace DevOr
+
+definition_of defn from "f2-examples/mlor.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+
+/-- **`orSplit`, for every interpretation**: `c(a)` and `c(b)` each step to `a`, as the axiom
+`c(a ∨ b) → •a` says of each disjunct. -/
+theorem or_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CA H) (cfgH noRaw A H) ∧ Step (c.withHooks H) (cfgH noRaw CB H) (cfgH noRaw A H) :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H⟩
+
+/-- The axiom read as its first disjunct's rule alone. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.take 1 }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def CA1 : Config c1 := ⟨CA.val, by decide +kernel⟩
+def CB1 : Config c1 := ⟨CB.val, by decide +kernel⟩
+
+/-- **The point is reached**: read as one disjunct's rule, the other disjunct's configuration has
+no successor, under every interpretation. -/
+theorem or_one_stuck (H : HookParams) :
+    (∀ y, ¬ Step (c1.withHooks H) (cfgH noRaw1 CA1 H) y) ∨ (∀ y, ¬ Step (c1.withHooks H) (cfgH noRaw1 CB1 H) y) :=
+  .inr (stuck_everyH hok1 hsr1 hmr1 noRaw1 (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H)
+
+end DevOr
+
+/-! ### `topAsVariable`: `\top` in a left side is a variable of the rule -/
+
+-- `c(#Top) => a()` (the construct fixture e3-ml-rule-lhs-top).
+namespace DevTop
+
+definition_of defn from "f2-examples/mltop.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def d : Sym := 388
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧ c.symName d = "Lbld" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
+def CD : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor a [], .ctor b []]]), by decide +kernel⟩
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+
+/-- **`topAsVariable`, for every interpretation**: `c(b)` and `c(d(a, b))` each step to `a`:
+`c(⊤)` holds `c(v)` for every value `v` of Exp. -/
+theorem top_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CB H) (cfgH noRaw A H) ∧ Step (c.withHooks H) (cfgH noRaw CD H) (cfgH noRaw A H) :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H⟩
+
+/-- The text with the axiom not read: no rule. -/
+noncomputable def c0 : Semantics := { c with rules := [] }
+theorem noRaw0 : ∀ k ∈ c0.params, k.raw = false := by decide +kernel
+private theorem hok0 : c0.ok = true := by decide +kernel
+private theorem hsr0 : c0.srReady = true := by decide +kernel
+private theorem hmr0 : c0.matchReady = true := by decide +kernel
+def CB0 : Config c0 := ⟨CB.val, by decide +kernel⟩
+
+/-- **The point is reached**: without the rule `c(b)` has no successor, under every interpretation. -/
+theorem top_unread_stuck (H : HookParams) : ∀ y, ¬ Step (c0.withHooks H) (cfgH noRaw0 CB0 H) y :=
+  stuck_everyH hok0 hsr0 hmr0 noRaw0 (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H
+
+end DevTop
+
+/-! ### `existsAsVariable`: `\exists` in a left side binds a variable of the rule -/
+
+-- `c(#Exists Y:Exp. d(Y, b())) => a()` (the construct fixture e3-ml-rule-lhs-exists).
+namespace DevEx
+
+definition_of defn from "f2-examples/mlex.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def d : Sym := 388
+def exp : Srt := 32
+theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧ c.symName d = "Lbld" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def CDA : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor a [], .ctor b []]]), by decide +kernel⟩
+def CDB : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor b [], .ctor b []]]), by decide +kernel⟩
+def CDX : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor b [], .ctor a []]]), by decide +kernel⟩
+def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
+
+/-- **`existsAsVariable`, for every interpretation**: `c(d(a, b))` and `c(d(b, b))` each step to
+`a` (Y is `a`, then `b`), and `c(d(b, a))`, which no Y makes an instance of the left side, has no
+successor. -/
+theorem ex_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw CDA H) (cfgH noRaw A H) ∧ Step (c.withHooks H) (cfgH noRaw CDB H) (cfgH noRaw A H) ∧
+    ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw CDX H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+/-- The text with the axiom not read: no rule. -/
+noncomputable def c0 : Semantics := { c with rules := [] }
+theorem noRaw0 : ∀ k ∈ c0.params, k.raw = false := by decide +kernel
+private theorem hok0 : c0.ok = true := by decide +kernel
+private theorem hsr0 : c0.srReady = true := by decide +kernel
+private theorem hmr0 : c0.matchReady = true := by decide +kernel
+def CDB0 : Config c0 := ⟨CDB.val, by decide +kernel⟩
+
+/-- **The point is reached**: without the rule `c(d(b, b))` has no successor, under every
+interpretation. -/
+theorem ex_unread_stuck (H : HookParams) : ∀ y, ¬ Step (c0.withHooks H) (cfgH noRaw0 CDB0 H) y :=
+  stuck_everyH hok0 hsr0 hmr0 noRaw0 (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H
+
+end DevEx
+
+/-! ### `predicateAtBool`: a predicate at sort Bool is never `true` -/
+
+-- `go(X) => done requires #Ceil(1 /Int X)` beside `go(_) => other [priority(60)]` (the construct
+-- fixture e3-ml-req-ceil).
+namespace DevCeil
+
+definition_of defn from "f2-examples/mlceil.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def other : Sym := 387
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.symName other = "Lblother" ∧
+    c.sortName exp = "Exp" := by decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go1 : Config c := ⟨cfg (.ctor go [int 1]), by decide +kernel⟩
+def Other : Config c := ⟨cfg (.ctor other []), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+/-- **`predicateAtBool`, for every interpretation**: `go(1)` steps to `other`, by the rule of
+priority 60: the first rule's `requires`, a predicate at Bool equated with `true`, holds nowhere, so
+it neither steps nor blocks. -/
+theorem ceil_steps (H : HookParams) : Step (c.withHooks H) (cfgH noRaw Go1 H) (cfgH noRaw Other H) :=
+  step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H
+
+/-- The first rule read with the predicate as holding where `1 /Int X` has a value: no `requires`
+at `X = 1`. -/
+noncomputable def c1 : Semantics :=
+  { c with rules := c.rules.map fun r => if r.prio = 50 then { r with req := none } else r }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go11 : Config c1 := ⟨Go1.val, by decide +kernel⟩
+def Done1 : Config c1 := ⟨Done.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(1)` steps to `done` under every interpretation. -/
+theorem ceil_defined_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 Go11 H) (cfgH noRaw1 Done1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevCeil
+
+/-! ### `andAtBool`: `\and{SortBool{}}` of terms is their strict conjunction -/
+
+-- `go(B) => done requires true #And B` (the construct fixture e3-ml-req-and-var).
+namespace DevAndBool
+
+definition_of defn from "f2-examples/mlreqv.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
+  decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def GoT : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool true)]), by decide +kernel⟩
+def GoF : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool false)]), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+/-- **`andAtBool`, for every interpretation**: `go(true)` steps to `done` and `go(false)` has no
+successor: `{true} ∩ {B}` is `{true}` exactly where B is `true`. -/
+theorem and_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw GoT H) (cfgH noRaw Done H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw GoF H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+/-- The `requires` read as its first conjunct alone, `true`: no `requires`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with req := none } }
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def GoF1 : Config c1 := ⟨GoF.val, by decide +kernel⟩
+def Done1 : Config c1 := ⟨Done.val, by decide +kernel⟩
+
+/-- **The point is reached**: read so, `go(false)` steps to `done` under every interpretation. -/
+theorem and_first_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1 GoF1 H) (cfgH noRaw1 Done1 H) :=
+  step_everyH hok1 hsr1 hmr1 noRaw1 (n := 50) (by decide +kernel) H
+
+end DevAndBool
+
+/-! ### `requiresOrSplit`: one rule per disjunct of a `requires` -/
+
+-- `go(X) => done requires X >=Int 0 #Or 10 /Int X >Int 0` (the construct fixture
+-- e3-ml-req-or-undef).
+namespace DevReqOr
+
+definition_of defn from "f2-examples/mlreqor.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def done : Sym := 385
+def go : Sym := 386
+def exp : Srt := 32
+theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
+  decide +kernel
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
+def Go0 : Config c := ⟨cfg (.ctor go [int 0]), by decide +kernel⟩
+def GoM1 : Config c := ⟨cfg (.ctor go [int (-1)]), by decide +kernel⟩
+def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
+
+/-- **`requiresOrSplit`, for every interpretation**: `go(0)` steps to `done` (`0 >=Int 0` is
+`true`; `10 /Int 0` has no value, and the union of the two disjuncts still holds `true`), and
+`go(-1)` has no successor (both disjuncts are `false`). -/
+theorem reqOr_steps (H : HookParams) :
+    Step (c.withHooks H) (cfgH noRaw Go0 H) (cfgH noRaw Done H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw GoM1 H) y :=
+  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
+   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H⟩
+
+/-- The two disjuncts read as one `requires`, `A₁ orBool A₂`. -/
+noncomputable def c1 : Semantics :=
+  { c with rules := match c.rules with
+      | [r₁, r₂] => [{ r₁ with req := match r₁.req, r₂.req with
+          | some t₁, some t₂ => some (.app boolOr [t₁, t₂])
+          | _, _ => none }]
+      | rs => rs }
+theorem one_rule : c1.rules.map (fun r => r.req.map Term.heads) = [some [boolOr, intGe, intGt, intTDiv]] := by
+  decide +kernel
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+def Go01 : Config c1 := ⟨Go0.val, by decide +kernel⟩
+
+/-- **The point is reached**: read as `orBool`, which has no value where one argument has none,
+`go(0)` has no successor under every interpretation. -/
+theorem reqOr_orBool_stuck (H : HookParams) : ∀ y, ¬ Step (c1.withHooks H) (cfgH noRaw1 Go01 H) y :=
+  stuck_everyH hok1 hsr1 hmr1 noRaw1 (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
+    (by decide +kernel) H
+
+end DevReqOr
+
+/-! ### `andAsEnsures`: `t ∧ ⌈B = true⌉` in an equation's right side is t with the `ensures` B -/
+
+-- `f(X) => X #And {(X >Int 0) #Equals true}` (the construct fixture e3-ml-eq-rhs-and-pred).
+namespace DevAndEns
+
+definition_of defn from "f2-examples/mleqand.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def f : Sym := 384
+theorem names_ok : c.symName f = "Lblf" := by decide +kernel
+noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hfn : c.lookupFn f = some fn := rfl
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+/-- **`andAsEnsures`, for every interpretation**: `f(1)` is 1, and `f(0)` has no value: the right
+side `X ∧ ⌈X >Int 0 = true⌉` is empty at 0, so `Γ` entails `f(0) = ⊥`. -/
+theorem andEns_values (H : HookParams) :
+    Eval (c.withHooks H) f [int 1] (some (int 1)) ∧ Eval (c.withHooks H) f [int 0] none ∧
+    (Γ (c.withHooks H) ⊧ (KoreAML.den (symApp (c.withHooks H) f (GroundTerm.koreList (c.withHooks H) [int 0])) ≡ ⊥)) :=
+  have h0 := eval_everyH hok hsr hmr noRaw hfn (vs := [int 0]) (r := none) (by decide +kernel) (n := 10) (by decide +kernel) H
+  ⟨eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H, h0,
+   gamma_bot_everyH coreOK noRaw (by decide +kernel) hfn (by decide +kernel) H h0⟩
+
+/-- The predicate read as a `requires` of the equation: the clause fails where it is not `true`. -/
+noncomputable def c1 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then
+      { g with clauses := g.clauses.map fun cl => { cl with req := cl.ens, ens := none } } else g }
+noncomputable abbrev fn1 : Fn := c1.fns[0]'(by decide +kernel)
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+private theorem hfn1 : c1.lookupFn f = some fn1 := rfl
+
+/-- The interpretation that gives `f(0)` the value 7 and nothing else. -/
+def H7 : HookParams := ⟨fun g vs => if g = f ∧ vs = [int 0] then some (int 7) else none⟩
+
+/-- **The point is reached**: read so, `f(0)` is a point where every clause fails, and under `H7`
+it is 7. -/
+theorem andEns_asRequires_H7 : Eval (c1.withHooks H7) f [int 0] (some (int 7)) :=
+  eval_atH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) H7 (n := 10) (by decide +kernel)
+
+end DevAndEns
+
+/-! ### `bottomAsEnsures`: `\bottom` in an equation's right side is the `ensures` false -/
+
+-- `f(X) => #Bottom requires X <Int 0` beside `f(X) => X [owise]` (the construct fixture
+-- e3-ml-eq-rhs-bottom).
+namespace DevBot
+
+definition_of defn from "f2-examples/mleqbot.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def f : Sym := 384
+theorem names_ok : c.symName f = "Lblf" := by decide +kernel
+noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hfn : c.lookupFn f = some fn := rfl
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+/-- **`bottomAsEnsures`, for every interpretation**: `f(2)` is 2 (the `[owise]` equation), and
+`f(-1)` has no value: the first equation applies there, its right side is empty, and it blocks the
+`[owise]` one; `Γ` entails `f(-1) = ⊥`. -/
+theorem bot_values (H : HookParams) :
+    Eval (c.withHooks H) f [int 2] (some (int 2)) ∧ Eval (c.withHooks H) f [int (-1)] none ∧
+    (Γ (c.withHooks H) ⊧ (KoreAML.den (symApp (c.withHooks H) f (GroundTerm.koreList (c.withHooks H) [int (-1)])) ≡ ⊥)) :=
+  have h0 := eval_everyH hok hsr hmr noRaw hfn (vs := [int (-1)]) (r := none) (by decide +kernel) (n := 10) (by decide +kernel) H
+  ⟨eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H, h0,
+   gamma_bot_everyH coreOK noRaw (by decide +kernel) hfn (by decide +kernel) H h0⟩
+
+/-- The equation with the empty right side not read: `f` has the `[owise]` clause alone. -/
+noncomputable def c1 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then
+      { g with clauses := g.clauses.filter fun cl => cl.ens.isNone } else g }
+noncomputable abbrev fn1 : Fn := c1.fns[0]'(by decide +kernel)
+theorem one_clause : fn1.clauses.map (·.prio) = [200] := by decide +kernel
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+private theorem hfn1 : c1.lookupFn f = some fn1 := rfl
+
+/-- **The point is reached**: read so, `f(-1)` is -1 under every interpretation. -/
+theorem bot_unread_value (H : HookParams) : Eval (c1.withHooks H) f [int (-1)] (some (int (-1))) :=
+  eval_everyH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) (n := 10) (by decide +kernel) H
+
+end DevBot
+
+/-! ### `orBottom`: `t ∨ ⊥` in a right side is t -/
+
+-- `f(X) => X #Or #Bottom` (the construct fixture e3-ml-eq-rhs-or-bottom).
+namespace DevOrBot
+
+definition_of defn from "f2-examples/mleqorb.kompile.kore"
+noncomputable abbrev c : Semantics := defn.sem
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+def f : Sym := 384
+theorem names_ok : c.symName f = "Lblf" := by decide +kernel
+noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
+private theorem hok : c.ok = true := by decide +kernel
+private theorem hsr : c.srReady = true := by decide +kernel
+private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hfn : c.lookupFn f = some fn := rfl
+
+/-- **`orBottom`, for every interpretation**: `f(3)` is 3. -/
+theorem orBot_value (H : HookParams) : Eval (c.withHooks H) f [int 3] (some (int 3)) :=
+  eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H
+
+/-- The equation not read: `f` has no clause. -/
+noncomputable def c1 : Semantics :=
+  { c with fns := c.fns.map fun g => if g.label = f then { g with clauses := [] } else g }
+noncomputable abbrev fn1 : Fn := c1.fns[0]'(by decide +kernel)
+theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
+private theorem hok1 : c1.ok = true := by decide +kernel
+private theorem hsr1 : c1.srReady = true := by decide +kernel
+private theorem hmr1 : c1.matchReady = true := by decide +kernel
+private theorem hfn1 : c1.lookupFn f = some fn1 := rfl
+
+/-- The interpretation that gives `f(3)` the value 7 and nothing else. -/
+def H7 : HookParams := ⟨fun g vs => if g = f ∧ vs = [int 3] then some (int 7) else none⟩
+
+/-- **The point is reached**: read so, `f(3)` is the interpretation's, 7 under `H7`. -/
+theorem orBot_unread_H7 : Eval (c1.withHooks H7) f [int 3] (some (int 7)) :=
+  eval_atH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) H7 (n := 10) (by decide +kernel)
+
+end DevOrBot
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -887,6 +1381,24 @@ end KCore.Guards
 #print axioms KCore.Guards.ruleRightDefined_weaker
 #print axioms KCore.Guards.existsDropped_weaker
 #print axioms KCore.Guards.existsDropped_empty
+#print axioms KCore.Guards.DevOr.or_steps
+#print axioms KCore.Guards.DevOr.or_one_stuck
+#print axioms KCore.Guards.DevTop.top_steps
+#print axioms KCore.Guards.DevTop.top_unread_stuck
+#print axioms KCore.Guards.DevEx.ex_steps
+#print axioms KCore.Guards.DevEx.ex_unread_stuck
+#print axioms KCore.Guards.DevCeil.ceil_steps
+#print axioms KCore.Guards.DevCeil.ceil_defined_steps
+#print axioms KCore.Guards.DevAndBool.and_steps
+#print axioms KCore.Guards.DevAndBool.and_first_steps
+#print axioms KCore.Guards.DevReqOr.reqOr_steps
+#print axioms KCore.Guards.DevReqOr.reqOr_orBool_stuck
+#print axioms KCore.Guards.DevAndEns.andEns_values
+#print axioms KCore.Guards.DevAndEns.andEns_asRequires_H7
+#print axioms KCore.Guards.DevBot.bot_values
+#print axioms KCore.Guards.DevBot.bot_unread_value
+#print axioms KCore.Guards.DevOrBot.orBot_value
+#print axioms KCore.Guards.DevOrBot.orBot_unread_H7
 
 /-! ## The table of readings (DONE-0 C6)
 
@@ -977,46 +1489,64 @@ def readingNote : ReadingNote → GuardEntry
       invariant := [``KCore.Semantics.coreOK, ``KCore.Eval.ensFails, ``KCore.Semantics.fnRest],
       note := "G3 on krust's projapp text, every H; the companion is K 7.1.337's starinit text, which states no domain axiom, where H0 gives project:Int(.K) a value" }
   | .orSplit =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "orSplit"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevOr.or_steps, .test "test/Connectives.lean" "orSplit"],
+      companion := [.decl ``KCore.Guards.DevOr.or_one_stuck],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e7-guardors' text (c(a ∨ b) => a), every H: c(a) and c(b) each step to a; the companion is the text read as its first disjunct's rule alone, where c(b) has no successor under every H (no function is at the point, so no H separates the two readings: the semantics does)" }
   | .topAsVariable =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "topAsVariable"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevTop.top_steps, .test "test/Connectives.lean" "topAsVariable"],
+      companion := [.decl ``KCore.Guards.DevTop.top_unread_stuck],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-rule-lhs-top's text (c(⊤) => a), every H: c(b) and c(d(a, b)) each step to a; the companion is the text with the axiom not read, where c(b) has no successor under every H (no function is at the point)" }
   | .existsAsVariable =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "existsAsVariable"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevEx.ex_steps, .test "test/Connectives.lean" "existsAsVariable"],
+      companion := [.decl ``KCore.Guards.DevEx.ex_unread_stuck],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-rule-lhs-exists' text (c(∃Y. d(Y, b)) => a), every H: c(d(a, b)) and c(d(b, b)) each step to a and c(d(b, a)) has no successor; the companion is the text with the axiom not read, where c(d(b, b)) has no successor under every H (no function is at the point)" }
   | .andAsEnsures =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "andAsEnsures"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAndEns.andEns_values, .test "test/Connectives.lean" "andAsEnsures"],
+      companion := [.decl ``KCore.Guards.DevAndEns.andEns_asRequires_H7],
+      invariant := [``KCore.Eval.ensFails, ``KCore.Semantics.fnRest, ``KCore.Cert.evalFC_withHooks],
+      note := "on e3-ml-eq-rhs-and-pred's text (f(X) = X ∧ ⌈X >Int 0 = true⌉), every H: f(1) = 1, f(0) has no value and Γ entails f(0) = ⊥; the companion is the predicate read as a requires, where f(0) is a point every clause fails at, 7 under H7" }
   | .andTermsWeaker =>
     { status := .pending "GUARD.final",
       guard := [.test "test/Connectives.lean" "andTermsWeaker"],
       note := "a CE reader device (CE.note-rule-and-weaker); reader tests at the parsed semantics only; the entailment of the read rule by the text's sentence (its docstring) is stated by no theorem, no statement over c.withHooks H, no companion" }
   | .bottomAsEnsures =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "bottomAsEnsures"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevBot.bot_values, .test "test/Connectives.lean" "bottomAsEnsures"],
+      companion := [.decl ``KCore.Guards.DevBot.bot_unread_value],
+      invariant := [``KCore.Eval.ensFails, ``KCore.Cert.evalFC_withHooks],
+      note := "on e3-ml-eq-rhs-bottom's text (f(X) = ⊥ requires X <Int 0 beside f(X) = X [owise]), every H: f(2) = 2, f(-1) has no value and Γ entails f(-1) = ⊥; the companion is the equation with the empty right side not read, where the [owise] clause gives f(-1) = -1 under every H" }
   | .orBottom =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "orBottom"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevOrBot.orBot_value, .test "test/Connectives.lean" "orBottom"],
+      companion := [.decl ``KCore.Guards.DevOrBot.orBot_unread_H7],
+      invariant := [``KCore.Semantics.fnRest, ``KCore.Cert.evalFC_withHooks],
+      note := "on e3-ml-eq-rhs-or-bottom's text (f(X) = X ∨ ⊥), every H: f(3) = 3; the companion is the equation not read, where f has no clause and f(3) is the interpretation's, 7 under H7" }
   | .predicateAtBool =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "predicateAtBool"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevCeil.ceil_steps, .test "test/Connectives.lean" "predicateAtBool"],
+      companion := [.decl ``KCore.Guards.DevCeil.ceil_defined_steps],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-req-ceil's text (go(X) => done requires ⌈1 /Int X⌉ beside go(_) => other of priority 60), every H: go(1) steps to other; the companion is the predicate read as holding where 1 /Int X has a value, where go(1) steps to done under every H (no function is at the point)" }
   | .andAtBool =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "andAtBool", .test "test/AndBoolSingle.lean" "#guard_msgs"],
-      companion := [.test "test/AndBoolNotStrict.lean" "not_strict"],
-      note := "reader tests at the parsed semantics only; no statement for every H; the companion is an interpretation where the strict conjunction under an [owise] negation is not the text's intersection" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevAndBool.and_steps, .test "test/Connectives.lean" "andAtBool",
+        .test "test/AndBoolSingle.lean" "#guard_msgs"],
+      companion := [.decl ``KCore.Guards.DevAndBool.and_first_steps, .test "test/AndBoolNotStrict.lean" "not_strict"],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-req-and-var's text (go(B) => done requires true ∧ B), every H: go(true) steps to done and go(false) has no successor; the companions are the requires read as its first conjunct alone, where go(false) steps to done under every H, and an interpretation where the strict conjunction under an [owise] negation is not the text's intersection (not_strict), which is why an equation reads the note only at single-valued conjuncts" }
   | .requiresOrSplit =>
-    { status := .pending "GUARD.notes-devices",
-      guard := [.test "test/Connectives.lean" "requiresOrSplit"],
-      note := "reader tests at the parsed semantics only; no statement for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.DevReqOr.reqOr_steps, .test "test/Connectives.lean" "requiresOrSplit"],
+      companion := [.decl ``KCore.Guards.DevReqOr.reqOr_orBool_stuck],
+      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
+      note := "on e3-ml-req-or-undef's text (go(X) => done requires X >=Int 0 ∨ 10 /Int X >Int 0), every H: go(0) steps to done and go(-1) has no successor; the companion is the two disjuncts read as one requires A1 orBool A2, which has no value at 0 (10 /Int 0 has none), where go(0) has no successor under every H" }
   | .setVarInDropped =>
     { status := .pending "GUARD.final",
       guard := [.decl ``KCore.setvar_in_drop, .test "test/SetVarOwise.lean" "f_one"],
