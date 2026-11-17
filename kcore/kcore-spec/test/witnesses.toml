@@ -115,17 +115,20 @@ note = "the module shows Hyp, HypSound and the other conditions of HypModel, not
 [[conjunct]]
 key = "hooksApart.1"
 text = "!KCore.hookSigs.any fun x => x.name == k.name"
-witness = "none"
+witness = "none: no witness exists: implied by kindsApart (faithCoreOK.9, its first part: no interpreted hook is a constructor), for every semantics (kernel-checked: hooksApart1_of_kindsApart)"
+evidence = "test/WitRestApart.lean"
 
 [[conjunct]]
 key = "hooksApart.2"
 text = "!KCore.hookSigs.any fun x => x.name == f.label"
-witness = "none"
+witness = "none: no witness exists: implied by fnsApart (faithCoreOK.11: no function of allFns, the definition's among them, is an interpreted hook; isHook_iff), for every semantics (kernel-checked: hooksApart2_of_fnsApart)"
+evidence = "test/WitRestApart.lean"
 
 [[conjunct]]
 key = "predsApart.1"
 text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
-witness = "none"
+witness = "none: no witness exists: implied by idsOK (its numbering of the own sorts and symbols and Lib.ok), for every semantics (kernel-checked: predsApart_of_idsOK): the definition's functions are own symbols numbered from symBase once each, the sort predicates isK, isKItem, the registry's (regPred, distinct, below nRegSyms) and the own sorts' (below symBase), the sorts below KItem each once (NamesApart.sorts_facts)"
+evidence = "test/WitRestApart.lean"
 
 [[conjunct]]
 key = "idsOK.1"
