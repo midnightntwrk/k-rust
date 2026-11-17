@@ -34,7 +34,7 @@
   | `BYTES.length` | DOM 2201 "the length of a `Bytes` term"; `total` 2205 |
   | `BYTES.concat` | DOM 2212-2213 "concatenating two `Bytes` objects"; `total` 2216 |
 
-  The five rows with a region where the prose states that there is no value, and no unstated region
+  The six rows with a region where the prose states that there is no value, and no unstated region
   (none is a key of `silentTable`, each is among `partialHooks`, `groups`): `hook` gives no value
   exactly on the region (`*_none`, at every argument list of literals; every argument list of the
   signature is one under `shapesOK`, `covered_bii`, `covered_bi`), and there Γ states ⊥ in every
@@ -46,13 +46,13 @@
   | `BYTES.get` | DOM 2114-2115 "The result is `#False` if `index` is not a valid index (see above)"; 2118, no `total` | index < 0, index ≥ length |
   | `BYTES.substr` | DOM 2124-2126 the range `[startIndex..endIndex)`; 2136-2139 "The function is not total: … is `#Bottom` if `startIndex <Int 0` or `endIndex <Int startIndex` or `lengthBytes(B) <Int endIndex`"; 2132, no `total` | start < 0, end < start, length < end |
   | `BYTES.padRight`, `BYTES.padLeft` | DOM 2172-2177 "The result is `#False` if `value` is not in the range `[0..255]`, or if the length is negative"; 2183, 2184, no `total`; the `#Ceil` rules 2241-2242 state the same region (a simplification block: a consequence, not a source) | length < 0, value < 0, value > 255 |
+  | `BYTES.replaceAt` | DOM 2143-2144 "equal to `dest` except the `N` elements starting at `index` are replaced with the contents of `src`" (N the length of `src`), 2146-2147 "The result is `#False` if `index` + `N` is not a valid index"; 2152, no `total`. The defining sentence names N elements of `dest` exactly when 0 ≤ index and index + N ≤ length, and has a value there, the last byte included (index + N = length: `boundary_hook`); the `#False` sentence is read of every other range, one that leaves `dest` (ruling 1 below) | index < 0, index + N > length (`replaceAt_none`, `replaceAt_bot`) |
 
-  The four keys of `silentTable`:
+  The three keys of `silentTable`:
 
   | row | prose | where `hook` gives no value | silent predicate |
   |---|---|---|---|
-  | `BYTES.replaceAt` | DOM 2143-2147 "equal to `dest` except the `N` elements starting at `index` are replaced with the contents of `src` … The result is `#False` if `index` + `N` is not a valid index"; 2152, no `total` | index < 0, index + N > length (`replaceAt_none`) | index < 0 and 0 ≤ index + N ≤ length (`replaceAt_silent`): a negative index whose end the `#False` sentence does not exclude, where "the `N` elements starting at `index`" names no elements. Off it, where `hook` gives no value (index + N < 0, index + N > length: `replaceAt_bot_region`), Γ states ⊥ (`replaceAt_bot`). Finding 1 on the boundary index + N = length. |
-  | `BYTES.memset` | DOM 2158-2164 "This will throw an exception if `index` + `count` is not a valid index. The acceptable range of values for `v` is -128 to 127. This will throw an exception if `v` is outside of this range"; 2167, no `total` | index < 0, count < 0, index + count > length, v < -128, v > 127 (`memset_none`) | true at every argument list (`keys_silent`): the whole region is unstated |
+  | `BYTES.memset` | DOM 2158-2164 "This will throw an exception if `index` + `count` is not a valid index. The acceptable range of values for `v` is -128 to 127. This will throw an exception if `v` is outside of this range"; 2167, no `total` | index < 0, count < 0, index + count > length, v < -128, v > 127 (`memset_none`); a value at index + count = length, the count bytes being the last ones (ruling 2) | true at every argument list (`keys_silent`): the whole region is unstated |
   | `BYTES.int2bytes` | DOM 2065-2072; `total` 2083 | length < 0 (`int2Bytes_none`), and an Endianness that is no constructor of BYTES | true at every argument list: a negative length is not described, and `total` says a value exists, not which |
   | `BYTES.bytes2int` | DOM 2059-2063; `total` 2082 | nowhere at an argument list of the signature under `shapesOK` (`covered_bytes2Int`): only at an Endianness or Signedness that is no constructor of BYTES (DOM 2043-2044, 2053-2054 give two each) | true at every argument list; the region is empty where the two sorts have only BYTES' constructors, so the prose covers every argument list there |
 
@@ -67,8 +67,7 @@
     every semantics. Unstated: `pts`, a point of each part of each unstated region, where Γ over all
     interpretations entails neither ⊥ nor a value (`pts_undetermined`); `ptsB`, `Bytes2Int` and
     `Int2Bytes` at one more constructor of Endianness (`extra_undetermined`).
-  - **(3)** `groups`, `keys_silent`, `replaceAt_silent`, `replaceAt_bot_region`,
-    `replaceAt_silent_region`, the `*_none` theorems, `plain_covered`, `covered_bytes2Int`,
+  - **(3)** `groups`, `keys_silent`, `replaceAt_silent`, `replaceAt_bot_region`, the `*_none` theorems, `plain_covered`, `covered_bytes2Int`,
     `covered_bii`, `covered_bi`, `covered_bib`, `covered_biii`, `covered_iie`.
 
   The sort row `BYTES.Bytes` (DOM 1987 "fixed-width arrays of Bytes", 2001-2002): every sequence of
@@ -77,28 +76,25 @@
   a sort has no argument list. DOM 1989-1995 (a mutable representation on one backend) says
   nothing of the values.
 
-  Findings (prose against `hook` and `silentTable`), none of which makes a statement here
-  unprovable:
-  1. "valid index" at index + N = length, two readings. DOM 2104-2105 defines a not valid index as
-     "less than zero or greater than or equal to the length". (A) by that definition DOM 2146-2147
-     makes `replaceAtBytes(dest, index, src)` `#False` at index + N = length, so no `src` reaches the
-     last byte of `dest` and `replaceAtBytes(B, 0, B)` is `#False`; DOM 2162 likewise makes
-     `memsetBytes` throw at index + count = length. (B) in these two sentences the sum is an end,
-     valid up to the length, as DOM 2143-2144 "the `N` elements starting at `index` are replaced"
-     describes a value when the N elements are the last N. `hook` takes (B) (`boundary_hook`), and
-     `silentTable`'s guard for `replaceAtBytes` holds at index < 0 with index + N = length
-     (`boundary_silent`), where (A) states `#False`. No point of `vals`, `bots` or `pts` is on the
-     boundary.
-  2. `replaceAtBytes`: the prose does not say what `N` is (read: the length of `src`, marked), and its
-     `#False` speaks of index + N only. At a negative index with 0 ≤ index + N ≤ length (< under
-     (A)) the result is neither stated to be `#False` nor described: unstated, `silentTable`'s guard.
+  Readings ruled (1-3) and findings (4-6; prose against `hook` and `silentTable`, none of which makes
+  a statement here unprovable):
+  1. `replaceAtBytes`. `N` is the length of `src` (the prose does not say; DOM 2148 "values for
+     `index` and `N`" is about `MInt`). DOM 2143-2144 defines the operation: `dest` except the `N`
+     elements starting at `index` replaced. That names N elements of `dest` exactly when 0 ≤ index
+     and index + N ≤ length, and then describes a value; so at index + N = length (the N elements
+     are the last N; `replaceAtBytes(B, 0, B)`) there is a value. DOM 2146-2147 "`#False` if
+     `index` + `N` is not a valid index" with the definition of 2104-2105 ("less than zero or
+     greater than or equal to the length") would deny that value by one position; where a
+     sentence's bound contradicts the operation's own defining sentence by one position, the
+     defining sentence decides. The `#False` sentence is about a range that leaves `dest`: index < 0
+     or index + N > length, where it is `#False` and Γ states ⊥. `replaceAtBytes` is no key of
+     `silentTable`.
+  2. `memsetBytes` likewise has a value at index + count = length (DOM 2158-2160 names the `count`
+     bytes starting at `index`, which are bytes of `dest` there).
   3. `memsetBytes`: "will throw an exception" twice, no `#False`: unstated by the ruling on such
-     wording (the other reading: an exception is the run's form of `#False`, DOM 227-229 "The result
-     is `#False` … (in particular, this will yield an exception during concrete execution)", where
-     the two are written together; here only the exception is). A negative count and a negative
-     index with a valid sum are not mentioned. `v` is bounded by -128 … 127 where `Int2Bytes(1, v,
-     LE/BE)` (the value the sentence names) is described at every `v`. DOM 2164: "This is implemented
-     only for the LLVM backend".
+     wording. A negative count and a negative index are not mentioned. `v` is bounded by
+     -128 … 127 where `Int2Bytes(1, v, LE/BE)` (the value the sentence names) is described at
+     every `v`. DOM 2164: "This is implemented only for the LLVM backend".
   4. `Int2Bytes(length, I, E)`. A negative `length` is not described and the production is `total`
      (2083): unstated. DOM 2067-2071 compares the `length` (in bytes) with "the highest set bit";
      padding is described for a positive and a negative number, and 0 is neither (read: no bit set,
@@ -366,7 +362,8 @@ theorem padLeft_none (t : String) (l v : Int) : hook bytesPadLeft [bv t, int l, 
   · rename_i h; exact ⟨fun _ => by omega, fun _ => rfl⟩
 
 /-- `replaceAtBytes`: no value at a negative index, and where the end index + N is beyond the
-length (N the length of `src`). -/
+length (N the length of `src`); a value where 0 ≤ index and index + N ≤ length, the boundary
+index + N = length included. -/
 theorem replaceAt_none (d : String) (i : Int) (s : String) : hook bytesReplaceAt [bv d, int i, bv s] = some none ↔
     (i < 0 ∨ (d.toList.length : Int) < i + (s.toList.length : Int)) := by
   rw [replaceAt_hook, Option.some.injEq, Option.map_eq_none_iff]
@@ -376,7 +373,7 @@ theorem replaceAt_none (d : String) (i : Int) (s : String) : hook bytesReplaceAt
   · rename_i h; exact ⟨fun _ => by omega, fun _ => rfl⟩
 
 /-- `memsetBytes`: no value at a negative index or count, an end index + count beyond the length, or
-`v` off -128 … 127. -/
+`v` off -128 … 127; a value elsewhere, the boundary index + count = length included. -/
 theorem memset_none (d : String) (i n v : Int) : hook bytesMemset [bv d, int i, int n, int v] = some none ↔
     (i < 0 ∨ n < 0 ∨ (d.toList.length : Int) < i + n ∨ v < -128 ∨ 127 < v) := by
   rw [memset_hook, Option.some.injEq, Option.map_eq_none_iff]
@@ -409,11 +406,11 @@ def rows : List (Sym × String) :=
 /-- The four rows declared `total` whose value the prose describes at every argument list. -/
 def plain : List Sym := [bytesEmpty, bytesReverse, bytesLength, bytesConcat]
 
-/-- The five rows with a region where the prose states `#False` or `#Bottom`, and no unstated one. -/
-def bottoms : List Sym := [bytesUpdate, bytesGet, bytesSubstr, bytesPadRight, bytesPadLeft]
+/-- The six rows with a region where the prose states `#False` or `#Bottom`, and no unstated one. -/
+def bottoms : List Sym := [bytesUpdate, bytesGet, bytesSubstr, bytesPadRight, bytesPadLeft, bytesReplaceAt]
 
-/-- The four rows with an unstated region. -/
-def keys : List Sym := [bytesReplaceAt, bytesMemset, bytes2Int, int2Bytes]
+/-- The three rows with an unstated region. -/
+def keys : List Sym := [bytesMemset, bytes2Int, int2Bytes]
 
 /-- The rows are the registry's entries with a `BYTES.` hook, and `plain`, `bottoms` and `keys` part
 them. -/
@@ -473,7 +470,7 @@ theorem not_silent : ∀ f ∈ plain ++ bottoms, ∀ vs : List GroundTerm, silen
   intro f hf vs
   refine silent_of_not_silentKey ?_ vs
   simp only [plain, bottoms, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide +kernel
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide +kernel
 
 /-- **The predicate of `memsetBytes`, `Bytes2Int` and `Int2Bytes` is true at every argument list**:
 their silent points are the argument lists where `hook` gives no value. -/
@@ -482,37 +479,17 @@ theorem keys_silent : ∀ f ∈ [bytesMemset, bytes2Int, int2Bytes], ∀ vs : Li
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl | rfl <;> rfl
 
-/-- **The predicate of `replaceAtBytes`**: a negative index whose end index + N is within the bytes
-(as test/SilentPoints.lean's `replaceAt_guard`). -/
-theorem replaceAt_silent (d : String) (i : Int) (s : String) :
-    silent bytesReplaceAt [bv d, int i, bv s] =
-      decide (i < 0 ∧ 0 ≤ i + (s.toList.length : Int) ∧ i + (s.toList.length : Int) ≤ (d.toList.length : Int)) := by
-  have : silentTable.find? (·.1 == bytesReplaceAt) = some (bytesReplaceAt, fun vs => match vs with
-     | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
-         decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))
-     | _ => false) := rfl
-  unfold silent; rw [this]
-  simp [bv, asBytes, asInt, int, Option.any]
+/-- **`replaceAtBytes` has no silent point**: it is no key of `silentTable`. -/
+theorem replaceAt_silent (vs : List GroundTerm) : silent bytesReplaceAt vs = false :=
+  not_silent _ (by decide) vs
 
-/-- Where `hook` gives `replaceAtBytes` no value and the point is not silent: the end index + N is no
-position of `dest` (below 0 or above the length), which DOM 2146-2147 states as `#False` under both
-readings of finding 1. -/
+/-- Where `hook` gives `replaceAtBytes` no value, the range leaves `dest` (a negative index, or an
+end index + N above the length), which DOM 2146-2147 states as `#False`; the point is not silent. -/
 theorem replaceAt_bot_region (d : String) (i : Int) (s : String) :
     (hook bytesReplaceAt [bv d, int i, bv s] = some none ∧ silent bytesReplaceAt [bv d, int i, bv s] = false) ↔
-      (i + (s.toList.length : Int) < 0 ∨ (d.toList.length : Int) < i + (s.toList.length : Int)) := by
-  rw [replaceAt_none, replaceAt_silent, decide_eq_false_iff_not]
-  constructor
-  · intro h; omega
-  · intro h; omega
-
-/-- Where it is silent: `hook` gives no value there. -/
-theorem replaceAt_silent_region (d : String) (i : Int) (s : String) :
-    (hook bytesReplaceAt [bv d, int i, bv s] = some none ∧ silent bytesReplaceAt [bv d, int i, bv s] = true) ↔
-      (i < 0 ∧ 0 ≤ i + (s.toList.length : Int) ∧ i + (s.toList.length : Int) ≤ (d.toList.length : Int)) := by
-  rw [replaceAt_none, replaceAt_silent, decide_eq_true_iff]
-  constructor
-  · intro h; omega
-  · intro h; omega
+      (i < 0 ∨ (d.toList.length : Int) < i + (s.toList.length : Int)) := by
+  rw [replaceAt_none]
+  exact ⟨fun h => h.1, fun h => ⟨h, replaceAt_silent _⟩⟩
 
 /-! ## The sort row `BYTES.Bytes` -/
 
@@ -565,8 +542,7 @@ theorem covered_bi {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTer
   obtain ⟨i, rfl⟩ := shape_int hs h₂
   exact ⟨t, i, rfl⟩
 
-/-- An argument list of `replaceAtBytes` (with `replaceAt_none`, `replaceAt_bot_region`,
-`replaceAt_silent_region`). -/
+/-- An argument list of `replaceAtBytes` (with `replaceAt_none`, `replaceAt_bot_region`). -/
 theorem covered_bib {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some [Srt.bytes, Srt.int, Srt.bytes]) : ∃ d i s, vs = [bv d, int i, bv s] := by
   obtain ⟨w₁, w₂, w₃, rfl, h₁, h₂, h₃⟩ := sortsOf_three hvs
@@ -654,10 +630,10 @@ theorem padLeft_bot (c : Semantics) (H : HookParams) {t : String} (ht : IsBytes 
     (sorts_cons _ (bytes_value _ ht) (sorts_cons _ (int_value _ l) (sorts_cons _ (int_value _ v) sortsOf_nil)))
     ((padLeft_none t l v).mpr h) (not_silent _ (by decide) _)
 
-/-- **`replaceAtBytes` is ⊥ where the end index + N is below 0 or above the length** (DOM
-2146-2147, under both readings of finding 1). -/
+/-- **`replaceAtBytes` is ⊥ at a negative index and where the end index + N is above the length**
+(DOM 2146-2147: the range leaves `dest`). -/
 theorem replaceAt_bot (c : Semantics) (H : HookParams) {d s : String} (hd : IsBytes d) (hs : IsBytes s) {i : Int}
-    (h : i + (s.toList.length : Int) < 0 ∨ (d.toList.length : Int) < i + (s.toList.length : Int)) :
+    (h : i < 0 ∨ (d.toList.length : Int) < i + (s.toList.length : Int)) :
     Γ (c.withHooks H) (appP (c.withHooks H) (sig bytesReplaceAt) [bv d, int i, bv s] ≡ ⊥) :=
   have hr := (replaceAt_bot_region d i s).mpr h
   bot_of _ (as := [Srt.bytes, Srt.int, Srt.bytes]) (r := Srt.bytes) (by decide)
@@ -731,10 +707,11 @@ character: `a` is 97 (0x61), `A` 65, `X` 88, `Y` 89; `\x00`, `\x01`, `\x80`, `\x
 - `substrBytes` (2124-2126): of `b"abcd"`, `[1..3)` holds the bytes at 1 and 2, `bc`; `[0..4)` all
   four; `[2..2)` none, and none of the three conditions of 2137-2139 holds there.
 - `replaceAtBytes` (2143-2144): `b"abcd"` except the 2 elements starting at index 1 replaced with
-  `XY`: `aXYd` (the end 1 + 2 = 3 is a valid index under both readings of finding 1).
+  `XY`: `aXYd`; the 2 elements starting at index 2 (the last two, 2 + 2 = the length): `abXY`; the
+  0 elements starting at index 4: `abcd` (ruling 1).
 - `memsetBytes` (2158-2160): `b"abcd"` except the 2 bytes starting at index 1 replaced with 2 bytes
   of value `Int2Bytes(1, 65, _)`, the byte 65 (`A`): `aAAd`; of value `Int2Bytes(1, -1, _)`, ff
-  (above): a ff ff d.
+  (above): a ff ff d; the 2 bytes starting at index 2, the last two: `abAA` (ruling 2).
 - `padRightBytes`, `padLeftBytes` (2172-2174): `b"a"` to length 3 with 0 on the right, a 00 00; with
   255 on the left, ff ff a; `b"abc"` to length 2 is already at least 2 long: `abc` (2174-2176).
 - `reverseBytes` (2191): `cba`. `lengthBytes` (2201): 00 ff `a` has 3 bytes; `.Bytes` has 0 (2030).
@@ -753,6 +730,8 @@ def vals : List Pt :=
    ⟨bytesSubstr, [b "abcd", int 1, int 3], b "bc"⟩, ⟨bytesSubstr, [b "abcd", int 0, int 4], b "abcd"⟩,
    ⟨bytesSubstr, [b "abcd", int 2, int 2], b ""⟩,
    ⟨bytesReplaceAt, [b "abcd", int 1, b "XY"], b "aXYd"⟩,
+   ⟨bytesReplaceAt, [b "abcd", int 2, b "XY"], b "abXY"⟩, ⟨bytesReplaceAt, [b "abcd", int 4, b ""], b "abcd"⟩,
+   ⟨bytesMemset, [b "abcd", int 2, int 2, int 65], b "abAA"⟩,
    ⟨bytesMemset, [b "abcd", int 1, int 2, int 65], b "aAAd"⟩,
    ⟨bytesMemset, [b "abcd", int 1, int 2, int (-1)], b "a\xff\xffd"⟩,
    ⟨bytesPadRight, [b "a", int 3, int 0], b "a\x00\x00"⟩, ⟨bytesPadRight, [b "abc", int 2, int 0], b "abc"⟩,
@@ -789,8 +768,8 @@ theorem vals_gamma : ∀ p ∈ vals, ∀ H : HookParams,
 /-- `B[I <- V]` at index -1, at index 3 = the length, at value 256 and -1 (DOM 2103-2105); `B[I]` at
 index -1 and 3 (2115); `substrBytes(b"abcd", …)` at start -1, at end 2 < start 3, at end 5 > length 4
 (2137-2139); the two paddings at length -1, value 256 and value -1 (2176-2177); `replaceAtBytes` at
-an end 3 + 2 = 5 above the length 4 and at an end -3 + 2 = -1 below 0 (2146-2147; neither on the
-boundary of finding 1). -/
+an end 3 + 2 = 5 above the length 4, and at a negative index with the end -3 + 2 = -1 below 0, the
+end -1 + 2 = 1 within the bytes, and the end -1 + 3 = 2 = the length (2146-2147, ruling 1). -/
 def bots : List Pt :=
   [⟨bytesUpdate, [b "abc", int (-1), int 0], b ""⟩, ⟨bytesUpdate, [b "abc", int 3, int 0], b ""⟩,
    ⟨bytesUpdate, [b "abc", int 0, int 256], b ""⟩, ⟨bytesUpdate, [b "abc", int 0, int (-1)], b ""⟩,
@@ -801,11 +780,12 @@ def bots : List Pt :=
    ⟨bytesPadRight, [b "a", int 3, int (-1)], b ""⟩,
    ⟨bytesPadLeft, [b "a", int (-1), int 0], b ""⟩, ⟨bytesPadLeft, [b "a", int 3, int 256], b ""⟩,
    ⟨bytesPadLeft, [b "a", int 3, int (-1)], b ""⟩,
-   ⟨bytesReplaceAt, [b "abcd", int 3, b "XY"], b ""⟩, ⟨bytesReplaceAt, [b "abcd", int (-3), b "XY"], b ""⟩]
+   ⟨bytesReplaceAt, [b "abcd", int 3, b "XY"], b ""⟩, ⟨bytesReplaceAt, [b "abcd", int (-3), b "XY"], b ""⟩,
+   ⟨bytesReplaceAt, [b "abcd", int (-1), b "XY"], b ""⟩, ⟨bytesReplaceAt, [b "ab", int (-1), b "XYZ"], b ""⟩]
 
-/-- Every row of `bottoms` has a point, and every point is of one or of `replaceAtBytes`. -/
+/-- Every row of `bottoms` has a point, and every point is of one. -/
 theorem bots_rows : (bottoms.all (fun f => bots.any (·.f == f)) &&
-    bots.all (fun p => bottoms.contains p.f || p.f == bytesReplaceAt)) = true := by
+    bots.all (fun p => bottoms.contains p.f)) = true := by
   decide +kernel
 
 theorem bots_ok : bots.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
@@ -831,13 +811,11 @@ theorem bots_entails : ∀ p ∈ bots, ∀ H : HookParams,
 
 /-! ## Statement 2, unstated: a point of each part of each unstated region -/
 
-/-- `replaceAtBytes(b"abcd", -1, b"XY")`: a negative index, the end -1 + 2 = 1 a valid index (finding
-2). `memsetBytes(b"abcd", …)`: an end 3 + 2 = 5 above the length; index -1 with the end 1 valid;
-count -1; `v` = 128 and -129 (DOM 2162-2164, finding 3). `Int2Bytes(-1, 0, BE)`: a negative length
+/-- `memsetBytes(b"abcd", …)`: an end 3 + 2 = 5 above the length; index -1 with the end 1 valid;
+count -1; `v` = 128 and -129 (DOM 2162-2164, ruling 3). `Int2Bytes(-1, 0, BE)`: a negative length
 (finding 4). The value `v` has the result sort. -/
 def pts : List Pt :=
-  [⟨bytesReplaceAt, [b "abcd", int (-1), b "XY"], b ""⟩,
-   ⟨bytesMemset, [b "abcd", int 3, int 2, int 0], b ""⟩, ⟨bytesMemset, [b "abcd", int (-1), int 2, int 0], b ""⟩,
+  [⟨bytesMemset, [b "abcd", int 3, int 2, int 0], b ""⟩, ⟨bytesMemset, [b "abcd", int (-1), int 2, int 0], b ""⟩,
    ⟨bytesMemset, [b "abcd", int 0, int (-1), int 0], b ""⟩, ⟨bytesMemset, [b "abcd", int 0, int 1, int 128], b ""⟩,
    ⟨bytesMemset, [b "abcd", int 0, int 1, int (-129)], b ""⟩,
    ⟨int2Bytes, [int (-1), int 0, big], b ""⟩]
@@ -911,24 +889,30 @@ theorem extra_undetermined : ∀ p ∈ ptsB,
   exact undetermined c2 c2_coreOK (by decide +kernel) (by rw [hname]; exact hks) hvs (by rw [hname]; exact hh)
     (by rw [hname]; exact hs) hv (fnHyp2 _) (fnHyp2 _)
 
-/-! ## Finding 1: the boundary index + N = length -/
+/-! ## The boundary index + N = length (rulings 1 and 2) -/
 
-/-- What `hook` gives on the boundary (reading (B); not derived from the prose, whose two readings
-differ here): `replaceAtBytes(b"abcd", 2, b"XY")` and `replaceAtBytes(b"abcd", 4, b"")` have a value
-(the last two bytes replaced; nothing replaced), `memsetBytes(b"abcd", 2, 2, 65)` has one. Under
-reading (A) the first two are `#False` and the third throws. -/
+/-- On the boundary `hook` gives the value the defining sentence describes:
+`replaceAtBytes(b"abcd", 2, b"XY")` (the last two bytes replaced), `replaceAtBytes(b"abcd", 4, b"")`
+(nothing replaced), `memsetBytes(b"abcd", 2, 2, 65)` (the last two bytes set). The three are points
+of `vals`, so Γ states the value under every interpretation (`vals_gamma`). -/
 theorem boundary_hook :
     (hook bytesReplaceAt [b "abcd", int 2, b "XY"] == some (some (b "abXY")) &&
      hook bytesReplaceAt [b "abcd", int 4, b ""] == some (some (b "abcd")) &&
-     hook bytesMemset [b "abcd", int 2, int 2, int 65] == some (some (b "abAA"))) = true := by
+     hook bytesMemset [b "abcd", int 2, int 2, int 65] == some (some (b "abAA")) &&
+     [(⟨bytesReplaceAt, [b "abcd", int 2, b "XY"], b "abXY"⟩ : Pt), ⟨bytesReplaceAt, [b "abcd", int 4, b ""], b "abcd"⟩,
+      ⟨bytesMemset, [b "abcd", int 2, int 2, int 65], b "abAA"⟩].all vals.contains) = true := by
   decide +kernel
 
-/-- `replaceAtBytes(b"ab", -1, b"XYZ")`: a negative index with the end -1 + 3 = 2 = the length.
-`hook` gives no value and the point is silent (reading (B): unstated); under reading (A) the prose
-states `#False` there. -/
-theorem boundary_silent :
+/-- `replaceAtBytes(b"ab", -1, b"XYZ")`: a negative index with the end -1 + 3 = 2 = the length. The
+range leaves `dest`: `hook` gives no value, the point is not silent, and it is a point of `bots`,
+so Γ entails ⊥ there under every interpretation (`bots_entails`). One position past the boundary,
+`replaceAtBytes(b"abcd", 3, b"XY")` and `memsetBytes(b"abcd", 3, 2, 65)` have no value. -/
+theorem boundary_bot :
     (hook bytesReplaceAt [b "ab", int (-1), b "XYZ"] == some none &&
-     silent bytesReplaceAt [b "ab", int (-1), b "XYZ"]) = true := by
+     !silent bytesReplaceAt [b "ab", int (-1), b "XYZ"] &&
+     bots.contains ⟨bytesReplaceAt, [b "ab", int (-1), b "XYZ"], b ""⟩ &&
+     hook bytesReplaceAt [b "abcd", int 3, b "XY"] == some none &&
+     hook bytesMemset [b "abcd", int 3, int 2, int 65] == some none) = true := by
   decide +kernel
 
 /-- A character that is no byte is no value of Bytes in `strbytes`. -/
@@ -943,7 +927,6 @@ theorem not_byte : c.sortOf (bv (String.ofList [Char.ofNat 256])) = none := by d
 #print axioms keys_silent
 #print axioms replaceAt_silent
 #print axioms replaceAt_bot_region
-#print axioms replaceAt_silent_region
 #print axioms update_none
 #print axioms get_none
 #print axioms substr_none
@@ -970,6 +953,6 @@ theorem not_byte : c.sortOf (bv (String.ofList [Char.ofNat 256])) = none := by d
 #print axioms pts_undetermined
 #print axioms extra_undetermined
 #print axioms boundary_hook
-#print axioms boundary_silent
+#print axioms boundary_bot
 
 end KCore.HooksBytesTest

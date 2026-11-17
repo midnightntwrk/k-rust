@@ -50,7 +50,7 @@
   from KItem to KItem, `_Map_` the union of two maps with disjoint keys.
 
   Where `hook` gives no value, the text says either that there is none (`#False`, `#Bottom`: division
-  by zero, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
+  by zero, a shift by a negative amount, `log2Int` of a number not above 0, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
   `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
   states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
   formats, a format without a model, a string off a conversion's syntax, …: `silentTable`), and Γ
@@ -642,10 +642,12 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
 - `replace` at a negative count: "undefined … This allows different backends to implement their own
   behavior" (1908-1910).
 - `String2Bool`: two equations, at `"true"` and `"false"` (1792-1794), and no `total`.
-- `replaceAtBytes` at a negative index whose end `index + N` is within the bytes: the `#False` of
-  2146-2147 speaks of `index + N` only, and "the `N` elements starting at `index`" names no element.
 - `memsetBytes`: "This will throw an exception" (2158-2164), of a run, where the text writes `#False`
-  for no value (227-228).
+  for no value (227-228). Its sibling `replaceAtBytes` is no key: "`dest` except the `N` elements
+  starting at `index` are replaced" (2143-2144) names N elements of `dest` exactly when 0 ≤ `index`
+  and `index + N` ≤ the length, and the `#False` of 2146-2147 is read of every other range (one that
+  leaves `dest`); its bound "`index + N` is not a valid index" would deny by one position the value
+  the defining sentence describes at `index + N` = the length, and the defining sentence decides.
 - `Bytes2Int`, `Int2Bytes`: declared `total` (2082, 2083); a negative length, or an Endianness or
   Signedness that is no constructor of BYTES, is not described.
 - `sqrtFloat` at −0: its equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754

@@ -792,16 +792,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HooksBytes.lean`: the 14 supported hook rows of BYTES (the sort and thirteen operations)
   against domains.md's prose, cited by line: hand-derived values that `hook` gives, the result and
   Γ's statement under every interpretation (`strbytes`). Four rows are declared `total` and
-  described everywhere (no key of `silentTable`, a value at every argument list). Five have a
+  described everywhere (no key of `silentTable`, a value at every argument list). Six have a
   region the prose states as `#False` or `#Bottom` (`B[I <- V]`, `B[I]`, `substrBytes`, the two
-  paddings): `hook` gives no value exactly there (`*_none`) and Γ states ⊥ on the whole region in
-  every semantics under every interpretation (`*_bot`). Four are keys of `silentTable`:
-  `replaceAtBytes` (the guard: a negative index whose end is within the bytes; ⊥ where the end is
-  off the bytes), `memsetBytes` ("will throw an exception": unstated), `Int2Bytes` (a negative
+  paddings, `replaceAtBytes` at a range that leaves `dest`: a negative index or an end above the
+  length): `hook` gives no value exactly there (`*_none`) and Γ states ⊥ on the whole region in
+  every semantics under every interpretation (`*_bot`). Three are keys of `silentTable`:
+  `memsetBytes` ("will throw an exception": unstated), `Int2Bytes` (a negative
   length) and `Bytes2Int` (no value only at an Endianness or Signedness that is no constructor of
-  BYTES), each with a point where Γ over all interpretations entails neither ⊥ nor a value. The
-  header's findings: "valid index" at index + N = length (two readings; `hook` gives a value
-  there), `N` unnamed, `Int2Bytes` at 0 and at a negative number cut short, `Bytes2Int` at `.Bytes`.
+  BYTES), each with a point where Γ over all interpretations entails neither ⊥ nor a value. On
+  the boundary index + N = length `replaceAtBytes` and `memsetBytes` have the value their defining
+  sentence describes (`boundary_hook`). The header's findings: `Int2Bytes` at 0 and at a negative
+  number cut short, `Bytes2Int` at `.Bytes`, padding.
 - `test/HooksFloat.lean`: the 23 supported hook rows of FLOAT (the sort and twenty-two operations)
   against domains.md's prose, cited by line. Each expected value is derived by hand and marked by
   its source: the prose's sentence, an `smt-hook` attribute (the only rounding direction the text
