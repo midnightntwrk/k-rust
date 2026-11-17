@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t10-fn-innermost.k": "3ecb16ba1623d16055930ee720b38071b39b3d5b35f87972aca79410995d7297"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t10-fn-innermost.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "b6dfde6b8ad53a5bb29b8ea2b9b3416c8bed48897102ba0aec70b201692fe267",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

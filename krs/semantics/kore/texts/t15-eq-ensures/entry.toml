@@ -1,0 +1,61 @@
+id = "t15-eq-ensures"
+kind = "text"
+subject = "An equation with an ensures, f(X) => X ensures X >Int 0, beside f(_) => 0 [owise]: what the ensures does to the equation's value, and whether the [owise] equation applies where the ensures is false."
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t15-eq-ensures.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "f(x) = x for every integer x > 0, and f(x) has no value for every x <= 0. The ensures does not decide whether the equation applies: the first equation applies at every integer, so the [owise] equation applies at none and gives no value anywhere; f(5) = 5, and f(-1) denotes nothing."
+reason = '''
+(1) A rule applies where its left side matches and its requires evaluates to true (user_manual.md:1154-1157; kk:t11-eq-applies). The first equation's pattern is a variable and it has no requires, so it applies at every integer.
+(2) The ensures is a post-condition added if the rule applies; it may make the whole term undefined, and the rule is applied all the same (user_manual.md:1159-1163). The result of the rule is RHS #And ENS (:1166-1167). Where x > 0 is true, ENS holds and the result is x. Where it is false, the conjunction of x with a false condition denotes nothing (introduction-to-matching-logic.tex:732-736 for the intersection, :880-885 for the equality that the condition is): f(x) has no value.
+(3) An owise equation applies only where all the other equations have been tried and failed (user_manual.md:1711-1713; kk:t12-eq-priority-owise). The first equation has not failed at any integer: by (2) it applied. So the owise equation gives no value at any integer.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "The requires clause is an additional predicate (function-like term of sort `Bool`), which is to be evaluated before applying the rule. If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1163 (K 7.1.337)"
+quote = "The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1167 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[ruling.kore]
+statement = '''The equation is written f(X0) = \and(X, \equals(X >Int 0, true)), the ensures inside the right side of the equality (kore.txt:73-79): where X > 0 is false the right side is the intersection of {X} with the empty set, so f(X0) denotes nothing. The [owise] axiom's premise negates that some integer is the argument (kore.txt:83-100), the first equation's match with its requires (\top) and not its ensures: that premise is empty at every integer, so the [owise] axiom states nothing. The kompiled sentences state what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:73-79"
+quote = '''\equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( VarX:SortInt{}, \equals{SortBool{},SortInt{}}( Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true")))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:83-99"
+quote = '''axiom{R} \implies{R} ( \and{R} ( \not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \top{R}(), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ), \top{R} () ) )), \bottom{R}() )'''

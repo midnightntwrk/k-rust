@@ -1,0 +1,55 @@
+id = "t11-eq-applies"
+kind = "text"
+subject = "Two equations of one function, f(0) => 10 and f(X) => 20 requires X >Int 5: where an equation states the value of an application, and where it states nothing."
+
+[text]
+files = ["t11-eq-applies.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "An equation states that the application equals its right side at exactly the arguments its argument patterns denote under a valuation of its variables at which its requires evaluates to true, and states nothing at other arguments: f(0) = 10 by the first equation, f(7) = 20 by the second, and at 3 neither states anything (what f(3) then denotes is the point of kk:t13-fn-no-equation, which this entry does not rest on)."
+reason = '''
+(1) The requires clause is evaluated before the rule applies, and where it does not evaluate to true the rule does not apply (user_manual.md:1154-1157); a function's equations are rules of the function symbol (user_manual.md:1716-1720 writes them so). So the second equation applies at 7 (7 >Int 5 is true, domains.md:1324-1325) and not at 3.
+(2) An argument pattern that is a literal applies at that value alone: the first equation applies at 0 and not at 3 or 7.
+(3) What an equation that does not apply states is ruled in [ruling.kore]: nothing.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "The requires clause is an additional predicate (function-like term of sort `Bool`), which is to be evaluated before applying the rule. If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1716-1720 (K 7.1.337)"
+quote = "syntax Int ::= foo(Int) [function] rule foo(0) => 0 rule foo(_) => 1 [owise]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = '''Each equation is one axiom \implies(\and(R, \and(\in(X0, P), \top)), \equals(f(X0), \and(rhs, \top))): R is \equals(X >Int 5, true) for the second (kore.txt:63-79) and \top for the first, whose pattern P is \dv{SortInt{}}("0") (kore.txt:83-97). Where the premise denotes the empty set the implication is the whole carrier and states nothing; where it is the whole carrier it states the equality (introduction-to-matching-logic.tex:880-885, 898-902). At 3 the first premise is empty (3 is not 0) and so is the second (3 >Int 5 is false).'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:63-79"
+quote = '''axiom{R} \implies{R} ( \and{R}( \equals{SortBool{},R}( Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("5")), \dv{SortBool{}}("true")), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, VarX:SortInt{} ), \top{R} () )), \equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( \dv{SortInt{}}("20"), \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:83-97"
+quote = '''axiom{R} \implies{R} ( \and{R}( \top{R}(), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, \dv{SortInt{}}("0") ), \top{R} () )), \equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( \dv{SortInt{}}("10"), \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:898-902 (K 7.1.337)"
+quote = 'Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'
