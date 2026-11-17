@@ -940,6 +940,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   the reader's semantics for `f2-examples/mlandt.kompile.kore` (`go(X) => f(X) #And g(X)`) and
   `f2-examples/mlandc.kompile.kore` (`c(X) => X #And a()`), every hypothesis decided
   (`rule_shape_dec`: the rule as the reader reads it).
+- `test/OptCellDistinct.lean`: on `f2-examples/optcell.kompile.kore` (an optional cell), the text's
+  distinctness axiom of the cell `<one>` and the constant `.OneCell` of its sort is a constructor
+  sentence Γ's items entail (`dist_checked`, `tieConsB` by the kernel), so
+  `Γ (d.sem.withHooks H) ⊧ tr s` for it, for every H (`dist_entailed`); the account finds it among
+  the induced axioms (`Parse.uninduced`: the distinctness of a cell's constructor from the other
+  constructors of its sort).
 - `test/HoldsModelFixed.lean`: a condition with an `ex` binder of a sort that is not confined, in
   the value model at a transition (KcoreSpec/HoldsModelFixed.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore`. `conds_ok`: `Z ∈ 3 ∨ ∃ B:Int. (Z ∈ B ∧ B = 4)` and its
