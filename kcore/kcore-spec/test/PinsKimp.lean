@@ -7,7 +7,9 @@
   `sound_at` takes a step, `complete_at` `StepDecided` at the configuration and a list holding its
   successors, `run_exact` a fuel at which nothing ran out. `sound_hyp` and `complete_hyp` stay
   stated with `FnHyp` as their hypothesis. Their axioms are exactly `propext`, `Classical.choice`,
-  `Quot.sound`. test/pins-kimp.sh generates the package under the namespace `RefKimp` into
+  `Quot.sound`. The consumer's statement (DONE-0 C9 part 5), `Claims.Expected.«sum-spec»`, written
+  from K's claim `sum-spec` before any generator ran (examples/ref-kimp/User/SumSpecStmt.lean,
+  which pins-kimp.sh builds over the generated package), is pinned by its body. test/pins-kimp.sh generates the package under the namespace `RefKimp` into
   .lake/pins/kimp, builds it and checks this file against it:
 
       gen/gen.sh examples/ref-kimp/RefKimp/definition.kore .lake/pins/kimp RefKimp --wf
@@ -16,6 +18,7 @@
 -/
 import RefKimp.Sound
 import RefKimp.FnHyp
+import User.SumSpecStmt
 
 set_option autoImplicit false
 
@@ -56,6 +59,29 @@ example : ∀ (H : HookParams) {n : Nat} {x : Config (defn.sem.withHooks H)}
 example : FnHyp defn.sem → SoundC defn.sem := sound_hyp
 
 example : ∀ ref : OutFn, FnHyp defn.sem → CompleteC defn.sem ref := complete_hyp
+
+open KCore.Reachability RefKimp.Syntax in
+/-- The consumer's statement: for every H, every complete path of the package's `Step` from the
+claim's left side passes through its right side, for `N ≥ 0`. -/
+example : Claims.Expected.«sum-spec» =
+    ∀ (H : HookParams) (N S : Int) (K : Tm Srt.k) (C : Int) (_hreq : N ≥ 0),
+      AllPath (Step (defn.sem.withHooks H))
+        (fun x => x.val =
+          («<generatedTop>»
+            («<k>» (Tm.kseq
+              («while(_)_» («!_» («_<=_» (Tm.ident "$n") (Tm.int 0)))
+                («{_}» («__»
+                  («_=_;» (Tm.ident "$s") («_+_» (Tm.ident "$s") (Tm.ident "$n")))
+                  («_=_;» (Tm.ident "$n") («_+_» (Tm.ident "$n") (Tm.int (-1)))))))
+              K))
+            («<env>» (Tm.map [(Tm.ident "$n", Tm.int N), (Tm.ident "$s", Tm.int S)]))
+            («<generatedCounter>» (Tm.int C))).val)
+        (fun z => z.val =
+          («<generatedTop>»
+            («<k>» K)
+            («<env>» (Tm.map [(Tm.ident "$n", Tm.int 0),
+              (Tm.ident "$s", Tm.int (S + ((N + 1) * N).tdiv 2))]))
+            («<generatedCounter>» (Tm.int C))).val) := rfl
 
 /-- info: 'RefKimp.consistent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RefKimp.consistent

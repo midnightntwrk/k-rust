@@ -14,10 +14,11 @@ stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
-law axioms of no collection's concatenation: 3
-      sentence 250 (Lblpu): lawAxiom (Lblpu: assoc)
-      sentence 251 (Lblpu): lawAxiom (Lblpu: unit)
-      sentence 252 (Lblpu): lawAxiom (Lblpu: unit)
+law axioms of no collection's concatenation: 0
+law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): 3
+      sentence 250 (Lblpu): fnLaw (assoc): FnLaws owed
+      sentence 251 (Lblpu): fnLaw (unit): FnLaws owed
+      sentence 252 (Lblpu): fnLaw (unit): FnLaws owed
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
 rules and clauses applying a function symbol in their left side: 0
@@ -34,5 +35,5 @@ functions with an equation holding a variable its arguments and conditions do no
 functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
 parse: ok; wf true; failing: []
 coreOK: true; failing: []
-refused by the account: 3
+refused by the account: 0
 (exit 0)

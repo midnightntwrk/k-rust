@@ -40,9 +40,8 @@
     function f: the fresh form, refused `openRight` on the cut variable (held under no
     constructor). V2 `done => go(X) #And go(g(X))`, X not bound by the left side: the fresh form,
     refused `openRight` on X. V3 `done => X #And g(X)`: the variable form, `rulePlainPP` true.
-  Each rule so read has no `ensures` (the text's rule has none) and `ruleSorted` true;
-  `rulesPlain`, which asks `\top` predicates of every rule, is false of each definition, and so
-  is `coreOK`.
+  Each rule so read has no `ensures` (the text's rule has none) and `ruleSorted` true, and each
+  definition has `wf`, `rulesPlain` and `coreOK` (`rulesPlain` asks `rulePlainPP` of every rule).
   Kernel: `and_fresh`, `and_var` (the cut of a pattern in each form).
 -/
 import KcoreSpec
@@ -225,19 +224,19 @@ mlandt rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [Int, K,
   (KCore.Cond.mem 3 (KCore.Term.var 3) (KCore.Term.app 389 [KCore.Term.var 0]))
   ruleSorted true; rulePlainPP true; openRefusal none
   ensures false
-mlandt: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandt: andRuleOf: wf failing []; rulesPlain true; coreOK true
 mlandc rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
   pre KCore.Cond.top
   post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
   ruleSorted true; rulePlainPP true; openRefusal none
   ensures false
-mlandc: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandc: andRuleOf: wf failing []; rulesPlain true; coreOK true
 mlandv rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
   pre KCore.Cond.top
   post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
   ruleSorted true; rulePlainPP true; openRefusal none
   ensures false
-mlandv: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandv: andRuleOf: wf failing []; rulesPlain true; coreOK true
 mlorand rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
   pre KCore.Cond.top
   post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
@@ -248,7 +247,7 @@ mlorand rule 1: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedC
   post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
   ruleSorted true; rulePlainPP true; openRefusal none
   ensures false
-mlorand: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlorand: andRuleOf: wf failing []; rulesPlain true; coreOK true
 mlandt V1: andRuleOf: refused KCore.Parse.RefusalReason.openRight Var'Hash'Cut0:Int: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's
 mlandt V2: andRuleOf: refused KCore.Parse.RefusalReason.openRight VarX:Int: in the right side or the ensures under no constructor, not bound by the left side, of a sort the text leaves unconfined: the successor is a value through an element that is no value's
 mlandt V3 rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, X] vars [K, GeneratedCounterCell, Int] exs [] opens [2]
@@ -256,7 +255,7 @@ mlandt V3 rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, X] vars [K, GeneratedCoun
   post KCore.Cond.mem 3 (KCore.Term.var 2) (KCore.Term.app 389 [KCore.Term.var 2])
   ruleSorted true; rulePlainPP true; openRefusal none
   ensures false
-mlandt V3: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandt V3: andRuleOf: wf failing []; rulesPlain true; coreOK true
 -/
 #guard_msgs (whitespace := lax) in
 #eval show IO Unit from do
