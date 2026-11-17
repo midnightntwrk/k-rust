@@ -61,6 +61,7 @@ cannot f2-examples/fprio-refused.kore
 differs f2-examples/fprio.kompile.kore
 exact f2-examples/fprio.kore
 differs f2-examples/hashsort.kompile.kore
+differs f2-examples/idemctor.kompile.kore
 cannot f2-examples/imp-programs.kore
 exact f2-examples/imp-sec-leaky.kore
 exact f2-examples/imp-sec.kore

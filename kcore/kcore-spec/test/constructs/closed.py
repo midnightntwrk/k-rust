@@ -154,6 +154,8 @@ PINNED = [
     ("RefusalReason.projectionDomainShape", "R2-release.C4"),
     ("RefusalReason.existentialEquation", "R2-release.C4"),
     ("RefusalReason.openGeneratorPattern", "P2.rows"),
+    ("RefusalReason.lawAxiom", "R2-release.C4"),
+    ("RefusalReason.unaccounted", "R2-release.C4"),
     ("RefusalReason.openLaw", "P3.rows"),
     ("RefusalReason.unheldVariable", "R2-release.C4"),
     ("RefusalReason.openRight", "R2-release.C4"),
