@@ -724,7 +724,7 @@ theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : Li
   exact key (cl.prio + 1) cl.prio (by omega) ⟨cl, hcl, rfl, ha⟩
 
 /-- The `requires` of a clause have a result at each of its matches, every function terminating. -/
-theorem req_result (hc : EvalCtx c) (hterm : ∀ g, Terminates c g) {fn : Fn} (hfn : fn ∈ c.allFns)
+theorem req_resultN (hc : EvalCtxN c) (hterm : ∀ g, Terminates c g) {fn : Fn} (hfn : fn ∈ c.allFns)
     {cl : Clause} (hcl : cl ∈ fn.clauses) {σ : Subst} (hσ : c.WellSorted cl.vars σ) {t : Term}
     (ht : cl.req = some t) : ∃ r, EvalTerm c σ t r := by
   obtain ⟨L', hL', hreqs⟩ := hc.reqs fn hfn
@@ -734,12 +734,18 @@ theorem req_result (hc : EvalCtx c) (hterm : ∀ g, Terminates c g) {fn : Fn} (h
   exact evalTerm_result hc.sort hL' hσ t hq
     fun g _ _ gfn hg _ vs' _ _ hsrt => hterm g gfn hg vs' hsrt
 
+/-- The `requires` of a clause have a result at each of its matches, every function terminating. -/
+theorem req_result (hc : EvalCtx c) (hterm : ∀ g, Terminates c g) {fn : Fn} (hfn : fn ∈ c.allFns)
+    {cl : Clause} (hcl : cl ∈ fn.clauses) {σ : Subst} (hσ : c.WellSorted cl.vars σ) {t : Term}
+    (ht : cl.req = some t) : ∃ r, EvalTerm c σ t r :=
+  req_resultN hc.toN hterm hfn hcl hσ ht
+
 /-- **The sort predicates are total**: their clauses have no `requires` and Bool literals as
 right-hand sides, and each has a clause over a variable of sort K, which applies at every K. -/
-theorem sortPreds_total (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : Total c fn.label := by
+theorem sortPreds_totalN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : Total c fn.label := by
   have hmem : fn ∈ c.allFns := List.mem_append_right _ hfn
   intro fn' hfn' vs hvs
-  rw [lookupFn_of_mem hc hmem] at hfn'
+  rw [lookupFn_of_memN hc hmem] at hfn'
   cases hfn'
   have hfacts : fn.args = [Srt.k] ∧ (∀ cl ∈ fn.clauses, cl.req = none ∧ ∃ s l, cl.rhs = .dv s l) ∧
       ∃ cl ∈ fn.clauses, cl.vars = [Srt.k] ∧ cl.pats = [.var 0] ∧ cl.req = none := by
@@ -771,12 +777,15 @@ theorem sortPreds_total (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : 
       subst hi
       exact ⟨w, lookup_cons_self _ _ _, hw⟩
     | succ i => simp at hi
-  refine eval_defined (lookupFn_of_mem hc hmem)
+  refine eval_defined (lookupFn_of_memN hc hmem)
     (fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl))
     (fun cl hcl _ _ _ t ht => by rw [(hshape cl hcl).1] at ht; cases ht)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hshape cl hcl; rw [h]; exact ⟨_, EvalTerm.dv⟩)
     ⟨cl₀, hcl₀, hr₀, [(0, w)], hσ, by rw [hp₀]; exact .cons (.var (lookup_cons_self _ _ _)) .nil,
       fun t ht => by rw [hr₀] at ht; cases ht⟩ (sortPreds_ens hfn)
+
+theorem sortPreds_total (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : Total c fn.label :=
+  sortPreds_totalN hc.toN hfn
 
 theorem mem_coverRows {fn : Fn} {r : List Term} (h : r ∈ Semantics.coverRows fn) :
     ∃ cl ∈ fn.clauses, cl.req = none ∧ (varOccsList cl.pats).Nodup ∧ cl.pats = r := by
@@ -786,16 +795,16 @@ theorem mem_coverRows {fn : Fn} {r : List Term} (h : r ∈ Semantics.coverRows f
 
 /-- **A function whose clauses are total is total**: its right-hand sides are total over `tot`,
 whose functions but itself are total; its self calls decrease; its covering rows cover its argument
-sorts. By induction on the size of the decreasing argument. -/
-theorem total_of_parts (hc : EvalCtx c) (hs : c.shapesOK = true) (hterm : ∀ g, Terminates c g)
-    {fn : Fn} (hfn : fn ∈ c.allFns)
+sorts. By induction on the size of the decreasing argument. The held variables are read of this function alone (`hb`). -/
+theorem total_of_partsN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hterm : ∀ g, Terminates c g)
+    {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
     (hclk : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args ∧ cl.pre = .top)
     {dec : Option Nat} (hdec : decreasingOK c fn dec = true) {n : Nat}
     (hcov : c.covers n fn.args (Semantics.coverRows fn) = true) {tot : List Sym}
     (hrhs : ∀ cl ∈ fn.clauses, c.totalTerm tot cl.rhs = true)
     (hnoens : ∀ cl ∈ fn.clauses, cl.ens = none)
     (htot : ∀ g ∈ tot, g ≠ fn.label → Total c g) : Total c fn.label := by
-  have hlook := lookupFn_of_mem hc hfn
+  have hlook := lookupFn_of_memN hc hfn
   obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
   intro fn' hfn' vs hvs
   rw [hlook] at hfn'
@@ -807,7 +816,7 @@ theorem total_of_parts (hc : EvalCtx c) (hs : c.shapesOK = true) (hterm : ∀ g,
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ m ih =>
     intro vs hvs hlt
-    refine eval_defined hlook (hc.binds fn hfn) (fun cl hcl σ hσ _ t ht => req_result hc hterm hfn hcl hσ ht)
+    refine eval_defined hlook hb (fun cl hcl σ hσ _ t ht => req_resultN hc hterm hfn hcl hσ ht)
       (fun cl hcl σ ha => ?_) ?_ hnoens
     · refine evalTerm_defined hc.sort hs hL ha.1 cl.rhs (hrs cl hcl) (hrhs cl hcl)
         fun g ts hts hgt gfn hg vs' hts' hsrt => ?_
@@ -830,7 +839,20 @@ theorem total_of_parts (hc : EvalCtx c) (hs : c.shapesOK = true) (hterm : ∀ g,
         exact ⟨cl.vars, rowTyped_of_sorts (hclk cl hcl).1⟩
       obtain ⟨r, hr, hm⟩ := covers_sound n fn.args _ hcov htyped vs hvs
       obtain ⟨cl, hcl, hreq, hnd, rfl⟩ := mem_coverRows hr
-      exact ⟨cl, hcl, hreq, applies_of_rowRH (hc.binds fn hfn cl hcl) (hclk cl hcl).1 hreq (hclk cl hcl).2 hnd hvs hm⟩
+      exact ⟨cl, hcl, hreq, applies_of_rowRH (hb cl hcl) (hclk cl hcl).1 hreq (hclk cl hcl).2 hnd hvs hm⟩
+
+/-- **A function whose clauses are total is total**: its right-hand sides are total over `tot`,
+whose functions but itself are total; its self calls decrease; its covering rows cover its argument
+sorts. By induction on the size of the decreasing argument. -/
+theorem total_of_parts (hc : EvalCtx c) (hs : c.shapesOK = true) (hterm : ∀ g, Terminates c g)
+    {fn : Fn} (hfn : fn ∈ c.allFns)
+    (hclk : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args ∧ cl.pre = .top)
+    {dec : Option Nat} (hdec : decreasingOK c fn dec = true) {n : Nat}
+    (hcov : c.covers n fn.args (Semantics.coverRows fn) = true) {tot : List Sym}
+    (hrhs : ∀ cl ∈ fn.clauses, c.totalTerm tot cl.rhs = true)
+    (hnoens : ∀ cl ∈ fn.clauses, cl.ens = none)
+    (htot : ∀ g ∈ tot, g ≠ fn.label → Total c g) : Total c fn.label :=
+  total_of_partsN hc.toN hs hterm hfn (hc.binds fn hfn) hclk hdec hcov hrhs hnoens htot
 
 /-- **A function `totalOK` confirms is total**, in a core that `sortedOK` and `srReady` accept
 whose clauses' variables are held (`RightHeld`), every function terminating and the total functions before it total. -/

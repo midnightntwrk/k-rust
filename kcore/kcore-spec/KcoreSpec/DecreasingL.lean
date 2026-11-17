@@ -567,11 +567,13 @@ def decMeasureL (dec : Option Nat) (vs : List GroundTerm) : Nat :=
   ((vs[dec.getD 0]?).map GroundTerm.weight).getD 0
 
 /-- **A function whose self calls decrease in weight, and whose other callees terminate,
-terminates**: by induction on the weight of the argument at the decreasing position. -/
-theorem terminates_of_decreasingL (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {dec : Option Nat}
+terminates**: by induction on the weight of the argument at the decreasing position. The held variables are
+read of this function alone (`hb`). -/
+theorem terminates_of_decreasingLN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
+    {dec : Option Nat}
     (hdec : c.decreasingOKL fn dec = true)
     (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label := by
-  have hlook := lookupFn_of_mem hc hfn
+  have hlook := lookupFn_of_memN hc hfn
   intro fn' hfn' vs hvs
   rw [hlook] at hfn'
   cases hfn'
@@ -582,7 +584,7 @@ theorem terminates_of_decreasingL (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.all
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_of_calls hc hfn hvs (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
+    refine eval_of_callsN hc hfn hb hvs (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
     by_cases hgl : g = fn.label
     · subst hgl
       rw [hlook] at hg
@@ -597,6 +599,13 @@ theorem terminates_of_decreasingL (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.all
       have h2 : decMeasureL (some i) vs = v.weight := by simp [decMeasureL, hvi]
       omega
     · exact hcall g (heads_callees hcl ht (mem_heads_of_callsOf t hts)) hgl gfn hg vs' hsrt
+
+/-- **A function whose self calls decrease in weight, and whose other callees terminate,
+terminates**: by induction on the weight of the argument at the decreasing position. -/
+theorem terminates_of_decreasingL (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {dec : Option Nat}
+    (hdec : c.decreasingOKL fn dec = true)
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label :=
+  terminates_of_decreasingLN hc.toN hfn (hc.binds fn hfn) hdec hcall
 
 /-! ## Int counters -/
 
@@ -684,12 +693,13 @@ def ctrMeasure (i : Nat) (L : Int) (vs : List GroundTerm) : Nat :=
 
 /-- **A function whose self calls decrease at an Int counter bounded below, and whose other callees
 terminate, terminates**: by induction on the counter's distance from the floor `ctrFloor`; a self
-call's `requires` holds where its right-hand side is evaluated, so the bound applies there. -/
-theorem terminates_of_ctr (hc : EvalCtx c) (hs : c.shapesOK = true) (hsub : c.isCtor intSub = false)
-    (hdiv : c.isCtor intTDiv = false) {fn : Fn} (hfn : fn ∈ c.allFns)
+call's `requires` holds where its right-hand side is evaluated, so the bound applies there. The
+held variables are read of this function alone (`hb`). -/
+theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.isCtor intSub = false)
+    (hdiv : c.isCtor intTDiv = false) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
     {i : Nat} (hctr : ctrOK fn i = true)
     (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label := by
-  have hlook := lookupFn_of_mem hc hfn
+  have hlook := lookupFn_of_memN hc hfn
   obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
   obtain ⟨L', hL', hreqs⟩ := hc.reqs fn hfn
   simp only [ctrOK, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hctr
@@ -704,7 +714,7 @@ theorem terminates_of_ctr (hc : EvalCtx c) (hs : c.shapesOK = true) (hsub : c.is
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_resultRH hlook (hc.binds fn hfn) (fun cl hcl σ hσ _ t ht => ?_) (fun cl hcl σ ha => ?_)
+    refine eval_resultRH hlook hb (fun cl hcl σ hσ _ t ht => ?_) (fun cl hcl σ ha => ?_)
       (fun cl hcl σ ha t ht => ?_)
     · have hq := hreqs cl hcl
       rw [ht] at hq
@@ -845,6 +855,15 @@ theorem terminates_of_ctr (hc : EvalCtx c) (hs : c.shapesOK = true) (hsub : c.is
           rw [hnoself] at hts
           cases hts
         exact hcall g (heads_ens_callees hcl ht (mem_heads_of_callsOf t hts)) hgl gfn hg vs' hsrt
+
+/-- **A function whose self calls decrease at an Int counter bounded below, and whose other callees
+terminate, terminates**: by induction on the counter's distance from the floor `ctrFloor`; a self
+call's `requires` holds where its right-hand side is evaluated, so the bound applies there. -/
+theorem terminates_of_ctr (hc : EvalCtx c) (hs : c.shapesOK = true) (hsub : c.isCtor intSub = false)
+    (hdiv : c.isCtor intTDiv = false) {fn : Fn} (hfn : fn ∈ c.allFns)
+    {i : Nat} (hctr : ctrOK fn i = true)
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label :=
+  terminates_of_ctrN hc.toN hs hsub hdiv hfn (hc.binds fn hfn) hctr hcall
 
 kernel_rfl Semantics.decObligationsL_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).decObligationsL = c.decObligationsL

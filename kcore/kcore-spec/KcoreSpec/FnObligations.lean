@@ -69,22 +69,19 @@ theorem FnObligations.of_nil {c : Semantics} {ord tp : List Sym}
 
 variable {c : Semantics} {ord tp : List Sym}
 
-/-- **What the statements assume of the functions, from `coreOK`, an interpretation total on the
-parameters `tp` and `FnObligations`**: termination by the rank and the self calls' decrease in
-weight (`terminates_of_rankL`), agreement (`clausesAgree_of_IO`) and match independence
-(`matchIndependentAll_of_L`) by their deciders, over the matcher's facts `MatchCtxO` (overloading
-symbols admitted), and the named facts; with these evaluation is functional
-(`coherentAll_of_parts`), and totality follows from termination by induction on evaluation
-(`totals_of_rankP`, TotalsG.lean). Both inductions extend a substitution well sorted on a clause's
-patterns and conditions to one on all its variables, which `hrh` allows: each other variable is of
-a sort with a value. -/
-theorem fnHyp_of_fnObligations (h : c.coreOK = true) (hrh : c.RightHeld) (hH : ParamsTotal c tp c.hooks)
-    (hob : FnObligations c ord tp) : FnHyp c := by
+/-- **`fnHyp_of_fnObligations` with the held variables asked of the held-named functions only**:
+in place of `RightHeld`, of each function `Semantics.heldObligations` names one of two facts
+(`HeldOwed`): the variables of its clauses are held, or it has a result at every argument list of
+its sorts, a value where it is `[total]`. The functions not named have their variables held on the
+data (`Semantics.heldFn_of_not_named`). Termination: `terminates_of_rankLN`; totality:
+`totals_of_rankPN`; the other four conjuncts do not read the held variables. Where no function is
+named (`Semantics.heldObligations_eq_nil`: `rightValued`) nothing is asked. -/
+theorem fnHyp_of_fnObligationsN (h : c.coreOK = true) (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
+    (hH : ParamsTotal c tp c.hooks) (hob : FnObligations c ord tp) : FnHyp c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
-  have hterm := terminates_of_rankL hok hsr (Semantics.ovlCase_of_core h) hrh
-    ord hob.1
+  have hterm := terminates_of_rankLN hok hsr (Semantics.ovlCase_of_core h) ord hheld hob.1
   have hmc : Exec.MatchCtxO c := ⟨NamesApart.subsorts_trans_of hids hok,
     NamesApart.subsorts_irrefl_of hids hok, NamesApart.patHooks_of hha hids, Semantics.coreOK_ovls h⟩
   have hag := clausesAgree_of_IO hok hsr hmc hob.2.2.1
@@ -97,10 +94,36 @@ theorem fnHyp_of_fnObligations (h : c.coreOK = true) (hrh : c.RightHeld) (hH : P
   refine ⟨fun fn hfn vs hvs => ?_, fun fn hfn ht vs hvs => ?_, hag, fun fn hfn cl hcl => ?_,
     hob.2.2.2.2.1, hob.2.2.2.2.2⟩
   · exact hterm fn.label fn (lookupFn_of_core h hfn) vs hvs
-  · exact totals_of_rankP hok hsr (Semantics.ovlCase_of_core h) hrh hterm hco ord tp
+  · exact totals_of_rankPN hok hsr (Semantics.ovlCase_of_core h) hheld hterm hco ord tp
       hH hob.2.1 fn.label fn
       (lookupFn_of_core h hfn) ht fn (lookupFn_of_core h hfn) vs hvs
   · exact hmi fn.label fn (lookupFn_of_core h hfn) cl hcl
+
+/-- **What the statements assume of the functions, from `coreOK`, an interpretation total on the
+parameters `tp` and `FnObligations`**: termination by the rank and the self calls' decrease in
+weight (`terminates_of_rankL`), agreement (`clausesAgree_of_IO`) and match independence
+(`matchIndependentAll_of_L`) by their deciders, over the matcher's facts `MatchCtxO` (overloading
+symbols admitted), and the named facts; with these evaluation is functional
+(`coherentAll_of_parts`), and totality follows from termination by induction on evaluation
+(`totals_of_rankP`, TotalsG.lean). Both inductions extend a substitution well sorted on a clause's
+patterns and conditions to one on all its variables, which `hrh` allows: each other variable is of
+a sort with a value. -/
+theorem fnHyp_of_fnObligations (h : c.coreOK = true) (hrh : c.RightHeld) (hH : ParamsTotal c tp c.hooks)
+    (hob : FnObligations c ord tp) : FnHyp c :=
+  fnHyp_of_fnObligationsN h (fun f _ => hrh.heldOwed f) hH hob
+
+/-- `sound_fn` with the held variables asked of the held-named functions only (`HeldOwed`). -/
+theorem sound_fnN (c : Semantics) (ord tp : List Sym) (h : c.coreOK = true)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
+    (hH : ParamsTotal c tp c.hooks) (hob : FnObligations c ord tp) : SoundC c :=
+  sound_hyp c h (fnHyp_of_fnObligationsN h hheld hH hob)
+
+/-- `complete_fn` with the held variables asked of the held-named functions only (`HeldOwed`). -/
+theorem complete_fnN (c : Semantics) (ord tp : List Sym) (ref : OutFn)
+    (h : c.coreOK = true) (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
+    (hH : ParamsTotal c tp c.hooks) (hob : FnObligations c ord tp) :
+    CompleteC c ref :=
+  complete_hyp c ref h (fnHyp_of_fnObligationsN h hheld hH hob)
 
 /-- **Soundness** of a semantics that `coreOK` accepts, its interpretation total on `tp`, under
 the facts `FnObligations` names. -/
@@ -144,6 +167,31 @@ theorem complete_fn_withHooks (c : Semantics) (ord tp : List Sym) (ref : OutFn)
     (hob : FnObligations (c.withHooks H) ord tp)
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : CompleteC (c.withHooks H) ref :=
   complete_hyp _ ref ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooks h hrh H hH hob (hr := hr))
+
+/-- `fnHyp_withHooks` with the held variables asked of the held-named functions only: the list is
+the data's (`Semantics.heldObligations_withHooks`), the owed facts (`HeldOwed`) are stated for the
+interpretation. The functions not named have their variables held under every interpretation, the
+exhibited values applying no open generator, so `hr` is read by `ParamsTotal` alone. -/
+theorem fnHyp_withHooksN (h : c.coreOK = true) (H : HookParams)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f) (hH : ParamsTotal c tp H)
+    (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : FnHyp (c.withHooks H) :=
+  fnHyp_of_fnObligationsN ((Semantics.coreOK_withHooks c H).trans h) hheld (hH.withHooks hr) hob
+
+/-- `sound_fn_withHooks` with the held variables asked of the held-named functions only. -/
+theorem sound_fn_withHooksN (c : Semantics) (ord tp : List Sym) (h : c.coreOK = true) (H : HookParams)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
+    (hH : ParamsTotal c tp H) (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
+    SoundC (c.withHooks H) :=
+  sound_hyp _ ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooksN h H hheld hH hob (hr := hr))
+
+/-- `complete_fn_withHooks` with the held variables asked of the held-named functions only. -/
+theorem complete_fn_withHooksN (c : Semantics) (ord tp : List Sym) (ref : OutFn)
+    (h : c.coreOK = true) (H : HookParams) (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
+    (hH : ParamsTotal c tp H) (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : CompleteC (c.withHooks H) ref :=
+  complete_hyp _ ref ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooksN h H hheld hH hob (hr := hr))
 
 /-! ## The owed conditions, rule by rule and clause by clause
 
@@ -215,17 +263,15 @@ theorem FnFacts.of_nil {c : Semantics} {ord tp : List Sym}
    fun p hp => by rw [h4] at hp; exact absurd hp List.not_mem_nil,
    openLaws_of_plain fun k hk => by simpa using List.all_eq_true.mp h5 k hk⟩
 
-/-- **`FnDet` and `FnSolves` from `FnFacts`**, under `coreOK` and `RightHeld`: termination by the
-rank and the self calls' decrease in weight, agreement and match independence by their deciders
-and the named facts give coherence, so one result (`fnDet_of_coherent`), and with termination the
-evaluation solves the equations (`fnSolves_of_total`). Neither `OpenDecided` nor the totality facts
-are read. -/
-theorem fnModel_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
-    (hob : FnFacts c ord tp) : FnDet c ∧ FnSolves c := by
+/-- **`fnModel_of_fnFacts` with the held variables asked of the held-named functions only**
+(`HeldOwed` of each function `Semantics.heldObligations` names, in place of `RightHeld`):
+termination by `terminates_of_rankLN`; the totality part of `HeldOwed` is not read. -/
+theorem fnModel_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) : FnDet c ∧ FnSolves c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
-  have hterm := terminates_of_rankL hok hsr (Semantics.ovlCase_of_core h) hrh ord hob.1
+  have hterm := terminates_of_rankLN hok hsr (Semantics.ovlCase_of_core h) ord hheld hob.1
   have hmc : Exec.MatchCtxO c := ⟨NamesApart.subsorts_trans_of hids hok,
     NamesApart.subsorts_irrefl_of hids hok, NamesApart.patHooks_of hha hids, Semantics.coreOK_ovls h⟩
   have hag := clausesAgree_of_IO hok hsr hmc hob.2.2.1
@@ -239,6 +285,15 @@ theorem fnModel_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = t
   exact ⟨hd, Faithful.Model.fnSolves_of_total (hypSound_of_core h) hd
     fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs⟩
 
+/-- **`FnDet` and `FnSolves` from `FnFacts`**, under `coreOK` and `RightHeld`: termination by the
+rank and the self calls' decrease in weight, agreement and match independence by their deciders
+and the named facts give coherence, so one result (`fnDet_of_coherent`), and with termination the
+evaluation solves the equations (`fnSolves_of_total`). Neither `OpenDecided` nor the totality facts
+are read. -/
+theorem fnModel_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
+    (hob : FnFacts c ord tp) : FnDet c ∧ FnSolves c :=
+  fnModel_of_fnFactsN h (fun f _ => hrh.heldOwed f) hob
+
 /-- **Consistency from `FnFacts`** (`consistent_of`): no owed condition is read. -/
 theorem consistent_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
     (hob : FnFacts c ord tp) : Consistent c :=
@@ -251,5 +306,26 @@ theorem consistent_of_fnFacts_withHooks {c : Semantics} {ord tp : List Sym} (h :
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     Consistent (c.withHooks H) :=
   consistent_of_fnFacts ((Semantics.coreOK_withHooks c H).trans h) (Semantics.rightHeld_withHooks hrh H hr) hob
+
+/-- `consistent_of_fnFacts` with the held variables asked of the held-named functions only
+(`HeldOwed`). -/
+theorem consistent_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) : Consistent c :=
+  consistent_of c h (fnModel_of_fnFactsN h hheld hob).1 (fnModel_of_fnFactsN h hheld hob).2 hob.2.2.2.2
+
+/-- `fnModel_of_fnFactsN` for an interpretation H of the parameters: the list of the held-named
+functions is the data's, their owed facts are stated for the interpretation. -/
+theorem fnModel_of_fnFacts_withHooksN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (H : HookParams) (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
+    (hob : FnFacts (c.withHooks H) ord tp) : FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) :=
+  fnModel_of_fnFactsN ((Semantics.coreOK_withHooks c H).trans h) hheld hob
+
+/-- `consistent_of_fnFactsN` for an interpretation H of the parameters: `coreOK` of the data, the
+list of the held-named functions the data's, their owed facts stated for the interpretation. No
+hypothesis on the parameters: the functions not named have their variables held under every H. -/
+theorem consistent_of_fnFacts_withHooksN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (H : HookParams) (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
+    (hob : FnFacts (c.withHooks H) ord tp) : Consistent (c.withHooks H) :=
+  consistent_of_fnFactsN ((Semantics.coreOK_withHooks c H).trans h) hheld hob
 
 end KCore

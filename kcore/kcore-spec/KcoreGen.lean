@@ -745,15 +745,21 @@ the hypotheses of the pinned theorem it instantiates and no more: where rules ar
 `sound_at` takes the pinned `hw` (the owed rules of smaller priority number whose left side matches
 x decided); where clauses are owed (`owesC`), `sound_at` and `complete_at` take the pinned `hc`;
 otherwise those sides are proved in the package (`rulesDecided_defn`, `clausesDecided_defn`). A name
-ends in `_of` exactly where its statement has a binder for a fact (`named`: the facts `hob`). -/
-def headlineAtOpen (bind hob given : String) (named run owesR owesC : Bool) : String :=
+ends in `_of` exactly where its statement has a binder for a fact (`named`: the facts `hob`, or,
+where functions are held-named, `held`, the facts `hheld` owed of them, which then stand in place
+of `rightHeld_withHooks_defn`). -/
+def headlineAtOpen (bind hob given : String) (named run owesR owesC : Bool) (held : Bool := false) : String :=
   let sfxC := if named then "_of" else ""
   let sfxS := if named || owesR || owesC then "_of" else ""
   let sfxP := if named || owesC then "_of" else ""
   let S := "(defn.sem.withHooks H)"
   let hc := "(coreOK_withHooks_defn H)"
-  let rh := "(rightHeld_withHooks_defn H)"
-  let cons := s!"consistent_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
+  -- with functions held-named (`held`), the facts owed of them are the binder `hheld` (in `bind`)
+  let cons := if held then s!"consistent_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
+    else s!"consistent_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
+  let consName := if held then "consistent_of_fnFacts_withHooksN" else "consistent_of_fnFacts"
+  let fnModel := if held then s!"fnModel_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
+    else s!"fnModel_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
   let hwB := if owesR then s!"
     (hw : ∀ r' ∈ {S}.rules, r'.prio < r.prio → r'.needsWitness {S} = true →
       (∃ σ', PatVal {S} σ' r'.lhs x.val) → r'.CondDecided {S})" else ""
@@ -780,14 +786,14 @@ theorem run_exact{sfxC}{bind} \{n : Nat} \{x : Config {S}}
         (den {S} x.val ⇒ KoreAML.allNext (KoreAML.disjList ((CExec.successorsN {S} n x.val).map (den {S}))))) ∧
       ∀ y ∈ CExec.successorsN {S} n x.val, (Γ {S} ⊧ (den {S} x.val ⇒ KoreAML.sNext (den {S} y))) :=
   ⟨{cons}, CExec.run_exact {hc} ((CExec.execReady_withHooks _ H).trans exec_ready)
-    (fnModel_of_fnFacts {hc} {rh} {hob}).1 hfu⟩"
+    ({fnModel}).1 hfu⟩"
   s!"
 /-- `coreOK` under every interpretation H (`coreOK` does not read it). -/
 theorem coreOK_withHooks_defn (H : HookParams) : {S}.coreOK = true :=
   (Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn
 
 /-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
-`KCore.consistent_of_fnFacts`) under every interpretation H, {given} (the facts still
+`KCore.{consName}`) under every interpretation H, {given} (the facts still
 owed are `namedFacts`); no owed condition is read. `Γ` holds no axiom `∃y. f(x̄) = y` of a
 function, so no `[total]` declaration is read here (the theory with them:
 `KCore.Faithful.has_model_total`). -/
@@ -829,7 +835,12 @@ open), and `NS.FnHyp.Owed` decides the positions of the rules and clauses whose 
 owed (`owed_rules`, `owed_clauses`): with none owed, `OpenDecided` is proved in the package
 (`openDecided_defn`); otherwise it is `Owed`, a hypothesis of `fnHyp_defn`, `sound_defn` and
 `complete_defn` only, and the statements at a step take what the pinned ones take
-(`headlineAtOpen`). `force` (`--as-not-plain`): every binder is written, as if facts and
+(`headlineAtOpen`). Where a function is held-named (`KCore.Semantics.heldObligations` is not
+empty: an equation holds a variable outside its patterns and conditions, of a sort without an
+exhibited value, so `rightValued` is false), `NS.FnHyp.Held` states the list (`held_named`) and
+`fnHyp_defn`, `sound_defn`, `complete_defn` and the statements at a step take the facts owed of
+those functions (`Held`: `KCore.HeldOwed` of each) through the forms `…N` of FnObligations.lean;
+with none held-named the emitted text is as before. `force` (`--as-not-plain`): every binder is written, as if facts and
 conditions were owed. -/
 def genFnHyp (o : Out) (ns : String) (d : Definition) (facts plain : Bool) (force : Bool := false) : IO Out := do
   let mut o := o
@@ -893,6 +904,14 @@ end {ns}
   o ← thm o "Match" s!"{ns}.Core" "The clauses `clauseFixedL` does not show to fix their variables (`KCore.FnObligations`, fourth conjunct)."
     s!"theorem match_named : defn.sem.matchObligationsL =
     {lstP matL} := by decide +kernel"
+  -- the held-named functions (`Semantics.heldObligations`): where there is one, `rightValued` is
+  -- false, the package states the list and its statements take the facts owed of them (`Held`)
+  let heldL := c.heldObligations
+  let held := !heldL.isEmpty
+  if held then
+    o ← thm o "Held" s!"{ns}.Core" "The functions with an equation holding a variable outside its patterns and conditions, of a sort without an exhibited value (`KCore.Semantics.heldObligations`): of each, `KCore.HeldOwed` is owed."
+      s!"theorem held_named : defn.sem.heldObligations =
+    {lst heldL} := by decide +kernel"
   -- not plain: the rules and clauses whose conditions are owed, and whether a parameter is open
   let owedR := c.owedRules
   let owedC := c.owedClauses
@@ -919,6 +938,7 @@ end {ns}
     totL.map (fun f => s!"totality {nm f} {locOf f}") ++
     agrL.map (fun f => s!"agreement {nm f} {locOf f}") ++
     matL.map (fun (f, i) => s!"match independence {nm f} clause {i} {locOf f}") ++
+    heldL.map (fun f => s!"held variables or results (an equation's variable outside its patterns and conditions, of a sort without an exhibited value) {nm f} {locOf f}") ++
     (if plain then [] else
       owedR.map (fun i => s!"condition decided (closed over {ruleVs i}, unconfined): rule {i}{ruleLbl i}") ++
       owedC.map (fun (i, j) => s!"condition decided (a witness at which the `requires` has no other result, or a refutation): clause {j} of {fnName i}") ++
@@ -952,17 +972,27 @@ are `KCore.FnObligations`."
   let givenD := if plain || !owes then given
     else if none then "given the owed conditions (`Owed`)" ++ lawsD
     else "given the named facts and the owed conditions (`Owed`)" ++ lawsD
-  let hobBD := hobB ++ (if owes then " (how : Owed H)" else "") ++ lawsH
+  -- the held-named functions: the statements take the facts owed of them in place of `RightHeld`
+  let nN := if held then "N" else ""
+  let rh0 := if held then "hheld" else "(Semantics.rightHeld_of_valued (by decide +kernel))"
+  let rhH := if held then "H hheld" else "(Semantics.rightHeld_of_valued (by decide +kernel)) H"
+  let heldDoc := s!"/-- **The facts owed of the held-named functions** (`held_named`, {heldL.length} functions with an
+equation holding a variable outside its patterns and conditions, of a sort without an exhibited
+value), of each one of two (`KCore.HeldOwed`): each such variable's sort has a value, or the
+function has a result at every argument list of its sorts, a value where it is `[total]`. The text
+may hold this or not; where it does not, the statements that take it say nothing of the text. -/"
+  let givenD := if held then givenD ++ ", and the facts owed of the held-named functions (`Held`)" else givenD
+  let hobBD := hobB ++ (if owes then " (how : Owed H)" else "") ++ (if held then " (hheld : Held H)" else "") ++ lawsH
   let hobAD := if plain then hobA else s!"({hobA}.obligations {if owes then "how" else "(openDecided_defn H)"})"
-  let hobBD0 := hobB0 ++ (if owes then " (how : Owed)" else "") ++ laws0
+  let hobBD0 := hobB0 ++ (if owes then " (how : Owed)" else "") ++ (if held then " (hheld : Held)" else "") ++ laws0
   let hobAD0 := if plain then hobA0 else s!"({hobA0}.obligations {if owes then "how" else "openDecided_defn"})"
   let S := "(defn.sem.withHooks H)"
-  let sidesPart := s!"
+  let sidesPart := (if held then "" else s!"
 /-- `RightHeld` of the definition under every interpretation H (`KCore.Semantics.rightValued`, decided on
 the data). -/
 theorem rightHeld_withHooks_defn (H : HookParams) : (defn.sem.withHooks H).RightHeld :=
   Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H
-" ++ (if owesR then "" else s!"
+") ++ (if owesR then "" else s!"
 /-- No rule's condition is owed (`owed_rules`): the rule side of `KCore.OpenDecided` under every
 interpretation H. -/
 theorem rulesDecided_defn (H : HookParams) :
@@ -998,6 +1028,10 @@ abbrev Owed (H : HookParams) : Prop := OpenDecided {S}
 theorem openDecided_defn (H : HookParams) : OpenDecided (defn.sem.withHooks H) :=
   ⟨rulesDecided_defn H, clausesDecided_defn H⟩
 ")
+    let heldPart := if held then s!"
+{heldDoc}
+abbrev Held (H : HookParams) : Prop := ∀ f ∈ defn.sem.heldObligations, HeldOwed (defn.sem.withHooks H) f
+" else ""
     s!"/-- **The interpretations the statements are about**: H gives each parameter symbol the text
 declares total, and no registry hook implements, a value of its result sort at every argument list
 of its sorts (`KCore.ParamsTotal`; the parameters are `totalParams_eq`'s). A parameter the text does
@@ -1009,21 +1043,21 @@ termination, {totL.length} `[total]` functions' totality, {agrL.length} function
 {matL.length} clauses' match independence; the lists are `term_named`, `total_named`,
 `agree_named`, `match_named`, the same for every H).{oblDoc} -/
 abbrev Obl (H : HookParams) : Prop := {oblK} (defn.sem.withHooks H) callOrder defn.totalParams
-{nilPart}{owedPart}
+{nilPart}{owedPart}{heldPart}
 /-- `FnHyp` of the definition's semantics under H, {givenD}. -/
 theorem fnHyp_defn (H : HookParams) (hH : HooksTotal H){hobBD} : FnHyp (defn.sem.withHooks H) :=
-  fnHyp_withHooks coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H hH {hobAD}
+  fnHyp_withHooks{nN} coreOK_defn {rhH} hH {hobAD}
 
 /-- **Soundness of the semantics** (`KCore.SoundC`) under every interpretation total where the text
 declares the parameters total, {givenD}. -/
 theorem sound_defn (H : HookParams) (hH : HooksTotal H){hobBD} : SoundC (defn.sem.withHooks H) :=
-  sound_fn_withHooks defn.sem callOrder defn.totalParams coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H hH {hobAD}
+  sound_fn_withHooks{nN} defn.sem callOrder defn.totalParams coreOK_defn {rhH} hH {hobAD}
 
 /-- **Completeness of the semantics** (`KCore.CompleteC`) under every interpretation total where
 the text declares the parameters total, {givenD}. -/
 theorem complete_defn (ref : OutFn) (H : HookParams) (hH : HooksTotal H){hobBD} :
     CompleteC (defn.sem.withHooks H) ref :=
-  complete_fn_withHooks defn.sem callOrder defn.totalParams ref coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H hH {hobAD}"
+  complete_fn_withHooks{nN} defn.sem callOrder defn.totalParams ref coreOK_defn {rhH} hH {hobAD}"
   else
     let nilPart := if none then s!"
 /-- No fact is named: `{oblK}` holds. -/
@@ -1040,7 +1074,15 @@ theorem obl_nil_withHooks (H : HookParams) : OblH H :=
 " else ""
     let hobBH := if none then "" else " (hob : OblH H)"
     let hobAH := if none then "(obl_nil_withHooks H)" else "hob"
-    let hobBDH := hobBH ++ (if owes then " (how : OwedH H)" else "") ++ lawsH
+    let hobBDH := hobBH ++ (if owes then " (how : OwedH H)" else "") ++ (if held then " (hheld : HeldH H)" else "") ++ lawsH
+    let heldPart := if held then s!"
+{heldDoc}
+abbrev Held : Prop := ∀ f ∈ defn.sem.heldObligations, HeldOwed defn.sem f
+
+/-- The facts owed of the held-named functions under an interpretation H (the functions are
+`Held`'s). -/
+abbrev HeldH (H : HookParams) : Prop := ∀ f ∈ defn.sem.heldObligations, HeldOwed (defn.sem.withHooks H) f
+" else ""
     let hobADH := if plain then hobAH else s!"({hobAH}.obligations {if owes then "how" else "(openDecided_withHooks_defn H)"})"
     let owedPart := if plain then "" else sidesPart ++ (if owes then s!"
 {owedDoc}
@@ -1063,17 +1105,17 @@ theorem openDecided_withHooks_defn (H : HookParams) : OpenDecided {S} :=
 independence; the lists are `term_named`, `total_named`, `agree_named`, `match_named`). The
 definition has no parameter symbol an interpretation gives a meaning to.{oblDoc} -/
 abbrev Obl : Prop := {oblK} defn.sem callOrder []
-{nilPart}{owedPart}
-/-- **`FnHyp` of the definition's semantics** (`KCore.fnHyp_of_fnObligations`), {givenD}: what
+{nilPart}{owedPart}{heldPart}
+/-- **`FnHyp` of the definition's semantics** (`KCore.fnHyp_of_fnObligations{nN}`), {givenD}: what
 `sound_hyp` and `complete_hyp` take. -/
-theorem fnHyp_defn{hobBD0} : FnHyp defn.sem := fnHyp_of_fnObligations coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) ParamsTotal.nil {hobAD0}
+theorem fnHyp_defn{hobBD0} : FnHyp defn.sem := fnHyp_of_fnObligations{nN} coreOK_defn {rh0} ParamsTotal.nil {hobAD0}
 
 /-- **Soundness of the semantics** (`KCore.SoundC`), {givenD}. -/
-theorem sound_defn{hobBD0} : SoundC defn.sem := sound_fn defn.sem callOrder [] coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) ParamsTotal.nil {hobAD0}
+theorem sound_defn{hobBD0} : SoundC defn.sem := sound_fn{nN} defn.sem callOrder [] coreOK_defn {rh0} ParamsTotal.nil {hobAD0}
 
 /-- **Completeness of the semantics** (`KCore.CompleteC`), {givenD}. -/
 theorem complete_defn (ref : OutFn){hobBD0} : CompleteC defn.sem ref :=
-  complete_fn defn.sem callOrder [] ref coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) ParamsTotal.nil {hobAD0}
+  complete_fn{nN} defn.sem callOrder [] ref coreOK_defn {rh0} ParamsTotal.nil {hobAD0}
 
 /-- The facts the deciders leave of `FnHyp` under an interpretation H (the lists are `Obl`'s, the
 same for every H). -/
@@ -1081,26 +1123,29 @@ abbrev OblH (H : HookParams) : Prop := {oblK} (defn.sem.withHooks H) callOrder [
 {nilPartH}
 /-- `FnHyp` of the definition's semantics under every interpretation H, {givenD}. -/
 theorem fnHyp_withHooks_defn (H : HookParams){hobBDH} : FnHyp (defn.sem.withHooks H) :=
-  fnHyp_withHooks coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil {hobADH}
+  fnHyp_withHooks{nN} coreOK_defn {rhH} ParamsTotal.nil {hobADH}
 
 /-- **Soundness of the semantics** (`KCore.SoundC`) under every interpretation H, {givenD}. -/
 theorem sound_withHooks_defn (H : HookParams){hobBDH} : SoundC (defn.sem.withHooks H) :=
-  sound_fn_withHooks defn.sem callOrder [] coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil {hobADH}
+  sound_fn_withHooks{nN} defn.sem callOrder [] coreOK_defn {rhH} ParamsTotal.nil {hobADH}
 
 /-- **Completeness of the semantics** (`KCore.CompleteC`) under every interpretation H, {givenD}. -/
 theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : CompleteC (defn.sem.withHooks H) ref :=
-  complete_fn_withHooks defn.sem callOrder [] ref coreOK_defn (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil {hobADH}"
+  complete_fn_withHooks{nN} defn.sem callOrder [] ref coreOK_defn {rhH} ParamsTotal.nil {hobADH}"
   -- the statements at a step and at a configuration, for every interpretation H, under the binders
   -- and the `FnHyp` term of the branch above
   let hobArg := if none then "" else " hob"
-  let (bindH, fnHypH) := if hasParams then (s!" (H : HookParams) (hH : HooksTotal H){hobB}{lawsH}", s!"fnHyp_defn H hH{hobArg}{lawsA}")
-    else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{lawsH}", s!"fnHyp_withHooks_defn H{hobArg}{lawsA}")
+  let heldBH := if !held then "" else if hasParams then " (hheld : Held H)" else " (hheld : HeldH H)"
+  let heldA := if held then " hheld" else ""
+  let givenH := if held then given ++ ", and the facts owed of the held-named functions (`Held`)" else given
+  let (bindH, fnHypH) := if hasParams then (s!" (H : HookParams) (hH : HooksTotal H){hobB}{heldBH}{lawsH}", s!"fnHyp_defn H hH{hobArg}{heldA}{lawsA}")
+    else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}", s!"fnHyp_withHooks_defn H{hobArg}{heldA}{lawsA}")
   let runExact := facts && CExec.execReady c
-  let atSrc := if plain then headlineAt bindH fnHypH given (!none) runExact plain else
-    let bindN := if hasParams then s!" (H : HookParams){hobB}{lawsH}"
-      else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{lawsH}"
+  let atSrc := if plain then headlineAt bindH fnHypH givenH (!none || held) runExact plain else
+    let bindN := if hasParams then s!" (H : HookParams){hobB}{heldBH}{lawsH}"
+      else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}"
     let hobT := if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
-    headlineAtOpen bindN hobT given (!none) runExact owesR owesC
+    headlineAtOpen bindN hobT givenH (!none || held) runExact owesR owesC held
   -- not plain: the owed rules' and clauses' positions, decided
   if !plain then
     let lstR := if owedR.isEmpty then "([] : List Nat)" else
@@ -1120,7 +1165,7 @@ import {ns}.FnHyp.Term
 import {ns}.FnHyp.Total
 import {ns}.FnHyp.Agree
 import {ns}.FnHyp.Match
-" ++ (if plain then "" else s!"import {ns}.FnHyp.Owed\n") ++ (if runExact then s!"import {ns}.Facts\n" else "") ++ "import KcoreSpec.StepCompleteAt
+" ++ (if held then s!"import {ns}.FnHyp.Held\n" else "") ++ (if plain then "" else s!"import {ns}.FnHyp.Owed\n") ++ (if runExact then s!"import {ns}.Facts\n" else "") ++ "import KcoreSpec.StepCompleteAt
 " ++ hdr "What the deciders leave of `FnHyp` (`KCore.FnObligations` at the rank `callOrder`; its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), soundness and completeness of the definition's semantics from those facts, and, under the same facts, consistency with the statements at a step and at a configuration." ++ s!"
 namespace {ns}
 open KCore

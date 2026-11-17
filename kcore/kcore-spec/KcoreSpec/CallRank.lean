@@ -68,13 +68,17 @@ theorem rankedCallees_spec {ord labels : List Sym} {f : Fn} (h : rankedCallees o
 
 /-- A function `lookupFn` finds under a label no function of `c` bears is a sort predicate, which
 terminates. -/
-theorem terminates_of_not_label (hc : EvalCtx c) {g : Sym} (hg : g ∉ c.fns.map (·.label)) :
+theorem terminates_of_not_labelN (hc : EvalCtxN c) {g : Sym} (hg : g ∉ c.fns.map (·.label)) :
     Terminates c g := by
   intro gfn hgfn
   obtain ⟨hgm, hlab⟩ := lookupFn_spec hgfn
   rcases List.mem_append.mp hgm with hu | hp
   · exact absurd (hlab ▸ List.mem_map_of_mem hu) hg
-  · exact hlab ▸ sortPreds_terminate hc hp gfn (hlab ▸ hgfn)
+  · exact hlab ▸ sortPreds_terminateN hc hp gfn (hlab ▸ hgfn)
+
+theorem terminates_of_not_label (hc : EvalCtx c) {g : Sym} (hg : g ∉ c.fns.map (·.label)) :
+    Terminates c g :=
+  terminates_of_not_labelN hc.toN hg
 
 /-- **A function `totalOKR` confirms is total**, in a core that `sortedOK` and `srReady` accept,
 every function terminating and the total functions ranked before it total. -/

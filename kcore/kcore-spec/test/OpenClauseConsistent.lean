@@ -235,6 +235,20 @@ theorem not_fnHypE : ¬ FnHyp cE := fun hf => by
   obtain ⟨v, hv⟩ := hf.2.1 fE (List.mem_append_right _ (List.mem_singleton_self _)) rfl [] rfl
   exact no_evalE _ hv
 
+/-- **What is owed of `f` at `cE` is false** (`HeldOwed`): `f` is `cE`'s one held-named function
+(`Semantics.heldObligations`); its clause's variable is of Empty, which has no value, so the
+variables are not held; and `f` has no result at `[]` (`no_evalE`), so it does not terminate. The
+held-named forms (`fnHyp_of_fnObligationsN`) then say nothing of `cE`, as they must: `FnHyp cE` is
+false (`not_fnHypE`). -/
+theorem not_heldOwedE : cE.heldObligations = [391] ∧ ¬ HeldOwed cE 391 := by
+  refine ⟨by decide +kernel, fun h => ?_⟩
+  rcases h fE (lookupE (List.mem_append_right _ (List.mem_singleton_self _))) with h | ⟨h, -⟩
+  · rcases h clE (List.mem_singleton_self _) 0 33 rfl with h | ⟨v, hv⟩
+    · rw [shapeE.2.2.1] at h; cases h
+    · exact no_E v hv
+  · obtain ⟨r, hr⟩ := h fE (lookupE (List.mem_append_right _ (List.mem_singleton_self _))) [] rfl
+    exact no_evalE r hr
+
 /-- **`consistent_ofCl` at `cE`**: the theory of `cE` with the step's closure has a model. -/
 theorem consistentE : Consistent cE :=
   consistent_ofCl cE decidedE.1 decidedE.2.1 decidedE.2.2.1 decidedE.2.2.2.1 decidedE.2.2.2.2.1 fnDetE fnSolvesE

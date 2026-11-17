@@ -572,6 +572,111 @@ example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (openLaw
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3
 example : ExactC c3 := exact_hyp c3 core3 fnHyp3
 
+/-! ## `FnHyp c3` through the held-named form (`fnHyp_of_fnObligationsN`)
+
+`f` is the one held-named function of `c3` (`Semantics.heldObligations`). Of the two facts
+`HeldOwed` offers, the first is false (`clYE`'s variable is of Empty, which has no value); the
+second holds: `f()` is `1` by `clOne`, and `f` is not `[total]`. The rank `ord3` and the totality
+decider name no function; agreement and match independence are named for `f` and `clYE` and shown
+by hand (`agree3`, `matchInd3`); no condition is owed. `FnHyp c3` then comes from the deciders and
+the owed fact, not from the six conjuncts shown by hand (`fnHyp3`). -/
+
+/-- A rank of `c3`'s functions: `isC`, `g`, `f`. -/
+def ord3 : List Sym := [390, 389, 391]
+
+/-- The lists the package would state: `f` is held-named; no function is named for termination or
+totality; `f`'s equations and `clYE` are named for agreement and match independence; no rule and no
+clause owes a condition. -/
+theorem named3 : c3.heldObligations = [391] ∧ c3.rankObligations ord3 ++ c3.decObligationsL = [] ∧
+    c3.totalObligationsRP ord3 [] = [] ∧ c3.agreeObligationsI = [391] ∧
+    c3.matchObligationsL = [(391, 0)] ∧ c3.owedRules = [] ∧ c3.owedClauses = [] := by
+  decide +kernel
+
+/-- The list is the data's under every interpretation, and is empty exactly where `rightValued`
+holds: not at `c3`. -/
+example (H : HookParams) : (c3.withHooks H).heldObligations = [391] :=
+  (Semantics.heldObligations_withHooks c3 H).trans named3.1
+example : c3.heldObligations ≠ [] := fun h => by
+  have := Semantics.heldObligations_eq_nil.mp h; rw [shape.2.2.2.1] at this; cases this
+
+theorem lookupF3 {fn : Fn} (h : c3.lookupFn 391 = some fn) : fn = fF :=
+  Option.some.inj (h.symm.trans (lookup3 fF_mem))
+
+/-- The first fact is false at `f`: `clYE`'s variable is outside its patterns and conditions and no
+value has sort Empty. -/
+theorem not_heldFn3 : ¬ c3.HeldFn fF := fun h => by
+  rcases h clYE (List.mem_cons_self) 0 33 rfl with h | ⟨v, hv⟩
+  · rw [shape.2.2.1] at h; cases h
+  · exact no_E v hv
+
+/-- **What is owed of `f`, by the second fact**: `f()` is `1` (`evalF`, by `clOne`), and `f` is
+not `[total]`. -/
+theorem held3 : ∀ f ∈ c3.heldObligations, HeldOwed c3 f := by
+  intro f hf fn hfn
+  rw [named3.1, List.mem_singleton] at hf
+  subst hf
+  have e := lookupF3 hfn
+  subst e
+  refine .inr ⟨fun fn' hfn' vs hvs => ?_, fun ht => by cases ht⟩
+  have e := lookupF3 hfn'
+  subst e
+  rw [sortsOf_nil3 hvs]
+  exact ⟨_, evalF⟩
+
+/-- **The facts the deciders leave of `FnHyp` at `c3`**: the two named ones by hand. -/
+theorem obl3 : FnObligations c3 ord3 [] := by
+  obtain ⟨-, hterm, htot, hagr, hmat, howR, howC⟩ := named3
+  refine ⟨fun f hf => (by rw [hterm] at hf; cases hf), fun f hf => (by rw [htot] at hf; cases hf),
+    fun f hf fn hfn => ?_, fun p hp fn hfn cl hcl => ?_,
+    ⟨openRules_of_owed (by rw [howR]; intro i hi; cases hi),
+     openClauses_of_owed (by rw [howC]; intro p hp; cases hp)⟩,
+    openLaws_of_plain (by decide +kernel)⟩
+  · rw [hagr, List.mem_singleton] at hf
+    subst hf
+    have e := lookupF3 hfn
+    subst e
+    exact agree3 fF fF_mem
+  · rw [hmat, List.mem_singleton] at hp
+    subst hp
+    have e := lookupF3 hfn
+    subst e
+    exact matchInd3 fF fF_mem cl (List.mem_of_getElem? hcl)
+
+/-- **`FnHyp c3` from the held-named form**: `coreOK`, the owed fact of `f` and the deciders. -/
+theorem fnHyp3N : FnHyp c3 := fnHyp_of_fnObligationsN core3 held3 ParamsTotal.nil obl3
+
+/-- The forms a package's statements instantiate, at `c3`: soundness, completeness, the functions'
+model and consistency, and each for an interpretation H of the parameters, the owed facts and the
+named ones stated for H. -/
+example : SoundC c3 := sound_fnN c3 ord3 [] core3 held3 ParamsTotal.nil obl3
+example (ref : OutFn) : CompleteC c3 ref := complete_fnN c3 ord3 [] ref core3 held3 ParamsTotal.nil obl3
+theorem facts3 : FnFacts c3 ord3 [] := ⟨obl3.1, obl3.2.1, obl3.2.2.1, obl3.2.2.2.1, obl3.2.2.2.2.2⟩
+example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnFactsN core3 held3 facts3
+example : Consistent c3 := consistent_of_fnFactsN core3 held3 facts3
+example (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.withHooks H) f)
+    (hob : FnObligations (c3.withHooks H) ord3 []) : FnHyp (c3.withHooks H) :=
+  fnHyp_withHooksN core3 H hheld ParamsTotal.nil hob
+example (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.withHooks H) f)
+    (hob : FnObligations (c3.withHooks H) ord3 []) : SoundC (c3.withHooks H) :=
+  sound_fn_withHooksN c3 ord3 [] core3 H hheld ParamsTotal.nil hob
+example (ref : OutFn) (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.withHooks H) f)
+    (hob : FnObligations (c3.withHooks H) ord3 []) : CompleteC (c3.withHooks H) ref :=
+  complete_fn_withHooksN c3 ord3 [] ref core3 H hheld ParamsTotal.nil hob
+example (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.withHooks H) f)
+    (hob : FnFacts (c3.withHooks H) ord3 []) : (FnDet (c3.withHooks H) ∧ FnSolves (c3.withHooks H)) ∧
+      Consistent (c3.withHooks H) :=
+  ⟨fnModel_of_fnFacts_withHooksN core3 H hheld hob, consistent_of_fnFacts_withHooksN core3 H hheld hob⟩
+
+/-- The two lemmas under the form, at `c3`: every function terminates, `f` among them, by the rank
+and the owed fact. -/
+example : ∀ f, Terminates c3 f :=
+  terminates_of_rankLN shape.2.2.2.2.1 decided.2.1 (Semantics.ovlCase_of_core core3) ord3 held3 obl3.1
+
+/--
+info: 'OpenClausePinsTest.fnHyp3N' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in #print axioms fnHyp3N
+
 /-! ## The clauses' hypothesis on the conditions discharged by a witness: `c3W`
 
 `c3W` is `c3` with a third clause of `f`, `clW0` (`f() => 1 requires H ==Int 0`, H:Int, its closed

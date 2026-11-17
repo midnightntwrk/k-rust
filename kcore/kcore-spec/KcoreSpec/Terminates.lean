@@ -214,11 +214,19 @@ structure EvalCtx (c : Semantics) : Prop where
   /-- each variable of each clause is in `leftVars` or of a sort with a value -/
   binds : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars
 
-/-- `EvalCtx` of a semantics `sortedOK` and `srReady` accept, whose clauses' variables are held
-(`RightHeld`; the sort predicates' patterns bind their one variable). -/
-theorem evalCtx_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
-    (hrh : c.RightHeld) : EvalCtx c := by
-  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_, fun fn hfn' => ?_⟩
+/-- `EvalCtx` less `binds`: what termination reads of a core where the held variables are asked of
+one function at a time (`Semantics.HeldFn`), not of every function. -/
+structure EvalCtxN (c : Semantics) : Prop where
+  sort : SortCtx c
+  reqs : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.req = true
+  enss : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.ens = true
+
+theorem EvalCtx.toN (hc : EvalCtx c) : EvalCtxN c := ⟨hc.sort, hc.reqs, hc.enss⟩
+
+/-- `EvalCtxN` of a semantics `sortedOK` and `srReady` accept: nothing is asked of the clauses'
+variables. -/
+theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) : EvalCtxN c := by
+  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · replace hok := Semantics.sortedOK_sorted hok
       simp only [Bool.and_eq_true, List.all_eq_true] at hok
@@ -239,6 +247,13 @@ theorem evalCtx_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov :
         simp only [Semantics.clauseSorted, Bool.and_eq_true] at this
         exact this.1.2
     · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl => (sortPreds_ctx hfn cl hcl).2.2.2.2.2⟩
+
+/-- `EvalCtx` of a semantics `sortedOK` and `srReady` accept, whose clauses' variables are held
+(`RightHeld`; the sort predicates' patterns bind their one variable). -/
+theorem evalCtx_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+    (hrh : c.RightHeld) : EvalCtx c := by
+  have hN := evalCtxN_of_all hok hsr hov
+  refine ⟨hN.sort, hN.reqs, hN.enss, fun fn hfn' => ?_⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · exact fun cl hcl => hrh.heldAt hfn hcl
     · exact fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl)
@@ -258,13 +273,18 @@ theorem heads_ens_callees {fn : Fn} {cl : Clause} (hcl : cl ∈ fn.clauses) {t :
   simp only [Fn.callees, List.mem_append, List.mem_flatMap]
   exact ⟨cl, hcl, Or.inr (by rw [ht]; exact hg)⟩
 
-theorem lookupFn_of_mem (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) :
+theorem lookupFn_of_memN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) :
     c.lookupFn fn.label = some fn := by
   rw [Semantics.lookupFn_eq]; exact find?_label hc.sort.nodupFns hfn
 
-/-- A function has a result at an argument list of its argument sorts where each call in its
-clauses (under a match of the clause's patterns at the arguments) has one. -/
-theorem eval_of_calls (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm}
+theorem lookupFn_of_mem (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) :
+    c.lookupFn fn.label = some fn :=
+  lookupFn_of_memN hc.toN hfn
+
+/-- A function whose clauses' variables are held (`hb`) has a result at an argument list of its
+argument sorts where each call in its clauses (under a match of the clause's patterns at the
+arguments) has one. The held variables are read of this function alone. -/
+theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some fn.args)
     (hcl : ∀ cl ∈ fn.clauses, ∀ σ, PatVals c σ cl.pats vs → ∀ t, (t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) →
       ∀ g ts, ts ∈ callsOf g t → CallOK c σ g ts) :
@@ -272,7 +292,7 @@ theorem eval_of_calls (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {vs : L
   obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
   obtain ⟨L', hL', hreqs⟩ := hc.reqs fn hfn
   obtain ⟨L'', hL'', hens⟩ := hc.enss fn hfn
-  refine eval_resultRH (lookupFn_of_mem hc hfn) (hc.binds fn hfn) (fun cl hcl' σ hσ hm t ht => ?_) (fun cl hcl' σ ha => ?_)
+  refine eval_resultRH (lookupFn_of_memN hc hfn) hb (fun cl hcl' σ hσ hm t ht => ?_) (fun cl hcl' σ ha => ?_)
     (fun cl hcl' σ ha t ht => ?_)
   · have hq := hreqs cl hcl'
     rw [ht] at hq
@@ -284,6 +304,15 @@ theorem eval_of_calls (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {vs : L
     simp only [reqOK, beq_iff_eq] at hq
     exact evalTerm_result hc.sort hL'' ha.1 t hq (hcl cl hcl' σ ha.2.1 t (Or.inr (Or.inr ht)))
 
+/-- A function has a result at an argument list of its argument sorts where each call in its
+clauses (under a match of the clause's patterns at the arguments) has one. -/
+theorem eval_of_calls (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some fn.args)
+    (hcl : ∀ cl ∈ fn.clauses, ∀ σ, PatVals c σ cl.pats vs → ∀ t, (t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) →
+      ∀ g ts, ts ∈ callsOf g t → CallOK c σ g ts) :
+    ∃ r, Eval c fn.label vs r :=
+  eval_of_callsN hc.toN hfn (hc.binds fn hfn) hvs hcl
+
 theorem heads_callees {fn : Fn} {cl : Clause} (hcl : cl ∈ fn.clauses) {t : Term}
     (ht : t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) {g : Sym} (hg : g ∈ Term.heads t) : g ∈ fn.callees := by
   rcases ht with rfl | ht | ht
@@ -291,16 +320,21 @@ theorem heads_callees {fn : Fn} {cl : Clause} (hcl : cl ∈ fn.clauses) {t : Ter
   · exact heads_req_callees hcl ht hg
   · exact heads_ens_callees hcl ht hg
 
+/-- `terminates_of_callees` with the held variables read of the one function (`hb`). -/
+theorem terminates_of_calleesN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
+    (hcall : ∀ g ∈ fn.callees, Terminates c g) : Terminates c fn.label := by
+  intro fn' hfn' vs hvs
+  rw [lookupFn_of_memN hc hfn] at hfn'
+  cases hfn'
+  exact eval_of_callsN hc hfn hb hvs
+    (fun cl hcl _ _ t ht g ts hts gfn hg _ vs' _ _ hsrt =>
+      hcall g (heads_callees hcl ht (mem_heads_of_callsOf t hts)) gfn hg vs' hsrt)
+
 /-- **A function whose callees terminate terminates**: each call in its clauses reaches a function of the definition at argument values of its argument sorts (subject
 reduction), where the callee has a result. -/
 theorem terminates_of_callees (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns)
-    (hcall : ∀ g ∈ fn.callees, Terminates c g) : Terminates c fn.label := by
-  intro fn' hfn' vs hvs
-  rw [lookupFn_of_mem hc hfn] at hfn'
-  cases hfn'
-  exact eval_of_calls hc hfn hvs
-    (fun cl hcl _ _ t ht g ts hts gfn hg _ vs' _ _ hsrt =>
-      hcall g (heads_callees hcl ht (mem_heads_of_callsOf t hts)) gfn hg vs' hsrt)
+    (hcall : ∀ g ∈ fn.callees, Terminates c g) : Terminates c fn.label :=
+  terminates_of_calleesN hc.toN hfn (hc.binds fn hfn) hcall
 
 /-- The generated sort predicates call nothing: their right-hand sides are Bool literals. -/
 theorem sortPreds_callees {fn : Fn} (hfn : fn ∈ c.sortPreds) : fn.callees = [] := by
@@ -308,10 +342,42 @@ theorem sortPreds_callees {fn : Fn} (hfn : fn ∈ c.sortPreds) : fn.callees = []
     List.mem_filterMap, Option.map_eq_some_iff] at hfn
   rcases hfn with rfl | rfl | ⟨X, _, _, _, rfl⟩ <;> rfl
 
+/-- The sort predicates terminate: their patterns bind their one variable, and they call nothing. -/
+theorem sortPreds_terminateN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPreds) :
+    Terminates c fn.label :=
+  terminates_of_calleesN hc (List.mem_append_right _ hfn)
+    (fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl))
+    (by rw [sortPreds_callees hfn]; intro g hg; nomatch hg)
+
 theorem sortPreds_terminate (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) :
     Terminates c fn.label :=
-  terminates_of_callees hc (List.mem_append_right _ hfn)
-    (by rw [sortPreds_callees hfn]; intro g hg; nomatch hg)
+  sortPreds_terminateN hc.toN hfn
+
+/-! ## What is owed of a held-named function -/
+
+/-- **What is owed of a held-named function `f`** (`Semantics.heldObligations`), one of two facts,
+the choice the prover's: the variables of its clauses are held (`HeldFn`: each variable outside a
+clause's patterns and conditions is of a sort with a value; shown by exhibiting the values), or `f`
+has a result at every argument list of its sorts (`Terminates`), a value where it is `[total]`
+(`Total`). At a sort without a value the first is false, and the second holds where another clause
+decides or the clause is never matched. -/
+def HeldOwed (c : Semantics) (f : Sym) : Prop :=
+  ∀ fn, c.lookupFn f = some fn → c.HeldFn fn ∨ (Terminates c f ∧ (fn.total = true → Total c f))
+
+/-- `RightHeld` gives the first fact of every function. -/
+theorem Semantics.RightHeld.heldOwed (hrh : c.RightHeld) (f : Sym) : HeldOwed c f := fun fn hfn => by
+  obtain ⟨hm, -⟩ := lookupFn_spec hfn
+  rcases List.mem_append.mp hm with hu | hp
+  · exact .inl (hrh.heldFn hu)
+  · exact .inl fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hp cl hcl)
+
+/-- **Each function's variables are held, or it has the results owed**, from the owed facts of the
+held-named ones: a function not named has `HeldFn` on the data (`Semantics.heldFn_of_not_named`). -/
+theorem heldOr_of_owed (hc : EvalCtxN c) (h : ∀ f ∈ c.heldObligations, HeldOwed c f) {fn : Fn} (hfn : fn ∈ c.fns) :
+    c.HeldFn fn ∨ (Terminates c fn.label ∧ (fn.total = true → Total c fn.label)) := by
+  by_cases hn : fn.label ∈ c.heldObligations
+  · exact h _ hn fn (lookupFn_of_memN hc (List.mem_append_left _ hfn))
+  · exact .inl (Semantics.heldFn_of_not_named hfn hn)
 
 /-! ## Declaration order -/
 

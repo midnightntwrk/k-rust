@@ -157,4 +157,34 @@ theorem Clause.fails_of_not_appliesRH {c : Semantics} {cl : Clause} (hh : c.Held
       exact absurd ⟨σ', hws, hm', fun t' ht' => by rw [hr] at ht'; cases ht'; exact he⟩ hna
     · exact ReqFails.intro hr (Exec.EvalTerm.congr he fun i hi => hag i (Clause.req_leftVarsRH hr i hi)) hb
 
+/-! ## The held variables of one function -/
+
+/-- Each variable of each clause of `fn` is in the clause's `leftVars` or of a sort with a value
+(`HeldAt` of each clause: what `RightHeld` states of every function, of the one). -/
+def Semantics.HeldFn (c : Semantics) (fn : Fn) : Prop :=
+  ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars
+
+/-- `RightHeld` gives `HeldFn` of each of the definition's functions. -/
+theorem Semantics.RightHeld.heldFn {c : Semantics} (h : c.RightHeld) {f : Fn} (hf : f ∈ c.fns) : c.HeldFn f :=
+  fun _ hcl => h.heldAt hf hcl
+
+/-- A clause `clauseValued` accepts has `HeldAt`: a variable outside `leftVars` is of a sort
+`valued` accepts, which has a value (`valued_value`). -/
+theorem Semantics.heldAt_of_clauseValued {c : Semantics} {cl : Clause} (h : c.clauseValued cl = true) :
+    c.HeldAt cl.vars cl.leftVars := by
+  intro i s hs
+  have hi : i < cl.vars.length := (List.getElem?_eq_some_iff.mp hs).1
+  have h1 := List.all_eq_true.mp h i (List.mem_range.mpr hi)
+  rw [hs, Bool.or_eq_true, List.contains_iff_mem] at h1
+  rcases h1 with h1 | h1
+  · exact Or.inl h1
+  · exact Or.inr (Semantics.valued_value h1)
+
+/-- **A function that is not held-named has `HeldFn`**, decided on the data. -/
+theorem Semantics.heldFn_of_not_named {c : Semantics} {fn : Fn} (hfn : fn ∈ c.fns)
+    (hn : fn.label ∉ c.heldObligations) : c.HeldFn fn := by
+  cases h : fn.clauses.all c.clauseValued
+  · exact absurd (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨hfn, by simp [h]⟩, rfl⟩) hn
+  · exact fun cl hcl => Semantics.heldAt_of_clauseValued (List.all_eq_true.mp h cl hcl)
+
 end KCore

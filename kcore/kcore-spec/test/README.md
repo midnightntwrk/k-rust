@@ -710,6 +710,18 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   interpretation; no row is a key of `silentTable`, and every argument list of a signature is
   covered. The readings of update at a bound key, removal at an unbound one and `removeAll` at a
   member that is no key are written in its header, with the rules of MAP-KORE-SYMBOLIC that agree.
+- `test/HeldNamed.lean`: the held-named form of `FnHyp`'s derivation
+  (`fnHyp_of_fnObligationsN`, FnObligations.lean: `HeldOwed` of each function
+  `Semantics.heldObligations` names, in place of `RightHeld`) at the first of `HeldOwed`'s two
+  facts. `cS`, the reader's semantics for `f2-examples/opencl.kompile.kore` with `f` a function of
+  `f() => 0 requires false ensures Y:String ==String Y` and `f() => 1`: String has values and
+  `Semantics.valued` does not accept it, so `rightValued` is false and `f` is held-named; `coreOK`
+  holds. The owed fact is shown by exhibiting `""` (`heldS`; under every interpretation too,
+  `heldSH`), `FnHyp cS` comes from the form (`fnHypS`), the termination of `f` being the rank
+  decider's, and the pinned `sound_hyp` and `exact_hyp` are instantiated at it. The second fact (a
+  result, at a sort without a value): `fnHyp3N` of `test/OpenClausePins.lean`, with each form a
+  package's statements instantiate; the owed fact refuted: `not_heldOwedE` of
+  `test/OpenClauseConsistent.lean`.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under

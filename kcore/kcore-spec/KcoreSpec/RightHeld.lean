@@ -73,4 +73,35 @@ theorem Semantics.rightHeld_of_binds {c : Semantics}
 theorem Semantics.rightValued_withHooks (c : Semantics) (H : HookParams) :
     (c.withHooks H).rightValued = c.rightValued := rfl
 
+/-! ## The functions the test does not accept, by name
+
+`rightValued` is one Bool for the definition. `heldObligations` lists the functions with a clause
+the test does not accept (the held-named functions): the theorems that derive `FnHyp` ask the held
+variables of these alone, and of each either that (`HeldFn`, RightHeldExtend.lean) or that the
+function has a result at every argument list (`HeldOwed`, Terminates.lean). -/
+
+/-- `rightValued`'s test of one clause: each variable is in `leftVars` or of a sort `valued`
+accepts. -/
+def Semantics.clauseValued (c : Semantics) (cl : Clause) : Bool :=
+  (List.range cl.vars.length).all fun i =>
+    cl.leftVars.contains i || (cl.vars[i]?.map c.valued).getD false
+
+/-- `rightValued` is `clauseValued` of every clause of every function. -/
+theorem Semantics.rightValued_eq (c : Semantics) :
+    c.rightValued = c.fns.all fun f => f.clauses.all c.clauseValued := rfl
+
+/-- **The held-named functions**: those with a clause holding a variable outside `leftVars` whose
+sort `valued` does not accept. -/
+def Semantics.heldObligations (c : Semantics) : List Sym :=
+  (c.fns.filter fun f => !f.clauses.all c.clauseValued).map (·.label)
+
+/-- `heldObligations` does not read the interpretation of the parameters. -/
+theorem Semantics.heldObligations_withHooks (c : Semantics) (H : HookParams) :
+    (c.withHooks H).heldObligations = c.heldObligations := rfl
+
+/-- **No function is held-named exactly where `rightValued` holds.** -/
+theorem Semantics.heldObligations_eq_nil {c : Semantics} : c.heldObligations = [] ↔ c.rightValued = true := by
+  rw [Semantics.rightValued_eq]
+  simp [Semantics.heldObligations, List.filter_eq_nil_iff]
+
 end KCore
