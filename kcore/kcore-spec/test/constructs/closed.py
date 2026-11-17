@@ -1,0 +1,336 @@
+"""The reader's reasons against the construct table (DONE-0 C4 part 1), on the committed evidence:
+KcoreSpec/Parse.lean's four inductives (RefusalReason, InertReason, UnreadReason, ReadingNote, their
+constructors read from the Lean text), test/constructs/rows.toml and the fixtures' account.txt.
+
+What an entry names. Every entry is taken: each row of the lists and of [C3], and each table nested
+in a row's `cases` (recursively), `also_refused` or `split`, as units.py walks them. An entry names
+  - the constructors that the account.txt of its `fixture` and of each of its `also_fixtures` prints;
+  - the constructors of its `reasons`, a list of "RefusalReason.x", "InertReason.x", "UnreadReason.x"
+    or "ReadingNote.x": what the reader answers on the entry's construct, for an entry with no
+    fixture of its own;
+  - the keys of its `notes` (constructors of ReadingNote; kfix.py check checks their fixtures).
+What an account prints (KcoreGen's `account`):
+  - a class line `  N refused R [origin]`, `  N inert R [origin]`, `  N unread R [origin]`,
+    `  N read R [origin]` (a sentence read in another form: ReadingNote R);
+  - a refusal `sentence I (head): R` or `sentence I (head): R (detail)`, also after `finish: ` and
+    with `the module` for `sentence I` (Refusal.toText): RefusalReason R, with its detail;
+  - `sentence I: R, R'`, the connective readings of a sentence: ReadingNote, each name that is one;
+  - `... (R): N` with N above 0, a count the account gives under a constructor's name
+    (ruleRightDefined, overloadConfusion, ...): the inductive, other than RefusalReason, that has R;
+  - a count above 0 on one of the two lines of COUNTED below, whose refusals the account prints
+    without their reason.
+
+Failures (exit 1):
+  - an account prints, in one of the first two forms, a name that is no constructor of the form's
+    inductive (the account is not of this reader);
+  - a `reasons` item is not "<one of the four inductives>.<a constructor of it>";
+  - a `reasons` name that no account.txt of the fixtures the entry's evidence names prints, when the
+    evidence names fixtures (a directory of test/constructs/fixtures/ written in `evidence`,
+    `reader_today`, `refused_by`, `place` or `note` as `fixtures/NAME`, `FX/NAME` or `fixture NAME`),
+    outside the allowance UNSHOWN: such names owed a fixture by a ticket of PROGRESS, pinned at an
+    exact count (a count above the pin, or below it, or a ticket missing or done, fails);
+  - an entry of status refused of E4, E5 or E6 with no `reasons`, where neither it nor its row has a
+    fixture, unless its unit is "none (scope): rejected" (kompile refuses the K text, the reader
+    reads nothing);
+  - a constructor no entry names that PINNED does not hold; a name PINNED holds that is no
+    constructor, or that an entry names, or whose ticket is not in PROGRESS or is done (as
+    units.py's ALLOWANCE).
+Printed: per inductive, how many constructors are named; each constructor no entry names with the
+ticket that owes it; how many `reasons` names no committed account shows (their entry's evidence
+names no fixture); and, per catch-all (CATCHALL below: a reason produced by an arm that takes
+whatever the earlier arms of its function did not match), the entries citing it, each with its
+fixture and its reason sentence (`reason`, else `reader_reason`, else `note`), and how many of them
+lack a fixture of their own or a sentence.
+
+Usage (from kcore-spec): python3 -I test/constructs/closed.py [ROWS.toml]
+  PROGRESS  as units.py: KCORE_PROGRESS, else ../progress, else the main checkout's.
+"""
+import glob, os, re, sys, tomllib
+
+K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+FX = os.path.join(K, "test/constructs/fixtures")
+rows = sys.argv[1] if len(sys.argv) > 1 else os.path.join(K, "test/constructs/rows.toml")
+KR = os.environ.get("K_RUST", os.path.expanduser(
+    "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
+prog = os.environ.get("KCORE_PROGRESS") or next(
+    (d for d in (os.path.join(K, "../progress"),
+                 os.path.join(KR, "draft-personal/k-semantics-core-2026-11/progress"))
+     if os.path.isdir(d)), os.path.join(K, "../progress"))
+tstatus = {}
+for f in sorted(glob.glob(os.path.join(prog, "tickets-*.toml"))):
+    tk = tomllib.load(open(f, "rb")).get("ticket", {})
+    tstatus |= {k: v.get("status") for k, v in tk.items() if isinstance(v, dict)}
+if not tstatus:
+    print(f"closed: no progress/tickets-*.toml under {prog} (set KCORE_PROGRESS)")
+    sys.exit(1)
+
+INDUCTIVES = ["RefusalReason", "InertReason", "UnreadReason", "ReadingNote"]
+CLASSWORD = {"refused": "RefusalReason", "inert": "InertReason", "unread": "UnreadReason",
+             "read": "ReadingNote"}
+
+# The catch-alls: (reason, a substring of the detail or None for any detail, the arm that gives it).
+CATCHALL = [
+    ("axiomShape", None, "classifyAxiom's last arm, and classRefusal's default"),
+    ("patternConnective", None, "term's last arm `| p => fail .patternConnective (connective p)`"),
+    ("ruleShape", None, "ruleBodyOther's arms"),
+    ("requiresShape", None, "`need (req? r)`"),
+    ("unaccounted", None, "Account.unconsumedWhy's other arms"),
+    ("ruleAttribute", "an attribute of no stated meaning for a rule", "ruleAttrFault?'s `getD`"),
+]
+
+# Account lines whose refusals are printed without their reason: (line start, the reason, its
+# function in KcoreSpec/Account.lean).
+COUNTED = [
+    ("sentences the library's data induces that the text does not hold: ", "builtinIncomplete",
+     "libraryUnstated"),
+    ("library sentences of the modules held that the text does not hold: ", "builtinIncomplete",
+     "missingBuiltin"),
+]
+
+# `reasons` names that the fixtures their entry's evidence names do not print: (ticket, pinned count).
+UNSHOWN = ("R2-release.C4", 7)
+
+# Constructors no entry names, each with the ticket that owes the entry: ("Inductive.x", ticket).
+# One holds only while its ticket is in PROGRESS and not done, and while no entry names it.
+# R2-release.C4 owes each constructor that no ticket of PROGRESS names: the criterion is not met while
+# one stands here.
+PINNED = [
+    ("RefusalReason.noModule", "R2-release.C4"),
+    ("RefusalReason.preludeDiffers", "R2-release.C4"),
+    ("RefusalReason.moduleSource", "R2-release.C4"),
+    ("RefusalReason.moduleLocation", "R2-release.C4"),
+    ("RefusalReason.configuration", "R2-release.C4"),
+    ("RefusalReason.cellShape", "R2-release.C4"),
+    ("RefusalReason.missingEquation", "R2-release.C4"),
+    ("RefusalReason.counterShape", "R2-release.C4"),
+    ("RefusalReason.pgmSort", "R2-release.C4"),
+    ("RefusalReason.builtinModule", "R2-release.C4"),
+    ("RefusalReason.builtinIncomplete", "R2-release.C4"),
+    ("RefusalReason.macroSymbol", "R2-release.C4"),
+    ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
+    ("RefusalReason.unknownSymbol", "R2-release.C4"),
+    ("RefusalReason.injShape", "R2-release.C4"),
+    ("RefusalReason.iteShape", "R2-release.C4"),
+    ("RefusalReason.variableName", "R2-release.C4"),
+    ("RefusalReason.variableSort", "R2-release.C4"),
+    ("RefusalReason.literal", "R2-release.C4"),
+    ("RefusalReason.requiresShape", "R2-release.C4"),
+    ("RefusalReason.exclusionShape", "R2-release.C4"),
+    ("RefusalReason.functionInPattern", "R2-release.C4"),
+    ("RefusalReason.sentenceInfo", "R2-release.C4"),
+    ("RefusalReason.location", "R2-release.C4"),
+    ("RefusalReason.hookAttribute", "R2-release.C4"),
+    ("RefusalReason.collectionShape", "R2-release.C4"),
+    ("RefusalReason.projectionDomainShape", "R2-release.C4"),
+    ("RefusalReason.existentialEquation", "R2-release.C4"),
+    ("RefusalReason.openGeneratorPattern", "P2.rows"),
+    ("RefusalReason.openLaw", "P3.rows"),
+    ("RefusalReason.unheldVariable", "R2-release.C4"),
+    ("RefusalReason.openRight", "R2-release.C4"),
+    ("RefusalReason.equationAttribute", "R2-release.rdr-attr-rules"),
+    ("RefusalReason.constructorEquation", "R2-release.C4"),
+    ("RefusalReason.existentialAxiom", "R2-release.C4"),
+    ("RefusalReason.ctorResultSort", "R2-release.C4"),
+    ("RefusalReason.hookEqualityUnstated", "R2-release.C4"),
+    ("InertReason.claim", "R2-release.C4"),
+    ("InertReason.vacuousLeft", "R2-release.C4"),
+    ("UnreadReason.noSortPredicate", "R2-release.C4"),
+]
+
+
+def constructors():
+    """The constructors of the four inductives, by inductive, in the order of Parse.lean."""
+    src = open(os.path.join(K, "KcoreSpec/Parse.lean")).read()
+    out = {}
+    for ind in INDUCTIVES:
+        block = src.split(f"\ninductive {ind} where\n", 1)[1].split("\n  deriving", 1)[0]
+        out[ind] = re.findall(r"^  \| (\w+)", block, re.M)
+    return out
+
+
+CTORS = constructors()
+CLASSLINE = re.compile(r"^\s+\d+ (refused|inert|unread|read) (\w+) \[", re.M)
+REFUSAL = re.compile(r"(?:sentence \d+|the module) \((.*?)\): (\w+)(?: \((.*)\))?$", re.M)
+READINGS = re.compile(r"^\s+sentence \d+: (.+)$", re.M)
+COUNT = re.compile(r"\((\w+)\): [1-9]")
+_accounts = {}
+
+
+def account(name):
+    """What fixtures/NAME/account.txt prints: (the set of (inductive, constructor), the list of
+    (refusal reason, detail), the names printed that are no constructor); None without the file."""
+    if name not in _accounts:
+        p = os.path.join(FX, name, "account.txt")
+        if not os.path.isfile(p):
+            _accounts[name] = None
+            return None
+        text = open(p).read()
+        names, refusals, unknown = set(), [], []
+        for word, r in CLASSLINE.findall(text):
+            ind = CLASSWORD[word]
+            (names.add((ind, r)) if r in CTORS[ind] else unknown.append(f"{word} {r}"))
+        for _, r, detail in REFUSAL.findall(text):
+            if r in CTORS["RefusalReason"]:
+                names.add(("RefusalReason", r)); refusals.append((r, detail))
+            else:
+                unknown.append(f"refusal {r}")
+        for line in READINGS.findall(text):
+            for w in line.split(", "):
+                if w in CTORS["ReadingNote"]:
+                    names.add(("ReadingNote", w))
+        for w in COUNT.findall(text):
+            for ind in INDUCTIVES[1:]:
+                if w in CTORS[ind]:
+                    names.add((ind, w))
+        for start, r, _ in COUNTED:
+            if re.search(r"^" + re.escape(start) + r"[1-9]", text, re.M):
+                names.add(("RefusalReason", r)); refusals.append((r, ""))
+        _accounts[name] = (names, refusals, sorted(set(unknown)))
+    return _accounts[name]
+
+
+def nested(e):
+    """The tables nested in an entry: its `cases` (and theirs), `also_refused`, `split`."""
+    for f in ("cases", "also_refused", "split"):
+        v = e.get(f)
+        for i, c in enumerate(v if isinstance(v, list) else [v]):
+            if isinstance(c, dict):
+                yield f"{f}[{i}]" + (f" ({str(c['case'])[:40]!r})" if "case" in c else ""), c
+                for w, d in nested(c):
+                    yield f"{f}[{i}].{w}", d
+
+
+def own_fixtures(e):
+    """The entry's `fixture` and `also_fixtures` that are fixture directories."""
+    fs = [e.get("fixture")] + list(e.get("also_fixtures") or [])
+    return [f for f in fs if isinstance(f, str) and f != "none"]
+
+
+ALLFX = sorted(d for d in os.listdir(FX) if os.path.isdir(os.path.join(FX, d)))
+FXWORD = re.compile(r"(?:fixtures/|FX/|fixtures? )`?([A-Za-z0-9][A-Za-z0-9_-]*)")
+
+
+def evidence_fixtures(e):
+    """The fixture directories the entry's prose names."""
+    out = []
+    for f in ("evidence", "reader_today", "refused_by", "place", "note"):
+        v = e.get(f)
+        for s in (v if isinstance(v, list) else [v]):
+            if isinstance(s, str):
+                out += [n for n in FXWORD.findall(s) if n in ALLFX]
+    return sorted(set(out))
+
+
+def sentence(e):
+    for f in ("reason", "reader_reason", "note"):
+        if isinstance(e.get(f), str) and e[f].strip():
+            return " ".join(e[f].split())
+    return None
+
+
+t = tomllib.load(open(rows, "rb"))
+bad, named = [], {}                       # (inductive, constructor) -> the entries naming it
+cites = {c[:2]: [] for c in CATCHALL}     # catch-all -> (where, fixture or None, sentence or None)
+unshown = []                              # `reasons` names with no account to show them
+unprinted = []                            # `reasons` names their evidence's fixtures do not print
+nreasons = 0
+for name in ALLFX:
+    a = account(name)
+    if a and a[2]:
+        bad.append(f"fixtures/{name}/account.txt prints names that are no constructor: {', '.join(a[2])}")
+for l, tab in t.items():
+    if not isinstance(tab, dict):
+        continue
+    for key, r in tab.items():
+        if not isinstance(r, dict):
+            continue
+        for where, e in [(f"{l} {key!r}", r)] + [(f"{l} {key!r} {w}", c) for w, c in nested(r)]:
+            here, refusals, fxs = set(), [], own_fixtures(e)
+            for f in fxs:
+                a = account(f)
+                if a:
+                    here |= a[0]; refusals += [(x, d, f) for x, d in a[1]]
+            for note in (e.get("notes") or {}):
+                if note in CTORS["ReadingNote"]:
+                    here.add(("ReadingNote", note))
+            rs = e.get("reasons")
+            if rs is not None:
+                nreasons += 1
+                if not isinstance(rs, list):
+                    bad.append(f"{where}: reasons {rs!r} is not a list"); rs = []
+                ev = evidence_fixtures(e)
+                shown = set().union(*[account(f)[0] for f in ev if account(f)]) if ev else set()
+                for x in rs:
+                    ind, _, c = x.partition(".") if isinstance(x, str) else ("", "", "")
+                    if ind not in CTORS or c not in CTORS[ind]:
+                        bad.append(f"{where}: reasons {x!r} is not <{' | '.join(INDUCTIVES)}>.<constructor>")
+                        continue
+                    here.add((ind, c))
+                    if not ev:
+                        unshown.append(f"{where}: {x}")
+                    elif (ind, c) not in shown:
+                        unprinted.append(f"{where}: reasons {x}: no account.txt of the fixtures its evidence"
+                                         f" names ({', '.join(ev)}) prints it")
+                    else:
+                        f0 = next(f for f in ev if (ind, c) in account(f)[0])
+                        refusals += [(a, d, f0) for f in ev for a, d in account(f)[1] if a == c and ind == "RefusalReason"] \
+                            or ([(c, "", f0)] if ind == "RefusalReason" else [])
+            elif (e.get("status") == "refused" and l in ("E4", "E5", "E6") and not fxs
+                  and not own_fixtures(r) and e.get("unit") != "none (scope): rejected"):
+                bad.append(f"{where} (refused, no fixture): no reasons")
+            for x in here:
+                named.setdefault(x, []).append(where)
+            for (cr, sub) in cites:
+                fs = sorted({f for x, d, f in refusals if x == cr and (sub is None or sub in d)})
+                if fs:
+                    cites[(cr, sub)].append((where, fs, bool(fxs), sentence(e)))
+
+pinned = dict(PINNED)
+unnamed = [(ind, c) for ind in INDUCTIVES for c in CTORS[ind] if (ind, c) not in named]
+for ind, c in unnamed:
+    if f"{ind}.{c}" not in pinned:
+        bad.append(f"{ind}.{c}: no entry of rows.toml names it, and no ticket is pinned for it")
+for x, tid in PINNED:
+    ind, _, c = x.partition(".")
+    st = tstatus.get(tid)
+    if ind not in CTORS or c not in CTORS[ind]:
+        bad.append(f"pin {x} ({tid}): no constructor of KcoreSpec/Parse.lean")
+    elif (ind, c) in named:
+        bad.append(f"pin {x} ({tid}): an entry names it ({named[(ind, c)][0]}): remove the pin")
+    elif st is None:
+        bad.append(f"pin {x}: ticket {tid} is not in {prog}/tickets-*.toml")
+    elif st == "done":
+        bad.append(f"pin {x}: ticket {tid} is done, so it owes nothing")
+
+utid, upin = UNSHOWN
+ust = tstatus.get(utid)
+uwhy = ("" if len(unprinted) == upin and (upin == 0 or ust not in (None, "done")) else
+        f"ticket {utid} is not in {prog}/tickets-*.toml" if ust is None else
+        f"ticket {utid} is done, so it owes nothing" if ust == "done" else
+        f"{len(unprinted)} names, pinned {upin}")
+if uwhy:
+    bad += unprinted + [f"allowance {utid} (reasons names their evidence's fixtures do not print): {uwhy}"]
+
+print("closed: constructors named by an entry: " + ", ".join(
+    f"{ind} {sum((ind, c) in named for c in CTORS[ind])} of {len(CTORS[ind])}" for ind in INDUCTIVES)
+    + f"; entries with reasons: {nreasons}; reasons names no committed account shows: {len(unshown)}")
+print(f"  allowance {utid} (status {ust}): {len(unprinted)} of {upin} pinned: reasons names that the fixtures"
+      " their entry's evidence names do not print" + (f"; FAILS: {uwhy}" if uwhy else ""))
+for u in unprinted:
+    print(f"    {u}")
+for ind, c in unnamed:
+    tid = pinned.get(f"{ind}.{c}")
+    print(f"  not named: {ind}.{c}: " + (f"owed by {tid} (status {tstatus.get(tid)})" if tid else "no ticket"))
+for (cr, sub), arm in [(c[:2], c[2]) for c in CATCHALL]:
+    es = cites[(cr, sub)]
+    lack = sum(1 for _, _, own, s in es if not own or not s)
+    print(f"catch-all {cr}" + (f" with the detail '{sub}'" if sub else "") + f" ({arm}): {len(es)} entries"
+          + (f", {lack} without a fixture of their own or a reason sentence" if lack else ""))
+    for where, fs, own, s in es:
+        print(f"  {where}: fixture {', '.join(fs)}" + ("" if own else " (named by its evidence)")
+              + ": " + (s[:200] if s else "NO REASON SENTENCE"))
+for b in bad[:40]:
+    print(f"  FAILS: {b}")
+if len(bad) > 40:
+    print(f"  ... and {len(bad) - 40} more")
+sys.exit(1 if bad else 0)
