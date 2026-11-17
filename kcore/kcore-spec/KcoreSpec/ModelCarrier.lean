@@ -117,11 +117,6 @@ structure HypModelCore (c : Semantics) : Prop where
   /-- no overloading symbol is listed twice -/
   ovlsOnce : (c.ovls.map (·.sig.name)).Nodup
 
-/-- No overloading symbol overloads a function, from `HypModelCore`: each overloaded symbol is a
-constructor or an overloading symbol (`overloadsOK`), and no function is named like one (`fnsApart`). -/
-theorem HypModelCore.noFn {c : Semantics} (h : HypModelCore c) : c.fnOvlSyms = [] :=
-  fnOvlSyms_nil_of_apart h.ovlOK h.fns
-
 /-- What subject reduction reads of the overloading symbols, from `HypModelCore`. -/
 theorem HypModelCore.ovlCase {c : Semantics} (h : HypModelCore c) : c.OvlCase :=
   OvlOK.ovlCase h.sound.2.2.2.2.2.2.2.2
