@@ -1,6 +1,7 @@
 /-
   The statement definitions of the per-sentence tie between a KORE text `k` and a definition `d`:
-  what "entailed at values" means (`AtValues`, `EntailsAtValues`), the agreement of the attributes
+  what "entailed at values" means (`AtValues`, `EntailsAtValues`, and for a sentence with free set
+  variables `SetVarsAtValues`, `EntailsAtSetValues`, `SetVarsAtMostOne`), the agreement of the attributes
   the translation does not read (`attrsAgree`), the symbols a sentence applies (`symbolsOf`) and the
   items of the signature that are about a name the text does not declare (`surplusItem`), and the
   classes of an account with their directions (`tieClasses`).
@@ -34,6 +35,42 @@ are no value's. -/
 def EntailsAtValues (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : Prop :=
   ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c →
     ∀ e, AtValues c I e ad.ax → ∀ m, φ.interpret I e m
+
+/-- The valuation `e` sends each free set variable of the axiom `a` into the values of the
+variable's sort: every element of the set is one that the pattern of some ground value of that
+sort denotes. -/
+def SetVarsAtValues (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (e : Valuation M)
+    (a : Kore.Axiom) : Prop :=
+  ∀ n s, KoreAML.VarKey.svar n s ∈ (KoreAML.freeOf [] a.pattern).eraseDups →
+    ∀ m, e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m →
+      ∃ (v : GroundTerm) (S : Srt), srtOf c S = s ∧ c.sortOf v = some S ∧ (den c v).interpret I e m
+
+/-- `EntailsAtValues` for an axiom with free set variables: `φ` holds in every model of `Γ c` at
+every valuation that sends the free element variables of the axiom `ad` to values (`AtValues`) and
+each of its free set variables to a set of elements of values (`SetVarsAtValues`). A model may hold
+elements of a sort that are no value's, and a set variable may hold them as an element variable
+may. -/
+def EntailsAtSetValues (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : Prop :=
+  ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c →
+    ∀ e, AtValues c I e ad.ax → SetVarsAtValues c I e ad.ax → ∀ m, φ.interpret I e m
+
+/-- Each free set variable of the axiom `a` holds at most one element under the valuation `e`. -/
+def SetVarsAtMostOne {M : Type} (e : Valuation M) (a : Kore.Axiom) : Prop :=
+  ∀ n s, KoreAML.VarKey.svar n s ∈ (KoreAML.freeOf [] a.pattern).eraseDups →
+    ∀ m m', e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m →
+      e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m' → m = m'
+
+/-- What is entailed at values is entailed at set values: the second asks it at fewer valuations. -/
+theorem entailsAtSetValues_of {c : Semantics} {ad : KoreAML.AxiomDecl} {φ : KoreAML.P}
+    (h : EntailsAtValues c ad φ) : EntailsAtSetValues c ad φ :=
+  fun M inst I hI e hav _ m => h M inst I hI e hav m
+
+/-- For an axiom without a free set variable the two are the same statement: `SetVarsAtValues`
+holds of every valuation. -/
+theorem entailsAtValues_of_noSetVar {c : Semantics} {ad : KoreAML.AxiomDecl} {φ : KoreAML.P}
+    (hno : ∀ n s, KoreAML.VarKey.svar n s ∉ (KoreAML.freeOf [] ad.ax.pattern).eraseDups)
+    (h : EntailsAtSetValues c ad φ) : EntailsAtValues c ad φ :=
+  fun M inst I hI e hav m => h M inst I hI e hav (fun n s hn => absurd hn (hno n s)) m
 
 /-! ## The symbols a sentence applies -/
 

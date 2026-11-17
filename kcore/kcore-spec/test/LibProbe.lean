@@ -11,8 +11,13 @@
   A sentence of these classes that applies a symbol Γ does not have (`kernelSyms`) is counted and
   not probed. Each other one is evaluated at every point of a grid of values of its variables'
   sorts, an element variable at each value, a set variable at ∅ and at each value's singleton.
+  A sentence with a free set variable is then evaluated at the points where some set variable holds
+  two values of the grid and each other set variable ∅, one value or two (`probeTwo`); what fails
+  there and at no point of the first grid is reported apart (`Two`).
 
-  The evaluation is Γ's: a value of a constructor applied to values is that term; of an
+  The evaluation is Γ's: an application at sets of values denotes the values of the symbol at each
+  choice of one value per argument, and `\equals` holds where both sides denote the same set;
+  a value of a constructor applied to values is that term; of an
   interpreted symbol, `hook`'s value; where `hook` gives none and the point is not silent, no
   value (ΓDomains states ⊥); at a silent point (`silent`) ΓFallback states the interpretation's
   value `fallback`, which is no value under `HookParams.none` (its `app` gives none). So the probe
@@ -37,7 +42,8 @@
   NaN; Bytes three values; Endianness `LE`, `BE` and Signedness `Signed`, `Unsigned`.
 
   `check` runs the probe on `ens.kompile.kore` and on kompile's text of kimp (`ref-kimp.kore`) and
-  compares the per-class counts with `expected`; set idempotence (row 16) is probed as the control.
+  compares the per-class counts with `expected`, and what the points with a two-element set find
+  with `expectedTwo`; set idempotence (row 16) is probed as the control.
   `checkFlt` runs it on `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET) with two more readings,
   interpretations meeting `Semantics.silentTotal` that give no value at the other silent points,
   and compares with `expectedFlt`. Both add two readings: `HookParams.lib` (its value, through
@@ -58,23 +64,46 @@ namespace KCore.LibProbe
 
 open KCore KCore.Parse KCore.Faithful KoreAML
 
-/-- What a pattern denotes at a point: nothing, one value, or every element (`\top`, a predicate
-that holds). -/
+/-- What a pattern denotes at a point: nothing, one value, two or more distinct values (`many`), or
+every element (`\top`, a predicate that holds). -/
 inductive D where
   | bot
   | val (v : GroundTerm)
+  | many (vs : List GroundTerm)
   | top
   deriving Inhabited
 
+def hasV (vs : List GroundTerm) (v : GroundTerm) : Bool := vs.any (GroundTerm.cmp · v == .eq)
+
+/-- The values a term denotes; none for `\top`. -/
+def D.elems : D → Option (List GroundTerm)
+  | .bot => some []
+  | .val v => some [v]
+  | .many vs => some vs
+  | .top => none
+
+/-- The set of the values `vs`. -/
+def D.ofElems (vs : List GroundTerm) : D :=
+  match vs.foldl (fun acc v => if hasV acc v then acc else acc ++ [v]) [] with
+  | [] => .bot
+  | [v] => .val v
+  | ws => .many ws
+
+def D.isMany : D → Bool
+  | .many _ => true
+  | _ => false
+
 def D.same : D → D → Bool
-  | .bot, .bot | .top, .top => true
-  | .val a, .val b => GroundTerm.cmp a b == .eq
-  | _, _ => false
+  | .top, .top => true
+  | a, b => match a.elems, b.elems with
+    | some xs, some ys => xs.all (hasV ys) && ys.all (hasV xs)
+    | _, _ => false
 
 def D.meet : D → D → D
   | .top, d | d, .top => d
-  | .bot, _ | _, .bot => .bot
-  | .val a, .val b => if GroundTerm.cmp a b == .eq then .val a else .bot
+  | a, b => match a.elems, b.elems with
+    | some xs, some ys => D.ofElems (xs.filter (hasV ys))
+    | _, _ => .bot
 
 /-- How a silent point is read: `HookParams.none`, or the interpretation giving the i-th grid value
 of the result sort. -/
@@ -172,6 +201,7 @@ def showD (c : Semantics) : D → String
   | .bot => "⊥"
   | .top => "⊤"
   | .val v => showV c v
+  | .many vs => "{" ++ ", ".intercalate (vs.map (showV c)) ++ "}"
 
 /-! ## Γ's symbols and sorts by their KORE names -/
 
@@ -297,12 +327,12 @@ partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
     match ← eval x env p with
     | .top => pure .bot
     | .bot => pure .top
-    | .val _ => throw "\\not of a term"
+    | _ => throw "\\not of a term"
   | .implies _ p q => do
     match ← eval x env p with
     | .bot => pure .top
     | .top => eval x env q
-    | .val _ => throw "\\implies with a term premise"
+    | _ => throw "\\implies with a term premise"
   | .equals _ _ p q => do
     let a ← eval x env p
     let b ← eval x env q
@@ -319,7 +349,7 @@ partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
     if v != v' then throw "\\exists of another shape"
     match ← eval x env t with
     | .val _ => pure .top
-    | .bot => pure .bot
+    | .bot | .many _ => pure .bot
     | .top => throw "\\exists over \\top"
   | .app h sorts args => do
     let ds ← args.mapM (eval x env)
@@ -328,14 +358,15 @@ partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
       | [_, B], [d] => do
         let B ← liftM (m := Except String) (x.sort B)
         let A ← liftM (m := Except String) (x.sort (sorts.headD default))
-        match d with
-        | .bot => pure .bot
-        | .top => throw "inj of \\top"
-        | .val v =>
-          let w := match v with
-            | .inj a0 _ t => GroundTerm.inj a0 B t
-            | _ => GroundTerm.inj A B v
-          if x.c.sortOf w == some B then pure (.val w) else throw "ill-sorted injection"
+        match d.elems with
+        | none => throw "inj of \\top"
+        | some vs =>
+          let ws ← vs.mapM fun v => do
+            let w := match v with
+              | .inj a0 _ t => GroundTerm.inj a0 B t
+              | _ => GroundTerm.inj A B v
+            if x.c.sortOf w == some B then pure w else throw "ill-sorted injection"
+          pure (D.ofElems ws)
       | _, _ => throw "inj of another shape"
     else
       let key := appKey h sorts
@@ -344,10 +375,16 @@ partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
       | some k =>
         if ds.any (fun d => match d with | .bot => true | _ => false) then pure .bot
         else
-          let vs ← ds.mapM fun d => match d with
-            | .val v => pure v
-            | _ => throw s!"{key} applied to \\top"
-          applyAt x key k vs
+          let vss ← ds.mapM fun d => match d.elems with
+            | some vs => pure vs
+            | none => throw s!"{key} applied to \\top"
+          match vss.foldr (fun vs acc => vs.flatMap fun v => acc.map (v :: ·)) [[]] with
+          | [vs] => applyAt x key k vs
+          | tuples =>
+            let rs ← tuples.mapM (applyAt x key k)
+            match rs.mapM D.elems with
+            | some ess => pure (D.ofElems ess.flatten)
+            | none => throw s!"{key} with the value \\top"
   | p => throw s!"construct not evaluated ({(reprStr p).take 60})"
 
 /-! ## Sentences -/
@@ -436,6 +473,19 @@ structure Res where
   failModes : List String := []
   /-- why not probed -/
   skip : Option String := none
+  /-- the sentence has a free set variable -/
+  setVar : Bool := false
+  /-- points where some set variable holds two values -/
+  points2 : Nat := 0
+  /-- failures there under `HookParams.none` at points reaching nothing that depends on H: how many,
+  and the first eight -/
+  ncex2 : Nat := 0
+  cex2 : List String := []
+  /-- failures there under some interpretation at points reaching a silent point or parameter -/
+  nhfail2 : Nat := 0
+  hfail2 : List String := []
+  /-- why a point there was not evaluated -/
+  skip2 : Option String := none
 
 def showPoint (c : Semantics) (pt : List (String × D)) : String :=
   ", ".intercalate (pt.map fun (n, d) => s!"{n} = {showD c d}")
@@ -498,6 +548,61 @@ def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.non
     if okAll then r := { r with holds := r.holds + 1 }
   return r
 
+def pairsOf {α : Type} : List α → List (α × α)
+  | [] => []
+  | a :: as => as.map (a, ·) ++ pairsOf as
+
+/-- Evaluate a sentence with a free set variable at the points where some set variable holds two
+values of its sort's grid; each other set variable is at ∅, one value or two, each element variable
+at one value. -/
+def probeTwo (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.none, .pick 0, .pick 1])
+    (small : Bool := false) : Res := Id.run do
+  let fv := (freeVars [] a.pattern).eraseDups
+  if r.skip.isSome || !fv.any (·.1.startsWith "@") then return r
+  let x0 := Ctx.of c .none small
+  let mut grids : List (String × List D) := []
+  for (n, s) in fv do
+    match x0.sort s with
+    | .error e => return { r with setVar := true, skip2 := some e }
+    | .ok srt =>
+      match gridOf c srt small with
+      | none => return { r with setVar := true, skip2 := some s!"no grid for sort {c.sortName srt} (variable {n})" }
+      | some g =>
+        let ds := g.map D.val
+        grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds ++ (pairsOf g).map (fun (v, w) => D.many [v, w]) else ds)]
+  let pts := (points grids).filter (·.any (·.2.isMany))
+  let mut r := { r with setVar := true, points2 := pts.length }
+  for pt in pts do
+    for m in modes do
+      let x := Ctx.of c m small
+      match (eval x pt a.pattern).run {} with
+      | .error e => return { r with skip2 := some s!"at {showPoint c pt}: {e}" }
+      | .ok (d, fl) =>
+        let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
+        let holds := match d with | .top => true | _ => false
+        if !holds && (isDep || m == .none) then
+          let first := if isDep then r.nhfail2 < 8 else r.ncex2 < 8
+          let msg := if !first then "" else
+            let sd := match sides a.pattern with
+              | some (l, rr) =>
+                let l' := match (eval x pt l).run {} with | .ok (d, _) => showD c d | .error e => e
+                let r' := match (eval x pt rr).run {} with | .ok (d, _) => showD c d | .error e => e
+                s!"left {l'}, right {r'}"
+              | none => ""
+            s!"{m.name} at {showPoint c pt}: {sd}" ++ (if isDep then s!" (reached {fl.silent ++ fl.param})" else "")
+          if isDep then r := { r with nhfail2 := r.nhfail2 + 1, hfail2 := if first then r.hfail2 ++ [msg] else r.hfail2 }
+          else r := { r with ncex2 := r.ncex2 + 1, cex2 := if first then r.cex2 ++ [msg] else r.cex2 }
+  return r
+
+def verdictTwo (r : Res) : String :=
+  if !r.setVar then "" else
+  match r.skip2 with
+  | some e => s!"; two-element sets not evaluated: {e}"
+  | none =>
+    if r.ncex2 > 0 then s!"; at two-element sets ({r.points2} points) COUNTEREXAMPLE ({r.ncex2} points; first: {r.cex2.headD ""})"
+    else if r.nhfail2 > 0 then s!"; at two-element sets ({r.points2} points) FAILS UNDER SOME H at a silent point ({r.nhfail2} point-readings; first: {r.hfail2.headD ""})"
+    else s!"; holds at two-element sets ({r.points2} points)"
+
 def verdict (r : Res) : String :=
   match r.skip with
   | some e => s!"not probed: {e}"
@@ -529,6 +634,47 @@ structure Reads where
   libFails : List String
   deriving BEq, Repr
 
+/-- What the points with a two-element set find, of the sentences with a free set variable that
+are over Γ's symbols and hold at every point of the first grid in every reading (each named as in
+`Reads`): how many there are and how many hold at every such point too; `refuted`, those with a
+counterexample there (a failure at a point reading nothing of the interpretation, so Γ with the
+sentence has no model); `hOnly`, those failing there only at points reading the interpretation;
+`unevaluated`, those with a point the evaluator has no meaning for. -/
+structure Two where
+  sentences : Nat
+  hold : Nat
+  refuted : List String
+  hOnly : List String
+  unevaluated : List String
+  deriving BEq, Repr
+
+/-- The library's definedness lemmas of `/Int`, `%Int` and `modInt` (domains.md 1392 to 1394) and
+the generated one of a map with one entry and a rest, `#Ceil(@K0 |-> @K1 @Rest)`, as `Two` names
+them. -/
+def ceilLemmas : List String :=
+  ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394",
+   "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"]
+
+/-- What both texts give at two-element sets, apart from row 18's count (which is of the first
+grid): of the twelve sentences with a set variable over Γ's symbols, the eight Bool ones
+(domains.md 1176 to 1179, 1181 to 1184) hold there, and the four of `ceilLemmas` have a
+counterexample: with `@I2 = {0, d}` the left side holds and `@I2 =/=Int 0` denotes both `false` and
+`true`; with `@Rest` two maps, one holding the key and one not, the left side holds and
+`@K0 in_keys(@Rest)` denotes both. -/
+def expectedTwo : Two := { sentences := 12, hold := 8, refuted := ceilLemmas, hOnly := [], unevaluated := [] }
+def expectedFltTwo : Two := expectedTwo
+/-- `allbuiltins.kompile.kore` holds six more sentences with a set variable over Γ's symbols. Two
+hold at two-element sets (domains.md 449, 450: `@Key in_keys(.Map)` against `#Ceil(@Key)`), and four
+have a counterexample there: 411 (`#Ceil(@M [@K])`, at `@K` a key of the map and one that is not),
+830 (`#Ceil(@S SetItem(@E))`, at `@E` a member and one that is not), and 451, 452
+(`@Key in_keys(Key' |-> Val @M)`). -/
+def expectedAllTwo : Two :=
+  { sentences := 18, hold := 10,
+    refuted := ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394", "18 domains.md:411",
+      "18 domains.md:830", "18 domains.md:452", "18 domains.md:451",
+      "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"],
+    hOnly := [], unevaluated := [] }
+
 /-- The text without the user module's sentences the reader refuses as builtin sentences outside
 the library's text (`builtinText`: a module of a K installation KCore's library does not hold), with
 their heads; the text itself when there are none. -/
@@ -543,7 +689,7 @@ def outOfLibrary (k : Kore.Definition) : Kore.Definition × List String :=
     ({ k with modules := k.modules.dropLast ++ [m'] }, rs.map (·.head))
 
 def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
-    (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads) := do
+    (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads × Two) := do
   let text ← IO.FS.readFile path
   let k ← match Kore.parseDefinition text with
     | .ok k => pure k
@@ -570,6 +716,7 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
       let absent := syms.filter (!gNames.contains ·)
       let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place := placeOf ad.ax.attributes, syms, absent }
       let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
+      let r := if r.skip.isNone && r.cex.isEmpty && r.hfail.isEmpty then probeTwo c r ad.ax modes small else r
       res := res ++ [r]
   IO.println s!"Γ's instances of ite: {gNames.filter (·.startsWith "Lblite")}"
   let mut sum : Summary := []
@@ -584,9 +731,10 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
     sum := sum ++ [(row, rs.length, over.length, hold.length, cexs.length, hf.length, sk.length)]
   if verbose then
     for r in res do
-      IO.println s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+      IO.println s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{verdictTwo r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
       for m in r.cex.drop 1 |>.take 7 do IO.println s!"    also {m}"
       for m in r.hfail.drop 1 |>.take 7 do IO.println s!"    also {m}"
+      for m in r.cex2.drop 1 do IO.println s!"    also {m}"
   let name (r : Res) : String := s!"{r.row} {if r.place == "-" then " ".intercalate r.syms else r.place}"
   let keyNames := totalSilentKeys.map c.symName
   let places := libSentences.map fun (l, _) => s!"domains.md:{l}"
@@ -601,7 +749,15 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   let readers := probed.filter (·.hdep > 0)
   IO.println s!"sentences reading the interpretation: {readers.map fun r => s!"{name r} ({r.hdep} points)"}"
   IO.println s!"guard: {reprStr reads}"
-  return (sum, reads)
+  let sv := res.filter (·.setVar)
+  let two : Two :=
+    { sentences := sv.length
+      hold := (sv.filter fun r => r.skip2.isNone && r.ncex2 == 0 && r.nhfail2 == 0).length
+      refuted := (sv.filter fun r => r.skip2.isNone && r.ncex2 > 0).map name
+      hOnly := (sv.filter fun r => r.skip2.isNone && r.ncex2 == 0 && r.nhfail2 > 0).map name
+      unevaluated := (sv.filter (·.skip2.isSome)).map name }
+  IO.println s!"set variables at two-element sets: {reprStr two}"
+  return (sum, reads, two)
 
 /-- The counts both texts give: every sentence over Γ's symbols of rows 9, 15, 17, 18 holds in the
 three readings (`<=Set`'s `functional` sentence too: it has a value at every pair of sets); row 16
@@ -620,8 +776,9 @@ def readsOK (r : Reads) : Bool :=
 def libModes : List Mode := [.lib, .hash]
 
 def check (path : String) : IO Unit := do
-  let (s, r) ← run path (modes := [.none, .pick 0, .pick 1] ++ libModes)
+  let (s, r, t) ← run path (modes := [.none, .pick 0, .pick 1] ++ libModes)
   if s != expected then throw (IO.userError s!"{path}: counts {s}, expected {expected}")
+  if t != expectedTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedTwo}")
   if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
@@ -643,8 +800,9 @@ def expectedFlt : Summary :=
 
 def checkFlt : IO Unit := do
   let path := "f2-examples/silentflt.kompile.kore"
-  let (s, r) ← run path (modes := fltModes) (small := true)
+  let (s, r, t) ← run path (modes := fltModes) (small := true)
   if s != expectedFlt then throw (IO.userError s!"{path}: counts {s}, expected {expectedFlt}")
+  if t != expectedFltTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedFltTwo}")
   if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
@@ -658,8 +816,9 @@ def expectedAll : Summary :=
 
 def checkAll : IO Unit := do
   let path := "f2-examples/allbuiltins.kompile.kore"
-  let (s, r) ← run path (modes := fltModes) (small := true) (dropOut := true)
+  let (s, r, t) ← run path (modes := fltModes) (small := true) (dropOut := true)
   if s != expectedAll then throw (IO.userError s!"{path}: counts {s}, expected {expectedAll}")
+  if t != expectedAllTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedAllTwo}")
   if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 

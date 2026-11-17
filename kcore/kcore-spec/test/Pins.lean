@@ -9,7 +9,8 @@
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
   `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
   reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
-  to a KORE text (`AtValues`, `EntailsAtValues`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
+  to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
+  `SetVarsAtMostOne`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
   checks it is made of) and the classes of an account with their directions (`tieClasses`).
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
@@ -249,6 +250,21 @@ example (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (e : Valua
 example (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : EntailsAtValues c ad φ =
     (∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c →
       ∀ e, AtValues c I e ad.ax → ∀ m, φ.interpret I e m) := rfl
+
+example (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (e : Valuation M) (a : Kore.Axiom) :
+    SetVarsAtValues c I e a =
+    (∀ n s, KoreAML.VarKey.svar n s ∈ (KoreAML.freeOf [] a.pattern).eraseDups →
+      ∀ m, e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m →
+        ∃ (v : GroundTerm) (S : Srt), srtOf c S = s ∧ c.sortOf v = some S ∧ (den c v).interpret I e m) := rfl
+
+example (c : Semantics) (ad : KoreAML.AxiomDecl) (φ : KoreAML.P) : EntailsAtSetValues c ad φ =
+    (∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c →
+      ∀ e, AtValues c I e ad.ax → SetVarsAtValues c I e ad.ax → ∀ m, φ.interpret I e m) := rfl
+
+example {M : Type} (e : Valuation M) (a : Kore.Axiom) : SetVarsAtMostOne e a =
+    (∀ n s, KoreAML.VarKey.svar n s ∈ (KoreAML.freeOf [] a.pattern).eraseDups →
+      ∀ m m', e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m →
+        e.evalSvar ((KoreAML.tableOf a.sortVars a.pattern).sv (.svar n s)) m' → m = m') := rfl
 
 example (h : Kore.SymbolIdent) (ss : List Kore.KSort) (ps : List Kore.Pattern) :
     symbolsOf (.app h ss ps) = h.ident.name :: symbolsOfList ps ∧
