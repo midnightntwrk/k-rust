@@ -459,4 +459,17 @@ theorem commCtor_openTotal_none : OpenTotal (CommCtor.c.withHooks HookParams.non
     · exact ⟨CommCtor.andP, by decide +kernel, by decide +kernel, rfl, rfl, by decide +kernel, by decide +kernel⟩
     · exact ⟨CommCtor.orP, by decide +kernel, by decide +kernel, rfl, rfl, by decide +kernel, by decide +kernel⟩
 
+/-! ## `lawHooks` satisfies the laws (V2.d3-openLaws)
+
+At CommCtor (`and` with no law, `or` associative) and IdemCtor (`or` idempotent),
+`openLaws_of_lawShape` holds with its hypotheses met (not vacuously): every raw parameter has
+`LawShape`, none has both laws; so `OpenLaws` holds at `lawHooks c H` for every H. -/
+theorem commCtor_lawShape : ∀ k ∈ CommCtor.c.params, k.raw = true → LawShape CommCtor.c k := by decide +kernel
+theorem idemCtor_lawShape : ∀ k ∈ IdemCtor.c.params, k.raw = true → LawShape IdemCtor.c k := by decide +kernel
+
+theorem commCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c H)) :=
+  openLaws_of_lawShape (by decide +kernel) commCtor_lawShape H
+theorem idemCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
+  openLaws_of_lawShape (by decide +kernel) idemCtor_lawShape H
+
 end KCore.OpenGenSems

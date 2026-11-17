@@ -197,4 +197,210 @@ theorem lawHooks_app_of_find {c : Semantics} {H : HookParams} {f : Sym} {vs : Li
     (lawHooks c H).app f vs = some (lawApp k vs) := by
   simp [lawHooks, h]
 
+/-! ## The laws at `lawHooks`
+
+`OpenLaws` and `OpenTotal` hold at `lawHooks c H` for every H, for a semantics whose raw parameters
+are each the parameter and the open generator their name finds, with no registry hook, named apart
+from the constructors and the overloading symbols, of two arguments of their result sort where they
+have a law (`LawShape`), and none with both laws. An application of the open generator at values is
+then a value exactly where `lawApp` gives it back (`law_sortOf_iff`): the right nesting of leaves of
+its sort (`law_nest_sorted`), whose flattening is those leaves (`lawFlat_lawNest`); so `lawApp` at
+values of the sort is a value of it (`law_assoc_val`), and the associativity sentence holds at
+values because both groupings flatten to the same leaves. -/
+
+/-- What the theorems on `lawHooks` read of a raw parameter k: k is the parameter and the open
+generator its name finds, with no registry hook, its name no constructor's and no overloading
+symbol's, and where it has a law its two arguments are of its result sort. -/
+def LawShape (c : Semantics) (k : ParamSig) : Prop :=
+  c.lookupParam k.sig.name = some k ∧ c.lookupOpen k.sig.name = some k ∧ k.impl = none ∧
+    lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none ∧
+    ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result])
+
+instance (c : Semantics) (k : ParamSig) : Decidable (LawShape c k) := by
+  unfold LawShape; infer_instance
+
+/-- Leaves are their own flattening. -/
+theorem lawFlat_flatMap_leaves (f : Sym) : ∀ xs : List GroundTerm, (∀ x ∈ xs, lawFlat f x = [x]) →
+    xs.flatMap (lawFlat f) = xs
+  | [], _ => rfl
+  | x :: xs, h => by
+    rw [List.flatMap_cons, h x (List.mem_cons_self ..),
+      lawFlat_flatMap_leaves f xs fun y hy => h y (List.mem_cons_of_mem _ hy)]
+    rfl
+
+theorem lawApp_assoc {k : ParamSig} (ha : k.assoc = true) (hi : k.idem = false) (vs : List GroundTerm) :
+    lawApp k vs = lawNest k.sig.name (vs.flatMap (lawFlat k.sig.name)) := by
+  simp [lawApp, ha, hi]
+
+section
+variable {c : Semantics} {H : HookParams} {k : ParamSig}
+
+/-- At its own name, `lawHooks` gives `lawApp k`. -/
+theorem lawHooks_app_self (hs : LawShape c k) (vs : List GroundTerm) :
+    (lawHooks c H).app k.sig.name vs = some (lawApp k vs) := by
+  apply lawHooks_app_of_find
+  have h := hs.2.1
+  unfold Semantics.lookupOpen at h
+  split at h
+  · exact h
+  · cases h
+
+/-- **An application of the open generator is a value at `lawHooks`** exactly where its arguments
+are values of its argument sorts and `lawApp` gives it back; it is then of the result sort. -/
+theorem law_sortOf_iff (hs : LawShape c k) {ts : List GroundTerm} {s : Srt} :
+    (c.withHooks (lawHooks c H)).sortOf (.ctor k.sig.name ts) = some s ↔
+      (c.withHooks (lawHooks c H)).sortsOf ts = some k.sig.args ∧ lawApp k ts = .ctor k.sig.name ts ∧
+        s = k.sig.result := by
+  rw [Semantics.sortOf_open_iff (c := c.withHooks (lawHooks c H)) hs.2.1 hs.2.2.2.1 hs.2.2.2.2.1]
+  have hk : (c.withHooks (lawHooks c H)).keepsRaw k.sig.name ts = true ↔ lawApp k ts = .ctor k.sig.name ts := by
+    unfold Semantics.keepsRaw
+    rw [show (c.withHooks (lawHooks c H)).hooks.app k.sig.name ts = some (lawApp k ts) from lawHooks_app_self hs ts]
+    simp [cmp_eq_iff]
+  rw [hk]
+
+/-- **The open generator's value at `lawHooks`**: `lawApp k`, where that has the result sort. -/
+theorem law_paramVal (hs : LawShape c k) (hr : k.raw = true) {vs : List GroundTerm} {v : GroundTerm} :
+    (c.withHooks (lawHooks c H)).paramVal k.sig.name vs = some v ↔
+      v = lawApp k vs ∧ (c.withHooks (lawHooks c H)).sortOf v = some k.sig.result := by
+  rw [paramVal_raw_sorted (c := c.withHooks (lawHooks c H)) hs.1 hr hs.2.2.1,
+    show (c.withHooks (lawHooks c H)).hooks.app k.sig.name vs = some (lawApp k vs) from lawHooks_app_self hs vs]
+  rfl
+
+/-- The leaves of a value of the result sort are values of it. -/
+theorem law_leaves_sorted (hs : LawShape c k) (hb : k.sig.args = [k.sig.result, k.sig.result]) :
+    ∀ a, (c.withHooks (lawHooks c H)).sortOf a = some k.sig.result →
+      ∀ x ∈ lawFlat k.sig.name a, (c.withHooks (lawHooks c H)).sortOf x = some k.sig.result
+  | .ctor g [p, q], ha, x, hx => by
+    unfold lawFlat at hx
+    split at hx
+    · rename_i hg
+      have hg' : g = k.sig.name := by simpa using hg
+      rw [hg'] at ha
+      obtain ⟨hpq, -, -⟩ := (law_sortOf_iff hs).mp ha
+      rw [hb] at hpq
+      obtain ⟨sp, ss, hp, hss, he⟩ := sortsOf_cons.mp hpq
+      obtain ⟨sq, ss', hq, -, he'⟩ := sortsOf_cons.mp hss
+      simp only [List.cons.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      simp only [List.cons.injEq] at he'
+      obtain ⟨rfl, -⟩ := he'
+      rcases List.mem_append.mp hx with h1 | h1
+      · exact law_leaves_sorted hs hb p hp x h1
+      · exact law_leaves_sorted hs hb q hq x h1
+    · rw [List.mem_singleton.mp hx]; exact ha
+  | .ctor _ [], ha, x, hx | .ctor _ [_], ha, x, hx | .ctor _ (_ :: _ :: _ :: _), ha, x, hx
+  | .inj _ _ _, ha, x, hx | .dv _ _, ha, x, hx | .map _ _, ha, x, hx | .set _ _, ha, x, hx
+  | .list _ _, ha, x, hx => by
+    simp only [lawFlat, List.mem_singleton] at hx; subst hx; exact ha
+
+/-- **The right nesting of leaves of the result sort is a value of it**, for an associative open
+generator without idempotence: `lawApp` gives each of its nodes back. -/
+theorem law_nest_sorted (hs : LawShape c k) (hb : k.sig.args = [k.sig.result, k.sig.result])
+    (ha : k.assoc = true) (hi : k.idem = false) :
+    ∀ ts : List GroundTerm, ts ≠ [] →
+      (∀ t ∈ ts, lawFlat k.sig.name t = [t] ∧ (c.withHooks (lawHooks c H)).sortOf t = some k.sig.result) →
+      (c.withHooks (lawHooks c H)).sortOf (lawNest k.sig.name ts) = some k.sig.result
+  | [], h, _ => absurd rfl h
+  | [t], _, h => (h t (List.mem_singleton_self _)).2
+  | t :: u :: ts, _, h => by
+    have ih := law_nest_sorted hs hb ha hi (u :: ts) (List.cons_ne_nil _ _)
+      (fun x hx => h x (List.mem_cons_of_mem _ hx))
+    have ht := h t (List.mem_cons_self ..)
+    rw [show lawNest k.sig.name (t :: u :: ts) = .ctor k.sig.name [t, lawNest k.sig.name (u :: ts)] from rfl]
+    refine (law_sortOf_iff hs).mpr ⟨?_, ?_, rfl⟩
+    · rw [hb]
+      exact sortsOf_cons.mpr ⟨_, _, ht.2, sortsOf_cons.mpr ⟨_, _, ih, sortsOf_nil, rfl⟩, rfl⟩
+    · rw [lawApp_assoc ha hi, List.flatMap_cons, List.flatMap_cons, List.flatMap_nil, List.append_nil, ht.1,
+        lawFlat_lawNest _ _ (List.cons_ne_nil _ _),
+        lawFlat_flatMap_leaves _ _ fun x hx => (h x (List.mem_cons_of_mem _ hx)).1]
+      rfl
+
+/-- **An associative open generator at two values of its sort, at `lawHooks`**: the right nesting
+of their leaves. -/
+theorem law_assoc_val (hs : LawShape c k) (hr : k.raw = true) (hb : k.sig.args = [k.sig.result, k.sig.result])
+    (ha : k.assoc = true) (hi : k.idem = false) {x y : GroundTerm}
+    (hx : (c.withHooks (lawHooks c H)).sortOf x = some k.sig.result)
+    (hy : (c.withHooks (lawHooks c H)).sortOf y = some k.sig.result) :
+    (c.withHooks (lawHooks c H)).paramVal k.sig.name [x, y] =
+      some (lawNest k.sig.name (lawFlat k.sig.name x ++ lawFlat k.sig.name y)) := by
+  refine (law_paramVal hs hr).mpr ⟨by rw [lawApp_assoc ha hi]; simp, ?_⟩
+  refine law_nest_sorted hs hb ha hi _ (by simp [lawFlat_ne_nil]) fun t ht => ?_
+  rcases List.mem_append.mp ht with h | h
+  · exact ⟨lawFlat_leaf _ x t h, law_leaves_sorted hs hb x hx t h⟩
+  · exact ⟨lawFlat_leaf _ y t h, law_leaves_sorted hs hb y hy t h⟩
+
+/-- The flattening of the value `law_assoc_val` gives: the leaves of both arguments. -/
+theorem law_flat_val (x y : GroundTerm) (f : Sym) :
+    lawFlat f (lawNest f (lawFlat f x ++ lawFlat f y)) = lawFlat f x ++ lawFlat f y := by
+  rw [lawFlat_lawNest _ _ (by simp [lawFlat_ne_nil])]
+  exact lawFlat_flatMap_leaves _ _ fun t ht => by
+    rcases List.mem_append.mp ht with h | h
+    · exact lawFlat_leaf _ x t h
+    · exact lawFlat_leaf _ y t h
+
+theorem sorts3 {c : Semantics} {a b d : GroundTerm} {s : Srt} (h : c.sortsOf [a, b, d] = some [s, s, s]) :
+    c.sortOf a = some s ∧ c.sortOf b = some s ∧ c.sortOf d = some s := by
+  obtain ⟨sa, ss, ha, hss, he⟩ := sortsOf_cons.mp h
+  obtain ⟨sb, ss', hb, hss', he'⟩ := sortsOf_cons.mp hss
+  obtain ⟨sd, ss'', hd, -, he''⟩ := sortsOf_cons.mp hss'
+  simp only [List.cons.injEq] at he he' he''
+  obtain ⟨rfl, rfl⟩ := he
+  obtain ⟨rfl, rfl⟩ := he'
+  obtain ⟨rfl, -⟩ := he''
+  exact ⟨ha, hb, hd⟩
+
+end
+
+/-- **`lawHooks` satisfies the laws**, for every H, where each raw parameter has `LawShape` and
+none has both laws: associativity because both groupings of three values nest the same leaves,
+idempotence because equal adjacent arguments merge. -/
+theorem openLaws_of_lawShape {c : Semantics} (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false)
+    (hs : ∀ k ∈ c.params, k.raw = true → LawShape c k) (H : HookParams) :
+    OpenLaws (c.withHooks (lawHooks c H)) := by
+  intro k hk hr
+  have hsk := hs k hk hr
+  have hboth : k.assoc = true → k.idem = true → False := fun ha hi => by
+    have := hl k hk; simp [hr, ha, hi] at this
+  refine ⟨fun ha => ?_, fun hi => ?_⟩
+  · have hi : k.idem = false := by
+      cases h : k.idem
+      · rfl
+      · exact (hboth ha h).elim
+    have hb := hsk.2.2.2.2.2 (by simp [ha])
+    intro a b d hsorts
+    obtain ⟨hsa, hsb, hsd⟩ := sorts3 hsorts
+    have hab := law_assoc_val hsk hr hb ha hi hsa hsb
+    have hbd := law_assoc_val hsk hr hb ha hi hsb hsd
+    rw [hab, hbd, Option.bind_some, Option.bind_some,
+      law_assoc_val hsk hr hb ha hi ((law_paramVal hsk hr).mp hab).2 hsd,
+      law_assoc_val hsk hr hb ha hi hsa ((law_paramVal hsk hr).mp hbd).2,
+      law_flat_val, law_flat_val, List.append_assoc]
+  · have ha : k.assoc = false := by
+      cases h : k.assoc
+      · rfl
+      · exact (hboth h hi).elim
+    intro a hsa
+    refine (law_paramVal hsk hr).mpr ⟨?_, hsa⟩
+    have hm : lawMerge [a, a] = [a] := by simp [lawMerge, (Exec.same_iff).mpr rfl]
+    simp [lawApp, ha, hi, hm]
+
+
+/-- What `coreOK` gives of each raw parameter for the theorems on `lawHooks`. Under `coreOK` no
+parameter is raw (`paramsPlain`), so this is where `openLaws_lawHooks` and `openTotal_lawHooks`
+take that fact; once `paramsPlain` is V8's body it is to be re-proved from its `raw` branch (no
+registry hook; two arguments of the result sort where there is a law), `genWf`'s flat conjunct
+(no constructor or overloading symbol of the name) and a fact that `lookupParam` and `lookupOpen`
+find the raw parameter itself (`NamesApartK` gives equal signatures only), as for
+`Semantics.raw_open_core`. -/
+theorem Semantics.lawShape_core {c : Semantics} (h : c.coreOK = true) :
+    ∀ k ∈ c.params, k.raw = true → LawShape c k :=
+  fun k hk hr => absurd hr (by simp [Semantics.params_raw_of_core h k hk])
+
+/-- **`lawHooks` satisfies the laws** (CN-4 §4.7 item 2): for every H, at a semantics `coreOK`
+accepts with no raw parameter that has both laws. -/
+theorem openLaws_lawHooks (c : Semantics) (h : c.coreOK = true)
+    (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false) (H : HookParams) :
+    OpenLaws (c.withHooks (lawHooks c H)) :=
+  openLaws_of_lawShape hl (Semantics.lawShape_core h) H
+
 end KCore
