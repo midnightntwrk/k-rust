@@ -284,3 +284,5 @@ import KcoreSpec.LibEvBool
 import KcoreSpec.LibEvPred
 import KcoreSpec.LawConsistent
 import KcoreSpec.TiePairs
+import KcoreSpec.CondResort
+import KcoreSpec.CondResortModel
