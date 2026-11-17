@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-open-ctor-arg.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.6
+definition.kore bytes: 83972
+definition.kore sha256: 42a29c4565d053553f0e36a3e94b280558bc27c85cd38b0a7625936ce3869f30
+stripped sha256: f9273805be56567edaf83c28695068a57674d5bdc96b466dc7bcc449f1744367
+main module: 245 sentences, 20 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-CTOR-ARG-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-CTOR-ARG as default.
