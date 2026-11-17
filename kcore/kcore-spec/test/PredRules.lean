@@ -197,4 +197,26 @@ example (h : Faithful.Model.HypModelCore c) :
   ⟨Faithful.Model.rule_vars_numCN h rNot_pp.1, Faithful.Model.rule_vars_numCN h rOr_pp.1,
     Faithful.Model.rule_vars_numCN h rC_pp.1⟩
 
+/-! ## The value model's truth of a condition (`KCore.TrueV`, `KCore.Faithful.trueV_stdI`)
+
+  At `rNot`'s pre (`not`, `and`, `mem`), in the value model at any T, with no hypothesis that the
+  condition has a truth value: an element of the predicate sort is in the condition exactly where
+  `TrueV` holds, and `TrueV` reads the values of the terms. -/
+
+section TrueValue
+open Faithful Faithful.Model
+
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop) {P : Nat → Prop} {σ : Subst}
+    {tbl : KoreAML.VarTable} {e : ML.Valuation Elem}
+    (hP : ∀ i ∈ varOccsCond rNot.vars.length rNot.pre, i < rNot.vars.length → P i) (hr : ReadsT c rNot.vars P σ tbl e)
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (hS : topCellSort < nRegSorts + c.sortNames.length) (a : Elem) (ha : InSort c topCellSort a) :
+    (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre)).interpret
+        (stdI_T c T) e a ↔
+      ¬ ((∃ v, EvalTerm c σ (.var 2) (some v) ∧ EvalTerm c σ tB (some v)) ∧
+        ∃ v, EvalTerm c σ (.var 2) (some v) ∧ EvalTerm c σ (.var 3) (some v)) :=
+  trueV_stdI h T rNot.pre (by decide +kernel) (by decide +kernel) hP hr hk hS a ha
+
+end TrueValue
+
 end PredRules

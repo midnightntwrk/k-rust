@@ -196,6 +196,7 @@ import KcoreSpec.ExSound
 import KcoreSpec.ExComplete
 import KcoreSpec.ExFamOpen
 import KcoreSpec.HoldsModel
+import KcoreSpec.TrueV
 import KcoreSpec.PredPlain
 import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs
