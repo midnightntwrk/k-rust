@@ -259,7 +259,7 @@ for l, tab in t.items():
                 nreasons += 1
                 if not isinstance(rs, list):
                     bad.append(f"{where}: reasons {rs!r} is not a list"); rs = []
-                ev = evidence_fixtures(e)
+                ev = [f for f in evidence_fixtures(e) if account(f)]
                 shown = set().union(*[account(f)[0] for f in ev if account(f)]) if ev else set()
                 for x in rs:
                     ind, _, c = x.partition(".") if isinstance(x, str) else ("", "", "")
