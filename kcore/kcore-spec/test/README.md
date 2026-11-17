@@ -1368,3 +1368,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
   `attrsAgree` is false (`attrs_prios`: one rewrite axiom, two rules); its other four parts hold.
   About 4 minutes each.
+- `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
+  fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
+  (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
+  `⌈1 /Int X⌉ = true` at Bool is read as `false = true`: Γ's left side holds nothing in a model of
+  definedness, `ΓSig` and `ΓDomains` (`left0_empty`), so W1 (`rule_from_text`) holds without the
+  sentence; that the sentence's own left side is empty is not shown (the header says what it
+  needs). Expectation from `Pre H`, through the reading (the priority premise): `ceil_other`
+  (`go(1)` steps to `other`). About 4 minutes.
