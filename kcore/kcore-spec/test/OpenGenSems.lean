@@ -377,6 +377,28 @@ theorem not_lawLibRawFree : ¬ c.lawLibRawFree := fun h => by
   rw [genWf_admits.2.2.2.2] at this
   cases this
 
+/-- The same semantics with the open generator numbered in order (`idsOK`; `c` numbers it
+`nRegSyms + 20`, which `idsOK` refuses by itself). -/
+def c2 : Semantics :=
+  { c with symNames := c.symNames ++ ["LblmyE"]
+           params := [{ sig := ⟨nRegSyms + 4, [Srt.int], Srt.endianness⟩, raw := true }] }
+
+/-- `coreOK` refuses it (V2.d1-flip), by `paramsPlain`'s raw branch alone, which asks `shapesOK`
+(false by `enumShapesOK`): every other conjunct of `coreOK` holds, `genWf` among them, and the
+other conjuncts of the raw branch (no hook, no law, a number outside the registry, no ite name,
+`floatShapeOK`). -/
+theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.shapesOK = false ∧
+    c2.enumShapesOK = false ∧ c2.floatShapeOK = true ∧ Faithful.genWf c2 = true ∧
+    c2.params.all (fun k => k.raw && k.impl.isNone && !k.assoc && !k.idem &&
+      decide (nRegSyms ≤ k.sig.name) && (iteSort? (c2.symName k.sig.name)).isNone) = true ∧
+    (c2.subsortsOK && c2.fns.all (fun f => f.clauses.all (c2.clauseSorted f (c2.fns.map Fn.sig))) &&
+      c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain && c2.carriersOK &&
+      c2.faithCoreOK && c2.hooksApart && c2.predsApart && c2.idsOK && c2.overloadsOK) = true := by
+  decide +kernel
+
+/-- `c` itself is refused as well. -/
+theorem coreOK_refuses_c : c.coreOK = false ∧ c.paramsPlain = false := by decide +kernel
+
 end EndRaw
 
 
@@ -486,9 +508,8 @@ CN-4 §4.7 item 2's example, at its statement: in a semantics meeting `coreOK` a
 where no parameter is raw, associative and idempotent at once, `lawHooks c HookParams.lib`
 satisfies the laws (`openLaws_lawHooks`), gives every open generator a value at every argument
 list of its sorts (`openTotal_lawHooks`) and is admitted by the library's sentences
-(`libAdmitted_lawHooks` from `libAdmitted_lib`). Today `coreOK` refuses every raw parameter
-(`paramsPlain`; open generators are admitted at V2.d1-flip), so the statement says nothing yet
-about a semantics with an open generator; the instances below state the same three at CommCtor
+(`libAdmitted_lawHooks` from `libAdmitted_lib`). `coreOK` admits open generators of
+`paramsPlain`'s raw shape (V2.d1-flip); the instances below state the same three at CommCtor
 and IdemCtor, which have open generators, from the `_of` forms whose hypotheses they meet
 (`commCtor_lawShape`, `idemCtor_lawShape`, `comm_reg`, `comm_lawLibRawFree`, `idemCtor_reg`). -/
 theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) (hf : c.floatShapeOK = true)

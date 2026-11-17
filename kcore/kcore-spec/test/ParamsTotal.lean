@@ -49,9 +49,8 @@ def pt : Semantics where
 
 theorem pt_sorted : pt.sortedOK = true ∧ pt.srReady = true := by decide +kernel
 
-/-- `sortedOKCl` gives `pt`'s two parameters not raw. -/
-example : ∀ k ∈ pt.params, k.raw = false :=
-  Semantics.params_raw_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK pt_sorted.1)
+/-- `pt`'s two parameters are not raw. -/
+example : ∀ k ∈ pt.params, k.raw = false := by decide +kernel
 
 theorem pt_R : pt.totalObligationsR [Fp, Fq] = [Fp, Fq] := by decide +kernel
 

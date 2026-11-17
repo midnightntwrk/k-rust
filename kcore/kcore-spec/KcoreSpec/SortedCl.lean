@@ -98,13 +98,14 @@ theorem Semantics.sortedOKCl_parts {c : Semantics} (h : c.sortedOKCl = true) :
   have := List.all_eq_true.mp (List.all_eq_true.mp h2 f hf) cl hcl
   simpa only [Bool.and_eq_true] using this
 
-/-- `sortedOKCl` gives the parameters no open generator (`paramsPlain`). -/
-theorem Semantics.params_raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) :
-    ∀ k ∈ c.params, k.raw = false := by
-  have hp := (Semantics.sortedOKCl_parts h).2.2.2.2
-  simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at hp
-  intro k hk
-  simpa using (hp.1 k hk).1.1
+/-- What `sortedOKCl` asks of an open generator (`paramsPlain`'s raw branch). -/
+theorem Semantics.raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) :
+    k.impl = none ∧ (k.assoc && k.idem) = false ∧
+    ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
+    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    c.shapesOK = true ∧ c.floatShapeOK = true :=
+  Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts h).2.2.2.2 hk hr
 
 /-- **`sortedOK` gives `sortedOKCl`**: the two ask the same of each clause (`clauseSorted` is
 `clauseSortedOpen`, and `clausesPlain` asks `clausePlainOpen` of each clause). -/

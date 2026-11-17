@@ -460,7 +460,7 @@ theorem confinedAt_value (h : c.coreOK = true) (hr : c.readsConfined = true) (hI
   haveI : OvlOK c := hno
   exact confinedAt_valueCl (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
     (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
-    (fun k hk hkr => absurd hkr (by simp [Semantics.params_raw_of_core h k hk])) hr hI
+    (fun k hk hkr => (Semantics.raw_of_core h hk hkr).2.2.2.2.1) hr hI
 
 end
 

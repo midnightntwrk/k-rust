@@ -409,16 +409,19 @@ theorem openLaws_of_lawShape {c : Semantics} (hl : ∀ k ∈ c.params, (k.raw &&
     simp [lawApp, ha, hi, hm]
 
 
-/-- What `coreOK` gives of each raw parameter for the theorems on `lawHooks`. Under `coreOK` no
-parameter is raw (`paramsPlain`), so this is where `openLaws_lawHooks` and `openTotal_lawHooks`
-take that fact; once `paramsPlain` is V8's body it is to be re-proved from its `raw` branch (no
-registry hook; two arguments of the result sort where there is a law), `genWf`'s flat conjunct
-(no constructor or overloading symbol of the name) and a fact that `lookupParam` and `lookupOpen`
-find the raw parameter itself (`NamesApartK` gives equal signatures only), as for
-`Semantics.raw_open_core`. -/
+/-- What `coreOK` gives of each raw parameter for the theorems on `lawHooks`: `lookupParam` and
+`lookupOpen` find the raw parameter itself (`raw_lookup`), it has no registry hook and, where it
+has a law, two arguments of its result sort (`raw_of_core`, `paramsPlain`'s `raw` branch), and no
+constructor or overloading symbol bears its name (`raw_noCtor`, `genWf`'s flat conjunct). -/
 theorem Semantics.lawShape_core {c : Semantics} (h : c.coreOK = true) :
-    ∀ k ∈ c.params, k.raw = true → LawShape c k :=
-  fun k hk hr => absurd hr (by simp [Semantics.params_raw_of_core h k hk])
+    ∀ k ∈ c.params, k.raw = true → LawShape c k := by
+  intro k hk hr
+  obtain ⟨hi, -, hlaw, hreg, -, -, -⟩ := Semantics.raw_of_core h hk hr
+  obtain ⟨hlp, hlo⟩ := Semantics.raw_lookup (Semantics.coreOK_parts h).2.2.2.2 hk hr hreg
+  have hfa := (Semantics.coreOK_parts h).2.1
+  simp only [Semantics.faithCoreOK, Bool.and_eq_true] at hfa
+  obtain ⟨hc, ho⟩ := Semantics.raw_noCtor hfa.1.1.1.1.1.1.1.1.1.1.2 hk hr
+  exact ⟨hlp, hlo, hi, hc, ho, hlaw⟩
 
 /-- **`lawHooks` satisfies the laws** (CN-4 §4.7 item 2): for every H, at a semantics `coreOK`
 accepts with no raw parameter that has both laws. -/

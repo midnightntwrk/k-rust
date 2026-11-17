@@ -78,10 +78,9 @@ theorem cM_rest :
       cM.faithCoreOK && cM.hooksApart && cM.predsApart && cM.idsOK && cM.overloadsOK) = true := by
   decide +kernel
 
-/-- A parameter conjunct with a raw branch, in place of `paramsPlain`'s (which refuses every raw
-parameter): a raw parameter has no implementation, not both laws, two arguments of its result sort
-where it has a law, a number outside the registry and no ite name, with `shapesOK` and
-`floatShapeOK`. -/
+/-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no
+implementation, not both laws, two arguments of its result sort where it has a law, a number
+outside the registry and no ite name, with `shapesOK` and `floatShapeOK`. -/
 def paramsRuled (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone && !(k.assoc && k.idem) &&
@@ -92,8 +91,12 @@ def paramsRuled (c : Semantics) : Bool :=
 
 theorem cM_params : paramsRuled cM = true ∧ (cM.params.any (·.raw)) = true := by decide +kernel
 
-/-- Today's `coreOK` refuses it (by `paramsPlain` alone, `cM_rest`). -/
-theorem cM_coreOK_today : cM.coreOK = false := by decide +kernel
+/-- `paramsPlain` is `paramsRuled` with the carriers. -/
+example (c : Semantics) : c.paramsPlain = (paramsRuled c && c.carriersOK) := rfl
+
+/-- `coreOK` admits it (V2.d1-flip): a semantics with an open generator at which the two transport
+lemmas fail without `hr`. -/
+theorem cM_coreOK : cM.coreOK = true := by decide +kernel
 
 /-! ## `RightHeld` of the data does not give `RightHeld` at `Hm` -/
 

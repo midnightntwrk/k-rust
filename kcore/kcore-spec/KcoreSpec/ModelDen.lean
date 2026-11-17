@@ -776,14 +776,13 @@ theorem HypModelCore.ovlHyp (h : HypModelCore c) : OvlLaws.OvlHyp c :=
 /-- `φ` denotes the one element `x` at the valuation `e`. -/
 abbrev Sing (c : Semantics) (e : Valuation Elem) (φ : KoreAML.P) (x : Elem) : Prop := ∀ m, φ.interpret (stdI c) e m ↔ m = x
 
-/-- An open generator is the parameter its symbol names, with no registry hook. Under
-`HypModelCore` no parameter is raw (`paramsPlain`), so this is where the reading of an open
-generator's value takes that fact: from the parameters' names being apart and from `paramsPlain`'s
-`raw` branch (no hook) once `paramsPlain` admits raw parameters. -/
+/-- An open generator is the parameter its symbol names, with no registry hook: `lookupParam`
+finds the raw parameter itself (`raw_lookup`, from `idsOK` and the number outside the registry
+`lookupOpen` reads), and `paramsPlain`'s `raw` branch gives it no hook (`raw_of_sortedOKCl`). -/
 theorem HypModelCore.open_param (h : HypModelCore c) {f : Sym} {kp : ParamSig} (hko : c.lookupOpen f = some kp) :
     c.lookupParam f = some kp ∧ kp.impl = none := by
-  obtain ⟨hkp, hraw, -, -⟩ := c.lookupOpen_spec hko
-  exact absurd hraw (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hkp])
+  obtain ⟨hkp, hraw, rfl, hreg⟩ := c.lookupOpen_spec hko
+  exact ⟨(Semantics.raw_lookup h.ids hkp hraw hreg).1, (Semantics.raw_of_sortedOKCl h.sound.1 hkp hraw).1⟩
 
 namespace AtT
 

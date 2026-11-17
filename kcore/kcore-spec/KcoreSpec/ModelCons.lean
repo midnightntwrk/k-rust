@@ -110,13 +110,14 @@ theorem mem_gens {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
     have : p.2 = N := by simpa using hr
     exact Or.inr (Or.inr (Or.inl ⟨p.1, by rw [← this]; exact hp, rfl⟩))
 
-/-- **A raw parameter is an open generator**: `lookupOpen` answers for its name. Under
-`HypModelCore` no parameter is raw (`paramsPlain`), so this is where the reading of the generators
-takes that fact; once `paramsPlain` admits raw parameters it holds by its `raw` branch (no registry
-number: `lookupOpen`'s guard), the parameter itself meeting `find?`'s test. -/
+/-- **A raw parameter is an open generator**: `lookupOpen` answers for its name. By `paramsPlain`'s
+`raw` branch it is numbered outside the registry (`raw_of_sortedOKCl`: `lookupOpen`'s guard), and
+`idsOK` numbers it once, so the lookup finds it (`raw_lookup`). -/
 theorem HypModelCore.raw_open (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
-    c.isOpenGen (.ctor k.sig) = true :=
-  absurd hr (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
+    c.isOpenGen (.ctor k.sig) = true := by
+  show (c.lookupOpen k.sig.name).isSome = true
+  rw [(Semantics.raw_lookup h.ids hk hr (Semantics.raw_of_sortedOKCl h.sound.1 hk hr).2.2.2.1).2]
+  rfl
 
 /-- The generators `consItemsK` writes functionality, injectivity and distinctness for (those that
 are no open generator): the constructors, the overloading symbols and the injections. -/
@@ -1864,13 +1865,12 @@ private theorem tr_apL (tbl : KoreAML.VarTable) (f : String) (ps : List Kore.Pat
   unfold KoreAML.ap
   rw [KoreAML.tr_app0, trArgs_appList]
 
-/-- **A raw parameter with a law has two arguments of its result sort.** Under `HypModelCore` no
-parameter is raw (`paramsPlain`), so this is where the law items take that fact; once `paramsPlain`
-is V8's body it holds by its `raw` branch (`k.sig.args == [k.sig.result, k.sig.result]` where
-`assoc` or `idem`). -/
+/-- **A raw parameter with a law has two arguments of its result sort**: `paramsPlain`'s `raw`
+branch (`raw_of_sortedOKCl`: `k.sig.args == [k.sig.result, k.sig.result]` where `assoc` or
+`idem`). -/
 theorem HypModelCore.law_binary (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true)
-    (_ : k.assoc = true ∨ k.idem = true) : k.sig.args = [k.sig.result, k.sig.result] :=
-  absurd hr (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
+    (hl : k.assoc = true ∨ k.idem = true) : k.sig.args = [k.sig.result, k.sig.result] :=
+  (Semantics.raw_of_sortedOKCl h.sound.1 hk hr).2.2.1 (by rcases hl with hl | hl <;> simp [hl])
 
 namespace AtT
 

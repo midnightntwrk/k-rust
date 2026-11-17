@@ -18,8 +18,8 @@
   `libAdmitted_lawHooks_of` states it with these two hypotheses. `lawLibRawFree_of_shapes` gives the
   second from `shapesOK` and `floatShapeOK` (every value of those sorts is a literal, or one of
   BYTES' nullary constructors of Endianness and Signedness) and the first. `libAdmitted_lawHooks`,
-  for a semantics meeting `coreOK`, takes both from `coreOK`'s `paramsPlain`, under which no
-  parameter is raw (`lawLib_core_noRaw`).
+  for a semantics meeting `coreOK`, takes both from `coreOK`'s `paramsPlain`, whose `raw` branch
+  asks the number outside the registry, `shapesOK` and `floatShapeOK` (`Semantics.raw_of_core`).
 -/
 import KcoreSpec.LawHooks
 import KcoreSpec.LibAdmitted
@@ -228,17 +228,22 @@ theorem lawLibRawFree_of_shapes (hs : c.shapesOK = true) (hf : c.floatShapeOK = 
   · obtain ⟨f, rfl, -, he⟩ := shape_enum hs' (.inr rfl) hv
     rcases he rfl with rfl | rfl <;> exact hctor _ (by decide)
 
-/-- Under `coreOK` no parameter is raw (`paramsPlain`). -/
-theorem lawLib_core_noRaw (h : c.coreOK = true) : ∀ k ∈ c.params, k.raw = false :=
-  Semantics.params_raw_of_core h
-
 end
 
 /-- **`lawHooks c H` is admitted wherever H is**, in a semantics meeting `coreOK`: there both
-hypotheses of `libAdmitted_lawHooks_of` hold, no parameter being raw (`lawLib_core_noRaw`). -/
+hypotheses of `libAdmitted_lawHooks_of` hold. A raw parameter is numbered outside the registry
+(`raw_of_core`); and no value of a sort of `lawLibSorts` applies one: where no parameter is raw by
+`lawLibRawFree_of_noRaw`, and otherwise by `lawLibRawFree_of_shapes`, `paramsPlain`'s `raw` branch
+asking `shapesOK` and `floatShapeOK`. -/
 theorem libAdmitted_lawHooks (c : Semantics) (h : c.coreOK = true) (H : HookParams)
-    (ha : (c.withHooks H).libAdmitted) : (c.withHooks (lawHooks c H)).libAdmitted :=
-  libAdmitted_lawHooks_of (fun k hk hraw => by rw [lawLib_core_noRaw h k hk] at hraw; cases hraw)
-    (lawLibRawFree_of_noRaw (lawLib_core_noRaw h)) H ha
+    (ha : (c.withHooks H).libAdmitted) : (c.withHooks (lawHooks c H)).libAdmitted := by
+  have hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.sig.name :=
+    fun k hk hr => (Semantics.raw_of_core h hk hr).2.2.2.1
+  refine libAdmitted_lawHooks_of hreg ?_ H ha
+  cases hany : c.params.any (·.raw)
+  · exact lawLibRawFree_of_noRaw fun k hk => by simpa using List.any_eq_false.mp hany k hk
+  · obtain ⟨k, hk, hr⟩ := List.any_eq_true.mp hany
+    obtain ⟨-, -, -, -, -, hs, hf⟩ := Semantics.raw_of_core h hk hr
+    exact lawLibRawFree_of_shapes hs hf hreg
 
 end KCore

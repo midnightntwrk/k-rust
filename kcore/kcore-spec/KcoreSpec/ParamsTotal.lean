@@ -301,16 +301,7 @@ theorem silentTotal_totals (c : Semantics) : (c.withHooks HookParams.totals).sil
 
 /-! ## Float values are Float literals where no other value has sort Float -/
 
-/-- **Every value of sort Float is a Float literal**: no constructor, injection, collection sort of
-the definition's own, overloading symbol, token or byte sort, nor raw parameter has Float as its
-sort. Then
-`precisionFloat` and `exponentBitsFloat`, which read a literal's format, have a value at every
-Float (`fmt_total`). -/
-def Semantics.floatShapeOK (c : Semantics) : Bool :=
-  c.ctorSigs.all (·.result != Srt.float) && c.subsorts.all (·.2 != Srt.float) &&
-  !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.float &&
-  c.colls.all (·.sort != Srt.float) && c.ovlSigs.all (·.result != Srt.float) &&
-  c.params.all (fun k => !(k.raw && k.sig.result == Srt.float))
+/-! `Semantics.floatShapeOK` is defined in Tie.lean, above `paramsPlain`, which reads it. -/
 
 /-- Float is no collection sort where none of the definition's own has it as its sort. -/
 theorem collOf_float {c : Semantics} (hcoll : ∀ k ∈ c.colls, (k.sort != Srt.float) = true) {k : CollSig}

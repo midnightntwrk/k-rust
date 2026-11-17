@@ -96,16 +96,96 @@ theorem Semantics.sortedOK_clause {c : Semantics} (h : c.sortedOK = true) {fn : 
   obtain ⟨⟨⟨-, hpre⟩, hpost⟩, -⟩ := h.1.2 fn hfn cl hcl
   exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
 
-/-- `sortedOK` gives the parameters no open generator. -/
-theorem Semantics.params_raw_of_sortedOK {c : Semantics} (h' : c.sortedOK = true) :
-    ∀ k ∈ c.params, k.raw = false := by
-  simp only [Semantics.sortedOK, Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at h'
-  intro k hk
-  simpa using (h'.2.1 k hk).1.1
+/-- What `paramsPlain` asks of an open generator (its `raw` branch): no registry hook, not both
+laws, two arguments of its result sort where it has a law, a number outside the registry, no name
+like an `ite`'s, and `shapesOK` and `floatShapeOK` of the semantics. -/
+theorem Semantics.raw_of_paramsPlain {c : Semantics} (h : c.paramsPlain = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) :
+    k.impl = none ∧ (k.assoc && k.idem) = false ∧
+    ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
+    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    c.shapesOK = true ∧ c.floatShapeOK = true := by
+  simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at h
+  have hp := h.1 k hk
+  simp only [hr, ↓reduceIte, Bool.and_eq_true, Option.isNone_iff_eq_none, Bool.not_eq_true',
+    Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩ := hp
+  refine ⟨h1, h2, fun hl => ?_, h4, h5, h6, h7⟩
+  rcases h3 with h3 | h3
+  · rw [hl] at h3; cases h3
+  · exact h3
 
-/-- `coreOK` gives the parameters no open generator. -/
-theorem Semantics.params_raw_of_core {c : Semantics} (h : c.coreOK = true) : ∀ k ∈ c.params, k.raw = false :=
-  Semantics.params_raw_of_sortedOK (Semantics.coreOK_parts h).1
+/-- What `sortedOK` asks of an open generator (`paramsPlain`'s raw branch). -/
+theorem Semantics.raw_of_sortedOK {c : Semantics} (h : c.sortedOK = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) :
+    k.impl = none ∧ (k.assoc && k.idem) = false ∧
+    ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
+    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    c.shapesOK = true ∧ c.floatShapeOK = true := by
+  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
+  exact Semantics.raw_of_paramsPlain h.2 hk hr
+
+/-- What `coreOK` asks of an open generator (`paramsPlain`'s raw branch). -/
+theorem Semantics.raw_of_core {c : Semantics} (h : c.coreOK = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) :
+    k.impl = none ∧ (k.assoc && k.idem) = false ∧
+    ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
+    nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
+    c.shapesOK = true ∧ c.floatShapeOK = true :=
+  Semantics.raw_of_sortedOK (Semantics.coreOK_parts h).1 hk hr
+
+/-- `idsOK` numbers each parameter outside the registry once: their names are without repetition. -/
+theorem Semantics.paramsOnce_of_ids {c : Semantics} (h : c.idsOK = true) :
+    ((c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)).map (·.sig.name)).Nodup := by
+  unfold Semantics.idsOK at h
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  have he : c.ownSyms = _ := h.1.1.2
+  have hnd : c.ownSyms.Nodup := by rw [he]; exact List.nodup_range' ..
+  unfold Semantics.ownSyms at hnd
+  exact (List.nodup_append.mp (List.nodup_append.mp hnd).1).2.1
+
+/-- **The lookups find a raw parameter itself**, where it is numbered outside the registry and
+`idsOK` holds: no other parameter bears its number (`paramsOnce_of_ids`), so `lookupParam` and
+`lookupOpen` at its name answer it, not another parameter of the same name. -/
+theorem Semantics.raw_lookup {c : Semantics} (hids : c.idsOK = true) {k : ParamSig} (hk : k ∈ c.params)
+    (hr : k.raw = true) (hreg : nRegSyms ≤ k.sig.name) :
+    c.lookupParam k.sig.name = some k ∧ c.lookupOpen k.sig.name = some k := by
+  have hnd := Semantics.paramsOnce_of_ids hids
+  have huniq : ∀ kp ∈ c.params, kp.sig.name = k.sig.name → kp = k := fun kp hkp he =>
+    Faithful.Model.inj_of_nodup_map hnd kp (List.mem_filter.mpr ⟨hkp, by simpa [he] using hreg⟩) k
+      (List.mem_filter.mpr ⟨hk, by simpa using hreg⟩) he
+  constructor
+  · rw [Semantics.lookupParam_eq]
+    cases hf : c.params.find? (·.sig.name == k.sig.name) with
+    | none => exact absurd (List.find?_eq_none.mp hf k hk) (by simp)
+    | some kp =>
+      rw [huniq kp (List.mem_of_find?_eq_some hf) (by simpa using List.find?_some hf)]
+  · unfold Semantics.lookupOpen
+    simp only [hreg, ↓reduceIte]
+    cases hf : c.params.find? (fun k' => k'.raw && k'.sig.name == k.sig.name) with
+    | none => exact absurd (List.find?_eq_none.mp hf k hk) (by simp [hr])
+    | some kp =>
+      have h2 := List.find?_some hf
+      simp only [Bool.and_eq_true, beq_iff_eq] at h2
+      rw [huniq kp (List.mem_of_find?_eq_some hf) h2.2]
+
+/-- No constructor and no overloading symbol bears an open generator's name (`genWf`'s flat
+conjunct), so neither lookup answers at it. -/
+theorem Semantics.raw_noCtor {c : Semantics} (hg : Faithful.genWf c = true) {k : ParamSig}
+    (hk : k ∈ c.params) (hr : k.raw = true) :
+    lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none := by
+  simp only [Faithful.genWf, Bool.and_eq_true, List.all_eq_true] at hg
+  have := hg.2 k hk
+  simp only [hr, Bool.not_true, Bool.false_or, Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq] at this
+  obtain ⟨⟨hc, ho⟩, -⟩ := this
+  constructor
+  · rw [lookupSig_eq, List.find?_eq_none]
+    intro g hgm
+    simpa using (hc g hgm).1
+  · unfold Semantics.lookupOvl
+    rw [List.find?_eq_none]
+    intro o ho'
+    simpa using (ho o.sig (List.mem_map_of_mem (f := (·.sig)) ho')).1
 
 /-- **`OpenTotal` where the interpretation answers nothing**: each open generator's application to
 values of its argument sorts is then its raw application, a value of its result sort
@@ -123,17 +203,21 @@ theorem openTotal_of_noAnswer {c : Semantics} (hn : ∀ f vs, c.hooks.app f vs =
   rfl
 
 /-- What `coreOK` gives of each raw parameter for `openTotal_of_noAnswer`: the parameter and the
-open generator its name finds, of its signature, with no registry hook, its name no constructor's
-and no overloading symbol's. Under `coreOK` no parameter is raw (`paramsPlain`), so this is where
-`openTotal_none` takes that fact; once `paramsPlain` admits raw parameters it is to be re-proved
-from its `raw` branch (no hook, no registry number) and `genWf`'s flat conjunct
-(`genWf_flat_name`), with a fact that the parameter `lookupParam` finds is the raw one
-(`NamesApartK` gives equal signatures only), as `HypModelCore.open_param` needs. -/
+open generator its name finds are the raw parameter itself (`raw_lookup`: `paramsPlain`'s raw
+branch numbers it outside the registry and `idsOK` numbers it once), with no registry hook
+(`raw_of_core`), its name no constructor's and no overloading symbol's (`raw_noCtor`, from
+`genWf`'s flat conjunct). -/
 theorem Semantics.raw_open_core {c : Semantics} (h : c.coreOK = true) :
     ∀ k ∈ c.params, k.raw = true → ∃ kp, c.lookupParam k.sig.name = some kp ∧
       c.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
-      lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none :=
-  fun k hk hr => absurd hr (by simp [Semantics.params_raw_of_core h k hk])
+      lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none := by
+  intro k hk hr
+  obtain ⟨hi, -, -, hreg, -, -, -⟩ := Semantics.raw_of_core h hk hr
+  obtain ⟨hlp, hlo⟩ := Semantics.raw_lookup (Semantics.coreOK_parts h).2.2.2.2 hk hr hreg
+  have hfa := (Semantics.coreOK_parts h).2.1
+  simp only [Semantics.faithCoreOK, Bool.and_eq_true] at hfa
+  obtain ⟨hc, ho⟩ := Semantics.raw_noCtor hfa.1.1.1.1.1.1.1.1.1.1.2 hk hr
+  exact ⟨k, hlp, hlo, rfl, hi, hc, ho⟩
 
 /-- **`OpenTotal` at `HookParams.none`** (CN-4 §3.4 V1): where the interpretation answers nothing,
 every open generator has a value, its raw application, at every argument list of its sorts. -/
