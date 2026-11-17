@@ -178,10 +178,12 @@ inductive RefusalReason where
   no overloading symbol or subsort ends at (`openGenFault`); otherwise it is refused, the detail
   naming the symbol and why. -/
   | openGenerator
-  /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is not the concatenation of a
-  collection of the definition (an `[idem]` axiom: of a set): the law of another symbol, which no
-  reading of the collections states (`Account.lawUnmatched`). The detail names the symbol and the
-  law. -/
+  /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is neither the concatenation
+  of a collection of the definition (an `[idem]` axiom: of a set) nor a function of the definition
+  or a parameter no hook implements and no open generator (`fnLawHead`, read into
+  `Presentation.laws`): the law of another symbol, which no reading of the collections states
+  (`Account.lawUnmatched`); or a function's law that is no equation between terms (`fnLawOf`) or
+  whose sides are of no one sort (`fnLawSortedOf`). The detail names the symbol and the law. -/
   | lawAxiom
   /-- A sort declaration with an attribute that is neither its place, `hasDomainValues`, `token`
   (a token sort), nor `label` (a name, which says nothing of the sort's values): an attribute whose
@@ -4640,6 +4642,78 @@ def initFaults (N : Names) (msrc : String) (sents : List Kore.Sentence) (eqs : L
     else none
   getter ++ inits ++ fns
 
+/-! ## The laws of functions
+
+An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is a function of the definition and
+no collection's concatenation states an equation between applications of the function for every
+element: `f(f(K1, K2), K3) = f(K1, f(K2, K3))` and the like. The function's value is its clauses'
+where one applies and the interpretation's elsewhere (`Semantics.fnRest`), so the equation reads
+the interpretation. It is read as a `LawEq` of `Presentation.laws`, which `Γ` does not hold: the
+statements take it at values, under `FnLaws`, which the account lists as owed. -/
+
+/-- The symbol named `h` is a function of `c`, or a parameter that no registry hook implements and
+that is no open generator (a `function` production without equations), and no collection's
+concatenation. -/
+def fnLawHead (c : Semantics) (h : String) : Bool :=
+  (c.fns.any (c.symName ·.label == h) ||
+    c.params.any fun k => k.impl.isNone && !k.raw && c.symName k.sig.name == h) &&
+  !c.allColls.any (c.symName ·.concat == h)
+
+/-- The law axioms of the sentences `ss` whose symbol is a function of `c` and no collection's
+concatenation (`fnLawHead`), each with its position: the axioms classified as a collection's laws
+(`InertReason.collectionLaw`, `UnreadReason.setIdempotence`) by their shape alone. -/
+def fnLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Axiom) :=
+  ss.zipIdx.filterMap fun (s, i) => match s, classify s with
+    | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
+      if (lawHead? a).any (fnLawHead c) then some (i, a) else none
+    | _, _ => none
+
+mutual
+  /-- The pattern with each element variable `K` named `VarK`, the names `term` reads; `none`
+  where it holds anything but applications, element variables and domain values. -/
+  def lawVarsNamed : Kore.Pattern → Option Kore.Pattern
+    | .var (.evar x) => some (.var (.evar { x with var := { x.var with ident := { x.var.ident with name := "Var" ++ x.var.ident.name } } }))
+    | .dv s t => some (.dv s t)
+    | .app h ss ps => (lawVarsNamedList ps).map (.app h ss ·)
+    | _ => none
+    termination_by structural p => p
+  def lawVarsNamedList : List Kore.Pattern → Option (List Kore.Pattern)
+    | [] => some []
+    | p :: ps => match lawVarsNamed p, lawVarsNamedList ps with
+      | some q, some qs => some (q :: qs)
+      | _, _ => none
+    termination_by structural ps => ps
+end
+
+/-- Both sides of the law have one sort in the context of right sides, and each of its variables
+occurs in one of them: `Faithful`'s `lawSorted`, which this module does not import, by the same
+body (test/OpenGenerator.lean checks the two are equal). -/
+def fnLawSorted (c : Semantics) (l : LawEq) : Bool :=
+  let x := c.rhsCtx (c.fns.map Fn.sig)
+  (sortOfTerm x l.vars l.lhs).isSome && sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
+    binds l.vars.length (varOccs l.lhs ++ varOccs l.rhs)
+
+/-- The law the axiom `a` states, `\equals{S,R}(lhs, rhs)` over its free element variables. -/
+def fnLawOf (N : Names) (a : Kore.Axiom) : Rd LawEq := Rd.within (.sentence (.axiom a)) do
+  match a.pattern with
+  | .equals _ _ l r =>
+    let detail := s!"{(lawHead? a).getD ""}: {", ".intercalate (lawKeys a)}: a side that is no term"
+    let l ← need (lawVarsNamed l) .lawAxiom detail
+    let r ← need (lawVarsNamed r) .lawAxiom detail
+    let (lt, vs) ← term N [] l
+    let (rt, vs) ← term N vs r
+    pure { vars := ← varSorts N vs, lhs := lt, rhs := rt }
+  | _ => fail .lawAxiom s!"{(lawHead? a).getD ""}: no equation"
+
+/-- The law the axiom `a` states (`fnLawOf`), where both its sides are of one sort and every variable
+is in a side (`fnLawSorted`): the law's sentence is then `Faithful.lawPattern`'s, whose model
+`consistent_with_laws` exhibits. -/
+def fnLawSortedOf (c : Semantics) (N : Names) (a : Kore.Axiom) : Rd LawEq := do
+  let l ← fnLawOf N a
+  if fnLawSorted c l then pure l
+  else Rd.within (.sentence (.axiom a)) (fail .lawAxiom
+    s!"{(lawHead? a).getD ""}: {", ".intercalate (lawKeys a)}: its sides are of no one sort")
+
 /-- The presentation's per-sort and per-cell parts: the sorts' unique ids, the cell sorts' unique
 ids, the cells' initializers' ids, and the leaf cells' initial values. -/
 structure CellParts where
@@ -4696,7 +4770,8 @@ def presOf (m : Kore.Module) (S : Scan) (E : Env) (prods : List Prod) (rules : L
          config := E.config
          sortLocs := ← S.locSorts.mapM fun (X, l, src) => do pure (← E.N.srtE X, l, src)
          libProjs := E.libProjs
-         generatedFns := E.genFns.map (·.1.label) }
+         generatedFns := E.genFns.map (·.1.label)
+         laws := ← (fnLawAxioms core m.sentences).mapM fun (_, a) => fnLawSortedOf core E.N a }
 
 /-- The certificates: for each function, its first decreasing argument. -/
 def certOf (core : Semantics) : Certificates :=

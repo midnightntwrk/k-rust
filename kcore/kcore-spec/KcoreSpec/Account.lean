@@ -546,8 +546,9 @@ ranges overlap the text states no value (`silentTable`), Γ states the interpret
 there is a condition on the interpretation. The same law of another
 symbol states something of that symbol which no reading of the collections states. -/
 
-/-- The law axioms whose symbol is not the concatenation of a collection of `d` (an idempotence
-axiom: of a set): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
+/-- The law axioms whose symbol is neither the concatenation of a collection of `d` (an idempotence
+axiom: of a set) nor a function of `d` or a parameter no hook implements and no open generator
+(`fnLawHead`; whose laws `presOf` reads into `Presentation.laws`, `fnLawAxioms`): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
 def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -559,9 +560,18 @@ def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
     m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
       | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
         let h := (lawHead? a).getD ""
-        if concatOf h (hasAttr a.attributes "idem") then none
+        if concatOf h (hasAttr a.attributes "idem") || fnLawHead c h then none
         else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {", ".intercalate (lawKeys a)}"⟩
       | _, _ => none
+
+/-- The law axioms on the functions of `d` (`fnLawAxioms`), each read as the law of
+`Presentation.laws` at its place: the sentence's index, the symbol and the laws named. Each is
+stated at values under `FnLaws`, owed. -/
+def fnLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String × List String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m => (fnLawAxioms d.sem m.sentences).map fun (i, a) =>
+    (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
 
 /-! ## The library's modules in a K installation's text
 

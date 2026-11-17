@@ -2657,6 +2657,11 @@ def account (koreFile : String) : IO UInt32 := do
     let lu := Parse.lawUnmatched k d
     IO.println s!"law axioms of no collection's concatenation: {lu.length}"
     for r in lu.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when the text writes a law for a function
+    let fl := Parse.fnLawSentences k d
+    unless fl.isEmpty do
+      IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
+      for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
     IO.println s!"rules with an `ensures`: {Parse.rulesWithEnsures d}"
     IO.println s!"rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): {Parse.rulesRightDefined d}"
     let fp := Parse.functionInPattern k d
