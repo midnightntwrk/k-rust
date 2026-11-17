@@ -820,7 +820,7 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
-- `test/HooksInt.lean`: the 20 supported hook rows of INT (the sort, sixteen operations and, in the last section, three more) against
+- `test/HooksInt.lean`: the 23 supported hook rows of INT (the sort, sixteen operations and, in the last two sections, six more) against
   domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
   result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
   `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
@@ -832,6 +832,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   highest set bit, each by a property with one solution; at a negative amount and at x ≤ 0 the
   prose says `#False`, `hook` gives no value, the point is not silent and Γ states ⊥ under every
   interpretation; none of the three is a parameter symbol of a library module.
+  The three rows `INT.bitRange`, `INT.signExtendBitRange`, `INT.powmod`: the equations of the bit
+  ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
+  value or both none (no value at a negative index or length, the sign extension also at length
+  0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥) and is silent
+  everywhere else.
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
   cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under

@@ -256,7 +256,8 @@ def pts : List Pt :=
    ⟨floatCeil, [t18], f64 0⟩, ⟨floatTrunc, [t18], f64 0⟩,
    ⟨floatLe, [t18, t18], bool true⟩, ⟨floatLt, [t18, f64 0], bool true⟩, ⟨floatGe, [f64 0, t18], bool true⟩,
    ⟨floatGt, [t18, t18], bool true⟩, ⟨floatEq, [t18, t18], bool true⟩, ⟨floatNe, [t18, t18], bool false⟩,
-   ⟨floatIsNaN, [n18], bool false⟩, ⟨floatIsInfinite, [t18], bool true⟩]
+   ⟨floatIsNaN, [n18], bool false⟩, ⟨floatIsInfinite, [t18], bool true⟩,
+   ⟨intPowMod, [int 2, int 3, int 5], int 0⟩]
 
 /-- RANGEMAP's seven keys of `silentTable`. -/
 def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
@@ -444,7 +445,10 @@ theorem vals_hookRes : ∀ p ∈ vals, ∀ H : HookParams, (c.withHooks H).hookR
 `_Set_` on a common member (706-707); `B[I <- V]` at `I = length` and at `V = 256` (2103-2105);
 `B[I]` at `I = length` (2115); `substrBytes(B, 2, 1)` (2136-2139); `padRightBytes(B, -1, 0)`,
 `padLeftBytes(B, 1, 256)` (2176-2177); `replaceAtBytes(b"ab", 1, b"xy")`, an end above the length,
-and `replaceAtBytes(b"abc", -1, b"xy")`, a negative index (2146-2147: a range that leaves `dest`). -/
+and `replaceAtBytes(b"abc", -1, b"xy")`, a negative index (2146-2147: a range that leaves `dest`);
+`2 ^%Int 3 0`, `(2 ^Int 3) %Int 0` (1229-1231, 1233-1234); `bitRangeInt(1, -1, 1)` and
+`signExtendBitRangeInt(1, 0, 0)`, whose equations (1438, 1440) apply a shift by a negative amount
+(1238-1242). -/
 def bots : List Pt :=
   [⟨intTDiv, [int 7, int 0], int 0⟩, ⟨intTMod, [int 7, int 0], int 0⟩,
    ⟨intEDiv, [int 7, int 0], int 0⟩, ⟨intEMod, [int 7, int 0], int 0⟩,
@@ -456,7 +460,9 @@ def bots : List Pt :=
    ⟨bytesSubstr, [b "abc", int 2, int 1], int 0⟩,
    ⟨bytesPadRight, [b "a", int (-1), int 0], int 0⟩, ⟨bytesPadLeft, [b "a", int 1, int 256], int 0⟩,
    ⟨bytesReplaceAt, [b "ab", int 1, b "xy"], int 0⟩,
-   ⟨bytesReplaceAt, [b "abc", int (-1), b "xy"], int 0⟩]
+   ⟨bytesReplaceAt, [b "abc", int (-1), b "xy"], int 0⟩,
+   ⟨intPowMod, [int 2, int 3, int 0], int 0⟩,
+   ⟨intBitRange, [int 1, int (-1), int 1], int 0⟩, ⟨intSignExtBitRange, [int 1, int 0, int 0], int 0⟩]
 
 theorem bots_ok : bots.all (fun p => (sig p.f) ∈ hookSigs && (sig p.f).name == p.f &&
     c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some none && !silent p.f p.vs) = true := by

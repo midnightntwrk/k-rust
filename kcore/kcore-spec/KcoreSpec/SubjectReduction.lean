@@ -337,6 +337,15 @@ theorem nonzero_some {y r : Int} {v : GroundTerm} (h : nonzero y r = some v) : v
   · cases h
   · exact (Option.some.inj h).symm
 
+theorem intArgs3_some {vs : List GroundTerm} {g : Int → Int → Int → Option GroundTerm} {v : GroundTerm}
+    (h : intArgs3 vs g = some v) : ∃ x y z, g x y z = some v := by
+  unfold intArgs3 at h
+  split at h
+  · simp only [Option.bind_eq_some_iff] at h
+    obtain ⟨x, _, y, _, z, _, h⟩ := h
+    exact ⟨x, y, z, h⟩
+  · cases h
+
 /-- The hooked symbols are those with a signature, and conversely (decided on the tables). -/
 theorem hookSigs_hooked : ∀ k ∈ hookSigs, isHook k.name = true := by decide +kernel
 
@@ -1140,12 +1149,13 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
-    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   all_goals
     simp only [lookupSig_eq, hookSigs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
       List.find?_cons, boolNot, boolAnd, boolAndThen, boolOr, boolOrElse, boolXor, boolImplies,
       boolEq, boolNe, intAdd, intSub, intMul, intTDiv, intTMod, intEDiv, intEMod, intMin, intMax,
-      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, intShr, intShl, intLog2, kEq, kNe,
+      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, intShr, intShl, intLog2, intPowMod,
+      intBitRange, intSignExtBitRange, kEq, kNe,
       mapUnit, mapElem,
       mapConcat, mapUpdate, mapRemove, mapLookup, mapLookupOrDefault, mapInKeys, mapSize,
       mapRemoveAll, mapKeys, setUnit, setElem, setConcat, setUnion, setIntersect, setDifference,
@@ -1163,6 +1173,11 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
             · obtain rfl := Option.some.inj hg; exact sortOf_int _)
          | (simp only [Option.some.injEq] at hg; subst hg
             first | exact sortOf_int _ | exact sortOf_bool _))
+    | (obtain ⟨_, _, _, hg⟩ := intArgs3_some hev
+       split at hg
+       · cases hg
+       · obtain rfl := Option.some.inj hg; exact sortOf_int _)
+    | (simp only [reduceCtorEq] at hev; done)
     | skip
   all_goals
     dsimp only at hws ⊢

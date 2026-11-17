@@ -19,11 +19,11 @@ Rows by status:
 | E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
-| E6 | 826 | 510 | 103 | 116 | 42 | 55 | 0 | 0 |
+| E6 | 826 | 513 | 100 | 116 | 42 | 55 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 23 | 0 | 9 | 2 | 10 | 0 | 0 |
-| all | 1458 | 808 | 110 | 209 | 192 | 134 | 5 | 0 |
+| all | 1458 | 811 | 107 | 209 | 192 | 134 | 5 | 0 |
 
 Nested entries by status:
 
@@ -1262,7 +1262,7 @@ Not core:
 | `hook:BYTES.get:Lbl'UndsLSqBUndsRSqBUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes'Unds'Int` | supported |  | K-coverage Part C at 57f851ec: parameter |  |  |  | no | no | FixedSignature.lean regHookNames: BYTES.get |
 | `hook:BYTES.getMInt:Lbl'UndsLSqBUndsRSqBUnds'BYTES-HOOKED'Unds'MInt'Unds'Bytes'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:SUBSTITUTION.substMany:Lbl'UndsLSqBUndsRSqBUnds'SUBSTITUTION'Unds'Sort'Unds'Sort'Unds'Map` | refused | R-a | The hooked symbol is sort-parametric (\`{SortSort}(SortSort, ...) : SortSort\`). Decision Q11: the declaration is unread (parametricUnused) and an application of a hooked instance is refused (parametricSymbol). |  |  |  | no | no | all-builtins definition.kore: \`hooked-symbol Lbl'Hash'freezeKVariables...{SortSort}\`, \`Lbl'UndsLSqBUndsSlshUndsRSqBUnds'SUBSTITUTION...{SortSort}\`; Parse.lean:211-221, :1699; fixture e2-cells-stream account \`1 unread parametricUnused [builtin]\` (#unparseKORE) |
-| `hook:INT.powmod:Lbl'UndsXor-Perc'Int'UndsUnds'` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.powmod:Lbl'UndsXor-Perc'Int'UndsUnds'` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.powmod |
 | `hook:FLOAT.pow:Lbl'UndsXor-'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float` | parameter |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | BuiltinData.lean modules: FLOAT; Builtins.libParams (no registry hook) |
 | `hook:INT.pow:Lbl'UndsXor-'Int'Unds'` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
 | `hook:MINT.pow:Lbl'UndsXor-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
@@ -1296,7 +1296,7 @@ Not core:
 | `hook:FLOAT.atan2:Lblatan2Float'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float` | parameter |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | BuiltinData.lean modules: FLOAT; Builtins.libParams (no registry hook) |
 | `hook:FLOAT.atan:LblatanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float` | parameter |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | BuiltinData.lean modules: FLOAT; Builtins.libParams (no registry hook) |
 | `symbol:BYTES-HOOKED:LblbigEndianBytes` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: BYTES-HOOKED, read as the library's text |
-| `hook:INT.bitRange:LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.bitRange:LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.bitRange |
 | `hook:MINT.bitwidth:LblbitwidthMInt'LParUndsRParUnds'MINT'Unds'Int'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:STRING.category:LblcategoryChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String` | parameter |  |  |  |  |  | no | yes | BuiltinData.lean modules: STRING-COMMON; Builtins.libParams (no registry hook) |
 | `hook:FLOAT.ceil:LblceilFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.ceil |
@@ -1373,7 +1373,7 @@ Not core:
 | `hook:MINT.round:LblroundMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:MINT.smax:LblsMaxMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:MINT.smin:LblsMinMInt'LParUndsCommUndsRParUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
-| `hook:INT.signExtendBitRange:LblsignExtendBitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.signExtendBitRange:LblsignExtendBitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.signExtendBitRange |
 | `hook:MINT.sext:LblsignExtendMInt'LParUndsRParUnds'MINT'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:FLOAT.sign:LblsignFloat'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float` | parameter |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | BuiltinData.lean modules: FLOAT; Builtins.libParams (no registry hook) |
 | `symbol:BYTES-HOOKED:LblsignedBytes` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: BYTES-HOOKED, read as the library's text |
