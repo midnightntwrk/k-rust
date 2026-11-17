@@ -46,3 +46,23 @@ quote = "You can get a `List` of all the keys in a Map in O(N) time."
 source = "domains"
 locator = "k-distribution/include/kframework/builtin/domains.md:362 (K 7.1.337)"
 quote = "You can get a `List` of all the values in a map in O(N) time."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:393 (K 7.1.337)"
+quote = "syntax KItem ::= choice(Map) [function, hook(MAP.choice), symbol(Map:choice)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:804 (K 7.1.337)"
+quote = "syntax KItem ::= choice(Set) [function, hook(SET.choice), symbol(Set:choice)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1069 (K 7.1.337)"
+quote = "syntax List ::= Set2List(Set) [function, total, hook(SET.set2list)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1051-1053 (K 7.1.337)"
+quote = "Converting from a `Set` to a `List` and back will generate the same set."

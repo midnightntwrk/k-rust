@@ -25,3 +25,8 @@ quote = "syntax Int ::= freshInt(Int) [freshGenerator, function, total, private]
 source = "manual"
 locator = "docs/user_manual.md:585-588 (K 7.1.337)"
 quote = "For this, K will still generate a fresh `Int`, but can use a converter function you supply to turn it into the correct sort."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments."
