@@ -417,6 +417,87 @@ def ovlRank (c : Semantics) (f : Sym) : Nat :=
 def KnownSig (c : Semantics) (k : CtorSig) : Prop :=
   lookupSig (c.ctorSigs ++ c.ovlSigs) k.name = some k
 
+/-- A symbol found among `L` has there the signature it has among `L` followed by more. -/
+theorem lookupSig_append_of_isSome {L L' : List CtorSig} {g : Sym} (h : (lookupSig L g).isSome = true) :
+    lookupSig (L ++ L') g = lookupSig L g := by
+  rw [lookupSig_eq] at h
+  rw [lookupSig_eq, lookupSig_eq, List.find?_append]
+  cases hL : L.find? (·.name == g) with
+  | none => rw [hL] at h; cases h
+  | some k => rfl
+
+/-- A known signature is no function's (`ovlByFn`). -/
+theorem ovlByFn_of_known {k : CtorSig} (hk : KnownSig c k) : c.ovlByFn k = false := by
+  unfold KnownSig at hk
+  simp [Semantics.ovlByFn, hk]
+
+/-- No overload of an overloading symbol is a function, in a semantics without a function-overloaded
+symbol. -/
+theorem noFnOvl_label {c : Semantics} (h : c.fnOvlSyms = []) {o : OvlSig} (ho : o ∈ c.ovls) {g : Sym}
+    (hg : g ∈ o.over) {fn : Fn} (hfn : fn ∈ c.fns) : (fn.label == g) = false := by
+  cases hb : fn.label == g with
+  | false => rfl
+  | true =>
+    have : o.sig.name ∈ c.fnOvlSyms := List.mem_map.mpr ⟨o, List.mem_filter.mpr ⟨ho,
+      List.any_eq_true.mpr ⟨g, hg, List.any_eq_true.mpr ⟨fn, hfn, hb⟩⟩⟩, rfl⟩
+    rw [h] at this; cases this
+
+/-- For a semantics without a function-overloaded symbol, the symbols an overloading symbol
+overloads are read among the constructors and the overloading symbols. -/
+theorem ovlOver_of_noFnOvl {c : Semantics} (h : c.fnOvlSyms = []) {o : OvlSig} (ho : o ∈ c.ovls) :
+    c.ovlOver o = o.over.filterMap fun g => lookupSig (c.ctorSigs ++ c.ovlSigs) g := by
+  unfold Semantics.ovlOver
+  have hcongr : ∀ (F G : Sym → Option CtorSig) (l : List Sym), (∀ g ∈ l, F g = G g) →
+      l.filterMap F = l.filterMap G := by
+    intro F G l
+    induction l with
+    | nil => intro _; rfl
+    | cons a l ih =>
+      intro hl
+      simp only [List.filterMap_cons, hl a (List.mem_cons_self ..), ih fun g hg => hl g (List.mem_cons_of_mem _ hg)]
+  refine hcongr _ _ _ fun g hg => ?_
+  cases hs : (lookupSig (c.ctorSigs ++ c.ovlSigs) g).isSome with
+  | true => exact lookupSig_append_of_isSome hs
+  | false =>
+    rw [lookupSig_eq] at hs
+    rw [lookupSig_eq, lookupSig_eq, List.find?_append]
+    have hn : (c.ctorSigs ++ c.ovlSigs).find? (·.name == g) = none := by
+      cases hx : (c.ctorSigs ++ c.ovlSigs).find? (·.name == g) with
+      | none => rfl
+      | some _ => rw [hx] at hs; cases hs
+    rw [hn, Option.none_or, List.find?_eq_none]
+    intro k hk
+    obtain ⟨fn, hfn, rfl⟩ := List.mem_map.mp hk
+    simp [noFnOvl_label h ho hg hfn]
+
+/-- For a semantics without a function-overloaded symbol, no overload's signature is a function's. -/
+theorem ovlByFn_of_noFnOvl {c : Semantics} (h : c.fnOvlSyms = []) {o : OvlSig} (ho : o ∈ c.ovls)
+    {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : c.ovlByFn kg = false := by
+  rw [ovlOver_of_noFnOvl h ho] at hkg
+  obtain ⟨g, -, hgk⟩ := List.mem_filterMap.mp hkg
+  have hkn : kg.name = g := by
+    rw [lookupSig_eq] at hgk
+    simpa using List.find?_some hgk
+  simp [Semantics.ovlByFn, hkn, hgk]
+
+/-- For a semantics without a function-overloaded symbol, one step of `normN` is the first covering
+overload's normal form at the stripped arguments, lifted, whichever symbol it is of. -/
+theorem normN_succ_of_noFnOvl {c : Semantics} (h : c.fnOvlSyms = []) (n : Nat) (f : Sym) (vs : List GroundTerm) :
+    c.normN (n + 1) f vs = match c.lookupOvl f with
+      | none => .ctor f vs
+      | some o => match (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
+        | none => .ctor f vs
+        | some kg => lift kg.result o.sig.result (c.normN n kg.name (stripAll kg.args o.sig.args vs)) := by
+  cases ho : c.lookupOvl f with
+  | none => simp only [Semantics.normN, ho]
+  | some o =>
+    cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
+    | none => simp only [Semantics.normN, ho, hf]
+    | some kg =>
+      simp only [Semantics.normN, ho, hf,
+        ovlByFn_of_noFnOvl h (List.mem_of_find?_eq_some ho) (List.mem_of_find?_eq_some hf),
+        Bool.false_eq_true, ↓reduceIte]
+
 theorem ovlRank_le (f : Sym) : ovlRank c f ≤ c.ovls.length := by
   unfold ovlRank
   split
@@ -498,6 +579,28 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
       rw [ho] at hk; cases hk
       exact .inr ⟨by rw [lookupSig_eq, hc], o, rfl, rfl⟩
 
+/-- A symbol an overloading symbol overloads is a constructor or an overloading symbol
+(`overloadsOK`), and `ovlOver` holds its signature among those. -/
+theorem ovlOver_known {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {kg : CtorSig}
+    (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := by
+  obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
+  have hok := H.ok
+  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
+  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
+  obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
+  have hfound : (lookupSig (c.ctorSigs ++ c.ovlSigs) g).isSome = true := by
+    rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
+    · rw [lookupSig_append_of_isSome h1]; exact h1
+    · obtain ⟨o', ho', hn'⟩ := List.any_eq_true.mp h2
+      rw [lookupSig_eq, List.find?_isSome]
+      exact ⟨o'.sig, List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_mem_take ho')), hn'⟩
+  rw [lookupSig_append_of_isSome hfound] at hgk
+  have hkn : kg.name = g := by
+    rw [lookupSig_eq] at hgk
+    simpa using List.find?_some hgk
+  unfold KnownSig; rw [hkn]; exact hgk
+
 /-- What `overloadsOK` gives of an overloading symbol's declaration. -/
 theorem ovl_facts {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
     o.sig.name = f ∧ c.isOvl f = true ∧ lookupSig c.ctorSigs f = none ∧ KnownSig c o.sig ∧
@@ -524,7 +627,7 @@ theorem ovl_facts {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
   have hkn : kg.name = g := by
     rw [lookupSig_eq] at hgk
     simpa using List.find?_some hgk
-  have hkk : KnownSig c kg := by unfold KnownSig; rw [hkn]; exact hgk
+  have hkk : KnownSig c kg := ovlOver_known H ho hkg
   refine ⟨hkk, hpair kg hkg, ?_⟩
   rcases knownSig_cases H hkk with ⟨-, hn'⟩ | ⟨hc', -⟩
   · exact .inl hn'
@@ -656,8 +759,8 @@ theorem normN_stable : ∀ n f, ovlRank c f ≤ n → ∀ m, n ≤ m → ∀ vs,
       cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
       | none => simp only [Semantics.normN, ho, hf]
       | some kg =>
-        simp only [Semantics.normN, ho, hf]
-        obtain ⟨-, -, hr'⟩ := hover kg (List.mem_of_find?_eq_some hf)
+        obtain ⟨hkk, -, hr'⟩ := hover kg (List.mem_of_find?_eq_some hf)
+        simp only [Semantics.normN, ho, hf, ovlByFn_of_known hkk, Bool.false_eq_true, ↓reduceIte]
         have hrk : ovlRank c kg.name ≤ n := by
           rcases hr' with h | h
           · rw [rank_of_none h]; omega
@@ -681,7 +784,8 @@ theorem norm_find_some {f : Sym} {o : OvlSig} {vs : List GroundTerm} {kg : CtorS
     rw [normN_stable H _ _ (Nat.le_refl _) c.ovls.length hr,
       normN_stable H _ _ (Nat.le_refl _) (c.ovls.length + 1) (by omega)]
   unfold Semantics.norm
-  simp only [Semantics.normN, ho, hf]
+  simp only [Semantics.normN, ho, hf, ovlByFn_of_known (ovlOver_known H ho (List.mem_of_find?_eq_some hf)),
+    Bool.false_eq_true, ↓reduceIte]
   rw [e1]
   rfl
 

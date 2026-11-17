@@ -357,9 +357,15 @@ def ovlCovers (kf kg : CtorSig) (vs : List GroundTerm) : Bool :=
   kg.args.length == kf.args.length && vs.length == kf.args.length &&
     ((kg.args.zip kf.args).zip vs).all fun ((A, B), v) => c.lies A B v
 
-/-- The signatures of the symbols the overloading symbol `o` overloads: constructors or
-overloading symbols. -/
-def ovlOver (o : OvlSig) : List CtorSig := o.over.filterMap fun g => lookupSig (c.ctorSigs ++ c.ovlSigs) g
+/-- The signatures of the symbols the overloading symbol `o` overloads: constructors, overloading
+symbols or functions of the definition, read in that order (the signature of a symbol of two kinds
+is the first's). -/
+def ovlOver (o : OvlSig) : List CtorSig := o.over.filterMap fun g =>
+  lookupSig (c.ctorSigs ++ c.ovlSigs ++ c.fns.map fun fn => ⟨fn.label, fn.args, fn.result⟩) g
+
+/-- The signature `kg` of an overloaded symbol (`ovlOver`) is a function's: its symbol is neither a
+constructor nor an overloading symbol, whose signatures `ovlOver` reads first. -/
+def ovlByFn (kg : CtorSig) : Bool := (lookupSig (c.ctorSigs ++ c.ovlSigs) kg.name).isNone
 
 /-- No overload of f covers `vs` (true of a symbol that is not an overloading symbol). -/
 def uncovered (f : Sym) (vs : List GroundTerm) : Bool :=
@@ -552,18 +558,23 @@ theorem sortOf_ctor_of_none {f : Sym} {ts : List GroundTerm} {s : Srt} (hno : c.
 
 /-- The value `f(vs)` denotes, with `n` steps along the overloads: the raw application where no
 overload of f covers `vs`, otherwise the value of the first symbol g whose overload covers it at
-the stripped arguments, lifted to f's result sort. -/
+the stripped arguments, lifted to f's result sort. Where that g is a function (`ovlByFn`) the
+application is left as it is: what it denotes is the function's value at the stripped arguments,
+lifted, which evaluation gives and no function on values does. -/
 def normN : Nat → Sym → List GroundTerm → GroundTerm
   | 0, f, vs => .ctor f vs
   | n + 1, f, vs => match c.lookupOvl f with
     | none => .ctor f vs
     | some o => match (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
       | none => .ctor f vs
-      | some kg => lift kg.result o.sig.result (normN n kg.name (stripAll kg.args o.sig.args vs))
+      | some kg =>
+        if c.ovlByFn kg then .ctor f vs
+        else lift kg.result o.sig.result (normN n kg.name (stripAll kg.args o.sig.args vs))
 
 /-- **The value an application denotes**: `normN` with one step per overloading symbol and one
 more (each overloaded overloading symbol is listed before the one overloading it,
-`overloadsOK`). For a symbol that is not an overloading symbol, the raw application. -/
+`overloadsOK`). For a symbol that is not an overloading symbol, the raw application; so is an
+application the overload of a function covers, which denotes no value of its own. -/
 def norm (f : Sym) (vs : List GroundTerm) : GroundTerm := c.normN (c.ovls.length + 1) f vs
 
 end Semantics

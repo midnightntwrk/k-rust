@@ -54,8 +54,8 @@ deriving instance ToExpr for CollSig
 deriving instance ToExpr for OvlSig
 
 instance : ToExpr Tables where
-  toExpr T := mkApp6 (mkConst ``Tables.mk) (toExpr T.subs) (toExpr T.sup) (toExpr T.inf) (toExpr T.sigs)
-    (toExpr T.colls) (toExpr T.ovls)
+  toExpr T := mkApp7 (mkConst ``Tables.mk) (toExpr T.subs) (toExpr T.sup) (toExpr T.inf) (toExpr T.sigs)
+    (toExpr T.colls) (toExpr T.ovls) (toExpr T.fnSigs)
   toTypeExpr := mkConst ``Tables
 
 /-- `tables_of NAME := TERM`: NAME is `tables` of TERM (a `Semantics`), computed by compiled code and
