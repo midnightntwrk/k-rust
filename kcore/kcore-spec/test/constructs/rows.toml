@@ -106,6 +106,14 @@
 #             delivered: "fixtures/<dir>/kompile.txt: exit <n>, <validator> <version> <error class>
 #             at <location>: <the sentence>" and the hand-written fixture's account line
 #             ("fixtures/<dir>/account.txt: ...").
+# Field of DONE-0 C7 (checked by test/provenance.sh), on a row or a nested table:
+#   derived   the row's evidence theorems, a list of tables: form ("a", "b" or "c": a Lean proof
+#             from the translated text, a derivation written by hand, or the pair of models showing
+#             the text entails no value), for form (a) kind ("from sentences" or "through the
+#             reading"; the second with family, the family it goes through) and sentences (the
+#             indices of the sentences that determine it), theorem (full name) and file (relative to
+#             kcore-spec) for forms (a) and (c), derivation (a file) for form (b). The theorem's
+#             statement mentions H (a name of type HookParams) and no AtNone file or namespace holds it.
 
 [E1]
 "Require:kw:requires" = { status = "supported", evidence = "fixtures/e1-module: kore.txt `symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()`; account.txt `parse: ok; wf true`", kimp = true, kore = false, fixture = "e1-module", sentence = ["Source(FIXTURE/lib.k)"], reason = "kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.import, Parse.lean:184).", reversal = "a kompiled text where a sentence of an imported module is absent from the main module, or where two modules' symbols of one K name are merged", cone = "none (reader already reads it)", triage = "findings/TRIAGE-A-E1-E3-E7-E8.toml [E1.\"module-structure\"]" }

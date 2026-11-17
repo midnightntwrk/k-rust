@@ -352,6 +352,17 @@ except for the failures its allowance (`ALLOWANCE` in units.py) names as owed by
 each kind of failure with its ticket and an exact pinned count, printed on every run, failing when
 the count differs from the pin or the ticket is missing or done (GUARD.units-standing).
 
+`test/provenance.sh` (run by `constructs.sh` last, and alone in about a second) is DONE-0 C7's first
+check, on the evidence theorems a row names in `derived` (rows-header.toml): each derivation carries
+its form ((a), (b), (c)) and, for form (a), its kind (`from sentences`, or `through the reading` with
+the family it goes through) and the sentences that determine it; each named theorem is declared once
+under its full name in its file, its statement mentions H (a name of type `HookParams` it binds and
+uses, or a `variable` of that type it mentions), no file or namespace of it is named `AtNone`, and a
+form (a) statement does not mention `FnShape`. The checks read the Lean text, not its elaboration.
+It prints the derivations by form and kind (the counts C7 asks for) and each failure;
+`test/provenance.sh --self-test` runs the checks on sixteen cases written to a scratch directory
+under `.lake`, each accepted or refused as expected.
+
 The K-level rows (E1, E2, E3, E7, E8) point at fixtures in `test/constructs/fixtures/`: small K texts
 kompiled by `python3 -I test/constructs/kfix.py run [NAME...]` (K 7.1.337, `--backend haskell`, one
 kompile at a time under the memory wrapper, about 2 s each). Each fixture keeps its text,

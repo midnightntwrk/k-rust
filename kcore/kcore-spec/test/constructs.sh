@@ -11,7 +11,8 @@
 # test/constructs/modifiers.py check: the pair table [C3] (DONE-0 C3). Then
 # test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
-# construct depends on it" (DONE-0 C5 part 4). Needs E6's kompiled text
+# construct depends on it" (DONE-0 C5 part 4). Then test/provenance.sh: the
+# evidence theorems the rows name (`derived`, DONE-0 C7 check 1). Needs E6's kompiled text
 # (test/constructs/kompile-e6.sh; exit 77 without it).
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
@@ -55,4 +56,5 @@ python3 -I test/constructs/kfix.py check || rc=1
 python3 -I test/constructs/units.py || rc=1
 python3 -I test/constructs/modifiers.py check || rc=1
 python3 -I test/constructs/provisional.py || rc=1
+test/provenance.sh || rc=1
 exit $rc
