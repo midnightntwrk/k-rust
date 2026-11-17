@@ -268,6 +268,8 @@ import KcoreSpec.LibEvFn
 import KcoreSpec.LibEvFnLib
 import KcoreSpec.LibEvFnBoolInt
 import KcoreSpec.TieChunks
+import KcoreSpec.LibEvFnColl
+import KcoreSpec.LibEvLaw
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
