@@ -14,8 +14,10 @@
     overload keeping the result sort and one keeping the argument sort; read; the text's
     distinctness of `asMedium` and `asSmall`, which the overload contradicts, is not read
     (`overloadConfusion`).
-  - `f2-examples/ovlfun.kompile.kore` (`ovlfun.k`): `capGas` overloads a function: refused
-    (`overloadForm`, the overloaded symbol named). Edited texts of ovlsub: an argument of the
+  - `f2-examples/ovlfun.kompile.kore` (`ovlfun.k`): `capGas` overloads the function `capN`: read,
+    with the function among `capGas`'s overloads (`Parse.overloadFunctions`,
+    `ReadingNote.overloadFunction`); not `coreOK`, whose `overloadsOK` admits no function overload.
+    Edited texts of ovlsub: an argument of the
     overload axiom that is no injected variable, a right side without its injection, and the
     overload axiom dropped (then `capGas` is a function without clauses, applied in a left side).
   - In the kernel, on ovlsub: the overloading symbol's data, `coreOK`; `capGas(inj{N,Gas}(z))`
@@ -91,9 +93,24 @@ def order (path : String) : IO String := do
 #guard_msgs in
 #eval show IO Unit from do IO.println (← verdict "f2-examples/ovlconf.kompile.kore")
 
-/-- info: overloadForm (LblcapN: neither a constructor nor an overloading symbol) -/
+/-- info: read; ovls [(LblcapGas, [LblcapN])]; unaccounted 0; not induced 0; confusions []; functionInPattern []; coreOK false -/
 #guard_msgs in
 #eval show IO Unit from do IO.println (← verdict "f2-examples/ovlfun.kompile.kore")
+
+/-- The overloading symbols that overload a function, each with those functions
+(`ReadingNote.overloadFunction`), and whether `overloadsOK` holds. -/
+def fnOverloads (path : String) : IO String := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile path) | return "KORE read error"
+  let .ok d := Parse.parse k | return "refused"
+  return s!"overloadFunction {Parse.overloadFunctions d}; overloadsOK {d.sem.overloadsOK}"
+
+/-- info: overloadFunction [(LblcapGas, [LblcapN])]; overloadsOK false -/
+#guard_msgs in
+#eval show IO Unit from do IO.println (← fnOverloads "f2-examples/ovlfun.kompile.kore")
+
+/-- info: overloadFunction []; overloadsOK true -/
+#guard_msgs in
+#eval show IO Unit from do IO.println (← fnOverloads "f2-examples/ovlsub.kompile.kore")
 
 /-- The overload axiom of ovlsub, its left side's argument and its right side. -/
 def ovlLhsArg : String := "LblcapGas{}(inj{SortN{}, SortGas{}} (K0:SortN{}))"

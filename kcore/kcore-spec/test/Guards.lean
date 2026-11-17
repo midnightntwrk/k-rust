@@ -1844,6 +1844,11 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.decl ``KCore.Guards.existsDropped_weaker, .decl ``KCore.Guards.existsDropped_empty,
         .test "test/ExReader.lean" "exKept_drop"],
       note := "G9 is stated on translated sentences, not over c.withHooks H, with no premise on the binder's sort and five premises on the numbering of the two sentences' variables, decided by computation at the instance (a sort without a constructor); no companion (the read sentence is the weaker: nothing is refuted); no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
+  | .overloadFunction =>
+    { status := .pending "GUARD.final",
+      guard := [.decl ``KCore.Faithful.funUncItem_of_funItem, .decl ``KCore.Faithful.injUncItem_of_injItem,
+        .test "test/Overloads.lean" "overloadFunction", .test "test/OvlFun.lean" "cons_items"],
+      note := "each sentence entails the item read of it (the item is the sentence at fewer arguments), in every interpretation; that the functional, injectivity and distinctness items of a function-overloaded symbol are the uncovered ones is kernel-checked on two hand-built semantics; no statement over c.withHooks H: coreOK admits no function overload yet" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -1922,7 +1927,8 @@ def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
-   .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped]
+   .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
+   .overloadFunction]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

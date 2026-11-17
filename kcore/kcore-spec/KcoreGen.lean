@@ -2772,6 +2772,12 @@ def account (koreFile : String) : IO UInt32 := do
       let oc := Parse.overloadConfusions k d
       IO.println s!"distinctness axioms an overload contradicts, stated by the text and not read (overloadConfusion): {oc.length}"
       for (i, h) in oc.take 10 do IO.println s!"      sentence {i} ({h})"
+      -- printed only when some overloading symbol overloads a function
+      let ofn := Parse.overloadFunctions d
+      unless ofn.isEmpty do
+        IO.println s!"overloading symbols that overload a function, their functional, injectivity and distinctness axioms read at the arguments no overload covers (overloadFunction): {ofn.length}"
+        for (f, gs) in ofn.take 10 do IO.println s!"      {f} over {", ".intercalate gs}"
+        IO.println "      at arguments an overload covers these axioms hold in a model only if the covering function is total there, injective there and apart from the other generators of the sort; if it is not, the text has no model (not decided here)"
     let cu := Parse.cellCollUnmatched k d
     IO.println s!"cell collection injections not of a collection of the definition: {cu.length}"
     for r in cu.take 5 do IO.println s!"      {r.toText}"

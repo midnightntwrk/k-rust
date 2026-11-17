@@ -159,7 +159,8 @@ inductive RefusalReason where
   a constructor nor a function) that is not the overload the kernel states (`OvlSig`,
   `KoreAML.Cons.ovlEqItem`): `f(lift x̄) = lift (g(x̄))`, `x̄` distinct variables of g's argument
   sorts, `lift` an injection between two different sorts and nothing between equal ones, g a
-  constructor or an overloading symbol, the overloads acyclic. The detail names what the axiom has
+  constructor, an overloading symbol or a function of the definition
+  (`ReadingNote.overloadFunction`), the overloads acyclic. The detail names what the axiom has
   that this form has not. -/
   | overloadForm
   /-- A projection with a selector-domain axiom (`ReadingNote.projectionDomainAsClause`) read as a
@@ -675,6 +676,16 @@ inductive ReadingNote where
   and the text states that the left side has no instance, of which the read sentence, holding for
   want of an instance, is a consequence. `Γ` states no more than the text. -/
   | existsDropped
+  /-- The `functional` axiom, the injectivity axiom and the distinctness axioms of an overloading
+  symbol f one of whose overloads is a function g of the definition (a function-overloaded symbol,
+  `Semantics.fnOvlSyms`), read at the arguments no overload of f covers
+  (`KoreAML.Cons.funUncItem`, `injUncItem`, `distUncItem`). At covered arguments the overload
+  equation `f(inj x̄) = inj(g(x̄))` gives the application g's value, so there the three sentences
+  hold in a model only if g is total, injective and apart from the other generators of f's sort;
+  where g is not, the text has no model. What is read is each sentence restricted to fewer
+  arguments, which the sentence entails; whether g is so is not decided
+  (`Parse.overloadFunctions`). -/
+  | overloadFunction
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -3924,19 +3935,19 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the definition's own hooked symbols are its parameter symbols, but those read as functions
   let paramNames := (S.userHooked.filter (!hookFnSym S ·)).map (·.symbol.ident.ident.name)
   -- an overload axiom of an overloading symbol is the kernel's overload equation (`ovlEqMissing`) of
-  -- a constructor or overloading symbol; any other is an equation of the overloading function, both
-  -- symbols functions
+  -- a constructor, an overloading symbol or a function with equations; any other is an equation of
+  -- the overloading function, both symbols functions
   let fnDecls := notOvl (((S.userSyms ++ genSyms).filter (!isCtorDecl ·)).map (·.symbol.ident.ident.name))
   let _ ← S.eqs.mapM fun e => match overloadSyms? e.attrs with
     | some (f, g) =>
       if ovlDeclNames.contains f then Rd.within (.attrs e.attrs) (
         match ovlDecls.find? (·.symbol.ident.ident.name == f), S.syms.find? (·.symbol.ident.ident.name == g) with
         | some fd, some gd =>
-          if isCtorDecl gd || ovlDeclNames.contains g then match ovlEqMissing fd gd e with
+          if isCtorDecl gd || ovlDeclNames.contains g || fnNames.contains g then match ovlEqMissing fd gd e with
             | none => pure ()
             | some m => fail .overloadForm m
-          else fail .overloadForm s!"{g}: neither a constructor nor an overloading symbol"
-        | _, _ => fail .overloadForm s!"{g}: neither a constructor nor an overloading symbol")
+          else fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition"
+        | _, _ => fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition")
       else if fnDecls.contains f && fnDecls.contains g then pure ()
       else Rd.within (.attrs e.attrs) (fail .overloadAxiom f)
     | none => pure ()
