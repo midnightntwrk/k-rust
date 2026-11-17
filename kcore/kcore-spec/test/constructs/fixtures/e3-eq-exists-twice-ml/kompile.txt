@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-twice-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 8.1
+definition.kore bytes: 122531
+definition.kore sha256: 326f436ab2bb95b60821a48f6312226021b0fc73ec24d08b284acb61ee5f2ab9
+stripped sha256: df3fe80e9e24d267c7b861cdc24bc566cffdd9fec16dc64ff327ecd53b66cd0c
+main module: 282 sentences, 13 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-TWICE-ML-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-TWICE-ML as default.

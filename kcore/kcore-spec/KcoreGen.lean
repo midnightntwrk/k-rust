@@ -2220,16 +2220,18 @@ theorem rhs_sorted (H : HookParams) \{r : Rule} (hr : r ∈ c.rules) \{σ : Subs
   rhs_sorted_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ he
 
 /-- So every application of a rule to a configuration is a step: a match under a well-sorted σ, a
-true `requires`, a defined right-hand side, a true `ensures`, and no rule of a smaller priority
-applying. -/
+true `requires`, the predicate `pre` holding, a defined right-hand side, a true `ensures`, the
+predicate `post` holding, and no rule of a smaller priority applying. -/
 theorem step_of_apply (H : HookParams) \{r : Rule} (hr : r ∈ c.rules) \{x : Config (c.withHooks H)}
     \{σ : Subst} (hσ : (c.withHooks H).WellSorted r.vars σ) (hm : PatVal (c.withHooks H) σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpre : Holds (c.withHooks H) r.vars.length σ r.pre true)
     \{v : GroundTerm} (he : EvalTerm (c.withHooks H) σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpost : Holds (c.withHooks H) r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies (c.withHooks H) r' x.val) :
     Step (c.withHooks H) x ⟨v, {ns}.rhs_sorted H hr hσ he⟩ :=
-  step_of_apply_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ hm hreq he hens hprio" else s!"
+  step_of_apply_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ hm hreq hpre he hens hpost hprio" else s!"
 /-- **Subject reduction**: a rule's right-hand side, evaluated under a substitution of the rule's
 variable sorts, is a configuration when defined. -/
 theorem rhs_sorted \{r : Rule} (hr : r ∈ c.rules) \{σ : Subst} (hσ : c.WellSorted r.vars σ)
@@ -2237,16 +2239,18 @@ theorem rhs_sorted \{r : Rule} (hr : r ∈ c.rules) \{σ : Subst} (hσ : c.WellS
   rhs_sorted_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ he
 
 /-- So every application of a rule to a configuration is a step: a match under a well-sorted σ, a
-true `requires`, a defined right-hand side, a true `ensures`, and no rule of a smaller priority
-applying. -/
+true `requires`, the predicate `pre` holding, a defined right-hand side, a true `ensures`, the
+predicate `post` holding, and no rule of a smaller priority applying. -/
 theorem step_of_apply \{r : Rule} (hr : r ∈ c.rules) \{x : Config c} \{σ : Subst}
     (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     \{v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, {ns}.rhs_sorted hr hσ he⟩ :=
-  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq he hens hprio"
+  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq hpre he hens hpost hprio"
   if !exec then o ← o.write s!"{ns}.Facts" (s!"import {ns}.Facts.Ok\nimport {ns}.Facts.SrReady\nimport {ns}.Facts.Lazy\nimport KcoreSpec.Params\n" ++
     hdr "The definition's facts, joined: `okAll` and `srReady` (the core is outside `ok`, which the executable matcher's theorems read), and subject reduction from them." ++ s!"
 namespace {ns}
@@ -2285,7 +2289,7 @@ end {ns}
   let termOrdPf := if rawF then s!"terminates_of_order {okW} {srW} {ovW} defn.cert
     (by rw [orderObligations_withHooks, certObligations_withHooks, named_terminates]; exact hnamed) {rhW}"
     else s!"terminates_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert H (by rw [named_terminates]; exact hnamed)"
-  let termHooks := if !hasParams then "" else if termNamed.isEmpty then s!"
+  let termHooks := if termNamed.isEmpty then s!"
 
 /-- Every function terminates, for every interpretation of the parameters. -/
 theorem terminates_withHooks (H : HookParams) : ∀ f, Terminates (c.withHooks H) f :=
@@ -2327,7 +2331,7 @@ theorem totals{termHyp} (htot : ∀ g ∈ ({totNamed} : List Sym), Total c g) :
   let totOrdPf := if rawF then s!"totals_of_order {okW} {srW} {ovW} {termArgH}
     (by rw [Semantics.totalObligations_withHooks, named_totals]; exact htot) {rhW}"
     else s!"totals_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) H {termArgH} (by rw [named_totals]; exact htot)"
-  let totHooks := if !hasParams then "" else if totNamed.isEmpty then s!"
+  let totHooks := if totNamed.isEmpty then s!"
 
 /-- Every function declared `[total]` is total, for every interpretation of the parameters. -/
 theorem totals_withHooks (H : HookParams){termHypH} :
@@ -2853,10 +2857,23 @@ def account (koreFile : String) : IO UInt32 := do
       let tp := if d.sem.params.any (·.impl.isNone) then d.totalParams else []
       let owedTot := d.sem.totalObligationsRP (callOrderOf d.sem) tp
       IO.println s!"functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): {owedTot.length}: {", ".intercalate (owedTot.map fun f => decodeK (d.sem.symName f))}"
+      -- the held-named functions, as `genFnHyp` computes the package's `held_named`, each with
+      -- the variables `clauseValued` does not accept
+      let owedHeld := d.sem.heldObligations
+      IO.println s!"functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): {owedHeld.length}: {", ".intercalate (owedHeld.map fun f => decodeK (d.sem.symName f))}"
+      for (f, fp) in withPres d.sem.fns d.pres.fns do
+        for ((cl, cp), j) in (withPres f.clauses fp.clauses).zipIdx do
+          for i in List.range cl.vars.length do
+            unless cl.leftVars.contains i || (cl.vars[i]?.map d.sem.valued).getD false do
+              let s := cl.vars.getD i 0
+              let note := if d.sem.valueSorts.contains s then "" else "; the sort has no value"
+              IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
+      -- printed only when some clause holds an existential variable
+      for l in Parse.owedExsText d decodeK do IO.println l
       -- printed only when some equation is read so: the clauses with `Clause.aside`, each with the
       -- index of its sentence (found by the clause's `UNIQUE'Unds'ID`) and its function
       let asides := (withPres d.sem.fns d.pres.fns).flatMap fun (f, fp) =>
@@ -3100,6 +3117,234 @@ def roundTrip (koreFile : String) : IO UInt32 := do
   for s in unpaired.toList.take 5 do IO.println s!"  emitted, not in the text: {clip 300 (Kore.Printer.sentence s)}"
   return 1
 
+/-! ## The gap between a text and its print-back: `kcore gap`
+
+`emit` writes a definition's text from the definition read (`roundtrip` compares the two up to the
+order of each module's sentences). For a kompiled text the two differ: the emitter writes the
+library's and the generated sentences in its own form. `kcore gap KORE` classifies every sentence
+of the difference by cause. The text's sentences that `emit` does not write back are paired, one
+to one, with the emitted sentences the text lacks, in stages, each pairing what the earlier stages
+left by a key that forgets one more thing:
+1. `places`: the sentence without its `Source` and `Location` attributes (`Parse.bare`);
+2. `variable names`: also up to a one-to-one renaming of its element variables (`Parse.alphaKey`);
+3. `order`: also with its attributes, and the arguments of each `\and` and `\or` of an axiom, in a
+   fixed order (`Parse.canon`);
+4. `attributes`: without any attribute, the pattern in that normal form; the cause names the
+   attributes the two do not share;
+5. `same name`: a declaration of the same sort or symbol, an axiom with the same `UNIQUE'Unds'ID`;
+   the two state different things.
+A sentence of stage 1 to 4 states, as an axiom or a declaration, what its partner states: the
+attributes are not read as statements except those the account and the attribute agreement read.
+What no stage pairs is classified by kind (`gapKind`). A kind has a direction where the tie
+relates its sentences to `d`'s theory (TIE-1 D1: declarations, rewrite rules, the equations of
+`d`'s functions, the constructor and subsort axioms): a text sentence of such a kind that stage 1 to
+4 does not pair is one `d` does not hold as written, and every such sentence is printed. -/
+
+/-- A sentence with its attributes replaced. -/
+def gapSetAttrs (s : Kore.Sentence) (as : List Kore.AppPattern) : Kore.Sentence :=
+  match s with
+  | .sort x => .sort { x with attributes := as }
+  | .hookedSort x => .hookedSort { x with attributes := as }
+  | .symbol x => .symbol { x with attributes := as }
+  | .hookedSymbol x => .hookedSymbol { x with attributes := as }
+  | .alias x => .alias { x with attributes := as }
+  | .axiom x => .axiom { x with attributes := as }
+  | .claim x => .claim { x with attributes := as }
+  | t => t
+
+/-- The attributes of a sentence without its places, printed and sorted. -/
+def gapAttrs (s : Kore.Sentence) : List String :=
+  ((Parse.sentenceAttrs s).filter (!Parse.isPlaceAttr ·)).map (fun a => Kore.Printer.pattern (.app a.head a.sorts a.args))
+    |>.mergeSort fun a b => decide (a ≤ b)
+
+/-- A sentence's text with its attributes `as` and, for an axiom or a claim, its pattern in the
+normal form `Parse.canon`. -/
+def gapForm (s : Kore.Sentence) (as : List String) : String :=
+  let body := match gapSetAttrs s [] with
+    | .axiom a => s!"axiom {a.sortVars.map toString} {Parse.canon a.pattern}"
+    | .claim a => s!"claim {a.sortVars.map toString} {Parse.canon a.pattern}"
+    | t => Kore.Printer.sentence t
+  s!"{body} [{", ".intercalate as}]"
+
+/-- The name a sentence declares or carries: a sort's, a symbol's, an axiom's `UNIQUE'Unds'ID`. -/
+def gapName (s : Kore.Sentence) : Option String :=
+  match s with
+  | .sort x => some s!"sort {x.sort.ident.name}"
+  | .hookedSort x => some s!"sort {x.sort.ident.name}"
+  | .symbol x => some s!"symbol {x.symbol.ident.ident.name}"
+  | .hookedSymbol x => some s!"symbol {x.symbol.ident.ident.name}"
+  | .axiom a => (KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID").map (s!"axiom " ++ ·)
+  | _ => none
+
+/-- What a sentence is, for the gap, and whether the tie has a direction for it (TIE-1 D1: `true`
+for declarations, rewrite rules, the equations of a function of `d`, a constructor's `functional`
+axiom, the subsort, injectivity, distinctness and no-junk axioms). The kinds without one: an
+import, a claim, a projection's selector-domain axiom and selector-inverse lemma (named by their
+`UNIQUE'Unds'ID`), a lemma (`simplification`), an equation of a symbol `d` has no function for (a
+library symbol's, a cell initializer's, a projection `d` does not read), the `functional` axiom of
+a function (read into `FnHyp`, not into Γ) or of a hooked symbol, a collection law, set
+idempotence, and a sentence of any other form. -/
+def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
+  let c := d.sem
+  let fnLabels := c.fns.map fun f => c.symName f.label
+  let ctorNames := c.ctorSigs.map fun k => c.symName k.name
+  match s with
+  | .import _ => ("import", false)
+  | .claim _ => ("claim", false)
+  | .alias _ => ("alias declaration", false)
+  | .sort _ | .hookedSort _ => ("sort declaration", true)
+  | .symbol _ | .hookedSymbol _ => ("symbol declaration", true)
+  | .axiom a =>
+    let uid := (KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID").getD ""
+    if uid.endsWith ".selector-domain" then ("selector-domain axiom of a projection", false)
+    else if uid.endsWith ".selector-inverse" then ("selector-inverse lemma of a projection", false)
+    else
+    match Parse.classify s with
+    | .inert .simplification => ("simplification", false)
+    | .inert .injectivity => ("injectivity axiom", true)
+    | .inert .distinctCtors => ("distinctness axiom", true)
+    | .inert .noJunk => ("no-junk axiom", true)
+    | .inert .collectionLaw => ("collection law", false)
+    | .inert .parametricFunctional => ("functional axiom of a sort-parametric symbol", false)
+    | .unread .setIdempotence => ("set idempotence", false)
+    | _ =>
+      if (Parse.scanRewrite s).isSome then ("rewrite rule", true)
+      else match ((Parse.rawEqn? a).orElse fun _ => Parse.overloadEqn? a).orElse fun _ => Parse.projDomainEqn? a with
+      | some e =>
+        if fnLabels.contains e.fn then ("equation of a function of d", true)
+        else if regSymNames.contains e.fn then ("equation of a library symbol", false)
+        else ("equation of a symbol d has no function for", false)
+      | none => match Parse.scanEvent s with
+        | some (.inl f) =>
+          if ctorNames.contains f then ("functional axiom of a constructor", true)
+          else if fnLabels.contains f then ("functional axiom of a function", false)
+          else ("functional axiom of another symbol", false)
+        | some (.inr _) => ("subsort axiom", true)
+        | none => if (Parse.scanOr s).isSome then ("no-junk axiom", true)
+          else (s!"axiom of another form ({(Parse.classify s).name})", false)
+
+/-- The attributes the two sentences do not share, `-a` the text's, `+a` the emitted's (their head
+names, sorted). -/
+def gapAttrDiff (t e : Kore.Sentence) : String :=
+  let hd := fun (s : Kore.Sentence) => ((Parse.sentenceAttrs s).filter (!Parse.isPlaceAttr ·))
+  let pr := fun (a : Kore.AppPattern) => Kore.Printer.pattern (.app a.head a.sorts a.args)
+  let ta := hd t; let ea := hd e
+  let tOnly := ta.filter fun a => !ea.any (pr · == pr a)
+  let eOnly := ea.filter fun a => !ta.any (pr · == pr a)
+  " ".intercalate (((tOnly.map (s!"-" ++ ·.head.ident.name)) ++ (eOnly.map (s!"+" ++ ·.head.ident.name))).eraseDups
+    |>.mergeSort fun a b => decide (a ≤ b))
+
+/-- `kcore gap KORE`: the text's sentences that `emit` does not write back and the emitted
+sentences the text lacks (module by module, as `roundtrip` finds them), each classified by cause
+(the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
+what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
+stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
+account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, a `readAs`, `unread` or `inert` class; an
+inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
+read in another form under a note is a named reading (C14's weaker or more, with its note); one
+without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
+the text is not read. With `all`, every sentence of the gap with its cause
+(and its partner). -/
+def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.println s!"cannot {koreFile}: KORE read error"; return 3
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error r => IO.println s!"cannot {koreFile}: KCore's parse refuses it ({r.toText})"; return 3
+  let e := d.emit
+  -- the text's sentences not emitted (module name, index in the module, sentence), the emitted not in the text
+  let mut ts : Array (String × Nat × Kore.Sentence) := #[]
+  let mut es : Array (String × Kore.Sentence) := #[]
+  for (me, mk) in e.modules.zip k.modules do
+    let (missing, ex) := sentenceDiff mk.sentences me.sentences
+    for j in missing do ts := ts.push (mk.name.ident.name, j, mk.sentences[j]!)
+    for s in ex do es := es.push (me.name.ident.name, s)
+  let stages : List (String × (Kore.Sentence → Option String)) :=
+    [("places", fun s => some (Kore.Printer.sentence (Parse.bare s))),
+     ("variable names", fun s => some (Parse.alphaKey s)),
+     ("order", fun s => some (gapForm s (gapAttrs s))),
+     ("attributes", fun s => some (gapForm s [])),
+     ("same name", gapName)]
+  -- per text sentence its partner (index into es) and stage
+  let mut tPair : Array (Option (Nat × String)) := Array.replicate ts.size none
+  let mut eUsed : Array Bool := Array.replicate es.size false
+  for (st, key) in stages do
+    let mut byKey : Std.HashMap String (List Nat) := {}
+    for j in [0:es.size] do
+      if !eUsed[j]! then
+        if let some kk := key es[j]!.2 then byKey := byKey.insert kk (byKey.getD kk [] ++ [j])
+    for i in [0:ts.size] do
+      if tPair[i]!.isNone then
+        if let some kk := key ts[i]!.2.2 then
+          match byKey.getD kk [] with
+          | j :: rest =>
+            byKey := byKey.insert kk rest
+            tPair := tPair.set! i (some (j, st)); eUsed := eUsed.set! j true
+          | [] => pure ()
+  let tally := fun (l : List String) => l.eraseDups.map fun n => (n, l.count n)
+  let pairs := (List.range ts.size).filterMap fun i => tPair[i]!.map fun (j, st) => (i, j, st)
+  let pairCauses := pairs.map fun (i, j, st) =>
+    if st == "attributes" then s!"attributes ({gapAttrDiff ts[i]!.2.2 es[j]!.2})" else st
+  let tAlone := (List.range ts.size).filter fun i => tPair[i]!.isNone
+  let eAlone := (List.range es.size).filter fun j => !eUsed[j]!
+  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
+  IO.println s!"gap {koreFile}: {ts.size} sentences of the text not emitted, {es.size} emitted sentences not in the text"
+  IO.println s!"paired, one text sentence with one emitted: {pairs.length}"
+  for (n, m) in tally pairCauses do IO.println s!"  {m} {n}"
+  IO.println s!"text sentences not paired: {tAlone.length}"
+  for (n, m) in tally (tAlone.map fun i => kindOf ts[i]!.2.2) do IO.println s!"  {m} {n}"
+  IO.println s!"emitted sentences not paired: {eAlone.length}"
+  for (n, m) in tally (eAlone.map fun j => kindOf es[j]!.2) do IO.println s!"  {m} {n}"
+  if all then
+    for (i, j, st) in pairs do
+      IO.println s!"  pair ({st}): {ts[i]!.1} sentence {ts[i]!.2.1}: {clip 200 (Kore.Printer.sentence ts[i]!.2.2)}"
+      IO.println s!"      emitted: {clip 200 (Kore.Printer.sentence es[j]!.2)}"
+    for i in tAlone do
+      IO.println s!"  text alone ({kindOf ts[i]!.2.2}): {ts[i]!.1} sentence {ts[i]!.2.1}: {clip 200 (Kore.Printer.sentence ts[i]!.2.2)}"
+    for j in eAlone do
+      IO.println s!"  emitted alone ({kindOf es[j]!.2}): {clip 200 (Kore.Printer.sentence es[j]!.2)}"
+  -- the text sentences of a kind with a direction that `d` does not hold as written, each with the
+  -- reading notes the account gives it (a sentence read in another form, named)
+  let held := fun (i : Nat) => match tPair[i]! with
+    | some (_, st) => st != "same name"
+    | none => false
+  let userName := (k.modules.getLast?.map (·.name.ident.name)).getD ""
+  let off := Parse.preludeLength k
+  let conn := Parse.connReadings k
+  let keys := Parse.keysAsRequires k
+  -- the `[owise]` equations read with a premise narrower than the text's
+  let narrowed := (Parse.owiseNarrowed k d).map (·.1)
+  -- the inert constructor axioms the account finds not induced by `d`'s constructors (`uninduced`):
+  -- the others `d` holds as values, written or not
+  let uninduced := (Parse.uninduced k d).filterMap (·.index)
+  let notesOf := fun (i : Nat) =>
+    let (mn, j, s) := ts[i]!
+    if mn != userName then [] else
+      let n := off + j
+      (match Parse.classify s with
+        | .readAs r => [r.name]
+        | .unread r => [s!"unread {r.name}"]
+        | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
+        | _ => []) ++
+      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
+      (if narrowed.contains n then ["owiseDisjunctNarrower"] else [])
+  let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
+  let noted := notHeld.filter fun i => !(notesOf i).isEmpty
+  let unnoted := notHeld.filter fun i => (notesOf i).isEmpty
+  IO.println s!"text sentences of a kind with a direction that d does not hold as written: {notHeld.length}; read in another form with a reading note: {noted.length}{if noted.isEmpty then "" else s!" ({countsOf (noted.flatMap notesOf)})"}; without one (a candidate reader defect): {unnoted.length}"
+  for i in noted ++ unnoted do
+    let (mn, j, s) := ts[i]!
+    let partner := match tPair[i]! with
+      | some (jj, _) =>
+        let a := (Kore.Printer.sentence s).toList
+        let b := (Kore.Printer.sentence es[jj]!.2).toList
+        let pos := ((a.zip b).findIdx? fun (p : Char × Char) => p.1 != p.2).getD (min a.length b.length)
+        let around := fun (l : List Char) => String.ofList ((l.drop (pos - 60)).take 160)
+        s!"; emitted under the same name, the first difference at character {pos}: text …{around a}…, emitted …{around b}…"
+      | none => ""
+    let ns := notesOf i
+    IO.println s!"  {mn} sentence {j} ({(gapKind d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
+  return if unnoted.isEmpty then 0 else 1
+
 /-! ## Agreement with recorded results
 
 A case (one JSON line; test/agree-cases.py builds them) is a KORE text, an input configuration
@@ -3157,9 +3402,123 @@ def Executable.noSucc (ex : Executable) (x : GroundTerm) : NoSucc :=
   else if ex.outOfFuel x then .fuel
   else .undef
 
+/-! ### The run without the interpretation
+
+The evaluation reads the interpretation of the parameters (`Semantics.hooks`) at three places and
+nowhere else: a parameter applied to defined arguments (`Semantics.paramVal`: one of `impl = none`,
+or a registry hook's silent point), an interpreted symbol at a silent point where `hook` gives no
+value (`Semantics.hookRes`, `fallback`), and a function every clause of which fails
+(`Semantics.fnRest`). `Executable.atNone` is the executable step with the evaluation that has no
+result there (`none`, as out of fuel: `Cert.hookResC`, `Cert.paramValC`, as `Cert.evalTC` does), and
+otherwise the same: the same matcher (`Exec`'s or `CExec`'s), overloading symbols as `CExec`
+evaluates them, the same order of clauses and the same fuel. A run made with it either reaches the
+judgement the run with the executable reaches (nothing it evaluated read the interpretation) or
+stops where a value is the interpretation's (an evaluation without a result is out of fuel to
+`runMode` and to `valueOf?`). `kcore agree` judges each case both ways; where the two judgements
+differ, the verdict is the one at the interpretation the data carries, `HookParams.none`, and is
+named so (`agree-at-none`, `differ-at-none`). Where some parameter is raw, the sorts (`sortOf`) read
+the interpretation too, and every verdict is so named. That `atNoneEvalT`'s results are `evalT`'s is
+not proved here (it is `Cert.evalTC_sound`'s statement for `Exec`'s evaluation); a judgement of the
+two runs that differs where nothing read the interpretation would flag a case wrongly, never pass
+one. -/
+
+mutual
+  /-- `Exec.evalT` (`ovl` false, `cms` `Exec.clauseMatches c`) or `CExec.evalT` (`ovl` true, `cms`
+  `CExec.clauseMatches c`), except that a value of the interpretation has no result. -/
+  def atNoneEvalT (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Subst → Term → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | _ + 1, σ, .var i => some (σ.lookup i)
+    | _ + 1, _, .dv s l => some (some (.dv s l))
+    | n + 1, σ, .inj a b t => (atNoneEvalT c ovl cms n σ t).map (·.map (injNormal a b))
+    | _ + 1, _, .as _ _ => none
+    | n + 1, σ, .app f ts => do
+      let rs ← atNoneEvalTs c ovl cms n σ ts
+      if c.isCtor f then pure ((allSome rs).map (.ctor f))
+      else if isHook f then match allSome rs with
+        | none => pure none
+        | some vs => Cert.hookResC f vs
+      else if c.isParam f then match allSome rs with
+        | none => pure none
+        | some vs => Cert.paramValC c f vs
+      else if ovl && c.isOvl f then pure ((allSome rs).map (c.norm f))
+      else match allSome rs with
+        | none => pure none
+        | some vs => atNoneEvalF c ovl cms n f vs
+  def atNoneEvalTs (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Subst → List Term → Option (List (Option GroundTerm))
+    | 0, _, _ => none
+    | _ + 1, _, [] => some []
+    | n + 1, σ, t :: ts => do pure ((← atNoneEvalT c ovl cms n σ t) :: (← atNoneEvalTs c ovl cms n σ ts))
+  def atNoneEvalF (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Sym → List GroundTerm → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | n + 1, f, vs => do
+      let fn ← c.lookupFn f
+      atNoneFirstClause c ovl cms n vs (Exec.byPrio fn.clauses)
+  /-- `firstClause`, except that where every clause fails (the function's rest, the
+  interpretation's) there is no result. -/
+  def atNoneFirstClause (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → List GroundTerm → List Clause → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | _ + 1, _, [] => none
+    | n + 1, vs, cl :: rest =>
+      let vals := ((cl :: rest).takeWhile (·.prio == cl.prio)).flatMap fun cl' =>
+        (cms cl' vs).map fun σ =>
+          (cl', σ, match cl'.req with
+            | none => some true
+            | some t => (atNoneEvalT c ovl cms n σ t).map Exec.isTrue)
+      match vals.findSome? fun (cl', σ, b) => if b == some true then
+          (match (match cl'.ens with
+            | none => some true
+            | some t => (atNoneEvalT c ovl cms n σ t).map Exec.isTrue) with
+          | some true => atNoneEvalT c ovl cms n σ cl'.rhs
+          | some false => some none
+          | none => none)
+        else none with
+      | some r => some r
+      | none =>
+        if vals.all (·.2.2 == some false) then
+          atNoneFirstClause c ovl cms n vs ((cl :: rest).dropWhile (·.prio == cl.prio))
+        else none
+end
+
+/-- The executable step `ex` with the evaluation that has no result where a value is the
+interpretation's: `rms` lists a rule's matches at a configuration (the step's matcher), `ovl` and
+`cms` as in `atNoneEvalT`; the successors as `Exec.successorsN` lists them (each once, as
+`CExec.successors`, with `dedup`). -/
+def Executable.atNone (ex : Executable) (c : Semantics) (ovl dedup : Bool)
+    (cms : Clause → List GroundTerm → List Subst) (rms : Rule → GroundTerm → List Subst) : Executable :=
+  let ev := atNoneEvalT c ovl cms Exec.fuel
+  let isT := fun (o : Option (Option GroundTerm)) => o.map Exec.isTrue
+  let rm := fun (x : GroundTerm) => c.rules.map fun r => (r, (rms r x).map fun σ =>
+    (σ, match r.req with | none => some true | some t => isT (ev σ t)))
+  let ens := fun (r : Rule) (σ : Subst) => match r.ens with | none => some true | some t => isT (ev σ t)
+  let succ := fun (x : GroundTerm) =>
+    let applying := (rm x).filter fun (_, l) => l.any fun (_, b) => b != some false
+    let ys := match (applying.map (·.1.prio)).min? with
+      | none => []
+      | some p => (applying.filter (·.1.prio == p)).flatMap fun (r, l) =>
+        l.filterMap fun (σ, b) =>
+          if b == some true then match ev σ r.rhs with
+            | some (some y) => if c.sortOf y == some topCellSort && ens r σ == some true then some y else none
+            | _ => none
+          else none
+    if dedup then ys.foldl (fun acc y => if acc.any (Exec.same · y) then acc else acc ++ [y]) [] else ys
+  { name := ex.name, successors := succ, evalT := ev [], ruleMatches := rm, evalRhs := ev }
+
+/-- `CExec` without the interpretation. -/
+def Executable.cexecAtNone (c : Semantics) : Executable :=
+  (Executable.cexec c).atNone c true true (CExec.clauseMatches c) fun r x => CExec.cmatch c r.vars [r.lhs] [x]
+
+/-- `Exec` without the interpretation. -/
+def Executable.execAtNone (c : Semantics) : Executable :=
+  (Executable.exec c).atNone c false false (Exec.clauseMatches c) fun r x =>
+    (Exec.matchP c (Exec.patFuel [r.lhs]) [] r.lhs x).filter (Exec.wellSorted c r.vars)
+
 /-- What `kcore agree` says of the executables, once per run. -/
 def agreeNote : String :=
-  "CExec runs where CExec.execReady holds (CExec.step_iff), Exec where only ok, srReady and matchReady hold (Exec.step_iff_of_ok); both theorems take CoherentAll, not checked here. At the fixed fuel Exec.fuel: every successor listed is a Step successor (CExec.successorsN_sound); for CExec the listed successors are exactly the Step successors at every configuration a run expands, since a run stops (not-runnable) at one where CExec.outOfFuel holds (CExec.step_iff_at, given CoherentAll); for Exec only soundness is proved, and a successor could be missed. search-final: the finals are the reached configurations at which no rule applies (N: every match the step lists of every rule has its requires false or undefined; CExec.noRule_of_ruleMatches gives NotApplies for every rule, at any fuel, from execReady alone; conversely CExec.noRule_iff, CExec.noRule_iff_at given CoherentAll), compared with the expected; those at which a rule applies (a listed match with requires true: CExec.applies_of_ruleMatches, CExec.not_notApplies_of_ruleMatches) with no Step successor (CExec.noStep_at, given CoherentAll) (U) are printed apart (undefined), not compared. Not checked here: CoherentAll; the input's evaluation and the expected's are sound at the fixed fuel (evalT_sound)"
+  "CExec runs where CExec.execReady holds (CExec.step_iff), Exec where only ok, srReady and matchReady hold (Exec.step_iff_of_ok); both theorems take CoherentAll, not checked here. At the fixed fuel Exec.fuel: every successor listed is a Step successor (CExec.successorsN_sound); for CExec the listed successors are exactly the Step successors at every configuration a run expands, since a run stops (not-runnable) at one where CExec.outOfFuel holds (CExec.step_iff_at, given CoherentAll); for Exec only soundness is proved, and a successor could be missed. search-final: the finals are the reached configurations at which no rule applies (N: every match the step lists of every rule has its requires false or undefined; CExec.noRule_of_ruleMatches gives NotApplies for every rule, at any fuel, from execReady alone; conversely CExec.noRule_iff, CExec.noRule_iff_at given CoherentAll), compared with the expected; those at which a rule applies (a listed match with requires true: CExec.applies_of_ruleMatches, CExec.not_notApplies_of_ruleMatches) with no Step successor (CExec.noStep_at, given CoherentAll) (U) are printed apart (undefined), not compared. Not checked here: CoherentAll; the input's evaluation and the expected's are sound at the fixed fuel (evalT_sound). A verdict whose run read the interpretation of the parameters (a parameter's value, a silent point, a function's rest; or a raw parameter's sort: the same run with the evaluation that has no result there, Executable.atNone, judges otherwise) is agree-at-none or differ-at-none, a verdict at HookParams.none only, counted apart from agree and differ"
 
 
 /-- The names `Parse.term` reads a definition's patterns with, from its semantics: its own sorts
@@ -3368,6 +3727,18 @@ def judge (c : Semantics) (ex : Executable) (cs : Case) :
       else ("differ", s!"{pre}{zs.length} configurations by KCore, {ys.length} expected; {(zs.filter fun z => !ys.any (Exec.same z ·)).length} of KCore's not expected, {(ys.filter fun y => !zs.any (Exec.same y ·)).length} expected not KCore's{post}",
         zs.map pr, ys.map pr, us.map pr)
 
+/-- Whether a case's judgement `j` (by `ex`) read the interpretation of the parameters: `none` where
+the run without it (`Executable.atNone`) gives the same judgement, else what that run gives. Every
+judgement on a semantics with a raw parameter reads it (its sorts are the interpretation's). -/
+def atNoneReading (c : Semantics) (ex : Executable) (cs : Case)
+    (j : String × String × List String × List String × List String) : Option String :=
+  if c.params.any (·.raw) then some "a parameter is raw: its applications' sorts are the interpretation's"
+  else
+    let exN := if ex.name == "CExec" then Executable.cexecAtNone c else Executable.execAtNone c
+    let j' := judge c exN cs
+    if j' == j then none
+    else some s!"without it the run gives {j'.1}{if j'.2.1.isEmpty then "" else s!": {j'.2.1}"}"
+
 /-- `kcore agree CASES.jsonl...`: first a line `{"note"}` (`agreeNote`: what is proved of the
 executables), then one JSON line per case, `{"id", "verdict", "executable", "reason", "kcore",
 "expected", "undefined"}`, `executable` the step whose result the verdict compares (`CExec` or `Exec`; empty when the verdict
@@ -3381,8 +3752,12 @@ evaluation is undefined is no configuration, and its result is empty in every mo
 disjunct `\and(p, φ)`, φ a condition (`\ceil`, `\equals`, `\not`, `\and`), is `p`'s value where φ
 holds and nothing where it does not (`condHolds`).
 In `search-final`, `kcore` is the reached configurations at which no rule applies and `undefined`
-those at which a rule applies but no successor is listed (`runMode`), which are not compared. Exit 1
-when a case differs. -/
+those at which a rule applies but no successor is listed (`runMode`), which are not compared.
+Each `agree` or `differ` says in `interpretation` whether the run read the interpretation of the
+parameters (`read`, `not read`; `atNoneReading`): where it did, the verdict is `agree-at-none` or
+`differ-at-none`, a judgement at `HookParams.none` only, outside the counts of `agree` and `differ`
+(the summary counts it apart), and the reason says what the run without the interpretation gives.
+Exit 1 when a case differs and the run read no interpretation. -/
 def agree (files : List String) : IO UInt32 := do
   let mut defs : Std.HashMap String (Except String (Semantics × Executable × Option String)) := {}
   let mut counts : Std.HashMap String Nat := {}
@@ -3396,20 +3771,27 @@ def agree (files : List String) : IO UInt32 := do
         | .ok cs => pure cs
         | .error e => IO.eprintln s!"{f}: {e}"; return 2
       if !defs.contains cs.definition then defs := defs.insert cs.definition (← runnable cs.definition)
-      let (verdict, exName, reason, mine, theirs, undef) := match defs.getD cs.definition (.error "") with
-        | .error e => ("not-runnable", "", e, [], [], [])
+      let (verdict, exName, reason, mine, theirs, undef, interp) := match defs.getD cs.definition (.error "") with
+        | .error e => ("not-runnable", "", e, [], [], [], "")
         | .ok (c, ex, none) =>
-          let (v, r, m, t, u) := judge c ex cs
-          (v, if v == "agree" || v == "differ" then ex.name else "", r, m, t, u)
+          let j := judge c ex cs
+          let (v, r, m, t, u) := j
+          if v == "agree" || v == "differ" then
+            match atNoneReading c ex cs j with
+            | none => (v, ex.name, r, m, t, u, "not read")
+            | some w => (v ++ "-at-none", ex.name, s!"{r}; the run read the interpretation of the parameters, so the verdict is at HookParams.none ({w})", m, t, u, "read")
+          else (v, "", r, m, t, u, "")
         | .ok (c, ex, some why) =>
-          let (v, r, m, t, u) := judge c ex cs
-          ("not-runnable", "", s!"{why}; run anyway with {ex.name}: {v}{if r.isEmpty then "" else s!" ({r})"}", m, t, u)
+          let j := judge c ex cs
+          let (v, r, m, t, u) := j
+          let v := if (v == "agree" || v == "differ") && (atNoneReading c ex cs j).isSome then v ++ "-at-none" else v
+          ("not-runnable", "", s!"{why}; run anyway with {ex.name}: {v}{if r.isEmpty then "" else s!" ({r})"}", m, t, u, "")
       counts := counts.insert verdict (counts.getD verdict 0 + 1)
       IO.println (Lean.Json.compress (Lean.Json.mkObj [("id", cs.id), ("verdict", verdict),
-        ("executable", exName), ("reason", reason), ("kcore", jsonStrs mine), ("expected", jsonStrs theirs), ("undefined", jsonStrs undef)]))
+        ("executable", exName), ("interpretation", interp), ("reason", reason), ("kcore", jsonStrs mine), ("expected", jsonStrs theirs), ("undefined", jsonStrs undef)]))
       (← IO.getStdout).flush
   IO.println (Lean.Json.compress (Lean.Json.mkObj [("summary", Lean.Json.mkObj
-    (["agree", "differ", "not-runnable", "no-reference"].map fun v => (v, Lean.Json.num (counts.getD v 0))))]))
+    (["agree", "differ", "agree-at-none", "differ-at-none", "not-runnable", "no-reference"].map fun v => (v, Lean.Json.num (counts.getD v 0))))]))
   return if counts.getD "differ" 0 > 0 then 1 else 0
 
 /-- Whether `CoherentAll c` is decided on the data: where `coreOK` holds and the deciders name no
@@ -3921,6 +4303,8 @@ def main (argv : List String) : IO UInt32 := do
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
+  | ["gap", kore] => KcoreGen.gapCmd kore false
+  | ["gap", kore, "--all"] => KcoreGen.gapCmd kore true
   | "agree" :: files@(_ :: _) => KcoreGen.agree files
   | "oracle" :: args@(_ :: _) => KcoreGen.oracle args
   | ["fn-facts", kore] => KcoreGen.fnFacts kore
@@ -3948,4 +4332,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2

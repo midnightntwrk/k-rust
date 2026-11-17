@@ -1592,7 +1592,7 @@ mutual
       (hvs : c.sortsOf vs = some fn.args) {v : GroundTerm} (hr : r = some v) :
       c.sortOf v = some fn.result :=
     match h with
-    | .clause (cl := cl) hfn' hmem hσ _ _ _ hrhs _ => by
+    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ hrhs _ => by
       rw [hfn] at hfn'
       cases hfn'
       obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1
@@ -1836,29 +1836,33 @@ theorem rhs_sorted {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) 
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
   rhs_sorted_all (Semantics.okAll_of_ok hok) hsr hov hr hσ he
 
-/-- So no rule application is lost to sorts: a match, a true `requires`, a defined right-hand
-side, a true `ensures` and no rule of a smaller priority applying make a step. -/
+/-- So no rule application is lost to sorts: a match, a true `requires`, the predicate `pre`
+holding, a defined right-hand side, a true `ensures`, the predicate `post` holding and no rule of a
+smaller priority applying make a step. -/
 theorem step_of_apply_core {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {x : Config c} {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_core hok hsr hov hr hσ he⟩ :=
-  let ⟨hp, hq⟩ := Semantics.sortedOK_ruleTop hok hr
-  Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
+  .rule r hr σ hσ hm hreq hpre he hens hpost hprio
 
 /-- `step_of_apply_core` in a core that `okAll` accepts. -/
 theorem step_of_apply_all {c : Semantics} (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {x : Config c} {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_all hok hsr hov hr hσ he⟩ :=
-  step_of_apply_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ hm hreq he hens hprio
+  step_of_apply_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ hm hreq hpre he hens hpost hprio
 
-/-- `step_of_apply_all` in a core that `ok` accepts. -/
+/-- `step_of_apply_all` in a core that `ok` accepts: its rules' predicates are `\top` (`ok_rule`). -/
 theorem step_of_apply {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {x : Config c} {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
@@ -1866,7 +1870,8 @@ theorem step_of_apply {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = tru
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted hok hsr hov hr hσ he⟩ :=
-  step_of_apply_all (Semantics.okAll_of_ok hok) hsr hov hr hσ hm hreq he hens hprio
+  step_of_apply_all (Semantics.okAll_of_ok hok) hsr hov hr hσ hm hreq ((Semantics.ok_rule hok hr).2.1 ▸ .top) he hens
+    ((Semantics.ok_rule hok hr).2.2.1 ▸ .top) hprio
 
 /-- A function of `c` at arguments of its argument sorts, when defined, has a value of its
 result sort. -/

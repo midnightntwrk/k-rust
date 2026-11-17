@@ -178,10 +178,10 @@ theorem evar_mem_filterMap {l : List KoreAML.VarKey} {n : String} {s : Kore.KSor
 
 /-- The free variables of a rule's axiom are its own, for a semantics whose clauses and rules are
 well sorted. -/
-theorem freeOf_prio_of_sorted (hok : c.sortedOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) {r : Rule} (hr : r ∈ c.rules) {k : KoreAML.VarKey}
+theorem freeOf_prio_of_sorted (hok : c.sortedOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) {r : Rule} (hr : r ∈ c.rules) {k : KoreAML.VarKey}
     (hk : k ∈ KoreAML.freeOf [] (prioRuleK c r)) : ∃ i < r.vars.length, k = canonKey c r.vars i := by
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hok hr (hb r hr)
   rw [prioRuleK_top hex₀ hpre₀ hpost₀] at hk
   dsimp only at hk
@@ -206,7 +206,7 @@ theorem freeOf_prio_of_sorted (hok : c.sortedOK = true) (hb : ∀ r ∈ c.rules,
       have hr'm := (List.mem_filter.mp hr').1
       obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hok hr'm
       exact freeOf_applies hlhs' (fun t ht i hi => varOccs_lt t (hreqs' t ht) i hi)
-        (Semantics.sortedOK_ruleTop hok hr'm).1 (hb _ hr'm) hk
+        (htop _ hr'm).1 (hb _ hr'm) hk
     · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
     · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
 

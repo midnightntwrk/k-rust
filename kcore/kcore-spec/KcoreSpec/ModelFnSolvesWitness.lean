@@ -86,7 +86,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
     (motive_5 := fun σ ts _ _ => ts = [.app F [.var 0], .dv Srt.int (.int 2)] →
       ∀ w, σ.lookup 0 = some w → c.sortOf w = some Srt.int → False)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ ihreq ihprio _ _ => fun hf w hvs hw => by
+    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ _ ihreq _ ihprio _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -98,7 +98,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       exact ihnone cl1 (by simp [fF]) rfl w rfl hw)
-    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ ihreq ihprio _ => fun hf w hvs hw => by
+    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihreq _ ihprio _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -117,6 +117,9 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       simp only [cl1, Option.some.injEq] at ht
       subst ht
       exact ihe (.inl rfl) w hl hw)
+    (fun h _ => fun hcl _ _ _ => by
+      subst hcl
+      exact absurd (Holds.top_eq h) (by simp))
     (fun h => by rcases h with h | h <;> cases h)
     (fun h => by rcases h with h | h <;> cases h)
     (fun _ _ => fun h => by rcases h with h | h <;> cases h)
@@ -231,11 +234,11 @@ theorem not_fnSolves : ¬ FnSolves c := by
     | 0, hi => simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨i0, rfl, i0_int⟩
     | _ + 1, hi => simp [cl2] at hi
   have hdec : cl2.DecidesAt c fF σ [i0] := by
-    refine ⟨⟨hσ, .cons (.var rfl) .nil, fun _ ht => by cases ht⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
+    refine ⟨⟨hσ, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
     rcases hcl' with rfl | rfl
     · cases hm with
-      | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq req1 rfl)
+      | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq.1 req1 rfl)
     · exact absurd hlt (Nat.lt_irrefl _)
   have hE := (hs fF (by simp [c]) [i0] (by decide +kernel) cl2 (by simp [fF]) σ hdec (.dv Srt.int (.int 2))).mpr
     ⟨.dv, fun t ht => by simp [cl2] at ht⟩
@@ -396,7 +399,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
     (hph : patHooksApart c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
@@ -415,7 +418,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
-  rw [competingEquation_top hpre] at hmem
+  rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -562,7 +565,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
       rw [fnEquationsK, show fF.clauses = [cl1, cl2] from rfl, List.map_cons, h]
       exact List.mem_cons_self ..
     have hv := premise_vars (c := c) hpats1 hbinds1 hreqv1
-    rw [clauseEquation_top (cl := cl1) rfl] at hmem
+    rw [clauseEquation_top (cl := cl1) rfl rfl] at hmem
     have h1 := fun e m => eqn_at hI hnn lookupF (prem := clausePrem c fF cl1) (eqn_item_mem hfnm hmem) hws
       (hσ1 cl1 rfl) hv.1 hv.2.1 hv.2.2 (fun _ h => by simp [cl1, varOccs] at h) (fun _ h => by simp [cl1] at h)
       (r := some one)
@@ -596,7 +599,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
             cases hpv with | cons h1 _ => cases h1 with | var hl => exact hl
           rw [QP_closed.interp e0 e, ← req_den hl hag, hall a ha]
           exact (den_closed c _).interp e e0 a⟩)
-    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl
+    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl rfl
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; rfl) hws
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; exact ⟨hpats1, hbinds1, hreqv1, hex⟩)
       (hσ1 cl2 rfl) (.cons (.var rfl) .nil) hpats2 hbinds2 (fun _ h => by cases h)

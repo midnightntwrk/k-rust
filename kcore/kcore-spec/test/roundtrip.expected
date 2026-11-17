@@ -67,12 +67,14 @@ cannot f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
 differs f2-examples/mlex.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
+cannot f2-examples/mlnot.kompile.kore
 differs f2-examples/mlor.kompile.kore
 differs f2-examples/mlorand.kompile.kore
 differs f2-examples/mlreqor.kompile.kore
 differs f2-examples/mlreqorsplit.kompile.kore
 differs f2-examples/mlrequnheld.kompile.kore
 differs f2-examples/mlreqv.kompile.kore
+cannot f2-examples/mlror.kompile.kore
 cannot f2-examples/mlsetv.kompile.kore
 differs f2-examples/mlvalue.kompile.kore
 differs f2-examples/myint.kompile.kore

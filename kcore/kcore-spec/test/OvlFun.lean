@@ -126,6 +126,17 @@ theorem others_ok : others c = true := others_of light_ok names_ok ites_ok
 theorem fnOvl_facts : c.fnOvlSyms = [plusExp] ∧ c.ovlPatsOK = true ∧ c.isOvl plusExp = true := by
   decide +kernel
 
+/-- `consItemsK` writes the functionality and the injectivity of `plusExp` at uncovered arguments
+(one item of each rule, `plusExp` being the one function-overloaded symbol), and neither at every
+argument. -/
+theorem cons_items :
+    ((Faithful.consItemsK c).filter (·.rule == "Cons-Fun-Unc")).length = 1 ∧
+    ((Faithful.consItemsK c).filter (·.rule == "Cons-Inj-Unc")).length = 1 ∧
+    ((Faithful.consItemsK c).any fun it =>
+      it.pat == (KoreAML.Cons.funItem "Exp" (Gen.toK c (.ctor ⟨plusExp, [expS, expS], expS⟩))).pat ||
+      it.pat == (KoreAML.Cons.injItem "Exp" (Gen.toK c (.ctor ⟨plusExp, [expS, expS], expS⟩))).pat) = false := by
+  decide +kernel
+
 /-- `plusExp(inj{Int,Exp}(1), inj{Int,Exp}(2))`. -/
 def app12 : Term := .app plusExp [.inj Srt.int expS (intT 1), .inj Srt.int expS (intT 2)]
 
@@ -205,6 +216,21 @@ theorem others_lhs : others lhs = true := others_of light_lhs names_lhs ites_lhs
 
 /-- `capGas` is function-overloaded; it is refused in `lhs`'s left side, not in `ovlfun`'s right. -/
 theorem fnOvl_facts : ovlfun.fnOvlSyms = [capGas] ∧ ovlfun.ovlPatsOK = true ∧ lhs.ovlPatsOK = false := by
+  decide +kernel
+
+/-- `consItemsK` writes the functionality and the injectivity of `capGas` and its distinctness from
+each other generator of Gas (the constructor `inf`, whose overload closure does not meet `capGas`'s,
+and the injection from N) at uncovered arguments, and none of them at every argument. -/
+theorem cons_items :
+    ((Faithful.consItemsK ovlfun).filter (·.rule == "Cons-Fun-Unc")).length = 1 ∧
+    ((Faithful.consItemsK ovlfun).filter (·.rule == "Cons-Inj-Unc")).length = 1 ∧
+    ((Faithful.consItemsK ovlfun).filter (·.rule == "Cons-Dist-Unc")).length = 2 ∧
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.funItem "Gas" (Gen.toK ovlfun (.ctor ⟨capGas, [gasS], gasS⟩))).pat ||
+      it.pat == (KoreAML.Cons.injItem "Gas" (Gen.toK ovlfun (.ctor ⟨capGas, [gasS], gasS⟩))).pat ||
+      it.pat == (KoreAML.Cons.distItem "Gas" (Gen.toK ovlfun (.ctor ⟨inf, [], gasS⟩))
+        (Gen.toK ovlfun (.ctor ⟨capGas, [gasS], gasS⟩))).pat) = false ∧
+    ovlfun.distGuarded (.ctor ⟨inf, [], gasS⟩) (.ctor ⟨capGas, [gasS], gasS⟩) = true := by
   decide +kernel
 
 /-- `capGas(inj{N,Gas}(z))`. -/

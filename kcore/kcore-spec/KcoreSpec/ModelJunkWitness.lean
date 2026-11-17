@@ -169,7 +169,7 @@ theorem eval_f {vs : List GroundTerm} (hvs : c.sortsOf vs = some [Srt.kitem]) :
   cases he
   obtain rfl := sortsOf_nil_eq h
   refine .clause lookup_f (cl := cl2) (σ := [(0, w)]) (by simp [fn]) (fun i s hi => ?_)
-    (.cons (.var ((by rw [List.lookup_cons, beq_self_eq_true]))) .nil) (fun t ht => nomatch ht) (fun cl hcl _ hlt => ?_) .dv (fun t ht => nomatch ht)
+    (.cons (.var ((by rw [List.lookup_cons, beq_self_eq_true]))) .nil) (fun t ht => nomatch ht) .top (fun cl hcl _ hlt => ?_) .dv (fun t ht => nomatch ht)
   · cases i with
     | zero =>
       simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi

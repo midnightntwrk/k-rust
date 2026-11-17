@@ -263,13 +263,12 @@ variable {c : Semantics}
 
 /-- The pattern `famEx` reads, for a rule of the shapes `coreOK` admits without existential
 variables. -/
-theorem famEx_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (σ : Subst) :
+theorem famEx_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (hpost : r.post = .top) (σ : Subst) :
     famEx c r σ = KoreAML.denB (KoreAML.existsAll (srtOf c topCellSort)
       ((canonVars c r.vars).map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) (fixK c r σ (List.range r.vars.length) ++
         [.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]]))) := by
-  obtain ⟨-, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
   have hv := filterMap_range_getElem? (canonVars c r.vars)
   rw [canonVars_length] at hv
   have hf : (List.range r.vars.length).filter (fun _ => true) = List.range r.vars.length :=
@@ -291,7 +290,7 @@ variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 /-- **The instances of a step are its successor**, in every model of `Γ`, for a rule of the shapes
 `coreOK` admits: every variable is fixed to its value, and the right side is the successor. -/
 theorem famEx_den_exNil (h : HypSoundCore c) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hsorts : Model.sortsNumbered c = true) (hov : c.overloadsOK = true)
-    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hexs : r.exs = [])
+    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hexs : r.exs = []) (hpost : r.post = .top)
     (hI : I ⊧ᴵP Γ c) (e : Valuation M) (m : M) :
     (famEx c r σ).interpret I e m ↔ (den c y.val).interpret I e m := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := h
@@ -308,7 +307,7 @@ theorem famEx_den_exNil (h : HypSoundCore c) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈
   have hs0 : HypSoundCore c := ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩
   obtain ⟨-, -, hrhss⟩ := rule_ctx hok hs.mem
   have hensS := rule_ctx_ens hok hs.mem
-  rw [famEx_eq_exNil hok hs.mem hexs]
+  rw [famEx_eq_exNil hok hs.mem hexs hpost]
   unfold KoreAML.denB
   generalize htbl : KoreAML.tableOf [] _ = tbl
   have hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl := fun i hi => by
@@ -384,14 +383,13 @@ variable {c : Semantics}
 
 /-- The pattern `famOpen` reads, for a rule of the shapes `coreOK` admits without existential
 variables. -/
-theorem famOpen_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (σ : Subst) :
+theorem famOpen_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (hpre : r.pre = .top) (hpost : r.post = .top) (σ : Subst) :
     famOpen c r σ = KoreAML.denB (KoreAML.existsAll (srtOf c topCellSort)
       ((canonVars c r.vars).map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) (fixK c r σ (varOccs r.lhs) ++
         [reqPat (srtOf c topCellSort) (r.req.map (Term.kore c (canonVars c r.vars)))] ++
         [.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]]))) := by
-  obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
   have hv := filterMap_range_getElem? (canonVars c r.vars)
   rw [canonVars_length] at hv
   have hf : (List.range r.vars.length).filter (fun _ => true) = List.range r.vars.length :=
@@ -405,7 +403,7 @@ variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 /-- **The outcomes of an unblocked match are successors of its steps**, in every model of `Γ`, for a
 rule of the shapes `coreOK` admits, where every function has a result at arguments of its sorts:
 an element of `famOpen` is the element of a configuration y with `StepBy c r σ x y`. -/
-theorem famOpen_step (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem famOpen_step (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hsorts : Model.sortsNumbered c = true) (hov : c.overloadsOK = true)
     (hft : FnTerminates c) {x : Config c} {r : Rule} (hr : r ∈ c.rules) {σ : Subst}
     (hu : Unblocked c r σ x.val) (hI : I ⊧ᴵP Γ c) (e : Valuation M) (m : M)
@@ -425,12 +423,12 @@ theorem famOpen_step (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.
     fun fn hfn cl hcl _ => hex fn hfn cl hcl
   obtain ⟨-, hreqs, hrhss⟩ := rule_ctx hok hr
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
+  obtain ⟨hpre, hpost⟩ := htop _ hr
   have hensS := rule_ctx_ens hok hr
   obtain ⟨hσat, hmatch, hprio⟩ := hu
   have hσ : c.WellSorted r.vars σ := fun i s hs =>
     hσat i (hbinds i (List.getElem?_eq_some_iff.mp hs).1) s hs
-  rw [famOpen_eq_exNil hok hr (Semantics.sortedOK_exsNil hok hr (hb r hr))] at hm
+  rw [famOpen_eq_exNil hok hr (Semantics.sortedOK_exsNil hok hr (hb r hr)) hpre hpost] at hm
   unfold KoreAML.denB at hm
   generalize htbl : KoreAML.tableOf [] _ = tbl at hm
   have hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl := fun i hi => by
@@ -482,14 +480,14 @@ variable {c : Semantics}
 /-- **In every model of `Γ` with the step's closure, the steps at values are `Step`**: x has a
 successor in the element of y exactly where `Step c x y`, where the evaluations the step at x reads
 have results. -/
-theorem step_iff_model (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_iff_model (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (x y : Config c) (hd : StepDecided c x.val)
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP (Γ c ∪ Γstep c)) :
     Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   constructor
   · intro hs hall
-    have hsd := step_sound_core c h hb hbc x y hs hIΓ KoreAML.val0 (elemOf c I x.val)
+    have hsd := step_sound_core c h hb htop hbc x y hs hIΓ KoreAML.val0 (elemOf c I x.val)
     have hx := ((elemOf_spec hIΓ x.property KoreAML.val0).1 _).mpr rfl
     have h1 := hall KoreAML.val0 (elemOf c I x.val)
     rw [interpret_impl] at hsd h1
@@ -504,7 +502,7 @@ theorem step_iff_model (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.var
       Classical.byContradiction fun hc => hn fun _ => interpret_neg.mpr hc
     have hmx : m = elemOf c I x.val := ((elemOf_spec hIΓ x.property e).1 m).mp h1
     rw [hmx] at h2
-    obtain ⟨y', hy', hyy⟩ := step_successor_at h hb hbc x hd hI e _ h2
+    obtain ⟨y', hy', hyy⟩ := step_successor_at h hb htop hbc x hd hI e _ h2
     have he : elemOf c I y'.val = elemOf c I y.val := ((elemOf_spec hIΓ y.property e).1 _).mp hyy
     obtain ⟨hok, hsr, -, hg, -, -, -, -, hno⟩ := h
     haveI : OvlOK c := hno

@@ -255,19 +255,19 @@ example (hd : FnDet c) (hs : FnSolves c) : True := by
   have := @Faithful.Model.applies_iff_open c h okB okB_open.1 okB_open.2
   have := @Faithful.Model.applies_iff_open c h ok2 ok2_open.1 ok2_open.2.1
   have := @Faithful.Model.applies_iff_open c h ok4 ok4_open.1 ok4_open.2.1
-  have := Faithful.Model.rule_premise_open h ok1_open.1 ok1_open.2.1
-  have := Faithful.Model.rule_premise_open h okB_open.1 okB_open.2
-  have := Faithful.Model.rule_premise_open h ok2_open.1 ok2_open.2.1
-  have := Faithful.Model.rule_premise_open h ok4_open.1 ok4_open.2.1
+  have := Faithful.Model.rule_premise_open h ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.rule_premise_open h okB_open.1 okB_open.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.rule_premise_open h ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.rule_premise_open h ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
   trivial
 
 /-- `freeOf_prioOpen` at each of the four rules: the free variables of the rule's axiom are its own. -/
 example (hd : FnDet c) (hs : FnSolves c) : True := by
   have h := hypModel_of_fn coreOK hd hs
-  have := @Faithful.Model.freeOf_prioOpen c h ok1 ok1_open.1 ok1_open.2.1
-  have := @Faithful.Model.freeOf_prioOpen c h okB okB_open.1 okB_open.2
-  have := @Faithful.Model.freeOf_prioOpen c h ok2 ok2_open.1 ok2_open.2.1
-  have := @Faithful.Model.freeOf_prioOpen c h ok4 ok4_open.1 ok4_open.2.1
+  have := @Faithful.Model.freeOf_prioOpen c h ok1 ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := @Faithful.Model.freeOf_prioOpen c h okB okB_open.1 okB_open.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := @Faithful.Model.freeOf_prioOpen c h ok2 ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := @Faithful.Model.freeOf_prioOpen c h ok4 ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
   trivial
 
 /-- `ok1` at priority 300 in `c2`: both rules of `c2` are its competitors, so its axiom's left part
@@ -280,6 +280,7 @@ theorem ok1hi_open : c2.ruleSorted ok1hi = true ∧ c2.rulePlainOpen ok1hi = tru
 
 example (hd : FnDet c2) (hs : FnSolves c2) : True := by
   have := Faithful.Model.rule_premise_open (hypModel_of_fn coreOK2 hd hs) ok1hi_open.1 ok1hi_open.2.1
+    ((hypModel_of_fn coreOK2 hd hs).ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
   trivial
 
 /-! ## Consistency over `Γc`: `consistent_open` -/

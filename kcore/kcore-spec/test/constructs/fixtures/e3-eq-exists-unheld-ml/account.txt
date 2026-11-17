@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-UNHELD-ML: 390 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 manyValuedRightSide
+      sentence 387 (Lblp): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-unheld-ml.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblp{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarZ:SortInt{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("6638322cbb2bec626bd7f956c778bc8d23690ddfbcb16cb3236fc5b70d6972b6"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location …
+      sentence 402 (Lblq): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-unheld-ml.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblq{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarZ:SortBool{}, VarX:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("abe9da998f21a0510fde669050f0c51c3fddb3101af39b6b87019e4398030335"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Locatio …
+finish: sentence 387 (Lblp): manyValuedRightSide (\exists)
+(exit 0)

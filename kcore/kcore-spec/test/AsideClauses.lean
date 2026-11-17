@@ -84,6 +84,9 @@ theorem ptO : clO.pats = [.var 0, .var 1] := rfl
 theorem qO : clO.req = none := rfl
 theorem rO : clO.rhs = .var 0 := rfl
 theorem eO : clO.ens = none := rfl
+theorem preA : clA.pre = .top := rfl
+theorem preB : clB.pre = .top := rfl
+theorem preO : clO.pre = .top := rfl
 
 /-- The `[owise]` clause's smaller clauses are the first alone, as sentence 206 writes. -/
 theorem lower_owise : Faithful.lowerClauses fn clO = [clA] := rfl
@@ -128,6 +131,7 @@ theorem eval_ba_a : Eval c choose [vb, va] (some va) :=
     (by rw [vB]; exact ws1 sort_a)
     (by rw [ptB]; exact .cons (.ctor isCtor_b .nil) (.cons (.var rfl) .nil))
     (fun t ht => by rw [qB] at ht; cases ht)
+    (Clause.holds_preTop preB _)
     (fun cl' h ha hlt => by
       rw [fn_clauses] at h
       simp only [List.mem_cons, List.not_mem_nil, or_false] at h
@@ -145,6 +149,7 @@ theorem eval_ba_b : Eval c choose [vb, va] (some vb) :=
     (by rw [vO]; exact ws2 sort_b sort_a)
     (by rw [ptO]; exact .cons (.var rfl) (.cons (.var rfl) .nil))
     (fun t ht => by rw [qO] at ht; cases ht)
+    (Clause.holds_preTop preO _)
     (fun cl' h ha hlt => by
       rw [fn_clauses] at h
       simp only [List.mem_cons, List.not_mem_nil, or_false] at h
@@ -171,11 +176,11 @@ theorem not_agree : ¬ ClausesAgree c fn := fun h => by
   have hapB : clB.AppliesAt c [(0, va)] [vb, va] :=
     ⟨by rw [vB]; exact ws1 sort_a,
      by rw [ptB]; exact .cons (.ctor isCtor_b .nil) (.cons (.var rfl) .nil),
-     fun t ht => by rw [qB] at ht; cases ht⟩
+     (fun t ht => by rw [qB] at ht; cases ht), Clause.holds_preTop preB _⟩
   have hapO : clO.AppliesAt c [(0, vb), (1, va)] [vb, va] :=
     ⟨by rw [vO]; exact ws2 sort_b sort_a,
      by rw [ptO]; exact .cons (.var rfl) (.cons (.var rfl) .nil),
-     fun t ht => by rw [qO] at ht; cases ht⟩
+     (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
   have hdecB : clB.Decides c fn [(0, va)] [vb, va] := ⟨hapB, fun cl' h ha hlt => by
     rw [fn_clauses] at h
     simp only [List.mem_cons, List.not_mem_nil, or_false] at h
@@ -210,16 +215,20 @@ theorem not_agree : ¬ ClausesAgree c fn := fun h => by
         (by rw [rO]; exact .var)⟩)
     exact va_ne_vb (Option.some.inj this)
 
-/-- A clause without a `requires` whose patterns match does not fail. -/
+/-- A clause without a `requires` and without a `pre` whose patterns match does not fail. -/
 theorem not_fails_noReq {vs : List GroundTerm} {cl : Clause} {σ : Subst} (hq : cl.req = none)
+    (hpre : cl.pre = .top)
     (hw : c.WellSortedAt cl.vars cl.leftVars σ) (hp : PatVals c σ cl.pats vs) (hf : Fails c vs cl) : False := by
   cases hf with
-  | intro h => cases h σ hw hp with | intro ht _ _ => rw [hq] at ht; cases ht
+  | intro h =>
+    cases h σ hw hp with
+    | intro ht _ _ => rw [hq] at ht; cases ht
+    | pre h => rw [hpre] at h; exact absurd (Holds.top_eq h) (by simp)
 
 /-- **At (b, b), one value**: `b`. -/
 theorem eval_bb (r : Option GroundTerm) (h : Eval c choose [vb, vb] r) : r = some vb := by
   cases h with
-  | clause hfn' hmem _ hmatch _ _ hrhs _ =>
+  | clause hfn' hmem _ hmatch _ _ _ hrhs _ =>
     rw [hfn] at hfn'; cases hfn'
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -238,10 +247,10 @@ theorem eval_bb (r : Option GroundTerm) (h : Eval c choose [vb, vb] r) : r = som
         | var hl => cases hrhs; exact hl
   | rest hfn' hnone =>
     rw [hfn] at hfn'; cases hfn'
-    exact (not_fails_noReq qB (by rw [vB]; exact (ws1 sort_b).at _)
+    exact (not_fails_noReq qB preB (by rw [vB]; exact (ws1 sort_b).at _)
       (by rw [ptB]; exact .cons (.ctor isCtor_b .nil) (.cons (.var rfl) .nil))
       (hnone clB (by rw [fn_clauses]; simp))).elim
-  | ensFails hfn' hmem _ _ _ _ ht _ _ =>
+  | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
     rw [hfn] at hfn'; cases hfn'
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -256,7 +265,7 @@ theorem eval_ay {y : GroundTerm} (hy : c.sortOf y = some exp) (r : Option Ground
   have hAap : c.WellSortedAt clA.vars clA.leftVars [(0, y)] ∧ PatVals c [(0, y)] clA.pats [va, y] :=
     ⟨by rw [vA]; exact (ws1 hy).at _, by rw [ptA]; exact .cons (.ctor isCtor_a .nil) (.cons (.var rfl) .nil)⟩
   cases h with
-  | clause hfn' hmem _ hmatch _ hprio hrhs _ =>
+  | clause hfn' hmem _ hmatch _ _ hprio hrhs _ =>
     rw [hfn] at hfn'; cases hfn'
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -269,12 +278,12 @@ theorem eval_ay {y : GroundTerm} (hy : c.sortOf y = some exp) (r : Option Ground
     · rw [ptB] at hmatch
       cases hmatch with
       | cons h1 _ => exact absurd (patVal_ctor0 isCtor_b hook_b h1) (by simp [va, a, b])
-    · exact (not_fails_noReq qA hAap.1 hAap.2
+    · exact (not_fails_noReq qA preA hAap.1 hAap.2
         (hprio clA (by rw [fn_clauses]; simp) aside_b.2.1 (by rw [pA, pO]; decide))).elim
   | rest hfn' hnone =>
     rw [hfn] at hfn'; cases hfn'
-    exact (not_fails_noReq qA hAap.1 hAap.2 (hnone clA (by rw [fn_clauses]; simp))).elim
-  | ensFails hfn' hmem _ _ _ _ ht _ _ =>
+    exact (not_fails_noReq qA preA hAap.1 hAap.2 (hnone clA (by rw [fn_clauses]; simp))).elim
+  | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
     rw [hfn] at hfn'; cases hfn'
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -302,7 +311,7 @@ theorem hfn : c.lookupFn gl = some gfn := rfl
 theorem ws_nil : c.WellSorted [] [] := fun i s h => by simp at h
 
 theorem g_false : Eval c gl [] (some (bool false)) :=
-  .clause (cl := C) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h)
+  .clause (cl := C) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h) .top
     (fun cl' h _ hlt => by
       simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl | rfl <;> simp [C, D, E] at hlt)
@@ -320,7 +329,7 @@ theorem E_lower : ∀ cl' ∈ gfn.clauses, cl'.aside = false → cl'.prio < E.pr
   · simp [E] at hlt
 
 theorem g_true : Eval c gl [] (some (bool true)) :=
-  .clause (cl := E) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h) E_lower .dv
+  .clause (cl := E) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h) .top E_lower .dv
     (fun t h => by cases h)
 
 /-- Not `FnDet`: `false` by C, `true` by E. -/
@@ -332,8 +341,8 @@ theorem not_fnDet : ¬ FnDet c := fun h => by
 `Eval.clause` reads deciding, with different results. -/
 theorem not_agree : ¬ ClausesAgree c gfn := fun h => by
   have hco := (h C E (by simp [gfn, pairs]) (.inr (.inl ⟨rfl, by decide⟩))).1
-  have hapC : C.AppliesAt c [] [] := ⟨ws_nil, .nil, fun t h => by cases h⟩
-  have hapE : E.AppliesAt c [] [] := ⟨ws_nil, .nil, fun t h => by cases h⟩
+  have hapC : C.AppliesAt c [] [] := ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
+  have hapE : E.AppliesAt c [] [] := ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
   have hdecC : C.Decides c gfn [] [] := ⟨hapC, fun cl' h _ hlt => by
     simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at h
     rcases h with rfl | rfl | rfl <;> simp [C, D, E] at hlt⟩
@@ -441,15 +450,16 @@ theorem no_U_σ {σ : Subst} (h : c'.WellSorted U.vars σ) : False := by
 
 theorem leftVars_U : U.leftVars = [] := by simp [Clause.leftVars, Clause.condVars, U, varOccsList, varOccsCond]
 
-/-- U does not fail: no variable of its patterns and conditions, no `requires`. -/
+/-- U does not fail: no variable of its patterns and conditions, no `requires`, the predicate `\top`. -/
 theorem U_not_fails : ¬ Fails c' [] U := fun h => by
   cases h with
   | intro h =>
     cases h [] (fun i hi => by rw [leftVars_U] at hi; cases hi) .nil with
     | intro ht _ _ => cases ht
+    | pre h => exact absurd (Holds.top_eq h) (by simp)
 
 theorem g_false : Eval c' gl [] (some (bool false)) :=
-  .clause (cl := C) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h)
+  .clause (cl := C) (σ := []) hfn (by simp [gfn]) ws_nil .nil (fun t h => by cases h) .top
     (fun cl' h _ hlt => by
       simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl | rfl <;> simp [C, U, E] at hlt)
@@ -459,7 +469,7 @@ theorem g_false : Eval c' gl [] (some (bool false)) :=
 needs U to fail, and the rest needs C to. -/
 theorem only_false (r : Option GroundTerm) (h : Eval c' gl [] r) : r = some (bool false) := by
   cases h with
-  | clause hfn' hmem hσ _ _ hprio hrhs _ =>
+  | clause hfn' hmem hσ _ _ _ hprio hrhs _ =>
     rw [hfn] at hfn'; cases hfn'
     simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl
@@ -471,7 +481,8 @@ theorem only_false (r : Option GroundTerm) (h : Eval c' gl [] r) : r = some (boo
     cases hnone C (by simp [gfn]) with
     | intro h => cases h [] (fun i hi => by simp [Clause.leftVars, Clause.condVars, C, varOccsList, varOccsCond] at hi) .nil with
       | intro ht _ _ => cases ht
-  | ensFails hfn' hmem _ _ _ _ ht _ _ =>
+      | pre h => exact absurd (Holds.top_eq h) (by simp)
+  | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
     rw [hfn] at hfn'; cases hfn'
     simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl <;> cases ht
@@ -480,7 +491,7 @@ theorem only_false (r : Option GroundTerm) (h : Eval c' gl [] r) : r = some (boo
 matching instance (σ' := []) over the substitutions `Fails` ranges over. -/
 theorem E_not_decides (σ : Subst) : ¬ E.DecidesAt c' gfn σ [] := fun h =>
   h.2 U (by simp [gfn]) rfl (by decide) [] (fun i hi => by rw [leftVars_U] at hi; cases hi) .nil
-    (fun t ht => by cases ht)
+    ⟨(fun t ht => by cases ht), .top⟩
 
 /-- **`FnSolves` holds**: C decides and gives `false`, the one result; U never applies; E never decides. -/
 theorem fnSolves_c : FnSolves c' := by

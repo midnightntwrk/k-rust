@@ -21,21 +21,21 @@ open KoreAML (DefOK Inh IsSort Closed KGround VarKey VarTable)
 
 /-- What the evaluation lemmas read of a clause of a function: its patterns have the argument sorts,
 its predicates are `\top`, each variable occurs in it, its `requires` and `ensures` are Bools and its
-right side has the result sort, over the signatures `L`. -/
+right side has the result sort, over the signatures `L`; and it has no existential variable. -/
 def ClauseOpenFacts (c : Semantics) (fn : Fn) (L : List CtorSig) (cl : Clause) : Prop :=
   sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args ∧ cl.pre = .top ∧ cl.post = .top ∧
     (∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
       (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) ∧
     (∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool) ∧
     sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
-    (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
+    (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool) ∧ cl.exs = []
 
 /-- `clauseSortedOpen` and `clausePlainOpen` give `ClauseOpenFacts`. -/
 theorem clauseOpenFacts_of {c : Semantics} {fn : Fn} {L : List CtorSig} {cl : Clause}
     (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) : ClauseOpenFacts c fn L cl := by
   obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨-, hpre, hpost, -⟩ := Semantics.clausePlainOpen_parts hp
-  exact ⟨h1, hpre, hpost, h2, h3, h4, h5⟩
+  obtain ⟨hexs, hpre, hpost, -⟩ := Semantics.clausePlainOpen_parts hp
+  exact ⟨h1, hpre, hpost, h2, h3, h4, h5, hexs⟩
 
 /-- The generated sort predicates' clauses have `\top` predicates. -/
 theorem sortPreds_topCl {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
@@ -58,7 +58,7 @@ theorem clauseOpenFacts_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) :
     rcases List.mem_append.mp hfn with hu | hp
     · exact Semantics.sortedOK_clause hok hu hcl
     · exact sortPreds_topCl hp cl hcl
-  exact ⟨L, hL, hpats, hpp.1, hpp.2, hbinds, hreqs, hrhss, henss⟩
+  exact ⟨L, hL, hpats, hpp.1, hpp.2, hbinds, hreqs, hrhss, henss, clause_exsNil hok hfn hcl⟩
 
 section
 variable {c : Semantics} {M : Type} {I : Interpretation KoreAML.Sym M}
@@ -86,25 +86,25 @@ mutual
   theorem eval_den4Cl : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
-      obtain ⟨L, hL, hpats, hpre, hpost, hocc, hreqs, hrhss, henss⟩ := hcls fn' hmem cl hcl
+      obtain ⟨L, hL, hpats, hpre, hpost, hocc, hreqs, hrhss, henss, hexs⟩ := hcls fn' hmem cl hcl
       have hr : ∀ v, _ = some v → c.sortOf v = some fn'.result := fun v hv => EvalTerm.sorted hsc hrhs hL hσ' hrhss hv
-      exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hocc hreqs hrhss
+      exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hexs hocc hreqs hrhss
         henss hr (fun tbl e' hag => right_iff hI hnn hmem hr
           (fun m' => evalTerm_den4Cl hrhs hL hσ' (canonVars_length c cl.vars) hag hrhss m')
           (fun t ht m' => evalTerm_den4Cl (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
         (fun t ht tbl e' hag m' => evalTerm_den4Cl (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
         (fun cl' hcl'' hna'' hlt => lowCl hI hnn hsc hph hcls hneg hmem hcl hcl'' hlt (hprio cl' hcl'' hna'' hlt)
           (fails_den4Cl (hprio cl' hcl'' hna'' hlt) hmem hcl'')) e m
-    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq hprio ht he hw,
+    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio ht he hw,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
-      obtain ⟨L, hL, hpats, hpre, hpost, hocc, hreqs, hrhss, henss⟩ := hcls fn' hmem cl hcl
-      exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hocc hreqs hrhss
+      obtain ⟨L, hL, hpats, hpre, hpost, hocc, hreqs, hrhss, henss, hexs⟩ := hcls fn' hmem cl hcl
+      exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hexs hocc hreqs hrhss
         henss (fun v hv => by cases hv) (fun tbl e' hag => right_empty hI hnn hmem ht hw
           (fun v hv => EvalTerm.sorted hsc he hL hσ' (henss t ht) hv)
           (fun m' => evalTerm_den4Cl he hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
@@ -129,6 +129,9 @@ mutual
       ∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
+    | _, cl, .pre h, fn, hfn, hcl, vars, hlen, hagl, hσ, tbl, e, hag => by
+      obtain ⟨L, hL, -, hpre, -⟩ := hcls fn hfn cl hcl
+      rw [hpre] at h; exact absurd h.top_eq (by simp)
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, vars, hlen, hagl, hσ, tbl, e, hag => by
       obtain ⟨L, hL, -, -, -, -, hreqs, -⟩ := hcls fn hfn cl hcl
       have htS : sortOfTerm (c.rhsCtx L) vars t = some Srt.bool := by

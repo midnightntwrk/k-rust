@@ -122,6 +122,7 @@ theorem fnItems_plain {c : Semantics} (hp : c.plain = true) : fnItems c = fnItem
   have hB := Semantics.binds_of_plain_mem hp hf
   have hA := Semantics.aside_of_plain_mem hp hf
   have hP := Semantics.pre_of_plain_mem hp hf
+  have hE := Semantics.exs_of_plain_mem hp hf
   unfold fnEquationsK fnEquationsK₀
   refine congrArg kernelItems (List.map_congr_left fun cl hcl => ?_)
   have hlow : lowerClauses f cl = lowerClauses₀ f cl :=
@@ -133,7 +134,7 @@ theorem fnItems_plain {c : Semantics} (hp : c.plain = true) : fnItems c = fnItem
       exclusion_top _ (hP cl' (List.mem_filter.mp h').1) (hB cl' (List.mem_filter.mp h').1)
   show (if (lowerClauses f cl).isEmpty then clauseEquation c f cl
     else competingEquation c f (lowerClauses f cl) cl) = _
-  rw [clauseEquation_top (hP cl hcl), competingEquation_top (hP cl hcl)]
+  rw [clauseEquation_top (hP cl hcl) (hE cl hcl), competingEquation_top (hP cl hcl) (hE cl hcl)]
   unfold prioEquation₀
   rw [hex, hlow]
   rfl
@@ -155,10 +156,10 @@ theorem notApplies_of_binds {c : Semantics} {r : Rule} (hp : c.plain = true) (x 
   constructor
   · intro hn σ hσ hm
     obtain ⟨t, v, ht, he, hv⟩ := (hn σ (hσ.at _) hm).req_of_top (Cond.eq_top_of_isTop hpt)
-    exact .intro ht (EvalTerm.to_old (Semantics.aside_of_plain hp) he) hv
+    exact .intro ht (EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) he) hv
   · intro hn σ hσ hm
     cases hn σ (Rule.wellSorted_of_at hb hσ) hm with
-    | intro ht he hv => exact .intro ht (EvalTerm₀.to_new (Semantics.binds_of_plain hp) he) hv
+    | intro ht he hv => exact .intro ht (EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) he) hv
 
 theorem applies_of_binds (c : Semantics) (r : Rule) (rp : RulePres)
     (h : (r.pre.isTop && binds r.vars.length (varOccs r.lhs)) = true) : applies c r rp = applies₀ c r rp := by
@@ -188,18 +189,18 @@ theorem step_plain {c : Semantics} (hp : c.plain = true) (x y : Config c) : Step
   · intro h
     cases h with
     | rule r mem σ hσ hm hreq _ he hens _ hprio =>
-      exact .rule r mem σ hσ hm (fun t ht => EvalTerm.to_old (Semantics.aside_of_plain hp) (hreq t ht))
-        (EvalTerm.to_old (Semantics.aside_of_plain hp) he)
-        (fun t ht => EvalTerm.to_old (Semantics.aside_of_plain hp) (hens t ht))
+      exact .rule r mem σ hσ hm (fun t ht => EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) (hreq t ht))
+        (EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) he)
+        (fun t ht => EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) (hens t ht))
         (fun r' hr' hlt => (hna r' hr').mp (hprio r' hr' hlt))
   · intro h
     cases h with
     | rule r mem σ hσ hm hreq he hens hprio =>
       obtain ⟨-, hpre, hpost, -⟩ := Semantics.plain_rule hp mem
       exact Step.rule_top r mem σ hpre hpost hσ hm
-        (fun t ht => EvalTerm₀.to_new (Semantics.binds_of_plain hp) (hreq t ht))
-        (EvalTerm₀.to_new (Semantics.binds_of_plain hp) he)
-        (fun t ht => EvalTerm₀.to_new (Semantics.binds_of_plain hp) (hens t ht)) (fun r' hr' hlt => (hna r' hr').mpr (hprio r' hr' hlt))
+        (fun t ht => EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) (hreq t ht))
+        (EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) he)
+        (fun t ht => EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) (hens t ht)) (fun r' hr' hlt => (hna r' hr').mpr (hprio r' hr' hlt))
 
 
 /-! ## The statements over the plain step -/

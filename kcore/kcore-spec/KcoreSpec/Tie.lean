@@ -179,6 +179,15 @@ theorem rulesPlain_ruleTop {c : Semantics} (h : c.rulesPlain = true) {r : Rule} 
   obtain ⟨⟨hpre, hpost⟩, -⟩ := h r hr
   exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
 
+/-- Rules whose predicates `Cond.isTop` accepts have `\top` predicates: the decidable form of the
+hypothesis the lemmas for rules without predicates take. -/
+theorem rulesTop_of_isTop {c : Semantics}
+    (h : c.rules.all (fun r => r.pre.isTop && r.post.isTop) = true) :
+    ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top := fun r hr => by
+  have hr' := List.all_eq_true.mp h r hr
+  simp only [Bool.and_eq_true] at hr'
+  exact ⟨Cond.eq_top_of_isTop hr'.1, Cond.eq_top_of_isTop hr'.2⟩
+
 /-- Each variable of a rule of a semantics `sortedOK` accepts occurs in its left side, its
 `requires`, its right side, its `ensures` or its `post`. -/
 theorem sortedOK_rule_occurs {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :

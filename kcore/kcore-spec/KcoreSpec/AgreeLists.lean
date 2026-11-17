@@ -552,9 +552,9 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
         (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
         (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim⟩
-  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq⟩ ⟨hσ', hm', hq'⟩ hd _ _ _ =>
+  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
-      fun vs σ' σ ⟨hσ', hm', hq'⟩ ⟨hσ, hm, hq⟩ hd _ _ _ =>
+      fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
   · -- the second clause's literals against the first's: one variable list and one pattern list,
     -- so the second clause is fixed too
@@ -570,9 +570,9 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
       have hpb' := hpb
       rw [← hpp] at hpb' ⊢
       exact hpb'
-    exact ⟨fun vs σ σ' ⟨hσ, hm, hq⟩ ⟨hσ', hm', hq'⟩ hd _ _ _ =>
+    exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 hσ' hm' hq' hσ hm hq (.inr hd)).elim,
-      fun vs σ' σ ⟨hσ', hm', hq'⟩ ⟨hσ, hm, hq⟩ hd _ _ _ =>
+      fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
         (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 hσ' hm' hq' hσ hm hq (.inl hd)).elim⟩
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
@@ -580,13 +580,13 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
         (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 hl hσ hσ' hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
         (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 hl hσ hσ' hm hm').elim⟩
-  · exact ⟨fun vs σ σ' ⟨_, hm, _⟩ ⟨_, hm', hq'⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim,
-      fun vs σ' σ ⟨_, hm', hq'⟩ ⟨_, hm, _⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim⟩
-  · exact ⟨fun vs σ σ' ⟨_, hm, hq⟩ ⟨_, hm', _⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim,
-      fun vs σ' σ ⟨_, hm', _⟩ ⟨_, hm, hq⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim⟩
-  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq⟩ ⟨hσ', hm', hq'⟩ hd _ _ _ =>
+  · exact ⟨fun vs σ σ' ⟨_, hm, _⟩ ⟨_, hm', hq', _⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim,
+      fun vs σ' σ ⟨_, hm', hq', _⟩ ⟨_, hm, _⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim⟩
+  · exact ⟨fun vs σ σ' ⟨_, hm, hq, _⟩ ⟨_, hm', _⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim,
+      fun vs σ' σ ⟨_, hm', _⟩ ⟨_, hm, hq, _⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim⟩
+  · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
         (negConjApart_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hn hσ hm hq hσ' hm' hq' (.inl hd)).elim,
-      fun vs σ' σ ⟨hσ', hm', hq'⟩ ⟨hσ, hm, hq⟩ hd _ _ _ =>
+      fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
         (negConjApart_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hn hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
 
 /-- In a core that `sortedOK`, `srReady` and `matchReady` accept, each two equations of one

@@ -16,6 +16,9 @@
   - `cLoop`: the same configuration with Int below KItem and a sort S of the one constructor
     `s : S → S` (`syntax S ::= s(S)`). `cLoop_core`: `coreOK` holds. `cLoop_valueSorts`: S is not
     in `valueSorts`, and Int, KItem, K and the cell sorts are.
+  - `Semantics.hasValue`, the decided test that gives a value on `coreOK` (`hasValue_value`):
+    IOError of `cIO` and S of `cLoop` are outside; String, KItem, K, the cell sorts, a token sort,
+    a sort hooked to a carrier, a cell map sort, and IOError with a constructor are inside.
 -/
 import KcoreSpec
 
@@ -118,7 +121,52 @@ theorem cLoop_core : cLoop.coreOK = true := by decide +kernel
 theorem cLoop_valueSorts : cLoop.valueSorts.contains sS = false ∧ cLoop.valueless = [sS] ∧
     [Srt.int, Srt.kitem, Srt.k, Srt.top, nRegSorts].all cLoop.valueSorts.contains = true := by decide +kernel
 
+/-! ## `Semantics.hasValue` on the same definitions
+
+`hasValue` counts no seed sort as having a value: a sort is accepted for a probe literal, an empty
+collection, or a constructor or injection over accepted sorts. -/
+
+/-- IOError of `cIO`, which has no value (`cIO_no_value`), is outside; Int, String, KItem (the
+injection of an Int), K, the cell sorts and the builtin collection sorts are inside. -/
+theorem cIO_hasValue : cIO.hasValue ioError = false ∧
+    [Srt.int, Srt.bool, Srt.string, Srt.kitem, Srt.k, Srt.top, nRegSorts, nRegSorts + 1, Srt.map, Srt.set,
+      Srt.list].all cIO.hasValue = true := by decide +kernel
+
+/-- S of `syntax S ::= s(S)` is outside. -/
+theorem cLoop_hasValue : cLoop.hasValue sS = false ∧
+    [Srt.int, Srt.kitem, Srt.k, Srt.top, nRegSorts].all cLoop.hasValue = true := by decide +kernel
+
+/-- `cIO` with a constructor without arguments of IOError (K-IO's `#EOF` is one): IOError is inside,
+and so has a value (`hasValue_value`). -/
+def cIOk : Semantics := { cIO with lib := { cIO.lib with ctors := [⟨regSymNames.idxOf "Lbl'Hash'EOF", [], ioError⟩] } }
+
+theorem cIOk_hasValue : cIOk.hasValue ioError = true := by decide +kernel
+
+/-- A token sort (the literal `""`), a sort hooked to the carrier Int (the literal `0`), and a cell
+map sort with a value sort (its empty map) are inside; a map sort without a value sort is outside,
+as `sortOf` gives it no map. -/
+def cLit : Semantics :=
+  { cIO with
+    lib := { cIO.lib with tokenSorts := [nRegSorts + 2], carriers := [(nRegSorts + 3, Srt.int)] }
+    colls := [⟨nRegSorts + 4, .map, Srt.int, some Srt.int, nRegSyms + 4, nRegSyms + 5, nRegSyms + 6⟩,
+              ⟨nRegSorts + 5, .map, Srt.int, none, nRegSyms + 7, nRegSyms + 8, nRegSyms + 9⟩] }
+
+theorem cLit_hasValue : [nRegSorts + 2, nRegSorts + 3, nRegSorts + 4].all cLit.hasValue = true ∧
+    cLit.hasValue (nRegSorts + 5) = false ∧ cLit.hasLit (nRegSorts + 2) = true ∧
+    cLit.hasLit (nRegSorts + 3) = true ∧ cLit.hasEmpty (nRegSorts + 4) = true := by decide +kernel
+
+/-- On `cIO`, a definition with `coreOK`, the accepted sorts have values. -/
+theorem cIO_values : ∀ s ∈ [Srt.string, Srt.kitem, Srt.k, Srt.top], ∃ v, cIO.sortOf v = some s := by
+  intro s hs
+  refine hasValue_value cIO_core ?_
+  revert s
+  decide +kernel
+
 end KCore.ValueSortsNoValue
+
+#print axioms KCore.hasValue_value
+#print axioms KCore.ValueSortsNoValue.cIO_hasValue
+#print axioms KCore.ValueSortsNoValue.cIO_values
 
 #print axioms KCore.ValueSortsNoValue.valueSorts_no_value
 #print axioms KCore.ValueSortsNoValue.cLoop_core

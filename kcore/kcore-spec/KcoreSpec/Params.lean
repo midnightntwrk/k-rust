@@ -141,11 +141,12 @@ theorem step_of_apply_all_withHooks {c : Semantics} (hok : c.okAll = true) (hsr 
     (hov : c.OvlCase) (H : HookParams) {r : Rule} (hr : r ∈ c.rules) {x : Config (c.withHooks H)} {σ : Subst}
     (hσ : (c.withHooks H).WellSorted r.vars σ) (hm : PatVal (c.withHooks H) σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpre : Holds (c.withHooks H) r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm (c.withHooks H) σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpost : Holds (c.withHooks H) r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies (c.withHooks H) r' x.val) :
     Step (c.withHooks H) x ⟨v, rhs_sorted_all_withHooks hok hsr hov H hr hσ he⟩ :=
-  let ⟨hp, hq⟩ := Semantics.okAll_ruleTop hok hr
-  Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
+  .rule r hr σ hσ hm hreq hpre he hens hpost hprio
 
 end KCore

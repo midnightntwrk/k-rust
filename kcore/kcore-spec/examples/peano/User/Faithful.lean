@@ -21,6 +21,10 @@ theorem okAll : c.okAll = true := Semantics.okAll_of_ok ok
 theorem rules_bind : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true :=
   fun _ hr => (Semantics.ok_rule ok hr).2.2.2
 
+/-- Each rule's predicates are `\top` (`ok_rule`). -/
+theorem rules_top : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top :=
+  fun _ hr => ⟨(Semantics.ok_rule ok hr).2.1, (Semantics.ok_rule ok hr).2.2.1⟩
+
 /-- Each clause's patterns bind every variable of the clause (`ok_clauseBinds`). -/
 theorem clauses_bind : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true :=
   Semantics.ok_clauseBinds ok
@@ -148,7 +152,7 @@ theorem stage2 : Stage2 c := by
 /-- **Every step of peano is a theorem of `Γ`**: in every model of `Γ c`, a configuration has each
 of its `Step` successors as a successor. -/
 theorem step_sound : ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  step_sound_stage2 c hyp rules_bind clauses_bind stage2
+  step_sound_stage2 c hyp rules_bind rules_top clauses_bind stage2
 
 #print axioms step_sound
 

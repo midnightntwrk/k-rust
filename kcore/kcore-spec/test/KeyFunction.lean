@@ -16,10 +16,17 @@
     `W >Int 0`, with the strict conjunction `⟨W >Int 0, Key0 ==Int pidx(B, I)⟩ ==K ⟨true, true⟩`;
     `look` with `==K` of one-item sequences of `Key0` and `kf(I)`. Nothing refused, `coreOK`, no lazy
     obligation (compiled). The compiled step function (`Exec.successorsN`, the executable reading
-    of `Step`): `get(I)` with `pidx(B, I)` a key of `<mem>` gives its value; where `pidx(B, I)` has a
-    value that is no key, and where it has none (I = 2), the `[owise]` rule gives `miss()`: the rule
-    does not block it; `put` steps where `W >Int 0` and the key is there, not otherwise; `look(1)`
-    finds `k(1)`'s value, `look(2)` (`kf(2)` has none) has no successor.
+    of `Step`) at the parsed semantics, whose interpretation is `HookParams.none` (`AtNone.steps`):
+    `get(I)` with `pidx(B, I)` a key of `<mem>` gives its value; where `pidx(B, I)` has a value
+    that is no key, the `[owise]` rule gives `miss()`: the rule does not block it; `put` steps where
+    `W >Int 0` and the key is there, not otherwise; `look(1)` finds `k(1)`'s value. These hold
+    under every interpretation: an equation decides `pidx(B, 0)`, `pidx(B, 1)` and `kf(1)`.
+    `pidx(B, 2)` and `kf(2)` are points where no equation of a function not declared total
+    applies: their values are the interpretation's, and the text fixes none. Under
+    `HookParams.none` they have no value, so `get(2)` goes to `miss()`, `put(2, 4)` and `look(2)`
+    have no successor: results at that interpretation, not what the text states. Under an
+    interpretation giving `kf(2)` the key `k(1)`, `look(2)` steps to that key's entry
+    (test/Guards.lean, `DevKey.look2_Hk`).
 -/
 import KcoreSpec
 
@@ -61,8 +68,12 @@ info: read; rules [([], ((some [Lbl'UndsEqlsEqls'Int'Unds', Lblpidx]), [I, 'Unds
 #eval show IO Unit from do
   IO.println (← verdict "f2-examples/keyfn-partial.kompile.kore")
 
-/-- The successors of `keyfn-partial`'s configurations, by the compiled step function: for each
-program, its `<k>` cell's first item after a step, or none for no successor. -/
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
+/-- The successors of `keyfn-partial`'s configurations, by the compiled step function at the parsed
+semantics (`HookParams.none`): for each program, its `<k>` cell's first item after a step, or none
+for no successor. -/
 def steps : IO String := do
   let .ok k := Kore.parseDefinition (← IO.FS.readFile "f2-examples/keyfn-partial.kompile.kore")
     | return "KORE read error"
@@ -104,3 +115,5 @@ info: get(0), 5 |-> 7: [7], get(1), 6 |-> 8: [8], get(1), 5 |-> 7: [Lblmiss], ge
 -/
 #guard_msgs in
 #eval show IO Unit from do IO.println (← steps)
+
+end AtNone

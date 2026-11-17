@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-eq-rhs-not-ceil-and.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.0
+definition.kore bytes: 205383
+definition.kore sha256: f06f87d9c69793a5ec9f3a4c743a8a2bf1601df70d54b63348df432fdadc717a
+stripped sha256: 12a26e68821dee4bd12bf1907cce4186aace6e59334a6544a4d54199f30a754b
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-NOT-CEIL-AND-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-EQ-RHS-NOT-CEIL-AND as default.

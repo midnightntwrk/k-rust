@@ -599,7 +599,7 @@ clause with no clause of a smaller priority). -/
 theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause}
-    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hplain : plainPats c cl.pats = true) (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
@@ -617,7 +617,7 @@ theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_vars (c := c) hpats hbinds hreqv
-  rw [clauseEquation_top hpre] at hmem
+  rw [clauseEquation_top hpre hexs] at hmem
   exact eqn_at hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1 hv.2.1 hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
       premise_holds hI hnn htr hfnm hws hσ' hmatch hplain hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
@@ -629,7 +629,7 @@ negation of their exclusions holds and the equation fires as an ordinary one. -/
 theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
@@ -648,7 +648,7 @@ theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
-  rw [competingEquation_top hpre] at hmem
+  rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -741,7 +741,7 @@ mutual
   theorem eval_den2 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args → Callable2 c f →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
         fn, hfn, hws, hcall, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -764,9 +764,10 @@ mutual
       have hrhsv := varOccs_lt _ hrhss
       have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
       by_cases hlow : lowerClauses fn' cl = []
-      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) hws hσ' hmatch hplain hpats
+      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats
           hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
       · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+          (clause_exsNil hok hmem hcl)
           (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_)
           hσ' hmatch hplain hpats hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
         obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
@@ -793,6 +794,8 @@ mutual
       ∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
+    | _, cl, .pre h, fn, hfn, hcl, hσ, tbl, e, hag => by
+      rw [clause_preTop hok hfn hcl] at h; exact absurd h.top_eq (by simp)
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, hσ, tbl, e, hag => by
       obtain ⟨-, -, L, hL, hreqs, -⟩ := clause_ctx hok hbc hfn hcl
       obtain ⟨-, hcalls⟩ := hst.2.2 fn hfn cl hcl
@@ -987,12 +990,12 @@ variable [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hsc : Sort
 include hI hnn hsc hst hok hbc hmi
 
 /-- A rule that does not apply to a configuration (`NotApplies`) does not apply in the model. -/
-theorem notApplies_model {r : Rule} (hr : r ∈ c.rules) {x : GroundTerm} (h : NotApplies c r x) :
+theorem notApplies_model {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) {x : GroundTerm} (h : NotApplies c r x) :
     ModelNotApplies c I r x := by
   intro σ hσ hpv tbl e hag
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
   obtain ⟨-, hcalls⟩ := hst.2.1 r hr
-  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top (Semantics.sortedOK_ruleTop hok hr).1
+  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top hpre
   · exact ⟨_, _, ht, hv, fun u hu => EvalTerm.sorted hsc he fns_headsOK hσ (hreqs _ ht) hu,
       evalTerm_den2 hI hnn hsc hst hok hbc hmi he fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs _ ht)
         (fun g hg => hcalls g (List.mem_append_left _ (List.mem_append_right _ (by rw [ht]; exact hg))))⟩
@@ -1139,14 +1142,14 @@ rule with rules of a smaller priority fires through its axiom with their `applie
 holds because none of them applies to `x` (`NotApplies`, `applies_empty`); the functions it calls
 are read through their equations, those with clauses of a smaller priority negated among them
 (`eval_den2`). -/
-theorem step_sound_stage2 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_sound_stage2 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage2 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hy : HypCore c := hy.core
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   intro x y hstep M _ I hI e m hm
   obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hy.1 hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hy.1 hr (hb r hr)
   have hD := defOK hI
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
@@ -1217,7 +1220,7 @@ theorem step_sound_stage2 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
         obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
         obtain ⟨r', hr', -, rfl⟩ := hcomp φ hφ
         obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hy.1 hr'
-        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (Semantics.sortedOK_ruleTop hy.1 hr').1 (hb _ hr') hk
+        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (htop _ hr').1 (hb _ hr') hk
       · exact freeOf_rule_parts hy.1 hr (Or.inr (Or.inr hk))
     · have h := lhs_req_hold hI hnn hsc hs hy.1 hbc hmi hr hσ hmatch hreq hag
       show (KoreAML.tr ⟨tbl, []⟩ (.and C _)).interpret I e' _
@@ -1230,11 +1233,11 @@ theorem step_sound_stage2 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
       · obtain ⟨r', hr', hp, rfl⟩ := hcomp φ hφ
         obtain ⟨hlhs', -, -⟩ := rule_ctx hy.1 hr'
         have hbinds' := Exec.binds_all (hb _ hr')
-        refine applies_empty hI hs.1 hsc.trans hnn.1 hlhs' hbinds' (hs.2.1 r' hr').1 (Semantics.sortedOK_ruleTop hy.1 hr').1 x.property
-          (fun i hi => hkeys _ ?_) e' (notApplies_model hI hnn hsc hs hy.1 hbc hmi hr' (hprio r' hr' hp))
+        refine applies_empty hI hs.1 hsc.trans hnn.1 hlhs' hbinds' (hs.2.1 r' hr').1 (htop _ hr').1 x.property
+          (fun i hi => hkeys _ ?_) e' (notApplies_model hI hnn hsc hs hy.1 hbc hmi hr' (htop _ hr').1 (hprio r' hr' hp))
         rw [KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOf]
         exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _
-          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (Semantics.sortedOK_ruleTop hy.1 hr').1 (hb _ hr') hi))))))
+          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (htop _ hr').1 (hb _ hr') hi))))))
       · have hxs := elemOf_spec hI x.property e'
         show (KoreAML.inhOf (KoreAML.trSort tbl (KoreAML.srt (c.sortName topCellSort)))).interpret I e' _
         rw [trSort_srt]

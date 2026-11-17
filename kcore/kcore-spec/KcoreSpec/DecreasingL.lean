@@ -714,8 +714,9 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_resultRH hlook hb (fun cl hcl σ hσ _ t ht => ?_) (fun cl hcl σ ha => ?_)
-      (fun cl hcl σ ha t ht => ?_)
+    refine eval_resultRH hlook hb
+      (fun cl hcl σ hσ _ => ⟨fun t ht => ?_, true, Clause.holds_preTop (hc.pres fn hfn cl hcl) σ⟩)
+      (fun cl hcl σ ha => ?_) (fun cl hcl σ ha t ht => ?_)
     · have hq := hreqs cl hcl
       rw [ht] at hq
       simp only [reqOK, beq_iff_eq] at hq
@@ -728,7 +729,7 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
           rw [hnoself] at hts
           cases hts
         exact hcall g (heads_req_callees hcl ht (mem_heads_of_callsOf t hts)) hgl gfn hg vs' hsrt
-    · obtain ⟨hσ, hm, hq⟩ := ha
+    · obtain ⟨hσ, hm, hq, -⟩ := ha
       exact evalTerm_result hc.sort hL hσ cl.rhs (hrs cl hcl) fun g ts hts gfn hg rs vs' hrs' hall hsrt => by
         by_cases hgl : g = fn.label
         · subst hgl

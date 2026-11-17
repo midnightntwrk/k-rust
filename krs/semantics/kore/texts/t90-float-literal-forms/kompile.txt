@@ -1,0 +1,25 @@
+command: kompile --backend haskell t90-float-literal-forms.k -o out  (cwd: the entry's directory)
+release: K version v7.1.337
+exit: 0
+definition.kore sha256: fed3f7e85487cc539e917ec34513b6acb64f33d2148b180804bd65215102c520
+messages:
+[Warning] Compiler: Could not find main syntax module with name
+T90-FLOAT-LITERAL-FORMS-SYNTAX in definition.  Use --syntax-module to specify
+one. Using T90-FLOAT-LITERAL-FORMS as default.
+
+kore.txt: the 27 rewrite axioms of the main module that hold a `\dv{SortFloat{}}`, each on one line,
+in the order of their rules, without their Source and Location attributes. Written by hand from the
+kompiled text: tools/case.py writes no text entry yet. evidence.json holds the fields SCHEMA.md
+section 4 gives a text entry (inputs, kompile), its hashes computed by tools/check.py's functions
+(answer_hash, sha), and no implementation row.
+
+K texts outside the three productions, each put in place of the literal of one rule
+(`rule <k> go(1) => l(LITERAL) ... </k>`) of the same module, kompiled with the same command:
+  +.5      exit 113: [Error] Inner Parser: Scanner error: unexpected character sequence '+'.
+  -.5      exit 113: [Error] Inner Parser: Scanner error: unexpected character sequence '-'.
+  +NaN     exit 113: [Error] Inner Parser: Scanner error: unexpected character sequence '+'.
+  -NaN     exit 113: [Error] Inner Parser: Scanner error: unexpected character sequence '-'.
+  1.0p24   exit 113: [Error] Inner Parser: Parse error: unexpected token 'p24' following token '1.0'.
+  1.0x8    exit 113: [Error] Inner Parser: Parse error: unexpected token 'x8' following token '1.0'.
+A K text inside the first production that the sort Int's token takes first:
+  1        exit 113: [Error] Inner Parser: Parse error: unexpected token '1' following token '('.

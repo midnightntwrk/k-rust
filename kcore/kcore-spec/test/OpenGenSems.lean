@@ -15,14 +15,9 @@
   - `CommCtor`, e2-comm-ctor: `syntax Exp ::= "x" | Exp "&" Exp [symbol(and), comm] |
     Exp "|" Exp [symbol(or), assoc]`. `and` raw, no law; `or` raw, `assoc`.
   - `OpenRule`, e2-open-rule: the K text of CN-2 §5 (`Exp ::= "x" | "y" | Exp "&" Exp [comm]`,
-    `syntax Bool ::= same(Exp, Exp) [function]`, `rule same(A, B) => A ==K B`,
-    `rule <k> go => x & y </k>`). PROVISIONAL: no kompiled text of it exists (no fixture
-    directory). Not backed by a sentence: `go`'s production (taken as `syntax KItem ::= "go"`,
-    a constructor of KItem), `same`'s clause shape (`==K` of the one-item sequences
-    `kseq(inj{Exp,KItem}(A), dotk)`, the form kompile writes for `==K` at a sort below KItem), the
-    rule's cell form (the top cell with the counter cell as a variable, the form of e2-open-mixed's
-    `kore.txt:61`), and `and`'s declaration (taken as e2-comm-ctor's `and`: `functional`, no
-    `constructor`, no `comm` attribute, no axiom of commutativity).
+    `syntax KItem ::= "go"`, `syntax Bool ::= same(Exp, Exp) [function]`, `rule same(A, B) => A ==K B`,
+    `rule <k> go => x & y </k>`). `and` raw, no law. The declarations, the rule and `same`'s
+    equation are compared with the kompiled text's sentences (`OpenRule.textCheck`).
   - `IdemCtor`, e2-idem-ctor: `syntax Exp ::= "x" | "y" | Exp "|" Exp [idem, symbol(or)]`. `or` raw,
     `idem` (V7 case 2: the symbol is no constructor and the idempotence axiom is written).
   - `OpenMixed`, e2-open-mixed: `syntax A ::= "x" | "y"`, `syntax B ::= A "&" A [comm, symbol(and)]`,
@@ -93,11 +88,22 @@ theorem lookupOpen_ok : c.lookupOpen andS = some andP ∧ c.lookupOpen orS = som
 
 end CommCtor
 
-/-! ## e2-open-rule (provisional: no kompiled text)
+/-! ## e2-open-rule
 
-What CN-2 §5 states of the text, read at e2-comm-ctor's `and` (the same production): `and` total
-(`functional`), listed in Exp's no-junk axiom beside `x` and `y`; no law; the no-confusion axiom
-`¬(x() ∧ y())` (as e2-idem-ctor's :26, the two nullary constructors) names no open generator. -/
+What the text states (`kore.txt`; line numbers of that file):
+- `and`: declared `symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), …]` (:6), no
+  `constructor`, `injective`, `function` or `comm`; its `functional` axiom (:42); no law axiom.
+- Exp's no-junk axiom (:58): `∃X0 X1. and(X0,X1) ∨ x() ∨ y() ∨ ⊥`. The one no-confusion axiom of
+  Exp (:54) is `¬(x() ∧ y())`: it names no `and` application.
+- `go`: `symbol Lblgo{}() : SortKItem{} [constructor{}(), functional{}(), injective{}(), …]` (:8), a
+  constructor of KItem, in the rule's left side with no injection.
+- The rule (:63-68): `\rewrites(\and(<generatedTop>(<k>(kseq(go(), dotk())), _DotVar0), \top),
+  \and(<generatedTop>(<k>(kseq(inj{Exp,KItem}(and(x(), y())), dotk())), _DotVar0), \top))`, the
+  counter cell a variable.
+- `same`'s equation (:143-161): `same(X0, X1) = _==K_(kseq(inj{Exp,KItem}(A), dotk()),
+  kseq(inj{Exp,KItem}(B), dotk()))` under the premise `X0 ∈ A ∧ X1 ∈ B`, no `requires` or
+  `ensures`.
+-/
 namespace OpenRule
 
 def exp : Srt := nRegSorts + 2
@@ -143,6 +149,73 @@ def c : Semantics :=
 theorem idsOK : c.idsOK = true := by decide +kernel
 theorem lookupOpen_ok : c.lookupOpen andS = some andP ∧ c.lookupOpen xS = none ∧
     c.lookupOpen sameS = none := by decide +kernel
+
+/-! ### The semantics against the kompiled text
+
+`c` is written by hand (the reader refuses the text at `and`'s declaration, `openGenerator`). Each
+part of it that reads a sentence of the user module is compared with that sentence
+(`f2-examples/openrule.kompile.kore`, the fixture's kompiled text; line numbers of the fixture's
+`kore.txt`). -/
+
+/-- A symbol's declaration in the sentences `ss`: its argument sorts, its result sort and its
+attributes but `Location`, `Source` and `symbol'Kywd'`. -/
+def declOf (ss : List Kore.Sentence) (n : String) : Option (List Kore.KSort × Kore.KSort × List String) :=
+  ss.findSome? fun
+    | .symbol d => if d.symbol.ident.ident.name == n then
+        some (d.sorts, d.sort, (d.attributes.map (·.head.ident.name)).filter fun a =>
+          !(a.startsWith "org'Stop'kframework" || a == "symbol'Kywd'"))
+      else none
+    | _ => none
+
+/-- `c` against the text: the reader's refusal with the law axioms the text states of `and`; `and`,
+`go`, `same`, `x` and `y` declared with `c`'s signatures and kinds (an open generator: `functional`
+alone; constructors; a function); the text's one rewrite axiom is `ruleGo`'s two sides as
+`Term.kore` writes them at `c`'s names, with the text's variable name; `same`'s one equation has
+`clSame`'s premise (`premise`, no `requires`) and right side. -/
+def textCheck : IO Unit := do
+  match Kore.parseDefinition (← IO.FS.readFile "f2-examples/openrule.kompile.kore") with
+  | .error e => IO.println s!"KORE read error {e}"
+  | .ok k =>
+    let ss := (k.modules.getLast?.map (·.sentences)).getD []
+    let E := KoreAML.srt "Exp"
+    -- the reader's verdict, with the law axioms the text states of `and`
+    match Parse.parse k with
+    | .error r => IO.println s!"parse: refused {r.reason.name} {r.detail}"
+    | .ok _ => IO.println "parse: read"
+    -- the declarations (:6, :8, :14, :16, :18)
+    IO.println s!"and: {declOf ss (c.symName andS) == some ([E, E], E, ["functional"])}"
+    IO.println s!"go: {declOf ss (c.symName goS) == some ([], KoreAML.srt "KItem", ["constructor", "functional", "injective"])}"
+    IO.println s!"same: {declOf ss (c.symName sameS) == some ([E, E], KoreAML.srt "Bool", ["function"])}"
+    IO.println s!"x, y: {[xS, yS].map fun f => declOf ss (c.symName f) == some ([], E, ["constructor", "functional", "injective"])}"
+    -- the one rewrite axiom (:63-68): `\rewrites(\and(lhs, \top), \and(rhs, \top))`
+    let vr := KoreAML.varList [c.sortName Srt.counter] ["'Unds'DotVar0"]
+    let rws := ss.filterMap fun
+      | .axiom a => match a.pattern with
+        | .rewrites _ l r => some (l, r)
+        | _ => none
+      | _ => none
+    let T := Kore.Pattern.top (KoreAML.srt (c.sortName Srt.top))
+    IO.println s!"rule: {rws == [(.and (KoreAML.srt (c.sortName Srt.top)) [Term.kore c vr ruleGo.lhs, T], .and (KoreAML.srt (c.sortName Srt.top)) [Term.kore c vr ruleGo.rhs, T])]}"
+    -- `same`'s equation (:143-161): `\implies(premise, \equals(same(X0, X1), \and(rhs, \top)))`
+    let vc := KoreAML.varList [c.sortName exp, c.sortName exp] ["A", "B"]
+    let eqs := ss.filterMap fun
+      | .axiom a => match a.pattern with
+        | .implies _ p (.equals _ _ (.app h _ _) r) => if h.ident.name == c.symName sameS then some (p, r) else none
+        | _ => none
+      | _ => none
+    IO.println s!"same's equation: {eqs.map fun (p, r) => (p == KCore.premise [c.sortName exp, c.sortName exp] none (Term.koreList c vc clSame.pats), r == Kore.Pattern.and (KoreAML.srt "Bool") [Term.kore c vc clSame.rhs, .top (KoreAML.srt "Bool")])}"
+
+/--
+info: parse: refused openGenerator Lbland: neither function nor constructor; law axioms: none
+and: true
+go: true
+same: true
+x, y: [true, true]
+rule: true
+same's equation: [(true, true)]
+-/
+#guard_msgs in
+#eval textCheck
 
 end OpenRule
 
@@ -279,7 +352,6 @@ theorem apart_idem :
     GroundTerm.cmp (.ctor IdemCtor.orS [.ctor IdemCtor.xS [], .ctor IdemCtor.xS []]) (.ctor IdemCtor.xS []) != .eq := by
   decide +kernel
 
-
 /-! ### The values of an open generator (`Semantics.sortOf_open_iff`, `paramVal_raw_sorted`,
 `paramVal_raw_keep`)
 
@@ -317,7 +389,6 @@ theorem open_paramVal_Hx :
       some (.ctor CommCtor.xS []) :=
   (paramVal_raw_sorted (c := CommCtor.c.withHooks Hx) (k := CommCtor.andP) (by decide +kernel) rfl rfl).mpr
     ⟨rfl, by decide +kernel⟩
-
 
 /-! ### `lawHooks` is admitted where H is (`libAdmitted_lawHooks_of`)
 
@@ -418,7 +489,6 @@ theorem not_lawLibRawFree_c2 : ¬ c2.lawLibRawFree := fun h => by
 
 end EndRaw
 
-
 /-! ### The constructors' items at an open generator (`consItemsK`)
 
 At CommCtor: the constructor `x` has its functionality item and the open generators `and` and
@@ -453,7 +523,6 @@ theorem comm_assoc_is_text :
     (commKore.axiomDecls.find? (·.index == 76)).map (fun ad => (KoreAML.trAxiom commKore.symbolDecls
       commKore.aliasNames ad).pat) = some orAssocItem.pat := by
   decide +kernel
-
 
 /-! ### An open generator in a left side is refused (`openGeneratorPattern`, decided)
 

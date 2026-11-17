@@ -93,8 +93,9 @@ theorem evalTerm_total_atCl (hsc : SortCtx c) (hov : OvlOK c) (hft : FnTerminate
 sorted on its patterns and conditions (`PrioDecided`), for a semantics `sortedOKCl` accepts. -/
 theorem prioDecided_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
     (ht : FnTerminates c) : PrioDecided c := by
-  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _ t hq
-  obtain ⟨L, hL, -, -, -, -, hreqs, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _
+  obtain ⟨L, hL, -, hpre, -, -, hreqs, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  refine ⟨fun t hq => ?_, true, Clause.holds_preTop hpre σ'⟩
   exact evalTerm_total_atCl (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)) hov ht hL hσ'
     (Clause.req_leftVars hq) (hreqs t hq)
 
@@ -105,7 +106,7 @@ theorem coDefined_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true
     (ht : FnTerminates c) : CoDefined c := by
   intro fn hfn vs cl σ cl' σ' _ hcl' _ hdec' _
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
-  obtain ⟨L, hL, -, -, -, -, -, hrhs, hens⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  obtain ⟨L, hL, -, -, -, -, -, hrhs, hens, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
   obtain ⟨r, hr⟩ := Model.evalTerm_totalCl hsc hov ht hL hdec'.1.1 hrhs
   cases he : cl'.ens with
   | none => exact ⟨r, .inl ⟨fun t ht => (by rw [he] at ht; cases ht), hr⟩⟩

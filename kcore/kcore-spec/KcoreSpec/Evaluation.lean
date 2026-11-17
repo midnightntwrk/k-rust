@@ -227,7 +227,13 @@ interpretation's value of g; a collection it builds is one of f's result sort, `
 building an `AccountCellMap`, and a literal of the carrier of f's result sort one of that sort,
 `asSort`) or the interpretation's
 (`impl = none`; at an open generator, `raw`, the interpretation's answer, and where it gives none
-the raw application `.ctor f vs`), kept only when it has f's declared result sort. -/
+the raw application `.ctor f vs`), kept only when it has f's declared result sort. The filter is
+the sorted interpretation of a symbol: a symbol of result sort s denotes a set of elements of s
+(introduction-to-matching-logic.tex:707-710), and an answer outside it is read as none, so each
+interpretation of the parameters is read as a sorted one. That a registry hook's description holds
+of a symbol declared at another sort than the library's (`_AccountCellMap_` with `MAP.concat`,
+Hooks.lean) is a design rule, not a K sentence: no K text says what a `hook` attribute states of a
+symbol (user_manual.md:3053). -/
 def paramVal (f : Sym) (vs : List GroundTerm) : Option GroundTerm :=
   match c.lookupParam f with
   | none => none
@@ -434,8 +440,9 @@ mutual
   inductive Eval (c : Semantics) : Sym → List GroundTerm → Option GroundTerm → Prop where
     /-- A clause that applies decides, when no clause of a smaller priority that is not `aside`
     applies: its patterns denote `vs` under a well-sorted σ, its `requires` evaluates to `true`
-    under σ, and every clause of a smaller priority that is not `aside` fails. Where its `ensures`
-    evaluates to `true` (or it has none), the result is its right-hand side's. -/
+    under σ, its predicate `pre` is true under σ, and every clause of a smaller priority that is
+    not `aside` fails. Where its `ensures` evaluates to `true` (or it has none), the result is its
+    right-hand side's. -/
     | clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
         {σ : Subst} {r : Option GroundTerm}
         (hfn : c.lookupFn f = some fn)
@@ -443,6 +450,7 @@ mutual
         (hσ : c.WellSorted cl.vars σ)
         (hmatch : PatVals c σ cl.pats vs)
         (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+        (hpre : Holds c cl.vars.length σ cl.pre true)
         (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
         (hrhs : EvalTerm c σ cl.rhs r)
         (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) : Eval c f vs r
@@ -460,23 +468,26 @@ mutual
         (hσ : c.WellSorted cl.vars σ)
         (hmatch : PatVals c σ cl.pats vs)
         (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+        (hpre : Holds c cl.vars.length σ cl.pre true)
         (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
         (ht : cl.ens = some t) (he : EvalTerm c σ t w) (hw : w ≠ some (bool true)) :
         Eval c f vs none
   /-- `Fails c vs cl`: the clause does not apply at `vs`: for every σ that gives the variables of
   its patterns and conditions values of their sorts and under which its patterns denote `vs`, it
-  has a `requires` that evaluates to something other than `true` (`false`, or undefined). With no
-  `requires`, no σ may match. A variable outside the patterns and conditions does not bear on
-  whether the clause applies. -/
+  has a `requires` that evaluates to something other than `true` (`false`, or undefined) or its
+  predicate `pre` is false. With no `requires` and the predicate `\top`, no σ may match. A variable
+  outside the patterns and conditions does not bear on whether the clause applies. -/
   inductive Fails (c : Semantics) : List GroundTerm → Clause → Prop where
     | intro {vs : List GroundTerm} {cl : Clause}
         (h : ∀ σ, c.WellSortedAt cl.vars cl.leftVars σ → PatVals c σ cl.pats vs → ReqFails c σ cl) :
         Fails c vs cl
-  /-- `ReqFails c σ cl`: the clause has a `requires` whose result under σ is not `true`. -/
+  /-- `ReqFails c σ cl`: the clause has a `requires` whose result under σ is not `true` (`intro`),
+  or its predicate `pre` is false under σ (`pre`). -/
   inductive ReqFails (c : Semantics) : Subst → Clause → Prop where
     | intro {σ : Subst} {cl : Clause} {t : Term} {r : Option GroundTerm}
         (ht : cl.req = some t) (he : EvalTerm c σ t r) (hr : r ≠ some (bool true)) :
         ReqFails c σ cl
+    | pre {σ : Subst} {cl : Clause} (h : Holds c cl.vars.length σ cl.pre false) : ReqFails c σ cl
   /-- `EvalTerm c σ t r`: the right-hand side (or `requires`) `t` has the result `r` under σ. -/
   inductive EvalTerm (c : Semantics) : Subst → Term → Option GroundTerm → Prop where
     | var {σ : Subst} {i : Nat} : EvalTerm c σ (.var i) (σ.lookup i)
@@ -552,8 +563,8 @@ end
 theorem Eval.isOvl_false {c : Semantics} {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm}
     (h : Eval c f vs r) : c.isOvl f = false := by
   cases h with
-  | clause hfn _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | clause hfn _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
   | rest hfn _ => exact c.isOvl_of_lookupFn hfn
-  | ensFails hfn _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | ensFails hfn _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
 
 end KCore

@@ -31,6 +31,7 @@ import KcoreSpec.Params
 import KcoreSpec.Statements
 import KcoreSpec.Obligations
 import KcoreSpec.RightHeldExtend
+import KcoreSpec.HoldsCongr
 import KcoreSpec.RightHeldHooks
 
 set_option autoImplicit false
@@ -149,7 +150,7 @@ end
 /-! ## A function has a result when its clauses' terms do -/
 
 /-- Each clause applies or fails at `vs` (excluded middle on its matches), where its `requires`
-has a result at each match and each variable outside its patterns and conditions is of a sort with
+has a result and its predicate a truth value at each match and each variable outside its patterns and conditions is of a sort with
 a value (a match on those extends to every variable, `Clause.fails_of_not_appliesRH`); a clause
 that applies, of the smallest priority among those that do, gives the result where its `ensures`
 and right-hand side have results (none where the `ensures` is not `true`), and the rest where none
@@ -157,7 +158,7 @@ applies. -/
 theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm}
     (hbd : ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars)
     (hreq : ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
-      ∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r)
+      (∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r) ∧ ∃ b, Holds c cl.vars.length σ cl.pre b)
     (hrhs : ∀ cl ∈ fn.clauses, ∀ σ, cl.AppliesAt c σ vs → ∃ r, EvalTerm c σ cl.rhs r)
     (hens : ∀ cl ∈ fn.clauses, ∀ σ, cl.AppliesAt c σ vs → ∀ t, cl.ens = some t → ∃ r, EvalTerm c σ t r) :
     ∃ r, Eval c f vs r := by
@@ -169,7 +170,7 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
     induction n with
     | zero => intro p hp; omega
     | succ n ih =>
-      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq⟩
+      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq, hp'⟩
       by_cases hlow : ∃ cl' ∈ fn.clauses, cl'.prio < p ∧ ∃ σ', cl'.AppliesAt c σ' vs
       · obtain ⟨cl', hcl', hlt, ha⟩ := hlow
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
@@ -177,16 +178,16 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
           hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩
         cases he : cl.ens with
         | none =>
-          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq⟩
-          exact ⟨r, Eval.clause hfn hcl hσ hm hq (fun cl' h _ hlt => hlowF cl' h hlt) hr fun t ht => by rw [he] at ht; cases ht⟩
+          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+          exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) hr fun t ht => by rw [he] at ht; cases ht⟩
         | some t =>
-          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσ, hm, hq⟩ t he
+          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσ, hm, hq, hp'⟩ t he
           by_cases hb : w = some (bool true)
           · subst hb
-            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq⟩
-            exact ⟨r, Eval.clause hfn hcl hσ hm hq (fun cl' h _ hlt => hlowF cl' h hlt) hr fun t' ht' => by
+            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+            exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) hr fun t' ht' => by
               rw [he] at ht'; cases ht'; exact hw⟩
-          · exact ⟨none, Eval.ensFails hfn hcl hσ hm hq (fun cl' h _ hlt => hlowF cl' h hlt) he hw hb⟩
+          · exact ⟨none, Eval.ensFails hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) he hw hb⟩
   by_cases hany : ∃ cl ∈ fn.clauses, ∃ σ, cl.AppliesAt c σ vs
   · obtain ⟨cl, hcl, ha⟩ := hany
     exact key (cl.prio + 1) cl.prio (by omega) ⟨cl, hcl, rfl, ha⟩
@@ -196,7 +197,7 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
 theorem eval_result {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm}
     (hbd : ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
     (hreq : ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
-      ∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r)
+      (∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r) ∧ ∃ b, Holds c cl.vars.length σ cl.pre b)
     (hrhs : ∀ cl ∈ fn.clauses, ∀ σ, cl.AppliesAt c σ vs → ∃ r, EvalTerm c σ cl.rhs r)
     (hens : ∀ cl ∈ fn.clauses, ∀ σ, cl.AppliesAt c σ vs → ∀ t, cl.ens = some t → ∃ r, EvalTerm c σ t r) :
     ∃ r, Eval c f vs r :=
@@ -205,12 +206,14 @@ theorem eval_result {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : Lis
 /-! ## A function whose callees terminate terminates -/
 
 /-- What termination reads of a core besides subject reduction (`SortCtx`): the `requires` and the
-`ensures` of each function's clauses are Bool terms over some function heads, and each variable of
+`ensures` of each function's clauses are Bool terms over some function heads, each clause's
+predicate is `\top` (so it has a truth value at every substitution), and each variable of
 each clause is in its patterns or conditions or of a sort with a value. -/
 structure EvalCtx (c : Semantics) : Prop where
   sort : SortCtx c
   reqs : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.req = true
   enss : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.ens = true
+  pres : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top
   /-- each variable of each clause is in `leftVars` or of a sort with a value -/
   binds : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars
 
@@ -220,13 +223,14 @@ structure EvalCtxN (c : Semantics) : Prop where
   sort : SortCtx c
   reqs : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.req = true
   enss : ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses, reqOK (c.rhsCtx L) cl.vars cl.ens = true
+  pres : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top
 
-theorem EvalCtx.toN (hc : EvalCtx c) : EvalCtxN c := ⟨hc.sort, hc.reqs, hc.enss⟩
+theorem EvalCtx.toN (hc : EvalCtx c) : EvalCtxN c := ⟨hc.sort, hc.reqs, hc.enss, hc.pres⟩
 
 /-- `EvalCtxN` of a semantics `sortedOK` and `srReady` accept: nothing is asked of the clauses'
 variables. -/
 theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) : EvalCtxN c := by
-  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_⟩
+  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_, Semantics.sortedOK_preTop hok⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · replace hok := Semantics.sortedOK_sorted hok
       simp only [Bool.and_eq_true, List.all_eq_true] at hok
@@ -253,7 +257,7 @@ theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov 
 theorem evalCtx_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld) : EvalCtx c := by
   have hN := evalCtxN_of_all hok hsr hov
-  refine ⟨hN.sort, hN.reqs, hN.enss, fun fn hfn' => ?_⟩
+  refine ⟨hN.sort, hN.reqs, hN.enss, hN.pres, fun fn hfn' => ?_⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · exact fun cl hcl => hrh.heldAt hfn hcl
     · exact fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl)
@@ -292,8 +296,9 @@ theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb :
   obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
   obtain ⟨L', hL', hreqs⟩ := hc.reqs fn hfn
   obtain ⟨L'', hL'', hens⟩ := hc.enss fn hfn
-  refine eval_resultRH (lookupFn_of_memN hc hfn) hb (fun cl hcl' σ hσ hm t ht => ?_) (fun cl hcl' σ ha => ?_)
-    (fun cl hcl' σ ha t ht => ?_)
+  refine eval_resultRH (lookupFn_of_memN hc hfn) hb
+    (fun cl hcl' σ hσ hm => ⟨fun t ht => ?_, true, Clause.holds_preTop (hc.pres fn hfn cl hcl') σ⟩)
+    (fun cl hcl' σ ha => ?_) (fun cl hcl' σ ha t ht => ?_)
   · have hq := hreqs cl hcl'
     rw [ht] at hq
     simp only [reqOK, beq_iff_eq] at hq

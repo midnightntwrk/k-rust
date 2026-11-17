@@ -85,7 +85,7 @@ theorem rhs_eval : EvalTerm c [] rhsT (some (.ctor kconfigValue [.ctor dotk []])
 
 /-- The function is `#KConfigValue(.K)` at its one argument list: its clause applies. -/
 theorem eval_f : Eval c fl [] (some (.ctor kconfigValue [.ctor dotk []])) :=
-  .clause lookup_f (List.mem_singleton_self _) (fun _ _ h => by simp [cl] at h) .nil (fun _ h => by cases h)
+  .clause lookup_f (List.mem_singleton_self _) (fun _ _ h => by simp [cl] at h) .nil (fun _ h => by cases h) .top
     (fun _ h _ hlt => by rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (Nat.lt_irrefl _)) rhs_eval
     (fun _ h => by simp [cl] at h)
 
@@ -147,7 +147,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   intro M _ I hI
   have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
   -- the function's equation: `f()` is what `#KConfigValue(.K)` denotes
-  have heq := clause_eq hI namesNumbered htr lookup_f (cl := cl) (List.mem_singleton_self _) rfl rfl (ws := [])
+  have heq := clause_eq hI namesNumbered htr lookup_f (cl := cl) (List.mem_singleton_self _) rfl rfl rfl (ws := [])
     (by decide +kernel) (σ' := []) (fun _ _ h => by simp [cl] at h) .nil rfl (by decide +kernel)
     (fun _ h => by simp [cl] at h) (fun _ h => by cases h) (fun _ h => by simp [cl, rhsT, varOccs, varOccsList] at h)
     (fun _ h => by simp [cl] at h)

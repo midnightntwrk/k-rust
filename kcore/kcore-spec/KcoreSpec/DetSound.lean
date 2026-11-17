@@ -643,7 +643,8 @@ theorem isCtor_dotk : c.isCtor dotk = true := isCtor_fixed rfl
 theorem sortPredOf_spec {fn : Fn} {S : Srt} (h : sortPredOf fn = some S) :
     ∃ cl o, fn.clauses = [cl, o] ∧ cl.vars = [S] ∧ cl.pats = [kseqPat S] ∧
       cl.req = none ∧ cl.rhs = .dv Srt.bool (.bool true) ∧ cl.prio < o.prio ∧
-      o.rhs = .dv Srt.bool (.bool false) ∧ cl.ens = none ∧ cl.aside = false := by
+      o.rhs = .dv Srt.bool (.bool false) ∧ cl.ens = none ∧ cl.aside = false ∧
+      cl.pre = .top ∧ o.pre = .top := by
   unfold sortPredOf at h
   split at h
   · rename_i cl o hcl
@@ -654,9 +655,9 @@ theorem sortPredOf_spec {fn : Fn} {S : Srt} (h : sortPredOf fn = some S) :
         simp only [Option.some.injEq] at h
         subst h
         simp only [Bool.and_eq_true, Option.isNone_iff_eq_none, decide_eq_true_eq] at hc
-        obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, -⟩, -⟩, -⟩, h8⟩, h9⟩, h10⟩ := hc
+        obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, -⟩, -⟩, -⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩ := hc
         exact ⟨cl, o, hcl, hv, Term.beqList_sound h1, h2, Term.beq_sound h3, h4, Term.beq_sound h8, h9,
-          by simpa using h10⟩
+          by simpa using h10, Cond.eq_top_of_isTop h11, Cond.eq_top_of_isTop h12⟩
       · cases h
     · cases h
   · cases h
@@ -672,7 +673,7 @@ theorem sortPredOf_owise {fn : Fn} {S : Srt} {cl o : Clause} (h : sortPredOf fn 
   · split at h
     · rename_i hc
       simp only [Bool.and_eq_true, Option.isNone_iff_eq_none, decide_eq_true_eq, beq_iff_eq] at hc
-      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, -⟩, h5⟩, h6⟩, h7⟩, -⟩, -⟩, -⟩ := hc
+      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, -⟩, h5⟩, h6⟩, h7⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := hc
       exact ⟨h5, Term.beqList_sound h6, h7⟩
     · cases h
   · cases h
@@ -712,7 +713,7 @@ theorem sortPred_eval {f : Sym} {fn : Fn} {S s : Srt} {u : GroundTerm} {r : Opti
     (h : Eval c f [.ctor kseq [.inj s Srt.kitem u, .ctor dotk []]] r) :
     (leS (tables c) s S = false → r ≠ some (bool true)) ∧
     (leS (tables c) s S = true → u.isInj = false → c.sortOf u = some s → r = some (bool true)) := by
-  obtain ⟨cl, o, hcl, hv, hp, hrq, hrh, hpr, hor, hce, hna⟩ := sortPredOf_spec hS
+  obtain ⟨cl, o, hcl, hv, hp, hrq, hrh, hpr, hor, hce, hna, hclT, hoT⟩ := sortPredOf_spec hS
   -- where s is below S, the first clause applies: it does not fail
   have hnf : leS (tables c) s S = true → u.isInj = false → c.sortOf u = some s →
       ¬ Fails c [.ctor kseq [.inj s Srt.kitem u, .ctor dotk []]] cl := fun hle hu hsu hF => by
@@ -745,8 +746,9 @@ theorem sortPred_eval {f : Sym} {fn : Fn} {S s : Srt} {u : GroundTerm} {r : Opti
     have hRF := hF _ (hσ₀.at _) hm
     cases hRF with
     | intro ht _ _ => rw [hrq] at ht; cases ht
+    | pre hf => rw [hclT] at hf; exact absurd hf.top_eq (by simp)
   cases h with
-  | clause hfn' hmem hσ hmatch _ hprio hrhs _ =>
+  | clause hfn' hmem hσ hmatch _ _ hprio hrhs _ =>
     rw [hfn] at hfn'
     cases hfn'
     rw [hcl] at hmem hprio
@@ -798,10 +800,11 @@ theorem sortPred_eval {f : Sym} {fn : Fn} {S s : Srt} {u : GroundTerm} {r : Opti
           rw [hop]; exact .cons (.var rfl) .nil
         cases hF _ (hσo.at _) hmo with
         | intro ht _ _ => rw [hoq] at ht; cases ht
+        | pre hf => rw [hoT] at hf; exact absurd hf.top_eq (by simp)
     rw [hrest]
     refine ⟨fun _ h => (by cases h), fun hle hu hsu => ?_⟩
     exact absurd (hnone cl (by rw [hcl]; exact List.mem_cons_self ..)) (hnf hle hu hsu)
-  | ensFails hfn' hmem _ _ _ hprio ht _ _ =>
+  | ensFails hfn' hmem _ _ _ _ hprio ht _ _ =>
     rw [hfn] at hfn'
     cases hfn'
     rw [hcl] at hmem hprio

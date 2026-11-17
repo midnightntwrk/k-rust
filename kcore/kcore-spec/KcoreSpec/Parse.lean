@@ -19,6 +19,7 @@ import KcoreSpec.Emit
 import KcoreSpec.Kore.Read
 import KcoreSpec.FaithOK
 import KcoreSpec.RightHeld
+import KcoreSpec.ParseAttr
 
 set_option autoImplicit false
 
@@ -188,15 +189,6 @@ inductive RefusalReason where
   says is interpreted, by a domain the reader does not give it (`syntax MyInt [hook(INT.Int)]`).
   The detail names the sort and the hook. -/
   | userHookedSort
-  /-- An equation whose right side or `ensures` holds a variable its arguments and requires do not
-  bind, of a sort without an exhibited value (`Semantics.valued`; `clauseRefusal`): where the sort
-  has no value the equation states the function's value only in the models that give the sort an
-  element; where it has one that `valued` does not exhibit, the equation is not read at this
-  freeze. The detail names the variable, its sort and where it occurs. An equation refused so is one
-  at whose clause `Semantics.rightValued` fails, so `FnHyp` is not derived for the package. Not
-  raised for a rule: a rule whose variable the left side leaves open is read as an open variable of
-  the rule, or refused `openRequires` or `openRight` (`openRefusal`, `ruleRefusal`). -/
-  | unboundVariable
   /-- A rewrite axiom's attribute that is neither read (its id, label, priority, place, `owise`)
   nor of no meaning for the rule's semantics (`ruleAttrIgnored`): one that changes where or how the
   rule applies, or has no stated meaning for a rule (`ruleAttrRefused`, else any other key); or
@@ -337,7 +329,21 @@ inductive RefusalReason where
   projection's is refused by the reader (`coreOf`, `predEqnFaults`), the others by the account
   (`Account.unconsumed`). -/
   | generatedEquation
+  /-- An attribute of a symbol declaration, of an axiom carrying `simplification`, of a claim or of
+  the module that no kompiled text carries there: a key the frontend erases, a key whose K text
+  the frontend refuses, or a key K admits at no sentence of that class (`attrVerdict`, the construct
+  table's E2 rows). Only a KORE text written by hand carries it, and no text gives it a meaning
+  there. The detail names the attribute and the class. -/
+  | attrOutsideE2
   deriving Repr, DecidableEq, Inhabited
+
+/-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
+def AttrRefusalE2.reason : AttrRefusalE2 → RefusalReason
+  | .ruleAttribute => .ruleAttribute
+  | .equationAttribute => .equationAttribute
+  | .sortAttribute => .sortAttribute
+  | .openGenerator => .openGenerator
+  | .outsideE2 => .attrOutsideE2
 
 /-- Why the semantics does not read a sentence. -/
 inductive InertReason where
@@ -484,7 +490,8 @@ inductive ReadingNote where
   /-- A rewrite axiom whose left side holds `\or` under applications and conjunctions, read as one
   rule per disjunct (`splitRule`): application is pointwise (`C[φ ∨ ψ] = C[φ] ∨ C[ψ]`), and
   `(φ ∨ ψ) → •R` is `(φ → •R) ∧ (ψ → •R)`. Each rule has the axiom's priority, `requires`, right side
-  and `ensures`, and must bind every variable they hold (else `unboundVariable`). An empty disjunct
+  and `ensures`; a variable of them it does not bind is an open variable of that rule
+  (`openRefusal`). An empty disjunct
   (`vacuous`) is dropped: `φ ∨ ⊥ = φ`. -/
   | orSplit
   /-- `\top{S}()` under applications and conjunctions of a rule's left side, read as a variable of
@@ -2186,12 +2193,6 @@ def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
   (explicit, explicit.getD (if e.competitors.isSome || e.dom then 200 else 50))
 
-/-- The first variable of `vs` after the first `n`, as an unbound variable's detail at `place`. -/
-def unboundAt (vs : List Var) (n : Nat) (place : String) : Rd Unit :=
-  match vs.drop n with
-  | [] => pure ()
-  | x :: _ => fail .unboundVariable s!"Var{x.name}: in the {place}, not bound by the left side"
-
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
 with primes and 0, 1, the fewest primes for which neither is an element variable the equation
 holds, so that neither is merged with a variable of the text. -/
@@ -2249,7 +2250,7 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   let (req, vs) ← match e.req with
     | none => pure (none, vs)
     | some r => do let (t, vs) ← eqnCondTerm N vs r; pure (some t, vs)
-  -- a variable the arguments do not bind is read; where the values do not decide the clause it is
+  -- a variable the arguments do not bind is read; in a condition the values do not decide it is
   -- refused once the definition is built (`clauseRefusal`)
   -- the `ensures`, the clause's `ens`: part of the right side, not of whether it applies
   let (ens, vs) ← match e.ens with
@@ -2400,7 +2401,7 @@ has the rule's steps. Kept in the presentation when written with no argument or 
 def ruleAttrIgnored : List (String × String) :=
   [("cool", "marks a cooling rule of a strictness declaration; the axiom states the rule"),
    ("cool-like", "marks a rule as cooling-like for strictness; the axiom states the rule"),
-   ("preserves-definedness", "the author's claim that the right side is defined where the left side matches; every rule is read with the premise that it is (ReadingNote.ruleRightDefined)"),
+   ("preserves-definedness", "no K text gives it a meaning (kore-syntax.md:223-229; the user manual has no occurrence); kompile writes it on the axiom and no sentence beside it (e2-rule/kore.txt:193-199); the axiom states the rule"),
    ("format", "a printing form"),
    ("colors", "a printing form"),
    ("symbol'Kywd'", "a name"),
@@ -4252,9 +4253,10 @@ def unheldRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) : Option (Refusal
 where it is read. A variable the arguments do not bind is read where the values decide the clause:
 in its conditions, where they are closed or each such variable of them is of a confined sort
 (`clausesPlain`'s conjunct, else `openRequires`: the condition's truth at given arguments differs
-between models of the text); held only by the right side or the `ensures`, where its sort has an
-exhibited value (`Semantics.rightValued`'s test, else `unboundVariable`: the package could not
-derive `FnHyp`). The detail adds "the sort has no value" where `valueSorts` does not hold it. -/
+between models of the text). One held only by the right side or the `ensures` is read at every
+sort: it is universal over the elements of its sort, so on values the clause has an instance for
+each value of the sort and none where the sort has no value; the function is then named
+(`Semantics.heldObligations`) where the sort has no exhibited value. -/
 def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}"
@@ -4262,12 +4264,7 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
       s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
-  else match (List.range cl.vars.length).find? (fun i =>
-      !(cl.leftVars.contains i || (cl.vars[i]?.map c.valued).getD false)) with
-    | some i => some (.unboundVariable,
-        s!"{what i}: in the right side or the ensures, not bound by the arguments or the requires, of a sort without an exhibited value" ++
-          (if c.valueSorts.contains (cl.vars.getD i 0) then "" else "; the sort has no value"))
-    | none => none
+  else none
 
 /-- Why a rule is not read (`unheldRefusal`, then `openRefusal`), or `none`. -/
 def ruleRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) (r : Rule) (names : List String) :

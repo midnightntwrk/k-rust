@@ -20,7 +20,7 @@ private theorem lfPred : c.lookupFn Sym.«pred» = some (c.fns[0]'(by decide +ke
 theorem pred_no_value_off_nat : ¬ ∃ r, Eval c Sym.«pred» [.dv KCore.Srt.int (.int 0)] (some r) := by
   rintro ⟨r, hz⟩
   cases hz with
-  | clause hfn hmem hσ hmatch hreq hprio hrhs =>
+  | clause hfn hmem hσ hmatch hreq _ hprio hrhs =>
     rw [lfPred] at hfn
     cases hfn
     rcases List.mem_cons.mp hmem with rfl | hmem

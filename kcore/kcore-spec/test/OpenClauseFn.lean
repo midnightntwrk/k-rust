@@ -61,6 +61,7 @@ theorem clO_pats : clO.pats = [.var 0] := by rfl
 theorem clO_req : clO.req = none := by rfl
 theorem clO_rhs : clO.rhs = .dv Srt.int (.int 0) := by rfl
 theorem clO_ens : clO.ens = none := by rfl
+theorem clO_pre : clO.pre = .top := by rfl
 
 /-- Empty is the result of no constructor and not `valued`; `clG0`'s variable is outside its
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c4`. -/
@@ -89,7 +90,7 @@ theorem eval4 : Eval c4 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0)))
   have hO : clO ∈ gF4.clauses := by rw [gF4_clauses]; exact List.mem_cons_of_mem _ (List.mem_singleton_self _)
   have hrhs : clO.rhs = .dv Srt.int (.int 0) := clO_rhs
   refine Eval.clause (σ := [(0, .dv Srt.int (.int 1))]) hfn4 hO (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clO_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) ?_
+    (fun t ht => by rw [clO_req] at ht; cases ht) (Clause.holds_preTop clO_pre _) (fun cl' hcl' _ hlt => ?_) ?_
     (fun t ht => by rw [clO_ens] at ht; cases ht)
   · rw [shapeO.2.2.1] at hs
     cases i with

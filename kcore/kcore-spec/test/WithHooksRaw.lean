@@ -280,4 +280,10 @@ theorem paramsTotal_withHooks_needs_hr :
 #print axioms paramsTotal_withHooks_needs_hr
 #print axioms rightHeld_withHooks_needs_hr
 
+/-- `Semantics.hasValue` counts no raw parameter as a generator: B, whose one generator is the raw
+`and`, is outside at every interpretation (`hasValue_withHooks`), and has no value at `Hm`
+(`no_B`); A is inside. -/
+theorem cM_hasValue : (cM.withHooks Hm).hasValue sB = false ∧ cM.hasValue sB = false ∧
+    cM.hasValue sA = true ∧ (cM.withHooks Hm).valueSorts.contains sB = true := by decide +kernel
+
 end KCore.WithHooksRaw

@@ -101,7 +101,7 @@ theorem lookup_f : c.lookupFn fl = some fn := rfl
 
 /-- `f()` is `1`: the clause of priority 50 applies, and no clause has a smaller priority. -/
 theorem eval_f : Eval c fl [] (some v1) :=
-  .clause (σ := []) lookup_f (List.mem_cons_self ..) (fun _ _ h => by simp [cl1] at h) .nil (fun _ h => by cases h)
+  .clause (σ := []) lookup_f (List.mem_cons_self ..) (fun _ _ h => by simp [cl1] at h) .nil (fun _ h => by cases h) .top
     (fun cl' h _ hlt => by
       rcases List.mem_cons.mp h with rfl | h
       · exact absurd hlt (Nat.lt_irrefl _)
@@ -143,7 +143,7 @@ theorem hypModel : Model.HypModel c :=
 
 /-- **`Γ c`, which reads the priorities, has a model.** -/
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
+  Model.has_model hypModel (Semantics.rulesTop_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel))
 
 /-! ## A clause's equation, read from its axiom
 
@@ -495,7 +495,7 @@ theorem not_model_text : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Ko
   intro M _ I hI'
   have hI := gamma_of_text hI'
   have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
-  have heq1 := clause_eq hI namesNumbered htr lookup_f (cl := cl1) (List.mem_cons_self ..) rfl rfl (ws := [])
+  have heq1 := clause_eq hI namesNumbered htr lookup_f (cl := cl1) (List.mem_cons_self ..) rfl rfl rfl (ws := [])
     (by decide +kernel) (σ' := []) (fun _ _ h => by simp [cl1] at h) .nil rfl (by decide +kernel)
     (fun _ h => by simp [cl1] at h) (fun _ h => by cases h) (fun _ h => by simp [cl1, varOccs] at h)
     (fun _ h => by simp [cl1] at h)

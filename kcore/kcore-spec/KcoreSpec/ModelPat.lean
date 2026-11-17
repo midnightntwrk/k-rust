@@ -484,7 +484,8 @@ theorem sortPred_total (hs : HypSoundCore c) {fn : Fn} (hfn : fn ∈ c.sortPreds
     ∃ r, Eval c fn.label vs r := by
   have hlk := lookupFn_of_sound hs (List.mem_append_right _ hfn)
   have hsh := sortPreds_shape hfn
-  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl _ _ _ t ht => by rw [(hsh cl hcl).1] at ht; cases ht)
+  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
+      Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hsh cl hcl; rw [h]; exact ⟨_, .dv⟩)
     (fun cl hcl _ _ t ht => by rw [sortPreds_ens hfn cl hcl] at ht; cases ht)
 
@@ -623,9 +624,11 @@ theorem evalTerm_total_atMP (h : HypSoundCore c) (hft : FnTerminates c) {L : Lis
 
 /-- Where every function has a result at arguments of its sorts, each `requires` of a clause has a
 result at each match well sorted on its patterns and conditions (`PrioDecided`), which hold the
-`requires`' variables. -/
+`requires`' variables; the clause's predicate is `\top`, true there. -/
 theorem prioDecided_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : PrioDecided c := by
-  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _ t hq
+  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _
+  refine ⟨fun t hq => ?_, true,
+    Clause.holds_preTop (Semantics.sortedOK_preTop hs.1 fn (List.mem_append_left _ hfn) cl' hcl') σ'⟩
   obtain ⟨-, -, L, hL, hreqs, -⟩ := clause_ctxOccE hs.1 (List.mem_append_left _ hfn) hcl'
   exact evalTerm_total_atMP hs ht hL hσ' (Clause.req_leftVarsRH hq) (hreqs t hq)
 

@@ -5,8 +5,8 @@
 
   `step_successor_at`'s proof, with what it reads of the clauses replaced by what the evaluation
   lemmas read (`evalTerm_den4Cl` with each negated clause's exclusion empty, `neg_of_coreCl`), and
-  of the rules by `rule_ctxCl`, `rule_ctx_ensCl` and `Semantics.sortedOKCl_ruleTop` (the rules are
-  asked the same of `sortedOK` and `sortedOKCl`): the rule-level lemmas it calls are restated over
+  of the rules by `rule_ctxCl`, `rule_ctx_ensCl` and the hypothesis that their predicates are
+  `\top` (the rules are asked the same of `sortedOK` and `sortedOKCl`): the rule-level lemmas it calls are restated over
   `sortedOKCl` (`freeOf_rule_partsCl`, `Model.freeOf_prio_of_sortedCl`, `rule_partsCl`,
   `rhs_sorted_coreCl`, `step_of_apply_coreCl`), and the function-level ones over `ExclEmptyCl`
   (`lhs_req_hold4Cl`, `applies_holdsCl`).
@@ -22,12 +22,13 @@ namespace KCore
 theorem step_of_apply_coreCl {c : Semantics} (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     {r : Rule} (hr : r ∈ c.rules) {x : Config c} {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_coreCl hok hsr hov hr hσ he⟩ :=
-  let ⟨hp, hq⟩ := Semantics.sortedOKCl_ruleTop hok hr
-  Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
+  .rule r hr σ hσ hm hreq hpre he hens hpost hprio
 
 namespace Faithful
 
@@ -78,10 +79,10 @@ namespace Model
 variable {c : Semantics}
 
 /-- `freeOf_prio_of_sorted` from `sortedOKCl`. -/
-theorem freeOf_prio_of_sortedCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) {r : Rule} (hr : r ∈ c.rules) {k : KoreAML.VarKey}
+theorem freeOf_prio_of_sortedCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) {r : Rule} (hr : r ∈ c.rules) {k : KoreAML.VarKey}
     (hk : k ∈ KoreAML.freeOf [] (prioRuleK c r)) : ∃ i < r.vars.length, k = canonKey c r.vars i := by
   obtain ⟨-, hreqs, -⟩ := rule_ctxCl hok hr
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOKCl_ruleTop hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOKCl_exsNil hok hr (hb r hr)
   rw [prioRuleK_top hex₀ hpre₀ hpost₀] at hk
   dsimp only at hk
@@ -106,7 +107,7 @@ theorem freeOf_prio_of_sortedCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.ru
       have hr'm := (List.mem_filter.mp hr').1
       obtain ⟨hlhs', hreqs', -⟩ := rule_ctxCl hok hr'm
       exact freeOf_applies hlhs' (fun t ht i hi => varOccs_lt t (hreqs' t ht) i hi)
-        (Semantics.sortedOKCl_ruleTop hok hr'm).1 (hb _ hr'm) hk
+        (htop _ hr'm).1 (hb _ hr'm) hk
     · exact freeOf_rule_partsCl hok hr (Or.inr (Or.inr hk))
     · exact freeOf_rule_partsCl hok hr (Or.inr (Or.inr hk))
 
@@ -160,7 +161,7 @@ theorem lhs_req_hold4Cl {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.We
 
 /-- `applies_holds` for a semantics `sortedOKCl` accepts, each negated clause's exclusion empty
 where it fails (`ExclEmptyCl`). -/
-theorem applies_holdsCl {r : Rule} (hr : r ∈ c.rules) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem applies_holdsCl {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl) (e : Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret I e (elemOf c I x.val) := by
@@ -169,7 +170,7 @@ theorem applies_holdsCl {r : Rule} (hr : r ∈ c.rules) (hb : binds r.vars.lengt
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
   have hag := overV_agrees hI hkeys hσ (e := e)
   have h := lhs_req_hold4Cl hI hnn hsc hok hph hneg hr hσ hmatch hreq hag
-  rw [applies_top _ (Semantics.sortedOKCl_ruleTop hok hr).1 hb]
+  rw [applies_top _ hpre hb]
   show (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll (srtOf c topCellSort) (vs.map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))]))).interpret
         I e _
@@ -200,7 +201,7 @@ variable {c : Semantics}
 
 /-- `rule_parts` from `sortedOKCl`. -/
 theorem rule_partsCl {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hok : c.sortedOKCl = true)
-    (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+    (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     {r : Rule} (hr : r ∈ c.rules) :
     ∃ L, prioRuleK c r = .rewrites (srtOf c topCellSort) L
         (.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
@@ -215,7 +216,7 @@ theorem rule_partsCl {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
         ∀ r' ∈ c.rules, r'.prio < r.prio →
           ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret I e a := by
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOKCl_ruleTop hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOKCl_exsNil hok hr (hb r hr)
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
@@ -246,7 +247,7 @@ theorem rule_partsCl {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
     · refine Model.varsOf_and_mem (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))) ?_
       simp only [KoreAML.varsOf]
       exact List.mem_append_right _ (mem_varsOf_anyOfC (hcomp r' hr' hlt)
-        (varsOf_applies (Semantics.sortedOKCl_ruleTop hok hr').1 (hb _ hr') hi))
+        (varsOf_applies (htop _ hr').1 (hb _ hr') hi))
     · rw [tr_and4, KoreAML.interp_sAnd, KoreAML.interp_sAnd, KoreAML.interp_sAnd] at h
       obtain ⟨h1, h2, h3, -⟩ := h
       rw [KoreAML.tr, KoreAML.interp_sNot] at h3
@@ -263,7 +264,7 @@ bodies: with the step's closure axiom, in every model of `Γc c`, a successor of
 the element of `x` that lies in a pattern ψ is the element of a configuration y with `Step c x y`,
 where the evaluations the step at `x` reads have results (`StepDecided`). `step_successor_at` with
 `sortedOKCl` and the conjuncts of `HypSoundCore` other than `sortedOK`, from `faithCoreOK`. -/
-theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hsr : c.srReady = true) [hno : OvlOK c]
+theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hno : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     (x : Config c) (hd : StepDecided c x.val)
@@ -306,12 +307,12 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
   obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hp
   obtain ⟨hlhs, hreqs, hrhss⟩ := rule_ctxCl hok hr
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_partsCl (I := I) hok hb hr
+  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_partsCl (I := I) hok hb htop hr
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let R : Kore.Pattern := .and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]
   have hfreeP : ∀ k ∈ KoreAML.freeOf [] (.rewrites C L R), ∃ i < r.vars.length, k = canonKey c r.vars i :=
-    fun k hk => Model.freeOf_prio_of_sortedCl hok hb hr (by rw [hPL]; exact hk)
+    fun k hk => Model.freeOf_prio_of_sortedCl hok hb htop hr (by rw [hPL]; exact hk)
   rw [hPL] at hφm hoff
   rw [closureDisjunct_rewrites] at hφm
   -- the table of the disjunct
@@ -378,7 +379,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
   -- no rule of a smaller priority applies, in the sense of `RuleApplies`: the disjunct's negated
   -- competitors hold at the element of x
   have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
-    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holdsCl hIΓ hnn hsc hok hph hneg hr' (hb _ hr')
+    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holdsCl hIΓ hnn hsc hok hph hneg hr' (htop _ hr').1 (hb _ hr')
       (Rule.wellSorted_of_at (hb _ hr') hσ')
       hpv' hreq' (fun i hi => hin_tbl _ (hLcomp r' hr' hlt i hi)) e2)
   -- so the rule is one `StepDecided` speaks of, at this match
@@ -397,7 +398,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hreqs t ht) hu)
         (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl hok) hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
         _ hreq
-  have hrest := hdr.2 _ hσ hmatch hreqT ((Semantics.sortedOKCl_ruleTop hok hr).1 ▸ .top)
+  have hrest := hdr.2 _ hσ hmatch hreqT ((htop _ hr).1 ▸ .top)
   -- the `ensures` evaluates to `true`
   have hensS := rule_ctx_ensCl hok hr
   have hensT : ∀ t, r.ens = some t → EvalTerm c (substOf c I tbl vs r.vars e2) t (some (bool true)) := by
@@ -420,7 +421,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
     have hun : ∀ r'' ∈ c.rules, r''.prio < r'.prio → ¬ RuleApplies c r'' x.val :=
       fun r'' hr'' hlt' => hnoapp r'' hr'' (Nat.lt_trans hlt' hlt)
     have hd' := ((hd r' hr' hun).1 σ' hσ' hpv').1
-    have hpre' : Holds c r'.vars.length σ' r'.pre true := (Semantics.sortedOKCl_ruleTop hok hr').1 ▸ .top
+    have hpre' : Holds c r'.vars.length σ' r'.pre true := (htop _ hr').1 ▸ .top
     cases ht : r'.req with
     | none =>
       exact absurd ⟨σ', hσ', hpv', (fun t h => by rw [ht] at h; cases h), hpre'⟩ (hnoapp r' hr' hlt)
@@ -437,7 +438,8 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
   cases v with
   | none => exact hbR.elim
   | some yv =>
-    have hstep := step_of_apply_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT hv hensT hprio
+    have hstep := step_of_apply_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT ((htop _ hr).1 ▸ .top) hv hensT
+      ((htop _ hr).2 ▸ .top) hprio
     refine ⟨_, hstep, ?_⟩
     have hbe := ((elemOf_spec hIΓ (rhs_sorted_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hv) e).1 b).mp (((den_closed c yv).interp e2 e b).mp hbR)
     rw [← hbe]
@@ -452,7 +454,7 @@ open Faithful
 /-- **Completeness at a configuration**, for a semantics whose clauses are asked CN-4's bodies:
 `complete_at`'s conclusion with `sortedOKCl` and the conjuncts of `coreOK` the proof reads in place
 of `coreOK` (`step_successor_atCl`). No hypothesis on the sorts of the variables the patterns and conditions do not hold. -/
-theorem complete_atCl (c : Semantics) (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hsr : c.srReady = true) [OvlOK c]
+theorem complete_atCl (c : Semantics) (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : Faithful.patHooksApart c = true)
     (x : Config c) (hd : StepDecided c x.val) (os : List Outcome)
     (hval : ∀ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] → StepBy c r σ x y → .val y.val ∈ os)
@@ -469,7 +471,7 @@ theorem complete_atCl (c : Semantics) (hok : c.sortedOKCl = true) (hb : ∀ r �
   unfold KoreAML.allNext
   rw [ML.interpret_neg]
   intro hnext
-  obtain ⟨y, hy, hψ⟩ := step_successor_atCl hok hb hsr hfa hph hc x hd hI e _ hnext
+  obtain ⟨y, hy, hψ⟩ := step_successor_atCl hok hb htop hsr hfa hph hc x hd hI e _ hnext
   rw [ML.interpret_neg] at hψ
   obtain ⟨r, σ, hs⟩ := step_iff_by.mp hy
   have hop : r.opens = [] := Rule.opens_of_binds (hb _ hs.mem)

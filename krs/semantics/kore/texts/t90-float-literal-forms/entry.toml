@@ -1,0 +1,111 @@
+id = "t90-float-literal-forms"
+kind = "text"
+subject = "The strings a domain value of sort Float holds: the literals of FLOAT-SYNTAX's three productions, what each denotes, and the strings outside every production (+.5, -.5, +NaN, 1.0p24)."
+
+[text]
+files = ["t90-float-literal-forms.k"]
+kompile = "accepts"
+
+[ruling]
+status = "unsettled"
+reason = """
+What is stated, under both readings.
+(1) The literals. FLOAT-SYNTAX declares the sort Float and three token productions (domains.md:1495-1497). A string of the first is a mantissa, `[+-]?[0-9]+(\\.[0-9]*)?` or `\\.[0-9]+`, then an optional exponent `[eE][+-]?[0-9]+`, then an optional suffix, one of `f F d D` or `[pP][0-9]+[xX][0-9]+`. A string of the second is an optional sign, `Infinity`, and an optional suffix. A string of the third is `NaN` and an optional suffix. A sign stands only before a digit or before `Infinity`: the mantissa's second form `\\.[0-9]+` has none, and the third production has none.
+(2) The value of a string of the first production (domains.md:1478-1483): the mantissa read as a rational number, times 10 to the exponent (0 where there is none), rounded to the nearest value of the format the suffix names. The format (domains.md:1484-1490): `f` or `F` is binary32; `d`, `D` or no suffix is binary64; `pNxM`, in either case of both letters, is N bits of precision and M bits of exponent, so that `p24x8` is binary32 and `p53x11` is binary64. So of the text's literals: `1.0`, `1.`, `1.0d`, `1.0D` and `1.0p53x11` are 1 in binary64; `1.0f`, `1.0F`, `1.0p24x8` and `1.0P24X8` are 1 in binary32; `1e3` is 1000, `1.5E+3` is 1500, `+1.5` is 3/2, `-1.5` is -3/2, `.5` is 1/2 and `.5e2` is 50, each in binary64 and each exact; `.5f` is 1/2 in binary32; `1.5e-3` is the binary64 value nearest to 3/2000.
+(3) What no sentence states. Which value a mantissa midway between two values of the format rounds to, and what a magnitude above the format's largest value rounds to. What a string of the second or third production denotes: the prose describes ordinary values only, the section calls the type a generalization of IEEE 754 (domains.md:1464-1466), and domains.md:1541 says a Float value may be infinite or Not-a-Number, so `Infinity` with its sign and `NaN` name those values of the suffix's format by their IEEE 754 names; which NaN (its sign, its payload), and whether two NaN literals denote one value, is not stated.
+(4) Strings outside both the productions and the prose. `+NaN` and `-NaN`: the third production has no sign and the prose describes ordinary values only. `1.0p24` and `1.0x8`: the productions' suffix is `p`, digits, `x`, digits, and the prose's is `pNxM` with both N and M. No sentence gives any of them a value.
+Where the readings part. The prose's description of the form (domains.md:1469-1476) and the productions are two sentences about one syntax, and they differ at two points. The prose admits a sign before a mantissa with no integer part (`+.5`, `-.5`: an optional sign, an optional integer part, a decimal point, an optional fractional part, one of the two parts specified) and the productions do not. The productions admit a mantissa with no decimal point (`1e3`, and digits alone) and a `pNxM` with N or M zero, and the prose's description does not (it has a decimal point, and N and M positive). Neither sentence says which of the two is the definition of a Float literal.
+"""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1495 (K 7.1.337)"
+quote = "syntax Float ::= r\"([\\\\+\\\\-]?[0-9]+(\\\\.[0-9]*)?|\\\\.[0-9]+)([eE][\\\\+\\\\-]?[0-9]+)?([fFdD]|([pP][0-9]+[xX][0-9]+))?\" [token, prec(1)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1496 (K 7.1.337)"
+quote = "syntax Float ::= r\"[\\\\+\\\\-]?Infinity([fFdD]|([pP][0-9]+[xX][0-9]+))?\" [token, prec(3)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1497 (K 7.1.337)"
+quote = "syntax Float ::= r\"NaN([fFdD]|([pP][0-9]+[xX][0-9]+))?\" [token, prec(3)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1469-1476 (K 7.1.337)"
+quote = "The syntax of ordinary floating-point values in K consists of an optional sign (+ or -) followed by an optional integer part, followed by a decimal point, followed by an optional fractional part. Either the integer part or the fractional part must be specified. The mantissa is followed by an optional exponent part, which consists of an `e` or `E`, an optional sign (+ or -), and an integer. The expoennt is followed by an optional suffix, which can be either `f`, `F`, `d`, `D`, or `pNxM` where `N` and `M` are positive integers. `p` and `x` can be either upper or lowercase."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1478-1483 (K 7.1.337)"
+quote = "The value of a floating-point literal is computed as follows: First the mantissa is read as a rational number. Then it is multiplied by 10 to the power of the exponent, which is interpreted as an integer, and defaults to zero if it is not present. Finally, it is rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type, with the number of bits of precision and exponent specified by the suffix."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1484-1490 (K 7.1.337)"
+quote = "A suffix of `f` or `f` represents the IEEE `binary32` format. A suffix of `d` or `D`, or no suffix, represents the IEEE `binary64` format. A suffix of `pNxM` (either upper or lowercase) specifies exactly `N` bits of precision and `M` bits of exponent. The number of bits of precision is assumed to include any optional `1` that precedes the IEEE 754 mantissa. In other words, `p24x8` is equal to the IEEE `binary32` format, and `p53x11` is equal to the IEEE `binary64` format."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1464-1466 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of arbitrary-precision floating-point arithmetic in K based on a generalization of the IEEE 754 standard."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1541 (K 7.1.337)"
+quote = "You can check whether a `Float` value is infinite or Not-a-Number."
+
+[ruling.kore]
+statement = "Each Float literal of the K text stands in the kompiled text as `\\dv{SortFloat{}}(\"S\")` with S the literal's characters unchanged: its sign, its exponent's letter and sign, and its suffix in the case written (kore.txt, the 27 axioms: \"1.0\", \"1.\", \"1e3\", \"1.5e-3\", \"1.5E+3\", \"+1.5\", \"-1.5\", \".5\", \".5e2\", \"1.0f\", \"1.0F\", \"1.0d\", \"1.0D\", \"1.0p24x8\", \"1.0P24X8\", \"1.0p53x11\", \".5f\", \"Infinity\", \"+Infinity\", \"-Infinity\", \"Infinityf\", \"-InfinityD\", \"-Infinityp24x8\", \"NaN\", \"NaNf\", \"NaNd\", \"NaNP24X8\"). So a `\\dv{SortFloat{}}` of a text written from a K text holds a string of one of the three productions, and denotes what that literal denotes. The KORE syntax document gives a domain value a sort and a string literal and says nothing of which strings a sort admits or what a string denotes; for a string outside the productions (`+.5`, `-.5`, `+NaN`, `1.0p24`), which no K text is written to, the only sentences that could give a value are those of the K text of the sort, as the readings below take them."
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:209-210"
+quote = "// Domain values | \"\\dv\" \"{\" <sort> \"}\" \"(\" <string-literal> \")\""
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:1-27"
+quote = "Lbll{}(\\dv{SortFloat{}}(\"1.0P24X8\"))"
+
+[[reading]]
+name = "productions"
+statement = "A Float literal is a string of one of the three productions of FLOAT-SYNTAX, and only such a string has a value; the prose describes the productions loosely."
+answer = "`+.5` and `-.5` are no Float literals and have no value. `1e3`, digits alone and `1.0p0x0` are literals; the first two have the value the value sentence gives (1000; the digits as an integer), in binary64."
+consequence = "A KORE text holding `\\dv{SortFloat{}}(\"+.5\")` holds a domain value that no sentence gives a denotation; no K text is written to it."
+
+[[reading]]
+name = "prose-form"
+statement = "A Float literal of an ordinary value is a string of the form the prose describes, and the value sentence gives each such string its value."
+answer = "`+.5` is 1/2 and `-.5` is -1/2, in binary64. `1e3` and digits alone are not of the described form, which has a decimal point."
+consequence = "The K literal `1e3`, which the productions admit and which is written to KORE as \"1e3\", has no described form; the value sentence still names its parts (mantissa 1, exponent 3)."
+
+[[observe]]
+file = "kore.txt"
+contains = "\\dv{SortFloat{}}(\"1.0P24X8\")"
+
+[[observe]]
+file = "kore.txt"
+contains = "\\dv{SortFloat{}}(\".5\")"
+
+[[observe]]
+file = "kore.txt"
+contains = "\\dv{SortFloat{}}(\"+1.5\")"
+
+[[observe]]
+file = "kore.txt"
+contains = "\\dv{SortFloat{}}(\"-Infinityp24x8\")"
+
+[[observe]]
+file = "kore.txt"
+contains = "\\dv{SortFloat{}}(\"NaNP24X8\")"
+
+[[observe]]
+file = "kompile.txt"
+contains = "+.5      exit 113"
+
+[[note]]
+implementation = "kompile"
+text = "K 7.1.337 refuses a K text holding `+.5`, `-.5`, `+NaN`, `-NaN`, `1.0p24` or `1.0x8` where a Float is expected (kompile.txt): its scanner has no token for them, as the productions have none. It also refuses digits alone (`1`) there: the scanner gives them to the sort Int's token, so the first production's strings without a point, exponent or suffix are written to no kompiled text."

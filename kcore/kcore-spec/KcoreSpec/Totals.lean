@@ -536,17 +536,17 @@ mutual
         · exact hs2 e he
 end
 
-/-- **A covering row's match is a clause's match**: a clause with no `requires`, its pattern
+/-- **A covering row's match is a clause's match**: a clause with no `requires` and a `\top` premise, its pattern
 variables apart, whose patterns match an argument list of the function's sorts as a row, applies
 there. Each variable is bound at its one occurrence, to a value of its sort; every variable occurs
 (`binds`), so the substitution is well sorted. -/
 theorem applies_of_row {cl : Clause} {args : List Srt} {vs : List GroundTerm}
     (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some args)
-    (hb : binds cl.vars.length (varOccsList cl.pats) = true) (hreq : cl.req = none)
+    (hb : binds cl.vars.length (varOccsList cl.pats) = true) (hreq : cl.req = none) (hpre : cl.pre = .top)
     (hnd : (varOccsList cl.pats).Nodup) (hvs : c.sortsOf vs = some args)
     (hm : RowMatches c cl.pats vs) : ∃ σ, cl.AppliesAt c σ vs := by
   obtain ⟨σ, hk, hpv, hse⟩ := rowMatches_subst hm hpt hvs hnd
-  refine ⟨σ, fun i s hi => ?_, hpv, fun t ht => by rw [hreq] at ht; cases ht⟩
+  refine ⟨σ, fun i s hi => ?_, hpv, (fun t ht => by rw [hreq] at ht; cases ht), Clause.holds_preTop hpre σ⟩
   have hlt : i < cl.vars.length := by
     rcases Nat.lt_or_ge i cl.vars.length with h | h
     · exact h
@@ -579,7 +579,8 @@ theorem applies_of_rowRH {cl : Clause} {args : List Srt} {vs : List GroundTerm}
     rw [hs] at hs'
     cases hs'
     exact ⟨w, hw, hsw⟩
-  obtain ⟨σ', ha, -⟩ := Clause.appliesAt_extendRH hh hσ hpv fun t ht => by rw [hreq] at ht; cases ht
+  obtain ⟨σ', ha, -⟩ := Clause.appliesAt_extendRH hh hσ hpv (fun t ht => by rw [hreq] at ht; cases ht)
+    (Clause.holds_preTop hpre σ)
   exact ⟨σ', ha⟩
 
 /-! ## A total term has a value -/
@@ -699,7 +700,7 @@ clause applies. -/
 theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm}
     (hh : ∀ cl ∈ fn.clauses, c.HeldAt cl.vars cl.leftVars)
     (hreq : ∀ cl ∈ fn.clauses, ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
-      ∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r)
+      (∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r) ∧ ∃ b, Holds c cl.vars.length σ cl.pre b)
     (hrhs : ∀ cl ∈ fn.clauses, ∀ σ, cl.AppliesAt c σ vs → ∃ v, EvalTerm c σ cl.rhs (some v))
     (hcov : ∃ cl ∈ fn.clauses, cl.req = none ∧ ∃ σ, cl.AppliesAt c σ vs)
     (hnoens : ∀ cl ∈ fn.clauses, cl.ens = none) :
@@ -712,12 +713,12 @@ theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : Li
     induction n with
     | zero => intro p hp; omega
     | succ n ih =>
-      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq⟩
+      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq, hp'⟩
       by_cases hlow : ∃ cl' ∈ fn.clauses, cl'.prio < p ∧ ∃ σ', cl'.AppliesAt c σ' vs
       · obtain ⟨cl', hcl', hlt, ha⟩ := hlow
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
-      · obtain ⟨v, hv⟩ := hrhs cl hcl σ ⟨hσ, hm, hq⟩
-        exact ⟨v, Eval.clause hfn hcl hσ hm hq (fun cl' hcl' _ hlt =>
+      · obtain ⟨v, hv⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+        exact ⟨v, Eval.clause hfn hcl hσ hm hq hp' (fun cl' hcl' _ hlt =>
           hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩) hv
           fun t ht => by rw [hnoens cl hcl] at ht; cases ht⟩
   obtain ⟨cl, hcl, _, ha⟩ := hcov
@@ -779,10 +780,11 @@ theorem sortPreds_totalN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPreds) 
     | succ i => simp at hi
   refine eval_defined (lookupFn_of_memN hc hmem)
     (fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl))
-    (fun cl hcl _ _ _ t ht => by rw [(hshape cl hcl).1] at ht; cases ht)
+    (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hshape cl hcl).1] at ht; cases ht), true,
+      Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hshape cl hcl; rw [h]; exact ⟨_, EvalTerm.dv⟩)
     ⟨cl₀, hcl₀, hr₀, [(0, w)], hσ, by rw [hp₀]; exact .cons (.var (lookup_cons_self _ _ _)) .nil,
-      fun t ht => by rw [hr₀] at ht; cases ht⟩ (sortPreds_ens hfn)
+      (fun t ht => by rw [hr₀] at ht; cases ht), Clause.holds_preTop (Semantics.sortPreds_pre hfn cl₀ hcl₀) _⟩ (sortPreds_ens hfn)
 
 theorem sortPreds_total (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : Total c fn.label :=
   sortPreds_totalN hc.toN hfn
@@ -816,7 +818,8 @@ theorem total_of_partsN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hterm : ∀ 
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ m ih =>
     intro vs hvs hlt
-    refine eval_defined hlook hb (fun cl hcl σ hσ _ t ht => req_resultN hc hterm hfn hcl hσ ht)
+    refine eval_defined hlook hb (fun cl hcl σ hσ _ => ⟨fun t ht => req_resultN hc hterm hfn hcl hσ ht, true,
+        Clause.holds_preTop (hclk cl hcl).2 σ⟩)
       (fun cl hcl σ ha => ?_) ?_ hnoens
     · refine evalTerm_defined hc.sort hs hL ha.1 cl.rhs (hrs cl hcl) (hrhs cl hcl)
         fun g ts hts hgt gfn hg vs' hts' hsrt => ?_

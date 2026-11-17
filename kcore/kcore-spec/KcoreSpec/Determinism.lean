@@ -145,14 +145,16 @@ def kseqPat (S : Srt) : Term := .app kseq [.inj S Srt.kitem (.var 0), .app dotk 
 
 /-- The sort S of a generated sort predicate `isS` as kompile writes it, if `fn` is one: the clause
 `isS(kseq(inj{S,KItem}(X₀:S), dotk)) = true` (no `ensures`) and, of a larger priority,
-`isS(X₀:K) = false`. -/
+`isS(X₀:K) = false`, neither with a predicate (evaluation reads a clause's predicate, so a clause
+with one applies at fewer arguments than its patterns say). -/
 def sortPredOf (fn : Fn) : Option Srt :=
   match fn.clauses with
   | [cl, o] => match cl.vars with
     | [S] =>
       if Term.beqList cl.pats [kseqPat S] && cl.req.isNone && Term.beq cl.rhs (.dv Srt.bool (.bool true)) &&
           decide (cl.prio < o.prio) && o.vars == [Srt.k] && Term.beqList o.pats [.var 0] && o.req.isNone &&
-          Term.beq o.rhs (.dv Srt.bool (.bool false)) && cl.ens.isNone && !cl.aside then some S else none
+          Term.beq o.rhs (.dv Srt.bool (.bool false)) && cl.ens.isNone && !cl.aside &&
+          cl.pre.isTop && o.pre.isTop then some S else none
     | _ => none
   | _ => none
 

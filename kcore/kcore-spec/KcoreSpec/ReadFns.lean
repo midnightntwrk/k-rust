@@ -4,6 +4,7 @@
   read as before, and no account changes. Each is structurally recursive and reduces in the kernel
   (test/RhsReader.lean and test/ExClauseReader.lean check an instance of each by `kernel_rfl`).
 
+  - `dropEmptyAlts`: a right side with the alternatives of its `\or`s that are `\bottom` left out.
   - `frRead`: `\or` on the right side of an equation of a function whose `functional` sentence the
     text holds, as n+1 clauses with a premise predicate (`Clause.pre`).
   - `exRead` (`existsAsCases`): `\exists` over one Bool variable on the right side of an equation
@@ -12,6 +13,10 @@
   - `ceRead`: `\exists` on an equation's right side as the clause's existential variables
     (`Clause.exs`), the body's predicates as its right-side predicate (`Clause.post`); `cutAnd`, a
     conjunction of terms at a term position as a fresh existential variable with its memberships.
+  - `hoistExists`: each `\exists` of an equation's right side under applications, `\and` conjuncts
+    and `\or` alternatives moved to the top, renamed apart; the binder of an `\or` alternative only
+    at a sort the caller's test of a value accepts (`valuedSort`: `Semantics.valued` on a built
+    definition).
 -/
 import KcoreSpec.Parse
 
@@ -68,6 +73,32 @@ def boundByArgs (vs : List Var) (np : Nat) (conn : String) (used : List Nat) : R
       s!"{conn}: Var{(vs.getD i default).name}: in an alternative or the ensures, not bound by the arguments"
   | none => pure ()
 
+/-! ## Alternatives that are `\bottom`
+
+`⊥ ∨ φ = φ`, so an alternative that is `\bottom` (`vacuous`) adds no element to its `\or`: the
+sentence is the one without it. With one alternative left no `\or` is written; with none the
+`\or` is `\bottom`. -/
+
+mutual
+  /-- A right side with each `\or` under applications and conjunctions replaced by its
+  alternatives that are not `vacuous` (each read so first): the one left where one is left,
+  `\bottom` of the `\or`'s sort where none is. The result is `vacuous` exactly where the pattern
+  is, and otherwise no alternative of an `\or` under its applications and conjunctions is. -/
+  def dropEmptyAlts : Kore.Pattern → Kore.Pattern
+    | .app h ss ps => .app h ss (dropEmptyAltsList ps)
+    | .and s ps => .and s (dropEmptyAltsList ps)
+    | .or s ps => match (dropEmptyAltsList ps).filter (!vacuous ·) with
+      | [] => .bottom s
+      | [p] => p
+      | qs => .or s qs
+    | p => p
+    termination_by structural p => p
+  def dropEmptyAltsList : List Kore.Pattern → List Kore.Pattern
+    | [] => []
+    | p :: ps => dropEmptyAlts p :: dropEmptyAltsList ps
+    termination_by structural ps => ps
+end
+
 /-! ## `\or` on the right side of an equation of a function with its `functional` sentence
 
 The sentence is `premise → f(X̄) = ⋁ₖ (aₖ ∧ Pₖ)`, Pₖ the predicates of alternative k. With f's
@@ -113,23 +144,27 @@ def altsOf (N : Names) : List Var → List Kore.Pattern → Rd (List (Term × Li
 /-- The detail of `manyValuedRightSide` for an `\or` in an equation of a function without its
 `functional` sentence. -/
 def orNotFunctional : String :=
-  "\\or: the sentence gives the function every element of each side; the function is not declared total, so where the sides differ that is more than one element, which no clause states"
+  "\\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states"
 
-/-- An equation whose right side, after `hoist`, holds `\or` under applications and conjunctions:
-the clauses of its alternatives (`orAlts`, the `\or` distributed over applications), each read
-through `hoist`, the equation's `ensures` and the `{B #Equals true}` conjuncts lifted at the top
-among the predicates of every alternative.
-`none` where the right side is empty or holds no `\or`, or where fewer than two alternatives are
-not empty: the reading is not this function's.
-Refused `manyValuedRightSide`: the text does not hold the function's `functional` sentence; more
-than 8 alternatives; an alternative, a lifted conjunct or the `ensures` holds a variable the
-arguments do not bind; an alternative holds `\top`, `\not` or `\exists`. -/
+/-- An equation whose right side, after `dropEmptyAlts` and `hoist`, holds `\or` under
+applications and conjunctions: the clauses of its alternatives (`orAlts`, the `\or` distributed
+over applications), each read through `hoist`, the equation's `ensures` and the
+`{B #Equals true}` conjuncts lifted at the top among the predicates of every alternative.
+`none` where the right side is empty or holds no `\or` once its empty alternatives are left out
+(fewer than two alternatives are not empty): the sentence is then a plain equation or
+`f(X̄) = ⊥`, and the reading is not this function's, whether or not the text holds the function's
+`functional` sentence.
+Refused `manyValuedRightSide`, the right side having two alternatives or more: the text does not
+hold the function's `functional` sentence; more than 8 alternatives; an alternative, a lifted
+conjunct or the `ensures` holds a variable the arguments do not bind; an alternative holds
+`\top`, `\not` or `\exists`. -/
 def frRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
-  let (r, conds, empty) := hoist e.rhs
+  let (r, conds, empty) := hoist (dropEmptyAlts e.rhs)
   if empty || !hasOr r then pure none else
+  let as := orAlts r
+  if as.length < 2 then pure none else
   let (pats, req, ens, vs, np) ← eqnHead N e
   unless eqnFnl N e do fail .manyValuedRightSide orNotFunctional
-  let as := orAlts r
   if as.length > 8 then fail .manyValuedRightSide s!"\\or: {as.length} alternatives, more than 8"
   unless conds.all (fun c => match c with | .isTrue b => eqnCondOK N b | .same .. => false) do
     fail .patternConnective "\\and"
@@ -168,25 +203,6 @@ mutual
     | p :: ps => substVal x v p :: substValList x v ps
     termination_by structural ps => ps
 end
-
-mutual
-  /-- The conjuncts of a conjunction, nested ones flattened. -/
-  def andParts : Kore.Pattern → List Kore.Pattern
-    | .and _ ps => andPartsList ps
-    | p => [p]
-    termination_by structural p => p
-  def andPartsList : List Kore.Pattern → List Kore.Pattern
-    | [] => []
-    | p :: ps => andParts p ++ andPartsList ps
-    termination_by structural ps => ps
-end
-
-/-- A conjunction's conjuncts that are no predicates (`isPred`), and its predicate conjuncts,
-`\top` dropped. The split is by `isPred`, before any conjunct is read: `hoist` lifts only
-`{B #Equals true}`, and `term` reads `\and(p, X)` as `p #as X`. -/
-def bodyParts (p : Kore.Pattern) : List Kore.Pattern × List Kore.Pattern :=
-  let ps := andParts p
-  (ps.filter (!isPred ·), ps.filter fun q => isPred q && (match q with | .top _ => false | _ => true))
 
 /-- A term of a right side or of a predicate's operand, read where it holds no conjunction under
 applications (`patternConnective` otherwise): `term` reads `\and(p, X)` as the left-side pattern
@@ -263,83 +279,7 @@ mutual
     termination_by structural ps => ps
 end
 
-/-! ## `\exists` over one Bool variable, by cases (`existsAsCases`)
-
-The sentence is `premise → f(X̄) = ∃B:Bool. (t ∧ P)`. Where the elements of Bool are the two
-literals the right side is `(t[true] ∧ P[true]) ∨ (t[false] ∧ P[false])`, an `\or` of two
-alternatives, read as `frRead` reads one. -/
-
-/-- The Bool literal `b`, as a pattern. -/
-def boolDv (b : Bool) : Kore.Pattern := .dv (KoreAML.srt "Bool") (if b then "true" else "false")
-
-/-- The right side is one `\exists` over a Bool variable whose body holds no further `\exists`
-and has exactly one conjunct that is no predicate: the variable, that conjunct, the predicates. -/
-def exShape? (e : RawEqn) : Option (Kore.EVar × Kore.Pattern × List Kore.Pattern) :=
-  match e.rhs with
-  | .exist _ B body =>
-    if sortName? B.sort == some "Bool" && !hasExists body then
-      match bodyParts body with
-      | ([t], ps) => some (B, t, ps)
-      | _ => none
-    else none
-  | _ => none
-
-/-- The alternatives `(b, a)`, a an alternative of `t[b]`: a's term with the predicates `P[b]`. -/
-def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
-    List Var → List (Bool × Kore.Pattern) → Rd (List (Term × List Cond) × List Var)
-  | vs, [] => pure ([], vs)
-  | vs, x :: rest => do
-    if let some c := manyValued? x.2 then fail .manyValuedRightSide c
-    let (a, vs) ← termNoAnd N vs x.2
-    let (cs, vs) ← condOfList N vs (substValList B (boolDv x.1) ps)
-    let (xs, vs) ← exAlts N B ps vs rest
-    pure ((a, cs) :: xs, vs)
-  termination_by structural _ rest => rest
-
-/-- `existsAsCases`: an equation whose right side is `\exists B:Bool. (t ∧ P)` (`exShape?`), of a
-function whose `functional` sentence the text holds: `frClauses` over the alternatives of
-`t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
-equation's `ensures`.
-`none` where the right side is not of that shape or the text does not hold the `functional`
-sentence: the reading is not this function's.
-Refused `manyValuedRightSide`: more than 8 alternatives; an alternative, a predicate or the
-`ensures` holds a variable the arguments do not bind; an alternative holds `\top`, `\not` or
-`\or` under no application. Refused `patternConnective`: a predicate `condOf` does not read; a
-conjunction under applications of an alternative.
-That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is decided on the
-built definition, not here. -/
-def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
-  let some (B, t, ps) := exShape? e | pure none
-  if !eqnFnl N e then pure none else
-  let (pats, req, ens, vs, np) ← eqnHead N e
-  let insts := [true, false].flatMap fun b => (orAlts (substVal B (boolDv b) t)).map (b, ·)
-  if insts.length > 8 then fail .manyValuedRightSide s!"\\exists: {insts.length} alternatives, more than 8"
-  let (alts, vs) ← exAlts N B ps vs insts
-  boundByArgs vs np "\\exists"
-    (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ ens.toList.flatMap varOccs)
-  let s ← resSort N e
-  let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
-  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
-
-/-! ## `\exists` on an equation's right side as the clause's existential variables
-
-The sentence is `premise → f(X̄) = ∃x̄. (t ∧ P)`. The clause with `exs` the variables x̄, `rhs` t
-and `post` P states that sentence: nothing is asked of the function or of the sorts of x̄ here.
-Whether the definition admits the clause (each variable of x̄ of a confined sort or fixed by `post`)
-is decided on the built definition. -/
-
-/-- The indices of a right side's bound variables, in order, each a variable the first `n0` do
-not name (`patternConnective` otherwise: the binder is not read renamed apart here). -/
-def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var)
-  | vs, [] => pure ([], vs)
-  | vs, x :: xs => do
-    let (i, vs) ← varIndex vs x
-    if i < n0 then fail .patternConnective x.var.ident.name
-    let (is, vs) ← exBind n0 vs xs
-    pure (i :: is, vs)
-  termination_by structural _ xs => xs
-
-/-! ### `\and` of terms at a term position
+/-! ## `\and` of terms at a term position
 
 `t₁ ∧ … ∧ tₙ` of terms is the elements every tⱼ holds. At a position `C[·]` under applications,
 `C[t₁ ∧ … ∧ tₙ] = ∃Z. C[Z] ∧ Z ∈ t₁ ∧ … ∧ Z ∈ tₙ` for a fresh Z of the conjunction's sort: an
@@ -415,14 +355,123 @@ def cutMems (N : Names) : List Var → List Cut → Rd (List Cond × List Var)
     pure (ts.map (Cond.mem s (.var z) ·) ++ ms, vs)
   termination_by structural _ cs => cs
 
+/-! ## `\exists` over one Bool variable, by cases (`existsAsCases`)
+
+The sentence is `premise → f(X̄) = ∃B:Bool. (t ∧ P)`. Where the elements of Bool are the two
+literals the right side is `(t[true] ∧ P[true]) ∨ (t[false] ∧ P[false])`, an `\or` of two
+alternatives, read as `frRead` reads one.
+The body is taken after `cutAnd` with B the one bound variable: a predicate under applications
+is among P, and a conjunction of terms with B among its conjuncts is B with `B ∈ u` among P for
+each other conjunct u. A conjunction of terms without B has no such form over B alone (its form
+is a further `\exists` variable), so the equation is then not of this shape. -/
+
+/-- The Bool literal `b`, as a pattern. -/
+def boolDv (b : Bool) : Kore.Pattern := .dv (KoreAML.srt "Bool") (if b then "true" else "false")
+
+/-- The right side is one `\exists` over a Bool variable B whose body holds no further
+`\exists`, is no predicate, and in which `cutAnd` with B bound adds no variable (every
+conjunction of two terms or more under applications has B among its conjuncts): the variable,
+the body with each such conjunction read as B, and the predicates: those `cutAnd` lifts, then
+`\in(B, u)` for each other conjunct u of each conjunction. -/
+def exShape? (e : RawEqn) : Option (Kore.EVar × Kore.Pattern × List Kore.Pattern) :=
+  match e.rhs with
+  | .exist rs B body =>
+    if sortName? B.sort == some "Bool" && !hasExists body && !isPred body then
+      let (t, n, cuts, qs) := cutAnd [] [B.var.ident.name] 0 body
+      if n == 0 && cuts.all (fun c => decide (c.1 = B)) then
+        some (B, t, qs ++ cuts.flatMap fun c => c.2.2.map (Kore.Pattern.in c.2.1 rs (.var (.evar B))))
+      else none
+    else none
+  | _ => none
+
+/-- The alternatives `(b, a)`, a an alternative of `t[b]`: a's term with the predicates `P[b]`. -/
+def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
+    List Var → List (Bool × Kore.Pattern) → Rd (List (Term × List Cond) × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, x :: rest => do
+    if let some c := manyValued? x.2 then fail .manyValuedRightSide c
+    let (a, vs) ← termNoAnd N vs x.2
+    let (cs, vs) ← condOfList N vs (substValList B (boolDv x.1) ps)
+    let (xs, vs) ← exAlts N B ps vs rest
+    pure ((a, cs) :: xs, vs)
+  termination_by structural _ rest => rest
+
+/-- `existsAsCases`: an equation whose right side is `\exists B:Bool. (t ∧ P)` (`exShape?`), of a
+function whose `functional` sentence the text holds: `frClauses` over the alternatives of
+`t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
+equation's `ensures`.
+`none` where the right side is not of that shape or the text does not hold the `functional`
+sentence: the reading is not this function's.
+Refused `manyValuedRightSide`: more than 8 alternatives; an alternative, a predicate or the
+`ensures` holds a variable the arguments do not bind; an alternative holds `\top`, `\not` or
+`\or` under no application. Refused `patternConnective`: a predicate `condOf` does not read (a
+conjunct of a conjunction with B that is no term among them); a conjunction under an `\or` of an
+alternative.
+That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is decided on the
+built definition, not here. -/
+def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
+  let some (B, t, ps) := exShape? e | pure none
+  if !eqnFnl N e then pure none else
+  let (pats, req, ens, vs, np) ← eqnHead N e
+  let insts := [true, false].flatMap fun b => (orAlts (substVal B (boolDv b) t)).map (b, ·)
+  if insts.length > 8 then fail .manyValuedRightSide s!"\\exists: {insts.length} alternatives, more than 8"
+  let (alts, vs) ← exAlts N B ps vs insts
+  boundByArgs vs np "\\exists"
+    (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ ens.toList.flatMap varOccs)
+  let s ← resSort N e
+  let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
+  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+
+/-! ## `\exists` on an equation's right side as the clause's existential variables
+
+The sentence is `premise → f(X̄) = ∃x̄. (t ∧ P)`. The clause with `exs` the variables x̄, `rhs` t
+and `post` P states that sentence: nothing is asked of the function or of the sorts of x̄ here.
+Whether the definition admits the clause (each variable of x̄ of a confined sort or fixed by `post`)
+is decided on the built definition. -/
+
+/-- The indices of a right side's bound variables, in order, each a variable the first `n0` do
+not name (`patternConnective` otherwise: the binder is not read renamed apart here). -/
+def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, x :: xs => do
+    let (i, vs) ← varIndex vs x
+    if i < n0 then fail .patternConnective x.var.ident.name
+    let (is, vs) ← exBind n0 vs xs
+    pure (i :: is, vs)
+  termination_by structural _ xs => xs
+
+/-- The predicates of a right side with the operand of each `\ceil` among them read by `cutAnd`
+(numbers from `n`): the predicates (a `\ceil`'s followed by those lifted out of its operand), the
+next number, the cuts. `⌈C[t ∧ u]⌉ = ∃Z. (⌈C[Z]⌉ ∧ Z ∈ t ∧ Z ∈ u)`: `\ceil` of a union is the
+union of the `\ceil`s, and `⌈φ ∧ P⌉ = ⌈φ⌉ ∧ P` for a predicate P. The `\ceil` is a conjunct of
+the right side and Z is fresh, so the binder stands around the whole right side, with the
+equation's own. A `\ceil` under another connective is not reached. -/
+def cutCeils (used bound : List String) : Nat → List Kore.Pattern → List Kore.Pattern × Nat × List Cut
+  | n, [] => ([], n, [])
+  | n, .ceil s r q :: ps =>
+    let (q', n, cs, qs) := cutAnd used bound n q
+    let (ps', n, cs') := cutCeils used bound n ps
+    (.ceil s r q' :: qs ++ ps', n, cs ++ cs')
+  | n, p :: ps =>
+    let (ps', n, cs') := cutCeils used bound n ps
+    (p :: ps', n, cs')
+  termination_by structural _ ps => ps
+
+/-- The first binder whose variable (name and sort) a binder under it binds again. -/
+def dupBinder : List Kore.EVar → Option Kore.EVar
+  | [] => none
+  | x :: xs => if xs.any (decide <| · = x) then some x else dupBinder xs
+
 /-- An equation whose right side is `\exists x̄. body` (x̄ possibly empty), body under no further
 binder: one clause. `exs` is the variables x̄ in the text's order of nesting, then the fresh
 variables of `cutAnd`, which reads each conjunction of terms under applications of the body (a
 conjunction with a variable of x̄ among its conjuncts as that variable); `rhs` is the body
 so read; `post` is every predicate of the body (`condOf`), so that `Cond.fixes` reads them, then
-the cuts' memberships; the equation's own `ensures` stays `ens`.
-Refused `patternConnective`: a variable of x̄ that the arguments, the `requires` or the `ensures`
-hold, or that is bound twice (these binders are not read here: a rule's are, renamed apart or
+the cuts' memberships; the equation's own `ensures` stays `ens`. A `\ceil` among the body's
+predicates has its operand read by `cutAnd` likewise (`cutCeils`): its fresh variables follow the
+body's in `exs`, its memberships the body's in `post`.
+Refused `patternConnective`: a variable of x̄ (name and sort) that is bound twice, named in the
+detail, or that the arguments, the `requires` or the `ensures` hold (these binders are not read here: a rule's are, renamed apart or
 dropped, `rhsApart` and `exKept`).
 Refused `unheldVariable`: a variable of x̄ that the body does not hold (the sentence then states
 the term only where the variable's sort has an element, which the clause would not say: unlike a
@@ -430,25 +479,111 @@ rule's sentence, `f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which doe
 Refused `manyValuedRightSide`: no term conjunct (`\top`: the body is a predicate, every element
 or none); a further `\exists` in the body; `\or`, `\top` or `\not` under applications of the
 term or of a cut's conjunct.
-Refused `patternConnective`: a predicate `condOf` does not read. -/
+Refused `patternConnective`: a predicate `condOf` does not read, among them a conjunction of terms
+in an operand of `\equals` or `\in`, or of a `\ceil` under `\not`, `\or` or `\implies`. -/
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
   let (xs, body) := peelExists e.rhs
   if hasExists body then fail .manyValuedRightSide "\\exists"
   if isPred body then fail .manyValuedRightSide "\\top"
+  if let some x := dupBinder xs then fail .patternConnective s!"{x.var.ident.name}: bound twice"
   let bound := xs.map (·.var.ident.name)
-  let (t, _, cuts, ps) := cutAnd (evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)) bound 0 body
+  let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
+  let (t, n, cuts, ps) := cutAnd used bound 0 body
   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? manyValued? then fail .manyValuedRightSide c
   if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
     fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
+  let (ps, _, ccuts) := cutCeils used bound n ps
+  let cuts := cuts ++ ccuts
   let (exs, vs) ← exBind n0 vs xs
-  unless nodup exs do fail .patternConnective s!"{(xs.headD default).var.ident.name}: bound twice"
   let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
   let (rhs, vs) ← term N vs t
   let (cs, vs) ← condOfList N vs ps
   let (ms, vs) ← cutMems N vs cuts
   pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
           exs := exs ++ zs, post := conjC (cs ++ ms) }, vs)
+
+/-! ## `\exists` moved to the top of a right side (`hoistExists`)
+
+Each step is an equality in every interpretation, the bound variable x not free outside its
+binder:
+- `C[∃x. φ] = ∃x. C[φ]` for a position `C[·]` under applications (an injection is one): an
+  application holds the elements its arguments' elements give, and `\exists` is the union over the
+  elements of the bound sort. Nothing is asked of the sort: where it has no element both sides are
+  empty.
+- `(∃x. φ) ∧ ψ = ∃x. (φ ∧ ψ)`, likewise with nothing asked of the sort.
+- `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)` where s has an element: where it has none the left side is ψ
+  and the right side is empty. A value of s is an element of it in every model, so the step is
+  taken where `val` accepts s, a test of "the sort has a value" the caller passes.
+The binder stays where it is under `\not`, `\implies`, `\iff`, `\forall`, `\mu` and `\nu`, and in a
+predicate (`isPred`): none of the three equalities moves it out of those. -/
+
+mutual
+  /-- A pattern at a term position with each `\exists` under applications, `\and` conjuncts and
+  `\or` alternatives taken out: the pattern, the binders (outermost first, then in the order of
+  the text), the names `taken` and `used` with the binders' added.
+  `taken` holds the names free in the equation and the binders' already taken out: a binder whose
+  name is one of them is renamed, with the occurrences it binds, to its name primed until no name
+  of `used` is it (`freshIn`; `used` holds every name of the equation), so that no binder taken
+  out captures a variable of the position it leaves, and no two have one name. Under a binder its
+  name is taken, so a binder of the same name inside it is the one renamed.
+  Refused `existentialEquation`: a binder in an alternative of an `\or` at a sort `val` does not
+  accept. Refused `patternConnective`: a binder to rename whose name stays free in its body
+  (`renameEVar` reads name and sort, and no `\iff`, `\mu` or `\nu`). -/
+  def hoistEx (val : Kore.KSort → Bool) (taken used : List String) :
+      Kore.Pattern → Rd (Kore.Pattern × List Kore.EVar × List String × List String)
+    | .exist _ x p => do
+      let n := x.var.ident.name
+      let (p', xs, taken', used') ← hoistEx val (n :: taken) used p
+      if taken.contains n then
+        let y := KoreAML.evar (freshIn used' (used'.length + 1) n) x.sort
+        let p'' := renameEVar x y p'
+        if (freeEVars [] p'').contains n then
+          fail .patternConnective s!"{n}: bound by \\exists, not renamed apart"
+        else pure (p'', y :: xs, y.var.ident.name :: taken', y.var.ident.name :: used')
+      else pure (p', x :: xs, taken', used')
+    | .app h ss ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      pure (.app h ss ps', xs, taken, used)
+    | .and s ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      pure (.and s ps', xs, taken, used)
+    | .or s ps => do
+      let (ps', xs, taken, used) ← hoistExList val taken used ps
+      match xs.find? (fun x => !val x.sort) with
+      | some x =>
+        let sn := (sortName? x.sort).getD "?"
+        fail .existentialEquation
+          s!"{x.var.ident.name}: bound in an alternative of \\or at the sort {sn}, which the test of a value does not accept"
+      | none => pure (.or s ps', xs, taken, used)
+    | p => pure (p, [], taken, used)
+    termination_by structural p => p
+  def hoistExList (val : Kore.KSort → Bool) (taken used : List String) :
+      List Kore.Pattern → Rd (List Kore.Pattern × List Kore.EVar × List String × List String)
+    | [] => pure ([], [], taken, used)
+    | p :: ps => do
+      let (p', xs, taken, used) ← if isPred p then pure (p, [], taken, used) else hoistEx val taken used p
+      let (ps', xs', taken, used) ← hoistExList val taken used ps
+      pure (p' :: ps', xs ++ xs', taken, used)
+    termination_by structural ps => ps
+end
+
+/-- An equation with each `\exists` of its right side under applications, `\and` conjuncts and
+`\or` alternatives moved to the top (`hoistEx`), renamed apart from the names free in the
+equation and from each other: the right side is `\exists x̄. body` at the sort S, the right side's.
+A right side that is a predicate is left as it is. -/
+def hoistExists (val : Kore.KSort → Bool) (S : Kore.KSort) (e : RawEqn) : Rd RawEqn := do
+  if isPred e.rhs then pure e else
+  let all := e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList ++ e.competitors.getD []
+  let (body, xs, _, _) ← hoistEx val (freeEVarsList [] all) (evarNamesList all) e.rhs
+  pure { e with rhs := xs.foldr (Kore.Pattern.exist S) body }
+
+/-- `Semantics.valued` on a built definition, at a sort of the text: the test of a value
+`hoistExists` takes. A sort the names do not hold is not accepted. -/
+def valuedSort (N : Names) (c : Semantics) (s : Kore.KSort) : Bool :=
+  match N.sortE s with
+  | .ok a => c.valued a
+  | .error _ => false
 
 end KCore.Parse

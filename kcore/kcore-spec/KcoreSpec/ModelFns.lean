@@ -361,9 +361,11 @@ theorem canonKey_ne_X' {vars : List Srt} {i : Nat} (hi : i < vars.length) (n : S
   exact x_ne_var he
 
 theorem reqFails_of_true {σ : Subst} {cl : Clause} (hmi : FnDet c)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) (hf : ReqFails c σ cl) : False := by
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true) (hf : ReqFails c σ cl) : False := by
   cases hf with
   | intro ht he hr => exact hr (EvalTerm.functional_of_fnDet hmi he (hreq _ ht))
+  | pre hf => exact absurd (Holds.functional_of_fnDet hmi hpre hf) (by simp)
 
 /-! ## What `Eval` gives where a clause applies -/
 
@@ -377,9 +379,10 @@ theorem evalTerm_iff_of {σ : Subst} {t : Term} {r1 : Option GroundTerm} (hmi : 
 
 theorem fails_false {ws : List GroundTerm} {cl : Clause} {σ : Subst} (hmi : FnDet c)
     (hσ : c.WellSorted cl.vars σ) (hpv : PatVals c σ cl.pats ws)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) (hf : Fails c ws cl) : False := by
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true) (hf : Fails c ws cl) : False := by
   cases hf with
-  | intro hf => exact reqFails_of_true hmi hreq (hf σ (hσ.at _) hpv)
+  | intro hf => exact reqFails_of_true hmi hreq hpre (hf σ (hσ.at _) hpv)
 
 /-- **A clause that decides gives the function's values**: where it applies under σ and no
 clause of a smaller priority applies, the values of the function are those of its right-hand side
@@ -393,7 +396,8 @@ theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
   · exact h.solves fn hu ws hws cl hcl σ hdec
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
-      (fun _ _ _ _ cl' hcl' _ _ _ _ _ t ht => by rw [(hsh cl' hcl').1] at ht; cases ht)
+      (fun _ _ _ _ cl' hcl' _ _ σ' _ _ => ⟨(fun t ht => by rw [(hsh cl' hcl').1] at ht; cases ht), true,
+        Clause.holds_preTop (Semantics.sortPreds_pre hp cl' hcl') σ'⟩)
       (fun _ _ cl' _ _ hcl' _ _ _ => by
         obtain ⟨_, s, l, he⟩ := hsh cl' hcl'
         refine ⟨some (.dv s l), .inl ⟨fun t ht => (by rw [sortPreds_ens hp cl' hcl'] at ht; cases ht), ?_⟩⟩

@@ -28,12 +28,17 @@ set_option maxRecDepth 1000000
 
 open KCore
 
-/-- The functions' clauses as `fnOK` checks them, from `fnsOK` alone. -/
-theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) : Exec.ClauseCtx c := by
+/-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top` from
+`clausesPlain`. -/
+theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clausesPlain = true) :
+    Exec.ClauseCtx c := by
   intro fn hfn'
   rcases List.mem_append.mp hfn' with hfn | hfn
   rotate_left
-  · exact ⟨[], fun k hk => (nomatch hk), sortPreds_ctx hfn⟩
+  · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl =>
+      ⟨(sortPreds_ctx hfn cl hcl).1, (sortPreds_ctx hfn cl hcl).2.1, (sortPreds_ctx hfn cl hcl).2.2.1,
+        (sortPreds_ctx hfn cl hcl).2.2.2.1, (sortPreds_ctx hfn cl hcl).2.2.2.2.1,
+        (sortPreds_ctx hfn cl hcl).2.2.2.2.2, Semantics.sortPreds_pre hfn cl hcl⟩⟩
   have hok := (List.all_eq_true.mp hfns) fn hfn
   simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨hcls, _⟩ := hok
@@ -42,7 +47,8 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) : Exec.ClauseCt
     exact ⟨g, List.mem_append_left _ hg, rfl⟩
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
-    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2⟩
+    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2,
+      Semantics.allFns_preTop hp fn hfn' cl hcl⟩
 
 /-- **A step by the rule `r`** under the substitution `sub vs` (as test/SetItem.lean). -/
 theorem step_of {c : Semantics} (hsc : SortCtx c) (hcc : Exec.ClauseCtx c) (hmc : Exec.MatchCtx c)
@@ -178,7 +184,7 @@ theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +ker
 theorem fnsOK : c.fnsOK = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Semantics.ovlCase_of (by decide +kernel))
-theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK
+theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (by decide +kernel)
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 
 /-- No agreement or match obligation is named, so the clauses of one priority are coherent. -/

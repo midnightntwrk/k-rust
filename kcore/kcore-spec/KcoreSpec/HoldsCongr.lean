@@ -256,4 +256,49 @@ theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b :
     Holds c n σ₂ p b :=
   fun ha => Holds.congr_NI_aux h _ ha
 
+/-! ## A clause under an extension of a match on its left variables -/
+
+/-- The variables of a clause's predicate are among those of its patterns and conditions. -/
+theorem Clause.pre_leftVarsRH {cl : Clause} : ∀ i ∈ varOccsCond cl.vars.length cl.pre, i ∈ cl.leftVars :=
+  fun _ hi => List.mem_append_right _ (List.mem_append_right _ hi)
+
+/-- **A clause that matches with its `requires` true and its predicate true under a substitution
+well sorted on its patterns and conditions applies under an extension of it**, where each other
+variable is of a sort with a value: the extension is well sorted on every variable and agrees on
+`leftVars`, which hold the variables of the patterns, of the `requires` and of the predicate. -/
+theorem Clause.appliesAt_extendRH {c : Semantics} {cl : Clause} (hh : c.HeldAt cl.vars cl.leftVars) {σ : Subst}
+    {vs : List GroundTerm} (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs)
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true) :
+    ∃ σ', cl.AppliesAt c σ' vs ∧ ∀ i ∈ cl.leftVars, σ'.lookup i = σ.lookup i := by
+  obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld hh hσ
+  refine ⟨σ', ⟨hws, PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj), fun t ht => ?_,
+    Holds.congr_NI hpre fun j hj => (hag j (Clause.pre_leftVarsRH j hj)).symm⟩, hag⟩
+  exact Exec.EvalTerm.congr (hreq t ht) fun i hi => (hag i (Clause.req_leftVarsRH ht i hi)).symm
+
+/-- **A clause that applies under no substitution fails**, where each variable outside its
+patterns and conditions is of a sort with a value and, at each match well sorted on every variable,
+its `requires` has a result and its predicate a truth value: a match well sorted on `leftVars`
+extends to one well sorted on every variable (`Semantics.extendHeld`), under which the `requires`
+has a result other than `true` or the predicate is false, the same under the match (both read
+`leftVars` only). -/
+theorem Clause.fails_of_not_appliesRH {c : Semantics} {cl : Clause} (hh : c.HeldAt cl.vars cl.leftVars)
+    {vs : List GroundTerm}
+    (hreq : ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
+      (∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r) ∧ ∃ b, Holds c cl.vars.length σ cl.pre b)
+    (hna : ¬ ∃ σ, cl.AppliesAt c σ vs) : Fails c vs cl := by
+  refine Fails.intro fun σ hσ hm => ?_
+  obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld hh hσ
+  have hm' : PatVals c σ' cl.pats vs := PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj)
+  obtain ⟨hq, b, hb⟩ := hreq σ' hws hm'
+  by_cases hall : ∀ t, cl.req = some t → EvalTerm c σ' t (some (bool true))
+  · cases b with
+    | true => exact absurd ⟨σ', hws, hm', hall, hb⟩ hna
+    | false => exact ReqFails.pre (Holds.congr_NI hb fun j hj => hag j (Clause.pre_leftVarsRH j hj))
+  · obtain ⟨t, hne⟩ := Classical.not_forall.mp hall
+    obtain ⟨ht, hne⟩ := Classical.not_imp.mp hne
+    obtain ⟨r, he⟩ := hq t ht
+    exact ReqFails.intro ht (Exec.EvalTerm.congr he fun i hi => hag i (Clause.req_leftVarsRH ht i hi))
+      fun h => hne (h ▸ he)
+
 end KCore
