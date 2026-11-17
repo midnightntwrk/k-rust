@@ -1,0 +1,1 @@
+# base of the pairs cool x requires and heat x requires on a rule (TRIAGE-B c3.pair 11; findings/C3-noncore-rulings.md section 4): a rule with an author requires X >Int 0, X bound by the left side, no key; the companion of c3-rule-cool-req and c3-rule-heat-req

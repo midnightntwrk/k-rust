@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-rule-cool-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 210684
+definition.kore sha256: 44c08576026c443005ff3da29f3c78199afaa534a9eae4e24bf3a0b235da0b87
+stripped sha256: 31195f8830ffa5e75524e0bd86647d8c404943b672385214b490c50d8b938712
+main module: 416 sentences, 62 not in base's, in kore.txt
+differs_from c3-rule-kres-req: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-COOL-REQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-RULE-COOL-REQ as default.

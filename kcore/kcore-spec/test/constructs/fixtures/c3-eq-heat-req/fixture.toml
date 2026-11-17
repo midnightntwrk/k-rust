@@ -1,0 +1,2 @@
+# pair heat x requires on an equation (TRIAGE-B c3.pair 11; findings/C3-noncore-rulings.md section 4): the text of c3-eq-kres-req with [heat] on the equation. No prediction for kompile (no committed text has heat on an equation); if it kompiles, as c3-eq-cool-req
+differs_from = "c3-eq-kres-req"

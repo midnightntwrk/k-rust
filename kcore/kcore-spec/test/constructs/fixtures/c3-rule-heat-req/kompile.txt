@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-rule-heat-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210706
+definition.kore sha256: f34b374c729397705a06cf4cd3a34f150344b80c7aead175c39eb2f18dbd41c5
+stripped sha256: 67a3b02ea95940ee82f5d5eebf683c41616544332b45236c7603faf86e255e3f
+main module: 416 sentences, 62 not in base's, in kore.txt
+differs_from c3-rule-kres-req: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-HEAT-REQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-RULE-HEAT-REQ as default.

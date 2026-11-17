@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-cool-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 206031
+definition.kore sha256: 6e2f4a064aeeece98f12f5355b8de6befad7ed8070f132d139ca1452810403bb
+stripped sha256: efb0e9fcd1335c4a51fda729c767268918e93727c376c640a4cb03556ba1d3c4
+main module: 401 sentences, 45 not in base's, in kore.txt
+differs_from c3-eq-kres-req: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-COOL-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-COOL-REQ as default.

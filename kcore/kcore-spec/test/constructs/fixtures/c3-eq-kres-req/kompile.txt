@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-kres-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 205928
+definition.kore sha256: 8bc80e5e922dd14cccacf14658a2e3a8d07a5b8675b95a55b4d95cb30542f14b
+stripped sha256: 059e7e00312e03d6df5eb9b48d1bc7ff8291b9b04572e35377d47d23d8357159
+main module: 401 sentences, 45 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-KRES-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-KRES-REQ as default.

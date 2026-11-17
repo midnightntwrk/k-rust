@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-heat-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 206053
+definition.kore sha256: 6893d5dcb1d0d6f720011c4b64bf855c60cc726b237e64559ba309a88ce81477
+stripped sha256: a8a1bfb785631a3a4d367e4514ad0bb63744fe328a640ec66f88b7aa075c3150
+main module: 401 sentences, 45 not in base's, in kore.txt
+differs_from c3-eq-kres-req: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-HEAT-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-HEAT-REQ as default.

@@ -1,0 +1,2 @@
+# pair cool x requires on an equation (TRIAGE-B c3.pair 11; findings/C3-noncore-rulings.md section 4): the text of c3-eq-kres-req with [cool] on the equation. Predicted: kompile exit 0, the account refused openRequires (VarHOLE:K, arguments bind)
+differs_from = "c3-eq-kres-req"

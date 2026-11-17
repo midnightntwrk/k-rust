@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C3-EQ-HEAT-REQ: 398 sentences
+  1 inert import [generated]
+  185 read [generated]
+  184 read [builtin]
+  2 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 openRequires
+      sentence 355 (Lblf): openRequires (VarHOLE:K: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined)
+        [user] (no label) at c3-eq-heat-req.k:6: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0")), LblnotBool'Unds'{}(LblisKResult{}(VarHOLE:SortK{}))), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}()))) [UNIQUE'Unds' …
+finish: sentence 355 (Lblf): openRequires (VarHOLE:K: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined)
+(exit 0)

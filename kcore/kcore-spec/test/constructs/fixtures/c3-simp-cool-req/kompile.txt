@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-simp-cool-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 206911
+definition.kore sha256: d5a1cbab02c65d0e4fdfe3c5539ae858c6a4db4ca9e0f0e8730c43bb7f13abb7
+stripped sha256: 90500a968ccdab5db33c0c7249adf13ccb49e4f7e0eac0d17248b1f73baa11e5
+main module: 402 sentences, 46 not in base's, in kore.txt
+differs_from c3-simp-kres-req: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-COOL-REQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SIMP-COOL-REQ as default.

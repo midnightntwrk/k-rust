@@ -1,0 +1,2 @@
+# pair cool x requires on a rule (TRIAGE-B c3.pair 11; findings/C3-noncore-rulings.md section 4): the text of c3-rule-kres-req with [cool] on the rule. Predicted: kompile exit 0, the requires one term holding X and HOLE of K, the account refused openRequires (VarHOLE:K, left side binds)
+differs_from = "c3-rule-kres-req"

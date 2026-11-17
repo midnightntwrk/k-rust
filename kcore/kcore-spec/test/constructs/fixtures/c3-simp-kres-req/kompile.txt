@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-simp-kres-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 206808
+definition.kore sha256: 21b9e6280b22604397885506bae387a825eaca0a45e37963906945d1e9f1d245
+stripped sha256: 4e430598c5673a3ee484410683a2298070e7e4274182f655922b65d94f348f94
+main module: 402 sentences, 46 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-KRES-REQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SIMP-KRES-REQ as default.

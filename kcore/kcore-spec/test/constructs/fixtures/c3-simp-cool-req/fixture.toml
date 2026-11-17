@@ -1,0 +1,2 @@
+# pair cool x requires on a simplification (TRIAGE-B c3.pair 11; findings/C3-noncore-rulings.md section 4): the text of c3-simp-kres-req with [cool] beside [simplification]. Predicted: kompile exit 0, 1 inert simplification [user] in both accounts, text +1 -1, Semantics +0 -0
+differs_from = "c3-simp-kres-req"
