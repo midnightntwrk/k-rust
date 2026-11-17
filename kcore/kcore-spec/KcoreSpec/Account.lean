@@ -392,8 +392,10 @@ set's element) are not named here: they are collection patterns, which the patte
 decides (`collPatternHooks`). -/
 
 /-- The rules and clauses that apply a function symbol (a function or sort predicate of `d`, a
-parameter, a hooked symbol of the registry; no constructor and no collection's symbol) in their
-left side: one refusal (`functionInPattern`) for each, the symbol named. -/
+parameter, a hooked symbol of the registry, or an overloading symbol that overloads a function,
+`Semantics.fnOvlSyms`, whose application at covered arguments is that function's value; no
+constructor and no collection's symbol) in their left side: one refusal (`functionInPattern`) for
+each, the symbol named. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -403,7 +405,7 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
     let collSyms := c.allColls.flatMap fun cs => [cs.unit, cs.elem, cs.concat]
     let isFn := fun (g : Sym) => !collSyms.contains g && !c.ctorSigs.any (·.name == g) &&
       (c.fns.any (·.label == g) || c.sortPreds.any (·.label == g) || c.params.any (·.sig.name == g) ||
-        hookSigs.any (·.name == g))
+        hookSigs.any (·.name == g) || c.fnOvlSyms.contains g)
     let named := fun (ts : List Term) => ((Term.headsList ts).filter isFn).eraseDups.map c.symName
     -- the rewrite axioms read, each as many times as it has rules (`scanRewrites`), in the order of
     -- `d`'s rules
@@ -815,6 +817,13 @@ def overloadConfusions (k : Kore.Definition) (d : Definition) : List (Nat × Str
     m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? s with
       | .axiom a, some .distinctCtors => if ovlConfused d.sem a then some (off + i, headOf s) else none
       | _, _ => none
+
+/-- The overloading symbols of `d` that overload a function (`Semantics.fnOvlSyms`,
+`ReadingNote.overloadFunction`), each with the functions among the symbols it overloads, by name. -/
+def overloadFunctions (d : Definition) : List (String × List String) :=
+  let c := d.sem
+  (c.ovls.filter fun o => c.fnOvlSyms.contains o.sig.name).map fun o =>
+    (c.symName o.sig.name, (o.over.filter fun g => c.fns.any (·.label == g)).map c.symName)
 
 /-- The sentences `emit` writes from the library's data for the modules the definition imports (its
 sorts' declarations, predicates, projections and no-junk axioms, its constructors' axioms, its
