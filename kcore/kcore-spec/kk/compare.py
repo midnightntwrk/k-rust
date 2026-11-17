@@ -23,8 +23,10 @@ of this directory. Two comparisons are made over the catalogue's cases, and kept
 A difference is never a reason to change a ruling of the catalogue: a line is a KCore ticket, a kk.k
 ticket, or a challenge of the ruling from the K text.
 
-Also checked: kk.k has the SHA-256 PIN.toml records, and whether kk.k without its first line is the
-catalogue's kore.k is printed.
+Also checked: kk.k has the SHA-256 PIN.toml records, and the kompiled fixture PIN.toml names
+(test/constructs/fixtures/kore-k) kompiles kk.k (its fixture.toml's `main` and `external`) and its
+kompile.txt records that SHA-256 for it; whether kk.k without its first line is the catalogue's
+kore.k is printed.
 
 One line per case: `ID STATUS cmp1:V1 vs-ruling: kk.k:V2 kcore:V3`, followed by the catalogue's
 disposition of its own kore.k where it has one (the finals are compared, not the route: at c42 the
@@ -51,6 +53,25 @@ TIMEOUT_S = 60
 def sha(path):
     with open(path, 'rb') as f:
         return hashlib.sha256(f.read()).hexdigest()
+
+
+def pin_faults(pin):
+    """The faults of PIN.toml's kompiled fixture: it must kompile kk.k (fixture.toml `main` kk.k,
+    `external` this kk.k by its path in the k-rust checkout) and its kompile.txt must record kk_sha256
+    for that file."""
+    fx = os.path.join(SPEC, 'test', 'constructs', 'fixtures', pin['kompiled_fixture'])
+    rel = os.path.relpath(KK, os.path.dirname(os.path.dirname(SPEC)))
+    out = []
+    try:
+        conf = tomllib.load(open(os.path.join(fx, 'fixture.toml'), 'rb'))
+        record = open(os.path.join(fx, 'kompile.txt')).read()
+    except OSError as err:
+        return [f'kompiled fixture {pin["kompiled_fixture"]}: {err}']
+    if conf.get('main') != 'kk.k' or rel not in conf.get('external', []):
+        out.append(f'fixture {pin["kompiled_fixture"]} does not kompile {rel}')
+    if f'external {rel}: sha256 {pin["kk_sha256"]}' not in record.split('\n'):
+        out.append(f'fixture {pin["kompiled_fixture"]}: kompile.txt does not record kk_sha256 for {rel}')
+    return out
 
 
 def load_agree():
@@ -122,6 +143,7 @@ def main(argv):
     faults = []
     if sha(KK) != pin['kk_sha256']:
         faults.append(f'kk.k does not have the SHA-256 PIN.toml records ({pin["kk_sha256"]})')
+    faults += pin_faults(pin)
     body = open(KK, 'rb').read().split(b'\n', 1)[1]
     same = body == open(os.path.join(corpus, 'kore.k'), 'rb').read()
     print('kk.k without its first line ' + ('is' if same else 'is NOT') + " the catalogue's kore.k")
