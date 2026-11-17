@@ -1252,3 +1252,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   values; lazy's sentence 39 (`functional` of `ite{S}`) at `SortInt{}`, the definition's parameter
   `Lblite{Int}`, at values; the rule of e3-ml-rule-lhs-bottom, whose left side holds `#Bottom`, for
   every semantics. Axioms guarded.
+- `test/LibEvBoolKEns.lean`: the two `==K` simplifications of `f2-examples/ens.kompile.kore` at K
+  sequences of one injected item (sentences 176, 177: domains.md 2338 at Bool, 1404 at Int) entailed
+  at values for every H, from `LibEv.boolKEq_ev` and `LibEv.intKEq_ev` (`KcoreSpec/LibEvBoolK.lean`,
+  for every semantics meeting `coreOK` and `shapesOK` with the sort below KItem). Axioms guarded.
