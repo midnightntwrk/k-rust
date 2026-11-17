@@ -1326,6 +1326,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   is `false`; `@Rest` a map without the key and one with it); `sN_refuted`, Γ with it has no model;
   `sN_one`, the companion `LibEv.SvAtMostOne`: it holds at every valuation at values whose set
   variables hold at most one element. Axioms guarded.
+- `test/LibEvBoolSetEns.lean`: the eight Bool predicate sentences over set variables of
+  `f2-examples/ens.kompile.kore` (154, 142, 148, 141: `notBool @B`, domains.md 1176 to 1179; 153,
+  139: `@B1 andBool @B2` at `true`, 1181, 1182; 147, 140: `@B1 orBool @B2` at `false`, 1183, 1184),
+  `EntailsAtSetValues` for every H, from `LibEv.boolNotSet_ev`, `boolAndSet_ev`, `boolOrSet_ev`
+  (`KcoreSpec/LibEvBoolSet.lean`, over `KcoreSpec/LibEvSetVar.lean`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any

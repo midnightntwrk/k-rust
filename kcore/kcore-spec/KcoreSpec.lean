@@ -309,3 +309,4 @@ import KcoreSpec.ClausePreTie
 import KcoreSpec.TieRuleLhs
 import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
+import KcoreSpec.LibEvBoolSet
