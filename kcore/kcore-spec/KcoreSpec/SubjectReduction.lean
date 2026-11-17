@@ -1449,6 +1449,36 @@ theorem Semantics.OvlCase.fnCover_none {c : Semantics} (h : c.OvlCase) (f : Sym)
     c.fnCover f vs = none :=
   h.elim (fun hno => OvlLaws.fnCover_none_of_nil hno f vs) (fun H => OvlLaws.fnCover_none_of_ok H.1 f vs)
 
+/-- What the laws read of the overloading symbols' declarations (`OvlLaws.OvlFnFacts`), with
+`OvlCase` and transitive subsorts. -/
+theorem Semantics.OvlCase.fnFacts {c : Semantics} (h : c.OvlCase)
+    (htr : ∀ a b e, (a, b) ∈ c.subsorts → (b, e) ∈ c.subsorts → (a, e) ∈ c.subsorts) : OvlLaws.OvlFnFacts c := by
+  rcases h with hno | ⟨hok, hirr⟩
+  · have hnil : ∀ o, o ∉ c.ovls := fun o ho => by rw [hno] at ho; cases ho
+    exact ⟨fun o ho => absurd ho (hnil o), fun o ho => absurd ho (hnil o),
+      fun o ho => absurd ho (hnil o), fun o ho => absurd ho (hnil o)⟩
+  · exact (OvlLaws.OvlHyp.mk hok htr hirr).fnFacts
+
+/-- **An application of an overloading symbol has a result** where its arguments have results and
+each function among the symbols it overloads has a result at arguments of its sorts: the normal
+form where no function overload covers the arguments' values (or an argument is undefined), the
+covering function's result, lifted, where one does. -/
+theorem EvalTerm.ovl_result {c : Semantics} (F : OvlLaws.OvlFnFacts c) {σ : Subst} {f : Sym} {ts : List Term}
+    {rs : List (Option GroundTerm)} (hk : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+    {o : OvlSig} (hlo : c.lookupOvl f = some o) (hws : ∀ ws, allSome rs = some ws → c.sortsOf ws = some o.sig.args)
+    (hft : ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = true → ∀ fn ∈ c.fns, c.lookupFn kg.name = some fn →
+      kg.name = fn.label → ∀ vs, c.sortsOf vs = some fn.args → ∃ r, Eval c kg.name vs r) :
+    ∃ r, EvalTerm c σ (.app f ts) r := by
+  cases has : allSome rs with
+  | none => exact ⟨_, .ovl hk ho hts (fun vs hv => by rw [has] at hv; cases hv)⟩
+  | some ws =>
+    cases hcv : c.fnCover f ws with
+    | none => exact ⟨_, .ovl hk ho hts (fun vs hv => by rw [has] at hv; cases hv; exact hcv)⟩
+    | some kg =>
+      obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ := OvlLaws.fnCover_fn_ovlF F hlo (hws ws has) hcv
+      obtain ⟨r, hr⟩ := hft kg hkg hb fn hfn hlook (by rw [hsig]) _ hus
+      exact ⟨_, .ovlFn hk ho hts has hlo hcv hr⟩
+
 /-- `OvlCase`, decided. -/
 theorem Semantics.ovlCase_of {c : Semantics}
     (h : (c.ovls.isEmpty || (c.overloadsOK && c.subsorts.all fun p => p.1 != p.2)) = true) : c.OvlCase := by

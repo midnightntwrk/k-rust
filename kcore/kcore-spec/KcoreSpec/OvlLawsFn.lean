@@ -714,6 +714,25 @@ theorem NoFnOver.over (F : OvlFnFacts c) {f : Sym} (h : NoFnOver c f) {o : OvlSi
   | false => rfl
   | true => rw [h o ho kg' (F.closed o (mem_of_lookupOvl ho) kg hkg o' ho' kg' hkg' hb)] at hb; cases hb
 
+/-- **The function overload that covers.** Where a function overload `kg` of `f` covers the
+arguments `vs` of `f`'s sorts, `kg` is the signature of the function its name finds, and the
+stripped arguments are of that function's argument sorts. -/
+theorem fnCover_fn_ovlF (F : OvlFnFacts c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some o.sig.args) {kg : CtorSig}
+    (hcov : c.fnCover f vs = some kg) :
+    ∃ fn, fn ∈ c.fns ∧ c.lookupFn kg.name = some fn ∧ kg = ⟨fn.label, fn.args, fn.result⟩ ∧
+      kg ∈ c.ovlOver o ∧ c.ovlByFn kg = true ∧ c.ovlCovers o.sig kg vs = true ∧
+      c.sortsOf (stripAll kg.args o.sig.args vs) = some fn.args := by
+  obtain ⟨o', ho', hkg, hb, hcv⟩ := fnCover_some_parts hcov
+  rw [ho] at ho'; cases ho'
+  obtain ⟨fn, hfn, hlook, hsig⟩ := byFn_fn hkg hb
+  obtain ⟨hlen, -, -, -⟩ := over_ovlF F ho hkg
+  obtain ⟨-, -, hlies⟩ := covers_iff.mp hcv
+  have hus := sortsOf_stripAll hlen hvs hlies
+  refine ⟨fn, hfn, hlook, hsig, hkg, hb, hcv, ?_⟩
+  have : kg.args = fn.args := by rw [hsig]
+  rw [← this]; exact hus
+
 end OvlLaws
 
 /-- A function-overloaded symbol (`fnOvlSyms`, which reads the functions' labels) has a function's
