@@ -1,0 +1,17 @@
+# python3 -I test/constructs/scope-count.py (kcore at FIX-core.allpath-alias-read + scope-count), 2026-11-17
+kompiled: 295 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 2, svarEqn 0
+  e8-enable-kore-antileft: alias 2
+hand: 35 texts, 0 unreadable; iff 2, mu 1, nu 1, next 1, leftAssoc 3, rightAssoc 1, string 1, alias 0, svarEqn 2
+  hw-scope-iff: iff 1
+  hw-scope-iff-top: iff 1
+  hw-scope-left-assoc: leftAssoc 1
+  hw-scope-left-assoc-k-builtin: leftAssoc 1
+  hw-scope-left-assoc-krust-builtin: leftAssoc 1
+  hw-scope-mu: mu 1
+  hw-scope-next: next 1
+  hw-scope-nu: nu 1
+  hw-scope-right-assoc: rightAssoc 1
+  hw-scope-setvar-eq: svarEqn 1
+  hw-scope-setvar-eq-memb: svarEqn 1
+  hw-scope-string: string 1
+corpus: 381 texts, 0 unreadable; iff 0, mu 0, nu 0, next 0, leftAssoc 0, rightAssoc 0, string 0, alias 0, svarEqn 0

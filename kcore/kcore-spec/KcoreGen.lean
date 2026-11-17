@@ -3654,12 +3654,77 @@ def semFieldsCmd (koreFile : String) : IO UInt32 := do
   for l in out.qsort (· < ·) do IO.println l
   return 0
 
+/-! ## `kcore scope-count`: forms the KPROV scope decisions say kompile never writes -/
+
+/-- The counts `kcore scope-count` prints for a text, of its modules other than the prelude's
+(findings/KPROV-scope.md sections 1, 3, 5; KPROV.scope-corpus-count). -/
+structure ScopeCount where
+  iff : Nat := 0
+  mu : Nat := 0
+  nu : Nat := 0
+  next : Nat := 0
+  leftAssoc : Nat := 0
+  rightAssoc : Nat := 0
+  /-- `Pattern.string` in a sentence's pattern (never in an attribute list, never `\dv`'s) -/
+  string : Nat := 0
+  /-- `Sentence.alias` -/
+  alias : Nat := 0
+  /-- axioms without `simplification` of the form `\equals(f(…), _)` (under an `\implies` or not)
+  with a set variable under the application of f -/
+  svarEqn : Nat := 0
+
+partial def scopePat (c : ScopeCount) (p : Kore.Pattern) : ScopeCount :=
+  let sub := fun (c : ScopeCount) (ps : List Kore.Pattern) => ps.foldl scopePat c
+  match p with
+  | .string _ => { c with string := c.string + 1 }
+  | .app _ _ ps | .and _ ps | .or _ ps => sub c ps
+  | .not _ q | .exist _ _ q | .forall _ _ q | .ceil _ _ q | .floor _ _ q => scopePat c q
+  | .implies _ a b | .equals _ _ a b | .in _ _ a b | .rewrites _ a b => sub c [a, b]
+  | .iff _ a b => sub { c with iff := c.iff + 1 } [a, b]
+  | .mu _ q => scopePat { c with mu := c.mu + 1 } q
+  | .nu _ q => scopePat { c with nu := c.nu + 1 } q
+  | .next _ q => scopePat { c with next := c.next + 1 } q
+  | .leftAssoc _ _ ps => sub { c with leftAssoc := c.leftAssoc + 1 } ps
+  | .rightAssoc _ _ ps => sub { c with rightAssoc := c.rightAssoc + 1 } ps
+  | _ => c
+
+partial def hasSetVar : Kore.Pattern → Bool
+  | .var (.svar _) => true
+  | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => ps.any hasSetVar
+  | .not _ q | .exist _ _ q | .forall _ _ q | .ceil _ _ q | .floor _ _ q | .mu _ q | .nu _ q
+  | .next _ q => hasSetVar q
+  | .implies _ a b | .iff _ a b | .equals _ _ a b | .in _ _ a b | .rewrites _ a b => hasSetVar a || hasSetVar b
+  | _ => false
+
+def svarEqn (a : Kore.Axiom) : Bool :=
+  !(a.attributes.any (·.head.ident.name == "simplification")) &&
+  match a.pattern with
+  | .implies _ _ (.equals _ _ (.app _ _ args) _) | .equals _ _ (.app _ _ args) _ => args.any hasSetVar
+  | _ => false
+
+def scopeSentence (c : ScopeCount) : Kore.Sentence → ScopeCount
+  | .alias a => scopePat { c with alias := c.alias + 1 } a.body
+  | .axiom a => scopePat (if svarEqn a then { c with svarEqn := c.svarEqn + 1 } else c) a.pattern
+  | .claim a => scopePat c a.pattern
+  | _ => c
+
+/-- `kcore scope-count KORE`: one line of the counts `ScopeCount` holds, over the modules of the
+text other than those named as the prelude's (`preludeModules`), and the number of modules counted. -/
+def scopeCountCmd (koreFile : String) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
+  let pre := preludeModules.map (·.name)
+  let ms := k.modules.filter fun m => !pre.contains m.name
+  let c := (ms.flatMap (·.sentences)).foldl scopeSentence {}
+  IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}"
+  return 0
+
 end KcoreGen
 
 def main (argv : List String) : IO UInt32 := do
   match argv with
   | ["generated-eqs", kore] => KcoreGen.generatedEqsCmd kore
   | ["sem-fields", kore] => KcoreGen.semFieldsCmd kore
+  | ["scope-count", kore] => KcoreGen.scopeCountCmd kore
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
@@ -3690,4 +3755,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2
