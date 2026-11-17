@@ -415,4 +415,35 @@ theorem comm_assoc_is_text :
       commKore.aliasNames ad).pat) = some orAssocItem.pat := by
   decide +kernel
 
+
+/-! ### An open generator in a left side is refused (`openGeneratorPattern`, decided)
+
+`patCtxAll`, the heads a left side may apply, holds no open generator: a pattern that applies one
+has no sort there, so `ruleSorted` is false of OpenMixed's `ruleCD` (`<k> c(X & Y) => d(X) </k>`).
+The same rule with a variable of B in place of `X & Y` is sorted, and the open generator may stand
+in a right side (`rhsCtx` holds the parameters). -/
+
+/-- `<k> c(Z) => d(x) </k>`, Z a variable of B. -/
+def ruleCZ : Rule :=
+  { vars := [OpenMixed.sB, Srt.counter]
+    lhs := .app topLabel [.app OpenMixed.kS [.app kseq [.app OpenMixed.cS [.var 0], .app dotk []]], .var 1]
+    req := none
+    rhs := .app topLabel [.app OpenMixed.kS [.app kseq [.app OpenMixed.dS [.app OpenMixed.xS []], .app dotk []]],
+      .var 1]
+    ens := none
+    prio := 50 }
+
+/-- `<k> c(Z) => c(x & y) </k>`: the open generator in the right side. -/
+def ruleCAnd : Rule :=
+  { ruleCZ with
+    rhs := .app topLabel [.app OpenMixed.kS [.app kseq [.app OpenMixed.cS
+      [.app OpenMixed.andS [.app OpenMixed.xS [], .app OpenMixed.yS []]], .app dotk []]], .var 1] }
+
+theorem openGeneratorPattern_decided :
+    (OpenMixed.c.patCtxAll.heads.all fun k => !OpenMixed.c.params.any fun p => p.raw && p.sig.name == k.name) = true ∧
+    sortOfTerm OpenMixed.c.patCtxAll OpenMixed.ruleCD.vars OpenMixed.ruleCD.lhs = none ∧
+    OpenMixed.c.ruleSorted OpenMixed.ruleCD = false ∧
+    OpenMixed.c.ruleSorted ruleCZ = true ∧ OpenMixed.c.ruleSorted ruleCAnd = true := by
+  decide +kernel
+
 end KCore.OpenGenSems
