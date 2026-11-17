@@ -3,9 +3,7 @@ user module C3-CTOR-IDEM: 242 sentences
   1 inert import [generated]
   159 read [generated]
   52 read [builtin]
-  2 read [user]
-  1 refused openGenerator [user]
-      e.g. symbol Lblplus{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), idem{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,56,2,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/c3-ctor-idem.k)"), symbol'Kywd'{}("plus")]
+  3 read [user]
   1 inert distinctCtors [generated]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
@@ -16,10 +14,7 @@ stage refusals (of sentences classified read): 0
 read and not accounted for: 1
   1 functional axiom
       sentence 188 (Lblplus): unaccounted (functional axiom)
-inert constructor axioms not induced by the constructors: 1
-    1 noJunk of Lbl'Stop'E
-      sentence 197 (Lbl'Stop'E): inertMismatch (noJunk)
-        axiom{} \or{SortExp{}}(Lbl'Stop'E{}(), \exists{SortExp{}}(X0:SortExp{}, \exists{SortExp{}}(X1:SortExp{}, Lblplus{}(X0:SortExp{}, X1:SortExp{}))), Lblx{}(), \bottom{SortExp{}}()) [constructor{}()]
+inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 1
       sentence 187 (Lblplus): lawAxiom (Lblplus: idem)
@@ -33,4 +28,11 @@ sentences every definition holds (kernelText) that the text does not: 4
       axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
       axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
       axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
+sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
+functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
+functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): 0: 
+functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
+parse: ok; wf true; failing: []
+coreOK: true; failing: []
+refused by the account: 1
 (exit 0)
