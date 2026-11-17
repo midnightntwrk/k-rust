@@ -1,0 +1,14 @@
+command: kompile --backend haskell t221-anywhere-rule-rejected.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Compiler: anywhere is not supported by the haskell backend.
+  	Source(t221-anywhere-rule-rejected.k)
+  	Location(5,8,5,20)
+  	5 |	  rule a(X) => b(X) [anywhere]
+  	  .	       ^~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T221-ANYWHERE-RULE-REJECTED-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using T221-ANYWHERE-RULE-REJECTED as default.
