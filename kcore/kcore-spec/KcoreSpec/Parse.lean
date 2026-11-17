@@ -2238,15 +2238,15 @@ def eqnInfo? (as : List Kore.AppPattern) : Option KoreAML.Meta :=
 def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
   (source? attrs).bind fun s => if s == msrc then none else some s
 
-/-- An equation's priority, with it where the presentation writes it `priority{}("n")`
-(`ClausePres.prioAttr`): `priority{}("n")`'s n; for a symbol-overload axiom (`overloadEqn?`) 0,
-written so, the attribute that gives it being none `emit` writes; otherwise 200 for an `[owise]`
-equation (one with competitors) and 50 for the others. -/
+/-- An equation's priority, with it where the text writes it `priority{}("n")`
+(`ClausePres.prioAttr`): `priority{}("n")`'s n; otherwise 0 for a symbol-overload axiom
+(`overloadEqn?`, whose `symbol-overload` attribute `emit` writes back, `ClausePres.overload`), 200
+for an `[owise]` equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
-  let explicit := ((attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0).orElse fun _ =>
-    if hasAttr e.attrs "symbol-overload" then some 0 else none
-  (explicit, explicit.getD (if e.competitors.isSome || e.dom then 200 else 50))
+  let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+  (explicit, explicit.getD (if hasAttr e.attrs "symbol-overload" then 0
+    else if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
 with primes and 0, 1, the fewest primes for which neither is an element variable the equation
@@ -2338,7 +2338,8 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   let aside := nonExec e
   match excl with
   | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
-      ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome⟩)
+      ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome,
+       (overloadSyms? e.attrs).map (·.2)⟩)
   | some ex =>
     let (bs, body) := binders eqnFuel ex
     let (_, evs) ← match body with
@@ -2363,7 +2364,7 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
             rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside },
           ⟨vs'.map (·.name), m, π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name),
            attrStr? e.attrs "label",
-           srcOver msrc e.attrs, explicit.isSome⟩)
+           srcOver msrc e.attrs, explicit.isSome, (overloadSyms? e.attrs).map (·.2)⟩)
 
 /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 def clause? (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) :=

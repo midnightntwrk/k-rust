@@ -14,7 +14,8 @@
   - A rule's or an equation's priority is written `owise{}()` (200) or `priority{}("n")`
     (`RulePres.prioAttr`, `ClausePres.prioAttr`). An `[owise]` equation's premise negates the
     equations of a smaller priority, as kompile writes it; an equation with `priority{}("n")` has
-    its premise only.
+    its premise only. A symbol-overload axiom read as a clause (`ClausePres.overload`) is written
+    with its `symbol-overload{}(f(), g())` attribute alone, which gives its priority 0.
   - The selector-inverse lemma's attribute is `simplification{}("")` or `simplification{}()`
     (`Presentation.simpArg`).
 -/
@@ -251,6 +252,22 @@ def clausePrioAttrs (cl : Clause) (cp : ClausePres) : List Kore.AppPattern :=
   if cp.prioAttr then [attrStr "priority" (toString cl.prio)]
   else if cl.prio == 200 then [attr "owise"] else []
 
+/-- `symbol-overload{}(f(), g())`. -/
+def overloadAttr (f g : String) : Kore.AppPattern :=
+  ⟨⟨⟨"symbol-overload"⟩⟩, [], [ap f [], ap g []]⟩
+
+/-- A clause's equation's attributes: for a symbol-overload axiom (`ClausePres.overload`) its
+`symbol-overload{}(f(), g())` alone, the text's only attribute of it (no id, place or priority:
+the attribute gives the clause priority 0 and `aside`); otherwise its id, place, label and
+priority. -/
+def clauseAttrs (c : Semantics) (p : Presentation) (f : Fn) (cl : Clause) (cp : ClausePres) :
+    List Kore.AppPattern :=
+  match cp.overload with
+  | some g => [overloadAttr (c.symName f.label) g]
+  | none => match clausePrioAttrs cl cp with
+    | [] => metaAttrs p cp.info cp.label cp.src
+    | as => sortAttrs (metaAttrs p cp.info cp.label cp.src ++ as)
+
 /-- An equation written `owise{}()`: of priority 200, with no `priority{}` attribute. -/
 def writtenOwise (cl : Clause) (cp : ClausePres) : Bool := cl.prio == 200 && !cp.prioAttr
 
@@ -268,9 +285,7 @@ def clauseAx (c : Semantics) (p : Presentation) (f : Fn) (fp : FnPres) (cl : Cla
     exclusion c f cl' cp'
   equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result)
     (if writtenOwise cl cp then .and R [.not R (anyOf comps), prem] else prem)
-    (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (match clausePrioAttrs cl cp with
-      | [] => metaAttrs p cp.info cp.label cp.src
-      | as => sortAttrs (metaAttrs p cp.info cp.label cp.src ++ as))
+    (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (clauseAttrs c p f cl cp)
 
 /-- The equation of a clause whose predicate is `\top` has the premise without a predicate,
 `⌈req = true⌉ ∧ X̄ ∈ p̄` (under `¬ ⋁ competitors` for an `[owise]` equation): the text `clauseAx`
@@ -284,9 +299,7 @@ theorem clauseAx_top {c : Semantics} {p : Presentation} {f : Fn} {fp : FnPres} {
          exclusion c f cl' cp'
        equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result)
          (if writtenOwise cl cp then .and R [.not R (anyOf comps), prem] else prem)
-         (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (match clausePrioAttrs cl cp with
-           | [] => metaAttrs p cp.info cp.label cp.src
-           | as => sortAttrs (metaAttrs p cp.info cp.label cp.src ++ as))) := by
+         (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (clauseAttrs c p f cl cp)) := by
   unfold clauseAx; simp only [withPre_top h]
 
 /-- `\rewrites{C}(\and{C}(lhs, req), \exists{C}(?ē, \and{C}(rhs, ens)))`, `ens` being `\top{C}()`
