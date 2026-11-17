@@ -60,5 +60,5 @@ if on ref-fprio; then gen f2-examples/fprio.kompile.kore ref-fprio RefFprio --wf
 # loop's run by induction, all-path through determinism, entailed by Γ through soundness (User.SumSpec);
 # `sum-N` (imp-simple-spec.k), the whole program from the empty store (User.SumN); each step `fire i`
 if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
-  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt; fi
+  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.RunInstance; fi
 echo "all built"
