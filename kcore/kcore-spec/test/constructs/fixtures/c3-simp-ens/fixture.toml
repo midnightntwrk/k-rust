@@ -1,0 +1,2 @@
+# pair simplification x ensures (TRIAGE-B c3.pair 18; findings/C3-noncore-rulings.md section 8): the text of c3-simp-prio with ensures X >=Int 0 on the simplification rule; differs_from c3-simp-prio, the same text with the bare simplification. Predicted: none for kompile (no earlier text has ensures on a simplification); if exit 0, as c3-simp-req
+differs_from = "c3-simp-prio"
