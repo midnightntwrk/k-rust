@@ -1,0 +1,4 @@
+# Probe of site a (findings/C3-existentialRhs-decision.md section 2): ?Z on the right side and in the requires.
+# kompile 7.1.337 rejects it: "Existential variable ?Z found in LHS" (the requires counts as the left side), so no
+# kompiled text holds the binder with its name in the left conjunct from this K text.
+expect = "error"

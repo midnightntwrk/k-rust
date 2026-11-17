@@ -1,0 +1,10 @@
+observed = """
+The text of CN-2 section 5 (Exp ::= "x" | "y" | Exp "&" Exp [comm], same(Exp, Exp) [function],
+same(A, B) => A ==K B, <k> go => x & y </k>) with what kompile needs to read it: a symbol attribute
+on each production, go a production of KItem, K-EQUAL imported for _==K_.
+  kore.txt:6    symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), ...]   (no constructor)
+  kore.txt:58   Exp's no-junk axiom, Lbland's applications its first disjunct
+  kore.txt:63-68  the rule; its right side holds inj{SortExp{}, SortKItem{}}(Lbland{}(Lblx{}(),Lbly{}()))
+  kore.txt:143-161  same's equation, right side Lbl'UndsEqlsEqls'K'Unds'{}(kseq(inj(A), .), kseq(inj(B), .))
+The account today: unknownSymbol (Lbland) at the rule.
+"""

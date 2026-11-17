@@ -1,0 +1,13 @@
+pre: kompile --backend haskell --emit-json ref.k -o pre  (cwd: the fixture directory)
+pre exit: 0
+pre_copy: pre/parsed.json -> ref.json
+pre output:
+  
+command: kompile --backend haskell --outer-parsed-json ref.json -o out  (cwd: the fixture directory)
+exit: 1
+seconds: 6.5
+output:
+  [Error] Internal: Uncaught exception thrown of type NoSuchElementException.
+  Please rerun your program with the --debug flag to generate a stack trace, and
+  file a bug report at https://github.com/runtimeverification/k/issues
+  (NoSuchElementException: None.get)

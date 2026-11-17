@@ -1,0 +1,1 @@
+# [owise] x [owise] with different right sides where both apply (TRIAGE-B c3.pair 3): c3-eq-owise-owise with f(1) => 2 [owise]; at 1 the two [owise] equations both apply with 2 and 1, so their agreement is an owed fact (FnHyp's agreement obligation), false here. No companion key

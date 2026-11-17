@@ -1,0 +1,2 @@
+# pair macro x a rule of the macro symbol (TRIAGE-B c3.pair 21; findings/C3-noncore-rulings.md section 11): m(Exp) [macro] with rule m(X) => g(X), used by rule f(X) => m(X); differs_from c3-macro-rule-nomacro, the text with m a constructor (a user sort: kompile rejects a constructor into Int, e2-open-int). Predicted: exit 0, m declared with macro{}(), no sentence for rule m(X) => g(X), f's equation with right side g(X); account 1 unread macroUnused, coreOK true
+differs_from = "c3-macro-rule-nomacro"

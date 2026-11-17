@@ -1,0 +1,4 @@
+expect = "error"
+main = "e2-all-path.k"
+text_from = "e2-all-path"
+args = ["--backend", "llvm", "e2-all-path.k", "-o", "out"]

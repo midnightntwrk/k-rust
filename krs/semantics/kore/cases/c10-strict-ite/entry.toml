@@ -1,0 +1,18 @@
+id = "c10-strict-ite"
+kind = "case"
+subject = "#if is a function of its three arguments: an undefined branch makes it undefined even where the condition does not select it, and so does an undefined operand of andBool."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend evaluates #if true #then 1 #else 10 /Int 0 #fi lazily and steps to b(1). The \
+hook KEQUAL.ite is a function of its three arguments; an undefined argument makes the \
+application undefined, so the rule's result is undefined and there is no final configuration."""

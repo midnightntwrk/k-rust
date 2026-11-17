@@ -1,0 +1,3 @@
+# multiplicity="?" alone (TRIAGE-B c3.pair 19; findings/C3-noncore-rulings.md section 9): e2-cells-plain's text with <one multiplicity="?"> 0 </one>; differs_from e2-cells-plain, the text without the key. Predicted: exit 0, read, one inertMismatch (distinctCtors) for the .OneCell constructor and refused by the account 1, as e2-cells for .OptCell (sentence 369)
+main = "c.k"
+differs_from = "e2-cells-plain"

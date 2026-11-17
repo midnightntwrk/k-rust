@@ -1,0 +1,10 @@
+command: kompile --backend llvm e2-syntactic-eq.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.7
+output:
+  [Error] Compiler: Had 1 structural errors.
+  [Error] Compiler: syntactic attribute is only supported on simplification
+  rules.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SYNTACTIC-EQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-SYNTACTIC-EQ as default.

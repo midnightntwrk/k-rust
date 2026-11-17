@@ -7,6 +7,8 @@
   `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
+  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
+  reaches, are restated here, with `Clause.DecidesAt`.
 
   The axioms of every theorem pinned here are exactly `propext`, `Classical.choice` and
   `Quot.sound` (`#guard_msgs` fails the file on any other list). Run from kcore-spec, after the
@@ -179,6 +181,23 @@ example (c : Semantics) (ref : StepFn) : CompleteC₀ c ref =
 example (c : Semantics) : Consistent c =
     (∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γc c ∪ Γstep c)) := rfl
 
+/-- `FnDet`: every function has at most one result at each argument list. -/
+example (c : Semantics) : FnDet c = (∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r') := rfl
+
+/-- `FnSolves`: where a clause decides, the function's values are that clause's. `Clause.DecidesAt`,
+which it reads, is in no review cone, so its text is here too. -/
+example (c : Semantics) : FnSolves c =
+    (∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+      cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+        EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) := rfl
+
+example (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) :
+    cl.DecidesAt c fn σ vs =
+    (cl.AppliesAt c σ vs ∧
+      ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
+        ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats vs →
+          ¬ ∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) := rfl
+
 /-- `StepIs`: `ref` lists exactly the configurations `Step` reaches in one step. -/
 example (c : Semantics) (ref : StepFn) : StepIs c ref =
     ∀ (x : Config c) (y : GroundTerm), y ∈ ref x.val ↔ ∃ hy : c.sortOf y = some topCellSort, Step c x ⟨y, hy⟩ :=
@@ -348,6 +367,12 @@ example : ∀ {c : Semantics} (h : c.coreOK = true) (hr : CExec.execReady c = tr
         (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList ((CExec.successorsN c n x.val).map (den c))))) ∧
       ∀ y ∈ CExec.successorsN c n x.val, Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y)) := @CExec.run_exact
 
+/-- The members of the executor's list at a fuel where nothing ran out are `Step`'s successors:
+what the list of `CExec.run_exact` is, stated without reading `CExec.successorsN`'s body. -/
+example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n : Nat} {x y : Config c}
+    (hf : CExec.outOfFuel c n x.val = false), Step c x y ↔ y.val ∈ CExec.successorsN c n x.val :=
+  @CExec.step_iff_at
+
 /-! ## Their axioms: `#guard_msgs in #print axioms`, the list exactly -/
 
 /-- info: 'KCore.sound_hyp' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -451,5 +476,8 @@ example : ∀ {c : Semantics} (h : c.coreOK = true) (hr : CExec.execReady c = tr
 
 /-- info: 'KCore.CExec.run_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.CExec.run_exact
+
+/-- info: 'KCore.CExec.step_iff_at' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.CExec.step_iff_at
 
 end KCore.Pins

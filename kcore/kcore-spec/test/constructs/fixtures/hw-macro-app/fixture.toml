@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3; findings/C3-noncore-rulings.md section 11): an application of a macro symbol left in a function's equation, f(X) = m(X) with m declared macro{}().
+# From: fixtures/c3-macro-rule's kompiled text, f's equation's right side Lblg{}(VarX:SortExp{}) replaced by Lblm{}(VarX:SortExp{}) and its // rule comment to match. No text kompile 7.1.337 delivers holds the shape: fixtures/c3-macro-norule, the K text with the use and no rule of m, is rejected (exit 113, Rule contains macro symbol that was not expanded).
+kore = "test/constructs/fixtures/hw-macro-app/hw-macro-app.kore"

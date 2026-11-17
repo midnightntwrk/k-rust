@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-rule-req-undef-prio.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.0
+definition.kore bytes: 209225
+definition.kore sha256: 7efe21154be7651b2e8a170a59f91bca7f48850f963c1f2118bfe684399f67dc
+stripped sha256: b6e0035c05c85b33b728775e0f47a5bf27216ee227984262aa244088b36dc1ae
+main module: 411 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-REQ-UNDEF-PRIO-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-RULE-REQ-UNDEF-PRIO as default.

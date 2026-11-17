@@ -1,0 +1,19 @@
+id = "c48-fn-undef-requires-larger"
+kind = "case"
+subject = "An equation of priority 60 whose requires is undefined: where the equation of priority 40 applies it gives the value; elsewhere the undefined requires does not hold and the [owise] equation applies."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in the requires of g's equation of priority 60, \
+which it evaluates for g(0). For g(1) the equation of priority 40 applies and gives 1; for g(0) \
+it does not, the requires of priority 60 is undefined, so not true, and the [owise] equation \
+gives 3: b(1, 3)."""

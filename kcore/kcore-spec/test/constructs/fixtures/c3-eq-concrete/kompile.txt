@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-concrete.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.9
+definition.kore bytes: 202346
+definition.kore sha256: 87d086b6200ecd4546456f0573e00ab4a904b46f1c24432fcc5e3c9336d918dd
+stripped sha256: 4a7daf4feca386a605ee8d8fa00e1b1562553de6713d4c2aca4215786ed046e0
+main module: 391 sentences, 34 not in base's, in kore.txt
+differs_from c3-eq-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-CONCRETE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-CONCRETE as default.

@@ -1,0 +1,9 @@
+expect = "error"
+main = "e3-ml-eq-arg-not.k"
+text_from = "e3-ml-eq-arg-not"
+args = ["--backend", "llvm", "e3-ml-eq-arg-not.k", "-o", "out"]
+observed = """
+Under --backend llvm the frontend writes out/definition.kore and the LLVM backend's compilation of
+it ends in an internal error (exit 1, kompile.txt); under --backend haskell kore-exec rejects the
+same text (ErrorVerify).
+"""

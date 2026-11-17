@@ -57,6 +57,36 @@ rules = ["ev-en", "ensure-holds", "ensure-fails", "inst-en", "try-holds"]
 cases = ["c50-fn-ensures", "c51-fn-ensures-owise"]
 note = "the field REVIEW-FA D1 decides (not yet in kcore-merge's Core.lean, whose Clause has vars, pats, req, rhs, prio); encoded in the right side as en(R, E); mutation ensures-as-requires, killed by c51"
 
+[[row]]
+type = "Clause"
+item = "opens"
+status = "absent"
+note = "a variable no pattern binds (Clause.opens, derived from vars and pats: in the requires, the ensures or the right side alone) ranges over every value of its sort, and kore.k instantiates the three from one match of the patterns (try, inst), with no enumeration of a sort; the encoder refuses the equation: variable V of an equation of F: the left side does not bind it (tools/test_korek.py, on the text kompile writes for rule f() => g(Y) [unboundVariables(Y)])"
+
+[[row]]
+type = "Clause"
+item = "exs"
+status = "absent"
+note = "a right side under \\exists has a value for each witness of the bound variable; kore.k computes one value from one match; the encoder refuses the equation: right side of an equation of F under \\exists"
+
+[[row]]
+type = "Clause"
+item = "pre"
+status = "absent"
+note = "a predicate of the premise that is not a term equal to true (\\equals of two terms, \\in, \\ceil, a connective, a binder): cl holds one requires term, evaluated to bv(true), and has no operation that holds where a term is undefined; the encoder refuses the equation: requires shape"
+
+[[row]]
+type = "Clause"
+item = "post"
+status = "absent"
+note = "a predicate of the right side that is not a term equal to true: cl holds the ensures as a term in en(R, E); the encoder refuses the equation: ensures shape"
+
+[[row]]
+type = "Clause"
+item = "aside"
+status = "absent"
+note = "an equation that blocks no equation of a larger priority (the attribute non-executable): the walk stops at the first priority at which an equation applies, whichever it is; the encoder refuses the axiom by the attribute: non-executable (the attribute row non-executable)"
+
 # --- Rule (a rewrite rule) ------------------------------------------------------------------
 
 [[row]]
@@ -99,6 +129,30 @@ item = "prio"
 status = "covered"
 rules = ["rprio", "prio-given", "prio-owise", "fa-take", "fa-skip", "nrl-cons", "step-next"]
 cases = ["c02-rule-prio", "c46-prio-nonterm-requires"]
+
+[[row]]
+type = "Rule"
+item = "opens"
+status = "absent"
+note = "a variable the left side does not bind (Rule.opens, derived from vars and lhs) ranges over every value of its sort: the rule has a successor for each, and succs returns the finite list of one result per match of the left side; the encoder refuses the rule: variable V of a rule: the left side does not bind it"
+
+[[row]]
+type = "Rule"
+item = "exs"
+status = "absent"
+note = "a right side under \\exists (?X) has a successor for each witness; as opens; the encoder refuses the rule: right side of a rule under \\exists"
+
+[[row]]
+type = "Rule"
+item = "pre"
+status = "absent"
+note = "as Clause.pre: rl holds one requires term; the encoder refuses the rule: requires shape"
+
+[[row]]
+type = "Rule"
+item = "post"
+status = "absent"
+note = "as Clause.post: rl holds the ensures as a term in en(R, E); the encoder refuses the rule: ensures shape"
 
 # --- Term -----------------------------------------------------------------------------------
 

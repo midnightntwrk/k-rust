@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-owise-owise-diff.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 11.2
+definition.kore bytes: 205407
+definition.kore sha256: bf24f9892bd448a0a2be73671c47c76511b5959e6cd79f36a507a2b6ed0203eb
+stripped sha256: 55f6fa0338d19c5daad361f127d2412eb8eeade61ddd8f813a0557e7126c51e6
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-OWISE-OWISE-DIFF-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-EQ-OWISE-OWISE-DIFF as default.

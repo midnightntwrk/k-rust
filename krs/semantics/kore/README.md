@@ -39,7 +39,7 @@ Configurations: one cell `<k>`, or several cells under a top cell, with cell col
 Collections: the sorts `Map`, `Set` and `List` with their concatenation, unit and element symbols (in terms and in patterns, with a frame variable), and the hooks `Map:lookup`, `Map:lookupOrDefault`, `Map:update`, `_[_<-undef]`, `_in_keys(_)`, `size(Map)`, `Set:in`, `size(Set)`, `|Set` and `size(List)`.
 
 Not covered: the other collection hooks (`keys`, `values`, `choice`, `-Map`, `-Set`, `intersectSet`, `List:get`, `List:set`, `range` and the rest); a `Map` or `Set` pattern with more than one frame; cell collections of `type="Set"` or `type="List"`, cells of multiplicity `?`, and a `<k>` cell holding more than one item; any hook outside the lists above; symbolic terms (an initial term is ground); conditions on results (`kore.k`'s results carry none: where the haskell backend keeps a result under a condition such as `\ceil(half(3))` in c11, `kore.k` reads the application as having no value); a `total` function that no equation applies to (c42), whose value the definition leaves open; projections such as `{M[K]}:>Int`, whose equations kompile writes in K's own modules (a case keeps a lookup's result in `KItem`); the other `String` hooks (`+String`, `lengthString`, `substrString`, …) and the other equality hooks (`=/=Bool`, `=/=String`, …).
-The encoder stops with an error naming the construct when it meets one outside the fragment that it recognizes: a hook outside the list, a domain value of a sort that is not `Int`, `Bool`, `String` or a token sort, a function declared outside the object definition that kompile did not generate for it, a matching-logic connective in a term, an axiom marked `simplification` or `non-executable`, a symbol marked `macro`, `macro-rec`, `alias`, `alias-rec`, `anywhere` or `symbol-overload`, any attribute of a selected axiom or an applied symbol that it neither reads nor ignores with a stated reason (`COVERAGE.toml`), a configuration of another shape, an initializer that is not one equation of variable arguments, a `Map` or `Set` pattern with two frames.
+The encoder stops with an error naming the construct when it meets one outside the fragment that it recognizes: a hook outside the list, a domain value of a sort that is not `Int`, `Bool`, `String` or a token sort, a function declared outside the object definition that kompile did not generate for it, a matching-logic connective in a term, a rule or an equation with a variable its left side does not bind (in its `requires`, its `ensures` or its right side), a right side under `\exists`, a `requires` or an `ensures` that is not a term equal to `true`, an axiom marked `simplification` or `non-executable`, a symbol marked `macro`, `macro-rec`, `alias`, `alias-rec`, `anywhere` or `symbol-overload`, any attribute of a selected axiom or an applied symbol that it neither reads nor ignores with a stated reason (`COVERAGE.toml`), a configuration of another shape, an initializer that is not one equation of variable arguments, a `Map` or `Set` pattern with two frames.
 
 ## Layout
 
@@ -47,15 +47,17 @@ The encoder stops with an error naming the construct when it meets one outside t
 | --- | --- |
 | `kore.k` | The interpreter: module `KORE`, syntax module `KORE-SYNTAX`; 556 lines, 248 rules and equations (11 rewrite rules for the search, the rest equations of 72 functions). |
 | `tools/korek.py` | The KORE text reader; the encoder of kompile's `definition.kore` and the initial term's KORE into a program of `kore.k`; the decoders of `krun --search`'s and `kore.k`'s results into one canonical text. |
-| `tools/test_korek.py` | Tests of the encoder's attribute checks (a `simplification` or `non-executable` axiom, a `macro` symbol, an unknown attribute refused); needs no K. |
+| `tools/test_korek.py` | Tests of the encoder's attribute checks (a `simplification` or `non-executable` axiom, a `macro` symbol, an unknown attribute refused) and of its shape checks (a variable the left side does not bind, a right side under `\exists`, a predicate that is not a term equal to `true`, each refused by name); needs no K. |
 | `tools/case.py` | Builds a case's encoded program and its reference expected result (needs K). |
-| `tools/check.py` | Runs `kore.k` on every case and compares its result with each backend's recorded result (needs only `krust`). |
+| `tools/check.py` | Checks each entry's record (`SCHEMA.md`, section 5) and runs `kore.k` on every case (needs only `krust`; `--no-run` needs only Python). |
+| `tools/test_check.py` | Tests of `check.py`'s pass rule on hand-built entries; needs no K and no `krust`. |
+| `SCHEMA.md` | The schema of an entry: `entry.toml`, the evidence, and what `tools/check.py` checks. |
 | `COVERAGE.toml` | One row per constructor of KCore's `Clause`, `Rule`, `Term`, `Lit` and of the KORE `Pattern` its reader reads, and per attribute that reader reads: `covered`, with the `kore.k` rules and the cases, or `absent`, with the reason. |
-| `differences.toml` | Each difference of `kore.k`'s result from a backend's recorded result, by case and backend, with its reason. |
 | `cases/<id>/` | One case, below. |
 | `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 68 mutations of `kore.k`. |
 | `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
 | `kill-matrix.json` | For each mutation, its status, every case that kills it and the cases on which its run gave no comparable result. |
+| `tools/test_mutations.py` | Checks that every mutation is killed or marked equivalent with its argument, and names the premises it breaks; needs no K and no kink. |
 | `tools/killmatrix.py` | Reduces `kink-flow run --full`'s JSON document to `kill-matrix.json`. |
 
 ### A case
@@ -64,6 +66,7 @@ The encoder stops with an error naming the construct when it meets one outside t
 | --- | --- |
 | `def.k` | The object definition: module `CASE`, syntax module `CASE-SYNTAX`, `configuration <k> $PGM:S </k>` (or a top cell holding `<k> $PGM:S </k>` and other cells), rewrite rules on the closed `<k>` cell (`<k> L => R </k>`). Its first comment says what the case tests. |
 | `pgm` | The initial term, in `CASE-SYNTAX`. |
+| `entry.toml` | The entry (`SCHEMA.md`), written by hand: the subject, the ruling's status, and a `[[disposition]]` with its reason for each backend whose recorded result `kore.k`'s differs from. Every case's ruling is `pending`: none is written yet. |
 | `pgm.kore` | `kast pgm --output kore` against `def.k` kompiled for the haskell backend: the initial term of sort `S`. The initial configuration is the value of kompile's `initGeneratedTopCell` at the map `$PGM \|-> PGM`: for the one cell `<k>`, `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`; the encoder unfolds kompile's initializer equations to build it, and keeps the item `inj{S,KItem}(PGM)` of a one-cell configuration or the top cell of a configuration of several cells. |
 | `kore.pgm`, `symbols.json` | The encoded program for `kore.k` (start sort `Pgm`) and the encoder's numbering of symbols and sorts; for a case with collections, `collections` names each collection sort's kind and its concatenation, unit and element symbols. |
 | `expected.json` | The reference result. For each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search` (for a configuration of several cells, the top cell `Lbl'-LT-'t'-GT-'(…)`, whose `<k>` cell holds `kseq(item,dotk())`), as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a collection as `SortMap{k|->v,…}` and `SortSet{x,…}` with its elements' texts sorted, `SortList[x,…]` in order, whatever order a backend prints them in; a result under a condition carries it, ` if defined(…)`, ` if A=B`, ` if not(…)`, joined by ` and `), sorted; or `error`, the backend's failure without its temporary paths. `reference` names the K release and backend that produced each; `backends_agree`; `inputs`, the SHA-256 of `def.k` and `pgm` the results were computed from. |
@@ -151,7 +154,7 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 
 Both results are kept in each `expected.json`, labelled with the K release and backend that produced them.
 Both backends give final configurations on 35 cases and agree on 29 of them (all but c10, c28, c43, c44, c50 and c51); the llvm backend fails on 15 cases and the haskell backend on 1 (c33).
-`kore.k`'s result equals every recorded result except the 24 that `differences.toml` lists, each with its reason:
+`kore.k`'s result equals every recorded result except the 24 that the `[[disposition]]` blocks of the cases' `entry.toml` name, each with its reason:
 
 - c08, c09, c12, c13, c14, c26, c32, c38, c47, c48 (llvm): the llvm backend aborts on a division by zero (`[hook_INT_tdiv]: Division by zero`), where `X /Int 0` is undefined (`\bottom`): no successor, a `requires` that is not true, an initial configuration that is `\bottom`, a collection with an undefined element, an operand of `==K`, one of two rules of one priority whose other rule gives the successor (c47), the `requires` of an equation of priority 60 that does not hold, so that the `[owise]` equation applies (c48).
 - c10 (llvm): the llvm backend evaluates `#if true #then 1 #else 10 /Int 0 #fi` lazily and steps to `b(1)`; the hook `KEQUAL.ite` is a function of its three arguments, so an undefined argument makes it undefined.
@@ -170,15 +173,16 @@ It needs a release `krust` (the repository's `k-rust` command-line tool) built f
 
 ```sh
 with-z3-static-5.3.3 cargo +stable build --release -p k-rust --no-default-features --features cli --locked
-python3 tools/check.py                   # every case; or name cases: tools/check.py cases/<id> ...
+python3 tools/check.py --allow-pending   # every case; or name cases: tools/check.py --allow-pending cases/<id> ...
 ```
 
 `tools/check.py` takes `krust` from `$KRUST`, else `$CARGO_TARGET_DIR/release/krust`, else the repository's `target/release/krust`, and exits 2 when there is none.
 It kompiles `kore.k` once with `krust kcompile` (cached in its build directory by the SHA-256 of `kore.k` and of `krust`), runs each case's `kore.pgm` with `krust krun --sort Pgm`, decodes the result with the case's `symbols.json`, and compares it with each backend's recorded result (a backend's error differs from every result).
-A case passes when, for each backend, the two are equal and `differences.toml` lists no difference of the case from that backend, or they differ and it lists one; a case whose `def.k` or `pgm` no longer has the SHA-256 its `expected.json` records fails as stale.
+A case whose ruling is `pending` is admitted under `--allow-pending` and passes when, for each backend, the two are equal and no `[[disposition]]` of its `entry.toml` names that backend, or they differ and one does; a case whose `def.k` or `pgm` no longer has the SHA-256 its `expected.json` records fails as stale, and an `entry.toml` that does not have the form of `SCHEMA.md` fails as a schema fault.
+`SCHEMA.md`, section 5, states the rule for an entry with a ruling: its record is consistent with itself, and an implementation that differs from the ruling under a disposition does not fail it.
 It prints one line per case and a `PASS` or `FAIL` summary, and exits 0 only when every case passes.
 
-Measured in this tree: 51 of 51 cases pass, with 24 listed differences; each `krust krun` process takes 45 to 125 ms, the whole command about 3 s warm and 3.4 s with the `kcompile` (0.3 to 0.7 s).
+Measured in this tree: 51 of 51 cases pass, with 24 dispositions (21 for llvm, 3 for haskell); each `krust krun` process takes 45 to 125 ms, the whole command about 3 s warm and 3.4 s with the `kcompile` (0.3 to 0.7 s).
 
 KCore's oracle (`kcore oracle` of kcore-spec, the binary built on 2026-11-14 from 08a5b175b01d, which adds the oracle), run on each case's kompiled text and initial configuration (the case file built by kcore-spec's `test/agree-kore-in-k.py`): its set N, the reached configurations to which no rule applies, equals `kore.k`'s finals on 46 of the 49 cases c01 to c49 (not run on c50 and c51, whose equation `ensures` that oracle's reader then read as a `requires` or refused).
 c43 differs: KCore reads a false `ensures` as a false `requires`, so `a(0)` is in N, where `kore.k` reads the rule as applied with an empty result (`a(0)` has no successor and is not final, the haskell backend's answer; the reading above).
@@ -188,6 +192,7 @@ Two cases have no oracle: c39 (KCore's reader refuses the sort name `Id`, a name
 
 The corpus is a kink-flow corpus of a K definition, as `kink/examples/imp` is: `FLOW.toml` names `kore.k` and its modules, and its programs are the cases' `kore.pgm` (start sort `Pgm`).
 Each mutation of `MUTATIONS.toml` is a wrong reading of KORE, stated in its `misunderstanding` and written as text edits of `kore.k`'s labelled rules.
+Each `misunderstanding` ends with `[premise: …]`, the premises of the reading above that the mutation breaks, by the names `MUTATIONS.toml`'s header gives the 16 of them; a mutation no case kills is marked equivalent (`expect = "survive"`) with its argument. `python3 tools/test_mutations.py` checks both against `kill-matrix.json` and `kink.lock`, without kink.
 A case kills a mutation when the mutant's result on it, every final configuration of the object definition, differs from `kore.k`'s.
 
 Build kink-flow in a target directory of its own (the portable profile, no Z3), then run from this directory:

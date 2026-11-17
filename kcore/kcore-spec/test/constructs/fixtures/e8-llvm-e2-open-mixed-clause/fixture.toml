@@ -1,0 +1,8 @@
+main = "e2-open-mixed-clause.k"
+text_from = "e2-open-mixed-clause"
+args = ["--backend", "llvm", "e2-open-mixed-clause.k", "-o", "out"]
+observed = """
+Under --backend llvm kompile accepts e2-open-mixed-clause's text (under --backend haskell kore-exec
+rejects it, ErrorVerify): first(X & _) => X is written as an equation of first whose argument
+applies Lbland, a symbol declared functional and no constructor (kore.txt:46 the rule's comment).
+"""

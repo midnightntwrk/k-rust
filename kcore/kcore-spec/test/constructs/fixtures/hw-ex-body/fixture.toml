@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/exrhs.kompile.kore (the kompiled text of fixture e3-vars, K 7.1.337) with the third
+# rewrite axiom, c(_Gen0, _Y) => \exists ?Z:Int. d(?Z) (rule <k> c(_, _Y) => d(?Z:Int) ... </k>), changed by hand:
+# the binder over the right side's term alone, \exists ?Z:Int. <generatedTop>(...d(?Z)...), no \and(rhs, ens).
+# Expected: ruleShape, as the same sentence without the binder.
+kore = "test/constructs/fixtures/hw-ex-body/hw-ex-body.kore"

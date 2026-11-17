@@ -1,0 +1,27 @@
+main = "ref.json"
+text_from = "e8-ref"
+expect = "error"
+pre = ["--backend", "haskell", "--emit-json", "ref.k", "-o", "pre"]
+pre_copy = ["pre/parsed.json", "ref.json"]
+args = ["--backend", "haskell", "--outer-parsed-json", "ref.json", "-o", "out"]
+observed = """
+e8-ref's ref.k as a KAST definition in JSON, read back under --outer-parsed-json ("Treat the
+definition file as an already outer parsed KAST definition in JSON format"). The JSON is the one
+kompile itself writes for ref.k under --emit-json (pre/parsed.json: format KAST, version 4,
+KDefinition, main module REF, 65 modules), not committed: `pre` regenerates it. It is the
+definition after parsing (Kompile.java:211-234: parseDefinition, inner parsing included), not the
+output of an outer parser. kompile exits 1: 'Internal: Uncaught exception thrown of type
+NoSuchElementException. (NoSuchElementException: None.get)'; under --debug at
+DefinitionParsing.parseDefinitionAndResolveBubbles (DefinitionParsing.java:272), which looks up the
+module DEFAULT-CONFIGURATION in the definition read; the JSON holds no such module (ref.k declares
+its configuration, and the definition --emit-json writes keeps the modules the main module
+reaches). With DEFAULT-CONFIGURATION added from base's --emit-json output (a run outside this
+fixture), kompile goes on and stops at ComputeUnboundVariables.java:75 (None.get: a
+#SemanticCastTo application without its production attribute, which the JSON does not carry).
+The producer pyk documents for this input (pyk/docs/pipeline.md:24-31, `pyk kompilex`: parse_outer,
+then kompile --outer-parsed-json) writes no JSON for ref.k at K 7.1.337: its conversion of an
+outer-parsed sentence (pyk/src/pyk/kast/_ast_to_kast.py:58-60) raises 'Unimplemented
+Sentence->KSentence conversion' for every sentence, the first of ref.k a SyntaxDefn. Not shown:
+what kompile does with an outer-parsed JSON of ref.k from another producer (none at 7.1.337 was
+found).
+"""

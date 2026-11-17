@@ -1,0 +1,3 @@
+# Probe: ?Z in the requires only, no binder expected. kompile 7.1.337 rejects it: "Existential variable ?Z found
+# in LHS" (the requires counts as the left side).
+expect = "error"

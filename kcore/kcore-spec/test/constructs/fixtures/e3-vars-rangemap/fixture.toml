@@ -1,0 +1,15 @@
+observed = """
+<r> _ => [0, 1) r|-> ?V:Int </r> on a right side: the existential at Int, injected into KItem as
+the range map's value:
+  kore.txt:185-191  \\rewrites(\\and(<k>(go() ~> _DotVar1), <r>(_Gen0), \\top),
+                    \\exists{SortGeneratedTopCell{}} (Var'Ques'V:SortInt{}, \\and(<k>(_DotVar1),
+                    <r>(Lbl'Unds'r'Pipe'-'-GT-Unds'{}(LblRangeMap'Coln'Range{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}("0")),inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}("1"))),inj{SortInt{}, SortKItem{}}(Var'Ques'V:SortInt{}))), \\top)))
+The account refuses it: openRight (Var'Ques'V:Int: held under no constructor, Int unconfined).
+"""
+expectation = """
+From the sentence: the right side holds V only under the injection and _r|->_ (hooked-symbol,
+hook RANGEMAP.elementRng, function and injective: no constructor), and no range-map symbol is a
+collection pattern symbol, so whether every successor the binder gives is a value's element is not
+decided from the constructors: refused openRight Int (CN-4b section 2, last row). At each value i
+of Int the sentence gives the successor <k> . </k> <r> [0, 1) r|-> i </r> (one per i).
+"""

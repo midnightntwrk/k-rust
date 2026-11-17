@@ -1,0 +1,22 @@
+id = "c28-set-overlap"
+kind = "case"
+subject = "Set concatenation of sets with a common element: S SetItem(1) where S has the element 1. K's sources call the concatenation idempotent in one place and undefined on a common element in another; kore.k reads it as undefined. S SetItem(2) is the union of disjoint sets, and S |Set SetItem(1), the union operation, is total."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+S SetItem(1) where S has the element 1. K's SET module declares _Set_ idem (idempotent), and its \
+documentation calls the concatenation of sets with a common element #False, noting that \
+concrete execution may silently allow it: K's sources state both readings. kore.k reads the \
+concatenation as partial, defined on disjoint sets, which is the reading under which a Set \
+pattern's element patterns and frame take disjoint parts of the subject; so that rule's result \
+is undefined. The llvm backend computes the union and gives r(1, SetItem(1)); the haskell \
+backend's result is kore.k's."""

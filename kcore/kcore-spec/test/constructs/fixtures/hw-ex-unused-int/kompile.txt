@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-ex-unused-int/hw-ex-unused-int.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-ex-unused-int/hw-ex-unused-int.kore` (cwd: kcore-spec)
+definition.kore bytes: 248097
+definition.kore sha256: 13478cbcdfb42fc00f6f2f974b46e7f02139acfc4cfaa52df3948eab5311a82b

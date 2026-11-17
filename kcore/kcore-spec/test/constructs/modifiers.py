@@ -16,7 +16,8 @@ and the same text without one modifier (its companion). For each such pair `run`
 The modifier is a modifier when either differs; where the reader refuses one of the two texts the
 Semantics are not compared and the text alone decides. `run` prints, per pair, the counts on each side and
 the entries of rows.toml (rows of E1 to E8 and of C3, and their `cases`) whose fixture is the
-pair's text; then the modifier set (the entries of a pair that differs); then every pair whose text
+pair's text, or one of their `also_fixtures` (further fixtures whose texts the entry's evidence
+cites as showing the same thing, so that a pair of such a text is printed with the entry); then the modifier set (the entries of a pair that differs); then every pair whose text
 differs and whose Semantics does not ("text difference with no Semantics difference": such an
 entry is inert with a reason, or a finding); then the count of entries whose fixture has no
 companion (not computable here). It needs each fixture's kompiled text under .lake/kfix/NAME/src/out
@@ -29,7 +30,8 @@ pairs DONE-0 C3 names (CORE below): each is present, has a fixture other than "n
 `independent`. `check` fails on a missing core pair, a core entry without a fixture or marked
 independent, an independent entry without two declarations, a key that is not "A x B", two keys of
 one unordered pair, a status outside the vocabulary, or a sentence (of an entry or of its `cases`)
-that is not in its fixture's kore.txt or kompile.txt.
+that is not in its fixture's kore.txt or kompile.txt; and, for an entry of any list, a name of
+`also_fixtures` that is no fixture directory or that the entry's evidence does not name.
 
 Usage (from kcore-spec):
   python3 -I test/constructs/modifiers.py run [FIXTURE...]   compute (all pairs without names)
@@ -123,7 +125,8 @@ def run(names):
     rows = tomllib.load(open(ROWS, "rb"))
     by_fx = {}
     for w, e in entries(rows):
-        by_fx.setdefault(e.get("fixture"), []).append(w)
+        for f in [e.get("fixture"), *e.get("also_fixtures", [])]:
+            by_fx.setdefault(f, []).append(w)
     mods, visible, nocomp, pairs = [], [], [], companions(names)
     for f, g, rel in pairs:
         if not (kompiled(f) and kompiled(g)):
@@ -141,7 +144,7 @@ def run(names):
         if td != (0, 0) and sd == (0, 0) and not refused:
             visible.append((f, g, by_fx.get(f, [])))
     unnamed = [w for w in mods if w.startswith("(fixture ")]
-    mods = [w for w in mods if not w.startswith("(fixture ")]
+    mods = list(dict.fromkeys(w for w in mods if not w.startswith("(fixture ")))
     print(f"modifier set: {len(mods)} entries; {len(unnamed)} differing fixtures that no entry names")
     for w in mods + unnamed:
         print(f"  {w}")
@@ -149,7 +152,8 @@ def run(names):
     for f, g, ws in visible:
         print(f"  {f} / {g}: " + ("; ".join(ws) if ws else "no entry"))
     paired = {f for f, _, _ in companions()}
-    lone = [w for w, e in entries(rows) if e.get("fixture") not in paired | {None, "none"}]
+    lone = [w for w, e in entries(rows) if e.get("fixture") not in paired | {None, "none"}
+            and not paired & set(e.get("also_fixtures", []))]
     print(f"entries whose fixture has no companion (not computable here): {len(lone)}; pairs not computable: {len(nocomp)}")
     return 0
 
@@ -204,6 +208,12 @@ def check(path=ROWS):
             bad.append(f"C3 {key!r}: needs exactly one of sentence, no_sentence")
         sentences(f"C3 {key!r}", e)
     bad += [f"C3: core pair {k!r} has no entry" for k in CORE if k not in t]
+    for w, e in entries(rows):
+        for f in e.get("also_fixtures", []):
+            if not os.path.isdir(os.path.join(FX, f)):
+                bad.append(f"{w}: also_fixtures {f}: no fixture directory")
+            elif f not in e.get("evidence", ""):
+                bad.append(f"{w}: also_fixtures {f}: not named in its evidence")
     by = {}
     for e in t.values():
         by[e.get("status")] = by.get(e.get("status"), 0) + 1

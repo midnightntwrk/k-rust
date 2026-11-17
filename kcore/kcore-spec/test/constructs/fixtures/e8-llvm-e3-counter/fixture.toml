@@ -1,0 +1,4 @@
+expect = "error"
+main = "e3-counter.k"
+text_from = "e3-counter"
+args = ["--backend", "llvm", "e3-counter.k", "-o", "out"]

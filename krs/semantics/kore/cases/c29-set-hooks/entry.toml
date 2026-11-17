@@ -1,0 +1,10 @@
+id = "c29-set-hooks"
+kind = "case"
+subject = "The Set hooks on a two-element set: membership of a present and of a missing element, size, and the union with an element below, between and above the present ones, and with a present one."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

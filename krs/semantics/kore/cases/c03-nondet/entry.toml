@@ -1,0 +1,10 @@
+id = "c03-nondet"
+kind = "case"
+subject = "Rules of one priority give several successors; paths meet again (diamonds) and end in several distinct final configurations."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

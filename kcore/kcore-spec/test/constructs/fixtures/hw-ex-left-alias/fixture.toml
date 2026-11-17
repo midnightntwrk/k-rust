@@ -1,0 +1,7 @@
+# Hand-written KORE: f2-examples/exrhs.kompile.kore (the kompiled text of fixture e3-vars, K 7.1.337) with the third
+# rewrite axiom, c(_Gen0, _Y) => \exists ?Z:Int. d(?Z) (rule <k> c(_, _Y) => d(?Z:Int) ... </k>), changed by hand:
+# the left side written as an alias application, rule2LHS(_Gen0, _Y, _DotVar1, _Gen1, _Gen2), with the alias
+# declaration before the axiom (the form kompile writes for a left side under --enable-kore-antileft, fixture
+# e8-enable-kore-antileft), the right side's \exists unchanged. Expected: aliasApplication, as the same sentence without
+# the binder.
+kore = "test/constructs/fixtures/hw-ex-left-alias/hw-ex-left-alias.kore"

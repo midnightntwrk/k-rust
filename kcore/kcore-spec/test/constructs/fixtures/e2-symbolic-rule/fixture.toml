@@ -1,0 +1,2 @@
+# differs_from c3-attr-rule-base, the text without [symbolic] on the rule (TRIAGE-B c3.pair 22; findings/C3-noncore-rulings.md section 12). Predicted: text +1 -1 (the attribute), Semantics +0 -0
+differs_from = "c3-attr-rule-base"

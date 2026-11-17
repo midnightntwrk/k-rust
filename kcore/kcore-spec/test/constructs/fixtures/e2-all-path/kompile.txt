@@ -1,8 +1,10 @@
 command: kompile --backend haskell e2-all-path.k -o out  (cwd: the fixture directory)
 exit: 113
-seconds: 1.9
+seconds: 5.8
+definition.kore left: 206422 bytes, 2722 lines, sha256 19046f75944b37076300d36b1150ee81313e753c4996e5267fdac256e249891f
+kore.txt: its lines 628 to 635
 output:
-  kore-exec: [12019] Error (ErrorParse):
+  kore-exec: [37052] Error (ErrorParse):
       definition.kore:635:3: unexpected token TokenLeftBracket
   
   definition.kore:635:3: unexpected token TokenLeftBracket

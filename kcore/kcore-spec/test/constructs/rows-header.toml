@@ -106,3 +106,11 @@
 #             delivered: "fixtures/<dir>/kompile.txt: exit <n>, <validator> <version> <error class>
 #             at <location>: <the sentence>" and the hand-written fixture's account line
 #             ("fixtures/<dir>/account.txt: ...").
+# Field of DONE-0 C7 (checked by test/provenance.sh), on a row or a nested table:
+#   derived   the row's evidence theorems, a list of tables: form ("a", "b" or "c": a Lean proof
+#             from the translated text, a derivation written by hand, or the pair of models showing
+#             the text entails no value), for form (a) kind ("from sentences" or "through the
+#             reading"; the second with family, the family it goes through) and sentences (the
+#             indices of the sentences that determine it), theorem (full name) and file (relative to
+#             kcore-spec) for forms (a) and (c), derivation (a file) for form (b). The theorem's
+#             statement mentions H (a name of type HookParams) and no AtNone file or namespace holds it.

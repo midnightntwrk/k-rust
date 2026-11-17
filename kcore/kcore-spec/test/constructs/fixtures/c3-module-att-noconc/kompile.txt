@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-module-att-noconc.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.8
+definition.kore bytes: 203582
+definition.kore sha256: 40989ff700899157c19d225897d6c0e943728507056810a3eede26b06ced982d
+stripped sha256: 3f6cfc41b5557155fdda1d81caa1aad2edd8ea38948ce0a3ad1c6c24a5e529d6
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MODULE-ATT-NOCONC-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-MODULE-ATT-NOCONC as default.

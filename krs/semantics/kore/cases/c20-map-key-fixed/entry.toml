@@ -1,0 +1,10 @@
+id = "c20-map-key-fixed"
+kind = "case"
+subject = "Element patterns whose key is fixed: by a domain value (2 |-> V M), by a variable bound earlier in the left side (b(K, K |-> V M)); an element chosen under a requires on its value; and a pattern without a frame, which matches only a map of exactly its entries."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

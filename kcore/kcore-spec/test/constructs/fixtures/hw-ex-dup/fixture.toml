@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/exrhs.kompile.kore (the kompiled text of fixture e3-vars, K 7.1.337) with the third
+# rewrite axiom, c(_Gen0, _Y) => \exists ?Z:Int. d(?Z) (rule <k> c(_, _Y) => d(?Z:Int) ... </k>), changed by hand:
+# the binder written twice, \exists ?Z:Int. \exists ?Z:Int. d(?Z): the inner one binds, the outer binds nothing.
+# Expected: read, one existential variable, the outer binder dropped (existsDropped).
+kore = "test/constructs/fixtures/hw-ex-dup/hw-ex-dup.kore"

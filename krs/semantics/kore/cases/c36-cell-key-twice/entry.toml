@@ -1,0 +1,22 @@
+id = "c36-cell-key-twice"
+kind = "case"
+subject = "Two instances of one key in a cell collection (multiplicity=\"*\", type=\"Map\"): adding an instance whose key is present has an undefined result (Map concatenation is undefined on a common key), so that path has no final configuration; a rule that matches any instance gives one successor for each instance."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the second new(1, _), which adds an instance of the key <id>(1) to a \
+cell collection that has one ([hook_MAP_concat]: Duplicate keys in map concatenation). The \
+collection's sort AcctCellMap has the MAP hooks, and Map concatenation is defined only on maps \
+of disjoint keys (K's MAP module states the concatenation of maps with a common key to be \
+#False), so that \
+rule's result is undefined and the path has no final configuration; the other path gives the \
+two final configurations of pick, which the haskell backend gives too."""

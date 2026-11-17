@@ -1,0 +1,50 @@
+command: kompile --backend haskell e3-eq-owise-0ary.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 4.7
+output:
+  kore-exec: [88314] Error (ErrorVerify):
+      Error:
+        module 'E3-EQ-OWISE-0ARY':
+        axiom declaration:
+        (<unknown location>):
+          Found invalid subterm in argument of function equation:
+              \top{_}()
+          The equation that the above occurs in is:
+              requires:
+                  \top{_}()
+              argument:
+                  \top{_}()
+              antiLeft:
+                  \not{_}(\equals{SortBool{}, _}(Lblg{}(), \dv{SortBool{}}("true")))
+              left:
+                  Lblf{}()
+              right:
+                  \dv{SortInt{}}("0")
+              ensures:
+                  \top{_}()
+  Error:
+    module 'E3-EQ-OWISE-0ARY':
+    axiom declaration:
+    (<unknown location>):
+      Found invalid subterm in argument of function equation:
+          \top{_}()
+      The equation that the above occurs in is:
+          requires:
+              \top{_}()
+          argument:
+              \top{_}()
+          antiLeft:
+              \not{_}(\equals{SortBool{}, _}(Lblg{}(), \dv{SortBool{}}("true")))
+          left:
+              Lblf{}()
+          right:
+              \dv{SortInt{}}("0")
+          ensures:
+              \top{_}()
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-OWISE-0ARY-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-OWISE-0ARY as default.

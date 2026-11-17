@@ -1,0 +1,4 @@
+expect = "error"
+main = "e3-ml-rule-lhs-ceil.k"
+text_from = "e3-ml-rule-lhs-ceil"
+args = ["--backend", "llvm", "e3-ml-rule-lhs-ceil.k", "-o", "out"]

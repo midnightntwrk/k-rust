@@ -1,0 +1,10 @@
+id = "c17-init-function"
+kind = "case"
+subject = "The initial term applies a function: it is evaluated before the first step."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

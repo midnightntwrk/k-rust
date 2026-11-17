@@ -1,0 +1,17 @@
+observed = """
+A requires with no value at one instance (10 /Int X >Int 0 at X = 0), on a rule of priority 40
+beside a rule of the default priority with the same left side. The requires stands in the left
+side of the rewrites axiom as the conjunct equals(b, true) at sort Bool:
+  kore.txt:104  \\equals{SortBool{},SortGeneratedTopCell{}}(
+  kore.txt:105  Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}("10"),VarX:SortInt{}),\\dv{SortInt{}}("0")),
+  kore.txt:106  \\dv{SortBool{}}("true"))),
+  kore.txt:109  its attributes, priority{}("40")
+  kore.txt:112-117  the default rule, left side <k>(a(_Gen0)) with \\top (115), right side c() (117)
+"""
+expectation = """
+At X = 0 the conjunct's left argument has no value, so the equality is empty, the left side has no
+instance and the axiom asks nothing there: no step by the rule. The rule does not apply
+(user_manual.md:1155-1157), so it does not block (1722-1724). a(0) steps to c() alone; a(1) steps
+to b(1) alone (the requires is 10 >Int 0, true); a(n) for n < 0 or n > 10 steps to c() alone
+(10 /Int n is 0 or negative). KCore's Step: the same (RuleReqFails at a result other than true).
+"""

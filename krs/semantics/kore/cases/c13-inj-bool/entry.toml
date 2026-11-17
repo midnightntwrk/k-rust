@@ -1,0 +1,17 @@
+id = "c13-inj-bool"
+kind = "case"
+subject = "A function of sort Val whose result, an Int, is placed at sort Exp (composed injections); an undefined function result under an injection; Bool literals in left sides; an injected Bool against a pattern of sort Bool and an injected Int against it; a selected #if branch."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero under an injection. The function's result is \
+\\bottom, an injection of \\bottom is \\bottom, and the rule that builds it has no successor."""

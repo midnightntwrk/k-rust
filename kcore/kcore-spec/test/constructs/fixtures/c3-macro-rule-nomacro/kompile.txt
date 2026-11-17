@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-macro-rule-nomacro.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 14.6
+definition.kore bytes: 86998
+definition.kore sha256: f3f67204d068e3fd549d4d7ef9d89529e09a9030e0910a9f1f07284678220b9a
+stripped sha256: f0aabf1df3a2705a6e3b7ad0237d1e55bd19af7da23df961f304576984c28d00
+main module: 251 sentences, 26 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MACRO-RULE-NOMACRO-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-MACRO-RULE-NOMACRO as default.

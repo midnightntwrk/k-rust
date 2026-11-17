@@ -1,0 +1,18 @@
+id = "c26-map-strict"
+kind = "case"
+subject = "A map is strict in its entries: an entry whose value is undefined (1 /Int 0) makes the map, and so the rule's result, undefined; the rule of the same priority with a defined entry gives the one final configuration."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in a map entry's value. The entry is \
+undefined; MAP.element and MAP.concat are strict, so the map and the rule's result are \
+undefined."""

@@ -7,11 +7,14 @@
 #   kcore       the native executable (`lake build kcore`)
 #   pins        test/Pins.lean: the headline statements restated, their axioms
 #   pins-peano  test/pins-peano.sh: the statements a generated package states, on peano
+#   pins-kimp   test/pins-kimp.sh: row imp's statements (consistent, sound_at, complete_at, run_exact)
+#               on kimp's text generated with --wf
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
-#               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE with
-#               $KCORE_CONE_REV), its texts read at the revision it was computed at (test/cone-row.sh): that it
+#               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE), its
+#               texts read at the revision its `# computed at git REV` line names, which must be the last
+#               entry of core-manifest.toml's [tree].frozen_at once that is not empty (test/cone-row.sh): that it
 #               was computed from test/roots.toml, declaration names, line count, each declaration's own line
 #               count and each declaration's text (test/cone.py); never rewritten
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
@@ -30,6 +33,9 @@
 #               and the kompiled texts in .lake/kore-in-k; test/agree-kore-in-k.expected);
 #               `skipped` (neither ok nor red) when .lake/kore-in-k is absent: the texts are built
 #               from a corpus outside this tree (test/README.md, "The kore-in-k corpus")
+#   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
+#               option set the rows are stated for, and the text has the recorded SHA-256 (nothing
+#               is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
 #   not-plain   test/not-plain.sh: the generator's text for a definition that is not `plain`
 #               (`kcore gen --as-not-plain`), on peano (--core) and prio (--wf), built
@@ -126,19 +132,21 @@ fi
 LP=$(lake env printenv LEAN_PATH)
 
 # native checks
-order="$order regen roundtrip corpus agree agree-kore-in-k"
+order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile"
 check regen scoreboard test/regen.sh -j "$J"
 check roundtrip scoreboard test/roundtrip.sh
 check corpus scoreboard python3 -I test/corpus.py -j "$J" --expected test/corpus.expected
 check agree scoreboard test/agree.sh
 check agree-kore-in-k scoreboard agreeKoreInK
+check imp-kompile scoreboard test/imp-kompile.sh
 
 # Lean checks, the longest first
-order="$order pins pins-peano axioms witnesses cone member not-plain pred-sorted user cs2"
+order="$order pins pins-peano pins-kimp axioms witnesses cone member not-plain pred-sorted user cs2"
 while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done
 { check user scoreboard userModules; check cs2 scoreboard cs2; } &
 pool pred-sorted scoreboard predSorted
 pool pins-peano required test/pins-peano.sh
+pool pins-kimp required test/pins-kimp.sh
 pool member scoreboard test/member.sh
 pool not-plain scoreboard test/not-plain.sh
 pool pins required lean1 test/Pins.lean

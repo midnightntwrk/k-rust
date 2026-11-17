@@ -1,0 +1,10 @@
+id = "c49-string-bool-eq"
+kind = "case"
+subject = "==String, <String and ==Bool on String domain values, and a String literal in a left side."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

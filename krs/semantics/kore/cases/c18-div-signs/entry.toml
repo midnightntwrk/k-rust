@@ -1,0 +1,10 @@
+id = "c18-div-signs"
+kind = "case"
+subject = "/Int truncates toward zero and %Int takes the sign of the dividend, for each sign of the operands."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -35,7 +35,7 @@ F0 and F1 were removed and F2 became `KCore` (../findings/P1.4-invariants-certif
 test/lake-serial.sh                 # the library, one module at a time, each under a 12 GiB memory scope
 lake build gammad && lake exe gammad > GAMMA_D.txt
 test/integration.sh                 # once per merged batch (test/README.md)
-test/release.sh                     # the release run: integration, every example package built, KEVM, mir
+test/release.sh                     # the release run: integration, every example package built, their axioms
 examples/run.sh                     # the example packages (generated), peano's tie, their users' modules
 test/member.sh                      # membership diagnostics and the registry hooks
 lake env lean test/ReviewCone.lean  # the review cones

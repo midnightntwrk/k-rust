@@ -1,0 +1,19 @@
+id = "c23-map-lookup-missing"
+kind = "case"
+subject = "A lookup of a missing key is undefined: the rule that builds a(M[5]) has no successor, and the rule of the same priority that looks up a present key gives the one final configuration."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on M[5] where M has no key 5 ([hook_MAP_lookup]: Key not found for map \
+lookup). K's MAP module states that a lookup of a missing key is #False: the rule that builds \
+a(M[5]) has an undefined result, and the rule of the same priority gives the final \
+configuration."""

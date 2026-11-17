@@ -1,0 +1,18 @@
+id = "c08-undef-rhs-blocks"
+kind = "case"
+subject = "A rule that applies with an undefined right side (a division by zero) has no successor, and it blocks the rule of larger priority: the configuration has no successor and is not final."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on X /Int 0 ([hook_INT_tdiv]: Division by zero). INT.tdiv is undefined \
+on a zero divisor, so the rule's result is \\bottom: the rule applies with an undefined result, \
+has no successor and blocks the rule of larger priority; there is no final configuration."""

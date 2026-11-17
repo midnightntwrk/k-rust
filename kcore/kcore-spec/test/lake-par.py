@@ -7,7 +7,8 @@ build the same module. Lake has no job limit of its own, which is why each run g
 
 How many run at once is decided from the machine, not fixed. Each time a slot is considered, the
 script reads MemAvailable and starts another run only if it leaves RESERVE GiB plus PEAK GiB per
-run free. PEAK is the largest resident size seen so far, starting at 4 GiB. KCORE_JOBS sets an
+run free, after charging every lean process of another tree the room it has left to grow.
+PEAK is the largest resident size seen so far, starting at 4 GiB. KCORE_JOBS sets an
 upper bound if given.
 
 The script first asks lake whether anything needs building (`lake build --no-build ROOTS`). If
@@ -52,6 +53,13 @@ def avail_gib():
         if l.startswith("MemAvailable:"): return int(l.split()[1]) / 1048576
     return 0.0
 
+def others_headroom_gib(est):
+    # lean processes of other trees (other lanes, tests run by hand) are still growing; charge each
+    # the room it has left up to est, so that runs started at the same moment on other trees are
+    # counted before they show in MemAvailable
+    out = subprocess.run(["ps", "-o", "rss=,args=", "-C", "lean"], capture_output=True, text=True).stdout
+    return sum(max(0.0, est - int(l.split(None, 1)[0]) / 1048576) for l in out.splitlines() if K not in l)
+
 def mine_gib():
     # resident size of the lean processes building this tree (their command line names K)
     out = subprocess.run(["ps", "-o", "rss=,args=", "-C", "lean"], capture_output=True, text=True).stdout
@@ -69,6 +77,7 @@ def phase1():
     return {m for m in order if not deps[m]}
 
 peak = 4.0
+peak_all = 9.0  # a lean run of another tree may be a test file, which reaches 9-10 GiB
 done, running, failed = phase1(), {}, None
 pending = [m for m in order if m not in done]
 while pending or running:
@@ -91,7 +100,7 @@ while pending or running:
             if not all(d in done for d in deps[m]): continue
             # charge every run of this script its expected peak until it exits: a run just
             # started has not grown yet, so MemAvailable alone would admit too many at once
-            if avail_gib() + mine_gib() - peak * (len(running) + 1) < RESERVE: break
+            if avail_gib() + mine_gib() - peak * (len(running) + 1) - others_headroom_gib(peak_all) < RESERVE: break
             f = open(f"/tmp/lake-par-{os.getpid()}-{len(done)}-{m}.log", "w+")
             p = subprocess.Popen(["timeout", "3600"] + SCOPE + ["lake", "build", "+" + m],
                                  env=env, stdout=f, stderr=subprocess.STDOUT)
@@ -101,6 +110,8 @@ while pending or running:
         out = subprocess.run(["ps", "-o", "rss=,args=", "-C", "lean"], capture_output=True, text=True).stdout
         top = max([int(l.split(None, 1)[0]) for l in out.splitlines() if K in l] or [0]) / 1048576
         peak = max(peak, min(top * 1.25, 12.0))
+        top_all = max([int(l.split(None, 1)[0]) for l in out.splitlines()] or [0]) / 1048576
+        peak_all = max(peak_all, min(top_all * 1.25, 12.0))
     except Exception:
         pass
     time.sleep(0.5)

@@ -1,0 +1,10 @@
+id = "c40-as-patterns"
+kind = "case"
+subject = "As-patterns written with #as: an alias of a Map pattern with a frame, bound to the whole map for each entry the pattern takes; an alias in a function's argument whose variable occurs earlier in the same left side, so that it matches only a value equal to that occurrence."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -1,0 +1,10 @@
+id = "c34-cells-several"
+kind = "case"
+subject = "Several cells: rules that read and rewrite cells besides <k> in one step, a requires over a cell the rule rewrites, a cell a rule matches without rewriting it, the cells a rule does not mention kept, and the initial values the configuration declares for the cells besides <k>."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

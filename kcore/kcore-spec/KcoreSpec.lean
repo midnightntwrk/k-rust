@@ -162,6 +162,7 @@ import KcoreSpec.LibAdmitted
 import KcoreSpec.Confined
 import KcoreSpec.RangeMapHooks
 import KcoreSpec.RhsValues
+import KcoreSpec.OccsUnder
 import KcoreSpec.OpenStep
 import KcoreSpec.OpenSuccessor
 import KcoreSpec.OpenCompete
@@ -223,6 +224,7 @@ import KcoreSpec.FamOpenValuesPP
 import KcoreSpec.SoundPP
 import KcoreSpec.ExactPP
 import KcoreSpec.CutIdentity
+import KcoreSpec.OccurrenceOrder
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
 import KcoreSpec.RangeMapLaws
@@ -232,3 +234,9 @@ import KcoreSpec.LawHooks
 import KcoreSpec.OpenValues
 import KcoreSpec.LawHooksLib
 import KcoreSpec.ReadFns
+import KcoreSpec.InjValue
+import KcoreSpec.ClausePlainEx
+import KcoreSpec.ExistsHoist
+import KcoreSpec.TieDefs
+import KcoreSpec.RegistryOwn
+import KcoreSpec.TieLemmas

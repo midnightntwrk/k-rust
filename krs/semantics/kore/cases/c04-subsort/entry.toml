@@ -1,0 +1,10 @@
+id = "c04-subsort"
+kind = "case"
+subject = "Subsorts Int < Num < Val < Exp and Bool < Val: a variable of sort Val matches an Int injected into Exp only through the closure of the stated subsorts; injections built by functions' results compose."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -1,0 +1,2 @@
+# type without multiplicity (TRIAGE-B c3.pair 19; findings/C3-noncore-rulings.md section 9): e2-cells-bag's text with <bt type="Set"> 0 </bt> (and imports SET). No prediction; no companion key
+main = "c.k"

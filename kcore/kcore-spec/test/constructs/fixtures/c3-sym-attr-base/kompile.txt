@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-sym-attr-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.3
+definition.kore bytes: 203548
+definition.kore sha256: 406b9863b12d0b40f5f6d847a3729a303add31c7f1820fb2fbbb9e3e5c38d5f4
+stripped sha256: 0868d5a667381f1de61f7b46fe6564d885b54f933a00881c5210b71d09e82253
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SYM-ATTR-BASE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SYM-ATTR-BASE as default.

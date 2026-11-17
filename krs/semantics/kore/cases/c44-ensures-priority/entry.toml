@@ -1,0 +1,21 @@
+id = "c44-ensures-priority"
+kind = "case"
+subject = "A rule whose ensures is false and an overlapping rule of larger priority number: the first rule has applied with an empty result, so the second does not apply and a(0) has no successor; where the ensures holds the first rule gives b(1)."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+As for c43, the llvm backend does not evaluate the ensures and steps a(0) to b(0). The rule \
+whose ensures is false has applied with an empty result, so the rule of larger priority number \
+that would give c(0) does not apply; K's text does not state this beyond the manual's owise \
+wording (a rule of larger priority applies when the others have been tried and failed), so it \
+is kore.k's reading, recorded against both backends; the \
+haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""

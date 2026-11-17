@@ -1,0 +1,10 @@
+id = "c39-tokens-preds"
+kind = "case"
+subject = "A token sort with literals, and sort predicates: a token literal in a left side matches only that token; tokens of two sorts with one text are two values; isS holds of a value of S and of a sort below S, and not of a value of another sort."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

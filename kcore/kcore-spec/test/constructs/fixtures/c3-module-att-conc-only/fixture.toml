@@ -1,0 +1,2 @@
+# symbolic and haskell on a module (TRIAGE-B c3.pair 22; findings/C3-noncore-rulings.md section 12): e2-module-att's text with [symbolic] and [haskell] removed and [concrete] kept; same_as e2-module-att, the text with the two keys (predicted: a module tagged symbolic or haskell is kept and its text is the untagged module's)
+same_as = "e2-module-att"

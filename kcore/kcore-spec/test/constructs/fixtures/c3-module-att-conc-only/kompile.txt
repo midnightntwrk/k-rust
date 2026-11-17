@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-module-att-conc-only.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 203615
+definition.kore sha256: 6bb75862e3d4b4b86c65679ac13ad28b19e2e16ac600b7e62e6a6bc10a488fe5
+stripped sha256: 3f6cfc41b5557155fdda1d81caa1aad2edd8ea38948ce0a3ad1c6c24a5e529d6
+main module: 393 sentences, 36 not in base's, in kore.txt
+same_as e2-module-att: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MODULE-ATT-CONC-ONLY-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-MODULE-ATT-CONC-ONLY as default.

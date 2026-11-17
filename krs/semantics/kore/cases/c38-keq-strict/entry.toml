@@ -1,0 +1,19 @@
+id = "c38-keq-strict"
+kind = "case"
+subject = "==K with an undefined operand: _==K_ is a function of its two arguments, so the application is undefined and the rule that builds it has no successor; the rule of the same priority gives the final configuration."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in an operand of ==K. KEQUAL.eq is a function \
+of its two arguments, total on defined ones; an undefined argument makes the application \
+undefined, so the rule that builds r(...) has no successor and the rule of the same priority \
+gives the final configuration ok(0)."""

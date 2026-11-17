@@ -1,0 +1,3 @@
+# pair unboundVariables x requires variable, the case of an equation (findings/C3-unbound-rulings.md section 2): H in
+# the requires only, with [unboundVariables(H)]; same_as c3-unbound-eq-nokey, the text without the key
+same_as = "c3-unbound-eq-nokey"

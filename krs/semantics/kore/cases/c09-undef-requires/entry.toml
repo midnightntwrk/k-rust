@@ -1,0 +1,17 @@
+id = "c09-undef-requires"
+kind = "case"
+subject = "A requires that is undefined (a division by zero) is not true: the rule does not apply and does not block the rule of larger priority."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in a requires. The requires is undefined, so it \
+is not true and the rule does not apply."""

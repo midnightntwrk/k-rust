@@ -1,0 +1,18 @@
+id = "c32-elem-strict"
+kind = "case"
+subject = "Sets and lists are strict in their elements: an element that is undefined (1 /Int 0) makes the collection, and so the rule's result, undefined; the rule of the same priority without one gives the one final configuration."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in a set's and a list's element. SET.element, \
+LIST.element and the concatenations are strict, so the collection and the rule's result are \
+undefined."""
