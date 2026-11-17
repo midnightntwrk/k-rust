@@ -294,9 +294,11 @@ mutual
       obtain ⟨o, hlo, rfl⟩ := patAll_lookup_ovl ho hk'
       have ih := patVals_den4 hs hargs
       subst hv
-      refine ⟨OvlLaws.sortOf_norm (OvlOK.hyp inferInstance htr) hlo ih.1, fun m => ?_⟩
+      have hnf := OvlOK.fnCover_none (c := c) f ws
+      refine ⟨OvlLaws.sortOf_norm_ovlF (OvlOK.hyp inferInstance htr) (OvlOK.hyp inferInstance htr).fnFacts hlo ih.1 hnf,
+        fun m => ?_⟩
       rw [kore_app, tr_symApp, ih.2 _ _ (fun _ => Iff.rfl) m]
-      have := normDen_of hI htr hlo ih.1 e m
+      have := normDen_of hI htr hlo ih.1 hnf e m
       unfold KoreAML.den at this
       rw [tr_symApp] at this
       exact this
@@ -807,7 +809,7 @@ mutual
       exact ih.2 hvs' _ m
     | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _ => by
       rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
-    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts _, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
+    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       have ih := evalTerms_den4 hts hL hσ hvs hag hargs
@@ -820,7 +822,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := normDen_of hI hsc.trans hlo hws e m
+        have := normDen_of hI hsc.trans hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this

@@ -893,8 +893,9 @@ theorem patVal_head (hmc : MatchCtxO c) {σ : Subst} {vars : List Srt} (hσ : c.
   · obtain ⟨vs, hvs, hv⟩ := PatVal.ovl_inv ho h
     obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp hs
     obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup ho hk'
-    obtain ⟨hn, -, -, hks, -⟩ := OvlLaws.ovl_facts hmc.ovlHyp hlo
-    obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head hmc.ovlHyp hks (patVals_sortedAllO hmc hσ hvs hargs)
+    obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF hmc.ovlHyp.fnFacts hlo
+    obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hks
+      (patVals_sortedAllO hmc hσ hvs hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
     rw [hn] at he hg
     exact ⟨A, g, us, by rw [← hv]; exact he, hg⟩
 

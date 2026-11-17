@@ -193,12 +193,14 @@ theorem isOvl_of_role {g : Sym} {K : CollKind} {r : Role} (hr : role c g = some 
   · rw [if_neg hcp] at hr; cases hr
 
 /-- **The overloading symbol's candidate arguments are its arguments**: where f's normal form at
-arguments of its sorts is v, `ovlArgs c f v` reads them back (`OvlLaws.norm_decomp`). -/
+arguments of its sorts that no function overload covers is v, `ovlArgs c f v` reads them back
+(`OvlLaws.norm_decomp_ovlF`). -/
 theorem ovlArgs_complete (H : OvlLaws.OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o)
-    {vs : List GroundTerm} (hvs : c.sortsOf vs = some o.sig.args) : ovlArgs c f (c.norm f vs) = some vs := by
-  obtain ⟨hn, -, -, hks, -⟩ := OvlLaws.ovl_facts H ho
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some o.sig.args) (hnf : c.fnCover f vs = none) :
+    ovlArgs c f (c.norm f vs) = some vs := by
+  obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts ho
   obtain ⟨h, us, hkh, -, -, -, hne, hv, -⟩ :=
-    OvlLaws.norm_decomp H _ o.sig hks (OvlLaws.ovlRank_le _) vs hvs
+    OvlLaws.norm_decomp_ovlF H H.fnFacts _ o.sig hks (OvlLaws.ovlRank_le _) vs hvs (by rw [hn]; exact hnf)
   rw [hn] at hne
   have hraw : rawHead (lift h.result o.sig.result (.ctor h.name us)) = some (h.name, us) := by
     unfold lift; split <;> simp [rawHead, injNormal]
@@ -1031,6 +1033,7 @@ mutual
           obtain ⟨o, hlo, rfl⟩ := Det.patCtxAll_ovl_lookup ho hk'
           have hoa : ovlArgs c f v = some vs := by
             rw [← hv]; exact ovlArgs_complete hc.ovlHyp hlo (Det.patVals_sortedAllO hc hτ hs hargs)
+              (OvlLaws.fnCover_none_of_ok hc.ovlHyp.ok _ _)
           have hn' : 8 * termSizeList ps + 1 ≤ n := by simp [termSize] at hn; omega
           obtain ⟨σ', hm, hx', hx'', hb⟩ :=
             cmatchL_complete hc hτ n hn' (fun q hq => ⟨m', hr q hq⟩) hs hargs hx
