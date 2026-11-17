@@ -746,6 +746,43 @@ theorem surplus_float : surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c
 collection symbols, priorities. -/
 theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
 
+/-! ## The registry family: a String literal's value item
+
+The text declares no sort `String` and `defn` names none; Γ holds, for each String literal, that
+it denotes one element of String. That premise is a member of the registry family at the detached
+name `SortString`. -/
+
+def Dstring : KoreAML.Sym → Prop := fun σ => σ = .sort "SortString"
+
+theorem string_undeclared : kore.sortDecls.all (·.name != "SortString") = true := by decide +kernel
+
+/-- No symbol with a signature in `defn`'s own lists (constructors, functions, parameter symbols,
+overloading symbols) has String among its sorts. -/
+theorem string_unnamed : (c.ctorSigs ++ c.allFns.map Fn.sig ++ c.params.map (·.sig) ++ c.ovlSigs).all
+    (fun k => !(k.result :: k.args).contains Srt.string) = true := by decide +kernel
+
+/-- The value item of the String literal `"abc"`. -/
+noncomputable def strItem (H : HookParams) : KoreAML.P :=
+  KoreAML.sExists ⟨1⟩ (sortP ((cH H).sortName Srt.string)) (den (cH H) (.dv Srt.string (.tok "abc")) ≡ .evar ⟨1⟩)
+
+theorem str_sort (H : HookParams) : (cH H).sortOf (.dv Srt.string (.tok "abc")) = some Srt.string := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+
+/-- The item is a premise of Γ, for every H. -/
+theorem strItem_mem (H : HookParams) : Γ (cH H) (strItem H) :=
+  Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, Srt.string, str_sort H, rfl⟩)))))))
+
+/-- **The item is a `RegistryItem` at the name `SortString`**, for every H. -/
+theorem strItem_registry (H : HookParams) : RegistryItem (cH H) Dstring (strItem H) :=
+  Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, Srt.string, ⟨by decide, (by decide +kernel : c.sortName Srt.string = "String") ▸ rfl⟩,
+    str_sort H, rfl⟩))))
+
+/-- The item names the detached symbol, so it is not a premise of the theory without the family. -/
+theorem strItem_not_own (H : HookParams) : ¬ Γown (cH H) Dstring (strItem H) := fun h =>
+  h.2 (.sort "SortString") (by
+    have : strItem H = KoreAML.sExists ⟨1⟩ (sortP "String") (den c (.dv Srt.string (.tok "abc")) ≡ .evar ⟨1⟩) := rfl
+    rw [this]; decide +kernel) rfl
+
 /-! ## The statements for a definition, their `RightHeld` argument decided -/
 
 /-- `sound`, `sound_withHooks` and `exact` at `defn`, the argument `RightHeld` left to its default
@@ -779,3 +816,4 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.absent_syms
 #print axioms KCore.TieEns.lib166_at_values
 #print axioms KCore.TieEns.defs_attrsAgree
+#print axioms KCore.TieEns.strItem_registry
