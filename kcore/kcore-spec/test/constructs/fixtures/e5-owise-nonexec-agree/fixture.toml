@@ -1,0 +1,9 @@
+# e5-owise-nonexec with the non-executable equation's right side made to agree with the [owise] equation where both
+# apply (C3.nonexec-owise-agree-fixture): rule choose(b, Y) => b [non-executable] in place of => Y. kompile writes it
+# with b aliased, \in(X0, \and(Lblb(), Var_Gen0)) -> choose(X0, X1) = Var_Gen0 (kore.txt //@ 193), read as the aside
+# clause choose((b as V0), V1) = V0 (kcore sem-fields: aside=true), so b. The [owise] equation (//@ 194, read
+# choose(V0, V1) = V0 at priority 200) gives b at (b, Y) as well: the two agree wherever both decide, so the
+# agreement owed as ClausesAgree holds on this text (the text has a model: choose(a, y) = y, choose(b, y) = b).
+# Its exclusion has one disjunct, X0 in a() (the executable sibling choose(a, Y) alone), as in e5-owise-nonexec.
+# Account: as e5-owise-nonexec's but the module name and the aside sentence's index (206; 208 there): agree_named
+# 1: choose (no decider confirms the agreement; it is true here), aside clauses 1, wf true, coreOK true.
