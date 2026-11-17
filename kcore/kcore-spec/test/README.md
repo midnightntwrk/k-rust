@@ -1237,8 +1237,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   each of the 565 sentences of the classes constructor functional, subsort, injectivity and
   distinctness (`cons_entailed`; `cons_account`, `cons_kinds`): each is read at a sort and
   generators that `consPairs` names, from Γ's items at the places in `consItemsK c` it names
-  (`consAt_entailed`; the places are hints the kernel checks: a search through the 1304 items
-  exceeds the cap at some tens of sentences), decided by six ranges joined by `tieAll_range`. Γ
+  (`consAt_entailed`; the places are hints the kernel checks: `tieConsB`'s search through the
+  1304 items peaks at 10.3 GiB for 20 sentences, 2.4 GiB with the places named), decided by six
+  ranges joined by `tieAll_range`. Γ
   entails each of the 16 no-junk sentences (`nojunk_entailed`): four are logical truths, ten Γ's
   items pattern for pattern (`nojunk_items`), Expr's and KItem's Γ's items with their generators
   in another order (`nojunk_order`, `noJunkItem_of_subset`). 4.7 GiB, 112 s.
