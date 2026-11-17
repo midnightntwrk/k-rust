@@ -127,6 +127,8 @@ differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
 cannot f2-examples/regeq.kompile.kore
 differs f2-examples/rhsempty.kompile.kore
+differs f2-examples/rhsemptyowise.kompile.kore
+differs f2-examples/rhsemptypeer.kompile.kore
 differs f2-examples/rhsint.kompile.kore
 differs f2-examples/rhsunit.kompile.kore
 cannot f2-examples/rsn.kompile.kore
