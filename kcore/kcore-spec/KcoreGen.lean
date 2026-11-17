@@ -2174,7 +2174,7 @@ end {ns}
   -- Facts: termination, with and without the tie
   let termNamed := c.orderObligations ++ d.cert.obligations c
   let okAllT := if exec then "(Semantics.okAll_of_ok ok)" else "okAll"
-  let termHooks := if !hasParams then "" else if termNamed.isEmpty then s!"
+  let termHooks := if termNamed.isEmpty then s!"
 
 /-- Every function terminates, for every interpretation of the parameters. -/
 theorem terminates_withHooks (H : HookParams) : ∀ f, Terminates (c.withHooks H) f :=
@@ -2210,7 +2210,7 @@ of its argument sorts), the sort predicates among them, given the named ones' to
 theorem totals{termHyp} (htot : ∀ g ∈ ({totNamed} : List Sym), Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   totals_of_order {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) {termArg} (by rw [named_totals]; exact htot)"
-  let totHooks := if !hasParams then "" else if totNamed.isEmpty then s!"
+  let totHooks := if totNamed.isEmpty then s!"
 
 /-- Every function declared `[total]` is total, for every interpretation of the parameters. -/
 theorem totals_withHooks (H : HookParams){termHypH} :
@@ -2736,6 +2736,17 @@ def account (koreFile : String) : IO UInt32 := do
       let tp := if d.sem.params.any (·.impl.isNone) then d.totalParams else []
       let owedTot := d.sem.totalObligationsRP (callOrderOf d.sem) tp
       IO.println s!"functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): {owedTot.length}: {", ".intercalate (owedTot.map fun f => decodeK (d.sem.symName f))}"
+      -- the held-named functions, as `genFnHyp` computes the package's `held_named`, each with
+      -- the variables `clauseValued` does not accept
+      let owedHeld := d.sem.heldObligations
+      IO.println s!"functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): {owedHeld.length}: {", ".intercalate (owedHeld.map fun f => decodeK (d.sem.symName f))}"
+      for (f, fp) in withPres d.sem.fns d.pres.fns do
+        for ((cl, cp), j) in (withPres f.clauses fp.clauses).zipIdx do
+          for i in List.range cl.vars.length do
+            unless cl.leftVars.contains i || (cl.vars[i]?.map d.sem.valued).getD false do
+              let s := cl.vars.getD i 0
+              let note := if d.sem.valueSorts.contains s then "" else "; the sort has no value"
+              IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
       let owedAgr := d.sem.agreeObligationsI
@@ -2982,6 +2993,231 @@ def roundTrip (koreFile : String) : IO UInt32 := do
   for (cl, w, s) in other.toList.take 5 do IO.println s!"  not emitted: {w} ({cl}): {clip 300 (Kore.Printer.sentence s)}"
   for s in unpaired.toList.take 5 do IO.println s!"  emitted, not in the text: {clip 300 (Kore.Printer.sentence s)}"
   return 1
+
+/-! ## The gap between a text and its print-back: `kcore gap`
+
+`emit` writes a definition's text from the definition read (`roundtrip` compares the two up to the
+order of each module's sentences). For a kompiled text the two differ: the emitter writes the
+library's and the generated sentences in its own form. `kcore gap KORE` classifies every sentence
+of the difference by cause. The text's sentences that `emit` does not write back are paired, one
+to one, with the emitted sentences the text lacks, in stages, each pairing what the earlier stages
+left by a key that forgets one more thing:
+1. `places`: the sentence without its `Source` and `Location` attributes (`Parse.bare`);
+2. `variable names`: also up to a one-to-one renaming of its element variables (`Parse.alphaKey`);
+3. `order`: also with its attributes, and the arguments of each `\and` and `\or` of an axiom, in a
+   fixed order (`Parse.canon`);
+4. `attributes`: without any attribute, the pattern in that normal form; the cause names the
+   attributes the two do not share;
+5. `same name`: a declaration of the same sort or symbol, an axiom with the same `UNIQUE'Unds'ID`;
+   the two state different things.
+A sentence of stage 1 to 4 states, as an axiom or a declaration, what its partner states: the
+attributes are not read as statements except those the account and the attribute agreement read.
+What no stage pairs is classified by kind (`gapKind`). A kind has a direction where the tie
+relates its sentences to `d`'s theory (TIE-1 D1: declarations, rewrite rules, the equations of
+`d`'s functions, the constructor and subsort axioms): a text sentence of such a kind that stage 1 to
+4 does not pair is one `d` does not hold as written, and every such sentence is printed. -/
+
+/-- A sentence with its attributes replaced. -/
+def gapSetAttrs (s : Kore.Sentence) (as : List Kore.AppPattern) : Kore.Sentence :=
+  match s with
+  | .sort x => .sort { x with attributes := as }
+  | .hookedSort x => .hookedSort { x with attributes := as }
+  | .symbol x => .symbol { x with attributes := as }
+  | .hookedSymbol x => .hookedSymbol { x with attributes := as }
+  | .alias x => .alias { x with attributes := as }
+  | .axiom x => .axiom { x with attributes := as }
+  | .claim x => .claim { x with attributes := as }
+  | t => t
+
+/-- The attributes of a sentence without its places, printed and sorted. -/
+def gapAttrs (s : Kore.Sentence) : List String :=
+  ((Parse.sentenceAttrs s).filter (!Parse.isPlaceAttr ·)).map (fun a => Kore.Printer.pattern (.app a.head a.sorts a.args))
+    |>.mergeSort fun a b => decide (a ≤ b)
+
+/-- A sentence's text with its attributes `as` and, for an axiom or a claim, its pattern in the
+normal form `Parse.canon`. -/
+def gapForm (s : Kore.Sentence) (as : List String) : String :=
+  let body := match gapSetAttrs s [] with
+    | .axiom a => s!"axiom {a.sortVars.map toString} {Parse.canon a.pattern}"
+    | .claim a => s!"claim {a.sortVars.map toString} {Parse.canon a.pattern}"
+    | t => Kore.Printer.sentence t
+  s!"{body} [{", ".intercalate as}]"
+
+/-- The name a sentence declares or carries: a sort's, a symbol's, an axiom's `UNIQUE'Unds'ID`. -/
+def gapName (s : Kore.Sentence) : Option String :=
+  match s with
+  | .sort x => some s!"sort {x.sort.ident.name}"
+  | .hookedSort x => some s!"sort {x.sort.ident.name}"
+  | .symbol x => some s!"symbol {x.symbol.ident.ident.name}"
+  | .hookedSymbol x => some s!"symbol {x.symbol.ident.ident.name}"
+  | .axiom a => (KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID").map (s!"axiom " ++ ·)
+  | _ => none
+
+/-- What a sentence is, for the gap, and whether the tie has a direction for it (TIE-1 D1: `true`
+for declarations, rewrite rules, the equations of a function of `d`, a constructor's `functional`
+axiom, the subsort, injectivity, distinctness and no-junk axioms). The kinds without one: an
+import, a claim, a projection's selector-domain axiom and selector-inverse lemma (named by their
+`UNIQUE'Unds'ID`), a lemma (`simplification`), an equation of a symbol `d` has no function for (a
+library symbol's, a cell initializer's, a projection `d` does not read), the `functional` axiom of
+a function (read into `FnHyp`, not into Γ) or of a hooked symbol, a collection law, set
+idempotence, and a sentence of any other form. -/
+def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
+  let c := d.sem
+  let fnLabels := c.fns.map fun f => c.symName f.label
+  let ctorNames := c.ctorSigs.map fun k => c.symName k.name
+  match s with
+  | .import _ => ("import", false)
+  | .claim _ => ("claim", false)
+  | .alias _ => ("alias declaration", false)
+  | .sort _ | .hookedSort _ => ("sort declaration", true)
+  | .symbol _ | .hookedSymbol _ => ("symbol declaration", true)
+  | .axiom a =>
+    let uid := (KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID").getD ""
+    if uid.endsWith ".selector-domain" then ("selector-domain axiom of a projection", false)
+    else if uid.endsWith ".selector-inverse" then ("selector-inverse lemma of a projection", false)
+    else
+    match Parse.classify s with
+    | .inert .simplification => ("simplification", false)
+    | .inert .injectivity => ("injectivity axiom", true)
+    | .inert .distinctCtors => ("distinctness axiom", true)
+    | .inert .noJunk => ("no-junk axiom", true)
+    | .inert .collectionLaw => ("collection law", false)
+    | .inert .parametricFunctional => ("functional axiom of a sort-parametric symbol", false)
+    | .unread .setIdempotence => ("set idempotence", false)
+    | _ =>
+      if (Parse.scanRewrite s).isSome then ("rewrite rule", true)
+      else match ((Parse.rawEqn? a).orElse fun _ => Parse.overloadEqn? a).orElse fun _ => Parse.projDomainEqn? a with
+      | some e =>
+        if fnLabels.contains e.fn then ("equation of a function of d", true)
+        else if regSymNames.contains e.fn then ("equation of a library symbol", false)
+        else ("equation of a symbol d has no function for", false)
+      | none => match Parse.scanEvent s with
+        | some (.inl f) =>
+          if ctorNames.contains f then ("functional axiom of a constructor", true)
+          else if fnLabels.contains f then ("functional axiom of a function", false)
+          else ("functional axiom of another symbol", false)
+        | some (.inr _) => ("subsort axiom", true)
+        | none => if (Parse.scanOr s).isSome then ("no-junk axiom", true)
+          else (s!"axiom of another form ({(Parse.classify s).name})", false)
+
+/-- The attributes the two sentences do not share, `-a` the text's, `+a` the emitted's (their head
+names, sorted). -/
+def gapAttrDiff (t e : Kore.Sentence) : String :=
+  let hd := fun (s : Kore.Sentence) => ((Parse.sentenceAttrs s).filter (!Parse.isPlaceAttr ·))
+  let pr := fun (a : Kore.AppPattern) => Kore.Printer.pattern (.app a.head a.sorts a.args)
+  let ta := hd t; let ea := hd e
+  let tOnly := ta.filter fun a => !ea.any (pr · == pr a)
+  let eOnly := ea.filter fun a => !ta.any (pr · == pr a)
+  " ".intercalate (((tOnly.map (s!"-" ++ ·.head.ident.name)) ++ (eOnly.map (s!"+" ++ ·.head.ident.name))).eraseDups
+    |>.mergeSort fun a b => decide (a ≤ b))
+
+/-- `kcore gap KORE`: the text's sentences that `emit` does not write back and the emitted
+sentences the text lacks (module by module, as `roundtrip` finds them), each classified by cause
+(the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
+what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
+stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
+account gives it (`Parse.connReadings`, `keysAsRequires`, a `readAs`, `unread` or `inert` class; an
+inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
+read in another form under a note is a named reading (C14's weaker or more, with its note); one
+without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
+the text is not read. With `all`, every sentence of the gap with its cause
+(and its partner). -/
+def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.println s!"cannot {koreFile}: KORE read error"; return 3
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error r => IO.println s!"cannot {koreFile}: KCore's parse refuses it ({r.toText})"; return 3
+  let e := d.emit
+  -- the text's sentences not emitted (module name, index in the module, sentence), the emitted not in the text
+  let mut ts : Array (String × Nat × Kore.Sentence) := #[]
+  let mut es : Array (String × Kore.Sentence) := #[]
+  for (me, mk) in e.modules.zip k.modules do
+    let (missing, ex) := sentenceDiff mk.sentences me.sentences
+    for j in missing do ts := ts.push (mk.name.ident.name, j, mk.sentences[j]!)
+    for s in ex do es := es.push (me.name.ident.name, s)
+  let stages : List (String × (Kore.Sentence → Option String)) :=
+    [("places", fun s => some (Kore.Printer.sentence (Parse.bare s))),
+     ("variable names", fun s => some (Parse.alphaKey s)),
+     ("order", fun s => some (gapForm s (gapAttrs s))),
+     ("attributes", fun s => some (gapForm s [])),
+     ("same name", gapName)]
+  -- per text sentence its partner (index into es) and stage
+  let mut tPair : Array (Option (Nat × String)) := Array.replicate ts.size none
+  let mut eUsed : Array Bool := Array.replicate es.size false
+  for (st, key) in stages do
+    let mut byKey : Std.HashMap String (List Nat) := {}
+    for j in [0:es.size] do
+      if !eUsed[j]! then
+        if let some kk := key es[j]!.2 then byKey := byKey.insert kk (byKey.getD kk [] ++ [j])
+    for i in [0:ts.size] do
+      if tPair[i]!.isNone then
+        if let some kk := key ts[i]!.2.2 then
+          match byKey.getD kk [] with
+          | j :: rest =>
+            byKey := byKey.insert kk rest
+            tPair := tPair.set! i (some (j, st)); eUsed := eUsed.set! j true
+          | [] => pure ()
+  let tally := fun (l : List String) => l.eraseDups.map fun n => (n, l.count n)
+  let pairs := (List.range ts.size).filterMap fun i => tPair[i]!.map fun (j, st) => (i, j, st)
+  let pairCauses := pairs.map fun (i, j, st) =>
+    if st == "attributes" then s!"attributes ({gapAttrDiff ts[i]!.2.2 es[j]!.2})" else st
+  let tAlone := (List.range ts.size).filter fun i => tPair[i]!.isNone
+  let eAlone := (List.range es.size).filter fun j => !eUsed[j]!
+  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
+  IO.println s!"gap {koreFile}: {ts.size} sentences of the text not emitted, {es.size} emitted sentences not in the text"
+  IO.println s!"paired, one text sentence with one emitted: {pairs.length}"
+  for (n, m) in tally pairCauses do IO.println s!"  {m} {n}"
+  IO.println s!"text sentences not paired: {tAlone.length}"
+  for (n, m) in tally (tAlone.map fun i => kindOf ts[i]!.2.2) do IO.println s!"  {m} {n}"
+  IO.println s!"emitted sentences not paired: {eAlone.length}"
+  for (n, m) in tally (eAlone.map fun j => kindOf es[j]!.2) do IO.println s!"  {m} {n}"
+  if all then
+    for (i, j, st) in pairs do
+      IO.println s!"  pair ({st}): {ts[i]!.1} sentence {ts[i]!.2.1}: {clip 200 (Kore.Printer.sentence ts[i]!.2.2)}"
+      IO.println s!"      emitted: {clip 200 (Kore.Printer.sentence es[j]!.2)}"
+    for i in tAlone do
+      IO.println s!"  text alone ({kindOf ts[i]!.2.2}): {ts[i]!.1} sentence {ts[i]!.2.1}: {clip 200 (Kore.Printer.sentence ts[i]!.2.2)}"
+    for j in eAlone do
+      IO.println s!"  emitted alone ({kindOf es[j]!.2}): {clip 200 (Kore.Printer.sentence es[j]!.2)}"
+  -- the text sentences of a kind with a direction that `d` does not hold as written, each with the
+  -- reading notes the account gives it (a sentence read in another form, named)
+  let held := fun (i : Nat) => match tPair[i]! with
+    | some (_, st) => st != "same name"
+    | none => false
+  let userName := (k.modules.getLast?.map (·.name.ident.name)).getD ""
+  let off := Parse.preludeLength k
+  let conn := Parse.connReadings k
+  let keys := Parse.keysAsRequires k
+  -- the inert constructor axioms the account finds not induced by `d`'s constructors (`uninduced`):
+  -- the others `d` holds as values, written or not
+  let uninduced := (Parse.uninduced k d).filterMap (·.index)
+  let notesOf := fun (i : Nat) =>
+    let (mn, j, s) := ts[i]!
+    if mn != userName then [] else
+      let n := off + j
+      (match Parse.classify s with
+        | .readAs r => [r.name]
+        | .unread r => [s!"unread {r.name}"]
+        | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
+        | _ => []) ++
+      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else [])
+  let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
+  let noted := notHeld.filter fun i => !(notesOf i).isEmpty
+  let unnoted := notHeld.filter fun i => (notesOf i).isEmpty
+  IO.println s!"text sentences of a kind with a direction that d does not hold as written: {notHeld.length}; read in another form with a reading note: {noted.length}{if noted.isEmpty then "" else s!" ({countsOf (noted.flatMap notesOf)})"}; without one (a candidate reader defect): {unnoted.length}"
+  for i in noted ++ unnoted do
+    let (mn, j, s) := ts[i]!
+    let partner := match tPair[i]! with
+      | some (jj, _) =>
+        let a := (Kore.Printer.sentence s).toList
+        let b := (Kore.Printer.sentence es[jj]!.2).toList
+        let pos := ((a.zip b).findIdx? fun (p : Char × Char) => p.1 != p.2).getD (min a.length b.length)
+        let around := fun (l : List Char) => String.ofList ((l.drop (pos - 60)).take 160)
+        s!"; emitted under the same name, the first difference at character {pos}: text …{around a}…, emitted …{around b}…"
+      | none => ""
+    let ns := notesOf i
+    IO.println s!"  {mn} sentence {j} ({(gapKind d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
+  return if unnoted.isEmpty then 0 else 1
 
 /-! ## Agreement with recorded results
 
@@ -3941,6 +4177,8 @@ def main (argv : List String) : IO UInt32 := do
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
+  | ["gap", kore] => KcoreGen.gapCmd kore false
+  | ["gap", kore, "--all"] => KcoreGen.gapCmd kore true
   | "agree" :: files@(_ :: _) => KcoreGen.agree files
   | "oracle" :: args@(_ :: _) => KcoreGen.oracle args
   | ["fn-facts", kore] => KcoreGen.fnFacts kore
@@ -3968,4 +4206,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2

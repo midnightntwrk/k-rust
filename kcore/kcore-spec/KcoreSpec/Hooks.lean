@@ -42,7 +42,8 @@
   argument sorts, ⊥ where it is undefined. So the domain theories
   are not written by hand symbol by symbol; they are read off this one function, which is what a
   reviewer checks against K's documented meaning of each hook (domains.md): Int is ℤ with
-  truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0;
+  truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0
+  (domains.md:1233-1237: t-division and Euclidean division, "Division by zero is `#False`");
   Float is IEEE 754 binary floating point of each value's format, every result rounded to nearest,
   ties to even; a String is a sequence of code points and a Bytes value one of bytes, positions
   counted from 0; Bool is the two-element Boolean
@@ -156,6 +157,9 @@ def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (intEq, fun vs => int2 vs fun x y => some (bool (decide (x = y)))),
    (intNe, fun vs => int2 vs fun x y => some (bool (decide (x ≠ y)))),
    (intAbs, fun vs => match vs with | [a] => (asInt a).map fun x => int x.natAbs | _ => none),
+   -- `freshInt` has no hook in the text: it is a total function with the one equation
+   -- freshInt(I) => I (domains.md:1456-1457; hw-h1-fun.kore:158, :1447-1464). It is listed here
+   -- because its graph at values is that equation.
    (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none)]
 
 def kHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=

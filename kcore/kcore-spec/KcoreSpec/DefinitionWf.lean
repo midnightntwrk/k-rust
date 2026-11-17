@@ -1093,9 +1093,10 @@ def namesFor (n : Nat) (names : List String) : Bool := names.length == n && nodu
 
 /-- Rule attributes that leave the rule's ground steps unchanged: `concrete` (every ground
 configuration is concrete), kompile's `cool-like` and `cool` (hints to a backend's strategy; the
-rule is an ordinary rewrite), `preserves-definedness` (a promise to a symbolic backend that the
-right-hand side is defined wherever the left-hand side matches; `Step` fires a rule only where its
-right-hand side has a value, so the promise changes no step), `symbolic` (which terms a prover
+rule is an ordinary rewrite), `preserves-definedness` (no K text gives the attribute a meaning:
+kore-syntax.md:223-229 makes an attribute a hint whose semantic content belongs in explicit axioms,
+and the user manual has no occurrence of it; kompile writes it on the axiom and no sentence beside
+it, e2-rule/kore.txt:193-199), `symbolic` (which terms a prover
 applies the rule to, no statement of the theory: the text states the rewrite axiom and `Step` has
 its steps), `comm` (K gives it no meaning on a rule). Not among them: `anywhere`, `non-executable`,
 `simplification`, which the reader refuses (`Parse.ruleAttrRefused`). `owise` and `priority` are not attributes here:

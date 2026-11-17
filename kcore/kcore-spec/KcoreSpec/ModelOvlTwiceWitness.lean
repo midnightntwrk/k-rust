@@ -89,7 +89,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
     cases g with
     | ctor k => simp [Semantics.isOpenGen, Semantics.lookupOpen_of_noRaw c (by decide +kernel) k.name]
     | inj _ => rfl
-  have hit := sat_cons hI (Or.inl ⟨_, distUncItem_mem k_cons (by rw [hF]; exact f_pair) (fun _ _ h _ => by cases h)
+  have hit := sat_cons hI (Or.inl ⟨_, distUncItem_mem (by decide +kernel) k_cons (by rw [hF]; exact f_pair) (fun _ _ h _ => by cases h)
     f_guarded, rfl⟩)
   have hx : InS I (c.sortName Srt.int) (elemOf c I (int 0)) :=
     (inS_iff _).mp (elemOf_spec hI (sortOf_int 0) KoreAML.val0).2

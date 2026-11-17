@@ -11,8 +11,8 @@
     each read with `coreOK`, its clause's `CondDecided` owed and open (`owedClauses`; neither is
     `Witnessed`: test/ClauseOpenCond.lean). The pinned `sound_at` is stated for each only under the
     owed fact as a hypothesis, named with its clause (`hc_of_owed`).
-  - `rhsempty` (fixture e2-clause-rhs-empty, `f() => g(Y:Empty)`): refused `unboundVariable`, the
-    sort having no value.
+  - `rhsempty` (fixture e2-clause-rhs-empty, `f() => g(Y:Empty)`): read with `coreOK`; `f` is
+    held-named (`Semantics.heldObligations`), Empty having no value, so `rightValued` is false.
   - `rhsunit` (e2-clause-rhs-unit, `f() => h(Y:U)`, `U ::= "u"`) and `rhsint` (e2-clause-rhs-int,
     `f() => c(Y:Int)`): read with `coreOK` and `rightValued`, `MatchIndependent` of the clause named
     (`matchObligations`, `matchObligationsL`), none owed.
@@ -53,7 +53,7 @@ def fClasses (path : String) : IO String := do
 info: cooleq: wf true, coreOK true
 openh: wf true, coreOK true
 clgenless: wf true, coreOK true
-rhsempty: refused unboundVariable VarY:Empty: in the right side or the ensures, not bound by the arguments or the requires, of a sort without an exhibited value; the sort has no value
+rhsempty: wf true, coreOK true
 rhsunit: wf true, coreOK true
 rhsint: wf true, coreOK true
 cooleq, the axioms applying f: [read, inert simplification]
