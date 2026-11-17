@@ -44,6 +44,9 @@
 #   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
 #               option set the rows are stated for, and the text has the recorded SHA-256 (nothing
 #               is kompiled)
+#   imp-tie     test/imp-tie.sh: the record of ref-kimp's tie per class (test/imp-tie.toml) has the
+#               account's classes and counts, tieClasses' directions, and names stated theorems
+#               (nothing is run as Lean)
 #   kk-kompile  test/kk-kompile.sh: the same of the command recorded for ref-kk's text, kore.k's
 #               kompiled KORE, and kore.k has the recorded SHA-256 (nothing is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
@@ -183,13 +186,14 @@ fi
 LP=$(lake env printenv LEAN_PATH)
 
 # native checks
-order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile kk-kompile"
+order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile imp-tie kk-kompile"
 check regen scoreboard test/regen.sh -j "$J"
 check roundtrip scoreboard test/roundtrip.sh
 check corpus scoreboard python3 -I test/corpus.py -j "$J" --expected test/corpus.expected
 check agree scoreboard test/agree.sh
 check agree-kore-in-k scoreboard agreeKoreInK
 check imp-kompile scoreboard test/imp-kompile.sh
+check imp-tie scoreboard test/imp-tie.sh
 check kk-kompile scoreboard test/kk-kompile.sh
 
 # Lean checks, the longest first
