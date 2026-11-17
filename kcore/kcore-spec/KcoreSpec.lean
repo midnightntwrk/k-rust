@@ -237,7 +237,12 @@ import KcoreSpec.ReadFns
 import KcoreSpec.InjValue
 import KcoreSpec.ClausePlainEx
 import KcoreSpec.ExistsHoist
+import KcoreSpec.HeldValues
 import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
 import KcoreSpec.TieLemmas
 import KcoreSpec.AxiomsCheck
+import KcoreSpec.MemHeldValues
+import KcoreSpec.StepValuesHeld
+import KcoreSpec.CompeteHeld
+import KcoreSpec.HoldsModelFixed

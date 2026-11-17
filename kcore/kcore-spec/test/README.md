@@ -131,6 +131,21 @@ exactly those `Step` reaches within the mode's bound, given `CoherentAll`. For `
 is proved at the fixed fuel (a successor could be missed). The input must evaluate to a value of the
 top cell's sort (the theorems are about `Config c`).
 
+Whether a run read the interpretation of the parameters (DONE-0 C7 check 2, D-RN-1). The data
+`parse` gives carries the interpretation `HookParams.none`, and the evaluation reads it at three
+places only: a parameter applied to defined arguments, an interpreted symbol at a silent point where
+the hook gives no value, a function every clause of which fails (its rest). Each case is also
+judged with `Executable.atNone`, the executable step whose evaluation has no result at those places
+(as `Cert.evalTC` for `Exec`'s; KcoreGen.lean, the section "The run without the interpretation"),
+which a run treats as out of fuel. Where the two judgements differ, or a parameter is raw (its
+applications' sorts are the interpretation's), the run read the interpretation: its verdict holds at
+`HookParams.none` only and is named `agree-at-none` or `differ-at-none`, outside the counts of
+`agree` and `differ` (the summary counts it apart; exit 1 only on `differ`); the JSON field
+`interpretation` is `read` or `not read` for every `agree` or `differ`, and the reason says what the
+run without the interpretation gives. A case run anyway (`not-runnable`) carries the flagged verdict
+in its reason (`anyway:agree-at-none`). That `atNoneEvalT`'s results are `evalT`'s is not proved: a
+difference where nothing read the interpretation would flag a case wrongly, never pass one.
+
 - `test/agree-cases.py` builds `test/agree.jsonl` from the reference cache only (its docstring says
   how): kore-exec entries (input: the pattern, a K-rust fixture; needs `KRUST_CHECKOUT` when the
   entry's path is gone), and krun groups (program, `-c` options, definition) with a `--depth 0` run,
@@ -335,6 +350,25 @@ and U sets, `execReady`, whether `CoherentAll` is decided (`coherentVerdict`: `c
 agreement or match-independence fact named, else the open facts), and `vs_expected` where the case
 carries an expected result. `test/oracle-kore-in-k.sh` runs it on c03, c08 and c24 (haskell) against
 `test/oracle-kore-in-k.expected` (not an integration row).
+
+## The gap between a kompiled text and its print-back: `test/gap.sh`
+
+`kcore gap KORE [--all]` (KcoreGen.lean, the section "The gap between a text and its print-back";
+TIE-1 D2, "Is the gap a defect?"). For a text whose print-back is not the text up to order
+(`roundtrip`'s `differs`), the text's sentences `emit` does not write back and the emitted sentences
+the text lacks are paired one to one in stages, each key forgetting one more thing: `places` (the
+`Source` and `Location` attributes), `variable names`, `order` (of the attributes and of the
+arguments of `\and` and `\or`), `attributes` (named by the attributes not shared), `same name` (a
+declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating different things).
+What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
+(declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
+that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
+connective reading, `keysAsRequires`, a `readAs`, `unread` or `inert` class, an inert constructor
+axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
+`--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
+by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
+places and 6 by variable names, the 28 emitted alone the 14 projections' selector-domain axioms
+and selector-inverse lemmas (krust's; kompile writes none), no candidate.
 
 ## The construct lists: `test/constructs/`
 
@@ -660,7 +694,36 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor).
+  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
+  H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
+  `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
+  `rest_undetermined` says that where every clause of a function fails `Γ` over all H entails
+  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause). Every `UnreadReason`
+  has its entry: `setIdempotence` is guarded by G7 with `idem_refuted` (test/TieEns.lean) and
+  `setIdem_reached` (were `_Set_` a key of `silentTable`, its value at a common member would be
+  the interpretation's); the five others name the reader test that fixes their verdict. The nine
+  reader devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`, `bottomAsEnsures`,
+  `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`) each have a guard on the kompiled
+  text of a construct fixture, stated for every H about `c.withHooks H` (namespaces `DevOr` to
+  `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
+  without the device, where the result differs (at a named H where that reading makes the point
+  one where every clause fails, under every H where no function is at the point). `reflectionAsOwn`
+  (`DevRefl`), `keyFunctionAsRequires` (`DevKey`), `equationPriority` (`DevPrio`, on
+  `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
+  interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
+  the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
+- `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
+  e2-macro): the four macro and alias symbols the text declares and does not apply are not read
+  (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
+  unaccounted, `f`'s clause applying none of them.
+- `test/H12Witnesses.lean`: a constructor whose result sort has other values is outside `coreOK`,
+  by `Faithful.genWf`: hand-built semantics over one frame, in the kernel. A library constructor
+  into Int or Map fails `genWf`'s third conjunct (the sort enters `consSorts` and is a literal or
+  collection sort), an own constructor into them its first (the sort is no constructor sort); into
+  an own carrier sort and into an own Map collection sort both routes fail the first; each beside
+  its control without the constructor, `coreOK = true`. A library constructor into MInt keeps
+  `coreOK`; into RangeMap, a collection sort of the kernel, it fails the third conjunct.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
@@ -758,6 +821,38 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   starts from the library's sorts below KItem, of which `coreOK` asks no literal, collection or
   constructor). `cLoop`: `syntax S ::= s(S)` with `coreOK`, S outside `valueSorts` and the one
   sort of `valueless`.
+- `test/RuleAndWeaken.lean`: `t #And u` on a rule's right side read as `t` with the ensures
+  `t == u` is a weakening the text entails and not an equality. `rewrites_weaken`,
+  `denB_rule_and_weaken`: every element of the text's sentence `L → •C[t ∧ u]` is an element of
+  `(L ∧ ⌈R'⌉) → •R'`, `R' = C[t] ∧ (E = T)` (`gamRule`), in every interpretation of definedness
+  in which the two sorts denote sorts and the text's right side lies in the rule's sort and in
+  `C[t]`; nothing is asked of t, u, E or T. `ruleRight_ens`, `prioRuleK_ens`: `gamRule`'s right
+  side is `ruleRight`'s and `prioRuleK`'s for a rule with an `ensures`, so a change of that right
+  side fails here. The interpretation `J hk` of `k(X) => k(f(X) #And g(X))` (the conjuncts meet
+  and one has two elements): `text_at`, `gam_at` (the lemma's instance), `strict_left`,
+  `strict_step`, `strict_more` (the reading's right side holds `k(e)`, the text's does not),
+  `exact_right_empty`, `exact_left_fails`, `exact_text_step` (the reading's sentence says nothing
+  at `k(one)` where the text's gives a successor), `left_forces`.
+- `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
+  `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
+  rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
+  `Step c x y ↔ Step cIn x y` for all configurations, `cIn` holding the rule in the fresh form
+  (`zForm`: one more variable Z in `exs`, `rhs := C[Z]`, `post := Z ∈ t ∧ Z ∈ u`), from
+  `Holds.mem` with `sameResult` and the hook of `==Int`. `step_var_k`: the same for the variable
+  form (`vForm`: `post := V ∈ u`) and `==K` of the two one-item K sequences, from the
+  injectivity of the injection. `MlAndT.step_and_same`, `MlAndC.step_and_same`: the instances at
+  the reader's semantics for `f2-examples/mlandt.kompile.kore` (`go(X) => f(X) #And g(X)`) and
+  `f2-examples/mlandc.kompile.kore` (`c(X) => X #And a()`), every hypothesis decided
+  (`rule_shape_dec`: the rule as the reader reads it).
+- `test/HoldsModelFixed.lean`: a condition with an `ex` binder of a sort that is not confined, in
+  the value model at a transition (KcoreSpec/HoldsModelFixed.lean), at the reader's semantics for
+  `f2-examples/symrule.kompile.kore`. `conds_ok`: `Z ∈ 3 ∨ ∃ B:Int. (Z ∈ B ∧ B = 4)` and its
+  negation are refused by `Cond.bound` (Int is not confined) and accepted by
+  `Cond.boundV c c.valueSorts.contains`; `∃ B:Int. Z ∈ B`, whose body does not fix B, is refused
+  by both; a binder of Bool is accepted by both. `hval`: every sort of `valueSorts` is numbered
+  (decided). `holds_atT_fixed` and `holds_stdI_fixed` at the two accepted conditions under
+  `FnHyp`, the truth value from `holds_decided`; `Cond.boundV_none`, `Cond.boundV_of_bound` at
+  instances.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
