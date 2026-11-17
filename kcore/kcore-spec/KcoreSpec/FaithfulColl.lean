@@ -846,7 +846,7 @@ include hnm in
 arguments where a clause fails in the model, its exclusion
 `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` is empty, at a valuation that gives each formal argument `Xⱼ` the
 element of the argument and the sort variable `R` a sort. -/
-theorem exclusion_empty4 {fn : Fn} {cl : Clause}
+theorem exclusion_empty4 {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats) (hplain : mapPats c cl.pats = true)
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
@@ -860,7 +860,7 @@ theorem exclusion_empty4 {fn : Fn} {cl : Clause}
     (hfail : ModelFails c I cl ws) (m : M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret I e m := by
   intro hm
-  rw [exclusion_top _ (List.all_eq_true.mpr fun i hi => by simpa using hbinds i (List.mem_range.mp hi))] at hm
+  rw [exclusion_top _ hpre (List.all_eq_true.mpr fun i hi => by simpa using hbinds i (List.mem_range.mp hi))] at hm
   have hD := defOK hI
   let vs := canonVars c cl.vars
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
@@ -986,7 +986,7 @@ theorem step_sound_stage4 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
   refine step_at4 hI hnn hsc hy.1 hbc hph (fun fn hfn cl hcl hn => ?_) hb (fun r hr hn => ?_) hstep e m hm
   · obtain ⟨hp', hb', -⟩ := clause_ctx hy.1 hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_empty4 hI hC hph hmo hg hsc.trans hnn.1 hp' hb' (hc4 fn hfn cl hcl hn) hws hkeys hXkeys hRkey hX hR hσR
+      exclusion_empty4 hI hC hph hmo hg hsc.trans hnn.1 (clause_preTop hy.1 hfn hcl) hp' hb' (hc4 fn hfn cl hcl hn) hws hkeys hXkeys hRkey hX hR hσR
         hfail m
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
     exact fun hx _ hkeys e hfail =>

@@ -344,23 +344,23 @@ theorem clause_keys_inAx {fn : Fn} {cl : Clause} {prem : Kore.Pattern}
   · rw [hpost] at hQ; simp [varOccsCond] at hQ
 
 /-- A clause's exclusion under its canonical presentation, its binders listed as variables. -/
-theorem exclusion_canon_mapCl (c : Semantics) (fn : Fn) (cl : Clause) :
+theorem exclusion_canon_mapCl (c : Semantics) (fn : Fn) (cl : Clause) (hpre : cl.pre = .top) :
     exclusion c fn cl (canonClausePres cl) = KoreAML.existsAll KoreAML.R
       ((((List.range cl.vars.length).filter cl.leftVars.contains).map ((canonVars c cl.vars).getD · default)).map
         KoreAML.Var.kore)
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
         (Term.koreList c (canonVars c cl.vars) cl.pats)) := by
-  rw [exclusion_canonCl, filterMap_getElem?_of_lt _ _ (fun i hi => by
+  rw [exclusion_canonCl _ _ _ hpre, filterMap_getElem?_of_lt _ _ (fun i hi => by
     rw [canonVars_length]; exact List.mem_range.mp (List.mem_filter.mp hi).1)]
 
 /-- The exclusion of a clause has the formal arguments as its only free variables: it binds the variables of the patterns and the conditions. -/
-theorem freeOf_exclusionCl {fn : Fn} {cl : Clause}
+theorem freeOf_exclusionCl {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     {bound : List VarKey} {k : VarKey}
     (hk : k ∈ KoreAML.freeOf bound (exclusion c fn cl (canonClausePres cl))) :
     ∃ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s ∧ k = .evar ("X" ++ toString j) (KoreAML.srt s) := by
-  rw [exclusion_canon_mapCl] at hk
+  rw [exclusion_canon_mapCl _ _ _ hpre] at hk
   let vs := canonVars c cl.vars
   let l := (List.range cl.vars.length).filter cl.leftVars.contains
   obtain ⟨bound', hb', hk⟩ := freeOf_existsAll (S := KoreAML.R)
@@ -398,9 +398,10 @@ theorem freeOf_exclusionCl {fn : Fn} {cl : Clause}
 
 /-- The binders of a clause's exclusion are the canonical variables of its patterns and
 conditions. -/
-theorem varsOf_exclusionCl {fn : Fn} {cl : Clause} {i : Nat} (hi : i < cl.vars.length) (hil : i ∈ cl.leftVars) :
+theorem varsOf_exclusionCl {fn : Fn} {cl : Clause} {i : Nat} (hpre : cl.pre = .top) (hi : i < cl.vars.length)
+    (hil : i ∈ cl.leftVars) :
     canonKey c cl.vars i ∈ KoreAML.varsOf (exclusion c fn cl (canonClausePres cl)) := by
-  rw [exclusion_canon_mapCl]
+  rw [exclusion_canon_mapCl _ _ _ hpre]
   exact varsOf_existsAll_binder (S := KoreAML.R) (body := premise _ _ _) _
     (List.mem_map_of_mem (List.mem_map_of_mem (List.mem_filter.mpr ⟨List.mem_range.mpr hi, by simpa using hil⟩)))
 
@@ -434,6 +435,7 @@ theorem plain_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNu
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_varsCl (c := c) hpats hreqv
+  rw [clauseEquation_top hpre] at hmem
   exact eqn_atCl hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1
     (clause_keys_inAx hpats hreqv hpre hpost hocc (fun _ h => h)) hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
@@ -448,7 +450,7 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
     (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
-    (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
+    (hothers : ∀ cl' ∈ others, cl'.pre = .top ∧ sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
@@ -466,6 +468,7 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
+  rw [competingEquation_top hpre] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_varsCl (c := c) hpats hreqv
@@ -493,8 +496,8 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
     · rw [anyOf_eq] at hk
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
-      obtain ⟨hp', hq', -⟩ := hothers cl' hcl'
-      exact Or.inl (freeOf_exclusionCl hp' hq' hk)
+      obtain ⟨hpre', hp', hq', -⟩ := hothers cl' hcl'
+      exact Or.inl (freeOf_exclusionCl hpre' hp' hq' hk)
     · exact hv.2.2 k hk
   · have hR' : e.evalEvar (tbl.ev (.sortVar "R")) = σr := (hRv _).mp (by rw [trSort_R, KoreAML.interp_evar])
     have hRkey : VarKey.sortVar "R" ∈ tbl := hkeys _ (by
@@ -509,9 +512,9 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
     rw [anyOf_eq]
     refine anyOfC_empty hD isFree_R comps (fun φ hφ => ?_)
     obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
-    obtain ⟨-, -, hpl', hf', hmf'⟩ := hothers cl' hcl'
+    obtain ⟨hpre', -, -, hpl', hf', hmf'⟩ := hothers cl' hcl'
     exact hpl' hws hf' hmf'
-      (fun i hi hil => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusionCl hi hil))))
+      (fun i hi hil => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusionCl hpre' hi hil))))
       (fun j s hj => hkeys _ (hP _ (hv.1 j _ (by rw [List.getElem?_map, hj]; rfl))))
       hRkey (fun j w s hw hs => hX j w _ hw (by rw [List.getElem?_map, hs]; rfl)) hR' hσr2 m0
 
@@ -537,7 +540,7 @@ theorem clause_den4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c
       ∀ m', (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e' m' ↔
         (den c (bool true)).interpret I e' m')
     (hlow : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
-      sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
+      cl'.pre = .top ∧ sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws)
     (e : Valuation M) (m : M) :

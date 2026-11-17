@@ -73,6 +73,15 @@ theorem clause_factsCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {c
     · rw [ht] at hens
       simpa [reqOK] using hens
 
+/-- A clause of a function of the semantics (the user's or a sort predicate's) has the premise
+predicate `\top`: the user's by `sortedOKCl` (`clausePlainOpen`), a sort predicate's by its text. -/
+theorem clause_preCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+    cl.pre = .top := by
+  rcases List.mem_append.mp hfn with hu | hp
+  · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
+    exact (Semantics.clausePlainOpen_parts (hfns fn hu cl hcl).2).2.1
+  · exact Semantics.sortPreds_pre hp cl hcl
+
 /-- A clause's variables have numbered sorts: each occurs in its patterns, of the function's
 argument sorts, or in its `requires`, right side or `ensures`, of numbered sorts. -/
 theorem clause_vars_num (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
@@ -233,7 +242,7 @@ theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     exact hne i (hl i hi) (ev_inj hk (hkeys i (hl i hi) (hlm i hi)) heq)
   have hRne : ∀ i < n, KoreAML.VarKey.sortVar "R" ≠ canonKey c cl.vars i := fun i hi he => by
     rw [canonKey_eq c hi] at he; cases he
-  rw [exclusion_canon_mapCl]
+  rw [exclusion_canon_mapCl _ _ _ (clause_preCl h hfn hcl)]
   constructor
   · intro hm
     obtain ⟨e', hag, hguard, hbody⟩ := existsAll_elim defOK_std _ e a hnd hsrt hm
@@ -514,13 +523,13 @@ theorem fails_of_not_excl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.
   ⟨hi, fun cl hcl σ hap => hf cl hcl σ ⟨hap.1.at _, hap.2.1, hap.2.2⟩⟩
 
 omit h hfn in
-theorem varsOf_not_exclCl {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) {i : Nat} (hi : i < cl.vars.length)
-    (hil : i ∈ cl.leftVars) :
+theorem varsOf_not_exclCl {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) (hpre : cl.pre = .top) {i : Nat}
+    (hi : i < cl.vars.length) (hil : i ∈ cl.leftVars) :
     canonKey c cl.vars i ∈ KoreAML.varsOf (.not KoreAML.R (KoreAML.anyOf
       (cls.map fun cl => exclusion c fn cl (canonClausePres cl)))) := by
   simp only [KoreAML.varsOf]
   rw [anyOf_eq]
-  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusionCl hi hil))
+  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusionCl hpre hi hil))
 
 namespace AtT
 
@@ -554,7 +563,7 @@ theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
     obtain ⟨-, hfails⟩ := fails_of_not_exclCl (T := T) h hfn hdl hEq.R hEq.Xk hEq.Rs hEq.args
       (fun cl' hcl' i hi hil => hvT _ (by
         unfold competingPremise
-        exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' hi hil))) hnot
+        exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl h hfn (hdl cl' hcl')) hi hil))) hnot
     obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
       (patOKs_of_sorted h hpats) hlen hEq.args a).mp hp
     exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ, hpv, hq⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
@@ -612,9 +621,10 @@ theorem satFnsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
   obtain ⟨cl, hcl, rfl⟩ := List.mem_map.mp hs
   by_cases hlow : (lowerClauses fn cl).isEmpty = true
   · rw [show prioEquation c fn cl = clauseEquation c fn cl from if_pos hlow] at hit
-    exact sat_kernelItem_of hit rfl (sat_clauseEq h hfn hcl (List.isEmpty_iff.mp hlow))
+    exact sat_kernelItem_of hit (clauseEquation_top (clause_preCl h hfn hcl))
+      (sat_clauseEq h hfn hcl (List.isEmpty_iff.mp hlow))
   · rw [show prioEquation c fn cl = competingEquation c fn (lowerClauses fn cl) cl from if_neg hlow] at hit
-    exact sat_kernelItem_of hit rfl (sat_competingEq h hfn hcl)
+    exact sat_kernelItem_of hit (competingEquation_top (clause_preCl h hfn hcl)) (sat_competingEq h hfn hcl)
 
 end AtT
 

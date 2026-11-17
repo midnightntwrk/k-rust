@@ -728,13 +728,13 @@ theorem sat_eqn (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars : L
   sat_eqnCl h hfn hnum hrhsOK hensOK (fun i hi => by rw [KoreAML.freeOf]; exact List.mem_append_left _ (hV i hi))
     (fun i hi => by rw [KoreAML.varsOf]; exact List.mem_append_left _ (List.mem_append_right _ (hVv i hi))) hread
 
-theorem varsOf_not_excl {fn : Fn} {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls)
+theorem varsOf_not_excl {fn : Fn} {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) (hpre : cl.pre = .top)
     (hbd : binds cl.vars.length (varOccsList cl.pats) = true) {i : Nat} (hi : i < cl.vars.length) :
     canonKey c cl.vars i ∈ KoreAML.varsOf (.not KoreAML.R (KoreAML.anyOf
       (cls.map fun cl => exclusion c fn cl (canonClausePres cl)))) := by
   simp only [KoreAML.varsOf]
   rw [anyOf_eq]
-  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusion hbd hi))
+  exact List.mem_append_right _ (mem_varsOf_anyOfC (List.mem_map.mpr ⟨cl, hcl, rfl⟩) (varsOf_exclusion hpre hbd hi))
 
 theorem varsOf_premise_var {args : List Srt} {req : Option Kore.Pattern} {pats : List Term} {vars : List Srt}
     (hlen : pats.length = args.length) {i : Nat} (hi : i ∈ varOccsList pats) :

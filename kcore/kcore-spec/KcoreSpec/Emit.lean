@@ -222,13 +222,28 @@ def prodAxiomBlocks (c : Semantics) : List Prod → List (List Kore.Sentence)
   | .fn f _ :: ps => (if f.total then [functionalAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result)] else []) ::
       prodAxiomBlocks c ps
 
-/-- `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄`: the arguments a clause applies to, the variables of its patterns
-and conditions bound (a variable outside them does not bear on whether it applies). -/
+/-- A clause's premise with its predicate, `prem ∧ pre` at the sort variable `R`, `vs` the clause's
+variables: the premise `prem` alone where the predicate is `\top`. -/
+def withPre (c : Semantics) (vs : List KoreAML.Var) (cl : Clause) (prem : Kore.Pattern) : Kore.Pattern :=
+  if cl.pre.isTop then prem else .and R [prem, Cond.kore c vs R cl.pre]
+
+/-- The premise of a clause whose predicate is `\top` is the premise without a predicate. -/
+theorem withPre_top {c : Semantics} {vs : List KoreAML.Var} {cl : Clause} {prem : Kore.Pattern}
+    (h : cl.pre = .top) : withPre c vs cl prem = prem := by
+  unfold withPre; rw [h]; rfl
+
+/-- `withPre_top` from `Cond.isTop`. -/
+theorem withPre_isTop {c : Semantics} {vs : List KoreAML.Var} {cl : Clause} {prem : Kore.Pattern}
+    (h : cl.pre.isTop = true) : withPre c vs cl prem = prem := if_pos h
+
+/-- `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre`: the arguments a clause applies to, the variables of its
+patterns and conditions bound (a variable outside them does not bear on whether it applies);
+`∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` where the clause's predicate is `\top` (`withPre`). -/
 def exclusion (c : Semantics) (f : Fn) (cl : Clause) (cp : ClausePres) : Kore.Pattern :=
   let ren := varList (cl.vars.map c.sortName) cp.exclNames
   let bound := (List.range cl.vars.length).filter cl.leftVars.contains |>.filterMap (ren[·]?)
   existsAll R (bound.map KoreAML.Var.kore)
-    (premise (f.args.map c.sortName) (cl.req.map (Term.kore c ren)) (Term.koreList c ren cl.pats))
+    (withPre c ren cl (premise (f.args.map c.sortName) (cl.req.map (Term.kore c ren)) (Term.koreList c ren cl.pats)))
 
 /-- An equation's priority as kompile writes it: `priority{}("n")` when the presentation says so,
 otherwise `owise{}()` for 200 and nothing for 50. -/

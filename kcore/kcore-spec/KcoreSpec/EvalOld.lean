@@ -122,6 +122,17 @@ theorem Semantics.binds_of_plain_mem {c : Semantics} (hp : c.plain = true) {fn :
     exact (hp.1.1.1.2 fn hfn cl hcl).2
   · exact Semantics.sortPreds_binds hfn
 
+/-- The premise predicate of every clause of a function of a plain definition is `\top`: the
+user's by `plain`, the generated sort predicates' by their text. -/
+theorem Semantics.pre_of_plain_mem {c : Semantics} (hp : c.plain = true) {fn : Fn}
+    (hfn : fn ∈ c.allFns) : ∀ cl ∈ fn.clauses, cl.pre = .top := by
+  simp only [Semantics.allFns, List.mem_append] at hfn
+  rcases hfn with hfn | hfn
+  · simp only [Semantics.plain, Bool.and_eq_true, List.all_eq_true] at hp
+    intro cl hcl
+    exact Cond.eq_top_of_isTop (hp.1.1.1.2 fn hfn cl hcl).1.1.2
+  · exact Semantics.sortPreds_pre hfn
+
 theorem Semantics.binds_of_plain {c : Semantics} (hp : c.plain = true) {f : Sym} {fn : Fn}
     (hfn : c.lookupFn f = some fn) : ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true := by
   rw [Semantics.lookupFn_eq] at hfn

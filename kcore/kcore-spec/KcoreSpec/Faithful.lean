@@ -505,21 +505,45 @@ def competingPremise (args : List String) (competitors : List Kore.Pattern) (req
     (pats : List Kore.Pattern) : Kore.Pattern :=
   .and R [.not R (KoreAML.anyOf competitors), premise args req pats]
 
-/-- A clause with no competitor: `⌈req = true⌉ ∧ X̄ ∈ p̄ → f(X̄) = rhs ∧ ens`, the equation
-`clauseAx` writes; `ens` is `⌈E = true⌉` for an `ensures` E, `⊤` without one. -/
+/-- A clause with no competitor: `⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre → f(X̄) = rhs ∧ ens`; `ens` is
+`⌈E = true⌉` for an `ensures` E, `⊤` without one. Where the clause's predicate `pre` is `\top` the
+premise is `⌈req = true⌉ ∧ X̄ ∈ p̄` (`withPre`, `clauseEquation_top`), the equation `clauseAx` writes. -/
 def clauseEquation (c : Semantics) (f : Fn) (cl : Clause) : Kore.Sentence :=
   let vs := canonVars c cl.vars
-  eqnSentence c f (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))
+  eqnSentence c f
+    (withPre c vs cl (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)))
     (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs)))
 
 /-- A clause under the negation of the clauses `others`: it applies where none of them does, its
-own `requires` holds and its patterns match. Its right side is `rhs ∧ ens`, as `clauseEquation`'s. -/
+own `requires` holds, its patterns match and its predicate holds,
+`¬ ⋁ competitors ∧ (⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre)`; where the predicate is `\top` the premise is
+`competingPremise`'s (`competingEquation_top`). Its right side is `rhs ∧ ens`, as `clauseEquation`'s. -/
 def competingEquation (c : Semantics) (f : Fn) (others : List Clause) (cl : Clause) : Kore.Sentence :=
   let vs := canonVars c cl.vars
   eqnSentence c f
-    (competingPremise (f.args.map c.sortName) (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))
-      (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))
+    (.and R [.not R (KoreAML.anyOf (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))),
+      withPre c vs cl (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))])
     (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs)))
+
+/-- The equation of a clause whose predicate is `\top` has the premise `⌈req = true⌉ ∧ X̄ ∈ p̄`. -/
+theorem clauseEquation_top {c : Semantics} {f : Fn} {cl : Clause} (h : cl.pre = .top) :
+    clauseEquation c f cl =
+      eqnSentence c f (premise (f.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
+          (Term.koreList c (canonVars c cl.vars) cl.pats))
+        (Term.kore c (canonVars c cl.vars) cl.rhs)
+        (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
+  unfold clauseEquation; simp only [withPre_top h]
+
+/-- The competing equation of a clause whose predicate is `\top` has the premise
+`competingPremise` writes, `¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`. -/
+theorem competingEquation_top {c : Semantics} {f : Fn} {others : List Clause} {cl : Clause} (h : cl.pre = .top) :
+    competingEquation c f others cl =
+      eqnSentence c f
+        (competingPremise (f.args.map c.sortName) (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))
+          (cl.req.map (Term.kore c (canonVars c cl.vars))) (Term.koreList c (canonVars c cl.vars) cl.pats))
+        (Term.kore c (canonVars c cl.vars) cl.rhs)
+        (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
+  unfold competingEquation competingPremise; simp only [withPre_top h]
 
 /-- The clauses of f of a smaller priority than cl's that are not `aside`: those that apply
 before it. -/

@@ -2163,7 +2163,7 @@ include hnm in
 arguments where a clause fails in the model, its exclusion
 `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` is empty, at a valuation that gives each formal argument `Xⱼ` the
 element of the argument and the sort variable `R` a sort. -/
-theorem exclusion_emptyC {fn : Fn} {cl : Clause}
+theorem exclusion_emptyC {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats) (hplain : collPats c cl.pats = true)
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
@@ -2177,7 +2177,7 @@ theorem exclusion_emptyC {fn : Fn} {cl : Clause}
     (hfail : ModelFails c I cl ws) (m : M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret I e m := by
   intro hm
-  rw [exclusion_top _ (List.all_eq_true.mpr fun i hi => by simpa using hbinds i (List.mem_range.mp hi))] at hm
+  rw [exclusion_top _ hpre (List.all_eq_true.mpr fun i hi => by simpa using hbinds i (List.mem_range.mp hi))] at hm
   have hD := defOK hI
   let vs := canonVars c cl.vars
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys

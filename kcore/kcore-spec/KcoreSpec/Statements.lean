@@ -154,9 +154,9 @@ theorem applies_top {c : Semantics} {r : Rule} (rp : RulePres) (hp : r.pre = .to
 theorem binds_of_forall {n : Nat} {occs : List Nat} (h : ∀ i < n, i ∈ occs) : binds n occs = true :=
   List.all_eq_true.mpr fun i hi => List.contains_iff_mem.mpr (h i (List.mem_range.mp hi))
 
-/-- `exclusion` of a clause whose patterns bind every variable: `∃x̄. ⌈req = true⌉ ∧ X̄ ∈ p̄` over
-every variable. -/
-theorem exclusion_top {c : Semantics} {f : Fn} {cl : Clause} (cp : ClausePres)
+/-- `exclusion` of a clause whose predicate is `\top` and whose patterns bind every variable:
+`∃x̄. ⌈req = true⌉ ∧ X̄ ∈ p̄` over every variable. -/
+theorem exclusion_top {c : Semantics} {f : Fn} {cl : Clause} (cp : ClausePres) (hpre : cl.pre = .top)
     (hb : binds cl.vars.length (varOccsList cl.pats) = true) :
     exclusion c f cl cp =
       (let ren := KoreAML.varList (cl.vars.map c.sortName) cp.exclNames
@@ -171,7 +171,7 @@ theorem exclusion_top {c : Semantics} {f : Fn} {cl : Clause} (cp : ClausePres)
     simp [KoreAML.varList, withPres_length]
   have hv := filterMap_range_getElem? (KoreAML.varList (cl.vars.map c.sortName) cp.exclNames)
   rw [hl] at hv
-  simp only [exclusion, hf, hv]
+  simp only [exclusion, hf, hv, withPre_top hpre]
 
 /-- A step function on ground values. -/
 abbrev StepFn := GroundTerm → List GroundTerm

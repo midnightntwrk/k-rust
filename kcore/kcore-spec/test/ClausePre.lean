@@ -1,9 +1,12 @@
 /-
   A clause with a predicate in its premise (`Clause.pre`): CN-4 §4.9's expectation, on a semantics
   built by hand against the existing field `Clause.pre` (Core.lean, `structure Clause`). The
-  statements are written as propositions (`expect…`, elaborated here, not proved): they are to run
-  once `Eval` and the sentences read `Clause.pre` (e3.clause-pre-eval, e3.withPre, e3.admit; proved
-  by e3.test-pre). Run from the package root: `lake env lean -j1 test/ClausePre.lean`.
+  statements are written as propositions (`expect…`): those on the sentences (`expectExclusion`,
+  `expectSentence`, `expectSentence1`) are proved here since the sentences read `Clause.pre`
+  (e3.withPre: `exclusion_pre`, `sentence_pre`, `sentence1_pre`); the others are elaborated, not
+  proved, and are to run once `Eval` reads `Clause.pre` and `clausesPlain` admits it
+  (e3.clause-pre-eval, e3.admit; proved by e3.test-pre).
+  Run from the package root: `lake env lean -j1 test/ClausePre.lean`.
   Kernel-checked (`decide +kernel`): only what does not depend on a clause's `pre` being read.
 
   The semantics `c`, two functions over Int:
@@ -27,12 +30,14 @@
   decides; at 2, `gCl1` meets `hpre` (`Holds.ceil` at `some 2`) and decides, and `gCl2` is blocked
   since `gCl1` does not fail.
 
-  Today (`Eval.clause` has no premise on `pre`, Evaluation.lean; `exclusion` does not write it,
-  Emit.lean; `clausesPlain` asks `cl.pre.isTop`, Tie.lean) the statements `expectCore`,
-  `expectAt0` and `expectSentence` are false (by the texts cited; of these only the `…_now` theorems are proved here): `clausesPlain` refuses `gCl1` (`clausesPlain_now`,
-  `coreOK_now`), `gCl1` applies at 0 whatever its `pre`, and the second clause's sentence negates
-  `∃X'. (⊤ ∧ X0 ∈ X')` only (`exclusion_now`, `sentence_now`); `expectExclusion` and
-  `expectSentence1` are false likewise. `expectU` and `expectAt2` read no `pre` in today's `Eval`
+  Today (`Eval.clause` has no premise on `pre`, Evaluation.lean; `clausesPlain` asks
+  `cl.pre.isTop`, Tie.lean) the statements `expectCore` and `expectAt0` are false (by the texts
+  cited; of these only the `…_now` theorems are proved here): `clausesPlain` refuses `gCl1`
+  (`clausesPlain_now`, `coreOK_now`), and `gCl1` applies at 0 whatever its `pre`. The sentences
+  carry the predicate (`withPre`, Emit.lean, in `exclusion`, `clauseEquation` and
+  `competingEquation`): the second clause's sentence negates `∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)`
+  (`exclusion_pre`, `sentence_pre`), which is not the text without the predicate
+  (`exclusion_ne_plain`). `expectU` and `expectAt2` read no `pre` in today's `Eval`
   (prediction, not proved here: their proofs name `Eval.clause` and `Eval.ensFails`, which
   e3.clause-pre-eval gives one more argument). The theorems named `…_now` state
   today's texts and are to be replaced by the proofs of the `expect…` when those tickets land.
@@ -162,7 +167,8 @@ def vs2 : List KoreAML.Var := canonVars c gCl2.vars
 /-- The landed premise of `gCl1` under its own variables: `⊤ ∧ X0 ∈ X'`. -/
 def prem1 : Kore.Pattern := premise gArgs (gCl1.req.map (Term.kore c vs1)) (Term.koreList c vs1 gCl1.pats)
 
-/-- `gCl1`'s exclusion as written today: `∃X'. (⊤ ∧ X0 ∈ X')`. -/
+/-- `gCl1`'s exclusion without its predicate, `∃X'. (⊤ ∧ X0 ∈ X')`: the text before the sentences
+read `Clause.pre`, and the text of a clause like `gCl1` whose `pre` is `\top`. -/
 def exclNow : Kore.Pattern := KoreAML.existsAll R (vs1.map KoreAML.Var.kore) prem1
 
 /-- `gCl1`'s exclusion with its predicate (CN-4 §4.9, `withPre` at a `pre` that is not `\top`, in
@@ -181,27 +187,41 @@ variable. -/
 theorem pre_kore : Cond.kore c vs1 R gCl1.pre =
     .ceil (KoreAML.srt "Int") R (.app ⟨⟨"Lblu"⟩⟩ [] [KoreAML.varAt vs1 0]) := by rfl
 
-/-- Today's exclusion of `gCl1` is `exclNow`: the spelling of `exclPre` but for the predicate. -/
-theorem exclusion_now : exclusion c gFn gCl1 (canonClausePres gCl1) = exclNow := by rfl
-
-/-- Today the second clause's sentence negates `exclNow`. -/
-theorem sentence_now : prioEquation c gFn gCl2 = sentence2 exclNow := by rfl
-
-/-- **Expected** (to run, e3.withPre): `gCl1`'s exclusion carries its predicate. -/
+/-- **Expected** (proved: `exclusion_pre`): `gCl1`'s exclusion carries its predicate. -/
 def expectExclusion : Prop := exclusion c gFn gCl1 (canonClausePres gCl1) = exclPre
 
-/-- **Expected** (to run, e3.withPre): `Γ`'s sentence for the second clause (`prioEquation`, an
+/-- `gCl1`'s exclusion is `exclPre`: `∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)` (`withPre` at a `pre` that is
+not `\top`). -/
+theorem exclusion_pre : expectExclusion := by unfold expectExclusion; rfl
+
+/-- The exclusion with the predicate is not the one without it (`exclNow`). -/
+theorem exclusion_ne_plain : exclusion c gFn gCl1 (canonClausePres gCl1) ≠ exclNow := by
+  rw [show exclusion c gFn gCl1 (canonClausePres gCl1) = exclPre from exclusion_pre]; decide +kernel
+
+/-- With `gCl1`'s predicate `\top` in place of `⌈u(X)⌉` the exclusion is `exclNow`, the text
+without a predicate (`withPre` at `\top`). -/
+theorem exclusion_top_plain :
+    exclusion c gFn { gCl1 with pre := .top } (canonClausePres { gCl1 with pre := .top }) = exclNow := by rfl
+
+/-- **Expected** (proved: `sentence_pre`): `Γ`'s sentence for the second clause (`prioEquation`, an
 element of `fnEquationsK c gFn`, so of `fnItems` and `ΓFns`) carries the negated existential
 `¬ ∃X'. (X0 ∈ X' ∧ ⌈u(X')⌉)`. -/
 def expectSentence : Prop :=
   prioEquation c gFn gCl2 = sentence2 exclPre ∧ prioEquation c gFn gCl2 ∈ fnEquationsK c gFn
 
-/-- **Expected** (to run, e3.withPre): the first clause's sentence has the premise
+/-- `Γ`'s sentence for the second clause negates `exclPre`, and is one of `g`'s equations. -/
+theorem sentence_pre : expectSentence :=
+  ⟨by rfl, List.mem_map.mpr ⟨gCl2, List.mem_cons_of_mem _ (List.mem_singleton_self _), rfl⟩⟩
+
+/-- **Expected** (proved: `sentence1_pre`): the first clause's sentence has the premise
 `(⊤ ∧ X0 ∈ X) ∧ ⌈u(X)⌉`. -/
 def expectSentence1 : Prop :=
   prioEquation c gFn gCl1 =
     eqnSentence c gFn (.and R [prem1, Cond.kore c vs1 R gCl1.pre])
       (Term.kore c vs1 gCl1.rhs) (reqPat (srtOf c gFn.result) (gCl1.ens.map (Term.kore c vs1)))
+
+/-- The first clause's sentence has the premise `(⊤ ∧ X0 ∈ X) ∧ ⌈u(X)⌉`. -/
+theorem sentence1_pre : expectSentence1 := by unfold expectSentence1; rfl
 
 /-! ## The results -/
 

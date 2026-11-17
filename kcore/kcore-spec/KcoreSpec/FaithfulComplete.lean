@@ -360,7 +360,7 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   have hneg : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmpty c I fn cl :=
     fun fn hfn cl hcl _ => hex fn hfn cl hcl

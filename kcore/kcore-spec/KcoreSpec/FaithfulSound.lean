@@ -92,7 +92,7 @@ theorem step_sound_core (c : Semantics) (h : HypSoundCore c) (hb : ∀ r ∈ c.r
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   refine step_at4 hI hnn hsc hok hbc hph
     (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hb (fun r hr _ => ?_) hstep e m hm
@@ -114,7 +114,7 @@ theorem eval_none_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a

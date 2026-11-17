@@ -71,11 +71,11 @@ include hI hnn hsc hph hcls hneg
 /-- A clause of a smaller priority, failing, with what `clause_den4Cl` reads of it. -/
 theorem lowCl {fn : Fn} {cl cl' : Clause} {ws : List GroundTerm} (hmem : fn ∈ c.allFns) (hcl : cl ∈ fn.clauses)
     (hcl' : cl' ∈ fn.clauses) (hlt : cl'.prio < cl.prio) (hf : Fails c ws cl') (hm : ModelFailsCl c I cl' ws) :
-    sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
+    cl'.pre = .top ∧ sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws := by
-  obtain ⟨L, -, hpats, -, -, -, hreqs, -⟩ := hcls fn hmem cl' hcl'
-  exact ⟨hpats, fun t ht => varOccs_lt t (hreqs t ht), hneg fn hmem cl' hcl' ⟨cl, hcl, hlt⟩, hf, hm⟩
+  obtain ⟨L, -, hpats, hpre, -, -, hreqs, -⟩ := hcls fn hmem cl' hcl'
+  exact ⟨hpre, hpats, fun t ht => varOccs_lt t (hreqs t ht), hneg fn hmem cl' hcl' ⟨cl, hcl, hlt⟩, hf, hm⟩
 
 mutual
   /-- **L3, functions, fourth stage.** A function of the semantics, at arguments of its sorts,

@@ -147,7 +147,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   intro M _ I hI
   have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
   -- the function's equation: `f()` is what `#KConfigValue(.K)` denotes
-  have heq := clause_eq hI namesNumbered htr lookup_f (cl := cl) (List.mem_singleton_self _) rfl (ws := [])
+  have heq := clause_eq hI namesNumbered htr lookup_f (cl := cl) (List.mem_singleton_self _) rfl rfl (ws := [])
     (by decide +kernel) (σ' := []) (fun _ _ h => by simp [cl] at h) .nil rfl (by decide +kernel)
     (fun _ h => by simp [cl] at h) (fun _ h => by cases h) (fun _ h => by simp [cl, rhsT, varOccs, varOccsList] at h)
     (fun _ h => by simp [cl] at h)

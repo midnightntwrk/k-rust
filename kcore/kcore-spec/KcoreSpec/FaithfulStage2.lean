@@ -367,13 +367,13 @@ theorem premise_vars {fn : Fn} {cl : Clause} (hpats : sortsOfTerms c.patCtxAll c
         exact Or.inr ⟨i, varOccsList_lt cl.pats hpats i hi, rfl⟩
 
 /-- The exclusion of a clause has the formal arguments as its only free variables. -/
-theorem freeOf_exclusion {fn : Fn} {cl : Clause}
+theorem freeOf_exclusion {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     (hbd : binds cl.vars.length (varOccsList cl.pats) = true) {bound : List VarKey} {k : VarKey}
     (hk : k ∈ KoreAML.freeOf bound (exclusion c fn cl (canonClausePres cl))) :
     ∃ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s ∧ k = .evar ("X" ++ toString j) (KoreAML.srt s) := by
-  rw [exclusion_top _ hbd] at hk
+  rw [exclusion_top _ hpre hbd] at hk
   let vs := canonVars c cl.vars
   obtain ⟨bound', hb', hk⟩ := freeOf_existsAll (S := KoreAML.R)
     (body := premise (fn.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))
@@ -451,10 +451,10 @@ theorem varsOf_existsAll_binder {S : Kore.KSort} {body : Kore.Pattern} :
     · exact List.mem_append_right _ (varsOf_existsAll_binder bs h)
 
 /-- The binders of a clause's exclusion, and of a rule's `applies`, are its canonical variables. -/
-theorem varsOf_exclusion {fn : Fn} {cl : Clause} {i : Nat}
+theorem varsOf_exclusion {fn : Fn} {cl : Clause} {i : Nat} (hpre : cl.pre = .top)
     (hbd : binds cl.vars.length (varOccsList cl.pats) = true) (hi : i < cl.vars.length) :
     canonKey c cl.vars i ∈ KoreAML.varsOf (exclusion c fn cl (canonClausePres cl)) := by
-  rw [exclusion_top _ hbd]
+  rw [exclusion_top _ hpre hbd]
   have hlt : i < (canonVars c cl.vars).length := by rw [canonVars_length]; exact hi
   refine varsOf_existsAll_binder (S := KoreAML.R) (body := premise _ _ _) _ ?_
   rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt]
@@ -599,7 +599,8 @@ clause with no clause of a smaller priority). -/
 theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause}
-    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hplain : plainPats c cl.pats = true) (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats)
@@ -616,6 +617,7 @@ theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_vars (c := c) hpats hbinds hreqv
+  rw [clauseEquation_top hpre] at hmem
   exact eqn_at hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1 hv.2.1 hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
       premise_holds hI hnn htr hfnm hws hσ' hmatch hplain hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
@@ -627,7 +629,8 @@ negation of their exclusions holds and the equation fires as an ordinary one. -/
 theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       plainPats c cl'.pats = true ∧ ModelFails c I cl' ws)
@@ -645,6 +648,7 @@ theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
+  rw [competingEquation_top hpre] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -673,7 +677,7 @@ theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
       obtain ⟨hp', hb', hq', -, -⟩ := hothers cl' hcl'
-      exact Or.inl (freeOf_exclusion hp' hq' (binds_of_forall hb') hk)
+      exact Or.inl (freeOf_exclusion (hpres cl' hcl') hp' hq' (binds_of_forall hb') hk)
     · exact hv.2.2 k hk
   · have hR' : e.evalEvar (tbl.ev (.sortVar "R")) = σr := (hRv _).mp (by rw [trSort_R, KoreAML.interp_evar])
     have hRkey : VarKey.sortVar "R" ∈ tbl := hkeys _ (by
@@ -689,8 +693,8 @@ theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (
     refine anyOfC_empty hD isFree_R comps (fun φ hφ => ?_)
     obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
     obtain ⟨hp', hb', -, hpl', hf'⟩ := hothers cl' hcl'
-    exact exclusion_empty hI hg htr hnn.1 hp' hb' hpl' hws
-      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (binds_of_forall hb') hi))))
+    exact exclusion_empty hI hg htr hnn.1 (hpres cl' hcl') hp' hb' hpl' hws
+      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (hpres cl' hcl') (binds_of_forall hb') hi))))
       (fun j s hj => hkeys _ (hP _ (hv.1 j _ (by rw [List.getElem?_map, hj]; rfl))))
       hRkey (fun j w s hw hs => hX j w _ hw (by rw [List.getElem?_map, hs]; rfl)) hR' hσr2 hf' m0
 
@@ -760,9 +764,10 @@ mutual
       have hrhsv := varOccs_lt _ hrhss
       have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
       by_cases hlow : lowerClauses fn' cl = []
-      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) hws hσ' hmatch hplain hpats
+      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) hws hσ' hmatch hplain hpats
           hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
-      · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) hws (fun cl' hcl' => ?_)
+      · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+          (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_)
           hσ' hmatch hplain hpats hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
         obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
         obtain ⟨hp', hb', L', hL', hrq', -⟩ := clause_ctx hok hbc hmem hcl''

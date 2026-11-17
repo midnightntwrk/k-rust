@@ -208,7 +208,7 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     Faithful.clause_den4Cl (r := r) hI hnn hsc hph hfn2 hmemO hws hσ' hm hpO hpreO hpostO hoO hrO hhO heO hr ihright ihreq
       (fun cl' hcl' ha hlt => by
         rw [hlowO cl' hcl' ha hlt]
-        exact ⟨hpG, fun t ht => Faithful.varOccs_lt t (hrG t ht), hE, hF, hM⟩)
+        exact ⟨hpreG, hpG, fun t ht => Faithful.varOccs_lt t (hrG t ht), hE, hF, hM⟩)
   trivial
 
 /-! ## `readsConfined_of_coreCl`, `Γc_coreCl`, `openDecided_of_coreCl` -/

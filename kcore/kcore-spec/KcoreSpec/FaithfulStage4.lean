@@ -429,7 +429,8 @@ patterns. -/
 theorem plain_eq4 [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hph : patHooksApart c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause}
-    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats)
@@ -446,6 +447,7 @@ theorem plain_eq4 [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumb
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_vars (c := c) hpats hbinds hreqv
+  rw [clauseEquation_top hpre] at hmem
   exact eqn_at hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1 hv.2.1 hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
       premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
@@ -493,11 +495,11 @@ variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sy
 /-- A clause whose patterns are plain has an empty exclusion where it fails (`exclusion_empty`). -/
 theorem exclEmpty_of_plain (hI : I ⊧ᴵP Γ c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) (hnm : NamesPlain c)
-    {fn : Fn} {cl : Clause} (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    {fn : Fn} {cl : Clause} (hpre : cl.pre = .top) (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats) (hplain : plainPats c cl.pats = true) :
     ExclEmpty c I fn cl :=
   fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-    exclusion_empty hI hg htr hnm hpats hbinds hplain hws hkeys hXkeys hRkey hX hR hσR hfail m
+    exclusion_empty hI hg htr hnm hpre hpats hbinds hplain hws hkeys hXkeys hRkey hX hR hσR hfail m
 
 /-- A rule whose left-hand side is plain has an empty `applies` where it does not apply
 (`applies_empty`). -/
@@ -513,7 +515,8 @@ possibly collection patterns, each competitor's exclusion empty where it fails (
 theorem compete_eq4 (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hph : patHooksApart c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmpty c I fn cl' ∧ ModelFails c I cl' ws)
@@ -531,6 +534,7 @@ theorem compete_eq4 (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hph
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
+  rw [competingEquation_top hpre] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -559,7 +563,7 @@ theorem compete_eq4 (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hph
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
       obtain ⟨hp', hb', hq', -, -⟩ := hothers cl' hcl'
-      exact Or.inl (freeOf_exclusion hp' hq' (binds_of_forall hb') hk)
+      exact Or.inl (freeOf_exclusion (hpres cl' hcl') hp' hq' (binds_of_forall hb') hk)
     · exact hv.2.2 k hk
   · have hR' : e.evalEvar (tbl.ev (.sortVar "R")) = σr := (hRv _).mp (by rw [trSort_R, KoreAML.interp_evar])
     have hRkey : VarKey.sortVar "R" ∈ tbl := hkeys _ (by
@@ -576,7 +580,7 @@ theorem compete_eq4 (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hph
     obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
     obtain ⟨-, hb', -, hpl', hf'⟩ := hothers cl' hcl'
     exact hpl' hws
-      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (binds_of_forall hb') hi))))
+      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (hpres cl' hcl') (binds_of_forall hb') hi))))
       (fun j s hj => hkeys _ (hP _ (hv.1 j _ (by rw [List.getElem?_map, hj]; rfl))))
       hRkey (fun j w s hw hs => hX j w _ hw (by rw [List.getElem?_map, hs]; rfl)) hR' hσr2 hf' m0
 
@@ -617,9 +621,10 @@ theorem clause_den4 {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ
   have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
   have ihreq' := fun tbl e' hag t ht m' => ihreq t ht tbl e' hag m'
   by_cases hlow : lowerClauses fn cl = []
-  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) hws hσ' hmatch hpats
+  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) hws hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
-  · refine compete_eq4 hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow) hws (fun cl' hcl' => ?_) hσ' hmatch hpats
+  · refine compete_eq4 hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+      (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_) hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
     obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
     obtain ⟨hp', hb', L', hL', hrq', -⟩ := clause_ctx hok hbc hmem hcl''
@@ -1115,7 +1120,7 @@ theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r �
   intro x y hstep M _ I hI e m hm
   refine step_at4 hI hnn hsc hy.1 hbc hs.2.1 (fun fn hfn cl hcl hn => ?_) hb (fun r hr hn => ?_) hstep e m hm
   · obtain ⟨hp', hb', -⟩ := clause_ctx hy.1 hbc hfn hcl
-    exact exclEmpty_of_plain hI hs.1 hsc.trans hnn.1 hp' hb' (hs.2.2.2 fn hfn cl hcl hn)
+    exact exclEmpty_of_plain hI hs.1 hsc.trans hnn.1 (clause_preTop hy.1 hfn hcl) hp' hb' (hs.2.2.2 fn hfn cl hcl hn)
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
     exact appEmpty_of_plain hI hs.1 hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hs.2.2.1 r hr hn) (Semantics.sortedOK_ruleTop hy.1 hr).1
 

@@ -304,7 +304,7 @@ def ExclEmptyAt (c : Semantics) (I : Interpretation KoreAML.Sym M) (fn : Fn) (cl
 `requires` is not `true` on the elements of Bool (`exclusion_empty`, with that reading of failing). -/
 theorem exclEmptyAt_of {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hg : genWf c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) (hnm : NamesPlain c)
-    {fn : Fn} {cl : Clause}
+    {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats) (hplain : plainPats c cl.pats = true)
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
@@ -315,7 +315,7 @@ theorem exclEmptyAt_of {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hg : gen
           (den c (bool true)).interpret I e a)) :
     ExclEmptyAt c I fn cl ws := by
   intro tbl hkeys hXkeys hRkey e hX σR hR hσR m hm
-  rw [exclusion_top _ (binds_of_forall hbinds)] at hm
+  rw [exclusion_top _ hpre (binds_of_forall hbinds)] at hm
   have hD := defOK hI
   have hc := sat_sigItem hI (sig_ceilDef (c := c))
   let vs := canonVars c cl.vars
@@ -382,7 +382,8 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
     (hph : patHooksApart c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyAt c I fn cl' ws)
@@ -400,6 +401,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
+  rw [competingEquation_top hpre] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -428,7 +430,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
       obtain ⟨hp', hb', hq', -⟩ := hothers cl' hcl'
-      exact Or.inl (freeOf_exclusion hp' hq' (binds_of_forall hb') hk)
+      exact Or.inl (freeOf_exclusion (hpres cl' hcl') hp' hq' (binds_of_forall hb') hk)
     · exact hv.2.2 k hk
   · have hR' : e.evalEvar (tbl.ev (.sortVar "R")) = σr := (hRv _).mp (by rw [trSort_R, KoreAML.interp_evar])
     have hRkey : VarKey.sortVar "R" ∈ tbl := hkeys _ (by
@@ -445,7 +447,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
     obtain ⟨cl', hcl', rfl⟩ := List.mem_map.mp hφ
     obtain ⟨-, hb', -, hpl'⟩ := hothers cl' hcl'
     exact hpl'
-      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (binds_of_forall hb') hi))))
+      (fun i hi => hkeys _ (hN _ (mem_varsOf_anyOfC hφ (varsOf_exclusion (hpres cl' hcl') (binds_of_forall hb') hi))))
       (fun j s hj => hkeys _ (hP _ (hv.1 j _ (by rw [List.getElem?_map, hj]; rfl))))
       hRkey (fun j w s hw hs => hX j w _ hw (by rw [List.getElem?_map, hs]; rfl)) hR' hσr2 m0
 
@@ -546,6 +548,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
       rw [fnEquationsK, show fF.clauses = [cl1, cl2] from rfl, List.map_cons, h]
       exact List.mem_cons_self ..
     have hv := premise_vars (c := c) hpats1 hbinds1 hreqv1
+    rw [clauseEquation_top (cl := cl1) rfl] at hmem
     have h1 := fun e m => eqn_at hI hnn lookupF (prem := clausePrem c fF cl1) (eqn_item_mem hfnm hmem) hws
       (hσ1 cl1 rfl) hv.1 hv.2.1 hv.2.2 (fun _ h => by simp [cl1, varOccs] at h) (fun _ h => by simp [cl1] at h)
       (r := some one)
@@ -573,13 +576,14 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
       rw [fnEquationsK, show fF.clauses = [cl1, cl2] from rfl, List.map_cons, List.map_cons, h]
       exact List.mem_cons_of_mem _ (List.mem_cons_self ..)
     have hex : ExclEmptyAt c I fF cl1 [i0] :=
-      exclEmptyAt_of hI hg htr hnn.1 hpats1 hbinds1 (by decide +kernel) hws hσB1 hσB2
+      exclEmptyAt_of hI hg htr hnn.1 rfl hpats1 hbinds1 (by decide +kernel) hws hσB1 hσB2
         (fun σ _ hpv tbl e hag => ⟨req1, rfl, fun hall => hP fun a ha => by
           have hl : σ.lookup 0 = some i0 := by
             cases hpv with | cons h1 _ => cases h1 with | var hl => exact hl
           rw [QP_closed.interp e0 e, ← req_den hl hag, hall a ha]
           exact (den_closed c _).interp e e0 a⟩)
-    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem hws
+    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl
+      (fun cl' h => by rw [List.mem_singleton] at h; subst h; rfl) hws
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; exact ⟨hpats1, hbinds1, hreqv1, hex⟩)
       (hσ1 cl2 rfl) (.cons (.var rfl) .nil) hpats2 hbinds2 (fun _ h => by cases h)
       (fun _ h => by simp [cl2, varOccs] at h) (fun _ h => by simp [cl2] at h) (r := some two)

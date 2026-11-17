@@ -136,6 +136,15 @@ theorem Semantics.sortPreds_binds {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sort
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
     rcases hcl with rfl | rfl <;> rfl
 
+/-- The premise predicate of each clause of a generated sort predicate is `\top`. -/
+theorem Semantics.sortPreds_pre {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
+    ∀ cl ∈ fn.clauses, cl.pre = .top := by
+  simp only [Semantics.sortPreds, List.cons_append, List.nil_append, List.mem_cons,
+    List.mem_filterMap, Option.map_eq_some_iff] at hfn
+  rcases hfn with rfl | rfl | ⟨X, -, _, _, rfl⟩ <;> intro cl hcl <;>
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
+    rcases hcl with rfl | rfl <;> rfl
+
 theorem Rule.wellSortedAt_iff {c : Semantics} {r : Rule} (hb : binds r.vars.length (varOccs r.lhs) = true)
     {σ : Subst} : c.WellSortedAt r.vars r.leftVars σ ↔ c.WellSorted r.vars σ :=
   ⟨Rule.wellSorted_of_at hb, fun h => h.at _⟩

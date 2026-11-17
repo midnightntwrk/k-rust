@@ -66,14 +66,15 @@ namespace Faithful
 open ML
 open KoreAML (DefOK Inh IsSort Closed VarKey VarTable)
 
-/-- A clause's exclusion under its canonical presentation: `∃x̄'. ⌈req = true⌉ ∧ X̄ ∈ p̄`, x̄' the
-variables of its patterns and conditions. -/
-theorem exclusion_canonCl (c : Semantics) (fn : Fn) (cl : Clause) :
+/-- A clause's exclusion under its canonical presentation, its predicate `\top`:
+`∃x̄'. ⌈req = true⌉ ∧ X̄ ∈ p̄`, x̄' the variables of its patterns and conditions. -/
+theorem exclusion_canonCl (c : Semantics) (fn : Fn) (cl : Clause) (hpre : cl.pre = .top) :
     exclusion c fn cl (canonClausePres cl) = KoreAML.existsAll KoreAML.R
       ((((List.range cl.vars.length).filter cl.leftVars.contains).filterMap ((canonVars c cl.vars)[·]?)).map
         KoreAML.Var.kore)
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
-        (Term.koreList c (canonVars c cl.vars) cl.pats)) := rfl
+        (Term.koreList c (canonVars c cl.vars) cl.pats)) :=
+  congrArg (KoreAML.existsAll KoreAML.R _) (withPre_top hpre)
 
 /-- **The clause fails in the model at the substitutions of values on its patterns and
 conditions**: under every σ well sorted over a list of sorts that agrees with the clause's at the
@@ -267,7 +268,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
       cases ht : cl.req with
       | none => rw [ht] at hC; cases hC
       | some t => rw [ht] at hC; exact hreqlt t ht i hC
-  rw [exclusion_canonCl] at hm
+  rw [exclusion_canonCl _ _ _ hpre] at hm
   change (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll KoreAML.R ((l.filterMap (vs[·]?)).map KoreAML.Var.kore)
     (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)))).interpret I e m
     at hm

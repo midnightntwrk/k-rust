@@ -63,7 +63,7 @@ theorem ax2_eq : competingEquation c fn [cl1] cl2 = .axiom ax2 := rfl
 
 theorem item1_mem : KoreAML.trAxiom [] [] ⟨0, "kernel", ax1⟩ ∈ fnItems c := by
   rw [← ax1_eq]
-  exact clause_item_mem (List.mem_append_left _ (List.mem_singleton_self _)) (by simp [fn]) rfl
+  exact clause_item_mem (List.mem_append_left _ (List.mem_singleton_self _)) (by simp [fn]) rfl rfl
 
 theorem item2_mem : KoreAML.trAxiom [] [] ⟨0, "kernel", ax2⟩ ∈ fnItems c := by
   unfold fnItems
