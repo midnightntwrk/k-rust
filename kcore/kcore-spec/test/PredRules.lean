@@ -379,4 +379,43 @@ example (hI : I ⊧ᴵP Γc c)
 
 end Compete
 
+
+/-! ## A condition is a predicate (`KCore.Faithful.cond_pred_transfer_top`)
+
+  At `rNot`'s pre (a complement of a conjunction of memberships) and at `pExB` (a binder over a
+  membership): in any model of `Γ c`, through a table holding the pattern's keys and at a valuation
+  that gives each free variable an element of its sort, the conjuncts hold at one element of the
+  configuration sort iff at any other. -/
+
+section CondPred
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+example (hI : I ⊧ᴵP Γ c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) (a a' : M)
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (hf : ∀ i ∈ varOccsCond rNot.vars.length rNot.pre, canonKey c rNot.vars i ∈ tbl ∧
+      InS I (c.sortName (rNot.vars.getD i 0)) (e.evalEvar (tbl.ev (canonKey c rNot.vars i))))
+    (ha : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a)
+    (ha' : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a')
+    (hpre : ∀ φ ∈ Cond.conj c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre,
+      (KoreAML.tr ⟨tbl, []⟩ φ).interpret I e a) :
+    ∀ φ ∈ Cond.conj c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre,
+      (KoreAML.tr ⟨tbl, []⟩ φ).interpret I e a' :=
+  cond_pred_transfer_top coreOK hI (by decide +kernel) tbl e a a' hk hf ha ha' hpre
+
+example (hI : I ⊧ᴵP Γ c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) (a a' : M)
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) pExB), k ∈ tbl)
+    (hf : ∀ i ∈ varOccsCond rNot.vars.length pExB, canonKey c rNot.vars i ∈ tbl ∧
+      InS I (c.sortName (rNot.vars.getD i 0)) (e.evalEvar (tbl.ev (canonKey c rNot.vars i))))
+    (ha : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a)
+    (ha' : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a')
+    (hp : ∀ φ ∈ Cond.conj c (canonVars c rNot.vars) (srtOf c topCellSort) pExB,
+      (KoreAML.tr ⟨tbl, []⟩ φ).interpret I e a) :
+    ∀ φ ∈ Cond.conj c (canonVars c rNot.vars) (srtOf c topCellSort) pExB,
+      (KoreAML.tr ⟨tbl, []⟩ φ).interpret I e a' :=
+  cond_pred_transfer_top coreOK hI (by decide +kernel) tbl e a a' hk hf ha ha' hp
+
+end CondPred
+
 end PredRules
