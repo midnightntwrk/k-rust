@@ -101,7 +101,7 @@ theorem Semantics.sortedOKCl_parts {c : Semantics} (h : c.sortedOKCl = true) :
 /-- What `sortedOKCl` asks of an open generator (`paramsPlain`'s raw branch). -/
 theorem Semantics.raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) {k : ParamSig}
     (hk : k ∈ c.params) (hr : k.raw = true) :
-    k.impl = none ∧ (k.assoc && k.idem) = false ∧
+    k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
     c.shapesOK = true ∧ c.floatShapeOK = true :=

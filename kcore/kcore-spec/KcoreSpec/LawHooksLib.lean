@@ -238,12 +238,12 @@ asking `shapesOK` and `floatShapeOK`. -/
 theorem libAdmitted_lawHooks (c : Semantics) (h : c.coreOK = true) (H : HookParams)
     (ha : (c.withHooks H).libAdmitted) : (c.withHooks (lawHooks c H)).libAdmitted := by
   have hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.sig.name :=
-    fun k hk hr => (Semantics.raw_of_core h hk hr).2.2.2.1
+    fun k hk hr => (Semantics.raw_of_core h hk hr).2.2.1
   refine libAdmitted_lawHooks_of hreg ?_ H ha
   cases hany : c.params.any (·.raw)
   · exact lawLibRawFree_of_noRaw fun k hk => by simpa using List.any_eq_false.mp hany k hk
   · obtain ⟨k, hk, hr⟩ := List.any_eq_true.mp hany
-    obtain ⟨-, -, -, -, -, hs, hf⟩ := Semantics.raw_of_core h hk hr
+    obtain ⟨-, -, -, -, hs, hf⟩ := Semantics.raw_of_core h hk hr
     exact lawLibRawFree_of_shapes hs hf hreg
 
 end KCore

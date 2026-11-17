@@ -79,11 +79,11 @@ theorem cM_rest :
   decide +kernel
 
 /-- `paramsPlain`'s test of the parameters (V2.d1-flip), restated: a raw parameter has no
-implementation, not both laws, two arguments of its result sort where it has a law, a number
+implementation, two arguments of its result sort where it has a law, a number
 outside the registry and no ite name, with `shapesOK` and `floatShapeOK`. -/
 def paramsRuled (c : Semantics) : Bool :=
   c.params.all (fun k =>
-    if k.raw then k.impl.isNone && !(k.assoc && k.idem) &&
+    if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
       decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
       c.shapesOK && c.floatShapeOK

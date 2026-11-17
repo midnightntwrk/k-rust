@@ -1,8 +1,10 @@
 /-
   A hand-built semantics for e2-band-ctor, an open generator with `assoc` and `idem` (CN-4b §7,
   BAND). The file checks that its numbering is the one `idsOK` asks, that `lookupOpen` finds the
-  open generator and no constructor, and that `OpenLaws` and `OpenTotal` hold at `lawHooks`
-  (V13.band-lemmas); the fixture's expectations are V13.band-test's. Run from the package
+  open generator and no constructor, that `OpenLaws` and `OpenTotal` hold at `lawHooks`
+  (V13.band-lemmas), and that `coreOK` admits it, `consItemsK` writes both law sentences for `or`
+  and `consistent_of` applies at `lawHooks` (V13.band-flip); the fixture's expectations are
+  V13.band-test's. Run from the package
   root: `lake env lean -j1 test/BandSem.lean`. Kernel-checked.
 
   Text (lane P's fixture `test/constructs/fixtures/e2-band-ctor`, K 7.1.337):
@@ -72,8 +74,7 @@ theorem genWf_apart : Faithful.genWf c = true ∧
 `or` has both laws and `LawShape`, so `openLaws_of_lawShape` and `openTotal_of_lawShape` hold here
 through their branch for a generator with both laws (not vacuously): at `lawHooks c H`, for every
 H, the interpretation satisfies associativity and idempotence at the values of Exp and gives `or` a
-value at every two of them. `coreOK` is not read (`paramsPlain` refuses both laws until
-V13.band-flip). -/
+value at every two of them. `coreOK` is not read here. -/
 theorem lawShape : ∀ k ∈ c.params, k.raw = true → LawShape c k := by decide +kernel
 theorem both_laws : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = true := by decide +kernel
 theorem openLaws_lawHooks (H : HookParams) : OpenLaws (c.withHooks (lawHooks c H)) :=
@@ -99,6 +100,65 @@ theorem or_compound :
       some (.ctor orS [.ctor xS [], .ctor yS []]) :=
   (or_laws HookParams.none).2.1 _ (by decide +kernel)
 
+/-! ## `coreOK` admits the band (V13.band-flip)
+
+`paramsPlain`'s raw branch no longer refuses a parameter with both laws: `c`, whose one parameter
+`or` is raw with `assoc` and `idem`, meets `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+/-- `paramsPlain` at `c` with what its raw branch reads, and that the branch is read at a parameter
+with both laws. -/
+theorem paramsPlain_band : c.paramsPlain = true ∧ c.shapesOK = true ∧ c.floatShapeOK = true ∧
+    c.carriersOK = true ∧ c.params.all (fun k => k.raw && k.assoc && k.idem && k.impl.isNone &&
+      k.sig.args == [k.sig.result, k.sig.result] && decide (nRegSyms ≤ k.sig.name) &&
+      (iteSort? (c.symName k.sig.name)).isNone) = true := by
+  decide +kernel
+
+/-- `or`'s associativity and idempotence items. -/
+def orAssocItem : KoreAML.Item := KoreAML.trAxiom [] [] ⟨0, "kernel", Faithful.assocAxK c orP⟩
+def orIdemItem : KoreAML.Item := KoreAML.trAxiom [] [] ⟨0, "kernel", Faithful.idemAxK c orP⟩
+
+/-- `lawItemsK` writes both sentences for `or`, and they are two. -/
+theorem lawItems : (Faithful.lawItemsK c).map (·.pat) = [orAssocItem.pat, orIdemItem.pat] ∧
+    (orAssocItem.pat == orIdemItem.pat) = false := by
+  decide +kernel
+
+/-- Both are items of `consItemsK`; `or` has no functionality item (the constructor `x` has one);
+Exp's no-junk item lists `x`, `y` and `or`. -/
+theorem items :
+    (Faithful.consItemsK c).any (·.pat == orAssocItem.pat) = true ∧
+    (Faithful.consItemsK c).any (·.pat == orIdemItem.pat) = true ∧
+    (Faithful.consItemsK c).any (·.pat ==
+      (KoreAML.Cons.funItem "Exp" (Gen.toK c (.ctor ⟨xS, [], exp⟩))).pat) = true ∧
+    (Faithful.consItemsK c).any (·.pat ==
+      (KoreAML.Cons.funItem "Exp" (Gen.toK c (.ctor orP.sig))).pat) = false ∧
+    (Faithful.consItemsK c).any (·.pat ==
+      (KoreAML.Cons.noJunkItem "Exp" ((c.gens exp).map (Gen.toK c))).pat) = true ∧
+    (c.gens exp).length = 3 := by
+  decide +kernel
+
+/-- The library's theorems for a semantics meeting `coreOK`, at `c` (not the `_of_lawShape` forms
+above): the laws, a value at every argument list, and the library's sentences, at
+`lawHooks c HookParams.lib` (CN-4 §4.7's example at the band). -/
+theorem lawHooks_lib :
+    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
+    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
+  ⟨KCore.openLaws_lawHooks c coreOK HookParams.lib, KCore.openTotal_lawHooks c coreOK HookParams.lib,
+    libAdmitted_lawHooks c coreOK HookParams.lib (libAdmitted_lib c (by decide +kernel))⟩
+
+/-- **`consistent_of` at the band**: for every H, the theory of `c` at `lawHooks c H` has a model,
+`OpenLaws` being `openLaws_lawHooks H`. `c` has no function, so `FnSolves` holds of it; `FnDet`
+(of the sort predicates' clauses) is taken as a hypothesis. -/
+theorem consistent (H : HookParams) (hd : FnDet (c.withHooks (lawHooks c H))) :
+    Consistent (c.withHooks (lawHooks c H)) :=
+  consistent_of _ ((Semantics.coreOK_withHooks c (lawHooks c H)).trans coreOK) hd
+    (fun _ (hfn : _ ∈ ([] : List Fn)) => nomatch hfn) (openLaws_lawHooks H)
+
+#print axioms coreOK
+#print axioms lawItems
+#print axioms items
+#print axioms lawHooks_lib
+#print axioms consistent
 #print axioms openLaws_lawHooks
 #print axioms openTotal_lawHooks
 #print axioms or_compound

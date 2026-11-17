@@ -500,7 +500,7 @@ constructor or overloading symbol bears its name (`raw_noCtor`, `genWf`'s flat c
 theorem Semantics.lawShape_core {c : Semantics} (h : c.coreOK = true) :
     ∀ k ∈ c.params, k.raw = true → LawShape c k := by
   intro k hk hr
-  obtain ⟨hi, -, hlaw, hreg, -, -, -⟩ := Semantics.raw_of_core h hk hr
+  obtain ⟨hi, hlaw, hreg, -, -, -⟩ := Semantics.raw_of_core h hk hr
   obtain ⟨hlp, hlo⟩ := Semantics.raw_lookup (Semantics.coreOK_parts h).2.2.2.2 hk hr hreg
   have hfa := (Semantics.coreOK_parts h).2.1
   simp only [Semantics.faithCoreOK, Bool.and_eq_true] at hfa

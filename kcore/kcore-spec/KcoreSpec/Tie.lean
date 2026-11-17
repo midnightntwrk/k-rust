@@ -82,14 +82,14 @@ def Semantics.floatShapeOK (c : Semantics) : Bool :=
   c.params.all (fun k => !(k.raw && k.sig.result == Srt.float))
 
 /-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
-associativity or idempotence axiom. An open generator (`raw`) has no registry hook, not both laws,
-two arguments of its result sort where it has a law, a number outside the registry (so `lookupOpen`
+associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
+two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
 answers for it) and no name like an `ite`'s (`iteSort?`), and the semantics has `shapesOK` and
 `floatShapeOK` (no value of a sort the library's sentences read applies it). The sorts hooked to a
 library carrier are well formed (`carriersOK`). -/
 def Semantics.paramsPlain (c : Semantics) : Bool :=
   c.params.all (fun k =>
-    if k.raw then k.impl.isNone && !(k.assoc && k.idem) &&
+    if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
       decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
       c.shapesOK && c.floatShapeOK
