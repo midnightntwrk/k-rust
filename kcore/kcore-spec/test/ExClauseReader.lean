@@ -70,6 +70,18 @@
   `ceRead` on the fixture's equation written by hand (`HandAnd.eqH`, tied to the text) and on
   `eqInner`.
 
+  ## ceil-and: a conjunction of terms in the operand of a `\ceil` conjunct
+
+  - `e3-ml-eq-rhs-ceil-and`, `h(X) => X #And #Ceil(f(X) #And g(X))`: `[X:Int, #Cut0:Int]`,
+    `exs [1]`, `rhs X`, `post ⌈#Cut0⌉ ∧ #Cut0 ∈ f(X) ∧ #Cut0 ∈ g(X)`, `fixedExs [1]`.
+  - `e3-ml-eq-rhs-equals-and` (the conjunction in an operand of `\equals`) and
+    `e3-ml-eq-rhs-not-ceil-and` (the `\ceil` under `\not`): refused `patternConnective`.
+  Hand-written (`HandAnd`): `eqCeilUnder`, `h(X) => X #And #Ceil(f(X #And g(X)))`: the operand is
+  `f(#Cut0)`; `eqCeilBoth`, `h(X) => (f(X) #And g(X)) #And #Ceil(g(X #And f(X)))`: the body's
+  variable before the `\ceil`'s in `exs`.
+  Kernel-checked: `ceRead` on the fixture's equation written by hand (`HandAnd.eqCeil`, tied to the
+  text).
+
   ## left: right sides `Parse.frRead` and `Parse.exRead` give `none` on (test/RhsReader.lean)
 
   Each put in the text's equation and read in the text's definition:
@@ -667,6 +679,59 @@ end HandTerms
 #guard_msgs in #print axioms HandTerms.ceRead_eqK
 /-- info: 'ExClauseReader.HandTerms.ceRead_eqOther' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandTerms.ceRead_eqOther
+
+/-! ## ceil-and -/
+
+namespace HandAnd
+
+/-- `h(X) => X #And #Ceil(f(X) #And g(X))`: the equation of `e3-ml-eq-rhs-ceil-and` (`tie`). -/
+def eqCeil : RawEqn := eqn (.and int [X, .ceil int int (.and int [f X, g X])])
+def eqCeilUnder : RawEqn := eqn (.and int [X, .ceil int int (f (.and int [X, g X]))])
+def eqCeilBoth : RawEqn := eqn (.and int [.and int [f X, g X], .ceil int int (g (.and int [X, f X]))])
+
+/-- **`ceRead` on the fixture's equation, in the kernel**: one clause over `[X:Int, #Cut0:Int]`,
+`rhs X`, the fresh variable existential, `post` the `\ceil` of it and its two memberships. -/
+theorem ceRead_eqCeil : ceRead N2 eqCeil = .ok
+    ({ vars := [Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 0, ens := none, prio := 50,
+       aside := false, exs := [1],
+       post := .and (.ceil Srt.int (.var 1))
+         (.and (.mem Srt.int (.var 1) (.app F [x])) (.mem Srt.int (.var 1) (.app G [x]))) },
+     [⟨"X", "Int"⟩, ⟨"'Hash'Cut0", "Int"⟩]) := by
+  kernel_rfl
+
+end HandAnd
+
+/-- info: 'ExClauseReader.HandAnd.ceRead_eqCeil' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandAnd.ceRead_eqCeil
+
+/--
+info: e3-ml-eq-rhs-ceil-and Lblh: the hand-written equation is the text's: true
+e3-ml-eq-rhs-ceil-and Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [1] post (⌈'Hash'Cut0⌉:Int ∧ (('Hash'Cut0 ∈[Int] Lblf(X)) ∧ ('Hash'Cut0 ∈[Int] Lblg(X))))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-ml-eq-rhs-equals-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
+e3-ml-eq-rhs-not-ceil-and Lblh: refused KCore.Parse.RefusalReason.patternConnective (\and)
+eqCeilUnder:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [1] post (⌈sym0('Hash'Cut0)⌉:Int ∧ (('Hash'Cut0 ∈[Int] X) ∧ ('Hash'Cut0 ∈[Int] sym1(X))))
+eqCeilBoth:
+  [0] vars [X:Int, 'Hash'Cut0:Int, 'Hash'Cut1:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1, 2] post (⌈sym1('Hash'Cut1)⌉:Int ∧ (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1(X)) ∧ (('Hash'Cut1 ∈[Int] X) ∧ ('Hash'Cut1 ∈[Int] sym0(X))))))
+-/
+#guard_msgs in
+open HandAnd in
+#eval show IO Unit from do
+  tie "e3-ml-eq-rhs-ceil-and" "Lblh" eqCeil
+  run "e3-ml-eq-rhs-ceil-and" ["Lblh"]
+  run "e3-ml-eq-rhs-equals-and" ["Lblh"]
+  run "e3-ml-eq-rhs-not-ceil-and" ["Lblh"]
+  showHand "eqCeilUnder" (ceRead N2 eqCeilUnder)
+  showHand "eqCeilBoth" (ceRead N2 eqCeilBoth)
 
 /-! ## left -/
 
