@@ -178,12 +178,15 @@ evidence = "test/WitRestIdsB.lean"
 [[conjunct]]
 key = "overloadsOK.1"
 text = "c.isOvl o.sig.name"
-witness = "none"
+witness = "KcoreSpec.ModelOvlLibCtorWitness"
+note = "an overloading symbol that is also a constructor of the library (idsOK numbers the definition's symbols, not the library's constructors): the generators of K hold it twice, Cons-Dist is stated for the pair unguarded; within the constraints of idsOK.2 a library constructor is the only other kind the name can have (argued); the leaves ov1..ov8 are defined there"
+evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.2"
 text = "c.lookupOvl o.sig.name == some o"
-witness = "none"
+witness = "none: no witness exists: implied by idsOK.2, for every semantics (kernel-checked: ov2_of_ids2): idsOK.2 lists the overloading symbols' names once each in ownSyms, so the first overloading symbol of a member's name is the member"
+evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.3"
@@ -194,7 +197,8 @@ evidence = "test/OvlIteName.lean, test/OvlIteSoundC.lean"
 [[conjunct]]
 key = "overloadsOK.4"
 text = "(KCore.Faithful.consSorts c).contains o.sig.result"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> Int overloading nothing meets every other leaf of coreOK and FnHyp; with f : Int -> K coreOK holds); Γ has a model (argued): Int is no constructor sort, so no constructor item names f and no overload equation exists; f(n) are values of Int (kernel-checked), each one element apart from the others, and nothing states that Int holds its literals only, so the value model with Int holding the literals and the values f(n) meets Γ; not examined: the fallback graphs at the values f(n) one by one"
+evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.5"
