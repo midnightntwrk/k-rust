@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t193-hook-eq-user.k": "f0ce5241490e31f4539d966a08655ba93f69f593996147109b1a6cb33d324bc4"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t193-hook-eq-user.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "e1090319f5552ae9a55861916af97793aade648e9cdba0217672c936874d9595",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

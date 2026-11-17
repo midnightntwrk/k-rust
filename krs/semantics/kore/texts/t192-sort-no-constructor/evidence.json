@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t192-sort-no-constructor.k": "36f94e2f996a4573df69e6282c4dd9097a3312e2fd2462e792eeb81ec520b5d9"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t192-sort-no-constructor.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "59ce08b5a5692cc81516485deba201628e04bc255eccbfee91b2d236b164b633",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
