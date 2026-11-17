@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-strict-alias-ctx.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 247806
+definition.kore sha256: eabc7e8b6708d6fb4438c145617f20b35a09b21915d871af35215ee7f876234b
+stripped sha256: 0b9844f4eb8298d321344f0adc607c5b7090a7b3c13547cc8fa6c6e00a54da05
+main module: 496 sentences, 164 not in base's, in kore.txt
+differs_from c3-strict-alias-ctx-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-STRICT-ALIAS-CTX-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-STRICT-ALIAS-CTX as default.
