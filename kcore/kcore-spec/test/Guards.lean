@@ -35,6 +35,8 @@
   - G7, `setIdempotence`: `_Set_` at a common member is no silent point, and `hook` gives it no value
     (`setIdem_bot`); in every semantics and under every H, `Γ` holds `_Set_(S₁, S₂) = ⊥` at sets
     where `hook` gives the concatenation no value (`setIdem_gamma`; at `{1} {1}`, `setIdem_everyH`).
+    The point is reached (`setIdem_reached`): were `_Set_` a key of `silentTable`, which
+    `silentKey_fixed` forbids, its value at a common member would be the interpretation's.
   - `rest_undetermined`, the statement of what replaced G0: at an argument list where every clause
     of a function fails, `Γ` holds the graph of the function's rest (`gamma_rest`), so over all
     interpretations it entails neither that the function has no value there nor that it has a
@@ -626,6 +628,28 @@ theorem setIdem_everyH (H : HookParams) :
     Γ (nc.withHooks H) (fnApp (nc.withHooks H) setConcat [set1, set1] ≡ ⊥) :=
   setIdem_gamma nc H (by rw [Semantics.sortsOf_withHooks nc H nc_noRaw]; decide +kernel) (by decide +kernel)
 
+/-- `silent` and `hookRes` over a table `T` in `silentTable`'s place. -/
+def silentWith (T : List (Sym × (List GroundTerm → Bool))) (f : Sym) (vs : List GroundTerm) : Bool :=
+  match T.find? (·.1 == f) with
+  | some (_, p) => p vs
+  | none => false
+def hookResWith (T : List (Sym × (List GroundTerm → Bool))) (c : Semantics) (f : Sym)
+    (vs : List GroundTerm) : Option (Option GroundTerm) :=
+  if silentWith T f vs then (hook f vs).map fun r => r.or (c.fallback f vs) else hook f vs
+theorem hookResWith_table (c : Semantics) (f : Sym) (vs : List GroundTerm) :
+    c.hookRes f vs = hookResWith silentTable c f vs := rfl
+
+/-- The interpretation that answers the empty set everywhere. -/
+def Hempty : HookParams := ⟨fun _ _ => some (.set Srt.set [])⟩
+
+open RestOpen in
+/-- **The point is reached**: were `_Set_` a key of `silentTable` at a common member, its value
+there would be the interpretation's: the empty set under `Hempty`, where `hookRes` gives none. -/
+theorem setIdem_reached :
+    hookResWith ((setConcat, fun _ => true) :: silentTable) (nc.withHooks Hempty) setConcat [set1, set1] =
+      some (some (.set Srt.set [])) ∧
+    (nc.withHooks Hempty).hookRes setConcat [set1, set1] = some none := by decide +kernel
+
 /-! ## G8: `ruleRightDefined`, the text's rule axiom entails the read one -/
 
 section RightDefined
@@ -859,6 +883,7 @@ end KCore.Guards
 #print axioms KCore.Guards.RestOpen.F0_undetermined
 #print axioms KCore.Guards.setIdem_gamma
 #print axioms KCore.Guards.setIdem_everyH
+#print axioms KCore.Guards.setIdem_reached
 #print axioms KCore.Guards.ruleRightDefined_weaker
 #print axioms KCore.Guards.existsDropped_weaker
 #print axioms KCore.Guards.existsDropped_empty
@@ -1070,18 +1095,20 @@ def unreadReason : UnreadReason → GuardEntry
       guard := [.test "test/CellCollection.lean" "#guard_msgs"],
       note := "which sentences are part of the reading; a read sentence applying the injection is refused (REVIEW-RN RN9)" }
   | .macroUnused =>
-    { status := .pending "GUARD.unread",
-      note := "no reader test of a text declaring a macro or alias symbol it does not apply is found under test/" }
+    { status := .readerTest,
+      guard := [.test "test/MacroUnused.lean" "#guard_msgs"],
+      note := "which sentences are part of the reading: the four macro and alias declarations of e2-macro's text, which applies none of them (kompile has expanded them), are not read, and the text is read with nothing unaccounted; an application would be refused at the applying sentence (macroSymbol)" }
   | .parametricUnused =>
     { status := .readerTest,
       guard := [.test "test/ParametricUnused.lean" "#guard_msgs"],
       note := "the declaration is read only through the instances a sentence applies (REVIEW-RN RN9)" }
   | .setIdempotence =>
-    { status := .pending "GUARD.unread",
-      guard := [.decl ``KCore.Guards.setIdem_bot],
-      companion := [.test "test/TieEns.lean" "idem_refuted"],
-      invariant := [``KCore.silentKey_fixed],
-      note := "G7 (setIdem_bot) names no H: _Set_ at a common member is no silent point and hook gives it no value; its every-H half is idem_refuted (Γ with the idempotence axiom has no model, for every H), a pointer into another test file; owed: a statement about c.withHooks H for every H" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.setIdem_gamma, .decl ``KCore.Guards.setIdem_everyH,
+        .decl ``KCore.Guards.setIdem_bot],
+      companion := [.test "test/TieEns.lean" "idem_refuted", .decl ``KCore.Guards.setIdem_reached],
+      invariant := [``KCore.silentKey_fixed, ``KCore.Faithful.ΓDomains],
+      note := "G7: in every semantics and under every H, Γ holds _Set_(S1, S2) = ⊥ where hook gives the concatenation no value (setIdem_gamma; at {1} {1}, setIdem_everyH), so the idempotence axiom, which gives _Set_(K, K) the value K, is no part of the reading: Γ with it has no model, for every H (idem_refuted, on ens's sentence 61); the point is reached (setIdem_reached): were _Set_ a key of silentTable, its value at a common member would be the interpretation's" }
   | .overloadConfusion =>
     { status := .readerTest,
       guard := [.test "test/Overloads.lean" "overloadConfusion"],

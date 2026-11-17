@@ -649,7 +649,14 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
   `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
   `rest_undetermined` says that where every clause of a function fails `Γ` over all H entails
-  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause).
+  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause). Every `UnreadReason`
+  has its entry: `setIdempotence` is guarded by G7 with `idem_refuted` (test/TieEns.lean) and
+  `setIdem_reached` (were `_Set_` a key of `silentTable`, its value at a common member would be
+  the interpretation's); the five others name the reader test that fixes their verdict.
+- `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
+  e2-macro): the four macro and alias symbols the text declares and does not apply are not read
+  (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
+  unaccounted, `f`'s clause applying none of them.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
