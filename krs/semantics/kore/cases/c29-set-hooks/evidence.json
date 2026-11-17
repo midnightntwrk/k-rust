@@ -14,7 +14,7 @@
   }
  },
  "inputs": {
-  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "answer": "6f8915caef8aa29f08dd46142bec0a72aaf72c133c7729593a97534da1e46152",
   "def.k": "54477e7f75755a2fc25c9292fc0064c9e9332373b9f12cb04cc8758079e6197d",
   "pgm": "b815071ffa4d438cd22806b559cc94e9c61e257c11b48c2b534bbf4c359ecf8a"
  },
@@ -25,5 +25,9 @@
   "message": null,
   "release": "K v7.1.337"
  },
- "ruling_canonical": {}
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Int'Unds'Set'Unds'Set'Unds'Set'Unds'Set(true,false,2,SortSet{inj{SortInt,SortKItem}(0),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(9)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)}))"
+  ]
+ }
 }

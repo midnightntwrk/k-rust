@@ -1,20 +1,31 @@
 id = "c33-list-middle-frame"
 kind = "case"
 subject = "A List pattern with elements on both sides of its frame: ListItem(X) L ListItem(Y) takes the first and the last element and binds the middle to L."
+rests_on = ["kk:t01-rule-applies", "kk:t06-final-configuration", "kk:t34-collection-values", "kk:t38-collection-patterns"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(1, 4, ListItem(2) ListItem(3))"]
+reason = """
+(1) L0 is the list of 1, 2, 3 and 4 in that order (kk:t34-collection-values). ListItem(X:Int) L:List ListItem(Y:Int) is an allowed form: element patterns, then one frame variable, then element patterns (user_manual.md:2221-2223).
+(2) The element patterns take the items at their positions and the frame the items between (kk:t38-collection-patterns): X = 1, the first item, Y = 4, the last, and L the list of 2 and 3; concatenation being associative (domains.md:930), ListItem(1) (ListItem(2) ListItem(3)) ListItem(4) is L0, and no other substitution denotes L0. The rule has no requires and applies (kk:t01-rule-applies): c(L0) steps to r(1, 4, ListItem(2) ListItem(3)) alone.
+(3) No rule's left side matches r(_, _, _), which is final (kk:t06-final-configuration). The final configurations are r(1, 4, ListItem(2) ListItem(3)) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2221-2223 (K 7.1.337)"
+quote = "// 0 or more elements followed by 0 or 1 variables of sort List followed by // 0 or more elements ListItem(E1) ListItem(E2) L:List ListItem(E3) ListItem(E4)"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:930 (K 7.1.337)"
+quote = "syntax List ::= List List [left, function, total, hook(LIST.concat), symbol(_List_), smtlib(smt_seq_concat), assoc, unit(.List), element(ListItem), update(List:set), format(%1%n%2)]"
 
 [[disposition]]
 implementation = "haskell"
 is = "difference"
-reason = """
-The haskell backend's search stops with ErrorRewritesInstantiation: its unifier finds no \
-solution for a List pattern with elements on both sides of the frame. List concatenation is \
-associative, so ListItem(X) L ListItem(Y) matches every list of at least two elements, with X \
-the first, Y the last and L the middle; kore.k gives r(1, 4, ListItem(2) ListItem(3)), as the \
-llvm backend does."""
+reason = "The haskell backend's search stops with an error (ErrorRewritesInstantiation: Unable to instantiate semantic rule at def.k:13:8-13:72) and reports no final configuration; the ruling has r(1, 4, ListItem(2) ListItem(3))."

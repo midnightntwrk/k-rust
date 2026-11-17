@@ -1,18 +1,84 @@
 id = "c32-elem-strict"
 kind = "case"
 subject = "Sets and lists are strict in their elements: an element that is undefined (1 /Int 0) makes the collection, and so the rule's result, undefined; the rule of the same priority without one gives the one final configuration."
+retro = ["H1"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t34-collection-values"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(SetItem(1), ListItem(2), 0) no successor by the rules for a and b and the successor c(2) by the third (user_manual.md:1166-1173); the axioms kompile writes for the rules for a and b have SetItem(1 /Int Z) and ListItem(1 /Int Z) in their right sides (kore.txt:125, 134), empty at Z = 0, and read as rewrite axioms they are false in every model where that configuration is an element: as written the text has no model holding it, rather than one where it has the one successor c(2)."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["c(2)"]
+reason = """
+(1) The three rules for go have priority 50 and no requires (user_manual.md:1748-1749): at go(SetItem(1), ListItem(2), 0) each rule whose result has a value gives a successor, whatever the others give (kk:t02-step-successors).
+(2) 1 /Int 0 has no value (domains.md:1233-1234; kk:t31-int-division). SetItem and ListItem are hooked symbols, and a hooked symbol applied to an argument that has no value has none, and so has the concatenation applied to it (kk:t30-hooks-strict), and a and b applied to that (kk:t10-fn-innermost). The transitions of the rules for a and b end in RHS #And ENS (user_manual.md:1166-1173), which has no value: they give no successor, and a(_) and b(_) are reached by no rule.
+(3) The rule for c: size(SetItem(1)) is 1 (domains.md:791) and size(ListItem(2)) is 1 (domains.md:1031), so go(...) steps to c(1 +Int 1) = c(2) (domains.md:1238). No concatenation in the case joins sets with an element in common.
+(4) No rule's left side matches c(2), which is final (kk:t06-final-configuration). The final configurations are c(2) alone.
+(5) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:791 (K 7.1.337)"
+quote = "You can get the number of elements (the cardinality) of a set in O(1) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1031 (K 7.1.337)"
+quote = "You can get the number of elements of a list in O(1) time."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom, of one priority (kore.txt:110-136). The right sides of the rules for a and b hold SetItem(1 /Int Z) and ListItem(1 /Int Z) (kore.txt:125, 134); 1 /Int Z denotes nothing at Z = 0, and so does every application to it, the interpretation of each symbol being extended to argument sets (introduction-to-matching-logic.tex:714-716), so at Z = 0 those axioms hold only where their left side has no element; go is a constructor with a functional axiom (kore.txt:90). The written sentences have no model in which go(SetItem(1), ListItem(2), 0) in the k cell is an element, while the manual's transition gives it the one final configuration c(2)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:125"
+quote = '''Lbl'Unds'Set'Unds'{}(VarS:SortSet{},LblSetItem{}(inj{SortInt{}, SortKItem{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"),VarZ:SortInt{}))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:134"
+quote = '''Lbl'Unds'List'Unds'{}(VarL:SortList{},LblListItem{}(inj{SortInt{}, SortKItem{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"),VarZ:SortInt{}))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:90"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblgo'LParUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Set'Unds'List'Unds'Int{}(K0:SortSet{}, K1:SortList{}, K2:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in a set's and a list's element. SET.element, \
-LIST.element and the concatenations are strict, so the collection and the rule's result are \
-undefined."""
+reason = "The llvm backend aborts on 1 /Int 0 in a set's and a list's element ([hook_INT_tdiv]: Division by zero) and reports no final configuration; the ruling has c(2)."
