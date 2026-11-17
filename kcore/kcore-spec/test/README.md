@@ -1292,7 +1292,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   of the 301 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
   `fn48_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
   consequence (`fns_from_text`); the 7 others are `[owise]` equations whose exclusion lists the
-  other equations in another order, or binds with other keys, and are not shown. 5.5 GiB, 202 s.
+  other equations in another order, or binds with other keys, tied in `test/TieKkOwise.lean`.
+  5.5 GiB, 202 s.
 - `test/TieKkRules.lean`: kore.k's 10 rules: the j-th item of `ruleItems` is a consequence of the
   j-th rewrite sentence, for every H (`rules_from_text`, W1). 3.3 GiB, 9 s.
 - `test/TieKkCons.lean`: kore.k's 234 constructor sentences (functional, subsort, injectivity,
@@ -1305,6 +1306,21 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`koreSem_rawFree`, by the kernel on the parse of `examples/ref-kk/RefKk/definition.kore`), so
   its sorts and configurations are the same at every interpretation, `HookParams.none` among them
   (`koreSem_sortOf_withHooks`, `koreSem_config_withHooks`), and `OpenTotal` holds at every H.
+- `test/TieKkOwise.lean`: the 7 `[owise]` equations of kore.k that `TieKkFns` leaves (`owAt`,
+  `ow_keys`): item and sentence agree up to the order of the operands of their sorted disjunctions
+  and the names of their variables (`ow_same`, `TieAlpha.acEqB` from `KcoreSpec/TieAlphaOr.lean`,
+  one decision per position), so Γ entails each sentence for every H (`ow_entailed`) and each item
+  is its sentence's consequence (`ow_from_text`). 6.9 GiB, 123 s.
+- `test/TieKkW2.lean`: kore.k's 10 rules in the direction W2: Γ's axiom is the sentence with the
+  definedness of its right side as a third conjunct of its left side, whose second conjunct is
+  `\top` or the `requires` equation at the configuration sort (`w2_checked`, one decision); in a
+  model of Γ, for every H, each sentence holds where its right side holds an element
+  (`rules_w2_all`, `rules_w2`). 1.9 GiB, 22 s.
+- `test/TieKkDecls.lean`: kore.k's declarations in the direction E (row 19): the item of each of
+  the 32 sort declarations without sort parameters is in `sigItems c` (`sorts_in_sig`); each of the
+  306 symbol declarations without sort parameters names no symbol of Γ (65, `noSym_count`) or its
+  item is the arity item of the first of Γ's symbols under its name (`syms_in_sig`, by ranges);
+  so Γ entails each such item for every H (`decls_entailed`). 5.8 GiB, 212 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
