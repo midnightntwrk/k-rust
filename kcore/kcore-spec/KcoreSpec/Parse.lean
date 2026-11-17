@@ -908,20 +908,23 @@ def decimal? (cs : List Char) : Option (Nat × Int) :=
   else (digitsVal (ip ++ fp) 0).bind fun m => (expPart? r).map fun x => (m, x - fp.length)
 
 /-- A Float literal's text (K's FLOAT-SYNTAX: `[+-]?` then a decimal, `Infinity`, or `NaN`
-unsigned, then a suffix) as the literal of its datum: the decimal's value rounded to the format,
-nearest ties to even (`UnpackedFloat.ofScientific`), the sign applied after (rounding is symmetric,
-and `-0.0` is negative zero), encoded (`KFloat.packBits`). `none` for another text or a format
-without a model. -/
+unsigned, then a suffix) as the literal of its datum: the decimal's value rounded to the nearest
+value of the format where the text states which that is (`KFloat.ofDecimal?`, domains.md 1478-1483),
+the sign applied after (rounding is symmetric, and `-0.0` is negative zero), encoded
+(`KFloat.packBits`). `none` for another text, a format without a model, and a decimal whose datum
+the text does not state: one halfway between two data of the format, above its largest finite
+value, or nonzero and rounding to zero. -/
 def floatLit? (text : String) : Option Lit := do
   let (body, p, e) ← floatSuffix text.toList
   let s ← KFloat.spec? p e
+  let s' ← KFloat.spec? (p + 1) e
   let (neg, mag) := match body with
     | '-' :: r => (true, r)
     | '+' :: r => (false, r)
     | r => (false, r)
   let u ← if body == "NaN".toList then some Float.Model.UnpackedFloat.notANumber
     else if mag == "Infinity".toList then some (Float.Model.UnpackedFloat.infinity .positive)
-    else (decimal? mag).map fun (m, x) => Float.Model.UnpackedFloat.ofScientific s m x
+    else (decimal? mag).bind fun (m, x) => KFloat.ofDecimal? s s' m x
   pure (.float p e (KFloat.packBits s (if neg then u.neg else u)))
 
 /-- A literal of sort `s`, read from its text. -/

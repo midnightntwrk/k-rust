@@ -72,7 +72,12 @@ silent point `replace` at the count (`libReplaceAll`) and `replace` at one its f
 `<=Float`, `<Float`, `>=Float`, `>Float`, `==Float` `false` and `=/=Float` `true`; `rootFloat` at a
 Float and 2 `hook`'s value of `sqrtFloat` (`libRootVal`); nothing elsewhere.
 At an interpreted symbol it is read only at silent points (`Semantics.fallback`), where `hook` gives
-no value; at `rootFloat`, a parameter symbol, at every argument. -/
+no value; at `rootFloat`, a parameter symbol, at every argument. At the Float points of a format with
+a model where K's text states no value (FloatDomain.lean) that is the operand itself for `--Float`
+and `absFloat` at NaN and for `floorFloat`, `ceilFloat`, `truncFloat` at an infinity, NaN, a zero
+result of a nonzero operand or an integer the format does not hold (`totalsVal`), and no value for
+the five arithmetic operations, `roundFloat` and `Int2Float`, which are not `total`. No sentence of
+`libSentences` reads those points: 1673 negates a `maxValueFloat`, never a NaN. -/
 def HookParams.lib : HookParams :=
   ⟨fun f vs =>
     if f == stringReplaceAll then libReplaceAll vs
@@ -308,7 +313,7 @@ theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
       some (flCmp (fun o => o == some .gt) [.dv Srt.float (.float p e b), m]) := rfl
     rw [h0]; simp [flCmp, hpi]
   have hng : hook floatNeg [m] = some none := by
-    have h0 : hook floatNeg [m] = some (fl1 (fun _ => Float.Model.UnpackedFloat.neg) [m]) := rfl
+    have h0 : hook floatNeg [m] = some (fl1 (fun _ => KFloat.neg?) [m]) := rfl
     rw [h0]; simp [fl1, hm]
   have hlt : hook floatLt [.dv Srt.float (.float p e b), m] = some none := by
     have h0 : hook floatLt [.dv Srt.float (.float p e b), m] =

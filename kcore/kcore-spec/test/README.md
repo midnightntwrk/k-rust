@@ -1046,19 +1046,23 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HooksFloat.lean`: the 23 supported hook rows of FLOAT (the sort and twenty-two operations)
   against domains.md's prose, cited by line. Each expected value is derived by hand and marked by
   its source: the prose's sentence, an `smt-hook` attribute (the only rounding direction the text
-  gives an operation), or IEEE 754, which the prose names without a clause (recalled without the
-  standard's text, to confirm); the encodings of the data are written by hand and the reader takes the
-  prose's literals to them. `hook` gives each value, the result and Γ's statement under every
-  interpretation (`strbytes`); `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` give a
-  value of the precision and exponent bits asked for. `precisionFloat` and `exponentBitsFloat` are
-  no key of `silentTable` and have their value at every Float; the twenty others are keys true
-  everywhere, with the region where `hook` gives no value at every argument list of literals
-  (`*_none`): two formats (the five arithmetic operations), a precision or exponent bits below 2,
-  an operand of a format with a field of 1. At a point of each, Γ over all interpretations entails
-  neither ⊥ nor a value. The header's findings: at the formats with a field of 1 the prose names
-  the format, so the silent region is not shown to be unstated (two readings); no rounding
-  direction for `roundFloat` and `Int2Float`; special data and the sign of a zero only by the
-  named standard; comparisons of two formats have a value where the arithmetic is silent.
+  gives an operation), or the representation the prose names (IEEE 754's encoding of a format's
+  data, recalled without the standard's text, to confirm); the prose's general reference to IEEE
+  754 is taken to state no value. The reader takes the prose's literals to the encodings written by
+  hand and refuses those whose datum the prose does not state (a tie, above the largest finite
+  datum, nonzero rounding to zero). `hook` gives each value, the result and Γ's statement under
+  every interpretation (`strbytes`); `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat`
+  give a value of the precision and exponent bits asked for. `precisionFloat` and
+  `exponentBitsFloat` are no key of `silentTable` and have their value at every Float; the twenty
+  others are keys true everywhere, with the region where `hook` gives no value at every argument
+  list of literals (`*_none` and the region lemmas): two formats (the five arithmetic operations), a
+  precision or exponent bits below 2, an operand of a format with a field of 1, and at a format
+  with a model what the prose does not describe (a NaN or infinite operand, a zero divisor, a zero
+  result of unstated sign, a result above the largest finite datum, a `%Float` quotient tie, an
+  inexact `roundFloat` or `Int2Float`). At a point of each, Γ over all interpretations entails
+  neither ⊥ nor a value. The header's findings: at the formats with a field of 1 the prose states
+  values that `hook` does not compute; comparisons of two formats are stated where the arithmetic
+  is not.
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no

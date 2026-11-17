@@ -13,12 +13,12 @@
   - **[A]** an attribute of the production: `smt-hook((fp.add roundNearestTiesToEven #1 #2))` and
     its like on `*Float`, `/Float`, `%Float`, `+Float`, `-Float` (DOM 1565-1570), the only place the
     text gives a rounding direction for an operation.
-  - **[S]** IEEE 754, which the prose names without a clause: the section's title (DOM 1461), "based
-    on a generalization of the IEEE 754 standard" (1464-1466), "represented like an IEEE754
-    floating-point type" (1482), "in IEEE 754 arithmetic" (1638). What is marked [S] follows from
-    the named standard and not from a sentence of the prose. This file was made without a copy of
-    the standard: each [S] names the standard's operation or rule as recalled, without a clause, and
-    is a reading to confirm against it.
+  - **[R]** the representation the prose names: "represented like an IEEE754 floating-point type"
+    (1481-1483), binary32 and binary64 for `f` and `d` (1484-1490): which data a format holds and
+    their encoding. This file was made without a copy of the standard: what is marked [R] is the
+    encoding as recalled, to confirm against it.
+  The prose's general reference ("based on a generalization of the IEEE 754 standard", 1464-1466)
+  names no operation and is taken to state no value; a value it alone would give is unstated.
   FLOAT's prose writes no `#False` and no `#Bottom`: no row has a point where it states that there
   is no value. "Unstated" is DOM 14-16.
 
@@ -34,24 +34,26 @@
 
   | rows | prose | where `hook` gives no value |
   |---|---|---|
-  | `FLOAT.precision`, `FLOAT.exponentBits` | DOM 1508, 1516 "the number of bits of precision / of exponent range in a `Float`"; `total` 1511, 1519 | nowhere at a Float value (`covered_fmt`) |
-  | `FLOAT.neg`, `abs`, `floor`, `ceil`, `trunc` | DOM 1552-1554, 1578, 1583-1588; `total` 1562, 1608, 1610-1612 | an operand of a thin format (`unary_none`) |
-  | `FLOAT.isNaN` | DOM 1541; `total` 1544 | an operand of a thin format (`isNaN_none`) |
-  | `FLOAT.le`, `lt`, `ge`, `gt`, `eq` | DOM 1631-1638; 1641-1645, no `total` | an operand of a thin format (`cmp_none`) |
-  | `FLOAT.add`, `sub`, `mul`, `div`, `rem` | DOM 1556-1559; 1565-1570, no `total` | an operand of a thin format; two operands of two formats (`arith_none`) |
-  | `FLOAT.round` | DOM 1579-1582; 1609, no `total` | an operand of a thin format; a precision or exponentBits below 2 (`round_none`) |
-  | `FLOAT.int2float` | DOM 1653-1654; 1661, no `total` | a precision or exponentBits below 2 (`int2Float_none`) |
+  | `FLOAT.precision`, `FLOAT.exponentBits` | DOM 1508, 1516; `total` 1511, 1519 | nowhere at a Float value (`covered_fmt`) |
+  | `FLOAT.neg`, `abs` | DOM 1552-1554, 1578; `total` 1562, 1608 | a thin operand; the NaN (`negAbs_none`) |
+  | `FLOAT.floor`, `ceil`, `trunc` | DOM 1583-1588; `total` 1610-1612 | a thin operand; an infinity or NaN; a zero result of a nonzero operand; an integer the format does not hold (`roundings_none`, `convert_special`) |
+  | `FLOAT.isNaN` | DOM 1541; `total` 1544 | a thin operand (`isNaN_none`) |
+  | `FLOAT.le`, `lt`, `ge`, `gt`, `eq` | DOM 1631-1638; 1641-1645, no `total` | a thin operand (`cmp_none`) |
+  | `FLOAT.add`, `sub`, `mul`, `div`, `rem` | DOM 1556-1559; 1565-1570, no `total` | a thin operand; two formats; an infinite or NaN operand; a zero divisor; a zero result, but `0.0 -Float 0.0`; an exact result above the largest finite datum, or one rounding to zero; for `%Float` a quotient halfway between two integers (`arith_none`, `arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`) |
+  | `FLOAT.round` | DOM 1579-1582; 1609, no `total` | a thin operand; a precision or exponentBits below 2; a value the target does not hold, an infinity, NaN (`round_none`, `convert_special`, `held_exact`) |
+  | `FLOAT.int2float` | DOM 1653-1654; 1661, no `total` | a precision or exponentBits below 2; an Int the target does not hold (`int2Float_none`) |
   | `FLOAT.maxValue`, `FLOAT.minValue` | DOM 1601-1604; 1625, 1626, no `total` | a precision or exponentBits below 2 (`at_none`) |
 
   `precisionFloat` and `exponentBitsFloat` are no key of `silentTable`. The other twenty are keys
   whose predicate is true at every argument list (`keys_silent`), so the silent points of each are
-  exactly the argument lists of the third column. Against the prose that region has three parts:
+  exactly the argument lists of the third column. Against the prose that region has four parts:
   - **two formats** (`+Float`, `-Float`, `*Float`, `/Float`, `%Float`): the prose computes "the sum …
     of two floats" (1556-1559) and nowhere says which format the result has when the two differ:
     unstated. Points: `pts`.
   - **no format** (`roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` at a precision or
     exponentBits ≤ 0): `pNxM` names a format for positive N and M only (1475): unstated. Points:
     `pts`.
+  - **what the prose does not describe at a format with a model**: findings 2, 3 and 5. Points: `pts`.
   - **a thin format** (every key: an operand of one, or a precision or exponentBits of 1): finding
     1. Here the silent region is NOT shown to be a region the prose leaves unstated. Points: `thin`.
 
@@ -64,7 +66,7 @@
     `roundFloat` (`round_format`), and the same of `Int2Float`, `maxValueFloat`, `minValueFloat`
     ("with the specified precision and exponent range", 1653-1654, 1601-1604: `int2Float_format`,
     `at_format`).
-  - **(2)** `pts`: a point of each row of the two unstated parts; Γ over all interpretations entails
+  - **(2)** `pts`: a point of each row of the unstated parts; Γ over all interpretations entails
     neither ⊥ nor a value there (`pts_undetermined`). The same at a point of each key in the thin
     part (`thin_undetermined`), which is a fact about Γ and, by finding 1, not a reading of the prose.
   - **(3)** `groups`, `keys_silent`, the `*_none` theorems, `covered_fmt`.
@@ -72,58 +74,53 @@
   The sort row `FLOAT.Float` (DOM 1464-1490, 1494-1497): a value is a datum of a format `(p, e)`, the
   precision and the exponent bits of the literal's suffix (1483-1487), `p24x8` for `f` and `p53x11`
   for `d` or no suffix (1484-1490; `lits_read`: the reader takes each literal of `lits` to the
-  encoding written there by hand). Every such literal is a value of sort Float in every semantics
-  (`float_value`), two encodings are two values (`float_inj`: `0.0` and `-0.0` are two, 1553-1554),
-  and nothing else is one (`float_only`); a sort has no argument list. The encoding (the format's
-  sign, biased exponent and significand fields) is KCore's representation of the datum; of a NaN the
-  syntax (1497) writes neither sign nor payload, and KCore has one per format (`KFloat.ok`).
+  encoding written there by hand, and refuses those of `litsRefused`, `lits_refused`). Every such literal is a value
+  of sort Float in every semantics (`float_value`), two encodings are two values (`float_inj`: `0.0`
+  and `-0.0` are two, 1553-1554), and nothing else is one (`float_only`); a sort has no argument
+  list. The encoding (the format's sign, biased exponent and significand fields) is KCore's
+  representation of the datum [R]; of a NaN the syntax (1497) writes neither sign nor payload, and
+  KCore has one per format (`KFloat.ok`), which no statement here depends on.
 
   Findings (prose against `hook` and `silentTable`), none of which makes a statement here
   unprovable:
-  1. Thin formats (`p1xM`, `pNx1`), two readings. DOM 1475 names `pNxM` for "positive integers" N
-     and M, and 1481-1483 gives the value of such a literal "in a floating-point type represented
-     like an IEEE754 floating-point type, with the number of bits of precision and exponent
-     specified by the suffix". (A) the generalization (1465) covers them: then `1.0p1x8` is a datum,
-     `isNaN(1.0p1x8)` is false, `--Float 1.0p1x8` is `-1.0p1x8`, `maxValueFloat(1, 8)` is 2^127, and
-     so on, and Γ states less than the prose at every point of `thin` (Hooks.lean's comment on
-     `silentTable` says the same: "less than the text's IEEE 754 description"). (B) [S] IEEE 754
-     defines no format of one significand digit or of one exponent bit (with e = 1 the largest
-     exponent is below the smallest; with p = 1 an encoding has no significand field to tell a NaN
-     from an infinity), and the prose does not say how it generalizes there: unstated. `silentTable`
-     is right under (B) and too wide under (A). KCore's carrier holds values of thin formats
-     (`KFloat.thinOK`), `hook` computes none of the twenty operations on them, and the reader takes
-     no literal of one (test/FloatLib.lean: `1.0p1x8` is not read). `precisionFloat` and
-     `exponentBitsFloat` have their values there (`covered_fmt`).
+  1. Thin formats (`p1xM`, `pNx1`). DOM 1475 names `pNxM` for "positive integers" N and M, and
+     1481-1483 gives the value of such a literal in a type "represented like an IEEE754
+     floating-point type, with the number of bits of precision and exponent specified by the
+     suffix"; no sentence of an operation distinguishes a format. So an operation at a thin format
+     has the status it has at any format: `1.0p1x8` is a datum, `isNaN(1.0p1x8)` is false, `--Float
+     1.0p1x8` is `-1.0p1x8`, `maxValueFloat(1, 8)` is 2^127, and Γ states less than the prose at
+     every point of `thin` (unstated there: a tie at p = 1, `maxValueFloat(1, 1)`,
+     `minValueFloat(1, 1)`). KCore's carrier holds values of thin formats (`KFloat.thinOK`), `hook`
+     computes none of the twenty operations on them, and the reader takes no literal of one
+     (test/FloatLib.lean). `precisionFloat` and `exponentBitsFloat` have their values there
+     (`covered_fmt`).
   2. Rounding. The prose gives a direction only for literals ("rounded to the nearest possible
-     value", 1481-1482, without a rule for a tie) and, as attributes, for the five arithmetic
-     operations ([A]). `roundFloat` ("Round a floating-point number to a specified precision",
-     1579) and `Int2Float` ("convert an integer to a floating-point number", 1653) at a value the
-     format does not hold have no direction in the text. `hook` rounds every one to nearest, ties to
-     even, and no such point is silent (`beyond`). Reading (A): [S] the named standard's default
-     rounding (roundTiesToEven) applies: stated. (B) unstated, and `silentTable` is too
-     narrow there. `vals` holds no inexact point of `roundFloat` or `Int2Float`.
-  3. Special data. The prose's sentences for `floorFloat`, `ceilFloat`, `truncFloat` ("the next lowest
-     floating-point value which is an integer", 1583-1588) describe no value at an infinity or a NaN
-     and no sign for a zero result; `/Float` and `%Float` at a zero divisor, and every operation at a
-     NaN or an infinity, are not mentioned. Each is [S] only (roundToIntegral; the sign of a
-     zero; invalid operation and division by zero; NaN propagation). `hook` gives the [S]
-     value and none is silent. The three rounding rows are declared `total`; the arithmetic ones and
-     the comparisons are not, though the prose names no input without a value.
-  4. Comparisons of two formats. The prose compares "a float … to another float" (1631-1632) and
-     says nothing of two formats; `hook` compares the exact values, with a value at every pair of
-     model formats, not silent (`beyond`: `1.0 ==Float 1.0f` is true), where the arithmetic of two
-     formats is silent. Reading (A): a comparison's result is a Bool, the values of the two data are
-     given, and [S] the standard's comparisons take operands of different formats: stated. (B) unstated, as for
-     the arithmetic.
+     value", 1481-1482, naming no rule for a tie and not saying whether an infinity or which zero is
+     a possible value for a finite number) and, as attributes, for the five arithmetic operations
+     ([A]: the rounding to nearest, a tie to the even significand). `roundFloat` ("Round a
+     floating-point number to a specified precision", 1579) and `Int2Float` ("convert an integer to
+     a floating-point number", 1653) at a value the format does not hold have no direction in the
+     text: unstated, and `hook` gives none (`held_exact`). The reader refuses a literal halfway
+     between two data, above the largest finite datum, or nonzero and nearer to zero than to every
+     nonzero datum (`litsRefused`, `lits_refused`).
+  3. Special data. The sentences for `floorFloat`, `ceilFloat`, `truncFloat` ("the next lowest
+     floating-point value which is an integer", 1583-1588) describe no value at an infinity or a
+     NaN and no sign for a zero result; `/Float` and `%Float` at a zero divisor, the five
+     arithmetic operations at a NaN or an infinity, `--Float` and `absFloat` at a NaN, and the sign
+     of a zero result other than `0.0 -Float 0.0` (1553) are not mentioned, and FLOAT writes no
+     `#False`: unstated, and `hook` gives none (`pts`). Above the largest finite datum the prose does
+     not say whether an infinity is a value to round to: unstated.
+  4. Comparisons of two formats. The prose compares "a float … to another float" (1631-1632): the two
+     data have values whatever their formats and the result is a Bool, so the comparison is stated;
+     `hook` compares the exact values (`vals`: `1.0 ==Float 1.0f` is true). The arithmetic of two
+     formats is unstated: its result needs a format and none is named.
   5. `%Float`: "computed based on rounding the quotient of the two floats to the nearest integer"
-     (1557-1558) gives no rule for a quotient halfway between two integers; [A] 1567 and [S]
-     (remainder) take the even one. `vals` has one point of each kind, marked.
-  6. A NaN's sign. [S] negate and abs act on the sign of a NaN; K's syntax writes one NaN
-     per format (1497) and KCore's carrier has one, so `--Float NaN` is `NaN`. No supported row
-     reads a NaN's sign (`signFloat` is a parameter row).
+     (1557-1558) gives no rule for a quotient halfway between two integers, and the attribute's
+     mode (1567) is that of the operation's result, which is exact: `5.0f %Float 2.0f` is unstated
+     (`pts`).
   Readings, marked: "the next lowest / next highest floating-point value which is an integer" is
   the integer itself at an integer (so `floorFloat(2.0f)` is `2.0f`; no point of `vals` is at an
-  integer); "the smallest positive finite value" (1603-1604) counts subnormal data ([S]).
+  integer); "the smallest positive finite value" (1603-1604) counts subnormal data [R].
   The prose's typos, read as meant: "A suffix of `f` or `f`" (1484) is `f` or `F` (the syntax, 1495);
   `smt-hook(fg.gt)` (1644).
 -/
@@ -234,20 +231,20 @@ theorem asFloat_fv (p e b : Nat) :
 
 /-! ## `hook` by the helper of each row -/
 
-theorem hk_add (vs : List GroundTerm) : hook floatAdd vs = some (fl2 Float.Model.UnpackedFloat.add vs) :=
+theorem hk_add (vs : List GroundTerm) : hook floatAdd vs = some (fl2 KFloat.sum? vs) :=
   hook_at rfl vs
-theorem hk_sub (vs : List GroundTerm) : hook floatSub vs = some (fl2 Float.Model.UnpackedFloat.sub vs) :=
+theorem hk_sub (vs : List GroundTerm) : hook floatSub vs = some (fl2 KFloat.diff? vs) :=
   hook_at rfl vs
-theorem hk_mul (vs : List GroundTerm) : hook floatMul vs = some (fl2 Float.Model.UnpackedFloat.mul vs) :=
+theorem hk_mul (vs : List GroundTerm) : hook floatMul vs = some (fl2 KFloat.prod? vs) :=
   hook_at rfl vs
-theorem hk_div (vs : List GroundTerm) : hook floatDiv vs = some (fl2 Float.Model.UnpackedFloat.div vs) :=
+theorem hk_div (vs : List GroundTerm) : hook floatDiv vs = some (fl2 KFloat.quot? vs) :=
   hook_at rfl vs
 theorem hk_rem (vs : List GroundTerm) : hook floatRem vs = some (fl2 KFloat.remainder vs) :=
   hook_at rfl vs
 theorem hk_neg (vs : List GroundTerm) :
-    hook floatNeg vs = some (fl1 (fun _ => Float.Model.UnpackedFloat.neg) vs) := hook_at rfl vs
+    hook floatNeg vs = some (fl1 (fun _ => KFloat.neg?) vs) := hook_at rfl vs
 theorem hk_abs (vs : List GroundTerm) :
-    hook floatAbs vs = some (fl1 (fun _ => Float.Model.UnpackedFloat.abs) vs) := hook_at rfl vs
+    hook floatAbs vs = some (fl1 (fun _ => KFloat.abs?) vs) := hook_at rfl vs
 theorem hk_floor (vs : List GroundTerm) :
     hook floatFloor vs = some (fl1 (fun s => KFloat.roundToIntegral s .down) vs) := hook_at rfl vs
 theorem hk_ceil (vs : List GroundTerm) :
@@ -292,8 +289,9 @@ theorem spec_pos {p e : Nat} {sp : Float.Model.Format} (h : KFloat.spec? p e = s
   · rw [(spec_none p e).mpr hc] at h; cases h
   · omega
 
-theorem fl1_none (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
-    (p e b : Nat) : fl1 op [fv p e b] = none ↔ KFloat.spec? p e = none := by
+theorem fl1_none (op : Float.Model.Format → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat)
+    (p e b : Nat) : fl1 op [fv p e b] = none ↔
+      ∀ sp, KFloat.spec? p e = some sp → op sp (KFloat.unpackBits sp b) = none := by
   simp only [fl1, asFloat_fv]
   cases KFloat.spec? p e <;> simp
 
@@ -303,11 +301,23 @@ theorem flTest_none (t : Float.Model.UnpackedFloat → Bool) (p e b : Nat) :
   cases KFloat.spec? p e <;> simp
 
 theorem fl2_none
-    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat)
     (p e b p' e' b' : Nat) : fl2 op [fv p e b, fv p' e' b'] = none ↔
-      (KFloat.spec? p e = none ∨ KFloat.spec? p' e' = none ∨ ¬(p = p' ∧ e = e')) := by
+      (KFloat.spec? p e = none ∨ KFloat.spec? p' e' = none ∨ ¬(p = p' ∧ e = e') ∨
+        ∀ sp, KFloat.spec? p e = some sp → op sp (KFloat.unpackBits sp b) (KFloat.unpackBits sp b') = none) := by
   simp only [fl2, asFloat_fv]
-  cases KFloat.spec? p e <;> cases KFloat.spec? p' e' <;> simp
+  cases hs : KFloat.spec? p e with
+  | none => simp
+  | some sp =>
+    cases hs' : KFloat.spec? p' e' with
+    | none => simp
+    | some sp' =>
+      simp only [Option.map_some, Option.bind_some]
+      by_cases hpe : p = p' ∧ e = e'
+      · obtain ⟨rfl, rfl⟩ := hpe
+        rw [hs] at hs'; cases hs'
+        simp
+      · simp [hpe]
 
 theorem flCmp_none (t : Option Ordering → Bool) (p e b p' e' b' : Nat) :
     flCmp t [fv p e b, fv p' e' b'] = none ↔ (KFloat.spec? p e = none ∨ KFloat.spec? p' e' = none) := by
@@ -319,14 +329,18 @@ theorem flAt_none (op : Float.Model.Format → Float.Model.UnpackedFloat) (x y :
   simp only [flAt, asInt_int, Option.bind_some]
   cases KFloat.spec? x.toNat y.toNat <;> simp
 
-theorem flTo_none (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+theorem flTo_none (op : Float.Model.Format → Float.Model.UnpackedFloat → Option Float.Model.UnpackedFloat)
     (p e b : Nat) (x y : Int) : flTo op [fv p e b, int x, int y] = none ↔
-      (KFloat.spec? p e = none ∨ KFloat.spec? x.toNat y.toNat = none) := by
+      (KFloat.spec? p e = none ∨ KFloat.spec? x.toNat y.toNat = none ∨
+        ∀ sp sq, KFloat.spec? p e = some sp → KFloat.spec? x.toNat y.toNat = some sq →
+          op sq (KFloat.unpackBits sp b) = none) := by
   simp only [flTo, asFloat_fv, asInt_int, Option.bind_some]
   cases KFloat.spec? p e <;> cases KFloat.spec? x.toNat y.toNat <;> simp
 
 theorem flOfInt_none (n x y : Int) :
-    flOfInt [int n, int x, int y] = none ↔ KFloat.spec? x.toNat y.toNat = none := by
+    flOfInt [int n, int x, int y] = none ↔
+      (KFloat.spec? x.toNat y.toNat = none ∨
+        ∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.ofInt? sq n = none) := by
   simp only [flOfInt, asInt_int, Option.bind_some]
   cases KFloat.spec? x.toNat y.toNat <;> simp
 
@@ -389,19 +403,55 @@ theorem fmts_not_silent : ∀ f ∈ fmts, ∀ vs : List GroundTerm, silent f vs 
   simp only [fmts, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl <;> decide +kernel
 
-/-- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`: no value exactly at an operand of
-a format without a model. -/
-theorem unary_none : ∀ f ∈ unary, ∀ p e b : Nat, hook f [fv p e b] = some none ↔ (p < 2 ∨ e < 2) := by
-  intro f hf p e b
-  simp only [unary, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · rw [hk_neg, Option.some.injEq, fl1_none, spec_none]
-  · rw [hk_abs, Option.some.injEq, fl1_none, spec_none]
-  · rw [hk_floor, Option.some.injEq, fl1_none, spec_none]
-  · rw [hk_ceil, Option.some.injEq, fl1_none, spec_none]
-  · rw [hk_trunc, Option.some.injEq, fl1_none, spec_none]
+open Float.Model in
+theorem neg?_none (u : UnpackedFloat) : KFloat.neg? u = none ↔ u = .notANumber := by
+  cases u <;> simp [KFloat.neg?]
 
-/-- `isNaN`: the same. -/
+open Float.Model in
+theorem abs?_none (u : UnpackedFloat) : KFloat.abs? u = none ↔ u = .notANumber := by
+  cases u <;> simp [KFloat.abs?]
+
+/-- A condition at every model of the format `(p, e)` against the same with "the format has no
+model" as an alternative. -/
+theorem spec_all_iff {p e : Nat} {P Q : Float.Model.Format → Prop} (h : ∀ sp, P sp ↔ Q sp) :
+    (∀ sp, KFloat.spec? p e = some sp → P sp) ↔
+      ((p < 2 ∨ e < 2) ∨ ∀ sp, KFloat.spec? p e = some sp → Q sp) := by
+  cases hs : KFloat.spec? p e with
+  | none => simp only [reduceCtorEq, false_implies, implies_true, true_iff]; exact Or.inl ((spec_none p e).mp hs)
+  | some sp =>
+    have := spec_pos hs
+    simp only [Option.some.injEq, forall_eq', h]
+    constructor
+    · exact Or.inr
+    · rintro (h' | h') <;> first | omega | exact h'
+
+/-- `--Float`, `absFloat`: no value exactly at an operand of a format without a model and at the NaN,
+of which the text says nothing (1552-1554, 1578). -/
+theorem negAbs_none : ∀ f ∈ [floatNeg, floatAbs], ∀ p e b : Nat, hook f [fv p e b] = some none ↔
+    ((p < 2 ∨ e < 2) ∨ ∀ sp, KFloat.spec? p e = some sp → KFloat.unpackBits sp b = .notANumber) := by
+  intro f hf p e b
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · rw [hk_neg, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => neg?_none _
+  · rw [hk_abs, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => abs?_none _
+
+/-- The direction of each of the three roundings to an integer. -/
+def dirOf (f : Sym) : KFloat.Dir := if f == floatFloor then .down else if f == floatCeil then .up else .zero
+
+/-- `floorFloat`, `ceilFloat`, `truncFloat`: no value exactly at an operand of a format without a model
+and where `KFloat.roundToIntegral` gives none: an infinity or NaN (`roundToIntegral_special`), a zero
+result of a nonzero operand, an integer the format does not hold (points in `pts`). -/
+theorem roundings_none : ∀ f ∈ [floatFloor, floatCeil, floatTrunc], ∀ p e b : Nat,
+    hook f [fv p e b] = some none ↔ ((p < 2 ∨ e < 2) ∨
+      ∀ sp, KFloat.spec? p e = some sp → KFloat.roundToIntegral sp (dirOf f) (KFloat.unpackBits sp b) = none) := by
+  intro f hf p e b
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl
+  · rw [hk_floor, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
+  · rw [hk_ceil, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
+  · rw [hk_trunc, Option.some.injEq, fl1_none]; exact spec_all_iff fun _ => Iff.rfl
+
+/-- `isNaN`: no value exactly at an operand of a format without a model. -/
 theorem isNaN_none (p e b : Nat) : hook floatIsNaN [fv p e b] = some none ↔ (p < 2 ∨ e < 2) := by
   rw [hk_isNaN, Option.some.injEq, flTest_none, spec_none]
 
@@ -418,31 +468,122 @@ theorem cmp_none : ∀ f ∈ cmps, ∀ p e b p' e' b' : Nat,
   · rw [hk_gt, Option.some.injEq, flCmp_none, spec_none, spec_none]
   · rw [hk_eq, Option.some.injEq, flCmp_none, spec_none, spec_none]
 
+/-- The datum operation of each arithmetic row. -/
+def arithOp (f : Sym) : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat →
+    Option Float.Model.UnpackedFloat :=
+  if f == floatAdd then KFloat.sum? else if f == floatSub then KFloat.diff?
+  else if f == floatMul then KFloat.prod? else if f == floatDiv then KFloat.quot? else KFloat.remainder
+
 /-- The five arithmetic operations: no value exactly where an operand is of a format without a
-model, or the two operands are of two formats. -/
+model, the two operands are of two formats, or the datum operation gives none (the regions of
+`arith_special`, `div_rem_zero`, `exact_zero_none`, `above_max_none`, and the points of `pts`). -/
 theorem arith_none : ∀ f ∈ arith, ∀ p e b p' e' b' : Nat,
     hook f [fv p e b, fv p' e' b'] = some none ↔
-      ((p < 2 ∨ e < 2) ∨ (p' < 2 ∨ e' < 2) ∨ ¬(p = p' ∧ e = e')) := by
+      ((p < 2 ∨ e < 2) ∨ (p' < 2 ∨ e' < 2) ∨ ¬(p = p' ∧ e = e') ∨
+        ∀ sp, KFloat.spec? p e = some sp → arithOp f sp (KFloat.unpackBits sp b) (KFloat.unpackBits sp b') = none) := by
   intro f hf p e b p' e' b'
   simp only [arith, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl | rfl | rfl | rfl
-  · rw [hk_add, Option.some.injEq, fl2_none, spec_none, spec_none]
-  · rw [hk_sub, Option.some.injEq, fl2_none, spec_none, spec_none]
-  · rw [hk_mul, Option.some.injEq, fl2_none, spec_none, spec_none]
-  · rw [hk_div, Option.some.injEq, fl2_none, spec_none, spec_none]
-  · rw [hk_rem, Option.some.injEq, fl2_none, spec_none, spec_none]
+  · rw [hk_add, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
+  · rw [hk_sub, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
+  · rw [hk_mul, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
+  · rw [hk_div, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
+  · rw [hk_rem, Option.some.injEq, fl2_none, spec_none, spec_none]; rfl
 
-/-- `roundFloat`: no value exactly where the operand is of a format without a model, or the
-precision or the exponent bits asked for are below 2. -/
+/-- `roundFloat`: no value exactly where the operand is of a format without a model, the precision or
+the exponent bits asked for are below 2, or the target format does not hold the operand's value
+(`KFloat.convertFormat`: also at an infinity and NaN, `convert_special`). -/
 theorem round_none (p e b : Nat) (x y : Int) : hook floatRound [fv p e b, int x, int y] = some none ↔
-    ((p < 2 ∨ e < 2) ∨ (x < 2 ∨ y < 2)) := by
+    ((p < 2 ∨ e < 2) ∨ (x < 2 ∨ y < 2) ∨
+      ∀ sp sq, KFloat.spec? p e = some sp → KFloat.spec? x.toNat y.toNat = some sq →
+        KFloat.convertFormat sq (KFloat.unpackBits sp b) = none) := by
   rw [hk_round, Option.some.injEq, flTo_none, spec_none, spec_none]
-  constructor <;> intro h <;> omega
+  have : (x.toNat < 2 ∨ y.toNat < 2) ↔ (x < 2 ∨ y < 2) := by omega
+  rw [this]
 
-/-- `Int2Float`: no value exactly at a precision or exponent bits below 2. -/
-theorem int2Float_none (n x y : Int) : hook int2Float [int n, int x, int y] = some none ↔ (x < 2 ∨ y < 2) := by
+/-- `Int2Float`: no value exactly at a precision or exponent bits below 2 and at an Int the format
+does not hold (`KFloat.ofInt?`). -/
+theorem int2Float_none (n x y : Int) : hook int2Float [int n, int x, int y] = some none ↔
+    ((x < 2 ∨ y < 2) ∨ ∀ sq, KFloat.spec? x.toNat y.toNat = some sq → KFloat.ofInt? sq n = none) := by
   rw [hk_ofInt, Option.some.injEq, flOfInt_none, spec_none]
-  constructor <;> intro h <;> omega
+  have : (x.toNat < 2 ∨ y.toNat < 2) ↔ (x < 2 ∨ y < 2) := by omega
+  rw [this]
+
+/-! ### The unstated regions, on the data -/
+
+open Float.Model in
+theorem exact_none (u : UnpackedFloat) : KFloat.exact u = none ↔ (u = .notANumber ∨ ∃ sg, u = .infinity sg) := by
+  cases u <;> simp [KFloat.exact]
+
+open Float.Model in
+/-- **An infinite or NaN operand**: none of the five arithmetic operations gives a value (the text
+gives none, 1556-1559). -/
+theorem arith_special : ∀ f ∈ arith, ∀ (s : Format) (u v : UnpackedFloat),
+    (KFloat.exact u = none ∨ KFloat.exact v = none) → arithOp f s u v = none := by
+  intro f hf s u v h
+  simp only [arith, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl
+  · show KFloat.sum? s u v = none
+    unfold KFloat.sum?; rcases h with h | h <;> rw [h] <;> simp
+  · show KFloat.diff? s u v = none
+    unfold KFloat.diff?; rcases h with h | h <;> split <;> simp_all [KFloat.exact]
+  · show KFloat.prod? s u v = none
+    unfold KFloat.prod?; rcases h with h | h <;> rw [h] <;> simp
+  · show KFloat.quot? s u v = none
+    unfold KFloat.quot?; rcases h with h | h <;> rw [h] <;> simp
+  · show KFloat.remainder s u v = none
+    unfold KFloat.remainder; split
+    · simp [KFloat.exact] at h
+    · rfl
+
+open Float.Model in
+/-- **A zero divisor**: `/Float` and `%Float` give no value (the text gives none). -/
+theorem div_rem_zero (s : Format) (u : UnpackedFloat) (sg : UnpackedFloat.Sign) :
+    KFloat.quot? s u (.zero sg) = none ∧ KFloat.remainder s u (.zero sg) = none := by
+  refine ⟨?_, by cases u <;> rfl⟩
+  unfold KFloat.quot?
+  have h0 : KFloat.exact (.zero sg) = some (0, 0) := rfl
+  rw [h0]
+  generalize KFloat.exact u = x; generalize KFloat.exact (KFloat.maxValue s) = y
+  rcases x with _ | ⟨a, qa⟩ <;> rcases y with _ | ⟨M, Q⟩ <;> simp
+
+open Float.Model in
+/-- **A zero exact result** (`+Float`, `-Float`, `*Float`: `KFloat.nearest?` at the value `0·2^q`):
+no value; the text gives a zero result no sign but at `0.0 -Float 0.0` (1553). -/
+theorem exact_zero_none (s : Format) (q : Int) : KFloat.nearest? s 0 q = none := by
+  unfold KFloat.nearest?; split <;> simp
+
+open Float.Model in
+/-- **An exact result above the format's largest finite value**: no value (the text does not say
+whether an infinity is a value to round to). -/
+theorem above_max_none (s : Format) (a q M Q : Int) (hM : KFloat.exact (KFloat.maxValue s) = some (M, Q))
+    (h : KFloat.cmpScaled a.natAbs q M Q = .gt) : KFloat.nearest? s a q = none := by
+  unfold KFloat.nearest?; rw [hM]; simp [h]
+
+open Float.Model in
+/-- `roundFloat`, `floorFloat`, `ceilFloat`, `truncFloat` at an infinity or NaN: no value. -/
+theorem convert_special (s : Format) (d : KFloat.Dir) (u : UnpackedFloat) (h : KFloat.exact u = none) :
+    KFloat.convertFormat s u = none ∧ KFloat.roundToIntegral s d u = none := by
+  rw [exact_none] at h; rcases h with rfl | ⟨_, rfl⟩ <;> exact ⟨rfl, rfl⟩
+
+open Float.Model in
+/-- **`roundFloat`, `Int2Float`, the roundings to an integer and `%Float` give only the value the
+text describes**: where `KFloat.held?` gives a datum, its value is `a·2^q` itself, never a rounding
+of it. -/
+theorem held_exact (s : Format) (a q : Int) (r : UnpackedFloat) (h : KFloat.held? s a q = some r) :
+    ∃ b e, KFloat.exact r = some (b, e) ∧ KFloat.cmpScaled a q b e = .eq := by
+  unfold KFloat.held? at h
+  cases hn : KFloat.nearest? s a q with
+  | none => rw [hn] at h; cases h
+  | some r' =>
+    rw [hn] at h
+    cases he : KFloat.exact r' with
+    | none => simp [Option.filter, he] at h
+    | some be =>
+      obtain ⟨b, e⟩ := be
+      by_cases hc : KFloat.cmpScaled a q b e = .eq
+      · simp [Option.filter, he, hc] at h; subst h; exact ⟨b, e, he, hc⟩
+      · simp [Option.filter, he, hc] at h
 
 /-- `maxValueFloat`, `minValueFloat`: the same. -/
 theorem at_none : ∀ f ∈ ats, ∀ x y : Int, hook f [int x, int y] = some none ↔ (x < 2 ∨ y < 2) := by
@@ -527,12 +668,13 @@ theorem round_format (p e b : Nat) (x y : Int) {v : GroundTerm}
     | none => rw [h1, h2] at h; simp at h
     | some sq =>
       rw [h1, h2] at h
-      simp at h
+      simp only [Option.map_some, Option.bind_some] at h
+      obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
       obtain ⟨hx, hy⟩ := spec_pos h2
       have hx' : (x.toNat : Int) = x := Int.toNat_of_nonneg (by omega)
       have hy' : (y.toNat : Int) = y := Int.toNat_of_nonneg (by omega)
-      have := fmt_floatV x.toNat y.toNat sq (KFloat.convertFormat sq (KFloat.unpackBits sp b)) (by omega) (by omega)
-      rw [h, hx', hy'] at this
+      have := fmt_floatV x.toNat y.toNat sq w (by omega) (by omega)
+      rw [hx', hy'] at this
       exact this
 
 /-- The same of `Int2Float` ("with the specified precision and exponent range", DOM 1653-1654). -/
@@ -545,12 +687,13 @@ theorem int2Float_format (n x y : Int) {v : GroundTerm}
   | none => rw [h2] at h; simp at h
   | some sq =>
     rw [h2] at h
-    simp at h
+    simp only [Option.bind_some] at h
+    obtain ⟨w, -, rfl⟩ := Option.map_eq_some_iff.mp h
     obtain ⟨hx, hy⟩ := spec_pos h2
     have hx' : (x.toNat : Int) = x := Int.toNat_of_nonneg (by omega)
     have hy' : (y.toNat : Int) = y := Int.toNat_of_nonneg (by omega)
-    have := fmt_floatV x.toNat y.toNat sq (Float.Model.UnpackedFloat.ofInt sq n) (by omega) (by omega)
-    rw [h, hx', hy'] at this
+    have := fmt_floatV x.toNat y.toNat sq w (by omega) (by omega)
+    rw [hx', hy'] at this
     exact this
 
 /-- The same of `maxValueFloat` and `minValueFloat` ("expressible in a specified precision and
@@ -617,7 +760,7 @@ theorem floatShape : c.floatShapeOK = true := floatShapeOK_of_coreOK coreOK
 
 /-! ## The data of the points, each encoding derived by hand
 
-[S] The encoding of a datum of `p24x8`, IEEE 754 binary32 (DOM 1488-1489; the interchange
+[R] The encoding of a datum of `p24x8`, IEEE 754 binary32 (DOM 1488-1489; the interchange
 encoding): from the top, 1 sign bit, 8 bits of the exponent plus 127, 23 bits of the significand after
 its leading 1. `±1.f × 2^x` is the sign, then `x + 127`, then `f`. A zero is all zero bits after the
 sign; an infinity has the exponent field all ones and the significand field zero; the smallest
@@ -686,6 +829,16 @@ def lits : List (String × GroundTerm) :=
 theorem lits_read : lits.all (fun l => (Parse.floatLit? l.1).map (GroundTerm.dv Srt.float) == some l.2) = true := by
   decide +kernel
 
+/-- Literals whose datum the prose does not state (finding 2): `16777217.0f`, 2^24 + 1, halfway
+between 2^24 and 2^24 + 2, the data of binary32 there; `1e39f`, above its largest finite datum
+(about 3.4 × 10^38); `1e-46f`, nonzero and nearer to zero than to its smallest positive datum
+2^-149 (about 1.4 × 10^-45). -/
+def litsRefused : List String := ["16777217.0f", "1e39f", "1e-46f", "-1e39f"]
+
+/-- **The reader refuses each.** -/
+theorem lits_refused : litsRefused.all (fun l => (Parse.floatLit? l).isNone) = true := by
+  decide +kernel
+
 structure Pt where
   f : Sym
   vs : List GroundTerm
@@ -704,25 +857,26 @@ structure Pt where
 - `+Float`: [P] 1 + 2 = 3 (1559). [A] 1569, a tie: 1 + 2^-24 is halfway between 1 and 1 + 2^-23, the
   next datum of binary32, and the one with the even significand is 1; (1 + 2^-23) + 2^-24 is halfway
   between 1 + 2^-23 (significand field 1, odd) and 1 + 2^-22 (2, even): the latter.
-- `*Float` [P]: 2 × 3 = 6 (1556). `/Float`: [P] 3 / 2 = 1.5; [S] division by zero, 1 / 0 = +∞; [S] invalid
-  operation, 0 / 0 is a NaN.
-- `%Float`: [P] (1557-1558) 5 / 3 = 1.66…, the nearest integer is 2, and 5 - 3 × 2 = -1. [A] 1567 and
-  [S] remainder: 5 / 2 = 2.5 is halfway between 2 and 3, the even one is 2, and 5 - 2 × 2 = 1 (finding 5).
-- `absFloat`: [P] (1578) of `-1.0f` it is `1.0f`; [S] abs, of `-0.0f` it is `0.0f`.
+- `*Float` [P]: 2 × 3 = 6 (1556). `/Float` [P]: 3 / 2 = 1.5.
+- `%Float` [P] (1557-1558): 5 / 3 = 1.66…, the nearest integer is 2, and 5 - 3 × 2 = -1.
+- `absFloat`: [P] (1578) of `-1.0f` it is `1.0f`; [P] of `-0.0f` it is `0.0f` (reading: the prose
+  calls the two zeros positive and negative, 1553-1554, and the absolute value of a negative datum
+  is the positive one of its magnitude).
 - `floorFloat` [P] (1583-1584): the next lowest integer from 2.5 is 2, from -2.5 it is -3.
   `ceilFloat` [P] (1585-1586): 3 and -2. `truncFloat` [P] (1587-1588, "in the direction of zero"): 2
-  and -2. [S] a zero result has the operand's sign: `floorFloat(0.5f)` is `0.0f`,
-  `ceilFloat(-0.5f)` is `-0.0f` (finding 3).
+  and -2.
 - `roundFloat` [P] (1579-1580): 1.5 of `p53x11` to precision 24 and exponent bits 8 is `1.5f`, which
   `p24x8` holds exactly.
 - `Int2Float` [P] (1653-1654): 3 at 24, 8 is `3.0f`; -2 at 53, 11 is `-2.0`.
 - `maxValueFloat`, `minValueFloat` (1601-1604): [P] the largest finite and the smallest positive
-  datum of the format; [S] which data those are in binary32 (`max32`, `min32`).
+  datum of the format; [R] which data those are in binary32 (`max32`, `min32`).
 - The comparisons. [P] "`0.0 ==Float -0.0` is also true" (1638); "`NaN` compares unequal to all
   values, including itself" (1637), so `NaN ==Float NaN` is false; 1 < 2, not 2 < 1; 1 ≤ 1, not 2 ≤ 1;
-  2 > 1, not 1 > 1; 1 ≥ 1, not 1 ≥ 2 (1631-1632). [S] comparison: a NaN is unordered with every datum, so
-  `NaN <Float 1.0f` and `NaN >=Float 1.0f` are false; `-0.0 <=Float 0.0` is true and
-  `-0.0 <Float 0.0` false (the zeros are equal). -/
+  2 > 1, not 1 > 1; 1 ≥ 1, not 1 ≥ 2 (1631-1632). [P] a NaN, which is no number (1541), stands in no
+  order, so `NaN <Float 1.0f` and `NaN >=Float 1.0f` are false (1673, an equation of the module,
+  reads both orders as false at a NaN); `-0.0 <=Float 0.0` is true and `-0.0 <Float 0.0` false (the
+  zeros are equal, 1638). [P] two formats (1631-1632: a float against another float, a Bool
+  result): `1.0 ==Float 1.0f` and `1.0f <Float 1.5` are true. -/
 def vals : List Pt :=
   [⟨floatPrecision, [one], int 24⟩, ⟨floatPrecision, [one64], int 53⟩,
    ⟨floatExponentBits, [one], int 8⟩, ⟨floatExponentBits, [one64], int 11⟩,
@@ -731,11 +885,11 @@ def vals : List Pt :=
    ⟨floatSub, [z64, z64], z64⟩, ⟨floatSub, [three, one], two⟩,
    ⟨floatAdd, [one, two], three⟩, ⟨floatAdd, [one, tiny], one⟩, ⟨floatAdd, [onePlus, tiny], onePlus2⟩,
    ⟨floatMul, [two, three], six⟩,
-   ⟨floatDiv, [three, two], oneHalf⟩, ⟨floatDiv, [one, z], inf⟩, ⟨floatDiv, [z, z], nan⟩,
-   ⟨floatRem, [five, three], mone⟩, ⟨floatRem, [five, two], one⟩,
+   ⟨floatDiv, [three, two], oneHalf⟩,
+   ⟨floatRem, [five, three], mone⟩,
    ⟨floatAbs, [mone], one⟩, ⟨floatAbs, [nz], z⟩,
-   ⟨floatFloor, [twoHalf], two⟩, ⟨floatFloor, [mtwoHalf], mthree⟩, ⟨floatFloor, [half], z⟩,
-   ⟨floatCeil, [twoHalf], three⟩, ⟨floatCeil, [mtwoHalf], mtwo⟩, ⟨floatCeil, [mhalf], nz⟩,
+   ⟨floatFloor, [twoHalf], two⟩, ⟨floatFloor, [mtwoHalf], mthree⟩,
+   ⟨floatCeil, [twoHalf], three⟩, ⟨floatCeil, [mtwoHalf], mtwo⟩,
    ⟨floatTrunc, [twoHalf], two⟩, ⟨floatTrunc, [mtwoHalf], mtwo⟩,
    ⟨floatRound, [oneHalf64, int 24, int 8], oneHalf⟩,
    ⟨int2Float, [int 3, int 24, int 8], three⟩, ⟨int2Float, [int (-2), int 53, int 11], mtwo64⟩,
@@ -746,7 +900,8 @@ def vals : List Pt :=
    ⟨floatGt, [two, one], bool true⟩, ⟨floatGt, [one, one], bool false⟩,
    ⟨floatGe, [one, one], bool true⟩, ⟨floatGe, [one, two], bool false⟩,
    ⟨floatLt, [nan, one], bool false⟩, ⟨floatGe, [nan, one], bool false⟩,
-   ⟨floatLe, [nz, z], bool true⟩, ⟨floatLt, [nz, z], bool false⟩]
+   ⟨floatLe, [nz, z], bool true⟩, ⟨floatLt, [nz, z], bool false⟩,
+   ⟨floatEq, [one64, one], bool true⟩, ⟨floatLt, [one, oneHalf64], bool true⟩]
 
 /-- Every row has a point, and every point is of a row. -/
 theorem vals_rows : (rows.all (fun r => vals.any fun p => p.f == r.1) &&
@@ -771,48 +926,41 @@ theorem vals_gamma : ∀ p ∈ vals, ∀ H : HookParams,
   exact gamma_val (c.withHooks H) hk (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
     (by rw [hname]; exact hh)
 
-/-! ## Findings 2, 3, 4: values `hook` gives that no sentence of the prose gives -/
+/-! ## Statement 2: a point of each row of the unstated parts -/
 
-/-- 2^24 = 1.0 × 2^24 in binary32: exponent field 151 = 1001 0111, 0 10010111 000… = 0x4B800000. -/
-def big24 : GroundTerm := f32 0x4B800000
-
-/-- Not derived from the prose (the findings say what each is against): `Int2Float(2^24 + 1, 24, 8)`,
-halfway between 2^24 and 2^24 + 2, is 2^24 (the even significand; finding 2); `floorFloat` of
-`Infinityf` and of `NaNf` is the operand (finding 3); `1.0 ==Float 1.0f` is true and
-`1.0f <Float 1.5` is true, across two formats (finding 4). -/
-def beyond : List Pt :=
-  [⟨int2Float, [int 16777217, int 24, int 8], big24⟩,
-   ⟨floatFloor, [inf], inf⟩, ⟨floatFloor, [nan], nan⟩,
-   ⟨floatEq, [one64, one], bool true⟩, ⟨floatLt, [one, oneHalf64], bool true⟩]
-
-theorem beyond_ok : beyond.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
-    c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some (some p.v)) = true := by
-  decide +kernel
-
-/-- Γ states a value at each, under every interpretation: none is a silent point. -/
-theorem beyond_gamma : ∀ p ∈ beyond, ∀ H : HookParams,
-    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) p.vs ≡ den (c.withHooks H) p.v) := by
-  intro p hp H
-  have h := List.all_eq_true.mp beyond_ok p hp
-  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
-  obtain ⟨⟨⟨hk, hname⟩, hvs⟩, hh⟩ := h
-  exact gamma_val (c.withHooks H) hk (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
-    (by rw [hname]; exact hh)
-
-/-! ## Statement 2: a point of each row of the two unstated parts -/
-
-/-- The five arithmetic operations at `1.0` (`p53x11`) and `1.0f` (`p24x8`): two formats.
-`roundFloat(1.0, 0, 8)` and `(1.0, 24, -1)`, `Int2Float(1, 24, 0)`, `maxValueFloat(0, 8)`,
-`minValueFloat(53, 0)`: no format (DOM 1475, "positive"). The value `v` has the result sort. -/
+/-- **Two formats**: the five arithmetic operations at `1.0` (`p53x11`) and `1.0f` (`p24x8`).
+**No format** (DOM 1475, "positive"): `roundFloat(1.0, 0, 8)` and `(1.0, 24, -1)`,
+`Int2Float(1, 24, 0)`, `maxValueFloat(0, 8)`, `minValueFloat(53, 0)`.
+**Where the text states no value at a format with a model** (findings 2, 3, 5): `--Float` and
+`absFloat` at `NaNf`; `1.0f /Float 0.0f`, `0.0f /Float 0.0f`, `1.0f %Float 0.0f` (a zero divisor);
+`Infinityf +Float 1.0f`, `NaNf *Float 1.0f`, `Infinityf -Float 1.0f`, `Infinityf %Float 1.0f` (an
+infinite or NaN operand); `1.0f +Float -1.0f`, `0.0f *Float 3.0f`, `-0.0f -Float -0.0f` (a zero
+result whose sign the text does not give); `max32 +Float max32`, `max32 *Float 2.0f` (above the
+largest finite datum); `5.0f %Float 2.0f` (2.5 is halfway between two integers);
+`floorFloat(0.5f)`, `ceilFloat(-0.5f)`, `truncFloat(0.5f)` (a zero result of a nonzero operand);
+`floorFloat`, `ceilFloat`, `truncFloat` at `Infinityf` and `NaNf`; `roundFloat(onePlus, 2, 8)` (an
+inexact value) and `roundFloat(Infinityf, 53, 11)`; `Int2Float(2^24 + 1, 24, 8)` (an Int the format
+does not hold). The value `v` has the result sort. -/
 def pts : List Pt :=
   [⟨floatAdd, [one64, one], z64⟩, ⟨floatSub, [one64, one], z64⟩, ⟨floatMul, [one64, one], z64⟩,
    ⟨floatDiv, [one64, one], z64⟩, ⟨floatRem, [one64, one], z64⟩,
    ⟨floatRound, [one64, int 0, int 8], z64⟩, ⟨floatRound, [one64, int 24, int (-1)], z64⟩,
    ⟨int2Float, [int 1, int 24, int 0], z64⟩,
-   ⟨floatMaxValue, [int 0, int 8], z64⟩, ⟨floatMinValue, [int 53, int 0], z64⟩]
+   ⟨floatMaxValue, [int 0, int 8], z64⟩, ⟨floatMinValue, [int 53, int 0], z64⟩,
+   ⟨floatNeg, [nan], z64⟩, ⟨floatAbs, [nan], z64⟩,
+   ⟨floatDiv, [one, z], z64⟩, ⟨floatDiv, [z, z], z64⟩, ⟨floatRem, [one, z], z64⟩,
+   ⟨floatAdd, [inf, one], z64⟩, ⟨floatMul, [nan, one], z64⟩, ⟨floatSub, [inf, one], z64⟩,
+   ⟨floatRem, [inf, one], z64⟩,
+   ⟨floatAdd, [one, mone], z64⟩, ⟨floatMul, [z, three], z64⟩, ⟨floatSub, [nz, nz], z64⟩,
+   ⟨floatAdd, [max32, max32], z64⟩, ⟨floatMul, [max32, two], z64⟩,
+   ⟨floatRem, [five, two], z64⟩,
+   ⟨floatFloor, [half], z64⟩, ⟨floatCeil, [mhalf], z64⟩, ⟨floatTrunc, [half], z64⟩,
+   ⟨floatFloor, [inf], z64⟩, ⟨floatCeil, [nan], z64⟩, ⟨floatTrunc, [minf], z64⟩,
+   ⟨floatRound, [onePlus, int 2, int 8], z64⟩, ⟨floatRound, [inf, int 53, int 11], z64⟩,
+   ⟨int2Float, [int 16777217, int 24, int 8], z64⟩]
 
-/-- Every row of the two parts has a point, and every point is of a key. -/
-theorem pts_keys : ((arith ++ [floatRound, int2Float] ++ ats).all (fun f => pts.any (·.f == f)) &&
+/-- Every row with an unstated region has a point, and every point is of a key. -/
+theorem pts_keys : ((arith ++ unary ++ [floatRound, int2Float] ++ ats).all (fun f => pts.any (·.f == f)) &&
     pts.all (fun p => keys.contains p.f)) = true := by
   decide +kernel
 
@@ -889,7 +1037,14 @@ theorem thin_fmt : hook floatPrecision [t18] = some (some (int 1)) ∧
 #print axioms groups
 #print axioms keys_silent
 #print axioms fmts_not_silent
-#print axioms unary_none
+#print axioms negAbs_none
+#print axioms roundings_none
+#print axioms arith_special
+#print axioms div_rem_zero
+#print axioms exact_zero_none
+#print axioms above_max_none
+#print axioms convert_special
+#print axioms held_exact
 #print axioms isNaN_none
 #print axioms cmp_none
 #print axioms arith_none
@@ -904,8 +1059,8 @@ theorem thin_fmt : hook floatPrecision [t18] = some (some (int 1)) ∧
 #print axioms int2Float_format
 #print axioms at_format
 #print axioms lits_read
+#print axioms lits_refused
 #print axioms vals_gamma
-#print axioms beyond_gamma
 #print axioms pts_undetermined
 #print axioms thin_undetermined
 #print axioms thin_fmt
