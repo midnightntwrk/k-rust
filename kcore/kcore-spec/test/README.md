@@ -660,6 +660,14 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `==K`, `=/=K` and `ite` at every argument list; no row is a key of `silentTable` and the prose
   leaves no region unstated; `true` and `false` are the values of Bool, every token literal a value
   of a token sort.
+- `test/HooksString.lean`: the 21 supported hook rows of STRING (the sort and twenty operations)
+  against domains.md's prose, cited by line: hand-derived values that `hook` gives, the result and
+  Γ's statement under every interpretation (`strbytes`); ten rows with no unstated region (no key of
+  `silentTable`, a value at every argument list); ten keys whose predicate is true everywhere, each
+  with the region where `hook` gives no value at every argument list of literals (`*_none`) and a
+  point of each part of it where Γ over all interpretations entails neither ⊥ nor a value;
+  `replaceFirst` against its equation; the header's findings (`substrString`'s two readings, code
+  points, a search index above the length).
 - `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
   domains.md's prose, cited by line: each operation at every argument list by the bindings of its
   result (the one map with them), with hand-derived values that `hook` gives, the result under
