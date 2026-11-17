@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/ens.kompile.kore (K 7.1.337's text of f2-examples/ens.k) with two attributes, simplification{}("") and owise{}(), put first in the
+# attribute list of the function equation of half; nothing else changed. No text kompile 7.1.337 delivers holds the pair
+# (fixture e2-simp-owise: exit 113, owise attribute is not supported on simplification rules). Shows an equation axiom
+# carrying simplification and owise (findings/KPROV-citations.md section 1 row 6).
+kore = "test/constructs/fixtures/hw-simp-owise/hw-simp-owise.kore"

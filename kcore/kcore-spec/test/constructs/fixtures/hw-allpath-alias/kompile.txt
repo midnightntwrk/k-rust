@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-allpath-alias/hw-allpath-alias.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-allpath-alias/hw-allpath-alias.kore` (cwd: kcore-spec)
+definition.kore bytes: 238013
+definition.kore sha256: 60ecc13d398f333c88bfd3138b5681e1636da273b70c6ce91584389e12dcbe58

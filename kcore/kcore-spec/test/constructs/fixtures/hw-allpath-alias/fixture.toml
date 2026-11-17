@@ -1,0 +1,7 @@
+# Hand-written KORE: the out/definition.kore kompile 7.1.337 leaves for fixture e2-all-path (kompile --backend haskell
+# e2-all-path.k -o out, exit 113, the text kore-exec refuses at 635:3; sha256 aaa6c7bd62996ce0343f852721f558f12a363052c2c9bfcb6f4189484a48fc8b with the
+# scratch path in its Source attributes), the Source of its own sentences written as that fixture's path, and one `)`
+# added at the end of line 634, closing the \rewrites of line 628 (findings/KPROV-citations.md section 4). The rule axiom
+# of rule <k> a() => b() ... </k> in a module carrying all-path: \rewrites(\and(l, \top), weakAlwaysFinally(\and(r, \top))),
+# the right side an application of the prelude alias weakAlwaysFinally{A}(@X:A) := @X:A (line 60).
+kore = "test/constructs/fixtures/hw-allpath-alias/hw-allpath-alias.kore"
