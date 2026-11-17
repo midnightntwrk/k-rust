@@ -440,6 +440,23 @@ def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var
     pure (i :: is, vs)
   termination_by structural _ xs => xs
 
+/-- The predicates of a right side with the operand of each `\ceil` among them read by `cutAnd`
+(numbers from `n`): the predicates (a `\ceil`'s followed by those lifted out of its operand), the
+next number, the cuts. `⌈C[t ∧ u]⌉ = ∃Z. (⌈C[Z]⌉ ∧ Z ∈ t ∧ Z ∈ u)`: `\ceil` of a union is the
+union of the `\ceil`s, and `⌈φ ∧ P⌉ = ⌈φ⌉ ∧ P` for a predicate P. The `\ceil` is a conjunct of
+the right side and Z is fresh, so the binder stands around the whole right side, with the
+equation's own. A `\ceil` under another connective is not reached. -/
+def cutCeils (used bound : List String) : Nat → List Kore.Pattern → List Kore.Pattern × Nat × List Cut
+  | n, [] => ([], n, [])
+  | n, .ceil s r q :: ps =>
+    let (q', n, cs, qs) := cutAnd used bound n q
+    let (ps', n, cs') := cutCeils used bound n ps
+    (.ceil s r q' :: qs ++ ps', n, cs ++ cs')
+  | n, p :: ps =>
+    let (ps', n, cs') := cutCeils used bound n ps
+    (p :: ps', n, cs')
+  termination_by structural _ ps => ps
+
 /-- The first binder whose variable (name and sort) a binder under it binds again. -/
 def dupBinder : List Kore.EVar → Option Kore.EVar
   | [] => none
@@ -450,7 +467,9 @@ binder: one clause. `exs` is the variables x̄ in the text's order of nesting, t
 variables of `cutAnd`, which reads each conjunction of terms under applications of the body (a
 conjunction with a variable of x̄ among its conjuncts as that variable); `rhs` is the body
 so read; `post` is every predicate of the body (`condOf`), so that `Cond.fixes` reads them, then
-the cuts' memberships; the equation's own `ensures` stays `ens`.
+the cuts' memberships; the equation's own `ensures` stays `ens`. A `\ceil` among the body's
+predicates has its operand read by `cutAnd` likewise (`cutCeils`): its fresh variables follow the
+body's in `exs`, its memberships the body's in `post`.
 Refused `patternConnective`: a variable of x̄ (name and sort) that is bound twice, named in the
 detail, or that the arguments, the `requires` or the `ensures` hold (these binders are not read here: a rule's are, renamed apart or
 dropped, `rhsApart` and `exKept`).
@@ -460,7 +479,8 @@ rule's sentence, `f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which doe
 Refused `manyValuedRightSide`: no term conjunct (`\top`: the body is a predicate, every element
 or none); a further `\exists` in the body; `\or`, `\top` or `\not` under applications of the
 term or of a cut's conjunct.
-Refused `patternConnective`: a predicate `condOf` does not read. -/
+Refused `patternConnective`: a predicate `condOf` does not read, among them a conjunction of terms
+in an operand of `\equals` or `\in`, or of a `\ceil` under `\not`, `\or` or `\implies`. -/
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
@@ -469,10 +489,13 @@ def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   if isPred body then fail .manyValuedRightSide "\\top"
   if let some x := dupBinder xs then fail .patternConnective s!"{x.var.ident.name}: bound twice"
   let bound := xs.map (·.var.ident.name)
-  let (t, _, cuts, ps) := cutAnd (evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)) bound 0 body
+  let used := evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)
+  let (t, n, cuts, ps) := cutAnd used bound 0 body
   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? manyValued? then fail .manyValuedRightSide c
   if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
     fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
+  let (ps, _, ccuts) := cutCeils used bound n ps
+  let cuts := cuts ++ ccuts
   let (exs, vs) ← exBind n0 vs xs
   let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
   let (rhs, vs) ← term N vs t
