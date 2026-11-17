@@ -77,7 +77,7 @@ theorem rBad_pp : c.ruleSorted rBad = true ∧ c.rulePlainPP rBad = false := by
 example : ¬ c.rulePlainEx rNot = true := fun h =>
   absurd (Semantics.rulePlainEx_iff_pp.mp h).1 (by decide +kernel)
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- `rulePlainPP` of the definition's rules, decided. -/
 example : ∀ r ∈ c.rules, c.rulePlainPP r = true := fun r hr =>
@@ -89,7 +89,7 @@ noncomputable abbrev cP : Semantics := { c with rules := c.rules ++ [rNot] }
 /-- A semantics with a rule that has a predicate has `rulesPlain`, `okAll`, `sortedOK` and
 `coreOK`. -/
 theorem cP_core : rNot.pre.isTop = false ∧ cP.rulesPlain = true ∧ cP.okAll = true ∧ cP.sortedOK = true ∧
-    cP.coreOK = true := by decide +kernel
+    cP.coreOK = true := by decide_cheap
 
 /-! ## A predicate under two tables (`KCore.Faithful.tr_condKore_twoT`)
 

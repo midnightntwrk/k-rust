@@ -90,7 +90,7 @@ noncomputable abbrev cO : Semantics := { c with rules := c.rules ++ [ok1, okB, o
 /-- **`cO` has `coreOK`, reads a confined sort, and four of its rules leave a variable open.** -/
 theorem coreO : cO.coreOK = true ∧ cO.readsConfined = true ∧
     ok1.opens = [2] ∧ okB.opens = [2] ∧ ok2.opens = [2] ∧ okBc.opens = [2] ∧ plain.opens = [] := by
-  decide +kernel
+  decide_cheap
 
 /-- The rules' facts, and which arm each open variable passes. -/
 theorem facts :
@@ -348,7 +348,7 @@ theorem coreOC : cOC.coreOK = true ∧ cOC.readsConfined = true ∧ rB.opens = [
     clP.openCondVars.any (fun i => (clP.vars[i]?.map cOC.confined).getD false) = false ∧
     clW.needsWitness cOC = true ∧
     clW.openCondVars.any (fun i => (clW.vars[i]?.map cOC.confined).getD false) = false := by
-  decide +kernel
+  decide_cheap
 
 /-- **`clW` is `Witnessed`** at H := 0: `0 ==Int 0` evaluates to `true`, and by inversion of the
 hook to nothing else. -/
@@ -414,7 +414,7 @@ theorem shapeOW : cOW.coreOK = true ∧ rB.opens = [1] ∧ clW.needsWitness cOW 
     clW.opens = [0] ∧ gText.all (fun cl => !cl.needsWitness cOW) = true ∧
     (c.fns.drop 1).all (fun fn => fn.clauses.all fun cl => !cl.needsWitness cOW) = true ∧
     cOW.rules.all (fun r => !r.needsWitness cOW) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- The account's owed facts at `cOW`: no rule's `CondDecided`; `clW`'s, the first clause of the first
 function, over H (index 0). -/

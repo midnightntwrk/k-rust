@@ -271,7 +271,7 @@ theorem ovls_eq : c.ovls = [⟨⟨capGas, [gasS], gasS⟩, [capN]⟩] ∧ c.symN
     c.isOvl capGas = true ∧ c.isCtor capGas = false := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- `z`, injected into Gas; `inf`. -/
 def zG : GroundTerm := .inj nS gasS (.ctor z [])
