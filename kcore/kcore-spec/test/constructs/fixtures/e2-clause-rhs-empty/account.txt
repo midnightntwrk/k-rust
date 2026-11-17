@@ -13,6 +13,6 @@ user module E2-CLAUSE-RHS-EMPTY: 408 sentences
 stage refusals (of sentences classified read): 1
   1 unboundVariable
       sentence 362 (Lblf): unboundVariable (VarY:Empty: in the right side or the ensures, not bound by the arguments or the requires, of a sort without an exhibited value; the sort has no value)
-        [user] (no label) at e2-clause-rhs-empty.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortT{}, R}(Lblf{}(), \and{SortT{}}(Lblg{}(VarY:SortEmpty{}), \top{SortT{}}()))) [UNIQUE'Unds'ID{}("f80fdb26bb76e20e32a01d195ef30904abf07a3a81b38da5f32898e3de45e52f"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,25)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-pe …
+        [user] (no label) at e2-clause-rhs-empty.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortT{}, R}(Lblf{}(), \and{SortT{}}(Lblg{}(VarY:SortEmpty{}), \top{SortT{}}()))) [UNIQUE'Unds'ID{}("f80fdb26bb76e20e32a01d195ef30904abf07a3a81b38da5f32898e3de45e52f"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,25)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2- …
 finish: sentence 362 (Lblf): unboundVariable (VarY:Empty: in the right side or the ensures, not bound by the arguments or the requires, of a sort without an exhibited value; the sort has no value)
 (exit 0)
