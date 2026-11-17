@@ -1,0 +1,1 @@
+# companion of c3-eq-nonexec-prio-below (findings/C3-noncore-rulings.md section 3): f(0) => 0 [priority(40)] beside f(X) => X, the same text without non-executable

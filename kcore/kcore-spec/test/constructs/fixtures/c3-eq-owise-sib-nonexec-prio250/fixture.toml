@@ -1,0 +1,3 @@
+# priority x non-executable beside [owise] (findings/C3-noncore-rulings.md section 3, the triple TRIAGE-B c3.pair 5 leaves by reading only): f(X) => X [non-executable, priority(250)] beside f(_) => 0 [owise]; predicted refused owisePriority at the non-executable equation; differs_from c3-eq-owise-sib-prio250: the text without non-executable
+differs_from = "c3-eq-owise-sib-prio250"
+# account: refused owisePriority at account sentence 348, the non-executable equation (c3-eq-owise-sib-nonexec-prio250.k:5), as predicted; the [owise] premise is \not(\bottom)

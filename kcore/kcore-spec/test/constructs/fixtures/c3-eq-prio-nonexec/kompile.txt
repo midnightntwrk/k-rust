@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-prio-nonexec.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 203469
+definition.kore sha256: e7efb2793ced8008813d210f6063b11854a7cc0ff699b8ab2e4a8878e9e2591f
+stripped sha256: aadf61ce9a263b863b65f370d911e6a24ff145391a36f170ec8ee2583a81cf82
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-prio-nonexec-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-PRIO-NONEXEC-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-PRIO-NONEXEC as default.

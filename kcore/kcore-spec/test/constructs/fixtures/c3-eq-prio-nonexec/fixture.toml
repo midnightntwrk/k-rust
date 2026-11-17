@@ -1,0 +1,3 @@
+# pair priority x non-executable on equations (TRIAGE-B c3.pair 8; findings/C3-noncore-rulings.md section 3), the non-executable equation of the larger priority: f(0) => 0 beside f(X) => X [non-executable, priority(60)]; predicted read, coreOK true, Semantics +1 -1 in one clause line (aside); differs_from c3-eq-prio-nonexec-plain: the text without non-executable
+differs_from = "c3-eq-prio-nonexec-plain"
+# account: read, stage refusals 0, equationPriority 1, aside clauses 1, agreement unconfirmed: f (not predicted; ClausesAgree asks nothing of this pair, the decider does not confirm it), coreOK true; sem-fields: the prio=60 clause aside=true
