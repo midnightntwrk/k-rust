@@ -45,6 +45,15 @@ def unheldFaults (S : Scan) (E : Env) : List Fault :=
     | .error _ => []
   | _, _ => []
 
+/-- Every equation of a sort's predicate or projection that the core does not state
+(`predEqnFaults`), where the productions, the rules and the core are read. -/
+def predFaults (S : Scan) (E : Env) : List Fault :=
+  match (prodSyms S E).mapM (symProd E S.eqs), S.rewrites.mapM (ruleOf E.N E.src) with
+  | .ok sp, .ok rules => match coreBase S E (prodsOf S E sp) rules with
+    | .ok core => predEqnFaults E.N E.src S.eqs core
+    | .error _ => []
+  | _, _ => []
+
 /-- Every refusal of the text: the prelude's, each sentence `classify` refuses, and the stages'
 on the sentences read: the names, then each production and each rule (all of them), then the
 assembly when those pass. -/
@@ -73,42 +82,30 @@ def refusals (k : Kore.Definition) : List Refusal :=
           | .ok _ => none
         if ps.isEmpty && rs.isEmpty then
           match finish m S with
-          | .error f => match f.reason, unheldFaults S E with
-            | .unheldVariable, us@(_ :: _) => us.map toR
-            | _, _ => [toR f]
+          | .error f => match f.reason, unheldFaults S E, predFaults S E with
+            | .unheldVariable, us@(_ :: _), _ => us.map toR
+            -- every equation `coreOf` refuses by `predEqnFaults`, not only the first
+            | _, _, ps@(p :: _) => if p.reason == f.reason && p.detail == f.detail then ps.map toR else [toR f]
+            | _, _, _ => [toR f]
           | .ok _ => []
         else ps ++ rs
     pre ++ cls ++ stages
 
-/-- The generated equations (kompile's, no user source) that `consumed` accounts for without a
-function of `d` holding them as clauses, by three classes, each checked:
-- a sort predicate's equation whose clause, read as a function's (`clause?`, an `[owise]` one at
-  priority 200), is one of that predicate's `Semantics.sortPreds` clauses: the sentence is a clause
-  `Γ` states (`ΓFns` over `allFns`);
-- a sort X's projection `project:X(P) = V` (X a library sort or one of `d`'s), P the pattern of `selectorPat` at the variable
-  V of sort X (`projEqnShape`), or its selector-domain axiom (`projDomainEqn?`, whose form
-  `projectionDomain?` checks: `project:X(K)` is defined exactly where K is such a P), where `d`
-  does not number `project:X` (no sentence `d` reads
-  applies it; one that does makes it a function of `d` with this equation, `Presentation.libProjs`):
-  the symbol is in no sentence of `Γ` (the registry's `projectSym X`, or, for a library sort whose
-  projection the registry numbers no symbol for, such as Range and RangeMap, a symbol of no
-  signature `Γ` has), and the equation defines it on the image of the injection;
+/-- The equations that `consumed` accounts for without a function of `d` holding them as clauses,
+by three classes, each checked, `eqs` the text's equations:
+- a sort predicate's equation that is a clause of that predicate's `Semantics.sortPreds` function,
+  an `[owise]` one with its exclusion (`predProjOK?`, `predEqnOK`): the sentence is a clause `Γ`
+  states (`ΓFns` over `allFns`);
+- a sort X's projection `project:X(P) = V` or its selector-domain axiom, where `d` does not number
+  `project:X` (`predProjOK?`): the symbol is in no sentence of `Γ`, and the equation defines it on
+  the image of the injection;
 - a constructor argument's projection `project:c:x(c(x₁, …, xₙ)) = xᵢ`, the projection no symbol
   of the registry or of `d`, c a constructor of the definition (`Semantics.ctorSigs`), the xᵢ
   distinct variables: the symbol is outside `Γ`'s signature, and the equation defines it on c's
   image, where c is injective. -/
-def genEqClassOK (E : Env) (d : Definition) (e : RawEqn) : Bool :=
+def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn) : Bool :=
   let c := d.sem
   let noReq := e.req.isNone && e.ens.isNone && !e.dom
-  let sortPred := (dropPrefix? "Lblis" e.fn).isSome && noReq &&
-    match c.sortPreds.find? (c.symName ·.label == e.fn), clause? E.N E.src e none with
-    -- compared by their printed forms, which show every field (`Clause` derives `Repr` only)
-    | some fn, .ok (cl, _) => (fn.clauses.map reprStr).contains (reprStr cl)
-    | _, _ => false
-  let libProj := match dropPrefix? "Lblproject'Coln'" e.fn with
-    | some X => (regSortNames.contains X || c.sortNames.contains X) && !c.symNames.contains e.fn &&
-      (projEqnShape X e || e.dom)
-    | none => false
   let argProj := (dropPrefix? "Lblproject'Coln" e.fn).isSome && noReq && e.competitors.isNone &&
     !regSymNames.contains e.fn && !c.symNames.contains e.fn &&
     match e.pats, e.rhs with
@@ -117,7 +114,7 @@ def genEqClassOK (E : Env) (d : Definition) (e : RawEqn) : Bool :=
       args.all (fun a => match a with | .var (.evar _) => true | _ => false) &&
       args.eraseDups.length == args.length && args.contains (.var (.evar v))
     | _, _ => false
-  sortPred || libProj || argProj
+  predProjOK? E.N E.src eqs c e == some true || argProj
 
 /-- A sentence of `kconfigModule`'s text (the kernel text's sentences naming `#KConfigValue` or
 `#unboxKConfigValue`, `namesKconfig`), compared with that text in the form the definition selects
@@ -141,12 +138,12 @@ as `S`, named as `E`) accounts for:
 - a symbol-overload axiom of an overloading symbol is one of `d`'s overloads (`Semantics.ovls`: the
   symbol, and the symbol it overloads among its `over`), which `Γ` states (`KoreAML.Cons.ovlEqItem`);
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
-  one), or the first equation of a sort's `isX`
-  or `projectX`, of a cell's initializer or of `getGeneratedCounterCell`, whose ids and values
-  `d`'s presentation holds; or, generated (without a user source), an equation of a sort predicate `isX`
-  of a sort of `d` equal to its clause (which KCore defines from the sort order), or of a
-  projection that `d` does not read (`genEqClassOK`; a projection a sentence applies is a function
-  of `d` with its equation, `Presentation.libProjs`), or a sentence of `kconfigModule`'s text
+  one), or the first equation of a cell's initializer or of `getGeneratedCounterCell`, whose ids
+  and values `d`'s presentation holds; or an equation of a sort predicate `isX` that is a clause
+  of that predicate (which KCore defines from the sort order), or of a sort's projection that `d`
+  does not read (`predProjOK?`; a projection a sentence applies is a function of `d` with its
+  equation, `Presentation.libProjs`); or, generated (without a user source), a constructor
+  argument's projection's equation (`genEqClassOK`) or a sentence of `kconfigModule`'s text
   (`kconfigOwnSentence`); any other generated equation is refused
   (`RefusalReason.generatedEquation`);
 - a `functional` axiom is a constructor's (its place among the productions), a cell
@@ -166,9 +163,7 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
   let cells := Cell.all d.pres.topCell
   let initLabels := cells.map (·.initLabel c)
-  let helperSorts := E.userSortNames ++ d.pres.cellSorts.map c.sortName
-  let uidLabels := helperSorts.flatMap (fun X => [KoreAML.isLabel X, KoreAML.projLabel X]) ++
-    ["LblgetGeneratedCounterCell"]
+  let uidLabels := ["LblgetGeneratedCounterCell"]
   let fnLabels := c.fns.map fun f => c.symName f.label
   -- `project:X` and a named argument's `project:#c:x` (`Lblproject'ColnHash'…`)
   let isProj := fun (f : String) => (dropPrefix? "Lblproject'Coln" f).isSome
@@ -209,10 +204,12 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       fnLabels.contains e.fn || ovlPair a.attributes ||
       (uidLabels.contains e.fn && first e e.competitors.isSome) ||
       (initLabels.contains e.fn && firstAny e) ||
-      -- generated (no user source): a sort predicate's equation that is its clause, or a
-      -- projection's that no symbol of `d` reads (`genEqClassOK`), or a sentence of
-      -- `kconfigModule`'s text where `d` imports that module (`kconfigOwnSentence`)
-      (generated && !isUserSource a.attributes && (genEqClassOK E d e || kconfigOwnSentence E s))
+      -- a sort predicate's equation that is its clause, or a sort's projection's that no symbol
+      -- of `d` reads (`predProjOK?`), whoever wrote it; or, generated (no user source), a
+      -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
+      -- text where `d` imports that module (`kconfigOwnSentence`)
+      (generated && (predProjOK? E.N E.src S.eqs c e == some true ||
+        (!isUserSource a.attributes && (genEqClassOK E d S.eqs e || kconfigOwnSentence E s))))
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
@@ -231,28 +228,10 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       | none => (scanOr s).isSome
   | _ => false
 
-/-- `consumedWith`, the arm for generated equations (a registry function's, a sort predicate's or a
-projection's, without a user source) among the arms when `generated`. -/
+/-- `consumedWith`, the arm for the equations no function of `d` holds (a sort predicate's or a
+projection's, and those without a user source) among the arms when `generated`. -/
 def consumed (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence) : Bool :=
   consumedWith true S E d s
-
-/-- A pattern's symbols, variables as `_` and domain values as their text, `fuel` levels deep. -/
-def eqnSkel : Nat → Kore.Pattern → String
-  | 0, _ => "…"
-  | _, .var (.evar _) => "_"
-  | _, .dv _ v => v.quote
-  | n + 1, .app h _ ps => h.ident.name ++ (if ps.isEmpty then "" else "(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")")
-  | n + 1, .and _ ps => "\\and(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")"
-  | n + 1, .equals _ _ p q => "\\equals(" ++ eqnSkel n p ++ ", " ++ eqnSkel n q ++ ")"
-  | _, p => connective p
-
-/-- An equation's shape: its left side, right side, `requires` and `ensures` (`eqnSkel`, four levels),
-`[owise]` when it has competitors, `[selector-domain]` for a projection's selector-domain axiom. -/
-def eqnShape (e : RawEqn) : String :=
-  s!"{e.fn}({", ".intercalate (e.pats.map (eqnSkel 4))}) = {eqnSkel 4 e.rhs}" ++
-    (match e.req with | some r => s!" requires {eqnSkel 4 r}" | none => "") ++
-    (match e.ens with | some r => s!" ensures {eqnSkel 4 r}" | none => "") ++
-    (if e.competitors.isSome then " [owise]" else "") ++ (if e.dom then " [selector-domain]" else "")
 
 /-- The user module's equations `consumed` accounts for by its arm for generated equations alone
 (`consumedWith false` does not): the sentence's index, the function, the shape (`eqnShape`). -/

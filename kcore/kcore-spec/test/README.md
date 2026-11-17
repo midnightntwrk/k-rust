@@ -673,6 +673,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   kompiled texts from `kfix.py`'s cache (so the cache must hold them, as for `kfix.py accounts`) and
   on hand-written equations, the clauses printed with `clauseSorted`, `condOK` and CN-4 §4.9's
   clause conjunct; one instance of each function is checked by the kernel (`kernel_rfl`).
+- `test/PredContent.lean`: the text's equations of a sort's predicate against the clauses the
+  reading gives it (`Semantics.sortPreds`): `Parse.predEqnOK`, `Parse.predProjOK?` and
+  `Parse.predEqnFaults` on hand-written equations by the kernel (the two standard equations are the
+  clauses; an equation with a `requires` is none, first or second in the text; an `[owise]`
+  equation is the clause only with one disjunct for the clause before it); the reader's refusal
+  (`coreOf`, `generatedEquation`, two refusals) of the cached kompiled texts of c3-strict-hybrid
+  and e2-frontend-effect and of the first with its standard equation moved first, c3-strict-base
+  read; the account's arm alone, the definition of c3-strict-base against the sentences of
+  c3-strict-hybrid.
 - `test/ExClauseReader.lean`: `Parse.ceRead` (`KcoreSpec/ReadFns.lean`, not called by `clauseBody`):
   an equation's right side under `\exists` as one clause with `exs` and `post`, and a conjunction
   of terms at a term position as its `\exists` variable conjunct or a fresh existential variable,

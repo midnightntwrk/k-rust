@@ -332,11 +332,14 @@ inductive RefusalReason where
   | hookEqualityUnstated
   /-- An equation without a user source (kompile's) of a symbol of the registry, of a sort
   predicate or of a projection that `d` does not read as a function's clause and that is none of
-  the three classes `Account.genEqClassOK` accounts for (a sort predicate's equation equal to its
-  `Semantics.sortPreds` clause; a sort's projection equation or selector-domain axiom where `d`
-  does not number the projection; a constructor argument's projection equation, the projection no
-  symbol of `d`), and no sentence of `kconfigModule`'s text where `d` imports it
-  (`Account.kconfigOwnSentence`). The sentence says more of a symbol than `Γ` states; the detail names the symbol and the shape. -/
+  the three classes `Account.genEqClassOK` accounts for (a sort predicate's equation that is its
+  `Semantics.sortPreds` clause, an `[owise]` one with its exclusion; a sort's projection equation
+  or selector-domain axiom where `d` does not number the projection; a constructor argument's
+  projection equation, the projection no symbol of `d`), and no sentence of `kconfigModule`'s text
+  where `d` imports it (`Account.kconfigOwnSentence`). The sentence says more or other of a symbol
+  than `Γ` states; the detail names the symbol and the shape. A sort predicate's or a sort's
+  projection's is refused by the reader (`coreOf`, `predEqnFaults`), the others by the account
+  (`Account.unconsumed`). -/
   | generatedEquation
   deriving Repr, DecidableEq, Inhabited
 
@@ -4178,12 +4181,112 @@ def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × Rul
          colls := E.colls, ovls := E.ovls }
   pure core
 
+/-- A pattern's symbols, variables as `_` and domain values as their text, `fuel` levels deep. -/
+def eqnSkel : Nat → Kore.Pattern → String
+  | 0, _ => "…"
+  | _, .var (.evar _) => "_"
+  | _, .dv _ v => v.quote
+  | n + 1, .app h _ ps => h.ident.name ++ (if ps.isEmpty then "" else "(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")")
+  | n + 1, .and _ ps => "\\and(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")"
+  | n + 1, .equals _ _ p q => "\\equals(" ++ eqnSkel n p ++ ", " ++ eqnSkel n q ++ ")"
+  | _, p => connective p
+
+/-- An equation's shape: its left side, right side, `requires` and `ensures` (`eqnSkel`, four levels),
+`[owise]` when it has competitors, `[selector-domain]` for a projection's selector-domain axiom. -/
+def eqnShape (e : RawEqn) : String :=
+  s!"{e.fn}({", ".intercalate (e.pats.map (eqnSkel 4))}) = {eqnSkel 4 e.rhs}" ++
+    (match e.req with | some r => s!" requires {eqnSkel 4 r}" | none => "") ++
+    (match e.ens with | some r => s!" ensures {eqnSkel 4 r}" | none => "") ++
+    (if e.competitors.isSome then " [owise]" else "") ++ (if e.dom then " [selector-domain]" else "")
+
+/-- Two clauses are one, for clauses without a predicate: every field but `pre` and `post` equal,
+and those `\top` in both (false of two equal clauses with another predicate). -/
+def clauseSame (a b : Clause) : Bool :=
+  let opt := fun (x y : Option Term) => match x, y with
+    | none, none => true
+    | some t, some u => Term.beq t u
+    | _, _ => false
+  a.vars == b.vars && Term.beqList a.pats b.pats && opt a.req b.req && Term.beq a.rhs b.rhs && opt a.ens b.ens &&
+    a.prio == b.prio && a.aside == b.aside && a.exs == b.exs &&
+    a.pre.isTop && a.post.isTop && b.pre.isTop && b.post.isTop
+
+/-- The equation `e` of the text, of the sort predicate `fn` (a function of
+`Semantics.sortPreds`), is a sentence `Γ` states (`ΓFns` over `allFns`), `eqs` the text's
+equations:
+- `e` has no `requires` and no `ensures`, and read as a function's clause (`clause?`, an `[owise]`
+  one at its priority) it is a clause `cl` of `fn` (`clauseSame`);
+- where `e` is an `[owise]` equation, its exclusion has exactly one disjunct for each clause of
+  `fn` that is before `cl` (not `aside`, of a smaller priority: `Faithful.lowerClauses`), and each
+  of those clauses is read from an equation of the text with its disjunct, the disjuncts matched to
+  the equations by content (`pairExcl`, as a function's are, `fnFrom`).
+`Γ` reads `cl` as applying where no clause before it does, and the text's sentence applies where
+no disjunct holds. With a disjunct for no clause of `fn` the sentence is silent where `Γ` gives a
+value; with a clause of `fn` that no disjunct excludes the sentence gives a value where `Γ` gives
+that clause's. -/
+def predEqnOK (N : Names) (msrc : String) (eqs : List RawEqn) (fn : Fn) (e : RawEqn) : Bool :=
+  let plain := fun (e' : RawEqn) =>
+    if e'.req.isNone && e'.ens.isNone && !e'.dom then (clause? N msrc e' none).toOption.map (·.1) else none
+  match plain e with
+  | none => false
+  | some cl => fn.clauses.any (clauseSame cl) &&
+    match e.competitors with
+    | none => true
+    | some ds =>
+      let before := fn.clauses.filter fun cl' => !cl'.aside && cl'.prio < cl.prio
+      let own := eqs.filter fun e' => e'.fn == e.fn && e'.competitors.isNone
+      -- for each clause before `cl`, an equation of the text that reads to it
+      match before.mapM fun lc => (own.find? fun e' => (plain e').any (clauseSame · lc)).map (·, lc) with
+      | none => false
+      | some es => ds.length == es.length &&
+        ((pairExcl (es.map (·.1)) ds).zip es).all fun ((e', ex), (_, lc)) =>
+          match clause? N msrc e' ex with
+          | .ok (cl', _) => clauseSame cl' lc
+          | .error _ => false
+
+/-- Whether an equation of a sort's predicate or of a sort's projection, where no function of `c`
+holds it as a clause, is a sentence `c` accounts for; `none` for an equation of another symbol.
+- A sort predicate's (`isX`, a function of `Semantics.sortPreds`): `predEqnOK`.
+- A sort X's projection `project:X` (X a library sort or one of `c`'s): the equation
+  `project:X(P) = V`, P the pattern of `selectorPat` at the variable V of sort X (`projEqnShape`),
+  or its selector-domain axiom (`projDomainEqn?`, whose form `projectionDomain?` checks:
+  `project:X(K)` is defined exactly where K is such a P), where `c` does not number `project:X`
+  (no sentence `c` reads applies it; one that does makes it a function of `c` with this equation,
+  `Presentation.libProjs`): the symbol is in no sentence of `Γ` (the registry's `projectSym X`,
+  or, for a library sort whose projection the registry numbers no symbol for, such as Range and
+  RangeMap, a symbol of no signature `Γ` has), and the equation defines it on the image of the
+  injection. -/
+def predProjOK? (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (e : RawEqn) : Option Bool :=
+  match dropPrefix? "Lblproject'Coln'" e.fn with
+  | some X =>
+    if regSortNames.contains X || c.sortNames.contains X then
+      some (!c.symNames.contains e.fn && (projEqnShape X e || e.dom))
+    else none
+  | none =>
+    if (dropPrefix? "Lblis" e.fn).isSome then
+      (c.sortPreds.find? (c.symName ·.label == e.fn)).map (predEqnOK N msrc eqs · e)
+    else none
+
+/-- The equations of the text of a sort's predicate or projection that the core `c` does not
+state: no function of `c` holds the equation as a clause and it is none of the sentences
+`predProjOK?` accepts. Each is a failure at the equation: `generatedEquation` with the symbol and
+the shape (`eqnShape`), or `unaccounted` for an equation written in a user's file. -/
+def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) : List Fault :=
+  eqs.filterMap fun e =>
+    if predProjOK? N msrc eqs c e == some false && !c.fns.any (c.symName ·.label == e.fn) then
+      some (if isUserSource e.attrs then
+          ⟨.unaccounted, s!"equation of {e.fn}, which the definition reads from its sorts: {eqnShape e}", .attrs e.attrs⟩
+        else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
+    else none
+
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
 of the semantics after the imported modules' (`Lib.tokenSorts`): their values are their literals.
 A rule that is not read (`ruleRefusal`) is refused at its axiom; then the first clause of a
-function that is not read (`clauseRefusal`), at its equation. -/
+function that is not read (`clauseRefusal`), at its equation; then the first equation of a sort's
+predicate or projection that the core does not state (`predEqnFaults`), at that equation: the core
+defines the sort predicates from the sorts (`Semantics.sortPreds`), so a text whose equations of
+one are others is a text one of whose sentences the core would not state. -/
 def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) : Rd Semantics := do
   let core ← coreBase S E prods rules
   -- a constructor of the text into a sort that is no constructor sort (`ctorResultSort`)
@@ -4211,7 +4314,9 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
       match S.eqs.find? (fun e => (eqnInfo? e.attrs).any (·.uid == cp.info.uid)) with
       | some e => Rd.within (.attrs e.attrs) (fail reason detail)
       | none => fail reason detail
-    | none => pure core
+    | none => match predEqnFaults E.N E.src S.eqs core with
+      | f :: _ => .error f
+      | [] => pure core
 
 /-- The presentation's per-sort and per-cell parts: the sorts' unique ids, the cell sorts' unique
 ids, the cells' initializers' ids, and the leaf cells' initial values. -/
