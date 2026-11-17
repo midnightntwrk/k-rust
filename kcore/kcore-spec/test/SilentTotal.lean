@@ -84,6 +84,9 @@ def b (t : String) : GroundTerm := bytesV t.toList
 def be : GroundTerm := .ctor bigEndianBytes []
 /-- `1.0p1x2`: the format with a precision of 1 and an exponent width of 2 (`KFloat.thinOK`). -/
 def t12 : GroundTerm := .dv Srt.float (.float 1 2 1)
+/-- `1.0p2x1`: the format with a precision of 2 and an exponent width of 1, where neither `isNaN`
+nor the comparisons are computed (`asDatum`). -/
+def t21 : GroundTerm := .dv Srt.float (.float 2 1 1)
 
 /-- **`HookParams.none` is not an interpretation the text admits**, in any semantics:
 `substrString("abc", 2, 1)` is a silent point and has no value under it. -/
@@ -113,7 +116,7 @@ structure Pt where
 def pts : List Pt :=
   [⟨stringSubstr, [s "abc", int 2, int 1], s ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
-   ⟨floatIsNaN, [t12], bool false⟩, ⟨floatIsInfinite, [t12], bool false⟩,
+   ⟨floatIsNaN, [t21], bool false⟩, ⟨floatIsInfinite, [t21], bool false⟩,
    ⟨floatNeg, [t12], t12⟩, ⟨floatAbs, [t12], t12⟩, ⟨floatFloor, [t12], t12⟩,
    ⟨floatCeil, [t12], t12⟩, ⟨floatTrunc, [t12], t12⟩,
    ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
@@ -197,11 +200,11 @@ theorem c_floatShapeOK : c.floatShapeOK = true := by decide +kernel
 /-- **`HookParams.lib` is admitted** in the semantics of strbytes. -/
 theorem lib_admitted : (c.withHooks HookParams.lib).libAdmitted := libAdmitted_lib c c_floatShapeOK
 
-/-- `isInfinite`'s condition fails under `HookParams.totals` at `1.0p1x2`: `isInfinite` has its
-value `false` there and `maxValueFloat(1, 2)` none, so the right side has none. -/
+/-- `isInfinite`'s condition fails under `HookParams.totals` at `1.0p2x1`: `isInfinite` has its
+value `false` there and `maxValueFloat(2, 1)` none, so the right side has none. -/
 theorem totals_not_isInfiniteEq : ¬ (c.withHooks HookParams.totals).isInfiniteEq := by
   intro h
-  have := h t12 (by rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
+  have := h t21 (by rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
   revert this
   decide +kernel
 
@@ -210,7 +213,7 @@ def ne0 : HookParams := ⟨fun f _ => if f == floatNe || f == floatEq then some 
 
 theorem ne0_not_neFloatEq : ¬ (c.withHooks ne0).neFloatEq := by
   intro h
-  have := h t12 t12 (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
+  have := h t21 t21 (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel) (by decide +kernel)
   revert this
   decide +kernel
 

@@ -15,7 +15,8 @@
   Lean's model covers p ≥ 2 and e ≥ 2. A format K names with a field of 1 (`p1xM`, `pNx1`, N and
   M positive) has values too (`thinOK`): its encodings in the same p + e bits that are no NaN
   pattern, and one code past the bits for its NaN (at p = 1 there is no significand field to mark
-  one). No operation computes on them; they are values an interpretation can give.
+  one). At precision 1 and at least 2 exponent bits their data are read (`thinUnpack`) for `isNaN`
+  and the comparisons (Hooks.lean `asDatum`); no other operation computes on them.
 
   **Operations.** An operation has a value here exactly where K's text (domains.md, FLOAT) states
   one; elsewhere it gives none, and Γ states the interpretation's value (`silentTable`, Hooks.lean).
@@ -354,5 +355,19 @@ def isNaN : UnpackedFloat → Bool
 def isInf : UnpackedFloat → Bool
   | .infinity _ => true
   | _ => false
+
+/-- The datum of the encoding `b` of the format `(1, e)`, `e ≥ 2`, which Lean core's model does not
+cover (`thinOK`): with no significand field, the sign bit is bit `e` and the exponent field the `e`
+bits below it (`fields`); the field 0 is a zero, the field of all ones an infinity, and another
+field `x` the value `2^(x − bias)`, bias `2^(e−1) − 1` (the significand is the implicit 1 alone, as
+`text` reads it: `sig`, `shift`); `2 ^ (1 + e)` is the format's NaN. -/
+def thinUnpack (e b : Nat) : UnpackedFloat :=
+  if 2 ^ (1 + e) ≤ b then .notANumber
+  else
+    let sg : UnpackedFloat.Sign := if b / 2 ^ e = 0 then .positive else .negative
+    let x := b % 2 ^ e
+    if x = 0 then .zero sg
+    else if x = 2 ^ e - 1 then .infinity sg
+    else .finite sg 1 ((x : Int) - (2 ^ (e - 1) - 1 : Nat)) Nat.one_pos
 
 end KCore.KFloat

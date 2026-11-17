@@ -283,16 +283,37 @@ def fl2 (op : Format → UnpackedFloat → UnpackedFloat → Option UnpackedFloa
   | _ => none
 
 open Float.Model in
-/-- A test of one Float. -/
+/-- A Float value's datum, without its format: at a format with a model (`asFloat`), and at a format
+of precision 1 and at least 2 exponent bits (`KFloat.thinUnpack`); none at a format of one exponent
+bit. -/
+def asDatum : GroundTerm → Option UnpackedFloat
+  | .dv s (.float p e b) =>
+    if s == Srt.float then
+      match KFloat.spec? p e with
+      | some sp => some (KFloat.unpackBits sp b)
+      | none => if p = 1 ∧ 2 ≤ e then some (KFloat.thinUnpack e b) else none
+    else none
+  | _ => none
+
+open Float.Model in
+/-- A test of one Float's datum (`asDatum`). -/
 def flTest (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asDatum a).map fun u => bool (t u)
+  | _ => none
+
+open Float.Model in
+/-- A test of one Float of a format with a model (`asFloat`): `isInfinite`, whose equation (domains.md
+1673) reads `maxValueFloat` and `--Float`, which compute at such a format only. -/
+def flTestM (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [a] => (asFloat a).map fun (_, _, _, u) => bool (t u)
   | _ => none
 
-/-- A comparison of two Floats of any formats, by their exact values (`KFloat.cmpExact`). -/
+/-- A comparison of two Floats of any formats, by their exact values (`asDatum`, `KFloat.cmpExact`). -/
 def flCmp (t : Option Ordering → Bool) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
-  | [a, b] => (asFloat a).bind fun (_, _, _, u) => (asFloat b).map fun (_, _, _, v) => bool (t (KFloat.cmpExact u v))
+  | [a, b] => (asDatum a).bind fun u => (asDatum b).map fun v => bool (t (KFloat.cmpExact u v))
   | _ => none
 
 /-- A property of a Float's format `(p, e)`, read off the value: `p` and `e` positive (domains.md
@@ -344,7 +365,7 @@ def floatHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (floatLe, flCmp fun o => o == some .lt || o == some .eq), (floatLt, flCmp fun o => o == some .lt),
    (floatGe, flCmp fun o => o == some .gt || o == some .eq), (floatGt, flCmp fun o => o == some .gt),
    (floatEq, flCmp fun o => o == some .eq), (floatNe, flCmp fun o => o != some .eq),
-   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTest KFloat.isInf),
+   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTestM KFloat.isInf),
    (floatPrecision, flFmt fun p _ => p), (floatExponentBits, flFmt fun _ e => e),
    (floatRound, flTo KFloat.convertFormat), (int2Float, flOfInt),
    (floatMaxValue, flAt KFloat.maxValue), (floatMinValue, flAt KFloat.minValue)]
@@ -699,10 +720,12 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   operations that differ there only (FloatDomain.lean `sqrt?`; as recalled, not confirmed).
   Elsewhere `sqrtFloat` has the square root rounded as Lean core's `sqrt` gives it, at NaN and the
   infinities included: not restricted to the regions the text states, as the operations above are.
-- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, the six comparisons, `isNaN`,
-  `isInfinite` (and the operations above) at a value of a format with a field of 1
-  (`KFloat.thinOK`): KCore computes no operation on such a format's data, so Γ states there only
-  the interpretation's value, less than the text's IEEE 754 description (1481-1483).
+- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `isInfinite` (and the operations
+  above) at a value of a format with a field of 1 (`KFloat.thinOK`), and the six comparisons and
+  `isNaN` at one of a single exponent bit: KCore computes no operation there, so Γ states there
+  only the interpretation's value, less than the text states (an operation at such a format has
+  the status it has at any format, 1475, 1481-1488). At precision 1 and at least 2 exponent bits
+  the comparisons and `isNaN` read the datum (`asDatum`, `KFloat.thinUnpack`).
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
 - RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for

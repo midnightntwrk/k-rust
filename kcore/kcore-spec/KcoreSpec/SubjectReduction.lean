@@ -553,6 +553,13 @@ theorem flTest_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTest t 
   · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
   · cases h
 
+theorem flTestM_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTestM t vs = some v) :
+    c.sortOf v = some Srt.bool := by
+  unfold flTestM at h
+  split at h
+  · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
+  · cases h
+
 theorem flCmp_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flCmp t vs = some v) :
     c.sortOf v = some Srt.bool := by
   unfold flCmp at h
@@ -601,7 +608,7 @@ theorem floatHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {
          obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
          exact floatV_sorted (asFloat_spec ha) _
        · cases hev)
-    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flCmp_sorted hev)
+    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flTestM_sorted hev | exact flCmp_sorted hev)
     | (rw [hI (by decide)]; exact flFmt_sorted hev)
 
 /-! ## The interpreted String and Bytes symbols return values of their declared result sort

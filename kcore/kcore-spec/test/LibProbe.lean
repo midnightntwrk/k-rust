@@ -802,18 +802,21 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
-`substrString`, `Int2Bytes` (at a negative length), `isNaN`, `--Float`, `absFloat`, `floorFloat`,
+readings, the Int grid without 2^64 + 1. Row 9's nine failures are the `functional` sentences of
+`substrString`, `Int2Bytes` (at a negative length), `--Float`, `absFloat`, `floorFloat`,
 `ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
-`HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898) at the empty
+`HookParams.none` only (`isNaN` has its values at the `p1x2` data, `asDatum`). Row 17's four:
+`countAllOccurrences`' second equation (1898) at the empty
 needle, under every reading that gives the count a value there (`unmet`); `replaceAll`'s (1917) at
 the empty needle under the readings that give `replaceAll` and `replace` at the count different
 values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
 values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so the right
-side has none); `=/=Float`'s (1648) and `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
-which give the silent points of two symbols values that do not agree with the equation. -/
+side has none); `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
+which give the silent points of two symbols values that do not agree with the equation.
+`=/=Float`'s (1648) reads the interpretation nowhere: `==Float` and `=/=Float` have their values at
+the `p1x2` data (`asDatum`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 37, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 38, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -829,7 +832,7 @@ of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid wit
 leaving out the 213 sentences of builtin modules outside the library's text (`outOfLibrary`:
 ARRAY, RANGEMAP, RAT, FFI, …). The sentences reading the interpretation are those of silentflt. -/
 def expectedAll : Summary :=
-  [(9, 102, 73, 63, 0, 10, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 43, 37, 0, 5, 1), (18, 114, 107, 107, 0, 0, 0),
+  [(9, 102, 73, 64, 0, 9, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 43, 38, 0, 4, 1), (18, 114, 107, 107, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
