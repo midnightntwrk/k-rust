@@ -254,13 +254,16 @@ def clausePrioAttrs (cl : Clause) (cp : ClausePres) : List Kore.AppPattern :=
 /-- An equation written `owise{}()`: of priority 200, with no `priority{}` attribute. -/
 def writtenOwise (cl : Clause) (cp : ClausePres) : Bool := cl.prio == 200 && !cp.prioAttr
 
-/-- A clause's equation, `premise → f(p̄) = rhs ∧ ens`. The premise of an `[owise]` equation negates
+/-- A clause's equation, `premise → f(p̄) = rhs ∧ ens`, the premise `⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre`
+(`withPre`: `⌈req = true⌉ ∧ X̄ ∈ p̄` where the clause's predicate is `\top`, `clauseAx_top`), the
+predicate its competitors' `exclusion` carries. The premise of an `[owise]` equation negates
 every equation of a smaller priority that is not `aside` (`exclusion`),
-`¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`. -/
+`¬ ⋁ competitors ∧ (⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre)`. -/
 def clauseAx (c : Semantics) (p : Presentation) (f : Fn) (fp : FnPres) (cl : Clause) (cp : ClausePres) :
     Kore.Sentence :=
   let vs := varList (cl.vars.map c.sortName) cp.names
-  let prem := premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)
+  let prem := withPre c vs cl
+    (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))
   let comps := ((withPres f.clauses fp.clauses).filter fun x => !x.1.aside && x.1.prio < cl.prio).map fun (cl', cp') =>
     exclusion c f cl' cp'
   equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result)
@@ -269,6 +272,22 @@ def clauseAx (c : Semantics) (p : Presentation) (f : Fn) (fp : FnPres) (cl : Cla
       | [] => metaAttrs p cp.info cp.label cp.src
       | as => sortAttrs (metaAttrs p cp.info cp.label cp.src ++ as))
 
+/-- The equation of a clause whose predicate is `\top` has the premise without a predicate,
+`⌈req = true⌉ ∧ X̄ ∈ p̄` (under `¬ ⋁ competitors` for an `[owise]` equation): the text `clauseAx`
+had before a clause's premise carried its predicate. -/
+theorem clauseAx_top {c : Semantics} {p : Presentation} {f : Fn} {fp : FnPres} {cl : Clause} {cp : ClausePres}
+    (h : cl.pre = .top) :
+    clauseAx c p f fp cl cp =
+      (let vs := varList (cl.vars.map c.sortName) cp.names
+       let prem := premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)
+       let comps := ((withPres f.clauses fp.clauses).filter fun x => !x.1.aside && x.1.prio < cl.prio).map fun (cl', cp') =>
+         exclusion c f cl' cp'
+       equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result)
+         (if writtenOwise cl cp then .and R [.not R (anyOf comps), prem] else prem)
+         (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (match clausePrioAttrs cl cp with
+           | [] => metaAttrs p cp.info cp.label cp.src
+           | as => sortAttrs (metaAttrs p cp.info cp.label cp.src ++ as))) := by
+  unfold clauseAx; simp only [withPre_top h]
 
 /-- `\rewrites{C}(\and{C}(lhs, req), \exists{C}(?ē, \and{C}(rhs, ens)))`, `ens` being `\top{C}()`
 without an `ensures`, the existential variables bound in the order of `exs` (the first outermost)

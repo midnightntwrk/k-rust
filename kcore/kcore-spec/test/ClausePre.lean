@@ -223,6 +223,55 @@ def expectSentence1 : Prop :=
 /-- The first clause's sentence has the premise `(⊤ ∧ X0 ∈ X) ∧ ⌈u(X)⌉`. -/
 theorem sentence1_pre : expectSentence1 := by unfold expectSentence1; rfl
 
+/-! ## The emitted equations (`Emit.clauseAx`, e3.clauseAx-pre)
+
+The text `kcore` writes for a clause (`clauseAx`, read by `fnEquations`) has the premise `Γ`'s
+sentence for it has: `gCl1`'s own equation states `g(X0) = 1` under `(⊤ ∧ X0 ∈ X) ∧ ⌈u(X)⌉`, the
+body `gCl2`'s `[owise]` premise negates under `∃X'` (`exclPre`). Before `clauseAx` read
+`Clause.pre` the first was `⊤ ∧ X0 ∈ X → g(X0) = 1` beside the second's
+`¬ ∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)`: at 0 both premises hold and the text states `g(0) = 1` and
+`g(0) = 0`. The presentation is the canonical one (`canonFnPres`, `canonClausePres`); `p` bears on
+the attributes only. -/
+
+/-- `gCl1`'s emitted equation has the premise `(⊤ ∧ X0 ∈ X) ∧ ⌈u(X)⌉`, the premise of `Γ`'s
+sentence for it (`sentence1_pre`). -/
+theorem clauseAx_pre (p : Presentation) :
+    clauseAx c p gFn (Faithful.canonFnPres gFn) gCl1 (canonClausePres gCl1) =
+      KoreAML.equationAx "Lblg" gArgs "Int" (.and R [prem1, Cond.kore c vs1 R gCl1.pre])
+        (Term.kore c vs1 gCl1.rhs) (reqPat (srtOf c gFn.result) (gCl1.ens.map (Term.kore c vs1)))
+        (metaAttrs p (canonClausePres gCl1).info none none) := by rfl
+
+/-- With `gCl1`'s predicate `\top` the emitted equation has the premise `⊤ ∧ X0 ∈ X` alone
+(`clauseAx_top`): the text before `clauseAx` read `Clause.pre`. -/
+theorem clauseAx_top_plain (p : Presentation) :
+    clauseAx c p gFn (Faithful.canonFnPres gFn) { gCl1 with pre := .top } (canonClausePres gCl1) =
+      KoreAML.equationAx "Lblg" gArgs "Int" prem1
+        (Term.kore c vs1 gCl1.rhs) (reqPat (srtOf c gFn.result) (gCl1.ens.map (Term.kore c vs1)))
+        (metaAttrs p (canonClausePres gCl1).info none none) := by
+  rw [clauseAx_top rfl]; rfl
+
+/-- The two differ: the predicate is in the emitted premise. -/
+theorem clauseAx_pre_ne_plain (p : Presentation) :
+    clauseAx c p gFn (Faithful.canonFnPres gFn) gCl1 (canonClausePres gCl1) ≠
+      clauseAx c p gFn (Faithful.canonFnPres gFn) { gCl1 with pre := .top } (canonClausePres gCl1) := by
+  rw [clauseAx_pre, clauseAx_top_plain]
+  intro h
+  have h' : some (Kore.Pattern.and R [prem1, Cond.kore c vs1 R gCl1.pre]) = some prem1 :=
+    congrArg (fun s => match s with
+      | Kore.Sentence.axiom ax => (match ax.pattern with | .implies _ a _ => some a | _ => none)
+      | _ => none) h
+  exact absurd h' (by decide +kernel)
+
+/-- `gCl2`'s emitted `[owise]` equation negates `exclPre`, the exclusion of `gCl1` with its
+predicate, over its own premise `⊤ ∧ X0 ∈ X` (its `pre` is `\top`): the premise of `Γ`'s sentence
+for it (`sentence_pre`, `sentence2 exclPre`). -/
+theorem clauseAx_owise (p : Presentation) :
+    clauseAx c p gFn (Faithful.canonFnPres gFn) gCl2 (canonClausePres gCl2) =
+      KoreAML.equationAx "Lblg" gArgs "Int"
+        (competingPremise gArgs [exclPre] (gCl2.req.map (Term.kore c vs2)) (Term.koreList c vs2 gCl2.pats))
+        (Term.kore c vs2 gCl2.rhs) (reqPat (srtOf c gFn.result) (gCl2.ens.map (Term.kore c vs2)))
+        (sortAttrs (metaAttrs p (canonClausePres gCl2).info none none ++ [KoreAML.attr "owise"])) := by rfl
+
 /-! ## The results -/
 
 /-- `f`'s result at `[iv x]` in `d` is `r` and only `r`. -/
