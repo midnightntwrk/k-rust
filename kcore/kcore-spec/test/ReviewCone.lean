@@ -12,8 +12,9 @@
   (iv)  the core: soundness and completeness over a semantics, with what they assume of it
         (`Semantics.coreOK`, `CoreObligations`), written to .lake/review-cone-core.txt;
   (v)   the core with the semantic hypothesis on the functions (`FnHyp`) in place of the named
-        obligations, its roots and opaque declarations the list test/roots.toml (test/ConeV.lean
-        computes the same cone), written to .lake/review-cone-core-hyp.txt;
+        obligations, with the definitions the rows' statements and the tie's mention, its roots
+        and opaque declarations the list test/roots.toml (test/ConeV.lean computes the same cone),
+        written to .lake/review-cone-core-hyp.txt;
   (vi)  the texts the statements over the plain step read (`SoundC₀`, `CompleteC₀` and the lemmas
         that say each edited declaration is the plain one where the definition is plain), written
         to .lake/review-cone-core-old.txt;
