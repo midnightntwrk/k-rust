@@ -2,7 +2,8 @@
   The statement definitions of the per-sentence tie between a KORE text `k` and a definition `d`:
   what "entailed at values" means (`AtValues`, `EntailsAtValues`), the agreement of the attributes
   the translation does not read (`attrsAgree`), the symbols a sentence applies (`symbolsOf`) and the
-  items of the signature that are about a name the text does not declare (`surplusItem`).
+  items of the signature that are about a name the text does not declare (`surplusItem`), and the
+  classes of an account with their directions (`tieClasses`).
 
   None of them unfolds `Parse.parse` or `Definition.emit`: each reads the two literals.
 -/
@@ -135,9 +136,11 @@ def ctors (k : Kore.Definition) (c : Semantics) : Bool :=
 
 /-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
 that the theory has as a constructor, function, parameter or overloading symbol is a function of
-the semantics. Two kinds of symbol declared so are not compared: one the theory does not have (its
-sentences have no direction), and one the registry interprets (`hookSigs`: a library function such
-as `freshInt`, which the text defines by an equation and the theory states by its graph). -/
+the semantics. Two kinds of symbol declared so are not compared here: one the theory does not have
+(its sentences have no direction), and one the registry interprets (`hookSigs`), which `hooks`
+admits only where the registry holds it under no hook name (a library function such as `freshInt`,
+which the text defines by an equation and the theory states by its graph; the equation is a
+library sentence of the tie, entailed at values). -/
 def fns (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all fun (n, as) =>
     let fn := has as "function" && !has as "hook"
@@ -145,16 +148,23 @@ def fns (k : Kore.Definition) (c : Semantics) : Bool :=
     let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
     (!isFn || fn) && (!(fn && own) || isFn)
 
+/-- The interpreted hooked symbol `g` is one the registry holds under no hook name
+(`regHookNames`): a function of the library's text with equations and no `hook` attribute. -/
+def libFn (g : CtorSig) : Bool := !regHookNames.any (·.1 == g.name)
+
 /-- A symbol declared with `hook{}("h")` that the theory has is an interpreted hooked symbol whose
-registry hook is `h`'s (`regHookOf`), or a parameter symbol whose `impl` is `h`'s registry hook;
-and every parameter symbol is declared with a hook. -/
+registry hook is `h`'s (`regHookOf`), or a parameter symbol whose `impl` is `h`'s registry hook.
+A symbol declared without a hook is no parameter symbol, and is an interpreted hooked symbol only
+where the registry holds it under no hook name (`libFn`) and the text declares it `function{}`. -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all (fun (n, as) =>
     match strArg as "hook" with
     | some h =>
       (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
       (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
-    | none => c.params.all fun p => c.symName p.sig.name != n)
+    | none =>
+      (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
+      c.params.all fun p => c.symName p.sig.name != n)
 
 /-- A sort declared with `unit`, `element` and `concat` is a collection sort of the semantics with
 those three symbols, and each of the semantics' own collection sorts is declared so. -/
@@ -170,8 +180,12 @@ def colls (k : Kore.Definition) (c : Semantics) : Bool :=
 
 /-- The priorities of the text's rewrite axioms, in text order, are the rules'; and for each
 function of the semantics, the priorities of the text's equations with the function at the head of
-their left side, less the `simplification` ones, are its clauses' priorities, as lists up to order
-(the order of a function's clauses carries no meaning). -/
+their left side, less the `simplification` ones, are its clauses' priorities, as lists up to order.
+The semantics need not hold a function's clauses in text order, so which equation has which
+priority is not compared here. It is decided where a tie pairs each clause's item with its
+sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of
+one function with distinct `priority{}` numbers, where the text states the attribute only, by the
+priorities of the paired sentences in the items' order, which a tie of such a text states. -/
 def prios (k : Kore.Definition) (c : Semantics) : Bool :=
   let axs := k.axiomDecls.map (·.ax)
   ((axs.filter (isRewrite ·.pattern)).map (prioOf ·.attributes) == c.rules.map (·.prio)) &&
@@ -187,5 +201,66 @@ only is what the attributes say (`AttrsAgree.ctors`, `fns`, `hooks`, `colls`, `p
 def attrsAgree (k : Kore.Definition) (d : Definition) : Bool :=
   AttrsAgree.ctors k d.sem && AttrsAgree.fns k d.sem && AttrsAgree.hooks k d.sem &&
     AttrsAgree.colls k d.sem && AttrsAgree.prios k d.sem
+
+/-! ## The classes of a tie and their directions -/
+
+/-- What a tie shows of a sentence `s` of a class, for every interpretation of the hooks. -/
+inductive TieDir where
+  /-- An item of `Γ` is the translation of `s`: `Γ` entails `s`, and the item is a consequence of `s`. -/
+  | equal
+  /-- `Γ ⊧ tr s`. -/
+  | entailed
+  /-- `tr s` entails the item `Γ` holds for `s`, which adds a premise to it. -/
+  | weaker
+  /-- `tr s` holds in every model of `Γ` at the valuations that send its variables to values
+  (`EntailsAtValues`). -/
+  | atValues
+  /-- `Γ` does not hold `s`: it is owed as a hypothesis on the functions (`FnHyp`). -/
+  | hypothesis
+  /-- `Γ` with `s` has no model. -/
+  | refuted
+  /-- `s` applies a symbol `Γ` does not have: no statement relates them. -/
+  | none
+  deriving DecidableEq, Repr
+
+/-- **The classes of a tie's account, each with its direction.** A text's account lists its
+sentences under these names, in this order.
+- function equation: an equation of a function of the semantics, `owise` or without priority;
+- rewrite rule: `Γ`'s item has the premise that the right side with the `ensures` is defined;
+- priority equation: an equation with `priority{}` that is not `owise`, whose item adds the
+  negations of the clauses of a smaller priority;
+- constructor functional, subsort, injectivity, distinctness, no junk: the constructor sentences;
+- function functional: the `functional` sentence of a function of the semantics;
+- hooked functional: the `functional` sentence of a symbol the registry interprets;
+- collection law: associativity and the units of a collection's concatenation;
+- library: an equation or a lemma of the builtin library over symbols `Γ` has;
+- set idempotence: `_Set_(K, K) = K`, against which `Γ` states the concatenation of two sets with
+  a common member undefined;
+- no direction: a sentence that applies a symbol `Γ` does not have. -/
+def tieClasses : List (String × TieDir) :=
+  [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
+   ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
+   ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
+   ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
+   ("set idempotence", .refuted), ("no direction", .none)]
+
+/-! ## The no-direction class is closed -/
+
+/-- Where the members of `l` in `p` are exactly those not in `q`, every member outside `p` is in
+`q`: from an account's statement that the no-direction class holds exactly the sentences that
+apply a symbol the theory lacks, every sentence outside it applies the theory's symbols only. -/
+theorem tieAbsent_of_account {α : Type} (l : List α) (p q : α → Bool)
+    (h : l.all (fun a => p a != q a) = true) : (l.filter (fun a => !p a)).all q = true := by
+  refine List.all_eq_true.mpr fun a ha => ?_
+  have hm : a ∈ l := (List.mem_filter.mp ha).1
+  have hp : (!p a) = true := (List.mem_filter.mp ha).2
+  have hpq : (p a != q a) = true := List.all_eq_true.mp h a hm
+  cases hpa : p a with
+  | true => rw [hpa] at hp; exact absurd hp (by decide)
+  | false =>
+    rw [hpa] at hpq
+    cases hqa : q a with
+    | true => rfl
+    | false => rw [hqa] at hpq; exact absurd hpq (by decide)
 
 end KCore
