@@ -299,6 +299,7 @@ class Encoder:
         self.syms = {}
         self.vars = {}
         self.in_lhs = False
+        self.where = 'the initial configuration'
 
     def sort(self, s):
         name = s[0]
@@ -312,7 +313,13 @@ class Encoder:
         return self.syms[name]
 
     def var(self, name):
+        """The number of a variable. Only a left side binds one: kore.k instantiates a requires,
+        an ensures and a right side from one match of the left side, and a variable no match binds
+        ranges over every value of its sort, which kore.k does not enumerate."""
         if name not in self.vars:
+            if not self.in_lhs:
+                raise Unsupported(f'variable {name} of {self.where}: the left side does not bind it '
+                                  '(it ranges over every value of its sort)')
             self.vars[name] = len(self.vars)
         return self.vars[name]
 
@@ -459,13 +466,26 @@ class Encoder:
         return self.term(config_of(top[3][0]))
 
     @staticmethod
-    def req(p):
-        """A requires or ensures: \\equals{Bool,_}(R, true) -> R; \\top -> None"""
+    def req(p, what='requires'):
+        """A requires or ensures: \\equals{Bool,_}(R, true) -> R; \\top -> None. Any other
+        predicate is refused: kore.k holds a requires and an ensures as a term it evaluates to true."""
         if p[0] == 'app' and p[1] == '\\top':
             return None
         if p[0] == 'app' and p[1] == '\\equals' and p[3][1] == ('app', '\\dv', (('SortBool', ()),), (('str', 'true'),)):
             return p[3][0]
-        raise Unsupported(f'requires shape {str(p)[:200]}')
+        raise Unsupported(f'{what} shape {str(p)[:200]}')
+
+    @staticmethod
+    def result(p, what):
+        """The parts (R, ENS) of a right side \\and(R, ENS). A right side under \\exists is
+        refused: it has a result for each witness of the bound variable, and kore.k computes one
+        result from one match of the left side."""
+        if p[0] == 'app' and p[1] == '\\exists':
+            raise Unsupported(f'right side of {what} under \\exists: an existential variable '
+                              'ranges over every value of its sort')
+        if p[0] != 'app' or p[1] != '\\and' or len(p[3]) != 2:
+            raise Unsupported(f'right side shape of {what} {str(p)[:200]}')
+        return p[3]
 
     @staticmethod
     def priority(attrs):
@@ -477,12 +497,13 @@ class Encoder:
     def rule(self, ax, attrs):
         # \rewrites(\and(LHS, REQ), \and(RHS, \top))
         _, _, _, (left, right) = ax
+        self.where = 'a rule'
         lhs, req = left[3]
-        rhs, ens = right[3]
+        rhs, ens = self.result(right, self.where)
         self.vars = {}
         prio, owise = self.priority(attrs)
         r = self.req(req)
-        e = self.req(ens)
+        e = self.req(ens, 'ensures')
         self.in_lhs = True
         left = self.term(self.cell(lhs))
         self.in_lhs = False
@@ -501,8 +522,9 @@ class Encoder:
         if concl[1] != '\\equals':
             raise Unsupported('equation conclusion')
         lhs, rhsand = concl[3]
-        rhs, ens = rhsand[3]
-        e = self.req(ens)
+        self.where = f'an equation of {lhs[1]}'
+        rhs, ens = self.result(rhsand, self.where)
+        e = self.req(ens, 'ensures')
         reqpart, argpart = pre[3]
         owise = 'owise' in attrs
         if owise:
@@ -557,6 +579,7 @@ class Encoder:
                 fns.setdefault(f, []).append(c)
             done += 1
         self.vars = {}
+        self.where = 'the initial configuration'
         t = self.initial(init)
         # the stated subsorts, but those into KItem and K and those of the generated configuration
         # cells, which no term of the single cell reaches
