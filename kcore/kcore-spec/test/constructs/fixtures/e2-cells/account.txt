@@ -17,6 +17,8 @@ read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
+unit attributes of constructors and open generators, ignored (the text holds no unit sentence of the symbol; nothing read): 1
+      sentence 84 (Lbl'-LT-'opt'-GT-'): unit (Lbl'Stop'OptCell) ignored: no unit sentence of Lbl'-LT-'opt'-GT-'
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 1
 rules and clauses applying a function symbol in their left side: 0

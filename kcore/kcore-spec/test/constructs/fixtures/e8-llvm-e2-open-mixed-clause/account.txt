@@ -18,8 +18,9 @@ functional axioms of open generators, stated at values under OpenTotal (no item 
       sentence 170 (Lbland): stated at values, under OpenTotal
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
-rules and clauses applying a function symbol in their left side: 1
-      sentence 214 (Lblfirst): functionInPattern (Lbland)
+rules and clauses applying a function symbol in their left side: 0
+rules and clauses applying an open generator in their left side: 1
+      sentence 214 (Lblfirst): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)
 sentences the library's data induces that the text does not hold: 0
 library sentences of the modules held that the text does not hold: 0
 sentences every definition holds (kernelText) that the text does not: 4

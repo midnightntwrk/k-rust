@@ -100,3 +100,53 @@ sentence 230 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (VarZ':B: a variable 
 #eval show IO Unit from do
   for r in ← refusalsOf "f2-examples/openmixedunheld.kompile.kore" .unheldVariable do
     IO.println r
+
+/-! ## An open generator in a left side
+
+`f2-examples/openrec.kompile.kore` (fixture e2-open-rec: `B ::= "e" | B "&" B [comm]`,
+`<k> c(X & Y) => d(X) </k>`) and `f2-examples/openmixed.kompile.kore` (fixture e2-open-mixed:
+`A ::= "x" | "y"`, `B ::= A "&" A [comm]`, the same rule). In each, `&` is read as an open generator
+without a law (kompile writes no sentence for `comm`), and the rule's left side applies it to
+variables: the account refuses the rule `openGeneratorPattern`, not `functionInPattern`, the detail
+naming `&`, its sort B and the reason that applies at B. In e2-open-rec B is recursive through `&`
+itself, so not confined: the arguments that match depend on elements of B the text does not name
+(R-a). In e2-open-mixed B is confined (its one generator `&` takes two arguments of A, whose
+generators are the nullary `x` and `y`): the arguments that match are values, the value's preimage
+under the interpretation's graph, which the semantics does not build (R-c). -/
+
+/-- The text at `path` read: its open generators, whether each of its sorts is confined, and the
+left sides the account refuses for applying a function symbol or an open generator. -/
+def patternsOf (path : String) : IO (List String) := do
+  match Kore.parseDefinition (← IO.FS.readFile path) with
+  | .error e => return [s!"KORE read error {e}"]
+  | .ok k => return match Parse.parse k with
+    | .ok d =>
+      let c := d.sem
+      let og := (c.params.filter (·.raw)).map (fun p =>
+        c.symName p.sig.name ++ " : " ++ toString (p.sig.args.map c.sortName) ++ " → " ++
+          c.sortName p.sig.result ++ s!" assoc {p.assoc} idem {p.idem} confined {c.confined p.sig.result}")
+      let fp := (Parse.functionInPattern k d).map Parse.Refusal.toText
+      let gp := (Parse.openGeneratorInPattern k d).map Parse.Refusal.toText
+      s!"open generators: {og}" :: s!"functionInPattern: {fp}" :: s!"openGeneratorInPattern: {gp}" :: []
+    | .error r => [s!"refused: {r.toText}"]
+
+/--
+info: open generators: [Lbland : [B, B] → B assoc false idem false confined false]
+functionInPattern: []
+openGeneratorInPattern: [sentence 210 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is recursive or reaches an unconfined sort: the arguments it matches depend on elements of B the text does not name)]
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for l in ← patternsOf "f2-examples/openrec.kompile.kore" do IO.println l
+
+/-! e2-open-mixed: `&` across sorts (`A A → B`), read as a raw parameter without a law (`comm` has
+no sentence); B is confined, and the rule's left side is refused with the second reason. -/
+
+/--
+info: open generators: [Lbland : [A, A] → B assoc false idem false confined true]
+functionInPattern: []
+openGeneratorInPattern: [sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)]
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for l in ← patternsOf "f2-examples/openmixed.kompile.kore" do IO.println l
