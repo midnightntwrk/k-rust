@@ -1,5 +1,6 @@
 cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
+differs f2-examples/bandctor.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
 differs f2-examples/c3-eq-ens-owise.kompile.kore
 differs f2-examples/c3-eq-ens-prio-comp.kompile.kore

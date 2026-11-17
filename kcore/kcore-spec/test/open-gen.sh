@@ -4,7 +4,8 @@
 # 12 GiB memory scope). The kernel facts about the texts at values are test/OpenKompiled.lean's.
 # - e2-comm-ctor (f2-examples/commctor.kompile.kore): `and` (no law) and `or` (`assoc`);
 # - e2-open-rule (f2-examples/openrule.kompile.kore): `and` (no law), a rule and a function;
-# - e2-idem-ctor (f2-examples/idemctor.kompile.kore): `or` (`idem`).
+# - e2-idem-ctor (f2-examples/idemctor.kompile.kore): `or` (`idem`);
+# - e2-band-ctor (f2-examples/bandctor.kompile.kore): `or` (`assoc` and `idem`).
 # For each: the text is the fixture's kompiled text (with K's builtin directory written back as
 # BUILTIN/ and the fixture's directory as FIXTURE/, its sha256 is the one the fixture's kompile.txt
 # records) and `kcore account` of it prints the fixture's account.txt from its `user module` line on;
@@ -22,7 +23,7 @@ O=.lake/open-gen; mkdir -p "$O"
 fail=0
 say() { echo "open-gen: $*"; fail=1; }
 BI=/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin
-all="commctor:e2-comm-ctor:OpenComm openrule:e2-open-rule:OpenRuleK idemctor:e2-idem-ctor:OpenIdem"
+all="commctor:e2-comm-ctor:OpenComm openrule:e2-open-rule:OpenRuleK idemctor:e2-idem-ctor:OpenIdem bandctor:e2-band-ctor:OpenBand"
 for p in $all; do
   IFS=: read -r t x ns <<< "$p"; X=test/constructs/fixtures/$x
   sha=$(sed -e "s#$BI/#BUILTIN/#g" -e "s#kcore-spec/$X/#FIXTURE/#g" "f2-examples/$t.kompile.kore" | sha256sum | cut -d' ' -f1)
@@ -52,4 +53,4 @@ for p in $all; do
   IFS=: read -r t x ns <<< "$p"
   gen/build.sh "$O/$t" > "$O/$t-build.log" 2>&1 || { tail -30 "$O/$t-build.log"; say "$t: the package does not build"; exit 1; }
 done
-echo "open-gen: three packages state their statements for every H under OpenLaws and OpenTotal, discharge both at lawHooks, and build: ok"
+echo "open-gen: four packages state their statements for every H under OpenLaws and OpenTotal, discharge both at lawHooks, and build: ok"
