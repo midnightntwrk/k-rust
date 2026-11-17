@@ -520,7 +520,8 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
   cases v with
   | none => exact hbR.elim
   | some yv =>
-    have hstep := step_of_apply_core hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT hv hensT hprio
+    have hstep := step_of_apply_core hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT ((htop _ hr).1 ▸ .top) hv hensT
+      ((htop _ hr).2 ▸ .top) hprio
     have hmem : yv ∈ ref x.val := (href x yv).mpr ⟨_, hstep⟩
     exact disjList_of_mem (List.mem_map_of_mem hmem) (((den_closed c yv).interp e2 e b).mp hbR)
 

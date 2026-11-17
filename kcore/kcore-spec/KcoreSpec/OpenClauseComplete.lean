@@ -22,12 +22,13 @@ namespace KCore
 theorem step_of_apply_coreCl {c : Semantics} (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     {r : Rule} (hr : r ∈ c.rules) {x : Config c} {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_coreCl hok hsr hov hr hσ he⟩ :=
-  let ⟨hp, hq⟩ := Semantics.sortedOKCl_ruleTop hok hr
-  Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
+  .rule r hr σ hσ hm hreq hpre he hens hpost hprio
 
 namespace Faithful
 
@@ -437,7 +438,8 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
   cases v with
   | none => exact hbR.elim
   | some yv =>
-    have hstep := step_of_apply_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT hv hensT hprio
+    have hstep := step_of_apply_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT ((htop _ hr).1 ▸ .top) hv hensT
+      ((htop _ hr).2 ▸ .top) hprio
     refine ⟨_, hstep, ?_⟩
     have hbe := ((elemOf_spec hIΓ (rhs_sorted_coreCl hok hsr (OvlOK.ovlCase inferInstance) hr hσ hv) e).1 b).mp (((den_closed c yv).interp e2 e b).mp hbR)
     rw [← hbe]

@@ -208,7 +208,8 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
   cases v with
   | none => exact hbR.elim
   | some yv =>
-    have hstep := step_of_apply_core hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT hv hensT hprio
+    have hstep := step_of_apply_core hok hsr (OvlOK.ovlCase inferInstance) hr hσ hmatch hreqT ((htop _ hr).1 ▸ .top) hv hensT
+      ((htop _ hr).2 ▸ .top) hprio
     refine ⟨_, hstep, ?_⟩
     have hbe := ((elemOf_spec hIΓ (rhs_sorted_core hok hsr (OvlOK.ovlCase inferInstance) hr hσ hv) e).1 b).mp (((den_closed c yv).interp e2 e b).mp hbR)
     rw [← hbe]
