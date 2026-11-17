@@ -1,0 +1,52 @@
+id = "t195-ite-other-sort"
+kind = "text"
+subject = "The sort-parametric #if #then #else #fi applied at the sort Int, where the K-EQUAL module states its two equations at the sort K only: what #if denotes at Int."
+retro = ["F8"]
+rests_on = ["kk:t02-step-successors", "kk:t32-keq-ite"]
+
+[text]
+files = ["t195-ite-other-sort.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "#if at Int is its own symbol, ite{Int}, one of the instances of the parametric declaration. Its value is the one domains.md:2314-2316 states of the polymorphic function at every sort: #if true #then 1 #else 2 #fi is 1 and #if false #then 1 #else 2 #fi is 2. So a(true) steps to r(1) and a(false) to r(2). The two equations of K-EQUAL are stated of the instance at K only and say nothing of ite{Int}; the value at Int is domains.md's sentence, not those equations."
+reason = """
+(1) A symbol has one list of argument sorts and one result sort (introduction-to-matching-logic.tex:704-713). The declaration syntax {Sort} Sort ::= "#if" Bool "#then" Sort "#else" Sort "#fi" is parametric (domains.md:2330), so each sort gives one symbol, and #if at Int is ite{Int}.
+(2) The equations rule #if C:Bool #then B1::K #else _ #fi => B1 requires C and its pair (domains.md:2357-2358) are written at K: they are sentences about ite{K}, not about ite{Int}.
+(3) domains.md:2314-2316 states the value of the polymorphic conditional at every sort: the second argument where the first evaluates to true, the third otherwise (kk:t32-keq-ite). At true it is 1 and at false 2. The rule thus states that a(true) has a successor r(1) and a(false) a successor r(2) (kk:t02-step-successors, point (4))."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2314-2316 (K 7.1.337)"
+quote = "`#if #then #else #fi` - polymorphic conditional function. If the first argument evaluates to `true`, the second argument is returned. Otherwise, the third argument is returned."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2330 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#if" Bool "#then" Sort "#else" Sort "#fi" [function, total, symbol(ite), smt-hook(ite), hook(KEQUAL.ite)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2357-2358 (K 7.1.337)"
+quote = "rule #if C:Bool #then B1::K #else _ #fi => B1 requires C rule #if C:Bool #then _ #else B2::K #fi => B2 requires notBool C"
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[ruling.kore]
+statement = "The rule's right side applies Lblite{SortInt{}} (kore.txt:94). The functional axiom of ite carries the sort variable SortSort in its own list (kore.txt:70), so it is stated of every instance: ite{Int} has exactly one value at elements. The text's sentences added to an empty module hold no equation of ite (the two equations of K-EQUAL, at K, are among the library's sentences)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:70"
+quote = '''axiom{R, SortSort} \exists{R} (Val:SortSort, \equals{SortSort, R} (Val:SortSort, Lblite{SortSort}(K0:SortBool{}, K1:SortSort, K2:SortSort))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:94"
+quote = '''Lblite{SortInt{}}(VarB:SortBool{},\dv{SortInt{}}("1"),\dv{SortInt{}}("2"))'''
