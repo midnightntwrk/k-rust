@@ -1,0 +1,37 @@
+id = "t177-bytes-valid-index"
+kind = "text"
+subject = "What a valid index of a Bytes is, as BYTES defines it and later sentences use it."
+retro = ["BY1"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:2101-2105 (K 7.1.337)", quote = "You can set the value of a particular byte in a `Bytes` object in O(1) time, either with index and value as `Int` or as an `MInt`. Currently, only 64-bit and 256-bit `MInt` types are supported. The result is `#False` if `value` is not in the range [0..255] or if `index` is not a valid index (ie, less than zero or greater than or equal to the length of the `Bytes` term)." }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A valid index of a Bytes of length L is an integer i with 0 <= i < L. The sentences on lookup, replaceAtBytes and memsetBytes use the term as defined: an index equal to L is not valid."
+reason = '''
+(1) The update sentence defines the term: an index is not valid when it is less than zero or greater than or equal to the length of the Bytes term (domains.md:2101-2105).
+(2) The lookup sentence cites it as defined, 'not a valid index (see above)' (2115), and the sentences of replaceAtBytes and memsetBytes use it without another definition (2147, 2162).
+(3) A second reading, valid up to and including the length, would need a sentence that no part of BYTES writes.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2101-2105 (K 7.1.337)"
+quote = "You can set the value of a particular byte in a `Bytes` object in O(1) time, either with index and value as `Int` or as an `MInt`. Currently, only 64-bit and 256-bit `MInt` types are supported. The result is `#False` if `value` is not in the range [0..255] or if `index` is not a valid index (ie, less than zero or greater than or equal to the length of the `Bytes` term)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2115 (K 7.1.337)"
+quote = "The result is `#False` if `index` is not a valid index (see above)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2143-2148 (K 7.1.337)"
+quote = "You can modify a `Bytes` to return a `Bytes` which is equal to `dest` except the `N` elements starting at `index` are replaced with the contents of `src` in O(N) time. If `--llvm-mutable-bytes` is active, this will not create a new `Bytes` object and will instead modify the original on concrete backends. The result is `#False` if `index` + `N` is not a valid index. This function accepts both `Int` and `MInt` values for `index` and `N`. Currently, only 64-bit and"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2158-2164 (K 7.1.337)"
+quote = "You can modify a `Bytes` to return a `Bytes` which is equal to `dest` except the `count` bytes starting at `index` are replaced with `count` bytes of value `Int2Bytes(1, v, LE/BE)` in O(count) time. This does not create a new `Bytes` object and will instead modify the original if `--llvm-mutable-bytes` is active. This will throw an exception if `index` + `count` is not a valid index. The acceptable range of values for `v` is -128 to 127. This will throw an exception if `v` is outside of this range. This is implemented only for the LLVM backend."

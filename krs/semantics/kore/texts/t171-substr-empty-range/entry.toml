@@ -1,0 +1,41 @@
+id = "t171-substr-empty-range"
+kind = "text"
+subject = 'substrString at startIndex = endIndex, here substrString("abc", 1, 1): an empty range, which the prose names and excludes from the valid indices.'
+retro = ["ST2"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1758 (K 7.1.337)", quote = "syntax String ::= substrString ( String , startIndex: Int , endIndex: Int ) [function, total, hook(STRING.substr)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The substring's range includes the character at startIndex and excludes the one at endIndex, [startIndex..endIndex) (domains.md:1751-1752): at (1, 1) that range holds no character. The same sentence says the function is only defined where startIndex < endIndex (1753-1755), which (1, 1) is not. The symbol is total (1758; user_manual.md:546-548), so a value exists.
+Where the readings part: whether the description of the range gives the value at an empty range, or the exclusion leaves it undescribed.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1751-1755 (K 7.1.337)"
+quote = "1. the range generated includes the character at `startIndex` but excludes the character at `endIndex`, i.e., the range is `[startIndex..endIndex)`. 2. this function is only defined on valid indices (i.e., it is defined when `startIndex < endIndex` and `endIndex` is less than or equal to the string length)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1758 (K 7.1.337)"
+quote = "syntax String ::= substrString ( String , startIndex: Int , endIndex: Int ) [function, total, hook(STRING.substr)]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-548 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to"
+
+[[reading]]
+name = "empty-range"
+statement = "The range sentence gives the value: an empty range is the empty string."
+answer = 'substrString("abc", 1, 1) = ""'
+consequence = 'Every empty range of every string gives "".'
+
+[[reading]]
+name = "not-described"
+statement = "Only the valid indices are described; at startIndex = endIndex a value exists and is not given."
+answer = 'substrString("abc", 1, 1) is some string, not named'
+consequence = "As at the other points off the valid indices (kk:t170-substr-invalid-indices)."

@@ -1,0 +1,41 @@
+id = "t174-chr-off-range"
+kind = "text"
+subject = 'chrChar at a number that is no code point, here chrChar(1114112) and chrChar(-1); ordChar of a string that is not one code point, here ordChar("ab").'
+retro = ["ST4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1742-1743 (K 7.1.337)", quote = "syntax String ::= chrChar ( Int ) [function, hook(STRING.chr)] syntax Int ::= ordChar ( String ) [function, hook(STRING.ord)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The conversion is between a character, a string holding a single code point, and an integer (domains.md:1738-1739): chrChar(97) = "a" and ordChar("a") = 97. Neither is total (1742-1743). No code point has the number 1114112 or -1, and "ab" holds two. A value the prose does not describe is not stated: the prose says that a function invoked on an input it is not defined on has undefined behaviour (domains.md:14-16), which names no value and no absence of one.
+So at those points the text states neither a value nor that there is none.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1738-1739 (K 7.1.337)"
+quote = "You can convert between a character (as represented by a string containing a single code point) and an integer in O(1) time."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1742-1743 (K 7.1.337)"
+quote = "syntax String ::= chrChar ( Int ) [function, hook(STRING.chr)] syntax Int ::= ordChar ( String ) [function, hook(STRING.ord)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:14-16 (K 7.1.337)"
+quote = "Note that some functions in the K prelude functions are not total, that is, they are not defined on all possible input values. When you invoke such a function on an undefined input, the behavior is undefined. In particular, when"
+
+[[reading]]
+name = "no-value"
+statement = "chrChar has no value at a number that is no code point, and ordChar none at a string that is not one code point."
+answer = 'chrChar(1114112), chrChar(-1) and ordChar("ab") denote nothing'
+consequence = "A rule whose right side holds such an application has no successor there."
+
+[[reading]]
+name = "some-value"
+statement = "Each has some value there, not named."
+answer = 'chrChar(1114112) is some string, ordChar("ab") some integer'
+consequence = "No sentence excludes a value; a consumer may not assume one either."
