@@ -1155,6 +1155,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
   entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
   (`fns_from_text`). 7.6 GiB, 73 s.
+- `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 250 items of `sigItems c` is a
+  declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
+  decided by eleven ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
+  The ranges of surplus items are the short ones: a surplus item costs `surplusItem`'s search
+  through the registry up to its own name. 7.2 GiB (the largest range), 189 s.
+- `test/TieKimpWf.lean`: `wf defn = true` on kimp's literal, conjunct by conjunct (`wf_of_parts`,
+  `ok_of_T` on the tables, `faithOK_of_parts`, `itesApart_of_codes`). 3.3 GiB, 36 s.
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`

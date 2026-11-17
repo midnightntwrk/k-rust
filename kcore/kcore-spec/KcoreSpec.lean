@@ -263,6 +263,7 @@ import KcoreSpec.ExactHeld
 import KcoreSpec.HoldsModelFixed
 import KcoreSpec.TieCons
 import KcoreSpec.TieRename
+import KcoreSpec.TieChunks
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
