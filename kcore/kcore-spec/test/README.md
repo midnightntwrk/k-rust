@@ -767,6 +767,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `strict_step`, `strict_more` (the reading's right side holds `k(e)`, the text's does not),
   `exact_right_empty`, `exact_left_fails`, `exact_text_step` (the reading's sentence says nothing
   at `k(one)` where the text's gives a successor), `left_forces`.
+- `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
+  `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
+  rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
+  `Step c x y ↔ Step cIn x y` for all configurations, `cIn` holding the rule in the fresh form
+  (`zForm`: one more variable Z in `exs`, `rhs := C[Z]`, `post := Z ∈ t ∧ Z ∈ u`), from
+  `Holds.mem` with `sameResult` and the hook of `==Int`. `step_var_k`: the same for the variable
+  form (`vForm`: `post := V ∈ u`) and `==K` of the two one-item K sequences, from the
+  injectivity of the injection. `MlAndT.step_and_same`, `MlAndC.step_and_same`: the instances at
+  the reader's semantics for `f2-examples/mlandt.kompile.kore` (`go(X) => f(X) #And g(X)`) and
+  `f2-examples/mlandc.kompile.kore` (`c(X) => X #And a()`), every hypothesis decided
+  (`rule_shape_dec`: the rule as the reader reads it).
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
