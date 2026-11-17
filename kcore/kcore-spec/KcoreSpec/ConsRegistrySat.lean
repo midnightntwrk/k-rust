@@ -13,10 +13,20 @@
   `ValElems` holds at the decided form of `Detached` (`valElems_of_decided`) for a definition
   without an open generator: a value of a sort outside `D` by its pattern, which names no detached
   name, and a literal of a detached sort because at one sort a literal's text determines it and two
-  numbered sorts have distinct names (`ext_den_dvDet`). The values of a detached sort other than
-  its literals are a hypothesis there (`hrest`), as is the no-junk item (`hnj`).
+  numbered sorts have distinct names (`ext_den_dvDet`), given what the values of a detached sort
+  other than its literals denote (`hrest`).
+
+  Those are range maps (`detVal_shape_rs`): a constructor or overloading symbol of a detached
+  result sort would have an arity item that is neither clean nor the registry's own
+  (`ctor_not_det_rs`), an injection's sorts are outside `D`, and a collection sort with a detached
+  name is the library's RangeMap (`coll_det_rs`). A range map denotes exactly its added element
+  (`den_rm_rs`), as `_RangeMap_` of its first entry and the rest at a map of maximal intervals gives
+  the map, so every value does (`den_val_rs`, `valElems_decided`). RangeMap's no-junk item holds
+  where it is detached, entry by entry (`noJunk_rm_rs`); with these `sat_registry` holds at the
+  decided form of `Detached` with no hypothesis on values.
 -/
 import KcoreSpec.ConsTransfer
+import KcoreSpec.ConsTransferR
 import KcoreSpec.ConsOwnValues
 
 set_option autoImplicit false
@@ -620,6 +630,504 @@ theorem sat_registry_decided (hd : detachedB c ss ks = true) (hI : I ⊧ᴵP Γo
   rcases Bool.or_eq_true _ _ ▸ List.all_eq_true.mp hB k hk with h1 | h2
   · simp only [sOK, isName_iff.mpr hs, Bool.not_true, Bool.false_eq_true] at h1
   · exact List.isEmpty_iff.mp h2
+
+end
+
+/-! ## The values of a detached sort -/
+
+/-- The head of a left-nested application. -/
+def headRs : KoreAML.P → KoreAML.P
+  | .application a _ => headRs a
+  | p => p
+
+/-- The arguments of a left-nested application. -/
+def argsRs : KoreAML.P → List KoreAML.P
+  | .application a b => argsRs a ++ [b]
+  | _ => []
+
+theorem headRs_appList : ∀ (as : List KoreAML.P) (h : KoreAML.P),
+    headRs (KoreAML.appList h as) = headRs h
+  | [], _ => rfl
+  | _ :: as, h => by rw [KoreAML.appList, headRs_appList as]; rfl
+
+theorem argsRs_appList : ∀ (as : List KoreAML.P) (h : KoreAML.P),
+    argsRs (KoreAML.appList h as) = argsRs h ++ as
+  | [], _ => by simp [KoreAML.appList]
+  | _ :: as, h => by rw [KoreAML.appList, argsRs_appList as]; simp [argsRs]
+
+section
+variable {c : Semantics}
+
+/-- The arity item of a symbol, as an inclusion of its left side in its result sort. -/
+theorem symArity_pat_rs (k : CtorSig) :
+    (symArityItem c k).pat =
+      (KoreAML.appList (match iteSort? (c.symName k.name) with
+          | none => KoreAML.sym (.symbol (c.symName k.name))
+          | some X => KoreAML.sym (.symbol "Lblite") ⬝ sortP X)
+        (k.args.map fun s => KoreAML.inhOf (sortP (c.sortName s))) ⊆⊆
+        KoreAML.inhOf (sortP (c.sortName k.result))) := by
+  unfold symArityItem
+  cases iteSort? (c.symName k.name) with
+  | none =>
+    simp only [KoreAML.arityItem, KoreAML.guarded, List.map_nil, KoreAML.appList, List.map_map]
+    simp [srtOf, KoreAML.srt, KoreAML.trSort_const, sortP, Function.comp_def]
+  | some X => rfl
+
+
+/-- The arity item of a symbol names its result sort. -/
+theorem sort_mem_arity_rs (k : CtorSig) :
+    KoreAML.Sym.sort ("Sort" ++ c.sortName k.result) ∈ psyms (symArityItem c k).pat := by
+  rw [symArity_pat_rs]
+  simp [psyms, ML.included, ML.total, Pattern.negation, KoreAML.inhOf, KoreAML.sym, sortP]
+
+end
+
+section
+open DetachedB
+variable {c : Semantics} {ss : List Srt} {ks : List Sym}
+
+/-- **No constructor and no overloading symbol has a detached result sort**, under the decided form
+of `Detached`: its arity item names the sort, so it is the sort constant of a sort of `ss` or the
+arity of a hook of `ks`; it is neither, as its head is its own name, which no hook of `ks` has, or
+`Lblite` applied to a sort, which no hook's arity item applies. -/
+theorem ctor_not_det_rs (hd : detachedB c ss ks = true) {k : CtorSig} (hk : k ∈ c.ctorSigs ++ c.ovlSigs)
+    (hs : DSort c (DetachedB.names c ss ks) k.result) : False := by
+  have hd' := hd
+  simp only [detachedB, Bool.and_eq_true] at hd'
+  obtain ⟨⟨⟨⟨⟨-, -⟩, -⟩, hL⟩, hV⟩, -⟩ := hd'
+  have hko : kOK c ss ks k.name = true := (valuesB_sig hV (List.mem_append_left _ hk)).1
+  simp only [listsB, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true] at hL
+  have hmem : symArityItem c k ∈ sigItems c := by
+    unfold sigItems
+    simp only [List.mem_append, List.mem_map]
+    refine .inl (.inr ⟨k, ?_, rfl⟩)
+    unfold kernelSyms
+    rcases List.mem_append.mp hk with h | h
+    · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ h)))
+    · exact List.mem_append_right _ h
+  rcases hL.1.1.1 _ hmem with h | h
+  · exact clean_spec h ⟨_, sort_mem_arity_rs k, hs⟩
+  · simp only [regSig, Bool.or_eq_true, List.any_eq_true, beq_iff_eq, Bool.and_eq_true] at h
+    rcases h with ⟨s, -, he⟩ | ⟨g, hg, hgk, he⟩
+    · rw [symArity_pat_rs] at he
+      simp [KoreAML.sortConstantItem, sortDeclOf, KoreAML.guarded, ML.included, ML.total, KoreAML.sExists,
+        Pattern.negation] at he
+    · rw [symArity_pat_rs, symArity_pat_rs, Faithful.Model.hook_plain hg] at he
+      simp only [ML.included, ML.total, Pattern.negation, Pattern.implication.injEq,
+        Pattern.application.injEq, true_and, and_true] at he
+      cases hX : iteSort? (c.symName k.name) with
+      | none =>
+        simp only [hX] at he
+        have := congrArg headRs he.1
+        rw [headRs_appList, headRs_appList] at this
+        have hn : c.symName k.name = c.symName g.name := KoreAML.Sym.symbol.inj (Pattern.symbol.inj this)
+        simp only [kOK, isName, hn, Bool.not_eq_true', List.any_eq_false, beq_iff_eq] at hko
+        exact hko g.name (List.contains_iff_mem.mp hgk) rfl
+      | some X =>
+        simp only [hX] at he
+        have := congrArg argsRs he.1
+        rw [argsRs_appList, argsRs_appList] at this
+        cases hga : g.args with
+        | nil => simp [hga, argsRs, KoreAML.sym, sortP] at this
+        | cons a as => simp [hga, argsRs, KoreAML.sym, sortP, KoreAML.inhOf] at this
+
+/-- **A collection sort with a detached name is the library's RangeMap**: a collection of the
+definition at a detached sort would have its no-junk item name the sort, and the library's Map, Set
+and List have axioms. -/
+theorem coll_det_rs (hd : detachedB c ss ks = true) {s : Srt} {k : CollSig} (hco : c.collOf s = some k)
+    (hs : DSort c (DetachedB.names c ss ks) s) : k = builtinColl .rangeMap := by
+  obtain ⟨hk, rfl⟩ := Faithful.Model.collOf_spec hco
+  have hd' := hd
+  simp only [detachedB, Bool.and_eq_true] at hd'
+  obtain ⟨⟨⟨⟨⟨-, -⟩, -⟩, hL⟩, -⟩, -⟩ := hd'
+  simp only [listsB, Bool.and_eq_true, List.all_eq_true] at hL
+  have h := hL.1.2 k hk
+  by_cases hb : builtinColls.contains k = true ∧ ss.contains k.sort = true
+  · have hkb : k ∈ builtinColls := List.contains_iff_mem.mp hb.1
+    simp only [hb, and_self, ↓reduceIte, List.isEmpty_iff] at h
+    simp only [builtinColls, List.mem_cons, List.not_mem_nil, or_false] at hkb
+    rcases hkb with rfl | rfl | rfl | rfl
+    · simp [collAxioms, mapCollAxioms] at h
+    · simp [collAxioms, setCollAxioms] at h
+    · simp [collAxioms, listCollAxioms] at h
+    · rfl
+  · simp only [hb, ↓reduceIte, Bool.and_eq_true] at h
+    exfalso
+    refine clean_spec h.1 ⟨.sort ("Sort" ++ c.sortName k.sort), ?_, hs⟩
+    simp [collNoJunk, psyms, ML.included, ML.total, Pattern.negation, KoreAML.inhOf, KoreAML.sym, sortP]
+
+/-- **A value of a detached sort is a literal or a range map**: under the decided form of
+`Detached`, for a definition without an open generator. -/
+theorem detVal_shape_rs (hd : detachedB c ss ks = true) (hraw : ∀ p ∈ c.params, p.raw = false)
+    {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s) (hs : DSort c (DetachedB.names c ss ks) s) :
+    (∃ lit, v = .dv s lit) ∨
+      (s = Srt.rangeMap ∧ c.collOf s = some (builtinColl .rangeMap) ∧ ∃ es, v = .map s es ∧
+        rangesOK es = true ∧ ∀ e ∈ es, c.sortOf e.1 = some Srt.range ∧ c.sortOf e.2 = some Srt.kitem) := by
+  have hV : valuesB c ss ks = true := by
+    simp only [detachedB, Bool.and_eq_true] at hd
+    exact hd.1.2
+  have hsn : sOK c ss ks s = false := by
+    simp [sOK, isName_iff.mpr hs]
+  cases v with
+  | ctor f ts =>
+    exfalso
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -, rfl⟩ | ⟨-, o, ho, -, -, rfl⟩ | ⟨-, -, k, hko, -, -, -⟩
+    · exact ctor_not_det_rs hd (List.mem_append_left _ (lookupSig_spec hk).1) hs
+    · have ho' : c.ovls.find? (·.sig.name == f) = some o := ho
+      exact ctor_not_det_rs hd (List.mem_append_right _
+        (List.mem_map_of_mem (List.mem_of_find?_eq_some ho'))) hs
+    · rw [c.lookupOpen_of_noRaw hraw] at hko; cases hko
+  | inj a b t =>
+    exfalso
+    obtain ⟨hab, -, -, rfl⟩ := sortOf_inj.mp hv
+    rw [(valuesB_sub hV hab).2] at hsn; cases hsn
+  | dv s0 lit =>
+    obtain ⟨-, rfl⟩ := sortOf_dv.mp hv
+    exact .inl ⟨lit, rfl⟩
+  | map s0 es =>
+    obtain ⟨k, vs, hco, hval, hkind, hes, rfl⟩ := c.sortOf_map_inv hv
+    obtain rfl := coll_det_rs hd hco hs
+    obtain ⟨-, hks⟩ := Faithful.Model.collOf_spec hco
+    cases hval
+    refine .inr ⟨hks.symm, hco, es, rfl, hkind, ?_⟩
+    exact rmS_entriesOK_iff.mp hes
+  | set s0 es =>
+    exfalso
+    obtain ⟨k, hco, hkind, -, -, rfl⟩ := sortOf_setS.mp hv
+    obtain rfl := coll_det_rs hd hco hs
+    cases hkind
+  | list s0 es =>
+    exfalso
+    obtain ⟨k, hco, hkind, -, rfl⟩ := sortOf_listS.mp hv
+    obtain rfl := coll_det_rs hd hco hs
+    cases hkind
+
+end
+
+/-! ## A detached hooked symbol applied to patterns of values -/
+
+section
+variable {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+
+theorem elems_injW_rs (hinj : ∀ {v w : GroundTerm} {s : Srt} {x : Ext M}, c.sortOf v = some s →
+      c.sortOf w = some s → ElemOf c D I v x → ElemOf c D I w x → v = w) :
+    ∀ {vs ws : List GroundTerm} {ss : List Srt} {xs : List (Ext M)}, c.sortsOf vs = some ss →
+      c.sortsOf ws = some ss → All2 (ElemOf c D I) vs xs → All2 (ElemOf c D I) ws xs → vs = ws
+  | [], [], _, _, _, _, _, _ => rfl
+  | v :: vs, w :: ws, _, _ :: _, h1, h2, .cons hv hvs, .cons hw hws => by
+    obtain ⟨s, ss', hv1, hvs1, rfl⟩ := sortsOf_cons.mp h1
+    obtain ⟨_, _, hw1, hws1, he⟩ := sortsOf_cons.mp h2
+    cases he
+    rw [hinj hv1 hw1 hv hw, elems_injW_rs hinj hvs1 hws1 hvs hws]
+  | [], _ :: _, _, _, _, _, .nil, h => by cases h
+  | _ :: _, [], _, _, _, _, h, .nil => by cases h
+
+open Faithful.Model (NamesApartK) in
+/-- **A detached hooked symbol applied to patterns that denote exactly the elements of values of
+its argument sorts denotes, in the extension, the element of its result** (`ResOf`), where values
+of one sort with one element are equal. -/
+theorem ext_hookAppP_rs (hn : NamesApartK c)
+    (hinj : ∀ {v w : GroundTerm} {s : Srt} {x : Ext M}, c.sortOf v = some s → c.sortOf w = some s →
+      ElemOf c D I v x → ElemOf c D I w x → v = w)
+    {k : CtorSig} (hk : DHook c D k) {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args)
+    {xs : List (Ext M)} (hxs : All2 (ElemOf c D I) vs xs) {ps : List KoreAML.P} (e : Valuation (Ext M))
+    (hps : All2 (fun φ x => ∀ m, φ.interpret (extModel c D I) e m ↔ m = x) ps xs) (x : Ext M) :
+    (KoreAML.appList (KoreAML.sym (.symbol (c.symName k.name))) ps).interpret (extModel c D I) e x ↔
+      ResOf c D I k vs x := by
+  rw [Faithful.interp_appList_sing _ _ _ hps]
+  have hl : vs.length = k.args.length := sortsOf_length hvs
+  constructor
+  · rintro ⟨a, ha, hx⟩
+    rw [KoreAML.interp_sym, ext_hookSym_rs hn hk] at ha
+    obtain ⟨ws, h1, h2, h3⟩ := appE_hk_fwd_rs hn hk xs [] a x
+      (by rw [← Faithful.All2.length hxs]; simpa using hl) ha hx
+    obtain rfl := elems_injW_rs hinj (by simpa using h2) hvs h1 hxs
+    exact (partOf_full_rs hl).mp (by simpa using h3)
+  · intro h
+    obtain ⟨a, ha, hx⟩ := appE_hk_bwd_rs hk vs xs [] x (by simpa using hl) (by simpa using hvs) hxs
+      (by simpa using (partOf_full_rs hl).mpr h)
+    exact ⟨a, (ext_hookSym_rs hn hk a).mpr ha, hx⟩
+
+/-- Where `hook` gives a value, the element of the result is that value's. -/
+theorem resOf_val_rs {k : CtorSig} {vs : List GroundTerm} {w : GroundTerm}
+    (h : hook k.name vs = some (some w)) (x : Ext M) :
+    ResOf c D I k vs x ↔ ElemOf c D I w x := by
+  constructor
+  · rintro ⟨v, hv | ⟨hv, -⟩, hx⟩
+    · rw [h] at hv; cases hv; exact hx
+    · rw [h] at hv; cases hv
+  · intro hx; exact ⟨w, .inl h, hx⟩
+
+end
+
+/-! ## Range maps at a detached RangeMap -/
+
+section
+open DetachedB
+variable {c : Semantics} {ss : List Srt} {ks : List Sym}
+
+/-- RANGEMAP's unit, element and concatenation are interpreted hooks. -/
+theorem rmSigs_mem_rs : (⟨rmUnit, [], Srt.rangeMap⟩ : CtorSig) ∈ hookSigs ∧
+    (⟨rmElem, [Srt.range, Srt.kitem], Srt.rangeMap⟩ : CtorSig) ∈ hookSigs ∧
+    (⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩ : CtorSig) ∈ hookSigs :=
+  ⟨(lookupSig_spec ((rangeMapSigs_hookSigs rmUnit (by decide)).trans rfl)).1,
+   (lookupSig_spec ((rangeMapSigs_hookSigs rmElem (by decide)).trans rfl)).1,
+   (lookupSig_spec ((rangeMapSigs_hookSigs rmConcat (by decide)).trans rfl)).1⟩
+
+/-- A hook whose result sort is detached is a detached hook, under the decided form of `Detached`. -/
+theorem dhook_of_result_rs (hd : detachedB c ss ks = true) {k : CtorSig} (hk : k ∈ hookSigs)
+    (hs : DSort c (DetachedB.names c ss ks) k.result) : DHook c (DetachedB.names c ss ks) k := by
+  refine ⟨hk, ?_⟩
+  simp only [detachedB, Bool.and_eq_true] at hd
+  have hG := hd.2
+  simp only [graphsB, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at hG
+  rcases hG.1.1 k hk with h | h
+  · exact isName_iff.mp (by simpa [kOK] using h)
+  · exfalso
+    have := h.2 k.result (List.mem_cons_self ..)
+    simp [sOK, isName_iff.mpr hs] at this
+
+theorem den_map_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap)) (es : Entries) :
+    den c (.map Srt.rangeMap es) = KoreAML.den (GroundTerm.koreEntries c (builtinColl .rangeMap) es) := by
+  unfold den
+  rw [GroundTerm.kore, Semantics.collSig, hco]
+  rfl
+
+end
+
+/-! ## What the values of a detached sort denote -/
+
+section
+open DetachedB
+open Faithful.Model (HypModelCore)
+variable {c : Semantics} {ss : List Srt} {ks : List Sym} {M : Type} [Inhabited M]
+  {I : Interpretation KoreAML.Sym M}
+  (hd : detachedB c ss ks = true) (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) (hm : HypModelCore c)
+  (hg : Faithful.genWf c = true) [OvlOK c]
+  (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+  (hraw : ∀ p ∈ c.params, p.raw = false)
+include hd hI hm hg htr hraw
+
+/-- A range map of one entry whose key and value denote exactly their elements denotes, in the
+extension, exactly its added element: `r|->`'s value at them is that map. -/
+theorem den_rm1_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
+    (hs : DSort c (DetachedB.names c ss ks) Srt.rangeMap) {a b : GroundTerm}
+    (hr : (asRange a).isSome = true) (ha : c.sortOf a = some Srt.range) (hb : c.sortOf b = some Srt.kitem)
+    (hda : ∀ (e : Valuation (Ext M)) (x : Ext M), (den c a).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+      ElemOf c (DetachedB.names c ss ks) I a x)
+    (hdb : ∀ (e : Valuation (Ext M)) (x : Ext M), (den c b).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+      ElemOf c (DetachedB.names c ss ks) I b x)
+    (e : Valuation (Ext M)) (x : Ext M) :
+    (den c (.map Srt.rangeMap [(a, b)])).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+      x = .inr (.val (.map Srt.rangeMap [(a, b)])) := by
+  obtain ⟨xa, hxa⟩ := elemOf_total hd hI ha
+  obtain ⟨xb, hxb⟩ := elemOf_total hd hI hb
+  have hk := dhook_of_result_rs hd rmSigs_mem_rs.2.1 hs
+  have hsing : c.sortOf (.map Srt.rangeMap [(a, b)]) = some Srt.rangeMap :=
+    (rmS_sortOf_map hco).mpr ⟨rfl, by simpa [rangesOK] using hr, by simp [ha, hb]⟩
+  rw [den_map_rs hco]
+  show (KoreAML.den (KoreAML.ap (c.symName rmElem) [a.kore c, b.kore c])).interpret _ e x ↔ _
+  unfold KoreAML.den
+  rw [Faithful.Model.tr_ap]
+  refine (ext_hookAppP_rs (k := ⟨rmElem, [Srt.range, Srt.kitem], Srt.rangeMap⟩) hm.namesK
+    (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hraw hv hw h1 h2) hk (vs := [a, b])
+    (rmS_sortsOf_cons.mpr ⟨ha, rmS_sortsOf_cons.mpr ⟨hb, sortsOf_nil⟩⟩) (.cons hxa (.cons hxb .nil)) e
+    (.cons (fun m => (hda e m).trans ⟨fun h => elemOf_fun_rs h hxa, fun h => h ▸ hxa⟩)
+      (.cons (fun m => (hdb e m).trans ⟨fun h => elemOf_fun_rs h hxb, fun h => h ▸ hxb⟩) .nil)) x).trans ?_
+  exact (resOf_val_rs (rmM_elem hr) x).trans (elemOf_det_rs hsing hs)
+
+/-- **A range map whose keys and values denote exactly their elements denotes, in the extension,
+exactly its added element**: it is its first entry concatenated with the rest, and `_RangeMap_`'s
+value there is the map. -/
+theorem den_rm_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
+    (hs : DSort c (DetachedB.names c ss ks) Srt.rangeMap) : ∀ (es : Entries), rangesOK es = true →
+    (∀ p ∈ es, c.sortOf p.1 = some Srt.range ∧ c.sortOf p.2 = some Srt.kitem ∧
+      (∀ (e : Valuation (Ext M)) (x : Ext M), (den c p.1).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+        ElemOf c (DetachedB.names c ss ks) I p.1 x) ∧
+      (∀ (e : Valuation (Ext M)) (x : Ext M), (den c p.2).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+        ElemOf c (DetachedB.names c ss ks) I p.2 x)) →
+    ∀ (e : Valuation (Ext M)) (x : Ext M),
+      (den c (.map Srt.rangeMap es)).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔
+        x = .inr (.val (.map Srt.rangeMap es))
+  | [], _, _, e, x => by
+    have hk := dhook_of_result_rs hd rmSigs_mem_rs.1 hs
+    have hsing : c.sortOf (.map Srt.rangeMap []) = some Srt.rangeMap :=
+      (rmS_sortOf_map hco).mpr ⟨rfl, rfl, by simp⟩
+    rw [den_map_rs hco]
+    show (KoreAML.den (KoreAML.ap (c.symName rmUnit) [])).interpret _ e x ↔ _
+    unfold KoreAML.den
+    rw [Faithful.Model.tr_ap]
+    refine (ext_hookAppP_rs (k := ⟨rmUnit, [], Srt.rangeMap⟩) hm.namesK
+      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hraw hv hw h1 h2) hk (vs := []) sortsOf_nil .nil e .nil x).trans ?_
+    exact (resOf_val_rs rmM_unit x).trans (elemOf_det_rs hsing hs)
+  | [(a, b)], hr, hes, e, x => by
+    obtain ⟨ha, hb, hda, hdb⟩ := hes (a, b) (List.mem_singleton.mpr rfl)
+    exact den_rm1_rs hd hI hm hg htr hraw hco hs (rangesOK_head hr) ha hb hda hdb e x
+  | (a, b) :: p2 :: es, hr, hes, e, x => by
+    obtain ⟨ha, hb, hda, hdb⟩ := hes (a, b) (List.mem_cons_self ..)
+    have hr' := rmM_tail hr
+    have h1 := den_rm1_rs hd hI hm hg htr hraw hco hs (rangesOK_head hr) ha hb hda hdb e
+    have h2 := den_rm_rs hco hs (p2 :: es) hr' (fun p hp => hes p (List.mem_cons_of_mem _ hp)) e
+    rw [den_map_rs hco] at h1 h2
+    have hk := dhook_of_result_rs hd rmSigs_mem_rs.2.2 hs
+    have hsort : ∀ {fs : Entries}, rangesOK fs = true → (∀ p ∈ fs, p ∈ (a, b) :: p2 :: es) →
+        c.sortOf (.map Srt.rangeMap fs) = some Srt.rangeMap := fun hfs hsub =>
+      (rmS_sortOf_map hco).mpr ⟨rfl, hfs, fun p hp => ⟨(hes p (hsub p hp)).1, (hes p (hsub p hp)).2.1⟩⟩
+    have hs1 := hsort (fs := [(a, b)]) (by simpa [rangesOK] using rangesOK_head hr)
+      (fun p hp => by rw [List.mem_singleton.mp hp]; exact List.mem_cons_self ..)
+    have hs2 := hsort (fs := p2 :: es) hr' (fun p hp => List.mem_cons_of_mem _ hp)
+    have hs3 := hsort (fs := (a, b) :: p2 :: es) hr (fun p hp => hp)
+    rw [den_map_rs hco]
+    show (KoreAML.den (KoreAML.ap (c.symName rmConcat)
+      [GroundTerm.koreEntry c (builtinColl .rangeMap) (a, b),
+        GroundTerm.koreEntries c (builtinColl .rangeMap) (p2 :: es)])).interpret _ e x ↔ _
+    unfold KoreAML.den
+    rw [Faithful.Model.tr_ap]
+    refine (ext_hookAppP_rs (k := ⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩) hm.namesK
+      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hraw hv hw h1 h2) hk
+      (vs := [.map Srt.rangeMap [(a, b)], .map Srt.rangeMap (p2 :: es)])
+      (rmS_sortsOf_cons.mpr ⟨hs1, rmS_sortsOf_cons.mpr ⟨hs2, sortsOf_nil⟩⟩)
+      (.cons ((elemOf_det_rs hs1 hs).mpr rfl) (.cons ((elemOf_det_rs hs2 hs).mpr rfl) .nil)) e
+      (.cons h1 (.cons h2 .nil)) x).trans ?_
+    exact (resOf_val_rs (rmM_concat hr) x).trans (elemOf_det_rs hs3 hs)
+
+/-- **Every value denotes, in the extension, exactly its element**, at the decided form of
+`Detached`, for a definition without an open generator: a value of a sort without a detached name
+by its pattern, a literal of a detached sort by its text, and a value of a detached sort that is
+no literal is a range map (`detVal_shape_rs`), whose entries denote their elements. -/
+theorem den_val_rs : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s → ∀ (e : Valuation (Ext M)) (x : Ext M),
+    (den c v).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔ ElemOf c (DetachedB.names c ss ks) I v x
+  | v, s, hv, e, x => by
+    by_cases hs : DSort c (DetachedB.names c ss ks) s
+    · rw [elemOf_det_rs hv hs]
+      rcases detVal_shape_rs hd hraw hv hs with ⟨lit, rfl⟩ | ⟨rfl, hco, es, hvm, hr, hes⟩
+      · exact ext_den_dvDet hm hv hs e x
+      · have _hsz : sizeOf es < sizeOf v := by rw [hvm]; simp only [GroundTerm.map.sizeOf_spec]; omega
+        subst hvm
+        refine den_rm_rs hd hI hm hg htr hraw hco hs es hr (fun ⟨a, b⟩ hp => ⟨(hes _ hp).1, (hes _ hp).2, ?_, ?_⟩) e x
+        · have _hlt := List.sizeOf_lt_of_mem hp
+          have _hab : sizeOf (a, b) = 1 + sizeOf a + sizeOf b := rfl
+          exact fun e' x' => den_val_rs a (hes _ hp).1 e' x'
+        · have _hlt := List.sizeOf_lt_of_mem hp
+          have _hab : sizeOf (a, b) = 1 + sizeOf a + sizeOf b := rfl
+          exact fun e' x' => den_val_rs b (hes _ hp).2 e' x'
+    · exact den_own_rs hd hI hv hs e x
+  termination_by v => v
+  decreasing_by all_goals (simp_wf; omega)
+
+/-- **`ValElems` at the decided form of `Detached`**, for a definition without an open generator. -/
+theorem valElems_decided : ValElems c (DetachedB.names c ss ks) I :=
+  valElems_of_decided hd hI hm hg htr hraw fun {v _} hv hs _ e x =>
+    (den_val_rs hd hI hm hg htr hraw v hv e x).trans (elemOf_det_rs hv hs)
+
+/-- **RangeMap's no-junk item holds in the extension** where RangeMap is detached: an inhabitant
+of the sort is the added element of a range map value, which is built from `.RangeMap` by
+`_RangeMap_` of a one-entry map `r|-> v`, entry by entry. -/
+theorem noJunk_rm_rs (hs : DSort c (DetachedB.names c ss ks) Srt.rangeMap) :
+    extModel c (DetachedB.names c ss ks) I ⊧ᴵ collNoJunk c (builtinColl .rangeMap) := by
+  have hV := valElems_decided hd hI hm hg htr hraw
+  have hn := hm.namesK
+  have hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap) := hm.collOf_self rmM_mem
+  have hkU := dhook_of_result_rs hd rmSigs_mem_rs.1 hs
+  have hkE := dhook_of_result_rs hd rmSigs_mem_rs.2.1 hs
+  have hkC := dhook_of_result_rs hd rmSigs_mem_rs.2.2 hs
+  intro e m
+  unfold collNoJunk
+  dsimp only
+  rw [KoreAML.interp_included (ext_defOK c _ I)]
+  intro a ha
+  unfold KoreAML.inhOf at ha
+  rw [KoreAML.interp_app] at ha
+  obtain ⟨i, b, hi, hb, hx⟩ := ha
+  obtain rfl := (ext_sortName c _ I hs b).mp hb
+  obtain ⟨s', v, hname, hs', hv, rfl⟩ := inh_new.mp ⟨i, hi, hx⟩
+  have hs1 : s' < nRegSorts + c.sortNames.length := Faithful.Model.sortOf_numbered hm hv
+  obtain rfl : Srt.rangeMap = s' := hn.2.2 _ (List.mem_range.mpr (Nat.lt_of_lt_of_le (by decide) (Nat.le_add_right _ _))) _ (List.mem_range.mpr hs1)
+    ((String.append_right_inj "Sort").mp hname)
+  rcases hm.coll_shape' hco (collSortsOK_mem hm.collSortsOK rmM_mem) hv with
+    ⟨-, es, rfl⟩ | ⟨hk, -⟩ | ⟨hk, -⟩
+  rotate_left
+  · cases hk
+  · cases hk
+  obtain ⟨-, hr, hent⟩ := (rmS_sortOf_map hco).mp hv
+  intro B hB
+  let e' : Valuation (Ext M) := ⟨e.evalEvar, Function.update e.evalSvar ⟨1⟩ B⟩
+  have hX : ∀ x, (Pattern.svar ⟨1⟩ : KoreAML.P).interpret (extModel c (DetachedB.names c ss ks) I) e' x ↔ B x :=
+    fun x => by
+      show Function.update e.evalSvar ⟨1⟩ B ⟨1⟩ x ↔ B x
+      rw [Function.update_same]
+  clear hv hb hi hx
+  induction es with
+  | nil =>
+    have hsing : c.sortOf (.map Srt.rangeMap []) = some Srt.rangeMap := (rmS_sortOf_map hco).mpr ⟨rfl, rfl, by simp⟩
+    refine hB _ (interpret_disj.mpr (.inl ?_))
+    show (extModel c _ I).evalSymb (.symbol (c.symName rmUnit)) _
+    rw [ext_hookSym_rs (k := ⟨rmUnit, [], Srt.rangeMap⟩) hn hkU, partOf_full_rs rfl]
+    exact (resOf_val_rs rmM_unit _).mpr ((elemOf_det_rs hsing hs).mpr rfl)
+  | cons p es ih =>
+    obtain ⟨xa, xb⟩ := p
+    have hr' := rmM_tail hr
+    have hB' := ih hr' (fun p hp => hent p (List.mem_cons_of_mem _ hp))
+    obtain ⟨ha', hb'⟩ := hent (xa, xb) (List.mem_cons_self ..)
+    have hxr := rangesOK_head hr
+    have hs1 : c.sortOf (.map Srt.rangeMap [(xa, xb)]) = some Srt.rangeMap :=
+      (rmS_sortOf_map hco).mpr ⟨rfl, by simpa [rangesOK] using hxr, by simp [ha', hb']⟩
+    have hs2 : c.sortOf (.map Srt.rangeMap es) = some Srt.rangeMap :=
+      (rmS_sortOf_map hco).mpr ⟨rfl, hr', fun p hp => hent p (List.mem_cons_of_mem _ hp)⟩
+    have hs3 : c.sortOf (.map Srt.rangeMap ((xa, xb) :: es)) = some Srt.rangeMap :=
+      (rmS_sortOf_map hco).mpr ⟨rfl, hr, hent⟩
+    obtain ⟨ya, hya⟩ := hV.total ha'
+    obtain ⟨yb, hyb⟩ := hV.total hb'
+    -- the one-entry map is an element of `r|->` applied to the sorts' inhabitants
+    obtain ⟨a1, ha1, hap1⟩ := appE_hk_bwd_rs (k := ⟨rmElem, [Srt.range, Srt.kitem], Srt.rangeMap⟩) hkE
+      [xa, xb] [ya, yb] [] (.inr (.val (.map Srt.rangeMap [(xa, xb)]))) rfl
+      (rmS_sortsOf_cons.mpr ⟨ha', rmS_sortsOf_cons.mpr ⟨hb', sortsOf_nil⟩⟩) (.cons hya (.cons hyb .nil))
+      ((partOf_full_rs rfl).mpr ((resOf_val_rs (rmM_elem hxr) _).mpr ((elemOf_det_rs hs1 hs).mpr rfl)))
+    have hEl : (KoreAML.appList (symP (c.symName rmElem))
+        [KoreAML.inhOf (sortP (c.sortName Srt.range)), KoreAML.inhOf (sortP (c.sortName Srt.kitem))]).interpret
+        (extModel c (DetachedB.names c ss ks) I) e' (.inr (.val (.map Srt.rangeMap [(xa, xb)]))) := by
+      rw [Faithful.interp_appList]
+      exact ⟨a1, (ext_hookSym_rs hn hkE a1).mpr ha1, [ya, yb],
+        .cons (hV.inh ha' hya e') (.cons (hV.inh hb' hyb e') .nil), hap1⟩
+    -- the map is `_RangeMap_` of the one-entry map and the rest
+    obtain ⟨a2, ha2, hap2⟩ := appE_hk_bwd_rs (I := I) (k := ⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩) hkC
+      [.map Srt.rangeMap [(xa, xb)], .map Srt.rangeMap es]
+      [.inr (.val (.map Srt.rangeMap [(xa, xb)])), .inr (.val (.map Srt.rangeMap es))] []
+      (.inr (.val (.map Srt.rangeMap ((xa, xb) :: es)))) rfl
+      (rmS_sortsOf_cons.mpr ⟨hs1, rmS_sortsOf_cons.mpr ⟨hs2, sortsOf_nil⟩⟩)
+      (.cons ((elemOf_det_rs hs1 hs).mpr rfl) (.cons ((elemOf_det_rs hs2 hs).mpr rfl) .nil))
+      ((partOf_full_rs rfl).mpr ((resOf_val_rs (rmM_concat hr) _).mpr ((elemOf_det_rs hs3 hs).mpr rfl)))
+    refine hB _ (interpret_disj.mpr (.inr ?_))
+    rw [Faithful.interp_appList]
+    exact ⟨a2, (ext_hookSym_rs hn hkC a2).mpr ha2, _, .cons hEl (.cons ((hX _).mpr hB') .nil), hap2⟩
+
+/-- **The no-junk item of each library collection whose sort is detached holds in the extension**:
+such a collection is RangeMap, the others having axioms. -/
+theorem noJunk_decided_rs : ∀ k ∈ builtinColls, k.sort < nRegSorts →
+    DetachedB.names c ss ks (.sort ("Sort" ++ c.sortName k.sort)) →
+    extModel c (DetachedB.names c ss ks) I ⊧ᴵ collNoJunk c k := by
+  intro k hk _ hs
+  have hB : builtinColls.all (fun k => sOK c ss ks k.sort || (collAxioms c k).isEmpty) = true := by
+    simp only [detachedB, Bool.and_eq_true] at hd
+    exact hd.1.1.1.2
+  have hax := List.all_eq_true.mp hB k hk
+  have hsn : sOK c ss ks k.sort = false := by simp [sOK, isName_iff.mpr hs]
+  rw [hsn, Bool.false_or] at hax
+  simp only [builtinColls, List.mem_cons, List.not_mem_nil, or_false] at hk
+  rcases hk with rfl | rfl | rfl | rfl
+  · simp [collAxioms, mapCollAxioms] at hax
+  · simp [collAxioms, setCollAxioms] at hax
+  · simp [collAxioms, listCollAxioms] at hax
+  · exact noJunk_rm_rs hd hI hm hg htr hraw hs
+
+/-- **The extension satisfies the registry family** at the decided form of `Detached`, for a
+definition without an open generator: every value denotes exactly its element (`den_val_rs`) and
+RangeMap's no-junk item holds where it is detached (`noJunk_decided_rs`). -/
+theorem sat_registry {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
+    extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ :=
+  sat_registry_decided hd hI hm hg htr hraw
+    (fun {v _} hv hs _ e x => (den_val_rs hd hI hm hg htr hraw v hv e x).trans (elemOf_det_rs hv hs))
+    (noJunk_decided_rs hd hI hm hg htr hraw) h
 
 end
 
