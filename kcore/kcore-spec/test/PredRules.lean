@@ -456,4 +456,41 @@ example : ∀ (hf : FnHyp c) (x y : Config c)
 
 end FamExValues
 
+/-! ## Completeness at a configuration (`KCore.Faithful.successor_split_pp`, `step_successor_axiomPP`, `KCore.complete_at_pp`)
+
+  At `rNot` (a `pre` that is not `\top`, without a binder): the left part of its axiom
+  (`rule_parts_pp`) and the two cases of a successor its axiom gives where the step is decided
+  (`successor_split_pp`, the hypotheses on the table, the valuation and the elements left as
+  arguments). At the definition: the rule a successor comes from, and `complete_at`'s statement
+  from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+
+section CompletePP
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+example := rule_parts_pp (c := c) (I := I) rNot_pp.1
+
+example (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :=
+  successor_split_pp (r := rNot) coreOK (fun r hr => (rules_pp r hr).1) x hd hI hcw rNot_pp.1
+    (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
+
+example (x : Config c) (hI : I ⊧ᴵP (Γc c ∪ Γstep c)) (e : ML.Valuation M) (ψ : KoreAML.P)
+    (hs : (KoreAML.sNext ψ).interpret I e (elemOf c I x.val)) :=
+  step_successor_axiomPP (fun r hr => (rules_pp r hr).1) x hI e ψ hs
+
+/-- The pinned type of `complete_at` (`test/Pins.lean`), from the per-rule facts. -/
+example : ∀ (x : Config c) (hd : StepDecided c x.val)
+    (os : List Outcome)
+    (hval : ∀ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] → StepBy c r σ x y → .val y.val ∈ os)
+    (hfam : ∀ r ∈ c.rules, r.opens ≠ [] → ∀ σ, Unblocked c r σ x.val →
+      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os)
+    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c),
+    (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
+  complete_at_pp c coreOK rules_pp
+
+end CompletePP
+
 end PredRules
