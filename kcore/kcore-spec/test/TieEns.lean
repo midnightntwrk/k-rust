@@ -698,6 +698,79 @@ theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject
     "Lbl'Unds-LT--LT-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
   decide +kernel
 
+/-! ## The account: every sentence of the user module is in exactly one class
+
+The classes are those of the tie's directions. The lists are checked for one thing here, that they
+partition the 263 sentences; what holds of a class is its own theorem, stated over its list. -/
+
+/-- Per class, the indices (`AxiomDecl.index`) of its sentences.
+- function equation: the 30 of `fnText`, equal to Γ's items;
+- rewrite rule: 155, of which Γ's item is a consequence;
+- priority equation: an equation with `priority(n)` that is not `owise` (none here);
+- constructor functional, subsort, injectivity, distinctness, no junk: the constructor sentences;
+- function functional: the `functional` sentence of a function of the definition (the 15 sort
+  predicates), which Γ does not hold;
+- hooked functional: the `functional` sentence of a symbol Γ states by its graph (`freshInt`'s
+  among them, 83: the registry interprets it);
+- collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
+- library: an equation or a lemma of the builtin library over symbols Γ has;
+- set idempotence: 61, refuted;
+- no direction: a sentence that applies a symbol Γ does not have. -/
+def classes : List (String × List Nat) :=
+  [("function equation", [211, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232,
+      233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243]),
+   ("rewrite rule", [155]),
+   ("priority equation", []),
+   ("constructor functional", [22, 24, 26, 28, 78, 103, 104, 108]),
+   ("subsort", [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]),
+   ("injectivity", [23, 25, 27, 29, 79, 109]),
+   ("distinctness", [80]),
+   ("no junk", [115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125]),
+   ("function functional", [84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98]),
+   ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
+   ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
+   ("library", [126, 127, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+      148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 173,
+      174, 175, 176, 177, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
+      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264, 266]),
+   ("set idempotence", [61]),
+   ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 128, 129, 157, 171, 172, 178, 179, 189, 208, 210, 212, 213,
+      214, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
+
+/-- The indices of a class. -/
+def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
+
+/-- **The account**: the class lists partition the user module's sentences. Their concatenation is
+a permutation of the sentences' indices, which are distinct, so each sentence is in one class and
+in it once. -/
+theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = true ∧
+    (userAxioms.map (·.index)).Nodup := by
+  rw [userAxioms_eq]; decide +kernel
+
+/-- The class sizes. -/
+theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
+    [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
+     ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
+     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("no direction", 36)] := by
+  decide +kernel
+
+/-- The class lists agree with the lists the class theorems are stated over: the function
+equations are `fnText`'s, the rule is 155, the no-junk sentences are the three trivial ones and
+the eight over generators, the refuted one is 61. -/
+theorem account_lists : (classOf "function equation").isPerm (fnText.map (·.index)) = true ∧
+    classOf "rewrite rule" = [U.ax155.index] ∧
+    classOf "no junk" = [U.ax115, U.ax116, U.ax117, U.ax118, U.ax119, U.ax120, U.ax121, U.ax122, U.ax123, U.ax124,
+      U.ax125].map (·.index) ∧
+    classOf "set idempotence" = [U.ax61.index] := by decide +kernel
+
+/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
+aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+theorem account_absent : userAxioms.all (fun ad =>
+    (classOf "no direction").contains ad.index !=
+      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+  rw [userAxioms_eq]; decide +kernel
+
 /-! ## The tie's statement definitions on this text
 
 `AtValues` and `EntailsAtValues` at sentence 166, `symbolsOf` at the rule, `surplusItem` at two sort
@@ -817,3 +890,5 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.lib166_at_values
 #print axioms KCore.TieEns.defs_attrsAgree
 #print axioms KCore.TieEns.strItem_registry
+#print axioms KCore.TieEns.account
+#print axioms KCore.TieEns.account_absent
