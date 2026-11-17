@@ -367,6 +367,50 @@ def uncovered (f : Sym) (vs : List GroundTerm) : Bool :=
   | none => true
   | some o => (c.ovlOver o).all fun kg => !c.ovlCovers o.sig kg vs
 
+/-- The open generator `f`, if it is one: a `raw` parameter whose symbol is no registry symbol. A
+symbol numbered below `nRegSyms` has the library's fixed meaning (a constructor where its module is
+imported, a hook, or nothing), so whether an application of it is a value never reads the
+interpretation. -/
+def lookupOpen (f : Sym) : Option ParamSig :=
+  if nRegSyms ≤ f then c.params.find? fun k => k.raw && k.sig.name == f else none
+
+/-- The interpretation leaves `f(vs)` raw: it gives no value there, or gives the application
+itself back. -/
+def keepsRaw (f : Sym) (vs : List GroundTerm) : Bool :=
+  match c.hooks.app f vs with
+  | none => true
+  | some w => GroundTerm.cmp w (.ctor f vs) == .eq
+
+theorem lookupOpen_none_of_any {f : Sym} (h : (c.params.any fun k => k.raw && k.sig.name == f) = false) :
+    c.lookupOpen f = none := by
+  unfold lookupOpen
+  split
+  · rw [List.find?_eq_none]
+    intro k hk
+    have := List.any_eq_false.mp h k hk
+    simpa using this
+  · rfl
+
+/-- A registry symbol is no open generator, in every semantics. -/
+theorem lookupOpen_reg {f : Sym} (h : f < nRegSyms) : c.lookupOpen f = none := by
+  unfold lookupOpen
+  simp [Nat.not_le.mpr h]
+
+theorem lookupOpen_spec {f : Sym} {k : ParamSig} (h : c.lookupOpen f = some k) :
+    k ∈ c.params ∧ k.raw = true ∧ k.sig.name = f ∧ nRegSyms ≤ f := by
+  unfold lookupOpen at h
+  split at h
+  · rename_i hf
+    have h1 := List.mem_of_find?_eq_some h
+    have h2 := List.find?_some h
+    simp only [Bool.and_eq_true, beq_iff_eq] at h2
+    exact ⟨h1, h2.1, h2.2, hf⟩
+  · cases h
+
+/-- Where no parameter is raw, no symbol is an open generator. -/
+theorem lookupOpen_of_noRaw (hr : ∀ k ∈ c.params, k.raw = false) (f : Sym) : c.lookupOpen f = none :=
+  c.lookupOpen_none_of_any (List.any_eq_false.mpr fun k hk => by simp [hr k hk])
+
 end Semantics
 
 /-! ## Sorts -/
@@ -377,7 +421,9 @@ variable (c : Semantics)
 mutual
   /-- The sort of a ground term in `c`, or `none`: a constructor applied to arguments of its
   argument sorts, an overloading symbol applied to arguments of its argument sorts that no overload
-  covers (`uncovered`), an injection from a subsort, domain values in canonical form; a collection of
+  covers (`uncovered`), an open generator (`lookupOpen`) applied to arguments of its argument sorts
+  where the interpretation leaves the application raw (`keepsRaw`), an injection from a subsort,
+  domain values in canonical form; a collection of
   a collection sort of its kind (`collOf`): a map with sorted keys and entries of its key and
   value sorts, a range map with the maximal intervals of its keys in order (`rangesOK`) and
   entries of its key and value sorts (a collection sort without a value sort has no maps), a set with sorted elements of its element sort, a list of elements of its
@@ -388,7 +434,10 @@ mutual
       | none => match c.lookupOvl f with
         | some o => if sortsOf ts == some o.sig.args && c.uncovered f ts then some o.sig.result
                     else none
-        | none => none
+        | none => match c.lookupOpen f with
+          | some k => if sortsOf ts == some k.sig.args && c.keepsRaw f ts then some k.sig.result
+                      else none
+          | none => none
     | .inj a b t => if c.subsorts.contains (a, b) && !t.isInj && sortOf t == some a then some b
                     else none
     | .dv s lit => if dvOK c.lib s lit then some s else none
@@ -451,7 +500,9 @@ theorem sortOf_ctor_iff {f : Sym} {ts : List GroundTerm} {s : Srt} :
     c.sortOf (.ctor f ts) = some s ↔
       (∃ k, lookupSig c.ctorSigs f = some k ∧ c.sortsOf ts = some k.args ∧ s = k.result) ∨
       (lookupSig c.ctorSigs f = none ∧ ∃ o, c.lookupOvl f = some o ∧ c.sortsOf ts = some o.sig.args ∧
-        c.uncovered f ts = true ∧ s = o.sig.result) := by
+        c.uncovered f ts = true ∧ s = o.sig.result) ∨
+      (lookupSig c.ctorSigs f = none ∧ c.lookupOvl f = none ∧ ∃ k, c.lookupOpen f = some k ∧
+        c.sortsOf ts = some k.sig.args ∧ c.keepsRaw f ts = true ∧ s = k.sig.result) := by
   constructor
   · intro h
     simp only [sortOf] at h
@@ -466,17 +517,27 @@ theorem sortOf_ctor_iff {f : Sym} {ts : List GroundTerm} {s : Srt} :
         split at h
         · rename_i he
           simp only [Bool.and_eq_true, beq_iff_eq] at he
-          cases h; exact .inr ⟨hk, o, ho, he.1, he.2, rfl⟩
+          cases h; exact .inr (.inl ⟨hk, o, ho, he.1, he.2, rfl⟩)
         · cases h
-      · cases h
-  · rintro (⟨k, hk, he, rfl⟩ | ⟨hk, o, ho, he, hu, rfl⟩)
+      · rename_i ho
+        split at h
+        · rename_i k hko
+          split at h
+          · rename_i he
+            simp only [Bool.and_eq_true, beq_iff_eq] at he
+            cases h; exact .inr (.inr ⟨hk, ho, k, hko, he.1, he.2, rfl⟩)
+          · cases h
+        · cases h
+  · rintro (⟨k, hk, he, rfl⟩ | ⟨hk, o, ho, he, hu, rfl⟩ | ⟨hk, ho, k, hko, he, hkr, rfl⟩)
     · simp [sortOf, hk, he]
     · simp [sortOf, hk, ho, he, hu]
+    · simp [sortOf, hk, ho, hko, he, hkr]
 
 /-- A constructor term with a sort has arguments with sorts. -/
 theorem sortsOf_of_sortOf_ctor {f : Sym} {ts : List GroundTerm} {s : Srt}
     (h : c.sortOf (.ctor f ts) = some s) : ∃ ss, c.sortsOf ts = some ss := by
-  rcases c.sortOf_ctor_iff.mp h with ⟨k, -, hs, -⟩ | ⟨-, o, -, hs, -, -⟩
+  rcases c.sortOf_ctor_iff.mp h with ⟨k, -, hs, -⟩ | ⟨-, o, -, hs, -, -⟩ | ⟨-, -, k, -, hs, -, -⟩
+  · exact ⟨_, hs⟩
   · exact ⟨_, hs⟩
   · exact ⟨_, hs⟩
 
@@ -487,7 +548,7 @@ theorem sortOf_ctor_of_none {f : Sym} {ts : List GroundTerm} {s : Srt} (hno : c.
       ∃ k, lookupSig c.ctorSigs f = some k ∧ c.sortsOf ts = some k.args ∧ s = k.result := by
   rw [sortOf_ctor_iff]
   have : c.lookupOvl f = none := by simp [lookupOvl, hno]
-  simp [this]
+  simp [this, c.lookupOpen_of_noRaw _hr f]
 
 /-- The value `f(vs)` denotes, with `n` steps along the overloads: the raw application where no
 overload of f covers `vs`, otherwise the value of the first symbol g whose overload covers it at
@@ -543,6 +604,38 @@ mutual
     termination_by structural es => es
   def Semantics.rawFreeEntry (c : Semantics) : GroundTerm × GroundTerm → Bool
     | (k, v) => c.rawFree k && c.rawFree v
+    termination_by structural e => e
+end
+
+-- Where no parameter is raw, every value is `rawFree`.
+mutual
+  theorem Semantics.rawFree_of_noRaw {c : Semantics} (hr : ∀ k ∈ c.params, k.raw = false) :
+      ∀ v, c.rawFree v = true
+    | .ctor f ts => by
+      simp only [Semantics.rawFree, Bool.and_eq_true, Bool.not_eq_true']
+      exact ⟨List.any_eq_false.mpr fun k hk => by simp [hr k hk], Semantics.rawFreeList_of_noRaw hr ts⟩
+    | .inj _ _ t => by rw [Semantics.rawFree]; exact Semantics.rawFree_of_noRaw hr t
+    | .dv _ _ => by rw [Semantics.rawFree]
+    | .map _ es => by rw [Semantics.rawFree]; exact Semantics.rawFreeEntries_of_noRaw hr es
+    | .set _ es => by rw [Semantics.rawFree]; exact Semantics.rawFreeList_of_noRaw hr es
+    | .list _ es => by rw [Semantics.rawFree]; exact Semantics.rawFreeList_of_noRaw hr es
+    termination_by structural v => v
+  theorem Semantics.rawFreeList_of_noRaw {c : Semantics} (hr : ∀ k ∈ c.params, k.raw = false) :
+      ∀ ts, c.rawFreeList ts = true
+    | [] => by rw [Semantics.rawFreeList]
+    | t :: ts => by
+      rw [Semantics.rawFreeList, Semantics.rawFree_of_noRaw hr t, Semantics.rawFreeList_of_noRaw hr ts]; rfl
+    termination_by structural ts => ts
+  theorem Semantics.rawFreeEntries_of_noRaw {c : Semantics} (hr : ∀ k ∈ c.params, k.raw = false) :
+      ∀ es, c.rawFreeEntries es = true
+    | [] => by rw [Semantics.rawFreeEntries]
+    | e :: es => by
+      rw [Semantics.rawFreeEntries, Semantics.rawFreeEntry_of_noRaw hr e,
+        Semantics.rawFreeEntries_of_noRaw hr es]; rfl
+    termination_by structural es => es
+  theorem Semantics.rawFreeEntry_of_noRaw {c : Semantics} (hr : ∀ k ∈ c.params, k.raw = false) :
+      ∀ e, c.rawFreeEntry e = true
+    | (k, v) => by rw [Semantics.rawFreeEntry, Semantics.rawFree_of_noRaw hr k, Semantics.rawFree_of_noRaw hr v]; rfl
     termination_by structural e => e
 end
 

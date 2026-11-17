@@ -90,7 +90,9 @@ function of `d` holding them as clauses, by three classes, each checked:
   `projectionDomain?` checks: `project:X(K)` is defined exactly where K is such a P), where `d`
   does not number `project:X` (no sentence `d` reads
   applies it; one that does makes it a function of `d` with this equation, `Presentation.libProjs`):
-  the symbol is in no sentence of `Γ`, and the equation defines it on the image of the injection;
+  the symbol is in no sentence of `Γ` (the registry's `projectSym X`, or, for a library sort whose
+  projection the registry numbers no symbol for, such as Range and RangeMap, a symbol of no
+  signature `Γ` has), and the equation defines it on the image of the injection;
 - a constructor argument's projection `project:c:x(c(x₁, …, xₙ)) = xᵢ`, the projection no symbol
   of the registry or of `d`, c a constructor of the definition (`Semantics.ctorSigs`), the xᵢ
   distinct variables: the symbol is outside `Γ`'s signature, and the equation defines it on c's
@@ -104,7 +106,7 @@ def genEqClassOK (E : Env) (d : Definition) (e : RawEqn) : Bool :=
     | some fn, .ok (cl, _) => (fn.clauses.map reprStr).contains (reprStr cl)
     | _, _ => false
   let libProj := match dropPrefix? "Lblproject'Coln'" e.fn with
-    | some X => (regSymNames.contains e.fn || c.sortNames.contains X) && !c.symNames.contains e.fn &&
+    | some X => (regSortNames.contains X || c.sortNames.contains X) && !c.symNames.contains e.fn &&
       (projEqnShape X e || e.dom)
     | none => false
   let argProj := (dropPrefix? "Lblproject'Coln" e.fn).isSome && noReq && e.competitors.isNone &&
@@ -443,6 +445,54 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
           (⟨i, h, .functionInPattern, f⟩ : Refusal)
     ruleRs ++ clauseRs
 
+/-! ## A range-map symbol binding a variable in a left side
+
+A range map's unit, element and concatenation (`.RangeMap`, `_r|->_`, `_RangeMap_`) are collection
+symbols, which `functionInPattern` does not name; but the pattern context sorts none of them
+(`patternHooks` and `collPatternHooks` hold no range-map symbol), so a rule or clause whose left side
+applies one to arguments holding a variable is not sorted. It is refused with a reason of its own
+(`RefusalReason.rangeMapPattern`), the symbol named. -/
+
+mutual
+  /-- The symbols of `rms` that `t` applies to arguments holding a variable. -/
+  def rmBindersRM (rms : List Sym) : Term → List Sym
+    | .app f ts => (if rms.contains f && !(varOccsList ts).isEmpty then [f] else []) ++ rmBindersListRM rms ts
+    | .inj _ _ t => rmBindersRM rms t
+    | .as t _ => rmBindersRM rms t
+    | _ => []
+  /-- `rmBindersRM` of each term. -/
+  def rmBindersListRM (rms : List Sym) : List Term → List Sym
+    | [] => []
+    | t :: ts => rmBindersRM rms t ++ rmBindersListRM rms ts
+end
+
+/-- The rules and clauses whose left side applies a range-map symbol (the unit, element or
+concatenation of a collection of kind `.rangeMap`) to arguments holding a variable: one refusal
+(`rangeMapPattern`) for each, the symbol named. -/
+def rangeMapInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let rms := (c.allColls.filter (·.kind == .rangeMap)).flatMap fun cs => [cs.unit, cs.elem, cs.concat]
+    let named := fun (ts : List Term) => (rmBindersListRM rms ts).eraseDups.map c.symName
+    let rws := (m.sentences.zipIdx.flatMap fun (s, i) =>
+      if isRead s then (scanRewrites s).map fun _ => (s, i) else []).zip c.rules
+    let ruleRs := rws.flatMap fun ((s, i), r) =>
+      (named [r.lhs]).map fun f => (⟨some (off + i), headOf s, .rangeMapPattern, f⟩ : Refusal)
+    let locate := fun (uid : String) => m.sentences.zipIdx.find? fun (s, _) => match s with
+      | .axiom a => uid != "" && attrStr? a.attributes "UNIQUE'Unds'ID" == some uid
+      | _ => false
+    let clauseRs := (withPres c.fns d.pres.fns).flatMap fun (fn, fp) =>
+      (withPres fn.clauses fp.clauses).flatMap fun (cl, cp) =>
+        (named cl.pats).map fun f =>
+          let (i, h) := match locate cp.info.uid with
+            | some (s, j) => (some (off + j), headOf s)
+            | none => (none, c.symName fn.label)
+          (⟨i, h, .rangeMapPattern, f⟩ : Refusal)
+    ruleRs ++ clauseRs
+
 /-- The rules read with a map key of their left side as a fresh variable and a `requires`
 conjunct (`Parse.keyCut`, `ReadingNote.keyFunctionAsRequires`): each rule's place and the
 functions so read. -/
@@ -498,10 +548,13 @@ def cellCollUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
 
 A sentence classified a collection law (`inert collectionLaw`) or a set's idempotence (`unread
 setIdempotence`) by its form is accepted only when its symbol is the concatenation of a collection
-of the definition (the library's `Map`, `Set`, `List`, or its own), and an idempotence axiom only of
-a set's: the reading's collection values satisfy those laws by their representation (and contradict
-the idempotence, `UnreadReason.setIdempotence`). The same law of another symbol states something of
-that symbol which no reading of the collections states. -/
+of the definition (the library's `Map`, `Set`, `List`, `RangeMap`, or its own), and an idempotence
+axiom only of a set's: the reading's map, set and list values satisfy those laws by their
+representation (and contradict the idempotence, `UnreadReason.setIdempotence`). A range map's are
+stated at its values, through the hook of `_RangeMap_`, which is defined only on range maps whose
+ranges do not overlap: associativity as an equality of patterns, both sides undefined or one value
+(`rmConcat_assoc`), and `.RangeMap` a unit on either side (`rmConcat_unit`). The same law of another
+symbol states something of that symbol which no reading of the collections states. -/
 
 /-- The law axioms whose symbol is not the concatenation of a collection of `d` (an idempotence
 axiom: of a set): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
@@ -814,10 +867,10 @@ def libraryUnstated (k : Kore.Definition) (d : Definition) : List Refusal :=
 /-- The account's refusals of a text the reader reads as `d`: the inert constructor axioms not
 induced, the library modules not whole in the text, the cell collections' injections and the laws
 of no collection of `d`, the library's data the text does not state, the left sides applying a
-function symbol. -/
+function symbol or binding a variable under a range-map symbol. -/
 def accountRefusals (k : Kore.Definition) (d : Definition) : List Refusal :=
   uninduced k d ++ missingBuiltin k d ++ cellCollUnmatched k d ++ libraryUnstated k d ++
-    functionInPattern k d ++ lawUnmatched k d
+    functionInPattern k d ++ lawUnmatched k d ++ rangeMapInPattern k d
 
 /-! ## Connective readings and `#configuration`
 

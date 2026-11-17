@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.3
 definition.kore bytes: 211412
 definition.kore sha256: 7fe4692bf3e97b6e9ceff16860f1ee1146313a5166f5e8774d8f7ebdc9a71149
-stripped sha256: 7ff29a5c1c6911a7a6eedff4b6c7188c0291818db6f4141a2c44cf98f4c7d890
+stripped sha256: 68ba60e37572e4f94691f3bd7e9f230e1f76dce4f8ab57b84d5330091a01091e
 main module: 416 sentences, 60 not in base's, in kore.txt
 output:
   [Warning] Compiler: Use of deprecated production found; this syntax may be

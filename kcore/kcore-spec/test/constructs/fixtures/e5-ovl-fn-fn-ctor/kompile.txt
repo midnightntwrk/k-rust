@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-fn-fn-ctor.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210459
+definition.kore sha256: bffca1a8f28a81e41a0ce27a65d76905f4daf54de01dfc2fb23bb05c5a185ae1
+stripped sha256: 85565ea3b728c6f80e0293495ea440c0285404c989c9220a22100636d328ed1c
+main module: 419 sentences, 63 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-FN-FN-CTOR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E5-OVL-FN-FN-CTOR as default.

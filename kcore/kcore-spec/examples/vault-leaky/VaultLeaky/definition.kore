@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+    "Source(kcore-spec/f2-examples/vault-leaky.k)"
   )
 ]
 module BASIC-K
@@ -1016,7 +1016,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,17,6,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("inc")
   ]
@@ -1027,7 +1027,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,39,6,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("save")
   ]
@@ -1038,7 +1038,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,63,6,89)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("store")
   ]
@@ -1049,7 +1049,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,92,6,113)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("wipe")
   ]
@@ -1060,7 +1060,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,116,6,137)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("leak")
   ]
@@ -1071,7 +1071,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,23,7,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     ),
     symbol'Kywd'{}("seq")
   ]
@@ -1083,7 +1083,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -1095,7 +1095,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     )
   ]
   symbol LblinitPubCell{}() : SortPubCell{} [function{}(), functional{}(), total{}()]
@@ -1107,7 +1107,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     )
   ]
   symbol LblinitSecCell{}() : SortSecCell{} [function{}(), functional{}(), total{}()]
@@ -1124,7 +1124,7 @@ module VAULT-LEAKY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+      "Source(kcore-spec/f2-examples/vault-leaky.k)"
     )
   ]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
@@ -4955,7 +4955,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("2d2d7971d3312b7b42ebaeeb02485aba29a163edd5aa1ab7b582a3e478828d1d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,45)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{}
@@ -4985,7 +4985,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("ee6667432426ccd4f12b088a5ac730fc0927d36da481969f37dee7a5e183f5e4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,57)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{}
@@ -5015,7 +5015,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("fecf2f24bb05789be835b1f40ddc8a5338f622358128140b3809f1b433913f74"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,66)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{}
@@ -5045,7 +5045,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("8ce84c99b689c2400ee301a695717c1641cd1c64b997fbb35111fbb709c6e14c"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{}
@@ -5075,7 +5075,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("05e14bf50258e4872e58581e16c0f012584f8e6c2aeecd99ade19b7cb845fb74"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{}
@@ -5105,7 +5105,7 @@ module VAULT-LEAKY
       UNIQUE'Unds'ID{}("ac5c9e94e4b7091c29d2ec3ab08eab714d7761445853bd5533cabe0ac41c1016"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,66)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+        "Source(kcore-spec/f2-examples/vault-leaky.k)"
       )
     ]
   axiom{R}
@@ -6432,6 +6432,6 @@ module VAULT-LEAKY
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,15,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/vault-leaky.k)"
+    "Source(kcore-spec/f2-examples/vault-leaky.k)"
   )
 ]

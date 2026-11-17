@@ -29,17 +29,17 @@ definition_of defn from "f2-examples/symrule.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def tA (t : Term) : Term := .app 381 [t]
-def tB : Term := .app 382 []
+def tA (t : Term) : Term := .app 385 [t]
+def tB : Term := .app 386 []
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(x), V0)), C)`. -/
-def cfgE (x : Term) : Term := .app 71 [.app 379 [.app 0 [.inj 32 1 x, .var 0]], .var 1]
+def cfgE (x : Term) : Term := .app 71 [.app 383 [.app 0 [.inj 32 1 x, .var 0]], .var 1]
 
 /-- The sorts of the first two variables of the text's rule: K and the counter cell's. -/
 noncomputable def sK : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 1 0
 noncomputable def sC : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 2 0
 
-example : c.symName 381 = "Lbla" ∧ c.symName 382 = "Lblb" ∧ c.sortName 32 = "Exp" := by decide +kernel
+example : c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧ c.sortName 32 = "Exp" := by decide +kernel
 
 /-- `Z => G` with pre `not (and (mem Z b) (mem Z G))`. -/
 noncomputable def rNot : Rule :=
@@ -80,6 +80,103 @@ theorem coreOK : c.coreOK = true := by decide +kernel
 
 /-- `rulePlainPP_of_ex` at the definition's rules. -/
 example : ∀ r ∈ c.rules, c.rulePlainPP r = true := fun r hr =>
-  Semantics.rulePlainPP_of_ex (Semantics.rulePlainOpen_iff_ex.mp (Semantics.ruleFactsOpen_of_core coreOK r hr).2).1
+  Semantics.rulePlainPP_of_ex (Semantics.ruleFactsEx_of_core coreOK r hr).2
+
+/-! ## A predicate under two tables (`KCore.Faithful.tr_condKore_twoT`)
+
+  At `rNot`'s pre (`not`, `and`, `mem`) and at `∃ y:Exp. y ∈ b` over `rNot`'s variables (a binder):
+  read through two tables at two valuations that agree at the free variables, the two readings
+  denote one set. -/
+
+section TwoTables
+open Faithful
+
+variable {M : Type} {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `∃ y:Exp. y ∈ b`, y the variable after `rNot`'s. -/
+def pExB : Cond := .ex 32 (.mem 32 (.var 4) tB)
+
+example (hD : KoreAML.DefOK I) {tbl tbl' : KoreAML.VarTable} {e e' : ML.Valuation M}
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre),
+      k ∈ tbl ∧ k ∈ tbl')
+    (hf : ∀ i ∈ varOccsCond rNot.vars.length rNot.pre, canonKey c rNot.vars i ∈ tbl ∧ canonKey c rNot.vars i ∈ tbl' ∧
+      e.evalEvar (tbl.ev (canonKey c rNot.vars i)) = e'.evalEvar (tbl'.ev (canonKey c rNot.vars i))) (m : M) :
+    (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre)).interpret I e m ↔
+      (KoreAML.tr ⟨tbl', []⟩ (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre)).interpret I e' m :=
+  tr_condKore_twoT hD rNot.pre (by decide +kernel) hk hf m
+
+example (hD : KoreAML.DefOK I) {tbl tbl' : KoreAML.VarTable} {e e' : ML.Valuation M}
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) pExB), k ∈ tbl ∧ k ∈ tbl')
+    (hf : ∀ i ∈ varOccsCond rNot.vars.length pExB, canonKey c rNot.vars i ∈ tbl ∧ canonKey c rNot.vars i ∈ tbl' ∧
+      e.evalEvar (tbl.ev (canonKey c rNot.vars i)) = e'.evalEvar (tbl'.ev (canonKey c rNot.vars i))) (m : M) :
+    (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) pExB)).interpret I e m ↔
+      (KoreAML.tr ⟨tbl', []⟩ (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) pExB)).interpret I e' m :=
+  tr_condKore_twoT hD pExB (by decide +kernel) hk hf m
+
+end TwoTables
+
+/-! ## A successor's values for a rule with predicates (`KCore.Faithful.rule_step_values_pp`)
+
+  At `rNot` (its open variable G by arm A, a `pre`), `rOr` (its existential Z by arm A, a `post`)
+  and `rC` (`b => b` with pre `Z ∈ 0`, Z:Int open and in `pre` only, the conditions closed: arm C,
+  `needsWitness`): in any model of `Γc c`, a valuation with x's element in the left side, the
+  conditions and `pre` and y's element in the right side, `ensures` and `post` gives a σ of values
+  with every premise of `StepBy` but membership and `hprio`, `Holds` of both predicates included.
+  No open variable of the three is of a confined sort, and no predicate holds a binder. -/
+
+/-- `b => b` with pre `Z ∈ 0`, Z:Int open. -/
+noncomputable def rC : Rule :=
+  { vars := [sK, sC, Srt.int], lhs := cfgE tB, req := none, rhs := cfgE tB, ens := none, prio := 50,
+    pre := .mem Srt.int (.var 2) (i 0) }
+
+theorem rC_pp : c.ruleSorted rC = true ∧ c.rulePlainPP rC = true ∧ rC.opens = [2] ∧
+    rC.opens.all (rC.armAB c) = false ∧ rC.needsWitness c = true := by
+  decide +kernel
+
+theorem stepValues_facts :
+    rNot.opens.any (fun i => (rNot.vars[i]?.map c.confined).getD false) = false ∧
+    HoldsShape.hasBinder rNot.pre = false ∧ HoldsShape.hasBinder rNot.post = false ∧ rNot.needsWitness c = false ∧
+    rNot.opens.all (rNot.armAB c) = true ∧
+    rOr.opens.any (fun i => (rOr.vars[i]?.map c.confined).getD false) = false ∧
+    HoldsShape.hasBinder rOr.pre = false ∧ HoldsShape.hasBinder rOr.post = false ∧ rOr.needsWitness c = false ∧
+    rC.opens.any (fun i => (rC.vars[i]?.map c.confined).getD false) = false ∧
+    HoldsShape.hasBinder rC.pre = false ∧ HoldsShape.hasBinder rC.post = false := by
+  decide +kernel
+
+section StepValues
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- Arm A with a `pre`: `rNot`. -/
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
+  rule_step_values_pp (r := rNot) (tbl := tbl) (e := e) coreOK hft hI hcw rNot_pp.1 rNot_pp.2.1
+    (fun h => absurd h (by rw [stepValues_facts.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.1]; decide))
+
+/-- An existential variable with a `post`: `rOr`. -/
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
+  rule_step_values_pp (r := rOr) (tbl := tbl) (e := e) coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.1]; decide))
+
+/-- Arm C, its conditions decided by hypothesis: `rC`. -/
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hw : rC.needsWitness c = true → rC.CondDecided c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
+  rule_step_values_pp (r := rC) (tbl := tbl) (e := e) coreOK hft hI hcw rC_pp.1 rC_pp.2.1
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.2.2]; decide)) hw
+
+end StepValues
 
 end PredRules

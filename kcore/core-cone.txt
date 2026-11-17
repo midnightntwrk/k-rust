@@ -232,23 +232,23 @@
   70-72      def        KoreAML.Cons.liesP                           via KoreAML.Cons.uncoveredP
   74-79      def        KoreAML.Cons.uncoveredP                      via KoreAML.Cons.distUncItem
   81-97      def        KoreAML.Cons.distUncItem                     via KCore.Faithful.consItemsK
-  99-110     def        KoreAML.Cons.ovlEqItem                       via KCore.Faithful.consItemsK
-  112-118    def        KoreAML.Cons.cohItem                         via KCore.Faithful.consItemsK
-  120-125    def        KoreAML.Cons.noJunkAx                        via KoreAML.Cons.noJunkItem
-  127-129    def        KoreAML.Cons.noJunkItem                      via KCore.Faithful.consItemsK
-  144-147    def        KoreAML.itemsPremises                        via KCore.Faithful.ΓSig
-  149-154    def        KoreAML.dvArityAll                           via KCore.Faithful.ΓSig
-  158-173    def        KoreAML.closureDisjunct                      via KCore.Faithful.stepClosureItem
-  177-179    def        KoreAML.den                                  via KCore.den
-  181-183    def        KoreAML.denB                                 via KCore.Faithful.famEx
-  190-192    def        KoreAML.allNext                              via KCore.CompleteC
+  121-132    def        KoreAML.Cons.ovlEqItem                       via KCore.Faithful.consItemsK
+  134-140    def        KoreAML.Cons.cohItem                         via KCore.Faithful.consItemsK
+  142-147    def        KoreAML.Cons.noJunkAx                        via KoreAML.Cons.noJunkItem
+  149-151    def        KoreAML.Cons.noJunkItem                      via KCore.Faithful.consItemsK
+  166-169    def        KoreAML.itemsPremises                        via KCore.Faithful.ΓSig
+  171-176    def        KoreAML.dvArityAll                           via KCore.Faithful.ΓSig
+  180-195    def        KoreAML.closureDisjunct                      via KCore.Faithful.stepClosureItem
+  199-201    def        KoreAML.den                                  via KCore.den
+  203-205    def        KoreAML.denB                                 via KCore.Faithful.famEx
+  212-214    def        KoreAML.allNext                              via KCore.CompleteC
 
-## KcoreSpec.BuiltinNames  (5 declarations, 221 lines)
+## KcoreSpec.BuiltinNames  (5 declarations, 225 lines)
   10-11      def        KCore.BuiltinNames.nNewSorts                 via KCore.nRegSorts
   13-14      def        KCore.BuiltinNames.nNewSyms                  via KCore.nRegSyms
   16-26      def        KCore.BuiltinNames.newSortNames              via KCore.regSortNames
-  28-231     def        KCore.BuiltinNames.newSymNames               via KCore.regSymNames
-  233-234    def        KCore.BuiltinNames.newPreds                  via KCore.regPred
+  28-235     def        KCore.BuiltinNames.newSymNames               via KCore.regSymNames
+  237-238    def        KCore.BuiltinNames.newPreds                  via KCore.regPred
 
 ## KcoreSpec.FixedSignature  (182 declarations, 499 lines)
   34-35      abbrev     KCore.Srt                                    via KCore.SoundC
@@ -487,7 +487,7 @@
   352-368    def        KCore.Semantics.sortPreds                    via KCore.Semantics.allFns
   370-371    def        KCore.Semantics.allFns                       via KCore.Semantics.predsApart
   373-374    def        KCore.Semantics.ctorSigs                     via KCore.Semantics.overloadsOK
-  376-377    def        KCore.Semantics.ovlSigs                      via KCore.Semantics.ovlOver
+  376-377    def        KCore.Semantics.ovlSigs                      via KCore.Faithful.genWf
   379-380    def        KCore.Semantics.lookupOvl                    via KCore.Semantics.overloadsOK
   382-384    def        KCore.Semantics.allColls                     via KCore.Faithful.collSortsOK
   386-387    def        KCore.Semantics.collOf                       via KCore.Semantics.sortOf
@@ -529,7 +529,7 @@
   224-227    def        KCore.KFloat.isNaN                           via KCore.floatHooks
   229-232    def        KCore.KFloat.isInf                           via KCore.floatHooks
 
-## KcoreSpec.Value  (48 declarations, 241 lines)
+## KcoreSpec.Value  (50 declarations, 258 lines)
   26-28      def        KCore.GroundTerm.isInj                       via KCore.Semantics.sortOf
   30-31      def        KCore.GroundTerm.ncmp                        via KCore.GroundTerm.cmp
   32-32      def        KCore.GroundTerm.scmp                        via KCore.GroundTerm.lcmp
@@ -570,16 +570,18 @@
   355-358    def        KCore.Semantics.ovlCovers                    via KCore.Semantics.uncovered
   360-362    def        KCore.Semantics.ovlOver                      via KCore.Semantics.overloadsOK
   364-368    def        KCore.Semantics.uncovered                    via KCore.Semantics.sortOf
-  378-409    def        KCore.Semantics.sortOf                       via KCore.SoundC
-  410-415    def        KCore.Semantics.sortsOf                      via KCore.FnHyp
-  416-419    def        KCore.Semantics.entriesOK                    via KCore.Semantics.sortOf
-  420-422    def        KCore.Semantics.entryOK                      via KCore.Semantics.sortOf
-  492-501    def        KCore.Semantics.normN                        via KCore.Semantics.norm
-  503-506    def        KCore.Semantics.norm                         via KCore.PatVal
-  510-510    def        KCore.Value                                  via KCore.Config
-  512-512    abbrev     KCore.Config                                 via KCore.SoundC
+  370-375    def        KCore.Semantics.lookupOpen                   via KCore.Semantics.sortOf
+  377-382    def        KCore.Semantics.keepsRaw                     via KCore.Semantics.sortOf
+  422-458    def        KCore.Semantics.sortOf                       via KCore.SoundC
+  459-464    def        KCore.Semantics.sortsOf                      via KCore.FnHyp
+  465-468    def        KCore.Semantics.entriesOK                    via KCore.Semantics.sortOf
+  469-471    def        KCore.Semantics.entryOK                      via KCore.Semantics.sortOf
+  553-562    def        KCore.Semantics.normN                        via KCore.Semantics.norm
+  564-567    def        KCore.Semantics.norm                         via KCore.PatVal
+  571-571    def        KCore.Value                                  via KCore.Config
+  573-573    abbrev     KCore.Config                                 via KCore.SoundC
 
-## KcoreSpec.DefinitionWf  (36 declarations, 161 lines)
+## KcoreSpec.DefinitionWf  (36 declarations, 164 lines)
   36-36      def        KCore.Fn.sig                                 via KCore.Semantics.sortedOK
   38-40      def        KCore.nodup                                  via KCore.Semantics.predsApart
   42-44      def        KCore.pairs                                  via KCore.ClausesAgree
@@ -604,18 +606,18 @@
   174-174    def        KCore.Clause.reqClosed                       via KCore.Semantics.clausesPlain
   336-340    inductive  KCore.Gen                                    via KCore.Faithful.consItemsK
   342-344    def        KCore.Gen.argSorts                           via KCore.Semantics.confinedAt
-  349-354    def        KCore.Semantics.gens                         via KCore.Faithful.consItemsK
-  412-414    def        KCore.reqOK                                  via KCore.Semantics.clauseSorted
-  419-422    def        KCore.Semantics.libValueSorts                via KCore.Semantics.subsortsOK
-  424-426    def        KCore.Semantics.libCtorSorts                 via KCore.Faithful.consSorts
-  428-434    def        KCore.Semantics.libConsSorts                 via KCore.Semantics.subsortsOK
-  500-516    def        KCore.Semantics.subsortsOK                   via KCore.Semantics.sortedOK
-  518-526    def        KCore.Lib.ok                                 via KCore.Semantics.idsOK
-  528-541    def        KCore.Semantics.idsOK                        via KCore.Semantics.coreOK
-  567-567    def        KCore.Semantics.patCtx                       via KCore.Semantics.patCtxAll
-  569-576    def        KCore.Semantics.collPatSigs                  via KCore.Semantics.patCtxAll
-  578-580    def        KCore.Semantics.patCtxAll                    via KCore.Semantics.clauseSorted
-  581-585    def        KCore.Semantics.rhsCtx                       via KCore.Semantics.clauseSorted
+  349-357    def        KCore.Semantics.gens                         via KCore.Faithful.consItemsK
+  420-422    def        KCore.reqOK                                  via KCore.Semantics.clauseSorted
+  427-430    def        KCore.Semantics.libValueSorts                via KCore.Semantics.subsortsOK
+  432-434    def        KCore.Semantics.libCtorSorts                 via KCore.Faithful.consSorts
+  436-442    def        KCore.Semantics.libConsSorts                 via KCore.Semantics.subsortsOK
+  508-524    def        KCore.Semantics.subsortsOK                   via KCore.Semantics.sortedOK
+  526-534    def        KCore.Lib.ok                                 via KCore.Semantics.idsOK
+  536-549    def        KCore.Semantics.idsOK                        via KCore.Semantics.coreOK
+  575-575    def        KCore.Semantics.patCtx                       via KCore.Semantics.patCtxAll
+  577-584    def        KCore.Semantics.collPatSigs                  via KCore.Semantics.patCtxAll
+  586-588    def        KCore.Semantics.patCtxAll                    via KCore.Semantics.clauseSorted
+  589-593    def        KCore.Semantics.rhsCtx                       via KCore.Semantics.clauseSorted
 
 ## KcoreSpec.Emit  (12 declarations, 64 lines)
   34-35      def        KCore.srtOf                                  via KCore.Faithful.famEx
@@ -757,16 +759,16 @@
   362-391    inductive  KCore.PatVal                                 via KCore.StepBy
   392-395    inductive  KCore.PatVals                                via KCore.Eval
   400-402    def        KCore.Semantics.WellSortedAt                 via KCore.NotApplies
-  405-437    inductive  KCore.Eval                                   via KCore.FnHyp
-  438-446    inductive  KCore.Fails                                  via KCore.Eval
-  447-451    inductive  KCore.ReqFails                               via KCore.Eval
-  452-489    inductive  KCore.EvalTerm                               via KCore.StepBy
-  490-494    inductive  KCore.EvalTerms                              via KCore.Eval
-  507-510    def        KCore.sameResult                             via KCore.Holds
-  512-515    def        KCore.Extends                                via KCore.Holds
-  517-542    inductive  KCore.Holds                                  via KCore.StepBy
+  421-453    inductive  KCore.Eval                                   via KCore.FnHyp
+  454-462    inductive  KCore.Fails                                  via KCore.Eval
+  463-467    inductive  KCore.ReqFails                               via KCore.Eval
+  468-505    inductive  KCore.EvalTerm                               via KCore.StepBy
+  506-510    inductive  KCore.EvalTerms                              via KCore.Eval
+  523-526    def        KCore.sameResult                             via KCore.Holds
+  528-531    def        KCore.Extends                                via KCore.Holds
+  533-558    inductive  KCore.Holds                                  via KCore.StepBy
 
-## KcoreSpec.FaithOK  (37 declarations, 257 lines)
+## KcoreSpec.FaithOK  (37 declarations, 266 lines)
   29-33      def        KCore.builtinColl                            via KCore.Faithful.collSymsOK
   37-38      def        KCore.Faithful.kernelSorts                   via KCore.Faithful.Model.namesApartK
   40-44      def        KCore.Faithful.kernelSyms                    via KCore.Faithful.Model.namesApartK
@@ -774,36 +776,36 @@
   59-65      def        KCore.Faithful.distinctSorts                 via KCore.Faithful.ΓDomains
   67-69      def        KCore.Faithful.valSort                       via KCore.Faithful.Model.sortsNumbered
   71-74      def        KCore.Faithful.apartSort                     via KCore.Faithful.genWf
-  76-90      def        KCore.Faithful.genWf                         via KCore.Semantics.faithCoreOK
-  92-97      def        KCore.Faithful.collSortOK                    via KCore.Faithful.collSortsOK
-  103-104    def        KCore.Faithful.collSortsOK                   via KCore.Semantics.faithCoreOK
-  106-111    def        KCore.Faithful.elemArgs                      via KCore.Faithful.collSymsOK
-  113-126    def        KCore.Faithful.collSymsOK                    via KCore.Faithful.collsOK
-  128-133    def        KCore.Faithful.collImpl                      via KCore.Faithful.collsOK
-  135-141    def        KCore.Faithful.collsOK                       via KCore.Semantics.faithCoreOK
-  143-146    def        KCore.Faithful.downHead                      via KCore.Faithful.patHeadsOK
-  148-151    def        KCore.Faithful.patHeadsOK                    via KCore.Semantics.faithCoreOK
-  153-159    def        KCore.Faithful.namesNumbered                 via KCore.Semantics.faithCoreOK
-  163-167    def        KCore.Faithful.Model.namesApartK             via KCore.Semantics.faithCoreOK
-  169-174    def        KCore.Faithful.Model.LitsApart               via KCore.Semantics.faithCoreOK
-  176-188    def        KCore.Faithful.Model.sortsNumbered           via KCore.Semantics.faithCoreOK
-  196-208    def        KCore.Faithful.Model.itesApart               via KCore.Semantics.faithCoreOK
-  210-216    def        KCore.Faithful.Model.kindsApart              via KCore.Semantics.faithCoreOK
-  218-222    def        KCore.Faithful.Model.ctorsOnce               via KCore.Semantics.faithCoreOK
-  224-231    def        KCore.Faithful.Model.fnsApart                via KCore.Semantics.faithCoreOK
-  290-297    def        KCore.ctorOccs                               via KCore.Semantics.rulesPlain
-  298-301    def        KCore.ctorOccsList                           via KCore.ctorOccs
-  304-309    def        KCore.Semantics.litSort                      via KCore.Faithful.Γcl
-  311-323    def        KCore.Semantics.confinedAt                   via KCore.Semantics.confined
-  325-327    def        KCore.Semantics.confined                     via KCore.Semantics.rulesPlain
-  382-393    def        KCore.Cond.bound                             via KCore.Semantics.clauseSorted
-  400-404    def        KCore.Semantics.ovlPairOK                    via KCore.Semantics.overloadsOK
-  406-410    def        KCore.Semantics.ovlDown                      via KCore.Semantics.ovlCoherent
-  412-421    def        KCore.Semantics.ovlCoherent                  via KCore.Semantics.overloadsOK
-  423-436    def        KCore.Semantics.overloadsOK                  via KCore.Semantics.coreOK
-  438-443    def        KCore.Semantics.ovlReach                     via KCore.Semantics.ovlClosure
-  445-447    def        KCore.Semantics.ovlClosure                   via KCore.Semantics.distGuarded
-  462-468    def        KCore.Semantics.faithCoreOK                  via KCore.Semantics.coreOK
+  76-99      def        KCore.Faithful.genWf                         via KCore.Semantics.faithCoreOK
+  101-106    def        KCore.Faithful.collSortOK                    via KCore.Faithful.collSortsOK
+  112-113    def        KCore.Faithful.collSortsOK                   via KCore.Semantics.faithCoreOK
+  115-120    def        KCore.Faithful.elemArgs                      via KCore.Faithful.collSymsOK
+  122-135    def        KCore.Faithful.collSymsOK                    via KCore.Faithful.collsOK
+  137-142    def        KCore.Faithful.collImpl                      via KCore.Faithful.collsOK
+  144-150    def        KCore.Faithful.collsOK                       via KCore.Semantics.faithCoreOK
+  152-155    def        KCore.Faithful.downHead                      via KCore.Faithful.patHeadsOK
+  157-160    def        KCore.Faithful.patHeadsOK                    via KCore.Semantics.faithCoreOK
+  162-168    def        KCore.Faithful.namesNumbered                 via KCore.Semantics.faithCoreOK
+  172-176    def        KCore.Faithful.Model.namesApartK             via KCore.Semantics.faithCoreOK
+  178-183    def        KCore.Faithful.Model.LitsApart               via KCore.Semantics.faithCoreOK
+  185-197    def        KCore.Faithful.Model.sortsNumbered           via KCore.Semantics.faithCoreOK
+  205-217    def        KCore.Faithful.Model.itesApart               via KCore.Semantics.faithCoreOK
+  219-225    def        KCore.Faithful.Model.kindsApart              via KCore.Semantics.faithCoreOK
+  227-231    def        KCore.Faithful.Model.ctorsOnce               via KCore.Semantics.faithCoreOK
+  233-240    def        KCore.Faithful.Model.fnsApart                via KCore.Semantics.faithCoreOK
+  299-306    def        KCore.ctorOccs                               via KCore.Semantics.rulesPlain
+  307-310    def        KCore.ctorOccsList                           via KCore.ctorOccs
+  313-318    def        KCore.Semantics.litSort                      via KCore.Faithful.Γcl
+  320-332    def        KCore.Semantics.confinedAt                   via KCore.Semantics.confined
+  334-336    def        KCore.Semantics.confined                     via KCore.Semantics.rulesPlain
+  391-402    def        KCore.Cond.bound                             via KCore.Semantics.clauseSorted
+  483-487    def        KCore.Semantics.ovlPairOK                    via KCore.Semantics.overloadsOK
+  489-493    def        KCore.Semantics.ovlDown                      via KCore.Semantics.ovlCoherent
+  495-504    def        KCore.Semantics.ovlCoherent                  via KCore.Semantics.overloadsOK
+  506-519    def        KCore.Semantics.overloadsOK                  via KCore.Semantics.coreOK
+  521-526    def        KCore.Semantics.ovlReach                     via KCore.Semantics.ovlClosure
+  528-530    def        KCore.Semantics.ovlClosure                   via KCore.Semantics.distGuarded
+  545-551    def        KCore.Semantics.faithCoreOK                  via KCore.Semantics.coreOK
 
 ## KcoreSpec.Tie  (10 declarations, 98 lines)
   18-26      def        KCore.Semantics.hooksApart                   via KCore.Semantics.coreOK
@@ -940,10 +942,10 @@
   19-30      def        KCore.FnHyp                                  root
 
 ## KcoreSpec.Sound  (4 declarations, 28 lines)
-  44-51      def        KCore.SoundC                                 root
-  53-62      def        KCore.OutIs                                  via KCore.CompleteC
-  64-69      def        KCore.CompleteC                              root
-  71-74      def        KCore.ExactC                                 root
+  52-59      def        KCore.SoundC                                 root
+  61-70      def        KCore.OutIs                                  via KCore.CompleteC
+  72-77      def        KCore.CompleteC                              root
+  79-82      def        KCore.ExactC                                 root
 
 ## lines per module (cone lines, declarations, lines of the whole file in this package)
   33     8     62     KcoreSpec.Kore.Base
@@ -960,29 +962,29 @@
   100    29    161    KcoreSpec.Kore.Signature
   278    47    468    KcoreSpec.Kore.Translate
   28     5     303    KcoreSpec.Kore.Print
-  130    22    194    KcoreSpec.Kore.Gamma
-  221    5     236    KcoreSpec.BuiltinNames
+  130    22    216    KcoreSpec.Kore.Gamma
+  225    5     240    KcoreSpec.BuiltinNames
   499    182   803    KcoreSpec.FixedSignature
   55     11    318    KcoreSpec.NatMap
-  299    46    410    KcoreSpec.Core
-  29     5     327    KcoreSpec.Definition
+  299    46    415    KcoreSpec.Core
+  29     5     341    KcoreSpec.Definition
   155    25    234    KcoreSpec.FloatDomain
-  241    48    549    KcoreSpec.Value
-  161    36    1130   KcoreSpec.DefinitionWf
+  258    50    642    KcoreSpec.Value
+  164    36    1146   KcoreSpec.DefinitionWf
   64     12    579    KcoreSpec.Emit
   144    35    323    KcoreSpec.StringDomain
   510    66    742    KcoreSpec.Hooks
-  240    28    544    KcoreSpec.Evaluation
-  257    37    487    KcoreSpec.FaithOK
-  98     10    440    KcoreSpec.Tie
+  240    28    560    KcoreSpec.Evaluation
+  266    37    570    KcoreSpec.FaithOK
+  98     10    481    KcoreSpec.Tie
   35     5     169    KcoreSpec.Step
   51     8     614    KcoreSpec.EvalFunctional
   10     1     78     KcoreSpec.ClausesAgree
   111    23    299    KcoreSpec.Statements
-  537    72    791    KcoreSpec.Faithful
+  537    72    816    KcoreSpec.Faithful
   12     1     195    KcoreSpec.Obligations
-  28     4     402    KcoreSpec.Sound
-  4698   871   11022  total
+  28     4     425    KcoreSpec.Sound
+  4731   873   11364  total
 
 ## roots, as elaborated (type of a theorem, value of a definition)
   KCore.SoundC :=
@@ -1023,7 +1025,7 @@
 
 ## theorems met, not entered (0)
 
-## generated declarations folded into their parent: 680
+## generated declarations folded into their parent: 682
 
 ## trusted library (Init, Std, Lean): 296 declarations, by first name component
   1    And                      And

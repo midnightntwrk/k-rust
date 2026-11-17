@@ -73,24 +73,24 @@ noncomputable def clO : Clause := gText.getD 0 { vars := [], pats := [], req := 
 
 def cl1 : Clause := { vars := [], pats := [i 0], req := none, rhs := i 0, ens := none }
 def cl2 : Clause :=
-  { vars := [], pats := [i 0], req := some (.app intEq [.app 385 [i 1], i 0]), rhs := i 1, ens := none }
+  { vars := [], pats := [i 0], req := some (.app intEq [.app 389 [i 1], i 0]), rhs := i 1, ens := none }
 def clC : Clause :=
   { vars := [32], pats := [i 1],
-    req := some (.app boolOr [.app 386 [.var 0], .app intEq [.app 385 [i 0], i 1]]), rhs := i 1, ens := none }
+    req := some (.app boolOr [.app 390 [.var 0], .app intEq [.app 389 [i 0], i 1]]), rhs := i 1, ens := none }
 
 noncomputable def g5 : Fn :=
-  { label := 385, args := [Srt.int], result := Srt.int, clauses := [cl1, cl2, clC, clO] }
+  { label := 389, args := [Srt.int], result := Srt.int, clauses := [cl1, cl2, clC, clO] }
 
 def ic1 : Clause :=
-  { vars := [33], pats := [.app 383 [.var 0]], req := none, rhs := .dv Srt.bool (.bool true), ens := none }
+  { vars := [33], pats := [.app 387 [.var 0]], req := none, rhs := .dv Srt.bool (.bool true), ens := none }
 def ic2 : Clause :=
   { vars := [32], pats := [.var 0], req := none, rhs := .dv Srt.bool (.bool false), ens := none, prio := 200 }
-def isCF : Fn := { label := 386, args := [32], result := Srt.bool, clauses := [ic1, ic2], total := true }
+def isCF : Fn := { label := 390, args := [32], result := Srt.bool, clauses := [ic1, ic2], total := true }
 
 noncomputable abbrev c5 : Semantics := { c with fns := g5 :: c.fns.drop 1 }
 
-theorem hfn5 : c5.lookupFn 385 = some g5 := by rfl
-theorem hfnC : c5.lookupFn 386 = some isCF := by rfl
+theorem hfn5 : c5.lookupFn 389 = some g5 := by rfl
+theorem hfnC : c5.lookupFn 390 = some isCF := by rfl
 
 theorem clO_facts : clO.prio = 200 ∧ clO.vars = [Srt.int] := by decide +kernel
 theorem clO_pats : clO.pats = [.var 0] := by rfl
@@ -123,7 +123,7 @@ theorem noE (v : GroundTerm) (h : c5.sortOf v = some 33) : False := by
     cases hk : lookupSig c5.ctorSigs f with
     | none =>
       have : c5.lookupOvl f = none := rfl
-      rw [hk, this] at h; cases h
+      rw [hk, this, c5.lookupOpen_of_noRaw (by decide +kernel) f] at h; cases h
     | some k =>
       rw [hk] at h
       simp only at h
@@ -172,7 +172,7 @@ theorem noE (v : GroundTerm) (h : c5.sortOf v = some 33) : False := by
 
 /-- `isC(v)` is `false` at every value of S: `isC(c(_))` matches no value. -/
 theorem isC_false {v : GroundTerm} (hv : c5.sortOf v = some 32) :
-    Eval c5 386 [v] (some (.dv Srt.bool (.bool false))) := by
+    Eval c5 390 [v] (some (.dv Srt.bool (.bool false))) := by
   refine Eval.clause (cl := ic2) (σ := [(0, v)]) hfnC (List.mem_cons_of_mem _ (List.mem_singleton_self _))
     (fun j s hs => ?_) (.cons (.var rfl) .nil) (fun t ht => by cases ht) (fun cl' hcl' _ hlt => ?_) .dv
     (fun t ht => by cases ht)
@@ -186,12 +186,12 @@ theorem isC_false {v : GroundTerm} (hv : c5.sortOf v = some 32) :
     · rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (Nat.lt_irrefl _)
 
 theorem ev_isC {σ : Subst} {v : GroundTerm} (hl : σ.lookup 0 = some v) (hv : c5.sortOf v = some 32) :
-    EvalTerm c5 σ (.app 386 [.var 0]) (some (.dv Srt.bool (.bool false))) :=
+    EvalTerm c5 σ (.app 390 [.var 0]) (some (.dv Srt.bool (.bool false))) :=
   .call (by decide +kernel) (by decide +kernel) (.cons .var .nil) (by rw [hl]; rfl) (isC_false hv)
     (by decide +kernel)
 
-theorem ev_g {σ : Subst} {n : Int} {r : Option GroundTerm} (h : Eval c5 385 [.dv Srt.int (.int n)] r) :
-    EvalTerm c5 σ (.app 385 [i n]) r :=
+theorem ev_g {σ : Subst} {n : Int} {r : Option GroundTerm} (h : Eval c5 389 [.dv Srt.int (.int n)] r) :
+    EvalTerm c5 σ (.app 389 [i n]) r :=
   .call (by decide +kernel) (by decide +kernel) (.cons .dv .nil) rfl h (by decide +kernel)
 
 theorem g5_clauses : g5.clauses = [cl1, cl2, clC, clO] := rfl
@@ -207,7 +207,7 @@ theorem low50 {cl' : Clause} (hcl' : cl' ∈ g5.clauses) (hlt : cl'.prio < 50) :
   · rw [clO_facts.1] at hlt; exact absurd hlt (by decide)
 
 /-- `g(0)` evaluates to 0, by `g(0) => 0`. -/
-theorem E00 : Eval c5 385 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 0))) :=
+theorem E00 : Eval c5 389 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 0))) :=
   Eval.clause (cl := cl1) (σ := []) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => by cases (show (none : Option Srt) = some s from hs)) (.cons .dv .nil)
     (fun t ht => by cases ht) (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) .dv (fun t ht => by cases ht)
@@ -225,7 +225,7 @@ theorem FC : Fails c5 [.dv Srt.int (.int 1)] clC :=
       (fun vs hvs => by cases hvs; rfl) (fun h => by cases h)
 
 /-- `g(1)` evaluates to 0, by the `[owise]` clause: the other clauses fail. -/
-theorem E10 : Eval c5 385 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
+theorem E10 : Eval c5 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (cl := clO) (σ := [(0, .dv Srt.int (.int 1))]) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => ?_) (by rw [clO_pats]; exact .cons (.var rfl) .nil)
     (fun t ht => by rw [clO_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) (by rw [clO_rhs]; exact .dv)
@@ -247,7 +247,7 @@ theorem E10 : Eval c5 385 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) :
     · exact absurd hlt (Nat.lt_irrefl _)
 
 /-- `g(0)` evaluates to 1, by `g(0) => 1 requires g(1) ==Int 0`. -/
-theorem E01 : Eval c5 385 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 1))) :=
+theorem E01 : Eval c5 389 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 1))) :=
   Eval.clause (cl := cl2) (σ := []) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => by cases (show (none : Option Srt) = some s from hs)) (.cons .dv .nil)
     (fun t ht => by
@@ -256,11 +256,11 @@ theorem E01 : Eval c5 385 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 1))) :
         (fun vs hvs => by cases hvs; rfl) (fun h => by cases h))
     (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) .dv (fun t ht => by cases ht)
 
-theorem a_S : c5.sortOf (.ctor 382 []) = some 32 := by decide +kernel
+theorem a_S : c5.sortOf (.ctor 386 []) = some 32 := by decide +kernel
 
 /-- The `requires` of `clC` evaluates to `true` at H := a, reading `g(0)` as 1. -/
-theorem reqC_true : EvalTerm c5 [(0, .ctor 382 [])]
-    (.app boolOr [.app 386 [.var 0], .app intEq [.app 385 [i 0], i 1]]) (some (.dv Srt.bool (.bool true))) :=
+theorem reqC_true : EvalTerm c5 [(0, .ctor 386 [])]
+    (.app boolOr [.app 390 [.var 0], .app intEq [.app 389 [i 0], i 1]]) (some (.dv Srt.bool (.bool true))) :=
   .hook (by decide +kernel) (by decide +kernel)
     (.cons (ev_isC rfl a_S) (.cons (.hook (by decide +kernel) (by decide +kernel)
       (.cons (ev_g E01) (.cons .dv .nil)) (r := some (.dv Srt.bool (.bool true)))
@@ -269,15 +269,15 @@ theorem reqC_true : EvalTerm c5 [(0, .ctor 382 [])]
 
 /-- **Values satisfy `clC`'s conditions**: H := a, reading `g(0)` as 1. -/
 theorem witC : WitnessedSome c5 clC :=
-  ⟨[(0, .ctor 382 [])], (fun j _ s hs => by
+  ⟨[(0, .ctor 386 [])], (fun j _ s hs => by
       cases j with
       | zero => cases (show some (32 : Srt) = some s from hs); exact ⟨_, rfl, a_S⟩
       | succ j => cases (show (none : Option Srt) = some s from hs)),
     (fun t ht => by cases ht; exact reqC_true), .top⟩
 
 /-- `g(1)` evaluates to 1, by `clC` at its witness. -/
-theorem E11 : Eval c5 385 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 1))) :=
-  Eval.clause (cl := clC) (σ := [(0, .ctor 382 [])]) hfn5 (by rw [g5_clauses]; simp)
+theorem E11 : Eval c5 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 1))) :=
+  Eval.clause (cl := clC) (σ := [(0, .ctor 386 [])]) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => by
       cases j with
       | zero => cases (show some (32 : Srt) = some s from hs); exact ⟨_, rfl, a_S⟩
@@ -299,8 +299,8 @@ theorem hc5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c5 = tru
   · rw [dec.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
 
 /-- At the same values the `requires` also evaluates to `false`, reading `g(0)` as 0. -/
-theorem reqC_false : EvalTerm c5 [(0, .ctor 382 [])]
-    (.app boolOr [.app 386 [.var 0], .app intEq [.app 385 [i 0], i 1]]) (some (.dv Srt.bool (.bool false))) :=
+theorem reqC_false : EvalTerm c5 [(0, .ctor 386 [])]
+    (.app boolOr [.app 390 [.var 0], .app intEq [.app 389 [i 0], i 1]]) (some (.dv Srt.bool (.bool false))) :=
   .hook (by decide +kernel) (by decide +kernel)
     (.cons (ev_isC rfl a_S) (.cons (.hook (by decide +kernel) (by decide +kernel)
       (.cons (ev_g E00) (.cons .dv .nil)) (r := some (.dv Srt.bool (.bool false)))
@@ -315,7 +315,7 @@ theorem not_fnDet : ¬ FnDet c5 := fun h => by
 theorem not_witDet : ¬ clC.Witnessed c5 := by
   rintro ⟨σ, hσ, hreq, -⟩
   obtain ⟨v, hl, hv⟩ := hσ 0 (by decide +kernel) 32 rfl
-  have hF : EvalTerm c5 σ (.app boolOr [.app 386 [.var 0], .app intEq [.app 385 [i 0], i 1]])
+  have hF : EvalTerm c5 σ (.app boolOr [.app 390 [.var 0], .app intEq [.app 389 [i 0], i 1]])
       (some (.dv Srt.bool (.bool false))) :=
     .hook (by decide +kernel) (by decide +kernel)
       (.cons (ev_isC hl hv) (.cons (.hook (by decide +kernel) (by decide +kernel)
@@ -331,7 +331,7 @@ def clW : Clause :=
   { vars := [Srt.int], pats := [i 1], req := some (.app intEq [.var 0, i 0]), rhs := i 1, ens := none }
 
 noncomputable def g6 : Fn :=
-  { label := 385, args := [Srt.int], result := Srt.int, clauses := [clW, clO] }
+  { label := 389, args := [Srt.int], result := Srt.int, clauses := [clW, clO] }
 
 noncomputable abbrev c6 : Semantics := { c with fns := g6 :: c.fns.drop 1 }
 

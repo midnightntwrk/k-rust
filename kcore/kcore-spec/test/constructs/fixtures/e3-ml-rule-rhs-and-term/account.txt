@@ -10,10 +10,10 @@ user module E3-ML-RULE-RHS-AND-TERM: 411 sentences
   3 inert distinctCtors [generated]
   1 inert parametricFunctional [generated]
   10 inert noJunk [generated]
-  1 read andAsEnsures [user]
+  1 read andTermsWeaker [user]
   1 inert simplification [generated]
 connective readings per sentence: 1
-      sentence 313: andAsEnsures
+      sentence 313: andTermsWeaker
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
@@ -30,6 +30,7 @@ sentences every definition holds (kernelText) that the text does not: 4
       axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
       axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
 sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
+functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
 parse: ok; wf true; failing: []
 coreOK: true; failing: []
 refused by the account: 0

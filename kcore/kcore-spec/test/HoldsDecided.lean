@@ -51,7 +51,7 @@ noncomputable def sC : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 2 0
 
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 /-- `a() => a()` with the premise `∃B:Bool. B = true`. -/
 noncomputable def rPre : Rule :=

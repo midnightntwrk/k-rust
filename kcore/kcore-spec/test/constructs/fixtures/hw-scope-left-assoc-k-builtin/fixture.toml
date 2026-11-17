@@ -1,0 +1,5 @@
+# Hand-written KORE: the kompiled text of fixture e7-implicitk (K 7.1.337, sha256 57a5326aebb814892205df71b4535220eeff615f60d1ef51d86b19dd6e861e3d), the Source of its
+# own sentences written as its fixture's path, and one sentence changed: as hw-scope-left-assoc, and the axiom's Source attribute is the K installation's domains.md (the Source of the base's builtin sentences; isKBuiltin).
+# A form no text kompile 7.1.337 delivers holds (findings/KPROV-scope.md). Expected: a named refusal.
+# Account: classified refused builtinText [builtin], before the pattern is read; \left-assoc is not named.
+kore = "test/constructs/fixtures/hw-scope-left-assoc-k-builtin/hw-scope-left-assoc-k-builtin.kore"

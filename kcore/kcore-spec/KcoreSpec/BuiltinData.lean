@@ -9,7 +9,8 @@
   RANGEMAP is added by the script's add-module mode from K 7.1.337's kompile of
   prelude/rangemap-probe.k (prelude/add-rangemap.sh): its sentences in K's layout (`[a, b]`, where
   krust writes `[ a, b ]`; both parse to the same KORE). Its sorts and symbols have the numbers
-  `APPENDED` gives them, after every other module's; its sorts' `isX` and `project:X` have none.
+  `APPENDED` gives them, after every other module's, its sorts' `isX` and `project:X` after its
+  symbols.
   Builtins.lean reads it.
 -/
 import KcoreSpec.FixedSignature

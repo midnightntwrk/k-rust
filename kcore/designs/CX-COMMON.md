@@ -2,7 +2,7 @@
 
 You are a Fable judgement agent. **Your job is to try to break designs that nobody has attacked yet, before any lane implements them.** Earlier lanes found every CN-3 defect so far with a concrete counterexample that the kernel checked. Examples: the `aside` reading, arm C of `rulesPlain`, the `fails_plain` pin, and V1's carrier clauses. Your job is to find the next ones now, on paper and in scratch Lean, not later in a lane.
 
-Main directory, called MAIN below: /home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11
+Main directory, called MAIN below: <k-rust>/draft-personal/k-semantics-core-2026-11
 
 ## What counts as a defect in a unit
 A defect is any of the following.
@@ -38,7 +38,7 @@ MAIN files:
 
 Lean trees, read-only:
 - The lane trees that hold what has landed in your area. Your area brief names them.
-- /artifacts/worktrees/kcore-merge/draft-personal/k-semantics-core-2026-11/kcore-spec at 0e4ddd03, the BASE-1 line.
+- <worktree:kcore-merge>/draft-personal/k-semantics-core-2026-11/kcore-spec at 0e4ddd03, the BASE-1 line.
 - Note that INT is merging all lanes in kcore-merge right now. Its working copy may be mid-merge, so read kcore-merge only through `jj file show -r 0e4ddd03 <path>`.
 
 Fixtures, read-only: constructs/fixtures/ and f2-examples/ in any of these trees. Read only the sentences you need.

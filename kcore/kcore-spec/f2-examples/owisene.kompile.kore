@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -91,7 +91,7 @@ module OWISENE
   symbol Lbl'-LT-'generatedCounter'-GT-'{}(SortInt{}) : SortGeneratedCounterCell{} [cell{}(), constructor{}(), functional{}(), injective{}()]
   symbol Lbl'-LT-'generatedTop'-GT-'{}(SortKCell{}, SortGeneratedCounterCell{}) : SortGeneratedTopCell{} [cell{}(), constructor{}(), functional{}(), injective{}()]
   symbol Lbl'-LT-'generatedTop'-GT-'-fragment{}(SortKCellOpt{}, SortGeneratedCounterCellOpt{}) : SortGeneratedTopCellFragment{} [constructor{}(), functional{}(), injective{}()]
-  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,17,14,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,17,14,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]
   hooked-symbol LblList'Coln'get{}(SortList{}, SortInt{}) : SortKItem{} [function{}(), hook{}("LIST.get"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(968,20,968,91)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:get")]
   hooked-symbol LblList'Coln'getMInt{SortWidth}(SortList{}, SortMInt{SortWidth}) : SortKItem{} [function{}(), hook{}("LIST.getMInt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(969,28,969,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:getMInt")]
   hooked-symbol LblList'Coln'range{}(SortList{}, SortInt{}, SortInt{}) : SortList{} [function{}(), hook{}("LIST.range"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1017,19,1017,112)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:range")]
@@ -117,13 +117,13 @@ module OWISENE
   hooked-symbol Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(SortKItem{}, SortMap{}) : SortBool{} [function{}(), functional{}(), hook{}("MAP.in_keys"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(357,19,357,89)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("_|->_"), total{}()]
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("a")]
-  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,36,7,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("b")]
-  symbol Lblchoose{}(SortExp{}, SortExp{}) : SortExp{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("choose")]
-  symbol Lbldone{}(SortExp{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,46,9,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("done")]
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("a")]
+  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,36,7,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("b")]
+  symbol Lblchoose{}(SortExp{}, SortExp{}) : SortExp{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("choose")]
+  symbol Lbldone{}(SortExp{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,46,9,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("done")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
-  symbol Lblgo{}(SortExp{}, SortExp{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("go")]
+  symbol Lblgo{}(SortExp{}, SortExp{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), symbol'Kywd'{}("go")]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -276,14 +276,14 @@ module OWISENE
   axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortCmd{}, inj{SortCmd{}, SortKItem{}} (Val:SortCmd{})), \exists{SortKItem{}} (Val:SortExp{}, inj{SortExp{}, SortKItem{}} (Val:SortExp{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
 
 // rules
-// rule `<generatedTop>`(`<k>`(inj{Cmd,KItem}(go(X,Y))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Cmd,KItem}(done(choose(X,Y)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(62d2239c59364ed5ecec071bb4c078081951d1dfe54e1e14fba6814439680f3f), label(OWISENE.go), org.kframework.attributes.Location(Location(18,14,18,53)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule `<generatedTop>`(`<k>`(inj{Cmd,KItem}(go(X,Y))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Cmd,KItem}(done(choose(X,Y)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(62d2239c59364ed5ecec071bb4c078081951d1dfe54e1e14fba6814439680f3f), label(OWISENE.go), org.kframework.attributes.Location(Location(18,14,18,53)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{} \rewrites{SortGeneratedTopCell{}} (
       \and{SortGeneratedTopCell{}} (
         Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblgo{}(VarX:SortExp{},VarY:SortExp{})),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
         \top{SortGeneratedTopCell{}}()),
       \and{SortGeneratedTopCell{}} (
       Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lbldone{}(Lblchoose{}(VarX:SortExp{},VarY:SortExp{}))),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
-  [UNIQUE'Unds'ID{}("62d2239c59364ed5ecec071bb4c078081951d1dfe54e1e14fba6814439680f3f"), label{}("OWISENE.go"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,14,18,53)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+  [UNIQUE'Unds'ID{}("62d2239c59364ed5ecec071bb4c078081951d1dfe54e1e14fba6814439680f3f"), label{}("OWISENE.go"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,14,18,53)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]
 
 // rule `_|Set__SET_Set_Set_Set`(S1,S2)=>`_Set_`(S1,`Set:difference`(S2,S1)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c384edb8f3875244a593dda6163c3dee1bce5485e4e1848892aebc2bab67d2e9), concrete, org.kframework.attributes.Location(Location(749,8,749,45)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
@@ -307,7 +307,7 @@ module OWISENE
         \top{SortSet{}}())))
   [UNIQUE'Unds'ID{}("c384edb8f3875244a593dda6163c3dee1bce5485e4e1848892aebc2bab67d2e9"), concrete{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(749,8,749,45)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule choose(X,_Gen0)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(762e0870078f134700319b912f03b73dc8e809c87dc27bff615809dc05e18a83), label(OWISENE.otherwise), org.kframework.attributes.Location(Location(17,21,17,38)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), owise]
+// rule choose(X,_Gen0)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(762e0870078f134700319b912f03b73dc8e809c87dc27bff615809dc05e18a83), label(OWISENE.otherwise), org.kframework.attributes.Location(Location(17,21,17,38)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), owise]
   axiom{R} \implies{R} (
     \and{R} (
       \not{R} (
@@ -349,9 +349,9 @@ module OWISENE
      \and{SortExp{}} (
        VarX:SortExp{},
         \top{SortExp{}}())))
-  [UNIQUE'Unds'ID{}("762e0870078f134700319b912f03b73dc8e809c87dc27bff615809dc05e18a83"), label{}("OWISENE.otherwise"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,21,17,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)"), owise{}()]
+  [UNIQUE'Unds'ID{}("762e0870078f134700319b912f03b73dc8e809c87dc27bff615809dc05e18a83"), label{}("OWISENE.otherwise"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,21,17,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)"), owise{}()]
 
-// rule choose(a(.KList),Y)=>Y requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(106e6486e5009afc139838a30a6faf2aff8907b16d5f158e3a52889732378d2e), label(OWISENE.choose-a), org.kframework.attributes.Location(Location(15,20,15,37)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule choose(a(.KList),Y)=>Y requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(106e6486e5009afc139838a30a6faf2aff8907b16d5f158e3a52889732378d2e), label(OWISENE.choose-a), org.kframework.attributes.Location(Location(15,20,15,37)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -371,9 +371,9 @@ module OWISENE
      \and{SortExp{}} (
        VarY:SortExp{},
         \top{SortExp{}}())))
-  [UNIQUE'Unds'ID{}("106e6486e5009afc139838a30a6faf2aff8907b16d5f158e3a52889732378d2e"), label{}("OWISENE.choose-a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+  [UNIQUE'Unds'ID{}("106e6486e5009afc139838a30a6faf2aff8907b16d5f158e3a52889732378d2e"), label{}("OWISENE.choose-a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]
 
-// rule choose(b(.KList),Y)=>Y requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e75f2aa9ad6c5e204ef92d6f38905adfaa371881599dd1e5ac4c55d744a61bea), label(OWISENE.choose-b), non-executable, org.kframework.attributes.Location(Location(16,20,16,37)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule choose(b(.KList),Y)=>Y requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e75f2aa9ad6c5e204ef92d6f38905adfaa371881599dd1e5ac4c55d744a61bea), label(OWISENE.choose-b), non-executable, org.kframework.attributes.Location(Location(16,20,16,37)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/owisene.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -393,7 +393,7 @@ module OWISENE
      \and{SortExp{}} (
        VarY:SortExp{},
         \top{SortExp{}}())))
-  [UNIQUE'Unds'ID{}("e75f2aa9ad6c5e204ef92d6f38905adfaa371881599dd1e5ac4c55d744a61bea"), label{}("OWISENE.choose-b"), non-executable{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+  [UNIQUE'Unds'ID{}("e75f2aa9ad6c5e204ef92d6f38905adfaa371881599dd1e5ac4c55d744a61bea"), label{}("OWISENE.choose-b"), non-executable{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]
 
 // rule getGeneratedCounterCell(`<generatedTop>`(_DotVar0,Cell))=>Cell requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9ef5eb9b9e6bbd7436911fad20615821f61e06e742dd27773001ab0664bd1de3)]
   axiom{R} \implies{R} (
@@ -1593,4 +1593,4 @@ module OWISENE
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}()]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,19,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/owisene.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,19,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/owisene.k)")]

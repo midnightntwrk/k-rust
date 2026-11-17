@@ -19,7 +19,10 @@
 #     sort"). Their productions are E3's rows.
 set -eu
 K=$(cd "$(dirname "$0")/../.." && pwd)
-KR=${K_RUST:-$HOME/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust}
+# the k-rust checkout: $K_RUST, or the nearest directory above holding Cargo.toml and crates/k-rust
+KR=${K_RUST:-$(d=$K; while [ "$d" != / ]; do d=$(dirname "$d")
+  [ -f "$d/Cargo.toml" ] && [ -d "$d/crates/k-rust" ] && { echo "$d"; break; }; done)}
+[ -n "$KR" ] || { echo "kompile-e6: no k-rust checkout above $K: set K_RUST"; exit 2; }
 KOMPILE=${K_KOMPILE:-$KR/k/result/bin/kompile}
 B=$(dirname "$(dirname "$(readlink -f "$KOMPILE")")")/include/kframework/builtin
 O=$K/.lake/constructs-e6
@@ -42,4 +45,6 @@ cd "$O"
 LEAN_NUM_THREADS=1 systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 timeout 1800 \
   "$KOMPILE" --backend haskell all-builtins.k -o all-builtins-kompiled > kompile.log 2>&1 \
   || { echo "kompile-e6: kompile failed"; cat kompile.log; exit 1; }
+# the text's Source paths relative (test/relsource.py: all-builtins.k as kcore-spec/.lake/constructs-e6/all-builtins.k)
+K_RUST=$KR python3 -I "$K/test/relsource.py" all-builtins-kompiled/definition.kore
 sha256sum all-builtins-kompiled/definition.kore

@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -116,9 +116,9 @@ module E3-SETVAR-OWISE
   hooked-symbol Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(SortKItem{}, SortMap{}) : SortBool{} [function{}(), functional{}(), hook{}("MAP.in_keys"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(357,19,357,89)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("_|->_"), total{}()]
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), symbol'Kywd'{}("a")]
-  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,36,2,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), symbol'Kywd'{}("b")]
-  symbol Lblf{}(SortExp{}, SortExp{}) : SortExp{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), symbol'Kywd'{}("f")]
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), symbol'Kywd'{}("a")]
+  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,36,2,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), symbol'Kywd'{}("b")]
+  symbol Lblf{}(SortExp{}, SortExp{}) : SortExp{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,51)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), symbol'Kywd'{}("f")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
@@ -145,7 +145,7 @@ module E3-SETVAR-OWISE
   hooked-symbol LblmakeList'LParUndsCommUndsRParUnds'LIST'Unds'List'Unds'Int'Unds'KItem{}(SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.make"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(988,19,988,82)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblnoGeneratedCounterCell{}() : SortGeneratedCounterCellOpt{} [constructor{}(), functional{}(), injective{}()]
   symbol LblnoKCell{}() : SortKCellOpt{} [constructor{}(), functional{}(), injective{}()]
-  symbol Lblone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,54,2,73)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), symbol'Kywd'{}("one")]
+  symbol Lblone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,54,2,73)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), symbol'Kywd'{}("one")]
   symbol Lblproject'Coln'Bool{}(SortK{}) : SortBool{} [function{}()]
   symbol Lblproject'Coln'Exp{}(SortK{}) : SortExp{} [function{}()]
   symbol Lblproject'Coln'GeneratedCounterCell{}(SortK{}) : SortGeneratedCounterCell{} [function{}()]
@@ -166,7 +166,7 @@ module E3-SETVAR-OWISE
   hooked-symbol LblsizeList{}(SortList{}) : SortInt{} [function{}(), functional{}(), hook{}("LIST.size"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1039,18,1039,116)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smtlib{}("smt_seq_len"), symbol'Kywd'{}("sizeList"), total{}()]
   hooked-symbol LblsizeMInt{SortWidth}(SortList{}) : SortMInt{SortWidth} [function{}(), hook{}("LIST.sizeMInt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1040,34,1040,94)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("sizeMInt")]
   hooked-symbol LblsizeMap{}(SortMap{}) : SortInt{} [function{}(), functional{}(), hook{}("MAP.size"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(373,18,373,99)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("sizeMap"), total{}()]
-  symbol Lbltwo{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,76,2,95)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), symbol'Kywd'{}("two")]
+  symbol Lbltwo{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,76,2,95)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), symbol'Kywd'{}("two")]
   hooked-symbol LblupdateList'LParUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'List{}(SortList{}, SortInt{}, SortList{}) : SortList{} [function{}(), hook{}("LIST.updateAll"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(998,19,998,97)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-symbol LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.updateAll"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(324,18,324,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(SortMap{}) : SortList{} [function{}(), hook{}("MAP.values"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(365,19,365,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
@@ -294,7 +294,7 @@ module E3-SETVAR-OWISE
         \top{SortSet{}}())))
   [UNIQUE'Unds'ID{}("c384edb8f3875244a593dda6163c3dee1bce5485e4e1848892aebc2bab67d2e9"), concrete{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(749,8,749,45)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule f(@S,@S)=>one(.KList) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c00a15f6696841c090f9747463dfb4dba860316e5edaef8254dd5a0fa1a85c89), org.kframework.attributes.Location(Location(4,8,4,26)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule f(@S,@S)=>one(.KList) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c00a15f6696841c090f9747463dfb4dba860316e5edaef8254dd5a0fa1a85c89), org.kframework.attributes.Location(Location(4,8,4,26)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -314,9 +314,9 @@ module E3-SETVAR-OWISE
      \and{SortExp{}} (
        Lblone{}(),
         \top{SortExp{}}())))
-  [UNIQUE'Unds'ID{}("c00a15f6696841c090f9747463dfb4dba860316e5edaef8254dd5a0fa1a85c89"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,26)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)")]
+  [UNIQUE'Unds'ID{}("c00a15f6696841c090f9747463dfb4dba860316e5edaef8254dd5a0fa1a85c89"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,26)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)")]
 
-// rule f(_Gen0,_Gen1)=>two(.KList) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7cc3fe87867cac3cecfc984f5fb6db74d1f9ea572d1f8a9ad62707cb90739c80), org.kframework.attributes.Location(Location(5,8,5,24)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), owise]
+// rule f(_Gen0,_Gen1)=>two(.KList) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7cc3fe87867cac3cecfc984f5fb6db74d1f9ea572d1f8a9ad62707cb90739c80), org.kframework.attributes.Location(Location(5,8,5,24)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), owise]
   axiom{R} \implies{R} (
     \and{R} (
       \not{R} (
@@ -358,7 +358,7 @@ module E3-SETVAR-OWISE
      \and{SortExp{}} (
        Lbltwo{}(),
         \top{SortExp{}}())))
-  [UNIQUE'Unds'ID{}("7cc3fe87867cac3cecfc984f5fb6db74d1f9ea572d1f8a9ad62707cb90739c80"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)"), owise{}()]
+  [UNIQUE'Unds'ID{}("7cc3fe87867cac3cecfc984f5fb6db74d1f9ea572d1f8a9ad62707cb90739c80"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)"), owise{}()]
 
 // rule getGeneratedCounterCell(`<generatedTop>`(_DotVar0,Cell))=>Cell requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9ef5eb9b9e6bbd7436911fad20615821f61e06e742dd27773001ab0664bd1de3)]
   axiom{R} \implies{R} (
@@ -1486,4 +1486,4 @@ module E3-SETVAR-OWISE
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}()]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-setvar-owise/src/e3-setvar-owise.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-owise/e3-setvar-owise.k)")]

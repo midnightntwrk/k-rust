@@ -401,6 +401,22 @@ end
 def Semantics.WellSortedAt (c : Semantics) (vars : List Srt) (is : List Nat) (σ : Subst) : Prop :=
   ∀ i ∈ is, ∀ s, vars[i]? = some s → ∃ v, σ.lookup i = some v ∧ c.sortOf v = some s
 
+/-- σ' is σ off the indices `is`. -/
+def AgreeOff (is : List Nat) (σ σ' : Subst) : Prop := ∀ i, i ∉ is → σ'.lookup i = σ.lookup i
+
+/-- The variables of a clause that its right side does not bind. -/
+def Clause.univ (cl : Clause) : List Nat := (List.range cl.vars.length).filter (!cl.exs.contains ·)
+
+/-- Without existential variables, well sorted on `univ` is well sorted. -/
+theorem wellSortedAt_univ {c : Semantics} {cl : Clause} {σ : Subst} (h : cl.exs = []) :
+    c.WellSortedAt cl.vars cl.univ σ ↔ c.WellSorted cl.vars σ := by
+  constructor
+  · intro hw i s hs
+    have hlt : i < cl.vars.length := (List.getElem?_eq_some_iff.mp hs).1
+    exact hw i (by simp [Clause.univ, h, hlt]) s hs
+  · intro hw i _ s hs
+    exact hw i s hs
+
 mutual
   /-- `Eval c f vs r`: the function `f` of `c` at `vs` has the result `r` (`none`: undefined). -/
   inductive Eval (c : Semantics) : Sym → List GroundTerm → Option GroundTerm → Prop where

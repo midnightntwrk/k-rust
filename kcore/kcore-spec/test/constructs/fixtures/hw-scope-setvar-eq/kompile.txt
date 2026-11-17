@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-scope-setvar-eq/hw-scope-setvar-eq.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-scope-setvar-eq/hw-scope-setvar-eq.kore` (cwd: kcore-spec)
+definition.kore bytes: 91502
+definition.kore sha256: e144c2be839507c084823c4d2fce178ff6ce78ddb02d8a59b129f66c3f66f8d1

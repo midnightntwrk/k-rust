@@ -1,9 +1,9 @@
 command: kompile --backend haskell e2-frontend-effect.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.2
+seconds: 2.1
 definition.kore bytes: 243888
 definition.kore sha256: f5e88557d932a639fe951a41f2b94bee63a51ba8aa029454cd188e078289ed74
-stripped sha256: 8128d90f04c3d92fa11557bd14d1395ef21a57b3313916d7b86ebe0d59dd430e
+stripped sha256: 26927ce2307dbd3905e411d194b44213950283b91a779e33b20251acdf672045
 main module: 495 sentences, 163 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable '?X' defined but not used. Prefix variable name

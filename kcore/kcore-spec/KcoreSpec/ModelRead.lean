@@ -43,11 +43,15 @@ theorem tr_ap_tbl (tbl : KoreAML.VarTable) (f : String) (ps : List Kore.Pattern)
 section
 variable {vs : List KoreAML.Var} {tbl : KoreAML.VarTable} {e : Valuation Elem} {σ : Subst}
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- Elements of the arguments' readings are the values of a list of evaluations. -/
 theorem args_read {ts : List Term}
-    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI_T c T) e m ↔
       ∃ v, EvalTerm c σ t (some v) ∧ m = .val v) :
-    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI c) e b)
+    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
       ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs →
       ∃ ws : List GroundTerm, bs = ws.map Elem.val ∧ EvalTerms c σ ts (ws.map some) := by
   induction ts with
@@ -60,12 +64,27 @@ theorem args_read {ts : List Term}
       obtain ⟨ws, rfl, hws⟩ := iht (fun t' ht' => ih t' (List.mem_cons_of_mem _ ht')) hbs
       exact ⟨v :: ws, rfl, .cons hv hws⟩
 
-/-- The values of defined evaluations of the arguments are elements of their readings. -/
-theorem args_read' {ts : List Term}
+end AtT
+
+/-- Elements of the arguments' readings are the values of a list of evaluations. -/
+theorem args_read {ts : List Term}
     (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
       ∃ v, EvalTerm c σ t (some v) ∧ m = .val v) :
+    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI c) e b)
+      ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs →
+      ∃ ws : List GroundTerm, bs = ws.map Elem.val ∧ EvalTerms c σ ts (ws.map some) :=
+  AtT.args_read (c := c) (T := StepM c) (ts := ts) (ih := ih)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- The values of defined evaluations of the arguments are elements of their readings. -/
+theorem args_read' {ts : List Term}
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI_T c T) e m ↔
+      ∃ v, EvalTerm c σ t (some v) ∧ m = .val v) :
     ∀ {rs : List (Option GroundTerm)} {ws : List GroundTerm}, EvalTerms c σ ts rs → allSome rs = some ws →
-      All2 (fun φ b => φ.interpret (stdI c) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
+      All2 (fun φ b => φ.interpret (stdI_T c T) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
         (ws.map Elem.val) := by
   induction ts with
   | nil => intro rs ws h hs; cases h; cases hs; exact .nil
@@ -84,6 +103,17 @@ theorem args_read' {ts : List Term}
           subst hs
           exact .cons ((ih t (List.mem_cons_self ..) _).mpr ⟨v, ht, rfl⟩)
             (iht (fun t' ht' => ih t' (List.mem_cons_of_mem _ ht')) hts hr)
+
+end AtT
+
+/-- The values of defined evaluations of the arguments are elements of their readings. -/
+theorem args_read' {ts : List Term}
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+      ∃ v, EvalTerm c σ t (some v) ∧ m = .val v) :
+    ∀ {rs : List (Option GroundTerm)} {ws : List GroundTerm}, EvalTerms c σ ts rs → allSome rs = some ws →
+      All2 (fun φ b => φ.interpret (stdI c) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
+        (ws.map Elem.val) :=
+  AtT.args_read' (c := c) (T := StepM c) (ts := ts) (ih := ih)
 
 theorem evalTerms_length : ∀ {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
     ts.length = rs.length
@@ -117,6 +147,25 @@ theorem evalTerm_inj_inv {σ : Subst} {a b : Srt} {t : Term} {r : Option GroundT
   cases h with
   | inj h' => exact ⟨_, h', rfl⟩
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- The head of an application as `Term.kore` writes it, applied to argument elements: what the
+symbol gives on their values. -/
+theorem head_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {tbl : KoreAML.VarTable}
+    {vs : List KoreAML.Var} {ts : List Term} {e : Valuation Elem} {ws : List GroundTerm}
+    (hl : ws.length = k.args.length) (m : Elem) :
+    (∃ a, (match iteSort? (c.symName k.name) with
+        | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
+        | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+      AppE (stdI_T c T) a (ws.map Elem.val) m) ↔ result c k ws m := by
+  cases hi : iteSort? (c.symName k.name) with
+  | none => exact symE_vals h.namesK hk hl m
+  | some X => exact lblite_app h hk hi hl e m
+
+end AtT
+
 /-- The head of an application as `Term.kore` writes it, applied to argument elements: what the
 symbol gives on their values. -/
 theorem head_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {tbl : KoreAML.VarTable}
@@ -125,10 +174,8 @@ theorem head_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {t
     (∃ a, (match iteSort? (c.symName k.name) with
         | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
         | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI c) e a ∧
-      AppE (stdI c) a (ws.map Elem.val) m) ↔ result c k ws m := by
-  cases hi : iteSort? (c.symName k.name) with
-  | none => exact symE_vals h.namesK hk hl m
-  | some X => exact lblite_app h hk hi hl e m
+      AppE (stdI c) a (ws.map Elem.val) m) ↔ result c k ws m :=
+  AtT.head_app (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (tbl := tbl) (vs := vs) (ts := ts) (e := e) (ws := ws) (hl := hl) (m := m)
 
 theorem kore_app_tr {tbl : KoreAML.VarTable} {vs : List KoreAML.Var} (f : Sym) (ts : List Term) :
     KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs (.app f ts)) =
@@ -150,13 +197,17 @@ theorem kore_app_tr {tbl : KoreAML.VarTable} {vs : List KoreAML.Var} (f : Sym) (
     show KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.trSort tbl (KoreAML.srt X)) _ = _
     rw [trSort_srt]
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **The reading of a term**: under a valuation that reads each variable as its value in σ, a
 term denotes exactly the values `EvalTerm` gives it under σ. -/
 theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
     {e : Valuation Elem} {σ : Subst}
-    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔
       ∃ v, σ.lookup i = some v ∧ m = .val v) {t : Term} (ht : TermOK c P t) :
-    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI_T c T) e m ↔
       ∃ v, EvalTerm c σ t (some v) ∧ m = .val v := by
   have hn := h.namesK
   induction ht with
@@ -170,7 +221,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
   | @dv s lit hd =>
     intro m
     rw [Term.kore, KoreAML.tr]
-    show (KoreAML.sym (.dv lit.text) ⬝ KoreAML.trSort tbl (KoreAML.srt (c.sortName s))).interpret (stdI c) e m ↔ _
+    show (KoreAML.sym (.dv lit.text) ⬝ KoreAML.trSort tbl (KoreAML.srt (c.sortName s))).interpret (stdI_T c T) e m ↔ _
     rw [trSort_srt, KoreAML.interp_app]
     simp only [KoreAML.interp_sym, stdI_symb, sort_den hn (h.dvSort hd) e, stdI_app]
     constructor
@@ -222,7 +273,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
     rw [kore_app_tr, interp_appList]
     constructor
     · rintro ⟨a, ha, bs, hbs, happ⟩
-      obtain ⟨ws, rfl, hws⟩ := args_read ih hbs
+      obtain ⟨ws, rfl, hws⟩ := args_read (T := T) ih hbs
       have hlw : ws.length = k.args.length := by
         rw [← hl, evalTerms_length hws]; simp
       have hr := (head_app h hk (tbl := tbl) (vs := vs) (ts := ts) hlw m).mp ⟨a, ha, happ⟩
@@ -264,9 +315,9 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
           allSome rs = some ws → result c k ws (.val v) →
           ∃ a, (match iteSort? (c.symName k.name) with
             | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI c) e a ∧
-            ∃ bs, All2 (fun φ b => φ.interpret (stdI c) e b)
-              ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI c) a bs (.val v) := by
+            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+            ∃ bs, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
+              ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI_T c T) a bs (.val v) := by
         intro rs ws hts hws hres
         have hlw : ws.length = k.args.length := by
           rw [← hl, evalTerms_length hts, allSome_length hws]
@@ -312,6 +363,18 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
           simp only [Option.map_some, Option.some.injEq] at hr
           subst hr
           exact key rs ws hts hws ((result_ovl ho _).mpr rfl)
+
+end AtT
+
+/-- **The reading of a term**: under a valuation that reads each variable as its value in σ, a
+term denotes exactly the values `EvalTerm` gives it under σ. -/
+theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
+    {e : Valuation Elem} {σ : Subst}
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+      ∃ v, σ.lookup i = some v ∧ m = .val v) {t : Term} (ht : TermOK c P t) :
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+      ∃ v, EvalTerm c σ t (some v) ∧ m = .val v :=
+  AtT.tr_term (c := c) (T := StepM c) (h := h) (P := P) (vs := vs) (tbl := tbl) (e := e) (σ := σ) (hvar := hvar) (t := t) (ht := ht)
 
 end Model
 

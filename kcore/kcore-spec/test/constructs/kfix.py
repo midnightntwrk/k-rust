@@ -67,10 +67,13 @@ constructor of ReadingNote is a key of some `notes` table.
 import hashlib, os, re, shutil, subprocess, sys, time, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(K, "test"))
+sys.dont_write_bytecode = True  # no __pycache__ in the tree
+import relsource
 FX = os.path.join(K, "test/constructs/fixtures")
 WORK = os.path.join(K, ".lake/kfix")
-KR = os.environ.get("K_RUST", os.path.expanduser(
-    "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
+# the k-rust checkout: $K_RUST, or the nearest directory above holding Cargo.toml and crates/k-rust
+KR = relsource.krust_root() or "K_RUST-unset"
 KOMPILE = os.environ.get("K_KOMPILE", os.path.join(KR, "k/result/bin/kompile"))
 KCORE = os.path.join(K, ".lake/build/bin/kcore")
 LISTS = ["E1", "E2", "E3", "E7", "E8"]
@@ -250,14 +253,32 @@ def disjunctions_sorted(t):
     return "".join(out)
 
 
+def main_name(kore):
+    """The name of the text's last module (kompile writes the main module last), or None."""
+    names = re.findall(r"^module (\S+)", kore, re.M)
+    return names[-1] if names else None
+
+
+def unmodule(t, name):
+    """t with the main module's name `name` replaced by MAIN where a symbol's label holds it: K's
+    label `..._NAME_Sort...` is written `...Unds'NAME'Unds'Sort...`, the `_` before the name being
+    the end of the mangled run before it (`'Unds'NAME` after a letter, `'LParUndsRParUnds'NAME`
+    after `(_)`). Only that name: another token in that place (a sort such as K, a library
+    module's name) is kept, so that two texts differing there are not made equal."""
+    if not name:
+        return t
+    return re.sub(r"(?<=Unds)'" + re.escape(name) + r"'(?=Unds')", "'MAIN'", t)
+
+
 def stripped(kore):
     """The text compared by same_as / differs_from and hashed as `stripped sha256`: Source and
-    Location attributes removed, module names replaced, disjunctions in a fixed order
+    Location attributes removed, module names replaced (each `module` line's, and the main
+    module's where a label holds it: unmodule), disjunctions in a fixed order
     (disjunctions_sorted), and generated variables renumbered (alpha), in that order so that
     neither the module names nor the generated variables' numbers fix a disjunct's place."""
     t = ATTR.sub("", kore).replace("[, ", "[").replace("[,", "[")
+    t = unmodule(t, main_name(t))
     t = re.sub(r"^module \S+", "module MAIN", t, flags=re.M)
-    t = re.sub(r"'Unds'[A-Z0-9-]+'Unds'", "'Unds'MAIN'Unds'", t)
     return alpha(disjunctions_sorted(t))
 
 
@@ -302,13 +323,17 @@ def run(name):
     shutil.rmtree(w, ignore_errors=True)
     shutil.copytree(os.path.join(FX, name), src,
                     ignore=shutil.ignore_patterns("kompile.txt", "kore.txt", "account.txt"))
+    # each file of src: the file of the tree (or of the k-rust checkout) it is a copy of
+    origin = {f: os.path.relpath(os.path.join(FX, name, f), relsource.TREE) for f in os.listdir(src)}
     if "text_from" in c:
         for f in os.listdir(os.path.join(FX, c["text_from"])):
             if f not in ("kompile.txt", "kore.txt", "account.txt", "fixture.toml"):
                 shutil.copy(os.path.join(FX, c["text_from"], f), src)
+                origin[f] = os.path.relpath(os.path.join(FX, c["text_from"], f), relsource.TREE)
     ext = []
     for rel in c.get("external", []):
         shutil.copy(os.path.join(KR, rel), src)
+        origin[os.path.basename(rel)] = rel
         ext.append(f"external {rel}: sha256 {hashlib.sha256(open(os.path.join(KR, rel), 'rb').read()).hexdigest()}")
     args = c["args"] if "args" in c else ["--backend", "haskell", *c["extra"], c["main"], "-o", "out"]
     cmd = ["kompile", *args]
@@ -365,6 +390,11 @@ def run(name):
                     raise SystemExit(f"kfix: run fixture {c[rel]} before {name}")
                 eq = stripped(open(op).read()) == stripped(kore)
                 rep.append(f"{rel} {c[rel]}: {'equal' if eq else 'different'} after stripping")
+        # the text left in .lake (the one copied into the tree) names each source by the file it
+        # is a copy of, relative (test/relsource.py); the outputs above were computed before
+        kr = relsource.krust_root()
+        relsource.rewrite_file(kp, lambda p: origin.get(p[len(src) + 1:], os.path.relpath(p, relsource.TREE))
+                               if p.startswith(src + "/") else relsource.relative(p, kr))
     elif ok:
         rep.append("definition.kore: none written")
     if (c["expect"] == "ok") != ok:

@@ -47,8 +47,10 @@ read []
 
 
 
-kernel_rfl evalFC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm),
-  Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs
+/-- `evalFC` reads no interpretation where no parameter is raw. -/
+theorem evalFC_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (n : Nat) (f : Sym)
+    (vs : List GroundTerm) : Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs :=
+  Cert.evalFC_withHooks c H hr n f vs
 kernel_rfl clausesFixed_withHooks : ∀ (c : Semantics) (H : HookParams),
   (c.withHooks H).clausesFixed = c.clausesFixed
 
@@ -63,7 +65,7 @@ theorem eval_everyH {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
   have hsr' := (Semantics.srReady_withHooks c H).trans hsr
   have hmr' := (Semantics.matchReady_withHooks c H).trans hmr
   have hF : Exec.evalF (c.withHooks H) n f vs = some r :=
-    Cert.evalFC_sound n (by rw [evalFC_withHooks]; exact h)
+    Cert.evalFC_sound n (by rw [evalFC_withHooks _ _ hr]; exact h)
   exact Exec.evalF_sound (sortCtx_of hok' hsr' (Exec.ovlCase_of hmr')) (Exec.clauseCtx_of hok') (Exec.matchCtx_of hmr') n
     hF (by rw [Semantics.lookupFn_withHooks]; exact hfn) (by rw [Semantics.sortsOf_withHooks c H hr]; exact hvs)
 
@@ -84,7 +86,7 @@ noncomputable abbrev c : Semantics := defn.sem
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 /-- `half`, the definition's function. -/
-def half : Sym := 383
+def half : Sym := 387
 
 theorem half_named : c.symName half = "Lblhalf" := by decide +kernel
 
@@ -186,7 +188,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def half : Sym := 383
+def half : Sym := 387
 
 theorem half_named : c.symName half = "Lblhalf" := by decide +kernel
 

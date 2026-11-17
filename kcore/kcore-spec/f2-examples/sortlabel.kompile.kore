@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-sort-label/src/e2-sort-label.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-sort-label/e2-sort-label.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -75,7 +75,7 @@ module E2-SORT-LABEL
   sort SortKConfigVar{} [hasDomainValues{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,28)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/kast.md)"), token{}()]
   hooked-sort SortInt{} [hasDomainValues{}(), hook{}("INT.Int"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1209,3,1209,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-sort SortSet{} [concat{}(Lbl'Unds'Set'Unds'{}()), element{}(LblSetItem{}()), hook{}("SET.Set"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(700,3,700,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), unit{}(Lbl'Stop'Set{}())]
-  sort SortFoo{} [label{}("fooSort"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,30)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-sort-label/src/e2-sort-label.k)")]
+  sort SortFoo{} [label{}("fooSort"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,3,2,30)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-sort-label/e2-sort-label.k)")]
   hooked-sort SortBool{} [hasDomainValues{}(), hook{}("BOOL.Bool"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1088,3,1088,32)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-sort SortMInt{SortS0} [hasDomainValues{}(), hook{}("MINT.MInt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2888,3,2888,47)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   sort SortGeneratedTopCellFragment{} []
@@ -117,7 +117,7 @@ module E2-SORT-LABEL
   hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("_|->_"), total{}()]
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lblfoo{}() : SortFoo{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-sort-label/src/e2-sort-label.k)"), symbol'Kywd'{}("foo")]
+  symbol Lblfoo{}() : SortFoo{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,37)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-sort-label/e2-sort-label.k)"), symbol'Kywd'{}("foo")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
@@ -1407,4 +1407,4 @@ module E2-SORT-LABEL
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}()]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-sort-label/src/e2-sort-label.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-sort-label/e2-sort-label.k)")]

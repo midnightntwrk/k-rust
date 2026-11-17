@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/regeq.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/regeq.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -111,7 +111,7 @@ module REGEQ
   hooked-symbol Lbl'Unds'-Int'Unds'{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), functional{}(), hook{}("INT.sub"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1267,18,1267,116)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("-"), symbol'Kywd'{}("_-Int_"), total{}()]
   hooked-symbol Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.difference"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(311,18,311,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lbl'UndsSlsh'Int'Unds'{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.tdiv"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1256,18,1258,65)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("(ite (or (= 0 (mod #1 #2)) (>= #1 0)) (div #1 #2) (ite (> #2 0) (+ (div #1 #2) 1) (- (div #1 #2) 1)))"), symbol'Kywd'{}("_/Int_")]
-  symbol Lbl'UndsColnUndsUnds'REGEQ'Unds'List'Unds'Int'Unds'List{}(SortInt{}, SortList{}) : SortList{} [functional{}(), injective{}(), macro{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,19,16,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/regeq.k)")]
+  symbol Lbl'UndsColnUndsUnds'REGEQ'Unds'List'Unds'Int'Unds'List{}(SortInt{}, SortList{}) : SortList{} [functional{}(), injective{}(), macro{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,19,16,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/regeq.k)")]
   hooked-symbol Lbl'Unds-LT--LT-'Int'Unds'{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.shl"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1270,18,1270,113)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smtlib{}("shlInt"), symbol'Kywd'{}("_<<Int_")]
   hooked-symbol Lbl'Unds-LT-Eqls'Int'Unds'{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), functional{}(), hook{}("INT.le"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1328,19,1328,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("<="), symbol'Kywd'{}("_<=Int_"), total{}()]
   hooked-symbol Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortBool{} [function{}(), functional{}(), hook{}("MAP.inclusion"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(383,19,383,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
@@ -897,7 +897,7 @@ module REGEQ
         \top{SortInt{}}())))
   [UNIQUE'Unds'ID{}("b85464e015508d27870108cd042f7882a9f57166375e422fdae383ae7fe1a022"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1383,8,1383,41)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), preserves-definedness{}(), simplification{}("")]
 
-// rule `_List_`(`ListItem`(inj{Int,KItem}(#token("5","Int"))),_Gen0)=>`_List_`(`ListItem`(inj{Int,KItem}(#token("6","Int"))),_Gen0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(f783c8cf30428b4aa2d72c18f152aef0efbe3ffba2952973863ccb4973c0cd9a), org.kframework.attributes.Location(Location(18,8,18,20)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/regeq.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule `_List_`(`ListItem`(inj{Int,KItem}(#token("5","Int"))),_Gen0)=>`_List_`(`ListItem`(inj{Int,KItem}(#token("6","Int"))),_Gen0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(f783c8cf30428b4aa2d72c18f152aef0efbe3ffba2952973863ccb4973c0cd9a), org.kframework.attributes.Location(Location(18,8,18,20)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/regeq.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -917,7 +917,7 @@ module REGEQ
      \and{SortList{}} (
        Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6"))),Var'Unds'Gen0:SortList{}),
         \top{SortList{}}())))
-  [UNIQUE'Unds'ID{}("f783c8cf30428b4aa2d72c18f152aef0efbe3ffba2952973863ccb4973c0cd9a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,8,18,20)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/regeq.k)")]
+  [UNIQUE'Unds'ID{}("f783c8cf30428b4aa2d72c18f152aef0efbe3ffba2952973863ccb4973c0cd9a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,8,18,20)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/regeq.k)")]
 
 // rule `_andBool_`(#token("false","Bool") #as _Gen1,_Gen0)=>_Gen1 requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(61fbef33b3611f1cc2aaf3b5e8ddec4a0f434c557278c38461c65c8722743497), org.kframework.attributes.Location(Location(1143,8,1143,37)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
@@ -2649,4 +2649,4 @@ module REGEQ
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,19,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/regeq.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,19,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/regeq.k)")]

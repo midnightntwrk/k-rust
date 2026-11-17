@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+    "Source(m2-spec/examples/store.k)"
   )
 ]
 module BASIC-K
@@ -1017,7 +1017,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     ),
     symbol'Kywd'{}("put")
   ]
@@ -1028,7 +1028,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,48,3,70)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     ),
     symbol'Kywd'{}("get")
   ]
@@ -1039,7 +1039,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,73,3,92)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     ),
     symbol'Kywd'{}("new")
   ]
@@ -1050,7 +1050,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,95,3,116)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     ),
     symbol'Kywd'{}("done")
   ]
@@ -1064,7 +1064,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -1076,7 +1076,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     )
   ]
   symbol LblinitStateCell{}() : SortStateCell{} [function{}(), functional{}(), total{}()]
@@ -1088,7 +1088,7 @@ module STORE
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+      "Source(m2-spec/examples/store.k)"
     )
   ]
   symbol LblinitTCell{}(SortMap{}) : SortTCell{} [function{}()]
@@ -5074,7 +5074,7 @@ module STORE
       label{}("STORE.put"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,78)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+        "Source(m2-spec/examples/store.k)"
       )
     ]
   axiom{}
@@ -5128,7 +5128,7 @@ module STORE
       label{}("STORE.get"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,77)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+        "Source(m2-spec/examples/store.k)"
       )
     ]
   axiom{}
@@ -5173,7 +5173,7 @@ module STORE
       label{}("STORE.new"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,47)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+        "Source(m2-spec/examples/store.k)"
       )
     ]
   axiom{R}
@@ -6552,6 +6552,6 @@ module STORE
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,1,13,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/store.k)"
+    "Source(m2-spec/examples/store.k)"
   )
 ]

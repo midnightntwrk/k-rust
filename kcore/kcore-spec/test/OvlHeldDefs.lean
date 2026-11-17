@@ -28,10 +28,10 @@ definition_of defn from "f2-examples/ovlsub.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def capN : Sym := 383
-def inf : Sym := 385
-def run : Sym := 386
-def capGas : Sym := 390
+def capN : Sym := 387
+def inf : Sym := 389
+def run : Sym := 390
+def capGas : Sym := 394
 def gasS : Srt := 32
 def nS : Srt := 33
 

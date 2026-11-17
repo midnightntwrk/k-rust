@@ -26,10 +26,10 @@ noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the facts name, by number: the definition's own (`symNames` from
 `nRegSyms`, `sortNames` from `nRegSorts`) and the library's (`regSymNames`, `regSortNames`). -/
-def kCell : Sym := 380
-def acct : Sym := 382
-def done : Sym := 383
-def wrap : Sym := 384
+def kCell : Sym := 384
+def acct : Sym := 386
+def done : Sym := 387
+def wrap : Sym := 388
 def jsonEntry : Sym := 351
 def cmdS : Srt := 32
 def acctS : Srt := 33

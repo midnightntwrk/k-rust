@@ -1,3 +1,3 @@
 command: none: fixture.toml kore = 'test/constructs/fixtures/hw-syntactic-eq/hw-syntactic-eq.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-syntactic-eq/hw-syntactic-eq.kore` (cwd: kcore-spec)
-definition.kore bytes: 239792
-definition.kore sha256: 362c47d3e1a04e7df9919f145950444db32ab573a9c87efd03c3c087f0522262
+definition.kore bytes: 239782
+definition.kore sha256: 9e4b5711d7f53c069cdc7dafc067ea4454fbb8d812f539a9060a4138c8cf7a3d

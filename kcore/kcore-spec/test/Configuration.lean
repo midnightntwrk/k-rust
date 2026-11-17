@@ -51,10 +51,10 @@ definition_of defn from "f2-examples/e6cfg.kompile.kore"
 /-- The semantics at the interpretation that gives every parameter no value. -/
 noncomputable abbrev c : Semantics := defn.sem.withHooks HookParams.none
 
-def kCell : Sym := 379
-def cfgSym : Sym := 385
-def go : Sym := 382
-def wrap : Sym := 383
+def kCell : Sym := 383
+def cfgSym : Sym := 389
+def go : Sym := 386
+def wrap : Sym := 387
 def expS : Srt := 32
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
@@ -84,10 +84,10 @@ def rhs : Term :=
 
 theorem rules_rhs : c.rules.map (fun r => Term.beq r.rhs rhs) = [true] := by decide +kernel
 
-/-- The executable checks never read a parameter's interpretation (`Cert.stuckCheck_withHooks`), so
-no certificate decides this point; the right side's result is derived instead. At `HookParams.none`
-`#configuration` has no value (`paramVal` is the interpretation's, which gives none), and each
-constructor above it is strict. -/
+/-- Where no parameter is raw the executable checks read no parameter's interpretation
+(`Cert.stuckCheck_withHooks`), so no certificate decides this point; the right side's result is
+derived instead. At `HookParams.none` `#configuration` has no value (`paramVal` is the
+interpretation's, which gives none), and each constructor above it is strict. -/
 theorem rhs_none (σ : Subst) : EvalTerm c σ rhs none := by
   have hp : EvalTerm c σ (.app cfgSym []) none :=
     .param (by decide +kernel) (by decide +kernel) (by decide +kernel) .nil

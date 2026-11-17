@@ -50,8 +50,8 @@ definition_of defn from "f2-examples/cellsub.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def kCell : Sym := 385
-def go : Sym := 388
+def kCell : Sym := 389
+def go : Sym := 392
 def kCellS : Srt := 33
 def pgmS : Srt := 35
 

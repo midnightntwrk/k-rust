@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.8
 definition.kore bytes: 213443
 definition.kore sha256: 8a05e6a33f272d66f0155a121b8efc2d7f9751de3a0cd2a7b00e2843b87f7d43
-stripped sha256: 3ab0edc608ddb5013cb31900935dd3c338b4362bddbb44834fef2467f1e8c1d3
+stripped sha256: 398d5b3bb93ca492e534d7113085b4a950bb638a8bcac165c7a103b9d33f7ffa
 main module: 421 sentences, 65 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name E3-CASTS-SYNTAX

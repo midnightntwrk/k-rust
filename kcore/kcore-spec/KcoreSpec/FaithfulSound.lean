@@ -98,7 +98,7 @@ theorem step_sound_core (c : Semantics) (h : HypSoundCore c) (hb : ∀ r ∈ c.r
     (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hb (fun r hr _ => ?_) hstep e m hm
   obtain ⟨hlhs, -⟩ := rule_ctx hok hr
   exact fun hx _ hkeys e hfail =>
-    applies_emptyC hI hph hcs hcso hg hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (collPat_of_sorted hph' hlhs) (Semantics.sortedOK_rule hok hr).2.1 hx hkeys e hfail
+    applies_emptyC hI hph hcs hcso hg hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (collPat_of_sorted hph' hlhs) (Semantics.sortedOK_ruleTop hok hr).1 hx hkeys e hfail
 
 /-- **An undefined result is a theorem of `Γ`**, for a semantics that satisfies `HypSoundCore`:
 where `f` has the result none at `vs`, `Γ` entails `f(vs) = ⊥` (`eval_den4`, its competitors' exclusions

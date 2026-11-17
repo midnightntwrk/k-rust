@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-BOOL-ML-LOOP: 394 sentences
+  1 inert import [generated]
+  177 read [generated]
+  184 read [builtin]
+  7 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 351 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-bool-ml-loop.k:10: axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortInt{}, R}(Lblf{}(), \and{SortInt{}}(\exists{SortInt{}}(VarB:SortBool{}, Lblpick{}(VarB:SortBool{})), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("1f7361a25f78d3e5adef0b05d36bd4bcd80a129532f84319f18e66afe33b56f9"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,8,10,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}( …
+finish: sentence 351 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

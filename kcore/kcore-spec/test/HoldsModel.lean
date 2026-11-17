@@ -4,7 +4,7 @@
   Kernel-checked (`decide +kernel`).
 
   The semantics is the reader's for `f2-examples/symrule.kompile.kore` (as `test/ExRules.lean`):
-  `a(Exp)` and `b()` of sort Exp (symbols 381, 382), `<generatedCounter>(Int)` (73) of the counter
+  `a(Exp)` and `b()` of sort Exp (symbols 385, 386), `<generatedCounter>(Int)` (73) of the counter
   cell's sort. Each condition below has `condOK` and `Cond.bound` (decided), and the lemma is read at
   it in the value model at any T, under `FnDet` and `FnSolves`:
   - `pNot`: `not (and (mem Z a(b)) (mem Z G))`, Z and G of Exp (the pre of a complement on a left side);
@@ -14,6 +14,8 @@
   - `pMatch`: `∃ X:Int. C ∈ <generatedCounter>(X)`, C of the counter cell's sort, X held by the pattern
     under a constructor.
   `holds_stdI` at `pNot`, `pOr` and `pMatch`, the truth value from `holds_decided` under `FnHyp`.
+  `HoldsShape.holds_entails` at `pNot` in any model of `Γc`, with `holds_true`, `holds_false` and
+  `holds_unique` there.
 -/
 import KcoreSpec
 
@@ -31,13 +33,13 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 def tt : Term := .dv Srt.bool (.bool true)
 def ff : Term := .dv Srt.bool (.bool false)
-def tA (t : Term) : Term := .app 381 [t]
-def tB : Term := .app 382 []
+def tA (t : Term) : Term := .app 385 [t]
+def tB : Term := .app 386 []
 
 /-- The counter cell's sort (the second variable of the text's rule). -/
 noncomputable def sC : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 2 0
 
-example : c.symName 381 = "Lbla" ∧ c.symName 382 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
+example : c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
     c.sortName 32 = "Exp" := by
   decide +kernel
 
@@ -180,5 +182,35 @@ example : canonVars c [32] ++ [Cond.binder c (canonVars c [32]).length Srt.bool]
 
 example : ∀ j ∈ ctorOccs c (.app 73 [.var 1]), j ∈ varOccs (.app 73 [.var 1]) :=
   Faithful.Model.ctorOccs_varOccsStdI (c := c) _
+
+/-! ## The lemma in every model of `Γc` -/
+
+section
+open ML Faithful Faithful.Model HoldsShape
+
+/-- `holds_entails` at `pNot`, which holds no binder, in any model of `Γc`. -/
+theorem entailsNot {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c)
+    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
+    HoldsDen' c I pNot :=
+  holds_entails coreOK hIc hc pNot fun hb => absurd hb (by decide +kernel)
+
+/-- Its two halves and the uniqueness of the truth value at `pNot`. -/
+example {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c)
+    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    {P : Nat → Prop} {σ : Subst} {tbl : KoreAML.VarTable} {e : ML.Valuation M} {S : Srt}
+    (hP : ∀ j ∈ varOccsCond 2 pNot, j < 2 → P j) (hr : Reads c I [32, 32] P σ tbl e)
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c [32, 32]) (srtOf c S) pNot), k ∈ tbl)
+    (hS : S < nRegSorts + c.sortNames.length) (a : M)
+    (ha : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a) :
+    (Holds c 2 σ pNot true →
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c [32, 32]) (srtOf c S) pNot)).interpret I e a) ∧
+    (Holds c 2 σ pNot false →
+      (KoreAML.tr ⟨tbl, []⟩ (.not (srtOf c S) (Cond.kore c (canonVars c [32, 32]) (srtOf c S) pNot))).interpret I e a) ∧
+    (Holds c 2 σ pNot true → Holds c 2 σ pNot false → False) :=
+  ⟨fun hh => holds_true (entailsNot hIc hc) conds_ok.1.1 conds_ok.1.2 hP hr hk hS hh a ha,
+   fun hh => holds_false (entailsNot hIc hc) conds_ok.1.1 conds_ok.1.2 hP hr hk hS hh a ha,
+   fun ht hf => holds_unique (entailsNot hIc hc) conds_ok.1.1 conds_ok.1.2 hP hr hk hS ⟨a, ha⟩ ht hf⟩
+
+end
 
 end HoldsModelT

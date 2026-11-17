@@ -208,7 +208,7 @@ theorem sortOf_own {s : Srt} (hs : s = U ∨ s = E) {v : GroundTerm} (h : c.sort
     cases hk : lookupSig c.ctorSigs f with
     | none =>
       have : c.lookupOvl f = none := rfl
-      rw [hk, this] at h; cases h
+      rw [hk, this, c.lookupOpen_of_noRaw (by decide +kernel) f] at h; cases h
     | some k =>
       rw [hk] at h
       simp only at h

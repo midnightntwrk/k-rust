@@ -347,11 +347,19 @@ namespace Semantics
 variable (c : Semantics)
 
 /-- The generators of N: its constructors, its overloading symbols (whose raw applications are
-values where no overload covers their arguments) and the injections from its subsorts. -/
+values where no overload covers their arguments), its open generators (the `raw` parameters of
+result N, whose raw applications are values where the interpretation leaves them raw) and the
+injections from its subsorts. -/
 def gens (N : Srt) : List Gen :=
   (c.ctorSigs.filter (·.result == N)).map .ctor ++
   (c.ovlSigs.filter (·.result == N)).map .ctor ++
+  (((c.params.filter (·.raw)).map (·.sig)).filter (·.result == N)).map .ctor ++
   (sortBy id ((c.subsorts.filter (·.2 == N)).map (·.1))).map .inj
+
+/-- The generator is an open generator: a symbol `lookupOpen` answers for. -/
+def isOpenGen : Gen → Bool
+  | .ctor k => (c.lookupOpen k.name).isSome
+  | .inj _ => false
 
 /-- The sorts whose generators `covers` enumerates: those whose values are exactly the applications
 of their generators (`gens`: constructor terms of the sort, and injections from its subsorts). A
@@ -994,18 +1002,21 @@ def totalObligations : List Sym :=
 
 /-- A rule: a left-hand side of the configuration sort whose map patterns have at most one
 frame, binding every variable (repetitions allowed); a Bool `requires` and a right-hand side of
-the configuration sort over constructors, hooks and the user's functions; a Bool `ensures`. -/
+the configuration sort over constructors, hooks and the user's functions; a Bool `ensures`; no
+existential variable (the left side binds every variable, so none is left for one). -/
 def ruleOK (r : Rule) : Bool :=
   sortOfTerm c.patCtx r.vars r.lhs == some topCellSort &&
   noMapIn r.lhs &&
   binds r.vars.length (varOccs r.lhs) &&
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req &&
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens &&
-  sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort
+  sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
+  r.exs.isEmpty
 
 /-- A rule, as `ruleOK`, its left-hand side well-sorted over the collection pattern symbols too
 (`patCtxAll`), and each of its variables occurring somewhere in it rather than in its left side
-(which variables the left side may leave open is `rulesPlain`'s, Tie.lean). -/
+(which variables the left side may leave open is `rulesPlain`'s, Tie.lean); its existential
+variables distinct variables the left side and the conditions do not hold (as `ruleSorted`). -/
 def ruleOKAll (r : Rule) : Bool :=
   sortOfTerm c.patCtxAll r.vars r.lhs == some topCellSort &&
   noMapIn r.lhs &&
@@ -1013,7 +1024,8 @@ def ruleOKAll (r : Rule) : Bool :=
     varOccsCond r.vars.length r.post) &&
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req &&
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens &&
-  sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort
+  sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
+  nodup r.exs && r.exs.all (fun i => r.opens.contains i && !r.condVars.contains i)
 
 /-- A clause, as `clauseOK`, its patterns well-sorted over the collection pattern symbols too
 (`patCtxAll`: KEVM's `#lookup(K |-> V M, K)`, a list's `ListItem(P) L`), and each of its variables
@@ -1051,10 +1063,14 @@ theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
 
 theorem ruleOKAll_of {r : Rule} (h : c.ruleOK r = true) : c.ruleOKAll r = true := by
   simp only [ruleOK, ruleOKAll, Bool.and_eq_true, beq_iff_eq] at h ⊢
-  refine ⟨⟨⟨⟨⟨sortOfTerm_heads _ _ _ _ h.1.1.1.1.1, h.1.1.1.1.2⟩, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩
-  have hb := h.1.1.1.2
-  simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append] at hb ⊢
-  exact fun i hi => Or.inl (Or.inl (Or.inl (Or.inl (hb i hi))))
+  have hex : r.exs = [] := List.isEmpty_iff.mp h.2
+  have h := h.1
+  refine ⟨⟨⟨⟨⟨⟨⟨sortOfTerm_heads _ _ _ _ h.1.1.1.1.1, h.1.1.1.1.2⟩, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩, ?_⟩, ?_⟩
+  · have hb := h.1.1.1.2
+    simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append] at hb ⊢
+    exact fun i hi => Or.inl (Or.inl (Or.inl (Or.inl (hb i hi))))
+  · simp [hex, nodup]
+  · simp [hex]
 
 end Semantics
 

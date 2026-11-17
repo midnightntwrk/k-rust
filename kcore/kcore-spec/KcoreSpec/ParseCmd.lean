@@ -47,6 +47,7 @@ deriving instance ToExpr for FnPres
 deriving instance ToExpr for CtorPres
 deriving instance ToExpr for RulePres
 deriving instance ToExpr for ParamPres
+deriving instance ToExpr for LawEq
 deriving instance ToExpr for Presentation
 deriving instance ToExpr for Certificates
 instance {α β : Type} [ToExpr α] [ToExpr β] : ToExpr (α ⊕ β) where

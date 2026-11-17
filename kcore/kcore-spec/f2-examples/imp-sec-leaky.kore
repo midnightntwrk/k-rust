@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+    "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
   )
 ]
 module BASIC-K
@@ -248,7 +248,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,22,13,59)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'BangUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr{}(SortExpr{}) : SortExpr{}
@@ -258,7 +258,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,22,14,59)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsStarUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -268,7 +268,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,22,16,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsSlshUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -278,7 +278,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,22,17,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsPlusUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -288,7 +288,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,22,19,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'Unds'-'UndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -298,7 +298,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,22,20,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'Unds-GT-EqlsUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -311,7 +311,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,22,22,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'Unds-GT-UndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -321,7 +321,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,22,23,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'Unds-LT-EqlsUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -334,7 +334,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,22,24,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'Unds-LT-UndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(SortExpr{}, SortExpr{}) : SortExpr{}
@@ -344,7 +344,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,22,25,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsEqlsEqlsUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -357,7 +357,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,22,27,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsBangEqlsUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -370,7 +370,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,22,28,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsAnd-And-UndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -383,7 +383,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,22,30,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol Lbl'UndsPipePipeUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr{}(
@@ -396,7 +396,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,22,32,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
     )
   ]
   symbol LblisExpr{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
@@ -414,7 +414,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,79)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
     )
   ]
   symbol Lbl'UndsUndsUnds'CALC-SYNTAX'Unds'Stmt'Unds'Stmt'Unds'Stmt{}(SortStmt{}, SortStmt{}) : SortStmt{}
@@ -424,7 +424,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,19,12,68)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
     )
   ]
   symbol LblisStmt{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
@@ -440,7 +440,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,114)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
     )
   ]
   symbol Lblif'LParUndsRParUndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'Expr'Unds'Stmt{}(
@@ -453,7 +453,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,19,8,89)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
     )
   ]
   symbol Lblwhile'LParUndsRParUndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'Expr'Unds'Stmt{}(
@@ -466,7 +466,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,19,9,89)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
     )
   ]
   symbol Lbl'LBraUndsRBraUnds'IMP-SYNTAX'Unds'Stmt'Unds'Stmt{}(SortStmt{}) : SortStmt{}
@@ -476,7 +476,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,91)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
     )
   ]
   symbol Lbl'LBraRBraUnds'IMP-SYNTAX'Unds'Stmt{}() : SortStmt{}
@@ -486,7 +486,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,81)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+      "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
     )
   ]
   hooked-symbol Lbl'Tild'Int'Unds'{}(SortInt{}) : SortInt{}
@@ -1271,7 +1271,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,20,33,24)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol Lblhi'Unds'IMP-SEC'Unds'Level{}() : SortLevel{}
@@ -1281,7 +1281,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,27,33,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol Lbljoin'LParUndsCommUndsRParUnds'IMP-SEC'Unds'Level'Unds'Level'Unds'Level{}(
@@ -1293,7 +1293,7 @@ module IMP-SEC
     functional{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,20,35,56)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     ),
     total{}()
   ]
@@ -1305,7 +1305,7 @@ module IMP-SEC
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,20,39,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol Lblconf'LParUndsCommUndsRParUnds'IMP-SEC'Unds'Bool'Unds'Stmt'Unds'Map{}(
@@ -1316,7 +1316,7 @@ module IMP-SEC
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,19,58,45)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol Lblsec'LParUndsCommUndsRParUnds'IMP-SEC'Unds'Bool'Unds'Stmt'Unds'Map{}(
@@ -1327,7 +1327,7 @@ module IMP-SEC
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,19,68,44)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
@@ -1338,7 +1338,7 @@ module IMP-SEC
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(82,3,82,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+      "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -12767,7 +12767,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("8ca1f60e6f368dba96a3ce1b2637d7d6ab2da8fe0ef08c87174c2304a5f5c6ce"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,24)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12794,7 +12794,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("a8935b0d3da0e4f91330a7273e172454af10d0fabf6f26c200ef6c3ac6dba46e"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,37,25)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12818,7 +12818,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("386e2e9dbed85aa870da9b2ff769c66c8083f35032a62de86d1b369fbd7d4fd6"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,27)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12842,7 +12842,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("f368c66d62b5291dbd60e75dcf8a08157125da2329f5d8dca363687ba4510ef1"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12878,7 +12878,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("b36ae29b650f8b2e6738191d5ace4aab61cdfb88aa0b20e384ce0317d28ce34e"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,43)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12911,7 +12911,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("4a5e81c5c1a1f17e7f141518fddd5be060cfaf88b6269b2d9e3d8703b0eb76da"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12944,7 +12944,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("a2715f8f31cd68c8bff551f48fecc14a5ae29dbbc78023eb1ccd9bd040960934"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -12986,7 +12986,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("7145514afe30b33c4a5d3c0a98452ed02965f45cfc0266b54e7ed3269fc765bd"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13028,7 +13028,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("856d9a182be8050f217ed379184606bedb623d7f58b8c8e3fcd619d83ec37ebe"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13070,7 +13070,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("1d8699bd81236bbafd873db3c5d2b585b28f69123028e3130f0f73df3a5386c7"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13112,7 +13112,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("611f83c9e097c44364b50112e141a7897309f40212e1adc1970829bb514bb057"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13154,7 +13154,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("dae88cd6b2d6786fac0d822e394c52c7ffffe512f27cc5ee106f9899102144cc"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13196,7 +13196,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("392998281f784679b9ff30cf3b59b93dbb89b4e958d1dde95783018cb908238b"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13238,7 +13238,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("bbe6bcd29440c4a02adf967a4b84e276bf761434e195a1f047c00710cc312d1d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13280,7 +13280,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("8e15a61aa178619a947855c9ae59b848ba39f27093e9b9c49886251298c9cf6a"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13322,7 +13322,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("fe3ab95fb70203a69fceb1d0a054b3a62e659ac6142fd3481d775415650e434d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13364,7 +13364,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("041275f37c51511087e95c56293317483d1866b8c6a507acc6b1f9fa1480190d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13406,7 +13406,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("2a733c5ce86da8d852a6d2f484dc59a50cd565b5dd68a2a209b6c4e40f4beb89"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13448,7 +13448,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("6967b500ccceb2d2732dd6018a47d325c5ab62bdd779055f6b2a9b2d5f8d8d2c"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13472,7 +13472,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("e8072ff6ce8e7f100966eca3be75c0866004ee2207e62de05d792ba41c29f40e"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,27)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13505,7 +13505,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("784a906ce0cf6bd097260fb4c7d4bfefab4270e798eab03403201069b2b82b41"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,36)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13535,7 +13535,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("86689cf941d2fae14700a3a2a9dcb0b7991b5e9efc11f0b675b005786fd50aa6"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13577,7 +13577,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("c95c79d9ab212cb2bb5adef16a6ef416e49724dedcc66ee5b48e3db53e0ace64"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,62,67)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13620,7 +13620,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("2c622d542275fe36b8651f53cacc0e4a318381db881683d64914454d7e911a79"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,63,69)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13656,7 +13656,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("487c9bb9502047ceb94421f7d2ee6b3158641e6e80d0dd81c754421575d33809"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,39)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13692,7 +13692,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("04779d982cc77c2a26049cd8e0201b72b04062a54792bb5393291ccbcdfb6472"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,42)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13892,7 +13892,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("ab6adab7145b230850027a1f0cd6ccd730d82005eb3f3638d3daa81c88bb6aa6"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,66,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       ),
       owise{}()
     ]
@@ -13917,7 +13917,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("3d4889d8264f7bb5aa6a36ba276b80a743f53056e973b86eba1646c5607338ec"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,69,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -13950,7 +13950,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("d579063b1c755830969e6ef6e3a9babd7574c32f93f626b833c7f1cf12395ed4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(70,3,70,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14008,7 +14008,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("a41ce9272343df18eb0b3541b8dab44e1fec60cbac5203e578e13c6540bd8a82"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(71,3,71,84)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14050,7 +14050,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("fad00bcc5f6938f9cd236c408cc267bd32e652574d11b0d9a3df08eab123d6aa"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(72,3,72,64)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14107,7 +14107,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("ceb5f4078d29fa6b576d574317604e5f9b3b4b8f2cb4736822923740a7156e82"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(73,3,73,92)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14164,7 +14164,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("955114036ed6b2cafa72d264acf5b6af768b31001f4a559120828850239a7178"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(74,3,74,94)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14214,7 +14214,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("8f6b3754075c3c1940d04c2523e0beb0ef28f7656435e177398ef1254a7b5688"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(75,3,75,63)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14264,7 +14264,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("6f180057fd7a2eff766c7195b9d19ee4d0d0442076b2a3628a69ac0e130d042f"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(76,3,76,64)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14314,7 +14314,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("aaa1172e088a13001ac906a729c7d42b7fcd4dc2628756779b06b6cbbf52e7f4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(77,3,77,66)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14364,7 +14364,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("23ab653da7ca9d0fef303cdc5ebab40c99ddb9ea1c6a448eca0567971314fec5"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(78,3,78,67)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       )
     ]
   axiom{R}
@@ -14795,7 +14795,7 @@ module IMP-SEC
       UNIQUE'Unds'ID{}("6adee397c98ef70299cada05171a2389509be9524414f5d788f1d47494ffe3d5"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(79,3,79,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+        "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
       ),
       owise{}()
     ]
@@ -14871,7 +14871,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,22,13,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -14923,7 +14923,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX.-__EXPR-SYNTAX_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,22,13,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -14972,7 +14972,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,22,14,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15024,7 +15024,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX.!__EXPR-SYNTAX_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,22,14,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15077,7 +15077,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,22,16,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15133,7 +15133,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,22,16,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15189,7 +15189,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,22,16,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15245,7 +15245,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._*__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,22,16,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15298,7 +15298,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,22,17,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15354,7 +15354,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,22,17,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15410,7 +15410,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,22,17,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15466,7 +15466,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._/__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,22,17,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15519,7 +15519,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,22,19,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15575,7 +15575,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,22,19,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15631,7 +15631,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,22,19,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15687,7 +15687,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._+__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,22,19,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15740,7 +15740,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,22,20,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15796,7 +15796,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,22,20,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15852,7 +15852,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,22,20,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15908,7 +15908,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._-__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,22,20,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -15961,7 +15961,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,22,22,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16017,7 +16017,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,22,22,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16073,7 +16073,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,22,22,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16129,7 +16129,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>=__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,22,22,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16182,7 +16182,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,22,23,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16238,7 +16238,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,22,23,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16294,7 +16294,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,22,23,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16350,7 +16350,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._>__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,22,23,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16403,7 +16403,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,22,24,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16459,7 +16459,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,22,24,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16515,7 +16515,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,22,24,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16571,7 +16571,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<=__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,22,24,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16624,7 +16624,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,22,25,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16680,7 +16680,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,22,25,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16736,7 +16736,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,22,25,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16792,7 +16792,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._<__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,22,25,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16845,7 +16845,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,22,27,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16901,7 +16901,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,22,27,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -16957,7 +16957,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,22,27,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17013,7 +17013,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._==__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,22,27,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17066,7 +17066,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,22,28,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17122,7 +17122,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,22,28,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17178,7 +17178,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,22,28,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17234,7 +17234,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._!=__EXPR-SYNTAX_Expr_Expr_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,22,28,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17287,7 +17287,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,22,30,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17343,7 +17343,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._&&__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,22,30,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17396,7 +17396,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,22,32,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17452,7 +17452,7 @@ module IMP-SEC
       label{}("EXPR-SYNTAX._||__EXPR-SYNTAX_Expr_Expr_Expr1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,22,32,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/expr.k)"
       )
     ]
   axiom{}
@@ -17506,7 +17506,7 @@ module IMP-SEC
       label{}("CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,79)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
       )
     ]
   axiom{}
@@ -17563,7 +17563,7 @@ module IMP-SEC
       label{}("CALC-SYNTAX._=_;_CALC-SYNTAX_Stmt_Id_Expr2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,79)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/calc.k)"
       )
     ]
   axiom{}
@@ -17619,7 +17619,7 @@ module IMP-SEC
       label{}("IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,114)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
       )
     ]
   axiom{}
@@ -17678,7 +17678,7 @@ module IMP-SEC
       label{}("IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,19,7,114)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/repos/github.com/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
+        "Source(imp-semantics/src/kimp/kdist/imp-semantics/imp.k)"
       )
     ]
   axiom{R}
@@ -18575,6 +18575,6 @@ module IMP-SEC
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,1,83,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/imp-sec-leaky.k)"
+    "Source(kcore-spec/f2-examples/imp-sec-leaky.k)"
   )
 ]

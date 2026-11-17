@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-clause-rhs-int.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 205880
+definition.kore sha256: 134db93f5833eaff705850f8303d2baa6ed7a218688a611eed2e9aa1f2e1e616
+stripped sha256: b932fcede3f7bd1304e017d971335ec818eb58aada0cc7ff02add11b565194af
+main module: 403 sentences, 47 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-rhs-int.k)
+  	Location(5,17,5,18)
+  	5 |	  rule f() => c(Y:Int) [unboundVariables(Y)]
+  	  .	                ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-RHS-INT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-CLAUSE-RHS-INT as default.

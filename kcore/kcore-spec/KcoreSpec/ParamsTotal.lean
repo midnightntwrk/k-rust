@@ -58,11 +58,16 @@ def ParamsTotal (c : Semantics) (tp : List Sym) (H : HookParams) : Prop :=
 theorem ParamsTotal.nil {c : Semantics} {H : HookParams} : ParamsTotal c [] H :=
   fun _ _ _ h => absurd h List.not_mem_nil
 
--- The sorts of a list of values are the same under every interpretation where no parameter is an
--- open generator (`raw`).
-kernel_rfl Semantics.sortsOf_withHooks :
+/-- The sorts of a list of values are the same under every interpretation where no parameter is an
+open generator (`raw`): there they are the tables' (`sortsOfT_tables`), which hold no
+interpretation. -/
+theorem Semantics.sortsOf_withHooks :
   ∀ (c : Semantics) (H : HookParams) (_hr : ∀ k ∈ c.params, k.raw = false),
-    (c.withHooks H).sortsOf = c.sortsOf
+    (c.withHooks H).sortsOf = c.sortsOf := fun c H hr =>
+  funext fun ts =>
+    (sortsOfT_tables (c.withHooks H) ts (Semantics.rawFreeList_of_noRaw (c := c.withHooks H) hr ts)).symm.trans
+      ((congrArg (fun T => sortsOfT T c.lib ts) (tables_withHooks c H)).trans
+        (sortsOfT_tables c ts (Semantics.rawFreeList_of_noRaw hr ts)))
 
 /-- The hypothesis on H, read for `c.withHooks H` (whose interpretation is H), where no parameter is
 an open generator: H's answers are arbitrary values, whose sort is then the same under H. -/
@@ -324,10 +329,14 @@ theorem shape_float {c : Semantics} (h : c.floatShapeOK = true) {v : GroundTerm}
     (hv : c.sortOf v = some Srt.float) : ∃ p e b, v = .dv Srt.float (.float p e b) ∧ KFloat.ok p e b = true := by
   unfold Semantics.floatShapeOK at h
   simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  obtain ⟨⟨⟨⟨⟨hctor, hsub⟩, htok⟩, hcoll⟩, hovl⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨hctor, hsub⟩, htok⟩, hcoll⟩, hovl⟩, hraw⟩ := h
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, _, he⟩ | ⟨-, o, ho, _, _, he⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, _, he⟩ | ⟨-, o, ho, _, _, he⟩ | ⟨-, -, k, hk, _, _, he⟩
+    rotate_right
+    · obtain ⟨hm, hr, -, -⟩ := c.lookupOpen_spec hk
+      have := hraw k hm
+      simp [hr, ← he] at this
     · have := hctor k (lookupSig_spec hk).1
       simp only [bne_iff_ne, ne_eq] at this; exact (this (by first | exact he | exact he.symm)).elim
     · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho

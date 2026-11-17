@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-ens-total-holds.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 202639
+definition.kore sha256: adadf6d7f3970c8651a676eaa1381045a9955fb1de8c07266c3777141d05beb9
+stripped sha256: d0be4f151de22ed2d20835e0b16c4c53af2d538c1ff58af2a1dde4128980f247
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-ENS-TOTAL-HOLDS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-EQ-ENS-TOTAL-HOLDS as default.

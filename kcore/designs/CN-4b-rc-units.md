@@ -21,7 +21,7 @@ It adds units to CN-4 and edits no line of that file. It does supersede some of 
 Rows 1 and 2 share one section (one unit), and so do rows 4 and 5.
 CN-4 §0 (rules every brief carries) holds for every unit here.
 
-**What was run.** One scratch file, kernel-checked from kcore-theory's package root at `8c2f206a`, axioms `propext` only: `/tmp/claude-1000/-home-sebastiengllmt-git-workspaces-starstream-fv-inspirations-midnightntwrk-k-rust/856a81d0-94df-4ef8-8dfb-089411adeeac/scratchpad/cn4b/Band.lean` (row 9: `nf_left`, `nf_right`, `nf_idem`, `nf_nf`, `nf_mem`, `nf_single`, `nf_ne_nil`, and two `decide` examples).
+**What was run.** One scratch file, kernel-checked from kcore-theory's package root at `8c2f206a`, axioms `propext` only: `<scratchpad>/cn4b/Band.lean` (row 9: `nf_left`, `nf_right`, `nf_idem`, `nf_nf`, `nf_mem`, `nf_single`, `nf_ne_nil`, and two `decide` examples).
 Every other Lean block is **to run**, under CN-4's rule: where one does not elaborate or a stated lemma is not provable, the lane stops and reports; it does not respell, pin less or move a hypothesis.
 No kompile was run: every probe is brief P's, and each unit is written for both outcomes.
 No unit here has had a counterexample pass by another agent. Each section ends with the strongest attack I tried.

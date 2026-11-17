@@ -300,7 +300,7 @@ theorem consSorts_not_float {c : Semantics} (hg : genWf c = true) {s : Srt}
     (hs : (consSorts c).contains s = true) : s ≠ Srt.float := by
   unfold genWf at hg
   simp only [Bool.and_eq_true, List.all_eq_true] at hg
-  have := hg.1.2 s (List.contains_iff_mem.mp hs)
+  have := hg.1.1.2 s (List.contains_iff_mem.mp hs)
   simp only [bne_iff_ne, ne_eq] at this
   exact this.1.1.2
 
@@ -320,9 +320,9 @@ theorem floatShapeOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.floatSh
   simp only [Bool.and_eq_true, List.all_eq_true] at hg'
   unfold Semantics.floatShapeOK
   simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true']
-  refine ⟨⟨⟨⟨⟨fun k hk => consSorts_not_float hg (hg'.1.1.1 k hk), fun p hp => ?_⟩, ?_⟩, fun k hk => ?_⟩, ?_⟩,
+  refine ⟨⟨⟨⟨⟨fun k hk => consSorts_not_float hg (hg'.1.1.1.1 k hk), fun p hp => ?_⟩, ?_⟩, fun k hk => ?_⟩, ?_⟩,
     fun k hk => ?_⟩
-  · exact consSorts_not_float hg (hg'.1.1.2 p hp).1
+  · exact consSorts_not_float hg (hg'.1.1.1.2 p hp).1
   · unfold LitsApart at hl
     simp only [Bool.and_eq_true] at hl
     simpa using hl.2
@@ -342,7 +342,7 @@ theorem floatShapeOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.floatSh
     exact consSorts_not_float hg this.1.1.1.1.2
   · cases hraw : k.raw
     · rfl
-    · have := hg'.2 k hk
+    · have := hg'.1.2 k hk
       rw [hraw] at this
       have hne := consSorts_not_float hg (s := k.sig.result) (by simpa using this)
       simpa using hne

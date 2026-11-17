@@ -486,6 +486,33 @@ theorem distUnc_at {N : String} {g g' : KoreAML.Gen} {ug ug' : Option (List (Lis
 
 end
 
+/-- A guarded pattern entails the same pattern under more guards. -/
+theorem guarded_append_unc {ws vs : List KoreAML.P} {φ : KoreAML.P} (h : I ⊧ᴵ KoreAML.guarded ws φ) :
+    I ⊧ᴵ KoreAML.guarded (ws ++ vs) φ := by
+  intro e m
+  have key : (∀ w ∈ ws ++ vs, w.interpret I e m) → φ.interpret I e m := fun hw =>
+    KoreAML.interp_guarded (h e m) fun w hw' => hw w (List.mem_append_left _ hw')
+  generalize ws ++ vs = us at key ⊢
+  cases us with
+  | nil => exact key (fun _ hw => nomatch hw)
+  | cons u us => intro hc; exact key (conjList_mem hc)
+
+/-- **Cons-Fun entails Cons-Fun at uncovered arguments**: the second is the first with the guard
+`uncoveredP` added. -/
+theorem funUncItem_of_funItem {N : String} {g : KoreAML.Gen} (covs : List (List String))
+    (h : I ⊧ᴵ (KoreAML.Cons.funItem N g).pat) : I ⊧ᴵ (KoreAML.Cons.funUncItem N g covs).pat := by
+  unfold KoreAML.Cons.funUncItem
+  unfold KoreAML.Cons.funItem at h
+  exact guarded_append_unc h
+
+/-- **Cons-Inj entails Cons-Inj at uncovered arguments**: the second is the first with the guards
+`uncoveredP` on both argument lists added. -/
+theorem injUncItem_of_injItem {N : String} {g : KoreAML.Gen} (covs : List (List String))
+    (h : I ⊧ᴵ (KoreAML.Cons.injItem N g).pat) : I ⊧ᴵ (KoreAML.Cons.injUncItem N g covs).pat := by
+  unfold KoreAML.Cons.injUncItem
+  unfold KoreAML.Cons.injItem at h
+  exact guarded_append_unc h
+
 /-- `inj{s,t}(φ)` written with the sort constants `sortP` (Statements.lean). -/
 theorem interp_injApp' [Inhabited M] {e : Valuation M} (s t : String) (φ : KoreAML.P) (m : M) :
     (KoreAML.appList (KoreAML.sym (.symbol "inj")) [sortP s, sortP t, φ]).interpret I e m ↔
@@ -584,7 +611,8 @@ variable {c : Semantics}
 
 theorem gens_ctor {k : CtorSig} (hk : k ∈ c.ctorSigs) : Gen.ctor k ∈ c.gens k.result := by
   unfold Semantics.gens
-  exact List.mem_append_left _ (List.mem_append_left _ (List.mem_map.mpr ⟨k, List.mem_filter.mpr ⟨hk, by simp⟩, rfl⟩))
+  exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+    (List.mem_map.mpr ⟨k, List.mem_filter.mpr ⟨hk, by simp⟩, rfl⟩)))
 
 /-- A constructor of the semantics is no overloading symbol. -/
 theorem isOvl_of_ctorSigs {k : CtorSig} (hk : k ∈ c.ctorSigs) : c.isOvl k.name = false := by
@@ -609,8 +637,8 @@ theorem distGuarded_ctorSigs {g g' : Gen} (h : ∀ k, g = .ctor k → k ∈ c.ct
 
 theorem gens_of_ovl {o : OvlSig} (ho : o ∈ c.ovls) : Gen.ctor o.sig ∈ c.gens o.sig.result := by
   unfold Semantics.gens
-  exact List.mem_append_left _ (List.mem_append_right _
-    (List.mem_map.mpr ⟨o.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem ho, by simp⟩, rfl⟩))
+  exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+    (List.mem_map.mpr ⟨o.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem ho, by simp⟩, rfl⟩)))
 
 theorem gens_inj {a b : Srt} (h : (a, b) ∈ c.subsorts) : Gen.inj a ∈ c.gens b := by
   unfold Semantics.gens
@@ -722,11 +750,11 @@ include hg
 
 theorem genWf_ctor {k : CtorSig} (hk : k ∈ c.ctorSigs) : k.result ∈ consSorts c := by
   simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
-  exact List.contains_iff_mem.mp (hg.1.1.1 k hk)
+  exact List.contains_iff_mem.mp (hg.1.1.1.1 k hk)
 
 theorem genWf_sub {a b : Srt} (h : (a, b) ∈ c.subsorts) : b ∈ consSorts c ∧ a ≠ b := by
   simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
-  have := hg.1.1.2 (a, b) h
+  have := hg.1.1.1.2 (a, b) h
   simp only [Bool.and_eq_true, List.contains_iff_mem, bne_iff_ne] at this
   exact this
 
@@ -734,7 +762,7 @@ theorem genWf_cons {s : Srt} (h : s ∈ consSorts c) :
     apartSort c s = true ∧ s ≠ Srt.int ∧ s ≠ Srt.bool ∧ s ≠ Srt.kconfigVar ∧ s ∉ c.lib.tokenSorts ∧
       s ∉ c.lib.byteSorts ∧ c.collOf s = none := by
   simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
-  have := hg.1.2 s h
+  have := hg.1.1.2 s h
   simp only [Bool.and_eq_true, bne_iff_ne, Bool.not_eq_true', Option.isNone_iff_eq_none] at this
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, -⟩, -⟩, -⟩ := this
   refine ⟨h1, h2, h3, h4, fun hm => ?_, fun hm => ?_, h7⟩
@@ -744,16 +772,58 @@ theorem genWf_cons {s : Srt} (h : s ∈ consSorts c) :
 /-- A constructor sort is not Float. -/
 theorem genWf_float {s : Srt} (h : s ∈ consSorts c) : s ≠ Srt.float := by
   simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
-  have := hg.1.2 s h
+  have := hg.1.1.2 s h
   simp only [Bool.and_eq_true, bne_iff_ne] at this
   exact this.1.1.2
 
 /-- A constructor sort is neither String nor Bytes. -/
 theorem genWf_lit {s : Srt} (h : s ∈ consSorts c) : s ≠ Srt.string ∧ s ≠ Srt.bytes := by
   simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
-  have := hg.1.2 s h
+  have := hg.1.1.2 s h
   simp only [Bool.and_eq_true, bne_iff_ne] at this
   exact ⟨this.1.2, this.2⟩
+
+/-- An open generator's result sort is a constructor sort. -/
+theorem genWf_raw_cons {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) : k.sig.result ∈ consSorts c := by
+  simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
+  have := hg.1.2 k hk
+  simp only [hr, Bool.not_true, Bool.false_or] at this
+  exact List.contains_iff_mem.mp this
+
+/-- The flat conjunct of `genWf` at a raw parameter `k`, unfolded. -/
+theorem genWf_flat_parts {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
+    (∀ g ∈ c.ctorSigs, g.name ≠ k.sig.name ∧ (g.result = k.sig.result → g.args = [])) ∧
+    (∀ g ∈ c.ovlSigs, g.name ≠ k.sig.name ∧ g.result ≠ k.sig.result) ∧
+    (∀ p ∈ c.subsorts, p.2 ≠ k.sig.result) := by
+  simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg
+  have := hg.2 k hk
+  simp only [hr, Bool.not_true, Bool.false_or, Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq,
+    Bool.or_eq_true, List.isEmpty_iff] at this
+  obtain ⟨⟨hc, ho⟩, hs⟩ := this
+  refine ⟨fun g hgm => ⟨(hc g hgm).1, fun he => ?_⟩, fun g hgm => ho g hgm, fun p hp => hs p hp⟩
+  rcases (hc g hgm).2 with h | h
+  · exact absurd he h
+  · exact h
+
+/-- A constructor of an open generator's result sort has no argument. -/
+theorem genWf_flat_ctor {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) {g : CtorSig}
+    (hgm : g ∈ c.ctorSigs) (hres : g.result = k.sig.result) : g.args = [] :=
+  ((genWf_flat_parts hg hk hr).1 g hgm).2 hres
+
+/-- No overloading symbol has an open generator's result sort. -/
+theorem genWf_flat_ovl {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) {g : CtorSig}
+    (hgm : g ∈ c.ovlSigs) : g.result ≠ k.sig.result :=
+  ((genWf_flat_parts hg hk hr).2.1 g hgm).2
+
+/-- No subsort pair has an open generator's result sort as upper sort. -/
+theorem genWf_flat_sub {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) {a b : Srt}
+    (hab : (a, b) ∈ c.subsorts) : b ≠ k.sig.result :=
+  (genWf_flat_parts hg hk hr).2.2 (a, b) hab
+
+/-- No constructor and no overloading symbol bears an open generator's name. -/
+theorem genWf_flat_name {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
+    (∀ g ∈ c.ctorSigs, g.name ≠ k.sig.name) ∧ (∀ g ∈ c.ovlSigs, g.name ≠ k.sig.name) :=
+  ⟨fun g hgm => ((genWf_flat_parts hg hk hr).1 g hgm).1, fun g hgm => ((genWf_flat_parts hg hk hr).2.1 g hgm).1⟩
 
 omit hg in
 /-- KConfigVar is `apartSort`: it is among `distinctSorts`. -/
@@ -764,22 +834,29 @@ theorem genWf_kcv : apartSort c Srt.kconfigVar = true := by
   exact Or.inr (List.contains_iff_mem.mpr h)
 
 /-- A constructor term's sort: its constructor's result sort, or, for a raw application of an
-overloading symbol at arguments no overload covers, the symbol's result sort, a constructor sort. -/
+overloading symbol at arguments no overload covers, the symbol's result sort, a constructor sort,
+or, for an application of an open generator that the interpretation leaves raw, the generator's
+result sort, a constructor sort. -/
 theorem sortOf_ctor_cases [h : OvlOK c] {f : Sym} {ts : List GroundTerm} {s : Srt}
     (hw : c.sortOf (.ctor f ts) = some s) :
     (∃ k, lookupSig c.ctorSigs f = some k ∧ c.sortsOf ts = some k.args ∧ s = k.result) ∨
     (∃ o, c.lookupOvl f = some o ∧ c.isOvl f = true ∧ c.sortsOf ts = some o.sig.args ∧
-      c.uncovered f ts = true ∧ s = o.sig.result ∧ o.sig.result ∈ consSorts c) := by
-  rcases c.sortOf_ctor_iff.mp hw with hk | ⟨-, o, ho, hts, hu, rfl⟩
+      c.uncovered f ts = true ∧ s = o.sig.result ∧ o.sig.result ∈ consSorts c) ∨
+    (∃ k, c.lookupOpen f = some k ∧ lookupSig c.ctorSigs f = none ∧ c.lookupOvl f = none ∧
+      c.sortsOf ts = some k.sig.args ∧ c.keepsRaw f ts = true ∧ s = k.sig.result ∧ k.sig.result ∈ consSorts c) := by
+  rcases c.sortOf_ctor_iff.mp hw with hk | ⟨-, o, ho, hts, hu, rfl⟩ | ⟨hk, ho, k, hko, hts, hkr, rfl⟩
   · exact .inl hk
   · obtain ⟨-, -, hio, -, hcs⟩ := OvlLaws.ovl_parts h.ok ho
-    exact .inr ⟨o, ho, hio, hts, hu, rfl, hcs⟩
+    exact .inr (.inl ⟨o, ho, hio, hts, hu, rfl, hcs⟩)
+  · obtain ⟨hm, hr, -, -⟩ := c.lookupOpen_spec hko
+    exact .inr (.inr ⟨k, hko, hk, ho, hts, hkr, rfl, genWf_raw_cons hg hm hr⟩)
 
 /-- A constructor term's sort is a constructor sort. -/
 theorem ctor_sort_cons [OvlOK c] {f : Sym} {ts : List GroundTerm} {s : Srt} (hw : c.sortOf (.ctor f ts) = some s) :
     s ∈ consSorts c := by
-  rcases sortOf_ctor_cases hg hw with ⟨k, hk, -, rfl⟩ | ⟨o, -, -, -, -, rfl, hcs⟩
+  rcases sortOf_ctor_cases hg hw with ⟨k, hk, -, rfl⟩ | ⟨o, -, -, -, -, rfl, hcs⟩ | ⟨k, -, -, -, -, -, rfl, hcs⟩
   · exact genWf_ctor hg (lookupSig_spec hk).1
+  · exact hcs
   · exact hcs
 
 /-- A value of a constructor sort is a constructor or an injection applied to values. -/
@@ -1020,261 +1097,6 @@ theorem injNormal_of_not {a b : Srt} {w : GroundTerm} (h : w.isInj = false) : in
   cases w with
   | inj => cases h
   | _ => rfl
-
-/-! ## Reading a value downwards -/
-
-section
-variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) [OvlOK c]
-  (hg : genWf c = true)
-include hI hg
-
-omit hI hg [OvlOK c] in
-/-- An injection, normalised, of a value of `A` lies in `A`. -/
-theorem lies_injNormal {A B : Srt} {w : GroundTerm} (hw : c.sortOf w = some A) : c.lies A B (injNormal A B w) = true := by
-  cases w with
-  | inj C A' x =>
-    obtain ⟨h1, -, -, rfl⟩ := sortOf_inj.mp hw
-    simp [injNormal, Semantics.lies, Semantics.le, h1]
-  | _ => simp [injNormal, Semantics.lies, Semantics.le]
-
-/-- **The arguments of a raw overloading value are uncovered in a model**, where every injection's
-image at an argument is the injection of a value of its source sort (`hback`, which `inj_back`
-gives): no overload covers them as values, and its sorts are named apart (`OvlOK`). -/
-theorem uncE_of_value (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    {g : Sym} {o : OvlSig} {ws : List GroundTerm} (hlo : c.lookupOvl g = some o)
-    (hws : c.sortsOf ws = some o.sig.args) (hu : c.uncovered g ws = true)
-    (hback : ∀ u ∈ ws, ∀ (A B : Srt), (A, B) ∈ c.subsorts → c.sortOf u = some B → ∀ (y : M),
-      InS I (c.sortName A) y → GS I (c.sortName B) (.inj (c.sortName A)) [y] (elemOf c I u) → c.lies A B u = true) :
-    ∀ covs, ovlArgsOf c (.ctor o.sig) = some covs →
-      UncE I covs (Gen.toK c (.ctor o.sig)).argSorts (ws.map (elemOf c I)) := by
-  have H : OvlLaws.OvlHyp c := OvlOK.hyp inferInstance htr
-  obtain ⟨hn, hio, -, -, -, hover, -⟩ := OvlLaws.ovl_facts H hlo
-  have hom : o ∈ c.ovls := (OvlLaws.ovl_parts H.ok hlo).1
-  intro covs hcov
-  simp only [ovlArgsOf, hn, hio, ↓reduceIte, hlo, Option.map_some, Option.some.injEq] at hcov
-  subst hcov
-  intro as has
-  obtain ⟨kg, hkg, rfl⟩ := List.mem_map.mp has
-  obtain ⟨-, hpair, -⟩ := hover kg hkg
-  obtain ⟨hlen, hle, -⟩ := OvlLaws.pairOK_parts hpair
-  have hwl : ws.length = o.sig.args.length := sortsOf_length hws
-  have hnc : c.ovlCovers o.sig kg ws = false := by
-    simp only [Semantics.uncovered, hlo, List.all_eq_true, Bool.not_eq_true'] at hu
-    exact hu kg hkg
-  have hall : ¬ ((kg.args.zip o.sig.args).zip ws).all (fun ((A, B), v) => c.lies A B v) = true := fun h => by
-    rw [OvlLaws.covers_iff.mpr ⟨hlen, hwl, h⟩] at hnc; cases hnc
-  rw [OvlLaws.zip3_all_iff] at hall
-  obtain ⟨i, h1, h2, h3, hli⟩ : ∃ i, ∃ h1 : i < kg.args.length, ∃ h2 : i < o.sig.args.length,
-      ∃ h3 : i < ws.length, c.lies kg.args[i] o.sig.args[i] ws[i] ≠ true :=
-    Classical.byContradiction fun hc => hall fun i h1 h2 h3 =>
-      Classical.byContradiction fun hl => hc ⟨i, h1, h2, h3, hl⟩
-  have hAB : kg.args[i] ≠ o.sig.args[i] := fun h => hli (h ▸ OvlLaws.lies_self _ _)
-  have hsub : (kg.args[i], o.sig.args[i]) ∈ c.subsorts :=
-    OvlLaws.mem_of_le ((OvlLaws.zip2_all_iff.mp hle) i h1 h2) hAB
-  obtain ⟨u, hu', hsu⟩ := sortsOf_get hws (List.getElem?_eq_getElem h2)
-  rw [List.getElem?_eq_getElem h3] at hu'
-  cases hu'
-  refine ⟨i, c.sortName kg.args[i], c.sortName o.sig.args[i], elemOf c I ws[i], by simp [h1], by
-    show (o.sig.args.map c.sortName)[i]? = _
-    simp [h2], fun he => hAB ((inferInstance : OvlOK c).names o hom kg hkg _
-      (List.mem_cons_of_mem _ (List.getElem_mem h1)) _ (List.mem_cons_of_mem _ (List.getElem_mem h2)) he),
-    by simp [h3], ?_⟩
-  rintro ⟨y, hy, hm⟩
-  exact hli (hback _ (List.getElem_mem h3) _ _ hsub hsu y hy hm)
-
-/-- **An injection's image at a value.** If the element of a value of sort `s` lies in what
-`inj{a,s}` builds from an element `b` of `a`, the value is the injection of a value of `a` whose
-element is `b` (normalised: an injection of an injection is the injection from the inner sort). -/
-theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) :
-    ∀ (w : GroundTerm) {a s : Srt}, (a, s) ∈ c.subsorts → c.sortOf w = some s →
-    ∀ {b : M}, InS I (c.sortName a) b → GS I (c.sortName s) (.inj (c.sortName a)) [b] (elemOf c I w) →
-    ∃ w', c.sortOf w' = some a ∧ w = injNormal a s w' ∧ b = elemOf c I w'
-  | .inj a0 s' w0, a, s, has, hsw, b, hb, hm => by
-    have hN := (genWf_sub hg has).1
-    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
-    have hset : ∀ m, GS I (c.sortName s) (.inj (c.sortName a)) [b] m ↔ m = elemOf c I (.inj a0 s' w0) :=
-      fun m => by rw [show (.inj (c.sortName a) : KoreAML.Gen) = Gen.toK c (.inj a) from rfl, hy, ((hy _).mp hm)]
-    obtain ⟨has0, hni, hw0, rfl⟩ := sortOf_inj.mp hsw
-    have hx0 : InS I (c.sortName a0) (elemOf c I w0) := (inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2
-    have hvset : ∀ m, GS I (c.sortName s) (.inj (c.sortName a0)) [elemOf c I w0] m ↔ m = elemOf c I (.inj a0 s w0) :=
-      fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
-    by_cases h0 : a0 = a
-    · subst h0
-      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
-        (single_sorts hb) (single_sorts hx0) (fun m => by
-          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
-          rw [hset, hvset])
-      exact ⟨w0, hw0, (injNormal_of_not hni).symm, by simpa using this⟩
-    by_cases h1 : (a0, a) ∈ c.subsorts
-    · have hw' : c.sortOf (.inj a0 a w0) = some a := sortOf_inj.mpr ⟨h1, hni, hw0, rfl⟩
-      have hy1 : ∀ m, GS I (c.sortName a) (.inj (c.sortName a0)) [elemOf c I w0] m ↔ m = elemOf c I (.inj a0 a w0) :=
-        fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hw' KoreAML.val0).1 m
-      have hc := coh_gs hI h1 has hx0 hy1
-      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I (.inj a0 a w0)]) rfl rfl
-        (single_sorts hb) (single_sorts ((inS_iff _).mp (elemOf_spec hI hw' KoreAML.val0).2)) (fun m => by
-          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
-          rw [hset, hc, hvset])
-      exact ⟨.inj a0 a w0, hw', rfl, by simpa using this⟩
-    by_cases h2 : (a, a0) ∈ c.subsorts
-    · exfalso
-      have hN0 := (genWf_sub hg h2).1
-      obtain ⟨y2, hy2s, hy2⟩ := gen_fun hI hN0 (gens_inj h2) (xs := [b]) rfl (single_sorts hb)
-      have hc := coh_gs hI h2 has0 hb hy2
-      have := gen_inj hI hN (gens_inj has0) (by simp [Gen.argSorts]) (xs := [y2]) (ys := [elemOf c I w0]) rfl rfl
-        (single_sorts hy2s) (single_sorts hx0) (fun m => by
-          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
-          rw [hc, hset, hvset])
-      have hy2w : y2 = elemOf c I w0 := by simpa using this
-      obtain ⟨w'', -, hw'', -⟩ := inj_back htr w0 h2 hw0 hb (by
-        show GS I _ (Gen.toK c (.inj a)) _ _
-        rw [hy2, hy2w])
-      have := injNormal_isInj a a0 w''
-      rw [← hw''] at this; rw [hni] at this; cases this
-    · exfalso
-      have hle : (c.le a0 a || c.le a a0) = false := by
-        simp only [Semantics.le, Bool.or_eq_false_iff, beq_eq_false_iff_ne, List.contains_iff_mem]
-        exact ⟨⟨h0, by simpa using h1⟩, ⟨fun h => h0 h.symm, by simpa using h2⟩⟩
-      have hle' : (c.le a a0 || c.le a0 a) = false := by rw [Bool.or_comm]; exact hle
-      have hseq : ∀ m, GS I (c.sortName s) (.inj (c.sortName a0)) [elemOf c I w0] m ↔
-          GS I (c.sortName s) (.inj (c.sortName a)) [b] m := fun m => by rw [hset, hvset]
-      have hdist : ∀ (C : Srt) (z : M), (C, a0) ∈ c.subsorts → InS I (c.sortName C) z →
-          (∀ m, GS I (c.sortName a0) (.inj (c.sortName C)) [z] m ↔ m = elemOf c I w0) → False := by
-        intro C z hC hz hzs
-        obtain ⟨w'', -, hw'', -⟩ := inj_back htr w0 hC hw0 hz (by rw [hzs])
-        have := injNormal_isInj C a0 w''
-        rw [← hw''] at this; rw [hni] at this; cases this
-      rcases mem_pairs_of (fun h => h0 (by cases h; rfl)) (gens_inj has0) (gens_inj has) with hp | hp
-      · rcases injPair_mem hN hp hle with ⟨-, hit⟩ | ⟨-, hit⟩
-        · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [elemOf c I w0]) (ys := [b]) rfl rfl
-            (single_sorts hx0) (single_sorts hb) hseq
-        · obtain ⟨C, hC, z, hz, hz1, -⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hx0 hb hseq
-          obtain ⟨C', hC', rfl⟩ := List.mem_map.mp hC
-          exact hdist C' z (mem_lowerBounds hC').1 hz hz1
-      · rcases injPair_mem hN hp hle' with ⟨-, hit⟩ | ⟨-, hit⟩
-        · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
-            (single_sorts hb) (single_sorts hx0) (fun m => (hseq m).symm)
-        · obtain ⟨C, hC, z, hz, -, hz2⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hb hx0
-            (fun m => (hseq m).symm)
-          obtain ⟨C', hC', rfl⟩ := List.mem_map.mp hC
-          exact hdist C' z (mem_lowerBounds hC').2 hz hz2
-  | .ctor g ws, a, s, has, hsw, b, hb, hm => by
-    exfalso
-    have hN := (genWf_sub hg has).1
-    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
-    have hset : ∀ m, GS I (c.sortName s) (Gen.toK c (.inj a)) [b] m ↔ m = elemOf c I (.ctor g ws) :=
-      fun m => by rw [hy, ((hy _).mp hm)]
-    rcases sortOf_ctor_cases hg hsw with ⟨kg, hkg, hws, hres⟩ | ⟨o, hlo, -, hws, hu, hres, -⟩
-    rotate_left
-    · obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-      have hvset : ∀ m, GS I (c.sortName s) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
-          m = elemOf c I (.ctor g ws) := fun m => by
-        rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
-      exact gen_dist' hI hN (gens_inj has) (by rw [hres]; exact gens_of_ovl hom) (fun h => by cases h)
-        (fun _ _ _ h => by cases h) rfl (elems_length hI hws) (single_sorts hb) (elems_sorts hI hws)
-        (fun covs h => by simp [ovlArgsOf] at h)
-        (uncE_of_value hI hg htr hlo hws hu fun u hu' A B hAB hsu y hy hmy => by
-          have _hlt := List.sizeOf_lt_of_mem hu'
-          obtain ⟨w', hw', rfl, -⟩ := inj_back htr u hAB hsu hy hmy
-          exact lies_injNormal hw')
-        (fun m => by rw [hset, hvset])
-    obtain ⟨hkgm, -⟩ := lookupSig_spec hkg
-    have hvset : ∀ m, GS I (c.sortName kg.result) (Gen.toK c (.ctor kg)) (ws.map (elemOf c I)) m ↔
-        m = elemOf c I (.ctor g ws) := fun m => by
-      rw [← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
-    rw [← hres] at hvset
-    exact gen_dist hI hN (gens_inj has) (by rw [hres]; exact gens_ctor hkgm) (fun h => by cases h)
-      (fun _ _ _ h => by cases h)
-      (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkgm))
-      (distGuarded_ctorSigs (fun _ h => by cases h; exact hkgm) (fun _ h => by cases h)) rfl (elems_length hI hws) (single_sorts hb)
-      (elems_sorts hI hws) (fun m => by rw [hset, hvset])
-  | .dv s' lit, a, s, has, hsw, _, _, _ => by
-    exfalso
-    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
-  | .map s' es, a, s, has, hsw, _, _, _ => by
-    exfalso
-    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
-  | .set s' es, a, s, has, hsw, _, _, _ => by
-    exfalso
-    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
-  | .list s' es, a, s, has, hsw, _, _, _ => by
-    exfalso
-    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
-  termination_by w => w
-  decreasing_by all_goals (simp_wf; omega)
-
-
-/-- **A constructor's image at a value.** If the element of a value lies in what the constructor
-`f` builds from elements of its argument sorts, the value is `f` applied to values whose elements
-those are. -/
-theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    {f : Sym} {k : CtorSig} (hk : lookupSig c.ctorSigs f = some k)
-    {w : GroundTerm} (hsw : c.sortOf w = some k.result) {bs : List M}
-    (hbl : bs.length = (k.args.map c.sortName).length)
-    (hbs : ∀ (i : Nat) x s, bs[i]? = some x → (k.args.map c.sortName)[i]? = some s → InS I s x)
-    (hm : GS I (c.sortName k.result) (Gen.toK c (.ctor k)) bs (elemOf c I w)) :
-    ∃ ws, w = .ctor f ws ∧ c.sortsOf ws = some k.args ∧ bs = ws.map (elemOf c I) := by
-  obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
-  have hN := genWf_ctor hg hkm
-  have hgk := gens_ctor hkm
-  obtain ⟨y, -, hy⟩ := gen_fun hI hN hgk hbl hbs
-  have hyw : y = elemOf c I w := ((hy _).mp hm).symm
-  have hset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor k)) bs m ↔ m = elemOf c I w := fun m => by
-    rw [hy, hyw]
-  have hwe := (elemOf_spec hI hsw KoreAML.val0).1
-  rcases consSort_shape hg hN hsw with ⟨g, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
-  · rcases sortOf_ctor_cases hg hsw with ⟨kg, hkg, hws, hres⟩ | ⟨o, hlo, hio, hws, hu, hres, -⟩
-    rotate_left
-    · exfalso
-      obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-      have hgf : g ≠ f := fun h => by
-        have := (c.isOvl_parts hio).1
-        rw [h] at this
-        simp [Semantics.isCtor, hk] at this
-      have hvset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
-          m = elemOf c I (.ctor g ws) := fun m => by
-        rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact hwe m
-      exact gen_dist' hI hN hgk (by rw [hres]; exact gens_of_ovl hom)
-        (fun h => by cases h; exact hgf (hn.symm.trans hkn))
-        (fun _ _ h _ => by cases h) hbl (elems_length hI hws) hbs (elems_sorts hI hws)
-        (fun covs h => by simp [ovlArgsOf, isOvl_of_ctorSigs hkm] at h)
-        (uncE_of_value hI hg htr hlo hws hu fun u hu' A B hAB hsu y hy hmy => by
-          obtain ⟨w', hw', rfl, -⟩ := inj_back hI hg htr u hAB hsu hy hmy
-          exact lies_injNormal hw')
-        (fun m => by rw [hset, hvset])
-    obtain ⟨hkgm, hkgn⟩ := lookupSig_spec hkg
-    have hvset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor kg)) (ws.map (elemOf c I)) m ↔
-        m = elemOf c I (.ctor g ws) := fun m => by
-      rw [hres, ← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact hwe m
-    by_cases hgf : g = f
-    · subst hgf
-      rw [hk] at hkg; cases hkg
-      refine ⟨ws, rfl, hws, ?_⟩
-      by_cases hne : k.args = []
-      · have h1 : bs = [] := List.eq_nil_of_length_eq_zero (by rw [hbl, hne]; rfl)
-        rw [hne] at hws
-        rw [h1, sortsOf_nil_eq hws]; rfl
-      · exact gen_inj hI hN hgk hne hbl (elems_length hI hws) hbs (elems_sorts hI hws)
-          (fun m => by rw [hset, hvset])
-    · exfalso
-      have hgm' : Gen.ctor kg ∈ c.gens k.result := by rw [hres]; exact gens_ctor hkgm
-      exact gen_dist hI hN hgk hgm' (fun h => by cases h; exact hgf (hkgn.symm.trans hkn))
-        (fun _ _ h _ => by cases h)
-        (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h; exact hkgm))
-        (distGuarded_ctorSigs (fun _ h => by cases h; exact hkgm) (fun _ h => by cases h; exact hkm)) hbl (elems_length hI hws) hbs
-        (elems_sorts hI hws) (fun m => by rw [hset, hvset])
-  · exfalso
-    obtain ⟨hab, -, hw0, hb⟩ := sortOf_inj.mp hsw
-    subst hb
-    have hvset : ∀ m, GS I (c.sortName k.result) (.inj (c.sortName a)) [elemOf c I w0] m ↔
-        m = elemOf c I (.inj a k.result w0) :=
-      fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact hwe m
-    exact gen_dist hI hN hgk (gens_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h)
-      (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h))
-      (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkm)) (ys := [elemOf c I w0])
-      hbl rfl hbs (single_sorts ((inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2))
-      (fun m => by rw [hset]; exact (hvset m).symm)
-
-end
 
 /-! ## Distinct values are distinct elements -/
 
@@ -1562,6 +1384,284 @@ theorem apartSort_of_sorted (hg : genWf c = true) [OvlOK c] {v : GroundTerm} {s 
       · cases hv; exact apart_of_distinct (coll_distinct hk)
       · cases hv
     · cases hv
+
+end
+
+/-! ## Reading a value downwards -/
+
+section
+variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) [OvlOK c]
+  (hg : genWf c = true)
+include hI hg
+
+omit hI hg [OvlOK c] in
+/-- An injection, normalised, of a value of `A` lies in `A`. -/
+theorem lies_injNormal {A B : Srt} {w : GroundTerm} (hw : c.sortOf w = some A) : c.lies A B (injNormal A B w) = true := by
+  cases w with
+  | inj C A' x =>
+    obtain ⟨h1, -, -, rfl⟩ := sortOf_inj.mp hw
+    simp [injNormal, Semantics.lies, Semantics.le, h1]
+  | _ => simp [injNormal, Semantics.lies, Semantics.le]
+
+/-- **The arguments of a raw overloading value are uncovered in a model**, where every injection's
+image at an argument is the injection of a value of its source sort (`hback`, which `inj_back`
+gives): no overload covers them as values, and its sorts are named apart (`OvlOK`). -/
+theorem uncE_of_value (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    {g : Sym} {o : OvlSig} {ws : List GroundTerm} (hlo : c.lookupOvl g = some o)
+    (hws : c.sortsOf ws = some o.sig.args) (hu : c.uncovered g ws = true)
+    (hback : ∀ u ∈ ws, ∀ (A B : Srt), (A, B) ∈ c.subsorts → c.sortOf u = some B → ∀ (y : M),
+      InS I (c.sortName A) y → GS I (c.sortName B) (.inj (c.sortName A)) [y] (elemOf c I u) → c.lies A B u = true) :
+    ∀ covs, ovlArgsOf c (.ctor o.sig) = some covs →
+      UncE I covs (Gen.toK c (.ctor o.sig)).argSorts (ws.map (elemOf c I)) := by
+  have H : OvlLaws.OvlHyp c := OvlOK.hyp inferInstance htr
+  obtain ⟨hn, hio, -, -, -, hover, -⟩ := OvlLaws.ovl_facts H hlo
+  have hom : o ∈ c.ovls := (OvlLaws.ovl_parts H.ok hlo).1
+  intro covs hcov
+  simp only [ovlArgsOf, hn, hio, ↓reduceIte, hlo, Option.map_some, Option.some.injEq] at hcov
+  subst hcov
+  intro as has
+  obtain ⟨kg, hkg, rfl⟩ := List.mem_map.mp has
+  obtain ⟨-, hpair, -⟩ := hover kg hkg
+  obtain ⟨hlen, hle, -⟩ := OvlLaws.pairOK_parts hpair
+  have hwl : ws.length = o.sig.args.length := sortsOf_length hws
+  have hnc : c.ovlCovers o.sig kg ws = false := by
+    simp only [Semantics.uncovered, hlo, List.all_eq_true, Bool.not_eq_true'] at hu
+    exact hu kg hkg
+  have hall : ¬ ((kg.args.zip o.sig.args).zip ws).all (fun ((A, B), v) => c.lies A B v) = true := fun h => by
+    rw [OvlLaws.covers_iff.mpr ⟨hlen, hwl, h⟩] at hnc; cases hnc
+  rw [OvlLaws.zip3_all_iff] at hall
+  obtain ⟨i, h1, h2, h3, hli⟩ : ∃ i, ∃ h1 : i < kg.args.length, ∃ h2 : i < o.sig.args.length,
+      ∃ h3 : i < ws.length, c.lies kg.args[i] o.sig.args[i] ws[i] ≠ true :=
+    Classical.byContradiction fun hc => hall fun i h1 h2 h3 =>
+      Classical.byContradiction fun hl => hc ⟨i, h1, h2, h3, hl⟩
+  have hAB : kg.args[i] ≠ o.sig.args[i] := fun h => hli (h ▸ OvlLaws.lies_self _ _)
+  have hsub : (kg.args[i], o.sig.args[i]) ∈ c.subsorts :=
+    OvlLaws.mem_of_le ((OvlLaws.zip2_all_iff.mp hle) i h1 h2) hAB
+  obtain ⟨u, hu', hsu⟩ := sortsOf_get hws (List.getElem?_eq_getElem h2)
+  rw [List.getElem?_eq_getElem h3] at hu'
+  cases hu'
+  refine ⟨i, c.sortName kg.args[i], c.sortName o.sig.args[i], elemOf c I ws[i], by simp [h1], by
+    show (o.sig.args.map c.sortName)[i]? = _
+    simp [h2], fun he => hAB ((inferInstance : OvlOK c).names o hom kg hkg _
+      (List.mem_cons_of_mem _ (List.getElem_mem h1)) _ (List.mem_cons_of_mem _ (List.getElem_mem h2)) he),
+    by simp [h3], ?_⟩
+  rintro ⟨y, hy, hm⟩
+  exact hli (hback _ (List.getElem_mem h3) _ _ hsub hsu y hy hm)
+
+/-- **An injection's image at a value.** If the element of a value of sort `s` lies in what
+`inj{a,s}` builds from an element `b` of `a`, the value is the injection of a value of `a` whose
+element is `b` (normalised: an injection of an injection is the injection from the inner sort). -/
+theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) :
+    ∀ (w : GroundTerm) {a s : Srt}, (a, s) ∈ c.subsorts → c.sortOf w = some s →
+    ∀ {b : M}, InS I (c.sortName a) b → GS I (c.sortName s) (.inj (c.sortName a)) [b] (elemOf c I w) →
+    ∃ w', c.sortOf w' = some a ∧ w = injNormal a s w' ∧ b = elemOf c I w'
+  | .inj a0 s' w0, a, s, has, hsw, b, hb, hm => by
+    have hN := (genWf_sub hg has).1
+    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
+    have hset : ∀ m, GS I (c.sortName s) (.inj (c.sortName a)) [b] m ↔ m = elemOf c I (.inj a0 s' w0) :=
+      fun m => by rw [show (.inj (c.sortName a) : KoreAML.Gen) = Gen.toK c (.inj a) from rfl, hy, ((hy _).mp hm)]
+    obtain ⟨has0, hni, hw0, rfl⟩ := sortOf_inj.mp hsw
+    have hx0 : InS I (c.sortName a0) (elemOf c I w0) := (inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2
+    have hvset : ∀ m, GS I (c.sortName s) (.inj (c.sortName a0)) [elemOf c I w0] m ↔ m = elemOf c I (.inj a0 s w0) :=
+      fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
+    by_cases h0 : a0 = a
+    · subst h0
+      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
+        (single_sorts hb) (single_sorts hx0) (fun m => by
+          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
+          rw [hset, hvset])
+      exact ⟨w0, hw0, (injNormal_of_not hni).symm, by simpa using this⟩
+    by_cases h1 : (a0, a) ∈ c.subsorts
+    · have hw' : c.sortOf (.inj a0 a w0) = some a := sortOf_inj.mpr ⟨h1, hni, hw0, rfl⟩
+      have hy1 : ∀ m, GS I (c.sortName a) (.inj (c.sortName a0)) [elemOf c I w0] m ↔ m = elemOf c I (.inj a0 a w0) :=
+        fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hw' KoreAML.val0).1 m
+      have hc := coh_gs hI h1 has hx0 hy1
+      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I (.inj a0 a w0)]) rfl rfl
+        (single_sorts hb) (single_sorts ((inS_iff _).mp (elemOf_spec hI hw' KoreAML.val0).2)) (fun m => by
+          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
+          rw [hset, hc, hvset])
+      exact ⟨.inj a0 a w0, hw', rfl, by simpa using this⟩
+    by_cases h2 : (a, a0) ∈ c.subsorts
+    · exfalso
+      have hN0 := (genWf_sub hg h2).1
+      obtain ⟨y2, hy2s, hy2⟩ := gen_fun hI hN0 (gens_inj h2) (xs := [b]) rfl (single_sorts hb)
+      have hc := coh_gs hI h2 has0 hb hy2
+      have := gen_inj hI hN (gens_inj has0) (by simp [Gen.argSorts]) (xs := [y2]) (ys := [elemOf c I w0]) rfl rfl
+        (single_sorts hy2s) (single_sorts hx0) (fun m => by
+          show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
+          rw [hc, hset, hvset])
+      have hy2w : y2 = elemOf c I w0 := by simpa using this
+      obtain ⟨w'', -, hw'', -⟩ := inj_back htr w0 h2 hw0 hb (by
+        show GS I _ (Gen.toK c (.inj a)) _ _
+        rw [hy2, hy2w])
+      have := injNormal_isInj a a0 w''
+      rw [← hw''] at this; rw [hni] at this; cases this
+    · exfalso
+      have hle : (c.le a0 a || c.le a a0) = false := by
+        simp only [Semantics.le, Bool.or_eq_false_iff, beq_eq_false_iff_ne, List.contains_iff_mem]
+        exact ⟨⟨h0, by simpa using h1⟩, ⟨fun h => h0 h.symm, by simpa using h2⟩⟩
+      have hle' : (c.le a a0 || c.le a0 a) = false := by rw [Bool.or_comm]; exact hle
+      have hseq : ∀ m, GS I (c.sortName s) (.inj (c.sortName a0)) [elemOf c I w0] m ↔
+          GS I (c.sortName s) (.inj (c.sortName a)) [b] m := fun m => by rw [hset, hvset]
+      have hdist : ∀ (C : Srt) (z : M), (C, a0) ∈ c.subsorts → InS I (c.sortName C) z →
+          (∀ m, GS I (c.sortName a0) (.inj (c.sortName C)) [z] m ↔ m = elemOf c I w0) → False := by
+        intro C z hC hz hzs
+        obtain ⟨w'', -, hw'', -⟩ := inj_back htr w0 hC hw0 hz (by rw [hzs])
+        have := injNormal_isInj C a0 w''
+        rw [← hw''] at this; rw [hni] at this; cases this
+      rcases mem_pairs_of (fun h => h0 (by cases h; rfl)) (gens_inj has0) (gens_inj has) with hp | hp
+      · rcases injPair_mem hN hp hle with ⟨-, hit⟩ | ⟨-, hit⟩
+        · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [elemOf c I w0]) (ys := [b]) rfl rfl
+            (single_sorts hx0) (single_sorts hb) hseq
+        · obtain ⟨C, hC, z, hz, hz1, -⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hx0 hb hseq
+          obtain ⟨C', hC', rfl⟩ := List.mem_map.mp hC
+          exact hdist C' z (mem_lowerBounds hC').1 hz hz1
+      · rcases injPair_mem hN hp hle' with ⟨-, hit⟩ | ⟨-, hit⟩
+        · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
+            (single_sorts hb) (single_sorts hx0) (fun m => (hseq m).symm)
+        · obtain ⟨C, hC, z, hz, -, hz2⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hb hx0
+            (fun m => (hseq m).symm)
+          obtain ⟨C', hC', rfl⟩ := List.mem_map.mp hC
+          exact hdist C' z (mem_lowerBounds hC').2 hz hz2
+  | .ctor g ws, a, s, has, hsw, b, hb, hm => by
+    exfalso
+    have hN := (genWf_sub hg has).1
+    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
+    have hset : ∀ m, GS I (c.sortName s) (Gen.toK c (.inj a)) [b] m ↔ m = elemOf c I (.ctor g ws) :=
+      fun m => by rw [hy, ((hy _).mp hm)]
+    rcases sortOf_ctor_cases hg hsw with ⟨kg, hkg, hws, hres⟩ | ⟨o, hlo, -, hws, hu, hres, -⟩ |
+      ⟨kp, hko, -, -, -, -, hres, -⟩
+    rotate_right
+    · -- an open generator's sort has no subsort pair below it (`genWf`'s flat conjunct)
+      obtain ⟨hpm, hpr, -, -⟩ := c.lookupOpen_spec hko
+      exact genWf_flat_sub hg hpm hpr has hres
+    rotate_left
+    · obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+      have hvset : ∀ m, GS I (c.sortName s) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
+          m = elemOf c I (.ctor g ws) := fun m => by
+        rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
+      exact gen_dist' hI hN (gens_inj has) (by rw [hres]; exact gens_of_ovl hom) (fun h => by cases h)
+        (fun _ _ _ h => by cases h) rfl (elems_length hI hws) (single_sorts hb) (elems_sorts hI hws)
+        (fun covs h => by simp [ovlArgsOf] at h)
+        (uncE_of_value hI hg htr hlo hws hu fun u hu' A B hAB hsu y hy hmy => by
+          have _hlt := List.sizeOf_lt_of_mem hu'
+          obtain ⟨w', hw', rfl, -⟩ := inj_back htr u hAB hsu hy hmy
+          exact lies_injNormal hw')
+        (fun m => by rw [hset, hvset])
+    obtain ⟨hkgm, -⟩ := lookupSig_spec hkg
+    have hvset : ∀ m, GS I (c.sortName kg.result) (Gen.toK c (.ctor kg)) (ws.map (elemOf c I)) m ↔
+        m = elemOf c I (.ctor g ws) := fun m => by
+      rw [← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
+    rw [← hres] at hvset
+    exact gen_dist hI hN (gens_inj has) (by rw [hres]; exact gens_ctor hkgm) (fun h => by cases h)
+      (fun _ _ _ h => by cases h)
+      (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkgm))
+      (distGuarded_ctorSigs (fun _ h => by cases h; exact hkgm) (fun _ h => by cases h)) rfl (elems_length hI hws) (single_sorts hb)
+      (elems_sorts hI hws) (fun m => by rw [hset, hvset])
+  | .dv s' lit, a, s, has, hsw, _, _, _ => by
+    exfalso
+    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
+  | .map s' es, a, s, has, hsw, _, _, _ => by
+    exfalso
+    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
+  | .set s' es, a, s, has, hsw, _, _, _ => by
+    exfalso
+    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
+  | .list s' es, a, s, has, hsw, _, _, _ => by
+    exfalso
+    rcases consSort_shape hg (genWf_sub hg has).1 hsw with ⟨_, _, h⟩ | ⟨_, _, _, h⟩ <;> cases h
+  termination_by w => w
+  decreasing_by all_goals (simp_wf; omega)
+
+
+/-- **A constructor's image at a value.** If the element of a value lies in what the constructor
+`f` builds from elements of its argument sorts, the value is `f` applied to values whose elements
+those are. -/
+theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    {f : Sym} {k : CtorSig} (hk : lookupSig c.ctorSigs f = some k)
+    {w : GroundTerm} (hsw : c.sortOf w = some k.result) {bs : List M}
+    (hbl : bs.length = (k.args.map c.sortName).length)
+    (hbs : ∀ (i : Nat) x s, bs[i]? = some x → (k.args.map c.sortName)[i]? = some s → InS I s x)
+    (hm : GS I (c.sortName k.result) (Gen.toK c (.ctor k)) bs (elemOf c I w)) :
+    ∃ ws, w = .ctor f ws ∧ c.sortsOf ws = some k.args ∧ bs = ws.map (elemOf c I) := by
+  obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
+  have hN := genWf_ctor hg hkm
+  have hgk := gens_ctor hkm
+  obtain ⟨y, -, hy⟩ := gen_fun hI hN hgk hbl hbs
+  have hyw : y = elemOf c I w := ((hy _).mp hm).symm
+  have hset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor k)) bs m ↔ m = elemOf c I w := fun m => by
+    rw [hy, hyw]
+  have hwe := (elemOf_spec hI hsw KoreAML.val0).1
+  rcases consSort_shape hg hN hsw with ⟨g, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
+  · rcases sortOf_ctor_cases hg hsw with ⟨kg, hkg, hws, hres⟩ | ⟨o, hlo, hio, hws, hu, hres, -⟩ |
+      ⟨kp, hko, hgn, -, -, -, hres, -⟩
+    rotate_right
+    · -- an open generator's application: the constructor k of its sort has no argument
+      -- (`genWf`'s flat conjunct), so the element is the one of the value `f()`, and distinct
+      -- values of a constructor sort are distinct elements (`values_apart`)
+      exfalso
+      obtain ⟨hpm, hpr, -, -⟩ := c.lookupOpen_spec hko
+      have hka : k.args = [] := genWf_flat_ctor hg hpm hpr hkm hres
+      have hb0 : bs = [] := List.eq_nil_of_length_eq_zero (by rw [hbl, hka]; rfl)
+      subst hb0
+      have hn0 : c.sortsOf [] = some k.args := by rw [hka]; exact sortsOf_nil
+      have hfs : c.sortOf (.ctor f []) = some k.result := sortOf_ctor_intro ⟨k, hk, hn0, rfl⟩
+      have h2 := (den_ctor_gs hI hk hn0 KoreAML.val0 _).mp (((elemOf_spec hI hfs KoreAML.val0).1 _).mpr rfl)
+      have he : elemOf c I (.ctor f []) = elemOf c I (.ctor g ws) := (hset _).mp h2
+      have hfg := values_apart hI hg htr (genWf_cons hg hN).1 hfs hsw he
+      injection hfg with hfg
+      subst hfg
+      rw [hk] at hgn; cases hgn
+    rotate_left
+    · exfalso
+      obtain ⟨hom, hn, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+      have hgf : g ≠ f := fun h => by
+        have := (c.isOvl_parts hio).1
+        rw [h] at this
+        simp [Semantics.isCtor, hk] at this
+      have hvset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
+          m = elemOf c I (.ctor g ws) := fun m => by
+        rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact hwe m
+      exact gen_dist' hI hN hgk (by rw [hres]; exact gens_of_ovl hom)
+        (fun h => by cases h; exact hgf (hn.symm.trans hkn))
+        (fun _ _ h _ => by cases h) hbl (elems_length hI hws) hbs (elems_sorts hI hws)
+        (fun covs h => by simp [ovlArgsOf, isOvl_of_ctorSigs hkm] at h)
+        (uncE_of_value hI hg htr hlo hws hu fun u hu' A B hAB hsu y hy hmy => by
+          obtain ⟨w', hw', rfl, -⟩ := inj_back hI hg htr u hAB hsu hy hmy
+          exact lies_injNormal hw')
+        (fun m => by rw [hset, hvset])
+    obtain ⟨hkgm, hkgn⟩ := lookupSig_spec hkg
+    have hvset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor kg)) (ws.map (elemOf c I)) m ↔
+        m = elemOf c I (.ctor g ws) := fun m => by
+      rw [hres, ← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact hwe m
+    by_cases hgf : g = f
+    · subst hgf
+      rw [hk] at hkg; cases hkg
+      refine ⟨ws, rfl, hws, ?_⟩
+      by_cases hne : k.args = []
+      · have h1 : bs = [] := List.eq_nil_of_length_eq_zero (by rw [hbl, hne]; rfl)
+        rw [hne] at hws
+        rw [h1, sortsOf_nil_eq hws]; rfl
+      · exact gen_inj hI hN hgk hne hbl (elems_length hI hws) hbs (elems_sorts hI hws)
+          (fun m => by rw [hset, hvset])
+    · exfalso
+      have hgm' : Gen.ctor kg ∈ c.gens k.result := by rw [hres]; exact gens_ctor hkgm
+      exact gen_dist hI hN hgk hgm' (fun h => by cases h; exact hgf (hkgn.symm.trans hkn))
+        (fun _ _ h _ => by cases h)
+        (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h; exact hkgm))
+        (distGuarded_ctorSigs (fun _ h => by cases h; exact hkgm) (fun _ h => by cases h; exact hkm)) hbl (elems_length hI hws) hbs
+        (elems_sorts hI hws) (fun m => by rw [hset, hvset])
+  · exfalso
+    obtain ⟨hab, -, hw0, hb⟩ := sortOf_inj.mp hsw
+    subst hb
+    have hvset : ∀ m, GS I (c.sortName k.result) (.inj (c.sortName a)) [elemOf c I w0] m ↔
+        m = elemOf c I (.inj a k.result w0) :=
+      fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact hwe m
+    exact gen_dist hI hN hgk (gens_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h)
+      (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h))
+      (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkm)) (ys := [elemOf c I w0])
+      hbl rfl hbs (single_sorts ((inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2))
+      (fun m => by rw [hset]; exact (hvset m).symm)
 
 end
 
@@ -2336,8 +2436,8 @@ theorem norm_gs : ∀ (n : Nat) (k : CtorSig), OvlLaws.KnownSig c k → OvlLaws.
       cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg ws) with
       | none =>
         rw [OvlLaws.norm_find_none ho hf]
-        exact raw o.sig ws hws (c.sortOf_ctor_iff.mpr (.inr ⟨hct, o, ho, hws,
-          OvlLaws.uncovered_of_find_none ho hf, rfl⟩)) m
+        exact raw o.sig ws hws (c.sortOf_ctor_iff.mpr (.inr (.inl ⟨hct, o, ho, hws,
+          OvlLaws.uncovered_of_find_none ho hf, rfl⟩))) m
       | some kg =>
         have hkg := List.mem_of_find?_eq_some hf
         have hcov := List.find?_some hf
@@ -2614,7 +2714,12 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
         obtain ⟨w', hw', rfl, -⟩ := inj_back hI hg htr u hAB hsu hy hmy
         exact lies_injNormal hw'
       rcases consSort_shape hg hN hw with ⟨g, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
-      · rcases sortOf_ctor_cases hg hw with ⟨kg, hkg, hws, hres⟩ | ⟨o', hlo', -, hws, hu, hres, -⟩
+      · rcases sortOf_ctor_cases hg hw with ⟨kg, hkg, hws, hres⟩ | ⟨o', hlo', -, hws, hu, hres, -⟩ |
+          ⟨kp, hko, -, -, -, -, hres, -⟩
+        rotate_right
+        · -- no overloading symbol has an open generator's sort (`genWf`'s flat conjunct)
+          exact absurd hres (genWf_flat_ovl hg (c.lookupOpen_spec hko).1 (c.lookupOpen_spec hko).2.1
+            (List.mem_map_of_mem (f := (·.sig)) hom))
         · exfalso
           obtain ⟨hkgm, -⟩ := lookupSig_spec hkg
           have hvset : ∀ m, GS I (c.sortName o.sig.result) (Gen.toK c (.ctor kg)) (ws.map (elemOf c I)) m ↔
@@ -2697,7 +2802,8 @@ theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
   have hprio : prioRuleK c r = (ruleAxiom c r).pattern := by
     have hnil : c.rules.filter (·.prio < r.prio) = [] :=
       List.filter_eq_nil_iff.mpr (fun r' hr' => by simpa using hs.1 r hr r' hr')
-    obtain ⟨hex, hpre, hpost⟩ := Semantics.sortedOK_rule hy.1 hr
+    obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hy.1 hr
+    have hex : r.exs = [] := Semantics.sortedOK_exsNil hy.1 hr (hb r hr)
     rw [prioRuleK_top hex hpre hpost]
     dsimp only
     rw [hnil]

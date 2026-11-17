@@ -25,7 +25,8 @@
   - `satRulesGoal_T`: the same for every rule of the definition, from the rules' facts taken per
     rule.
 -/
-import KcoreSpec.ModelAtT
+import KcoreSpec.ModelFnsCl
+import KcoreSpec.Confined
 import KcoreSpec.OpenConsistent
 import KcoreSpec.ExPlain
 
@@ -58,214 +59,29 @@ theorem stepM_iff_by (c : Semantics) {x y : GroundTerm} : StepM c x y ↔ ∃ r 
 
 variable {c : Semantics}
 
-/-! ## What a well-sorted rule with `rulePlainEx` says -/
+/-! ## The value model at T -/
 
-/-- The parts of a well-sorted rule with `\top` predicates, and its existential variables: distinct
-variables of the rule that neither the left side nor a condition holds. -/
-theorem ruleSorted_partsEx {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rulePlainEx r = true) :
-    sortOfTerm c.patCtxAll r.vars r.lhs = some topCellSort ∧
-      (∀ i < r.vars.length, i ∈ varOccs r.lhs ∨ (∃ t, r.req = some t ∧ i ∈ varOccs t) ∨ i ∈ varOccs r.rhs ∨
-        ∃ t, r.ens = some t ∧ i ∈ varOccs t) ∧
-      (∀ t, r.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) ∧
-      (∀ t, r.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) ∧
-      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs = some topCellSort ∧
-      r.exs.Nodup ∧ ∀ i ∈ r.exs, i < r.vars.length ∧ i ∉ varOccs r.lhs ∧ i ∉ r.condVars := by
-  obtain ⟨hpre, hpost⟩ := Semantics.rulePlainEx_top hp
-  have hs' := hs
-  simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, hnd⟩, hex⟩, hreq⟩, -⟩, hens⟩, -⟩, -⟩, -⟩, hrhs⟩ := hs'
-  refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs, (NamesApart.nodupB_iff _).mp hnd,
-    fun i hi => ?_⟩
-  · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)
-    simp only [Rule.condVars, hpre, hpost, varOccsCond, List.append_nil, List.contains_iff_mem,
-      List.mem_append] at this
-    rcases this with ((h1 | h2) | h3) | h4
-    · exact Or.inl h1
-    · cases hq : r.req with
-      | none => rw [hq] at h2; cases h2
-      | some t => rw [hq] at h2; exact Or.inr (Or.inl ⟨t, rfl, h2⟩)
-    · exact Or.inr (Or.inr (Or.inl h3))
-    · cases hq : r.ens with
-      | none => rw [hq] at h4; cases h4
-      | some t => rw [hq] at h4; exact Or.inr (Or.inr (Or.inr ⟨t, rfl, h4⟩))
-  · rw [ht] at hreq; simpa [reqOK] using hreq
-  · rw [ht] at hens; simpa [reqOK] using hens
-  · have := List.all_eq_true.mp hex i hi
-    simp only [Bool.and_eq_true, Bool.not_eq_true', List.contains_iff_mem, Rule.opens, List.mem_filter,
-      List.mem_range] at this
-    obtain ⟨⟨hlt, hnl⟩, hnc⟩ := this
-    refine ⟨hlt, fun h' => ?_, fun h' => ?_⟩
-    · simp [h'] at hnl
-    · simp [h'] at hnc
+/-- **A value denotes its own element** in the value model at any transition `T`. -/
+theorem den_val_T (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop) (v : GroundTerm) {s : Srt}
+    (hv : c.sortOf v = some s) (e : Valuation Elem) (m : Elem) :
+    (den c v).interpret (stdI_T c T) e m ↔ m = .val v :=
+  AtT.den_val (T := T) h v hv e m
 
-/-- A well-sorted rule's variables with `\top` predicates have numbered sorts. -/
-theorem rule_vars_numEx (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
-    (hp : c.rulePlainEx r = true) : ∀ i < r.vars.length, r.vars.getD i 0 < nRegSorts + c.sortNames.length := by
-  obtain ⟨hlhs, hocc, hreqs, hens, hrhs, -⟩ := ruleSorted_partsEx hs hp
-  intro i hi
-  have hg : r.vars[i]? = some (r.vars.getD i 0) := by
-    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]; rfl
-  have hx : ∀ k ∈ (c.rhsCtx (c.fns.map Fn.sig)).heads, k ∈ kernelSyms c := fun k hk => rhsHead_kernel fns_headsOK hk
-  have hsub : ∀ a b, (a, b) ∈ (c.rhsCtx (c.fns.map Fn.sig)).subs → (a, b) ∈ c.subsorts := fun _ _ h' => h'
-  rcases hocc i hi with hL | ⟨t, ht, hit⟩ | hR | ⟨t, ht, hit⟩
-  · exact varOccs_num h r.lhs hlhs top_numbered i hL _ hg
-  · exact varOccs_numOpen h hx hsub t (hreqs t ht) bool_numbered i hit _ hg
-  · exact varOccs_numOpen h hx hsub r.rhs hrhs top_numbered i hR _ hg
-  · exact varOccs_numOpen h hx hsub t (hens t ht) bool_numbered i hit _ hg
+/-- `•φ` in the value model at `T`: the configurations with a `T` successor in `φ`. -/
+theorem sNext_iff_T (T : GroundTerm → GroundTerm → Prop) (φ : KoreAML.P) (e : Valuation Elem) (x : GroundTerm) :
+    (KoreAML.sNext φ).interpret (stdI_T c T) e (.val x) ↔
+      ∃ y, φ.interpret (stdI_T c T) e (.val y) ∧ StepE_T c T (.val x) (.val y) :=
+  AtT.sNext_iff φ e x
 
-/-! ## Readers at T -/
-
-theorem srtOf_top_den_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {tbl : KoreAML.VarTable}
-    (e : Valuation Elem) (a : Elem) :
-    (KoreAML.trSort tbl (srtOf c topCellSort)).interpret (stdI_T c T) e a ↔ a = .srt topCellSort := by
-  unfold srtOf; rw [trSort_srt]; exact AtT.sort_den h.namesK top_numbered e a
-
-theorem top_isSort_T {T : GroundTerm → GroundTerm → Prop} : KoreAML.IsSort (stdI_T c T) (.srt topCellSort) :=
-  (AtT.isSort_iff _).mpr ⟨topCellSort, List.mem_range.mpr top_numbered, rfl⟩
-
-/-- A `requires` or `ensures` at a configuration, read at T: where it is a term, its value under σ
-is `true`. -/
-theorem reqRead_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {P : Nat → Prop}
-    {vs : List KoreAML.Var} {tbl : KoreAML.VarTable} {e : Valuation Elem} {σ : Subst}
-    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔
-      ∃ v, σ.lookup i = some v ∧ m = .val v)
-    (q : Option Term) (hq : ∀ t, q = some t → TermOK c P t) {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
-    (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort) (q.map (Term.kore c vs)))).interpret (stdI_T c T) e (.val x) ↔
-      ∀ t, q = some t → EvalTerm c σ t (some (bool true)) := by
-  cases hq' : q with
-  | none =>
-    simp only [Option.map_none, reqPat]
-    rw [KoreAML.tr, KoreAML.interp_sTop AtT.defOK_std (top_free _), KoreAML.interp_inhOf_of (srtOf_top_den_T h e),
-      AtT.inh_srt]
-    exact ⟨fun _ _ ht => (by cases ht), fun _ => hx⟩
-  | some t =>
-    simp only [Option.map_some]
-    rw [AtT.reqPat_iff h hvar (hq t hq') (srtOf_top_den_T h e) top_isSort_T]
-    constructor
-    · rintro ⟨-, hv⟩ t' ht'; cases ht'; exact hv
-    · intro hv; exact ⟨(AtT.inh_srt _ _).mpr hx, hv t rfl⟩
-
-/-- **A competitor read at T**: a configuration is in a rule's `applies` pattern exactly where the
-rule applies to it, for a rule with `ruleSorted` and `rulePlainEx`, not asked to be one of the
-definition's. -/
-theorem applies_iff_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {r : Rule}
-    (hs : c.ruleSorted r = true) (hp : c.rulePlainEx r = true) {tbl : KoreAML.VarTable}
-    (hkeys : ∀ i < r.vars.length, i ∈ r.leftVars → canonKey c r.vars i ∈ tbl) (e : Valuation Elem)
-    {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
-    (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret (stdI_T c T) e (.val x) ↔
-      RuleApplies c r x := by
-  have hn := h.namesK
-  obtain ⟨hlhs, -, hreqS, -, -⟩ := ruleSorted_partsEx hs hp
-  obtain ⟨hpre, -⟩ := Semantics.rulePlainEx_top hp
-  have hnum := rule_vars_numEx h hs hp
-  let vs := canonVars c r.vars
-  let n := r.vars.length
-  let l := (List.range n).filter r.leftVars.contains
-  have hl : ∀ i ∈ l, i < n := fun i hi => List.mem_range.mp (List.mem_filter.mp hi).1
-  have hlm : ∀ i ∈ l, i ∈ r.leftVars := fun i hi => by simpa using (List.mem_filter.mp hi).2
-  have hml : ∀ i < n, i ∈ r.leftVars → i ∈ l := fun i hi hil =>
-    List.mem_filter.mpr ⟨List.mem_range.mpr hi, by simpa using hil⟩
-  have hnd : (((l.map (vs.getD · default)).map KoreAML.Var.kore).map fun b => tbl.ev (KoreAML.evarKey b)).Nodup := by
-    rw [List.map_map, List.map_map]
-    refine nodup_map_of_injOn _ (fun i hi j hj he => ?_) (List.nodup_range.filter _)
-    exact canonKey_inj (hl i hi) (hl j hj) (ev_inj (hkeys i (hl i hi) (hlm i hi)) (hkeys j (hl j hj) (hlm j hj)) he)
-  have hsrt : ∀ b ∈ (l.map (vs.getD · default)).map KoreAML.Var.kore, ∃ n, b.sort = KoreAML.srt n := fun b hb => by
-    obtain ⟨v, hv, rfl⟩ := List.mem_map.mp hb
-    obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hv
-    show ∃ n, ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt n
-    rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
-  have hltL : ∀ i ∈ varOccs r.lhs, i < n := fun i hi => varOccs_lt r.lhs hlhs i hi
-  have hreqLt : ∀ t, r.req = some t → ∀ i ∈ varOccs t, i < n ∧ i ∈ r.leftVars := fun t ht i hi =>
-    ⟨varOccs_lt t (hreqS t ht) i hi, Rule.req_leftVars ht i hi⟩
-  let P : Nat → Prop := fun i => i < n ∧ i ∈ r.leftVars
-  have hpat : PatOK c P r.lhs :=
-    (patOK_of_sorted h hlhs).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
-  have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
-    (termOK_of_sorted h fns_headsOK (hreqS t ht)).monoOpen (hreqLt t ht)
-  rw [applies_eqOpen hpre]
-  constructor
-  · intro hm
-    obtain ⟨e', -, hguard, hbody⟩ := existsAll_elim AtT.defOK_std _ e _ hnd hsrt hm
-    rw [tr_and2, KoreAML.interp_sAnd] at hbody
-    obtain ⟨hl', hreq⟩ := hbody
-    have hin : ∀ i < n, i ∈ r.leftVars → InSort c (r.vars.getD i 0) (e'.evalEvar (tbl.ev (canonKey c r.vars i))) :=
-      fun i hi hil => (AtT.inhOf_sort (T := T) hn (hnum i hi) KoreAML.val0 _).mp
-        (hguard _ (List.mem_map_of_mem (List.mem_map_of_mem (hml i hi hil))) _
-          (by show (vs.getD i default).kore.sort = _; rw [canonVars_getD c hi]; rfl))
-    let σ := substE c tbl r.vars e'
-    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e' m ↔
-        ∃ v, σ.lookup i = some v ∧ m = .val v := by
-      rintro i ⟨hi, hil⟩ m
-      obtain ⟨v, he, -⟩ := inSort_val (hin i hi hil)
-      rw [AtT.var_read, substE_lookup hi]
-      show m = e'.evalEvar (tbl.ev (canonKey c r.vars i)) ↔ _
-      rw [he]
-      simp [toVal]
-    have hσ : c.WellSortedAt r.vars r.leftVars σ := fun i hil s hs' => by
-      have hi : i < n := (List.getElem?_eq_some_iff.mp hs').1
-      obtain ⟨v, he, hsv⟩ := inSort_val (hin i hi hil)
-      refine ⟨v, by rw [substE_lookup hi, he]; rfl, ?_⟩
-      rwa [List.getD_eq_getElem?_getD, hs', Option.getD_some] at hsv
-    obtain ⟨x', hx', he⟩ := (AtT.tr_pat h hvar hpat _).mp hl'
-    cases he
-    refine ⟨σ, hσ, hx', fun t ht => ?_, hpre ▸ .top⟩
-    rw [ht] at hreq
-    simp only [Option.map_some] at hreq
-    exact ((AtT.reqPat_iff h hvar (hreqT t ht) (srtOf_top_den_T h e') top_isSort_T _).mp hreq).2
-  · rintro ⟨σ, hσ, hp', hq, -⟩
-    have hσv : ∀ i < n, i ∈ r.leftVars → ∃ w, σ.lookup i = some w ∧ c.sortOf w = some (r.vars.getD i 0) :=
-      fun i hi hil => hσ i hil _ (by rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]; rfl)
-    let f : Nat → Elem := fun j => .val ((σ.lookup j).getD default)
-    let e' := setV c tbl r.vars r.leftVars f e
-    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e' m ↔
-        ∃ v, σ.lookup i = some v ∧ m = .val v := by
-      rintro i ⟨hi, hil⟩ m
-      rw [AtT.var_read]
-      show m = (setV c tbl r.vars r.leftVars f e).evalEvar (tbl.ev (canonKey c r.vars i)) ↔ _
-      rw [setV_on hkeys hi hil]
-      obtain ⟨w, hw, -⟩ := hσv i hi hil
-      simp [f, hw]
-    refine AtT.existsAll_intro _ e e' _ hnd hsrt (fun z hz => ?_) rfl (fun b hb k hk => ?_) ?_
-    · show (if h : _ then _ else _) = _
-      rw [dif_neg]
-      rintro ⟨i, hi, hil, rfl⟩
-      exact hz _ (List.mem_map_of_mem (List.mem_map_of_mem (hml i hi hil))) rfl
-    · obtain ⟨v, hv, rfl⟩ := List.mem_map.mp hb
-      obtain ⟨i, hil, rfl⟩ := List.mem_map.mp hv
-      have hs' : ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt (c.sortName (r.vars.getD i 0)) := by
-        rw [canonVars_getD c (hl i hil)]; rfl
-      change ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt k at hk
-      rw [hs'] at hk
-      rw [← srt_inj hk]
-      show InS (stdI_T c T) _ ((setV c tbl r.vars r.leftVars f e).evalEvar (tbl.ev (canonKey c r.vars i)))
-      rw [setV_on hkeys (hl i hil) (hlm i hil)]
-      obtain ⟨w, hw, hws⟩ := hσv i (hl i hil) (hlm i hil)
-      show InS (stdI_T c T) _ (Elem.val ((σ.lookup i).getD default))
-      rw [hw, Option.getD_some]
-      exact (AtT.inhOf_sort (T := T) hn (hnum i (hl i hil)) KoreAML.val0 _).mpr hws
-    · rw [tr_and2, KoreAML.interp_sAnd]
-      refine ⟨(AtT.tr_pat h hvar hpat _).mpr ⟨x, hp', rfl⟩, ?_⟩
-      cases hrq : r.req with
-      | none =>
-        simp only [Option.map_none, reqPat]
-        rw [KoreAML.tr, KoreAML.interp_sTop AtT.defOK_std (by unfold srtOf; rw [trSort_srt]; rfl),
-          KoreAML.interp_inhOf_of (srtOf_top_den_T h e'), AtT.inh_srt]
-        exact hx
-      | some t =>
-        simp only [Option.map_some]
-        exact (AtT.reqPat_iff h hvar (hreqT t hrq) (srtOf_top_den_T h e') top_isSort_T _).mpr
-          ⟨(AtT.inh_srt _ _).mpr hx, hq t hrq⟩
-
-/-! ## A rule's right side under its binders -/
-
-/-- The binders of a rule's right side: its existential variables, named canonically. -/
-def ruleExBinders (c : Semantics) (r : Rule) : List Kore.EVar :=
-  r.exs.map fun i => ((canonVars c r.vars).getD i default).kore
-
-/-- The body of a rule's right side whose `post` is `\top`: `rhs ∧ ens`. -/
-def ruleRightBody (c : Semantics) (r : Rule) : Kore.Pattern :=
-  .and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
-    reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]
+/-- **The value model at any transition `T` satisfies the parts of `Γ` and `Γcl` that do not read
+the step**: the signature, the constructors, the domains, the collections, the functions, the
+interpretation's values at silent points, and Bool's closure where Bool holds only its literals. -/
+theorem model_parts_T (h : HypModelCore c) (hc : c.coreOK = true) (T : GroundTerm → GroundTerm → Prop) :
+    (stdI_T c T ⊧ᴵP ΓSig c) ∧ (stdI_T c T ⊧ᴵP ΓCons c) ∧ (stdI_T c T ⊧ᴵP ΓDomains c) ∧
+    (stdI_T c T ⊧ᴵP ΓColls c) ∧ (stdI_T c T ⊧ᴵP ΓFns c) ∧ (stdI_T c T ⊧ᴵP ΓFallback c) ∧
+    (c.litSort Srt.bool = true → (stdI_T c T ⊧ᴵ boolClosed c)) :=
+  ⟨AtT.satSigGoal h, AtT.satConsGoal h, AtT.satDomainsGoal h, AtT.satCollsGoal h, AtT.satFnsGoal h,
+   AtT.satFallbackGoal h, AtT.boolClosed_model h hc⟩
 
 /-- A rule's right side with a `\top` `post` is `∃ē. (rhs ∧ ens)`. -/
 theorem ruleRight_eqEx {r : Rule} (hpost : r.post = .top) (hlt : ∀ i ∈ r.exs, i < r.vars.length) :

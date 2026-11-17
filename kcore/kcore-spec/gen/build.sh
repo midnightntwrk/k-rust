@@ -8,7 +8,12 @@
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd)
 TC=$HOME/.elan/toolchains/leanprover--lean4---v4.34.0
-RT=$K/../../../k2lean/tests/rtime.py
+# k2lean's rtime.py (wall time and peak memory of a process): in $K_RUST, or in the nearest
+# directory above kcore-spec that holds k2lean/tests/rtime.py (the k-rust checkout)
+if [ -n "${K_RUST:-}" ]; then RT=$K_RUST/k2lean/tests/rtime.py
+else RT=; d=$K; while [ "$d" != / ]; do d=$(dirname "$d")
+  [ -f "$d/k2lean/tests/rtime.py" ] && { RT=$d/k2lean/tests/rtime.py; break; }; done; fi
+[ -f "$RT" ] || { echo "gen/build.sh: no k2lean/tests/rtime.py above $K: set K_RUST"; exit 1; }
 tie=0; only=0; extra=""
 while [ $# -gt 0 ]; do case $1 in
   --tie) tie=1; shift;; --only) only=1; shift;;

@@ -8,51 +8,51 @@ namespace Colls
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isStackCell» : KCore.Sym := 378
-@[match_pattern, reducible] def «isStackCellOpt» : KCore.Sym := 379
-@[match_pattern, reducible] def «isSumCell» : KCore.Sym := 380
-@[match_pattern, reducible] def «isSumCellOpt» : KCore.Sym := 381
-@[match_pattern, reducible] def «isAcctsCell» : KCore.Sym := 382
-@[match_pattern, reducible] def «isAcctsCellOpt» : KCore.Sym := 383
-@[match_pattern, reducible] def «isAcctCell» : KCore.Sym := 384
-@[match_pattern, reducible] def «isAcctCellFragment» : KCore.Sym := 385
-@[match_pattern, reducible] def «isAcctsCellFragment» : KCore.Sym := 386
-@[match_pattern, reducible] def «isBalCell» : KCore.Sym := 387
-@[match_pattern, reducible] def «isBalCellOpt» : KCore.Sym := 388
-@[match_pattern, reducible] def «isIdCell» : KCore.Sym := 389
-@[match_pattern, reducible] def «isIdCellOpt» : KCore.Sym := 390
-@[match_pattern, reducible] def «isOp» : KCore.Sym := 391
-@[match_pattern, reducible] def «isOps» : KCore.Sym := 392
-@[match_pattern, reducible] def «isAcctCellMap» : KCore.Sym := 393
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 394
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 395
-@[match_pattern, reducible] def «<stack>» : KCore.Sym := 396
-@[match_pattern, reducible] def «noStackCell» : KCore.Sym := 397
-@[match_pattern, reducible] def «<sum>» : KCore.Sym := 398
-@[match_pattern, reducible] def «noSumCell» : KCore.Sym := 399
-@[match_pattern, reducible] def «<accts>» : KCore.Sym := 400
-@[match_pattern, reducible] def «noAcctsCell» : KCore.Sym := 401
-@[match_pattern, reducible] def «pop» : KCore.Sym := 402
-@[match_pattern, reducible] def «drop» : KCore.Sym := 403
-@[match_pattern, reducible] def «bump» : KCore.Sym := 404
-@[match_pattern, reducible] def «seq» : KCore.Sym := 405
-@[match_pattern, reducible] def «<id>» : KCore.Sym := 406
-@[match_pattern, reducible] def «<bal>» : KCore.Sym := 407
-@[match_pattern, reducible] def «<acct>» : KCore.Sym := 408
-@[match_pattern, reducible] def «noIdCell» : KCore.Sym := 409
-@[match_pattern, reducible] def «noBalCell» : KCore.Sym := 410
-@[match_pattern, reducible] def «<acct>-fragment» : KCore.Sym := 411
-@[match_pattern, reducible] def «<accts>-fragment» : KCore.Sym := 412
-@[match_pattern, reducible] def «initIdCell» : KCore.Sym := 413
-@[match_pattern, reducible] def «initBalCell» : KCore.Sym := 414
-@[match_pattern, reducible] def «initAcctCell» : KCore.Sym := 415
-@[match_pattern, reducible] def «AcctCellMapKey» : KCore.Sym := 416
-@[match_pattern, reducible] def «AcctCellMapItem» : KCore.Sym := 417
-@[match_pattern, reducible] def «.AcctCellMap» : KCore.Sym := 418
-@[match_pattern, reducible] def «_AcctCellMap_» : KCore.Sym := 419
-@[match_pattern, reducible] def «AcctCellMap:in_keys» : KCore.Sym := 420
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isStackCell» : KCore.Sym := 382
+@[match_pattern, reducible] def «isStackCellOpt» : KCore.Sym := 383
+@[match_pattern, reducible] def «isSumCell» : KCore.Sym := 384
+@[match_pattern, reducible] def «isSumCellOpt» : KCore.Sym := 385
+@[match_pattern, reducible] def «isAcctsCell» : KCore.Sym := 386
+@[match_pattern, reducible] def «isAcctsCellOpt» : KCore.Sym := 387
+@[match_pattern, reducible] def «isAcctCell» : KCore.Sym := 388
+@[match_pattern, reducible] def «isAcctCellFragment» : KCore.Sym := 389
+@[match_pattern, reducible] def «isAcctsCellFragment» : KCore.Sym := 390
+@[match_pattern, reducible] def «isBalCell» : KCore.Sym := 391
+@[match_pattern, reducible] def «isBalCellOpt» : KCore.Sym := 392
+@[match_pattern, reducible] def «isIdCell» : KCore.Sym := 393
+@[match_pattern, reducible] def «isIdCellOpt» : KCore.Sym := 394
+@[match_pattern, reducible] def «isOp» : KCore.Sym := 395
+@[match_pattern, reducible] def «isOps» : KCore.Sym := 396
+@[match_pattern, reducible] def «isAcctCellMap» : KCore.Sym := 397
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 398
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 399
+@[match_pattern, reducible] def «<stack>» : KCore.Sym := 400
+@[match_pattern, reducible] def «noStackCell» : KCore.Sym := 401
+@[match_pattern, reducible] def «<sum>» : KCore.Sym := 402
+@[match_pattern, reducible] def «noSumCell» : KCore.Sym := 403
+@[match_pattern, reducible] def «<accts>» : KCore.Sym := 404
+@[match_pattern, reducible] def «noAcctsCell» : KCore.Sym := 405
+@[match_pattern, reducible] def «pop» : KCore.Sym := 406
+@[match_pattern, reducible] def «drop» : KCore.Sym := 407
+@[match_pattern, reducible] def «bump» : KCore.Sym := 408
+@[match_pattern, reducible] def «seq» : KCore.Sym := 409
+@[match_pattern, reducible] def «<id>» : KCore.Sym := 410
+@[match_pattern, reducible] def «<bal>» : KCore.Sym := 411
+@[match_pattern, reducible] def «<acct>» : KCore.Sym := 412
+@[match_pattern, reducible] def «noIdCell» : KCore.Sym := 413
+@[match_pattern, reducible] def «noBalCell» : KCore.Sym := 414
+@[match_pattern, reducible] def «<acct>-fragment» : KCore.Sym := 415
+@[match_pattern, reducible] def «<accts>-fragment» : KCore.Sym := 416
+@[match_pattern, reducible] def «initIdCell» : KCore.Sym := 417
+@[match_pattern, reducible] def «initBalCell» : KCore.Sym := 418
+@[match_pattern, reducible] def «initAcctCell» : KCore.Sym := 419
+@[match_pattern, reducible] def «AcctCellMapKey» : KCore.Sym := 420
+@[match_pattern, reducible] def «AcctCellMapItem» : KCore.Sym := 421
+@[match_pattern, reducible] def «.AcctCellMap» : KCore.Sym := 422
+@[match_pattern, reducible] def «_AcctCellMap_» : KCore.Sym := 423
+@[match_pattern, reducible] def «AcctCellMap:in_keys» : KCore.Sym := 424
 end Sym
 
 namespace Srt
@@ -77,7 +77,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 45).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisStackCell", "LblisStackCellOpt", "LblisSumCell", "LblisSumCellOpt",
+    ((List.range 45).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisStackCell", "LblisStackCellOpt", "LblisSumCell", "LblisSumCellOpt",
  "LblisAcctsCell", "LblisAcctsCellOpt", "LblisAcctCell", "LblisAcctCellFragment", "LblisAcctsCellFragment",
  "LblisBalCell", "LblisBalCellOpt", "LblisIdCell", "LblisIdCellOpt", "LblisOp", "LblisOps", "LblisAcctCellMap",
  "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbl'-LT-'stack'-GT-'", "LblnoStackCell", "Lbl'-LT-'sum'-GT-'", "LblnoSumCell",

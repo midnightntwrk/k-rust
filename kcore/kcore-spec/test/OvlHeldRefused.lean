@@ -33,18 +33,18 @@ definition_of defn from "f2-examples/ovlsub.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def capN : Sym := 383
-def symDone : Sym := 384
-def symInf : Sym := 385
-def symRun : Sym := 386
-def capGas : Sym := 390
+def capN : Sym := 387
+def symDone : Sym := 388
+def symInf : Sym := 389
+def symRun : Sym := 390
+def capGas : Sym := 394
 def gasS : Srt := 32
 def cntS : Srt := 19
 def fI : Sym := 5000
 
 /-- `<generatedTop>(<k>(kseq(inj{Pgm,KItem}(x), dotk)), cnt)`, as the reader writes ovlsub's rules. -/
 def cfg (x cnt : Term) : Term :=
-  .app 71 [.app 381 [.app 0 [.inj 34 1 x, .app 1 []]], cnt]
+  .app 71 [.app 385 [.app 0 [.inj 34 1 x, .app 1 []]], cnt]
 
 /-- ovlsub's semantics with `fI : Int -> Gas` among `capGas`'s overloads. -/
 noncomputable def cInt : Semantics :=

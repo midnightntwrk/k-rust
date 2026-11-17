@@ -316,7 +316,7 @@ theorem notApplies_model3 {r : Rule} (hr : r ∈ c.rules) {x : GroundTerm} (h : 
     ModelNotApplies c I r x := by
   intro σ hσ hpv tbl e hag
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
-  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top (Semantics.sortedOK_rule hok hr).2.1
+  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top (Semantics.sortedOK_ruleTop hok hr).1
   · exact ⟨_, _, ht, hv, fun u hu => EvalTerm.sorted hsc he fns_headsOK hσ (hreqs _ ht) hu,
       evalTerm_den3 hI hnn hsc hst hok hbc he fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs _ ht)⟩
 
@@ -464,7 +464,8 @@ theorem step_sound_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   intro x y hstep M _ I hI e m hm
   obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep
-  obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.sortedOK_rule hy.1 hr
+  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hy.1 hr
+  have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hy.1 hr (hb r hr)
   have hD := defOK hI
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
   obtain ⟨hlhs, hreqs, -⟩ := rule_ctx hy.1 hr
@@ -532,7 +533,7 @@ theorem step_sound_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
         obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
         obtain ⟨r', hr', -, rfl⟩ := hcomp φ hφ
         obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hy.1 hr'
-        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (Semantics.sortedOK_rule hy.1 hr').2.1 (hb _ hr') hk
+        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (Semantics.sortedOK_ruleTop hy.1 hr').1 (hb _ hr') hk
       · exact freeOf_rule_parts hy.1 hr (Or.inr (Or.inr hk))
     · have h := lhs_req_hold3 hI hnn hsc hs hy.1 hbc hr hσ hmatch hreq hag
       show (KoreAML.tr ⟨tbl, []⟩ (.and C _)).interpret I e' _
@@ -545,11 +546,11 @@ theorem step_sound_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
       · obtain ⟨r', hr', hp, rfl⟩ := hcomp φ hφ
         obtain ⟨hlhs', -, -⟩ := rule_ctx hy.1 hr'
         have hbinds' := Exec.binds_all (hb _ hr')
-        refine applies_empty hI hs.1 hsc.trans hnn.1 hlhs' hbinds' (hs.2.1 r' hr') (Semantics.sortedOK_rule hy.1 hr').2.1 x.property
+        refine applies_empty hI hs.1 hsc.trans hnn.1 hlhs' hbinds' (hs.2.1 r' hr') (Semantics.sortedOK_ruleTop hy.1 hr').1 x.property
           (fun i hi => hkeys _ ?_) e' (notApplies_model3 hI hnn hsc hs hy.1 hbc hr' (hprio r' hr' hp))
         rw [KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOf]
         exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _
-          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (Semantics.sortedOK_rule hy.1 hr').2.1 (hb _ hr') hi))))))
+          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (Semantics.sortedOK_ruleTop hy.1 hr').1 (hb _ hr') hi))))))
       · have hxs := elemOf_spec hI x.property e'
         show (KoreAML.inhOf (KoreAML.trSort tbl (KoreAML.srt (c.sortName topCellSort)))).interpret I e' _
         rw [trSort_srt]

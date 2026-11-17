@@ -76,18 +76,27 @@ def apartSort (c : Semantics) (s : Srt) : Bool :=
 /-- **Generated values.** Every constructor's result sort and every subsort pair's upper sort is a
 constructor sort, no subsort pair is reflexive, a constructor sort has no domain values and is no
 collection sort, the constructor sorts are `apartSort`, and an open generator's (a raw parameter's)
-result sort is a constructor sort. Decidable on the data. It says that a
+result sort is a constructor sort, which is flat: no constructor and no overloading symbol bears the
+open generator's name, every constructor of its result sort has no argument, no overloading
+symbol has that result sort and no subsort pair has it as upper sort. Decidable on the data. It
+says that a
 value of a constructor sort is a constructor or an injection applied to values, which is what makes
 the constructors' axioms of `Γ` (read at that sort) describe it (a Float literal's sort, Float, is no
 constructor sort), and that distinct values of every
-sort are distinct elements (KConfigVar's by `distinctSorts`). -/
+sort are distinct elements (KConfigVar's by `distinctSorts`). Flatness makes the constructors of an
+open generator's sort nullary and lets no injection and no overloading symbol end at that sort, so
+a constructor of the sort builds one element, a value's. -/
 def genWf (c : Semantics) : Bool :=
   c.ctorSigs.all (fun k => (consSorts c).contains k.result) &&
   c.subsorts.all (fun p => (consSorts c).contains p.2 && p.1 != p.2) &&
   (consSorts c).all (fun s => apartSort c s && s != Srt.int && s != Srt.bool && s != Srt.kconfigVar &&
     !c.lib.tokenSorts.contains s && !c.lib.byteSorts.contains s && (c.collOf s).isNone && s != Srt.float &&
     s != Srt.string && s != Srt.bytes) &&
-  c.params.all (fun k => !k.raw || (consSorts c).contains k.sig.result)
+  c.params.all (fun k => !k.raw || (consSorts c).contains k.sig.result) &&
+  c.params.all (fun k => !k.raw ||
+    (c.ctorSigs.all (fun g => g.name != k.sig.name && (g.result != k.sig.result || g.args.isEmpty)) &&
+     c.ovlSigs.all (fun g => g.name != k.sig.name && g.result != k.sig.result) &&
+     c.subsorts.all (fun p => p.2 != k.sig.result)))
 
 /-- A collection sort holds no domain value: it is not Int, Bool, KConfigVar, Float, String, Bytes,
 or a token or byte sort of the library. Decidable on the data. -/
@@ -391,6 +400,80 @@ def Cond.bound (c : Semantics) (n : Nat) : Cond → Bool
   | .not p => Cond.bound c n p
   | .and p q | .or p q | .implies p q => Cond.bound c n p && Cond.bound c n q
   | _ => true
+
+/-- t is the variable i or an injection of it, and `ok` admits every variable of u. -/
+def fixesBy (ok : Nat → Bool) (i : Nat) (t u : Term) : Bool :=
+  (match t with
+   | .var j => j == i
+   | .inj _ _ (.var j) => j == i
+   | _ => false) && (varOccs u).all ok
+
+/-- The condition, n variables in scope, where it holds equates the variable i with a term whose
+variables `ok` admits. Under a binder its variable is admitted where `adm` admits its sort, or
+where `val` admits its sort and the body fixes it by a term over the other admitted variables. -/
+def Cond.fixes (adm val : Srt → Bool) : (Nat → Bool) → Nat → Nat → Cond → Bool
+  | ok, i, _, .mem _ t u => fixesBy ok i t u
+  | ok, i, _, .equals _ t u => fixesBy ok i t u || fixesBy ok i u t
+  | ok, i, n, .and p q => Cond.fixes adm val ok i n p || Cond.fixes adm val ok i n q
+  | ok, i, n, .or p q => Cond.fixes adm val ok i n p && Cond.fixes adm val ok i n q
+  | ok, i, n, .ex s body =>
+      let here := adm s || (val s && Cond.fixes adm val (fun j => j != n && ok j) n (n + 1) body)
+      Cond.fixes adm val (fun j => if j == n then here else ok j) i (n + 1) body
+  | _, _, _, _ => false
+
+/-- The existential variables the predicate fixes, in rounds: by a term over the variables that are
+not existential, the other existential ones of a sort `adm` admits and the ones fixed in an
+earlier round. -/
+def Clause.fixedExs (adm val : Srt → Bool) (cl : Clause) : List Nat :=
+  (List.range cl.exs.length).foldl (fun acc _ =>
+    cl.exs.filter fun i => acc.contains i ||
+      Cond.fixes adm val (fun j => !cl.exs.contains j || acc.contains j ||
+        (j != i && (cl.vars[j]?.map adm).getD false)) i cl.vars.length cl.post) []
+
+/-! ## Function-overloaded symbols in patterns -/
+
+mutual
+  /-- The applied symbols of a term: the symbol of every application in it, through `as`,
+  injections and the arguments of every application (collection pattern symbols among them). -/
+  def symOccs : Term → List Sym
+    | .var _ => []
+    | .app f ts => f :: symOccsList ts
+    | .inj _ _ t => symOccs t
+    | .as t _ => symOccs t
+    | .dv _ _ => []
+    termination_by structural t => t
+  def symOccsList : List Term → List Sym
+    | [] => []
+    | t :: ts => symOccs t ++ symOccsList ts
+    termination_by structural ts => ts
+end
+
+/-- The patterns of a condition: the pattern of each `exMatch` in it, through `not`, `and`, `or`,
+`implies`, `ex`, `all` and the body of an `exMatch`. The terms a condition evaluates (an
+`exMatch`'s scrutinee, the sides of `ceil`, `equals`, `mem`) are not patterns. -/
+def condPats : Cond → List Term
+  | .not p => condPats p
+  | .and p q => condPats p ++ condPats q
+  | .or p q => condPats p ++ condPats q
+  | .implies p q => condPats p ++ condPats q
+  | .exMatch _ _ p _ body => p :: condPats body
+  | .ex _ body => condPats body
+  | .all _ body => condPats body
+  | .top | .bot | .ceil _ _ | .equals _ _ _ | .mem _ _ _ => []
+
+/-- A generator that is a function-overloaded symbol: an overloading symbol (`isOvl`) with a
+declaration, among `fnOvlSyms`. -/
+def Semantics.fnOvl (c : Semantics) : Gen → Bool
+  | .ctor k => c.isOvl k.name && (c.lookupOvl k.name).isSome && c.fnOvlSyms.contains k.name
+  | .inj _ => false
+
+/-- No function-overloaded symbol is applied in a rule's left side, a clause's patterns, or the
+pattern of an `exMatch` of a rule's or a clause's `pre` or `post`. -/
+def Semantics.ovlPatsOK (c : Semantics) : Bool :=
+  let bad := fun (t : Term) => (symOccs t).any c.fnOvlSyms.contains
+  c.rules.all (fun r => !bad r.lhs && (condPats r.pre ++ condPats r.post).all (!bad ·)) &&
+  c.fns.all fun f => f.clauses.all fun cl =>
+    cl.pats.all (!bad ·) && (condPats cl.pre ++ condPats cl.post).all (!bad ·)
 
 /-! ## Overloading symbols -/
 

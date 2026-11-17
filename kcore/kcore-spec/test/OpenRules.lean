@@ -76,11 +76,11 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 /-- The symbols and sorts `cfg` and the rules name. -/
-example : c.symName 71 = "Lbl'-LT-'generatedTop'-GT-'" ∧ c.symName 379 = "Lbl'-LT-'k'-GT-'" ∧
-    c.symName 0 = "kseq" ∧ c.symName 382 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
+example : c.symName 71 = "Lbl'-LT-'generatedTop'-GT-'" ∧ c.symName 383 = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName 0 = "kseq" ∧ c.symName 386 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
     c.sortName 32 = "Exp" ∧ c.sortName 1 = "KItem" := by
   decide +kernel
 
@@ -285,11 +285,16 @@ example (hd : FnDet c2) (hs : FnSolves c2) : True := by
 /-! ## Consistency over `Γc`: `consistent_open` -/
 
 /-- `consistent_open` at the text's semantics and at `c2`, for every `FnDet` and `FnSolves`, the
-rules' facts from `HypModelCore`. Neither has an open rule; `test/OpenRulesCore.lean` instantiates it
-at `cO`, which has. -/
-example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : Consistent c ∧ Consistent c2 :=
-  ⟨consistent_open c coreOK hd hs fun _ hr => (hypModel_of_fn coreOK hd hs).ruleFactsOpen hr,
-   consistent_open c2 coreOK2 hd2 hs2 fun _ hr => (hypModel_of_fn coreOK2 hd2 hs2).ruleFactsOpen hr⟩
+rules' facts from `HypModelCore` (`ruleSorted`, `rulePlainEx`) with no rule having an existential
+variable (decided). Neither has an open rule; `test/OpenRulesCore.lean` instantiates it at `cO`,
+which has. -/
+example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : Consistent c ∧ Consistent c2 := by
+  have hex : ∀ r ∈ c.rules, r.exs = [] := by decide +kernel
+  have hex2 : ∀ r ∈ c2.rules, r.exs = [] := by decide +kernel
+  exact ⟨consistent_open c coreOK hd hs fun _ hr => ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).2, hex _ hr⟩⟩,
+    consistent_open c2 coreOK2 hd2 hs2 fun _ hr => ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).2, hex2 _ hr⟩⟩⟩
 
 /-! ## A successor in two cases: `successor_split_rule`, `step_successor_open` -/
 

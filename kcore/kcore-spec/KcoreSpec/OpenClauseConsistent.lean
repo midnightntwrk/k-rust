@@ -26,13 +26,16 @@ theorem boolValuesCl {c : Semantics} (hl : c.litSort Srt.bool = true)
     {v : GroundTerm} (hv : c.sortOf v = some Srt.bool) : ∃ b, v = .dv Srt.bool (.bool b) := by
   simp only [Semantics.litSort, Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq,
     Bool.not_eq_true'] at hl
-  obtain ⟨⟨⟨⟨⟨⟨⟨hct, hov⟩, hsub⟩, -⟩, hcoll⟩, htok⟩, hbyte⟩, -⟩ := hl
+  obtain ⟨⟨⟨⟨⟨⟨⟨hct, hov⟩, hsub⟩, hpr⟩, hcoll⟩, htok⟩, hbyte⟩, -⟩ := hl
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -, hs⟩ | ⟨-, o, ho, -, -, hs⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -, hs⟩ | ⟨-, o, ho, -, -, hs⟩ | ⟨-, -, k, hk, -, -, hs⟩
     · exact absurd hs.symm (hct k (lookupSig_spec hk).1)
     · obtain ⟨-, i, hi, he, -⟩ := OvlLaws.lookupOvl_spec ho
       exact absurd hs.symm (hov o.sig (List.mem_map.mpr ⟨o, he ▸ List.getElem_mem hi, rfl⟩))
+    · obtain ⟨hm, hraw, -, -⟩ := c.lookupOpen_spec hk
+      have := hpr k hm
+      simp [hraw, ← hs] at this
   | inj a b t =>
     obtain ⟨hab, -, -, rfl⟩ := OvlLaws.sortOf_inj_iff.mp hv
     exact (hsub _ hab rfl).elim
@@ -93,6 +96,26 @@ theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c)
     exact boolClosed_modelCl hm hl
   · exact satStepGoal_open hm hrules φ hφ
 
+/-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
+`HypModelCore` and rules with `ruleSorted` and `rulePlainEx`: `stdI_modelOpenCl` with the rules'
+axioms and the step's closure at `T := StepM c` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
+theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) :
+    stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
+  intro φ hφ
+  rcases hφ with (hφ | hφ) | hφ
+  · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
+    · exact satSigGoal hm φ hφ
+    · exact satConsGoal hm φ hφ
+    · exact satDomainsGoal hm φ hφ
+    · exact satCollsGoal hm φ hφ
+    · exact satFnsGoal hm φ hφ
+    · exact satRulesGoal_StepM hm hrules φ hφ
+    · exact satFallbackGoal hm φ hφ
+  · obtain ⟨-, hl, rfl⟩ := hφ
+    exact boolClosed_modelCl hm hl
+  · exact satStepGoal_StepM hm hrules φ hφ
+
 /-- **The theory of a semantics whose clauses are asked CN-4's bodies is consistent**:
 `consistent_of`'s conclusion for a semantics with `sortedOKCl` in place of `sortedOK`, `srReady`,
 `OvlOK`, `faithCoreOK`, `patHooksApart` and `idsOK`, whose functions have at most one result
@@ -102,6 +125,6 @@ theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srR
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) : Consistent c := by
   have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
-  exact ⟨Elem, inferInstance, stdI c, stdI_modelOpenCl c hm fun _ hr => hm.ruleFactsOpen hr⟩
+  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm fun _ hr => hm.ruleFactsEx hr⟩
 
 end KCore

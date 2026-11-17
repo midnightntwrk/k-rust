@@ -52,10 +52,13 @@ def int (n : Int) : GroundTerm := .dv Srt.int (.int n)
 
 kernel_rfl clausesFixed_withHooks : ∀ (c : Semantics) (H : HookParams),
   (c.withHooks H).clausesFixed = c.clausesFixed
-kernel_rfl clauseMatches_withHooks : ∀ (c : Semantics) (H : HookParams) (cl : Clause) (vs : List GroundTerm),
-  Exec.clauseMatches (c.withHooks H) cl vs = Exec.clauseMatches c cl vs
-kernel_rfl evalFC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm),
-  Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs
+/-- The matcher and `evalFC` read no interpretation where no parameter is raw. -/
+theorem clauseMatches_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (cl : Clause)
+    (vs : List GroundTerm) : Exec.clauseMatches (c.withHooks H) cl vs = Exec.clauseMatches c cl vs :=
+  Cert.clauseMatches_withHooks_hr c H hr cl vs
+theorem evalFC_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (n : Nat) (f : Sym)
+    (vs : List GroundTerm) : Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs :=
+  Cert.evalFC_withHooks c H hr n f vs
 
 /-- A function's result that `evalFC` computes on the data, which reads no interpretation, is its
 result under every interpretation. -/
@@ -68,7 +71,7 @@ theorem eval_everyH {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
   have hsr' := (Semantics.srReady_withHooks c H).trans hsr
   have hmr' := (Semantics.matchReady_withHooks c H).trans hmr
   exact Exec.evalF_sound (sortCtx_of hok' hsr' (Exec.ovlCase_of hmr')) (Exec.clauseCtx_of hok') (Exec.matchCtx_of hmr') n
-    (Cert.evalFC_sound n (by rw [evalFC_withHooks]; exact h)) (by rw [Semantics.lookupFn_withHooks]; exact hfn)
+    (Cert.evalFC_sound n (by rw [evalFC_withHooks c H hr]; exact h)) (by rw [Semantics.lookupFn_withHooks]; exact hfn)
     (by rw [Semantics.sortsOf_withHooks c H hr]; exact hvs)
 
 /-! ## G0: where every clause fails, the value is the interpretation's -/
@@ -146,7 +149,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def half : Sym := 383
+def half : Sym := 387
 
 theorem half_named : c.symName half = "Lblhalf" := by decide +kernel
 
@@ -178,7 +181,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def half : Sym := 383
+def half : Sym := 387
 
 theorem half_named : c.symName half = "Lblhalf" := by decide +kernel
 
@@ -212,7 +215,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def projInt : Sym := 412
+def projInt : Sym := 416
 
 theorem projInt_named : c.symName projInt = "Lblproject'Coln'Int" := by decide +kernel
 
@@ -242,7 +245,7 @@ theorem fails_dotk (H : HookParams) : ∀ cl ∈ fn.clauses, Fails (c.withHooks 
   have hd : ∀ cl ∈ fn.clauses, ∀ σ ∈ Exec.clauseMatches (c.withHooks H) cl [.ctor dotk []],
       Exec.clauseReq (c.withHooks H) 10 cl σ = some false := by
     intro cl hcl σ hσ
-    rw [clauseMatches_withHooks, hnil cl hcl] at hσ
+    rw [clauseMatches_withHooks c H (by decide +kernel), hnil cl hcl] at hσ
     cases hσ
   intro cl hcl
   have hmem : fn ∈ (c.withHooks H).allFns := (lookupFn_spec hfnH).1
@@ -284,7 +287,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def projInt : Sym := 383
+def projInt : Sym := 387
 
 theorem projInt_named : c.symName projInt = "Lblproject'Coln'Int" := by decide +kernel
 

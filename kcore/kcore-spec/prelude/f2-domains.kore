@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m3-spec/probe/k/dompa.k)"
+    "Source(m3-spec/probe/k/dompa.k)"
   )
 ]
 module BASIC-K

@@ -8,18 +8,18 @@ namespace RefPeano
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isVal» : KCore.Sym := 378
-@[match_pattern, reducible] def «isNat» : KCore.Sym := 379
-@[match_pattern, reducible] def «isState» : KCore.Sym := 380
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 381
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 382
-@[match_pattern, reducible] def «done» : KCore.Sym := 383
-@[match_pattern, reducible] def «run» : KCore.Sym := 384
-@[match_pattern, reducible] def «s» : KCore.Sym := 385
-@[match_pattern, reducible] def «z» : KCore.Sym := 386
-@[match_pattern, reducible] def «pred» : KCore.Sym := 387
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isVal» : KCore.Sym := 382
+@[match_pattern, reducible] def «isNat» : KCore.Sym := 383
+@[match_pattern, reducible] def «isState» : KCore.Sym := 384
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 385
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 386
+@[match_pattern, reducible] def «done» : KCore.Sym := 387
+@[match_pattern, reducible] def «run» : KCore.Sym := 388
+@[match_pattern, reducible] def «s» : KCore.Sym := 389
+@[match_pattern, reducible] def «z» : KCore.Sym := 390
+@[match_pattern, reducible] def «pred» : KCore.Sym := 391
 end Sym
 
 namespace Srt
@@ -31,7 +31,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 12).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisVal", "LblisNat", "LblisState", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbldone",
+    ((List.range 12).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisVal", "LblisNat", "LblisState", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbldone",
  "Lblrun", "Lbls", "Lblz", "Lblpred"] ∧
     ((List.range 5).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "Val", "Nat", "State"] := by
   decide +kernel

@@ -39,13 +39,13 @@ noncomputable abbrev c : Semantics := defn.sem
 
 /-! ## The symbols and values -/
 
-def kCell : Sym := 378
-def aS : Sym := 380
-def bS : Sym := 381
-def cS : Sym := 382
-def goS : Sym := 383
-def resS : Sym := 384
-def mS : Sym := 385
+def kCell : Sym := 382
+def aS : Sym := 384
+def bS : Sym := 385
+def cS : Sym := 386
+def goS : Sym := 387
+def resS : Sym := 388
+def mS : Sym := 389
 
 theorem syms_named : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName aS = "Lbla" ∧ c.symName bS = "Lblb" ∧
     c.symName cS = "Lblc" ∧ c.symName goS = "Lblgo" ∧ c.symName resS = "Lblres" ∧ c.symName mS = "Lblm" := by
@@ -96,8 +96,9 @@ theorem coreOK : c.coreOK = true := by decide +kernel
 
 /-! ## `m`, for every interpretation -/
 
-kernel_rfl evalFC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm),
-  Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs
+theorem evalFC_withHooks (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm) :
+    Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs :=
+  Cert.evalFC_withHooks c H raw_free n f vs
 
 private theorem hfn : c.lookupFn mS = some (c.fns[0]'(by decide +kernel)) := rfl
 
@@ -164,7 +165,7 @@ theorem go_step (H : HookParams) :
   have hsr' := (Semantics.srReady_withHooks c H).trans hsr
   have hmr' := (Semantics.matchReady_withHooks c H).trans hmr
   have hc : Cert.checkStep (c.withHooks H) 50 (c.rules[0]'(by decide +kernel)) (cfg (.ctor goS [])) (cfg resV) = true :=
-    (Cert.checkStep_withHooks c H 50 _ _ _).trans (by decide +kernel)
+    (Cert.checkStep_withHooks c H raw_free 50 _ _ _).trans (by decide +kernel)
   obtain ⟨_, hstep⟩ := Cert.step_of_listed hok' hsr' hmr'
     (x := ⟨cfg (.ctor goS []), cfg_sorted _ H (by decide +kernel)⟩)
     (Cert.listed_of_checkStep (c := c.withHooks H) (List.getElem_mem _) hc)

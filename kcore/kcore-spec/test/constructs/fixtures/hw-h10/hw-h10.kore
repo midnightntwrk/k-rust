@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -117,9 +117,9 @@ module E2-OPEN-MIXED-CLAUSE
   hooked-symbol Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(SortKItem{}, SortMap{}) : SortBool{} [function{}(), functional{}(), hook{}("MAP.in_keys"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(357,19,357,89)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("_|->_"), total{}()]
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lbland{}(SortA{}, SortA{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("and")]
+  symbol Lbland{}(SortA{}, SortA{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)"), symbol'Kywd'{}("and")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lblfirst{}(SortB{}) : SortA{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,16,4,50)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("first")]
+  symbol Lblfirst{}(SortB{}) : SortA{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,16,4,50)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)"), symbol'Kywd'{}("first")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
@@ -170,8 +170,8 @@ module E2-OPEN-MIXED-CLAUSE
   hooked-symbol LblupdateList'LParUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'List{}(SortList{}, SortInt{}, SortList{}) : SortList{} [function{}(), hook{}("LIST.updateAll"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(998,19,998,97)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-symbol LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.updateAll"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(324,18,324,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map{}(SortMap{}) : SortList{} [function{}(), hook{}("MAP.values"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(365,19,365,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lblx{}() : SortA{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,16,2,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("x")]
-  symbol Lbly{}() : SortA{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,34,2,49)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("y")]
+  symbol Lblx{}() : SortA{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,16,2,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)"), symbol'Kywd'{}("x")]
+  symbol Lbly{}() : SortA{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,34,2,49)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)"), symbol'Kywd'{}("y")]
 
 // generated axioms
   axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortKCellOpt{}, SortKItem{}} (From:SortKCellOpt{}))) [subsort{SortKCellOpt{}, SortKItem{}}()] // subsort
@@ -293,7 +293,7 @@ module E2-OPEN-MIXED-CLAUSE
         \top{SortSet{}}())))
   [UNIQUE'Unds'ID{}("c384edb8f3875244a593dda6163c3dee1bce5485e4e1848892aebc2bab67d2e9"), concrete{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(749,8,749,45)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule first(and(X,_Gen0))=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b4b5caf40433b2103f90e6c0a93e2c576887650faf01fcd0febabd21e43954ce), org.kframework.attributes.Location(Location(5,8,5,25)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule first(and(X,_Gen0))=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b4b5caf40433b2103f90e6c0a93e2c576887650faf01fcd0febabd21e43954ce), org.kframework.attributes.Location(Location(5,8,5,25)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -309,7 +309,7 @@ module E2-OPEN-MIXED-CLAUSE
      \and{SortA{}} (
        VarX:SortA{},
         \top{SortA{}}())))
-  [UNIQUE'Unds'ID{}("b4b5caf40433b2103f90e6c0a93e2c576887650faf01fcd0febabd21e43954ce"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,25)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)")]
+  [UNIQUE'Unds'ID{}("b4b5caf40433b2103f90e6c0a93e2c576887650faf01fcd0febabd21e43954ce"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,25)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)")]
 
 // rule getGeneratedCounterCell(`<generatedTop>`(_DotVar0,Cell))=>Cell requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9ef5eb9b9e6bbd7436911fad20615821f61e06e742dd27773001ab0664bd1de3)]
   axiom{R} \implies{R} (
@@ -1509,4 +1509,4 @@ module E2-OPEN-MIXED-CLAUSE
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}()]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)")]

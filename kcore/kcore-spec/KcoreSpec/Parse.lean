@@ -197,8 +197,9 @@ inductive RefusalReason where
   | existentialRhs
   /-- A rewrite axiom's attribute that is neither read (its id, label, priority, place, `owise`)
   nor of no meaning for the rule's semantics (`ruleAttrIgnored`): one that changes where or how the
-  rule applies, or has no stated meaning for a rule (`ruleAttrRefused`, else any other key). The
-  detail names the attribute and why. -/
+  rule applies, or has no stated meaning for a rule (`ruleAttrRefused`, else any other key); or
+  `owise` beside `priority{}("n")` with n other than 200, two priorities of the rule
+  (`ruleOwisePrioFault?`). The detail names the attribute, or both keys, and why. -/
   | ruleAttribute
   /-- A quantifier or a `\floor` of a term over a sort the text may leave unconfined (no sentence
   of the text states which elements it has), in a condition: its truth at given values differs
@@ -339,8 +340,9 @@ inductive InertReason where
   | import
   /-- A claim: a statement to prove, not an axiom of the theory. -/
   | claim
-  /-- A `[simplification]` axiom: a lemma, which K's semantics requires to follow from the
-  definition's other sentences; it defines nothing. -/
+  /-- A `[simplification]` axiom other than a `\rewrites` axiom: a lemma, which K's semantics
+  requires to follow from the definition's other sentences; it defines nothing. (A `\rewrites`
+  axiom carrying the key states a step and is refused, `RefusalReason.ruleAttribute`.) -/
   | simplification
   /-- `\not(\and(c(x̄), d(ȳ)))` [constructor]: two constructors build distinct values, as KCore's
   values, the free terms over the constructors, do. -/
@@ -352,8 +354,11 @@ inductive InertReason where
   constructors and injections, as KCore's values of the sort are. -/
   | noJunk
   /-- An `[assoc]`, `[comm]` or `[unit]` axiom of a collection's concatenation: a law KCore's
-  collection values satisfy by their representation. Classified by the sentence's form; the account
-  refuses one whose symbol is not a collection's concatenation (`RefusalReason.lawAxiom`). -/
+  collection values satisfy, a map's, set's or list's by their representation, a range map's at its
+  values through `_RangeMap_`'s hook (`rmConcat_assoc`, `rmConcat_unit`: the concatenation is
+  defined only where no ranges overlap, and associativity holds as an equality of patterns).
+  Classified by the sentence's form; the account refuses one whose symbol is not a collection's
+  concatenation (`RefusalReason.lawAxiom`). -/
   | collectionLaw
   /-- `\exists(v, \equals(v, f{S…}(…)))` [functional] of a sort-parametric symbol: the totality of
   `ite{S}`, which KCore's `kIte` is, of a symbol of the library's parametric sorts (`MInt{W}`), or
@@ -484,16 +489,21 @@ inductive ReadingNote where
   | existsAsVariable
   /-- A right side holding, under applications, `t ∧ \equals{SortBool{},S}(B, true)` (`hoist`): for
   a predicate P, `σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P`, so it is t with the `ensures` B, an equality in
-  every model. On a rule's right side, also `t ∧ u` of two terms: read as t with the `ensures`
-  `t ==K u` (`==Int` at Int), which is a weakening the text entails, not an equality: where the
-  `ensures` holds the right side read contains `t ∧ u`, so the text's `L → •C[t ∧ u]` gives the
-  rule's `L ∧ ⌈R′⌉ → •R′`, and where it fails the rule read states nothing. An equation's `t ∧ u`
-  of two terms is refused (`clauseBody`): it is `t ∩ u`, which `t` with that `ensures` is not where
-  t or u has two elements. Several `ensures` are one strict conjunction (`conjTerms`). The
-  `ensures` written are the text's under the `functional` axiom and the sentence
+  every model. A rule's right side holding `t ∧ u` of two terms is `andTermsWeaker`. An equation's
+  `t ∧ u` of two terms is refused (`clauseBody`): it is `t ∩ u`, which `t` with the `ensures`
+  `t ==K u` is not where t or u has two elements. Several `ensures` are one strict conjunction
+  (`conjTerms`). The `ensures` written are the text's under the `functional` axiom and the sentence
   `((K1 σ K2) = true) = (K1 = K2)` of each hooked equality σ written (`_==Int_`, `_==K_`), which a
   text declaring σ must hold (`hookEqualityUnstated`). -/
   | andAsEnsures
+  /-- A rule's right side holding, under applications, `t ∧ u` of two terms (`hoist`), read as t
+  with the `ensures` `t ==K u` (`==Int` at Int). The text's sentence entails the rule's sentence in
+  every model of the signature: the `ensures` is an equality, which is all of its sort or nothing,
+  so where it holds `C[t ∧ u] ⊆ C[t]` lies inside the read right side, and next is monotone. The
+  two right sides are not equal: where t and u have a common element and one of them has two
+  elements, the read right side holds `C[z]` for an element z of t that is not one of u, or is
+  empty where the text's is not. -/
+  | andTermsWeaker
   /-- A right side holding `\bottom` under applications and conjunctions (`hoist`): `σ(…, ⊥, …) = ⊥`,
   so the right side is empty, read as the `ensures` false. The rule (the equation) still applies
   where its left side matches and its `requires` holds, so it blocks the larger priorities, and it
@@ -559,11 +569,22 @@ inductive ReadingNote where
   /-- A function equation of priority p (`priority{}("p")`, 50 without the attribute) read in `Γ`
   with the premise that no executable clause of the function of a smaller priority applies
   (`Faithful.prioEquation`, `lowerClauses`); the text writes the equation without that premise.
+  The equation of the smallest priority has no such clause and is read as written; each other one
+  is read with the premise.
   The text's equation entails the read one (the premise only narrows where it speaks), for every
-  interpretation, so `Γ` states no more than the text. Where a clause of a smaller priority also
-  applies and gives another value, the text states both values there and the read equations the
-  smaller priority's only. No sentence is classified so: the account prints the number of equations
-  read with the premise (`equationsUnderPriority`). -/
+  interpretation, so `Γ` states no more than the text. The entailment is a weakening, and it would
+  hold as well if another of the equations were the one narrowed: it selects no value. Where a
+  clause of a smaller priority also applies and gives another value, the text states both values
+  there and the read equations the smaller priority's only. Where those values are distinct values,
+  the equations as written with `ΓDomains` (each value one element, distinct values distinct, the
+  hooks' graphs) have no model: there, that `Γ` states no more than them is true and is evidence
+  for no value. Which equation speaks there is the meaning of the attribute, as K's user manual
+  states it ("`owise` and `priority` attributes"): "Rules are tried in increasing order of
+  priority", and "a rule with no attributes indicating its priority is assigned the priority 50".
+  The order is held in `Faithful.lowerClauses` and in `Eval.clause`'s `hprio` (`cl'.prio < cl.prio`),
+  the 50 in `eqnPrio`: definitions of the attribute's meaning, not statements about the text.
+  No sentence is classified so: the account prints the number of equations read with the premise
+  (`equationsUnderPriority`). -/
   | equationPriority
   /-- An `[owise]` equation, whose premise in the text negates one disjunct `∃ȳᵢ. ⌈reqᵢ⌉ ∧ X̄ ∈ p̄ᵢ`
   for each other executable equation of the function, read as a clause of priority 200 (`eqnPrio`),
@@ -1069,13 +1090,14 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   G a Bool variable free nowhere else and each Aᵢ a term, is n rules, the i-th with `requires` Aᵢ
   (`reqOrSplit?`, `splitRule`).
 - Left side empty (`InertReason.vacuousLeft`): `C[⊥] = ⊥`, and `⊥ → •R` holds in every model.
-- Right side (`andAsEnsures`, `bottomAsEnsures`, `orBottom`): for a predicate P (a pattern that is
-  everything or nothing) `σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P`, and `σ(…, ⊥, …) = ⊥`, for every symbol
-  σ. So `\equals{SortBool{},S}(B, true)` conjoined to a part of the right side is an `ensures` B of
-  the whole, the equality reading being for that predicate conjunct; on a rule's right side `t ∧ u`
-  of two terms is read as t with the `ensures` `t ==K u` (`==Int` at Int; strict: no value where
-  either has none), a weakening the text entails (`R′ = C[t] ∧ (t ==K u) ⊇ C[t ∧ u]` where the
-  `ensures` holds, and `•` is monotone); on an equation's right side it is refused
+- Right side (`andAsEnsures`, `andTermsWeaker`, `bottomAsEnsures`, `orBottom`): for a predicate P
+  (a pattern that is everything or nothing) `σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P`, and
+  `σ(…, ⊥, …) = ⊥`, for every symbol σ. So `\equals{SortBool{},S}(B, true)` conjoined to a part of
+  the right side is an `ensures` B of the whole, the equality reading being for that predicate
+  conjunct; on a rule's right side `t ∧ u` of two terms is read as t with the `ensures` `t ==K u`
+  (`==Int` at Int; strict: no value where either has none), a weakening the text entails
+  (`R′ = C[t] ∧ (t ==K u) ⊇ C[t ∧ u]` where the `ensures` holds, and `•` is monotone) and not one
+  equal to it (`andTermsWeaker`); on an equation's right side it is refused
   `patternConnective` (`\and`): `t ∧ u` is `t ∩ u`, and t with that `ensures` is not `t ∩ u` where
   t or u has two elements, which no sentence of the text excludes for a function it leaves open;
   `⊥` anywhere under applications makes the right side empty, which is the `ensures` false
@@ -1559,7 +1581,7 @@ def eqnCondTerm (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (Term × Lis
 /-- The conditions `hoist` lifted out of a right side, as Bool terms: B (`condTerm`), and `t ==Int
 u` at Int, otherwise `==K` of t and u each a one-item K sequence (`kseq(inj{S,KItem}(t), dotk)`,
 `kseq(t, dotk)` at KItem, t at K). The second, `.same`, is reached from a rule's right side only,
-where it is a weakening the text entails (`ReadingNote.andAsEnsures`); `clauseBody` refuses an
+where it is a weakening the text entails (`ReadingNote.andTermsWeaker`); `clauseBody` refuses an
 equation's. -/
 def sideConds (N : Names) : List Var → List SideCond → Rd (List Term × List Var)
   | vs, [] => pure ([], vs)
@@ -2221,7 +2243,8 @@ def ruleEns? (a : Kore.Axiom) : Option (Option Kore.Pattern) :=
   | _ => none
 
 /-- The attributes of a rewrite axiom the reader reads: its unique id, label, priority, place, and
-`owise` (priority 200). -/
+`owise` (priority 200; beside `priority{}("n")` with n other than 200 refused,
+`ruleOwisePrioFault?`). -/
 def ruleAttrsRead : List String :=
   ["UNIQUE'Unds'ID", "label", "priority", "org'Stop'kframework'Stop'attributes'Stop'Location",
    "org'Stop'kframework'Stop'attributes'Stop'Source", "owise"]
@@ -2246,13 +2269,13 @@ def ruleAttrIgnored : List (String × String) :=
 table decides it, `refused`). The axiom `\rewrites(l ∧ req, r ∧ ens)` states one rewrite of its
 left side at the top cell; each of these keys either gives the rule a meaning the axiom does not
 state (`anywhere`), or leaves open which of two readings with different steps is the rule's
-(`non-executable`), or has no meaning any text states (`syntactic`), so neither reading the axiom
+(`non-executable`, `simplification`), or has no meaning any text states (`syntactic`), so neither reading the axiom
 with the key dropped nor reading the key states no more than the text. Any other key is refused as
 well. -/
 def ruleAttrRefused : List (String × String) :=
   [("non-executable", "the key may leave the axiom a rule like any other, or leave it out of what a rule of a larger priority number excludes (as it does for an equation, Clause.aside); the two give different steps where the rule overlaps such a rule, and no sentence of the text chooses between them (a priority is an attribute)"),
    ("anywhere", "the key's meaning is the rule applied in every context of the configuration, an equation's closure under contexts, which the axiom, one rewrite at the top cell, does not state; reading the axiom with the key dropped would assert its step without that meaning"),
-   ("simplification", "a lemma, not a rule of the definition"),
+   ("simplification", "the axiom states a step, which classing it a lemma (inert) would drop, while the key says the axiom is a lemma and no rule of the definition, which reading it as a rule would drop"),
    ("syntactic", "no text gives the key a meaning, so that reading the axiom with the key dropped states no more than the text cannot be shown"),
    ("smt-lemma", "kompile writes no definition for an smt-lemma rule")]
 
@@ -2264,27 +2287,58 @@ def ruleAttrFault? (as : List Kore.AppPattern) : Option String :=
     if ruleAttrsRead.contains n || (ruleAttrIgnored.lookup n).isSome then none
     else some s!"{n} on a \\rewrites axiom: {(ruleAttrRefused.lookup n).getD "an attribute of no stated meaning for a rule"}"
 
-/-- A rewrite axiom's rule: its left side, its `requires`, its right side and its `ensures` as
-written, `\rewrites(lhs ∧ req, rhs ∧ ens)` with `req` and `ens` each `\top` (none) or
-`\equals{SortBool{},S}(C, true)` (`some C`). The `ensures` is part of the right side (`Step.rule`'s
-`hens`): it does not decide where the rule applies (`NotApplies` reads the left side and the
-`requires`). -/
-def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
-  match a.pattern with
-  | .rewrites _ (.and _ [l, r0]) (.and _ [r, en]) => do
+/-- A rewrite axiom carrying `owise{}()` beside `priority{}("n")` with n other than 200
+(`ruleAttribute`), with why. Each key is a mark of the rule's priority: `owise` sets it to 200,
+`priority` to n, and no sentence of the text says which holds when both are written. Where n is
+not 200 the two readings give different steps: a rule of a priority p between n and 200 (either end
+included where the other is strictly ordered) that matches the same configuration is tried before
+the rule under one reading and after it, or beside it, under the other. With n = 200 the two marks
+state the same priority and the rule is read with it. -/
+def ruleOwisePrioFault? (as : List Kore.AppPattern) : Option String :=
+  if as.any (fun ap => ap.head.ident.name == "owise") then
+    match attrStr? as "priority" with
+    | some s =>
+      if digitsVal s.toList 0 == some 200 then none
+      else some s!"owise and priority\{}(\"{s}\") on a \\rewrites axiom: owise sets the rule's priority to 200 and priority to {s}, two priorities that order the rule differently against a rule of a priority between them matching the same configuration, and no sentence of the text chooses between them"
+    | none => none
+  else none
+
+/-- The binders of `\exists` around a pattern, outermost first, and the pattern under them. -/
+def peelExists : Kore.Pattern → List Kore.EVar × Kore.Pattern
+  | .exist _ x p => (x :: (peelExists p).1, (peelExists p).2)
+  | p => ([], p)
+
+/-- The indices in `vs` of a right side's existential variables, outermost first. Each must be a
+variable of the right side or the `ensures` that neither the left side nor the `requires` holds
+(its index at least `n0`, the number of theirs), of the binder's sort, and the binders distinct;
+otherwise the sentence is refused (`existentialRhs`). -/
+def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : Rd (List Nat) := do
+  let is ← xs.mapM fun x => do
+    let n ← need (dropPrefix? "Var" x.var.ident.name) .variableName x.var.ident.name
+    let s ← sortNameE x.sort
+    match vs.findIdx? (·.name == n) with
+    | some i => if n0 ≤ i && (vs.getD i default).sort == s then pure i else fail .existentialRhs x.var.ident.name
+    | none => fail .existentialRhs x.var.ident.name
+  if nodup is then pure is else fail .existentialRhs ((xs.headD default).var.ident.name)
+
+/-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty. -/
+def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Pattern) (xs : List Kore.EVar)
+    (r en : Kore.Pattern) : Rd (Rule × RulePres) := do
     let ens ← need (req? en) .ruleShape
     if let some d := ruleAttrFault? a.attributes then fail .ruleAttribute d
+    if let some d := ruleOwisePrioFault? a.attributes then fail .ruleAttribute d
     -- `\top` and `\exists` in the left side as variables of the rule (`lhsBound`)
     let (lhs, vs) ← term N [] (lhsBound a.pattern l)
-    let nl := vs.length
+    -- a variable the left side does not bind (in the `requires`, the `ensures` or the right side)
+    -- is read after the left side's; where the values do not decide the rule it is refused once
+    -- the definition is built (`openRefusal`)
     let (req, vs) ← match ← need (req? r0) .requiresShape with
       | none => pure (none, vs)
       | some q => do let (t, vs) ← condTerm N vs q; pure (some t, vs)
-    unboundAt vs nl "requires"
+    let n0 := vs.length
     let (ens, vs) ← match ens with
       | none => pure (none, vs)
       | some e => do let (t, vs) ← condTerm N vs e; pure (some t, vs)
-    unboundAt vs nl "ensures"
     -- the right side's conjunctions as `ensures`, and an empty right side as the `ensures` false
     -- (`hoist`), the left side without `#as` in its place (after `keyCut`)
     let (r, conds, empty) := hoist r
@@ -2295,11 +2349,12 @@ def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres
         let (cs, vs) ← sideConds N vs conds
         if ens.toList.length + cs.length > 1 then N.hookEqE kEq
         pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
-    unboundAt vs nl "right side"
     -- a map key of the left side applying a function of the definition's own: a fresh
     -- variable, its equality to the application a conjunct of the `requires` (`keyCut`)
     let (lhs, vs, req) ← keyCut N lhs vs req
     let rhs := if empty then stripAs lhs else rhs
+    -- the right side's existential variables, in the text's order of nesting
+    let exs ← exIndices vs n0 xs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
     -- `digitsVal`, not `String.toNat?`: the latter reaches an opaque well-founded fixpoint in
@@ -2308,7 +2363,7 @@ def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres
     let prio := match explicit with
       | some n => n
       | none => if plain.contains "owise" then 200 else 50
-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio },
+    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs },
           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
            plain.filter (· != "owise"), explicit.isSome,
            a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -2318,7 +2373,24 @@ def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres
                    "org'Stop'kframework'Stop'attributes'Stop'Source"].contains n then none else some (n, v)
              | _, _ => none),
            srcOver msrc a.attributes⟩)
-  -- `?X`: a right side under `\exists`
+
+/-- A rewrite axiom's rule: its left side, its `requires`, its right side and its `ensures` as
+written, `\rewrites(lhs ∧ req, ∃x̄. (rhs ∧ ens))` with `req` and `ens` each `\top` (none) or
+`\equals{SortBool{},S}(C, true)` (`some C`), and x̄ the rule's existential variables (`exs`, in the
+text's order of nesting). The `ensures` is part of the right side (`Step.rule`'s `hens`): it does
+not decide where the rule applies (`NotApplies` reads the left side and the `requires`). -/
+def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+  match a.pattern with
+  | .rewrites _ (.and _ [l, r0]) rx =>
+    match peelExists rx with
+    | (xs, .and _ [r, en]) => ruleBodyAnd N msrc a l r0 xs r en
+    | _ => ruleBodyOther N a.pattern
+  | p => ruleBodyOther N p
+where
+  /-- A rewrite axiom of no other shape the reader reads. -/
+  ruleBodyOther (N : Names) : Kore.Pattern → Rd (Rule × RulePres)
+  -- `?X`: a right side under `\exists` whose body is not `\and(rhs, ens)`, or whose left side is
+  -- not `\and(lhs, req)`
   | .rewrites _ _ (.exist _ x _) => fail .existentialRhs x.var.ident.name
   -- a left side that is an application of a symbol the definition does not have, not `\and(lhs,
   -- req)`: an alias's (kompile's `ruleNLHS`, under --enable-kore-antileft)
@@ -3109,7 +3181,9 @@ def isCellCollAxiom (a : Kore.Axiom) : Bool :=
 /-- Every note a rewrite axiom or an equation is read through, from the sentence alone, in the order
 `orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
 `setVarInDropped` (`svinShape`), the right side's
-(`bottomAsEnsures`, else `andAsEnsures` and the notes of the conditions it lifts), the `requires`'
+(`bottomAsEnsures`, else `andAsEnsures`, `andTermsWeaker` and the notes of the conditions it
+lifts: a lifted predicate is `andAsEnsures`; on a rule a lifted `t ∧ u` of two terms is
+`andTermsWeaker`, on an equation it is refused), the `requires`'
 (`requiresOrSplit` and its disjuncts', else `predicateAtBool`, `andAtBool`) and the `ensures`',
 `orBottom`; each once. -/
 def connNotes (a : Kore.Axiom) : List ReadingNote :=
@@ -3119,10 +3193,11 @@ def connNotes (a : Kore.Axiom) : List ReadingNote :=
   -- `eqn`: an equation's `t ∧ u` of two terms is refused (`clauseBody`), so it gives no note
   let side := fun (eqn : Bool) (r : Kore.Pattern) =>
     let (_, cs, e) := hoist r
-    let cs := if eqn then cs.filter fun c => match c with | .isTrue _ => true | .same .. => false
-      else cs
+    let isPredC := fun (c : SideCond) => match c with | .isTrue _ => true | .same .. => false
+    let cs := if eqn then cs.filter isPredC else cs
     if e then [ReadingNote.bottomAsEnsures]
-    else (if cs.isEmpty then [] else [ReadingNote.andAsEnsures]) ++
+    else (if cs.any isPredC then [ReadingNote.andAsEnsures] else []) ++
+      (if cs.any (!isPredC ·) then [ReadingNote.andTermsWeaker] else []) ++
       cs.flatMap fun (c : SideCond) => match c with | .isTrue b => cond b | .same .. => []
   let conds := fun (ps : List (Option Kore.Pattern)) => ps.flatMap fun p => match p with
     | some b => cond b
@@ -3188,7 +3263,9 @@ def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   else if isNoPredSentence s then .unread .noSortPredicate
   else if isKBuiltin a.attributes then classifyKBuiltin s
   else if isCellCollAxiom a then .unread .cellCollectionInjection
-  else if hasAttr a.attributes "simplification" then .inert .simplification
+  -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
+  -- refuses it by name (`ruleAttrRefused`) instead of the step being dropped as an inert lemma
+  else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
   else if hasAttr a.attributes "symbol-overload" then
     if (overloadEqn? a).isSome then .read else .refused .overloadAxiom
   else if (source? a.attributes).isNone && (projectionDomain? a).isSome then .readAs .projectionDomainAsClause
@@ -3846,8 +3923,10 @@ def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Refus
           let j := (r.condVars.find? rest.contains).getD i
           s!"{what i}: in a closed condition that holds {what j}, which the right side, the ensures or post holds; of a sort the text leaves unconfined"
         else s!"{what i}: in a condition with a variable the left side binds{cut i}, of a sort the text leaves unconfined")
-    else some (.openRight,
-      s!"{what i}: in the right side or the ensures under no constructor, not bound by the left side, of a sort the text leaves unconfined: the successor is a value through an element that is no value's")
+    else some (.openRight, if r.exs.contains i then
+        s!"{what i}: bound by \\exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's"
+      else
+        s!"{what i}: in the right side or the ensures under no constructor, not bound by the left side, of a sort the text leaves unconfined: the successor is a value through an element that is no value's")
   | none =>
     if r.reqOpen && c.rules.any (fun r' => r.prio < r'.prio) && !r.openCondVars.all conf && !r.reqClosed then
       let i := (r.openCondVars.find? (fun i => !conf i)).getD 0

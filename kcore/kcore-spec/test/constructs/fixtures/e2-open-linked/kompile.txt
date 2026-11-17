@@ -1,9 +1,9 @@
 command: kompile --backend haskell e2-open-linked.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.5
+seconds: 1.9
 definition.kore bytes: 206897
 definition.kore sha256: 62182f33b69ba1bd7d8e984d05988bf12a0f837ab8a1894b71879e66cb05040c
-stripped sha256: 928d035306706389e81ce7fa72325798e2bcc9e6293ae11f4b57fcc6c29d095e
+stripped sha256: 92b8f431ab5e8916830eae9eb6cb25980ab8a06fc7a7802fe70714f995b068ab
 main module: 405 sentences, 49 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name

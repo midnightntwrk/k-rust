@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+    "Source(kcore-spec/f2-examples/lazy.k)"
   )
 ]
 module BASIC-K
@@ -739,7 +739,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("t1")
   ]
@@ -750,7 +750,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,38,9,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("t2")
   ]
@@ -761,7 +761,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,58,9,75)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("t3")
   ]
@@ -772,7 +772,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,78,9,95)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("t4")
   ]
@@ -783,7 +783,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,18,10,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("t5")
   ]
@@ -1067,7 +1067,7 @@ module LAZY
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,18,19,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("inv")
   ]
@@ -1076,7 +1076,7 @@ module LAZY
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("p")
   ]
@@ -1086,7 +1086,7 @@ module LAZY
     functional{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,18,23,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("dbl"),
     total{}()
@@ -1098,7 +1098,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,20,25,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("res")
   ]
@@ -1109,7 +1109,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,45,25,70)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     ),
     symbol'Kywd'{}("resB")
   ]
@@ -1121,7 +1121,7 @@ module LAZY
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,18,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+      "Source(kcore-spec/f2-examples/lazy.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -4867,7 +4867,7 @@ module LAZY
       label{}("LAZY.inv"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,20,68)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{R}
@@ -4883,7 +4883,7 @@ module LAZY
       label{}("LAZY.p"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,25)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{R}
@@ -4899,7 +4899,7 @@ module LAZY
       label{}("LAZY.dbl"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,33)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{}
@@ -4924,7 +4924,7 @@ module LAZY
       label{}("LAZY.t1"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{}
@@ -4949,7 +4949,7 @@ module LAZY
       label{}("LAZY.t2"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{}
@@ -4981,7 +4981,7 @@ module LAZY
       label{}("LAZY.t3"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,53)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{}
@@ -5013,7 +5013,7 @@ module LAZY
       label{}("LAZY.t4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{}
@@ -5049,7 +5049,7 @@ module LAZY
       label{}("LAZY.t5"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,73)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+        "Source(kcore-spec/f2-examples/lazy.k)"
       )
     ]
   axiom{R}
@@ -5868,6 +5868,6 @@ module LAZY
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,31,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-reader/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/lazy.k)"
+    "Source(kcore-spec/f2-examples/lazy.k)"
   )
 ]

@@ -1,0 +1,4 @@
+# pair ensures x [total], the case where the owed totality holds: a total function whose one equation
+# has an ensures that is true at every argument (X ==Int X), so Total holds of f; beside c3-eq-ens-total,
+# whose ensures (X >=Int 0) is false at negative arguments. No same_as / differs_from: no fixture is
+# this text without one modifier.

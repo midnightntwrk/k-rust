@@ -40,15 +40,29 @@ theorem HypModelCore.fnSorts (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allF
 
 /-! ## The sort variable, the arguments and the call -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem R_read {tbl : KoreAML.VarTable} (e : Valuation Elem) (a : Elem) :
-    (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = e.evalEvar (tbl.ev (.sortVar "R")) := by
+    (KoreAML.trSort tbl KoreAML.R).interpret (stdI_T c T) e a ↔ a = e.evalEvar (tbl.ev (.sortVar "R")) := by
   rw [trSort_R, KoreAML.interp_evar]
+
+end AtT
+
+theorem R_read {tbl : KoreAML.VarTable} (e : Valuation Elem) (a : Elem) :
+    (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = e.evalEvar (tbl.ev (.sortVar "R")) :=
+  AtT.R_read (c := c) (T := StepM c) (tbl := tbl) (e := e) (a := a)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 theorem vars_numbered_read {tbl : KoreAML.VarTable} {e : Valuation Elem} :
     ∀ (ss : List String) (ws : List GroundTerm) (j : Nat), ss.length = ws.length →
     (∀ (n : Nat) (w : GroundTerm) (s : String), ws[n]? = some w → ss[n]? = some s →
       e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))) = .val w) →
-    All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
+    All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x)
       ((KoreAML.vars (KoreAML.numbered "X" j ss)).map (KoreAML.tr ⟨tbl, []⟩)) (ws.map Elem.val)
   | [], [], _, _, _ => .nil
   | [], _ :: _, _, hl, _ => by simp at hl
@@ -66,6 +80,20 @@ theorem vars_numbered_read {tbl : KoreAML.VarTable} {e : Valuation Elem} :
           rwa [show j + (n + 1) = j + 1 + n by omega] at this)
       simpa [KoreAML.vars] using this
 
+end AtT
+
+theorem vars_numbered_read {tbl : KoreAML.VarTable} {e : Valuation Elem} :
+    ∀ (ss : List String) (ws : List GroundTerm) (j : Nat), ss.length = ws.length →
+    (∀ (n : Nat) (w : GroundTerm) (s : String), ws[n]? = some w → ss[n]? = some s →
+      e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))) = .val w) →
+    All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
+      ((KoreAML.vars (KoreAML.numbered "X" j ss)).map (KoreAML.tr ⟨tbl, []⟩)) (ws.map Elem.val) :=
+  AtT.vars_numbered_read (c := c) (T := StepM c) (tbl := tbl) (e := e)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **The call `f(X̄)`**, at a valuation giving `X̄` the arguments' values: the values `Eval`
 gives. -/
 theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : KoreAML.VarTable} {e : Valuation Elem}
@@ -73,7 +101,7 @@ theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : 
     (hX : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
       e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
     (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
-      (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret (stdI c) e b ↔
+      (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret (stdI_T c T) e b ↔
       ∃ v, b = .val v ∧ Eval c fn.label ws (some v) := by
   obtain ⟨hc, hh, hp⟩ := h.fnApart hfn
   have hl : ws.length = fn.args.length := sortsOf_len hws
@@ -83,13 +111,30 @@ theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : 
     symE_vals h.namesK (fn_sig_mem hfn) (by rw [hl]; rfl) b]
   exact result_fn (k := fn.sig) hc hh hp (c.isOvl_of_lookupFn (h.lookupFn hfn)) b
 
+end AtT
+
+/-- **The call `f(X̄)`**, at a valuation giving `X̄` the arguments' values: the values `Eval`
+gives. -/
+theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : KoreAML.VarTable} {e : Valuation Elem}
+    {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hX : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
+      e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+      (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret (stdI c) e b ↔
+      ∃ v, b = .val v ∧ Eval c fn.label ws (some v) :=
+  AtT.call_read (c := c) (T := StepM c) (h := h) (fn := fn) (hfn := hfn) (tbl := tbl) (e := e) (ws := ws) (hws := hws) (hX := hX) (b := b)
+
 /-! ## Disjunctions -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem anyOfC_iff {tbl : KoreAML.VarTable} {S : Kore.KSort} {e : Valuation Elem} {σS : Elem}
-    (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI c) e a ↔ a = σS)
+    (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI_T c T) e a ↔ a = σS)
     (hfree : (KoreAML.trSort tbl S).isFreeEvar KoreAML.topVar = false) :
-    ∀ (cs : List Kore.Pattern) (a : Elem), (KoreAML.tr ⟨tbl, []⟩ (anyOfC S cs)).interpret (stdI c) e a ↔
-      KoreAML.Inh (stdI c) σS a ∧ ∃ φ ∈ cs, (KoreAML.tr ⟨tbl, []⟩ φ).interpret (stdI c) e a
+    ∀ (cs : List Kore.Pattern) (a : Elem), (KoreAML.tr ⟨tbl, []⟩ (anyOfC S cs)).interpret (stdI_T c T) e a ↔
+      KoreAML.Inh (stdI_T c T) σS a ∧ ∃ φ ∈ cs, (KoreAML.tr ⟨tbl, []⟩ φ).interpret (stdI_T c T) e a
   | [], a => by
     rw [anyOfC, KoreAML.tr]
     unfold KoreAML.sBot
@@ -108,17 +153,30 @@ theorem anyOfC_iff {tbl : KoreAML.VarTable} {S : Kore.KSort} {e : Valuation Elem
       · exact ⟨hi, Or.inl hψa⟩
       · exact ⟨hi, Or.inr ⟨hi, ψ, hψ, hψa⟩⟩
 
+end AtT
+
+theorem anyOfC_iff {tbl : KoreAML.VarTable} {S : Kore.KSort} {e : Valuation Elem} {σS : Elem}
+    (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI c) e a ↔ a = σS)
+    (hfree : (KoreAML.trSort tbl S).isFreeEvar KoreAML.topVar = false) :
+    ∀ (cs : List Kore.Pattern) (a : Elem), (KoreAML.tr ⟨tbl, []⟩ (anyOfC S cs)).interpret (stdI c) e a ↔
+      KoreAML.Inh (stdI c) σS a ∧ ∃ φ ∈ cs, (KoreAML.tr ⟨tbl, []⟩ φ).interpret (stdI c) e a :=
+  AtT.anyOfC_iff (c := c) (T := StepM c) (tbl := tbl) (S := S) (e := e) (σS := σS) (hS := hS) (hfree := hfree)
+
 /-! ## The arguments' part of a premise -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem argsConj_iff {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
-    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI c) σR) :
+    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI_T c T) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI_T c T) σR) :
     ∀ (j : Nat) (l : List (String × Kore.Pattern)),
-    (∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) → ∃ σs, (∀ a, (KoreAML.trSort tbl (KoreAML.srt s)).interpret (stdI c) e a ↔ a = σs) ∧
-      KoreAML.IsSort (stdI c) σs ∧
-      KoreAML.Inh (stdI c) σs (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))))) →
-    ∀ a, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.argsConj j l)).interpret (stdI c) e a ↔
-      KoreAML.Inh (stdI c) σR a ∧ ∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) →
-        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI c) e (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))))
+    (∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) → ∃ σs, (∀ a, (KoreAML.trSort tbl (KoreAML.srt s)).interpret (stdI_T c T) e a ↔ a = σs) ∧
+      KoreAML.IsSort (stdI_T c T) σs ∧
+      KoreAML.Inh (stdI_T c T) σs (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))))) →
+    ∀ a, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.argsConj j l)).interpret (stdI_T c T) e a ↔
+      KoreAML.Inh (stdI_T c T) σR a ∧ ∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) →
+        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI_T c T) e (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))))
   | j, [], _, a => by
     simp only [KoreAML.argsConj]
     rw [KoreAML.tr, KoreAML.interp_sTop defOK_std isFree_R, KoreAML.interp_inhOf_of hR]
@@ -130,14 +188,14 @@ theorem argsConj_iff {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
       exact ⟨σs, h1, h2, by rwa [show j + (n + 1) = j + 1 + n by omega] at h3⟩) a]
     obtain ⟨σs, hσs, hσss, hXs⟩ := hs 0 s p rfl
     rw [Nat.add_zero] at hXs
-    have hXr : ∀ b, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ev s!"X{j}" (KoreAML.srt s))).interpret (stdI c) e b ↔
+    have hXr : ∀ b, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ev s!"X{j}" (KoreAML.srt s))).interpret (stdI_T c T) e b ↔
         b = e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) := fun b => by
       unfold KoreAML.ev; rw [KoreAML.tr, KoreAML.interp_evar]; rfl
     rw [KoreAML.tr, KoreAML.interp_sIn defOK_std sat_ceilDef hσs hR hσss hRs (fun b hb => by
       rw [(hXr b).mp hb]; exact hXs)]
-    have hex : (∃ b, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ev s!"X{j}" (KoreAML.srt s))).interpret (stdI c) e b ∧
-        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI c) e b) ↔
-        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI c) e (e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s)))) :=
+    have hex : (∃ b, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ev s!"X{j}" (KoreAML.srt s))).interpret (stdI_T c T) e b ∧
+        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI_T c T) e b) ↔
+        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI_T c T) e (e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s)))) :=
       ⟨fun ⟨b, hb, hp⟩ => (hXr b).mp hb ▸ hp, fun hp => ⟨_, (hXr _).mpr rfl, hp⟩⟩
     rw [hex]
     constructor
@@ -156,6 +214,19 @@ theorem argsConj_iff {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
       · have := hall 0 s p rfl; rwa [Nat.add_zero] at this
       · have := hall (n + 1) s' p' (by simpa using hn)
         rwa [show j + (n + 1) = j + 1 + n by omega] at this
+
+end AtT
+
+theorem argsConj_iff {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
+    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI c) σR) :
+    ∀ (j : Nat) (l : List (String × Kore.Pattern)),
+    (∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) → ∃ σs, (∀ a, (KoreAML.trSort tbl (KoreAML.srt s)).interpret (stdI c) e a ↔ a = σs) ∧
+      KoreAML.IsSort (stdI c) σs ∧
+      KoreAML.Inh (stdI c) σs (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s))))) →
+    ∀ a, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.argsConj j l)).interpret (stdI c) e a ↔
+      KoreAML.Inh (stdI c) σR a ∧ ∀ (n : Nat) (s : String) (p : Kore.Pattern), l[n]? = some (s, p) →
+        (KoreAML.tr ⟨tbl, []⟩ p).interpret (stdI c) e (e.evalEvar (tbl.ev (.evar ("X" ++ toString (j + n)) (KoreAML.srt s)))) :=
+  AtT.argsConj_iff (c := c) (T := StepM c) (tbl := tbl) (e := e) (σR := σR) (hR := hR) (hRs := hRs)
 
 theorem patVals_of_get {σ : Subst} : ∀ {ps : List Term} {ws : List GroundTerm}, ps.length = ws.length →
     (∀ (n : Nat) (p : Term) (w : GroundTerm), ps[n]? = some p → ws[n]? = some w → PatVal c σ p w) → PatVals c σ ps ws
@@ -193,26 +264,30 @@ structure ArgsAt (c : Semantics) (tbl : KoreAML.VarTable) (e : Valuation Elem) (
   X : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (args.map c.sortName)[j]? = some s →
     e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) = .val w
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **A premise** `⌈req = true⌉ ∧ X̄ ∈ p̄` holds exactly where the `requires` evaluates to `true`
 under σ and the patterns denote the arguments under σ. -/
 theorem premise_iff (h : HypModelCore c) {vars args : List Srt} {req : Option Term} {pats : List Term}
     {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
-    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI c) σR)
+    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI_T c T) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI_T c T) σR)
     {σ : Subst}
-    (hvar : ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI c) e m ↔
+    (hvar : ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI_T c T) e m ↔
       ∃ v, σ.lookup i = some v ∧ m = .val v)
     (hreqOK : ∀ t, req = some t → TermOK c (· < vars.length) t)
     (hpatOK : ∀ p ∈ pats, PatOK c (· < vars.length) p) (hlen : pats.length = args.length)
     {ws : List GroundTerm} (hX : ArgsAt c tbl e args ws) (a : Elem) :
     (KoreAML.tr ⟨tbl, []⟩ (premise (args.map c.sortName) (req.map (Term.kore c (canonVars c vars)))
-      (Term.koreList c (canonVars c vars) pats))).interpret (stdI c) e a ↔
-      KoreAML.Inh (stdI c) σR a ∧ (∀ t, req = some t → EvalTerm c σ t (some (bool true))) ∧ PatVals c σ pats ws := by
+      (Term.koreList c (canonVars c vars) pats))).interpret (stdI_T c T) e a ↔
+      KoreAML.Inh (stdI_T c T) σR a ∧ (∀ t, req = some t → EvalTerm c σ t (some (bool true))) ∧ PatVals c σ pats ws := by
   have hn := h.namesK
   have hwl : ws.length = args.length := sortsOf_len hX.sorts
   unfold premise
   rw [tr_and2, KoreAML.interp_sAnd]
-  have hreq : (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (req.map (Term.kore c (canonVars c vars))))).interpret (stdI c) e a ↔
-      KoreAML.Inh (stdI c) σR a ∧ ∀ t, req = some t → EvalTerm c σ t (some (bool true)) := by
+  have hreq : (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (req.map (Term.kore c (canonVars c vars))))).interpret (stdI_T c T) e a ↔
+      KoreAML.Inh (stdI_T c T) σR a ∧ ∀ t, req = some t → EvalTerm c σ t (some (bool true)) := by
     cases hq : req with
     | none =>
       simp only [Option.map_none, reqPat]
@@ -257,6 +332,24 @@ theorem premise_iff (h : HypModelCore c) {vars args : List Srt} {req : Option Te
       (isSort_iff _).mpr ⟨a0, List.mem_range.mpr hnum, rfl⟩, ?_⟩
     rw [Nat.zero_add, hX.X n w _ hw (by rw [List.getElem?_map, ha0]; rfl), inh_srt]
     exact hsw
+
+end AtT
+
+/-- **A premise** `⌈req = true⌉ ∧ X̄ ∈ p̄` holds exactly where the `requires` evaluates to `true`
+under σ and the patterns denote the arguments under σ. -/
+theorem premise_iff (h : HypModelCore c) {vars args : List Srt} {req : Option Term} {pats : List Term}
+    {tbl : KoreAML.VarTable} {e : Valuation Elem} {σR : Elem}
+    (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret (stdI c) e a ↔ a = σR) (hRs : KoreAML.IsSort (stdI c) σR)
+    {σ : Subst}
+    (hvar : ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI c) e m ↔
+      ∃ v, σ.lookup i = some v ∧ m = .val v)
+    (hreqOK : ∀ t, req = some t → TermOK c (· < vars.length) t)
+    (hpatOK : ∀ p ∈ pats, PatOK c (· < vars.length) p) (hlen : pats.length = args.length)
+    {ws : List GroundTerm} (hX : ArgsAt c tbl e args ws) (a : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (premise (args.map c.sortName) (req.map (Term.kore c (canonVars c vars)))
+      (Term.koreList c (canonVars c vars) pats))).interpret (stdI c) e a ↔
+      KoreAML.Inh (stdI c) σR a ∧ (∀ t, req = some t → EvalTerm c σ t (some (bool true))) ∧ PatVals c σ pats ws :=
+  AtT.premise_iff (c := c) (T := StepM c) (h := h) (vars := vars) (args := args) (req := req) (pats := pats) (tbl := tbl) (e := e) (σR := σR) (hR := hR) (hRs := hRs) (σ := σ) (hvar := hvar) (hreqOK := hreqOK) (hpatOK := hpatOK) (hlen := hlen) (ws := ws) (hX := hX) (a := a)
 
 /-! ## A clause that fails -/
 
@@ -423,6 +516,21 @@ structure EqnAt (c : Semantics) (fn : Fn) (vars : List Srt) (tbl : KoreAML.VarTa
   args : ArgsAt c tbl e fn.args ws
   vin : ∀ i < vars.length, InSort c (vars.getD i 0) (e.evalEvar (tbl.ev (canonKey c vars i)))
 
+namespace AtT
+
+/-- `EqnAt` (ModelFns.lean) in the value model at `T`. -/
+structure EqnAt (c : Semantics) (T : GroundTerm → GroundTerm → Prop) (fn : Fn) (vars : List Srt)
+    (tbl : KoreAML.VarTable) (e : ML.Valuation Elem) (ws : List GroundTerm) : Prop where
+  R : KoreAML.VarKey.sortVar "R" ∈ tbl
+  Xk : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
+    KoreAML.VarKey.evar ("X" ++ toString j) (KoreAML.srt s) ∈ tbl
+  Vk : ∀ i < vars.length, canonKey c vars i ∈ tbl
+  Rs : KoreAML.IsSort (stdI_T c T) (e.evalEvar (tbl.ev (.sortVar "R")))
+  args : ArgsAt c tbl e fn.args ws
+  vin : ∀ i < vars.length, InSort c (vars.getD i 0) (e.evalEvar (tbl.ev (canonKey c vars i)))
+
+end AtT
+
 theorem X_mem_varsOf_call : ∀ (ss : List String) (j n : Nat) (s : String), ss[n]? = some s →
     KoreAML.VarKey.evar ("X" ++ toString (j + n)) (KoreAML.srt s) ∈
       KoreAML.varsOfList (KoreAML.vars (KoreAML.numbered "X" j ss))
@@ -441,6 +549,10 @@ theorem X_mem_varsOf_call : ∀ (ss : List String) (j n : Nat) (s : String), ss[
     rw [show j + (n + 1) = j + 1 + n by omega]
     exact List.mem_append_right _ (by simpa [KoreAML.vars] using this)
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **An equation holds in the value model** where, at every valuation of its guards, its premise
 gives `Eval` what the right-hand side gives. Each variable is free in the axiom, in its premise or
 in its conclusion, so the guards give it an element of its sort. -/
@@ -452,12 +564,12 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
       (fnConcl c fn (Term.kore c (canonVars c vars) rhs) (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars)))))))
     (hVv : ∀ i < vars.length, canonKey c vars i ∈ KoreAML.varsOf (.implies KoreAML.R prem
       (fnConcl c fn (Term.kore c (canonVars c vars) rhs) (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars)))))))
-    (hread : ∀ (tbl : KoreAML.VarTable) (e : Valuation Elem) (ws : List GroundTerm) (a : Elem), EqnAt c fn vars tbl e ws →
+    (hread : ∀ (tbl : KoreAML.VarTable) (e : Valuation Elem) (ws : List GroundTerm) (a : Elem), EqnAt c T fn vars tbl e ws →
       (∀ k ∈ KoreAML.varsOf prem, k ∈ tbl) →
-      KoreAML.Inh (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) a → (KoreAML.tr ⟨tbl, []⟩ prem).interpret (stdI c) e a →
+      KoreAML.Inh (stdI_T c T) (e.evalEvar (tbl.ev (.sortVar "R"))) a → (KoreAML.tr ⟨tbl, []⟩ prem).interpret (stdI_T c T) e a →
       ∀ v, Eval c fn.label ws (some v) ↔ EvalTerm c (substE c tbl vars e) rhs (some v) ∧
         ∀ t, ens = some t → EvalTerm c (substE c tbl vars e) t (some (bool true))) :
-    stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv],
+    stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv],
       .implies KoreAML.R prem (fnConcl c fn (Term.kore c (canonVars c vars) rhs)
         (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars))))), []⟩ : Kore.Axiom)⟩).pat := by
   have hn := h.namesK
@@ -479,13 +591,13 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
   have hvarsP : ∀ k ∈ KoreAML.varsOf P, k ∈ tbl := fun k hk => by
     rw [← htb]; exact List.mem_eraseDups.mpr (List.mem_append_right _ hk)
   have hguard : ∀ k ∈ (([KoreAML.Rv].map KoreAML.sortVarKey) ++ KoreAML.freeOf [] P).eraseDups,
-      (KoreAML.guardOf tbl k).interpret (stdI c) e m := fun k hk =>
+      (KoreAML.guardOf tbl k).interpret (stdI_T c T) e m := fun k hk =>
     conjList_elim hgs _ (List.mem_map.mpr ⟨k, hk, rfl⟩)
   have hfreeP : ∀ k ∈ KoreAML.freeOf [] P, k ∈ (([KoreAML.Rv].map KoreAML.sortVarKey) ++ KoreAML.freeOf [] P).eraseDups :=
     fun k hk => List.mem_eraseDups.mpr (List.mem_append_right _ hk)
   have hRmem : KoreAML.VarKey.sortVar "R" ∈ tbl := by
     rw [← htb]; exact List.mem_eraseDups.mpr (List.mem_append_left _ (List.mem_map.mpr ⟨KoreAML.Rv, List.mem_singleton_self _, rfl⟩))
-  have hRs : KoreAML.IsSort (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) := by
+  have hRs : KoreAML.IsSort (stdI_T c T) (e.evalEvar (tbl.ev (.sortVar "R"))) := by
     have := hguard (.sortVar "R") (List.mem_eraseDups.mpr (List.mem_append_left _
       (List.mem_map.mpr ⟨KoreAML.Rv, List.mem_singleton_self _, rfl⟩)))
     obtain ⟨s, hs, he⟩ := sortGuard_iff.mp this
@@ -527,9 +639,9 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
     have hkk := canonKey_eq c hi
     rw [hkk, KoreAML.interp_guard_evar defOK_std, trSort_srt, ← hkk] at hg
     exact (inhOf_sort hn (hnum i hi) e _).mp hg
-  have hEq : EqnAt c fn vars tbl e ws :=
+  have hEq : EqnAt c T fn vars tbl e ws :=
     ⟨hRmem, hXk, fun i hi => hvarsP _ (hP ▸ hVv i hi), hRs, hws, hvin⟩
-  obtain ⟨hσ, hvar⟩ := substE_ok hvin
+  obtain ⟨hσ, hvar⟩ := substE_ok (T := T) hvin
   have hres := hfs fn.result (List.mem_cons_self ..)
   rw [KoreAML.interp_equal defOK_std]
   intro a
@@ -544,16 +656,16 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
     refine ⟨ha, fun hprem => ?_⟩
     rw [KoreAML.interp_inhOf_of (R_read e)] at ha
     have hrd := hread tbl e ws a hEq (fun k hk => hvarsP _ (hPv _ hk)) ha hprem
-    have hSres : ∀ b, (KoreAML.trSort tbl (KoreAML.srt (c.sortName fn.result))).interpret (stdI c) e b ↔
+    have hSres : ∀ b, (KoreAML.trSort tbl (KoreAML.srt (c.sortName fn.result))).interpret (stdI_T c T) e b ↔
         b = .srt fn.result := fun b => by rw [trSort_srt]; exact sort_den hn hres e b
     unfold fnConcl
     rw [KoreAML.tr, KoreAML.interp_sEquals defOK_std sat_ceilDef hSres (R_read e)
       ((isSort_iff _).mpr ⟨fn.result, List.mem_range.mpr hres, rfl⟩) hRs]
     refine ⟨ha, fun b hb => ?_⟩
-    have hSres' : ∀ b, (KoreAML.trSort tbl (srtOf c fn.result)).interpret (stdI c) e b ↔
+    have hSres' : ∀ b, (KoreAML.trSort tbl (srtOf c fn.result)).interpret (stdI_T c T) e b ↔
         b = .srt fn.result := fun b => by unfold srtOf; exact hSres b
     have hens : ((KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c fn.result)
-        (ens.map (Term.kore c (canonVars c vars))))).interpret (stdI c) e b ↔
+        (ens.map (Term.kore c (canonVars c vars))))).interpret (stdI_T c T) e b ↔
           ∀ t, ens = some t → EvalTerm c (substE c tbl vars e) t (some (bool true))) := by
       cases hq : ens with
       | none =>
@@ -573,6 +685,30 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
       exact ⟨⟨v, h1, rfl⟩, h2⟩
     · rintro ⟨⟨v, hv, rfl⟩, h2⟩
       exact ⟨v, rfl, (hrd _).mpr ⟨hv, h2⟩⟩
+
+end AtT
+
+/-- **An equation holds in the value model** where, at every valuation of its guards, its premise
+gives `Eval` what the right-hand side gives. Each variable is free in the axiom, in its premise or
+in its conclusion, so the guards give it an element of its sort. -/
+theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars : List Srt}
+    (hnum : ∀ i < vars.length, vars.getD i 0 < nRegSorts + c.sortNames.length)
+    {prem : Kore.Pattern} {rhs : Term} (hrhsOK : TermOK c (· < vars.length) rhs)
+    {ens : Option Term} (hensOK : ∀ t, ens = some t → TermOK c (· < vars.length) t)
+    (hV : ∀ i < vars.length, canonKey c vars i ∈ KoreAML.freeOf [] (.implies KoreAML.R prem
+      (fnConcl c fn (Term.kore c (canonVars c vars) rhs) (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars)))))))
+    (hVv : ∀ i < vars.length, canonKey c vars i ∈ KoreAML.varsOf (.implies KoreAML.R prem
+      (fnConcl c fn (Term.kore c (canonVars c vars) rhs) (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars)))))))
+    (hread : ∀ (tbl : KoreAML.VarTable) (e : Valuation Elem) (ws : List GroundTerm) (a : Elem), EqnAt c fn vars tbl e ws →
+      (∀ k ∈ KoreAML.varsOf prem, k ∈ tbl) →
+      KoreAML.Inh (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) a → (KoreAML.tr ⟨tbl, []⟩ prem).interpret (stdI c) e a →
+      ∀ v, Eval c fn.label ws (some v) ↔ EvalTerm c (substE c tbl vars e) rhs (some v) ∧
+        ∀ t, ens = some t → EvalTerm c (substE c tbl vars e) t (some (bool true))) :
+    stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv],
+      .implies KoreAML.R prem (fnConcl c fn (Term.kore c (canonVars c vars) rhs)
+        (reqPat (srtOf c fn.result) (ens.map (Term.kore c (canonVars c vars))))), []⟩ : Kore.Axiom)⟩).pat :=
+  AtT.sat_eqnCl (c := c) (T := StepM c) (h := h) (fn := fn) (hfn := hfn) (vars := vars) (hnum := hnum) (prem := prem) (rhs := rhs) (hrhsOK := hrhsOK) (ens := ens) (hensOK := hensOK) (hV := hV) (hVv := hVv)
+    (hread := fun tbl e ws a hE => hread tbl e ws a ⟨hE.R, hE.Xk, hE.Vk, hE.Rs, hE.args, hE.vin⟩)
 
 /-- `sat_eqnCl` where every variable is free in the premise. -/
 theorem sat_eqn (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars : List Srt}
@@ -616,12 +752,16 @@ theorem varsOf_premise_var {args : List Srt} {req : Option Kore.Pattern} {pats :
 
 /-! ## The rests -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **A function's rest graph holds**: where every clause fails at values of its argument sorts,
 `f` applied to them is the values `Eval` gives there (`result_fn`), and `Eval.rest` with
 `FnDet` makes that the rest. -/
 theorem sat_restGraph (h : HypModelCore c) {fn : Fn} {vs : List GroundTerm} (hfn : fn ∈ c.allFns)
     (hvs : c.sortsOf vs = some fn.args) (hnone : ∀ cl ∈ fn.clauses, Fails c vs cl) :
-    stdI c ⊧ᴵ (KoreAML.den (symApp c fn.label (GroundTerm.koreList c vs)) ≡ (match c.fnRest fn vs with
+    stdI_T c T ⊧ᴵ (KoreAML.den (symApp c fn.label (GroundTerm.koreList c vs)) ≡ (match c.fnRest fn vs with
       | some v => den c v
       | none => ⊥)) := by
   obtain ⟨hc, hh, hp⟩ := h.fnApart hfn
@@ -648,13 +788,37 @@ theorem sat_restGraph (h : HypModelCore c) {fn : Fn} {vs : List GroundTerm} (hfn
     · rintro ⟨v', rfl, hv'⟩; cases hmi _ _ _ _ hv' hE; rfl
     · rintro rfl; exact ⟨v, rfl, hE⟩
 
+end AtT
+
+/-- **A function's rest graph holds**: where every clause fails at values of its argument sorts,
+`f` applied to them is the values `Eval` gives there (`result_fn`), and `Eval.rest` with
+`FnDet` makes that the rest. -/
+theorem sat_restGraph (h : HypModelCore c) {fn : Fn} {vs : List GroundTerm} (hfn : fn ∈ c.allFns)
+    (hvs : c.sortsOf vs = some fn.args) (hnone : ∀ cl ∈ fn.clauses, Fails c vs cl) :
+    stdI c ⊧ᴵ (KoreAML.den (symApp c fn.label (GroundTerm.koreList c vs)) ≡ (match c.fnRest fn vs with
+      | some v => den c v
+      | none => ⊥)) :=
+  AtT.sat_restGraph (c := c) (T := StepM c) (h := h) (fn := fn) (vs := vs) (hfn := hfn) (hvs := hvs) (hnone := hnone)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **`SatFallbackGoal`**: the value model satisfies what the interpretation decides where the
 text is silent: an interpreted symbol's result at its silent points (`sat_silentGraph`), and a
 function's rest where every clause fails (`sat_restGraph`). -/
-theorem satFallbackGoal (h : HypModelCore c) : SatFallbackGoal c := by
+theorem satFallbackGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓFallback c) := by
   rintro φ (⟨k, vs, hk, hvs, hh, hs, rfl⟩ | ⟨fn, vs, hfn, hvs, hnone, rfl⟩)
   · exact sat_silentGraph h hk hvs hh hs
   · exact sat_restGraph h hfn hvs hnone
+
+end AtT
+
+/-- **`SatFallbackGoal`**: the value model satisfies what the interpretation decides where the
+text is silent: an interpreted symbol's result at its silent points (`sat_silentGraph`), and a
+function's rest where every clause fails (`sat_restGraph`). -/
+theorem satFallbackGoal (h : HypModelCore c) : SatFallbackGoal c :=
+  AtT.satFallbackGoal (c := c) (T := StepM c) (h := h)
 
 end Model
 

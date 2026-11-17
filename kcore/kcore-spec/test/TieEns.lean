@@ -411,8 +411,10 @@ end Idem
 
 kernel_rfl clausesFixed_withHooks : ∀ (c : Semantics) (H : HookParams),
   (c.withHooks H).clausesFixed = c.clausesFixed
-kernel_rfl evalFC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm),
-  Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs
+/-- `evalFC` reads no interpretation where no parameter is raw. -/
+theorem evalFC_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (n : Nat) (f : Sym)
+    (vs : List GroundTerm) : Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs :=
+  Cert.evalFC_withHooks c H hr n f vs
 
 def callOrder : List Nat := [364]
 
@@ -528,9 +530,9 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
-def half : Sym := 383
-def run : Sym := 382
-def kCell : Sym := 379
+def half : Sym := 387
+def run : Sym := 386
+def kCell : Sym := 383
 def cmd : Srt := 32
 
 theorem names : c.symName half = "Lblhalf" ∧ c.symName run = "Lblrun" ∧ c.sortName cmd = "Cmd" := by decide +kernel
@@ -554,7 +556,7 @@ theorem hvsHm4 (H : HookParams) : (cH H).sortsOf [int (-4)] = some fn.args := by
 theorem eval_of_evalFC {vs : List GroundTerm} (hvs : c.sortsOf vs = some fn.args) {n : Nat} {r : Option GroundTerm}
     (h : Cert.evalFC c n half vs = some r) (H : HookParams) : Eval (cH H) half vs r :=
   Exec.evalF_sound (sortCtx_of (hokH H) (hsrH H) (Exec.ovlCase_of (hmrH H))) (Exec.clauseCtx_of (hokH H))
-    (Exec.matchCtx_of (hmrH H)) n (Cert.evalFC_sound n (by rw [evalFC_withHooks]; exact h)) (hfnH H)
+    (Exec.matchCtx_of (hmrH H)) n (Cert.evalFC_sound n (by rw [evalFC_withHooks _ _ noRaw]; exact h)) (hfnH H)
     (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
 
 theorem coherent (H : HookParams) : CoherentAll (cH H) :=

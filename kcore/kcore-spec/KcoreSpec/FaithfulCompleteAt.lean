@@ -168,7 +168,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hreqs t ht) hu)
         (evalTerm_den4 hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
         _ hreq
-  have hrest := hdr.2 _ hσ hmatch hreqT ((Semantics.sortedOK_rule hok hr).2.1 ▸ .top)
+  have hrest := hdr.2 _ hσ hmatch hreqT ((Semantics.sortedOK_ruleTop hok hr).1 ▸ .top)
   -- the `ensures` evaluates to `true`
   have hensS := rule_ctx_ens hok hr
   have hensT : ∀ t, r.ens = some t → EvalTerm c (substOf c I tbl vs r.vars e2) t (some (bool true)) := by
@@ -191,7 +191,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
     have hun : ∀ r'' ∈ c.rules, r''.prio < r'.prio → ¬ RuleApplies c r'' x.val :=
       fun r'' hr'' hlt' => hnoapp r'' hr'' (Nat.lt_trans hlt' hlt)
     have hd' := ((hd r' hr' hun).1 σ' hσ' hpv').1
-    have hpre' : Holds c r'.vars.length σ' r'.pre true := (Semantics.sortedOK_rule hok hr').2.1 ▸ .top
+    have hpre' : Holds c r'.vars.length σ' r'.pre true := (Semantics.sortedOK_ruleTop hok hr').1 ▸ .top
     cases ht : r'.req with
     | none =>
       exact absurd ⟨σ', hσ', hpv', (fun t h => by rw [ht] at h; cases h), hpre'⟩ (hnoapp r' hr' hlt)

@@ -203,7 +203,8 @@ theorem EqOut.sortOf_eq (hno : c.ovls = []) (_hr : ∀ k ∈ c.params, k.raw = f
   | high _ hs => exact hs
   | same => rfl
   | ctor hl _ ih =>
-    simp only [Semantics.sortOf, sortsOf_eq hl ih, Semantics.lookupOvl, hno, List.find?_nil]
+    simp only [Semantics.sortOf, sortsOf_eq hl ih, Semantics.lookupOvl, hno, List.find?_nil,
+      c.lookupOpen_of_noRaw _hr]
   | keyed _ hk => exact hk.sortOf_eq
 
 /-- With no high positions, equal outside them is equal. -/

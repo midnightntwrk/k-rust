@@ -1,0 +1,5 @@
+# Hand-written KORE: f2-examples/e6rm.kompile.kore (fixture e6-rangemap, by kompile 7.1.337) with one rewrite axiom added
+# before the user module's endmodule, binding variables under _RangeMap_ and _r|->_ on its left side:
+# <k> res(I, X, Y, B1, B2, J, R, K, L, (RangeMap:Range(A, B) r|-> V) Rest) => V </k>.
+# kompile 7.1.337 rejects the shape in a K text (fixture e6-rangemap-pattern, exit 113), so no text it delivers holds it.
+kore = "test/constructs/fixtures/hw-rangemap-pattern/hw-rangemap-pattern.kore"

@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 208378
 definition.kore sha256: 750e611bb848a77575733ab21d617b766dcc9eaf3888933afee1c8c62527598e
-stripped sha256: 9a46f09722a65d61e619f957000677e8d78e6569d2b0ec9452a848572ef845d5
+stripped sha256: 7e06253c478e49cc33c321cc56e8113d3b6a49bd7928776ecfaa768af0d27ea1
 main module: 408 sentences, 54 not in base's, in kore.txt
 output:
   

@@ -12,6 +12,7 @@
     value at 0 (`pt_Fp_not_total`), so the statement for that interpretation alone would be false.
 -/
 import KcoreSpec.FnObligations
+import KcoreSpec.Cert
 
 set_option autoImplicit false
 
@@ -47,6 +48,10 @@ def pt : Semantics where
   params := [{ sig := ⟨P, [Srt.int], Srt.int⟩ }, { sig := ⟨Q, [Srt.int], Srt.int⟩ }]
 
 theorem pt_sorted : pt.sortedOK = true ∧ pt.srReady = true := by decide +kernel
+
+/-- `sortedOKCl` gives `pt`'s two parameters not raw. -/
+example : ∀ k ∈ pt.params, k.raw = false :=
+  Semantics.params_raw_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK pt_sorted.1)
 
 theorem pt_R : pt.totalObligationsR [Fp, Fq] = [Fp, Fq] := by decide +kernel
 
@@ -101,23 +106,27 @@ theorem pt_openTotal (H : HookParams) : OpenTotal (pt.withHooks H) :=
   openTotal_of_plain (c := pt.withHooks H) (show ∀ k ∈ pt.params, k.raw = false by decide +kernel)
 
 /-! `paramVal` at an open generator (`raw`): the interpretation's answer where it gives one, the raw
-application `P(1)` where it gives none, each kept only where it has P's result sort. `sortOf` gives
-the raw application no sort (it has no open-generator arm), so under `HookParams.none` the value is
-none; an answer of sort Int is kept and an ill-sorted one is not. -/
+application `P(1)` where it gives none, each kept only where it has P's result sort. Under
+`HookParams.none` the interpretation leaves `P(1)` raw, so `sortOf` gives it P's result sort Int
+(the open-generator arm) and the value is `P(1)`; an answer of sort Int is kept and an ill-sorted
+one is not. -/
 def ptRaw : Semantics := { pt with params := [{ sig := ⟨P, [Srt.int], Srt.int⟩, raw := true }] }
 def H5 : HookParams := ⟨fun f _ => if f == P then some (int 5) else none⟩
 def Hb : HookParams := ⟨fun f _ => if f == P then some (bool true) else none⟩
 
 /-- `genWf` refuses `ptRaw`: its raw parameter's result sort Int is no constructor sort (`pt`, the
-same without the parameter, passes); with result KItem, a constructor sort, it passes. -/
+same without the parameter, passes); with result KItem, a constructor sort that is not flat (Int is
+below KItem, so a subsort pair has KItem as upper sort), it is refused too, and passes as a
+parameter that is not raw. -/
 example : Faithful.genWf pt = true ∧ Faithful.genWf ptRaw = false ∧
-    Faithful.genWf { pt with params := [{ sig := ⟨P, [Srt.int], Srt.kitem⟩, raw := true }] } = true := by
+    Faithful.genWf { pt with params := [{ sig := ⟨P, [Srt.int], Srt.kitem⟩, raw := true }] } = false ∧
+    Faithful.genWf { pt with params := [{ sig := ⟨P, [Srt.int], Srt.kitem⟩ }] } = true := by
   decide +kernel
 
 example : ((ptRaw.withHooks H5).paramVal P [int 1]).map (Exec.same (int 5)) = some true ∧
     ((ptRaw.withHooks Hb).paramVal P [int 1]).isNone = true ∧
-    (ptRaw.withHooks HookParams.none).sortOf (.ctor P [int 1]) = none ∧
-    ((ptRaw.withHooks HookParams.none).paramVal P [int 1]).isNone = true := by
+    (ptRaw.withHooks HookParams.none).sortOf (.ctor P [int 1]) = some Srt.int ∧
+    ((ptRaw.withHooks HookParams.none).paramVal P [int 1]).map (Exec.same (.ctor P [int 1])) = some true := by
   decide +kernel
 
 /-- `rawFree` at `ptRaw`: the raw application `P(1)` applies the open generator, `1` and `5` do not;
@@ -160,6 +169,18 @@ example {ts : List GroundTerm} (h : pt.sortOf (.ctor counterLabel ts) = some Srt
 /-- `sortOf_of_T`'s `rawFree` argument, decided at a closed value; at `ptRaw` the tables give `1`
 its sort. -/
 example : ptRaw.sortOf (int 1) = some Srt.int := sortOf_of_T rfl (by decide +kernel)
+
+/-- A run certificate at `pt` (no rule; start and final are one configuration): `checkRun_sound` in
+the generated packages' form, its last argument (no parameter is raw) decided. -/
+def x0 : GroundTerm :=
+  .ctor topLabel [.ctor (nRegSyms + 50) [.ctor dotk []], .ctor counterLabel [int 0]]
+
+theorem pt_run : Cert.checkRun pt 10 x0 [] x0 = true := by decide +kernel
+
+example (H : HookParams) : ∃ (hs : (pt.withHooks H).sortOf x0 = some topCellSort)
+    (hf : (pt.withHooks H).sortOf x0 = some topCellSort),
+    Cert.Reach (Step (pt.withHooks H)) ⟨x0, hs⟩ ⟨x0, hf⟩ :=
+  Cert.checkRun_sound (by decide +kernel) pt_sorted.2 (by decide +kernel) pt_run H
 
 end KCore.ParamsTotalTest
 

@@ -8,7 +8,7 @@ namespace Fprio
 open KCore KCore.Det
 
 theorem agree_named : defn.sem.agreeObligationsI =
-    [389 /- ag -/] :=
+    [393 /- ag -/] :=
   agreeObligationsI_of_T T_eq (by decide +kernel)
 
 end Fprio

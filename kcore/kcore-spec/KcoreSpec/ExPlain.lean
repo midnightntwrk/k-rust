@@ -36,6 +36,29 @@ theorem Semantics.rulePlainOpen_iff_ex {c : Semantics} {r : Rule} :
   · rintro ⟨⟨⟨hpre, hpost⟩, hrest⟩, hex⟩
     exact ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩
 
+/-- `rulesPlain` is `rulePlainEx` of each rule. -/
+theorem Semantics.rulesPlain_iff_ex {c : Semantics} :
+    c.rulesPlain = true ↔ ∀ r ∈ c.rules, c.rulePlainEx r = true := by
+  simp only [Semantics.rulesPlain, Semantics.rulePlainEx, List.all_eq_true]
+
+/-- What `sortedOK` gives of each rule, with no fact on its left side's variables or its
+existential variables: `ruleSorted` and `rulePlainEx`. -/
+theorem Semantics.ruleFactsEx_of_sortedOK {c : Semantics} (h : c.sortedOK = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := by
+  intro r hr
+  have hs := Semantics.sortedOK_sorted h
+  simp only [Bool.and_eq_true, List.all_eq_true] at hs
+  have hp : c.rulesPlain = true := by
+    simp only [Semantics.sortedOK, Bool.and_eq_true] at h
+    exact h.1.1.2
+  exact ⟨hs.2 r hr, Semantics.rulesPlain_iff_ex.mp hp r hr⟩
+
+/-- What `coreOK` gives of each rule, with no fact on its left side's variables or its existential
+variables: `ruleSorted` and `rulePlainEx`. -/
+theorem Semantics.ruleFactsEx_of_core {c : Semantics} (h : c.coreOK = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
+  Semantics.ruleFactsEx_of_sortedOK (Semantics.coreOK_parts h).1
+
 /-- The predicates of a rule with `rulePlainEx` are `\top`. -/
 theorem Semantics.rulePlainEx_top {c : Semantics} {r : Rule} (h : c.rulePlainEx r = true) :
     r.pre = .top ∧ r.post = .top := by

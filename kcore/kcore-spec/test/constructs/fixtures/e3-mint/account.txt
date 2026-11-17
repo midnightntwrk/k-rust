@@ -6,7 +6,7 @@ user module E3-MINT: 587 sentences
   1 refused sortAttribute [generated]
       e.g. sort Sort8{} [nat{}("8")]
   50 refused builtinText [builtin]
-      e.g. hooked-symbol Lbl--MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{SortWidth}(SortMInt{SortWidth}) : SortMInt{SortWidth} [function{}(), functional{}(), hook{}("MINT.neg"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3001,34,3001,108)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(NIXSTORE/i …
+      e.g. hooked-symbol Lbl--MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{SortWidth}(SortMInt{SortWidth}) : SortMInt{SortWidth} [function{}(), functional{}(), hook{}("MINT.neg"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3001,34,3001,108)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/domains.md)"), smt-hook{}("bvuminus"), total{}()]
   3 read [user]
   1 refused axiomShape [generated]
       e.g. axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMInt{Sort8{}}, SortKItem{}}(From:SortMInt{Sort8{}}))) [subsort{SortMInt{Sort8{}}, SortKItem{}}()]

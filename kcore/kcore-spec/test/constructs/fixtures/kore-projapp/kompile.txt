@@ -1,3 +1,3 @@
 command: none: fixture.toml kore = 'f2-examples/projapp.kore', a KORE text kompile does not write; account.txt is `kcore account f2-examples/projapp.kore` (cwd: kcore-spec)
-definition.kore bytes: 188638
-definition.kore sha256: e49002addc24b38964a05c6847a50412d98b315a8185d6d19c9e18f722106171
+definition.kore bytes: 188212
+definition.kore sha256: 44215624947ad3ea13be24f0dc99e6fbe520bc38e091c4634d547596ddbaa6b0

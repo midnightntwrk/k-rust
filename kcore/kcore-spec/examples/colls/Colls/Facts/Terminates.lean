@@ -20,11 +20,11 @@ theorem terminates : ∀ f, Terminates c f :=
 
 /-- The functions declared `[total]` whose totality is named (`totalObligations`: the second
 conjunct of `KCore.Obligations`). -/
-theorem named_totals : defn.sem.totalObligations = [415] := by decide +kernel
+theorem named_totals : defn.sem.totalObligations = [419] := by decide +kernel
 
 /-- **Every function declared `[total]` is total** (`KCore.Total`: a value at every argument list
 of its argument sorts), the sort predicates among them, given the named ones' totality. -/
-theorem totals (htot : ∀ g ∈ ([415] : List Sym), Total c g) :
+theorem totals (htot : ∀ g ∈ ([419] : List Sym), Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   totals_of_order okAll srReady (Semantics.ovlCase_of (by decide +kernel)) terminates (by rw [named_totals]; exact htot)
 

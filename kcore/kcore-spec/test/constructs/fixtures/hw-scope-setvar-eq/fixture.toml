@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture e3-setvar-nonlinear (K 7.1.337, sha256 335e79f325305b9ec7ed6543be43c03a5d447a0cf0fe207dd949ca488c34e5f2), the Source of its
+# own sentences written as its fixture's path, and one sentence changed: the function equation of `rule f(@S, @S) => r()` (not a simplification) in the direct form: Lblf{}(@VarS:SortExp{},@VarS:SortExp{}) = r() with the premise's two memberships X0, X1 in @VarS removed, the rest of the axiom unchanged.
+# A form no text kompile 7.1.337 delivers holds (findings/KPROV-scope.md). Expected: setVariable.
+# Account: not refused; the equation is read as a clause of f with no patterns (sem-fields: vars=[] pats= rhs=Lblr()),
+# wf false (functions: well-sorted, covering), coreOK false (clauses sorted): a reader finding, nothing fixed here.
+kore = "test/constructs/fixtures/hw-scope-setvar-eq/hw-scope-setvar-eq.kore"

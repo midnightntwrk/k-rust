@@ -96,10 +96,14 @@ theorem patVal_as_inv {σ : Subst} {t : Term} {i : Nat} {v : GroundTerm} (h : Pa
 section
 variable {vs : List KoreAML.Var} {tbl : KoreAML.VarTable} {e : Valuation Elem} {σ : Subst}
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem pargs_read {ts : List Term}
-    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI_T c T) e m ↔
       ∃ v, PatVal c σ t v ∧ m = .val v) :
-    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI c) e b)
+    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
       ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs →
       ∃ ws : List GroundTerm, bs = ws.map Elem.val ∧ PatVals c σ ts ws := by
   induction ts with
@@ -112,11 +116,25 @@ theorem pargs_read {ts : List Term}
       obtain ⟨ws, rfl, hws⟩ := iht (fun t' ht' => ih t' (List.mem_cons_of_mem _ ht')) hbs
       exact ⟨v :: ws, rfl, .cons hv hws⟩
 
-theorem pargs_read' {ts : List Term}
+end AtT
+
+theorem pargs_read {ts : List Term}
     (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
       ∃ v, PatVal c σ t v ∧ m = .val v) :
+    ∀ {bs : List Elem}, All2 (fun φ b => φ.interpret (stdI c) e b)
+      ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs →
+      ∃ ws : List GroundTerm, bs = ws.map Elem.val ∧ PatVals c σ ts ws :=
+  AtT.pargs_read (c := c) (T := StepM c) (ts := ts) (ih := ih)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem pargs_read' {ts : List Term}
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI_T c T) e m ↔
+      ∃ v, PatVal c σ t v ∧ m = .val v) :
     ∀ {ws : List GroundTerm}, PatVals c σ ts ws →
-      All2 (fun φ b => φ.interpret (stdI c) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
+      All2 (fun φ b => φ.interpret (stdI_T c T) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
         (ws.map Elem.val) := by
   induction ts with
   | nil => intro ws h; cases h; exact .nil
@@ -126,6 +144,16 @@ theorem pargs_read' {ts : List Term}
     | cons ht hts =>
       exact .cons ((ih t (List.mem_cons_self ..) _).mpr ⟨_, ht, rfl⟩)
         (iht (fun t' ht' => ih t' (List.mem_cons_of_mem _ ht')) hts)
+
+end AtT
+
+theorem pargs_read' {ts : List Term}
+    (ih : ∀ t ∈ ts, ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret (stdI c) e m ↔
+      ∃ v, PatVal c σ t v ∧ m = .val v) :
+    ∀ {ws : List GroundTerm}, PatVals c σ ts ws →
+      All2 (fun φ b => φ.interpret (stdI c) e b) ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩))
+        (ws.map Elem.val) :=
+  AtT.pargs_read' (c := c) (T := StepM c) (ts := ts) (ih := ih)
 
 theorem patVals_length : ∀ {ts : List Term} {ws : List GroundTerm}, PatVals c σ ts ws → ts.length = ws.length
   | _, _, .nil => rfl
@@ -162,13 +190,17 @@ theorem join_eq_some {o : Option (Option GroundTerm)} {v : GroundTerm} : o.join 
   | none => simp
   | some o' => cases o' <;> simp
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **The reading of a pattern**: under a valuation that reads each variable as its value in σ, a
 pattern denotes exactly the values it denotes under σ. -/
 theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
     {e : Valuation Elem} {σ : Subst}
-    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔
       ∃ v, σ.lookup i = some v ∧ m = .val v) {p : Term} (hp : PatOK c P p) :
-    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs p)).interpret (stdI c) e m ↔
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs p)).interpret (stdI_T c T) e m ↔
       ∃ v, PatVal c σ p v ∧ m = .val v := by
   have hn := h.namesK
   induction hp with
@@ -181,7 +213,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       exact ⟨v, patVal_var_inv hv, rfl⟩
   | @dv s lit hd =>
     intro m
-    have := tr_term h (P := fun _ => False) (vs := vs) (tbl := tbl) (e := e) (σ := σ) (fun _ hf => hf.elim)
+    have := tr_term (T := T) h (P := fun _ => False) (vs := vs) (tbl := tbl) (e := e) (σ := σ) (fun _ hf => hf.elim)
       (TermOK.dv hd) m
     rw [this]
     constructor
@@ -230,7 +262,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
     rw [kore_app_tr, interp_appList]
     constructor
     · rintro ⟨a, ha, bs, hbs, happ⟩
-      obtain ⟨ws, rfl, hws⟩ := pargs_read ih hbs
+      obtain ⟨ws, rfl, hws⟩ := pargs_read (T := T) ih hbs
       have hlw : ws.length = k.args.length := by
         rw [← hl, patVals_length hws]
       have hr := (head_app h hk (tbl := tbl) (vs := vs) (ts := ts) hlw m).mp ⟨a, ha, happ⟩
@@ -280,9 +312,9 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       have key : ∀ (ws : List GroundTerm), PatVals c σ ts ws → result c k ws (.val v) →
           ∃ a, (match iteSort? (c.symName k.name) with
             | some X => KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))
-            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI c) e a ∧
-            ∃ bs, All2 (fun φ b => φ.interpret (stdI c) e b)
-              ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI c) a bs (.val v) := by
+            | none => KoreAML.sym (.symbol (c.symName k.name))).interpret (stdI_T c T) e a ∧
+            ∃ bs, All2 (fun φ b => φ.interpret (stdI_T c T) e b)
+              ((Term.koreList c vs ts).map (KoreAML.tr ⟨tbl, []⟩)) bs ∧ AppE (stdI_T c T) a bs (.val v) := by
         intro ws hts hres
         have hlw : ws.length = k.args.length := by rw [← hl, patVals_length hts]
         obtain ⟨a, ha, happ⟩ := (head_app h hk (tbl := tbl) (vs := vs) (ts := ts) hlw _).mpr hres
@@ -317,6 +349,18 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       | ovl _ ho hts hnv =>
         subst hf
         exact key _ hts ((result_ovl ho _).mpr (by rw [hnv]))
+
+end AtT
+
+/-- **The reading of a pattern**: under a valuation that reads each variable as its value in σ, a
+pattern denotes exactly the values it denotes under σ. -/
+theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
+    {e : Valuation Elem} {σ : Subst}
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+      ∃ v, σ.lookup i = some v ∧ m = .val v) {p : Term} (hp : PatOK c P p) :
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs p)).interpret (stdI c) e m ↔
+      ∃ v, PatVal c σ p v ∧ m = .val v :=
+  AtT.tr_pat (c := c) (T := StepM c) (h := h) (P := P) (vs := vs) (tbl := tbl) (e := e) (σ := σ) (hvar := hvar) (p := p) (hp := hp)
 
 /-! ## The terms and patterns of a well-formed semantics are covered -/
 
@@ -609,29 +653,43 @@ theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminate
 
 /-! ## `⌈req = true⌉` -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem tr_true {tbl : KoreAML.VarTable} (h : HypModelCore c) (e : Valuation Elem) (a : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (.dv (KoreAML.srt "Bool") "true")).interpret (stdI c) e a ↔ a = .val (bool true) := by
+    (KoreAML.tr ⟨tbl, []⟩ (.dv (KoreAML.srt "Bool") "true")).interpret (stdI_T c T) e a ↔ a = .val (bool true) := by
   rw [KoreAML.tr_dv, ← KoreAML.tr_dv (t := [])]
-  have := denGoal h (bool true) Srt.bool (sortOf_bool true) e a
+  have := denGoal (T := T) h (bool true) Srt.bool (sortOf_bool true) e a
   unfold den KoreAML.den bool at this
   rw [GroundTerm.kore, sortName_bool] at this
   exact this
+
+end AtT
+
+theorem tr_true {tbl : KoreAML.VarTable} (h : HypModelCore c) (e : Valuation Elem) (a : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (.dv (KoreAML.srt "Bool") "true")).interpret (stdI c) e a ↔ a = .val (bool true) :=
+  AtT.tr_true (c := c) (T := StepM c) (tbl := tbl) (h := h) (e := e) (a := a)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **`⌈req = true⌉` holds exactly where `req` evaluates to `true`**, at the sort `σ'` of the
 premise. -/
 theorem reqPat_iff (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
     {e : Valuation Elem} {σ : Subst}
-    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔
       ∃ v, σ.lookup i = some v ∧ m = .val v) {t : Term} (ht : TermOK c P t)
-    {S : Kore.KSort} {σ' : Elem} (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI c) e a ↔ a = σ')
-    (hσ' : KoreAML.IsSort (stdI c) σ') (m : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c vs t)))).interpret (stdI c) e m ↔
-      KoreAML.Inh (stdI c) σ' m ∧ EvalTerm c σ t (some (bool true)) := by
+    {S : Kore.KSort} {σ' : Elem} (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI_T c T) e a ↔ a = σ')
+    (hσ' : KoreAML.IsSort (stdI_T c T) σ') (m : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c vs t)))).interpret (stdI_T c T) e m ↔
+      KoreAML.Inh (stdI_T c T) σ' m ∧ EvalTerm c σ t (some (bool true)) := by
   have hn := h.namesK
   have hmi := h.det
-  have hB : ∀ a, (KoreAML.trSort tbl (KoreAML.srt "Bool")).interpret (stdI c) e a ↔ a = .srt Srt.bool := by
+  have hB : ∀ a, (KoreAML.trSort tbl (KoreAML.srt "Bool")).interpret (stdI_T c T) e a ↔ a = .srt Srt.bool := by
     intro a; rw [trSort_srt, ← sortName_bool (c := c)]; exact sort_den hn bool_numbered e a
-  have hBs : KoreAML.IsSort (stdI c) (.srt Srt.bool) :=
+  have hBs : KoreAML.IsSort (stdI_T c T) (.srt Srt.bool) :=
     (isSort_iff _).mpr ⟨Srt.bool, List.mem_range.mpr bool_numbered, rfl⟩
   simp only [reqPat]
   rw [KoreAML.tr, KoreAML.interp_sEquals defOK_std sat_ceilDef hB hS hBs hσ']
@@ -647,6 +705,20 @@ theorem reqPat_iff (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Va
       cases EvalTerm.functional_of_fnDet hmi hv' hv
       rfl
     · rintro rfl; exact ⟨_, hv, rfl⟩
+
+end AtT
+
+/-- **`⌈req = true⌉` holds exactly where `req` evaluates to `true`**, at the sort `σ'` of the
+premise. -/
+theorem reqPat_iff (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {tbl : KoreAML.VarTable}
+    {e : Valuation Elem} {σ : Subst}
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
+      ∃ v, σ.lookup i = some v ∧ m = .val v) {t : Term} (ht : TermOK c P t)
+    {S : Kore.KSort} {σ' : Elem} (hS : ∀ a, (KoreAML.trSort tbl S).interpret (stdI c) e a ↔ a = σ')
+    (hσ' : KoreAML.IsSort (stdI c) σ') (m : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c vs t)))).interpret (stdI c) e m ↔
+      KoreAML.Inh (stdI c) σ' m ∧ EvalTerm c σ t (some (bool true)) :=
+  AtT.reqPat_iff (c := c) (T := StepM c) (h := h) (P := P) (vs := vs) (tbl := tbl) (e := e) (σ := σ) (hvar := hvar) (t := t) (ht := ht) (S := S) (σ' := σ') (hS := hS) (hσ' := hσ') (m := m)
 
 /-! ## The variables of a clause or rule -/
 
@@ -687,10 +759,21 @@ mutual
       · exact varOccsList_num h ts h2 (fun s0 h0 => hs s0 (List.mem_cons_of_mem _ h0)) i hi s' hs'
 end
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- A variable of a translated term, through the table `tbl`: its element. -/
 theorem var_read {tbl : KoreAML.VarTable} {vs : List KoreAML.Var} {e : Valuation Elem} (i : Nat) (m : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔ m = e.evalEvar (tbl.ev (keyAt vs i)) := by
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔ m = e.evalEvar (tbl.ev (keyAt vs i)) := by
   unfold KoreAML.varAt; rw [KoreAML.tr]; exact Iff.rfl
+
+end AtT
+
+/-- A variable of a translated term, through the table `tbl`: its element. -/
+theorem var_read {tbl : KoreAML.VarTable} {vs : List KoreAML.Var} {e : Valuation Elem} (i : Nat) (m : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔ m = e.evalEvar (tbl.ev (keyAt vs i)) :=
+  AtT.var_read (c := c) (T := StepM c) (tbl := tbl) (vs := vs) (e := e) (i := i) (m := m)
 
 /-- The value an element is, if it is one. -/
 def toVal : Elem → GroundTerm
@@ -708,12 +791,16 @@ theorem substE_lookup {tbl : KoreAML.VarTable} {vars : List Srt} {e : Valuation 
   rw [List.range_eq_range', lookup_range']
   rw [if_pos ⟨Nat.zero_le _, by omega⟩]
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- Where a valuation gives each variable a value of its sort, its substitution is well sorted and
 each variable reads as its value. -/
 theorem substE_ok {tbl : KoreAML.VarTable} {vars : List Srt} {e : Valuation Elem}
     (hin : ∀ i < vars.length, InSort c (vars.getD i 0) (e.evalEvar (tbl.ev (canonKey c vars i)))) :
     c.WellSorted vars (substE c tbl vars e) ∧
-      ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI c) e m ↔
+      ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI_T c T) e m ↔
         ∃ v, (substE c tbl vars e).lookup i = some v ∧ m = .val v := by
   have hv : ∀ i < vars.length, ∃ v, e.evalEvar (tbl.ev (canonKey c vars i)) = .val v ∧
       c.sortOf v = some (vars.getD i 0) := fun i hi => inSort_val (hin i hi)
@@ -729,6 +816,17 @@ theorem substE_ok {tbl : KoreAML.VarTable} {vars : List Srt} {e : Valuation Elem
     show m = e.evalEvar (tbl.ev (canonKey c vars i)) ↔ _
     rw [he]
     simp [toVal]
+
+end AtT
+
+/-- Where a valuation gives each variable a value of its sort, its substitution is well sorted and
+each variable reads as its value. -/
+theorem substE_ok {tbl : KoreAML.VarTable} {vars : List Srt} {e : Valuation Elem}
+    (hin : ∀ i < vars.length, InSort c (vars.getD i 0) (e.evalEvar (tbl.ev (canonKey c vars i)))) :
+    c.WellSorted vars (substE c tbl vars e) ∧
+      ∀ i, i < vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI c) e m ↔
+        ∃ v, (substE c tbl vars e).lookup i = some v ∧ m = .val v :=
+  AtT.substE_ok (c := c) (T := StepM c) (tbl := tbl) (vars := vars) (e := e) (hin := hin)
 
 /-- The valuation that gives the canonical variables of `vars`, through `tbl`, the elements of
 their values in σ, and agrees with `e` elsewhere. -/
@@ -766,6 +864,10 @@ theorem overE_ok {tbl : KoreAML.VarTable} {vars : List Srt} {σ : Subst} {e : Va
 
 /-! ## Existentials over the variables -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- `∃b̄. body` holds at `e` where `body` holds at a valuation that differs from `e` at the binders
 only, and gives each binder an element of its sort. -/
 theorem existsAll_intro {tbl : KoreAML.VarTable} {S : Kore.KSort} {body : Kore.Pattern} :
@@ -774,9 +876,9 @@ theorem existsAll_intro {tbl : KoreAML.VarTable} {S : Kore.KSort} {body : Kore.P
     (∀ b ∈ bs, ∃ n, b.sort = KoreAML.srt n) →
     (∀ x, (∀ b ∈ bs, x ≠ tbl.ev (KoreAML.evarKey b)) → e'.evalEvar x = e.evalEvar x) →
     e'.evalSvar = e.evalSvar →
-    (∀ b ∈ bs, ∀ n, b.sort = KoreAML.srt n → InS (stdI c) n (e'.evalEvar (tbl.ev (KoreAML.evarKey b)))) →
-    (KoreAML.tr ⟨tbl, []⟩ body).interpret (stdI c) e' m →
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI c) e m
+    (∀ b ∈ bs, ∀ n, b.sort = KoreAML.srt n → InS (stdI_T c T) n (e'.evalEvar (tbl.ev (KoreAML.evarKey b)))) →
+    (KoreAML.tr ⟨tbl, []⟩ body).interpret (stdI_T c T) e' m →
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI_T c T) e m
   | [], e, e', m, _, _, hoff, hsv, _, hb => by
     have : e' = e := by
       cases e; cases e'
@@ -788,7 +890,7 @@ theorem existsAll_intro {tbl : KoreAML.VarTable} {S : Kore.KSort} {body : Kore.P
     subst this
     exact hb
   | b :: bs, e, e', m, hnd, hs, hoff, hsv, hg, hb => by
-    show (KoreAML.tr ⟨tbl, []⟩ (.exist S b (KoreAML.existsAll S bs body))).interpret (stdI c) e m
+    show (KoreAML.tr ⟨tbl, []⟩ (.exist S b (KoreAML.existsAll S bs body))).interpret (stdI_T c T) e m
     rw [KoreAML.tr, KoreAML.interp_sExists]
     rw [List.map_cons, List.nodup_cons] at hnd
     refine ⟨e'.evalEvar (tbl.ev (KoreAML.evarKey b)), ?_, ?_⟩
@@ -808,14 +910,37 @@ theorem existsAll_intro {tbl : KoreAML.VarTable} {S : Kore.KSort} {body : Kore.P
           · exact hxb
           · exact hx b' hb')
 
+end AtT
+
+/-- `∃b̄. body` holds at `e` where `body` holds at a valuation that differs from `e` at the binders
+only, and gives each binder an element of its sort. -/
+theorem existsAll_intro {tbl : KoreAML.VarTable} {S : Kore.KSort} {body : Kore.Pattern} :
+    ∀ (bs : List Kore.EVar) (e e' : Valuation Elem) (m : Elem),
+    (bs.map fun b => tbl.ev (KoreAML.evarKey b)).Nodup →
+    (∀ b ∈ bs, ∃ n, b.sort = KoreAML.srt n) →
+    (∀ x, (∀ b ∈ bs, x ≠ tbl.ev (KoreAML.evarKey b)) → e'.evalEvar x = e.evalEvar x) →
+    e'.evalSvar = e.evalSvar →
+    (∀ b ∈ bs, ∀ n, b.sort = KoreAML.srt n → InS (stdI c) n (e'.evalEvar (tbl.ev (KoreAML.evarKey b)))) →
+    (KoreAML.tr ⟨tbl, []⟩ body).interpret (stdI c) e' m →
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI c) e m :=
+  AtT.existsAll_intro (c := c) (T := StepM c) (tbl := tbl) (S := S) (body := body)
+
 /-! ## The rules that apply -/
 
+theorem srtOf_top_den_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {tbl : KoreAML.VarTable}
+    (e : Valuation Elem) (a : Elem) :
+    (KoreAML.trSort tbl (srtOf c topCellSort)).interpret (stdI_T c T) e a ↔ a = .srt topCellSort := by
+  unfold srtOf; rw [trSort_srt]; exact AtT.sort_den h.namesK top_numbered e a
+
+theorem top_isSort_T {T : GroundTerm → GroundTerm → Prop} : KoreAML.IsSort (stdI_T c T) (.srt topCellSort) :=
+  (AtT.isSort_iff _).mpr ⟨topCellSort, List.mem_range.mpr top_numbered, rfl⟩
+
 theorem srtOf_top_den (h : HypModelCore c) {tbl : KoreAML.VarTable} (e : Valuation Elem) (a : Elem) :
-    (KoreAML.trSort tbl (srtOf c topCellSort)).interpret (stdI c) e a ↔ a = .srt topCellSort := by
-  unfold srtOf; rw [trSort_srt]; exact sort_den h.namesK top_numbered e a
+    (KoreAML.trSort tbl (srtOf c topCellSort)).interpret (stdI c) e a ↔ a = .srt topCellSort :=
+  srtOf_top_den_T (T := StepM c) h e a
 
 theorem top_isSort : KoreAML.IsSort (stdI c) (.srt topCellSort) :=
-  (isSort_iff _).mpr ⟨topCellSort, List.mem_range.mpr top_numbered, rfl⟩
+  top_isSort_T (T := StepM c)
 
 end Model
 

@@ -619,7 +619,9 @@ def coreParts (c : Semantics) (T : Tables) : List (String × Bool) :=
    ("collsOK", collsOK c), ("patHeadsOK", patHeadsOK c), ("namesApartK", namesApartFast c),
    ("LitsApart", LitsApart c), ("sortsNumbered", sortsNumbered c), ("itesApart", itesApart c),
    ("kindsApart", kindsApart c), ("ctorsOnce", ctorsOnce c), ("fnsApart", fnsApart c),
-   ("hooksApart", c.hooksApart), ("predsApart", c.predsApart), ("idsOK", c.idsOK)]
+   ("hooksApart", c.hooksApart), ("predsApart", c.predsApart), ("idsOK", c.idsOK),
+   ("overloadsOK", c.overloadsOK), ("rulesPlain", c.rulesPlain), ("clausesPlain", c.clausesPlain),
+   ("paramsPlain", c.paramsPlain)]
 
 /-- A rank of the functions for `KCore.Semantics.rankObligations`: the strongly connected sets of
 the call graph, callees first, each at consecutive positions (Tarjan's depth-first search; without
@@ -724,8 +726,10 @@ theorem complete_at{sfx}{bind} (x : Config {S}) (hd : StepDecided {S} x.val)
 theorem coreOK_withHooks_defn (H : HookParams) : {S}.coreOK = true :=
   (Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn
 {plainPart}
-/-- **The theory has a model** (`KCore.Consistent`, by `KCore.consistent_of`) under every
-interpretation H, {given} (the facts still owed are `namedFacts`). -/
+/-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
+`KCore.consistent_of`) under every interpretation H, {given} (the facts still owed are
+`namedFacts`). `Γ` holds no axiom `∃y. f(x̄) = y` of a function, so no `[total]` declaration is
+read here (the theory with them: `KCore.Faithful.has_model_total`). -/
 theorem consistent{sfx}{bind} : Consistent {S} :=
   {cons}
 
@@ -782,9 +786,11 @@ theorem run_exact{sfxC}{bind} \{n : Nat} \{x : Config {S}}
 theorem coreOK_withHooks_defn (H : HookParams) : {S}.coreOK = true :=
   (Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn
 
-/-- **The theory has a model** (`KCore.Consistent`, by `KCore.consistent_of_fnFacts_withHooks`)
-under every interpretation H, {given} (the facts still owed are `namedFacts`); no owed condition
-is read. -/
+/-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
+`KCore.consistent_of_fnFacts_withHooks`) under every interpretation H, {given} (the facts still
+owed are `namedFacts`); no owed condition is read. `Γ` holds no axiom `∃y. f(x̄) = y` of a
+function, so no `[total]` declaration is read here (the theory with them:
+`KCore.Faithful.has_model_total`). -/
 theorem consistent{sfxC}{bind} : Consistent {S} :=
   {cons}
 
@@ -929,18 +935,26 @@ def namedFacts : List String := {strs}
   let hobA := if none then "(obl_nil H)" else "hob"
   let hobB0 := if none then "" else " (hob : Obl)"
   let hobA0 := if none then "obl_nil" else "hob"
-  let given := if none then "no fact being named (`obl_nil`)" else "given the named facts"
+  -- the laws the text writes for its functions (`defn.laws`): every statement is about the
+  -- interpretations under which they hold at values (`KCore.FnLaws`), a hypothesis beside the
+  -- others, which no proof reads (`_hl`); with no law there is none
+  let laws := !d.laws.isEmpty
+  let lawsH := if laws then " (_hl : FnLaws (defn.sem.withHooks H) defn.laws)" else ""
+  let laws0 := if laws then " (_hl : FnLaws defn.sem defn.laws)" else ""
+  let lawsA := if laws then " _hl" else ""
+  let lawsD := if laws then ", under the laws the text writes for its functions at values (`KCore.FnLaws`, `defn.laws`)" else ""
+  let given := (if none then "no fact being named (`obl_nil`)" else "given the named facts") ++ lawsD
   -- not plain: the named facts are `FnFacts`; `OpenDecided` is proved (nothing owed) or `Owed`
   let oblK := if plain then "FnObligations" else "FnFacts"
   let rawArg := if plain then "" else "\n    (show defn.sem.params.all (fun k => !k.raw) = true by decide +kernel)"
   let oblDoc := if plain then "" else " `OpenDecided` is not among them: with it (`KCore.FnFacts.obligations`) they
 are `KCore.FnObligations`."
   let givenD := if plain || !owes then given
-    else if none then "given the owed conditions (`Owed`)"
-    else "given the named facts and the owed conditions (`Owed`)"
-  let hobBD := hobB ++ (if owes then " (how : Owed H)" else "")
+    else if none then "given the owed conditions (`Owed`)" ++ lawsD
+    else "given the named facts and the owed conditions (`Owed`)" ++ lawsD
+  let hobBD := hobB ++ (if owes then " (how : Owed H)" else "") ++ lawsH
   let hobAD := if plain then hobA else s!"({hobA}.obligations {if owes then "how" else "(openDecided_defn H)"})"
-  let hobBD0 := hobB0 ++ (if owes then " (how : Owed)" else "")
+  let hobBD0 := hobB0 ++ (if owes then " (how : Owed)" else "") ++ laws0
   let hobAD0 := if plain then hobA0 else s!"({hobA0}.obligations {if owes then "how" else "openDecided_defn"})"
   let S := "(defn.sem.withHooks H)"
   let sidesPart := s!"
@@ -1024,7 +1038,7 @@ theorem obl_nil_withHooks (H : HookParams) : OblH H :=
 " else ""
     let hobBH := if none then "" else " (hob : OblH H)"
     let hobAH := if none then "(obl_nil_withHooks H)" else "hob"
-    let hobBDH := hobBH ++ (if owes then " (how : OwedH H)" else "")
+    let hobBDH := hobBH ++ (if owes then " (how : OwedH H)" else "") ++ lawsH
     let hobADH := if plain then hobAH else s!"({hobAH}.obligations {if owes then "how" else "(openDecided_withHooks_defn H)"})"
     let owedPart := if plain then "" else sidesPart ++ (if owes then s!"
 {owedDoc}
@@ -1077,12 +1091,12 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
   -- the statements at a step and at a configuration, for every interpretation H, under the binders
   -- and the `FnHyp` term of the branch above
   let hobArg := if none then "" else " hob"
-  let (bindH, fnHypH) := if hasParams then (s!" (H : HookParams) (hH : HooksTotal H){hobB}", s!"fnHyp_defn H hH{hobArg}")
-    else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}", s!"fnHyp_withHooks_defn H{hobArg}")
+  let (bindH, fnHypH) := if hasParams then (s!" (H : HookParams) (hH : HooksTotal H){hobB}{lawsH}", s!"fnHyp_defn H hH{hobArg}{lawsA}")
+    else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{lawsH}", s!"fnHyp_withHooks_defn H{hobArg}{lawsA}")
   let runExact := facts && CExec.execReady c
   let atSrc := if plain then headlineAt bindH fnHypH given (!none) runExact plain else
-    let bindN := if hasParams then s!" (H : HookParams){hobB}"
-      else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}"
+    let bindN := if hasParams then s!" (H : HookParams){hobB}{lawsH}"
+      else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{lawsH}"
     let hobT := if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
     headlineAtOpen bindN hobT given (!none) runExact owesR owesC
   -- not plain: the owed rules' and clauses' positions, decided
@@ -2570,6 +2584,11 @@ def account (koreFile : String) : IO UInt32 := do
     let fp := Parse.functionInPattern k d
     IO.println s!"rules and clauses applying a function symbol in their left side: {fp.length}"
     for r in fp.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when some rule or clause has the shape
+    let rp := Parse.rangeMapInPattern k d
+    unless rp.isEmpty do
+      IO.println s!"rules and clauses binding a variable under a range-map symbol in their left side: {rp.length}"
+      for r in rp.take 10 do IO.println s!"      {r.toText}"
     -- printed only when some rule is read so
     let kr := Parse.keysAsRequires k
     unless kr.isEmpty do
@@ -2633,6 +2652,12 @@ def account (koreFile : String) : IO UInt32 := do
     for s in ka do IO.println s!"      {clip 300 (Kore.Printer.sentence (Parse.bare s))}"
     if rs.isEmpty then
       IO.println s!"sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): {d.sem.valueless.length}: {", ".intercalate (d.sem.valueless.map d.sem.sortName)}"
+      -- the `[total]` functions no decider confirms, as `genFnHyp` computes the package's
+      -- `total_named`: `totalObligationsRP` at `callOrderOf`, with the parameters the text declares
+      -- total where the definition has parameters no registry hook implements
+      let tp := if d.sem.params.any (·.impl.isNone) then d.totalParams else []
+      let owedTot := d.sem.totalObligationsRP (callOrderOf d.sem) tp
+      IO.println s!"functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): {owedTot.length}: {", ".intercalate (owedTot.map fun f => decodeK (d.sem.symName f))}"
       IO.println s!"parse: ok; wf {wf d}; failing: {(d.report.filter (!·.2)).map (·.1)}"
       let core := (coreParts d.sem (tables d.sem)).filter (!·.2)
       IO.println s!"coreOK: {core.isEmpty}; failing: {core.map (·.1)}"
@@ -3547,11 +3572,76 @@ def generatedEqsCmd (koreFile : String) : IO UInt32 := do
     IO.println s!"eq\t{i}\t{f}\t{tag}\t{sh}"
   return 0
 
+/-- A term with its symbols and sorts by name (`Semantics.symName`, `Semantics.sortName`), so that
+two texts that number them differently print one semantics alike. -/
+partial def semFieldsTerm (c : Semantics) : Term → String
+  | .var i => s!"V{i}"
+  | .app f as => s!"{c.symName f}(" ++ ", ".intercalate (as.map (semFieldsTerm c)) ++ ")"
+  | .inj a b t => s!"inj[{c.sortName a},{c.sortName b}](" ++ semFieldsTerm c t ++ ")"
+  | .as t i => "(" ++ semFieldsTerm c t ++ s!" as V{i})"
+  | .dv s l => s!"dv[{c.sortName s}]({reprStr l})"
+
+/-- A condition, as `semFieldsTerm` prints terms. -/
+partial def semFieldsCond (c : Semantics) : Cond → String
+  | .top => "top"
+  | .bot => "bot"
+  | .not p => "not(" ++ semFieldsCond c p ++ ")"
+  | .and p q => "and(" ++ semFieldsCond c p ++ ", " ++ semFieldsCond c q ++ ")"
+  | .or p q => "or(" ++ semFieldsCond c p ++ ", " ++ semFieldsCond c q ++ ")"
+  | .implies p q => "implies(" ++ semFieldsCond c p ++ ", " ++ semFieldsCond c q ++ ")"
+  | .ceil s t => s!"ceil[{c.sortName s}](" ++ semFieldsTerm c t ++ ")"
+  | .equals s t u => s!"equals[{c.sortName s}](" ++ semFieldsTerm c t ++ ", " ++ semFieldsTerm c u ++ ")"
+  | .mem s t u => s!"in[{c.sortName s}](" ++ semFieldsTerm c t ++ ", " ++ semFieldsTerm c u ++ ")"
+  | .exMatch ys s p t b => s!"exMatch[{ys.map c.sortName}; {c.sortName s}](" ++ semFieldsTerm c p ++
+      ", " ++ semFieldsTerm c t ++ ", " ++ semFieldsCond c b ++ ")"
+  | .ex s b => s!"ex[{c.sortName s}](" ++ semFieldsCond c b ++ ")"
+  | .all s b => s!"all[{c.sortName s}](" ++ semFieldsCond c b ++ ")"
+
+/-- `kcore sem-fields KORE`: every field of the semantics' functions (`Fn`, with each `Clause`) and
+rules (`Rule`), one line per function, clause and rule; one line per sort of `Semantics.userSorts`,
+per constructor of `Semantics.ctors` (its argument and result sorts) and per parameter symbol of
+`Semantics.params` (every `ParamSig` field: its signature, the registry hook that interprets it or
+`none`, and `raw`, `assoc`, `idem`); symbols and sorts by name, the lines sorted (the order of these
+lists carries no meaning). Two texts whose lines are equal have equal `Fn`, `Clause`, `Rule`,
+`userSorts`, `ctors` and `params` up to that naming. Not printed: `lib`, `userSubsorts`, `pgmSort`,
+`colls`, `ovls`, and the hook names of the text (`ParamPres`, the presentation, not `Semantics`). -/
+def semFieldsCmd (koreFile : String) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error r => IO.eprintln s!"{koreFile}: refused: {r.toText}"; return 1
+  let c := d.sem
+  let t := semFieldsTerm c
+  let ot := fun (o : Option Term) => match o with | some x => t x | none => "none"
+  let srts := fun (ss : List Srt) => ss.map c.sortName
+  let mut out : Array String := #[]
+  for f in c.fns do
+    let n := c.symName f.label
+    out := out.push s!"fn\t{n}\targs={srts f.args}\tresult={c.sortName f.result}\ttotal={f.total}\tclauses={f.clauses.length}"
+    for cl in f.clauses do
+      out := out.push (s!"clause\t{n}\tprio={cl.prio}\taside={cl.aside}\tvars={srts cl.vars}\tpats=" ++
+        ", ".intercalate (cl.pats.map t) ++ s!"\treq={ot cl.req}\trhs={t cl.rhs}\tens={ot cl.ens}" ++
+        s!"\texs={cl.exs}\tpre={semFieldsCond c cl.pre}\tpost={semFieldsCond c cl.post}")
+  for r in c.rules do
+    out := out.push (s!"rule\tprio={r.prio}\tvars={srts r.vars}\tlhs={t r.lhs}\treq={ot r.req}" ++
+      s!"\trhs={t r.rhs}\tens={ot r.ens}\texs={r.exs}\tpre={semFieldsCond c r.pre}\tpost={semFieldsCond c r.post}")
+  for s in c.userSorts do
+    out := out.push s!"sort\t{c.sortName s}"
+  for k in c.ctors do
+    out := out.push s!"ctor\t{c.symName k.name}\targs={srts k.args}\tresult={c.sortName k.result}"
+  for p in c.params do
+    let impl := match p.impl with | some g => c.symName g | none => "none"
+    out := out.push (s!"param\t{c.symName p.sig.name}\targs={srts p.sig.args}\tresult={c.sortName p.sig.result}" ++
+      s!"\timpl={impl}\traw={p.raw}\tassoc={p.assoc}\tidem={p.idem}")
+  for l in out.qsort (· < ·) do IO.println l
+  return 0
+
 end KcoreGen
 
 def main (argv : List String) : IO UInt32 := do
   match argv with
   | ["generated-eqs", kore] => KcoreGen.generatedEqsCmd kore
+  | ["sem-fields", kore] => KcoreGen.semFieldsCmd kore
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
@@ -3582,4 +3672,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore"; return 2

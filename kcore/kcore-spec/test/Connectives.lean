@@ -13,7 +13,7 @@
     priority 60, the first read with the `ensures` false (`bottomAsEnsures`): it applies at `go(1)`,
     gives no successor and blocks the second, so `go(1)` has no successor.
   - `f2-examples/mlandt` (e3-ml-rule-rhs-and-term): `go(X) => f(X) #And g(X)`, f the identity and
-    g negation, read as `f(X)` with the `ensures` `f(X) ==Int g(X)` (`andAsEnsures`): `go(0)` steps
+    g negation, read as `f(X)` with the `ensures` `f(X) ==Int g(X)` (`andTermsWeaker`): `go(0)` steps
     to `0`, `go(1)` has no successor.
   - `f2-examples/mlceil` (e3-ml-req-ceil): `go(X) => done requires #Ceil(1 /Int X)` beside
     `go(_) => other` of priority 60, the first `requires` read as `false` (`predicateAtBool`: a
@@ -22,7 +22,7 @@
   - `f2-examples/mleqand` (e3-ml-eq-rhs-and-pred): `f(X) => X #And {(X >Int 0) #Equals true}`, the
     clause `f(X) = X ensures X >Int 0` (`andAsEnsures`): `f(1) = 1`, `f(0)` has no value.
   - `f2-examples/mlandc` (e3-ml-rule-rhs-and-ctor): `c(X) => X #And a()`, the `ensures` `X ==K a()`
-    of one-item K sequences (`andAsEnsures` off Int): `c(a)` steps to `a`, `c(b)` has no successor.
+    of one-item K sequences (`andTermsWeaker`, off Int): `c(a)` steps to `a`, `c(b)` has no successor.
   - `f2-examples/mleqbot` (e3-ml-eq-rhs-bottom): `f(X) => #Bottom requires X <Int 0` beside
     `f(X) => X [owise]`, the first the clause with the `ensures` false (`bottomAsEnsures`): `f(-1)`
     has no value (the `[owise]` clause does not apply), `f(2) = 2`.
@@ -44,7 +44,7 @@ def verdict (path : String) : IO String := do
   | .ok k =>
     let notes := (Parse.classCounts k).filter fun (n, _) =>
       ["read orSplit", "read topAsVariable", "read existsAsVariable", "read andAsEnsures",
-       "read bottomAsEnsures", "read orBottom", "read predicateAtBool", "read andAtBool",
+       "read andTermsWeaker", "read bottomAsEnsures", "read orBottom", "read predicateAtBool", "read andAtBool",
        "inert vacuousLeft"].contains n
     return s!"{notes}; " ++ match Parse.parse k with
       | .ok d => s!"read; unaccounted {(Parse.unconsumed k d).length}; uninduced {(Parse.uninduced k d).length}; coreOK {d.sem.coreOK}"
@@ -54,10 +54,10 @@ def verdict (path : String) : IO String := do
 info: [(read orSplit, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read existsAsVariable, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read bottomAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
-[(read andAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
+[(read andTermsWeaker, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read predicateAtBool, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read andAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
-[(read andAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
+[(read andTermsWeaker, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read bottomAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read orBottom, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 -/
@@ -155,9 +155,9 @@ namespace MlOr
 
 definition_of defn from "f2-examples/mlor.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def b : Sym := 382
-def cc : Sym := 383
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
 def exp : Srt := 32
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
     c.sortName exp = "Exp" := by decide +kernel
@@ -168,7 +168,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
 def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
 def CCA : Config c := ⟨cfg (.ctor cc [.ctor cc [.ctor a []]]), by decide +kernel⟩
@@ -189,10 +189,10 @@ namespace MlEx
 
 definition_of defn from "f2-examples/mlex.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def b : Sym := 382
-def cc : Sym := 383
-def d : Sym := 384
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def d : Sym := 388
 def exp : Srt := 32
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
     c.symName d = "Lbld" ∧ c.sortName exp = "Exp" := by decide +kernel
@@ -201,7 +201,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def CD : Config c := ⟨cfg (.ctor cc [.ctor d [.ctor a [], .ctor b []]]), by decide +kernel⟩
 def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
 def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
@@ -219,7 +219,7 @@ namespace MlBot
 
 definition_of defn from "f2-examples/mlbot.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def go : Sym := 382
+def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by decide +kernel
 /-- The rule of `#Bottom` (priority 50) has the `ensures` false; the other has priority 60. -/
@@ -231,7 +231,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def Go1 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 1)]), by decide +kernel⟩
 /-- The first rule applies and gives no successor; it blocks the second. -/
 theorem stuck_go1 : ∀ y, ¬ Step c Go1 y := by
@@ -247,7 +247,7 @@ namespace MlAndT
 
 definition_of defn from "f2-examples/mlandt.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def go : Sym := 382
+def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by decide +kernel
 theorem ok : c.ok = true := by decide +kernel
@@ -255,10 +255,10 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def goCfg (i : Int) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem (.ctor go [.dv Srt.int (.int i)]))
+def goCfg (i : Int) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem (.ctor go [.dv Srt.int (.int i)]))
 def Go0 : Config c := ⟨goCfg 0, by decide +kernel⟩
 def Go1 : Config c := ⟨goCfg 1, by decide +kernel⟩
-def Zero : Config c := ⟨cfgOf 379 (.inj Srt.int Srt.kitem (.dv Srt.int (.int 0))), by decide +kernel⟩
+def Zero : Config c := ⟨cfgOf 383 (.inj Srt.int Srt.kitem (.dv Srt.int (.int 0))), by decide +kernel⟩
 /-- Where `f(X)` and `g(X)` have one value, the step to it. -/
 theorem step_go0 : Step c Go0 Zero :=
   (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
@@ -275,8 +275,8 @@ namespace MlCeil
 
 definition_of defn from "f2-examples/mlceil.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def go : Sym := 382
-def other : Sym := 383
+def go : Sym := 386
+def other : Sym := 387
 def exp : Srt := 32
 theorem names_ok : c.symName go = "Lblgo" ∧ c.symName other = "Lblother" ∧ c.sortName exp = "Exp" := by
   decide +kernel
@@ -288,7 +288,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def Go1 : Config c := ⟨cfg (.ctor go [.dv Srt.int (.int 1)]), by decide +kernel⟩
 def Other : Config c := ⟨cfg (.ctor other []), by decide +kernel⟩
 /-- The first rule never applies; the rule of priority 60 steps. -/
@@ -301,7 +301,7 @@ namespace MlEqAnd
 
 definition_of defn from "f2-examples/mleqand.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def f : Sym := 380
+def f : Sym := 384
 theorem names_ok : c.symName f = "Lblf" := by decide +kernel
 noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
 theorem fn_label : fn.label = f := by decide +kernel
@@ -329,9 +329,9 @@ namespace MlAndC
 
 definition_of defn from "f2-examples/mlandc.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def b : Sym := 382
-def cc : Sym := 383
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
 def exp : Srt := 32
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
     c.sortName exp = "Exp" := by decide +kernel
@@ -340,7 +340,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
 def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
 def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
@@ -360,7 +360,7 @@ namespace MlEqBot
 
 definition_of defn from "f2-examples/mleqbot.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def f : Sym := 380
+def f : Sym := 384
 theorem names_ok : c.symName f = "Lblf" := by decide +kernel
 noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
 theorem fn_label : fn.label = f := by decide +kernel
@@ -387,7 +387,7 @@ namespace MlEqOrB
 
 definition_of defn from "f2-examples/mleqorb.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def f : Sym := 380
+def f : Sym := 384
 theorem names_ok : c.symName f = "Lblf" := by decide +kernel
 noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
 theorem fn_label : fn.label = f := by decide +kernel
@@ -406,7 +406,7 @@ end MlEqOrB
 /-! ## Conjunctions with a variable, empty right sides, several notes, and the refused shapes
 
 - `f2-examples/mlandv` (e3-ml-rule-rhs-and-var): `c(X) => a() #And X`, the right side `a()` with the
-  `ensures` `a() ==K X` (`andAsEnsures`; a right side binds nothing, so `a() ∧ X` is no `#as`):
+  `ensures` `a() ==K X` (`andTermsWeaker`; a right side binds nothing, so `a() ∧ X` is no `#as`):
   `c(a)` steps to `a`, `c(b)` has no successor.
 - `f2-examples/mlreqv` (e3-ml-req-and-var): `go(B) => done requires true #And B`, the strict
   conjunction of `true` and B (`andAtBool`): `go(true)` steps to `done`, `go(false)` has none.
@@ -420,7 +420,7 @@ end MlEqOrB
   String: no value the reader names, the right side is the call `f(X)` at the clause's arguments;
   read, `coreOK` (natively).
 - `f2-examples/mlorand` (e3-ml-rule-lhs-or-rhs-and): `c(X) #Or d(X) => X #And a()`, read through
-  `orSplit` and `andAsEnsures`, both listed (`Parse.connReadings`): `c(a)` and `d(a)` step to `a`,
+  `orSplit` and `andTermsWeaker`, both listed (`Parse.connReadings`): `c(a)` and `d(a)` step to `a`,
   `c(b)` has no successor.
 - `f2-examples/mlempty` (e3-ml-lhs-empty-sort): `c(#Exists Y:Empty. a()) => b()` and
   `e(_:Empty) #Or d() => b()`, Empty without a value: each axiom holds for every element of Empty,
@@ -431,7 +431,8 @@ end MlEqOrB
   first disjunct does not hold the variable of Empty; refused whole, `unheldVariable`.
 - `f2-examples/mlrequnheld` (e3-ml-req-or-unheld): `go(X) => done requires X >Int 0 #Or Y >Int 2`:
   the rule of the first disjunct does not hold Y, of Int (a value: read without it); the rule of the
-  second binds Y nowhere: `unboundVariable`.
+  second holds Y in its `requires` alone, a closed condition no variable of which the rest of the
+  rule holds: read, its `CondDecided` owed.
 - `f2-examples/mleqor` (e3-ml-eq-rhs-or): `h(X) => f(X) #Or g(X)`, refused `manyValuedRightSide`.
 - `f2-examples/mlsetv` (e3-setvar-read): `w(@S) => @S`, refused `setVariable`.
 - `f2-examples/mlallexp` (e3-ml-rule-lhs-forall-exp): `c(#Forall Y:Exp. Y) => a()`, refused
@@ -452,15 +453,15 @@ def verdictAll (path : String) : IO String := do
       | .error r => s!"{r.reason.name}{if r.detail.isEmpty then "" else " " ++ r.detail}"
 
 /--
-info: mlandv: [[andAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
+info: mlandv: [[andTermsWeaker]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlreqv: [[andAtBool]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlbotf: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mleqbotc: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mleqbotn: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
-mlorand: [[orSplit, andAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
+mlorand: [[orSplit, andTermsWeaker]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlempty: [[orSplit], [existsAsVariable]]; []; unheldVariable Var'Unds'Gen0:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness
 mlmixed: [[orSplit]]; []; unheldVariable Var'Unds'Gen1:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness
-mlrequnheld: [[requiresOrSplit]]; []; unboundVariable VarY: in the requires, not bound by the left side
+mlrequnheld: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlvalue: [[orSplit], [orSplit], [existsAsVariable]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlreqor: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mleqor: []; []; manyValuedRightSide \or
@@ -477,9 +478,9 @@ namespace MlAndV
 
 definition_of defn from "f2-examples/mlandv.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def b : Sym := 382
-def cc : Sym := 383
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
 def exp : Srt := 32
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
     c.sortName exp = "Exp" := by decide +kernel
@@ -488,7 +489,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
 def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
 def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
@@ -508,8 +509,8 @@ namespace MlReqV
 
 definition_of defn from "f2-examples/mlreqv.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def done : Sym := 381
-def go : Sym := 382
+def done : Sym := 385
+def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
   decide +kernel
@@ -518,7 +519,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def GoT : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool true)]), by decide +kernel⟩
 def GoF : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool false)]), by decide +kernel⟩
 def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
@@ -550,8 +551,8 @@ namespace MlEqBotC
 
 definition_of defn from "f2-examples/mleqbotc.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def f : Sym := 383
+def a : Sym := 385
+def f : Sym := 387
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName f = "Lblf" := by decide +kernel
 noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
 theorem fn_label : fn.label = f := by decide +kernel
@@ -581,7 +582,7 @@ namespace MlEqBotN
 
 definition_of defn from "f2-examples/mleqbotn.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def f : Sym := 382
+def f : Sym := 386
 theorem names_ok : c.symName f = "Lblf" := by decide +kernel
 noncomputable abbrev fn : Fn := c.fns[0]'(by decide +kernel)
 theorem fn_label : fn.label = f := by decide +kernel
@@ -596,10 +597,10 @@ namespace MlOrAnd
 
 definition_of defn from "f2-examples/mlorand.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 381
-def b : Sym := 382
-def cc : Sym := 383
-def d : Sym := 384
+def a : Sym := 385
+def b : Sym := 386
+def cc : Sym := 387
+def d : Sym := 388
 def exp : Srt := 32
 theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
     c.symName d = "Lbld" ∧ c.sortName exp = "Exp" := by decide +kernel
@@ -611,7 +612,7 @@ theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 theorem coherent : CoherentAll c :=
   Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 379 (.inj exp Srt.kitem e)
+def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
 def DA : Config c := ⟨cfg (.ctor d [.ctor a []]), by decide +kernel⟩
 def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
@@ -644,14 +645,14 @@ namespace MlValue
 
 definition_of defn from "f2-examples/mlvalue.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def kc : Sym := 380
-def a : Sym := 382
-def b : Sym := 383
-def cc : Sym := 384
-def d : Sym := 385
-def p : Sym := 387
-def q : Sym := 388
-def v : Sym := 389
+def kc : Sym := 384
+def a : Sym := 386
+def b : Sym := 387
+def cc : Sym := 388
+def d : Sym := 389
+def p : Sym := 391
+def q : Sym := 392
+def v : Sym := 393
 def exp : Srt := 33
 def val : Srt := 32
 theorem names_ok : c.symName kc = "Lbl'-LT-'k'-GT-'" ∧ c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧
@@ -687,9 +688,9 @@ namespace MlReqOr
 
 definition_of defn from "f2-examples/mlreqor.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
-def kc : Sym := 379
-def go : Sym := 382
-def done : Sym := 381
+def kc : Sym := 383
+def go : Sym := 386
+def done : Sym := 385
 def exp : Srt := 32
 theorem names_ok : c.symName kc = "Lbl'-LT-'k'-GT-'" ∧ c.symName go = "Lblgo" ∧
     c.symName done = "Lbldone" ∧ c.sortName exp = "Exp" := by decide +kernel

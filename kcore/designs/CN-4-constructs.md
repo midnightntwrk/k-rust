@@ -5,7 +5,7 @@ CN-4 is the one document every remaining stage-4 lane is briefed from.
 For every unit not yet built it replaces `designs/CN-3-merged-constructs.md` (its "Annotations after U1" block included) and `findings/CN3-ADD-addendum.md`; a lane does not read either.
 The decision files stay in force and may be read: `findings/HOOK-READING-decision.md`, `F1-DECISION.md`, `R1-DECISION.md`, `NONEMPTY-decision.md`, `N1-decision.md`. Where CN-4 corrects one of them (HOOK-READING §4, section 4.7 here), CN-4's text holds.
 
-What was run for this file: one scratch file, `/tmp/claude-1000/-home-sebastiengllmt-git-workspaces-starstream-fv-inspirations-midnightntwrk-k-rust/856a81d0-94df-4ef8-8dfb-089411adeeac/scratchpad/cn4/ConfFix.lean`, from kcore-theory's package root at `8c2f206a` (decision K1).
+What was run for this file: one scratch file, `<scratchpad>/cn4/ConfFix.lean`, from kcore-theory's package root at `8c2f206a` (decision K1).
 Every other Lean block is **to run**: where one does not elaborate, or a lemma stated here is not provable, the lane stops and reports with the Lean error; it does not respell a statement, pin less, or move a hypothesis.
 "Lane's to spell" marks the only freedom.
 

@@ -227,10 +227,14 @@ theorem map_val {w : GroundTerm} (hw : c.sortOf w = some k.sort) :
   · rw [hkind] at h2; cases h2
   · rw [hkind] at h2; cases h2
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem U_map (e : Valuation Elem) (x : Elem) :
-    (collU c k).interpret (stdI c) e x ↔ x = .val (.map k.sort []) := by
+    (collU c k).interpret (stdI_T c T) e x ↔ x = .val (.map k.sort []) := by
   have hco := h.collOf_self hk
-  have := coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .map Srt.map [])
+  have := coll_symE (T := T) h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .map Srt.map [])
     (by rw [hkind, builtinColl_map, Exec.hook_unit_eq]) (by rw [hkind, builtinColl_map]; rfl)
     ((sortOf_map_iff hco (h.mapVal hk hkind) hkind).mpr ⟨hkind, rfl, rfl⟩) x
   refine Iff.trans ?_ this
@@ -239,9 +243,19 @@ theorem U_map (e : Valuation Elem) (x : Elem) :
   · intro hx; exact ⟨x, hx, rfl⟩
   · rintro ⟨a, ha, hx⟩; have : x = a := hx; subst this; exact ha
 
+end AtT
+
+theorem U_map (e : Valuation Elem) (x : Elem) :
+    (collU c k).interpret (stdI c) e x ↔ x = .val (.map k.sort []) :=
+  AtT.U_map (c := c) (T := StepM c) (e := e) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem E_map {e : Valuation Elem} {A B : EVar} {a b : GroundTerm} (ha : c.sortOf a = some k.key)
     (hb : c.sortOf b = some (valSort k)) (hA : e.evalEvar A = .val a) (hB : e.evalEvar B = .val b) (x : Elem) :
-    (collE c k (.evar A) (.evar B)).interpret (stdI c) e x ↔ x = .val (.map k.sort [(a, b)]) := by
+    (collE c k (.evar A) (.evar B)).interpret (stdI_T c T) e x ↔ x = .val (.map k.sort [(a, b)]) := by
   have hco := h.collOf_self hk
   unfold collE symP
   rw [interp_symList _ _ [.val a, .val b]
@@ -251,12 +265,23 @@ theorem E_map {e : Valuation Elem} {A B : EVar} {a b : GroundTerm} (ha : c.sortO
     (by rw [hkind, builtinColl_map]; rfl)
     ((sortOf_map_iff hco (h.mapVal hk hkind) hkind).mpr ⟨hkind, rfl, by simp [Semantics.entriesOK, Semantics.entryOK, ha, hb]⟩) x
 
+end AtT
+
+theorem E_map {e : Valuation Elem} {A B : EVar} {a b : GroundTerm} (ha : c.sortOf a = some k.key)
+    (hb : c.sortOf b = some (valSort k)) (hA : e.evalEvar A = .val a) (hB : e.evalEvar B = .val b) (x : Elem) :
+    (collE c k (.evar A) (.evar B)).interpret (stdI c) e x ↔ x = .val (.map k.sort [(a, b)]) :=
+  AtT.E_map (c := c) (T := StepM c) (e := e) (A := A) (B := B) (a := a) (b := b) (ha := ha) (hb := hb) (hA := hA) (hB := hB) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem C_map {e : Valuation Elem} {φ ψ : KoreAML.P} {es1 es2 : Entries}
     (h1 : keysSorted es1 = true ∧ c.entriesOK k.key (valSort k) es1 = true)
     (h2 : keysSorted es2 = true ∧ c.entriesOK k.key (valSort k) es2 = true)
-    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.map k.sort es1))
-    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.map k.sort es2)) (x : Elem) :
-    (collC c k φ ψ).interpret (stdI c) e x ↔ ∃ u, union es1 es2 = some u ∧ x = .val (.map k.sort u) := by
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = .val (.map k.sort es1))
+    (hψ : ∀ m, ψ.interpret (stdI_T c T) e m ↔ m = .val (.map k.sort es2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI_T c T) e x ↔ ∃ u, union es1 es2 = some u ∧ x = .val (.map k.sort u) := by
   have hco := h.collOf_self hk
   have hcc : (c.symName k.concat = c.symName k.concat ∧ (builtinColl k.kind).concat = (builtinColl k.kind).concat ∧
       [k.sort, k.sort] = [k.sort, k.sort]) := ⟨rfl, rfl, rfl⟩
@@ -287,6 +312,16 @@ theorem C_map {e : Valuation Elem} {φ ψ : KoreAML.P} {es1 es2 : Entries}
       rw [hhook, hu]; rfl
     exact (hres hv (by rw [hkind, builtinColl_map]; rfl) (hsr u hu) _).mpr rfl
 
+end AtT
+
+theorem C_map {e : Valuation Elem} {φ ψ : KoreAML.P} {es1 es2 : Entries}
+    (h1 : keysSorted es1 = true ∧ c.entriesOK k.key (valSort k) es1 = true)
+    (h2 : keysSorted es2 = true ∧ c.entriesOK k.key (valSort k) es2 = true)
+    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.map k.sort es1))
+    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.map k.sort es2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI c) e x ↔ ∃ u, union es1 es2 = some u ∧ x = .val (.map k.sort u) :=
+  AtT.C_map (c := c) (T := StepM c) (e := e) (φ := φ) (ψ := ψ) (es1 := es1) (es2 := es2) (h1 := h1) (h2 := h2) (hφ := hφ) (hψ := hψ) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
 end
 
 /-! ## Valuations -/
@@ -295,19 +330,41 @@ theorem upd_ne {e : Valuation Elem} {i j : Nat} (hij : i ≠ j) (a : Elem) :
     Function.update e.evalEvar (⟨j⟩ : EVar) a ⟨i⟩ = e.evalEvar ⟨i⟩ :=
   Function.update_noteq (fun h => hij (by cases h; rfl)) _ _
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem evar_eq_iff {e : Valuation Elem} {x : EVar} {φ : KoreAML.P} {w : Elem} (hx : e.evalEvar x = w)
-    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = w) (m : Elem) :
-    (Pattern.evar x ≡ φ : KoreAML.P).interpret (stdI c) e m := by
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = w) (m : Elem) :
+    (Pattern.evar x ≡ φ : KoreAML.P).interpret (stdI_T c T) e m := by
   rw [KoreAML.interp_equal defOK_std]
   intro a
   rw [KoreAML.interp_evar, hx, hφ]
 
+end AtT
+
+theorem evar_eq_iff {e : Valuation Elem} {x : EVar} {φ : KoreAML.P} {w : Elem} (hx : e.evalEvar x = w)
+    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = w) (m : Elem) :
+    (Pattern.evar x ≡ φ : KoreAML.P).interpret (stdI c) e m :=
+  AtT.evar_eq_iff (c := c) (T := StepM c) (e := e) (x := x) (φ := φ) (w := w) (hx := hx) (hφ := hφ) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem guard_val (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length) {x : EVar}
-    {e : Valuation Elem} {m : Elem} (hg : (x ∈∈ inSort c s : KoreAML.P).interpret (stdI c) e m) :
+    {e : Valuation Elem} {m : Elem} (hg : (x ∈∈ inSort c s : KoreAML.P).interpret (stdI_T c T) e m) :
     ∃ v, e.evalEvar x = .val v ∧ c.sortOf v = some s := by
   rw [KoreAML.interp_member defOK_std] at hg
   unfold inSort sortP at hg
   exact inSort_val ((inhOf_sort hn hs e _).mp hg)
+
+end AtT
+
+theorem guard_val (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length) {x : EVar}
+    {e : Valuation Elem} {m : Elem} (hg : (x ∈∈ inSort c s : KoreAML.P).interpret (stdI c) e m) :
+    ∃ v, e.evalEvar x = .val v ∧ c.sortOf v = some s :=
+  AtT.guard_val (c := c) (T := StepM c) (hn := hn) (s := s) (hs := hs) (x := x) (e := e) (m := m) (hg := hg)
 
 /-! ## The map axioms -/
 
@@ -315,14 +372,18 @@ section
 variable (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) (hkind : k.kind = .map)
 include h hk hkind
 
-theorem sat_mapUnitSplit : stdI c ⊧ᴵ mapUnitSplitAx c k := by
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_mapUnitSplit : stdI_T c T ⊧ᴵ mapUnitSplitAx c k := by
   obtain ⟨hsS, -, -⟩ := h.collSorts hk
   intro e m
   unfold mapUnitSplitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_self ..))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_self ..))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
   obtain ⟨es1, rfl, hs1, he1⟩ := map_val h hk hkind hw1
   obtain ⟨es2, rfl, hs2, he2⟩ := map_val h hk hkind hw2
   rw [interpret_impl, defined_app]
@@ -335,21 +396,39 @@ theorem sat_mapUnitSplit : stdI c ⊧ᴵ mapUnitSplitAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff h1 (U_map h hk hkind e) m, evar_eq_iff h2 (U_map h hk hkind e) m⟩
 
-theorem sat_mapElemNotUnit : stdI c ⊧ᴵ mapElemNotUnitAx c k := by
+end AtT
+
+theorem sat_mapUnitSplit : stdI c ⊧ᴵ mapUnitSplitAx c k :=
+  AtT.sat_mapUnitSplit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_mapElemNotUnit : stdI_T c T ⊧ᴵ mapElemNotUnitAx c k := by
   obtain ⟨-, hsK, hsV⟩ := h.collSorts hk
   intro e m
   unfold mapElemNotUnitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
-  obtain ⟨b, hb, hwb⟩ := guard_val h.namesK hsV (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨b, hb, hwb⟩ := guard_val (T := T) h.namesK hsV (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
   rw [interpret_neg, defined_app]
   rintro ⟨x, hx⟩
   rw [interpret_conj, U_map h hk hkind, E_map h hk hkind hwa hwb ha hb] at hx
   obtain ⟨rfl, hx⟩ := hx
   cases hx
 
-theorem sat_mapElemAtom : stdI c ⊧ᴵ mapElemAtomAx c k := by
+end AtT
+
+theorem sat_mapElemNotUnit : stdI c ⊧ᴵ mapElemNotUnitAx c k :=
+  AtT.sat_mapElemNotUnit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_mapElemAtom : stdI_T c T ⊧ᴵ mapElemAtomAx c k := by
   obtain ⟨hsS, hsK, hsV⟩ := h.collSorts hk
   intro e m
   unfold mapElemAtomAx
@@ -357,11 +436,11 @@ theorem sat_mapElemAtom : stdI c ⊧ᴵ mapElemAtomAx c k := by
   refine guarded_intro fun hg => ?_
   have g := fun i (hi : i < 5) => hg _ (List.getElem_mem (l := [(⟨1⟩ : EVar) ∈∈ inSort c k.key, (⟨2⟩ : EVar) ∈∈ inSort c (valSort k),
     (⟨3⟩ : EVar) ∈∈ inSort c k.key, (⟨4⟩ : EVar) ∈∈ inSort c (valSort k), (⟨5⟩ : EVar) ∈∈ inSort c k.sort]) hi)
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (g 0 (by decide))
-  obtain ⟨b, hb, hwb⟩ := guard_val h.namesK hsV (g 1 (by decide))
-  obtain ⟨a', ha', hwa'⟩ := guard_val h.namesK hsK (g 2 (by decide))
-  obtain ⟨b', hb', hwb'⟩ := guard_val h.namesK hsV (g 3 (by decide))
-  obtain ⟨w, hr, hw⟩ := guard_val h.namesK hsS (g 4 (by decide))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (g 0 (by decide))
+  obtain ⟨b, hb, hwb⟩ := guard_val (T := T) h.namesK hsV (g 1 (by decide))
+  obtain ⟨a', ha', hwa'⟩ := guard_val (T := T) h.namesK hsK (g 2 (by decide))
+  obtain ⟨b', hb', hwb'⟩ := guard_val (T := T) h.namesK hsV (g 3 (by decide))
+  obtain ⟨w, hr, hw⟩ := guard_val (T := T) h.namesK hsS (g 4 (by decide))
   obtain ⟨rs, rfl, hrs, hre⟩ := map_val h hk hkind hw
   rw [interpret_impl, defined_app]
   rintro ⟨x, hx⟩
@@ -376,7 +455,16 @@ theorem sat_mapElemAtom : stdI c ⊧ᴵ mapElemAtomAx c k := by
   exact ⟨⟨evar_eq_iff ha (fun m => by rw [KoreAML.interp_evar, ha']) m,
     evar_eq_iff hb (fun m => by rw [KoreAML.interp_evar, hb']) m⟩, evar_eq_iff hr (U_map h hk hkind e) m⟩
 
-theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k := by
+end AtT
+
+theorem sat_mapElemAtom : stdI c ⊧ᴵ mapElemAtomAx c k :=
+  AtT.sat_mapElemAtom (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_mapDecomp : stdI_T c T ⊧ᴵ mapDecompAx c k := by
   obtain ⟨hsS, hsK, hsV⟩ := h.collSorts hk
   intro e m
   unfold mapDecompAx
@@ -384,11 +472,11 @@ theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k := by
   refine guarded_intro fun hg => ?_
   have g := fun i (hi : i < 5) => hg _ (List.getElem_mem (l := [(⟨1⟩ : EVar) ∈∈ inSort c k.key, (⟨2⟩ : EVar) ∈∈ inSort c (valSort k),
     (⟨3⟩ : EVar) ∈∈ inSort c k.sort, (⟨4⟩ : EVar) ∈∈ inSort c k.sort, (⟨5⟩ : EVar) ∈∈ inSort c k.sort]) hi)
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (g 0 (by decide))
-  obtain ⟨b, hb, hwb⟩ := guard_val h.namesK hsV (g 1 (by decide))
-  obtain ⟨wr, hr, hwr⟩ := guard_val h.namesK hsS (g 2 (by decide))
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (g 3 (by decide))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (g 4 (by decide))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (g 0 (by decide))
+  obtain ⟨b, hb, hwb⟩ := guard_val (T := T) h.namesK hsV (g 1 (by decide))
+  obtain ⟨wr, hr, hwr⟩ := guard_val (T := T) h.namesK hsS (g 2 (by decide))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (g 3 (by decide))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (g 4 (by decide))
   obtain ⟨rs, rfl, hrs, hre⟩ := map_val h hk hkind hwr
   obtain ⟨es1, rfl, hs1, he1⟩ := map_val h hk hkind hw1
   obtain ⟨es2, rfl, hs2, he2⟩ := map_val h hk hkind hw2
@@ -422,7 +510,7 @@ theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k := by
     · rw [KoreAML.interp_member defOK_std]
       simp only [Function.update_same]
       exact (inhOf_sort h.namesK hsS _ _).mpr (hsy _ hys hye)
-    · have hy : ∀ m, (Pattern.evar (⟨6⟩ : EVar) : KoreAML.P).interpret (stdI c)
+    · have hy : ∀ m, (Pattern.evar (⟨6⟩ : EVar) : KoreAML.P).interpret (stdI_T c T)
           ⟨Function.update e.evalEvar ⟨6⟩ (.val (.map k.sort (dropKey a es1))), e.evalSvar⟩ m ↔
             m = .val (.map k.sort (dropKey a es1)) := fun m => by
         rw [KoreAML.interp_evar]; simp only [Function.update_same]
@@ -447,7 +535,7 @@ theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k := by
     · rw [KoreAML.interp_member defOK_std]
       simp only [Function.update_same]
       exact (inhOf_sort h.namesK hsS _ _).mpr (hsy _ hys hye)
-    · have hy : ∀ m, (Pattern.evar (⟨6⟩ : EVar) : KoreAML.P).interpret (stdI c)
+    · have hy : ∀ m, (Pattern.evar (⟨6⟩ : EVar) : KoreAML.P).interpret (stdI_T c T)
           ⟨Function.update e.evalEvar ⟨6⟩ (.val (.map k.sort (dropKey a es2))), e.evalSvar⟩ m ↔
             m = .val (.map k.sort (dropKey a es2)) := fun m => by
         rw [KoreAML.interp_evar]; simp only [Function.update_same]
@@ -465,6 +553,11 @@ theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k := by
         constructor
         · rintro ⟨u0, hu0, rfl⟩; rw [hrr] at hu0; cases hu0; rfl
         · rintro rfl; exact ⟨_, hrr, rfl⟩
+
+end AtT
+
+theorem sat_mapDecomp : stdI c ⊧ᴵ mapDecompAx c k :=
+  AtT.sat_mapDecomp (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
 
 end
 
@@ -491,9 +584,13 @@ theorem list_val {w : GroundTerm} (hw : c.sortOf w = some k.sort) :
   · rw [hkind] at h2; cases h2
   · exact ⟨l, rfl, (sortOf_list_iff h hk hkind).mp hw⟩
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem U_list (e : Valuation Elem) (x : Elem) :
-    (collU c k).interpret (stdI c) e x ↔ x = .val (.list k.sort []) := by
-  have := coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .list Srt.list [])
+    (collU c k).interpret (stdI_T c T) e x ↔ x = .val (.list k.sort []) := by
+  have := coll_symE (T := T) h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .list Srt.list [])
     (by rw [hkind, builtinColl_list, hook_listUnit_eq]) (by rw [hkind, builtinColl_list]; rfl)
     ((sortOf_list_iff h hk hkind).mpr fun _ h => nomatch h) x
   refine Iff.trans ?_ this
@@ -502,9 +599,19 @@ theorem U_list (e : Valuation Elem) (x : Elem) :
   · intro hx; exact ⟨x, hx, rfl⟩
   · rintro ⟨a, ha, hx⟩; have : x = a := hx; subst this; exact ha
 
+end AtT
+
+theorem U_list (e : Valuation Elem) (x : Elem) :
+    (collU c k).interpret (stdI c) e x ↔ x = .val (.list k.sort []) :=
+  AtT.U_list (c := c) (T := StepM c) (e := e) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem I_list {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a = some k.key)
     (hA : e.evalEvar A = .val a) (x : Elem) :
-    (collI c k (.evar A)).interpret (stdI c) e x ↔ x = .val (.list k.sort [a]) := by
+    (collI c k (.evar A)).interpret (stdI_T c T) e x ↔ x = .val (.list k.sort [a]) := by
   unfold collI symP
   rw [interp_symList _ _ [.val a] (.cons (fun m => by rw [KoreAML.interp_evar, hA]) .nil) x]
   exact coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [a]) (elemArgs_length' (.inr hkind)).symm
@@ -512,11 +619,22 @@ theorem I_list {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a
     (by rw [hkind, builtinColl_list]; rfl)
     ((sortOf_list_iff h hk hkind).mpr fun z hz => (List.mem_singleton.mp hz) ▸ ha) x
 
+end AtT
+
+theorem I_list {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a = some k.key)
+    (hA : e.evalEvar A = .val a) (x : Elem) :
+    (collI c k (.evar A)).interpret (stdI c) e x ↔ x = .val (.list k.sort [a]) :=
+  AtT.I_list (c := c) (T := StepM c) (e := e) (A := A) (a := a) (ha := ha) (hA := hA) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem C_list {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm}
     (h1 : ∀ z ∈ l1, c.sortOf z = some k.key) (h2 : ∀ z ∈ l2, c.sortOf z = some k.key)
-    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.list k.sort l1))
-    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.list k.sort l2)) (x : Elem) :
-    (collC c k φ ψ).interpret (stdI c) e x ↔ x = .val (.list k.sort (l1 ++ l2)) := by
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = .val (.list k.sort l1))
+    (hψ : ∀ m, ψ.interpret (stdI_T c T) e m ↔ m = .val (.list k.sort l2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI_T c T) e x ↔ x = .val (.list k.sort (l1 ++ l2)) := by
   unfold collC symP
   rw [interp_symList _ _ [.val (.list k.sort l1), .val (.list k.sort l2)] (.cons hφ (.cons hψ .nil)) x]
   exact coll_symE h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩)) (vs := [.list k.sort l1, .list k.sort l2]) rfl
@@ -527,16 +645,29 @@ theorem C_list {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm
       · exact h1 z hz
       · exact h2 z hz) x
 
+end AtT
+
+theorem C_list {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm}
+    (h1 : ∀ z ∈ l1, c.sortOf z = some k.key) (h2 : ∀ z ∈ l2, c.sortOf z = some k.key)
+    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.list k.sort l1))
+    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.list k.sort l2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI c) e x ↔ x = .val (.list k.sort (l1 ++ l2)) :=
+  AtT.C_list (c := c) (T := StepM c) (e := e) (φ := φ) (ψ := ψ) (l1 := l1) (l2 := l2) (h1 := h1) (h2 := h2) (hφ := hφ) (hψ := hψ) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
 /-! ## The list axioms -/
 
-theorem sat_listUnitSplit : stdI c ⊧ᴵ listUnitSplitAx c k := by
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_listUnitSplit : stdI_T c T ⊧ᴵ listUnitSplitAx c k := by
   obtain ⟨hsS, -, -⟩ := h.collSorts hk
   intro e m
   unfold listUnitSplitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_self ..))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_self ..))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
   obtain ⟨l1, rfl, hl1⟩ := list_val h hk hkind hw1
   obtain ⟨l2, rfl, hl2⟩ := list_val h hk hkind hw2
   rw [interpret_impl, defined_app]
@@ -549,28 +680,46 @@ theorem sat_listUnitSplit : stdI c ⊧ᴵ listUnitSplitAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff h1 (U_list h hk hkind e) m, evar_eq_iff h2 (U_list h hk hkind e) m⟩
 
-theorem sat_listElemNotUnit : stdI c ⊧ᴵ listElemNotUnitAx c k := by
+end AtT
+
+theorem sat_listUnitSplit : stdI c ⊧ᴵ listUnitSplitAx c k :=
+  AtT.sat_listUnitSplit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_listElemNotUnit : stdI_T c T ⊧ᴵ listElemNotUnitAx c k := by
   obtain ⟨-, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold listElemNotUnitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
   rw [interpret_neg, defined_app]
   rintro ⟨x, hx⟩
   rw [interpret_conj, U_list h hk hkind, I_list h hk hkind hwa ha] at hx
   obtain ⟨rfl, hx⟩ := hx
   cases hx
 
-theorem sat_listElemAtom : stdI c ⊧ᴵ listElemAtomAx c k := by
+end AtT
+
+theorem sat_listElemNotUnit : stdI c ⊧ᴵ listElemNotUnitAx c k :=
+  AtT.sat_listElemNotUnit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_listElemAtom : stdI_T c T ⊧ᴵ listElemAtomAx c k := by
   obtain ⟨hsS, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold listElemAtomAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
-  obtain ⟨a', ha', hwa'⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
-  obtain ⟨w, hr, hw⟩ := guard_val h.namesK hsS
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨a', ha', hwa'⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w, hr, hw⟩ := guard_val (T := T) h.namesK hsS
     (hg _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
   obtain ⟨rs, rfl, hrs⟩ := list_val h hk hkind hw
   rw [interpret_impl, defined_app]
@@ -584,15 +733,24 @@ theorem sat_listElemAtom : stdI c ⊧ᴵ listElemAtomAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff ha (fun m => by rw [KoreAML.interp_evar, ha']) m, evar_eq_iff hr (U_list h hk hkind e) m⟩
 
-theorem sat_listElemAtomBack : stdI c ⊧ᴵ listElemAtomBackAx c k := by
+end AtT
+
+theorem sat_listElemAtom : stdI c ⊧ᴵ listElemAtomAx c k :=
+  AtT.sat_listElemAtom (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_listElemAtomBack : stdI_T c T ⊧ᴵ listElemAtomBackAx c k := by
   obtain ⟨hsS, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold listElemAtomBackAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
-  obtain ⟨a', ha', hwa'⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
-  obtain ⟨w, hr, hw⟩ := guard_val h.namesK hsS
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨a', ha', hwa'⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w, hr, hw⟩ := guard_val (T := T) h.namesK hsS
     (hg _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
   obtain ⟨rs, rfl, hrs⟩ := list_val h hk hkind hw
   rw [interpret_impl, defined_app]
@@ -613,7 +771,16 @@ theorem sat_listElemAtomBack : stdI c ⊧ᴵ listElemAtomBackAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff ha (fun m => by rw [KoreAML.interp_evar, ha']) m, evar_eq_iff hr (U_list h hk hkind e) m⟩
 
-theorem sat_listDecomp : stdI c ⊧ᴵ listDecompAx c k := by
+end AtT
+
+theorem sat_listElemAtomBack : stdI c ⊧ᴵ listElemAtomBackAx c k :=
+  AtT.sat_listElemAtomBack (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_listDecomp : stdI_T c T ⊧ᴵ listDecompAx c k := by
   obtain ⟨hsS, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold listDecompAx
@@ -621,10 +788,10 @@ theorem sat_listDecomp : stdI c ⊧ᴵ listDecompAx c k := by
   refine guarded_intro fun hg => ?_
   have g := fun i (hi : i < 4) => hg _ (List.getElem_mem (l := [(⟨1⟩ : EVar) ∈∈ inSort c k.key,
     (⟨2⟩ : EVar) ∈∈ inSort c k.sort, (⟨3⟩ : EVar) ∈∈ inSort c k.sort, (⟨4⟩ : EVar) ∈∈ inSort c k.sort]) hi)
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (g 0 (by decide))
-  obtain ⟨wr, hr, hwr⟩ := guard_val h.namesK hsS (g 1 (by decide))
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (g 2 (by decide))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (g 3 (by decide))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (g 0 (by decide))
+  obtain ⟨wr, hr, hwr⟩ := guard_val (T := T) h.namesK hsS (g 1 (by decide))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (g 2 (by decide))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (g 3 (by decide))
   obtain ⟨rs, rfl, hrs⟩ := list_val h hk hkind hwr
   obtain ⟨l1, rfl, hl1⟩ := list_val h hk hkind hw1
   obtain ⟨l2, rfl, hl2⟩ := list_val h hk hkind hw2
@@ -655,7 +822,7 @@ theorem sat_listDecomp : stdI c ⊧ᴵ listDecompAx c k := by
     · rw [KoreAML.interp_member defOK_std]
       simp only [Function.update_same]
       exact (inhOf_sort h.namesK hsS _ _).mpr ((sortOf_list_iff h hk hkind).mpr hl1')
-    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI c)
+    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI_T c T)
           ⟨Function.update e.evalEvar ⟨5⟩ (.val (.list k.sort l1')), e.evalSvar⟩ m ↔
             m = .val (.list k.sort l1') := fun m => by
         rw [KoreAML.interp_evar]; simp only [Function.update_same]
@@ -668,6 +835,11 @@ theorem sat_listDecomp : stdI c ⊧ᴵ listDecompAx c k := by
           (C_list h hk hkind ha1 hl1' (I_list h hk hkind hwa ((hval 1 (by decide)).trans ha)) hy) m
       · exact evar_eq_iff ((hval 2 (by decide)).trans hr)
           (C_list h hk hkind hl1' hl2 hy (fun m => by rw [KoreAML.interp_evar, (hval 4 (by decide)).trans h2])) m
+
+end AtT
+
+theorem sat_listDecomp : stdI c ⊧ᴵ listDecompAx c k :=
+  AtT.sat_listDecomp (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
 
 end
 
@@ -792,9 +964,13 @@ theorem set_val {w : GroundTerm} (hw : c.sortOf w = some k.sort) :
   · exact ⟨l, rfl, (sortOf_set_iff h hk hkind).mp hw⟩
   · rw [hkind] at h2; cases h2
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem U_set (e : Valuation Elem) (x : Elem) :
-    (collU c k).interpret (stdI c) e x ↔ x = .val (.set k.sort []) := by
-  have := coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .set Srt.set [])
+    (collU c k).interpret (stdI_T c T) e x ↔ x = .val (.set k.sort []) := by
+  have := coll_symE (T := T) h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .set Srt.set [])
     (by rw [hkind, builtinColl_set, hook_setUnit_eq]) (by rw [hkind, builtinColl_set]; rfl)
     ((sortOf_set_iff h hk hkind).mpr ⟨rfl, fun _ h => nomatch h⟩) x
   refine Iff.trans ?_ this
@@ -803,9 +979,19 @@ theorem U_set (e : Valuation Elem) (x : Elem) :
   · intro hx; exact ⟨x, hx, rfl⟩
   · rintro ⟨a, ha, hx⟩; have : x = a := hx; subst this; exact ha
 
+end AtT
+
+theorem U_set (e : Valuation Elem) (x : Elem) :
+    (collU c k).interpret (stdI c) e x ↔ x = .val (.set k.sort []) :=
+  AtT.U_set (c := c) (T := StepM c) (e := e) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem I_set {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a = some k.key)
     (hA : e.evalEvar A = .val a) (x : Elem) :
-    (collI c k (.evar A)).interpret (stdI c) e x ↔ x = .val (.set k.sort [a]) := by
+    (collI c k (.evar A)).interpret (stdI_T c T) e x ↔ x = .val (.set k.sort [a]) := by
   unfold collI symP
   rw [interp_symList _ _ [.val a] (.cons (fun m => by rw [KoreAML.interp_evar, hA]) .nil) x]
   exact coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [a]) (elemArgs_length' (.inl hkind)).symm
@@ -813,11 +999,22 @@ theorem I_set {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a 
     (by rw [hkind, builtinColl_set]; rfl)
     ((sortOf_set_iff h hk hkind).mpr ⟨rfl, fun z hz => (List.mem_singleton.mp hz) ▸ ha⟩) x
 
+end AtT
+
+theorem I_set {e : Valuation Elem} {A : EVar} {a : GroundTerm} (ha : c.sortOf a = some k.key)
+    (hA : e.evalEvar A = .val a) (x : Elem) :
+    (collI c k (.evar A)).interpret (stdI c) e x ↔ x = .val (.set k.sort [a]) :=
+  AtT.I_set (c := c) (T := StepM c) (e := e) (A := A) (a := a) (ha := ha) (hA := hA) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem C_set {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm}
     (h1 : ∀ z ∈ l1, c.sortOf z = some k.key) (hs2 : elemsSorted l2 = true) (h2 : ∀ z ∈ l2, c.sortOf z = some k.key)
-    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.set k.sort l1))
-    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.set k.sort l2)) (x : Elem) :
-    (collC c k φ ψ).interpret (stdI c) e x ↔ ∃ u, concatS l1 l2 = some u ∧ x = .val (.set k.sort u) := by
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = .val (.set k.sort l1))
+    (hψ : ∀ m, ψ.interpret (stdI_T c T) e m ↔ m = .val (.set k.sort l2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI_T c T) e x ↔ ∃ u, concatS l1 l2 = some u ∧ x = .val (.set k.sort u) := by
   obtain ⟨kf, hkf, hkfn, hkfa, hres⟩ := coll_sym h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩))
   unfold collC symP
   rw [interp_symList _ _ [.val (.set k.sort l1), .val (.set k.sort l2)] (.cons hφ (.cons hψ .nil)) x,
@@ -847,16 +1044,29 @@ theorem C_set {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm}
       rw [hhook, hu]; rfl
     exact (hres hv (by rw [hkind, builtinColl_set]; rfl) (hsr u hu) _).mpr rfl
 
+end AtT
+
+theorem C_set {e : Valuation Elem} {φ ψ : KoreAML.P} {l1 l2 : List GroundTerm}
+    (h1 : ∀ z ∈ l1, c.sortOf z = some k.key) (hs2 : elemsSorted l2 = true) (h2 : ∀ z ∈ l2, c.sortOf z = some k.key)
+    (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val (.set k.sort l1))
+    (hψ : ∀ m, ψ.interpret (stdI c) e m ↔ m = .val (.set k.sort l2)) (x : Elem) :
+    (collC c k φ ψ).interpret (stdI c) e x ↔ ∃ u, concatS l1 l2 = some u ∧ x = .val (.set k.sort u) :=
+  AtT.C_set (c := c) (T := StepM c) (e := e) (φ := φ) (ψ := ψ) (l1 := l1) (l2 := l2) (h1 := h1) (hs2 := hs2) (h2 := h2) (hφ := hφ) (hψ := hψ) (x := x) (h := h) (hk := hk) (hkind := hkind)
+
 /-! ## The set axioms -/
 
-theorem sat_setUnitSplit : stdI c ⊧ᴵ setUnitSplitAx c k := by
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_setUnitSplit : stdI_T c T ⊧ᴵ setUnitSplitAx c k := by
   obtain ⟨hsS, -, -⟩ := h.collSorts hk
   intro e m
   unfold setUnitSplitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_self ..))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_self ..))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
   obtain ⟨l1, rfl, -, he1⟩ := set_val h hk hkind hw1
   obtain ⟨l2, rfl, hs2, he2⟩ := set_val h hk hkind hw2
   rw [interpret_impl, defined_app]
@@ -869,28 +1079,46 @@ theorem sat_setUnitSplit : stdI c ⊧ᴵ setUnitSplitAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff h1 (U_set h hk hkind e) m, evar_eq_iff h2 (U_set h hk hkind e) m⟩
 
-theorem sat_setElemNotUnit : stdI c ⊧ᴵ setElemNotUnitAx c k := by
+end AtT
+
+theorem sat_setUnitSplit : stdI c ⊧ᴵ setUnitSplitAx c k :=
+  AtT.sat_setUnitSplit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_setElemNotUnit : stdI_T c T ⊧ᴵ setElemNotUnitAx c k := by
   obtain ⟨-, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold setElemNotUnitAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
   rw [interpret_neg, defined_app]
   rintro ⟨x, hx⟩
   rw [interpret_conj, U_set h hk hkind, I_set h hk hkind hwa ha] at hx
   obtain ⟨rfl, hx⟩ := hx
   cases hx
 
-theorem sat_setElemAtom : stdI c ⊧ᴵ setElemAtomAx c k := by
+end AtT
+
+theorem sat_setElemNotUnit : stdI c ⊧ᴵ setElemNotUnitAx c k :=
+  AtT.sat_setElemNotUnit (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_setElemAtom : stdI_T c T ⊧ᴵ setElemAtomAx c k := by
   obtain ⟨hsS, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold setElemAtomAx
   dsimp only
   refine guarded_intro fun hg => ?_
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_self ..))
-  obtain ⟨a', ha', hwa'⟩ := guard_val h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
-  obtain ⟨w, hr, hw⟩ := guard_val h.namesK hsS
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_self ..))
+  obtain ⟨a', ha', hwa'⟩ := guard_val (T := T) h.namesK hsK (hg _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨w, hr, hw⟩ := guard_val (T := T) h.namesK hsS
     (hg _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
   obtain ⟨rs, rfl, hrso, hrs⟩ := set_val h hk hkind hw
   rw [interpret_impl, defined_app]
@@ -905,7 +1133,16 @@ theorem sat_setElemAtom : stdI c ⊧ᴵ setElemAtomAx c k := by
   rw [interpret_conj]
   exact ⟨evar_eq_iff ha (fun m => by rw [KoreAML.interp_evar, ha']) m, evar_eq_iff hr (U_set h hk hkind e) m⟩
 
-theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k := by
+end AtT
+
+theorem sat_setElemAtom : stdI c ⊧ᴵ setElemAtomAx c k :=
+  AtT.sat_setElemAtom (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_setDecomp : stdI_T c T ⊧ᴵ setDecompAx c k := by
   obtain ⟨hsS, hsK, -⟩ := h.collSorts hk
   intro e m
   unfold setDecompAx
@@ -913,10 +1150,10 @@ theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k := by
   refine guarded_intro fun hg => ?_
   have g := fun i (hi : i < 4) => hg _ (List.getElem_mem (l := [(⟨1⟩ : EVar) ∈∈ inSort c k.key,
     (⟨2⟩ : EVar) ∈∈ inSort c k.sort, (⟨3⟩ : EVar) ∈∈ inSort c k.sort, (⟨4⟩ : EVar) ∈∈ inSort c k.sort]) hi)
-  obtain ⟨a, ha, hwa⟩ := guard_val h.namesK hsK (g 0 (by decide))
-  obtain ⟨wr, hr, hwr⟩ := guard_val h.namesK hsS (g 1 (by decide))
-  obtain ⟨w1, h1, hw1⟩ := guard_val h.namesK hsS (g 2 (by decide))
-  obtain ⟨w2, h2, hw2⟩ := guard_val h.namesK hsS (g 3 (by decide))
+  obtain ⟨a, ha, hwa⟩ := guard_val (T := T) h.namesK hsK (g 0 (by decide))
+  obtain ⟨wr, hr, hwr⟩ := guard_val (T := T) h.namesK hsS (g 1 (by decide))
+  obtain ⟨w1, h1, hw1⟩ := guard_val (T := T) h.namesK hsS (g 2 (by decide))
+  obtain ⟨w2, h2, hw2⟩ := guard_val (T := T) h.namesK hsS (g 3 (by decide))
   obtain ⟨rs, rfl, hrs, hre⟩ := set_val h hk hkind hwr
   obtain ⟨s1, rfl, hs1, he1⟩ := set_val h hk hkind hw1
   obtain ⟨s2, rfl, hs2, he2⟩ := set_val h hk hkind hw2
@@ -947,7 +1184,7 @@ theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k := by
     · rw [KoreAML.interp_member defOK_std]
       simp only [Function.update_same]
       exact (inhOf_sort h.namesK hsS _ _).mpr (hsy _ hys hye)
-    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI c)
+    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI_T c T)
           ⟨Function.update e.evalEvar ⟨5⟩ (.val (.set k.sort (dropS a s1))), e.evalSvar⟩ m ↔
             m = .val (.set k.sort (dropS a s1)) := fun m => by
         rw [KoreAML.interp_evar]; simp only [Function.update_same]
@@ -971,7 +1208,7 @@ theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k := by
     · rw [KoreAML.interp_member defOK_std]
       simp only [Function.update_same]
       exact (inhOf_sort h.namesK hsS _ _).mpr (hsy _ hys hye)
-    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI c)
+    · have hy : ∀ m, (Pattern.evar (⟨5⟩ : EVar) : KoreAML.P).interpret (stdI_T c T)
           ⟨Function.update e.evalEvar ⟨5⟩ (.val (.set k.sort (dropS a s2))), e.evalSvar⟩ m ↔
             m = .val (.set k.sort (dropS a s2)) := fun m => by
         rw [KoreAML.interp_evar]; simp only [Function.update_same]
@@ -989,10 +1226,19 @@ theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k := by
         · rintro ⟨u0, hu0, rfl⟩; rw [hrr] at hu0; cases hu0; rfl
         · rintro rfl; exact ⟨_, hrr, rfl⟩
 
+end AtT
+
+theorem sat_setDecomp : stdI c ⊧ᴵ setDecompAx c k :=
+  AtT.sat_setDecomp (c := c) (T := StepM c) (h := h) (hk := hk) (hkind := hkind)
+
 end
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **`SatCollsGoal`**: the value model satisfies the collections' axioms. -/
-theorem satCollsGoal (h : HypModelCore c) : SatCollsGoal c := by
+theorem satCollsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓColls c) := by
   rintro φ ⟨k, hk, hφ⟩
   unfold collAxioms at hφ
   cases hkind : k.kind with
@@ -1024,6 +1270,12 @@ theorem satCollsGoal (h : HypModelCore c) : SatCollsGoal c := by
   | rangeMap =>
     rw [hkind] at hφ
     exact absurd hφ List.not_mem_nil
+
+end AtT
+
+/-- **`SatCollsGoal`**: the value model satisfies the collections' axioms. -/
+theorem satCollsGoal (h : HypModelCore c) : SatCollsGoal c :=
+  AtT.satCollsGoal (c := c) (T := StepM c) (h := h)
 
 end Model
 

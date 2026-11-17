@@ -1,0 +1,27 @@
+# REVIEW-EX-CE section 1.3 attack B in EX form (its finding 1): an existential equation of a total
+# function one of whose two instances has no evaluation result. Recorded from kore.txt (kompile
+# 7.1.337, the committed run):
+# - f() => #Exists B:Bool. pick(B) is the sentence (//@ 338)
+#     \top -> f() = (\exists B:Bool. pick(B)) /\ \top
+#   the binder at the top of the right side, its body the one term pick(B), no predicate conjunct,
+#   no requires, no ensures.
+# - f is declared function, functional, total (//@ 80) and kompile writes its functional sentence
+#   \exists Val:Int. Val = f() (//@ 213); lp (//@ 106) and pick (//@ 113) are function only, with no
+#   functional sentence.
+# - lp() => lp() is lp() = lp() (//@ 373); pick(false) => lp() and pick(true) => 1 are
+#   X0 in false -> pick(X0) = lp() (//@ 378) and X0 in true -> pick(X0) = 1 (//@ 379).
+# Expectation from the sentences, read as a matching-logic theory:
+# - lp() = lp() states nothing, so a model may give lp() any element or none; pick(true) = 1 and
+#   pick(false) = lp().
+# - f's sentence: f() is the union of pick(true) and pick(false), i.e. of 1 and lp(); its
+#   functional sentence makes f() one element, which holds 1. So every model has f() = 1 (and lp()
+#   is 1 or empty). No model is excluded otherwise: the text has a model.
+# - EX's reading (CN-4 F4 by cases, F6's clauses; f total, one Bool variable, every other variable
+#   bound, two alternatives): pre := ceil pick(true), rhs pick(true); pre := ceil pick(false),
+#   rhs pick(false); pre := both negated, ens false. pick(true) evaluates to 1, so the first clause
+#   gives 1; pick(false) has no evaluation result (lp() has none), so the second and the last
+#   clauses' pre have no truth value and they neither apply nor fail. Expected: Eval f [] (some 1)
+#   and no other result; FnDet at f; every model of Gamma_c has f() = 1, as the text.
+# - CE-1's reading of the same sentence (clauseEx asks every value extension to be decided): no
+#   result at f, since the extension B := false is undecided.
+# - account.txt today: refused manyValuedRightSide (\exists) (sentence 351 of the account's count).

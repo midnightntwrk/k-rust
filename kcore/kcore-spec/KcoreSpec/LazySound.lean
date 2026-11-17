@@ -104,6 +104,15 @@ theorem shapes_ovl' {k : CtorSig} (hk : k ∈ c.ovlSigs) : (shapeSorts ++ litSha
   simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at hs
   exact hs.1.1.2 k hk
 
+/-- No open generator has a sort of `shapeSorts ++ litShapeSorts`. -/
+theorem shapes_open' {k : ParamSig} (hk : k ∈ c.params) (hraw : k.raw = true) :
+    (shapeSorts ++ litShapeSorts).contains k.sig.result = false := by
+  unfold Semantics.shapesOK at hs
+  simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at hs
+  have := hs.1.2 k hk
+  rw [hraw] at this
+  exact this
+
 theorem shapes_ctor {k : CtorSig} (hk : k ∈ c.ctorSigs) : shapeSorts.contains k.result = false := by
   have := shapes_ctor' hs hk
   simp only [List.contains_append, Bool.or_eq_false_iff] at this
@@ -176,7 +185,12 @@ theorem shape_of_sortOf {v : GroundTerm} {s : Srt} (hS : shapeSorts.contains s =
     (∃ es k, v = .list s es ∧ c.collOf s = some k ∧ k.kind = .list) := by
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, _, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩
+    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, _, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩ | ⟨-, -, k, hk, _, _, rfl⟩
+    rotate_right
+    · obtain ⟨hm, hraw, -, -⟩ := c.lookupOpen_spec hk
+      have := shapes_open' hs hm hraw
+      simp only [List.contains_append, Bool.or_eq_false_iff] at this
+      rw [this.1] at hS; cases hS
     · have := shapes_ctor hs (lookupSig_spec hk).1
       rw [this] at hS; cases hS
     · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho
@@ -307,7 +321,12 @@ theorem shape_lit {v : GroundTerm} {s : Srt} (hS : litShapeSorts.contains s = tr
     (h : c.sortOf v = some s) : ∃ t, v = .dv s (.tok t) := by
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, _, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩
+    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, _, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩ | ⟨-, -, k, hk, _, _, rfl⟩
+    rotate_right
+    · obtain ⟨hm, hraw, -, -⟩ := c.lookupOpen_spec hk
+      have := shapes_open' hs hm hraw
+      simp only [List.contains_append, Bool.or_eq_false_iff] at this
+      rw [this.2] at hS; cases hS
     · have := shapes_ctor_lit hs (lookupSig_spec hk).1
       rw [this] at hS; cases hS
     · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho
@@ -358,14 +377,22 @@ theorem shape_enum {v : GroundTerm} {s : Srt} (hS : s = Srt.endianness ∨ s = S
   have he := shapes_enum hs
   unfold Semantics.enumShapesOK at he
   simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at he
-  obtain ⟨⟨⟨⟨⟨hc, hsub⟩, hcoll⟩, htok⟩, hovl⟩, -⟩ := he
+  obtain ⟨⟨⟨⟨⟨hc, hsub⟩, hcoll⟩, htok⟩, hovl⟩, hrw⟩ := he
   have hS' : s ≠ Srt.endianness ∨ s ≠ Srt.signedness := by
     rcases hS with rfl | rfl
     · exact Or.inr (by decide)
     · exact Or.inl (by decide)
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, hts, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩
+    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk, hts, rfl⟩ | ⟨-, o, ho, _, _, rfl⟩ | ⟨-, -, kp, hkp, _, _, rfl⟩
+    rotate_right
+    · obtain ⟨hm, hr, -, -⟩ := c.lookupOpen_spec hkp
+      have := hrw kp hm
+      rw [hr] at this
+      simp only [Bool.true_and, Bool.or_eq_false_iff, beq_eq_false_iff_ne, ne_eq, Bool.not_eq_true'] at this
+      rcases hS with hS | hS
+      · exact absurd hS this.1
+      · exact absurd hS this.2
     rotate_left
     · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho
       have := hovl _ (List.mem_map_of_mem (f := (·.sig)) hom)

@@ -21,9 +21,22 @@ variable {c : Semantics}
 
 /-! ## Elements of sorts -/
 
-theorem defOK_std : KoreAML.DefOK (stdI c) := KoreAML.defOK_of (model_sat_definedness c)
+namespace AtT
 
-theorem inh_srt (s : Srt) (m : Elem) : KoreAML.Inh (stdI c) (.srt s) m ↔ InSort c s m := by
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem defOK_std : KoreAML.DefOK (stdI_T c T) := KoreAML.defOK_of (model_sat_definedness c)
+
+end AtT
+
+theorem defOK_std : KoreAML.DefOK (stdI c) :=
+  AtT.defOK_std (c := c) (T := StepM c)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem inh_srt (s : Srt) (m : Elem) : KoreAML.Inh (stdI_T c T) (.srt s) m ↔ InSort c s m := by
   constructor
   · rintro ⟨i, hi, h⟩
     have hi' : i = .app .inh [] := hi
@@ -32,7 +45,16 @@ theorem inh_srt (s : Srt) (m : Elem) : KoreAML.Inh (stdI c) (.srt s) m ↔ InSor
   · intro h
     exact ⟨.app .inh [], rfl, h⟩
 
-theorem isSort_iff (σ : Elem) : KoreAML.IsSort (stdI c) σ ↔ ∃ s ∈ kernelSorts c, σ = .srt s := by
+end AtT
+
+theorem inh_srt (s : Srt) (m : Elem) : KoreAML.Inh (stdI c) (.srt s) m ↔ InSort c s m :=
+  AtT.inh_srt (c := c) (T := StepM c) (s := s) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem isSort_iff (σ : Elem) : KoreAML.IsSort (stdI_T c T) σ ↔ ∃ s ∈ kernelSorts c, σ = .srt s := by
   constructor
   · rintro ⟨s0, hs0, i, hi, h⟩
     have hs0' : s0 = .app .sortSort [] := hs0
@@ -42,11 +64,28 @@ theorem isSort_iff (σ : Elem) : KoreAML.IsSort (stdI c) σ ↔ ∃ s ∈ kernel
   · intro h
     exact ⟨.app .sortSort [], rfl, .app .inh [], rfl, h⟩
 
+end AtT
+
+theorem isSort_iff (σ : Elem) : KoreAML.IsSort (stdI c) σ ↔ ∃ s ∈ kernelSorts c, σ = .srt s :=
+  AtT.isSort_iff (c := c) (T := StepM c) (σ := σ)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- The inhabitants of a numbered sort, by its name: its values. -/
 theorem inhOf_sort (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length)
     (e : Valuation Elem) (m : Elem) :
-    (KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))).interpret (stdI c) e m ↔ InSort c s m := by
+    (KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))).interpret (stdI_T c T) e m ↔ InSort c s m := by
   rw [KoreAML.interp_inhOf_of (sort_den hn hs e), inh_srt]
+
+end AtT
+
+/-- The inhabitants of a numbered sort, by its name: its values. -/
+theorem inhOf_sort (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length)
+    (e : Valuation Elem) (m : Elem) :
+    (KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))).interpret (stdI c) e m ↔ InSort c s m :=
+  AtT.inhOf_sort (c := c) (T := StepM c) (hn := hn) (s := s) (hs := hs) (e := e) (m := m)
 
 theorem inSort_val {s : Srt} {m : Elem} (h : InSort c s m) : ∃ v, m = .val v ∧ c.sortOf v = some s := by
   cases m with
@@ -54,10 +93,14 @@ theorem inSort_val {s : Srt} {m : Elem} (h : InSort c s m) : ∃ v, m = .val v �
   | srt _ => exact h.elim
   | app _ _ => exact h.elim
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- Arguments in the inhabitants of numbered sorts are values of those sorts. -/
 theorem args_vals (hn : NamesApartK c) {e : Valuation Elem} :
     ∀ (ss : List Srt), (∀ s ∈ ss, s < nRegSorts + c.sortNames.length) → ∀ (bs : List Elem),
-      All2 (fun φ b => φ.interpret (stdI c) e b)
+      All2 (fun φ b => φ.interpret (stdI_T c T) e b)
         (ss.map fun s => KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))) bs →
       ∃ vs, bs = vs.map Elem.val ∧ c.sortsOf vs = some ss
   | [], _, _, h => by cases h; exact ⟨[], rfl, sortsOf_nil⟩
@@ -68,6 +111,16 @@ theorem args_vals (hn : NamesApartK c) {e : Valuation Elem} :
       obtain ⟨v, rfl, hv⟩ := inSort_val ((inhOf_sort hn (hs s (List.mem_cons_self ..)) e b).mp hb)
       obtain ⟨vs, rfl, hvs⟩ := args_vals hn ss (fun s' h' => hs s' (List.mem_cons_of_mem _ h')) bs hbs
       exact ⟨v :: vs, rfl, sortsOf_cons.mpr ⟨s, ss, hv, hvs, rfl⟩⟩
+
+end AtT
+
+/-- Arguments in the inhabitants of numbered sorts are values of those sorts. -/
+theorem args_vals (hn : NamesApartK c) {e : Valuation Elem} :
+    ∀ (ss : List Srt), (∀ s ∈ ss, s < nRegSorts + c.sortNames.length) → ∀ (bs : List Elem),
+      All2 (fun φ b => φ.interpret (stdI c) e b)
+        (ss.map fun s => KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))) bs →
+      ∃ vs, bs = vs.map Elem.val ∧ c.sortsOf vs = some ss :=
+  AtT.args_vals (c := c) (T := StepM c) (hn := hn) (e := e)
 
 /-! ## Subject reduction for the symbols -/
 
@@ -141,8 +194,12 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
 
 /-! ## Guards -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem conjList_elim {e : Valuation Elem} {m : Elem} :
-    ∀ {ws : List KoreAML.P}, (KoreAML.conjList ws).interpret (stdI c) e m → ∀ w ∈ ws, w.interpret (stdI c) e m
+    ∀ {ws : List KoreAML.P}, (KoreAML.conjList ws).interpret (stdI_T c T) e m → ∀ w ∈ ws, w.interpret (stdI_T c T) e m
   | [], _, _, hw => nomatch hw
   | [w], h, w', hw => by rw [List.mem_singleton.mp hw]; exact h
   | w :: w' :: ws, h, w'', hw => by
@@ -152,23 +209,64 @@ theorem conjList_elim {e : Valuation Elem} {m : Elem} :
     · exact h.1
     · exact conjList_elim h.2 w'' hw
 
+end AtT
+
+theorem conjList_elim {e : Valuation Elem} {m : Elem} :
+    ∀ {ws : List KoreAML.P}, (KoreAML.conjList ws).interpret (stdI c) e m → ∀ w ∈ ws, w.interpret (stdI c) e m :=
+  AtT.conjList_elim (c := c) (T := StepM c) (e := e) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem guarded_intro {ws : List KoreAML.P} {φ : KoreAML.P} {e : Valuation Elem} {m : Elem}
-    (h : (∀ w ∈ ws, w.interpret (stdI c) e m) → φ.interpret (stdI c) e m) :
-    (KoreAML.guarded ws φ).interpret (stdI c) e m := by
+    (h : (∀ w ∈ ws, w.interpret (stdI_T c T) e m) → φ.interpret (stdI_T c T) e m) :
+    (KoreAML.guarded ws φ).interpret (stdI_T c T) e m := by
   cases ws with
   | nil => exact h (fun _ hw => nomatch hw)
   | cons w ws => intro hc; exact h (conjList_elim hc)
 
+end AtT
+
+theorem guarded_intro {ws : List KoreAML.P} {φ : KoreAML.P} {e : Valuation Elem} {m : Elem}
+    (h : (∀ w ∈ ws, w.interpret (stdI c) e m) → φ.interpret (stdI c) e m) :
+    (KoreAML.guarded ws φ).interpret (stdI c) e m :=
+  AtT.guarded_intro (c := c) (T := StepM c) (ws := ws) (φ := φ) (e := e) (m := m) (h := h)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sortGuard_iff {x : EVar} {e : Valuation Elem} {m : Elem} :
-    (KoreAML.sortGuard x).interpret (stdI c) e m ↔ ∃ s ∈ kernelSorts c, e.evalEvar x = .srt s := by
+    (KoreAML.sortGuard x).interpret (stdI_T c T) e m ↔ ∃ s ∈ kernelSorts c, e.evalEvar x = .srt s := by
   unfold KoreAML.sortGuard
   rw [KoreAML.interp_member defOK_std, KoreAML.interp_sortsDomain, isSort_iff]
 
+end AtT
+
+theorem sortGuard_iff {x : EVar} {e : Valuation Elem} {m : Elem} :
+    (KoreAML.sortGuard x).interpret (stdI c) e m ↔ ∃ s ∈ kernelSorts c, e.evalEvar x = .srt s :=
+  AtT.sortGuard_iff (c := c) (T := StepM c) (x := x) (e := e) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem inhOf_evar {x : EVar} {e : Valuation Elem} {s : Srt} (hx : e.evalEvar x = .srt s) (m : Elem) :
-    (KoreAML.inhOf (.evar x)).interpret (stdI c) e m ↔ InSort c s m := by
+    (KoreAML.inhOf (.evar x)).interpret (stdI_T c T) e m ↔ InSort c s m := by
   rw [KoreAML.interp_inhOf_of (σ := .srt s) (fun a => by rw [KoreAML.interp_evar, hx]), inh_srt]
 
-theorem ceilE_iff (s s' : Srt) (x m : Elem) : KoreAML.CeilE (stdI c) (.srt s) (.srt s') x m ↔ InSort c s' m := by
+end AtT
+
+theorem inhOf_evar {x : EVar} {e : Valuation Elem} {s : Srt} (hx : e.evalEvar x = .srt s) (m : Elem) :
+    (KoreAML.inhOf (.evar x)).interpret (stdI c) e m ↔ InSort c s m :=
+  AtT.inhOf_evar (c := c) (T := StepM c) (x := x) (e := e) (s := s) (hx := hx) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem ceilE_iff (s s' : Srt) (x m : Elem) : KoreAML.CeilE (stdI_T c T) (.srt s) (.srt s') x m ↔ InSort c s' m := by
   constructor
   · rintro ⟨a, ⟨a', ⟨h0, h0s, h1⟩, h2⟩, h3⟩
     have h0' : h0 = .app .ceil [] := h0s
@@ -181,13 +279,22 @@ theorem ceilE_iff (s s' : Srt) (x m : Elem) : KoreAML.CeilE (stdI c) (.srt s) (.
   · intro hm
     exact ⟨.app .ceil [.srt s, .srt s'], ⟨.app .ceil [.srt s], ⟨.app .ceil [], rfl, rfl⟩, rfl⟩, hm⟩
 
+end AtT
+
+theorem ceilE_iff (s s' : Srt) (x m : Elem) : KoreAML.CeilE (stdI c) (.srt s) (.srt s') x m ↔ InSort c s' m :=
+  AtT.ceilE_iff (c := c) (T := StepM c) (s := s) (s' := s') (x := x) (m := m)
+
 /-! ## The items of the signature -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_sortConst (hn : NamesApartK c) {s : Srt} (hs : s ∈ kernelSorts c) :
-    stdI c ⊧ᴵ (KoreAML.sortConstantItem (sortDeclOf c s)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.sortConstantItem (sortDeclOf c s)).pat := by
   intro e m
   show (KoreAML.sExists ⟨1⟩ (KoreAML.sym .sortSort)
-    (KoreAML.sym (.sort ("Sort" ++ c.sortName s)) ≡ .evar ⟨1⟩)).interpret (stdI c) e m
+    (KoreAML.sym (.sort ("Sort" ++ c.sortName s)) ≡ .evar ⟨1⟩)).interpret (stdI_T c T) e m
   rw [KoreAML.interp_sExists]
   refine ⟨.srt s, ?_, ?_⟩
   · rw [KoreAML.interp_member defOK_std, KoreAML.interp_inhOf]
@@ -198,17 +305,27 @@ theorem sat_sortConst (hn : NamesApartK c) {s : Srt} (hs : s ∈ kernelSorts c) 
     rw [sort_den hn (List.mem_range.mp hs), KoreAML.interp_evar]
     simp only [Function.update_same]
 
+end AtT
+
+theorem sat_sortConst (hn : NamesApartK c) {s : Srt} (hs : s ∈ kernelSorts c) :
+    stdI c ⊧ᴵ (KoreAML.sortConstantItem (sortDeclOf c s)).pat :=
+  AtT.sat_sortConst (c := c) (T := StepM c) (hn := hn) (s := s) (hs := hs)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem appE_symP {n : String} {k : CtorSig} {P : List Elem}
     (hres : ∀ pre : List GroundTerm, pre ≠ [] → resolve c n (P ++ pre.map Elem.val) = some (k, P.length)) :
     ∀ (pre rest : List GroundTerm), pre.length < k.args.length → pre.length + rest.length = k.args.length →
-      ∀ m, AppE (stdI c) (.app (.sym n) (P ++ pre.map Elem.val)) (rest.map Elem.val) m ↔
+      ∀ m, AppE (stdI_T c T) (.app (.sym n) (P ++ pre.map Elem.val)) (rest.map Elem.val) m ↔
         result c k (pre ++ rest) m
   | pre, [], hlt, hlen, _ => by simp at hlen; omega
   | pre, w :: rest, hlt, hlen, m => by
     have hv2 : P ++ pre.map Elem.val ++ [Elem.val w] = P ++ (pre ++ [w]).map Elem.val := by simp
     have hr := hres (pre ++ [w]) (by simp)
     have hl2 : (P ++ (pre ++ [w]).map Elem.val).length = P.length + (pre.length + 1) := by simp
-    have hev : ∀ x, (stdI c).evalApp (.app (.sym n) (P ++ pre.map Elem.val)) (.val w) x ↔
+    have hev : ∀ x, (stdI_T c T).evalApp (.app (.sym n) (P ++ pre.map Elem.val)) (.val w) x ↔
         symAt c n (P ++ (pre ++ [w]).map Elem.val) x := fun x => by rw [← hv2]; exact Iff.rfl
     simp only [List.map_cons, AppE, hev]
     by_cases hl : pre.length + 1 < k.args.length
@@ -228,6 +345,15 @@ theorem appE_symP {n : String} {k : CtorSig} {P : List Elem}
       constructor
       · rintro ⟨a', ha', rfl⟩; exact ha'
       · intro h; exact ⟨m, h, rfl⟩
+
+end AtT
+
+theorem appE_symP {n : String} {k : CtorSig} {P : List Elem}
+    (hres : ∀ pre : List GroundTerm, pre ≠ [] → resolve c n (P ++ pre.map Elem.val) = some (k, P.length)) :
+    ∀ (pre rest : List GroundTerm), pre.length < k.args.length → pre.length + rest.length = k.args.length →
+      ∀ m, AppE (stdI c) (.app (.sym n) (P ++ pre.map Elem.val)) (rest.map Elem.val) m ↔
+        result c k (pre ++ rest) m :=
+  AtT.appE_symP (c := c) (T := StepM c) (n := n) (k := k) (P := P) (hres := hres)
 
 
 /-! ## `ite` at a sort -/
@@ -272,9 +398,13 @@ theorem map_inh (ss : List Srt) :
       ss.map fun s => KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s))) := by
   simp [srtOf, trSort_srt]
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **Arity**: every symbol maps the values of its argument sorts into its result sort. -/
 theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) :
-    stdI c ⊧ᴵ (symArityItem c k).pat := by
+    stdI_T c T ⊧ᴵ (symArityItem c k).pat := by
   have hn := h.namesK
   have hsorts := h.symSorts hk
   have hargs : ∀ s ∈ k.args, s < nRegSorts + c.sortNames.length := fun s hs => hsorts s (List.mem_cons_of_mem _ hs)
@@ -285,24 +415,24 @@ theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c
   | none =>
     show (KoreAML.appList (KoreAML.sym (.symbol (c.symName k.name)))
         ((k.args.map (srtOf c)).map fun s => KoreAML.inhOf (KoreAML.trSort [] s)) ⊆⊆
-      KoreAML.inhOf (KoreAML.trSort [] (srtOf c k.result))).interpret (stdI c) e m
+      KoreAML.inhOf (KoreAML.trSort [] (srtOf c k.result))).interpret (stdI_T c T) e m
     rw [map_inh, KoreAML.interp_included defOK_std]
     intro a ha
     rw [srtOf, trSort_srt, inhOf_sort hn hres]
     rw [interp_appList] at ha
     obtain ⟨a0, ha0, bs, hbs, happ⟩ := ha
-    obtain ⟨vs, rfl, hvs⟩ := args_vals hn k.args hargs bs hbs
+    obtain ⟨vs, rfl, hvs⟩ := args_vals (T := T) hn k.args hargs bs hbs
     exact result_sorted h hk hvs ((symE_vals hn hk (sortsOf_length hvs) a).mp ⟨a0, ha0, happ⟩)
   | some X =>
     show (KoreAML.appList (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X)))
         (k.args.map fun s => KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName s)))) ⊆⊆
-      KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName k.result)))).interpret (stdI c) e m
+      KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName k.result)))).interpret (stdI_T c T) e m
     rw [KoreAML.interp_included defOK_std]
     intro a ha
     rw [inhOf_sort hn hres]
     rw [interp_appList] at ha
     obtain ⟨a0, ha0, bs, hbs, happ⟩ := ha
-    obtain ⟨vs, rfl, hvs⟩ := args_vals hn k.args hargs bs hbs
+    obtain ⟨vs, rfl, hvs⟩ := args_vals (T := T) hn k.args hargs bs hbs
     rw [KoreAML.interp_app] at ha0
     obtain ⟨h0, b0, hh0, hb0, hab⟩ := ha0
     have hb0' : ∃ s', sortOfName c ("Sort" ++ X) = some s' ∧ b0 = .srt s' := hb0
@@ -325,14 +455,25 @@ theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c
       exact result_sorted h hk hvs hab'
     · rw [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)] at hab'
       subst hab'
-      have := appE_symP (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
+      have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
         (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) a
       simp only [List.map_nil, List.append_nil, List.nil_append] at this
       exact result_sorted h hk hvs (this.mp happ)
 
+end AtT
+
+/-- **Arity**: every symbol maps the values of its argument sorts into its result sort. -/
+theorem sat_symArity (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) :
+    stdI c ⊧ᴵ (symArityItem c k).pat :=
+  AtT.sat_symArity (c := c) (T := StepM c) (h := h) (k := k) (hk := hk)
+
 /-! ## The definedness symbols, next, domain values -/
 
-theorem sat_ceilArity : stdI c ⊧ᴵ KoreAML.ceilArityItem.pat := by
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_ceilArity : stdI_T c T ⊧ᴵ KoreAML.ceilArityItem.pat := by
   intro e m
   unfold KoreAML.ceilArityItem
   dsimp only
@@ -349,7 +490,16 @@ theorem sat_ceilArity : stdI c ⊧ᴵ KoreAML.ceilArityItem.pat := by
   subst h1 h2
   exact (ceilE_iff s s' x a).mp h4
 
-theorem sat_ceilDef : stdI c ⊧ᴵ KoreAML.ceilDefItem.pat := by
+end AtT
+
+theorem sat_ceilArity : stdI c ⊧ᴵ KoreAML.ceilArityItem.pat :=
+  AtT.sat_ceilArity (c := c) (T := StepM c)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_ceilDef : stdI_T c T ⊧ᴵ KoreAML.ceilDefItem.pat := by
   intro e m
   unfold KoreAML.ceilDefItem
   dsimp only
@@ -369,11 +519,20 @@ theorem sat_ceilDef : stdI c ⊧ᴵ KoreAML.ceilDefItem.pat := by
     exact ⟨.srt s, .srt s', e.evalEvar ⟨3⟩, by rw [KoreAML.interp_evar, hs], by rw [KoreAML.interp_evar, hs'],
       rfl, (ceilE_iff s s' _ a).mpr ha⟩
 
+end AtT
+
+theorem sat_ceilDef : stdI c ⊧ᴵ KoreAML.ceilDefItem.pat :=
+  AtT.sat_ceilDef (c := c) (T := StepM c)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_nextArity (hn : NamesApartK c) :
-    stdI c ⊧ᴵ (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat := by
   intro e m
   show (KoreAML.sNext (KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName topCellSort)))) ⊆⊆
-    KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName topCellSort)))).interpret (stdI c) e m
+    KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ c.sortName topCellSort)))).interpret (stdI_T c T) e m
   rw [KoreAML.interp_included defOK_std]
   intro a ha
   rw [inhOf_sort hn top_numbered]
@@ -382,7 +541,7 @@ theorem sat_nextArity (hn : NamesApartK c) :
   obtain ⟨a0, b0, ha0, -, hab⟩ := ha
   have ha0' : a0 = .app .next [] := ha0
   subst ha0'
-  have hst : StepE c a b0 := hab
+  have hst : StepE_T c T a b0 := hab
   cases a with
   | val x =>
     cases b0 with
@@ -392,7 +551,17 @@ theorem sat_nextArity (hn : NamesApartK c) :
   | srt _ => exact hst.elim
   | app _ _ => exact hst.elim
 
-theorem sat_dvArity (lit : String) : stdI c ⊧ᴵ (KoreAML.dvArityItem lit).pat := by
+end AtT
+
+theorem sat_nextArity (hn : NamesApartK c) :
+    stdI c ⊧ᴵ (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat :=
+  AtT.sat_nextArity (c := c) (T := StepM c) (hn := hn)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_dvArity (lit : String) : stdI_T c T ⊧ᴵ (KoreAML.dvArityItem lit).pat := by
   intro e m
   unfold KoreAML.dvArityItem
   dsimp only
@@ -411,8 +580,17 @@ theorem sat_dvArity (lit : String) : stdI c ⊧ᴵ (KoreAML.dvArityItem lit).pat
   show c.sortOf (.dv s l) = some s
   rw [Semantics.sortOf, if_pos hl]
 
+end AtT
+
+theorem sat_dvArity (lit : String) : stdI c ⊧ᴵ (KoreAML.dvArityItem lit).pat :=
+  AtT.sat_dvArity (c := c) (T := StepM c) (lit := lit)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **`SatSigGoal`**: the value model satisfies the signature. -/
-theorem satSigGoal (h : HypModelCore c) : SatSigGoal c := by
+theorem satSigGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓSig c) := by
   intro φ hφ
   rcases hφ with hφ | ⟨lit, rfl⟩
   · refine sat_itemsPremises c (fun it hit => ?_) φ hφ
@@ -426,6 +604,12 @@ theorem satSigGoal (h : HypModelCore c) : SatSigGoal c := by
     · exact sat_ceilDef
     · exact sat_nextArity h.namesK
   · exact sat_dvArity lit
+
+end AtT
+
+/-- **`SatSigGoal`**: the value model satisfies the signature. -/
+theorem satSigGoal (h : HypModelCore c) : SatSigGoal c :=
+  AtT.satSigGoal (c := c) (T := StepM c) (h := h)
 
 end Model
 

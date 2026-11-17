@@ -18,8 +18,7 @@
 
   The value model at a transition T (`Faithful.Model.sat_rule_T`, `satRulesGoal_T`): under `FnDet`
   and `FnSolves`, the axiom of each admitted rule holds at the transition that relates x and y where
-  some `StepMAt` instance of the rule does (the rule need not be one of the definition's, whose rules
-  have no existential variable); `satRulesGoal_T` at the definition's rules; and the landed
+  some `StepMAt` instance of the rule does (the rule need not be one of the definition's); `satRulesGoal_T` at the definition's rules; and the landed
   `satRulesGoal_open` is `satRulesGoal_T` at `T := StepM c`. The step's closure
   (`Faithful.Model.closureDisjunct_T`, `satStepGoal_T`): a `StepMAt` step by each admitted rule lies
   in the rule's disjunct of the closure at any T; `satStepGoal_T` at `StepM`; and the landed
@@ -41,11 +40,11 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 /-- The symbols `cfg` and the rules name. -/
-example : c.symName 71 = "Lbl'-LT-'generatedTop'-GT-'" ∧ c.symName 379 = "Lbl'-LT-'k'-GT-'" ∧
-    c.symName 0 = "kseq" ∧ c.symName 382 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
+example : c.symName 71 = "Lbl'-LT-'generatedTop'-GT-'" ∧ c.symName 383 = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName 0 = "kseq" ∧ c.symName 386 = "Lblb" ∧ c.symName 73 = "Lbl'-LT-'generatedCounter'-GT-'" ∧
     c.sortName 32 = "Exp" ∧ c.sortName 1 = "KItem" := by
   decide +kernel
 
@@ -133,9 +132,8 @@ open Faithful Faithful.Model
 theorem coreOK : c.coreOK = true := by decide +kernel
 
 /-- The rules of the definition have `ruleSorted` and `rulePlainEx`. -/
-theorem hrulesC : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun r hr =>
-  ⟨(Semantics.ruleFactsOpen_of_core coreOK r hr).1,
-   (Semantics.rulePlainOpen_iff_ex.mp (Semantics.ruleFactsOpen_of_core coreOK r hr).2).1⟩
+theorem hrulesC : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
+  Semantics.ruleFactsEx_of_core coreOK
 
 /-- The transition of a rule's own instances. -/
 def ownT (r : Rule) (x y : GroundTerm) : Prop := ∃ σ, StepMAt c r σ x y
@@ -163,9 +161,9 @@ example (hd : FnDet c) (hs : FnSolves c) :
    sat_own hd hs exTwo_ex.1 exTwo_ex.2.1 (by rw [exTwo_ex.2.2.2.1]; exact List.cons_ne_nil _ _),
    sat_own hd hs exUnsat_ex.1 exUnsat_ex.2.1 (by rw [exUnsat_ex.2.2.2.1]; exact List.cons_ne_nil _ _)⟩
 
-/-- `satRulesGoal_T` at the definition's rules at `StepM`. The rules of
-a definition `coreOK` accepts have no existential variable on this line, so `hsome` is not read
-here; the instances with existential variables are `sat_rule_T`'s above. -/
+/-- `satRulesGoal_T` at the definition's rules at `StepM`. `c`'s rules
+have no existential variable, so `hsome` is not read here; the instances with existential variables
+are `sat_rule_T`'s above, and `satRulesGoal_T` at `cX` (end of file). -/
 example (hd : FnDet c) (hs : FnSolves c) :
     (stdI_T c (StepM c) ⊧ᴵP ΓRules c) := by
   exact satRulesGoal_T (hypModel_of_fn coreOK hd hs) hrulesC (StepM c)
@@ -229,9 +227,8 @@ end ExRules
     the rule not one of the definition's;
   - `step_iff_stdI_T` at the transition of `exA`'s own instances (`ownT`), not `StepM`;
   - `stdI_T_model`, `stdI_model_ex`, `has_model_choice_ex` and `consistent_ex` at the definition's
-    rules. A definition `coreOK` accepts has no rule with existential variables on this line
-    (`rulesPlain`), so there `hsome` is read at no rule; their instances with existential
-    variables come when `rulesPlain` admits them;
+    rules. `c`'s rules have no existential variable, so there `hsome` is read at no rule; their
+    instances at a definition with one are at `cX` (end of file);
   - the landed `stdI_modelOpen`, `consistent_open`, `has_model_choice_open` and the pinned
     `has_model_choice`, `consistent_of` as terms over the new statements (`type_of%`). -/
 
@@ -313,7 +310,7 @@ theorem hrulesEx_of_openC {c : Semantics}
 
 theorem hrulesEx_of_coreC {c : Semantics} (h : c.coreOK = true) :
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
-  hrulesEx_of_openC (Semantics.ruleFactsOpen_of_core h)
+  Semantics.ruleFactsEx_of_core h
 
 example : type_of% @stdI_modelOpen := fun c h hm hr => stdI_model_ex c h hm (hrulesEx_of_openC hr)
 example : type_of% @consistent_open := fun c h hd hs hr => consistent_ex c h hd hs (hrulesEx_of_openC hr)
@@ -394,6 +391,49 @@ example (hf : FnHyp cR) (x y : Config cR) (r : Rule) (σ : Subst) (hs : ∃ y₀
   famEx_values_ex cR coreR.1 hf (hrulesEx_of_coreC coreR.1) x y r σ hs hy
 
 example : type_of% @famEx_values := fun c h hf => famEx_values_ex c h hf (hrulesEx_of_coreC h)
+
+/-! ## The outcomes of a match (`KCore.Faithful.famOpen_stepEx`, `KCore.famOpen_values_ex`)
+
+  `exB`'s one open variable is its existential one, of the confined sort Bool: in any model of
+  `Γc cR`, an element of `famOpen cR exB σ` at a match σ is a configuration's element, the right
+  side's value under a σ' that agrees with σ on the left side (`famOpen_stepEx`; `exB` is not one of
+  `cR`'s rules). `famOpen_values_ex` at the definition's rules, and the pinned `famOpen_values` as a
+  term over it (`type_of%`). -/
+
+/-- The open variables of `exB` are of confined sorts. -/
+theorem exB_confOpens : ∀ i ∈ exB.opens, (exB.vars[i]?.map cR.confined).getD false = true := by
+  decide +kernel
+
+section FamOpen
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `famOpen_stepEx` at `exB`. -/
+example (hft : FnTerminates cR) (hI : I ⊧ᴵP Γc cR)
+    (hcw : ∀ fn ∈ cR.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cR = true → cl.CondDecided cR)
+    {x : Config cR} {σ : Subst} (hσ : cR.WellSortedAt exB.vars (varOccs exB.lhs) σ)
+    (hmatch : PatVal cR σ exB.lhs x.val) (e : ML.Valuation M) (m : M) (hm : (famOpen cR exB σ).interpret I e m) :
+    ∃ (y : Config cR) (σ' : Subst), (∀ i ∈ varOccs exB.lhs, σ'.lookup i = σ.lookup i) ∧
+      EvalTerm cR σ' exB.rhs (some y.val) ∧ (den cR y.val).interpret I e m := by
+  obtain ⟨y, σ', hag, -, -, -, -, hv, -, -, hy⟩ := famOpen_stepEx coreR.1 hft hI hcw coreR.2.2.2.1.1
+    coreR.2.2.2.1.2 exB_confOpens (fun _ => coreR.2.1) hσ hmatch e m hm
+  exact ⟨y, σ', hag, hv, hy⟩
+
+end FamOpen
+
+open Faithful in
+/-- `famOpen_values_ex` at the definition's rules. -/
+example (hf : FnHyp cR) (x : Config cR) (r : Rule) (hr : r ∈ cR.rules) (σ : Subst) (hu : Unblocked cR r σ x.val)
+    (hcf : ∀ i ∈ r.opens, (r.vars[i]?.map cR.confined).getD false = true) (ys : List GroundTerm)
+    (hys : ∀ y : Config cR, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy cR r σ' x y) →
+      y.val ∈ ys) :
+    Γc cR ⊧ (famOpen cR r σ ⇒ KoreAML.disjList (ys.map (den cR))) :=
+  famOpen_values_ex cR coreR.1 hf x r hr (hrulesEx_of_coreC coreR.1 r hr).1 (hrulesEx_of_coreC coreR.1 r hr).2
+    σ hu hcf ys hys
+
+example : type_of% @famOpen_values := fun c h hf x r hr =>
+  famOpen_values_ex c h hf x r hr (hrulesEx_of_coreC h r hr).1 (hrulesEx_of_coreC h r hr).2
 
 end ExRules
 
@@ -479,10 +519,11 @@ end ExRules
   valuation copied at the variables other than the existential ones (`copyVEx_at`, `copyVEx_off`),
   and the two cases of a successor the axiom gives (`successor_split_ex`). `cA`: the text's
   semantics with `exA` and `exTwo` among its rules, each rule with `ruleSorted` and `rulePlainEx`
-  (decided; `cA` is not `coreOK`, whose `rulesPlain` asks for no existential variable): in any model
+  (decided; `cA` is not asked to be `coreOK`): in any model
   of `Γc cA` with the step's closure, a successor is given by a rule's axiom
   (`step_successor_axiomEx`). `step_successor_ex` and `complete_at_ex` read `coreOK`, so they stand
-  at the definition's rules only, which have no existential variable on this line. A competitor's
+  at the definition's rules only (here `c`'s, without existential variables; at `cX`, end of
+  file, with one). A competitor's
   `NotApplies` back from its existential variables read as ordinary ones (`notApplies_ofDropExs`).
   `stepDecided_of_rules_ex` at the definition's rules; the landed `complete_at_open`,
   `stepDecided_of_rules` and the pinned `complete_at` as terms over the new statements (`type_of%`),
@@ -582,8 +623,8 @@ end ExRules
   In any model of `Γc cR`, at `exA` (arm A), `exB` (arm B, Bool confined) and `exTwo` (both), not
   `cR`'s rules: a successor in the right side `∃ē. (rhs ∧ ens)` gives the step's values
   (`stepVals_of_right_ex`); neither rule needs a witness. `step_of_successor_ex` and `exact_ex`
-  read `coreOK` and every rule's facts, so they stand at the definition's rules (`c`, `cR`), which
-  have no existential variable on this line. The landed `step_of_successorOpen`, `exact_open` and
+  read `coreOK` and every rule's facts, so they stand at the definition's rules (`c`, `cR`, which have no existential variable;
+  `exact_hyp` at `cX`, end of file). The landed `step_of_successorOpen`, `exact_open` and
   the pinned `exact_hyp` as terms over the new statements (`type_of%`). -/
 
 namespace ExRules
@@ -621,5 +662,145 @@ example : type_of% @step_of_successorOpen := @fun c h hf hr _ _ _ hI x y e hs =>
   step_of_successor_ex c h hf (hrulesEx_of_openC hr) hI x y e hs
 example : type_of% @exact_open := fun c h hf hr => exact_ex c h hf (hrulesEx_of_openC hr)
 example : type_of% @exact_hyp := fun c h hf => exact_ex c h hf (hrulesEx_of_coreC h)
+
+end ExRules
+
+/-! # After the flip: a definition `coreOK` accepts with a rule with existential variables
+
+  `rulesPlain` asks `rulePlainEx` of each rule (`Semantics.rulesPlain_iff_ex`), no longer
+  `r.exs = []`. `cX`, the text's semantics with `exTwo` (`a() => b(?X:Int) ensures ?B:Bool`: X by
+  arm A, B by arm B), has `coreOK` and `rulesPlain` (`coreX`), and `exTwo` is one of its rules. At
+  `cX`'s rules, whose facts `coreOK` gives (`Semantics.ruleFactsEx_of_core`): `satRulesGoal_T` and
+  `stdI_T_model` at `StepM` with `hsome` read at `exTwo`, `satStepGoal_T`, `stdI_model_ex`,
+  `consistent_ex`, `has_model_choice_ex` at `Step`, `stepMBy_of_stepBy_ex` and `stepBy_of_stepMBy_ex`
+  at a step by `exTwo`, `famEx_values_ex`, `sound_at_ex`, `complete_at_ex`, `step_successor_ex`; and
+  the pinned `consistent_of`, `has_model_choice`, `famEx_values`, `sound_at`, `complete_at`,
+  `exact_hyp` at `cX`. `FnDet`, `FnSolves`, `FnHyp` and the witnesses are hypotheses, as above. -/
+
+namespace ExRules
+
+/-- The text's semantics with `exTwo`. -/
+noncomputable abbrev cX : Semantics := { c with rules := c.rules ++ [exTwo] }
+
+theorem coreX : cX.coreOK = true ∧ cX.rulesPlain = true ∧ exTwo.exs = [2, 3] := by
+  decide +kernel
+
+theorem exTwo_memX : exTwo ∈ cX.rules := List.mem_append_right _ (List.mem_singleton_self _)
+
+/-- `cX` has a rule with existential variables: the instances below read `hsome` there. -/
+theorem exs_someX : ∃ r ∈ cX.rules, r.exs ≠ [] :=
+  ⟨exTwo, exTwo_memX, by rw [coreX.2.2]; exact List.cons_ne_nil _ _⟩
+
+/-- The rules' facts at `cX`, from `coreOK`. -/
+theorem hrulesX : ∀ r ∈ cX.rules, cX.ruleSorted r = true ∧ cX.rulePlainEx r = true :=
+  Semantics.ruleFactsEx_of_core coreX.1
+
+section FlipX
+open Faithful Faithful.Model
+
+/-- `satRulesGoal_T` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
+example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP ΓRules cX :=
+  satRulesGoal_T (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX)
+    (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
+    (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
+
+/-- `satStepGoal_T` at `cX`'s rules at `StepM`. -/
+example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP Γstep cX :=
+  satStepGoal_T (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+
+/-- `stdI_T_model` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
+example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP (Γc cX ∪ Γstep cX) :=
+  stdI_T_model cX coreX.1 (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+    (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
+    (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
+
+example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep cX) :=
+  stdI_model_ex cX coreX.1 (hypModel_of_fn coreX.1 hd hs) hrulesX
+
+example (hd : FnDet cX) (hs : FnSolves cX) : Consistent cX := consistent_ex cX coreX.1 hd hs hrulesX
+
+/-- The pinned `consistent_of` at `cX`. -/
+example (hd : FnDet cX) (hs : FnSolves cX) (hl : OpenLaws cX) : Consistent cX :=
+  consistent_of cX coreX.1 hd hs hl
+
+/-- `has_model_choice_ex` and the pinned `has_model_choice` at `T := Step cX`: `hsome` read at
+`exTwo`'s steps. -/
+example (hf : FnHyp cX) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+    (I ⊧ᴵP (Γc cX ∪ Γstep cX)) ∧
+      ∀ x y : Config cX, Step cX x y ↔ ¬ (I ⊧ᴵ (den cX x.val ⇒ ∼ KoreAML.sNext (den cX y.val))) :=
+  has_model_choice_ex cX coreX.1 hf hrulesX (Step cX) (fun _ _ hst => hst)
+    (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
+    (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+
+example (hf : FnHyp cX) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+    (I ⊧ᴵP (Γc cX ∪ Γstep cX)) ∧
+      ∀ x y : Config cX, Step cX x y ↔ ¬ (I ⊧ᴵ (den cX x.val ⇒ ∼ KoreAML.sNext (den cX y.val))) :=
+  has_model_choice cX coreX.1 hf (Step cX) (fun _ _ hst => hst)
+    (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
+    (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+
+/-- `stepMBy_of_stepBy_ex` and `stepBy_of_stepMBy_ex` at a step by `exTwo`. -/
+example (hd : FnDet cX) {σ : Subst} {x y : Config cX} (hb : StepBy cX exTwo σ x y) :
+    StepMBy cX exTwo σ x.val y.val :=
+  stepMBy_of_stepBy_ex hd hrulesX hb
+
+example (hft : FnTerminates cX) {σ : Subst} {x y : Config cX} (hb : StepMBy cX exTwo σ x.val y.val) :
+    StepBy cX exTwo σ x y :=
+  stepBy_of_stepMBy_ex coreX.1 hft hrulesX hb
+
+/-- `famEx_values_ex` and the pinned `famEx_values` at an application of `exTwo`. -/
+example (hf : FnHyp cX) (x y : Config cX) (σ : Subst) (hs : ∃ y₀, StepBy cX exTwo σ x y₀)
+    (hy : Γc cX ⊧ (den cX y.val ⇒ famEx cX exTwo σ)) :
+    ∃ σ', (∀ i, ¬ i ∈ exTwo.exs → σ'.lookup i = σ.lookup i) ∧ StepBy cX exTwo σ' x y :=
+  famEx_values_ex cX coreX.1 hf hrulesX x y exTwo σ hs hy
+
+example (hf : FnHyp cX) (x y : Config cX) (σ : Subst) (hs : ∃ y₀, StepBy cX exTwo σ x y₀)
+    (hy : Γc cX ⊧ (den cX y.val ⇒ famEx cX exTwo σ)) :
+    ∃ σ', (∀ i, ¬ i ∈ exTwo.exs → σ'.lookup i = σ.lookup i) ∧ StepBy cX exTwo σ' x y :=
+  famEx_values cX coreX.1 hf x y exTwo σ hs hy
+
+/-- `sound_at_ex` and the pinned `sound_at` at a step by `exTwo`. -/
+example (x y : Config cX) (σ : Subst) (hs : StepBy cX exTwo σ x y)
+    (hw : ∀ r' ∈ cX.rules, r'.prio < exTwo.prio → r'.needsWitness cX = true →
+      (∃ σ', PatVal cX σ' r'.lhs x.val) → r'.CondDecided cX)
+    (hc : ∀ fn ∈ cX.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cX = true → cl.CondDecided cX) :
+    (Γc cX ⊧ (den cX x.val ⇒ KoreAML.sNext (famEx cX exTwo σ))) ∧ (Γc cX ⊧ (den cX y.val ⇒ famEx cX exTwo σ)) :=
+  sound_at_ex cX coreX.1 hrulesX x y exTwo σ hs hw hc
+
+example (x y : Config cX) (σ : Subst) (hs : StepBy cX exTwo σ x y)
+    (hw : ∀ r' ∈ cX.rules, r'.prio < exTwo.prio → r'.needsWitness cX = true →
+      (∃ σ', PatVal cX σ' r'.lhs x.val) → r'.CondDecided cX)
+    (hc : ∀ fn ∈ cX.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cX = true → cl.CondDecided cX) :
+    (Γc cX ⊧ (den cX x.val ⇒ KoreAML.sNext (famEx cX exTwo σ))) ∧ (Γc cX ⊧ (den cX y.val ⇒ famEx cX exTwo σ)) :=
+  sound_at cX coreX.1 x y exTwo σ hs hw hc
+
+/-- `complete_at_ex` and the pinned `complete_at` at `cX`, `StepDecided` from `FnHyp`. -/
+example (hf : FnHyp cX) (x : Config cX) (os : List Outcome)
+    (hval : ∀ (y : Config cX) (r : Rule) (σ : Subst), r.opens = [] → StepBy cX r σ x y → .val y.val ∈ os)
+    (hfam : ∀ r ∈ cX.rules, r.opens ≠ [] → ∀ σ, Unblocked cX r σ x.val →
+      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os) :
+    (Γc cX ∪ Γstep cX) ⊧ (den cX x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat cX)))) :=
+  complete_at_ex cX coreX.1 hrulesX x (stepDecided_of_fnHyp coreX.1 hf x) os hval hfam hf.2.2.2.2.1.2
+
+example (hf : FnHyp cX) (x : Config cX) (os : List Outcome)
+    (hval : ∀ (y : Config cX) (r : Rule) (σ : Subst), r.opens = [] → StepBy cX r σ x y → .val y.val ∈ os)
+    (hfam : ∀ r ∈ cX.rules, r.opens ≠ [] → ∀ σ, Unblocked cX r σ x.val →
+      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os) :
+    (Γc cX ∪ Γstep cX) ⊧ (den cX x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat cX)))) :=
+  complete_at cX coreX.1 x (stepDecided_of_fnHyp coreX.1 hf x) os hval hfam hf.2.2.2.2.1.2
+
+/-- `step_successor_ex` at `cX`. -/
+example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hf : FnHyp cX) (x : Config cX)
+    (hI : I ⊧ᴵP (Γc cX ∪ Γstep cX)) (e : ML.Valuation M) (ψ : KoreAML.P)
+    (hs : (KoreAML.sNext ψ).interpret I e (elemOf cX I x.val)) :
+    ∃ b, ψ.interpret I e b ∧
+      ((∃ (y : Config cX) (r : Rule) (σ : Subst), r.opens = [] ∧ StepBy cX r σ x y ∧ b = elemOf cX I y.val) ∨
+       (∃ r ∈ cX.rules, r.opens ≠ [] ∧ ∃ σ, Unblocked cX r σ x.val ∧ (famOpen cX r σ).interpret I e b)) :=
+  step_successor_ex coreX.1 hrulesX x (stepDecided_of_fnHyp coreX.1 hf x) hI hf.2.2.2.2.1.2 e ψ hs
+
+/-- The pinned `exact_hyp` at `cX`. -/
+example (hf : FnHyp cX) : ExactC cX := exact_hyp cX coreX.1 hf
+
+end FlipX
 
 end ExRules

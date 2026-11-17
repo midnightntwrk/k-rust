@@ -1,9 +1,9 @@
 command: kompile --backend haskell e2-clause-genless-arg.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 2.2
 definition.kore bytes: 216027
 definition.kore sha256: e83e8eaef6005c3efa92049b2ea74d6f64097c14576bbec9953f189ff30d96f5
-stripped sha256: ab3418febff3e02fca3bcf8c8792b445bdcfb8f83c72208d6bb3ced3205028df
+stripped sha256: ebba59ad67db3891588381b0b36185fa14c4d45fa22bfa71fc2379f8a1458325
 main module: 422 sentences, 66 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name

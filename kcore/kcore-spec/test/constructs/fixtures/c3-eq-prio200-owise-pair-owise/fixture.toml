@@ -1,0 +1,3 @@
+# the manual's pair, its [owise] text (k/docs/user_manual.md, "owise and priority attributes": rule foo(0) => 0 and rule foo(_) => 1 [owise]); companion of c3-eq-prio200-owise-pair, the text with [priority(200)] in place of [owise] (findings/C3-competitor-review.md section 2.3, second reason)
+# the file and module are named foo.k and FOO in both fixtures: the manual's foo(Int) [function] has no symbol attribute, so kompile's label for foo holds the module name, and one name keeps the two texts' labels equal
+main = "foo.k"

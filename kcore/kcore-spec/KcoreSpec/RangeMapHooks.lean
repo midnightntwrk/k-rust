@@ -90,7 +90,8 @@ merging and cutting build have the sort of the ranges given. -/
 theorem sortOf_rangeT (c : Semantics) (a b a' b' : Int) : c.sortOf (rangeT a b) = c.sortOf (rangeT a' b') := by
   have hs : c.sortsOf [kint a, kint b] = c.sortsOf [kint a', kint b'] := by
     simp only [Semantics.sortsOf, sortOf_kint c a a', sortOf_kint c b b']
-  simp only [rangeT, Semantics.sortOf, hs, uncovered_kint c rangeCtor a b a' b']
+  simp only [rangeT, Semantics.sortOf, hs, uncovered_kint c rangeCtor a b a' b',
+    c.lookupOpen_reg (show rangeCtor < nRegSyms by decide)]
 
 /-- The entries of a range map value are triples: every key is a proper range. -/
 theorem rmTriples_of_rangesOK : ∀ {es : Entries}, rangesOK es = true → (rmTriples es).isSome = true

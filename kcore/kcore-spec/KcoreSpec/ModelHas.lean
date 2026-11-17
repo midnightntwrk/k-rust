@@ -18,6 +18,7 @@ import KcoreSpec.ModelNamesWitness
 import KcoreSpec.ModelDupCtorWitness
 import KcoreSpec.ModelFnCtorWitness
 import KcoreSpec.OpenConsistent
+import KcoreSpec.ExStepT
 
 set_option autoImplicit false
 -- the witnesses' conditions decided in the kernel enumerate `hookSigs` (`itesApart` compares every
@@ -46,12 +47,12 @@ theorem has_model_step_of_hyp (h : HypModelCore c) (h2 : SatConsGoal c) (h5 : Sa
   has_model_step_of c (satSigGoal h) h2 (satDomainsGoal h) (satCollsGoal h) h5 h6 h7 (satFallbackGoal h)
 
 /-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model. Of the
-rules it reads `ruleSorted` and `rulePlainOpen` (`satRulesGoal_open`, `satStepGoal_open`). -/
+rules it reads `ruleSorted` and `rulePlainEx` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
 theorem has_model_core (h : HypModelCore c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
   has_model_step_of c (satSigGoal h) (satConsGoal h) (satDomainsGoal h) (satCollsGoal h) (satFnsGoal h)
-    (satRulesGoal_open h (fun _ hr => h.ruleFactsOpen hr))
-    (satStepGoal_open h (fun _ hr => h.ruleFactsOpen hr)) (satFallbackGoal h)
+    (satRulesGoal_StepM h (fun _ hr => h.ruleFactsEx hr))
+    (satStepGoal_StepM h (fun _ hr => h.ruleFactsEx hr)) (satFallbackGoal h)
 
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
 (`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/

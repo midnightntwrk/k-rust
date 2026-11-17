@@ -63,21 +63,31 @@ mutual
       · exact List.mem_append_right _ (kore_freeOfList c vs ts h)
 end
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sNext_iff (φ : KoreAML.P) (e : Valuation Elem) (x : GroundTerm) :
-    (KoreAML.sNext φ).interpret (stdI c) e (.val x) ↔ ∃ y, φ.interpret (stdI c) e (.val y) ∧ StepE c (.val x) (.val y) := by
+    (KoreAML.sNext φ).interpret (stdI_T c T) e (.val x) ↔ ∃ y, φ.interpret (stdI_T c T) e (.val y) ∧ StepE_T c T (.val x) (.val y) := by
   unfold KoreAML.sNext
   rw [KoreAML.interp_app]
   constructor
   · rintro ⟨a0, b0, ha0, hb, hab⟩
     have ha0' : a0 = .app .next [] := ha0
     subst ha0'
-    have hst : StepE c (.val x) b0 := hab
+    have hst : StepE_T c T (.val x) b0 := hab
     cases b0 with
     | val y => exact ⟨y, hb, hst⟩
     | srt _ => exact hst.elim
     | app _ _ => exact hst.elim
   · rintro ⟨y, hy, hst⟩
     exact ⟨.app .next [], .val y, rfl, hy, hst⟩
+
+end AtT
+
+theorem sNext_iff (φ : KoreAML.P) (e : Valuation Elem) (x : GroundTerm) :
+    (KoreAML.sNext φ).interpret (stdI c) e (.val x) ↔ ∃ y, φ.interpret (stdI c) e (.val y) ∧ StepE c (.val x) (.val y) :=
+  AtT.sNext_iff (c := c) (T := StepM c) (φ := φ) (e := e) (x := x)
 
 /-- The right-hand side of a rule, at the configuration sort, and its value. -/
 theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {tbl : KoreAML.VarTable} {e : Valuation Elem}

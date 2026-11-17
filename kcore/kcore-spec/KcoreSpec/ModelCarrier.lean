@@ -274,35 +274,77 @@ theorem stepE_eq_T : StepE c = StepE_T c (StepM c) := rfl
 
 /-! ## What it satisfies -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- `⌈φ⌉` is everything wherever `φ` is not empty. -/
 theorem defined_app (φ : KoreAML.P) (e : Valuation Elem) (m : Elem) :
-    (⌈φ⌉ : KoreAML.P).interpret (stdI c) e m ↔ ∃ a, φ.interpret (stdI c) e a := by
+    (⌈φ⌉ : KoreAML.P).interpret (stdI_T c T) e m ↔ ∃ a, φ.interpret (stdI_T c T) e a := by
   simp only [Pattern.interpret]
   constructor
   · rintro ⟨d, a, -, ha, -⟩; exact ⟨a, ha⟩
   · rintro ⟨a, ha⟩
     exact ⟨.app .defined [], a, rfl, ha, True.intro⟩
 
+end AtT
+
+/-- `⌈φ⌉` is everything wherever `φ` is not empty. -/
+theorem defined_app (φ : KoreAML.P) (e : Valuation Elem) (m : Elem) :
+    (⌈φ⌉ : KoreAML.P).interpret (stdI c) e m ↔ ∃ a, φ.interpret (stdI c) e a :=
+  AtT.defined_app (c := c) (T := StepM c) (φ := φ) (e := e) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **Definedness holds**: `∀x. ⌈x⌉`. -/
-theorem model_sat_definedness (x : EVar) : stdI c ⊧ᴵ @definedness KoreAML.Sym _ x := by
+theorem model_sat_definedness (x : EVar) : stdI_T c T ⊧ᴵ @definedness KoreAML.Sym _ x := by
   intro e m
   simp only [definedness, Pattern.interpret]
   rintro ⟨a, ha⟩
   exact ha ⟨.app .defined [], _, rfl, rfl, True.intro⟩
 
+end AtT
+
+/-- **Definedness holds**: `∀x. ⌈x⌉`. -/
+theorem model_sat_definedness (x : EVar) : stdI c ⊧ᴵ @definedness KoreAML.Sym _ x :=
+  AtT.model_sat_definedness (c := c) (T := StepM c) (x := x)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- A list of items holds in the model when each item's pattern does: `itemsPremises` adds only
 the definedness axiom. -/
-theorem sat_itemsPremises {its : List KoreAML.Item} (h : ∀ it ∈ its, stdI c ⊧ᴵ it.pat) :
-    stdI c ⊧ᴵP KoreAML.itemsPremises its := by
+theorem sat_itemsPremises {its : List KoreAML.Item} (h : ∀ it ∈ its, stdI_T c T ⊧ᴵ it.pat) :
+    stdI_T c T ⊧ᴵP KoreAML.itemsPremises its := by
   rintro φ (⟨it, hit, rfl⟩ | ⟨x, rfl⟩)
   · exact h it hit
   · exact model_sat_definedness c x
+
+end AtT
+
+/-- A list of items holds in the model when each item's pattern does: `itemsPremises` adds only
+the definedness axiom. -/
+theorem sat_itemsPremises {its : List KoreAML.Item} (h : ∀ it ∈ its, stdI c ⊧ᴵ it.pat) :
+    stdI c ⊧ᴵP KoreAML.itemsPremises its :=
+  AtT.sat_itemsPremises (c := c) (T := StepM c) (its := its) (h := h)
 
 /-! ## What remains: the goals -/
 
 /-- **The reading lemma**: a value of a sort denotes its own element. -/
 def DenGoal : Prop := ∀ (v : GroundTerm) (s : Srt), c.sortOf v = some s → ∀ (e : Valuation Elem) (m : Elem),
   (den c v).interpret (stdI c) e m ↔ m = .val v
+
+namespace AtT
+
+/-- Every value of a sort denotes exactly its own element in the value model at `T`. -/
+def DenGoalT (c : Semantics) (T : GroundTerm → GroundTerm → Prop) : Prop :=
+  ∀ (v : GroundTerm) (s : Srt), c.sortOf v = some s → ∀ (e : ML.Valuation Elem) (m : Elem),
+    (den c v).interpret (stdI_T c T) e m ↔ m = .val v
+
+end AtT
 
 /-- Each item of the signature holds (definedness aside, `model_sat_definedness`), and every
 domain value's arity (`dvArityAll`). -/

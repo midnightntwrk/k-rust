@@ -50,7 +50,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def appendS : Sym := 383
+def appendS : Sym := 387
 
 theorem append_named : c.symName appendS = "append" := by decide +kernel
 
@@ -102,7 +102,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def initCtr : Sym := 384
+def initCtr : Sym := 388
 
 theorem init_named : c.symName initCtr = "LblinitGeneratedCounterCell" := by decide +kernel
 

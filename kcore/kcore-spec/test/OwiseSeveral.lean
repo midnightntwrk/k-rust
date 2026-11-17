@@ -60,7 +60,7 @@ definition_of defn from "f2-examples/owise2.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- `f`, the definition's function. -/
-def f : Sym := 383
+def f : Sym := 387
 
 theorem f_named : c.symName f = "Lblf" := by decide +kernel
 

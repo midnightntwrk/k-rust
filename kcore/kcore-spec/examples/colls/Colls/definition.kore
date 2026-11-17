@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+    "Source(kcore-spec/f2-examples/colls.k)"
   )
 ]
 module BASIC-K
@@ -1032,7 +1032,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,17,8,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     ),
     symbol'Kywd'{}("pop")
   ]
@@ -1043,7 +1043,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,39,8,60)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     ),
     symbol'Kywd'{}("drop")
   ]
@@ -1054,7 +1054,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,63,8,87)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     ),
     symbol'Kywd'{}("bump")
   ]
@@ -1065,7 +1065,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,23,9,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     ),
     symbol'Kywd'{}("seq")
   ]
@@ -1077,7 +1077,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -1089,7 +1089,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitStackCell{}() : SortStackCell{} [function{}(), functional{}(), total{}()]
@@ -1101,7 +1101,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitSumCell{}() : SortSumCell{} [function{}(), functional{}(), total{}()]
@@ -1113,7 +1113,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitIdCell{}() : SortIdCell{} [function{}(), functional{}(), total{}()]
@@ -1125,7 +1125,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitBalCell{}() : SortBalCell{} [function{}(), functional{}(), total{}()]
@@ -1137,7 +1137,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitAcctCell{}() : SortAcctCellMap{} [function{}(), functional{}(), total{}()]
@@ -1167,7 +1167,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitAcctsCell{}() : SortAcctsCell{} [function{}(), functional{}(), total{}()]
@@ -1187,7 +1187,7 @@ module COLLS
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,11,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+      "Source(kcore-spec/f2-examples/colls.k)"
     )
   ]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
@@ -5521,7 +5521,7 @@ module COLLS
       UNIQUE'Unds'ID{}("2d2d7971d3312b7b42ebaeeb02485aba29a163edd5aa1ab7b582a3e478828d1d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,45)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+        "Source(kcore-spec/f2-examples/colls.k)"
       )
     ]
   axiom{}
@@ -5558,7 +5558,7 @@ module COLLS
       UNIQUE'Unds'ID{}("f6eb669f787e14777df929523d470dff822a60660ca9cad03217529912242d9a"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,102)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+        "Source(kcore-spec/f2-examples/colls.k)"
       )
     ]
   axiom{}
@@ -5592,7 +5592,7 @@ module COLLS
       UNIQUE'Unds'ID{}("62c6e89abb717570e65f8062f90e07955fd3b38691d6876313181e789bddaef0"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,72)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+        "Source(kcore-spec/f2-examples/colls.k)"
       )
     ]
   axiom{}
@@ -5648,7 +5648,7 @@ module COLLS
       UNIQUE'Unds'ID{}("71c489830b86e06db3d9cbfab36b94ba5fd343776f6ab5c1c995f51e2d5ba427"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,89)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+        "Source(kcore-spec/f2-examples/colls.k)"
       )
     ]
   axiom{R}
@@ -8170,6 +8170,6 @@ module COLLS
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,1,16,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/colls.k)"
+    "Source(kcore-spec/f2-examples/colls.k)"
   )
 ]

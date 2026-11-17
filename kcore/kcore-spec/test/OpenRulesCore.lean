@@ -25,8 +25,18 @@
     and reads a confined sort. `exclEmptyCl_of` at `clB` (`g(X) => 1 requires B`: its premise that
     the definition reads a confined sort holds at `cOC`), at `clP` and at `clW`
     (`g(1) => 1 requires H ==Int 0`, H:Int, `needsWitness`, `Witnessed` at H := 0, so
-    `CondDecided` is proved); `exclEmptyCl_core` at `clW`. The clauses are not `cOC`'s: a
-    definition with `coreOK` has no clause whose patterns leave a variable open.
+    `CondDecided` is proved); `exclEmptyCl_core` at `clW`. The clauses are not `cOC`'s:
+    `exclEmptyCl_core` asks every clause of the definition to bind its variables in its patterns
+    (`hbc`), which a definition holding `clW` does not (`cOW` below).
+  - `cOW`: `cOC` with `g`'s clauses `clW` and the `[owise]` clause. `coreOK`; `clW` `Witnessed`, so
+    `OpenDecided` (`odOW`); with `FnFacts` (the one named fact, `clW`'s match independence, by
+    hand: `miW`) `fnHyp_of_fnObligations` gives
+    `FnHyp cOW`, hence `StepDecided` at every configuration, `FnDet`, `FnSolves` and `Consistent`,
+    and the pinned `sound_at`, `famEx_closed`, `complete_at`, `consistent_of` there with every
+    hypothesis on the definition proved. `complete_at`'s `hval` and `hfam` (the outcomes of the
+    successors) stay hypotheses on the configuration. `hbc` is false at `cOW` (`not_hbcOW`): the
+    missing fact for `exclEmptyCl_core` there is `ModelFailsCl` from `Fails`, which
+    `modelFailsCl_of_core` derives through `hbc`.
   - Not instantiated non-vacuously: `CondDecided` at `test/OpenClauses.lean`'s `clH`
     (`f() => 0 requires 1 ==Int 2 *Int H`) and `clG` (`g(X) => 1 requires isC(H)`, H:S). Neither is
     `Witnessed`: no Int value solves `1 = 2 * H`, and S has no value (`opencl.k`: its one generator
@@ -53,7 +63,7 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 noncomputable def sK : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 1 0
 noncomputable def sC : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 2 0
@@ -219,16 +229,23 @@ example (hd : FnDet cO) (hs : FnSolves cO) : True := by
   have := @Faithful.Model.applies_iff_open cO h ok2 facts.2.2.1.1 facts.2.2.1.2.1
   trivial
 
-/-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts from `coreOK`. -/
+/-- The rules' open facts at `cO`: `ruleSorted` and `rulePlainEx` from `coreOK`, and no rule of
+`cO` has an existential variable (decided), which with `rulePlainEx` is `rulePlainOpen`. -/
+theorem hopenO : ∀ r ∈ cO.rules, cO.ruleSorted r = true ∧ cO.rulePlainOpen r = true := by
+  have hex : ∀ r ∈ cO.rules, r.exs = [] := by decide +kernel
+  exact fun r hr => ⟨(Semantics.ruleFactsEx_of_core coreO.1 r hr).1,
+    Semantics.rulePlainOpen_iff_ex.mpr ⟨(Semantics.ruleFactsEx_of_core coreO.1 r hr).2, hex r hr⟩⟩
+
+/-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts `hopenO`. -/
 example (x : Config cO) (hd : StepDecided cO x.val) {M : Type} [Inhabited M]
     {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cO)
     (hI2 : I ⊧ᴵP (Faithful.Γc cO ∪ Faithful.Γstep cO)) : True := by
-  have := @Faithful.successor_split_rule cO M _ I coreO.1 (Semantics.ruleFactsOpen_of_core coreO.1) x hd hI hcO
+  have := @Faithful.successor_split_rule cO M _ I coreO.1 hopenO x hd hI hcO
     okB facts.2.1.1 facts.2.1.2.1
-  have := Faithful.step_successor_open coreO.1 (Semantics.ruleFactsOpen_of_core coreO.1) x hd hI2 hcO
+  have := Faithful.step_successor_open coreO.1 hopenO x hd hI2 hcO
   trivial
 
-/-- The `_open` theorems at `cO`, the rules' facts from `coreOK`, every witness hypothesis proved. -/
+/-- The `_open` theorems at `cO`, the rules' facts `hopenO`, every witness hypothesis proved. -/
 example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy cO r σ x y)
     (hd : StepDecided cO x.val) (os : List Outcome)
     (hval : ∀ (y : Config cO) (r : Rule) (σ : Subst), r.opens = [] → StepBy cO r σ x y → .val y.val ∈ os)
@@ -237,7 +254,7 @@ example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy c
     (σ' : Subst) (hu : Unblocked cO okB σ' x.val) (ys : List GroundTerm)
     (hys : ∀ y : Config cO, (∃ σ'', (∀ i ∈ varOccs okB.lhs, σ''.lookup i = σ'.lookup i) ∧ StepBy cO okB σ'' x y) →
       y.val ∈ ys) : True := by
-  have hr := Semantics.ruleFactsOpen_of_core coreO.1
+  have hr := hopenO
   have := sound_at_open cO coreO.1 hr x y r σ hs (fun r' hr' _ hw _ => hwO r' hr' hw) hcO
   have := @complete_at_open cO coreO.1 hr x hd os hval hfam hcO
   have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2 hr
@@ -316,9 +333,9 @@ def clP : Clause := { vars := [Srt.int], pats := [.var 0], req := some (.app int
 /-- `g(1) => 1 requires H ==Int 0` -/
 def clW : Clause := { vars := [Srt.int], pats := [i 1], req := some (.app intEq [.var 0, i 0]), rhs := i 1, ens := none }
 
-noncomputable def gB : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clB :: gText }
-noncomputable def gP : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clP :: gText }
-noncomputable def gW : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clW :: gText }
+noncomputable def gB : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clB :: gText }
+noncomputable def gP : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clP :: gText }
+noncomputable def gW : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clW :: gText }
 
 /-- **`cOC` has `coreOK`, reads a confined sort, and its rule `rB` leaves B open**; the clauses'
 facts; `clB`'s open condition variable is of a confined sort, `clW`'s is not and needs a witness. -/
@@ -473,16 +490,75 @@ example (x : Config cOW) (hd : StepDecided cOW x.val) (os : List Outcome)
       (den cOW x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat cOW)))) :=
   complete_at cOW shapeOW.1 x hd os hval hfam hcW
 
-/-- **`stepDecided_of_fnHyp` and `consistent_of` at `cOW`.** -/
-example (hf : FnHyp cOW) (x : Config cOW) : StepDecided cOW x.val := stepDecided_of_fnHyp shapeOW.1 hf x
-example (hd : FnDet cOW) (hs : FnSolves cOW) : Consistent cOW :=
-  consistent_of cOW shapeOW.1 hd hs (openLaws_of_core shapeOW.1)
+/-- **`OpenDecided` at `cOW`**: no rule needs a witness, and `clW` is `Witnessed`. -/
+theorem odOW : OpenDecided cOW :=
+  ⟨fun r hr hw => absurd hw (by
+      have := List.all_eq_true.mp shapeOW.2.2.2.2.2.2 r hr
+      simpa using this),
+   hcW⟩
+
+/-- At `cOW` the deciders name one fact, `clW`'s match independence (`matchObligationsL`): its
+open H could give two matches. No parameter is open, and `rightValued` holds. -/
+theorem factsOW : cOW.rightValued = true ∧ cOW.rankObligations [] ++ cOW.decObligationsL = [] ∧
+    cOW.totalObligationsRP [] [] = [] ∧ cOW.agreeObligationsI = [] ∧ cOW.matchObligationsL = [(389, 0)] ∧
+    cOW.params.all (fun k => !k.raw) = true := by
+  decide +kernel
+
+/-- **`clW` is match independent**: its right side is the literal `1` under every match. -/
+theorem miW : MatchIndependent cOW clW :=
+  Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+    change EvalTerm _ _ (.dv Srt.int (.int 1)) _ at h h'
+    cases h; cases h'; rfl
+
+/-- **`FnFacts cOW`**: the one named fact by `miW`. -/
+theorem factsFOW : FnFacts cOW [] [] :=
+  ⟨fun f hf => (by rw [factsOW.2.1] at hf; cases hf),
+   fun f hf => (by rw [factsOW.2.2.1] at hf; cases hf),
+   fun f hf => (by rw [factsOW.2.2.2.1] at hf; cases hf),
+   fun p hp fn hfn cl hcl => (by
+     rw [factsOW.2.2.2.2.1] at hp
+     cases List.mem_singleton.mp hp
+     cases (show some gW = some fn from (rfl : cOW.lookupFn 389 = some gW).symm.trans hfn)
+     cases (show some clW = some cl from (rfl : gW.clauses[0]? = some clW).symm.trans hcl)
+     exact miW),
+   openLaws_of_plain fun k hk => by simpa using List.all_eq_true.mp factsOW.2.2.2.2.2 k hk⟩
+
+/-- **`FnHyp cOW`**, from `FnFacts`, `odOW` and `fnHyp_of_fnObligations`. -/
+theorem fnHypOW : FnHyp cOW :=
+  fnHyp_of_fnObligations shapeOW.1 (Semantics.rightHeld_of_valued factsOW.1) ParamsTotal.nil
+    (factsFOW.obligations odOW)
+
+/-- **`StepDecided` at every configuration of `cOW`, `FnDet`, `FnSolves` and `Consistent`**, from
+`fnHypOW` (`stepDecided_of_fnHyp`, `fnModel_of_fnHyp`, `consistent_of`). -/
+theorem decidedOW (x : Config cOW) : StepDecided cOW x.val := stepDecided_of_fnHyp shapeOW.1 fnHypOW x
+theorem fnModelOW : FnDet cOW ∧ FnSolves cOW := fnModel_of_fnHyp shapeOW.1 fnHypOW
+theorem consOW : Consistent cOW :=
+  consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (openLaws_of_core shapeOW.1)
+
+/-- `complete_at` at `cOW` with `StepDecided` proved: only the outcomes `hval`, `hfam` are taken. -/
+example (x : Config cOW) (os : List Outcome)
+    (hval : ∀ (y : Config cOW) (r : Rule) (σ : Subst), r.opens = [] → StepBy cOW r σ x y → .val y.val ∈ os)
+    (hfam : ∀ r ∈ cOW.rules, r.opens ≠ [] → ∀ σ, Unblocked cOW r σ x.val →
+      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os) :
+    (Faithful.Γc cOW ∪ Faithful.Γstep cOW) ⊧
+      (den cOW x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat cOW)))) :=
+  complete_at cOW shapeOW.1 x (decidedOW x) os hval hfam hcW
+
+/-- **`exclEmptyCl_core` does not apply at `cOW`**: its `hbc` asks every clause to bind its
+variables in its patterns, and `clW`'s pattern `1` does not bind H. -/
+theorem not_hbcOW : ¬ ∀ fn ∈ cOW.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true :=
+  fun h => absurd (h gW (List.mem_cons_self ..) clW (List.mem_cons_self ..)) (by decide +kernel)
 
 /-- **`exclEmptyCl_of` at `clW`, a clause of `cOW`.** -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cOW) :
     Faithful.ExclEmptyCl cOW I gW clW :=
   Faithful.exclEmptyCl_of shapeOW.1 hI Faithful.fns_headsOK (by decide +kernel) (by decide +kernel)
     (fun _ => by decide +kernel) (fun _ => Or.inl witOW)
+
+/-- info: 'OpenRulesCore.C.fnHypOW' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnHypOW
+/-- info: 'OpenRulesCore.C.consOW' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms consOW
 
 end C
 

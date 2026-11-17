@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+    "Source(m2-spec/probe/k/boolb.k)"
   )
 ]
 module BASIC-K
@@ -669,7 +669,7 @@ module BOOLB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+      "Source(m2-spec/probe/k/boolb.k)"
     ),
     symbol'Kywd'{}("bar")
   ]
@@ -680,7 +680,7 @@ module BOOLB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,49,3,68)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+      "Source(m2-spec/probe/k/boolb.k)"
     ),
     symbol'Kywd'{}("baz")
   ]
@@ -692,7 +692,7 @@ module BOOLB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+      "Source(m2-spec/probe/k/boolb.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -704,7 +704,7 @@ module BOOLB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+      "Source(m2-spec/probe/k/boolb.k)"
     )
   ]
   symbol LblinitFlagCell{}() : SortFlagCell{} [function{}(), functional{}(), total{}()]
@@ -716,7 +716,7 @@ module BOOLB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+      "Source(m2-spec/probe/k/boolb.k)"
     )
   ]
   symbol LblinitTopCell{}(SortMap{}) : SortTopCell{} [function{}()]
@@ -3093,7 +3093,7 @@ module BOOLB
       UNIQUE'Unds'ID{}("078f104c6eaee0d309e7930c73be83108d349e79a46e0492a2ef70531feeb9d7"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,3,5,63)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+        "Source(m2-spec/probe/k/boolb.k)"
       )
     ]
   axiom{R}
@@ -4565,6 +4565,6 @@ module BOOLB
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/boolb.k)"
+    "Source(m2-spec/probe/k/boolb.k)"
   )
 ]

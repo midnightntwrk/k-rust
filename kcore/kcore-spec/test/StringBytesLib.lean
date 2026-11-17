@@ -263,9 +263,9 @@ definition_of defn from "f2-examples/strbytes.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The definition's symbols and sort the step names, by number. -/
-def kCell : Sym := 379
-def doneL : Sym := 381
-def goL : Sym := 382
+def kCell : Sym := 383
+def doneL : Sym := 385
+def goL : Sym := 386
 def cmdS : Srt := 32
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName goL = "Lblgo" ∧ c.symName doneL = "Lbldone" ∧

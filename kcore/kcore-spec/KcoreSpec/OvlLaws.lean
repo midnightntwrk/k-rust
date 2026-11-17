@@ -709,7 +709,7 @@ theorem sortOf_norm_known : ∀ n k, KnownSig c k → ovlRank c k.name ≤ n →
       cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
       | none =>
         rw [norm_find_none hn hf]
-        exact c.sortOf_ctor_iff.mpr (.inr ⟨hct, o, hn, hvs, uncovered_of_find_none hn hf, rfl⟩)
+        exact c.sortOf_ctor_iff.mpr (.inr (.inl ⟨hct, o, hn, hvs, uncovered_of_find_none hn hf, rfl⟩))
       | some kg =>
         rw [norm_find_some H hn hf]
         have hkg := List.mem_of_find?_eq_some hf
@@ -1000,10 +1000,11 @@ theorem norm_eq_raw_iff {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs
 theorem norm_fixed {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs : List GroundTerm} {s : Srt}
     (hv : c.sortOf (.ctor f vs) = some s) : c.norm f vs = .ctor f vs := by
   obtain ⟨-, -, hct, -⟩ := ovl_facts H ho
-  rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -⟩ | ⟨-, o', ho', hvs, hu, -⟩
+  rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -⟩ | ⟨-, o', ho', hvs, hu, -⟩ | ⟨-, ho', -⟩
   · rw [hct] at hk; cases hk
   · rw [ho] at ho'; cases ho'
     exact (norm_eq_raw_iff H ho hvs).mpr hu
+  · rw [ho] at ho'; cases ho'
 
 /-- **A normal form's raw application is of a symbol in the overload closure.** -/
 theorem norm_head {k : CtorSig} (hk : KnownSig c k) {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args) :

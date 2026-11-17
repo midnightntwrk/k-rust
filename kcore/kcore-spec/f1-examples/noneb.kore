@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+    "Source(m2-spec/probe/k/noneb.k)"
   )
 ]
 module BASIC-K
@@ -571,7 +571,7 @@ module NONEB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,37)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+      "Source(m2-spec/probe/k/noneb.k)"
     ),
     symbol'Kywd'{}("bar")
   ]
@@ -582,7 +582,7 @@ module NONEB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+      "Source(m2-spec/probe/k/noneb.k)"
     ),
     symbol'Kywd'{}("baz")
   ]
@@ -594,7 +594,7 @@ module NONEB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,63)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+      "Source(m2-spec/probe/k/noneb.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -606,7 +606,7 @@ module NONEB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,63)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+      "Source(m2-spec/probe/k/noneb.k)"
     )
   ]
   symbol LblinitAuxCell{}() : SortAuxCell{} [function{}(), functional{}(), total{}()]
@@ -618,7 +618,7 @@ module NONEB
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,63)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+      "Source(m2-spec/probe/k/noneb.k)"
     )
   ]
   symbol LblinitTopCell{}(SortMap{}) : SortTopCell{} [function{}()]
@@ -2321,7 +2321,7 @@ module NONEB
       UNIQUE'Unds'ID{}("82188299e2d4342b9f7ce3cbfaaee26bef33f1e378eb24d53ffcb69a9bf8ef75"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,3,5,54)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+        "Source(m2-spec/probe/k/noneb.k)"
       )
     ]
   axiom{R}
@@ -3891,6 +3891,6 @@ module NONEB
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/noneb.k)"
+    "Source(m2-spec/probe/k/noneb.k)"
   )
 ]

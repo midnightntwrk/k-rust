@@ -1,6 +1,13 @@
 # The construct table of DONE-0 C1 and C2: one row per key of the eight lists E1 to E8 that
 # test/constructs/extract.sh writes from K 7.1.337. test/constructs.sh fails unless each list's
-# keys here are exactly the extracted ones.
+# keys here are exactly the extracted ones. The table [C3] beside them is DONE-0 C3's: one entry per
+# unordered pair of meaning-carrying modifiers, keyed "A x B", with the fields of a row (status, or
+# `independent` with `declarations`, the two declarations that read A and B), `core = true` on the
+# pairs DONE-0 C3 names, which are never independent and each have a fixture; checked by
+# test/constructs/modifiers.py check, which also checks the sentences of its `cases`.
+# modifiers.py run computes which fixtures differ from their companions (same_as, differs_from) in
+# the user module's sentences or in a field of Fn, Clause or Rule (`kcore sem-fields`), and prints
+# each text difference with no Semantics difference.
 #
 # A row: status, evidence, and optionally note, kimp, kore; a row of E1, E2, E3, E7, E8 also
 # fixture and either sentence or no_sentence, and optionally fixture_note.

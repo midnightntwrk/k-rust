@@ -24,6 +24,9 @@
   - The pinned statements at `c3`, which meets `coreOK`: `famEx_closed` and `sound_at` at `stepGo`,
     `stepDecided_of_fnHyp` and `complete_at` at `<k> go </k>`, `fnModel_of_fnHyp`, `consistent_of`,
     `sound_hyp` and `exact_hyp`.
+  - `c3W`, `c3` with a third clause `f() => 1 requires H ==Int 0` that needs a witness and has one
+    (H := 0): `coreOK`, and the pinned `sound_at`, `famEx_closed`, `complete_at` with the clauses'
+    hypothesis `hc` proved from the witness, not from the absence of such clauses.
   - `c5`, `c3` with `clOne` of a larger priority than `clYE`: `clYE` is among `lowerClauses`, `f()`
     has no result, the value model is a model (`hypModel_ofCl`), and `exclusion_iffCl` is
     instantiated at `clYE`.
@@ -42,23 +45,23 @@ definition_of defn from "f2-examples/opencl.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the clauses and the rule name. -/
-example : c.symName 387 = "Lblf" ∧ c.symName 385 = "Lblg" ∧ c.symName 386 = "LblisC" ∧
-    c.symName 383 = "Lblc" ∧ c.symName 384 = "Lblgo" ∧ c.symName 380 = "Lbl'-LT-'k'-GT-'" ∧
+example : c.symName 391 = "Lblf" ∧ c.symName 389 = "Lblg" ∧ c.symName 390 = "LblisC" ∧
+    c.symName 387 = "Lblc" ∧ c.symName 388 = "Lblgo" ∧ c.symName 384 = "Lbl'-LT-'k'-GT-'" ∧
     c.sortName 32 = "S" ∧ c.sortName 33 = "Empty" := by
   decide +kernel
 
 /-- `f() => 0 ensures isC(c(Y:Empty))` -/
 def clYE : Clause :=
   { vars := [33], pats := [], req := none, rhs := .dv Srt.int (.int 0),
-    ens := some (.app 386 [.app 383 [.var 0]]) }
+    ens := some (.app 390 [.app 387 [.var 0]]) }
 /-- `f() => 1` -/
 def clOne : Clause := { vars := [], pats := [], req := none, rhs := .dv Srt.int (.int 1), ens := none }
 
 /-- `f` with the clauses `clYE` and `clOne`. -/
-def fF : Fn := { label := 387, args := [], result := Srt.int, clauses := [clYE, clOne] }
+def fF : Fn := { label := 391, args := [], result := Srt.int, clauses := [clYE, clOne] }
 
 /-- `c` with `f` a function of the clauses `clYE` and `clOne`. -/
-noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.params.filter (·.sig.name != 387) }
+noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.params.filter (·.sig.name != 391) }
 
 /-- Empty is the result of no constructor and not `valued`; `clYE`'s variable is outside its
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/
@@ -99,7 +102,7 @@ noncomputable def gF : Fn := c.fns[0]'(by decide +kernel)
 noncomputable def clG : Clause := gF.clauses[0]'(by decide +kernel)
 
 theorem gF_mem : gF ∈ c3.fns := List.mem_append_left _ (List.getElem_mem _)
-theorem gF_shape : gF.label = 385 ∧ gF.clauses.length = 1 ∧ clG.vars = [Srt.int] := by decide +kernel
+theorem gF_shape : gF.label = 389 ∧ gF.clauses.length = 1 ∧ clG.vars = [Srt.int] := by decide +kernel
 theorem clG_pats : clG.pats = [.var 0] := by rfl
 theorem clG_req : clG.req = none := by rfl
 theorem clG_rhs : clG.rhs = .dv Srt.int (.int 0) := by rfl
@@ -109,7 +112,7 @@ theorem clG_mem : clG ∈ gF.clauses := List.getElem_mem _
 theorem fF_mem : fF ∈ c3.fns := List.mem_append_right _ (List.mem_singleton_self _)
 
 /-- `f()` is `1`: `clOne` applies, `clYE` is of the same priority. -/
-theorem evalF : Eval c3 387 [] (some (.dv Srt.int (.int 1))) :=
+theorem evalF : Eval c3 391 [] (some (.dv Srt.int (.int 1))) :=
   Eval.clause (cl := clOne) (σ := []) (lookup3 fF_mem) (List.Mem.tail _ (List.Mem.head _))
     (fun i s h => by simp [clOne] at h) .nil (fun t h => by cases h)
     (fun cl' h _ hlt => by
@@ -118,8 +121,8 @@ theorem evalF : Eval c3 387 [] (some (.dv Srt.int (.int 1))) :=
     .dv (fun t h => by cases h)
 
 /-- `g(1)` is `0`: its one clause applies. -/
-theorem evalG : Eval c3 385 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
-  have hfn : c3.lookupFn 385 = some gF := gF_shape.1 ▸ lookup3 gF_mem
+theorem evalG : Eval c3 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
+  have hfn : c3.lookupFn 389 = some gF := gF_shape.1 ▸ lookup3 gF_mem
   refine Eval.clause (σ := [(0, .dv Srt.int (.int 1))]) hfn clG_mem (fun i s hs => ?_) ?_
     (fun t ht => by rw [clG_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) ?_
     (fun t ht => by rw [clG_ens] at ht; cases ht)
@@ -140,18 +143,18 @@ noncomputable def r3 : Rule := c3.rules[0]'(by decide +kernel)
 theorem r3_mem : r3 ∈ c3.rules := List.getElem_mem _
 theorem r3_shape : c3.rules.length = 1 ∧ r3.vars = [19] ∧ r3.req = none ∧ r3.ens = none ∧ r3.exs = [] := by
   decide +kernel
-theorem r3_lhs : r3.lhs = .app topLabel [.app 380 [.app kseq [.app 384 [], .app dotk []]], .var 0] := by rfl
+theorem r3_lhs : r3.lhs = .app topLabel [.app 384 [.app kseq [.app 388 [], .app dotk []]], .var 0] := by rfl
 theorem r3_rhs : r3.rhs =
-    .app topLabel [.app 380 [.app kseq [.inj Srt.int Srt.kitem (.app 385 [.app 387 []]), .app dotk []]], .var 0] := by
+    .app topLabel [.app 384 [.app kseq [.inj Srt.int Srt.kitem (.app 389 [.app 391 []]), .app dotk []]], .var 0] := by
   rfl
 theorem r3_pre : r3.pre = .top := by rfl
 theorem r3_post : r3.post = .top := by rfl
 
 def counter : GroundTerm := .ctor counterLabel [.dv Srt.int (.int 0)]
-def cfg (k : GroundTerm) : GroundTerm := .ctor topLabel [.ctor 380 [.ctor kseq [k, .ctor dotk []]], counter]
+def cfg (k : GroundTerm) : GroundTerm := .ctor topLabel [.ctor 384 [.ctor kseq [k, .ctor dotk []]], counter]
 
 /-- `<k> go </k>` -/
-noncomputable def Go : Config c3 := ⟨cfg (.ctor 384 []), by decide +kernel⟩
+noncomputable def Go : Config c3 := ⟨cfg (.ctor 388 []), by decide +kernel⟩
 /-- `<k> 0 </k>` -/
 noncomputable def Zero : Config c3 := ⟨cfg (injNormal Srt.int Srt.kitem (.dv Srt.int (.int 0))), by decide +kernel⟩
 
@@ -167,11 +170,11 @@ theorem evalCtor {σ : Subst} {f : Sym} {ts : List Term} {vs : List GroundTerm} 
   have := EvalTerm.ctor h hts
   rwa [allSome_some, Option.map_some] at this
 
-theorem isCtors : c3.isCtor topLabel = true ∧ c3.isCtor 380 = true ∧ c3.isCtor kseq = true ∧
-    c3.isCtor dotk = true ∧ c3.isCtor 384 = true := by decide +kernel
+theorem isCtors : c3.isCtor topLabel = true ∧ c3.isCtor 384 = true ∧ c3.isCtor kseq = true ∧
+    c3.isCtor dotk = true ∧ c3.isCtor 388 = true := by decide +kernel
 
-theorem isFns : c3.isCtor 385 = false ∧ isHook 385 = false ∧ c3.isParam 385 = false ∧
-    c3.isCtor 387 = false ∧ isHook 387 = false ∧ c3.isParam 387 = false := by decide +kernel
+theorem isFns : c3.isCtor 389 = false ∧ isHook 389 = false ∧ c3.isParam 389 = false ∧
+    c3.isCtor 391 = false ∧ isHook 391 = false ∧ c3.isParam 391 = false := by decide +kernel
 
 theorem patGo : PatVal c3 σ3 r3.lhs Go.val := by
   obtain ⟨h71, h380, hks, hdk, h384⟩ := isCtors
@@ -182,11 +185,11 @@ theorem patGo : PatVal c3 σ3 r3.lhs Go.val := by
 theorem evalRhs : EvalTerm c3 σ3 r3.rhs (some Zero.val) := by
   obtain ⟨h71, h380, hks, hdk, -⟩ := isCtors
   obtain ⟨hcg, hhg, hpg, hcf, hhf, hpf⟩ := isFns
-  have hf : EvalTerm c3 σ3 (.app 387 []) (some (.dv Srt.int (.int 1))) :=
+  have hf : EvalTerm c3 σ3 (.app 391 []) (some (.dv Srt.int (.int 1))) :=
     .call hcf hhf .nil rfl evalF hpf
-  have hg : EvalTerm c3 σ3 (.app 385 [.app 387 []]) (some (.dv Srt.int (.int 0))) :=
+  have hg : EvalTerm c3 σ3 (.app 389 [.app 391 []]) (some (.dv Srt.int (.int 0))) :=
     .call hcg hhg (.cons hf .nil) rfl evalG hpg
-  have hi : EvalTerm c3 σ3 (.inj Srt.int Srt.kitem (.app 385 [.app 387 []]))
+  have hi : EvalTerm c3 σ3 (.inj Srt.int Srt.kitem (.app 389 [.app 391 []]))
       (some (injNormal Srt.int Srt.kitem (.dv Srt.int (.int 0)))) := .inj hg
   have hd : EvalTerm c3 σ3 (.app dotk []) (some (.ctor dotk [])) := evalCtor (vs := []) hdk .nil
   have hk := evalCtor (vs := [_, _]) hks (.cons hi (.cons hd .nil))
@@ -272,7 +275,7 @@ theorem no_E (v : GroundTerm) : c3.sortOf v ≠ some 33 := by
     cases hk : lookupSig c3.ctorSigs f with
     | none =>
       have : c3.lookupOvl f = none := by simp [Semantics.lookupOvl, decided.2.2.1]
-      rw [hk, this] at h; cases h
+      rw [hk, this, c3.lookupOpen_of_noRaw (by decide +kernel) f] at h; cases h
     | some k =>
       rw [hk] at h
       simp only at h
@@ -365,7 +368,7 @@ theorem fnModel3 : FnDet c3 ∧ FnSolves c3 :=
 
 /-- What `FnHyp` asks beyond: `isC`, the total function, has a value at each argument; no clause and
 no rule needs a witness; no parameter is an open generator. -/
-theorem rest3 : c3.fns.all (fun fn => !fn.total || fn.label == 386) = true ∧
+theorem rest3 : c3.fns.all (fun fn => !fn.total || fn.label == 390) = true ∧
     c3.rules.all (fun r => !r.needsWitness c3) = true ∧ c3.params.all (fun k => !k.raw) = true := by
   decide +kernel
 
@@ -569,6 +572,97 @@ example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (openLaw
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3
 example : ExactC c3 := exact_hyp c3 core3 fnHyp3
 
+/-! ## The clauses' hypothesis on the conditions discharged by a witness: `c3W`
+
+`c3W` is `c3` with a third clause of `f`, `clW0` (`f() => 1 requires H ==Int 0`, H:Int, its closed
+condition over an unconfined sort): `c3W` meets `coreOK`, `clW0` needs a witness and is
+`Witnessed` at H := 0, and no other clause needs one, so the pinned statements' hypothesis `hc` is
+proved from the witness (`hcW3`). -/
+
+/-- `f() => 1 requires H ==Int 0` -/
+def clW0 : Clause :=
+  { vars := [Srt.int], pats := [], req := some (.app intEq [.var 0, .dv Srt.int (.int 0)]),
+    rhs := .dv Srt.int (.int 1), ens := none }
+def fFW : Fn := { fF with clauses := [clYE, clOne, clW0] }
+noncomputable def c3W : Semantics := { c3 with fns := c.fns ++ [fFW] }
+
+theorem shapeW : c3W.coreOK = true ∧ clW0.needsWitness c3W = true ∧ clW0.condVars = [0] ∧
+    c.fns.all (fun fn => fn.clauses.all fun cl => !cl.needsWitness c3W) = true ∧
+    [clYE, clOne].all (fun cl => !cl.needsWitness c3W) = true ∧
+    c3W.rules.all (fun r => !r.needsWitness c3W) = true := by
+  decide +kernel
+
+/-- **`clW0` is `Witnessed`** at H := 0: `0 ==Int 0` is `true`, and by inversion of the hook nothing else. -/
+theorem witW0 : clW0.Witnessed c3W := by
+  refine ⟨[(0, .dv Srt.int (.int 0))], fun j hj s hs => ?_, fun t ht => ?_, .top⟩
+  · rw [shapeW.2.2.1] at hj
+    cases List.mem_singleton.mp hj
+    cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
+  · cases ht
+    refine ⟨.hook (by decide +kernel) (by decide +kernel) (.cons .var (.cons .dv .nil))
+      (fun vs hvs => by cases hvs; rfl) (fun h => by cases h), fun r hr => ?_⟩
+    cases hr with
+    | ctor h _ => exact absurd h (by decide +kernel)
+    | hook h hhk hts hh hund =>
+      cases hts with
+      | cons h1 hs1 =>
+        cases h1
+        cases hs1 with
+        | cons h2 hs2 =>
+          cases h2
+          cases hs2
+          have h3 := hh _ rfl
+          have h4 : c3W.hookRes intEq [.dv Srt.int (.int 0), .dv Srt.int (.int 0)] =
+              some (some (.dv Srt.bool (.bool true))) := by rfl
+          exact Option.some.inj (h3.symm.trans h4)
+    | param h hhk hp _ _ => exact absurd hhk (by decide +kernel)
+    | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
+    | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
+    | ovl _ ho _ => exact absurd ho (by decide +kernel)
+
+/-- **`hc` at `c3W`, from the witness**: `clW0` is `Witnessed`; no other clause needs a witness. -/
+theorem hcW3 : ∀ fn ∈ c3W.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c3W = true → cl.CondDecided c3W := by
+  intro fn hfn cl hcl hw
+  rcases List.mem_append.mp hfn with hfn' | hfn'
+  · have := List.all_eq_true.mp (List.all_eq_true.mp shapeW.2.2.2.1 fn hfn') cl hcl
+    simp [hw] at this
+  · cases List.mem_singleton.mp hfn'
+    rcases List.mem_cons.mp hcl with rfl | hcl
+    · have := List.all_eq_true.mp shapeW.2.2.2.2.1 clYE (List.mem_cons_self ..); simp [hw] at this
+    rcases List.mem_cons.mp hcl with rfl | hcl
+    · have := List.all_eq_true.mp shapeW.2.2.2.2.1 clOne (List.mem_cons_of_mem _ (List.mem_singleton_self _))
+      simp [hw] at this
+    · cases List.mem_singleton.mp hcl
+      exact Or.inl witW0
+
+/-- No rule of `c3W` needs a witness. -/
+theorem hwW3 {x : Config c3W} (r : Rule) : ∀ r' ∈ c3W.rules, r'.prio < r.prio → r'.needsWitness c3W = true →
+    (∃ σ', PatVal c3W σ' r'.lhs x.val) → r'.CondDecided c3W := by
+  intro r' hr' _ hw _
+  have := List.all_eq_true.mp shapeW.2.2.2.2.2 r' hr'
+  simp [hw] at this
+
+/-- **`sound_at`, `famEx_closed` and `complete_at` at `c3W`**, `hc` from the witness. -/
+example (x y : Config c3W) (r : Rule) (σ : Subst) (hs : StepBy c3W r σ x y) :
+    (Faithful.Γc c3W ⊧ (den c3W x.val ⇒ KoreAML.sNext (Faithful.famEx c3W r σ))) ∧
+      (Faithful.Γc c3W ⊧ (den c3W y.val ⇒ Faithful.famEx c3W r σ)) :=
+  sound_at c3W shapeW.1 x y r σ hs (hwW3 (x := x) r) hcW3
+
+example {x y : Config c3W} {r : Rule} {σ : Subst} (hs : StepBy c3W r σ x y) (hex : r.exs = []) :
+    Faithful.Γc c3W ⊧ (Faithful.famEx c3W r σ ≡ den c3W y.val) :=
+  famEx_closed c3W shapeW.1 hs hex hcW3
+
+example (x : Config c3W) (hd : StepDecided c3W x.val) (os : List Outcome)
+    (hval : ∀ (y : Config c3W) (r : Rule) (σ : Subst), r.opens = [] → StepBy c3W r σ x y → .val y.val ∈ os)
+    (hfam : ∀ r ∈ c3W.rules, r.opens ≠ [] → ∀ σ, Unblocked c3W r σ x.val →
+      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os) :
+    (Faithful.Γc c3W ∪ Faithful.Γstep c3W) ⊧
+      (den c3W x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c3W)))) :=
+  complete_at c3W shapeW.1 x hd os hval hfam hcW3
+
+/-- info: 'OpenClausePinsTest.hcW3' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms hcW3
+
 /-! ## A clause with a variable only the `ensures` holds, among another clause's `lowerClauses`
 
 `c5` is `c3` with `clOne` given a larger priority than `clYE` (`clOne5`): `clYE` is then among
@@ -583,7 +677,7 @@ def clOne5 : Clause := { clOne with prio := clYE.prio + 1 }
 def fF5 : Fn := { fF with clauses := [clYE, clOne5] }
 
 /-- `c` with `f` a function of the clauses `clYE` and `clOne5`. -/
-noncomputable def c5 : Semantics := { c with fns := c.fns ++ [fF5], params := c.params.filter (·.sig.name != 387) }
+noncomputable def c5 : Semantics := { c with fns := c.fns ++ [fF5], params := c.params.filter (·.sig.name != 391) }
 
 theorem shape5 : clYE.leftVars = [] ∧ clYE.vars = [33] ∧ c5.coreOK = true ∧ c5.rightValued = false ∧
     c5.ctorSigs.all (·.result != 33) = true := by
@@ -617,7 +711,7 @@ theorem no_E5 (v : GroundTerm) : c5.sortOf v ≠ some 33 := by
     cases hk : lookupSig c5.ctorSigs f with
     | none =>
       have : c5.lookupOvl f = none := by simp [Semantics.lookupOvl, decided5.2.2.1]
-      rw [hk, this] at h; cases h
+      rw [hk, this, c5.lookupOpen_of_noRaw (by decide +kernel) f] at h; cases h
     | some k =>
       rw [hk] at h
       simp only at h

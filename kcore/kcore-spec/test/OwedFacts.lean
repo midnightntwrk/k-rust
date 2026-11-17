@@ -33,7 +33,7 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 noncomputable def sK : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 1 0
 noncomputable def sC : Srt := ((c.rules.map (·.vars)).getD 0 []).getD 2 0
@@ -125,7 +125,7 @@ def i (n : Int) : Term := .dv Srt.int (.int n)
 noncomputable def gText : List Clause := (c.fns.map (·.clauses)).getD 0 []
 /-- `g(1) => 1 requires H ==Int 0` -/
 def clW : Clause := { vars := [Srt.int], pats := [i 1], req := some (.app intEq [.var 0, i 0]), rhs := i 1, ens := none }
-noncomputable def gW : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clW :: gText }
+noncomputable def gW : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clW :: gText }
 
 noncomputable abbrev cOW : Semantics := { c with fns := gW :: c.fns.drop 1 }
 

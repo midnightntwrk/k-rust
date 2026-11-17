@@ -32,12 +32,12 @@ definition_of defn from "f2-examples/opencl.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the clauses name. -/
-example : c.symName 387 = "Lblf" ∧ c.symName 383 = "Lblc" ∧ c.symName 385 = "Lblg" ∧
+example : c.symName 391 = "Lblf" ∧ c.symName 387 = "Lblc" ∧ c.symName 389 = "Lblg" ∧
     c.sortName 32 = "S" ∧ c.sortName 33 = "Empty" := by
   decide +kernel
 
 /-- In the text `f` is a parameter. -/
-example : c.params.map (·.sig.name) = [387] ∧ c.fns.map (·.label) = [385, 386] := by decide +kernel
+example : c.params.map (·.sig.name) = [391] ∧ c.fns.map (·.label) = [389, 390] := by decide +kernel
 
 /-- The text's functions (`g`, `isC`): each clause's patterns bind its variables, it has no
 `requires` and no `ensures`, and its right side is a literal. -/
@@ -53,14 +53,14 @@ theorem textPairs : ∀ fn ∈ c.fns,
 /-! ## `[total] f() => c(Y:Empty)` -/
 
 /-- `f() => c(Y:Empty)` -/
-def clE : Clause := { vars := [33], pats := [], req := none, rhs := .app 383 [.var 0], ens := none }
+def clE : Clause := { vars := [33], pats := [], req := none, rhs := .app 387 [.var 0], ens := none }
 
 /-- `f`, `[total]`, of sort S, with the one clause `clE`. -/
-def fE : Fn := { label := 387, args := [], result := 32, clauses := [clE], total := true }
+def fE : Fn := { label := 391, args := [], result := 32, clauses := [clE], total := true }
 
 /-- `c` with `f` a function of the clause `clE`, without the rule. -/
 noncomputable def cE : Semantics :=
-  { c with fns := c.fns ++ [fE], params := c.params.filter (·.sig.name != 387), rules := [] }
+  { c with fns := c.fns ++ [fE], params := c.params.filter (·.sig.name != 391), rules := [] }
 
 /-- Empty is the result of no constructor and not `valued`; `clE`'s variable is outside its patterns
 and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `cE`. -/
@@ -97,7 +97,7 @@ theorem no_E (v : GroundTerm) : cE.sortOf v ≠ some 33 := by
     cases hk : lookupSig cE.ctorSigs f with
     | none =>
       have : cE.lookupOvl f = none := by simp [Semantics.lookupOvl, decidedE.2.2.2.2.2.1]
-      rw [hk, this] at h; cases h
+      rw [hk, this, cE.lookupOpen_of_noRaw (by decide +kernel) f] at h; cases h
     | some k =>
       rw [hk] at h
       simp only at h
@@ -208,8 +208,8 @@ theorem fnSolvesE : FnSolves cE := by
 
 /-- **`f` has no result**: its one clause applies nowhere and does not fail (it has no
 `requires`). -/
-theorem no_evalE (r : Option GroundTerm) : ¬ Eval cE 387 [] r := by
-  have hfn : cE.lookupFn 387 = some fE := lookupE (List.mem_append_right _ (List.mem_singleton_self _))
+theorem no_evalE (r : Option GroundTerm) : ¬ Eval cE 391 [] r := by
+  have hfn : cE.lookupFn 391 = some fE := lookupE (List.mem_append_right _ (List.mem_singleton_self _))
   intro h
   cases h with
   | clause hfn' hmem hσ hmatch hreq _ _ _ =>
@@ -242,13 +242,13 @@ theorem consistentE : Consistent cE :=
 /-! ## `f() => g(Y:Int)`, `g(_) => 0` -/
 
 /-- `f() => g(Y:Int)` -/
-def clI : Clause := { vars := [Srt.int], pats := [], req := none, rhs := .app 385 [.var 0], ens := none }
+def clI : Clause := { vars := [Srt.int], pats := [], req := none, rhs := .app 389 [.var 0], ens := none }
 
 /-- `f` of sort Int with the one clause `clI`. -/
-def fI : Fn := { label := 387, args := [], result := Srt.int, clauses := [clI] }
+def fI : Fn := { label := 391, args := [], result := Srt.int, clauses := [clI] }
 
 /-- `c` with `f` a function of the clause `clI`. -/
-noncomputable def cI : Semantics := { c with fns := c.fns ++ [fI], params := c.params.filter (·.sig.name != 387) }
+noncomputable def cI : Semantics := { c with fns := c.fns ++ [fI], params := c.params.filter (·.sig.name != 391) }
 
 /-- `clI`'s variable is outside its patterns and conditions, of Int: `rightValued` holds and
 `sortedOK` and `coreOK` hold at `cI`. -/
@@ -275,7 +275,7 @@ noncomputable def gF : Fn := c.fns[0]'(by decide +kernel)
 noncomputable def clG : Clause := gF.clauses[0]'(by decide +kernel)
 
 theorem gF_mem : gF ∈ cI.fns := List.mem_append_left _ (List.getElem_mem _)
-theorem gF_shape : gF.label = 385 ∧ gF.clauses.length = 1 ∧ clG.vars = [Srt.int] := by decide +kernel
+theorem gF_shape : gF.label = 389 ∧ gF.clauses.length = 1 ∧ clG.vars = [Srt.int] := by decide +kernel
 theorem clG_pats : clG.pats = [.var 0] := by rfl
 theorem clG_req : clG.req = none := by rfl
 theorem clG_rhs : clG.rhs = .dv Srt.int (.int 0) := by rfl
@@ -283,10 +283,10 @@ theorem clG_ens : clG.ens = none := by rfl
 theorem clG_mem : clG ∈ gF.clauses := List.getElem_mem _
 theorem fI_mem : fI ∈ cI.fns := List.mem_append_right _ (List.mem_singleton_self _)
 
-theorem isG : cI.isCtor 385 = false ∧ isHook 385 = false ∧ cI.isParam 385 = false ∧ cI.isOvl 385 = false := by
+theorem isG : cI.isCtor 389 = false ∧ isHook 389 = false ∧ cI.isParam 389 = false ∧ cI.isOvl 389 = false := by
   decide +kernel
 
-theorem lookupG : cI.lookupFn 385 = some gF := gF_shape.1 ▸ lookupI gF_mem
+theorem lookupG : cI.lookupFn 389 = some gF := gF_shape.1 ▸ lookupI gF_mem
 
 /-- A clause of `g` is `clG`. -/
 theorem gF_clause {cl : Clause} (h : cl ∈ gF.clauses) : cl = clG := by
@@ -296,7 +296,7 @@ theorem gF_clause {cl : Clause} (h : cl ∈ gF.clauses) : cl = clG := by
   rfl
 
 /-- `g(v)` is `0` at an Int `v`: its one clause applies. -/
-theorem evalG {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) : Eval cI 385 [v] (some (.dv Srt.int (.int 0))) := by
+theorem evalG {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) : Eval cI 389 [v] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (σ := [(0, v)]) lookupG clG_mem (fun i s hs => ?_) ?_
     (fun t ht => by rw [clG_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) ?_
     (fun t ht => by rw [clG_ens] at ht; cases ht)
@@ -310,7 +310,7 @@ theorem evalG {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) : Eval cI 385 [
 
 /-- **`g(v)` has no result but `0`** at an Int `v`: its clause's right side is `0`, and the clause,
 with no `requires` and a variable as pattern, does not fail. -/
-theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval cI 385 [v] r) :
+theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval cI 389 [v] r) :
     r = some (.dv Srt.int (.int 0)) := by
   cases h with
   | clause hfn' hmem _ _ _ _ hrhs _ =>
@@ -361,7 +361,7 @@ theorem evalTerm_gY {σ : Subst} (hσ : cI.WellSorted clI.vars σ) {r : Option G
   | ovl _ ho _ => rw [h4] at ho; cases ho
 
 /-- `f()` is `0`: `clI` applies under Y := 0. -/
-theorem evalF : Eval cI 387 [] (some (.dv Srt.int (.int 0))) := by
+theorem evalF : Eval cI 391 [] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (cl := clI) (σ := [(0, .dv Srt.int (.int 0))]) (lookupI fI_mem) (List.mem_singleton_self _)
     (fun i s hs => ?_) .nil (fun t h => by cases h) (fun cl' h _ hlt => ?_) ?_ (fun t h => by cases h)
   · cases i with

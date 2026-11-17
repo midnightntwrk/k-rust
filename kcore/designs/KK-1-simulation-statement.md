@@ -1,7 +1,7 @@
 # FD-K: the simulation statement for KORE in K
 
 Fable design agent, 2026-11-14. Read-only; nothing was built or run (no lean, lake, kompile, krust).
-Lean read at `/artifacts/worktrees/kcore-merge/.../KcoreSpec` (`Step.lean`, `Evaluation.lean`, `Core.lean`, statements of `CollExecFinal.lean`); `kore.k` and its README at k-rust main; F3, SYNTH §2, KK-0, CS-0 §2.4/§4/§5, KT-1's last section, RE-0 §1 and §2.1-2.2.
+Lean read at `<worktree:kcore-merge>/.../KcoreSpec` (`Step.lean`, `Evaluation.lean`, `Core.lean`, statements of `CollExecFinal.lean`); `kore.k` and its README at k-rust main; F3, SYNTH §2, KK-0, CS-0 §2.4/§4/§5, KT-1's last section, RE-0 §1 and §2.1-2.2.
 Names followed outside the set, one declaration each: `sortOf`, `injNormal`, `GroundTerm.cmp` (`Value.lean`), `CoherentAll`, `Coherent`, `Eval.functional` (`EvalFunctional.lean`), `FnHyp` (`Statements.lean`), `Terminates` (`Terminates.lean`), `execReady`, `outOfFuel` (`CollExec.lean`), `silentTable` (`Hooks.lean:483`), `Config` (`Value.lean:324`).
 "Shown" = by reading the quoted text. "Suspected" = follows from text read, depends on something not read or not run.
 

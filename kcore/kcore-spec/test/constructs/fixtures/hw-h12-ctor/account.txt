@@ -14,6 +14,6 @@ user module HW-BASE: 427 sentences
 stage refusals (of sentences classified read): 1
   1 ctorResultSort
       sentence 441 (Lblk): ctorResultSort (Lblk: result sort Map, a collection sort of the library)
-        [user] (no label) at hw-base.k:99: symbol Lblk{}(SortInt{}, SortInt{}) : SortMap{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/hw-base/src/hw-base.k)")]
+        [user] (no label) at hw-base.k:99: symbol Lblk{}(SortInt{}, SortInt{}) : SortMap{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/hw-base/hw-base.k)")]
 finish: sentence 441 (Lblk): ctorResultSort (Lblk: result sort Map, a collection sort of the library)
 (exit 0)
