@@ -7,6 +7,7 @@
 -/
 import KcoreSpec.Parse
 import KcoreSpec.Statements
+import KcoreSpec.UniqLists
 
 set_option autoImplicit false
 
@@ -938,5 +939,48 @@ def owedClauseCondDecided (c : Semantics) : List (Nat × Nat × List Nat) :=
     if cl.needsWitness c then
       some (i, j, cl.openCondVars.filter fun k => !(cl.vars[k]?.map c.confined).getD false)
     else none
+
+/-! ## Clauses holding existential variables
+
+A clause with existential variables (`Clause.exs`) states its function's value at a match as the
+union of its instances: the right side at every value of those variables at which the right-side
+predicate holds. That is one result where the instances are decided (the predicate has a truth
+value at each) and those that hold give one result; the text does not state that they are. So the
+fact is owed of each such clause, as its match obligation (`MatchIndependent`, named by
+`Semantics.matchObligationsL`): no list beside that one. -/
+
+/-- The clauses holding existential variables (`Clause.exs`), by the position of their function
+among the definition's and their own among its clauses, each with those variables and whether
+`Semantics.matchObligationsL` names the clause. -/
+def owedExsClauses (c : Semantics) : List (Nat × Nat × List Nat × Bool) :=
+  c.fns.zipIdx.flatMap fun (f, i) => f.clauses.zipIdx.filterMap fun (cl, j) =>
+    if cl.exs.isEmpty then none else some (i, j, cl.exs, c.matchObligationsL.contains (f.label, j))
+
+/-- The account's line for one clause of `owedExsClauses`: its function's name through `decode`,
+its position, label and source line, its existential variables with their sorts, and a warning
+where `matchObligationsL` does not name it, so that no statement takes its fact. -/
+def owedExsLine (d : Definition) (decode : String → String) (x : Nat × Nat × List Nat × Bool) : String :=
+  let f := d.sem.fns[x.1]?
+  let fp := d.pres.fns[x.1]?
+  let cp := fp.bind (·.clauses[x.2.1]?)
+  let fname := match f with | some f => decode (d.sem.symName f.label) | none => "?"
+  let lbl := match cp.bind (·.label) with | some l => s!" (`{l}`)" | none => ""
+  let src := ((cp.bind (·.src)).getD ((fp.bind (·.src)).getD d.pres.source)).splitOn "/" |>.getLast!
+  let ln := (cp.map (·.info.loc.l1)).getD 0
+  let names := (cp.map (·.names)).getD []
+  let sorts := ((f.bind (·.clauses[x.2.1]?)).map (·.vars)).getD []
+  let vs := x.2.2.1.map fun k => s!"Var{names.getD k ""}:{d.sem.sortName (sorts.getD k 0)}"
+  let warn := if x.2.2.2 then "" else "; NOT named by matchObligationsL: no statement takes this fact"
+  s!"      function {fname}, clause {x.2.1}{lbl} at {src}:{ln}: MatchIndependent open, existential {", ".intercalate vs}{warn}"
+
+/-- The account's lines for `owedExsClauses`, none where no clause holds an existential variable:
+a heading with the fact owed of each clause, a line for each clause (`owedExsLine`), and the
+statements that are stated only under these facts. -/
+def owedExsText (d : Definition) (decode : String → String) : List String :=
+  let ow := owedExsClauses d.sem
+  if ow.isEmpty then [] else
+  s!"clauses holding existential variables, each a match obligation (the package's match_named, Semantics.matchObligationsL; not a condition of wf: owed of each is MatchIndependent, that its instances are decided and give one result at each match where it decides): {ow.length}" ::
+    (ow.map (owedExsLine d decode) ++
+      ["sound_hyp and complete_hyp (the package's sound_defn and complete_defn) are stated of this text only under these facts as hypotheses, each named with its function and clause (FnHyp's fourth conjunct; match_named of FnObligations)"])
 
 end KCore.Parse

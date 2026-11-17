@@ -27,6 +27,20 @@
     of `clZ` by the kernel on any semantics where Int is not confined (`Int.clZ_no`, at `Int.c`).
   - Today the reader refuses the sentence `manyValuedRightSide (\exists)` before reading a clause:
     the refusal is there, the reason is not yet the one above.
+
+  ## The account's lines for a clause holding existential variables
+
+  `Parse.owedExsText` (KcoreSpec/Account.lean), which `kcore account` prints: for each clause with
+  `exs` its match obligation, with the fact owed, and the statements stated only under it. No text
+  reaches the lines through the reader today (`clauseBody` does not call `ceRead`), so `owed`
+  prints them for the definition built from the patched text with the clause `ceRead` reads put
+  in place of the patched one.
+  - `e3-eq-exists-partial-ml`, `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`: one line,
+    f's clause 0 with `VarB:Bool`; `matchObligationsL` names the clause (B is in no pattern, so the
+    patterns do not fix the clause's variables).
+  - `e3-eq-exists-noens-ml`, `f(_) => #Exists B:Bool. B`: the same line; the fact is false of
+    this clause (its two instances give two results), and the line does not say it holds.
+  - The patched text itself, whose clauses hold no existential variable: no line.
 -/
 import KcoreSpec
 
@@ -119,6 +133,33 @@ def run (n fnName : String) (expect : Clause) : IO Unit := do
         IO.println s!"  read is {if toString (repr cl) == toString (repr expect) then "the hand-built clause" else "not the hand-built clause"}"
     | .ok _, es => IO.println s!"{n} {fnName}: {es.length} equations"
 
+/-- The account's lines on the clauses holding existential variables (`Parse.owedExsText`) for the
+definition built from the patched text of fixture `n`, and for that definition with the clause
+`ceRead` reads from the one equation of `fnName` in place of the patched one (its variables' names
+in the presentation); with what `matchObligationsL` names there. -/
+def owed (n fnName : String) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {repr f.reason}"
+  | .ok E =>
+    match Parse.parse (patch [fnName] k), S.eqs.filter (·.fn == fnName) with
+    | .error r, _ => IO.println s!"{n}: patched text refused {repr r.reason} {r.detail}"
+    | .ok d, [e] =>
+      match ceRead E.N e with
+      | .error f => IO.println s!"{n} {fnName}: refused {repr f.reason} ({f.detail})"
+      | .ok (cl, vs) =>
+        let here := fun (g : Fn) => d.sem.symName g.label == fnName
+        let fns := d.sem.fns.map fun g => if here g then { g with clauses := [cl] } else g
+        let pfns := (withPres d.sem.fns d.pres.fns).map fun (g, gp) =>
+          if here g then { gp with clauses := gp.clauses.map fun cp => { cp with names := vs.map (·.name) } } else gp
+        let d' : Definition := { d with sem := { d.sem with fns }, pres := { d.pres with fns := pfns } }
+        IO.println s!"{n}: patched text: {(owedExsText d id).length} lines; with the clause read for {fnName}:"
+        for l in owedExsText d' id do IO.println l
+        IO.println s!"  matchObligationsL {d'.sem.matchObligationsL.map fun (f, j) => (d'.sem.symName f, j)}"
+    | .ok _, es => IO.println s!"{n} {fnName}: {es.length} equations"
+
 /-! ## e3-eq-exists-int -/
 
 namespace Int
@@ -164,6 +205,25 @@ e3-eq-exists-int-ml: today refused KCore.Parse.RefusalReason.manyValuedRightSide
   IO.println s!"e3-eq-exists-int-ml: kompile {← kompileExit "e3-eq-exists-int-ml"}"
   run "e3-eq-exists-int-ml" "Lblh" Int.clZ
   today "e3-eq-exists-int-ml"
+
+/-! ## The account's lines -/
+
+/--
+info: e3-eq-exists-partial-ml: patched text: 0 lines; with the clause read for Lblf:
+clauses holding existential variables, each a match obligation (the package's match_named, Semantics.matchObligationsL; not a condition of wf: owed of each is MatchIndependent, that its instances are decided and give one result at each match where it decides): 1
+      function Lblf, clause 0 at e3-eq-exists-partial-ml.k:4: MatchIndependent open, existential VarB:Bool
+sound_hyp and complete_hyp (the package's sound_defn and complete_defn) are stated of this text only under these facts as hypotheses, each named with its function and clause (FnHyp's fourth conjunct; match_named of FnObligations)
+  matchObligationsL [(Lblf, 0)]
+e3-eq-exists-noens-ml: patched text: 0 lines; with the clause read for Lblf:
+clauses holding existential variables, each a match obligation (the package's match_named, Semantics.matchObligationsL; not a condition of wf: owed of each is MatchIndependent, that its instances are decided and give one result at each match where it decides): 1
+      function Lblf, clause 0 at e3-eq-exists-noens-ml.k:4: MatchIndependent open, existential VarB:Bool
+sound_hyp and complete_hyp (the package's sound_defn and complete_defn) are stated of this text only under these facts as hypotheses, each named with its function and clause (FnHyp's fourth conjunct; match_named of FnObligations)
+  matchObligationsL [(Lblf, 0)]
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  owed "e3-eq-exists-partial-ml" "Lblf"
+  owed "e3-eq-exists-noens-ml" "Lblf"
 
 end ExClauseFixtures
 
