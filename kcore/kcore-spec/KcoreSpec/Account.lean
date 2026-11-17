@@ -163,7 +163,8 @@ as `S`, named as `E`) accounts for:
   with its equation or, without one, a parameter), or a function's of `d` that `d` reads total: one of
   its own declared `total` (`Fn.total`, whose totality is decided or an obligation) or one of the
   registry's; or a parameter's: the registry's, or one of `d`'s own declared `total`
-  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`);
+  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`), an
+  open generator's not among them (`Definition.totalParams` leaves it out);
 - a `subsort` axiom is one of `d`'s subsorts or one of the library's below a sort of `d` (its
   place, `eventOf`), one of the library's (`Lib.subsorts`) or of the cells' (`cellSubsorts`), or
   a sort of `d` below KItem, as every sort is in KCore;
@@ -187,6 +188,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
   let ownParams := withPres (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)) d.pres.params
   let paramNotTotal := fun (f : String) => ownParams.any fun (k, kp) => c.symName k.sig.name == f && !kp.total
+  -- an open generator's `functional` axiom reads the sort at the interpretation's values
+  -- (`OpenTotal`), which `Definition.totalParams` leaves out: no parameter's declared total
+  let openGen := fun (f : String) => c.params.any fun k => k.raw && c.symName k.sig.name == f
   -- the overloading symbol f overloads g (`Semantics.ovls`)
   let ovlPair := fun (as : List Kore.AppPattern) => match overloadSyms? as with
     | some (f, g) => c.ovls.any fun o => c.symName o.sig.name == f && o.over.any (c.symName · == g)
@@ -218,7 +222,7 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
-        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f) ||
+        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f && !openGen f) ||
         ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
         isProj f
       | some (.inr (x, y)) =>
@@ -787,9 +791,19 @@ def ovlInduced (c : Semantics) : List Kore.Sentence :=
     KoreAML.axiom0 (.or (srtOf c N) (KoreAML.noJunkDisjuncts (c.sortName N) [] (gs.map (Gen.toK c))))
       [KoreAML.attr "constructor"]
 
+/-- The no-junk axiom of each open generator's result sort, as `Γ` states it (`consItemsK`: an open
+generator is a generator of its sort, with no functionality, injectivity or distinctness item):
+over the sort's generators (`Semantics.gens`), the open generators among them. `emit` writes it
+without them. -/
+def openInduced (c : Semantics) : List Kore.Sentence :=
+  ((c.params.filter (·.raw)).map (·.sig.result)).eraseDups.map fun N =>
+    KoreAML.axiom0 (.or (srtOf c N) (KoreAML.noJunkDisjuncts (c.sortName N) [] ((c.gens N).map (Gen.toK c))))
+      [KoreAML.attr "constructor"]
+
 /-- The axioms of the user module classified inert as constructor axioms that are not, up to the
 names of their variables and the order of conjuncts and disjuncts, one the definition's
-constructors and overloading symbols induce (`emit`'s of the same class, `ovlInduced`), nor an
+constructors, overloading symbols and open generators induce (`emit`'s of the same class,
+`ovlInduced`, `openInduced`), nor an
 overload's confusion (`ovlConfused`): one refusal (`inertMismatch`) for each. -/
 def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
@@ -799,7 +813,15 @@ def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
     -- the distinctness of each own constructor of a library sort from that sort's library constructors
     let mixed := c.ctors.flatMap fun k => (c.lib.ctors.filter (·.result == k.result)).map fun f =>
       KoreAML.distinctnessAx (toK c f) (toK c k)
-    let induced := ((userModule d.sem d.pres).sentences ++ mixed ++ ovlInduced c).filterMap fun s => match s, ctorInert? s with
+    -- the no-junk axiom of an open generator's result sort is `openInduced`'s alone: `emit`'s,
+    -- without the open generators, would take a text whose axiom does not list them
+    let rawSorts := ((c.params.filter (·.raw)).map (·.sig.result)).map (srtOf c)
+    let emitted := (userModule d.sem d.pres).sentences.filter fun s => match s, ctorInert? s with
+      | .axiom a, some .noJunk => match a.pattern with
+        | .or S _ => !rawSorts.any fun T => decide (S = T)
+        | _ => true
+      | _, _ => true
+    let induced := (emitted ++ mixed ++ ovlInduced c ++ openInduced c).filterMap fun s => match s, ctorInert? s with
       | .axiom a, some r => some (r.name, canon a.pattern)
       | _, _ => none
     let off := preludeLength k

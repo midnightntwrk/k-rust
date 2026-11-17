@@ -1,11 +1,14 @@
 /-
-  A symbol with laws and a law of no collection, read from K 7.1.337 kompile's own KORE: each is
-  refused by name. Run from the package root: `lake env lean test/OpenGenerator.lean`.
+  Open generators and a law of no collection, read from K 7.1.337 kompile's own KORE. Run from the
+  package root: `lake env lean test/OpenGenerator.lean`.
   - `f2-examples/commctor.kompile.kore` (`commctor.k`): `Exp "&" Exp [comm]` and `Exp "|" Exp
-    [assoc]`, which kompile declares `functional` alone, neither `function` nor `constructor`, and
-    states `|`'s associativity as an axiom (no axiom for `&`'s commutativity). Each symbol is
-    refused (`openGenerator`), the law axioms the text states of it named; it is not read as a
-    function.
+    [assoc]`, which kompile declares `functional` alone, neither `function` nor `constructor`,
+    lists among Exp's generators in its no-junk axiom, and states `|`'s associativity as an axiom
+    (no axiom for `&`'s commutativity). Exp's one constructor `x` is nullary, so each is read as an
+    open generator (`ParamSig.raw`, `Parse.openGenFault` none), not as a function; nothing is
+    refused `openGenerator`, and Exp's no-junk axiom is the one `Γ` states with them among its
+    generators (`Parse.uninduced` empty). The account refuses `|`'s associativity axiom
+    (`lawAxiom`): no law of an open generator is read.
   - `f2-examples/lawfn.kompile.kore` (`lawfn.k`): `Exp "+" Exp [function, assoc]`, whose
     associativity kompile states as an axiom. The text is read; the account refuses the axiom
     (`lawAxiom`), `+` being no collection's concatenation. The laws of `_Map_`, `_Set_` and
@@ -24,21 +27,35 @@ def refusalsOf (path : String) (r : Parse.RefusalReason) : IO (List String) := d
   | .error e => return [s!"KORE read error {e}"]
   | .ok k => return ((Parse.refusals k).filter (·.reason == r)).map Parse.Refusal.toText
 
-/-- The account's law refusals of the text at `path` (`Parse.lawUnmatched`), or its first refusal. -/
-def lawRefusals (path : String) : IO (List String) := do
+/-- What `readOf` prints of the definition `d` read from `k`. -/
+def readLines (k : Kore.Definition) (d : Definition) : List String :=
+  let c := d.sem
+  let og := (c.params.filter (·.raw)).map (fun p =>
+    c.symName p.sig.name ++ " : " ++ toString (p.sig.args.map c.sortName) ++ " → " ++
+      c.sortName p.sig.result ++ s!" assoc {p.assoc} idem {p.idem}")
+  let lu := (Parse.lawUnmatched k d).map Parse.Refusal.toText
+  let ui := (Parse.uninduced k d).map Parse.Refusal.toText
+  s!"open generators: {og}" :: s!"lawUnmatched: {lu}" :: s!"uninduced: {ui}" :: []
+
+/-- The text at `path` read: its open generators (name, argument and result sorts, the laws
+read), the account's law refusals (`Parse.lawUnmatched`) and the inert constructor axioms it does not
+induce (`Parse.uninduced`); or its first refusal. -/
+def readOf (path : String) : IO (List String) := do
   match Kore.parseDefinition (← IO.FS.readFile path) with
   | .error e => return [s!"KORE read error {e}"]
   | .ok k => return match Parse.parse k with
-    | .ok d => (Parse.lawUnmatched k d).map Parse.Refusal.toText
+    | .ok d => readLines k d
     | .error r => [s!"refused: {r.toText}"]
 
 /--
-info: [sentence 62 (Lbland): openGenerator (Lbland: neither function nor constructor; law axioms: none), sentence 89 (Lblor): openGenerator (Lblor: neither function nor constructor; law axioms: assoc)]
-[sentence 267 (Lblplus): lawAxiom (Lblplus: assoc)]
-[]
+info: []
+[open generators: [Lbland : [Exp, Exp] → Exp assoc false idem false, Lblor : [Exp, Exp] → Exp assoc false idem false], lawUnmatched: [sentence 186 (Lblor): lawAxiom (Lblor: assoc)], uninduced: []]
+[open generators: [], lawUnmatched: [sentence 267 (Lblplus): lawAxiom (Lblplus: assoc)], uninduced: []]
+[open generators: [], lawUnmatched: [], uninduced: []]
 -/
 #guard_msgs in
 #eval show IO Unit from do
   IO.println (← refusalsOf "f2-examples/commctor.kompile.kore" .openGenerator)
-  IO.println (← lawRefusals "f2-examples/lawfn.kompile.kore")
-  IO.println (← lawRefusals "f2-examples/projuser.kompile.kore")
+  IO.println (← readOf "f2-examples/commctor.kompile.kore")
+  IO.println (← readOf "f2-examples/lawfn.kompile.kore")
+  IO.println (← readOf "f2-examples/projuser.kompile.kore")

@@ -172,7 +172,11 @@ inductive RefusalReason where
   values of its sort that the laws equate: a generator with laws, of which the semantics has no
   reading (its values of a user sort are the free terms over the constructors, and a function
   without clauses would be no generator at all). The detail names the symbol and the law axioms the
-  text states of it (`isOpenGenerator`). -/
+  text states of it (`isOpenGenerator`). A symbol of this shape that the text declares `functional`
+  is read as an open generator (`ParamSig.raw`, a parameter symbol listed among its result sort's
+  generators) where that sort is a constructor sort whose constructors take no argument and that
+  no overloading symbol or subsort ends at (`openGenFault`); otherwise it is refused, the detail
+  naming the symbol and why. -/
   | openGenerator
   /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is not the concatenation of a
   collection of the definition (an `[idem]` axiom: of a set): the law of another symbol, which no
@@ -3346,7 +3350,8 @@ def lawKeys (a : Kore.Axiom) : List String :=
   ["assoc", "comm", "unit", "idem"].filter (hasAttr a.attributes ·)
 
 /-- A symbol of a user's file declared neither `function` nor `constructor`, nor `anywhere` (an
-overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before). -/
+overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before):
+an open generator, read as a `raw` parameter where the text declares it `functional`. -/
 def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
   isUserSource s.attributes && !hasAttr s.attributes "function" && !hasAttr s.attributes "constructor" &&
     !hasAttr s.attributes "anywhere" && !hasAttr s.attributes "cell"
@@ -3536,7 +3541,9 @@ def classify : Kore.Sentence → SentenceClass
   | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
       else if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then classifyKBuiltin (.symbol s)
       else if !s.symbol.sortVars.isEmpty && isUserSource s.attributes then .unread .parametricUnused
-      else if isOpenGenerator s then .refused .openGenerator
+      -- an open generator is read where the text declares it `functional`: a parameter symbol
+      -- that is a generator of its sort (`ParamSig.raw`)
+      else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
       else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
       else .read
   | .hookedSymbol s => if isMacroDecl s.attributes then .unread .macroUnused
@@ -3695,7 +3702,8 @@ def eqnHeadFault? (S : Scan) (e : RawEqn) : Option (RefusalReason × String) :=
         | .var _ => "a variable"
         | _ => "no application"
       some (.constructorEquation, s!"{e.fn}: a constructor; right side headed by {right}")
-    else if S.refused.any (fun (r, n) => r == .openGenerator && n == e.fn) then
+    else if S.refused.any (fun (r, n) => r == .openGenerator && n == e.fn) ||
+        S.userSyms.any (fun s => isOpenGenerator s && s.symbol.ident.ident.name == e.fn) then
       some (.openGeneratorEquation, s!"{e.fn}: an open generator")
     else none
 
@@ -3905,7 +3913,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- an instance without an equation is one whatever its totality: the declaration's `total`, which
   -- kompile states of every instance by one axiom quantified over the sort variables
   -- (`InertReason.parametricFunctional`), is the parameter's (`ParamPres.total`)
-  let clauseless := ((S.userSyms ++ collCells).filter fun s => !isCtorDecl s && !isTotalDecl s &&
+  -- an open generator (`isOpenGenerator`, declared `functional`) is a parameter without equations
+  let clauseless := ((S.userSyms ++ collCells).filter fun s => !isCtorDecl s && (!isTotalDecl s || isOpenGenerator s) &&
     !S.eqs.any (·.fn == s.symbol.ident.ident.name)).map (·.symbol.ident.ident.name) ++
     (instSyms.filter fun s => !S.eqs.any (·.fn == s.symbol.ident.ident.name)).map (·.symbol.ident.ident.name)
   let ctorNames := ((S.userSyms ++ collCells ++ genSyms).filter isCtorDecl).map (·.symbol.ident.ident.name)
@@ -3987,7 +3996,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let clauselessParams ← ((S.userSyms ++ collCells ++ instSyms).filter (clauseless.contains ·.symbol.ident.ident.name)).mapM
     fun h => Rd.within (.sentence (.symbol h)) do
       let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
-      pure (({ sig } : ParamSig),
+      -- an open generator is a generator of its result sort (`Semantics.gens`)
+      pure (({ sig, raw := isOpenGenerator h } : ParamSig),
         (⟨"", attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
           isTotalDecl h⟩ : ParamPres))
   let params := userParams ++ iteParams ++ genParams ++ clauselessParams
@@ -4387,6 +4397,20 @@ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
     else none
 
+/-- Why the open generator `k` of `c` is not read, or `none`. Its sort's values are the
+applications of the sort's generators, among them `k`'s (the no-junk sentence the text writes),
+which `Γ` states of a constructor sort only; and an application of `k` to values is a value that is
+one element where the sort is flat: every constructor of it is nullary, and no overloading symbol
+or subsort ends at it (`Faithful.genWf`'s conjuncts for a `raw` parameter). -/
+def openGenFault (c : Semantics) (k : ParamSig) : Option String :=
+  let s := k.sig.result
+  if !(Faithful.consSorts c).contains s then some "its result sort is no constructor sort"
+  else if c.ctorSigs.any (fun g => g.result == s && !g.args.isEmpty) then
+    some s!"its result sort {c.sortName s} has a constructor with arguments"
+  else if c.ovlSigs.any (fun g => g.result == s) then some s!"its result sort {c.sortName s} has an overloading symbol"
+  else if c.subsorts.any (fun p => p.2 == s) then some s!"its result sort {c.sortName s} has a subsort"
+  else none
+
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
@@ -4412,6 +4436,15 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
       | some d => Site.sentence (.symbol d)
       | none => .unset
     Rd.within site (fail .ctorResultSort s!"{n}: result sort {core.sortName s}, {kind}")
+  | none => pure ()
+  -- an open generator into a sort that is no flat constructor sort (`openGenFault`)
+  match core.params.findSome? (fun k => if k.raw then (openGenFault core k).map (k, ·) else none) with
+  | some (k, why) =>
+    let n := core.symName k.sig.name
+    let site := match S.syms.find? (·.symbol.ident.ident.name == n) with
+      | some d => Site.sentence (.symbol d)
+      | none => .unset
+    Rd.within site (fail .openGenerator s!"{n}: {why}")
   | none => pure ()
   match (S.rewrites.zip rules).findSome? (fun (a, r, rp) => (ruleRefusal core E.N a r rp.names).map (a, ·)) with
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
