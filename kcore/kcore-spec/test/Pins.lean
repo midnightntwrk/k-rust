@@ -305,7 +305,7 @@ section AttrsAgreePins
 open AttrsAgree
 
 example (k : Kore.Definition) (d : Definition) : attrsAgree k d =
-    (ctors k d.sem && fns k d.sem && hooks k d.sem && colls k d.sem && prios k d.sem) := rfl
+    (ctors k d.sem && fns k d.sem && hooks k d.sem && colls k d.sem && prios k d) := rfl
 
 example (as : List Kore.AppPattern) (a : String) : strArg as a =
     ((as.find? (·.head.ident.name == a)).bind fun p => match p.args with
@@ -383,9 +383,18 @@ example (k : Kore.Definition) (c : Semantics) : colls k c =
      declared.all (fun x => c.allColls.any fun cs => own cs == x) &&
        c.colls.all fun cs => declared.contains (own cs)) := rfl
 
-example (k : Kore.Definition) (c : Semantics) : prios k c =
-    (let axs := k.axiomDecls.map (·.ax)
-     ((axs.filter (isRewrite ·.pattern)).map (prioOf ·.attributes) == c.rules.map (·.prio)) &&
+example (as : List Kore.AppPattern) : uidOf as = strArg as "UNIQUE'Unds'ID" := rfl
+
+example (k : Kore.Definition) (u : String) : rewritePrioOf k u =
+    ((k.axiomDecls.map (·.ax)).find? fun a => isRewrite a.pattern && uidOf a.attributes == some u).map
+      (prioOf ·.attributes) := rfl
+
+example (k : Kore.Definition) (d : Definition) : prios k d =
+    (let c := d.sem
+     let axs := k.axiomDecls.map (·.ax)
+     d.pres.rules.length == c.rules.length &&
+     ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
+     ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
        let n := c.symName f.label
        ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
