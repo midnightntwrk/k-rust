@@ -1217,7 +1217,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   `post := or (mem Z a) (mem Z b)`): `coreOK`; `go` steps to `a` and to `b` and to nothing else;
   the values in `famEx` in every model of `Γc` are exactly those two (`famEx_values_iff`); by
   `has_model_choice`, neither `den go ⇒ •den a` nor `den go ⇒ •den b` is entailed (`not_entailed_Γc`).
-  About 3 minutes.
+  The conjunction of terms on a right side (`Parse.andRuleOf`, the landed definition with its rules
+  replaced by those read): mlandc, mlandv (`c(X) => X` with `post := mem X a`): `c(a)` steps to `a`,
+  `c(b)` has none; mlorand (two such rules, at c and d): `c(a)` and `d(a)` step to `a`, `c(b)` has
+  none; mlandt (`go(X) => ?Z` with `post := and (mem Z f(X)) (mem Z g(X))`): `go(0)` steps to `0`
+  only, `go(1)` has none, and `0` is the one value of `famEx` at `go(0)` (`famEx_one`). Each from
+  `StepBy`, `Holds.mem` and the evaluation of the conjuncts, not `Exec.step_iff_of_ok`.
+  About 6 minutes.
 - `test/SetVarRewrite.lean`: `KCore.setvar_rewrite_singleton` at the rewrite axiom of e3-setvar-rewrite
   (`c(@S, @S) => d(@S)`): the axiom's translation is `sRewrites` of two `SvCtx` at the set variable
   (`tr_ax`, by `rfl`), with two and one occurrences, no side pattern holding it (`sides`), and the

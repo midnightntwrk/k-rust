@@ -33,6 +33,24 @@
   `has_model_choice` at `Step` less the step to b (and symmetrically), a model of `Γc` with the
   step's closure in which `den go ⇒ ¬•den b` holds, so `den go ⇒ •den b` is not entailed
   (`not_entailed_b`, `not_entailed_a`, and by `Γc` alone `not_entailed_Γc`).
+
+  ## The conjunction of terms on a right side
+  Four texts, each read by `Parse.andRuleOf` (`Parse.andCut`): the definition is the landed reader's
+  (`definition_of`) with its rules replaced by the ones `parseWith andRuleOf` reads (its functions,
+  sorts and constructors are the landed reading's). Each has `coreOK`. The steps are proved from
+  `StepBy`, `Holds.mem` and the evaluation of the conjuncts, not through `Exec.step_iff_of_ok`
+  (whose `c.ok` asks `\top` predicates of every rule).
+  - e3-ml-rule-rhs-and-ctor (mlandc, `c(X) => X #And a()`), e3-ml-rule-rhs-and-var (mlandv,
+    `c(X) => a() #And X`): the variable form `c(X) => X` with `post := mem X a` (`VarForm`):
+    `c(a)` steps to `a` (`step_ca`) and `c(b)` has no successor (`stuck_cb`).
+  - e3-ml-rule-lhs-or-rhs-and (mlorand, `c(X) #Or d(X) => X #And a()`): two rules of the variable
+    form, at c and at d: `c(a)` and `d(a)` step to `a`, `c(b)` has no successor.
+  - e3-ml-rule-rhs-and-term (mlandt, `go(X) => f(X) #And g(X)`, f the identity, g negation): the
+    fresh form `go(X) => ?Z` with `post := and (mem Z f(X)) (mem Z g(X))`. `go(0)` steps to `0` and
+    to nothing else (`step_go0_iff`; f(0) and g(0) evaluated by `Exec.evalT_sound` on the clauses
+    of the landed reading), `go(1)` has no successor (`stuck_go1`: f(1) = 1, g(1) = -1), and the
+    successor of `go(0)` is the one value `famEx` has (`famEx_one`: `sound_at` and `famEx_values`,
+    with `FnHyp` from the deciders' empty obligation lists).
 -/
 import KcoreSpec
 
@@ -248,6 +266,73 @@ theorem famEx_congr_off (c : Semantics) (r : Rule) {σ σ' : Subst}
   unfold famEx
   dsimp only
   rw [fixK_congrOpen c r fun i hi => h i (by simpa using (List.mem_filter.mp hi).2)]
+
+/-- A constructor application of two arguments with a result: the constructor term of the two
+arguments' results. -/
+theorem evalTerm_ctor2_ex {c : Semantics} {σ : Subst} {f : Sym} {t u : Term} {v : GroundTerm}
+    (hc : c.isCtor f = true) (h : EvalTerm c σ (.app f [t, u]) (some v)) :
+    ∃ v₁ v₂, v = .ctor f [v₁, v₂] ∧ EvalTerm c σ t (some v₁) ∧ EvalTerm c σ u (some v₂) := by
+  obtain ⟨rs, hrs, he⟩ := EvalTerm.ctor_inv hc h
+  obtain ⟨r1, rs1, rfl, h1, hrs1⟩ := EvalTerms.cons_inv hrs
+  obtain ⟨r2, rs2, rfl, h2, hrs2⟩ := EvalTerms.cons_inv hrs1
+  cases EvalTerms.nil_inv hrs2
+  cases r1 with
+  | none => cases he
+  | some v₁ =>
+    cases r2 with
+    | none => cases he
+    | some v₂ => cases he; exact ⟨v₁, v₂, rfl, h1, h2⟩
+
+/-- A constructor application of one argument with a result. -/
+theorem evalTerm_ctor1_ex {c : Semantics} {σ : Subst} {f : Sym} {t : Term} {v : GroundTerm}
+    (hc : c.isCtor f = true) (h : EvalTerm c σ (.app f [t]) (some v)) :
+    ∃ v₁, v = .ctor f [v₁] ∧ EvalTerm c σ t (some v₁) := by
+  obtain ⟨rs, hrs, he⟩ := EvalTerm.ctor_inv hc h
+  obtain ⟨r1, rs1, rfl, h1, hrs1⟩ := EvalTerms.cons_inv hrs
+  cases EvalTerms.nil_inv hrs1
+  cases r1 with
+  | none => cases he
+  | some v₁ => cases he; exact ⟨v₁, rfl, h1⟩
+
+/-- An evaluation of `cfgPat kCell s p k c` to a value: the value is `cfgOf kCell s w` where p
+evaluates to w, V_k is `.` and V_c the counter at 0. -/
+theorem evalTerm_cfgPat {c : Semantics} {σ : Subst} {kCell : Sym} {s : Srt} {p : Term} {k i : Nat}
+    {v : GroundTerm} (hc : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true)
+    (hk : σ.lookup k = some (.ctor dotk [])) (hi : σ.lookup i = some (.ctor counterLabel [int 0]))
+    (h : EvalTerm c σ (cfgPat kCell s p k i) (some v)) :
+    ∃ w, EvalTerm c σ p (some w) ∧ v = .ctor topLabel [.ctor kCell [.ctor kseq
+      [injNormal s Srt.kitem w, .ctor dotk []]], .ctor counterLabel [int 0]] := by
+  obtain ⟨v₁, v₂, rfl, h1, h2⟩ := evalTerm_ctor2_ex hc.1 h
+  obtain ⟨u, rfl, h3⟩ := evalTerm_ctor1_ex hc.2.1 h1
+  obtain ⟨u₁, u₂, rfl, h4, h5⟩ := evalTerm_ctor2_ex hc.2.2 h3
+  obtain ⟨r', h6, hr⟩ := EvalTerm.inj_inv h4
+  have e5 := EvalTerm.var_inv h5
+  have e2 := EvalTerm.var_inv h2
+  rw [hk] at e5
+  rw [hi] at e2
+  cases e5
+  cases e2
+  cases r' with
+  | none => cases hr
+  | some w =>
+    simp only [Option.map_some, Option.some.injEq] at hr
+    subst hr
+    exact ⟨w, h6, rfl⟩
+
+/-- A match of `cfgPat kCell s p k i` at `cfgOf kCell s st`: p matches a w whose injection is st's, and
+V_k, V_c are `.` and the counter. -/
+theorem patVal_cfgPat {c : Semantics} {σ : Subst} {kCell : Sym} {s : Srt} {p : Term} {k i : Nat}
+    {st : GroundTerm} (hc : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true)
+    (hh : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+      patternHooks.contains kseq = false)
+    (h : PatVal c σ (cfgPat kCell s p k i) (cfgOf kCell s st)) :
+    (∃ w, PatVal c σ p w ∧ injNormal s Srt.kitem w = .inj s Srt.kitem st) ∧
+      σ.lookup k = some (.ctor dotk []) ∧ σ.lookup i = some (.ctor counterLabel [int 0]) := by
+  have ⟨h1, hc'⟩ := patVal_ctor2 hh.1 hc.1 h
+  have h2 := patVal_ctor1 hh.2.1 hc.2.1 h1
+  have ⟨h3, hk'⟩ := patVal_ctor2 hh.2.2 hc.2.2 h2
+  obtain ⟨w, hw, he⟩ := PatVal.inj_inv h3
+  exact ⟨⟨w, hw, he.symm⟩, PatVal.var_inv hk', PatVal.var_inv hc'⟩
 
 /-! ## e3-ml-rule-lhs-not -/
 
@@ -777,5 +862,504 @@ theorem not_entailed_Γc : ¬ (Γc c ⊧ (den c Go.val ⇒ KoreAML.sNext (den c 
 #guard_msgs in #print axioms not_entailed_Γc
 
 end RhsOr
+
+/-! ## The conjunction of terms on a right side (e3-ml-rule-rhs-and-*) -/
+
+namespace RhsAnd
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symA : Sym := 385
+def symB : Sym := 386
+def symC : Sym := 387
+def symD : Sym := 388
+
+def aT : GroundTerm := .ctor symA []
+def bT : GroundTerm := .ctor symB []
+def dotkT : GroundTerm := .ctor dotk []
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+
+/-- The variable form at the constructor `sC`: `<k> sC(X) => X </k>` with `post := mem X a`, X the
+variable 0, V1 and V2 the k cell's rest and the counter. -/
+structure VarForm (c : Semantics) (r : Rule) (sC : Sym) : Prop where
+  vars : r.vars = [exp, Srt.k, 19]
+  lhs : r.lhs = cfgPat kCell exp (.app sC [.var 0]) 1 2
+  rhs : r.rhs = cfgPat kCell exp (.var 0) 1 2
+  req : r.req = none
+  ens : r.ens = none
+  pre : r.pre = .top
+  post : r.post = .mem exp (.var 0) (.app symA [])
+  ctors : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧ c.isCtor symA = true ∧
+    c.isCtor sC = true
+  hooks : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains sC = false
+
+def σA : Subst := [(0, aT), (1, dotkT), (2, ctr)]
+
+namespace VarForm
+variable {c : Semantics} {r : Rule} {sC : Sym}
+
+/-- **`sC(a)` steps to `a`** by the rule: X := a, and `post` is `a ∈ a`. -/
+theorem stepBy (h : VarForm c r sC) (hmem : r ∈ c.rules) (hprio : ∀ r' ∈ c.rules, ¬ r'.prio < r.prio)
+    (haS : c.sortOf aT = some exp) (hdS : c.sortOf dotkT = some Srt.k) (hcS : c.sortOf ctr = some 19)
+    (x y : Config c) (hx : x.val = cfg (.ctor sC [aT])) (hy : y.val = cfg aT) : StepBy c r σA x y where
+  mem := hmem
+  hσ := fun j s hs => by
+    rw [h.vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, haS⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, hdS⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, hcS⟩
+  hmatch := by
+    rw [h.lhs, hx]
+    have hi : injNormal exp Srt.kitem (.ctor sC [aT]) = .inj exp Srt.kitem (.ctor sC [aT]) := rfl
+    exact .ctor h.ctors.1 (.cons (.ctor h.ctors.2.1 (.cons (.ctor h.ctors.2.2.1
+      (.cons (hi ▸ .inj (.ctor h.ctors.2.2.2.2 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [h.req] at ht; cases ht
+  hpre := by rw [h.pre]; exact .top
+  heval := by
+    rw [h.rhs, hy]
+    have he : EvalTerm c σA (.inj exp Srt.kitem (.var 0)) (some (.inj exp Srt.kitem aT)) := .inj .var
+    exact .ctor h.ctors.1 (.cons (.ctor h.ctors.2.1 (.cons (.ctor h.ctors.2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [h.ens] at ht; cases ht
+  hpost := by
+    rw [h.post]
+    have hm : Holds c r.vars.length σA (.mem exp (.var 0) (.app symA []))
+        ((σA.lookup 0).isSome && sameResult (σA.lookup 0) (some aT)) := .mem .var (.ctor h.ctors.2.2.2.1 .nil)
+    have hb : ((σA.lookup 0).isSome && sameResult (σA.lookup 0) (some aT)) = true := by
+      show (true && sameResult (some aT) (some aT)) = true
+      rw [sameResult_some]; simp
+    rwa [hb] at hm
+  hprio := fun r' hr' hlt => absurd hlt (hprio r' hr')
+
+/-- **A step by the rule from `T(z)` is from `sC(a)` to `a`**: the match gives X the value z,
+`post` holds only at z = a, and the right side is then `a`. -/
+theorem inv (h : VarForm c r sC) {τ : Subst} {x y : Config c} (hs : StepBy c r τ x y) {T : Sym}
+    {z : GroundTerm} (hx : x.val = cfg (.ctor T [z])) : T = sC ∧ z = aT ∧ y.val = cfg aT := by
+  have hm := hs.hmatch
+  rw [h.lhs, hx] at hm
+  obtain ⟨⟨w, hw, hwe⟩, hk, hc⟩ := patVal_cfgPat ⟨h.ctors.1, h.ctors.2.1, h.ctors.2.2.1⟩
+    ⟨h.hooks.1, h.hooks.2.1, h.hooks.2.2.1⟩ hm
+  obtain ⟨-, vs, rfl, hvs⟩ := PatVal.app_inv h.hooks.2.2.2 hw h.ctors.2.2.2.2
+  have hwe' : GroundTerm.inj exp Srt.kitem (.ctor sC vs) = .inj exp Srt.kitem (.ctor T [z]) := hwe
+  cases hwe'
+  obtain ⟨_, _, he1, h0, _⟩ := PatVals.cons_inv hvs
+  cases he1
+  have hl0 := PatVal.var_inv h0
+  have hp := hs.hpost
+  rw [h.post] at hp
+  obtain ⟨r₁, r₁', e₁, e₁', hb⟩ := holds_mem_inv hp
+  rw [EvalTerm.var_inv e₁, evalTerm_const h.ctors.2.2.2.1 e₁', hl0] at hb
+  simp only [Option.isSome_some, Bool.true_and, sameResult_some] at hb
+  have hz : z = aT := (by simpa using hb.symm : z = .ctor symA [])
+  subst hz
+  have he := hs.heval
+  rw [h.rhs] at he
+  obtain ⟨w', hw', hy⟩ := evalTerm_cfgPat ⟨h.ctors.1, h.ctors.2.1, h.ctors.2.2.1⟩ hk hc he
+  have hw'' : some w' = some aT := (EvalTerm.var_inv hw').trans hl0
+  cases hw''
+  exact ⟨rfl, rfl, hy⟩
+
+end VarForm
+
+/-! ### e3-ml-rule-rhs-and-ctor, e3-ml-rule-rhs-and-var: `c(X) => X #And a()`, `c(X) => a() #And X` -/
+
+namespace MlAndC
+
+definition_of defL from "f2-examples/mlandc.kompile.kore"
+definition_read defA from "f2-examples/mlandc.kompile.kore" by and
+
+/-- The definition the landed reader builds, with its rules replaced by those `Parse.andRuleOf`
+reads from the text. -/
+noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧
+    c.symName symC = "Lblc" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have : i = 0 := by have := prios.1; omega
+  subst this
+  rfl
+
+/-- The rule read is the variable form at c, with no `ensures`. -/
+theorem form : VarForm c r0 symC :=
+  ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl, rfl, by decide +kernel, by decide +kernel⟩
+
+def CA : Config c := ⟨cfg (.ctor symC [aT]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor symC [bT]), by decide +kernel⟩
+def A : Config c := ⟨cfg aT, by decide +kernel⟩
+
+/-- **`c(a)` steps to `a`.** -/
+theorem step_ca : Step c CA A :=
+  step_iff_by.mpr ⟨r0, σA, form.stepBy r0_mem
+    (fun r' hr' hlt => by rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact Nat.lt_irrefl _ hlt)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) CA A rfl rfl⟩
+
+/-- **`c(b)` has no successor.** -/
+theorem stuck_cb : ∀ y, ¬ Step c CB y := fun y h => by
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  rw [rule_eq hs.mem] at hs
+  obtain ⟨-, hz, -⟩ := form.inv hs (T := symC) (z := bT) rfl
+  exact absurd hz (by decide +kernel)
+
+end MlAndC
+
+namespace MlAndV
+
+definition_of defL from "f2-examples/mlandv.kompile.kore"
+definition_read defA from "f2-examples/mlandv.kompile.kore" by and
+
+noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧
+    c.symName symC = "Lblc" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have : i = 0 := by have := prios.1; omega
+  subst this
+  rfl
+
+theorem form : VarForm c r0 symC :=
+  ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl, rfl, by decide +kernel, by decide +kernel⟩
+
+def CA : Config c := ⟨cfg (.ctor symC [aT]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor symC [bT]), by decide +kernel⟩
+def A : Config c := ⟨cfg aT, by decide +kernel⟩
+
+theorem step_ca : Step c CA A :=
+  step_iff_by.mpr ⟨r0, σA, form.stepBy r0_mem
+    (fun r' hr' hlt => by rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact Nat.lt_irrefl _ hlt)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) CA A rfl rfl⟩
+
+theorem stuck_cb : ∀ y, ¬ Step c CB y := fun y h => by
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  rw [rule_eq hs.mem] at hs
+  obtain ⟨-, hz, -⟩ := form.inv hs (T := symC) (z := bT) rfl
+  exact absurd hz (by decide +kernel)
+
+end MlAndV
+
+/-! ### e3-ml-rule-lhs-or-rhs-and: `c(X) #Or d(X) => X #And a()`, two rules -/
+
+namespace MlOrAnd
+
+definition_of defL from "f2-examples/mlorand.kompile.kore"
+definition_read defA from "f2-examples/mlorand.kompile.kore" by and
+
+noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧
+    c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 2 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+noncomputable def r1 : Rule := c.rules[1]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem r1_mem : r1 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 ∨ r = r1 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have h2 := prios.1
+  match i, hi with
+  | 0, _ => exact .inl rfl
+  | 1, _ => exact .inr rfl
+  | n + 2, hi => omega
+
+/-- One rule per disjunct of the left side, each the variable form. -/
+theorem form0 : VarForm c r0 symC :=
+  ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl, rfl, by decide +kernel, by decide +kernel⟩
+theorem form1 : VarForm c r1 symD :=
+  ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl, rfl, by decide +kernel, by decide +kernel⟩
+
+theorem prio_none (r : Rule) (hr : r ∈ c.rules) : ∀ r' ∈ c.rules, ¬ r'.prio < r.prio :=
+  fun r' hr' hlt => by rw [prios.2 r' hr', prios.2 r hr] at hlt; exact Nat.lt_irrefl _ hlt
+
+def CA : Config c := ⟨cfg (.ctor symC [aT]), by decide +kernel⟩
+def DA : Config c := ⟨cfg (.ctor symD [aT]), by decide +kernel⟩
+def CB : Config c := ⟨cfg (.ctor symC [bT]), by decide +kernel⟩
+def A : Config c := ⟨cfg aT, by decide +kernel⟩
+
+/-- **`c(a)` and `d(a)` step to `a`.** -/
+theorem step_ca : Step c CA A :=
+  step_iff_by.mpr ⟨r0, σA, form0.stepBy r0_mem (prio_none r0 r0_mem)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) CA A rfl rfl⟩
+theorem step_da : Step c DA A :=
+  step_iff_by.mpr ⟨r1, σA, form1.stepBy r1_mem (prio_none r1 r1_mem)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) DA A rfl rfl⟩
+
+/-- **`c(b)` has no successor**: neither rule gives one (the d rule does not match). -/
+theorem stuck_cb : ∀ y, ¬ Step c CB y := fun y h => by
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  rcases rule_eq hs.mem with rfl | rfl
+  · obtain ⟨-, hz, -⟩ := form0.inv hs (T := symC) (z := bT) rfl
+    exact absurd hz (by decide +kernel)
+  · obtain ⟨hT, -, -⟩ := form1.inv hs (T := symC) (z := bT) rfl
+    exact absurd hT (by decide +kernel)
+
+end MlOrAnd
+
+/-! ### e3-ml-rule-rhs-and-term: `go(X) => f(X) #And g(X)`, f the identity, g negation -/
+
+namespace MlAndT
+
+definition_of defL from "f2-examples/mlandt.kompile.kore"
+definition_read defA from "f2-examples/mlandt.kompile.kore" by and
+
+noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
+
+def symGo : Sym := 386
+def symF : Sym := 388
+def symG : Sym := 389
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symGo = "Lblgo" ∧ c.symName symF = "Lblf" ∧
+    c.symName symG = "Lblg" := by
+  decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide +kernel
+theorem prios : c.rules.length = 1 ∧ ∀ r ∈ c.rules, r.prio = 50 := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have : i = 0 := by have := prios.1; omega
+  subst this
+  rfl
+
+def fX : Term := .app symF [.var 0]
+def gX : Term := .app symG [.var 0]
+
+/-- The fresh form: `go(X) => ?Z` with `post := and (mem Z f(X)) (mem Z g(X))`, Z the variable 3. -/
+theorem r0_vars : r0.vars = [Srt.int, Srt.k, 19, Srt.int] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symGo [.var 0]) 1 2 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell Srt.int (.var 3) 1 2 := rfl
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.pre = .top ∧ r0.exs = [3] ∧
+    r0.post = .and (.mem Srt.int (.var 3) fX) (.mem Srt.int (.var 3) gX) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symGo = true := by
+  decide +kernel
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symGo = false := by
+  decide +kernel
+
+/-! #### The evaluation of the conjuncts -/
+
+theorem okL : defL.sem.ok = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem srReady : c.srReady = true := by decide +kernel
+theorem matchReady : c.matchReady = true := by decide +kernel
+
+theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Exec.ovlCase_of matchReady)
+/-- The clauses are the landed definition's: its `ok` gives their context. -/
+theorem hcc : Exec.ClauseCtx c :=
+  have h : Exec.ClauseCtx defL.sem := Exec.clauseCtx_of okL
+  h
+theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
+
+/-- Evaluation has one result: the deciders confirm coherence. -/
+theorem coherent : CoherentAll c := by
+  have hag : c.agreeObligations = [] := by decide +kernel
+  have hcf : c.clausesFixed = true := by decide +kernel
+  refine coherentAll_of_parts (matchIndependentAll_of_sortedOK sortedOK matchReady
+    (.of_fixed hcf (Exec.matchCtx_of matchReady).noOvl)) fun f fn hfn => ?_
+  obtain ⟨hmem, -⟩ := lookupFn_spec hfn
+  rcases List.mem_append.mp hmem with h | h
+  · exact clausesAgree_of_sortedOK sortedOK srReady matchReady (fun f hf => by rw [hag] at hf; nomatch hf) fn h
+  · exact sortPreds_agree h
+
+theorem fnDet : FnDet c := fnDet_of_coherent coherent
+
+theorem headsOK : HeadsOK c (c.fns.map Fn.sig) := fun k hk => by
+  obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
+  exact ⟨g, List.mem_append_left _ hg, rfl⟩
+
+def σn (n : Int) : Subst := [(0, int n)]
+
+theorem wsn (n : Int) : c.WellSorted [Srt.int] (σn n) := fun j s hs => by
+  match j, hs with
+  | 0, hs => cases hs; exact ⟨_, rfl, sortOf_int n⟩
+
+/-- A term over X evaluated at `X := n` gives its result at any σ that gives X the value n. -/
+theorem at_τ {t : Term} (ht : varOccs t = [0]) {n : Int} {r : Option GroundTerm} (h : EvalTerm c (σn n) t r)
+    {τ : Subst} (h0 : τ.lookup 0 = some (int n)) : EvalTerm c τ t r :=
+  Exec.EvalTerm.congr h fun i hi => by
+    rw [ht, List.mem_singleton] at hi
+    subst hi
+    exact h0.symm
+
+theorem f0 : EvalTerm c (σn 0) fX (some (int 0)) :=
+  Exec.evalT_sound hsc hcc hmc 20 (by decide +kernel) headsOK (wsn 0) (s := Srt.int) (by decide +kernel)
+theorem g0 : EvalTerm c (σn 0) gX (some (int 0)) :=
+  Exec.evalT_sound hsc hcc hmc 20 (by decide +kernel) headsOK (wsn 0) (s := Srt.int) (by decide +kernel)
+theorem f1 : EvalTerm c (σn 1) fX (some (int 1)) :=
+  Exec.evalT_sound hsc hcc hmc 20 (by decide +kernel) headsOK (wsn 1) (s := Srt.int) (by decide +kernel)
+theorem g1 : EvalTerm c (σn 1) gX (some (int (-1))) :=
+  Exec.evalT_sound hsc hcc hmc 20 (by decide +kernel) headsOK (wsn 1) (s := Srt.int) (by decide +kernel)
+
+/-! #### The steps -/
+
+/-- `<k> go(n) </k>`; `<k> n </k>`. -/
+def goCfg (n : Int) : GroundTerm := cfgOf kCell exp (.ctor symGo [int n])
+def resCfg (n : Int) : GroundTerm := cfgOf kCell Srt.int (int n)
+
+def Go0 : Config c := ⟨goCfg 0, by decide +kernel⟩
+def Go1 : Config c := ⟨goCfg 1, by decide +kernel⟩
+def Zero : Config c := ⟨resCfg 0, by decide +kernel⟩
+
+def σ0 : Subst := [(0, int 0), (1, dotkT), (2, ctr), (3, int 0)]
+
+/-- **`go(0)` steps to `0`**: X := 0, Z := 0, the value both conjuncts have there. -/
+theorem stepBy0 : StepBy c r0 σ0 Go0 Zero where
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, rfl, sortOf_int 0⟩
+    | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+    | 3, hs => cases hs; exact ⟨_, rfl, sortOf_int 0⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor symGo [int 0]) = .inj exp Srt.kitem (.ctor symGo [int 0]) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hi ▸ .inj (.ctor syms_ok.2.2.2 (.cons (.var rfl) .nil))) (.cons (.var rfl) .nil))) .nil))
+      (.cons (.var rfl) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by rw [r0_shape.2.2.1]; exact .top
+  heval := by
+    rw [r0_rhs]
+    have he : EvalTerm c σ0 (.inj Srt.int Srt.kitem (.var 3)) (some (.inj Srt.int Srt.kitem (int 0))) := .inj .var
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons he (.cons .var .nil))) .nil)) (.cons .var .nil))
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := by
+    rw [r0_shape.2.2.2.2]
+    have h : Holds c r0.vars.length σ0 (.and (.mem Srt.int (.var 3) fX) (.mem Srt.int (.var 3) gX))
+        (((σ0.lookup 3).isSome && sameResult (σ0.lookup 3) (some (int 0))) &&
+          ((σ0.lookup 3).isSome && sameResult (σ0.lookup 3) (some (int 0)))) :=
+      .and (.mem .var (at_τ rfl f0 rfl)) (.mem .var (at_τ rfl g0 rfl))
+    have hb : (((σ0.lookup 3).isSome && sameResult (σ0.lookup 3) (some (int 0))) &&
+        ((σ0.lookup 3).isSome && sameResult (σ0.lookup 3) (some (int 0)))) = true := by
+      show ((true && sameResult (some (int 0)) (some (int 0))) && (true && sameResult (some (int 0)) (some (int 0)))) = true
+      rw [sameResult_some]; simp
+    rwa [hb] at h
+  hprio := fun r' hr' hlt => by
+    rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact absurd hlt (Nat.lt_irrefl _)
+
+theorem step_go0 : Step c Go0 Zero := step_iff_by.mpr ⟨r0, σ0, stepBy0⟩
+
+/-- **A step by the rule from `go(n)`**, where f(n) is n and g(n) is m: n = m, and the successor
+is `n`. -/
+theorem go_inv {n m : Int} (hf : EvalTerm c (σn n) fX (some (int n))) (hg : EvalTerm c (σn n) gX (some (int m)))
+    {τ : Subst} {x y : Config c} (hx : x.val = goCfg n) (hs : StepBy c r0 τ x y) :
+    n = m ∧ y.val = resCfg n := by
+  have hm := hs.hmatch
+  rw [r0_lhs, hx] at hm
+  obtain ⟨⟨w, hw, hwe⟩, hk, hc⟩ := patVal_cfgPat ⟨syms_ok.1, syms_ok.2.1, syms_ok.2.2.1⟩
+    ⟨hooks_ok.1, hooks_ok.2.1, hooks_ok.2.2.1⟩ hm
+  obtain ⟨-, vs, rfl, hvs⟩ := PatVal.app_inv hooks_ok.2.2.2 hw syms_ok.2.2.2
+  have hwe' : GroundTerm.inj exp Srt.kitem (.ctor symGo vs) = .inj exp Srt.kitem (.ctor symGo [int n]) := hwe
+  cases hwe'
+  obtain ⟨_, _, he1, h0, _⟩ := PatVals.cons_inv hvs
+  cases he1
+  have hl0 := PatVal.var_inv h0
+  obtain ⟨v, hl3, -⟩ := hs.hσ 3 Srt.int (by rw [r0_vars]; rfl)
+  have hp := hs.hpost
+  rw [r0_shape.2.2.2.2] at hp
+  obtain ⟨b₁, b₂, h₁, h₂, hb⟩ := holds_and_inv hp
+  obtain ⟨r₁, r₁', e₁, e₁', rfl⟩ := holds_mem_inv h₁
+  obtain ⟨r₂, r₂', e₂, e₂', rfl⟩ := holds_mem_inv h₂
+  rw [EvalTerm.var_inv e₁, EvalTerm.var_inv e₂, hl3, EvalTerm.functional_of_fnDet fnDet e₁' (at_τ rfl hf hl0),
+    EvalTerm.functional_of_fnDet fnDet e₂' (at_τ rfl hg hl0)] at hb
+  simp only [Option.isSome_some, Bool.true_and, sameResult_some] at hb
+  have hv : v = int n ∧ v = int m := by simpa using hb.symm
+  obtain ⟨rfl, hvm⟩ := hv
+  have he := hs.heval
+  rw [r0_rhs] at he
+  obtain ⟨w', hw', hy⟩ := evalTerm_cfgPat ⟨syms_ok.1, syms_ok.2.1, syms_ok.2.2.1⟩ hk hc he
+  have hw'' : some w' = some (int n) := (EvalTerm.var_inv hw').trans hl3
+  cases hw''
+  have hnm : n = m := by simpa [int] using hvm
+  exact ⟨hnm, hy⟩
+
+/-- **The successor of `go(0)` is `0`, and only it.** -/
+theorem step_go0_iff (y : Config c) : Step c Go0 y ↔ y = Zero := by
+  constructor
+  · intro h
+    obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+    rw [rule_eq hs.mem] at hs
+    exact Subtype.ext (go_inv f0 g0 rfl hs).2
+  · rintro rfl; exact step_go0
+
+/-- **`go(1)` has no successor**: f(1) = 1 and g(1) = -1 have no common value. -/
+theorem stuck_go1 : ∀ y, ¬ Step c Go1 y := fun y h => by
+  obtain ⟨r, τ, hs⟩ := step_iff_by.mp h
+  rw [rule_eq hs.mem] at hs
+  exact absurd (go_inv f1 g1 rfl hs).1 (by decide)
+
+/-! #### The one value of `famEx` -/
+
+theorem noWitness : (∀ r ∈ c.rules, r.needsWitness c = false) ∧
+    (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = false) := by
+  decide +kernel
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+def callOrder : List Sym := [symF, symG]
+
+theorem obligations : c.rankObligations callOrder ++ c.decObligationsL = [] ∧
+    c.totalObligationsRP callOrder [] = [] ∧ c.agreeObligationsI = [] ∧ c.matchObligationsL = [] := by
+  decide +kernel
+
+/-- `FnHyp`: f and g terminate, their equations agree, nothing needs a witness and no parameter is
+an open generator. -/
+theorem fnHyp : FnHyp c :=
+  fnHyp_of_fnObligations coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) ParamsTotal.nil
+    (ord := callOrder)
+    ⟨fun f hf => by rw [obligations.1] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [obligations.2.1] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [obligations.2.2.1] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [obligations.2.2.2] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_plain noWitness.1 noWitness.2, openLaws_of_plain noRaw⟩
+
+/-- **The successor of `go(0)` is the one value `famEx` has**: in every model of `Γc` the element of
+`0` is in the family of the application at `go(0)` (`sound_at`), and a value whose element is in it
+in every model is a step by the rule (`famEx_values`), so `0`. -/
+theorem famEx_one (y : Config c) : (Γc c ⊧ (den c y.val ⇒ famEx c r0 σ0)) ↔ y = Zero := by
+  constructor
+  · intro hy
+    obtain ⟨τ, -, hs⟩ := famEx_values c coreOK fnHyp Go0 y r0 σ0 ⟨Zero, stepBy0⟩ hy
+    exact Subtype.ext (go_inv f0 g0 rfl hs).2
+  · rintro rfl
+    exact (sound_at c coreOK Go0 Zero r0 σ0 stepBy0
+      (fun r' hr' hlt => by rw [prios.2 r' hr', prios.2 r0 r0_mem] at hlt; exact absurd hlt (Nat.lt_irrefl _))
+      (fun fn hfn cl hcl h => absurd h (by rw [noWitness.2 fn hfn cl hcl]; decide))).2
+
+/-- info: 'PredFixtures.RhsAnd.MlAndT.famEx_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms famEx_one
+
+end MlAndT
+
+end RhsAnd
 
 end PredFixtures
