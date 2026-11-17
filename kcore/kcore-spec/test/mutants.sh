@@ -148,7 +148,7 @@ for name in todo:
             a = subprocess.run(["python3", "-I", "test/constructs/kfix.py", "accounts", fx], cwd=K,
                                capture_output=True, text=True, env=e)
             detail = (a.stdout + a.stderr).strip().splitlines()
-            sm = re.search(r"kfix accounts: (\d+) equal, (\d+) differ, (\d+) not in the cache", a.stdout)
+            sm = re.search(r"kfix accounts: (\d+) equal, (\d+) differ(?:: [^,]*)?, (\d+) not in the cache", a.stdout)
             if not sm or sm.group(3) != "0" or int(sm.group(1)) + int(sm.group(2)) != 1:
                 print(f"  error: kfix.py accounts {fx} did not compare the fixture's account: {' '.join(detail[-2:])[:400]}")
                 bad += 1; continue

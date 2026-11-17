@@ -63,6 +63,196 @@ patch = '''
      let (bs, body) := binders eqnFuel ex
 '''
 
+[mutant."requires-priority-default"]
+summary = "an equation with a requires and a priority{}(n) is read at the default priority 50"
+breaks = "Clause.prio: the text's priority{}(n) on an equation orders it before the equations of a larger priority whatever its requires (an equation of priority n applies first where its requires is true, and the others under the negation of it); read at 50, it and an equation of default priority are of one priority, neither under the negation of the other"
+row = 'C3 equation requires x equation priority'
+fixture = "c3-eq-req-prio-comp"
+theorems = "test/C3EqReqPrioComp.lean"
+expect = "killed"
+killed_by = "account: the line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` gone, agree_named `0:` becomes `1: f` (c3-eq-req-prio-comp; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2304,6 +2304,7 @@
+       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
+   let m ← need (eqnInfo? e.attrs) .sentenceInfo
+   let (explicit, prio) := eqnPrio e
++  let prio := if req.isSome && explicit.isSome then 50 else prio
+   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
+   let aside := nonExec e
+   match excl with
+'''
+
+[mutant."owise-sibling-requires-dropped"]
+summary = "in a function with an [owise] equation, the requires of its other equations is dropped"
+breaks = "Clause.req beside an [owise] equation: f(X) = X under X >Int 0, and the [owise] equation's premise the negation of that disjunct (the sibling's left side and requires); dropped, the sibling applies at every X and the [owise] equation at none"
+row = 'C3 equation requires x equation owise'
+fixture = "c3-eq-req-owise"
+theorems = "test/C3EqReqOwise.lean"
+expect = "killed"
+killed_by = "theorems: shape, f_neg1 (test/C3EqReqOwise.lean; the account of the fixture unchanged; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2388,6 +2388,7 @@
+   for e in ows.drop 1 do
+     let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
+   let clauses ← cl
++  let clauses := if ows.isEmpty then clauses else clauses.map fun (c, p) => ({ c with req := none }, p)
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+'''
+
+[mutant."total-requires-dropped"]
+summary = "the requires of a [total] function's equations is dropped"
+breaks = "Clause.req on a total function: the equation states f(X) = X only under X >Int 0, and the functional axiom a value elsewhere that no equation gives; dropped, the equation gives f(X) = X at every X"
+row = 'C3 equation requires x equation total'
+fixture = "c3-eq-req-total"
+theorems = "test/C3EqReqTotal.lean"
+expect = "killed"
+killed_by = "account: total_named `1: f` becomes `0:` (c3-eq-req-total; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2388,6 +2388,7 @@
+   for e in ows.drop 1 do
+     let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
+   let clauses ← cl
++  let clauses := if total then clauses.map fun (c, p) => ({ c with req := none }, p) else clauses
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+'''
+
+[mutant."priority-ensures-dropped"]
+summary = "the ensures of an equation with a priority{}(n) is dropped"
+breaks = "Clause.ens beside the priority: f(X) = X ∧ (X >=Int 0 = true) at priority 40 gives f no value at X < 0 (Eval.ensFails), and the equation of priority 50 is under the negation of its premise, which holds there; dropped, f(-1) = -1"
+row = 'C3 equation ensures x equation priority'
+fixture = "c3-eq-ens-prio-comp"
+theorems = "test/C3EqEnsPrioComp.lean"
+expect = "killed"
+killed_by = "theorems: shape, f_neg1 (test/C3EqEnsPrioComp.lean; the account of the fixture unchanged; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2304,6 +2304,7 @@
+       pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
+   let m ← need (eqnInfo? e.attrs) .sentenceInfo
+   let (explicit, prio) := eqnPrio e
++  let ens := if explicit.isSome then none else ens
+   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
+   let aside := nonExec e
+   match excl with
+'''
+
+[mutant."owise-sibling-ensures-as-requires"]
+summary = "in a function with an [owise] equation, the ensures of its other equations is read as a conjunct of their requires"
+breaks = "Clause.ens beside an [owise] equation: the [owise] equation's exclusion negates the sibling's left side and requires, not its ensures, so where the sibling matches and its ensures is not true half has no value; read into the requires, the [owise] equation gives 0 there"
+row = 'C3 equation ensures x equation owise'
+fixture = "c3-eq-ens-owise"
+theorems = "test/C3EqEnsOwise.lean"
+expect = "killed"
+killed_by = "theorems: shape, half_neg4 (test/C3EqEnsOwise.lean; the account of the fixture unchanged; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2388,6 +2388,8 @@
+   for e in ows.drop 1 do
+     let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
+   let clauses ← cl
++  let clauses := if ows.isEmpty then clauses else clauses.map fun (c, p) =>
++    ({ c with req := conjTerms (c.req.toList ++ c.ens.toList), ens := none }, p)
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+'''
+
+[mutant."total-ensures-dropped"]
+summary = "the ensures of a [total] function's equations is dropped"
+breaks = "Clause.ens on a total function: f(X) = X ∧ (X >=Int 0 = true) gives f no value at X < 0, which the functional axiom contradicts (no model of the text); dropped, f is the identity and total"
+row = 'C3 equation ensures x equation total'
+fixture = "c3-eq-ens-total"
+theorems = "test/C3EqEnsTotal.lean"
+expect = "killed"
+killed_by = "account: total_named `1: f` becomes `0:` (c3-eq-ens-total; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2388,6 +2388,7 @@
+   for e in ows.drop 1 do
+     let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
+   let clauses ← cl
++  let clauses := if total then clauses.map fun (c, p) => ({ c with ens := none }, p) else clauses
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+'''
+
+[mutant."owise-before-priority"]
+summary = "an [owise] equation beside an equation with a priority{}(n) is read at priority 0"
+breaks = "Clause.prio of an [owise] equation: its premise negates every other executable equation, so it applies only where the priority-40 equation does not; read at 0, it applies first and gives f(5) = 0"
+row = 'C3 equation priority x equation owise'
+fixture = "c3-eq-prio-owise"
+theorems = "test/C3EqPrioOwise.lean"
+expect = "killed"
+killed_by = "account: a line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` added, `wf true` becomes `wf false` (c3-eq-prio-owise; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2390,6 +2390,7 @@
+   let clauses ← cl
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
++  let owise := if plain.any (fun e => (eqnPrio e).1.isSome) then owise.map fun (c, p) => ({ c with prio := 0 }, p) else owise
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- dotk)) = V` without `requires`, and the axiom is one; then its clause, of priority 200, last
+   if let some d := doms.head? then
+'''
+
+[mutant."total-priority-default"]
+summary = "the priority{}(n) of a [total] function's equations is read as the default priority 50"
+breaks = "Clause.prio on a total function: f(X) = X at priority 40 applies before f(_) = 0 at 50, so f(5) = 5; at one priority the two equations compete with different values"
+row = 'C3 equation priority x equation total'
+fixture = "c3-eq-prio-total-comp"
+theorems = "test/C3EqPrioTotalComp.lean"
+expect = "killed"
+killed_by = "account: the line `function equations read with the premise that no clause of a smaller priority applies (equationPriority): 1` gone, agree_named `0:` becomes `1: f` (c3-eq-prio-total-comp; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2388,6 +2388,7 @@
+   for e in ows.drop 1 do
+     let _ ← (pairExcl exec (e.competitors.getD [])).mapM (clauseOf N msrc)
+   let clauses ← cl
++  let clauses := if total then clauses.map fun (c, p) => ({ c with prio := 50 }, p) else clauses
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+'''
+
+[mutant."total-owise-dropped"]
+summary = "the [owise] equation of a [total] function is dropped"
+breaks = "the [owise] equation of a total function is one of its clauses (priority 200, under the negation of the others), an equation the text states; dropped, Γ lacks it"
+row = 'C3 equation owise x equation total'
+fixture = "c3-eq-owise-total"
+theorems = "test/C3EqOwiseTotal.lean"
+expect = "killed"
+killed_by = "theorems: defs_attrsAgree, fnText_index, account (test/C3EqOwiseTotal.lean; the account of the fixture unchanged; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2390,6 +2390,7 @@
+   let clauses ← cl
+   -- the `[owise]` equations: clauses of priority 200, after the others
+   let owise ← ows.mapM fun e => clause? N msrc e none
++  let owise := if total then [] else owise
+   -- a selector-domain axiom: the projection's one equation is `project:X(kseq(inj{X,KItem}(V),
+   -- dotk)) = V` without `requires`, and the axiom is one; then its clause, of priority 200, last
+   if let some d := doms.head? then
+'''
+
 # Kernel mutants (DONE-0 C8 part 1, "Only kernel mutants (a change of `Eval`, `Step`) are shown by
 # argument, through the refutation instance"): each a named change of a constructor or a premise of
 # `Eval` (KcoreSpec/Evaluation.lean) or of `Step.rule` (KcoreSpec/Step.lean). A kernel mutant is
