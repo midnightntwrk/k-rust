@@ -93,7 +93,9 @@ ALLOWANCE = [
     # the reader does (supported, or parameter), the carrier and the module having landed.
     # 40 -> 38 with C3.rows-unit-ctor: E2 ASSOC(assoc)@symbol and COMM(comm)@symbol name the ticket
     # whose completion is their fixture read, P2.d2-kompiled (findings/C3-unbound-rulings.md 8.2).
-    ("ROWS-1.unit-rc", 38, "entries of class R-c without unit",
+    # 38 -> 37 with CE.rows-partition: the #Exists row's case "an equation's right side" (R-c, no
+    # unit) is replaced by one case per shape, each R-c with its ticket or R-a with its reason.
+    ("ROWS-1.unit-rc", 37, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
