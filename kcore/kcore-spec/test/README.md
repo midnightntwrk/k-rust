@@ -956,3 +956,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   and beside a rule of a larger priority `openRequires` at Exp. Each prints `ruleSorted`, `rulePlainPP`,
   `openRefusal` and the definition's `rulesPlain`, which still asks `\top` predicates. mlor: a text the
   landed reader reads has the same rules. Kernel: `cut_right`, `cut_left`.
+- `test/SetVarRewrite.lean`: `KCore.setvar_rewrite_singleton` at the rewrite axiom of e3-setvar-rewrite
+  (`c(@S, @S) => d(@S)`): the axiom's translation is `sRewrites` of two `SvCtx` at the set variable
+  (`tr_ax`, by `rfl`), with two and one occurrences, no side pattern holding it (`sides`), and the
+  theorem at them (`singleton`).
