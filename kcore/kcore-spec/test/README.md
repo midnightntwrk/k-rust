@@ -1276,3 +1276,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   sequences of one injected item (sentences 176, 177: domains.md 2338 at Bool, 1404 at Int) entailed
   at values for every H, from `LibEv.boolKEq_ev` and `LibEv.intKEq_ev` (`KcoreSpec/LibEvBoolK.lean`,
   for every semantics meeting `coreOK` and `shapesOK` with the sort below KItem). Axioms guarded.
+- `test/LibSetVarCeil.lean`: a library lemma over set variables that Γ refutes at values. Sentence 126
+  of `f2-examples/ens.kompile.kore` (domains.md 1393, `#Ceil(@I1 %Int @I2) => …`) fails, for every H
+  and in every model of Γ, at the valuation `@I1 = @I2 = {0, 1}`, which meets `AtValues` and
+  `SetVarsAtValues` (`ceil126_at`); so Γ with the sentence has no model (`ceil126_refuted`), and
+  where Γ has a model the sentence is neither `EntailsAtValues` nor `EntailsAtSetValues`
+  (`ceil126_not_at_values`, `ceil126_not_at_set_values`). Axioms guarded.
