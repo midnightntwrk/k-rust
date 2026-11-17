@@ -24,3 +24,11 @@ example {D D' : KoreAML.Sym → Prop} {V : List EVar} {W : List SVar} {k : OwnKi
 
 /-- info: 'KCore.Cons.sat_own_sig' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sat_own_sig
+
+example {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hD : ∀ σ, D σ → plainSym σ) (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P} (hφ : ΓColls c φ)
+    (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ :=
+  sat_own_colls hD hI hφ hn
+
+/-- info: 'KCore.Cons.sat_own_colls' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms sat_own_colls

@@ -1,7 +1,8 @@
 /-
   The extension of a model of the theory without the detached names (`extModel`,
   ConsExtModel.lean) satisfies the premises of the signature that name nothing of `D`
-  (`sat_own_sig`), for names `D` that are sort constants and symbols of the definition.
+  (`sat_own_sig`), and the premises of the collections that name nothing of `D` (`sat_own_colls`),
+  for names `D` that are sort constants and symbols of the definition.
 
   Five of the signature's items are not of the class `OwnSorted` (ConsTransfer.lean) and are
   carried directly: definedness (`sat_definedness_sg`: `⌈_⌉` holds of everything in the
@@ -16,6 +17,11 @@
   The arity items and the arity of next are of the class at no name (`own_arity_sg`,
   `own_next_sg`); a pattern of the class at any names none of whose symbols is in `D` is of the
   class at `D` (`ownSorted_clean_sg`), so `transfer` carries them (`transfer0_sg`).
+
+  The collections' axioms (`ΓColls`) are guarded premises of the class: their guards put each
+  variable in a sort, and their bodies are built from definedness, equality and sorted
+  quantifiers over the collection's symbols (`own_mapUnitSplit_sg` and the others), so
+  `transfer` carries those that name nothing of `D` (`transferG_sg`, `sat_own_colls`).
 -/
 import KcoreSpec.ConsRegistrySat
 import KcoreSpec.ConsTransferInst
@@ -454,6 +460,213 @@ theorem sat_own_sig (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P} (hφ : ΓSig c �
     · exact transfer0_sg hD hDI (own_next_sg _) (.inl rfl) hn hI'
   · exact sat_definedness_sg x
   · exact sat_dvArity_sg hD hDI (hI _ (own_of_sig_sg (.inr ⟨lit, rfl⟩) hn))
+
+end
+
+/-! ## Guarded premises -/
+
+theorem psyms_conjList_sg : ∀ {ws : List KoreAML.P} {w : KoreAML.P} {σ : KoreAML.Sym}, w ∈ ws →
+    σ ∈ psyms w → σ ∈ psyms (KoreAML.conjList ws)
+  | [], _, _, hw, _ => absurd hw List.not_mem_nil
+  | [_], _, _, hw, hσ => by rw [List.mem_singleton.mp hw] at hσ; exact hσ
+  | w1 :: w2 :: ws, w, σ, hw, hσ => by
+    have key : σ ∈ psyms w1 ∨ σ ∈ psyms (KoreAML.conjList (w2 :: ws)) := by
+      rcases List.mem_cons.mp hw with rfl | hw
+      · exact .inl hσ
+      · exact .inr (psyms_conjList_sg hw hσ)
+    unfold KoreAML.conjList
+    simp only [psyms, List.mem_append, List.not_mem_nil, or_false]
+    rcases key with h | h <;> simp [h]
+
+theorem psyms_guarded_body_sg {ws : List KoreAML.P} {φ : KoreAML.P} {σ : KoreAML.Sym} (h : σ ∈ psyms φ) :
+    σ ∈ psyms (KoreAML.guarded ws φ) := by
+  cases ws with
+  | nil => exact h
+  | cons w ws => simp [KoreAML.guarded, psyms, h]
+
+theorem psyms_guarded_guard_sg {gs : List (EVar × KoreAML.P)} {body : KoreAML.P} {p : EVar × KoreAML.P}
+    {σ : KoreAML.Sym} (hp : p ∈ gs) (hσ : σ ∈ psyms p.2) : σ ∈ psyms (KoreAML.guarded (memGs gs) body) := by
+  have hw : p.1 ∈∈ KoreAML.inhOf p.2 ∈ memGs gs := List.mem_map.mpr ⟨p, hp, rfl⟩
+  have h1 : σ ∈ psyms (p.1 ∈∈ KoreAML.inhOf p.2) := by
+    simp [ML.member, psyms, KoreAML.inhOf, KoreAML.sym, Pattern.conjunction, Pattern.disjunction,
+      Pattern.negation, hσ]
+  have h2 := psyms_conjList_sg hw h1
+  cases hg : memGs gs with
+  | nil => rw [hg] at hw; exact absurd hw List.not_mem_nil
+  | cons w ws =>
+    rw [hg] at h2
+    show σ ∈ psyms (KoreAML.conjList (w :: ws) ⇒ body)
+    simp [psyms, h2]
+
+section
+variable {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+  (hD : ∀ σ, D σ → plainSym σ)
+include hD
+
+/-- `transfer` for a guarded premise of the class at no name whose symbols are outside `D`. -/
+theorem transferG_sg (hDI : DefOK I) {gs : List (EVar × KoreAML.P)} {body : KoreAML.P} {k : OwnKind}
+    (hs : ∀ p ∈ gs, OwnSorted (fun _ => False) [] [] .ex p.2)
+    (hb : OwnSorted (fun _ => False) (gs.map (·.1)) [] k body) (hk : k = .pred ∨ k = .co)
+    (hn : ∀ σ ∈ psyms (KoreAML.guarded (memGs gs) body), ¬ D σ)
+    (h : I ⊧ᴵ KoreAML.guarded (memGs gs) body) : extModel c D I ⊧ᴵ KoreAML.guarded (memGs gs) body :=
+  transfer hD hDI (fun p hp => ownSorted_clean_sg (hs p hp) fun σ hσ => hn σ (psyms_guarded_guard_sg hp hσ))
+    (ownSorted_clean_sg hb fun σ hσ => hn σ (psyms_guarded_body_sg hσ)) hk h
+
+omit [Inhabited M] in
+/-- A model of `Γown c D` satisfies definedness. -/
+theorem defOK_own_sg (hI : I ⊧ᴵP Γown c D) : DefOK I :=
+  KoreAML.defOK_of fun x =>
+    hI _ (own_of_sig_sg (.inl (.inr ⟨x, rfl⟩)) (clean_of_plain_sg hD fun σ hσ => by
+      simp [psyms, definedness, Pattern.universal, Pattern.negation] at hσ
+      subst hσ; exact id))
+
+end
+
+/-! ## The collections' axioms -/
+
+section
+variable {V : List EVar} {W : List SVar} (c : Semantics) (k : CollSig)
+
+local notation "Own0" => OwnSorted (fun _ => False)
+
+theorem ownC_sg {a b : KoreAML.P} (ha : Own0 V W .old a) (hb : Own0 V W .old b) : Own0 V W .ex (collC c k a b) :=
+  .appE (.appE (.symC id) ha) hb
+theorem ownE_sg {a b : KoreAML.P} (ha : Own0 V W .old a) (hb : Own0 V W .old b) : Own0 V W .ex (collE c k a b) :=
+  .appE (.appE (.symC id) ha) hb
+theorem ownI_sg {a : KoreAML.P} (ha : Own0 V W .old a) : Own0 V W .ex (collI c k a) :=
+  .appE (.symC id) ha
+
+/-- Derives that a collection axiom's body is of the class at no name. -/
+local macro "own_tac" : tactic => `(tactic| repeat (first
+  | exact OwnSorted.evar (by decide)
+  | exact OwnSorted.toOld (OwnSorted.evar (by decide))
+  | exact OwnSorted.botP
+  | exact OwnSorted.symC id
+  | exact OwnSorted.sortC id
+  | apply OwnSorted.sEx (V' := []) (OwnSorted.sortC id) nil_sub (.inr (.inl rfl))
+  | apply OwnSorted.conj_pred
+  | apply OwnSorted.conj_ex_old
+  | apply OwnSorted.disj_pred
+  | apply OwnSorted.equal_ex
+  | apply OwnSorted.defined (.inl rfl)
+  | apply OwnSorted.neg_pred
+  | apply OwnSorted.impPP
+  | apply ownC_sg
+  | apply ownE_sg
+  | apply ownI_sg
+  | apply OwnSorted.toOld (k := OwnKind.ex)))
+
+theorem own_mapUnitSplit_sg : Own0 [⟨1⟩, ⟨2⟩] [] .pred
+    (⌈collU c k ⋀ collC c k (.evar ⟨1⟩) (.evar ⟨2⟩)⌉ ⇒ ((.evar ⟨1⟩ ≡ collU c k) ⋀ (.evar ⟨2⟩ ≡ collU c k))) := by own_tac
+
+theorem own_mapElemNotUnit_sg : Own0 [⟨1⟩, ⟨2⟩] [] .pred
+    (∼⌈collU c k ⋀ collE c k (.evar ⟨1⟩) (.evar ⟨2⟩)⌉) := by own_tac
+
+theorem own_mapElemAtom_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩, ⟨5⟩] [] .pred
+    (⌈collE c k (.evar ⟨3⟩) (.evar ⟨4⟩) ⋀ collC c k (collE c k (.evar ⟨1⟩) (.evar ⟨2⟩)) (.evar ⟨5⟩)⌉ ⇒
+      ((.evar ⟨1⟩ ≡ .evar ⟨3⟩) ⋀ (.evar ⟨2⟩ ≡ .evar ⟨4⟩) ⋀ (.evar ⟨5⟩ ≡ collU c k))) := by own_tac
+
+theorem own_mapDecomp_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩, ⟨5⟩] [] .pred
+    (⌈collC c k (collE c k (.evar ⟨1⟩) (.evar ⟨2⟩)) (.evar ⟨3⟩) ⋀ collC c k (.evar ⟨4⟩) (.evar ⟨5⟩)⌉ ⇒
+      (KoreAML.sExists ⟨6⟩ (sortP (c.sortName k.sort))
+          ((.evar ⟨4⟩ ≡ collC c k (collE c k (.evar ⟨1⟩) (.evar ⟨2⟩)) (.evar ⟨6⟩)) ⋀
+            (.evar ⟨3⟩ ≡ collC c k (.evar ⟨6⟩) (.evar ⟨5⟩))) ⋁
+        KoreAML.sExists ⟨6⟩ (sortP (c.sortName k.sort))
+          ((.evar ⟨5⟩ ≡ collC c k (collE c k (.evar ⟨1⟩) (.evar ⟨2⟩)) (.evar ⟨6⟩)) ⋀
+            (.evar ⟨3⟩ ≡ collC c k (.evar ⟨4⟩) (.evar ⟨6⟩))))) := by own_tac
+
+theorem own_elemNotUnit_sg : Own0 [⟨1⟩] [] .pred (∼⌈collU c k ⋀ collI c k (.evar ⟨1⟩)⌉) := by own_tac
+
+theorem own_elemAtom_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩] [] .pred
+    (⌈collI c k (.evar ⟨2⟩) ⋀ collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨3⟩)⌉ ⇒
+      ((.evar ⟨1⟩ ≡ .evar ⟨2⟩) ⋀ (.evar ⟨3⟩ ≡ collU c k))) := by own_tac
+
+theorem own_elemAtomBack_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩] [] .pred
+    (⌈collI c k (.evar ⟨2⟩) ⋀ collC c k (.evar ⟨3⟩) (collI c k (.evar ⟨1⟩))⌉ ⇒
+      ((.evar ⟨1⟩ ≡ .evar ⟨2⟩) ⋀ (.evar ⟨3⟩ ≡ collU c k))) := by own_tac
+
+theorem own_listDecomp_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩] [] .pred
+    (⌈collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨2⟩) ⋀ collC c k (.evar ⟨3⟩) (.evar ⟨4⟩)⌉ ⇒
+      (((.evar ⟨3⟩ ≡ collU c k) ⋀ (.evar ⟨4⟩ ≡ collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨2⟩))) ⋁
+        KoreAML.sExists ⟨5⟩ (sortP (c.sortName k.sort))
+          ((.evar ⟨3⟩ ≡ collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨5⟩)) ⋀
+            (.evar ⟨2⟩ ≡ collC c k (.evar ⟨5⟩) (.evar ⟨4⟩))))) := by own_tac
+
+theorem own_setDecomp_sg : Own0 [⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩] [] .pred
+    (⌈collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨2⟩) ⋀ collC c k (.evar ⟨3⟩) (.evar ⟨4⟩)⌉ ⇒
+      (KoreAML.sExists ⟨5⟩ (sortP (c.sortName k.sort))
+          ((.evar ⟨3⟩ ≡ collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨5⟩)) ⋀
+            (.evar ⟨2⟩ ≡ collC c k (.evar ⟨5⟩) (.evar ⟨4⟩))) ⋁
+        KoreAML.sExists ⟨5⟩ (sortP (c.sortName k.sort))
+          ((.evar ⟨4⟩ ≡ collC c k (collI c k (.evar ⟨1⟩)) (.evar ⟨5⟩)) ⋀
+            (.evar ⟨2⟩ ≡ collC c k (.evar ⟨3⟩) (.evar ⟨5⟩))))) := by own_tac
+
+end
+
+/-- Guards at sort constants are of the class at no name. -/
+theorem own_sortGuards_sg {gs : List (EVar × KoreAML.P)} (h : ∀ p ∈ gs, ∃ n, p.2 = sortP n) :
+    ∀ p ∈ gs, OwnSorted (fun _ => False) [] [] .ex p.2 := fun p hp => by
+  obtain ⟨n, hn⟩ := h p hp
+  rw [hn]
+  exact .sortC id
+
+section
+variable {c : Semantics} {D : KoreAML.Sym → Prop} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+  (hD : ∀ σ, D σ → plainSym σ)
+include hD
+
+/-- **The extension satisfies every premise of `ΓColls` that names nothing of `D`**, for a model of
+`Γown c D` and names `D` that are sort constants and symbols of the definition: each axiom of a
+collection is a guarded premise of the class. -/
+theorem sat_own_colls (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P} (hφ : ΓColls c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) :
+    extModel c D I ⊧ᴵ φ := by
+  have hDI := defOK_own_sg hD hI
+  have hI' : I ⊧ᴵ φ := hI _ ⟨.inl (.inl (.inl (.inl (.inl (.inr hφ))))), hn⟩
+  obtain ⟨k, -, hmem⟩ := hφ
+  have hg : ∀ (l : List EVar) (ss : List Srt), l.length = ss.length →
+      ∀ p ∈ l.zip (ss.map fun s => sortP (c.sortName s)), ∃ n, p.2 = sortP n := fun l ss _ p hp => by
+    obtain ⟨-, h2⟩ := List.of_mem_zip hp
+    obtain ⟨s, -, hs⟩ := List.mem_map.mp h2
+    exact ⟨_, hs.symm⟩
+  unfold collAxioms at hmem
+  split at hmem
+  · simp only [mapCollAxioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl | rfl | rfl
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩] : List EVar).zip ([k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapUnitSplit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩] : List EVar).zip ([k.key, valSort k].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapElemNotUnit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩, ⟨5⟩] : List EVar).zip
+          ([k.key, valSort k, k.key, valSort k, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapElemAtom_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩, ⟨5⟩] : List EVar).zip
+          ([k.key, valSort k, k.sort, k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapDecomp_sg c k) (.inl rfl) hn hI'
+  · simp only [setCollAxioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl | rfl | rfl
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩] : List EVar).zip ([k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapUnitSplit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩] : List EVar).zip ([k.key].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_elemNotUnit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩] : List EVar).zip ([k.key, k.key, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_elemAtom_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩] : List EVar).zip
+          ([k.key, k.sort, k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_setDecomp_sg c k) (.inl rfl) hn hI'
+  · simp only [listCollAxioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl | rfl | rfl | rfl
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩] : List EVar).zip ([k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_mapUnitSplit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩] : List EVar).zip ([k.key].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_elemNotUnit_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩] : List EVar).zip ([k.key, k.key, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_elemAtom_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩] : List EVar).zip ([k.key, k.key, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_elemAtomBack_sg c k) (.inl rfl) hn hI'
+    · exact transferG_sg hD hDI (gs := ([⟨1⟩, ⟨2⟩, ⟨3⟩, ⟨4⟩] : List EVar).zip
+          ([k.key, k.sort, k.sort, k.sort].map fun s => sortP (c.sortName s)))
+        (own_sortGuards_sg (hg _ _ rfl)) (own_listDecomp_sg c k) (.inl rfl) hn hI'
+  · exact absurd hmem List.not_mem_nil
 
 end
 
