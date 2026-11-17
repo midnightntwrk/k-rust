@@ -1197,7 +1197,8 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
     let hobT := if raw then hobA else if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
     headlineAtOpen bindN hobT givenH (!none || held) runExact owesR owesC held
   -- with an open generator: `lawHooks defn.sem H` satisfies the laws and gives the generators
-  -- values, for every H, and is admitted by the library's sentences where H is; beside each
+  -- values, for every H, and is admitted by the library's sentences where H is and gives
+  -- `_RangeMap_` no value; beside each
   -- statement, its instance there with both obligations discharged
   let lawPart := if !raw then "" else
     let named := !none || held
@@ -1226,11 +1227,12 @@ for every H (`KCore.openTotal_lawHooks`). -/
 theorem openTotal_lawHooks_defn (H : HookParams) : OpenTotal (defn.sem.withHooks (lawHooks defn.sem H)) :=
   openTotal_lawHooks defn.sem coreOK_defn H
 
-/-- `lawHooks defn.sem H` is admitted by the library's sentences wherever H is
-(`KCore.libAdmitted_lawHooks`). -/
-theorem libAdmitted_lawHooks_defn (H : HookParams) (ha : (defn.sem.withHooks H).libAdmitted) :
+/-- `lawHooks defn.sem H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`
+no value (`KCore.libAdmitted_lawHooks`). -/
+theorem libAdmitted_lawHooks_defn (H : HookParams) (ha : (defn.sem.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) :
     (defn.sem.withHooks (lawHooks defn.sem H)).libAdmitted :=
-  libAdmitted_lawHooks defn.sem coreOK_defn H ha
+  libAdmitted_lawHooks defn.sem coreOK_defn H ha hrm
 
 /-- `lawHooks defn.sem HookParams.lib` satisfies the laws, the generators' `functional` sentences and
 the library's sentences together. -/
@@ -1239,7 +1241,7 @@ theorem lawHooks_lib_defn :
     OpenTotal (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)) ∧
     (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)).libAdmitted :=
   ⟨openLaws_lawHooks_defn HookParams.lib, openTotal_lawHooks_defn HookParams.lib,
-    libAdmitted_lawHooks_defn HookParams.lib (libAdmitted_lib_of_coreOK coreOK_defn)⟩
+    libAdmitted_lawHooks_defn HookParams.lib (libAdmitted_lib_of_coreOK coreOK_defn) lib_app_rmConcat_none⟩
 " ++ inst "fnHyp_defn" "" ++ inst "sound_defn" "" ++ inst "complete_defn" " (ref : OutFn)" ++
       inst s!"consistent{sfxC}" "" ++ inst s!"sound_at{sfxS}" "" ++ inst s!"complete_at{sfxP}" "" ++
       (if runExact then inst s!"run_exact{sfxC}" "" else "")

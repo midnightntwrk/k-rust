@@ -117,7 +117,7 @@ theorem ev195 (H : HookParams) : EntailsAtValues (cH H) U.ax195 (trS U.ax195).pa
 
 theorem ev374 (H : HookParams) (hA : (cH H).libAdmitted) : EntailsAtValues (cH H) U.ax374 (trS U.ax374).pat := by
   rw [(by decide +kernel : (trS U.ax374).pat = (trAxiom [] [] U.ax374).pat)]
-  exact LibEv.fnReplaceAll_ev (coreOKH H) (shapesOKH H) hA.2.2.2.2.2.2 U.ax374 (by decide +kernel) (by decide +kernel)
+  exact LibEv.fnReplaceAll_ev (coreOKH H) (shapesOKH H) hA.2.2.2.2.2.2.1 U.ax374 (by decide +kernel) (by decide +kernel)
 
 theorem ev377 (H : HookParams) (hA : (cH H).libAdmitted) : EntailsAtValues (cH H) U.ax377 (trS U.ax377).pat := by
   rw [(by decide +kernel : (trS U.ax377).pat = (trAxiom [] [] U.ax377).pat)]
