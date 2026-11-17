@@ -270,6 +270,7 @@ import KcoreSpec.LibEvFnBoolInt
 import KcoreSpec.TieChunks
 import KcoreSpec.LibEvFnColl
 import KcoreSpec.LibEvLaw
+import KcoreSpec.LibEvFnKNe
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
@@ -290,3 +291,4 @@ import KcoreSpec.InertEv
 import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
+import KcoreSpec.LawModelChoice
