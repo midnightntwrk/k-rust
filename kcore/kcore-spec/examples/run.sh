@@ -67,7 +67,8 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # read names on the names' codes, and from it `sound_hyp` and `complete_hyp`. With `--wf` one module
 # decides every conjunct of `faithOK` on the names themselves, and for this text the kernel needs
 # more than the 12 GiB scope there (namesNumbered about 10 GiB alone, itesApart beyond 12 GiB alone);
-# its functions coherent at HookParams.none (User.Coherent: `KK.coherent`)
+# its functions coherent at HookParams.none (User.Coherent: `KK.coherent`); one clause of its `eval`
+# inverted (User.EvalInversion: `KK.eval_app_inv`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
-  step gen/build.sh examples/ref-kk User.Coherent; fi
+  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion; fi
 echo "all built"
