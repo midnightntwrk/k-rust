@@ -1270,6 +1270,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   fixtures with a competitor (`w1`, `w_text`; `f_5` through the reading). C3EqReqTotal:
   `total_named = [f]`, `fnModelH` and `consistent` with no totality fact. C3EqPrioTotal,
   C3EqPrioTotalComp, C3EqOwiseTotal: `total_named = []`, `total_f`, `model_total`.
+- `test/C3RuleReqEns.lean`, `C3RuleReqPrio.lean`, `C3RuleReqPrioComp.lean`, `C3RuleReqOwise.lean`,
+  `C3RuleEnsPrio.lean`, `C3RuleEnsPrioComp.lean`, `C3RuleEnsOwise.lean`, `C3RulePrioOwise.lean`: the
+  tie (C14) of the six rule pairs of DONE-0 C3 on their fixtures' kompiled texts, the two priority
+  pairs also with a competitor, for every H: layer 1 and the function and constructor sentences as
+  in the equation files; `rules_tie` (Γ's axiom of each rule is its sentence with conjuncts more on
+  the left side, `TieRulePair.ruleTextB`, KcoreSpec/TieRulePair.lean), `rules_from_text` (W1),
+  `rules_w2` (W2 with the guard `TieRulePair.RuleGuard`), `rule_prios` with `defs_attrsAgree`;
+  `account`, `consistent`, `pre_model`. The expectations: a step from `PreS` (the sentences as
+  written, `TieRulePair.cutS`) where the rule has no `ensures` that fails, otherwise from `Pre`; the
+  successors listed (`TieRulePair.listed_sound`, `complete_at_step`) from `Pre` with the step's
+  closure, through the priority premise where a competitor decides. C3RuleEnsOwise: `assume(false)`
+  has no successor (`f_none`), through `ruleRightDefined` and the priority premise.
 - `test/InertEvFixtures.lean`: the fixture sentences of the inert classes `collectionLaw`,
   `parametricFunctional` and `vacuousLeft`, each entailed by `Γ (c.withHooks H)` for every H from the
   library's statement of its class (`KcoreSpec/InertEv.lean`; the guards `inertListLaw_everyH`,
