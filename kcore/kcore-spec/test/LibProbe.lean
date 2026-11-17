@@ -675,9 +675,10 @@ have a counterexample there: 411 (`#Ceil(@M [@K])`, at `@K` a key of the map and
 830 (`#Ceil(@S SetItem(@E))`, at `@E` a member and one that is not), and 451, 452
 (`@Key in_keys(Key' |-> Val @M)`). -/
 def expectedAllTwo : Two :=
-  { sentences := 18, hold := 10,
-    refuted := ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394", "18 domains.md:411",
-      "18 domains.md:830", "18 domains.md:452", "18 domains.md:451",
+  { sentences := 20, hold := 10,
+    refuted := ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1396", "18 domains.md:1395",
+      "18 domains.md:1394", "18 domains.md:411", "18 domains.md:830", "18 domains.md:452",
+      "18 domains.md:451",
       "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"],
     hOnly := [], unevaluated := [] }
 
@@ -827,10 +828,12 @@ def checkFlt : IO Unit := do
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
-leaving out the 213 sentences of builtin modules outside the library's text (`outOfLibrary`:
-ARRAY, RANGEMAP, RAT, FFI, …). The sentences reading the interpretation are those of silentflt. -/
+leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
+ARRAY, RAT, FFI, MINT, …). The sentences reading the interpretation are those of silentflt. The ten
+sentences of RANGEMAP over Γ's symbols with a variable of sort RangeMap (seven of row 9, three of
+row 15) are not probed: no grid has values of that sort. -/
 def expectedAll : Summary :=
-  [(9, 102, 73, 63, 0, 10, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 43, 37, 0, 5, 1), (18, 114, 107, 107, 0, 0, 0),
+  [(9, 110, 81, 64, 0, 10, 7), (15, 12, 12, 9, 0, 0, 3), (17, 63, 43, 37, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
