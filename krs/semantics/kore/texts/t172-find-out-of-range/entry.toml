@@ -1,0 +1,41 @@
+id = "t172-find-out-of-range"
+kind = "text"
+subject = 'findString with a start index past the end of the haystack, here findString("abc", "c", 5), and with a negative one.'
+retro = ["ST3"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1768 (K 7.1.337)", quote = "syntax Int ::= findString ( haystack: String , needle: String , index: Int ) [function, hook(STRING.find)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. findString finds the first occurrence of a substring, starting at a certain index, and returns -1 if the substring is not found (domains.md:1763-1765). At an index within the string that is stated: findString("abc", "c", 0) = 2. findString is not total (1768).
+Where the readings part. At index 5, past the string, the search from that index finds no occurrence, and the sentence says -1 where the substring is not found; but the sentence speaks of a search starting at an index of the string, and 5 names no position. At a negative index neither reading has a sentence: it is not stated. findChar and rfindChar are their equations over findString and rfindString (1891-1894), and take the same readings; with an empty search string they give -1 (1892, 1894).'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1763-1765 (K 7.1.337)"
+quote = "You can find the first (respectively, last) occurrence of a substring, starting at a certain `index`, in another string in O(N*M) time. Returns `-1` if the substring is not found."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1768 (K 7.1.337)"
+quote = "syntax Int ::= findString ( haystack: String , needle: String , index: Int ) [function, hook(STRING.find)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1891-1894 (K 7.1.337)"
+quote = 'rule findChar(S1:String, S2:String, I:Int) => #if findString(S1, substrString(S2, 0, 1), I) ==Int -1 #then findChar(S1, substrString(S2, 1, lengthString(S2)), I) #else #if findChar(S1, substrString(S2, 1, lengthString(S2)), I) ==Int -1 #then findString(S1, substrString(S2, 0, 1), I) #else minInt(findString(S1, substrString(S2, 0, 1), I), findChar(S1, substrString(S2, 1, lengthString(S2)), I)) #fi #fi requires S2 =/=String "" rule findChar(_, "", _) => -1 rule rfindChar(S1:String, S2:String, I:Int) => maxInt(rfindString(S1, substrString(S2, 0, 1), I), rfindChar(S1, substrString(S2, 1, lengthString(S2)), I)) requires S2 =/=String "" rule rfindChar(_, "", _) => -1'
+
+[[reading]]
+name = "not-found"
+statement = "A search from an index past the end finds nothing, and the sentence gives -1."
+answer = 'findString("abc", "c", 5) = -1'
+consequence = "Every index past the end gives -1."
+
+[[reading]]
+name = "not-described"
+statement = "The sentence describes a search from an index of the string only; past the end nothing is stated."
+answer = 'findString("abc", "c", 5) has no stated value (a value or none)'
+consequence = "A consumer may compute findString only at an index within the string."
