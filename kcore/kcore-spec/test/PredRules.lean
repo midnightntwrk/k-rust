@@ -604,4 +604,37 @@ example : ∀ (x y : Config c) (r : Rule) (σ : Subst) (hs : StepBy c r σ x y)
 
 end SoundPP
 
+/-! ## Exactness (`KCore.Faithful.stepVals_of_right_pp`, `KCore.step_of_successor_pp`, `KCore.exact_pp`)
+
+  At `rOr` (an existential variable and a `post` that is not `\top`): in any model of `Γc c`, where
+  x's element is in the left side, `⌈req = true⌉` and `pre`'s patterns at a valuation of the
+  variables other than Z, and y's element is in the right side `∃Z. (rhs ∧ ens ∧ post)`, a σ of
+  values with every premise of `StepBy` but membership and the competitors (the table, the
+  valuation and the elements left as arguments). At the definition: a successor in a model of the
+  theory with the step's closure is a step, and `exact_hyp`'s statement from the per-rule facts
+  `ruleSorted` and `rulePlainPP`. -/
+
+section ExactPP
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
+  stepVals_of_right_pp (r := rOr) (tbl := tbl) (e := e) coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.1]; decide))
+
+example (hf : FnHyp c) (hI : I ⊧ᴵP (Γc c ∪ Γstep c)) (x y : Config c) (e : ML.Valuation M)
+    (hs : (KoreAML.sNext (den c y.val)).interpret I e (elemOf c I x.val)) : Step c x y :=
+  step_of_successor_pp c coreOK hf rules_pp hI x y e hs
+
+/-- The pinned type of `exact_hyp` (`test/Pins.lean`) at the definition, from the per-rule facts. -/
+example : FnHyp c → ExactC c := fun hf => exact_pp c coreOK hf rules_pp
+
+end ExactPP
+
 end PredRules
