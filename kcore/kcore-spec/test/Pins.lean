@@ -315,8 +315,13 @@ example (k : Kore.Definition) : AttrsAgree.sortDecls k =
       | .hookedSort s => some (s.sort.ident.name, s.attributes)
       | _ => none) := rfl
 
+example (s : String) : digitsNat s =
+    (let cs := s.toList
+     if cs.isEmpty || !cs.all Char.isDigit then none
+     else some (cs.foldl (fun a ch => a * 10 + (ch.toNat - 48)) 0)) := rfl
+
 example (as : List Kore.AppPattern) : prioOf as =
-    (if has as "owise" then 200 else match (strArg as "priority").bind String.toNat? with
+    (if has as "owise" then 200 else match (strArg as "priority").bind digitsNat with
       | some n => n
       | none => 50) := rfl
 

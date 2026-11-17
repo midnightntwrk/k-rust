@@ -1191,3 +1191,25 @@ table above, on the tree before String and Bytes). Not investigated here.
   the definition's (`badLaw_not_lawSorted`), whose sentence is the sentence of the same equation at
   the definition's sort of that name (`badLaw_pattern`), which `LawAt` refutes
   (`realLaw_not_lawAt`).
+- `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
+  `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
+  C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
+  copied to `f2-examples/NAME.kompile.kore` with its paths restored), on the literal `defn`, for
+  every H. Each: `wf_defn`, `coreOK`, `defs_attrsAgree`; `shape` (each of Γ's function equations
+  is its text sentence's translation, or that with a variable renamed: `TiePair.shapeB`,
+  KcoreSpec/TiePairs.lean), `fns_entailed`, `fns_from_text`; `cons_entailed` (the constructor
+  sentences, `tieConsB`); `account` (the two classes are sentences of the user module, apart, with
+  the count of the rest); `consistent`; the expectations by the cut from `Pre H` (every equation of
+  the function as written, or as Γ's item for one read under the priority premise, with the
+  families), which has a model (`pre_model`). C3EqEnsPrioComp: the equation without the attribute
+  is in Γ under the negation of the clause of priority 40; its sentence entails Γ's item (`w1`) and
+  is the item without that premise (`w_text`); `f_5`, `f_neg1` are through the reading.
+  C3EqEnsTotal: `eval_neg1`, `not_total`, `not_fnHyp`, `not_obl` (`total_named = [f]`), `fnModelH`
+  and `consistent` by `consistent_of`, a model of Γc alone. C3EqEnsTotalHolds: `eval_all`, `total_f`,
+  `obl`, `model_total` (`has_model_total`). About 3 to 5 minutes and 8 GiB each.
+- `test/C3EqReqPrio.lean`, `C3EqReqPrioComp.lean`, `C3EqReqOwise.lean`, `C3EqReqTotal.lean`,
+  `C3EqPrioOwise.lean`, `C3EqPrioTotal.lean`, `C3EqPrioTotalComp.lean`, `C3EqOwiseTotal.lean`: the
+  same tie for the six equation pairs without `ensures`, the two priority pairs also on the
+  fixtures with a competitor (`w1`, `w_text`; `f_5` through the reading). C3EqReqTotal:
+  `total_named = [f]`, `fnModelH` and `consistent` with no totality fact. C3EqPrioTotal,
+  C3EqPrioTotalComp, C3EqOwiseTotal: `total_named = []`, `total_f`, `model_total`.

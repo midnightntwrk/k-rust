@@ -41,6 +41,28 @@ patch = '''
      let (bs, body) := binders eqnFuel ex
 '''
 
+[mutant."ensures-as-requires-pair"]
+summary = "an equation's ensures is read as a conjunct of its requires: the clause applies only where the ensures is true, and where it is not the next clause, or the function's rest, decides"
+breaks = "Clause.ens: an equation f(X) = t ∧ (C = true) states that f(X) is t where C is true and has no value where it is not (Eval.ensFails); read into the requires, f(X) is the interpretation's value there"
+row = 'C3 equation requires x equation ensures'
+fixture = "c3-eq-req-ens"
+theorems = "test/C3EqReqEns.lean"
+expect = "killed"
+killed_by = "theorems: shape, f_5 (test/C3EqReqEns.lean; the account of the fixture unchanged; 2026-11-18)"
+patch = '''
+--- a/KcoreSpec/Parse.lean
++++ b/KcoreSpec/Parse.lean
+@@ -2281,7 +2281,7 @@
+   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
+   let aside := nonExec e
+   match excl with
+-  | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
++  | none => pure ({ vars := ← varSorts N vs, pats, req := conjTerms (req.toList ++ ens.toList), rhs, ens := none, prio, aside },
+       ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome⟩)
+   | some ex =>
+     let (bs, body) := binders eqnFuel ex
+'''
+
 # Kernel mutants (DONE-0 C8 part 1, "Only kernel mutants (a change of `Eval`, `Step`) are shown by
 # argument, through the refutation instance"): each a named change of a constructor or a premise of
 # `Eval` (KcoreSpec/Evaluation.lean) or of `Step.rule` (KcoreSpec/Step.lean). A kernel mutant is
