@@ -685,4 +685,46 @@ theorem commCtor_confined_value (H : HookParams) (ht : OpenTotal (CommCtor.c.wit
 #print axioms commCtor_confined_value
 #print axioms EndRaw.not_lawLibRawFree_c2
 
+/-! ## e2-idem-ctor: the expectations (CN-4 §3.4 V7)
+
+- For every H with `OpenLaws`: `x | x` is `x` (the idempotence axiom at `x`).
+- At `lawHooks c HookParams.none`: `(x | y) | y` is a value of Exp distinct from `x | y` (the text
+  leaves it open; `lawHooks` merges equal arguments only).
+- At `HookParams.none`: `OpenIdem` fails at `x` (`or(x, x)` is the raw application, a value other
+  than `x`), so `OpenLaws` fails. -/
+namespace IdemCtor
+
+def xV : GroundTerm := .ctor xS []
+def yV : GroundTerm := .ctor yS []
+
+theorem sort_x (H : HookParams) : (c.withHooks H).sortOf xV = some exp :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+theorem or_mem (H : HookParams) : orP ∈ (c.withHooks H).params := List.mem_singleton_self _
+
+theorem idem_x (H : HookParams) (hl : OpenLaws (c.withHooks H)) :
+    (c.withHooks H).paramVal orS [xV, xV] = some xV :=
+  (hl orP (or_mem H) rfl).2 rfl xV (sort_x H)
+
+theorem lawHooks_values :
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS [.ctor orS [xV, yV], yV] =
+      some (.ctor orS [.ctor orS [xV, yV], yV]) ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [.ctor orS [xV, yV], yV]) = some exp ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [xV, yV]) = some exp ∧
+    GroundTerm.ctor orS [.ctor orS [xV, yV], yV] ≠ .ctor orS [xV, yV] := by
+  decide +kernel
+
+theorem none_raw : (c.withHooks HookParams.none).paramVal orS [xV, xV] = some (.ctor orS [xV, xV]) := by
+  decide +kernel
+theorem not_openIdem_none : ¬ OpenIdem (c.withHooks HookParams.none) orS exp := fun h =>
+  absurd ((h xV (sort_x _)).symm.trans none_raw) (by decide +kernel)
+theorem not_openLaws_none : ¬ OpenLaws (c.withHooks HookParams.none) := fun h =>
+  not_openIdem_none ((h orP (or_mem _) rfl).2 rfl)
+
+end IdemCtor
+
+#print axioms IdemCtor.idem_x
+#print axioms IdemCtor.lawHooks_values
+#print axioms IdemCtor.not_openLaws_none
+
 end KCore.OpenGenSems
