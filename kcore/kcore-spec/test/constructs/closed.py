@@ -113,7 +113,6 @@ PINNED = [
     ("RefusalReason.iteShape", "R2-release.C4"),
     ("RefusalReason.variableName", "R2-release.C4"),
     ("RefusalReason.variableSort", "R2-release.C4"),
-    ("RefusalReason.literal", "R2-release.C4"),
     ("RefusalReason.requiresShape", "R2-release.C4"),
     ("RefusalReason.exclusionShape", "R2-release.C4"),
     ("RefusalReason.functionInPattern", "R2-release.C4"),

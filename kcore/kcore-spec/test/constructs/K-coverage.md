@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 67 | 26 | 0 | 1 | 0 | 40 | 0 | 0 |
 | E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
-| E6 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+| E6 | 6 | 4 | 0 | 0 | 0 | 2 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 156 | 70 | 1 | 7 | 1 | 77 | 0 | 0 |
+| all | 161 | 74 | 1 | 7 | 1 | 78 | 0 | 0 |
 
 Refused rows by class:
 
@@ -64,11 +64,11 @@ Refused nested entries by class:
 | E3 | 40 | 6 | 2 | 32 | 0 |
 | E4 | 4 | 2 | 2 | 0 | 0 |
 | E5 | 11 | 6 | 0 | 3 | 2 |
-| E6 | 1 | 1 | 0 | 0 | 0 |
+| E6 | 2 | 1 | 1 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 77 | 23 | 8 | 40 | 6 |
+| all | 78 | 23 | 9 | 40 | 6 |
 
 ## Entries of class R-c (68)
 
@@ -1650,7 +1650,12 @@ Not core:
 | `axiom:ARRAY-IN-K:181:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `token:SortKConfigVar` | supported |  | A token sort's values are its literals. \`\\dv{SortKConfigVar{}}(s)\` and \`\\dv{SortId{}}(s)\` are read as the token s (Lit.tok), any string: KORE puts no condition on a domain value's string, and K's regular expression for the token restricts what a program can write, not what the sort holds. | none (reader only) |  |  | yes | yes | Parse.lean:462-466 (lit?), Value.lean:145 (dvOK: kconfigVar, Lib.tokenSorts), BuiltinData.lean:159 (ID-SYNTAX token sort 9) |
 | `token:SortInt` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.2 \\dv: Int canonical literals |
-| `token:SortFloat` | supported |  |  |  |  |  | no | yes | K-coverage.md Part C FLOAT.Float: literals as tokens |
+| `token:SortFloat` | supported |  | A \`\\dv{SortFloat{}}\` holds the string of a Float literal of K's FLOAT-SYNTAX (domains.md:1495-1497; kompile writes the literal unchanged, kk entry t90-float-literal-forms) and is read as the datum it denotes (domains.md:1478-1490): a decimal rounded to the suffix's format, Infinity and NaN that form… | none (reader only) |  |  | no | yes | fixtures/e6-float-literals/account.txt (the K text of the kk entry t90-float-literal-forms, 27 Float literals): \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; Parse.floatLit?, test/FloatLib.lean (an example per case, decide +kernel… |
+| cases[0]: the first alternative of the decimal production, \`[+-]?[0-9]+(\\.[0-9]\*)?\` (a sign only before digits), with an exponent… | supported |  |  |  |  | e6-float-literals |  |  | fixtures/e6-float-literals/account.txt: \`parse: ok; wf true; failing: []\`; kore.txt \`\\dv{SortFloat{}}("1.0P24X8")\`, \`\\dv{SortFloat{}}("+1.5")\`; test/FloatLib.lean (the decimal production) |
+| cases[1]: the second alternative of the decimal production, \`\\.[0-9]+\`, unsigned, with an exponent and a suffix (\`.5\`, \`.5e2\`, \`.5… | supported |  |  |  |  | e6-float-literals |  |  | fixtures/e6-float-literals/account.txt: \`parse: ok; wf true; failing: []\`; kore.txt \`\\dv{SortFloat{}}(".5")\`, \`\\dv{SortFloat{}}(".5e2")\`; test/FloatLib.lean (the decimal production) |
+| cases[2]: the production \`[+-]?Infinity\` with a suffix (\`Infinity\`, \`+Infinity\`, \`-InfinityD\`, \`-Infinityp24x8\`) | supported |  |  |  |  | e6-float-literals |  |  | fixtures/e6-float-literals/account.txt: \`parse: ok; wf true; failing: []\`; kore.txt \`\\dv{SortFloat{}}("-Infinityp24x8")\`; test/FloatLib.lean (the production [+-]?Infinity) |
+| cases[3]: the production \`NaN\` with a suffix, unsigned (\`NaN\`, \`NaNf\`, \`NaNd\`, \`NaNP24X8\`) | supported |  |  |  |  | e6-float-literals |  |  | fixtures/e6-float-literals/account.txt: \`parse: ok; wf true; failing: []\`; kore.txt \`\\dv{SortFloat{}}("NaNP24X8")\`; test/FloatLib.lean (the production NaN) |
+| cases[4]: \`+.5\`: a sign before a mantissa with no integer part, a string of no production (likewise \`-.5\`, \`+NaN\`, \`1.0p24\`) | refused | R-b | the kk entry t90-float-literal-forms is unsettled on +.5 and -.5: its prose-form reading gives +.5 the value 1/2, its productions reading none; the reader refuses the string, taking neither value |  | none (R-b): shape at E6 token:SortFloat | hw-float-plus-half |  |  | fixtures/hw-float-plus-half/account.txt: \`sentence 395 (Lbl'-LT-'generatedTop'-GT-'): literal (+.5)\`; test/FloatLib.lean (outside every production) |
 | `token:SortString` | supported |  |  |  |  |  | no | yes | K-coverage.md Part C STRING.String: literals as tokens (values since 6365ce2f) |
 | `token:SortId` | supported |  | A token sort's values are its literals. \`\\dv{SortKConfigVar{}}(s)\` and \`\\dv{SortId{}}(s)\` are read as the token s (Lit.tok), any string: KORE puts no condition on a domain value's string, and K's regular expression for the token restricts what a program can write, not what the sort holds. | none (reader only) |  |  | yes | no | Parse.lean:462-466 (lit?), Value.lean:145 (dvOK: kconfigVar, Lib.tokenSorts), BuiltinData.lean:159 (ID-SYNTAX token sort 9) |
 | `token:SortBytes` | supported |  |  |  |  |  | no | no | K-coverage.md Part C BYTES.Bytes: literals as tokens (values since 6365ce2f) |

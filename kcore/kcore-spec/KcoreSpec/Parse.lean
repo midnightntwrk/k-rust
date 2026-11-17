@@ -879,17 +879,20 @@ def isCellCollPair (a b : String) : Bool :=
 /-! ## Float literals -/
 
 /-- The format a Float literal's suffix names, and the text before it: `f`/`F` binary32
-`(24, 8)`, `d`/`D` or none binary64 `(53, 11)`, `pNxM` precision N and exponent width M. -/
+`(24, 8)`, `d`/`D` or none binary64 `(53, 11)`, `pNxM` precision N and exponent width M, each of
+`p` and `x` in either case (K's FLOAT-SYNTAX, domains.md:1495-1497: `[fFdD]|([pP][0-9]+[xX][0-9]+)`). -/
 def floatSuffix (cs : List Char) : Option (List Char × Nat × Nat) :=
   match cs.reverse with
   | 'f' :: r | 'F' :: r => some (r.reverse, 24, 8)
   | 'd' :: r | 'D' :: r => some (r.reverse, 53, 11)
   | _ =>
-    if cs.contains 'p' then
-      let body := cs.takeWhile (· != 'p')
-      let fmt := (cs.dropWhile (· != 'p')).drop 1
-      let pd := fmt.takeWhile (· != 'x')
-      let ed := (fmt.dropWhile (· != 'x')).drop 1
+    let isP := fun (c : Char) => c == 'p' || c == 'P'
+    let isX := fun (c : Char) => c == 'x' || c == 'X'
+    if cs.any isP then
+      let body := cs.takeWhile (!isP ·)
+      let fmt := (cs.dropWhile (!isP ·)).drop 1
+      let pd := fmt.takeWhile (!isX ·)
+      let ed := (fmt.dropWhile (!isX ·)).drop 1
       if pd.isEmpty || ed.isEmpty then none else do
         pure (body, ← digitsVal pd 0, ← digitsVal ed 0)
     else some (cs, 53, 11)
@@ -916,11 +919,14 @@ def decimal? (cs : List Char) : Option (Nat × Int) :=
   if ip.isEmpty && fp.isEmpty then none
   else (digitsVal (ip ++ fp) 0).bind fun m => (expPart? r).map fun x => (m, x - fp.length)
 
-/-- A Float literal's text (K's FLOAT-SYNTAX: `[+-]?` then a decimal, `Infinity`, or `NaN`
-unsigned, then a suffix) as the literal of its datum: the decimal's value rounded to the format,
-nearest ties to even (`UnpackedFloat.ofScientific`), the sign applied after (rounding is symmetric,
-and `-0.0` is negative zero), encoded (`KFloat.packBits`). `none` for another text or a format
-without a model. -/
+/-- A Float literal's text as the literal of its datum, for a string of one of K's FLOAT-SYNTAX
+productions (domains.md:1495-1497) before a suffix (`floatSuffix`): a decimal, `[+-]?d+(.d*)?` or
+`.d+` (a sign only before a digit), with an optional exponent `[eE][+-]?d+`; `[+-]?Infinity`;
+`NaN` unsigned. A decimal's value is its value rounded to the format, nearest ties to even
+(`UnpackedFloat.ofScientific`), the sign applied after (rounding is symmetric, and `-0.0` is
+negative zero), encoded (`KFloat.packBits`); `Infinity` and `NaN` are the format's infinity and
+canonical NaN. `none` for another text (`+.5`, `-.5`, `+NaN`, `1.0p24`: no production holds them,
+and the text K gives the sort, read so, gives them no value) or a format without a model. -/
 def floatLit? (text : String) : Option Lit := do
   let (body, p, e) ← floatSuffix text.toList
   let s ← KFloat.spec? p e
@@ -928,8 +934,10 @@ def floatLit? (text : String) : Option Lit := do
     | '-' :: r => (true, r)
     | '+' :: r => (false, r)
     | r => (false, r)
+  let signed := mag.length != body.length
   let u ← if body == "NaN".toList then some Float.Model.UnpackedFloat.notANumber
     else if mag == "Infinity".toList then some (Float.Model.UnpackedFloat.infinity .positive)
+    else if signed && !((mag.head?.map Char.isDigit).getD false) then none
     else (decimal? mag).map fun (m, x) => Float.Model.UnpackedFloat.ofScientific s m x
   pure (.float p e (KFloat.packBits s (if neg then u.neg else u)))
 
