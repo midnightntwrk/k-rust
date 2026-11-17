@@ -3,8 +3,8 @@
   BAND). The file checks that its numbering is the one `idsOK` asks, that `lookupOpen` finds the
   open generator and no constructor, that `OpenLaws` and `OpenTotal` hold at `lawHooks`
   (V13.band-lemmas), and that `coreOK` admits it, `consItemsK` writes both law sentences for `or`
-  and `consistent_of` applies at `lawHooks` (V13.band-flip); the fixture's expectations are
-  V13.band-test's. Run from the package
+  and `consistent_of` applies at `lawHooks`, and the fixture's expectations (CN-4b §7's table).
+  Run from the package
   root: `lake env lean -j1 test/BandSem.lean`. Kernel-checked.
 
   Text (lane P's fixture `test/constructs/fixtures/e2-band-ctor`, K 7.1.337):
@@ -106,8 +106,8 @@ theorem or_compound :
 `or` is raw with `assoc` and `idem`, meets `coreOK`. -/
 theorem coreOK : c.coreOK = true := by decide +kernel
 
-/-- `paramsPlain` at `c` with what its raw branch reads, and that the branch is read at a parameter
-with both laws. -/
+/-- `paramsPlain` at `c` with what its raw branch reads (and `floatShapeOK`, which `coreOK` gives),
+and that the branch is read at a parameter with both laws. -/
 theorem paramsPlain_band : c.paramsPlain = true ∧ c.shapesOK = true ∧ c.floatShapeOK = true ∧
     c.carriersOK = true ∧ c.params.all (fun k => k.raw && k.assoc && k.idem && k.impl.isNone &&
       k.sig.args == [k.sig.result, k.sig.result] && decide (nRegSyms ≤ k.sig.name) &&
@@ -154,6 +154,104 @@ theorem consistent (H : HookParams) (hd : FnDet (c.withHooks (lawHooks c H))) :
   consistent_of _ ((Semantics.coreOK_withHooks c (lawHooks c H)).trans coreOK) hd
     (fun _ (hfn : _ ∈ ([] : List Fn)) => nomatch hfn) (openLaws_lawHooks H)
 
+/-! ## The fixture's expectations (CN-4b §7)
+
+`xV` and `yV` are the constructors' values, values of Exp under every interpretation (they apply no
+open generator).
+
+- For every H with `OpenLaws` and `OpenTotal`: `x | x` is `x` (the idempotence axiom at `x`); with
+  `v` the value of `x | y` (one exists, `OpenTotal`; a value of Exp), `v | v` is `v`; and
+  `Consistent`, `SoundC`, `CompleteC` and `ExactC` hold. `OpenTotal` is read for the second only.
+- At `lawHooks c HookParams.none`: `x | y` and `y | x` are two values of Exp, and `(x | y) | x` is
+  `x | y`, which the two laws do not entail (it is true of this interpretation).
+- At `HookParams.none`: `OpenIdem` fails at `x` (`or(x, x)` is the raw application, a value other
+  than `x`), so `OpenLaws` fails. -/
+
+def xV : GroundTerm := .ctor xS []
+def yV : GroundTerm := .ctor yS []
+
+theorem sort_x (H : HookParams) : (c.withHooks H).sortOf xV = some exp :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+theorem sort_y (H : HookParams) : (c.withHooks H).sortOf yV = some exp :=
+  (Semantics.sortOf_withHooks_rawFree c H (by decide +kernel)).trans (by decide +kernel)
+
+theorem or_mem (H : HookParams) : orP ∈ (c.withHooks H).params := List.mem_singleton_self _
+
+/-- For every H with `OpenLaws`: `x | x` is `x`. -/
+theorem idem_x (H : HookParams) (hl : OpenLaws (c.withHooks H)) :
+    (c.withHooks H).paramVal orS [xV, xV] = some xV :=
+  (hl orP (or_mem H) rfl).2 rfl xV (sort_x H)
+
+/-- For every H with `OpenLaws` and `OpenTotal`: `x | y` has a value v, a value of Exp, and
+`v | v` is v. -/
+theorem idem_compound (H : HookParams) (hl : OpenLaws (c.withHooks H)) (ht : OpenTotal (c.withHooks H)) :
+    ∃ v, (c.withHooks H).paramVal orS [xV, yV] = some v ∧ (c.withHooks H).sortOf v = some exp ∧
+      (c.withHooks H).paramVal orS [v, v] = some v := by
+  have hvs : (c.withHooks H).sortsOf [xV, yV] = some [exp, exp] :=
+    OvlLaws.sortsOf_cons_iff.mpr ⟨sort_x H, OvlLaws.sortsOf_cons_iff.mpr ⟨sort_y H, rfl⟩⟩
+  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (ht orP (or_mem H) rfl [xV, yV] hvs)
+  have hlp : (c.withHooks H).lookupParam orS = some orP :=
+    show c.lookupParam orS = some orP by decide +kernel
+  have hs : (c.withHooks H).sortOf v = some exp := ((paramVal_raw_sorted hlp rfl rfl).mp hv).2
+  exact ⟨v, hv, hs, (hl orP (or_mem H) rfl).2 rfl v hs⟩
+
+/-- `FnHyp` under an interpretation that satisfies the laws: none of the deciders' lists names a
+fact (they do not read H), and `OpenLaws` is the hypothesis. -/
+theorem fnHyp_of_laws (H : HookParams) (hl : OpenLaws (c.withHooks H)) : FnHyp (c.withHooks H) :=
+  fnHyp_of_fnObligations (ord := []) (tp := []) ((Semantics.coreOK_withHooks c H).trans coreOK)
+    (Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H) ParamsTotal.nil
+    ((FnFacts.of_nil_laws
+      (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; decide +kernel)
+      ((Semantics.totalObligationsRP_withHooks _ H _ _).trans (by decide +kernel))
+      ((Det.Semantics.agreeObligationsI_withHooks _ H).trans (by decide +kernel))
+      ((Det.Semantics.matchObligationsL_withHooks _ H).trans (by decide +kernel)) hl).obligations
+     ⟨openRules_of_owed (by
+        rw [Semantics.owedRules_withHooks, show c.owedRules = [] by decide +kernel]; intro i hi; cases hi),
+      openClauses_of_owed (by
+        rw [Semantics.owedClauses_withHooks, show c.owedClauses = [] by decide +kernel]; intro p hp; cases hp)⟩)
+
+/-- **For every H with `OpenLaws` and `OpenTotal`** the theory has a model and the semantics is
+sound, complete and exact. -/
+theorem headlines (H : HookParams) (hl : OpenLaws (c.withHooks H)) (_ht : OpenTotal (c.withHooks H)) :
+    Consistent (c.withHooks H) ∧ SoundC (c.withHooks H) ∧ (∀ ref, CompleteC (c.withHooks H) ref) ∧
+      ExactC (c.withHooks H) :=
+  have hc := (Semantics.coreOK_withHooks c H).trans coreOK
+  have hf := fnHyp_of_laws H hl
+  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 hl, sound_hyp _ hc hf,
+    fun ref => complete_hyp _ ref hc hf, exact_hyp _ hc hf⟩
+
+/-- The same at `lawHooks c H` for every H, both obligations discharged. -/
+theorem headlines_lawHooks (H : HookParams) :
+    Consistent (c.withHooks (lawHooks c H)) ∧ SoundC (c.withHooks (lawHooks c H)) ∧
+      (∀ ref, CompleteC (c.withHooks (lawHooks c H)) ref) ∧ ExactC (c.withHooks (lawHooks c H)) :=
+  headlines (lawHooks c H) (openLaws_lawHooks H) (openTotal_lawHooks H)
+
+/-- At `lawHooks`: `x | y` and `y | x` are two values of Exp; `(x | y) | x` is `x | y`. -/
+theorem lawHooks_values :
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS [xV, yV] = some (.ctor orS [xV, yV]) ∧
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS [yV, xV] = some (.ctor orS [yV, xV]) ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [xV, yV]) = some exp ∧
+    (c.withHooks (lawHooks c HookParams.none)).sortOf (.ctor orS [yV, xV]) = some exp ∧
+    GroundTerm.ctor orS [xV, yV] ≠ .ctor orS [yV, xV] ∧
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS [.ctor orS [xV, yV], xV] =
+      some (.ctor orS [xV, yV]) := by
+  decide +kernel
+
+/-- At `HookParams.none`: `or(x, x)` is the raw application, not `x`; `OpenIdem` fails at `x`, and
+with it `OpenLaws`. -/
+theorem none_raw : (c.withHooks HookParams.none).paramVal orS [xV, xV] = some (.ctor orS [xV, xV]) := by
+  decide +kernel
+theorem not_openIdem_none : ¬ OpenIdem (c.withHooks HookParams.none) orS exp := fun h =>
+  absurd ((h xV (sort_x _)).symm.trans none_raw) (by decide +kernel)
+theorem not_openLaws_none : ¬ OpenLaws (c.withHooks HookParams.none) := fun h =>
+  not_openIdem_none ((h orP (or_mem _) rfl).2 rfl)
+
+#print axioms idem_x
+#print axioms idem_compound
+#print axioms headlines
+#print axioms headlines_lawHooks
+#print axioms lawHooks_values
+#print axioms not_openLaws_none
 #print axioms coreOK
 #print axioms lawItems
 #print axioms items
