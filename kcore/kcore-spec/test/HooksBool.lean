@@ -56,6 +56,12 @@
     (`[A-Za-z_][A-Za-z0-9_]*`, `#LowerId`, `#UpperId`), and 50 declares `String2KVar(String)` `total`.
     The carrier of a token sort is every string (`kvar_values` at `"1x"`), which is no region of a
     hook: the row is a sort.
+    Finding: the row `hook:KVAR.KVar:SortKVar` of rows.toml has status `supported`, and the reader
+    refuses the sentence: test/constructs/fixtures/e2-binder/account.txt lists
+    `hooked-sort SortKVar{} [hasDomainValues{}(), hook{}("KVAR.KVar"), …, token{}()]` under
+    `refused builtinText` (the row's evidence says "extend to this hooked sort"). `kvar_values` and
+    `kvar_at` are about a token sort of a semantics (`Lib.tokenSorts`), the carrier the row names;
+    nothing here ties them to KVar as read from a kompiled text.
 -/
 import KcoreSpec
 
