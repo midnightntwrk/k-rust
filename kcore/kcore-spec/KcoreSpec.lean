@@ -271,6 +271,7 @@ import KcoreSpec.TieChunks
 import KcoreSpec.LibEvFnColl
 import KcoreSpec.LibEvLaw
 import KcoreSpec.LibEvFnKNe
+import KcoreSpec.LibEvFnOwise
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
