@@ -197,10 +197,6 @@ inductive RefusalReason where
   raised for a rule: a rule whose variable the left side leaves open is read as an open variable of
   the rule, or refused `openRequires` or `openRight` (`openRefusal`, `ruleRefusal`). -/
   | unboundVariable
-  /-- A rewrite axiom whose right side is under `\exists` (`?X` in K): the rule states a successor
-  for some value of the variable, which the reading of a rule as one right side does not state.
-  The detail names the variable. -/
-  | existentialRhs
   /-- A rewrite axiom's attribute that is neither read (its id, label, priority, place, `owise`)
   nor of no meaning for the rule's semantics (`ruleAttrIgnored`): one that changes where or how the
   rule applies, or has no stated meaning for a rule (`ruleAttrRefused`, else any other key); or
@@ -631,8 +627,33 @@ inductive ReadingNote where
   argument for the parameter, here the argument itself, so the two axioms denote the same at every
   interpretation. The right side otherwise headed by such an alias (another body, more than one
   argument or sort) is refused `aliasApplication`. An alias applied inside a term is refused
-  `aliasApplication` (`Names.symE`). -/
+  `aliasApplication` (`Names.symE`). The same under the right side's `\exists` binders: the alias
+  application is then the binders' body, and denotes its argument there as at the root. -/
   | identityAlias
+  /-- A rewrite axiom `\rewrites(lhs ∧ req, ∃Z:s. B)` one of whose right-side binders has a name
+  that the left side or the `requires` holds, at any sort (`exRenamed`), read with that binder and
+  the occurrences it binds renamed to a name the axiom does not hold (`exApart`, `rhsApart`). A
+  variable of the text is a name and a sort, a binder's scope is its body, and the left side and
+  the `requires` are outside every binder of the right side: the Z they hold is free in the axiom
+  and is another variable than the Z the binder binds. The reader numbers a rule's variables by
+  name, so it reads the axiom's α-variant `\rewrites(lhs ∧ req, ∃Z':s. B[Z'/Z])`, Z' fresh, which
+  denotes what the text's axiom denotes in every interpretation; the rule's presentation carries
+  the name Z' (`RulePres.names`), so the sentence written back is the α-variant. The renamed binder
+  is then a binder as any other: an existential variable of the rule (`Rule.exs`), or one that binds
+  nothing (`existsDropped`). -/
+  | existsRenamedApart
+  /-- A rewrite axiom `\rewrites(lhs ∧ req, ∃Z:s. B)` one of whose right-side binders binds nothing
+  in what is read of its body (`exKept`): no variable of the binder's name and sort is free in the
+  right side or the `ensures` (Z absent, Z there at another sort only, which is another variable and
+  free in the axiom, or Z bound again by a binder inside this one), or the right side is empty
+  (`bottomAsEnsures`) and the `ensures` does not hold it. Read without that binder: it is in neither
+  the rule's existential variables nor its variables, at every sort s. For Z:s not free in B,
+  `∃Z:s. B` is B where s has an element and is empty where s has none; so the read sentence
+  `lhs ∧ req → •B` is the text's where the binder's sort has an element, and is entailed by the
+  text where it has none: there the text's right side is empty, next of the empty pattern is empty,
+  and the text states that the left side has no instance, of which the read sentence, holding for
+  want of an instance, is a consequence. `Γ` states no more than the text. -/
+  | existsDropped
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -750,13 +771,16 @@ def identityAliases : List String :=
     !own.isEmpty && own.all aliasIsIdentity
 
 /-- A rewrite axiom's right side `σ{S}(φ)` with σ in `identityAliases`, one sort argument and one
-argument: φ, itself so unwrapped; `none` for a right side not so headed. -/
+argument: φ, itself so unwrapped; under `\exists` binders, the binders around their body so
+unwrapped (an alias application denotes its body under a binder as at the root); `none` for a
+right side not so headed. -/
 def unaliasRhs? : Kore.Pattern → Option Kore.Pattern
   | .app h [_] [φ] =>
     -- the name first: no other right side reads the prelude
     if preludeAliases.contains h.ident.name && identityAliases.contains h.ident.name then
       some ((unaliasRhs? φ).getD φ)
     else none
+  | .exist s x φ => (unaliasRhs? φ).map (.exist s x)
   | _ => none
 
 /-- A rewrite axiom with its right side read through the identity aliases (`unaliasRhs?`,
@@ -1174,6 +1198,18 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   term and a variable is the second case (a right side binds nothing, so it is not `t #as X`).
   An equation's right side holding `\or`, `\top`, `\not` or `\exists` under applications is
   refused (`manyValuedRightSide`).
+- A rule's right side under `\exists` (`existsRenamedApart`, `existsDropped`): the sentence is
+  `lhs ∧ req → •(∃x̄. (rhs ∧ ens))`, and the binders x̄ are the rule's existential variables
+  (`Rule.exs`). A variable is a name and a sort, and a binder's scope is its body, so a variable
+  of a binder's name that the left side or the `requires` holds is free in the axiom and another
+  variable than the bound one: the binder is renamed apart, with the occurrences it binds
+  (`rhsApart`), the α-variant denoting the same. A binder whose variable is free in no part of its
+  body that is read binds nothing (`exKept`): `∃Z:s. φ` is then φ where s has an element and empty
+  where it has none, so the text's sentence entails `lhs ∧ req → •(rhs ∧ ens)` (next of the empty
+  pattern is empty: where s is empty the text says the left side has no instance) and is it where s
+  has an element; the binder is dropped at every sort. This is not the left side's case
+  (`unheldVariable`): there the sentence with the binder states nothing where the sort is empty, so
+  the rule without it would state more than the text.
 - `requires` and `ensures` (`predicateAtBool`, `andAtBool`), written `\equals{SortBool{},S}(B,
   true)`: where B is a predicate at sort Bool it is `\top{SortBool{}}` or `\bottom{SortBool{}}`,
   and neither equals `true`: the first holds `false`, which is apart from `true`, the second holds
@@ -2412,20 +2448,74 @@ def peelExists : Kore.Pattern → List Kore.EVar × Kore.Pattern
   | .exist _ x p => (x :: (peelExists p).1, (peelExists p).2)
   | p => ([], p)
 
-/-- The indices in `vs` of a right side's existential variables, outermost first. Each must be a
-variable of the right side or the `ensures` that neither the left side nor the `requires` holds
-(its index at least `n0`, the number of theirs), of the binder's sort, and the binders distinct;
-otherwise the sentence is refused (`existentialRhs`). -/
-def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : Rd (List Nat) := do
-  let is ← xs.mapM fun x => do
-    let n ← need (dropPrefix? "Var" x.var.ident.name) .variableName x.var.ident.name
-    let s ← sortNameE x.sort
-    match vs.findIdx? (·.name == n) with
-    | some i => if n0 ≤ i && (vs.getD i default).sort == s then pure i else fail .existentialRhs x.var.ident.name
-    | none => fail .existentialRhs x.var.ident.name
-  if nodup is then pure is else fail .existentialRhs ((xs.headD default).var.ident.name)
+/-- The `\exists` binders heading a rewrite axiom's right side renamed apart: each binder whose
+name is one of `outer` (the names the left side and the `requires` hold) gets, with the occurrences
+it binds, its name primed until no name of `used` is it (`freshIn`, as `lhsBind` names its
+variables); the pattern and the names then used. The innermost binder first, so a name chosen for
+one binder is not chosen for one around it; `renameEVar` compares name and sort and stops at a
+binder of the same variable, so of two binders of one variable the inner one's occurrences are
+renamed with the inner one. (`ReadingNote.existsRenamedApart`) -/
+def exApart (outer : List String) : List String → Kore.Pattern → Kore.Pattern × List String
+  | used, .exist s x p =>
+    let (p', used) := exApart outer used p
+    if outer.contains x.var.ident.name then
+      let y := KoreAML.evar (freshIn used (used.length + 1) x.var.ident.name) x.sort
+      (.exist s y (renameEVar x y p'), y.var.ident.name :: used)
+    else (.exist s x p', used)
+  | used, p => (p, used)
 
-/-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty. -/
+/-- A right-side binder of the rewrite axiom whose left side is `l`, `requires` `r0` and right
+side `rx` has a name the left side or the `requires` holds (`ReadingNote.existsRenamedApart`). -/
+def exRenamed (l r0 rx : Kore.Pattern) : Bool :=
+  (peelExists rx).1.any fun x => (evarNames l ++ evarNames r0).contains x.var.ident.name
+
+/-- The right side `rx` of the rewrite axiom whose pattern is `ax`, left side `l` and `requires`
+`r0`, with its binders renamed apart from the names `l` and `r0` hold (`exApart`). The fresh names
+are none of the axiom's nor of the left side as read (`lhsBound`, whose fresh names are primed
+from the axiom's names too). -/
+def rhsApart (ax l r0 rx : Kore.Pattern) : Kore.Pattern :=
+  if exRenamed l r0 rx then
+    (exApart (evarNames l ++ evarNames r0) (evarNames ax ++ evarNames (lhsBound ax l)) rx).1
+  else rx
+
+/-- The patterns of a rule's right side `r` and `ensures` `en` whose variables the reader reads:
+the `ensures`' term unless it is a predicate (`predicateAtBool`, read as `false`), and, unless the
+right side is empty (`hoist`; `bottomAsEnsures`, it is then not read), the right side without its
+conjunctions and their conditions (`sideConds`). -/
+def rhsReadParts (r en : Kore.Pattern) : List Kore.Pattern :=
+  let cond := fun (b : Kore.Pattern) => if isPred b then [] else [b]
+  let (r', conds, empty) := hoist r
+  (match req? en with
+    | some (some b) => cond b
+    | _ => []) ++
+  if empty then [] else r' :: conds.flatMap fun (c : SideCond) => match c with
+    | .isTrue b => cond b
+    | .same _ t u => [t, u]
+
+/-- The binders `xs` (outermost first) of a right side `\exists(x̄, \and(r, en))` that bind
+something: those whose variable, name and sort, is free in a part the reader reads
+(`rhsReadParts`), and of several binders of one variable the innermost. The others bind nothing
+and are read dropped (`ReadingNote.existsDropped`). -/
+def exKept (xs : List Kore.EVar) (r en : Kore.Pattern) : List Kore.EVar :=
+  let held := (rhsReadParts r en).flatMap (freeEVarsS [])
+  let rec last : List Kore.EVar → List Kore.EVar
+    | [] => []
+    | x :: xs => if xs.any (fun y => decide (y = x)) then last xs else x :: last xs
+  last (xs.filter fun x => held.any fun y => decide (y = x))
+
+/-- The indices in `vs` of the binders `xs` of a right side, in the text's order of nesting: each
+looked up by name and sort among the variables read after the left side's and the `requires`'
+(index at least `n0`). A binder not found there binds nothing and has no index. -/
+def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : List Nat :=
+  xs.filterMap fun x =>
+    match dropPrefix? "Var" x.var.ident.name, sortName? x.sort with
+    | some n, some s => match vs.findIdx? (·.name == n) with
+      | some i => if n0 ≤ i && (vs.getD i default).sort == s then some i else none
+      | none => none
+    | _, _ => none
+
+/-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty and
+renamed apart from the names the left side and the `requires` hold (`rhsApart`). -/
 def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Pattern) (xs : List Kore.EVar)
     (r en : Kore.Pattern) : Rd (Rule × RulePres) := do
     let ens ← need (req? en) .ruleShape
@@ -2443,6 +2533,8 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     let (ens, vs) ← match ens with
       | none => pure (none, vs)
       | some e => do let (t, vs) ← condTerm N vs e; pure (some t, vs)
+    -- the right side's binders that bind something
+    let kept := exKept xs r en
     -- the right side's conjunctions as `ensures`, and an empty right side as the `ensures` false
     -- (`hoist`), the left side without `#as` in its place (after `keyCut`)
     let (r, conds, empty) := hoist r
@@ -2455,10 +2547,11 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
         pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
     -- a map key of the left side applying a function of the definition's own: a fresh
     -- variable, its equality to the application a conjunct of the `requires` (`keyCut`)
+    -- the right side's existential variables, in the text's order of nesting: the binders that
+    -- bind something, looked up before `keyCut` adds its variables
+    let exs := exIndices vs n0 kept
     let (lhs, vs, req) ← keyCut N lhs vs req
     let rhs := if empty then stripAs lhs else rhs
-    -- the right side's existential variables, in the text's order of nesting
-    let exs ← exIndices vs n0 xs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
     -- `digitsVal`, not `String.toNat?`: the latter reaches an opaque well-founded fixpoint in
@@ -2482,20 +2575,24 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
 written, `\rewrites(lhs ∧ req, ∃x̄. (rhs ∧ ens))` with `req` and `ens` each `\top` (none) or
 `\equals{SortBool{},S}(C, true)` (`some C`), and x̄ the rule's existential variables (`exs`, in the
 text's order of nesting). The `ensures` is part of the right side (`Step.rule`'s `hens`): it does
-not decide where the rule applies (`NotApplies` reads the left side and the `requires`). -/
+not decide where the rule applies (`NotApplies` reads the left side and the `requires`).
+
+The right side's `\exists` binders are peeled before the form is chosen: the left side and the
+body under the binders are read, or refused, as those of the axiom without binders. A binder is
+read by the sentence's scoping: one whose name the left side or the `requires` holds is renamed
+apart (`rhsApart`, `ReadingNote.existsRenamedApart`), and one that binds nothing is dropped
+(`exKept`, `ReadingNote.existsDropped`); no binder is refused. -/
 def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   match a.pattern with
-  | .rewrites _ (.and _ [l, r0]) rx =>
-    match peelExists rx with
+  | .rewrites s (.and s' [l, r0]) rx =>
+    match peelExists (rhsApart a.pattern l r0 rx) with
     | (xs, .and _ [r, en]) => ruleBodyAnd N msrc a l r0 xs r en
-    | _ => ruleBodyOther N a.pattern
+    | (_, b) => ruleBodyOther N (.rewrites s (.and s' [l, r0]) b)
+  | .rewrites s l rx => ruleBodyOther N (.rewrites s l (peelExists rx).2)
   | p => ruleBodyOther N p
 where
-  /-- A rewrite axiom of no other shape the reader reads. -/
+  /-- A rewrite axiom of no other shape the reader reads, its right side without its binders. -/
   ruleBodyOther (N : Names) : Kore.Pattern → Rd (Rule × RulePres)
-  -- `?X`: a right side under `\exists` whose body is not `\and(rhs, ens)`, or whose left side is
-  -- not `\and(lhs, req)`
-  | .rewrites _ _ (.exist _ x _) => fail .existentialRhs x.var.ident.name
   -- a left side that is an application of a symbol the definition does not have, not `\and(lhs,
   -- req)`: an alias's (kompile's `ruleNLHS`, under --enable-kore-antileft)
   | .rewrites _ (.app h [] _) _ =>
@@ -3296,7 +3393,9 @@ def isCellCollAxiom (a : Kore.Axiom) : Bool :=
 
 /-- Every note a rewrite axiom or an equation is read through, from the sentence alone, in the order
 `identityAlias` (the right side read through an alias, `unaliasRule`; the rest of a rewrite axiom's
-notes are then of the axiom so read), `orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
+notes are then of the axiom so read), for a rewrite axiom whose right side is under `\exists`
+`existsRenamedApart` and `existsDropped` and no other (the connectives' notes are of a right side
+without binders), `orSplit`, `topAsVariable` / `existsAsVariable` (in each disjunct), for an equation
 `setVarInDropped` (`svinShape`), the right side's
 (`bottomAsEnsures`, else `andAsEnsures`, `andTermsWeaker` and the notes of the conditions it
 lifts: a lifted predicate is `andAsEnsures`; on a rule a lifted `t ∧ u` of two terms is
@@ -3332,6 +3431,13 @@ def connNotes (a₀ : Kore.Axiom) : List ReadingNote :=
       (if hasOr l then [ReadingNote.orSplit] else []) ++
         ((orAlts l).flatMap binderKinds).map (fun (b : Bool) => if b then ReadingNote.topAsVariable else ReadingNote.existsAsVariable) ++
         side false r ++ reqNotes ++ conds [(req? en).bind id] ++ orB r
+    -- a right side under `\exists`: the binders' notes
+    | .rewrites _ (.and _ [l, r0]) (.exist s x p) =>
+      let rx := Kore.Pattern.exist s x p
+      (if exRenamed l r0 rx then [ReadingNote.existsRenamedApart] else []) ++
+        (match peelExists (rhsApart a.pattern l r0 rx) with
+          | (xs, .and _ [r, en]) => if (exKept xs r en).length != xs.length then [ReadingNote.existsDropped] else []
+          | _ => [])
     | _ => match rawEqn? a with
       | some e =>
         (if (svinShape e).toOption.join.isSome then [ReadingNote.setVarInDropped] else []) ++

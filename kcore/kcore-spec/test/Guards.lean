@@ -38,6 +38,19 @@
     without the premise `⌈rhs ∧ ens⌉` (`UndefRhsWitness.textRuleK`, the text's rewrite with the
     competitors' negation of the priority reading), with the definedness axioms, entails the axiom
     `Γ` reads (`prioRuleK`): `ruleRightDefined_weaker`.
+  - G9, `existsDropped`: a rewrite axiom `\rewrites{C}(L, \exists Z:s. R)` whose binder binds
+    nothing, with the definedness axioms, entails the axiom without the binder,
+    `\rewrites{C}(L, R)`, in every interpretation and with no premise on the sort s
+    (`existsDropped_weaker`): where s has an element the two right sides are equal; where it has
+    none the text's right side is empty and so is its next, so the text says the left side has no
+    instance. The statement has five premises on the two sentences' translations, each decided by
+    computation on given sentences: the binder does not renumber the variables of C, L and R
+    (the two tables give them one index each: so where the binder's variable is declared after
+    every variable of R, or is a variable of L), the guards of the free variables are the same,
+    and the binder's index is not free in the translated R. That they follow from "Z does not
+    occur in R" for every sentence needs the translation's invariance under renumbering, which
+    no theorem states. Instance at a sort the instance's signature gives no constructor:
+    `existsDropped_empty`, `c(X:Int) => \exists Z:Empty. d(X:Int)`.
 -/
 import KcoreSpec
 
@@ -571,6 +584,99 @@ theorem ruleRightDefined_weaker (c : Semantics) (r : Rule) (hex : r.exs = []) (h
 
 end RightDefined
 
+/-! ## G9: `existsDropped`, the text's rewrite axiom entails the one without the binder -/
+
+section ExistsDropped
+
+/-- The item of the rewrite axiom `\rewrites{C}(L, R)` with no sort variables (`trAxiom`). -/
+def rwItem (C : Kore.KSort) (L R : Kore.Pattern) : KoreAML.Item :=
+  KoreAML.trAxiom [] [] ⟨0, "kernel", { sortVars := [], pattern := .rewrites C L R, attributes := [] }⟩
+
+/-- The guards of that item: one for each free variable of the axiom, numbered by its table. -/
+def rwGuards (C : Kore.KSort) (L R : Kore.Pattern) : List KoreAML.P :=
+  ((([] : List Kore.SortVar).map KoreAML.sortVarKey ++ KoreAML.freeOf [] (.rewrites C L R)).eraseDups).map
+    (KoreAML.guardOf (KoreAML.tableOf [] (.rewrites C L R)))
+
+/-- The item's pattern: under the guards, the translated rewrite is all of the sort C. -/
+theorem rwItem_pat (C : Kore.KSort) (L R : Kore.Pattern) :
+    (rwItem C L R).pat = (KoreAML.conjList (rwGuards C L R) ⇒
+      (KoreAML.sRewrites (KoreAML.trSort (KoreAML.tableOf [] (.rewrites C L R)) C)
+          (KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L R), []⟩ L)
+          (KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L R), []⟩ R) ≡
+        KoreAML.inhOf (KoreAML.trSort (KoreAML.tableOf [] (.rewrites C L R)) C))) := by
+  unfold rwItem rwGuards KoreAML.trAxiom
+  have hs : KoreAML.sortOf [] (.rewrites C L R) = some C := rfl
+  simp only [hs]
+  rw [KoreAML.tr]
+
+/-- **G9** (`ReadingNote.existsDropped`): the rewrite axiom `\rewrites{C}(L, \exists Z:s. R)` as
+the text writes it, with the definedness axioms, entails `\rewrites{C}(L, R)`, the axiom the reader
+reads where the binder binds nothing, in every interpretation: nothing is asked of the sort s of Z,
+which may have no element. The premises are about the numbering of the two sentences' variables
+(`tableOf` numbers a sentence's variables in the order it first holds them, the binder's among
+them): `hC`, `hL`, `hR`, the sort C, the left side and R translate to one pattern under both
+tables; `hG`, the free variables' guards are the same; `hZ`, the binder's index is not free in the
+translated R (Z is not free in R). Each is an equation between computed values of the two
+sentences. Where s has an element the text's right side is R's; where it has none it is empty,
+and the text's sentence then states `L → ⊥`, of which `L → •R` is a consequence. -/
+theorem existsDropped_weaker (C : Kore.KSort) (L R : Kore.Pattern) (Z : Kore.EVar)
+    (hC : KoreAML.trSort (KoreAML.tableOf [] (.rewrites C L (.exist C Z R))) C =
+      KoreAML.trSort (KoreAML.tableOf [] (.rewrites C L R)) C)
+    (hL : KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L (.exist C Z R)), []⟩ L =
+      KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L R), []⟩ L)
+    (hR : KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L (.exist C Z R)), []⟩ R =
+      KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L R), []⟩ R)
+    (hG : rwGuards C L (.exist C Z R) = rwGuards C L R)
+    (hZ : (KoreAML.tr ⟨KoreAML.tableOf [] (.rewrites C L R), []⟩ R).isFreeEvar
+      ((KoreAML.tableOf [] (.rewrites C L (.exist C Z R))).ev (KoreAML.evarKey Z)) = false) :
+    (fun φ => φ = (rwItem C L (.exist C Z R)).pat ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ⊧
+      (rwItem C L R).pat := by
+  intro M _ I hI
+  have hD : KoreAML.DefOK I := KoreAML.defOK_of fun x => hI _ (.inr ⟨x, rfl⟩)
+  have h := hI _ (.inl rfl)
+  intro e m
+  have h1 := h e m
+  rw [rwItem_pat] at h1 ⊢
+  rw [KoreAML.tr, hC, hL, hR, hG] at h1
+  rw [interpret_impl] at h1 ⊢
+  intro hg
+  have h2 := h1 hg
+  rw [KoreAML.interp_equal hD] at h2 ⊢
+  intro a
+  have h3 := h2 a
+  unfold KoreAML.sRewrites at h3 ⊢
+  rw [KoreAML.interp_sImp] at h3 ⊢
+  refine ⟨fun h' => h'.1, fun ha => ⟨ha, fun hLa => ?_⟩⟩
+  have h4 := (h3.mpr ha).2 hLa
+  unfold KoreAML.sNext at h4 ⊢
+  rw [KoreAML.interp_app] at h4 ⊢
+  obtain ⟨u, b, hu, hb, hab⟩ := h4
+  refine ⟨u, b, hu, ?_, hab⟩
+  rw [KoreAML.interp_sExists] at hb
+  obtain ⟨v, _, hv⟩ := hb
+  refine (only_free_var_relevant (I := I) _ _ _ _ (fun x hx => ?_) (fun _ _ => rfl) b).mp hv
+  by_cases hxz : x = (KoreAML.tableOf [] (.rewrites C L (.exist C Z R))).ev (KoreAML.evarKey Z)
+  · rw [hxz, hZ] at hx; cases hx
+  · simp [Function.update, hxz]
+
+/-! The instance: `c(X:Int) => \exists Z:Empty. d(X:Int)` entails `c(X:Int) => d(X:Int)`, Empty a
+sort of which the two sentences state nothing (no constructor, no element): the shape of
+test/ExReader.lean's site c at a sort without a constructor. -/
+
+def exC : Kore.KSort := KoreAML.srt "GeneratedTopCell"
+def exL : Kore.Pattern := .and exC [KoreAML.ap "Lblc" [KoreAML.ev "VarX" (KoreAML.srt "Int")], .top exC]
+def exR : Kore.Pattern := .and exC [KoreAML.ap "Lbld" [KoreAML.ev "VarX" (KoreAML.srt "Int")], .top exC]
+def exZ : Kore.EVar := KoreAML.evar "VarZ" (KoreAML.srt "Empty")
+
+/-- G9 at `c(X:Int) => \exists Z:Empty. d(X:Int)`: the five premises by the kernel. -/
+theorem existsDropped_empty :
+    (fun φ => φ = (rwItem exC exL (.exist exC exZ exR)).pat ∨ ∃ x : EVar, φ = @definedness KoreAML.Sym _ x) ⊧
+      (rwItem exC exL exR).pat :=
+  existsDropped_weaker exC exL exR exZ (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel)
+
+end ExistsDropped
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -585,6 +691,8 @@ end KCore.Guards
 #print axioms KCore.Guards.fnRest_nil_eq_paramVal
 #print axioms KCore.Guards.setIdem_bot
 #print axioms KCore.Guards.ruleRightDefined_weaker
+#print axioms KCore.Guards.existsDropped_weaker
+#print axioms KCore.Guards.existsDropped_empty
 
 /-! ## The table of readings (DONE-0 C6)
 
@@ -743,6 +851,16 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.test "test/AliasRhs.lean" "Semantics equal: true"],
       note := "reader tests only: the alias sentence decided the identity on the sentence (aliasIsIdentity), and hw-allpath-alias's Semantics equal to that of its text with the alias removed; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor (added by FIX-core.allpath-alias-read)" }
 
+  | .existsRenamedApart =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/ExReader.lean" "exApart_shadow"],
+      note := "reader tests only (test/ExReader.lean, site a: the rule read is the rule of the text with the binder spelled with another name; exApart in the kernel); that the axiom and its α-variant denote the same is argued (C3-existentialRhs-decision L1) and stated by no theorem, as for the left side's lhsBind; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
+  | .existsDropped =>
+    { status := .pending "GUARD.final",
+      guard := [.decl ``KCore.Guards.existsDropped_weaker, .decl ``KCore.Guards.existsDropped_empty,
+        .test "test/ExReader.lean" "exKept_drop"],
+      note := "G9 is stated on translated sentences, not over c.withHooks H, with no premise on the binder's sort and five premises on the numbering of the two sentences' variables, decided by computation at the instance (a sort without a constructor); no companion (the read sentence is the weaker: nothing is refuted); no GUARD ticket names this constructor (added by C3.reader-exists-binders)" }
+
 def inertReason : InertReason → GuardEntry
   | .import =>
     { status := .pending "GUARD.inert",
@@ -809,7 +927,7 @@ def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
-   .owiseDisjunctNarrower, .identityAlias]
+   .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

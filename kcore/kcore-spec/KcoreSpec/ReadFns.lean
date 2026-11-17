@@ -329,12 +329,12 @@ Whether the definition admits the clause (each variable of x̄ of a confined sor
 is decided on the built definition. -/
 
 /-- The indices of a right side's bound variables, in order, each a variable the first `n0` do
-not name (`existentialRhs` otherwise). -/
+not name (`patternConnective` otherwise: the binder is not read renamed apart here). -/
 def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var)
   | vs, [] => pure ([], vs)
   | vs, x :: xs => do
     let (i, vs) ← varIndex vs x
-    if i < n0 then fail .existentialRhs x.var.ident.name
+    if i < n0 then fail .patternConnective x.var.ident.name
     let (is, vs) ← exBind n0 vs xs
     pure (i :: is, vs)
   termination_by structural _ xs => xs
@@ -421,9 +421,12 @@ variables of `cutAnd`, which reads each conjunction of terms under applications 
 conjunction with a variable of x̄ among its conjuncts as that variable); `rhs` is the body
 so read; `post` is every predicate of the body (`condOf`), so that `Cond.fixes` reads them, then
 the cuts' memberships; the equation's own `ensures` stays `ens`.
-Refused `existentialRhs`: a variable of x̄ that the arguments, the `requires` or the `ensures` hold,
-that is bound twice, or that the body does not hold (the sentence then states the term only where
-the variable's sort has an element, which the clause would not say).
+Refused `patternConnective`: a variable of x̄ that the arguments, the `requires` or the `ensures`
+hold, or that is bound twice (these binders are not read here: a rule's are, renamed apart or
+dropped, `rhsApart` and `exKept`).
+Refused `unheldVariable`: a variable of x̄ that the body does not hold (the sentence then states
+the term only where the variable's sort has an element, which the clause would not say: unlike a
+rule's sentence, `f(x̄) = ∃Z:s. t` at an empty s is `f(x̄) = ⊥`, which does not entail `f(x̄) = t`).
 Refused `manyValuedRightSide`: no term conjunct (`\top`: the body is a predicate, every element
 or none); a further `\exists` in the body; `\or`, `\top` or `\not` under applications of the
 term or of a cut's conjunct.
@@ -438,9 +441,9 @@ def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   let (t, _, cuts, ps) := cutAnd (evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)) bound 0 body
   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? manyValued? then fail .manyValuedRightSide c
   if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
-    fail .existentialRhs s!"{x.var.ident.name}: bound by \\exists, not held by its body"
+    fail .unheldVariable s!"{x.var.ident.name}: bound by \\exists, not held by its body"
   let (exs, vs) ← exBind n0 vs xs
-  unless nodup exs do fail .existentialRhs s!"{(xs.headD default).var.ident.name}: bound twice"
+  unless nodup exs do fail .patternConnective s!"{(xs.headD default).var.ident.name}: bound twice"
   let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
   let (rhs, vs) ← term N vs t
   let (cs, vs) ← condOfList N vs ps

@@ -640,7 +640,21 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   interpretation. K 7.1.337's text of `starinit.k` (`starinit.kompile.kore`) holds neither sentence: there the
   value at `.K` is the interpretation's, which the text leaves open. G8 (`ruleRightDefined`): for
   every semantics, a rule's axiom without the premise `⌈rhs ∧ ens⌉`, with the definedness axioms,
-  entails the one `Γ` reads.
+  entails the one `Γ` reads. G9 (`existsDropped`): a rewrite axiom whose right side is under a
+  binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
+  the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
+  numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
+  instance at a sort without a constructor).
+- `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
+  kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
+  and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
+  e3-ml-lhs-empty-sort's texts changed by hand: a binder whose name the left side holds is renamed
+  apart (`existsRenamedApart`), a binder that binds nothing (absent, at another sort than the
+  body's variable, the outer of two, or over an empty right side) is dropped at every sort
+  (`existsDropped`), a body that is not `\and(rhs, ens)` or a left side that is an alias
+  application is refused as without a binder (`ruleShape`, `aliasApplication`), and an identity
+  alias under the binder is read through; `exApart_shadow` and `exKept_drop` check the two
+  devices in the kernel.
 - `test/SilentTotal.lean`: `totalSilentKeys` against the builtin text (native: the keys of
   `silentTable` the text declares `total`; `precisionFloat`, `exponentBitsFloat` declared `total`,
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,

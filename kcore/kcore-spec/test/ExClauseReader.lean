@@ -33,9 +33,9 @@
   Hand-written (`Hand`, over the names `N1`, f : Bool → Bool):
   - `eqTwoB`, `#Exists B. #Exists C. (C #And {C #Equals B} #And {B #Equals notBool X})`: `exs` is B
     then C, the order of nesting, though the body holds C first.
-  - `eqUnheld`, `#Exists B. X`: refused `existentialRhs`, the body does not hold B.
-  - `eqArg`, `#Exists X. X`: refused `existentialRhs`, the arguments hold X.
-  - `eqTwice`, `#Exists B. #Exists B. B`: refused `existentialRhs`.
+  - `eqUnheld`, `#Exists B. X`: refused `unheldVariable`, the body does not hold B.
+  - `eqArg`, `#Exists X. X`: refused `patternConnective`, the arguments hold X.
+  - `eqTwice`, `#Exists B. #Exists B. B`: refused `patternConnective`.
   - `eqNoTerm`, `#Exists B. {B #Equals notBool X}`: refused `manyValuedRightSide` (`\top`).
   - `eqInner`, `#Exists B. (B #And #Exists C. {C #Equals B})`: refused `manyValuedRightSide`.
   - `eqAnd`, `#Exists B. (B #And notBool X)`, two term conjuncts, one of them B: see and-terms.
@@ -337,9 +337,9 @@ eqTwoB:
   [0] vars [X:Bool, B:Bool, C:Bool] pats [X] req none prio 50 aside false
       pre ⊤
       rhs C ens none exs [1, 2] post ((C =[Bool] B) ∧ (B =[Bool] LblnotBool'Unds'(X)))
-eqUnheld: refused KCore.Parse.RefusalReason.existentialRhs (VarB: bound by \exists, not held by its body)
-eqArg: refused KCore.Parse.RefusalReason.existentialRhs (VarX)
-eqTwice: refused KCore.Parse.RefusalReason.existentialRhs (VarB: bound twice)
+eqUnheld: refused KCore.Parse.RefusalReason.unheldVariable (VarB: bound by \exists, not held by its body)
+eqArg: refused KCore.Parse.RefusalReason.patternConnective (VarX)
+eqTwice: refused KCore.Parse.RefusalReason.patternConnective (VarB: bound twice)
 eqNoTerm: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
 eqInner: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
 eqAnd:
@@ -389,8 +389,8 @@ theorem ceRead_eqTwoB : ceRead N1 eqTwoB = .ok
 /-- The refusals' reasons. -/
 theorem ceRead_refused :
     let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
-    reason eqUnheld = some .existentialRhs ∧ reason eqArg = some .existentialRhs ∧
-    reason eqTwice = some .existentialRhs ∧ reason eqNoTerm = some .manyValuedRightSide ∧
+    reason eqUnheld = some .unheldVariable ∧ reason eqArg = some .patternConnective ∧
+    reason eqTwice = some .patternConnective ∧ reason eqNoTerm = some .manyValuedRightSide ∧
     reason eqInner = some .manyValuedRightSide ∧ reason eqPredAnd = some .patternConnective := by
   decide +kernel
 
