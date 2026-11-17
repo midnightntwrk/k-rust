@@ -105,6 +105,37 @@ theorem lookupOvl_none_of_byFn {kg : CtorSig} (hb : c.ovlByFn kg = true) : c.loo
 theorem ovlDown_of_byFn {kg : CtorSig} (hb : c.ovlByFn kg = true) : c.ovlDown kg = [kg] := by
   simp [Semantics.ovlDown, lookupOvl_none_of_byFn hb]
 
+/-- A function's signature among the overloads is that of the function its name finds. -/
+theorem byFn_fn {o : OvlSig} {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) (hb : c.ovlByFn kg = true) :
+    ∃ fn, fn ∈ c.fns ∧ c.lookupFn kg.name = some fn ∧ kg = ⟨fn.label, fn.args, fn.result⟩ := by
+  obtain ⟨g, -, hgk⟩ := List.mem_filterMap.mp hkg
+  have hkn : kg.name = g := by
+    rw [lookupSig_eq] at hgk
+    simpa using List.find?_some hgk
+  simp only [Semantics.ovlByFn, Option.isNone_iff_eq_none] at hb
+  rw [lookupSig_eq] at hb
+  rw [lookupSig_eq, List.find?_append, ← hkn, hb, Option.none_or, List.find?_map] at hgk
+  obtain ⟨fn, hfn, hsig⟩ := Option.map_eq_some_iff.mp hgk
+  have hfn' : c.fns.find? (fun fn => fn.label == kg.name) = some fn := hfn
+  refine ⟨fn, List.mem_of_find?_eq_some hfn', ?_, hsig.symm⟩
+  rw [c.lookupFn_eq, Semantics.allFns, List.find?_append, hfn']
+  rfl
+
+/-- An overloading symbol with a function's signature among its overloads is function-overloaded. -/
+theorem fnOvlSyms_of_byFn {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o)
+    (hb : c.ovlByFn kg = true) : o.sig.name ∈ c.fnOvlSyms := by
+  obtain ⟨fn, hfn, -, hsig⟩ := byFn_fn hkg hb
+  unfold Semantics.fnOvlSyms
+  refine List.mem_map.mpr ⟨o, List.mem_filter.mpr ⟨ho, List.any_eq_true.mpr ⟨kg.name, mem_ovlOver hkg, ?_⟩⟩, rfl⟩
+  exact List.any_eq_true.mpr ⟨fn, hfn, by rw [hsig]; simp⟩
+
+/-- No function overload covers anything at a symbol that is not function-overloaded. -/
+theorem fnCover_none_of_not_fnOvl {f : Sym} (h : f ∉ c.fnOvlSyms) (vs : List GroundTerm) :
+    c.fnCover f vs = none := by
+  rw [c.fnCover_eq_none_iff]
+  intro o ho kg hkg hb
+  exact absurd ((lookupOvl_spec ho).1 ▸ fnOvlSyms_of_byFn (mem_of_lookupOvl ho) hkg hb) h
+
 /-- Arguments that no overload covers are covered by no function overload. -/
 theorem fnCover_none_of_uncovered {f : Sym} {vs : List GroundTerm} (hu : c.uncovered f vs = true) :
     c.fnCover f vs = none := by
