@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
-| E3 | 68 | 27 | 0 | 1 | 0 | 40 | 0 | 0 |
+| E3 | 69 | 27 | 0 | 1 | 0 | 41 | 0 | 0 |
 | E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
-| E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
+| E5 | 47 | 29 | 1 | 5 | 0 | 12 | 0 | 0 |
 | E6 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 157 | 71 | 1 | 7 | 1 | 77 | 0 | 0 |
+| all | 159 | 71 | 1 | 7 | 1 | 79 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,16 +61,16 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
 | E2 | 2 | 0 | 0 | 1 | 1 |
-| E3 | 40 | 6 | 2 | 32 | 0 |
+| E3 | 41 | 7 | 2 | 32 | 0 |
 | E4 | 4 | 2 | 2 | 0 | 0 |
-| E5 | 11 | 6 | 0 | 3 | 2 |
+| E5 | 12 | 6 | 0 | 4 | 2 |
 | E6 | 1 | 1 | 0 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 77 | 23 | 8 | 40 | 6 |
+| all | 79 | 24 | 8 | 41 | 6 |
 
-## Entries of class R-c (68)
+## Entries of class R-c (69)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -117,10 +117,10 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[11] | refused |  |  | CE |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[12] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[13] | refused |  |  | CE.reader-wire |  |
-| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[16] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[17] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[18] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
+| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[20] | refused |  |  | RDR.eq-binders |  |
 | E3 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#set-@` | row | refused |  | Term.var with the substitutions Eval and Step use, which give a variable one value; a set variable stands for a set of values | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
 | E4 | `grammar:<set-variable-identifier>::=['@'] <identifier>` | row | refused | a variable whose value is a set of values | KCore.Term, KCore.EvalTerm (Subst maps a variable to one GroundTerm) | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
 | E4 | `grammar:<variable-pattern>::=<set-variable>` | row | refused | a variable whose value is a set of values | KCore.Term, KCore.EvalTerm (Subst maps a variable to one GroundTerm) | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
@@ -133,6 +133,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `translateSorts:hooked-#2` | cases[5] | refused | a second sort with a builtin carrier | KCore.dvOK (an Int literal is a value of Srt.int only), KCore.intHooks and the other hook tables (results at Srt.int) | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
+| E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |
 | C3 | `hook x equation` | row | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[0] | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[2] | refused | as the row's (class R-c inherited from the row, TRIAGE-hook-eq-premise section 0 item 2 and section 2.3): a premise about the symbol beside what Γ states of it, with the obligation that Γ's statement satisfies the equation | as the row's: the declarations its cone names (KCore.Semantics, KCore.Faithful.fnItems, KCore.FnHyp, KCore.consistent\_of, KCore.Semantics.coreOK) | no unit |  |
@@ -520,12 +521,13 @@ Not core:
 | cases[11]: a term over a confined existential variable fixing an unconfined one (Z ∈ g(B), B confined; both term conjuncts over B a… | refused | R-c |  |  | CE |  |  |  | findings/CE-fixes-confined-scoped-decision.md verdicts and section 3 (5.1, sound); findings/CE-PARTITION-decision.md sections 2, 3. No fixture holds the shape |
 | cases[12]: two or more term conjuncts in a binder's body, #Exists B. (t #And u) (P5) | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-and-terms |  |  | fixtures/e3-eq-exists-ml-and-terms (f(X) => #Exists B:Bool. (B #And (notBool X)); k(X) => #Exists Z:Int. (Z #And (X +Int 1))): kompile.txt exit 0; kore.txt //@ 336, 371, \\exists Z:Int. \\and(Z, X +Int 1); account.txt \`sentence 349 (Lblf): manyValuedRightSide (\\exists)\`, \`sentence 384 (Lblk): manyValu… |
 | cases[13]: a variable under one injection equated with a term, {inj{a,b}(Z) #Equals t} (5.3) | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-supersort |  |  | fixtures/e3-eq-exists-ml-supersort (h(K) => #Exists Z:Int. (Z #And {Z #Equals K}), K:KItem): kompile.txt exit 0; kore.txt //@ 339, \\exists Z:Int. \\and(Z, \\equals{SortKItem,SortInt}(inj{SortInt,SortKItem}(Z), K)): kompile puts the injection in the equation that fixes Z; (//@ 336, f at KItem, puts inj… |
-| cases[14]: a rule's right side (?X) | supported |  | a binder whose name the left side or the requires holds is read renamed apart and one that binds nothing is read dropped (row #existential-?: hw-ex-shadow, hw-ex-unused-int); a right side under binders that is no \\and(rhs, ens) is refused ruleShape (hw-ex-body); still refused: openRight for an exist… |  |  |  |  |  | at INT-A1 58c87766 (lane R R2.reader-exists 41e16682, R2.flip 90988178): fixtures/e3-vars/account.txt stage refusals 0, wf true, coreOK true; test/ExReader.lean |
-| cases[15]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | Parse.isPred |
-| cases[16]: an equation's right side, one variable (name and sort) bound by two binders, #Exists B. #Exists B. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-twice-ml |  |  | fixtures/e3-eq-exists-twice-ml (p(X) => #Exists B:Bool. #Exists B:Bool. (B #And {B #Equals notBool X})): kompile.txt exit 0; kore.txt //@ 265, \\exists{SortBool{}}(VarB:SortBool{},\\exists{SortBool{}}(VarB:SortBool{}, …)); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ceRead… |
-| cases[17]: an equation's right side, a binder whose name the arguments, the requires or the ensures hold, f(X) => #Exists X. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-argname-ml |  |  | fixtures/e3-eq-exists-argname-ml (p(X) => #Exists X:Bool. X): kompile.txt exit 0; kore.txt //@ 265, Lblp{}(X0:SortBool{}) with the premise \\in(X0, VarX) and the right side \\exists{SortBool{}}(VarX:SortBool{},VarX:SortBool{}); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ce… |
-| cases[18]: an equation's right side, a binder whose variable (name and sort) the body does not hold, an argument variable having it… | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (q(X) => #Exists Z:Bool. X): kompile.txt exit 0; kore.txt //@ 389, \\exists{SortBool{}}(VarZ:SortBool{},VarX:SortBool{}); account.txt \`sentence 402 (Lblq): manyValuedRightSide (\\exists)\`; Parse.ceRead refuses it unheldVariable (test/ExClauseReader.lean eqUnheld) |
-| cases[19]: the same where no argument variable has the binder's sort (p(X:Bool) => #Exists Z:Int. X) | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (p(X) => #Exists Z:Int. X): kompile.txt exit 0; kore.txt //@ 374, \\exists{SortBool{}}(VarZ:SortInt{},VarX:SortBool{}); account.txt \`sentence 387 (Lblp): manyValuedRightSide (\\exists)\` |
+| cases[14]: a rule's right side (?X) whose variable is of a sort the text leaves unconfined and held there only under a range map's… | refused | R-a | designs/CN-4b-rc-units.md section 13, row openRight: a range-map symbol holds nothing (V6's reason), and a variable of an unconfined sort held under no constructor gives a successor through an element that is no value's |  | none (R-a): a range map's symbols hold no variable, so the successor reaches an element of the sort that is no value's |  |  |  | fixtures/e3-vars-rangemap/account.txt: \`openRight (Var'Ques'V:Int: bound by \\exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: …)\` (rule … &lt;r> \_ => [0, 1) r\|-> ?V:Int &lt;/r>) |
+| cases[15]: a rule's right side (?X) | supported |  | a binder whose name the left side or the requires holds is read renamed apart and one that binds nothing is read dropped (row #existential-?: hw-ex-shadow, hw-ex-unused-int); a right side under binders that is no \\and(rhs, ens) is refused ruleShape (hw-ex-body); still refused: openRight for an exist… |  |  |  |  |  | at INT-A1 58c87766 (lane R R2.reader-exists 41e16682, R2.flip 90988178): fixtures/e3-vars/account.txt stage refusals 0, wf true, coreOK true; test/ExReader.lean |
+| cases[16]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | Parse.isPred |
+| cases[17]: an equation's right side, one variable (name and sort) bound by two binders, #Exists B. #Exists B. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-twice-ml |  |  | fixtures/e3-eq-exists-twice-ml (p(X) => #Exists B:Bool. #Exists B:Bool. (B #And {B #Equals notBool X})): kompile.txt exit 0; kore.txt //@ 265, \\exists{SortBool{}}(VarB:SortBool{},\\exists{SortBool{}}(VarB:SortBool{}, …)); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ceRead… |
+| cases[18]: an equation's right side, a binder whose name the arguments, the requires or the ensures hold, f(X) => #Exists X. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-argname-ml |  |  | fixtures/e3-eq-exists-argname-ml (p(X) => #Exists X:Bool. X): kompile.txt exit 0; kore.txt //@ 265, Lblp{}(X0:SortBool{}) with the premise \\in(X0, VarX) and the right side \\exists{SortBool{}}(VarX:SortBool{},VarX:SortBool{}); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ce… |
+| cases[19]: an equation's right side, a binder whose variable (name and sort) the body does not hold, an argument variable having it… | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (q(X) => #Exists Z:Bool. X): kompile.txt exit 0; kore.txt //@ 389, \\exists{SortBool{}}(VarZ:SortBool{},VarX:SortBool{}); account.txt \`sentence 402 (Lblq): manyValuedRightSide (\\exists)\`; Parse.ceRead refuses it unheldVariable (test/ExClauseReader.lean eqUnheld) |
+| cases[20]: the same where no argument variable has the binder's sort (p(X:Bool) => #Exists Z:Int. X) | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (p(X) => #Exists Z:Int. X): kompile.txt exit 0; kore.txt //@ 374, \\exists{SortBool{}}(VarZ:SortInt{},VarX:SortBool{}); account.txt \`sentence 387 (Lblp): manyValuedRightSide (\\exists)\` |
 | `ML-SYNTAX:Sort2::="#Forall" Sort1 "." Sort2` | refused | R-a | a quantifier or a \\floor of a term over a sort other than Bool: its truth at given values depends on which elements the sort has, which the reader does not decide while reading a sentence (Semantics.confined is decided on the read definition); refused openExtent with the sort (CN-3 section 5). Of pr… | none (refused on principle, openExtent) |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-forall, e3-ml-rule-rhs-forall: account \`openExtent (Int)\`; fixtures/e3-ml-rule-lhs-forall-exp: account \`openExtent (Exp)\`; fixtures/e3-ml-req-forall: account \`1 read predicateAtBool [user]\`; fixtures/e3-ml: account \`8 inert simplification [user]\` |
 | cases[0]: \\forall of a term over a sort other than Bool (left or right side) | refused | R-a |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-forall, -rhs-forall, -lhs-forall-exp |
 | cases[1]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-forall |
@@ -803,7 +805,8 @@ Not core:
 | cases[7]: non-executable beside [owise] | supported |  | Side by side. The text: the [owise] equation states choose(X0, X1) = X0 wherever X0 is not a (the one disjunct, for //@ 194), at X0 = b too. The reading: the [owise] clause decides where every clause of a smaller priority that is not aside fails (Eval.clause hprio; Faithful.lowerClauses, the clauses… | none (reader only) |  | e5-owise-nonexec |  |  | fixtures/e5-owise-nonexec/kore.txt //@ 193 (the [owise] equation choose(X, \_) => X), its premise's exclusion: \`\\not{R} (\\or{R} (\\exists{R} (Var'Unds'Gen1:SortFoo{}, \\and{R} (\\top{R}(), \\and{R} (\\in{SortFoo{}, R} (X0:SortFoo{}, Lbla{}()),\\and{R} (\\in{SortFoo{}, R} (X1:SortFoo{}, Var'Unds'Gen1:SortFoo… |
 | cases[8]: B39 equation of a sort-parametric user function | refused | R-a |  |  |  |  |  |  |  |
 | cases[9]: B44 generated initializer applying a projection | supported |  | the projection is a parameter symbol; fixtures e2-cells, e3-withconfig parse ok |  |  |  |  |  |  |
-| cases[10]: B58 heat/cool rule written as an equation | supported |  | it is an equation in the text. Fixture e2-cool-eq is read with wf and coreOK true and one owed CondDecided: its requires is closed over HOLE, which the arguments do not bind (fixtures/e2-cool-eq/account.txt \`function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K\`, \`parse: ok; wf tr… |  |  |  |  |  |  |
+| cases[10]: an application of a function-overloaded symbol in an equation's argument pattern | refused | R-c | a covered application of the symbol is the function's value, and matching it would need the function's inverse; the cut reads it as a fresh variable with its membership in the application, a Clause.pre that clausesPlain admits only after e3.admit | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |  |  | fixtures/e5-ovl-fun-clause/account.txt: \`sentence 271 (Lbluncap): functionInPattern (LblcapGas)\` (rule uncap(cap(G:Gas)) => G, capGas overloading the function capN) |
+| cases[11]: B58 heat/cool rule written as an equation | supported |  | it is an equation in the text. Fixture e2-cool-eq is read with wf and coreOK true and one owed CondDecided: its requires is closed over HOLE, which the arguments do not bind (fixtures/e2-cool-eq/account.txt \`function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K\`, \`parse: ok; wf tr… |  |  |  |  |  |  |
 | `convertRule:axiom#2` | supported |  | The site writes \`\\rewrites(\\and(lhs, req), \\and(rhs, ens))\`. Read as a Rule (ruleBody); Step.rule states its meaning, the ensures a premise on the right side (hens). | none (reader only) for the supported cases |  |  |  |  | Parse.lean:1017-1066; Step.lean:34-41; fixtures e2-rule, e3-reqens, e3-cells, e2-cells-stream |
 | cases[0]: B46 B47 B52 | supported |  |  |  |  |  |  |  |  |
 | cases[1]: B48 rule with ensures | supported |  | Rule.ens, Step.rule hens; the row said refused at 57f851ec |  |  |  |  |  |  |
