@@ -6,7 +6,8 @@
   - `decls_entailed` (E): the item of each sort declaration without sort parameters, and of each
     symbol declaration without sort parameters of a symbol Γ has (`declItems`, 155 items), is an
     item of `sigItems c` pattern for pattern (`decls_in_sig`), so Γ entails it for every H.
-    `declPos` names each one's place in `sigItems c`; the kernel checks the item there. Decided by
+    `declPos` names each one's place in `sigItems c` (test/TieKimpHints.lean prints it); the kernel
+    checks the item there. Decided by
     ranges, joined by `tieAll_range`.
   - `decl_counts`: of the text's 21 sort declarations, 20 have no sort parameter (the other is
     `SortMInt{Width}`); of its 187 symbol declarations, 135 have no sort parameter and name a

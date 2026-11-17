@@ -1226,9 +1226,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
   entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
   (`fns_from_text`). 7.6 GiB, 73 s.
-- `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 250 items of `sigItems c` is a
+- `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
-  decided by eleven ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
+  decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
   The ranges of surplus items are the short ones: a surplus item costs `surplusItem`'s search
   through the registry up to its own name. 7.2 GiB (the largest range), 189 s.
 - `test/TieKimpWf.lean`: `wf defn = true` on kimp's literal, conjunct by conjunct (`wf_of_parts`,
@@ -1247,6 +1247,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   without sort parameters of a sort or a symbol Γ has is an item of `sigItems c` at a place
   `declPos` names (`decls_in_sig`, four ranges), so Γ entails it for every H (`decls_entailed`);
   `decl_counts` accounts for the text's 21 sort and 187 symbol declarations. 6.1 GiB, 127 s.
+- `test/TieKimpHints.lean`: the generator of the places the kimp tie files name, by `#eval`
+  on KCore's parse of kimp's text: `consPairs` of test/TieKimpCons.lean (each
+  constructor sentence's sort, generators and places in `consItemsK c`), `declPos` of
+  test/TieKimpDecls.lean (each declaration's place in `sigItems c`), and the lengths and surplus
+  places that size test/TieKimpSig.lean's ranges. It prints Lean text; the kernel checks every
+  place in the file that names it. A reorder of `consItemsK` or `sigItems` is a regeneration.
+  About 8 min (the search runs in the interpreter), 0.2 GiB.
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it

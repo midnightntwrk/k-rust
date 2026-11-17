@@ -58,7 +58,8 @@
 #               ref-peano it reads; `skipped` when the k2lean directory ($K2LEAN) is absent
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
-#               PrintNames, a command-line tool), each with `#axioms_here` appended (axioms-tests)
+#               PrintNames, a command-line tool, nor TieKimpHints, a generator), each with
+#               `#axioms_here` appended (axioms-tests)
 #
 # The native checks run first, then the Lean checks, JOBS at once: JOBS is the available memory
 # (`free -g` at start) over 12 GiB, between 1 and 8, or $INTEGRATION_JOBS. Every Lean and `kcore`
@@ -208,7 +209,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted) continue;;
+    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"
