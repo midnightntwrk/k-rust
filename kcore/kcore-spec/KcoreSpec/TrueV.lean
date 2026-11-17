@@ -50,29 +50,40 @@ theorem evalTerm_some_iff {c : Semantics} (hd : FnDet c) {σ : Subst} {t : Term}
   ⟨fun hv => EvalTerm.functional_of_fnDet hd h hv, fun he => he ▸ h⟩
 
 /-- **(I1) Where `Holds` has a truth value, the value model's truth is that value**, under `FnDet`
-(a term has at most one result, so its values are its result's). -/
+(a term has at most one result, so its values are its result's). By structural recursion on
+the derivation of `Holds` (no recursor of `Holds` is named, so the proof does not depend on which
+mutual block `Holds` is declared in): a binder's case calls the theorem at each premise `hb σ' …`. -/
 theorem holds_trueV {c : Semantics} (hd : FnDet c) {n : Nat} {σ : Subst} {p : Cond} {b : Bool}
-    (h : Holds c n σ p b) : TrueV c n σ p ↔ b = true := by
-  induction h with
-  | top => exact ⟨fun _ => rfl, fun _ => trivial⟩
-  | bot => exact ⟨fun hf => (hf : False).elim, fun hf => by cases hf⟩
-  | @not n σ p b _ ih =>
+    (h : Holds c n σ p b) : TrueV c n σ p ↔ b = true :=
+  match n, σ, p, b, h with
+  | _, _, _, _, .top => by
+    exact ⟨fun _ => rfl, fun _ => trivial⟩
+  | _, _, _, _, .bot => by
+    exact ⟨fun hf => (hf : False).elim, fun hf => by cases hf⟩
+  | _, _, _, _, @Holds.not _ n σ p b h => by
+    have ih := holds_trueV hd h
     show ¬ TrueV c n σ p ↔ _
     rw [ih]; cases b <;> simp
-  | @and n σ p q b b' _ _ ih ih' =>
+  | _, _, _, _, @Holds.and _ n σ p q b b' h h' => by
+    have ih := holds_trueV hd h
+    have ih' := holds_trueV hd h'
     show TrueV c n σ p ∧ TrueV c n σ q ↔ _
     rw [ih, ih']; cases b <;> cases b' <;> simp
-  | @or n σ p q b b' _ _ ih ih' =>
+  | _, _, _, _, @Holds.or _ n σ p q b b' h h' => by
+    have ih := holds_trueV hd h
+    have ih' := holds_trueV hd h'
     show TrueV c n σ p ∨ TrueV c n σ q ↔ _
     rw [ih, ih']; cases b <;> cases b' <;> simp
-  | @implies n σ p q b b' _ _ ih ih' =>
+  | _, _, _, _, @Holds.implies _ n σ p q b b' h h' => by
+    have ih := holds_trueV hd h
+    have ih' := holds_trueV hd h'
     show (TrueV c n σ p → TrueV c n σ q) ↔ _
     rw [ih, ih']; cases b <;> cases b' <;> simp
-  | @ceil n σ s t r h =>
+  | _, _, _, _, @Holds.ceil _ n σ s t r h => by
     show (∃ v, EvalTerm c σ t (some v)) ↔ _
     simp only [evalTerm_some_iff hd h]
     cases r <;> simp
-  | @equals n σ s t u r r' h h' =>
+  | _, _, _, _, @Holds.equals _ n σ s t u r r' h h' => by
     show (∀ v, EvalTerm c σ t (some v) ↔ EvalTerm c σ u (some v)) ↔ _
     simp only [evalTerm_some_iff hd h, evalTerm_some_iff hd h']
     cases r with
@@ -92,7 +103,7 @@ theorem holds_trueV {c : Semantics} (hd : FnDet c) {n : Nat} {σ : Subst} {p : C
           exact (Option.some.inj ((hh v).mp rfl)).symm
         · rintro rfl
           exact fun _ => Iff.rfl
-  | @mem n σ s t u r r' h h' =>
+  | _, _, _, _, @Holds.mem _ n σ s t u r r' h h' => by
     show (∃ v, EvalTerm c σ t (some v) ∧ EvalTerm c σ u (some v)) ↔ _
     simp only [evalTerm_some_iff hd h, evalTerm_some_iff hd h']
     cases r with
@@ -107,13 +118,14 @@ theorem holds_trueV {c : Semantics} (hd : FnDet c) {n : Nat} {σ : Subst} {p : C
           cases h1; cases h2; rfl
         · rintro rfl
           exact ⟨v, rfl, rfl⟩
-  | @exNone n σ ys s p t body h =>
+  | _, _, _, _, @Holds.exNone _ n σ ys s p t body h => by
     show (∃ v σ', EvalTerm c σ t (some v) ∧ _) ↔ _
     constructor
     · rintro ⟨v, σ', hv, -⟩
       cases EvalTerm.functional_of_fnDet hd h hv
     · intro hf; cases hf
-  | @exSome n σ ys s p t body v b g h hb hr ih =>
+  | _, _, _, _, @Holds.exSome _ n σ ys s p t body v b g h hb hr => by
+    have ih := fun σ' hx hm => holds_trueV hd (hb σ' hx hm)
     show (∃ v' σ', EvalTerm c σ t (some v') ∧ Extends c n ys σ σ' ∧ PatVal c σ' p v' ∧
       TrueV c (n + ys.length) σ' body) ↔ _
     rw [hr]
@@ -123,11 +135,13 @@ theorem holds_trueV {c : Semantics} (hd : FnDet c) {n : Nat} {σ : Subst} {p : C
       exact ⟨σ', hext, hpv, (ih σ' hext hpv).mp ht⟩
     · rintro ⟨σ', hext, hpv, hg⟩
       exact ⟨v, σ', h, hext, hpv, (ih σ' hext hpv).mpr hg⟩
-  | @ex n σ s body b g hb hr ih =>
+  | _, _, _, _, @Holds.ex _ n σ s body b g hb hr => by
+    have ih := fun σ' hx => holds_trueV hd (hb σ' hx)
     show (∃ σ', Extends c n [s] σ σ' ∧ TrueV c (n + 1) σ' body) ↔ _
     rw [hr]
     exact ⟨fun ⟨σ', he, ht⟩ => ⟨σ', he, (ih σ' he).mp ht⟩, fun ⟨σ', he, hg⟩ => ⟨σ', he, (ih σ' he).mpr hg⟩⟩
-  | @all n σ s body b g hb hr ih =>
+  | _, _, _, _, @Holds.all _ n σ s body b g hb hr => by
+    have ih := fun σ' hx => holds_trueV hd (hb σ' hx)
     show (∀ σ', Extends c n [s] σ σ' → TrueV c (n + 1) σ' body) ↔ _
     rw [hr]
     exact ⟨fun ht σ' he => (ih σ' he).mp (ht σ' he), fun hg σ' he => (ih σ' he).mpr (hg σ' he)⟩
