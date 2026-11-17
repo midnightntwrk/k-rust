@@ -127,8 +127,12 @@ theorem ovlOK_of_core (h : c.coreOK = true) : OvlOK c := by
   have hkgk : kg ∈ kernelSyms c := by
     obtain ⟨g, -, hg⟩ := List.mem_filterMap.mp hkg
     rcases List.mem_append.mp (lookupSig_spec hg).1 with h1 | h1
-    · exact ctor_kernel h1
-    · exact List.mem_append_right _ h1
+    · rcases List.mem_append.mp h1 with h2 | h2
+      · exact ctor_kernel h2
+      · exact List.mem_append_right _ h2
+    · obtain ⟨fn, hfn, rfl⟩ := List.mem_map.mp h1
+      exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+        (List.mem_map.mpr ⟨fn, List.mem_append_left _ hfn, rfl⟩))))
   have hok' : o.sig ∈ kernelSyms c := List.mem_append_right _ (List.mem_map_of_mem ho)
   exact sort_eq_of_name hn (kernel_sort_lt hs hkgk hA) (kernel_sort_lt hs hok' hB) he
 

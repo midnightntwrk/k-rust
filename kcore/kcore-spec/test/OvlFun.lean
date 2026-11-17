@@ -137,6 +137,26 @@ theorem cons_items :
       it.pat == (KoreAML.Cons.injItem "Exp" (Gen.toK c (.ctor ⟨plusExp, [expS, expS], expS⟩))).pat) = false := by
   decide +kernel
 
+/-- `ovlOver` reads the function's signature, which `ovlByFn` tells from a constructor's; the
+arguments `inj{Int,Exp}(1), inj{Int,Exp}(2)` are covered and `norm` leaves the application as it is
+(no function on values gives `1 + 2`), which is no value (`sortOf`). -/
+theorem norm_facts :
+    c.ovlOver ⟨⟨plusExp, [expS, expS], expS⟩, [plusInt]⟩ = [⟨plusInt, [Srt.int, Srt.int], Srt.int⟩] ∧
+    c.ovlByFn ⟨plusInt, [Srt.int, Srt.int], Srt.int⟩ = true ∧
+    c.uncovered plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] = false ∧
+    c.norm plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] =
+      .ctor plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] ∧
+    c.sortOf (.ctor plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))]) = none := by
+  decide +kernel
+
+/-- The uncovered items of `plusExp` are guarded by the function's argument sorts. -/
+theorem cons_covs :
+    ((Faithful.consItemsK c).any fun it =>
+      it.pat == (KoreAML.Cons.funUncItem "Exp" (Gen.toK c (.ctor ⟨plusExp, [expS, expS], expS⟩)) [["Int", "Int"]]).pat) = true ∧
+    ((Faithful.consItemsK c).any fun it =>
+      it.pat == (KoreAML.Cons.injUncItem "Exp" (Gen.toK c (.ctor ⟨plusExp, [expS, expS], expS⟩)) [["Int", "Int"]]).pat) = true := by
+  decide +kernel
+
 /-- `plusExp(inj{Int,Exp}(1), inj{Int,Exp}(2))`. -/
 def app12 : Term := .app plusExp [.inj Srt.int expS (intT 1), .inj Srt.int expS (intT 2)]
 
@@ -231,6 +251,18 @@ theorem cons_items :
       it.pat == (KoreAML.Cons.distItem "Gas" (Gen.toK ovlfun (.ctor ⟨inf, [], gasS⟩))
         (Gen.toK ovlfun (.ctor ⟨capGas, [gasS], gasS⟩))).pat) = false ∧
     ovlfun.distGuarded (.ctor ⟨inf, [], gasS⟩) (.ctor ⟨capGas, [gasS], gasS⟩) = true := by
+  decide +kernel
+
+/-- `capGas` at `inf`, which no overload covers, is its raw application, a value of Gas; at
+`inj{N,Gas}(z)`, which the function `capN` covers, `norm` leaves the application as it is, and it is
+no value. -/
+theorem norm_facts :
+    ovlfun.uncovered capGas [.ctor inf []] = true ∧
+    ovlfun.norm capGas [.ctor inf []] = .ctor capGas [.ctor inf []] ∧
+    ovlfun.sortOf (.ctor capGas [.ctor inf []]) = some gasS ∧
+    ovlfun.uncovered capGas [.inj nS gasS (.ctor z [])] = false ∧
+    ovlfun.norm capGas [.inj nS gasS (.ctor z [])] = .ctor capGas [.inj nS gasS (.ctor z [])] ∧
+    ovlfun.sortOf (.ctor capGas [.inj nS gasS (.ctor z [])]) = none := by
   decide +kernel
 
 /-- `capGas(inj{N,Gas}(z))`. -/

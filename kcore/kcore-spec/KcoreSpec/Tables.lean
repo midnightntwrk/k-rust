@@ -34,6 +34,8 @@ structure Tables where
   colls : List CollSig
   /-- the overloading symbols (`Semantics.ovls`) -/
   ovls : List OvlSig
+  /-- the functions' signatures by number (`lookupSig` of `Semantics.fns`' signatures) -/
+  fnSigs : NatMap CtorSig
   deriving Repr, DecidableEq, Inhabited
 
 /-- The tables of a definition, computed. -/
@@ -44,6 +46,7 @@ def tables (c : Semantics) : Tables where
   sigs := NatMap.ofList (c.ctorSigs.map fun k => (k.name, k))
   colls := c.allColls
   ovls := c.ovls
+  fnSigs := NatMap.ofList (c.fns.map fun fn => (fn.label, (⟨fn.label, fn.args, fn.result⟩ : CtorSig)))
 
 namespace Tables
 variable (T : Tables)
@@ -80,7 +83,7 @@ def ovlCovers (kf kg : CtorSig) (vs : List GroundTerm) : Bool :=
 
 /-- `Semantics.ovlOver`, read from `T`. -/
 def ovlOver (o : OvlSig) : List CtorSig :=
-  o.over.filterMap fun g => (T.sig g).or ((T.lookupOvl g).map (·.sig))
+  o.over.filterMap fun g => ((T.sig g).or ((T.lookupOvl g).map (·.sig))).or (T.fnSigs.find g)
 
 /-- `Semantics.uncovered`, read from `T`. -/
 def uncovered (f : Sym) (vs : List GroundTerm) : Bool :=
@@ -128,8 +131,11 @@ theorem uncovered_tables (f : Sym) (vs : List GroundTerm) : (tables c).uncovered
     intro o
     simp only [Tables.ovlOver, Semantics.ovlOver, sig_tables, lookupOvl_tables]
     congr 1; funext g
-    rw [lookupSig_eq, lookupSig_eq, List.find?_append, Semantics.lookupOvl,
-      Semantics.ovlSigs, List.find?_map]
+    have hf : (tables c).fnSigs.find g =
+        lookupSig (c.fns.map fun fn => (⟨fn.label, fn.args, fn.result⟩ : CtorSig)) g := by
+      rw [lookupSig, List.map_map]; rfl
+    rw [hf, lookupSig_eq, lookupSig_eq, lookupSig_eq, List.find?_append, List.find?_append, Semantics.lookupOvl,
+      Semantics.ovlSigs, List.find?_map, List.find?_map]
     rfl
   simp only [Tables.uncovered, Semantics.uncovered, lookupOvl_tables, ho, hc]
   rfl
