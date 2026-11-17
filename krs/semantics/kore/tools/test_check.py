@@ -272,6 +272,14 @@ class PassRule(unittest.TestCase):
         d = self.p.entry('c01-x', SETTLED, evidence=False)
         self.fails(d, 'stale', 'no evidence.json')
 
+    def test_stale_no_kompile_record(self):
+        d = self.p.entry('c01-x', SETTLED, {'haskell': finals(B1)})
+        path = os.path.join(d, 'evidence.json')
+        ev = json.loads(check.read_text(path))
+        del ev['kompile']
+        rewrite(path, json.dumps(ev))
+        self.fails(d, 'stale', 'evidence.json records no kompile run', live=finals(B1))
+
     # cause 3: an unrecorded or an outlived difference
 
     def test_differs_unrecorded(self):
