@@ -1,13 +1,56 @@
 id = "c23-map-lookup-missing"
 kind = "case"
 subject = "A lookup of a missing key is undefined: the rule that builds a(M[5]) has no successor, and the rule of the same priority that looks up a present key gives the one final configuration."
+retro = ["H7"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t37-map-lookup-missing"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(1 |-> 2) no successor by the rule for a and the successor b(2) by the other (user_manual.md:1166-1173); the axiom kompile writes for the rule for a has a(M[5]) in its right side (kore.txt:104), empty where M has no key 5, and read as a rewrite axiom it is false in every model where go(1 |-> 2) in the k cell is an element: as written the text has no model holding it, rather than one where it has the one successor b(2)."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(2)"]
+reason = """
+(1) Both rules have priority 50 and no requires (user_manual.md:1748-1749): at go(1 |-> 2) the rule for b is tried whatever the rule for a gives there (kk:t02-step-successors).
+(2) M[5] at M = 1 |-> 2: 5 is not a key of M, and the value of a lookup of a key not in the map is #False, no value (domains.md:265-268; kk:t37-map-lookup-missing); a applied to it has none (kk:t10-fn-innermost). The transition of the rule for a ends in RHS #And ENS (user_manual.md:1166-1173), which has no value: it gives no successor, and a(_) is reached by no rule.
+(3) M[1] is 2 (domains.md:265-268): go(1 |-> 2) steps to b(2), which no rule's left side matches and which is final (kk:t06-final-configuration). The final configurations are b(2) alone.
+(4) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:265-268 (K 7.1.337)"
+quote = "You can look up the value associated with the key of a map in O(log(N)) time. ... The value is `#False` if the key is not in the map (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom, of one priority (kore.txt:98-115). The right side of the rule for a holds the lookup Map:lookup(M, 5) (kore.txt:104), which denotes nothing at M = 1 |-> 2 (kk:t37-map-lookup-missing), so that instance of the axiom holds only where its left side has no element; go is a constructor with a functional axiom (kore.txt:78). The written sentences have no model in which go(1 |-> 2) in the k cell is an element, while the manual's transition gives it the one final configuration b(2)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:104"
+quote = '''Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'KItem{}(LblMap'Coln'lookup{}(VarM:SortMap{},inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5"))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:78"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map{}(K0:SortMap{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"

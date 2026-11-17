@@ -1,10 +1,54 @@
 id = "c22-map-hooks"
 kind = "case"
 subject = "The Map hooks on a two-entry map: lookup, lookup with a default (present and missing key), update of a present key and of a new key between the two present ones, removal of a present and of a missing key, in_keys and size."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t34-collection-values", "kk:t37-map-lookup-missing"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(2, 2, 0, 1 |-> 7 3 |-> 4, 1 |-> 2 2 |-> 9 3 |-> 4, 3 |-> 4, 1 |-> 2 3 |-> 4, true, false, 2)"]
+reason = """
+(1) M0 is the map of 1 |-> 2 and 3 |-> 4, a finite set of pairs with at most one pair for each key (kk:t34-collection-values; domains.md:223-225). The one rule matches go(M0) with no requires and applies (kk:t01-rule-applies); each argument of its right side has one value:
+(2) M0[1] is the value M0 pairs with 1, 2 (domains.md:265-268; kk:t37-map-lookup-missing). M0[1] orDefault 0 is 2 and M0[5] orDefault 0 is the default 0, 5 not being a key (domains.md:276-278).
+(3) M0[1 <- 7] inserts the pair 1 |-> 7 (domains.md:286-287); one key has at most one value, so it is the map of 1 |-> 7 and 3 |-> 4. M0[2 <- 9] is the map of 1 |-> 2, 2 |-> 9 and 3 |-> 4, the order of pairs not counting (kk:t34-collection-values).
+(4) M0[1 <- undef] removes the pair of key 1 (domains.md:295-296): the map of 3 |-> 4. M0[5 <- undef] removes nothing, there being no pair of key 5: M0.
+(5) 1 in_keys(M0) is true and 5 in_keys(M0) false (domains.md:354); size(M0) is 2, the number of its pairs (domains.md:370).
+(6) The right side denotes r(2, 2, 0, 1 |-> 7 3 |-> 4, 1 |-> 2 2 |-> 9 3 |-> 4, 3 |-> 4, 1 |-> 2 3 |-> 4, true, false, 2) (kk:t10-fn-innermost); go(M0) has that one successor (kk:t02-step-successors), and no rule's left side matches r(...), which is final (kk:t06-final-configuration). The final configurations are that one."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:265-268 (K 7.1.337)"
+quote = "You can look up the value associated with the key of a map in O(log(N)) time. ... The value is `#False` if the key is not in the map (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:276-278 (K 7.1.337)"
+quote = "You can also look up the value associated with the key of a map using a total function that assigns a specific default value if the key is not present in the map."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:286-287 (K 7.1.337)"
+quote = "You can insert a key/value pair into a map in O(log(N)) time, or effectively constant."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:295-296 (K 7.1.337)"
+quote = "You can remove a key/value pair from a map via its key in O(log(N)) time, or effectively constant."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:354 (K 7.1.337)"
+quote = "You can check whether a key is present in a map in O(1) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:370 (K 7.1.337)"
+quote = "You can get the number of key/value pairs in a map in O(1) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:223-225 (K 7.1.337)"
+quote = "The `Map` sort represents a generalized associative array. Each key can be paired with an arbitrary value, and can be used to reference its associated value. Multiple bindings for the same key are not allowed."

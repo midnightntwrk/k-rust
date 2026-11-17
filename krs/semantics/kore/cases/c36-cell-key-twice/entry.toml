@@ -16,7 +16,7 @@ reason = '''
 What every reading shares:
 (1) The <acct> cells are a collection read as a map from the content of an instance's <id> to the whole instance, and the initial configuration holds no instance (kk:t39-cell-collection-map; user_manual.md:1036-1042). The two rules for alt have priority 50 and both apply: alt(P1, P2) has the successors P1 and P2 (kk:t02-step-successors; user_manual.md:1748-1749).
 (2) The first path, new(1, 10) ; new(2, 20) ; pick ; end, adds the instances of keys 1 and 2, which have no key in common, so the collection has a value (kk:t36-map-concat). The rule for pick names <id> I with I a variable: its left side matches at each split of the collection into one instance and the rest, the instance of key 1 and the instance of key 2 (kk:t38-collection-patterns, kk:t39-cell-collection-map). So the rule gives two successors, got(1, 10) and got(2, 20) in <k> beside the two instances, and no rule's left side matches either: both are final (kk:t06-final-configuration).
-(3) The second path adds the instance of key 1 with <bal> 10, then meets new(1, 20) ; end. The rule for new matches; its right side puts a second instance of key 1 beside the first, a concatenation of two maps with a key in common, which has no value (kk:t36-map-concat, kk:t39-cell-collection-map). So that rule gives no successor there, and no other rule's left side matches.
+(3) The second path adds the instance of key 1 with <bal> 10, then meets new(1, 20) ; end. The rule for new matches; its right side puts a second instance of key 1 beside the first, a concatenation of two maps with a key in common, which has no value (domains.md:227-229; kk:t36-map-concat, kk:t39-cell-collection-map). So that rule gives no successor there, and no other rule's left side matches.
 What the text does not determine is whether that configuration is final: whether the rule for new, which matched and whose result has no value, has applied, or has been tried and failed (kk:t03-applied-rule-blocks; user_manual.md:1711-1713, 1722-1724). The readings are that entry's, with the final configurations each gives.
 (4) The final configurations are written in the canonical text, since kast does not parse a collection of two instances: each symbol by its name in kore.txt with its arguments, an injection as inj{A,B}(v), an integer as its numeral, and the collection, whose sort is AcctCellMap (kore.txt:20), as SortAcctCellMap{K|->V,...} with the texts of its pairs in sorted order, a map being given by its pairs and not their order (kk:t34-collection-values).'''
 interpreter = "applied-blocks"
@@ -41,6 +41,11 @@ quote = "In particular, the second rule above will only be tried after the first
 source = "manual"
 locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
 quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
 
 [[reading]]
 name = "applied-blocks"
