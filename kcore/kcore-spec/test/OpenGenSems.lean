@@ -472,4 +472,12 @@ theorem commCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (CommCtor.c.withH
 theorem idemCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
   openLaws_of_lawShape (by decide +kernel) idemCtor_lawShape H
 
+/-! ## `lawHooks` gives the open generators values (V2.d3-openTotal)
+
+At CommCtor (the no-law and the associative branch) and IdemCtor (the idempotent branch). -/
+theorem commCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (CommCtor.c.withHooks (lawHooks CommCtor.c H)) :=
+  openTotal_of_lawShape (by decide +kernel) commCtor_lawShape H
+theorem idemCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
+  openTotal_of_lawShape (by decide +kernel) idemCtor_lawShape H
+
 end KCore.OpenGenSems

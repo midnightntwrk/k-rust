@@ -232,6 +232,10 @@ theorem lawApp_assoc {k : ParamSig} (ha : k.assoc = true) (hi : k.idem = false) 
     lawApp k vs = lawNest k.sig.name (vs.flatMap (lawFlat k.sig.name)) := by
   simp [lawApp, ha, hi]
 
+theorem lawApp_plain {k : ParamSig} (ha : k.assoc = false) (hi : k.idem = false) (vs : List GroundTerm) :
+    lawApp k vs = .ctor k.sig.name vs := by
+  simp [lawApp, ha, hi]
+
 section
 variable {c : Semantics} {H : HookParams} {k : ParamSig}
 
@@ -349,6 +353,26 @@ theorem sorts3 {c : Semantics} {a b d : GroundTerm} {s : Srt} (h : c.sortsOf [a,
   obtain ⟨rfl, -⟩ := he''
   exact ⟨ha, hb, hd⟩
 
+theorem sorts2 {c : Semantics} {vs : List GroundTerm} {s s' : Srt} (h : c.sortsOf vs = some [s, s']) :
+    ∃ a b, vs = [a, b] ∧ c.sortOf a = some s ∧ c.sortOf b = some s' := by
+  match vs, h with
+  | [], h => simp [sortsOf_nil] at h
+  | a :: rest, h =>
+    obtain ⟨sa, ss, ha, hss, he⟩ := sortsOf_cons.mp h
+    simp only [List.cons.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he
+    match rest, hss with
+    | [], h' => simp [sortsOf_nil] at h'
+    | b :: rest', h' =>
+      obtain ⟨sb, ss', hb, hr, he'⟩ := sortsOf_cons.mp h'
+      simp only [List.cons.injEq] at he'
+      obtain ⟨rfl, rfl⟩ := he'
+      match rest', hr with
+      | [], _ => exact ⟨a, b, rfl, ha, hb⟩
+      | _ :: _, h'' =>
+        obtain ⟨_, _, _, _, he''⟩ := sortsOf_cons.mp h''
+        cases he''
+
 end
 
 /-- **`lawHooks` satisfies the laws**, for every H, where each raw parameter has `LawShape` and
@@ -402,5 +426,50 @@ theorem openLaws_lawHooks (c : Semantics) (h : c.coreOK = true)
     (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false) (H : HookParams) :
     OpenLaws (c.withHooks (lawHooks c H)) :=
   openLaws_of_lawShape hl (Semantics.lawShape_core h) H
+
+/-- **`lawHooks` gives each open generator a value at every argument list of its sorts**, for every
+H, where each raw parameter has `LawShape` and none has both laws: the application itself where it
+has no law, the nesting of the leaves where it is associative, the merged arguments where it is
+idempotent. -/
+theorem openTotal_of_lawShape {c : Semantics} (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false)
+    (hs : ∀ k ∈ c.params, k.raw = true → LawShape c k) (H : HookParams) :
+    OpenTotal (c.withHooks (lawHooks c H)) := by
+  intro k hk hr vs hvs
+  have hsk := hs k hk hr
+  have hboth : k.assoc = true → k.idem = true → False := fun ha hi => by
+    have := hl k hk; simp [hr, ha, hi] at this
+  cases ha : k.assoc <;> cases hi : k.idem
+  · -- no law: the application itself
+    have hv : (c.withHooks (lawHooks c H)).paramVal k.sig.name vs = some (.ctor k.sig.name vs) :=
+      (law_paramVal hsk hr).mpr ⟨(lawApp_plain ha hi vs).symm,
+        (law_sortOf_iff hsk).mpr ⟨hvs, lawApp_plain ha hi vs, rfl⟩⟩
+    rw [hv]; rfl
+  · -- idempotent alone: the merged arguments
+    have hb := hsk.2.2.2.2.2 (by simp [hi])
+    rw [hb] at hvs
+    obtain ⟨a, b, rfl, hsa, hsb⟩ := sorts2 hvs
+    by_cases hab : Exec.same a b = true
+    · have hm : lawMerge [a, b] = [b] := by simp [lawMerge, hab]
+      have hv : (c.withHooks (lawHooks c H)).paramVal k.sig.name [a, b] = some b :=
+        (law_paramVal hsk hr).mpr ⟨by simp [lawApp, ha, hi, hm], hsb⟩
+      rw [hv]; rfl
+    · have hm : lawMerge [a, b] = [a, b] := by simp [lawMerge, hab]
+      have happ : lawApp k [a, b] = .ctor k.sig.name [a, b] := by simp [lawApp, ha, hi, hm]
+      have hv : (c.withHooks (lawHooks c H)).paramVal k.sig.name [a, b] = some (.ctor k.sig.name [a, b]) :=
+        (law_paramVal hsk hr).mpr ⟨happ.symm, (law_sortOf_iff hsk).mpr ⟨by rw [hb]; exact hvs, happ, rfl⟩⟩
+      rw [hv]; rfl
+  · -- associative alone: the nesting of the leaves
+    have hb := hsk.2.2.2.2.2 (by simp [ha])
+    rw [hb] at hvs
+    obtain ⟨a, b, rfl, hsa, hsb⟩ := sorts2 hvs
+    rw [law_assoc_val hsk hr hb ha hi hsa hsb]; rfl
+  · exact (hboth ha hi).elim
+
+/-- **`lawHooks` gives each open generator a value at every argument list of its sorts** (CN-4
+§3.4 V1): for every H, at a semantics `coreOK` accepts with no raw parameter that has both laws. -/
+theorem openTotal_lawHooks (c : Semantics) (h : c.coreOK = true)
+    (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false) (H : HookParams) :
+    OpenTotal (c.withHooks (lawHooks c H)) :=
+  openTotal_of_lawShape hl (Semantics.lawShape_core h) H
 
 end KCore
