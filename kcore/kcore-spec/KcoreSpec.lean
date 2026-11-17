@@ -286,3 +286,4 @@ import KcoreSpec.LawConsistent
 import KcoreSpec.TiePairs
 import KcoreSpec.ClausePreFn
 import KcoreSpec.InertEv
+import KcoreSpec.HoldsBinderFixed
