@@ -700,6 +700,21 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (the schema of test/SilentPoints.lean, at points of a semantics with `coreOK`). `range` at more
   elements than the list has is written with two readings in its header (unstated, taken; or the
   removal's `.List`).
+- `test/HooksRangeMap.lean`: the 16 interpreted hook rows of RANGEMAP (the sort and the fifteen
+  operations of `regHookNames`; rows.toml still holds them as refused) against domains.md's prose,
+  cited by line: each operation at every argument list by the function of its result (a range map
+  is its partial function from Int to KItem, the maximal intervals its one description), with
+  hand-derived values that `hook` gives, the result under every interpretation and Γ's statement
+  in every semantics with the Range constructor, Int and Range below KItem. Six are keys of
+  `silentTable` (`r|->`, lookup, `find_range`, update, `[_ <- undef]`, `removeAll`): at every
+  argument list of the signature `hook` gives a value on the described region and none, silently,
+  off it (a range that is no proper Int range; a key in no range of the map), where over all
+  interpretations Γ entails neither ⊥ nor a value (at every semantics with `coreOK`, and at points
+  of one). Two findings are written in its header with both readings and the library's proved:
+  `_RangeMap_` at two maps with a key in common (the prose names a run's exception and "only
+  defined on", no `#False`; Γ states ⊥, `rmConcat` being no key of `silentTable`), and
+  `[_ <- undef]` and `removeAll` at a proper range no part of which is in the map (not `total`;
+  `hook` gives the map). `<=RangeMap` at two equal maps is read as inclusion, as `<=Set`.
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
