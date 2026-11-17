@@ -1,0 +1,16 @@
+observed = """
+c() => c() ensures ?Z ==Int 0: Z occurs in the ensures only. kompile accepts it (a warning: '?Z'
+defined but not used) and writes the k cell of both sides as one variable:
+  kore.txt:81-89  \\rewrites(\\and(<generatedTop>(\\and{SortKCell{}}(<k>(c() ~> .), Var'Unds'Gen0:SortKCell{}), _DotVar0), \\top),
+                  \\exists{SortGeneratedTopCell{}} (Var'Ques'Z:SortInt{}, \\and(<generatedTop>(Var'Unds'Gen0:SortKCell{}, _DotVar0),
+                  \\equals{SortBool{},SortGeneratedTopCell{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(Var'Ques'Z:SortInt{},\\dv{SortInt{}}("0")), \\dv{SortBool{}}("true")))))
+The account refuses it: openRight (Var'Ques'Z:Int under no constructor, Int unconfined).
+"""
+expectation = """
+From the sentence, with x the configuration <k> c() </k>: the right side does not hold Z and is the
+left side's instance itself (_Gen0 and _DotVar0 bound by the left side). The binder is satisfied
+at the value Z := 0 (0 ==Int 0 is true), so exists Z. (rhs and ens) denotes x wherever x is an
+element: Step c x x, and every model of the axiom gives x a successor in {x} (den x => next den x).
+No other successor: the right side denotes x alone at every Z. The reader's refusal (openRight) is
+a limit of the reader here, not a reading: the successor holds no element of Z.
+"""
