@@ -667,6 +667,9 @@ def accounts(names, write):
         diff.append(name)
         if write:
             open(acc, "w").write(got)
+        else:
+            sys.stdout.writelines(difflib.unified_diff(
+                open(acc).read().splitlines(True), got.splitlines(True), f"{name}/account.txt", f"{name} (now)", n=0))
     print(f"kfix accounts: {len(same)} equal, {len(diff)} {'re-recorded' if write else 'differ'}"
           + (": " + " ".join(diff) if diff else "") + f", {len(missing)} not in the cache {CACHE}"
           + (": " + " ".join(missing) if missing else "")
