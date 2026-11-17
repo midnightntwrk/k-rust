@@ -225,6 +225,7 @@ import KcoreSpec.SoundPP
 import KcoreSpec.ExactPP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OccurrenceOrder
+import KcoreSpec.RuleAndIn
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
 import KcoreSpec.RangeMapLaws

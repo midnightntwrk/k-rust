@@ -942,3 +942,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   spelling is one-to-one, and the two patterns have one translation under their own tables (`tie`);
   a spelling that gives the free variable the binder's canonical name is not one-to-one and changes
   the translation (`clash`).
+- `test/RuleAndIn.lean`: `KoreAML.rule_and_in` and `rule_and_var` at mlandt (`go(X) => f(X) #And g(X)`,
+  the position cut by a fresh Z) and mlandc (`c(X) => X #And a`, the position holding X): `ruleRight`
+  of the rule so read is the theorem's left pattern (`left_eq`), the theorem's right pattern with its
+  canonical names respelled is the right argument of the text's `\rewrites` (`right_text`, `right_tie`
+  through `tr_occurrence_order`), and the theorem at them (`tie`); `Fresh.tables`: the rule's sentence
+  and the sentence without the cut number the right side's variables alike. Not covered: a right-side
+  variable first met after Z.
