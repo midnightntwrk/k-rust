@@ -637,6 +637,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
+- `test/HooksInt.lean`: the 17 supported hook rows of INT (the sort and sixteen operations) against
+  domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
+  result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
+  `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
+  remainder), each with one solution, and the prose's rules between them at every pair; no row is a
+  key of `silentTable`, and every argument list of a signature is covered (a value, or at divisor
+  0 the prose's `#False`, where Γ states ⊥ under every interpretation).
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
