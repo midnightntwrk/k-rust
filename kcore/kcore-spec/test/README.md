@@ -674,6 +674,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   application is refused as without a binder (`ruleShape`, `aliasApplication`), and an identity
   alias under the binder is read through; `exApart_shadow` and `exKept_drop` check the two
   devices in the kernel.
+- `test/ExFixturesEnsUnsat.lean`: the fixture e3-vars-ens-unsat in the kernel
+  (`c() => d(?Z:Int) ensures ?Z *Int 2 ==Int 1`): the rule admitted, `coreOK`; the `ensures` true at
+  no Int value of Z, so `<k> c() </k>` has no successor; the value model a model of the theory, the
+  rule's right side under its binder empty in it.
 - `test/SilentTotal.lean`: `totalSilentKeys` against the builtin text (native: the keys of
   `silentTable` the text declares `total`; `precisionFloat`, `exponentBitsFloat` declared `total`,
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
