@@ -683,8 +683,8 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   it checks the rules (`core_base_of`, `Parse.coreBase`), in the kernel, `<k> c() </k>` steps to
   itself and to nothing else, which is what the sentence states.
 - `test/RangeMapKeysFixture.lean`: the fixture e6-rangemap-keys, `keys(RangeMap)` applied in a
-  rule's right side: `keys` read as the interpreted `rmKeys`, no parameter symbol (also in
-  e6-rangemap's text); `keys(M)` the Set of M's two ranges injected into KItem; `<k> go </k>` steps
+  rule's right side: `keys` read as the interpreted `rmKeys`, which the right side applies, and no
+  parameter symbol; `keys(M)` the Set of M's two ranges injected into KItem; `<k> go </k>` steps
   to `<k> res(keys(M)) </k>` and to nothing else, under every interpretation.
 - `test/SilentTotal.lean`: `totalSilentKeys` against the builtin text (native: the keys of
   `silentTable` the text declares `total`; `precisionFloat`, `exponentBitsFloat` declared `total`,

@@ -9,9 +9,9 @@
   (K 7.1.337, 620-625): `keys(M)` is the Set of all the ranges of M; a Set holds KItems, so each
   range as its injection into KItem.
   - `keys` is read as the interpreted symbol `rmKeys` (hook `RANGEMAP.keys`, an entry of
-    `hookTable`), not as a parameter symbol: the text has no parameter symbol
-    (`keys_interpreted`). So is it for the fixture `e6-rangemap`'s text, which declares `keys` and
-    does not apply it (`E6.keys_interpreted`).
+    `hookTable`), not as a parameter symbol: the rule's right side applies `rmKeys` and the text
+    has no parameter symbol (`keys_interpreted`). The fixture `e6-rangemap`'s text declares `keys`
+    and does not apply it, so its reading shows nothing of the symbol.
   - At `M := [0,3) ↦ a, [5,7) ↦ b`, `keys(M)` is the Set of `inj{Range,KItem}([0,3))` and
     `inj{Range,KItem}([5,7))` (`keys_value`), under every interpretation: `hook` gives a value, so
     no fallback is read (`keys_hookRes`).
@@ -44,12 +44,14 @@ theorem syms_named : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName aS = "Lb
     c.symName goS = "Lblgo" ∧ c.symName resS = "Lblres" := by
   decide +kernel
 
-/-- **`keys` is an interpreted hook of the text**: the text's symbol
-`Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap` is `rmKeys`, whose hook is
-`RANGEMAP.keys`, an entry of `hookTable`; the text has no parameter symbol. -/
+/-- **`keys` is an interpreted hook of the text**: the symbol the rule's right side applies under
+`res` is `rmKeys`, named `Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap`, whose hook is
+`RANGEMAP.keys`, an entry of `hookTable`; the text has no parameter symbol (an applied library
+symbol that no hook interprets is one). -/
 theorem keys_interpreted : c.symName rmKeys = "Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap" ∧
     isHook rmKeys = true ∧ regHookNames.lookup rmKeys = some "RANGEMAP.keys" ∧
-    (hookTable.lookup rmKeys).isSome = true ∧ c.params = [] := by
+    (hookTable.lookup rmKeys).isSome = true ∧ c.params = [] ∧
+    (c.rules.map fun r => r.rhs.syms.contains rmKeys) = [true] := by
   decide +kernel
 
 def a : GroundTerm := .ctor aS []
@@ -80,7 +82,7 @@ def cfg (t : GroundTerm) : GroundTerm :=
 /-! ## Under an interpretation -/
 
 theorem raw_free : ∀ k ∈ c.params, k.raw = false := fun k hk => by
-  rw [keys_interpreted.2.2.2.2] at hk; cases hk
+  rw [keys_interpreted.2.2.2.2.1] at hk; cases hk
 
 theorem sortOfH (H : HookParams) : (c.withHooks H).sortOf = c.sortOf := Semantics.sortOf_withHooks c H raw_free
 
@@ -170,19 +172,5 @@ theorem go_only (H : HookParams) (y : Config (c.withHooks H)) (h : Step (c.withH
 #guard_msgs in #print axioms go_step
 /-- info: 'KCore.RangeMapKeysFixture.go_only' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms go_only
-
-/-! ## e6-rangemap: `keys` declared, not applied -/
-
-namespace E6
-
-definition_of defn from "f2-examples/e6rm.kompile.kore"
-
-/-- In e6-rangemap's text too, `keys` is the interpreted `rmKeys` and no parameter symbol. -/
-theorem keys_interpreted :
-    defn.sem.symName rmKeys = "Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap" ∧
-    isHook rmKeys = true ∧ defn.sem.params = [] := by
-  decide +kernel
-
-end E6
 
 end KCore.RangeMapKeysFixture
