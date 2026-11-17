@@ -494,6 +494,9 @@ def rmCut (a b : Int) (ts : List RmTriple) : List RmTriple := ts.flatMap (rmCutO
 /-- The interval holding `k`, with its value. -/
 def rmFind (k : Int) (ts : List RmTriple) : Option RmTriple := ts.find? fun (x, y, _) => x ≤ k && k < y
 
+/-- A key of `[a, b)` is in an interval of `ts`: a part of the range is present. -/
+def rmMeets (a b : Int) (ts : List RmTriple) : Bool := ts.any fun (x, y, _) => a < y && x < b
+
 /-- No interval of one meets an interval of the other. -/
 def rmDisjoint (ts us : List RmTriple) : Bool :=
   ts.all fun (x, y, _) => us.all fun (x', y', _) => y ≤ x' || y' ≤ x
@@ -516,7 +519,12 @@ def rmOverT (ts us : List RmTriple) : List RmTriple :=
 /-- A range map value of the library's sort. -/
 def rmV (es : Entries) : GroundTerm := .map Srt.rangeMap es
 
-/-- RANGEMAP's fourteen interpreted symbols. -/
+/-- RANGEMAP's fourteen interpreted symbols. `[_ <- undef]` and `removeAll` give a value only where
+a part of the range (of every range of the Set, each against the map given) is in the map
+(`rmMeets`): "If all or any part of the range is present in the range map, it will be removed"
+(domains.md 575-576), "For every range in the set, all or any part of it that is present in the
+range map will be removed" (611-613), neither declared `total` (579, 616); `removeAll` at the
+empty Set names no range and gives the map. -/
 def rangeMapHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(rmUnit, fun vs => match vs with | [] => some (rmV []) | _ => none),
    (rmElem, fun vs => match vs with
@@ -541,7 +549,8 @@ def rangeMapHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
          rmV (rmCanon (rmCut a b ts ++ [(a, b, v)]))
      | _ => none),
    (rmRemove, fun vs => match vs with
-     | [.map _ m, r] => (rmTriples m).bind fun ts => (asRange r).map fun (a, b) => rmV (rmCanon (rmCut a b ts))
+     | [.map _ m, r] => (rmTriples m).bind fun ts => (asRange r).bind fun (a, b) =>
+         if rmMeets a b ts then some (rmV (rmCanon (rmCut a b ts))) else none
      | _ => none),
    (rmDifference, fun vs => match vs with
      | [.map _ m, .map _ n] => (rmTriples m).bind fun ts => (rmTriples n).map fun us => rmV (rmCanon (rmDiffT ts us))
@@ -551,8 +560,10 @@ def rangeMapHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
          rmV (rmCanon (rmOverT ts us))
      | _ => none),
    (rmRemoveAll, fun vs => match vs with
-     | [.map _ m, .set _ rs] => (rmTriples m).bind fun ts => (rs.mapM asKRange).map fun ps =>
-         rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts))
+     | [.map _ m, .set _ rs] => (rmTriples m).bind fun ts => (rs.mapM asKRange).bind fun ps =>
+         if ps.all (fun (a, b) => rmMeets a b ts) then
+           some (rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts)))
+         else none
      | _ => none),
    (rmInKeys, fun vs => match vs with
      | [k, .map _ m] => (rmTriples m).map fun ts => bool (((asKInt k).bind fun i => rmFind i ts).isSome)
@@ -647,7 +658,14 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
 - RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for
   `removeAll`, a member of the set that is none): the text describes ranges of Int keys bounded
-  inclusively below and exclusively above (471-477, 498-499) and says nothing of another. -/
+  inclusively below and exclusively above (471-477, 498-499) and says nothing of another.
+- RANGEMAP's concatenation `_RangeMap_` at two maps with a key in common: "an exception will be
+  thrown during concrete execution" (503-504), of a run, and no `#False`; "a partial function only
+  defined on range maps with non overlapping ranges" (600-602) says that it is not total (508),
+  not what it is off them, as "only defined on valid indices" of `substrString`.
+- RANGEMAP's `[_ <- undef]` and `removeAll` at a proper range no part of which is in the map: the
+  sentences speak of a range of which "all or any part" is present (575-576, 611-613), neither
+  operation is declared `total` (579, 616), and of another range nothing is said. -/
 def silentTable : List (Sym × (List GroundTerm → Bool)) :=
   [(listGet, fun _ => true), (listRange, fun _ => true),
    (floatAdd, fun _ => true), (floatSub, fun _ => true), (floatMul, fun _ => true),
@@ -670,8 +688,9 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (floatLe, fun _ => true), (floatLt, fun _ => true), (floatGe, fun _ => true),
    (floatGt, fun _ => true), (floatEq, fun _ => true), (floatNe, fun _ => true),
    (floatIsNaN, fun _ => true), (floatIsInfinite, fun _ => true),
-   (rmElem, fun _ => true), (rmLookup, fun _ => true), (rmFindRange, fun _ => true),
-   (rmUpdate, fun _ => true), (rmRemove, fun _ => true), (rmRemoveAll, fun _ => true)]
+   (rmElem, fun _ => true), (rmConcat, fun _ => true), (rmLookup, fun _ => true),
+   (rmFindRange, fun _ => true), (rmUpdate, fun _ => true), (rmRemove, fun _ => true),
+   (rmRemoveAll, fun _ => true)]
 
 /-- `vs` is a silent point of the interpreted symbol `f` (`silentTable`). -/
 def silent (f : Sym) (vs : List GroundTerm) : Bool :=

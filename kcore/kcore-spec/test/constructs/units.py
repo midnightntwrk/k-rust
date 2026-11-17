@@ -88,7 +88,10 @@ t = tomllib.load(open(rows, "rb"))
 # class is outside CLASSES); every other failure is of kind "other" and is never allowed. A failure
 # is counted under the first allowance whose test holds.
 ALLOWANCE = [
-    ("ROWS-1.unit-rc", 62, "entries of class R-c without unit",
+    # 62 -> 40 with FIX-core.rangemap-silent: the 22 RANGEMAP entries (E6's 21 rows, E5
+    # translateSorts:hooked-#2 case RANGEMAP.RangeMap) were refused R-c without unit and are what
+    # the reader does (supported, or parameter), the carrier and the module having landed.
+    ("ROWS-1.unit-rc", 40, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),

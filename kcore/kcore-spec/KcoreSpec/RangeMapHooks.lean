@@ -26,14 +26,21 @@
     descriptions of one function are one value (`rmCanon`).
   - 471-477: keys are Ints only.
   - 600-602: concatenation is "a partial function only defined on range maps with non overlapping
-    ranges": undefined where two intervals meet (`rmConcat`), not silent (503-504 also name a run's
-    exception there; "only defined on" states that there is no value, as for `_Map_`, 228-229).
+    ranges", and 503-504 name a run's exception there; no `#False` (`_Map_`'s prose writes one,
+    227-228), and the production is not declared `total` (508): `rmConcat` gives no value where
+    two intervals meet, and the text says nothing of the value there: silent.
   - 534-535, 555-556: `lookup` and `find_range` off the keys "yield an exception during concrete
     execution", of a run, and no `#False` (Map lookup writes one, 267-268): silent there (the
     reading `silentTable` takes for `memsetBytes`).
   - `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range: the text
     describes only ranges of Int keys bounded inclusively below and exclusively above (471-477,
-    498-499): silent there. These six are `silentTable`'s RANGEMAP rows (`rangeMapSilent`).
+    498-499): silent there.
+  - 575-576, 611-613: `[_ <- undef]` and `removeAll` remove "all or any part" of a range "that is
+    present in the range map"; neither is declared `total` (579, 616), and of a proper range no
+    part of which is in the map the text says nothing: no value and silent there (`rmMeets`;
+    `removeAll` reads each range of the Set against the map given, and at the empty Set, which
+    names no range, gives the map). These seven are `silentTable`'s RANGEMAP rows
+    (`rangeMapSilent`).
   - 663-671: `<=RangeMap`, `total`, the template of `<=Set` (780-786): inclusion of functions,
     `true` at two equal maps (the reading `setHooks` takes; the sentence at 665 speaks of two
     different maps, where a subset is a strict subset).
@@ -49,17 +56,19 @@ namespace KCore
 
 /-- RANGEMAP's silent points: where `rangeMapHooks` gives no value and the text does not say
 there is none. A range argument that is not a proper Int range (`r|->`, `update`, `[_ <- undef]`,
-`removeAll`), and a key in no interval (`lookup`, `find_range`). These are the RANGEMAP rows of
-`silentTable` (`rangeMapSilent_silentTable`). -/
+`removeAll`), a proper range no part of which is in the map (`[_ <- undef]`, `removeAll`), two
+maps with a key in common (`_RangeMap_`), and a key in no interval (`lookup`, `find_range`). These
+are the RANGEMAP rows of `silentTable` (`rangeMapSilent_silentTable`). -/
 def rangeMapSilent : List (Sym × (List GroundTerm → Bool)) :=
-  [(rmElem, fun _ => true), (rmLookup, fun _ => true), (rmFindRange, fun _ => true),
-   (rmUpdate, fun _ => true), (rmRemove, fun _ => true), (rmRemoveAll, fun _ => true)]
+  [(rmElem, fun _ => true), (rmConcat, fun _ => true), (rmLookup, fun _ => true),
+   (rmFindRange, fun _ => true), (rmUpdate, fun _ => true), (rmRemove, fun _ => true),
+   (rmRemoveAll, fun _ => true)]
 
 /-- `silentTable` holds `rangeMapSilent`'s rows: the same keys, each silent everywhere. -/
 theorem rangeMapSilent_silentTable : ∀ e ∈ rangeMapSilent, silentKey e.1 = true ∧ ∀ vs, silent e.1 vs = true := by
   intro e he
   simp only [rangeMapSilent, List.mem_cons, List.not_mem_nil, or_false] at he
-  rcases he with rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨by decide +kernel, fun _ => rfl⟩
+  rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨by decide +kernel, fun _ => rfl⟩
 
 /-- The value of an interpreted RANGEMAP symbol at `vs`, by the table. -/
 def rmHook (f : Sym) (vs : List GroundTerm) : Option (Option GroundTerm) :=

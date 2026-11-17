@@ -393,12 +393,16 @@ theorem rangeMapHook_sorted_build {c : Semantics} (hco : c.collOf Srt.rangeMap =
     dsimp only at hws hev ⊢
     split at hev
     · simp only [rmS_sortsOf_cons] at hws
-      simp only [Option.bind_eq_some_iff, Option.map_eq_some_iff] at hev
-      obtain ⟨ts, hts, ⟨a, b⟩, hab, rfl⟩ := hev
-      obtain ⟨-, hlt⟩ := asRange_some hab
-      obtain ⟨hs, hd, -⟩ := rmS_arg hco hws.1 hts
-      obtain ⟨h1, h2, -⟩ := rmS_cut (Int.le_of_lt hlt) hs hd
-      exact rmS_canon_sorted hco h1 h2
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨ts, hts, ⟨a, b⟩, hab, hev⟩ := hev
+      have hev : (if rmMeets a b ts then some (rmV (rmCanon (rmCut a b ts))) else none) = some v := hev
+      split at hev
+      · cases hev
+        obtain ⟨-, hlt⟩ := asRange_some hab
+        obtain ⟨hs, hd, -⟩ := rmS_arg hco hws.1 hts
+        obtain ⟨h1, h2, -⟩ := rmS_cut (Int.le_of_lt hlt) hs hd
+        exact rmS_canon_sorted hco h1 h2
+      · cases hev
     · cases hev
   · rw [show lookupSig rangeMapSigs rmDifference = some ⟨rmDifference, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩ by decide] at hk
     cases hk
@@ -429,11 +433,14 @@ theorem rangeMapHook_sorted_build {c : Semantics} (hco : c.collOf Srt.rangeMap =
     dsimp only at hws hev ⊢
     split at hev
     · simp only [rmS_sortsOf_cons] at hws
-      simp only [Option.bind_eq_some_iff, Option.map_eq_some_iff] at hev
-      obtain ⟨ts, hts, ps, hps, rfl⟩ := hev
-      obtain ⟨hs, hd, -⟩ := rmS_arg hco hws.1 hts
-      obtain ⟨h1, h2⟩ := rmS_cuts (rmS_mapM_asKRange hps) hs hd
-      exact rmS_canon_sorted hco h1 h2
+      simp only [Option.bind_eq_some_iff] at hev
+      obtain ⟨ts, hts, ps, hps, hev⟩ := hev
+      split at hev
+      · cases hev
+        obtain ⟨hs, hd, -⟩ := rmS_arg hco hws.1 hts
+        obtain ⟨h1, h2⟩ := rmS_cuts (rmS_mapM_asKRange hps) hs hd
+        exact rmS_canon_sorted hco h1 h2
+      · cases hev
     · cases hev
 
 /-! ## The fourteen together -/

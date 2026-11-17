@@ -68,24 +68,35 @@ example : same (cat (elem 0 3 a) (elem 5 7 b)) (val M) = true ∧
     same (cat (elem 0 3 a) (elem 3 5 a)) (val M2) = true ∧
     same (rmHook rmSize [M2]) (val (int 1)) = true ∧
     same (rmHook rmFindRange [M2, kint 4]) (val (rangeT 0 5)) = true ∧
-    -- overlapping ranges: no value, and no silent point (600-602)
+    -- overlapping ranges: no value of the hook, and a silent point (503-504, 600-602)
     same (cat (elem 0 3 a) (elem 2 5 b)) (some none) = true ∧
-    (rangeMapSilent.find? (·.1 == rmConcat)).isNone = true := by decide +kernel
+    silent rmConcat [elem 0 3 a, elem 2 5 b] = true := by decide +kernel
 
 /-- Update, removal, difference (564-566, 574-576, 584-588). -/
 example : same (rmHook rmUpdate [M10, rangeT 3 5, b]) (val (rmV [(rangeT 0 3, a), (rangeT 3 5, b), (rangeT 5 10, a)])) = true ∧
     same (rmHook rmSize [rmV [(rangeT 0 3, a), (rangeT 3 5, b), (rangeT 5 10, a)]]) (val (int 3)) = true ∧
     same (rmHook rmRemove [M10, rangeT 3 5]) (val (rmV [(rangeT 0 3, a), (rangeT 5 10, a)])) = true ∧
     same (rmHook rmDifference [M10, elem 3 5 a]) (val (rmV [(rangeT 0 3, a), (rangeT 5 10, a)])) = true ∧
-    same (rmHook rmDifference [M10, elem 3 5 b]) (val M10) = true := by decide +kernel
+    same (rmHook rmDifference [M10, elem 3 5 b]) (val M10) = true ∧
+    -- a part of every range of the Set present; the empty Set (611-613)
+    same (rmHook rmRemoveAll [M10, .set Srt.set [.inj Srt.range Srt.kitem (rangeT 3 5)]])
+      (val (rmV [(rangeT 0 3, a), (rangeT 5 10, a)])) = true ∧
+    same (rmHook rmRemoveAll [M, .set Srt.set []]) (val M) = true := by decide +kernel
 
 /-- Where the text gives no value: `M[9]` (534-535: a run's exception), a range with a bound that
-is no Int or that is empty (476-477): no value and silent, so the interpretation's. `choice` is a
+is no Int or that is empty (476-477), `[_ <- undef]` and `removeAll` at a proper range no part of
+which is in the map (575-576, 611-613: "all or any part … present"; 579, 616: not `total`): no
+value and silent, so the interpretation's. `choice` is a
 parameter: no entry. `<=RangeMap` at two equal maps is `true` (663-671, as `<=Set`). -/
 example : same (rmHook rmLookup [M, kint 9]) (some none) = true ∧
     same (rmHook rmElem [.ctor rangeCtor [a, kint 5], b]) (some none) = true ∧
     same (rmHook rmElem [rangeT 3 3, b]) (some none) = true ∧
-    (rangeMapSilent.map (·.1)) = [rmElem, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll] ∧
+    same (rmHook rmRemove [M, rangeT 3 5]) (some none) = true ∧
+    same (rmHook rmRemove [M, rangeT 10 12]) (some none) = true ∧
+    same (rmHook rmRemoveAll [M, .set Srt.set [.inj Srt.range Srt.kitem (rangeT 0 3),
+      .inj Srt.range Srt.kitem (rangeT 10 12)]]) (some none) = true ∧
+    (rangeMapSilent.map (·.1)) =
+      [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll] ∧
     (rmHook rmChoice [M]).isNone = true ∧ (rmHook rmKeysList [M]).isNone = true ∧
     (rmHook rmValues [M]).isNone = true ∧
     same (rmHook rmInclusion [M, M]) (val (bool true)) = true ∧

@@ -25,17 +25,17 @@
 
   1. One in-domain value per operation (`vals`, most operations three or more): `hook`'s value
      there is the hand-derived one (`vals_hook`), it is the result under every interpretation
-     (`vals_hookRes`; so also for the six keys of `silentTable`), and Γ states it under every
+     (`vals_hookRes`; so also for the seven keys of `silentTable`), and Γ states it under every
      interpretation (`vals_gamma`, `vals_gamma_H`).
-  2. The regions the prose excludes or leaves unstated. Seven of the fifteen are not declared
-     `total` (`partials`: DOM 508, 525, 538, 559, 569, 579, 616), and of none does the prose write
-     a `#False`.
+  2. The regions the prose leaves unstated. Seven of the fifteen are not declared `total`
+     (`partials`: DOM 508, 525, 538, 559, 569, 579, 616), and of none does the prose write a
+     `#False`; an input a non-total function is not described on is unstated (DOM 14-16: "some
+     functions in the K prelude functions are not total … When you invoke such a function on an
+     undefined input, the behavior is undefined").
      - `M[K]` and `find_range(M, K)`: "This will yield an exception during concrete execution if
        the key is not in the range map" (DOM 534-535, 555-556). That is said of a run and names no
        value (MAP's lookup writes "The value is `#False`" beside the same words, DOM 267-268): a
-       key in no range of the map is unstated (DOM 14-16: "some functions in the K prelude
-       functions are not total … When you invoke such a function on an undefined input, the
-       behavior is undefined").
+       key in no range of the map is unstated.
      - `R r|-> V`, `M[R <- V]`, `M[R <- undef]`, `removeAll(M, S)` at a range that is no proper
        Int range (`[a, b)` with Int bounds and `a < b`), for `removeAll` at a member of the Set
        that is none: the prose describes ranges of Int keys "bounded inclusively below and
@@ -44,59 +44,50 @@
        excluded by the text: `r|->` is declared `injective` (DOM 525), and `[3, 3) r|-> V` and
        `[4, 4) r|-> W` would then be one value; one notion of range serves the four operations.
        `elem_injective` is the attribute at the proper ranges.
+     - `_RangeMap_` at two maps with a key in common: "If the RangeMaps have overlapping ranges an
+       exception will be thrown during concrete execution" (DOM 503-504), said of a run, no
+       `#False` (MAP's `_Map_` writes "The result is `#False`", DOM 227-228), the production not
+       declared `total` (DOM 508); and of `updateRangeMap`: "This function is total, which is
+       distinct from range map concatenation, a partial function only defined on range maps with
+       non overlapping ranges" (DOM 600-602), which says that the function is not total and
+       nothing of what it is off those maps (as "only defined on valid indices", DOM 1753-1755,
+       of `substrString`). Unstated: `hook` gives no value there (`concat_off`) and `rmConcat` is
+       a key of `silentTable`. The region is two maps with a key in common whatever the values:
+       DOM 503-504 and 600-602 speak of overlapping ranges and name no value, and the merging of
+       DOM 499-500 ("Contiguous or overlapping ranges that map to the same value are merged") is
+       said of the ranges of a map, so `{[0,3) ↦ 7} {[2,5) ↦ 7}` is a point of it (`overlaps`
+       holds it). The points: `overlaps`.
+     - `M[R <- undef]` and `removeAll(M, S)` at a proper range no part of which is in the map.
+       Neither is declared `total` (DOM 579, 616). The prose: "If all or any part of the range is
+       present in the range map, it will be removed" (DOM 575-576); "For every range in the set,
+       all or any part of it that is present in the range map will be removed" (DOM 611-613).
+       The sentences cover a range of which all or a part is present; of a range no key of which
+       is in the map they say nothing (as `range` of LIST at more elements than the list has,
+       test/HooksList.lean): unstated, and `hook` gives no value there (`remove_absent`,
+       `removeAll_absent`). For `removeAll` each range of the Set is read against the map given
+       ("present in the range map"; a Set has no order), the point is unstated when a part of
+       some range of the Set is not in the map, whatever the other ranges, and at the empty Set no
+       range is named and the result is the map (`vals`). The points: `absents`.
      At a point of each region the `param_undetermined` shape holds: over all interpretations H, Γ
      entails neither ⊥ nor a value (`undetermined`, the schema of test/SilentPoints.lean;
      `silent_undetermined` at every semantics with `coreOK` and every argument list where a key of
-     `silentTable` has no value of `hook`; the points `opens` in the semantics `cU`,
-     `opens_undetermined`; `elem_nonInt_undetermined` at a range whose bound is no Int).
-     The seventh, `_RangeMap_`, is the first finding below.
+     `silentTable` has no value of `hook`; the points `opens`, `overlaps` and `absents` in the
+     semantics `cU`, `opens_undetermined`; `elem_nonInt_undetermined` at a range whose bound is no
+     Int).
   3. The silent predicate. Eight rows are declared `total` (`totals`: DOM 516, 549, 591, 605, 625,
      643, 660, 671), are no key of `silentTable` (`rm_silentKey`, `total_not_silent`) and have a
      value at every argument list of their signature (`covered_total`; under `shapesOK` a value of
-     sort RangeMap is the value of maximal triples, `rm_only`). Six are keys with the predicate
-     `fun _ => true` (`silents`, `silents_silent`), read only where `hook` gives no value
-     (`Semantics.hookRes`), so the silent region of each is where `hook` gives none; at every
-     argument list of the signature that is the region of statement 2 (`covered_elem`,
-     `covered_lookup`, `covered_find`, `covered_update`, `covered_remove`, `covered_removeAll`),
-     where the result is the interpretation's (`off_hookRes`). `_RangeMap_`: `covered_concat`.
+     sort RangeMap is the value of maximal triples, `rm_only`). The seven others are keys with the
+     predicate `fun _ => true` (`silents`, `silents_silent`), read only where `hook` gives no
+     value (`Semantics.hookRes`), so the silent region of each is where `hook` gives none; at
+     every argument list of the signature that is the region of statement 2 (`covered_elem`,
+     `covered_concat`, `covered_lookup`, `covered_find`, `covered_update`, `covered_remove`,
+     `covered_removeAll`), where the result is the interpretation's (`off_hookRes`).
 
-  Two rows where the text does not say one thing; both are reported with the ticket (findings).
-  The statements below prove what the library gives and name the other reading.
-  - `_RangeMap_` at two maps with a key in common. The prose: "If the RangeMaps have overlapping
-    ranges an exception will be thrown during concrete execution" (DOM 503-504), no `#False`, the
-    production not declared `total` (DOM 508); and of `updateRangeMap`: "This function is total,
-    which is distinct from range map concatenation, a partial function only defined on range maps
-    with non overlapping ranges" (DOM 600-602). Reading A (the library's: `rmConcat` is no key of
-    `silentTable`, `hook` gives no value there, and Γ states ⊥): "only defined on" says that there
-    is no value off the non-overlapping maps, as MAP says of `_Map_` in the same words (DOM
-    320-321), where however the prose also writes "The result is `#False`" (DOM 227-228). Reading
-    B: the exception is of a run and names no value (the reading taken for `lookup` and
-    `find_range` above, and for `memsetBytes` in `silentTable`), "partial … only defined on" says
-    the function is not total, and an input a non-total function is not defined on has undefined
-    behaviour (DOM 14-16); `silentTable` itself reads "only defined on valid indices" (DOM
-    1753-1755) as a silent region for `substrString` (which is declared `total`, DOM 1758). Under
-    B the overlap is unstated, `silentTable` lacks the row `(rmConcat, fun _ => true)`, and the
-    `param_undetermined` shape, which fails today (`overlaps_entails`: Γ entails ⊥ for every H),
-    would hold. The points are `overlaps`, kept apart; test/RangeMapGamma.lean's
-    `gamma_overlaps` is the same at the fixture e6-rangemap.
-    Within it, a second reading: two overlapping ranges of one value (`[0, 3) ↦ 7` with
-    `[2, 5) ↦ 7`). DOM 499-500 says overlapping ranges of the same value "are merged into a single
-    range" (then the result would be `[0, 5) ↦ 7`); DOM 503-504 and 600-602 speak of overlapping
-    ranges whatever the values. The library takes the second (no value); `overlaps` holds such a
-    point and `vals` none.
-  - `M[R <- undef]` and `removeAll(M, S)` at a proper range no part of which is in the map.
-    Neither is declared `total` (DOM 579, 616). The prose: "If all or any part of the range is
-    present in the range map, it will be removed" (DOM 575-576); "For every range in the set, all
-    or any part of it that is present in the range map will be removed" (DOM 611-613). Reading A
-    (the library's: `hook` gives the map unchanged, `remove_absent`, `absents`): the sentence says
-    which keys go, those of the range that the map holds, whatever part of the range that is,
-    none included; the operation is not `total` because of the ranges that are no proper range.
-    Reading B: the sentence covers a range of which all or a part is present; for an operation
-    not declared `total` an input the sentence does not cover is unstated (as `range` of LIST at
-    more elements than the list has, test/HooksList.lean), and then `hook` gives a value on an
-    unstated region: it should give none there and the point be silent. `vals` holds for these two
-    operations only points where a part of every range is present (and `removeAll` at the empty
-    Set, where no range is named); the others are `absents`, kept apart.
+  The regions of `_RangeMap_` at a common key and of `[_ <- undef]`, `removeAll` at an absent range
+  were written here with two readings (FIX-core.hooks-rangemap); the unstated one is the ruling
+  (FIX-core.rangemap-silent), and the library's former behaviour (Γ stating ⊥ at the first, `hook`
+  giving the map at the second) is gone.
 
   Readings taken, none leaving a value open:
   - `M[R <- V]` at a range meeting ranges of the map: "Any ranges adjacent to or overlapping with
@@ -233,8 +224,8 @@ def partials : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, r
 def totals : List Sym :=
   [rmUnit, rmLookupOrDefault, rmDifference, rmUpdateAll, rmInKeys, rmSize, rmInclusion, rmKeys]
 
-/-- The six with a region the prose leaves unstated under every reading of the header. -/
-def silents : List Sym := [rmElem, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
+/-- The seven with a region the prose leaves unstated (statement 2 of the header). -/
+def silents : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
 
 /-- The rows are the registry's entries with a `RANGEMAP.` hook, each with its hook name. -/
 theorem rmRows_registry :
@@ -270,10 +261,10 @@ theorem rmRows_partial : (rmRows.all (fun r => partialHooks.contains r.1 == part
     rmRows.all (fun r => partials.contains r.1 != totals.contains r.1)) = true := by
   decide +kernel
 
-/-- **The keys of `silentTable` among the rows are exactly the six of `silents`**: the seven the
-prose does not declare `total`, less `_RangeMap_` (the header's first finding). -/
+/-- **The keys of `silentTable` among the rows are exactly the seven of `silents`**, which are the
+seven the prose does not declare `total`. -/
 theorem rm_silentKey : (rmRows.all (fun r => silentKey r.1 == silents.contains r.1) &&
-    partials.all (fun f => silents.contains f != (f == rmConcat))) = true := by
+    rmRows.all (fun r => silents.contains r.1 == partials.contains r.1)) = true := by
   decide +kernel
 
 /-- `choice`, `keys_list` and `values` are not interpreted: no entry of `hookTable`, none of the
@@ -522,7 +513,8 @@ theorem concat_at {ts us : List RmTriple} (ht : RmOK ts) (hu : RmOK us) (h : RmA
   exact ⟨_, hok, hcov, join_some_eq (rmHook_rmConcat Srt.rangeMap Srt.rangeMap _ _)
     ((rmConcat_value ht hu).trans (by rw [hc] <;> rfl))⟩
 
-/-- Where a key is in both, `hook` gives no value (the header's first finding). -/
+/-- Where a key is in both, `hook` gives no value (DOM 503-504 names a run's exception and no
+value; DOM 600-602). -/
 theorem concat_off {ts us : List RmTriple} (ht : RmOK ts) (hu : RmOK us) (h : ¬ RmApart ts us) :
     hook rmConcat [rmV (rmEntries ts), rmV (rmEntries us)] = some none := by
   have hd : rmDisjoint ts us = false := by
@@ -664,38 +656,81 @@ theorem update_off {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {r : Gr
     (hr : asRange r = none) (v : GroundTerm) : hook rmUpdate [rmV (rmEntries ts), r, v] = some none :=
   (update_raw _ _ _ _).trans (by rw [rmTriples_rmEntries hp, hr] <;> rfl)
 
+/-- A part of the proper range `[a, b)` is in the map of proper triples exactly when a key of the
+range is a key of the map. -/
+theorem meets_iff {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {a b : Int} (hab : a < b) :
+    rmMeets a b ts = true ↔ ∃ k x, RmCov ts k x ∧ a ≤ k ∧ k < b := by
+  unfold rmMeets
+  rw [List.any_eq_true]
+  constructor
+  · rintro ⟨⟨x, y, v⟩, ht, h⟩
+    have h' : a < y ∧ x < b := by simpa using h
+    have hxy : x < y := hp _ ht
+    exact ⟨max a x, v, ⟨(x, y, v), ht, by show x ≤ max a x; omega, by show max a x < y; omega, rfl⟩,
+      by omega, by omega⟩
+  · rintro ⟨k, x, ⟨⟨p, q, v⟩, ht, h1, h2, -⟩, h3, h4⟩
+    have h1' : p ≤ k := h1
+    have h2' : k < q := h2
+    exact ⟨(p, q, v), ht, by simp; omega⟩
+
+/-- No part of the range is in the map exactly when the map has no key of the range. -/
+theorem meets_false {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {a b : Int} (hab : a < b)
+    (hno : ∀ k x, RmCov ts k x → k < a ∨ b ≤ k) : rmMeets a b ts = false := by
+  cases h : rmMeets a b ts with
+  | false => rfl
+  | true =>
+    obtain ⟨k, x, hc, h1, h2⟩ := (meets_iff hp hab).mp h
+    have := hno k x hc
+    omega
+
 theorem remove_raw (s : Srt) (m : Entries) (r : GroundTerm) : hook rmRemove [.map s m, r] =
-    some ((rmTriples m).bind fun ts => (asRange r).map fun (a, b) => rmV (rmCanon (rmCut a b ts))) := rfl
+    some ((rmTriples m).bind fun ts => (asRange r).bind fun (a, b) =>
+      if rmMeets a b ts then some (rmV (rmCanon (rmCut a b ts))) else none) := rfl
+
+theorem remove_eq {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {a b : Int} (hab : a < b) :
+    hook rmRemove [rmV (rmEntries ts), rangeT a b] =
+      some (if rmMeets a b ts then some (rmV (rmCanon (rmCut a b ts))) else none) :=
+  (remove_raw _ _ _).trans (by rw [rmTriples_rmEntries hp, asRange_rangeT hab] <;> rfl)
 
 /-- "If all or any part of the range is present in the range map, it will be removed" (DOM
-575-576): at a proper range, the map's keys outside the range. -/
+575-576): at a proper range a key of which is in the map, the map's keys outside the range. -/
 theorem remove_at {c : Semantics} {ts : List RmTriple} (hs : RmSorted c ts) (hd : ts.Pairwise rmDj)
-    {a b : Int} (hab : a < b) :
+    {a b : Int} (hab : a < b) (hin : ∃ k x, RmCov ts k x ∧ a ≤ k ∧ k < b) :
     ∃ zs, RmOK zs ∧ (∀ k x, RmCov zs k x ↔ RmCov ts k x ∧ (k < a ∨ b ≤ k)) ∧
       c.sortOf (rmV (rmEntries zs)) = some Srt.rangeMap ∧
       hook rmRemove [rmV (rmEntries ts), rangeT a b] = some (some (rmV (rmEntries zs))) := by
   obtain ⟨h1, h2, -⟩ := rmS_cut (Int.le_of_lt hab) hs hd
   obtain ⟨hok, hcov, hsort⟩ := canon_at h1 h2
-  exact ⟨_, hok, fun k x => by rw [hcov, cut_cov], hsort, (remove_raw _ _ _).trans
-    (by rw [rmTriples_rmEntries fun t ht => (hs t ht).1, asRange_rangeT hab] <;> rfl)⟩
+  have hp : ∀ t ∈ ts, t.1 < t.2.1 := fun t ht => (hs t ht).1
+  exact ⟨_, hok, fun k x => by rw [hcov, cut_cov], hsort,
+    (remove_eq hp hab).trans (by rw [(meets_iff hp hab).mpr hin] <;> rfl)⟩
 
-/-- At a proper range no key of which is in the map, `hook` gives the map (reading A of the header's
-second finding; under reading B the point is unstated). -/
-theorem remove_absent {c : Semantics} {ts : List RmTriple} (hs : RmSorted c ts) (hok : RmOK ts)
+/-- At a proper range no key of which is in the map, `hook` gives no value: the sentence of DOM
+575-576 speaks of a range of which all or a part is present, and the operation is not `total`
+(DOM 579). -/
+theorem remove_absent {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1)
     {a b : Int} (hab : a < b) (hno : ∀ k x, RmCov ts k x → k < a ∨ b ≤ k) :
-    hook rmRemove [rmV (rmEntries ts), rangeT a b] = some (some (rmV (rmEntries ts))) := by
-  obtain ⟨zs, hz, hcov, -, hh⟩ := remove_at hs (rmOK_pairwise hok) hab
-  have e : zs = ts := rmOK_unique hz hok fun k x => (hcov k x).trans ⟨fun h => h.1, fun h => ⟨h, hno k x h⟩⟩
-  rw [hh, e]
+    hook rmRemove [rmV (rmEntries ts), rangeT a b] = some none :=
+  (remove_eq hp hab).trans (by rw [meets_false hp hab hno] <;> rfl)
 
+/-- At a range that is no proper Int range `hook` gives no value (and the prose says nothing). -/
 theorem remove_off {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {r : GroundTerm}
     (hr : asRange r = none) : hook rmRemove [rmV (rmEntries ts), r] = some none :=
   (remove_raw _ _ _).trans (by rw [rmTriples_rmEntries hp, hr] <;> rfl)
 
 theorem removeAll_raw (s : Srt) (m : Entries) (s' : Srt) (rs : List GroundTerm) :
     hook rmRemoveAll [.map s m, .set s' rs] =
-      some ((rmTriples m).bind fun ts => (rs.mapM asKRange).map fun ps =>
-        rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts))) := rfl
+      some ((rmTriples m).bind fun ts => (rs.mapM asKRange).bind fun ps =>
+        if ps.all (fun (a, b) => rmMeets a b ts) then
+          some (rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts)))
+        else none) := rfl
+
+theorem removeAll_eq {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {rs : List GroundTerm}
+    {ps : List (Int × Int)} (hm : rs.mapM asKRange = some ps) (s' : Srt) :
+    hook rmRemoveAll [rmV (rmEntries ts), .set s' rs] =
+      some (if ps.all (fun (a, b) => rmMeets a b ts) then
+        some (rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts))) else none) :=
+  (removeAll_raw _ _ _ _).trans (by rw [rmTriples_rmEntries hp, hm] <;> rfl)
 
 theorem cuts_cov {k : Int} {x : GroundTerm} : ∀ (ps : List (Int × Int)) (ts : List RmTriple),
     RmCov (ps.foldl (fun acc (a, b) => rmCut a b acc) ts) k x ↔
@@ -735,17 +770,40 @@ theorem mapM_bad : ∀ {rs : List GroundTerm} {r : GroundTerm}, r ∈ rs → asK
     · rw [mapM_bad hr h]; cases asKRange r' <;> rfl
 
 /-- "For every range in the set, all or any part of it that is present in the range map will be
-removed" (DOM 611-613): at a Set of proper ranges, the map's keys outside every range of the Set. -/
+removed" (DOM 611-613): at a Set of proper ranges a key of each of which is in the map, the map's
+keys outside every range of the Set (at the empty Set, the map). -/
 theorem removeAll_at {c : Semantics} {ts : List RmTriple} (hs : RmSorted c ts) (hd : ts.Pairwise rmDj)
-    {rs : List GroundTerm} {ps : List (Int × Int)} (hm : rs.mapM asKRange = some ps) (s' : Srt) :
+    {rs : List GroundTerm} {ps : List (Int × Int)} (hm : rs.mapM asKRange = some ps) (s' : Srt)
+    (hin : ∀ p ∈ ps, ∃ k x, RmCov ts k x ∧ p.1 ≤ k ∧ k < p.2) :
     ∃ zs, RmOK zs ∧ (∀ k x, RmCov zs k x ↔ RmCov ts k x ∧ ∀ p ∈ ps, k < p.1 ∨ p.2 ≤ k) ∧
       c.sortOf (rmV (rmEntries zs)) = some Srt.rangeMap ∧
       hook rmRemoveAll [rmV (rmEntries ts), .set s' rs] = some (some (rmV (rmEntries zs))) := by
   obtain ⟨h1, h2⟩ := rmS_cuts (rmS_mapM_asKRange hm) hs hd
   obtain ⟨hok, hcov, hsort⟩ := canon_at h1 h2
-  exact ⟨_, hok, fun k x => by rw [hcov, cuts_cov], hsort, (removeAll_raw _ _ _ _).trans
-    (by rw [rmTriples_rmEntries fun t ht => (hs t ht).1, hm] <;> rfl)⟩
+  have hp : ∀ t ∈ ts, t.1 < t.2.1 := fun t ht => (hs t ht).1
+  have hall : ps.all (fun (a, b) => rmMeets a b ts) = true :=
+    List.all_eq_true.mpr fun p hpp => (meets_iff hp (rmS_mapM_asKRange hm p hpp)).mpr (hin p hpp)
+  exact ⟨_, hok, fun k x => by rw [hcov, cuts_cov], hsort,
+    (removeAll_eq hp hm s').trans (by rw [hall] <;> rfl)⟩
 
+/-- At a Set of proper ranges one of which has no key in the map, `hook` gives no value: the
+sentence of DOM 611-613 speaks of the part of a range "that is present in the range map", and the
+operation is not `total` (DOM 616). -/
+theorem removeAll_absent {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {rs : List GroundTerm}
+    {ps : List (Int × Int)} (hm : rs.mapM asKRange = some ps) (s' : Srt)
+    (hno : ∃ p ∈ ps, ∀ k x, RmCov ts k x → k < p.1 ∨ p.2 ≤ k) :
+    hook rmRemoveAll [rmV (rmEntries ts), .set s' rs] = some none := by
+  obtain ⟨p, hpp, hno⟩ := hno
+  have hall : ps.all (fun (a, b) => rmMeets a b ts) = false := by
+    cases h : ps.all (fun (a, b) => rmMeets a b ts) with
+    | false => rfl
+    | true =>
+      have h1 : rmMeets p.1 p.2 ts = true := List.all_eq_true.mp h p hpp
+      rw [meets_false hp (rmS_mapM_asKRange hm p hpp) hno] at h1
+      cases h1
+  exact (removeAll_eq hp hm s').trans (by rw [hall] <;> rfl)
+
+/-- At a Set with a member that is no proper range injected into KItem `hook` gives no value. -/
 theorem removeAll_off {ts : List RmTriple} (hp : ∀ t ∈ ts, t.1 < t.2.1) {rs : List GroundTerm}
     (hm : rs.mapM asKRange = none) (s' : Srt) :
     hook rmRemoveAll [rmV (rmEntries ts), .set s' rs] = some none :=
@@ -1197,17 +1255,27 @@ def vals : List Pt :=
    ⟨rmInclusion, "RANGEMAP.inclusion", [.rm [], .rm [(0, 3, 7), (5, 7, 8)]], .b true⟩,
    ⟨rmInclusion, "RANGEMAP.inclusion", [.rm [(0, 3, 7), (5, 7, 8)], .rm [(0, 2, 7)]], .b false⟩]
 
-/-- Points of the header's second finding, kept apart from `vals`: a proper range no part of which
-is in the map. Reading A (the library's): the map. `M[ [10,12) <- undef ]`,
-`M[ [3,5) <- undef ]` (the gap between the two ranges), `.RangeMap[ [0,1) <- undef ]`,
-`removeAll(M, {[10,12)})`, `removeAll(M, {[3,5), [10,12)})`. -/
+/-- Points of the region of `[_ <- undef]` and `removeAll` at a proper range no part of which is
+in the map (statement 2 of the header; the value is one of the result sort, `.RangeMap`):
+`M[ [10,12) <- undef ]`, `M[ [3,5) <- undef ]` (the gap between the two ranges),
+`.RangeMap[ [0,1) <- undef ]`, `removeAll(M, {[10,12)})`, `removeAll(M, {[3,5), [10,12)})`,
+`removeAll(M, {[0,3), [10,12)})` (one range present, one absent). -/
 def absents : List Pt :=
-  [⟨rmRemove, "RANGEMAP.removeRng", [.rm [(0, 3, 7), (5, 7, 8)], .r 10 12], .rm [(0, 3, 7), (5, 7, 8)]⟩,
-   ⟨rmRemove, "RANGEMAP.removeRng", [.rm [(0, 3, 7), (5, 7, 8)], .r 3 5], .rm [(0, 3, 7), (5, 7, 8)]⟩,
+  [⟨rmRemove, "RANGEMAP.removeRng", [.rm [(0, 3, 7), (5, 7, 8)], .r 10 12], .rm []⟩,
+   ⟨rmRemove, "RANGEMAP.removeRng", [.rm [(0, 3, 7), (5, 7, 8)], .r 3 5], .rm []⟩,
    ⟨rmRemove, "RANGEMAP.removeRng", [.rm [], .r 0 1], .rm []⟩,
-   ⟨rmRemoveAll, "RANGEMAP.removeAll", [.rm [(0, 3, 7), (5, 7, 8)], .sr [(10, 12)]], .rm [(0, 3, 7), (5, 7, 8)]⟩,
-   ⟨rmRemoveAll, "RANGEMAP.removeAll", [.rm [(0, 3, 7), (5, 7, 8)], .sr [(3, 5), (10, 12)]],
-     .rm [(0, 3, 7), (5, 7, 8)]⟩]
+   ⟨rmRemoveAll, "RANGEMAP.removeAll", [.rm [(0, 3, 7), (5, 7, 8)], .sr [(10, 12)]], .rm []⟩,
+   ⟨rmRemoveAll, "RANGEMAP.removeAll", [.rm [(0, 3, 7), (5, 7, 8)], .sr [(3, 5), (10, 12)]], .rm []⟩,
+   ⟨rmRemoveAll, "RANGEMAP.removeAll", [.rm [(0, 3, 7), (5, 7, 8)], .sr [(0, 3), (10, 12)]], .rm []⟩]
+
+/-- Points of the region of `_RangeMap_` at two maps with a key in common (statement 2 of the
+header; the value is `.RangeMap`): `{[0,3) ↦ 7} {[2,5) ↦ 8}` (the key 2 in both),
+`{[0,3) ↦ 7} {[2,5) ↦ 7}` (the same with one value), `M M`, `M {[6,9) ↦ 7}`. -/
+def overlaps : List Pt :=
+  [⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7)], .rm [(2, 5, 8)]], .rm []⟩,
+   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7)], .rm [(2, 5, 7)]], .rm []⟩,
+   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7), (5, 7, 8)], .rm [(0, 3, 7), (5, 7, 8)]], .rm []⟩,
+   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7), (5, 7, 8)], .rm [(6, 9, 7)]], .rm []⟩]
 
 /-- `hook`'s value at each point of a list is the point's. -/
 def hookOK (ps : List Pt) : Bool := ps.all fun p => hook p.f (p.xs.map A.val) == some (some p.v.val)
@@ -1227,13 +1295,9 @@ theorem vals_hook : hookOK vals = true := by decide +kernel
 
 theorem vals_sig : sigOK vals = true := by decide +kernel
 
-/-- The points of `absents`: `hook` gives the map unchanged (reading A of the second finding). -/
-theorem absents_hook : hookOK absents = true := by decide +kernel
-
-theorem absents_sig : sigOK absents = true := by decide +kernel
-
-/-- No part of the range (of any range of the Set) is in the map, at each point of `absents`; a
-part of every range is, at each point of `vals` of the two operations (the empty Set aside). -/
+/-- No part of the range (of some range of the Set) is in the map, at each point of `absents`; a
+part of every range is, at each point of `vals` of the two operations (at the empty Set there is
+no range). -/
 theorem absents_regions :
     (absents.all (fun p => match p.xs with
       | [.rm l, .r a b] => p.f == rmRemove && decide (a < b) &&
@@ -1272,7 +1336,7 @@ theorem pts_gamma {ps : List Pt} (h1 : hookOK ps = true) (h2 : sigOK ps = true) 
   exact ⟨hvs, by rw [hres]; exact A.sorted hI _ hvok, gamma_val _ hk hvs (by rw [hname]; exact hh)⟩
 
 /-- **At each point the result is that value, under every interpretation, in every semantics**
-(also at the points of the six keys of `silentTable`: the interpretation is read only where `hook`
+(also at the points of the seven keys of `silentTable`: the interpretation is read only where `hook`
 gives no value). -/
 theorem vals_hookRes : ∀ p ∈ vals, ∀ (c : Semantics) (H : HookParams),
     (c.withHooks H).hookRes p.f (p.xs.map A.val) = some (some p.v.val) := pts_hookRes vals_hook
@@ -1289,69 +1353,17 @@ theorem vals_gamma_H : ∀ p ∈ vals, ∀ (c : Semantics), RangeIn c → (∀ k
     Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map A.val) ≡ den (c.withHooks H) p.v.val) :=
   fun p hp _ hI hr H => (vals_gamma p hp _ (hI.withHooks hr H)).2.2
 
-/-- The same at the points of `absents` (reading A of the second finding): under every
-interpretation the result is the map, and Γ states it. -/
-theorem absents_hookRes : ∀ p ∈ absents, ∀ (c : Semantics) (H : HookParams),
-    (c.withHooks H).hookRes p.f (p.xs.map A.val) = some (some p.v.val) := pts_hookRes absents_hook
-
-theorem absents_gamma_H : ∀ p ∈ absents, ∀ (c : Semantics), RangeIn c → (∀ k ∈ c.params, k.raw = false) →
-    ∀ H : HookParams,
-    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map A.val) ≡ den (c.withHooks H) p.v.val) :=
-  fun p hp _ hI hr H => (pts_gamma absents_hook absents_sig p hp _ (hI.withHooks hr H)).2.2
-
-/-! ## `_RangeMap_` at two maps with a key in common (the header's first finding) -/
-
-/-- `_RangeMap_` is no key of `silentTable`: no point of it is silent. -/
-theorem concat_not_silent (vs : List GroundTerm) : silent rmConcat vs = false :=
-  silent_of_not_silentKey (by decide +kernel) vs
-
-/-- **Γ of every semantics states ⊥ at two range maps with a key in common** (reading A; DOM
-600-602, "a partial function only defined on range maps with non overlapping ranges"). -/
-theorem concat_common_gamma (c : Semantics) {ts us : List RmTriple} (ht : RmOK ts) (hu : RmOK us)
-    (hvs : c.sortsOf [rmV (rmEntries ts), rmV (rmEntries us)] = some [Srt.rangeMap, Srt.rangeMap])
-    (h : ¬ RmApart ts us) :
-    Γ c (appP c ⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩
-      [rmV (rmEntries ts), rmV (rmEntries us)] ≡ ⊥) :=
-  gamma_bot c (k := ⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩) (by decide +kernel) hvs
-    (concat_off ht hu h) (concat_not_silent _)
-
-/-- Points of that region (the value is unused): `{[0,3) ↦ 7} {[2,5) ↦ 8}` (the key 2 in both),
-`{[0,3) ↦ 7} {[2,5) ↦ 7}` (the same with one value: the second reading of the finding), `M M`,
-`M {[6,9) ↦ 7}`. -/
-def overlaps : List Pt :=
-  [⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7)], .rm [(2, 5, 8)]], .rm []⟩,
-   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7)], .rm [(2, 5, 7)]], .rm []⟩,
-   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7), (5, 7, 8)], .rm [(0, 3, 7), (5, 7, 8)]], .rm []⟩,
-   ⟨rmConcat, "RANGEMAP.concat", [.rm [(0, 3, 7), (5, 7, 8)], .rm [(6, 9, 7)]], .rm []⟩]
-
-theorem overlaps_ok : overlaps.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
-    (sig p.f).args == p.xs.map A.srt && p.xs.all A.ok && partials.contains p.f &&
-    hook p.f (p.xs.map A.val) == some none && !silent p.f (p.xs.map A.val)) = true := by
+/-- Each point of `overlaps` holds a key of both maps; no point of `vals` of `_RangeMap_` does. -/
+theorem overlaps_regions :
+    (overlaps.all (fun p => match p.xs with
+      | [.rm l, .rm l'] => p.f == rmConcat &&
+          l.any fun e => l'.any fun e' => decide (e.1 < e'.2.1) && decide (e'.1 < e.2.1)
+      | _ => false) &&
+    vals.all (fun p => match p.xs with
+      | [.rm l, .rm l'] => p.f != rmConcat ||
+          l.all fun e => l'.all fun e' => decide (e'.2.1 ≤ e.1) || decide (e.2.1 ≤ e'.1)
+      | _ => true)) = true := by
   decide +kernel
-
-/-- Each point holds a key of both maps. -/
-theorem overlaps_regions : overlaps.all (fun p => match p.xs with
-    | [.rm l, .rm l'] => l.any fun e => l'.any fun e' => decide (e.1 < e'.2.1) && decide (e'.1 < e.2.1)
-    | _ => false) = true := by
-  decide +kernel
-
-/-- **At each, Γ states ⊥**, in every semantics with `RangeIn`. -/
-theorem overlaps_gamma : ∀ p ∈ overlaps, ∀ (c : Semantics), RangeIn c →
-    Γ c (appP c (sig p.f) (p.xs.map A.val) ≡ ⊥) := by
-  intro p hp c hI
-  have h := List.all_eq_true.mp overlaps_ok p hp
-  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, Bool.not_eq_true'] at h
-  obtain ⟨⟨⟨⟨⟨⟨hk, hname⟩, hargs⟩, hok⟩, -⟩, hh⟩, hsl⟩ := h
-  exact gamma_bot _ hk (by rw [hargs]; exact A.sortsOf hI _ hok)
-    (by rw [hname]; exact hh) (by rw [hname]; exact hsl)
-
-/-- **So today no interpretation gives these points a value**: over all H, Γ entails ⊥ there, the
-negation of the first half of the `param_undetermined` shape. Under reading B of the finding
-(`rmConcat` a key of `silentTable`) this would not hold. -/
-theorem overlaps_entails : ∀ p ∈ overlaps, ∀ (c : Semantics), RangeIn c → (∀ k ∈ c.params, k.raw = false) →
-    ∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig p.f) (p.xs.map A.val) ≡ ⊥) := by
-  intro p hp c hI hr H M _ I hI'
-  exact hI' _ (overlaps_gamma p hp _ (hI.withHooks hr H))
 
 /-! ## Statement 3: the silent predicate against the prose's regions -/
 
@@ -1360,12 +1372,12 @@ theorem total_not_silent : ∀ f ∈ totals, ∀ vs : List GroundTerm, silent f 
   fun f hf vs => silent_of_not_silentKey
     ((by decide +kernel : ∀ f ∈ totals, silentKey f = false) f hf) vs
 
-/-- The predicate of the six keys is `fun _ => true`: it is `hook` giving no value that makes a
+/-- The predicate of the seven keys is `fun _ => true`: it is `hook` giving no value that makes a
 point one where the interpretation is read. -/
 theorem silents_silent : ∀ f ∈ silents, ∀ vs : List GroundTerm, silent f vs = true := by
   intro f hf vs
   simp only [silents, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /-- Where `hook` gives no value at a silent point, the result is the interpretation's. -/
 theorem off_hookRes (c : Semantics) (H : HookParams) {f : Sym} {vs : List GroundTerm}
@@ -1448,24 +1460,24 @@ theorem covered_update {c : Semantics} (hs : c.shapesOK = true) {vs : List Groun
     obtain ⟨a, b⟩ := p
     exact absurd ⟨a, b, asRange_some hr⟩ h
 
-/-- **`M[R <- undef]` at every argument list of its signature**: at a proper Int range the map's
-keys outside the range (at one no key of which is in the map, the map: reading A of the second
-finding; reading B has that part unstated), and at every other range `hook` gives none and the
-point is silent. -/
+/-- **`M[R <- undef]` at every argument list of its signature**: at a proper Int range a key of
+which is in the map, the map's keys outside the range; at a proper range no key of which is in the
+map, and at every range that is no proper Int range, `hook` gives none and the point is silent. -/
 theorem covered_remove {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some [Srt.rangeMap, Srt.range]) :
     ∃ ts r, vs = [rmV (rmEntries ts), r] ∧ RmOK ts ∧
-      (∀ a b, r = rangeT a b → a < b → ∃ zs, RmOK zs ∧
+      (∀ a b, r = rangeT a b → a < b → (∃ k x, RmCov ts k x ∧ a ≤ k ∧ k < b) → ∃ zs, RmOK zs ∧
         (∀ k x, RmCov zs k x ↔ RmCov ts k x ∧ (k < a ∨ b ≤ k)) ∧
         c.sortOf (rmV (rmEntries zs)) = some Srt.rangeMap ∧
         hook rmRemove vs = some (some (rmV (rmEntries zs)))) ∧
       (∀ a b, r = rangeT a b → a < b → (∀ k x, RmCov ts k x → k < a ∨ b ≤ k) →
-        hook rmRemove vs = some (some (rmV (rmEntries ts)))) ∧
+        hook rmRemove vs = some none ∧ silent rmRemove vs = true) ∧
       ((¬ ∃ a b, r = rangeT a b ∧ a < b) → hook rmRemove vs = some none ∧ silent rmRemove vs = true) := by
   obtain ⟨w, r, rfl, h₁, -⟩ := sortsOf_two hvs
   obtain ⟨ts, rfl, hok, hst⟩ := rm_only hs h₁
-  refine ⟨ts, r, rfl, hok, fun a b hr hab => by subst hr; exact remove_at hst (rmOK_pairwise hok) hab,
-    fun a b hr hab hno => by subst hr; exact remove_absent hst hok hab hno,
+  refine ⟨ts, r, rfl, hok,
+    fun a b hr hab hin => by subst hr; exact remove_at hst (rmOK_pairwise hok) hab hin,
+    fun a b hr hab hno => by subst hr; exact ⟨remove_absent (rmOK_proper hok) hab hno, rfl⟩,
     fun h => ⟨remove_off (rmOK_proper hok) ?_, rfl⟩⟩
   cases hr : asRange r with
   | none => rfl
@@ -1474,41 +1486,45 @@ theorem covered_remove {c : Semantics} (hs : c.shapesOK = true) {vs : List Groun
     exact absurd ⟨a, b, asRange_some hr⟩ h
 
 /-- **`removeAll(M, S)` at every argument list of its signature**: where every member of the Set
-is a proper Int range injected into KItem (`mapM_ranges`), the map's keys outside every range of
-the Set, and where a member is none (`mapM_bad`) `hook` gives none and the point is silent. -/
+is a proper Int range injected into KItem (`mapM_ranges`) a key of which is in the map, the map's
+keys outside every range of the Set; where every member is such a range and one has no key in the
+map, and where a member is no such range (`mapM_bad`), `hook` gives none and the point is silent. -/
 theorem covered_removeAll {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some [Srt.rangeMap, Srt.set]) :
     ∃ ts rs, vs = [rmV (rmEntries ts), .set Srt.set rs] ∧ RmOK ts ∧
-      (∀ ps, rs.mapM asKRange = some ps → ∃ zs, RmOK zs ∧
+      (∀ ps, rs.mapM asKRange = some ps → (∀ p ∈ ps, ∃ k x, RmCov ts k x ∧ p.1 ≤ k ∧ k < p.2) →
+        ∃ zs, RmOK zs ∧
         (∀ k x, RmCov zs k x ↔ RmCov ts k x ∧ ∀ p ∈ ps, k < p.1 ∨ p.2 ≤ k) ∧
         c.sortOf (rmV (rmEntries zs)) = some Srt.rangeMap ∧
         hook rmRemoveAll vs = some (some (rmV (rmEntries zs)))) ∧
+      (∀ ps, rs.mapM asKRange = some ps → (∃ p ∈ ps, ∀ k x, RmCov ts k x → k < p.1 ∨ p.2 ≤ k) →
+        hook rmRemoveAll vs = some none ∧ silent rmRemoveAll vs = true) ∧
       (rs.mapM asKRange = none → hook rmRemoveAll vs = some none ∧ silent rmRemoveAll vs = true) := by
   obtain ⟨w, s, rfl, h₁, h₂⟩ := sortsOf_two hvs
   obtain ⟨ts, rfl, hok, hst⟩ := rm_only hs h₁
   obtain ⟨rs, rfl⟩ := shape_set hs h₂
-  exact ⟨ts, rs, rfl, hok, fun ps hm => removeAll_at hst (rmOK_pairwise hok) hm _,
+  exact ⟨ts, rs, rfl, hok, fun ps hm hin => removeAll_at hst (rmOK_pairwise hok) hm _ hin,
+    fun ps hm hno => ⟨removeAll_absent (rmOK_proper hok) hm _ hno, rfl⟩,
     fun hm => ⟨removeAll_off (rmOK_proper hok) hm _, rfl⟩⟩
 
 /-- **`_RangeMap_` at every argument list of its signature**: where no key is in both maps, the map
-of the keys of both, and where one is, `hook` gives none and the point is not silent (so Γ states
-⊥, `concat_common_gamma`; the header's first finding). -/
+of the keys of both, and where one is, `hook` gives none and the point is silent. -/
 theorem covered_concat {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some [Srt.rangeMap, Srt.rangeMap]) :
     ∃ ts us, vs = [rmV (rmEntries ts), rmV (rmEntries us)] ∧ RmOK ts ∧ RmOK us ∧
       (RmApart ts us → ∃ zs, RmOK zs ∧ (∀ k x, RmCov zs k x ↔ RmCov ts k x ∨ RmCov us k x) ∧
         hook rmConcat vs = some (some (rmV (rmEntries zs)))) ∧
-      (¬ RmApart ts us → hook rmConcat vs = some none ∧ silent rmConcat vs = false) := by
+      (¬ RmApart ts us → hook rmConcat vs = some none ∧ silent rmConcat vs = true) := by
   obtain ⟨w₁, w₂, rfl, h₁, h₂⟩ := sortsOf_two hvs
   obtain ⟨ts, rfl, hok, -⟩ := rm_only hs h₁
   obtain ⟨us, rfl, hok', -⟩ := rm_only hs h₂
-  exact ⟨ts, us, rfl, hok, hok', concat_at hok hok', fun h => ⟨concat_off hok hok' h, concat_not_silent _⟩⟩
+  exact ⟨ts, us, rfl, hok, hok', concat_at hok hok', fun h => ⟨concat_off hok hok' h, rfl⟩⟩
 
 /-! ## Statement 2: the `param_undetermined` shape at the regions the prose leaves unstated -/
 
-/-- **Wherever one of the six keys has no value of `hook`, the point has the `param_undetermined`
+/-- **Wherever one of the seven keys has no value of `hook`, the point has the `param_undetermined`
 shape**, in every semantics with `coreOK`: over all interpretations Γ entails neither ⊥ nor the
-value `v` of the result sort. By `covered_elem` … `covered_removeAll` those argument lists are the
+value `v` of the result sort. By `covered_elem` … `covered_concat` those argument lists are the
 regions the prose leaves unstated. -/
 theorem silent_undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
     {f : Sym} (hf : f ∈ silents) {vs : List GroundTerm} (hvs : c.sortsOf vs = some (sig f).args)
@@ -1558,7 +1574,7 @@ theorem fnHypU (H : HookParams) : FnHyp (cU.withHooks H) := by
   refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := cU.withHooks H) cU_noRaw⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
-/-- Points the prose leaves unstated under every reading of the header; `v` is a value of the
+/-- Points of the regions of statement 2 other than `overlaps` and `absents`; `v` is a value of the
 result sort (`.RangeMap`, the KItem 0, the range `[0, 1)`). With `M = {[0,3) ↦ 7, [5,7) ↦ 8}`:
 `[5,3) r|-> 7`, `[3,3) r|-> 7` (no proper range); `M[9]`, `M[3]` (3 is outside `[0,3)`), `M[4]`,
 `.RangeMap[0]`, `M[ [0,3) ]` (a KItem that is no Int); `find_range` at the same four keys;
@@ -1587,15 +1603,17 @@ def opens : List Pt :=
 
 /-- At every point: a key of `silentTable` among the rows, its arguments written as values of the
 argument sorts, no value of `hook`, a silent point, `v` of the result sort. -/
-theorem opens_ok : opens.all (fun p => silents.contains p.f && rmRows.contains (p.f, p.name) &&
+theorem opens_ok : (opens ++ overlaps ++ absents).all (fun p => silents.contains p.f && rmRows.contains (p.f, p.name) &&
     (sig p.f).args == p.xs.map A.srt && p.xs.all A.ok && hook p.f (p.xs.map A.val) == some none &&
     silent p.f (p.xs.map A.val) && p.v.ok && (sig p.f).result == p.v.srt) = true := by
   decide +kernel
 
-/-- Every one of the six keys has a point. -/
-theorem opens_rows : silents.all (fun f => opens.any fun p => p.f == f) = true := by decide +kernel
+/-- Every one of the seven keys has a point. -/
+theorem opens_rows : silents.all (fun f => (opens ++ overlaps ++ absents).any fun p => p.f == f) = true := by
+  decide +kernel
 
-/-- The points lie in the regions the header names: a range `[a, b)` with `b ≤ a`; a key that no
+/-- The points of `opens` lie in the regions the header names (those of `overlaps` and `absents`:
+`overlaps_regions`, `absents_regions`): a range `[a, b)` with `b ≤ a`; a key that no
 range of the map holds, or a KItem that is no Int; a Set with a member that is an Int or a range
 that is no proper range. -/
 theorem opens_regions : opens.all (fun p => match p.xs with
@@ -1612,7 +1630,7 @@ theorem opens_regions : opens.all (fun p => match p.xs with
 
 /-- **Γ determines none of the points**: over all interpretations it entails neither that the
 application has no value nor that it is the point's `v`. -/
-theorem opens_undetermined : ∀ p ∈ opens,
+theorem opens_undetermined : ∀ p ∈ opens ++ overlaps ++ absents,
     ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧ (appP (cU.withHooks H) (sig p.f) (p.xs.map A.val) ≡ ⊥)) ∧
     ¬ (∀ H : HookParams, Γ (cU.withHooks H) ⊧
       (appP (cU.withHooks H) (sig p.f) (p.xs.map A.val) ≡ den (cU.withHooks H) p.v.val)) := by
@@ -1644,12 +1662,6 @@ theorem elem_nonInt_undetermined :
 
 /-- info: 'KCore.HooksRangeMapTest.vals_hookRes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms vals_hookRes
-
-/-- info: 'KCore.HooksRangeMapTest.absents_gamma_H' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms absents_gamma_H
-
-/-- info: 'KCore.HooksRangeMapTest.overlaps_entails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms overlaps_entails
 
 /-- info: 'KCore.HooksRangeMapTest.opens_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms opens_undetermined

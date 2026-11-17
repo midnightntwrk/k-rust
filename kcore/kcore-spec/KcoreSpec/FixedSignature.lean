@@ -644,7 +644,8 @@ every Float literal and none at a value of sort Float that is no literal, a cons
 or token of that sort, which only `floatShapeOK` excludes), and STRING's and BYTES' partial ones
 (`stringPartial`, `bytesPartial`), and RANGEMAP's seven that the text does not declare `total`: the
 element symbol, update and remove at a range that is no proper Int range, `removeAll` at a member
-that is none, concatenation where two intervals meet, `lookup` and `find_range` off the keys.
+that is none, remove and `removeAll` at a range no part of which is in the map, concatenation
+where two intervals meet, `lookup` and `find_range` off the keys.
 The library's text declares every other one `total` (KCORE-AUDIT.md). -/
 def partialHooks : List Sym :=
   [intTDiv, intTMod, intEDiv, intEMod, mapConcat, setConcat, mapLookup, listGet, listRange] ++ floatResFloat ++

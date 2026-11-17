@@ -364,7 +364,7 @@ theorem result_ctor {k : CtorSig} {vs : List GroundTerm} (hc : c.isCtor k.name =
   unfold result; simp [hc]
 
 /-- The library collections' symbols have no silent points, but the range map's element symbol (at a
-range that is no proper Int range). -/
+range that is no proper Int range) and concatenation (at two maps with a key in common). -/
 theorem silentKey_builtinColl (K : CollKind) (hK : K ≠ .rangeMap) :
     silentKey (builtinColl K).unit = false ∧ silentKey (builtinColl K).elem = false ∧
       silentKey (builtinColl K).concat = false := by

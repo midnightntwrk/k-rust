@@ -361,8 +361,11 @@ inductive InertReason where
   | noJunk
   /-- An `[assoc]`, `[comm]` or `[unit]` axiom of a collection's concatenation: a law KCore's
   collection values satisfy, a map's, set's or list's by their representation, a range map's at its
-  values through `_RangeMap_`'s hook (`rmConcat_assoc`, `rmConcat_unit`: the concatenation is
-  defined only where no ranges overlap, and associativity holds as an equality of patterns).
+  values through `_RangeMap_`'s hook (`rmConcat_assoc`, `rmConcat_unit`: the hook gives a value
+  only where no ranges overlap, and associativity holds as an equality of patterns, both sides
+  without a value of the hook or one value). Where ranges overlap the text states no value
+  (`silentTable`) and Γ states the interpretation's: there the law is a condition on the
+  interpretation, met by one that gives no value there (`HookParams.none`, `HookParams.lib`).
   Classified by the sentence's form; the account refuses one whose symbol is not a collection's
   concatenation (`RefusalReason.lawAxiom`). -/
   | collectionLaw

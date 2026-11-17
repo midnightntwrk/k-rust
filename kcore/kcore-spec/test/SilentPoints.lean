@@ -16,8 +16,10 @@
     `Bytes2Int` gives no value only at an Endianness or Signedness that is no constructor of BYTES:
     its points are in `strbytes` with one more Endianness constructor, which `coreOK` admits
     (`bytes2Int_extra`, with `Int2Bytes` at that constructor). RANGEMAP's (`lookup` and
-    `find_range` off the keys, `r|->`, update, `[_ <- undef]` and `removeAll` at no proper range) are in
-    a semantics with the Range constructor (`rangeMap_undetermined`), `[5, 3) r|-> 7` among them.
+    `find_range` off the keys, `r|->`, update, `[_ <- undef]` and `removeAll` at no proper range,
+    `_RangeMap_` at two maps with a key in common, `[_ <- undef]` and `removeAll` at a proper range
+    no part of which is in the map) are in a semantics with the Range constructor
+    (`rangeMap_undetermined`), `[5, 3) r|-> 7` among them.
   - At a described point of the same keys, the result is `hook`'s value whatever the
     interpretation (`vals_hookRes`).
   - Where the text says there is no value, Γ states ⊥ for every semantics (`gamma_bot`), at each
@@ -254,10 +256,13 @@ def pts : List Pt :=
    ⟨floatGt, [t18, t18], bool true⟩, ⟨floatEq, [t18, t18], bool true⟩, ⟨floatNe, [t18, t18], bool false⟩,
    ⟨floatIsNaN, [n18], bool false⟩, ⟨floatIsInfinite, [t18], bool true⟩]
 
+/-- RANGEMAP's seven keys of `silentTable`. -/
+def rmKeysSilent : List Sym := [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll]
+
 /-- Every key but `Bytes2Int` and RANGEMAP's has a point here (`Bytes2Int`'s are in `ptsB`,
-RANGEMAP's in `ptsR`, at other semantics). -/
+RANGEMAP's in `ptsR`, at other semantics: `ptsR_cover`). -/
 theorem pts_cover : silentTable.all (fun e => e.1 == bytes2Int || pts.any (·.f == e.1) ||
-    [rmElem, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll].contains e.1) = true := by
+    rmKeysSilent.contains e.1) = true := by
   decide +kernel
 
 /-- E1 and E2 at every point: the symbol's signature, its arguments of the argument sorts, no value
@@ -354,15 +359,23 @@ theorem fnHyp3 (H : HookParams) : FnHyp (c3.withHooks H) := by
   refine ⟨?_, ?_, ?_, ?_, openDecided_of_readsConfined hrc, openLaws_of_plain (c := c3.withHooks H) (show ∀ k ∈ c3.params, k.raw = false by decide +kernel)⟩ <;> intro fn hfn <;> rw [h] at hfn <;>
     exact absurd hfn List.not_mem_nil
 
-/-- `[5, 3) r|-> 7`; `lookup` and `find_range` off the keys (of `[0,3) ↦ 7`, at 5); update,
-`[_ <- undef]` and `removeAll` at the range `[3, 3)` and at the member `7`: no proper ranges. -/
+/-- `[5, 3) r|-> 7`; `[0,3) ↦ 7` with `[2,5) ↦ 8` (the key 2 in both); `lookup` and `find_range`
+off the keys (of `[0,3) ↦ 7`, at 5); update, `[_ <- undef]` and `removeAll` at the range `[3, 3)`
+and at the member `7`: no proper ranges; `[_ <- undef]` and `removeAll` of `[0,3) ↦ 7` at the
+proper range `[5, 7)`, no part of which is in the map. -/
 def ptsR : List Pt :=
   [⟨rmElem, [rangeT 5 3, ki 7], rmV []⟩,
+   ⟨rmConcat, [rmV [(rangeT 0 3, ki 7)], rmV [(rangeT 2 5, ki 8)]], rmV []⟩,
+   ⟨rmRemove, [rmV [(rangeT 0 3, ki 7)], rangeT 5 7], rmV []⟩,
+   ⟨rmRemoveAll, [rmV [(rangeT 0 3, ki 7)], st [.inj Srt.range Srt.kitem (rangeT 5 7)]], rmV []⟩,
    ⟨rmLookup, [rmV [(rangeT 0 3, ki 7)], ki 5], ki 0⟩,
    ⟨rmFindRange, [rmV [(rangeT 0 3, ki 7)], ki 5], rangeT 0 1⟩,
    ⟨rmUpdate, [rmV [], rangeT 3 3, ki 0], rmV []⟩,
    ⟨rmRemove, [rmV [], rangeT 3 3], rmV []⟩,
    ⟨rmRemoveAll, [rmV [], st [ki 7]], rmV []⟩]
+
+/-- Each of RANGEMAP's seven keys has a point in `ptsR`. -/
+theorem ptsR_cover : rmKeysSilent.all (fun f => ptsR.any (·.f == f)) = true := by decide +kernel
 
 theorem ptsR_ok : ptsR.all (fun p => lookupSig hookSigs p.f == some (sig p.f) &&
     c3.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some none && silent p.f p.vs &&

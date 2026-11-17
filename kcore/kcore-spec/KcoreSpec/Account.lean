@@ -530,9 +530,11 @@ setIdempotence`) by its form is accepted only when its symbol is the concatenati
 of the definition (the library's `Map`, `Set`, `List`, `RangeMap`, or its own), and an idempotence
 axiom only of a set's: the reading's map, set and list values satisfy those laws by their
 representation (and contradict the idempotence, `UnreadReason.setIdempotence`). A range map's are
-stated at its values, through the hook of `_RangeMap_`, which is defined only on range maps whose
-ranges do not overlap: associativity as an equality of patterns, both sides undefined or one value
-(`rmConcat_assoc`), and `.RangeMap` a unit on either side (`rmConcat_unit`). The same law of another
+stated at its values, through the hook of `_RangeMap_`, which gives a value only on range maps whose
+ranges do not overlap: associativity as an equality of patterns, both sides without a value of the
+hook or one value (`rmConcat_assoc`), and `.RangeMap` a unit on either side (`rmConcat_unit`); where
+ranges overlap the text states no value (`silentTable`), Γ states the interpretation's, and the law
+there is a condition on the interpretation. The same law of another
 symbol states something of that symbol which no reading of the collections states. -/
 
 /-- The law axioms whose symbol is not the concatenation of a collection of `d` (an idempotence

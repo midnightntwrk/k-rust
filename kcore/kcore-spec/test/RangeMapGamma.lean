@@ -14,10 +14,13 @@
     exclusive above, 498-499); `2 in_keys` true and `3` false; `M2` merged into `[0,5)` (499-500), so
     `find_range(M2, 4) = [0,5)`; the difference. That configuration has no successor (`res_stuck`).
   - Γ (c.withHooks H) holds, for every H, the graph sentence of each of those applications at its
-    value (`gamma_vals`), and `≡ ⊥` at the two overlapping concatenations, of two values and of one
-    value (`[0,3) ↦ a` with `[2,5) ↦ a`): concatenation is defined only on range maps with no
-    overlapping ranges (600-602), equal values included (CN-4b §9), and neither point is silent, so
-    Γ entails `¬⌈…⌉` there (`gamma_overlaps`).
+    value (`gamma_vals`).
+  - The two overlapping concatenations, of two values and of one value (`[0,3) ↦ a` with
+    `[2,5) ↦ a`), are silent: the text names a run's exception (503-504) and "a partial function
+    only defined on range maps with non overlapping ranges" (600-602), no `#False`, and the
+    production is not `total` (508), so it states no value there, equal values included. Γ entails
+    neither that the concatenation is ⊥ nor that it is `M` over the interpretations
+    (`overlaps_undetermined`).
   - `M[9]`, a key of no range of M, is silent (534-535: the text describes a run's exception, no
     value): Γ entails neither that it is ⊥ nor that it is `a` over the interpretations
     (`lookup9_undetermined`), under `HookParams.none` it is ⊥ and under the interpretation answering
@@ -244,29 +247,7 @@ theorem gamma_vals : ∀ p ∈ vals, ∀ H : HookParams,
   have hg := gamma_val (c.withHooks H) hk (by rw [sortsOfH]; exact hvs) (by rw [hname]; exact hh)
   exact ⟨hg, fun hI => hI _ hg⟩
 
-/-- The overlapping concatenations: of two values, and of one value. -/
-def overlaps : List Pt :=
-  [⟨rmConcat, [elem 0 3 a, elem 2 5 b], M⟩,
-   ⟨rmConcat, [elem 0 3 a, elem 2 5 a], M⟩]
-
-theorem overlaps_ok : overlaps.all (fun p => (sig p.f) ∈ hookSigs && (sig p.f).name == p.f &&
-    c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some none && !silent p.f p.vs) = true := by
-  decide +kernel
-
-/-- **An overlapping concatenation has no value, for every interpretation**: Γ holds `≡ ⊥` there,
-equal values included. -/
-theorem gamma_overlaps : ∀ p ∈ overlaps, ∀ H : HookParams,
-    (Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig p.f) p.vs ≡ ⊥)) := by
-  intro p hp H
-  have h := List.all_eq_true.mp overlaps_ok p hp
-  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, Bool.not_eq_true'] at h
-  obtain ⟨⟨⟨⟨hk, hname⟩, hvs⟩, hh⟩, hs⟩ := h
-  have hg := gamma_bot (c.withHooks H) hk (by rw [sortsOfH]; exact hvs) (by rw [hname]; exact hh)
-    (by rw [hname]; exact hs)
-  intro _ _ _ hI
-  exact hI _ hg
-
-/-! ## `M[9]`: silent, undetermined over the interpretations -/
+/-! ## Silent points: undetermined over the interpretations -/
 
 /-- The interpretation that gives `v` everywhere. -/
 def constH (v : GroundTerm) : HookParams := ⟨fun _ _ => some v⟩
@@ -290,33 +271,24 @@ theorem fallback_const {k : CtorSig} (hks : lookupSig hookSigs k.name = some k)
   unfold Semantics.fallback; rw [hks, sortOfH]
   simp [Semantics.withHooks, constH, Option.filter, hv]
 
-/-- `M[9]`: `hook` gives no value, the point is silent, and `a` has the result sort KItem. -/
-theorem lookup9_ok : lookupSig hookSigs rmLookup = some (sig rmLookup) ∧ (sig rmLookup).name = rmLookup ∧
-    c.sortsOf [M, kint 9] = some (sig rmLookup).args ∧ hook rmLookup [M, kint 9] = some none ∧
-    silent rmLookup [M, kint 9] = true ∧ c.sortOf a = some (sig rmLookup).result := by
-  decide +kernel
-
-/-- **`M[9]` is undetermined**: over the interpretations, Γ entails neither that it has no value
-nor that it is `a`. Under `constH a` it is `a` in every model, under `HookParams.none` it is ⊥ in
-every model, and both theories have models (`sound_hyp`). -/
-theorem lookup9_undetermined :
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig rmLookup) [M, kint 9] ≡ ⊥)) ∧
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appP (c.withHooks H) (sig rmLookup) [M, kint 9] ≡ den (c.withHooks H) a)) := by
-  obtain ⟨hks', hname, hvs, hh', hs', hv⟩ := lookup9_ok
-  have hks : lookupSig hookSigs (sig rmLookup).name = some (sig rmLookup) := by rw [hname]; exact hks'
-  have hh : hook (sig rmLookup).name [M, kint 9] = some none := by rw [hname]; exact hh'
-  have hs : silent (sig rmLookup).name [M, kint 9] = true := by rw [hname]; exact hs'
+/-- **A silent point is undetermined**: over the interpretations, Γ entails neither that the
+application has no value nor that it is `v`. Under `constH v` it is `v` in every model, under
+`HookParams.none` it is ⊥ in every model, and both theories have models (`sound_hyp`). -/
+theorem undetermined {k : CtorSig} (hks : lookupSig hookSigs k.name = some k) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true)
+    {v : GroundTerm} (hv : c.sortOf v = some k.result) :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) k vs ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) k vs ≡ den (c.withHooks H) v)) := by
   constructor
   · intro hall
-    obtain ⟨_, _, I, hI⟩ := (sound_hyp (c.withHooks (constH a)) ((Semantics.coreOK_withHooks c _).trans coreOK)
+    obtain ⟨_, _, I, hI⟩ := (sound_hyp (c.withHooks (constH v)) ((Semantics.coreOK_withHooks c _).trans coreOK)
       (fnHyp _)).1
-    have hIΓ : I ⊧ᴵP Γ (c.withHooks (constH a)) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks (constH v)) := fun φ h => hI φ (Or.inl (Or.inl h))
     have hD := defOK hIΓ
-    have hfb := hIΓ _ (gamma_fallback (constH a) hks hvs hh hs)
+    have hfb := hIΓ _ (gamma_fallback (constH v) hks hvs hh hs)
     rw [fallback_const hks _ hv] at hfb
-    have hbot := hall (constH a) hIΓ
-    obtain ⟨x, hx, -⟩ := den_single hIΓ (c := c.withHooks (constH a)) (by rw [sortOfH]; exact hv) KoreAML.val0
+    have hbot := hall (constH v) hIΓ
+    obtain ⟨x, hx, -⟩ := den_single hIΓ (c := c.withHooks (constH v)) (by rw [sortOfH]; exact hv) KoreAML.val0
     have h1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) x
     have h2 := (KoreAML.interp_equal hD).mp (hbot KoreAML.val0 default) x
     exact absurd (h2.mp (h1.mpr ((hx x).mpr rfl))) (by simp [Pattern.interpret])
@@ -334,11 +306,51 @@ theorem lookup9_undetermined :
     have h2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) x
     exact absurd (h1.mp (h2.mpr ((hx x).mpr rfl))) (by simp [Pattern.interpret])
 
+/-- `M[9]`: `hook` gives no value, the point is silent, and `a` has the result sort KItem. -/
+theorem lookup9_ok : lookupSig hookSigs rmLookup = some (sig rmLookup) ∧ (sig rmLookup).name = rmLookup ∧
+    c.sortsOf [M, kint 9] = some (sig rmLookup).args ∧ hook rmLookup [M, kint 9] = some none ∧
+    silent rmLookup [M, kint 9] = true ∧ c.sortOf a = some (sig rmLookup).result := by
+  decide +kernel
+
+/-- **`M[9]` is undetermined**: over the interpretations, Γ entails neither that it has no value
+nor that it is `a`. -/
+theorem lookup9_undetermined :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig rmLookup) [M, kint 9] ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (appP (c.withHooks H) (sig rmLookup) [M, kint 9] ≡ den (c.withHooks H) a)) := by
+  obtain ⟨hks, hname, hvs, hh, hs, hv⟩ := lookup9_ok
+  exact undetermined (by rw [hname]; exact hks) hvs (by rw [hname]; exact hh) (by rw [hname]; exact hs) hv
+
+/-- The overlapping concatenations: of two values, and of one value; `M` is a value of the result
+sort. -/
+def overlaps : List Pt :=
+  [⟨rmConcat, [elem 0 3 a, elem 2 5 b], M⟩,
+   ⟨rmConcat, [elem 0 3 a, elem 2 5 a], M⟩]
+
+/-- At each: `hook` gives no value, the point is silent, and `M` has the result sort RangeMap. -/
+theorem overlaps_ok : overlaps.all (fun p => lookupSig hookSigs p.f == some (sig p.f) &&
+    (sig p.f).name == p.f && c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some none &&
+    silent p.f p.vs && c.sortOf p.v == some (sig p.f).result) = true := by
+  decide +kernel
+
+/-- **An overlapping concatenation is undetermined** (503-504, 600-602: no value is stated), equal
+values included: over the interpretations, Γ entails neither that it has no value nor that it is
+`M`. -/
+theorem overlaps_undetermined : ∀ p ∈ overlaps,
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig p.f) p.vs ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (appP (c.withHooks H) (sig p.f) p.vs ≡ den (c.withHooks H) p.v)) := by
+  intro p hp
+  have h := List.all_eq_true.mp overlaps_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨⟨hks, hname⟩, hvs⟩, hh⟩, hs⟩, hv⟩ := h
+  exact undetermined (by rw [hname]; exact hks) hvs (by rw [hname]; exact hh) (by rw [hname]; exact hs) hv
+
 end KCore.RangeMapGammaTest
 
 #print axioms KCore.RangeMapGammaTest.m_value
 #print axioms KCore.RangeMapGammaTest.go_step
 #print axioms KCore.RangeMapGammaTest.res_stuck
 #print axioms KCore.RangeMapGammaTest.gamma_vals
-#print axioms KCore.RangeMapGammaTest.gamma_overlaps
+#print axioms KCore.RangeMapGammaTest.overlaps_undetermined
 #print axioms KCore.RangeMapGammaTest.lookup9_undetermined
