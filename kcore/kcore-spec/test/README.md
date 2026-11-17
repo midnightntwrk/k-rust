@@ -1409,6 +1409,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   the definition's (`badLaw_not_lawSorted`), whose sentence is the sentence of the same equation at
   the definition's sort of that name (`badLaw_pattern`), which `LawAt` refutes
   (`realLaw_not_lawAt`).
+- `test/FnUnitKompiled.lean`: the laws of a function on its kompiled text,
+  `f2-examples/e2-fn-assoc-unit.kompile.kore` (`pu(Int, Int) [function, total, assoc, unit(zero)]`,
+  `zero => 0`, `pu(A, B) => A +Int B`), on the literal `defn`, for every H: `defn.laws` is the
+  text's associativity law and its two unit laws (`laws_eq`), each `lawSorted`; by `pu`'s and
+  `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
+  `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
+  answering 1 the right unit law fails (`cOne_not_unitR`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
