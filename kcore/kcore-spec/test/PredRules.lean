@@ -299,4 +299,41 @@ example (hf : FnHyp c) (T : Config c → Config c → Prop) (hsub : ∀ x y, T x
 
 end ModelChoice
 
+/-! ## The instances of a step by a rule with a `post` (`KCore.famEx_closed_post`)
+
+  `rPost`: `Z => a(Z)` with post `Z ∈ b`, no existential variable. It is well sorted and its
+  `post` is not `\top`: `famEx_denPP` gives, in every model of `Γc`, that the instances of a step
+  by it at σ are its successor, from `Holds … post true` at σ; `famEx_closed_post` at the
+  definition. -/
+
+section FamExPost
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `Z => a(Z)` with post `Z ∈ b`. -/
+noncomputable def rPost : Rule :=
+  { vars := [sK, sC, 32], lhs := cfgE (.var 2), req := none, rhs := cfgE (tA (.var 2)), ens := none, prio := 50,
+    post := .mem 32 (.var 2) tB }
+
+theorem rPost_facts : c.ruleSorted rPost = true ∧ rPost.exs = [] ∧ rPost.post.isTop = false ∧
+    HoldsShape.hasBinder rPost.post = false := by
+  decide +kernel
+
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    {σ : Subst} (hσ : c.WellSorted rPost.vars σ) {y : Config c}
+    (heval : EvalTerm c σ rPost.rhs (some y.val)) (hpost : Holds c rPost.vars.length σ rPost.post true)
+    (e : ML.Valuation M) (m : M) :
+    (famEx c rPost σ).interpret I e m ↔ (den c y.val).interpret I e m :=
+  famEx_denPP coreOK rPost_facts.1 rPost_facts.2.1 (fun h => absurd h (by rw [rPost_facts.2.2.2]; decide))
+    hσ heval (fun t ht => by cases ht) hpost hI hcw e m
+
+example {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hex : r.exs = [])
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
+    Γc c ⊧ (famEx c r σ ≡ den c y.val) :=
+  famEx_closed_post c coreOK hs hex hcw
+
+end FamExPost
+
 end PredRules
