@@ -129,6 +129,21 @@ exactly those `Step` reaches within the mode's bound, given `CoherentAll`. For `
 is proved at the fixed fuel (a successor could be missed). The input must evaluate to a value of the
 top cell's sort (the theorems are about `Config c`).
 
+Whether a run read the interpretation of the parameters (DONE-0 C7 check 2, D-RN-1). The data
+`parse` gives carries the interpretation `HookParams.none`, and the evaluation reads it at three
+places only: a parameter applied to defined arguments, an interpreted symbol at a silent point where
+the hook gives no value, a function every clause of which fails (its rest). Each case is also
+judged with `Executable.atNone`, the executable step whose evaluation has no result at those places
+(as `Cert.evalTC` for `Exec`'s; KcoreGen.lean, the section "The run without the interpretation"),
+which a run treats as out of fuel. Where the two judgements differ, or a parameter is raw (its
+applications' sorts are the interpretation's), the run read the interpretation: its verdict holds at
+`HookParams.none` only and is named `agree-at-none` or `differ-at-none`, outside the counts of
+`agree` and `differ` (the summary counts it apart; exit 1 only on `differ`); the JSON field
+`interpretation` is `read` or `not read` for every `agree` or `differ`, and the reason says what the
+run without the interpretation gives. A case run anyway (`not-runnable`) carries the flagged verdict
+in its reason (`anyway:agree-at-none`). That `atNoneEvalT`'s results are `evalT`'s is not proved: a
+difference where nothing read the interpretation would flag a case wrongly, never pass one.
+
 - `test/agree-cases.py` builds `test/agree.jsonl` from the reference cache only (its docstring says
   how): kore-exec entries (input: the pattern, a K-rust fixture; needs `KRUST_CHECKOUT` when the
   entry's path is gone), and krun groups (program, `-c` options, definition) with a `--depth 0` run,

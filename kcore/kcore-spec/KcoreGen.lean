@@ -3040,9 +3040,123 @@ def Executable.noSucc (ex : Executable) (x : GroundTerm) : NoSucc :=
   else if ex.outOfFuel x then .fuel
   else .undef
 
+/-! ### The run without the interpretation
+
+The evaluation reads the interpretation of the parameters (`Semantics.hooks`) at three places and
+nowhere else: a parameter applied to defined arguments (`Semantics.paramVal`: one of `impl = none`,
+or a registry hook's silent point), an interpreted symbol at a silent point where `hook` gives no
+value (`Semantics.hookRes`, `fallback`), and a function every clause of which fails
+(`Semantics.fnRest`). `Executable.atNone` is the executable step with the evaluation that has no
+result there (`none`, as out of fuel: `Cert.hookResC`, `Cert.paramValC`, as `Cert.evalTC` does), and
+otherwise the same: the same matcher (`Exec`'s or `CExec`'s), overloading symbols as `CExec`
+evaluates them, the same order of clauses and the same fuel. A run made with it either reaches the
+judgement the run with the executable reaches (nothing it evaluated read the interpretation) or
+stops where a value is the interpretation's (an evaluation without a result is out of fuel to
+`runMode` and to `valueOf?`). `kcore agree` judges each case both ways; where the two judgements
+differ, the verdict is the one at the interpretation the data carries, `HookParams.none`, and is
+named so (`agree-at-none`, `differ-at-none`). Where some parameter is raw, the sorts (`sortOf`) read
+the interpretation too, and every verdict is so named. That `atNoneEvalT`'s results are `evalT`'s is
+not proved here (it is `Cert.evalTC_sound`'s statement for `Exec`'s evaluation); a judgement of the
+two runs that differs where nothing read the interpretation would flag a case wrongly, never pass
+one. -/
+
+mutual
+  /-- `Exec.evalT` (`ovl` false, `cms` `Exec.clauseMatches c`) or `CExec.evalT` (`ovl` true, `cms`
+  `CExec.clauseMatches c`), except that a value of the interpretation has no result. -/
+  def atNoneEvalT (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Subst → Term → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | _ + 1, σ, .var i => some (σ.lookup i)
+    | _ + 1, _, .dv s l => some (some (.dv s l))
+    | n + 1, σ, .inj a b t => (atNoneEvalT c ovl cms n σ t).map (·.map (injNormal a b))
+    | _ + 1, _, .as _ _ => none
+    | n + 1, σ, .app f ts => do
+      let rs ← atNoneEvalTs c ovl cms n σ ts
+      if c.isCtor f then pure ((allSome rs).map (.ctor f))
+      else if isHook f then match allSome rs with
+        | none => pure none
+        | some vs => Cert.hookResC f vs
+      else if c.isParam f then match allSome rs with
+        | none => pure none
+        | some vs => Cert.paramValC c f vs
+      else if ovl && c.isOvl f then pure ((allSome rs).map (c.norm f))
+      else match allSome rs with
+        | none => pure none
+        | some vs => atNoneEvalF c ovl cms n f vs
+  def atNoneEvalTs (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Subst → List Term → Option (List (Option GroundTerm))
+    | 0, _, _ => none
+    | _ + 1, _, [] => some []
+    | n + 1, σ, t :: ts => do pure ((← atNoneEvalT c ovl cms n σ t) :: (← atNoneEvalTs c ovl cms n σ ts))
+  def atNoneEvalF (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → Sym → List GroundTerm → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | n + 1, f, vs => do
+      let fn ← c.lookupFn f
+      atNoneFirstClause c ovl cms n vs (Exec.byPrio fn.clauses)
+  /-- `firstClause`, except that where every clause fails (the function's rest, the
+  interpretation's) there is no result. -/
+  def atNoneFirstClause (c : Semantics) (ovl : Bool) (cms : Clause → List GroundTerm → List Subst) :
+      Nat → List GroundTerm → List Clause → Option (Option GroundTerm)
+    | 0, _, _ => none
+    | _ + 1, _, [] => none
+    | n + 1, vs, cl :: rest =>
+      let vals := ((cl :: rest).takeWhile (·.prio == cl.prio)).flatMap fun cl' =>
+        (cms cl' vs).map fun σ =>
+          (cl', σ, match cl'.req with
+            | none => some true
+            | some t => (atNoneEvalT c ovl cms n σ t).map Exec.isTrue)
+      match vals.findSome? fun (cl', σ, b) => if b == some true then
+          (match (match cl'.ens with
+            | none => some true
+            | some t => (atNoneEvalT c ovl cms n σ t).map Exec.isTrue) with
+          | some true => atNoneEvalT c ovl cms n σ cl'.rhs
+          | some false => some none
+          | none => none)
+        else none with
+      | some r => some r
+      | none =>
+        if vals.all (·.2.2 == some false) then
+          atNoneFirstClause c ovl cms n vs ((cl :: rest).dropWhile (·.prio == cl.prio))
+        else none
+end
+
+/-- The executable step `ex` with the evaluation that has no result where a value is the
+interpretation's: `rms` lists a rule's matches at a configuration (the step's matcher), `ovl` and
+`cms` as in `atNoneEvalT`; the successors as `Exec.successorsN` lists them (each once, as
+`CExec.successors`, with `dedup`). -/
+def Executable.atNone (ex : Executable) (c : Semantics) (ovl dedup : Bool)
+    (cms : Clause → List GroundTerm → List Subst) (rms : Rule → GroundTerm → List Subst) : Executable :=
+  let ev := atNoneEvalT c ovl cms Exec.fuel
+  let isT := fun (o : Option (Option GroundTerm)) => o.map Exec.isTrue
+  let rm := fun (x : GroundTerm) => c.rules.map fun r => (r, (rms r x).map fun σ =>
+    (σ, match r.req with | none => some true | some t => isT (ev σ t)))
+  let ens := fun (r : Rule) (σ : Subst) => match r.ens with | none => some true | some t => isT (ev σ t)
+  let succ := fun (x : GroundTerm) =>
+    let applying := (rm x).filter fun (_, l) => l.any fun (_, b) => b != some false
+    let ys := match (applying.map (·.1.prio)).min? with
+      | none => []
+      | some p => (applying.filter (·.1.prio == p)).flatMap fun (r, l) =>
+        l.filterMap fun (σ, b) =>
+          if b == some true then match ev σ r.rhs with
+            | some (some y) => if c.sortOf y == some topCellSort && ens r σ == some true then some y else none
+            | _ => none
+          else none
+    if dedup then ys.foldl (fun acc y => if acc.any (Exec.same · y) then acc else acc ++ [y]) [] else ys
+  { name := ex.name, successors := succ, evalT := ev [], ruleMatches := rm, evalRhs := ev }
+
+/-- `CExec` without the interpretation. -/
+def Executable.cexecAtNone (c : Semantics) : Executable :=
+  (Executable.cexec c).atNone c true true (CExec.clauseMatches c) fun r x => CExec.cmatch c r.vars [r.lhs] [x]
+
+/-- `Exec` without the interpretation. -/
+def Executable.execAtNone (c : Semantics) : Executable :=
+  (Executable.exec c).atNone c false false (Exec.clauseMatches c) fun r x =>
+    (Exec.matchP c (Exec.patFuel [r.lhs]) [] r.lhs x).filter (Exec.wellSorted c r.vars)
+
 /-- What `kcore agree` says of the executables, once per run. -/
 def agreeNote : String :=
-  "CExec runs where CExec.execReady holds (CExec.step_iff), Exec where only ok, srReady and matchReady hold (Exec.step_iff_of_ok); both theorems take CoherentAll, not checked here. At the fixed fuel Exec.fuel: every successor listed is a Step successor (CExec.successorsN_sound); for CExec the listed successors are exactly the Step successors at every configuration a run expands, since a run stops (not-runnable) at one where CExec.outOfFuel holds (CExec.step_iff_at, given CoherentAll); for Exec only soundness is proved, and a successor could be missed. search-final: the finals are the reached configurations at which no rule applies (N: every match the step lists of every rule has its requires false or undefined; CExec.noRule_of_ruleMatches gives NotApplies for every rule, at any fuel, from execReady alone; conversely CExec.noRule_iff, CExec.noRule_iff_at given CoherentAll), compared with the expected; those at which a rule applies (a listed match with requires true: CExec.applies_of_ruleMatches, CExec.not_notApplies_of_ruleMatches) with no Step successor (CExec.noStep_at, given CoherentAll) (U) are printed apart (undefined), not compared. Not checked here: CoherentAll; the input's evaluation and the expected's are sound at the fixed fuel (evalT_sound)"
+  "CExec runs where CExec.execReady holds (CExec.step_iff), Exec where only ok, srReady and matchReady hold (Exec.step_iff_of_ok); both theorems take CoherentAll, not checked here. At the fixed fuel Exec.fuel: every successor listed is a Step successor (CExec.successorsN_sound); for CExec the listed successors are exactly the Step successors at every configuration a run expands, since a run stops (not-runnable) at one where CExec.outOfFuel holds (CExec.step_iff_at, given CoherentAll); for Exec only soundness is proved, and a successor could be missed. search-final: the finals are the reached configurations at which no rule applies (N: every match the step lists of every rule has its requires false or undefined; CExec.noRule_of_ruleMatches gives NotApplies for every rule, at any fuel, from execReady alone; conversely CExec.noRule_iff, CExec.noRule_iff_at given CoherentAll), compared with the expected; those at which a rule applies (a listed match with requires true: CExec.applies_of_ruleMatches, CExec.not_notApplies_of_ruleMatches) with no Step successor (CExec.noStep_at, given CoherentAll) (U) are printed apart (undefined), not compared. Not checked here: CoherentAll; the input's evaluation and the expected's are sound at the fixed fuel (evalT_sound). A verdict whose run read the interpretation of the parameters (a parameter's value, a silent point, a function's rest; or a raw parameter's sort: the same run with the evaluation that has no result there, Executable.atNone, judges otherwise) is agree-at-none or differ-at-none, a verdict at HookParams.none only, counted apart from agree and differ"
 
 
 /-- The names `Parse.term` reads a definition's patterns with, from its semantics: its own sorts
@@ -3251,6 +3365,18 @@ def judge (c : Semantics) (ex : Executable) (cs : Case) :
       else ("differ", s!"{pre}{zs.length} configurations by KCore, {ys.length} expected; {(zs.filter fun z => !ys.any (Exec.same z ·)).length} of KCore's not expected, {(ys.filter fun y => !zs.any (Exec.same y ·)).length} expected not KCore's{post}",
         zs.map pr, ys.map pr, us.map pr)
 
+/-- Whether a case's judgement `j` (by `ex`) read the interpretation of the parameters: `none` where
+the run without it (`Executable.atNone`) gives the same judgement, else what that run gives. Every
+judgement on a semantics with a raw parameter reads it (its sorts are the interpretation's). -/
+def atNoneReading (c : Semantics) (ex : Executable) (cs : Case)
+    (j : String × String × List String × List String × List String) : Option String :=
+  if c.params.any (·.raw) then some "a parameter is raw: its applications' sorts are the interpretation's"
+  else
+    let exN := if ex.name == "CExec" then Executable.cexecAtNone c else Executable.execAtNone c
+    let j' := judge c exN cs
+    if j' == j then none
+    else some s!"without it the run gives {j'.1}{if j'.2.1.isEmpty then "" else s!": {j'.2.1}"}"
+
 /-- `kcore agree CASES.jsonl...`: first a line `{"note"}` (`agreeNote`: what is proved of the
 executables), then one JSON line per case, `{"id", "verdict", "executable", "reason", "kcore",
 "expected", "undefined"}`, `executable` the step whose result the verdict compares (`CExec` or `Exec`; empty when the verdict
@@ -3264,8 +3390,12 @@ evaluation is undefined is no configuration, and its result is empty in every mo
 disjunct `\and(p, φ)`, φ a condition (`\ceil`, `\equals`, `\not`, `\and`), is `p`'s value where φ
 holds and nothing where it does not (`condHolds`).
 In `search-final`, `kcore` is the reached configurations at which no rule applies and `undefined`
-those at which a rule applies but no successor is listed (`runMode`), which are not compared. Exit 1
-when a case differs. -/
+those at which a rule applies but no successor is listed (`runMode`), which are not compared.
+Each `agree` or `differ` says in `interpretation` whether the run read the interpretation of the
+parameters (`read`, `not read`; `atNoneReading`): where it did, the verdict is `agree-at-none` or
+`differ-at-none`, a judgement at `HookParams.none` only, outside the counts of `agree` and `differ`
+(the summary counts it apart), and the reason says what the run without the interpretation gives.
+Exit 1 when a case differs and the run read no interpretation. -/
 def agree (files : List String) : IO UInt32 := do
   let mut defs : Std.HashMap String (Except String (Semantics × Executable × Option String)) := {}
   let mut counts : Std.HashMap String Nat := {}
@@ -3279,20 +3409,27 @@ def agree (files : List String) : IO UInt32 := do
         | .ok cs => pure cs
         | .error e => IO.eprintln s!"{f}: {e}"; return 2
       if !defs.contains cs.definition then defs := defs.insert cs.definition (← runnable cs.definition)
-      let (verdict, exName, reason, mine, theirs, undef) := match defs.getD cs.definition (.error "") with
-        | .error e => ("not-runnable", "", e, [], [], [])
+      let (verdict, exName, reason, mine, theirs, undef, interp) := match defs.getD cs.definition (.error "") with
+        | .error e => ("not-runnable", "", e, [], [], [], "")
         | .ok (c, ex, none) =>
-          let (v, r, m, t, u) := judge c ex cs
-          (v, if v == "agree" || v == "differ" then ex.name else "", r, m, t, u)
+          let j := judge c ex cs
+          let (v, r, m, t, u) := j
+          if v == "agree" || v == "differ" then
+            match atNoneReading c ex cs j with
+            | none => (v, ex.name, r, m, t, u, "not read")
+            | some w => (v ++ "-at-none", ex.name, s!"{r}; the run read the interpretation of the parameters, so the verdict is at HookParams.none ({w})", m, t, u, "read")
+          else (v, "", r, m, t, u, "")
         | .ok (c, ex, some why) =>
-          let (v, r, m, t, u) := judge c ex cs
-          ("not-runnable", "", s!"{why}; run anyway with {ex.name}: {v}{if r.isEmpty then "" else s!" ({r})"}", m, t, u)
+          let j := judge c ex cs
+          let (v, r, m, t, u) := j
+          let v := if (v == "agree" || v == "differ") && (atNoneReading c ex cs j).isSome then v ++ "-at-none" else v
+          ("not-runnable", "", s!"{why}; run anyway with {ex.name}: {v}{if r.isEmpty then "" else s!" ({r})"}", m, t, u, "")
       counts := counts.insert verdict (counts.getD verdict 0 + 1)
       IO.println (Lean.Json.compress (Lean.Json.mkObj [("id", cs.id), ("verdict", verdict),
-        ("executable", exName), ("reason", reason), ("kcore", jsonStrs mine), ("expected", jsonStrs theirs), ("undefined", jsonStrs undef)]))
+        ("executable", exName), ("interpretation", interp), ("reason", reason), ("kcore", jsonStrs mine), ("expected", jsonStrs theirs), ("undefined", jsonStrs undef)]))
       (← IO.getStdout).flush
   IO.println (Lean.Json.compress (Lean.Json.mkObj [("summary", Lean.Json.mkObj
-    (["agree", "differ", "not-runnable", "no-reference"].map fun v => (v, Lean.Json.num (counts.getD v 0))))]))
+    (["agree", "differ", "agree-at-none", "differ-at-none", "not-runnable", "no-reference"].map fun v => (v, Lean.Json.num (counts.getD v 0))))]))
   return if counts.getD "differ" 0 > 0 then 1 else 0
 
 /-- Whether `CoherentAll c` is decided on the data: where `coreOK` holds and the deciders name no

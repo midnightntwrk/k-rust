@@ -1,3 +1,4 @@
+# counts (kcore agree's summary): agree 2, agree-at-none 0, differ 0, differ-at-none 0, no-reference 0, not-runnable 24
 not-runnable kore-exec/symbolic-owise:f-X:reference/4acb7d81
 not-runnable kore-exec/symbolic-collection-frames:pgm-set:reference/226a7fff
 not-runnable kore-exec/collection-and-injection-narrowing:set-frame:reference/8564c63a
