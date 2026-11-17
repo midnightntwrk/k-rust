@@ -544,9 +544,12 @@ theorem not_allFail {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm} (hs
     · simp at hs'
   have hpv : PatVals c [(0, v)] cl.pats [v] := by
     rw [isVar0_spec hpats]; exact .cons (.var rfl) .nil
-  obtain ⟨ht, -, -⟩ := hf [(0, v)] hws hpv
   rw [Option.isNone_iff_eq_none] at hreq
-  rw [hreq] at ht; cases ht
+  cases hf [(0, v)] hws hpv with
+  | intro ht _ _ => rw [hreq] at ht; cases ht
+  | pre h =>
+    rw [Semantics.sortedOK_preTop sortedOK fn hfn cl hcl] at h
+    cases h
 
 theorem satI_fallback {φ : KoreAML.P} (h : ΓFallback c φ) : I ⊧ᴵ φ := by
   rcases h with ⟨k, vs, hk, hs, hh, hsil, rfl⟩ | ⟨fn, vs, hfn, hs, hall, rfl⟩
