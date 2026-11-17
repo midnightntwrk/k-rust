@@ -15,7 +15,7 @@ syn30/syn100 and the ties of every example package but peano are retired (sectio
 | No text read clean with `wf` false: `kcore account` over the corpus's extracted texts, the f2-examples and any paths given; a text the reader and the account refuse nothing of whose `wf` is false is listed with its failing conjuncts and `coreOK`'s | `test/wfclean.py` | `python3 -I test/wfclean.py -j 4 [PATH...]` (exit 1 when one is listed) | 1 min |
 | The native round trip: `parse`, `emit`, compared with the text up to sentence order (the tie's `Reordered defn.emit kore`), modulo exactly the sentences classified `readAs` or `unread` | `kcore roundtrip KORE` (KcoreGen.lean) | `.lake/build/bin/kcore roundtrip f2-examples/prio.kore`; all texts against `test/roundtrip.expected`: `test/roundtrip.sh` | 3.5 s for 60 texts |
 
-Now 130 texts: 24 `exact`, 87 `differs`, 19 `cannot` (`test/roundtrip.expected`; syn30's and syn100's
+Now 141 texts: 24 `exact`, 96 `differs`, 21 `cannot` (`test/roundtrip.expected`; syn30's and syn100's
 inputs, two `exact`, left with their packages). The first measurement, over 60 texts (the
 f2-examples and every package's `NAME/definition.kore`):
 26 `exact` (krust's texts the ties are built from: colls-list, fprio, imp, imp-sec, imp-sec-leaky,
@@ -26,7 +26,8 @@ attributes, kompile's projection axioms; about 200 sentences each way), and coll
 the collection sort's own declaration and the cell symbols' `cell` attribute are not emitted as
 written); 6 `cannot`: refused by `parse` (ens-owise ensuresPriority, fprio-refused twice
 owisePriority, parsym-app parametricSymbol, rsn registrySortName) and
-imp-programs.kore, which is not a definition. No text is `modulo`: each text with a `readAs` or
+imp-programs.kore, which is not a definition (ens-owise and parsym-app are read since, and are
+`differs`). No text is `modulo`: each text with a `readAs` or
 `unread` sentence also differs elsewhere.
 
 A pin fails on a change of meaning: checked by mutating the restated body (swapping the step's

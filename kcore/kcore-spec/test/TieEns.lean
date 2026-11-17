@@ -743,6 +743,9 @@ theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
      ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("no direction", 36)] := by
   decide +kernel
 
+/-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
+theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
+
 /-- The class lists agree with the lists the class theorems are stated over: the function
 equations are `fnText`'s, the rule is 155, the no-junk sentences are the three trivial ones and
 the eight over generators, the refuted one is 61. -/
@@ -758,6 +761,16 @@ theorem account_absent : userAxioms.all (fun ad =>
     (classOf "no direction").contains ad.index !=
       (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
   rw [userAxioms_eq]; decide +kernel
+
+/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
+so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
+`kernelSyms` (`coreOK` keeps the name from them) and is Γ's all the same: the constructor items
+state it for each subsort pair. -/
+theorem absent_closed :
+    (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
+      (fun ad => (symbolsOf ad.ax.pattern).all
+        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+  tieAbsent_of_account userAxioms _ _ account_absent
 
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
 
@@ -790,7 +803,7 @@ theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS
 /-! ## The tie's statement definitions on this text
 
 `AtValues` and `EntailsAtValues` at sentence 166, `symbolsOf` at the rule, `surplusItem` at two sort
-constants, `attrsAgree` at the whole text. -/
+constants, `attrsAgree` at the whole text, with the pairing of the function sentences' priorities. -/
 
 theorem shapesOK_c : c.shapesOK = true := by decide +kernel
 
@@ -831,9 +844,15 @@ whose sort constant is not. -/
 theorem surplus_float : surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.float)) = true ∧
     surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.int)) = false := by decide +kernel
 
-/-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,
-collection symbols, priorities. -/
-theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities. -/
+theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
+
+/-- The priority each function sentence's attributes state is the priority of the clause whose
+item is the sentence's translation (`fn_shape`), item by item in `fnItems`'s order: `attrsAgree`
+compares a function's priorities up to order, this pairs them. -/
+theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
+    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
 
 /-! ## The registry family: a String literal's value item
 
@@ -904,7 +923,9 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.lib166
 #print axioms KCore.TieEns.absent_syms
 #print axioms KCore.TieEns.lib166_at_values
-#print axioms KCore.TieEns.defs_attrsAgree
+#print axioms KCore.TieEns.attrs_agree
+#print axioms KCore.TieEns.fn_prios
+#print axioms KCore.TieEns.absent_closed
 #print axioms KCore.TieEns.strItem_registry
 #print axioms KCore.TieEns.account
 #print axioms KCore.TieEns.account_absent
