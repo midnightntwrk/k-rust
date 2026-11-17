@@ -2,7 +2,7 @@ id = "c37-keq"
 kind = "case"
 subject = "==K and =/=K: a value reached through a subsort against the same value written at its own sort, values of one sort and of two sorts, maps built in two orders, and maps that differ in one value."
 retro = ["H2"]
-rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t16-match-inj", "kk:t32-keq-ite", "kk:t34-collection-values", "kk:t36-map-concat"]
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t16-match-inj", "kk:t32-keq-ite", "kk:t34-collection-values", "kk:t36-map-concat", "kk:t228-ctor-distinct"]
 
 [text]
 files = ["def.k", "pgm"]
@@ -15,7 +15,7 @@ reason = """
 (1) A ==K B is true where A and B denote one element and false where they denote two; A =/=K B is notBool (A ==K B) (domains.md:2312-2313, 2355; kk:t32-keq-ite).
 (2) go(1, M, N), with M = 1 |-> 2 3 |-> 4 and N = 3 |-> 4 1 |-> 2: the one rule matches with V = 1 injected into Val and applies (kk:t01-rule-applies).
 (3) V ==K 1: V is 1 injected into Val, and both sides are taken into K by injections; the injection of an element through Val is its direct injection (prelude.kore:50-51; kk:t16-match-inj), so both denote the injection of 1: true. V =/=K 1 is false.
-(4) a(1) ==K b(1): two terms of two productions of Val, a and b, that are not equal and that no sentence of def.k equates: false. V ==K a(1): 1 injected into Val against a(1): an Int against a term built by a, which is no Int (user_manual.md:1372-1374), so they are not equal: false.
+(4) a(1) ==K b(1): a and b are constructor productions of Val, and no element of Val is both an a(m) and a b(n) (kk:t228-ctor-distinct), so a(1) and b(1) are not equal: false. V ==K a(1): 1 injected into Val against a(1): an Int against a term built by a, which is no Int (user_manual.md:1372-1374), so they are not equal: false.
 (5) M and N have the same pairs, so they denote one map (kk:t34-collection-values, kk:t36-map-concat): M ==K N is true and M =/=K N false. N[1 <- 5] inserts the pair 1 |-> 5 into N (domains.md:286-287), at most one value standing at a key (domains.md:223-225): it is the map of 3 |-> 4 and 1 |-> 5, which differs from M at key 1, so M ==K N[1 <- 5] is false.
 (6) The right side denotes r(true, false, false, false, true, false, false) (kk:t10-fn-innermost); go(...) has that one successor (kk:t02-step-successors), and no rule's left side matches r(...), which is final (kk:t06-final-configuration). The final configurations are that one."""
 

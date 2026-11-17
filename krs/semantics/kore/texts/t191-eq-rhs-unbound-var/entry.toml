@@ -3,7 +3,7 @@ kind = "text"
 subject = "A function equation whose right side holds a variable no argument binds, allowed by unboundVariables, under a constructor: f() => c(Y:Int) [unboundVariables(Y)]. What the equation states of f()."
 retro = ["F4"]
 origin = "kcore-spec fixture e2-clause-rhs-int"
-rests_on = ["kk:t11-eq-applies"]
+rests_on = ["kk:t11-eq-applies", "kk:t228-ctor-distinct"]
 
 [text]
 files = ["t191-eq-rhs-unbound-var.k"]
@@ -17,7 +17,7 @@ statement = "The equation has an instance for every integer y and states f() = c
 reason = """
 (1) unboundVariables lists variables that may be unbound in the rule, so that it passes the unbound-variable check (user_manual.md:1513-1516); the manual describes such a rule as standing for an instance of the rule for every value of the variable (user_manual.md:2531-2538, rand() => I:Int for every integer).
 (2) An equation states its right side at the arguments its patterns denote (kk:t11-eq-applies): here, for every integer y, f() = c(y).
-(3) f is declared function: it has at most one value (user_manual.md:540-544). c is a constructor of T: c(0) and c(1) are two terms of it that no sentence equates. So f() = c(0) and f() = c(1) cannot both hold, and the text has no model."""
+(3) f is declared function: it has at most one value (user_manual.md:540-544). c is a constructor of T, and a constructor at different arguments builds different elements (kk:t228-ctor-distinct): c(0) and c(1) are two elements of T. So f() = c(0) and f() = c(1) cannot both hold, and the text has no model."""
 
 [[ruling.basis]]
 source = "manual"

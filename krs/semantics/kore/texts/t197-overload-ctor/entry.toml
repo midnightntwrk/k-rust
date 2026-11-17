@@ -3,7 +3,7 @@ kind = "text"
 subject = "Two overloaded constructor productions, sum(Exp, Int) and sum(Exp, Exp): whether sum(e, i) built by the first is the term sum(e, i) built by the second at an injected integer, or another term."
 retro = ["F9"]
 origin = "kcore-spec fixture c3-anywhere-ctor"
-rests_on = ["kk:t16-match-inj"]
+rests_on = ["kk:t16-match-inj", "kk:t228-ctor-distinct"]
 
 [text]
 files = ["t197-overload-ctor.k"]
@@ -14,8 +14,8 @@ frontend = "manual-silent"
 status = "unsettled"
 reason = """
 (1) The two productions carry overload(sum), and (Exp, Exp, Int) is below (Exp, Exp, Exp) elementwise: sumEI is the more specific overload of sumEE, and a term from sumEI is a restriction of one from sumEE (user_manual.md:381-390). That says sumEI(e, i) is sumEE(e, i) at the injected i.
-(2) Both productions are constructors, and the manual says nothing more of two constructor productions in an overload pair: no sentence states that they build different terms, and none that the restriction makes one term of two constructors.
-(3) The kompiled text states both: that sumEE(e, inj(i)) = sumEI(e, i), and that no element is both a sumEE and a sumEI ([ruling.kore]). Since Exp and Int have elements, those two sentences have no common model. The text does not say which gives way. The readings below differ in which holds."""
+(2) Both productions are constructors. Of two constructors of one sort the tutorial says that each is logically distinct from the other (kk:t228-ctor-distinct, which leaves overloaded productions out of its scope for this reason): read that way, sumEE and sumEI build different terms. No sentence says which of the two sentences, the overload restriction of (1) or the distinctness of constructors, gives way in an overload pair.
+(3) The kompiled text states both as well: that sumEE(e, inj(i)) = sumEI(e, i), and that no element is both a sumEE and a sumEI ([ruling.kore]). Since Exp and Int have elements, those two sentences have no common model. The text does not say which gives way. The readings below differ in which holds."""
 
 [[ruling.basis]]
 source = "manual"

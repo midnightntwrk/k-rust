@@ -1,0 +1,60 @@
+id = "t228-ctor-distinct"
+kind = "text"
+subject = "Two constructor productions of one sort, a(Int) and b(Int): whether a term built by a is ever the element a term built by b is, and whether a(m) and a(n) at different integers are one element."
+
+[text]
+files = ["t228-ctor-distinct.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "a and b are constructors of T. For all integers m and n, a(m) and b(n) are different elements of T, and a(m) and a(n) are different elements where m and n are different integers (b alike). So two terms of T built by constructors denote one element only where they are built by the same constructor from arguments that denote the same elements. The entry speaks of constructor productions that carry no attribute stating equations among their terms (assoc, comm, idem, unit), no overload attribute and no anywhere rule; what holds of those is not ruled here."
+reason = """
+(1) A production without the function attribute is a constructor production; one with it is a function production (README.md:152-155 of the tutorial's lesson 1.2). a(Int) and b(Int) carry no function attribute: both are constructors of T.
+(2) A constructor is logically distinct from any other constructor of the same sort (README.md:105-106 of lesson 1.13): no element of T is both an a(m) and a b(n).
+(3) The same sentence sets constructors against functions: a function does not necessarily have that restriction unless it is injective, so two function symbols with different arguments may produce the same value and compare equal (README.md:105-108 of lesson 1.13). What it denies of constructors is that: a constructor at different arguments does not produce the same value. That is the no-confusion property of a constructor with itself, which matching logic states as c(x) and c(y) meeting only in c(x and y), the conjunction of two elements being empty where they differ (introduction-to-matching-logic.tex:1017-1027). So a(m) and a(n) are different elements where m and n differ.
+(4) The scope. Where a production carries assoc, comm, idem or unit, K generates the axioms of those concepts into the definition (user_manual.md:958-963), which equate terms built differently; a symbol with anywhere rules is a constructor only modulo the axioms those rules define (lesson 2.1, README.md:130-132); an overloaded production is a restriction of another (user_manual.md:381-390). (2) and (3) are not read beyond the constructors that have none of these (kk:t100-ctor-unit, kk:t104-kseq-attributes and kk:t197-overload-ctor speak of them)."""
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/02_basics/README.md:152-155 (K 7.1.337)"
+quote = "Most of productions above are **constructor** productions (e.g., `Yellow()`, `Blue()`, or `Blueberry()`), while the last one is a **function** production (`colorOf(Fruit) [function]`). It's easy to distinguish the two as the latter production has additional attribute `function`."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:105-110 (K 7.1.337)"
+quote = "While a constructor is logically distinct from any other constructor of the same sort, and can be matched against unconditionally, a function does not necessaraily have the same restriction unless it happens to be an injective function. Thus, two function symbols with different arguments may still ultimately produce the same value and thus compare equal to one another."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1017-1027 (K 7.1.337)"
+quote = '''\item[No confusion, same constructor:] For any $1\leq i\leq n$, $A$ contains or entails $$ c_i(x_i^1,\dots,x_i^{m_i}) \wedge c_i(y_i^1,\dots,y_i^{m_i}) \ra c_i(x_i^1 \wedge y_i^1,\dots,x_i^{m_i}\wedge y_i^{m_i}) $$ This states that each element is constructed in a unique way. That follows because for any two variables $x$ and $y$ of same sort, $x \wedge y$ is interpreted as either a singleton set when $x$ and $y$ are interpreted as the same element, or as the empty set otherwise.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/2_intermediate/01_macros/README.md:130-132 (K 7.1.337)"
+quote = "The reasoning behind this is that instead of the symbol in question being a constructor, it is a constructor *modulo* the axioms defined with the `anywhere` attribute."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:381-390 (K 7.1.337)"
+quote = "That is, a term from production `P` is a restriction of one from production `Q`; when its arguments are more precise, we can give the result a more precise sort."
+
+[[observe]]
+file = "kore.txt"
+contains = "axiom{}\\not{SortT{}} (\\and{SortT{}} (Lbla{}(X0:SortInt{}), Lblb{}(Y0:SortInt{}))) [constructor{}()] // no confusion different constructors"
+
+[[observe]]
+file = "kore.txt"
+contains = "axiom{}\\implies{SortT{}} (\\and{SortT{}} (Lbla{}(X0:SortInt{}), Lbla{}(Y0:SortInt{})), Lbla{}(\\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}))) [constructor{}()] // no confusion same constructor"
+
+[[note]]
+implementation = "kompile"
+text = "kompile writes the two no-confusion sentences of the ruling as axioms (kore.txt:60, 62, 68), and also a no-junk axiom, every element of T an a(x) or a b(x) (kore.txt:86), which no sentence of the K text this entry cites states and which the ruling does not use."
