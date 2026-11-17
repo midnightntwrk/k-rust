@@ -1183,3 +1183,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
+  hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
+  `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
+  sentence has a model (`consistent_with_laws`): `pl` under every interpretation, `pk` under
+  addition, `mx` under the first argument. `lawSorted` refuses a law over a sort that is none of
+  the definition's (`badLaw_not_lawSorted`), whose sentence is the sentence of the same equation at
+  the definition's sort of that name (`badLaw_pattern`), which `LawAt` refutes
+  (`realLaw_not_lawAt`).
