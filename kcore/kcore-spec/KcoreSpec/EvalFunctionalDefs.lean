@@ -331,12 +331,44 @@ def MatchIndependentAll (c : Semantics) : Prop :=
 def FnDet (c : Semantics) : Prop :=
   ∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r'
 
-/-- **Evaluation solves the equations**: where a clause decides at argument values of its
-function's sorts, the values of the function there are the values of that clause's right-hand
-side where its `ensures` evaluates to `true`. -/
+/-- **Evaluation solves the equations**: where a clause decides under σ at argument values of its
+function's sorts, the values of the function there are the values the instances of that clause's
+right side give (`Clause.Gives`: the right-hand side's value where the `ensures` evaluates to `true`
+and the predicate `post` is true), the instances being at the well-sorted σ' that are σ off the
+existential variables the left side does not hold. -/
 def FnSolves (c : Semantics) : Prop :=
   ∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
     cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
-      EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))
+      ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v
+
+/-- Without existential variables and with the right side's predicate `\top`, the instances of a
+clause's right side at a well-sorted σ that give `v` are the one at σ: its right-hand side has the
+value `v` and its `ensures` evaluates to `true`. -/
+theorem Clause.gives_iff_noExs {c : Semantics} {cl : Clause} (hex : cl.exs = []) (hpost : cl.post = .top)
+    {σ : Subst} (hσ : c.WellSorted cl.vars σ) (v : GroundTerm) :
+    (∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v) ↔
+      EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
+  have hf : cl.exsFree = [] := Clause.exsFree_nil hex
+  constructor
+  · rintro ⟨σ', ha, -, hr, he, -⟩
+    rw [hf] at ha
+    exact ⟨EvalTerm.congr hr fun i _ => ha i List.not_mem_nil,
+      fun t ht => EvalTerm.congr (he t ht) fun i _ => ha i List.not_mem_nil⟩
+  · rintro ⟨hr, he⟩
+    exact ⟨σ, AgreeOff.refl _ _, hσ, hr, he, by rw [hpost]; exact .top⟩
+
+/-- Where no clause of a function of the definition has an existential variable and every right
+side's predicate is `\top`, `FnSolves` says that where a clause decides, the values of the function
+are the values of that clause's right-hand side where its `ensures` evaluates to `true`. -/
+theorem fnSolves_iff_noExs {c : Semantics}
+    (hx : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) :
+    FnSolves c ↔
+      ∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+        cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+          EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) :=
+  ⟨fun h fn hfn vs hvs cl hcl σ hdec v => (h fn hfn vs hvs cl hcl σ hdec v).trans
+      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2 hdec.1.1 v),
+    fun h fn hfn vs hvs cl hcl σ hdec v => (h fn hfn vs hvs cl hcl σ hdec v).trans
+      (Clause.gives_iff_noExs (hx fn hfn cl hcl).1 (hx fn hfn cl hcl).2 hdec.1.1 v).symm⟩
 
 end KCore

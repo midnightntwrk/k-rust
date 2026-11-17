@@ -4,14 +4,16 @@
   head (kcore-symbolic 7ba0ebed): under `coreOK`, `FnSolves` gives `FnDet` (`fnDet_of_fnSolves`),
   kernel-checked here. Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
 
-  Scope. The proof reads the block as it is here: `Eval` has the constructors `clause`, `rest`,
-  `ensFails`, reads no `post` or `exs`, and every term is strict (undefined where an argument is).
-  It reads `Clause.pre` (a premise of `clause` and `ensFails`, and `ReqFails.pre`), which `coreOK`
-  makes `\top` on every clause of every function (`sortedOK_preTop`), so that premise holds and
-  that failure does not occur. A core check that admits another `pre` (a `Cond` whose `Holds` has
-  `ceil` and `not`, so that a premise can hold because a term is undefined), or a unit that changes
-  the block (CE's `clauseEx`, `exNone`), can make a witness possible; the recursor call below stops
-  elaborating when the block changes, which is the signal to decide the ticket again on the new block.
+  Scope. The proof reads the block as it is here: every term is strict (undefined where an argument
+  is), and `coreOK` leaves no clause an existential variable and makes every clause's `pre` and
+  `post` `\top` (`sortedOK_plainCl`, `sortedOK_preTop`). So `Eval.clauseEx` and `Eval.exNone` do
+  not occur, `FnSolves` is read as the value of the deciding clause's right-hand side where its
+  `ensures` is `true` (`Clause.gives_iff_noExs`), the premise on `Clause.pre` (of `clause` and
+  `ensFails`) holds and the failure `ReqFails.pre` does not occur. A core check that admits
+  existential variables or another `pre` (a `Cond` whose `Holds` has `ceil` and `not`, so that a
+  premise can hold because a term is undefined) can make a witness possible; the recursor call below
+  stops elaborating when the block changes, which is the signal to decide the question again on the
+  new block.
 
   The argument, by one induction over the evaluation block (`Eval.rec`), shows of every result `r`
   of a function at `vs` that any value `some w` there is `r` (`V1`), and of every term's result
@@ -261,6 +263,12 @@ variable (h : c.coreOK = true) (hs : FnSolves c)
 include h hs
 
 omit hs in
+/-- No clause of a function has an existential variable. -/
+theorem exs_nil {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause} (hmem : cl ∈ fn.clauses) :
+    cl.exs = [] :=
+  (Semantics.sortedOK_plainCl (Semantics.coreOK_parts h).1 fn (lookupFn_spec hfn).1 cl hmem).1
+
+omit hs in
 /-- A clause of a user function whose patterns denote `vs` under a well-sorted σ: `vs` is of the
 function's sorts. -/
 theorem sortsOf_of_match {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl ∈ fn.clauses)
@@ -290,8 +298,10 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     cases r' with
     | none => cases hsm
     | some w =>
-      have hw := (hs fn hu vs (sortsOf_of_match h hu hmem hσ hmatch) cl hmem σ hdec w).mp
-        (by rw [hlab]; exact h')
+      have hpl := Semantics.sortedOK_plainCl (Semantics.coreOK_parts h).1 fn hall cl hmem
+      have hw := (Clause.gives_iff_noExs hpl.1 hpl.2 hσ w).mp
+        ((hs fn hu vs (sortsOf_of_match h hu hmem hσ hmatch) cl hmem σ hdec w).mp
+          (by rw [hlab]; exact h'))
       exact ihrhs _ hw.1 rfl
   · -- a sort predicate
     obtain ⟨hsh, hpr⟩ := sortPred_shape hp
@@ -305,7 +315,7 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
         | intro ht _ _ => rw [hq] at ht; cases ht
         | pre hh => rw [hT cl hmem] at hh; exact absurd (Holds.top_eq hh) (by simp)
     cases h' with
-    | @clause _ _ _ cl' σ' _ hfn' hmem' hσ' hmatch' hreq' _ hprio' hrhs' hens' =>
+    | @clause _ _ _ cl' σ' _ hfn' hmem' hσ' hmatch' hreq' _ hprio' _ hrhs' hens' _ =>
       rw [hfn] at hfn'; cases hfn'
       obtain ⟨hq', -, ha', b', hb'⟩ := hsh cl' hmem'
       rcases Nat.lt_trichotomy cl'.prio cl.prio with hlt | heq | hgt
@@ -318,6 +328,8 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
       rw [hfn] at hfn'; cases hfn'
       exact absurd (hnone cl hmem) nf
     | ensFails => cases hsm
+    | clauseEx hfn' hmem' _ _ _ _ _ hne' => exact absurd (exs_nil h hfn' hmem') hne'
+    | exNone => cases hsm
 
 theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {t : Term} {w : Option GroundTerm}
@@ -335,8 +347,10 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     cases r' with
     | none => cases hsm
     | some v =>
-      have hv := (hs fn hu vs (sortsOf_of_match h hu hmem hσ hmatch) cl hmem σ hdec v).mp
-        (by rw [hlab]; exact h')
+      have hpl := Semantics.sortedOK_plainCl (Semantics.coreOK_parts h).1 fn hall cl hmem
+      have hv := (Clause.gives_iff_noExs hpl.1 hpl.2 hσ v).mp
+        ((hs fn hu vs (sortsOf_of_match h hu hmem hσ hmatch) cl hmem σ hdec v).mp
+          (by rw [hlab]; exact h'))
       exact absurd (ihe _ (hv.2 t ht) rfl) hw
   · rw [((sortPred_shape hp).1 cl hmem).2.1] at ht; cases ht
 
@@ -351,6 +365,8 @@ theorem case_rest {f : Sym} {fn : Fn} {vs : List GroundTerm}
         (Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 _ (lookupFn_spec hfn).1 _ hmem')).elim
     | rest hfn' _ => rw [hfn] at hfn'; cases hfn'; rfl
     | ensFails => cases hsm
+    | clauseEx hfn' hmem' _ _ _ _ _ hne' => exact absurd (exs_nil h hfn' hmem') hne'
+    | exNone => cases hsm
 
 /-- **A value of a function is each of its results there**, under `coreOK` and `FnSolves`. -/
 theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he : Eval c f vs r) :
@@ -359,11 +375,14 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
     (motive_3 := fun σ cl _ => V3 c σ cl) (motive_4 := fun σ t r _ => V4 c σ t r)
     (motive_5 := fun σ ts rs _ => V5 c σ ts rs)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre _ _ _ _ _ ihprio ihrhs _ =>
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun hfn hmem hσ hmatch hreq hpre _ _ _ _ _ _ _ ihprio ihrhs _ _ =>
       case_clause h hs hfn hmem hσ hmatch hreq hpre ihprio ihrhs)
     (fun hfn _ ihnone => case_rest h hfn ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre _ ht _ hw _ _ ihprio ihe =>
+    (fun hfn hmem hσ hmatch hreq hpre _ _ ht _ hw _ _ ihprio ihe =>
       case_ensFails h hs hfn hmem hσ hmatch hreq hpre ht hw ihprio ihe)
+    (fun hfn hmem _ _ _ _ _ hne => by intros; exact absurd (exs_nil h hfn hmem) hne)
+    (fun hfn hmem hne => by intros; exact absurd (exs_nil h hfn hmem) hne)
     (fun _ ih => fun σ hw hp hq hT => ih σ hw hp hq hT)
     (fun ht _ hr ih => fun hq _ => hr (ih _ (hq _ ht) rfl))
     (fun hh _ => fun _ hT => by rw [hT] at hh; exact absurd (Holds.top_eq hh) (by simp))
@@ -379,6 +398,11 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
     (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     (fun rs' h' _ => by cases h'; rfl)
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)

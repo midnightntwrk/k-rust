@@ -604,7 +604,8 @@ but `match` has no result there. -/
 theorem not_fnSolves : ¬ FnSolves c₀ := by
   intro hs
   have hE := (hs fnMatch mem_match vs₀ (by decide +kernel) mFail mem_fail σ₀ fail_decides
-    (.ctor 403 [])).mpr ⟨.ctor (by decide +kernel) .nil, fun t ht => by cases ht⟩
+    (.ctor 403 [])).mpr ⟨σ₀, AgreeOff.refl _ _, fail_decides.1.1, .ctor (by decide +kernel) .nil,
+      fun t ht => by cases ht, Holds.top⟩
   exact match_none hE
 
 end KK
