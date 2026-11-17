@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-pgm-outside-k.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.9
+definition.kore bytes: 208623
+definition.kore sha256: acc96d4b36d8dc4c2d71d497a014617311b293986ddabe2b700a12739c5765c5
+stripped sha256: 84fae5e79c3a2223107ca1e1ef7107bca029980847706713188fbb1f83022712
+main module: 415 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-PGM-OUTSIDE-K-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-PGM-OUTSIDE-K as default.

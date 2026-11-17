@@ -1,0 +1,19 @@
+observed = """
+A rule of priority 40 whose right side is undefined through a partial function at one instance only
+(10 /Int X at X = 0), beside a rule of the default priority with the same left side.
+  kore.txt:101-106  the first rewrites axiom; its right side at 106 holds
+                    Lblb{}(Lbl'UndsSlsh'Int'Unds'{}(\\dv{SortInt{}}("10"),VarX:SortInt{}))
+                    and its left side's second conjunct is \\top{SortGeneratedTopCell{}}() (104)
+  kore.txt:107      its attributes, priority{}("40")
+  kore.txt:110-115  the second axiom, left side <k>(a(_Gen0)) with \\top (113), right side c() (115);
+                    it names no other rule and carries no priority attribute
+"""
+expectation = """
+At <k> a(0) </k>, two readings (findings RG-rules section 1.4): B1, the priority-40 rule applies
+(its left side matches and it has no requires) and blocks the default rule, so a(0) has no
+successor; B2, the rule tried and failed at its right side, so the default rule is tried and a(0)
+steps to c(). KCore's Step gives B1 (Step.rule's hprio: NotApplies reads the left side, the
+requires and pre only). At <k> a(1) </k> both give the one successor b(10). At a(n), n not 0,
+both give b(10 /Int n) alone.
+Owner 2026-11-18: not determined by the K text; KCore keeps B1 as a named choice.
+"""
