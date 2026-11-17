@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t111-user-generated-counter.k": "f5012c14e24a2957e6b27a084c31ee2667b1ff7ba610bf0397d6c23d3185018b"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t111-user-generated-counter.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Warning] Compiler: Variable '!X' defined but not used. Prefix variable name\nwith underscore if this is intentional.\n\tSource(t111-user-generated-counter.k)\n\tLocation(4,21,4,23)\n\t4 |\t  rule <k> a() => b(!X:Int) ... </k>\n\t  .\t                    ^~\n[Error] Compiler: Found klabel <generatedCounter> not defined in any\nproduction.\n\tSource(t111-user-generated-counter.k)\n\tLocation(5,34,5,74)\n\t5 |\t  rule <k> b(_) => b(C) ... </k> <generatedCounter> C </generatedCounter>\n\t  .\t                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n[Error] Compiler: Had 1 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT111-USER-GENERATED-COUNTER-SYNTAX in definition.  Use --syntax-module to\nspecify one. Using T111-USER-GENERATED-COUNTER as default.",
+  "release": "K v7.1.337"
+ }
+}

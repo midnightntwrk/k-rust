@@ -1,0 +1,50 @@
+id = "t105-concrete-rule"
+kind = "text"
+subject = "The attribute concrete on a rewrite rule (and symbolic, by the same sentences): whether it changes what the rule states."
+retro = ["A6"]
+origin = "kcore-spec fixture e2-concrete-rule"
+
+[text]
+files = ["t105-concrete-rule.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "settled"
+form = "no-sentence"
+statement = "The attribute concrete on a rewrite rule gives no sentence of its own: the rule states what it states without the attribute, and a(b) steps to b with concrete, with symbolic, and with neither. The same holds of symbolic."
+reason = """
+(1) The manual describes concrete and symbolic as control over when a simplification rule matches: a rule marked concrete matches only where all its arguments are concrete patterns, one marked symbolic only where all are symbolic (user_manual.md:1462-1475). That is a statement about the use of a simplification rule. Of a rewrite rule, or of an equation that is no simplification, with either attribute the manual says nothing.
+(2) In the KORE text the attribute stands in the attribute list of the rule's axiom (kore.txt:35). An attribute is a hint, and the semantic information an attribute carries should correspond to axioms declared explicitly (kore-syntax.md:223-228). The text holds no axiom beside the rule's that the attribute brings.
+(3) So the sentences of the text are those of the text without the attribute; the rule a(X) => X steps a(b) to b."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1464-1475 (K 7.1.337)"
+quote = "Users can control the application of `simplification` rules using the `concrete` and the `symbolic` attributes by specifying the type of patterns the rule's arguments are to match. ... If a simplification rule is marked `concrete`, then _all_ arguments must be concrete for the rule to match. - If a simplification rule is marked `symbolic`, then _all_ arguments must be symbolic for the rule to match."
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[ruling.kore]
+statement = "The rule is one \\rewrites axiom whose attribute list holds concrete{}() (kore.txt:29-35); the axiom's pattern is that of the same rule without the attribute, and no other sentence of the text names the attribute."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:35"
+quote = 'concrete{}()]'
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[observe]]
+file = "kore.txt"
+contains = "concrete{}()]"
+
+[[note]]
+implementation = "kompile"
+text = "The same rule with [symbolic] (kcore-spec fixture e2-symbolic-rule) gives a text that differs from this one in the rule's comment line and in the attribute list only; on a function production the attribute stands on the symbol declaration (fixture e2-sym-concrete); an equation with concrete(X), symbolic(Y) and no simplification is refused, exit 113 (fixture e2-equation-partial)."

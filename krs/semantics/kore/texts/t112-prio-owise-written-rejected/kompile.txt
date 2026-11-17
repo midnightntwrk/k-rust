@@ -1,0 +1,21 @@
+command: kompile --backend haskell t112-prio-owise-written-rejected.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  kore-exec: [134528] Error (ErrorException):
+      An axiom cannot have the following  combination of attributes: (Priority {getPriority = Just 40},Owise {isOwise = True},NotSimplification) Please report this error.
+      CallStack (from HasCallStack):
+        error, called at src/Kore/Attribute/Axiom.hs:304:17 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Attribute.Axiom
+        getPriorityOfAxiom, called at src/Kore/Rewrite/Rule.hs:126:24 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Rewrite.Rule
+  An axiom cannot have the following  combination of attributes: (Priority {getPriority = Just 40},Owise {isOwise = True},NotSimplification) Please report this error.
+  CallStack (from HasCallStack):
+    error, called at src/Kore/Attribute/Axiom.hs:304:17 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Attribute.Axiom
+    getPriorityOfAxiom, called at src/Kore/Rewrite/Rule.hs:126:24 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Rewrite.Rule
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T112-PRIO-OWISE-WRITTEN-REJECTED-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using T112-PRIO-OWISE-WRITTEN-REJECTED as default.

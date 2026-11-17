@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t110-klabel-term.k": "ee92db09f1301190eeb76f884cb9d845d6eed742dd7677bf46e62b288e469a58"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t110-klabel-term.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Internal: Cannot yet translate #klabel to kore\n\tSource(t110-klabel-term.k)\n\tLocation(5,23,5,37)\n\t5 |\t  rule <k> bar() => h(#klabel(`bar`)) ... </k>\n\t  .\t                      ^~~~~~~~~~~~~~\n[Warning] Compiler: Could not find main syntax module with name\nT110-KLABEL-TERM-SYNTAX in definition.  Use --syntax-module to specify one.\nUsing T110-KLABEL-TERM as default.",
+  "release": "K v7.1.337"
+ }
+}

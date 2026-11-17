@@ -1,0 +1,27 @@
+id = "t110-klabel-term"
+kind = "text"
+subject = "A rule whose right side holds #klabel(`bar`), a production of KAST: whether the frontend delivers a KORE text."
+retro = ["T4"]
+origin = "kcore-spec fixture e3-klabel"
+
+[text]
+files = ["t110-klabel-term.k"]
+kompile = "rejects"
+frontend = "manual-silent"
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'Cannot yet translate #klabel to kore'). KAST declares the production #klabel(KLabel), and no sentence of the manual or of the builtin modules says that a rule using it is refused, or what such a term denotes."
+reason = """
+(1) KAST declares #klabel as a production of KBott with an argument of sort KLabel (kast.md:79-80), so the K text is a text of K's own syntax.
+(2) kompile refuses it with a message that names a translation it does not yet make (kompile.txt). No sentence of the manual or of the builtin modules states that refusal or gives the term a meaning: the statement is about what the frontend delivers, and the manual is silent on it."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:79-80 (K 7.1.337)"
+quote = 'syntax KBott ::= "#token" "(" KString "," KString ")" [symbol(#KToken)] | "#klabel" "(" KLabel ")" [symbol(#WrappedKLabel)]'
+
+[[observe]]
+file = "kompile.txt"
+contains = "Cannot yet translate #klabel to kore"
