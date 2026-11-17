@@ -37,3 +37,8 @@ quote = "You can compute the log base 2, rounded towards zero, of an integer. Th
 source = "builtin-module"
 locator = "k-distribution/include/kframework/builtin/domains.md:1269-1270 (K 7.1.337)"
 quote = 'Int ">>Int" Int [function, symbol(_>>Int_), left, hook(INT.shr), smtlib(shrInt)] | Int "<<Int" Int [function, symbol(_<<Int_), left, hook(INT.shl), smtlib(shlInt)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1304 (K 7.1.337)"
+quote = "syntax Int ::= log2Int ( Int ) [function, hook(INT.log2)]"

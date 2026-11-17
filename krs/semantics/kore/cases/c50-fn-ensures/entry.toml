@@ -1,7 +1,7 @@
 id = "c50-fn-ensures"
 kind = "case"
 subject = "A function equation with an ensures, half(N) => N /Int 2 ensures N >=Int 0, applied at an argument where the ensures is false, in the right side of a rule: what half(-4) is, and whether run(-4), whose rule's right side then has no value, is final."
-retro = ["R3"]
+retro = ["F3", "R1"]
 rests_on = ["kk:t02-step-successors", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t15-eq-ensures"]
 
 [text]

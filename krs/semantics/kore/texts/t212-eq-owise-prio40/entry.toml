@@ -55,6 +55,11 @@ statement = "kompile keeps both attributes on the second equation's axiom (kore.
 
 [[ruling.kore.basis]]
 source = "kompiled"
+locator = "kore.txt:85-102"
+quote = '''\not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \equals{SortBool{},R}( Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen0:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ), \top{R} () ) )), \bottom{R}() ) )'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
 locator = "kore.txt:118"
 quote = '''[UNIQUE'Unds'ID{}("0041c33f0e0d09a861ff144c1998ab96e273a972a3802195f998e2e574b24db5"), owise{}(), priority{}("40")]'''
 

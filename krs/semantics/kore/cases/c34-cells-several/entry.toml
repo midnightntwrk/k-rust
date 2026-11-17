@@ -51,3 +51,8 @@ quote = "Compute the sum `+Int` or difference `-Int` of two integers."
 source = "domains"
 locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
 quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1107 (K 7.1.337)"
+quote = "* AND two boolean values."

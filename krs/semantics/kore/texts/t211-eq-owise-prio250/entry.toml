@@ -50,6 +50,11 @@ statement = "The equation of priority 250 is the axiom f(X0) = X at X0 = X, with
 
 [[ruling.kore.basis]]
 source = "kompiled"
+locator = "kore.txt:83-98"
+quote = '''\not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \top{R}(), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ), \top{R} () ) )), \bottom{R}() ) )'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
 locator = "kore.txt:78"
 quote = '''[UNIQUE'Unds'ID{}("8ccac49a0098d59c265093c6cec6d897e48fed1c6209f481f071d8d00fafab2c"), priority{}("250")]'''
 
