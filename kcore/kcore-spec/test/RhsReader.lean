@@ -1,6 +1,6 @@
 /-
   The reading functions of KcoreSpec/ReadFns.lean for an equation's right side that holds `\or`
-  (`Parse.frRead`), run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337
+  (`Parse.frRead`) or one `\exists` over a Bool variable (`Parse.exRead`), run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337
   kompile's KORE, from the cache `kfix.py` keeps: `$KCORE_KFIX_CACHE`, else
   `$XDG_CACHE_HOME/kcore-kfix`, else `~/.cache/kcore-kfix`, the text named by the sha256 of the
   fixture's kompile.txt) and on hand-written equations. Run from the package root:
@@ -33,6 +33,25 @@
   Kernel-checked (`kernel_rfl`, `decide +kernel`): `frRead` on the fixture's equation written by
   hand (`Hand.eqH`; `tie` checks that it is the scanned text's equation) and on the hand-written
   equations; `frClauses` with an `ensures`, and its length.
+
+  ## ex: `\exists` over one Bool variable (`existsAsCases`)
+
+  - `e3-eq-exists-bool-ml`, `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, f `total`:
+    three clauses over `[X:Bool]`: `pre ⌈true⌉ ∧ (true = notBool(X))`, `rhs true`; the same at
+    `false`; the negations, `rhs true`, `ens false`.
+  - `e3-eq-exists-bool-ml-loop`, `f() => #Exists B:Bool. pick(B)`, f `total`: `pre ⌈pick(true)⌉`,
+    `rhs pick(true)`; the same at `false`; the negations.
+  - `e3-eq-exists-partial-ml` (f not `total`) and `e3-eq-exists-ml-under-app` (the binder under an
+    application): `none`.
+  Hand-written (`HandEx`, over the names `N1`):
+  - `eqY`, the predicate `{B #Equals notBool Y}`, Y in no pattern: refused `manyValuedRightSide`
+    naming Y; `eqYreq`, the same with `requires Y`: refused likewise (the `requires` holds Y, the
+    arguments do not bind it).
+  - `eqEns`, with `ensures X`: each instance's `pre` holds the predicate, then the `ensures`.
+  - `eqFloor`, a predicate `condOf` does not read (`\floor`): refused `patternConnective`.
+  - `eqTwo`, two conjuncts that are no predicates: `none`.
+  Kernel-checked: `exRead` on the fixture's equation written by hand (`HandEx.eqB`, tied to the
+  text), `none` and the refusals' reasons; `condOf` on the fixture's predicate.
 -/
 import KcoreSpec
 
@@ -405,5 +424,175 @@ def opaqueReach (roots : List Name) : MetaM (List Name) := do
 #guard_msgs in
 #eval show Lean.MetaM Unit from do
   for root in [``frRead] do IO.println s!"{root}: {← opaqueReach [root]}"
+
+/-! ## ex: `\exists` over one Bool variable, by cases -/
+
+/--
+info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X)))
+      rhs true ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X)))
+      rhs false ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X))))
+      rhs true ens (some false) exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined true; litSort Bool true
+e3-eq-exists-bool-ml-loop Lblf: functional sentence true; clauses 3
+  [0] vars [] pats [] req none prio 50 aside false
+      pre ⌈Lblpick(true)⌉:Int
+      rhs Lblpick(true) ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [1] vars [] pats [] req none prio 50 aside false
+      pre ⌈Lblpick(false)⌉:Int
+      rhs Lblpick(false) ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [2] vars [] pats [] req none prio 50 aside false
+      pre (¬⌈Lblpick(true)⌉:Int ∧ ¬⌈Lblpick(false)⌉:Int)
+      rhs Lblpick(true) ens (some false) exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined true; litSort Bool true
+e3-eq-exists-partial-ml Lblf: none
+e3-eq-exists-ml-under-app Lblf: none
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  run "e3-eq-exists-bool-ml" ["Lblf"] exRead
+  run "e3-eq-exists-bool-ml-loop" ["Lblf"] exRead
+  run "e3-eq-exists-partial-ml" ["Lblf"] exRead
+  run "e3-eq-exists-ml-under-app" ["Lblf"] exRead
+
+namespace HandEx
+
+open KoreAML (ev ap srt evar)
+
+/-- f : Bool → Bool, the symbol `nRegSyms`, with its `functional` sentence. -/
+def N1 : Names := { sorts := [], syms := ["Lblf"], keyFns := [(nRegSyms, "Bool")], fnlSyms := [("Lblf", false)] }
+
+def bool : Kore.KSort := srt "Bool"
+def X : Kore.Pattern := ev "VarX" bool
+def Y : Kore.Pattern := ev "VarY" bool
+def B : Kore.Pattern := ev "VarB" bool
+def notB (p : Kore.Pattern) : Kore.Pattern := ap "LblnotBool'Unds'" [p]
+/-- `#Exists B:Bool. body`. -/
+def exB (body : Kore.Pattern) : Kore.Pattern := .exist bool (evar "VarB" bool) body
+
+def eqn (rhs : Kore.Pattern) (req ens : Option Kore.Pattern := none) : RawEqn :=
+  ⟨"Lblf", [X], req, none, rhs, [], ens, false⟩
+
+/-- `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`: the equation of
+`e3-eq-exists-bool-ml` (`tie`). -/
+def eqB : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB X)]))
+/-- The same with `notBool Y`, Y in no pattern. -/
+def eqY : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB Y)]))
+/-- The same with `requires Y`: the `requires` holds Y, the arguments do not. -/
+def eqYreq : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB Y)])) (some Y)
+/-- `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X}) ensures X`. -/
+def eqEns : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB X)])) none (some X)
+/-- A predicate `condOf` does not read: `#Floor(B)`. -/
+def eqFloor : RawEqn := eqn (exB (.and bool [B, .floor bool bool B]))
+/-- Two conjuncts that are no predicates: not the shape. -/
+def eqTwo : RawEqn := eqn (exB (.and bool [B, notB X]))
+
+end HandEx
+
+/--
+info: e3-eq-exists-bool-ml Lblf: the hand-written equation is the text's: true
+-/
+#guard_msgs in
+#eval tie "e3-eq-exists-bool-ml" "Lblf" HandEx.eqB
+
+/--
+info: eqB: clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X)))
+      rhs true ens none exs [] post ⊤
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X)))
+      rhs false ens none exs [] post ⊤
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X))))
+      rhs true ens (some false) exs [] post ⊤
+eqY: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists: VarY: in an alternative or the ensures, not bound by the arguments)
+eqYreq: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists: VarY: in an alternative or the ensures, not bound by the arguments)
+eqEns: clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈true⌉:Bool ∧ ((true =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true)))
+      rhs true ens none exs [] post ⊤
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈false⌉:Bool ∧ ((false =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true)))
+      rhs false ens none exs [] post ⊤
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈true⌉:Bool ∧ ((true =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))) ∧ ¬(⌈false⌉:Bool ∧ ((false =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))))
+      rhs true ens (some false) exs [] post ⊤
+eqFloor: refused KCore.Parse.RefusalReason.patternConnective (\floor)
+eqTwo: none
+-/
+#guard_msgs in
+open HandEx in
+#eval show IO Unit from do
+  showHand "eqB" (exRead N1 eqB)
+  showHand "eqY" (exRead N1 eqY)
+  showHand "eqYreq" (exRead N1 eqYreq)
+  showHand "eqEns" (exRead N1 eqEns)
+  showHand "eqFloor" (exRead N1 eqFloor)
+  showHand "eqTwo" (exRead N1 eqTwo)
+
+namespace HandEx
+
+def notX : Term := .app (regSymNames.idxOf "LblnotBool'Unds'") [.var 0]
+/-- `⌈b⌉ ∧ (b = notBool(X))`. -/
+def preB (b : Bool) : Cond := .and (.ceil Srt.bool (boolT b)) (.equals Srt.bool (boolT b) notX)
+
+/-- A clause of f over `[X:Bool]`. -/
+def cl (rhs : Term) (ens : Option Term) (pre : Cond) : Clause :=
+  { vars := [Srt.bool], pats := [.var 0], req := none, rhs, ens, prio := 50, aside := false, pre }
+
+/-- **`exRead` on the fixture's equation, in the kernel**: the clauses of the instances `true`
+and `false`, the clause of neither, and the variables. -/
+theorem exRead_eqB : exRead N1 eqB = .ok (some
+    ([cl (boolT true) none (preB true), cl (boolT false) none (preB false),
+      cl (boolT true) (some (boolT false)) (.and (.not (preB true)) (.not (preB false)))],
+     [⟨"X", "Bool"⟩])) := by
+  kernel_rfl
+
+/-- Two conjuncts that are no predicates: not this function's. -/
+theorem exRead_none : exRead N1 eqTwo = .ok none := by kernel_rfl
+
+/-- The refusals' reasons: a variable the arguments do not bind (in the `requires` or not), and a
+predicate `condOf` does not read. -/
+theorem exRead_refused :
+    (match exRead N1 eqY with | .error f => decide (f.reason = .manyValuedRightSide) | .ok _ => false) = true ∧
+    (match exRead N1 eqYreq with | .error f => decide (f.reason = .manyValuedRightSide) | .ok _ => false) = true ∧
+    (match exRead N1 eqFloor with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true := by
+  decide +kernel
+
+/-- `condOf` on the fixture's predicate, in the kernel. -/
+theorem condOf_eq : condOf N1 [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩] (.equals bool bool B (notB X)) =
+    .ok (.equals Srt.bool (.var 1) notX, [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩]) := by
+  kernel_rfl
+
+end HandEx
+
+/-- info: 'RhsReader.HandEx.exRead_eqB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_eqB
+/-- info: 'RhsReader.HandEx.exRead_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_none
+/-- info: 'RhsReader.HandEx.exRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_refused
+/-- info: 'RhsReader.HandEx.condOf_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.condOf_eq
+
+/--
+info: KCore.Parse.exRead: [String.Internal.append]
+KCore.Parse.condOf: [String.Internal.append]
+-/
+#guard_msgs in
+#eval show Lean.MetaM Unit from do
+  for root in [``exRead, ``condOf] do IO.println s!"{root}: {← opaqueReach [root]}"
 
 end RhsReader

@@ -6,6 +6,9 @@
 
   - `frRead`: `\or` on the right side of an equation of a function whose `functional` sentence the
     text holds, as n+1 clauses with a premise predicate (`Clause.pre`).
+  - `exRead` (`existsAsCases`): `\exists` over one Bool variable on the right side of an equation
+    of such a function, as the clauses of its two instances; `condOf`, a predicate pattern as a
+    `Cond`.
 -/
 import KcoreSpec.Parse
 
@@ -13,6 +16,7 @@ set_option autoImplicit false
 
 namespace KCore.Parse
 
+open KoreAML.Parse (sortName?)
 open KoreAML (Var)
 
 /-! ## Shared -/
@@ -134,6 +138,176 @@ def frRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := d
     (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ common.flatMap varOccs)
   let s ← resSort N e
   let alts := alts.map fun a => (a.1, common.map isTrueC ++ a.2)
+  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+
+/-! ## Predicates as conditions -/
+
+mutual
+  /-- `p` with the free occurrences of the element variable `x` replaced by the closed pattern `v`. -/
+  def substVal (x : Kore.EVar) (v : Kore.Pattern) : Kore.Pattern → Kore.Pattern
+    | .var (.evar z) => if decide (z = x) then v else .var (.evar z)
+    | .app h ss ps => .app h ss (substValList x v ps)
+    | .and s ps => .and s (substValList x v ps)
+    | .or s ps => .or s (substValList x v ps)
+    | .not s p => .not s (substVal x v p)
+    | .exist s z p => if decide (z = x) then .exist s z p else .exist s z (substVal x v p)
+    | .forall s z p => if decide (z = x) then .forall s z p else .forall s z (substVal x v p)
+    | .ceil s r p => .ceil s r (substVal x v p)
+    | .floor s r p => .floor s r (substVal x v p)
+    | .equals s r p q => .equals s r (substVal x v p) (substVal x v q)
+    | .in s r p q => .in s r (substVal x v p) (substVal x v q)
+    | .implies s p q => .implies s (substVal x v p) (substVal x v q)
+    | .iff s p q => .iff s (substVal x v p) (substVal x v q)
+    | p => p
+    termination_by structural p => p
+  def substValList (x : Kore.EVar) (v : Kore.Pattern) : List Kore.Pattern → List Kore.Pattern
+    | [] => []
+    | p :: ps => substVal x v p :: substValList x v ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- The conjuncts of a conjunction, nested ones flattened. -/
+  def andParts : Kore.Pattern → List Kore.Pattern
+    | .and _ ps => andPartsList ps
+    | p => [p]
+    termination_by structural p => p
+  def andPartsList : List Kore.Pattern → List Kore.Pattern
+    | [] => []
+    | p :: ps => andParts p ++ andPartsList ps
+    termination_by structural ps => ps
+end
+
+/-- A conjunction's conjuncts that are no predicates (`isPred`), and its predicate conjuncts,
+`\top` dropped. The split is by `isPred`, before any conjunct is read: `hoist` lifts only
+`{B #Equals true}`, and `term` reads `\and(p, X)` as `p #as X`. -/
+def bodyParts (p : Kore.Pattern) : List Kore.Pattern × List Kore.Pattern :=
+  let ps := andParts p
+  (ps.filter (!isPred ·), ps.filter fun q => isPred q && (match q with | .top _ => false | _ => true))
+
+/-- The disjunction of the conditions, `\bottom` for none. -/
+def disjC : List Cond → Cond
+  | [] => .bot
+  | [p] => p
+  | p :: ps => .or p (disjC ps)
+
+mutual
+  /-- A predicate pattern as a condition: `\equals`, `\in` and `\ceil` of terms, at the sort of
+  their operands, `\top`, `\bottom` and their connectives `\not`, `\implies`, `\and`, `\or`. Any
+  other pattern, a binder among them, is refused `patternConnective`. -/
+  def condOf (N : Names) (vs : List Var) : Kore.Pattern → Rd (Cond × List Var)
+    | .top _ => pure (.top, vs)
+    | .bottom _ => pure (.bot, vs)
+    | .equals s _ p q => do
+      let (t, vs) ← term N vs p
+      let (u, vs) ← term N vs q
+      pure (.equals (← N.sortE s) t u, vs)
+    | .in s _ p q => do
+      let (t, vs) ← term N vs p
+      let (u, vs) ← term N vs q
+      pure (.mem (← N.sortE s) t u, vs)
+    | .ceil s _ p => do
+      let (t, vs) ← term N vs p
+      pure (.ceil (← N.sortE s) t, vs)
+    | .not _ p => do
+      let (c, vs) ← condOf N vs p
+      pure (.not c, vs)
+    | .implies _ p q => do
+      let (c, vs) ← condOf N vs p
+      let (d, vs) ← condOf N vs q
+      pure (.implies c d, vs)
+    | .and _ ps => do
+      let (cs, vs) ← condOfList N vs ps
+      pure (conjC cs, vs)
+    | .or _ ps => do
+      let (cs, vs) ← condOfList N vs ps
+      pure (disjC cs, vs)
+    | p => fail .patternConnective (connective p)
+    termination_by structural p => p
+  def condOfList (N : Names) (vs : List Var) : List Kore.Pattern → Rd (List Cond × List Var)
+    | [] => pure ([], vs)
+    | p :: ps => do
+      let (c, vs) ← condOf N vs p
+      let (cs, vs) ← condOfList N vs ps
+      pure (c :: cs, vs)
+    termination_by structural ps => ps
+end
+
+/-- The conjunction of the predicate patterns, as one condition. -/
+def condsOf (N : Names) (vs : List Var) (ps : List Kore.Pattern) : Rd (Cond × List Var) := do
+  let (cs, vs) ← condOfList N vs ps
+  pure (conjC cs, vs)
+
+mutual
+  /-- The pattern holds an `\exists`. -/
+  def hasExists : Kore.Pattern → Bool
+    | .exist .. => true
+    | .app _ _ ps | .and _ ps | .or _ ps => hasExistsList ps
+    | .not _ p | .ceil _ _ p | .floor _ _ p | .forall _ _ p => hasExists p
+    | .equals _ _ p q | .in _ _ p q | .implies _ p q | .iff _ p q => hasExists p || hasExists q
+    | _ => false
+    termination_by structural p => p
+  def hasExistsList : List Kore.Pattern → Bool
+    | [] => false
+    | p :: ps => hasExists p || hasExistsList ps
+    termination_by structural ps => ps
+end
+
+/-! ## `\exists` over one Bool variable, by cases (`existsAsCases`)
+
+The sentence is `premise → f(X̄) = ∃B:Bool. (t ∧ P)`. Where the elements of Bool are the two
+literals the right side is `(t[true] ∧ P[true]) ∨ (t[false] ∧ P[false])`, an `\or` of two
+alternatives, read as `frRead` reads one. -/
+
+/-- The Bool literal `b`, as a pattern. -/
+def boolDv (b : Bool) : Kore.Pattern := .dv (KoreAML.srt "Bool") (if b then "true" else "false")
+
+/-- The right side is one `\exists` over a Bool variable whose body holds no further `\exists`
+and has exactly one conjunct that is no predicate: the variable, that conjunct, the predicates. -/
+def exShape? (e : RawEqn) : Option (Kore.EVar × Kore.Pattern × List Kore.Pattern) :=
+  match e.rhs with
+  | .exist _ B body =>
+    if sortName? B.sort == some "Bool" && !hasExists body then
+      match bodyParts body with
+      | ([t], ps) => some (B, t, ps)
+      | _ => none
+    else none
+  | _ => none
+
+/-- The alternatives `(b, a)`, a an alternative of `t[b]`: a's term with the predicates `P[b]`. -/
+def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
+    List Var → List (Bool × Kore.Pattern) → Rd (List (Term × List Cond) × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, x :: rest => do
+    if let some c := manyValued? x.2 then fail .manyValuedRightSide c
+    let (a, vs) ← term N vs x.2
+    let (cs, vs) ← condOfList N vs (substValList B (boolDv x.1) ps)
+    let (xs, vs) ← exAlts N B ps vs rest
+    pure ((a, cs) :: xs, vs)
+  termination_by structural _ rest => rest
+
+/-- `existsAsCases`: an equation whose right side is `\exists B:Bool. (t ∧ P)` (`exShape?`), of a
+function whose `functional` sentence the text holds: `frClauses` over the alternatives of
+`t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
+equation's `ensures`.
+`none` where the right side is not of that shape or the text does not hold the `functional`
+sentence: the reading is not this function's.
+Refused `manyValuedRightSide`: more than 8 alternatives; an alternative, a predicate or the
+`ensures` holds a variable the arguments do not bind; an alternative holds `\top`, `\not` or
+`\or` under no application. Refused `patternConnective`: a predicate `condOf` does not read.
+That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is decided on the
+built definition, not here. -/
+def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
+  let some (B, t, ps) := exShape? e | pure none
+  if !eqnFnl N e then pure none else
+  let (pats, req, ens, vs, np) ← eqnHead N e
+  let insts := [true, false].flatMap fun b => (orAlts (substVal B (boolDv b) t)).map (b, ·)
+  if insts.length > 8 then fail .manyValuedRightSide s!"\\exists: {insts.length} alternatives, more than 8"
+  let (alts, vs) ← exAlts N B ps vs insts
+  boundByArgs vs np "\\exists"
+    (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ ens.toList.flatMap varOccs)
+  let s ← resSort N e
+  let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
   pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
 
 end KCore.Parse
