@@ -43,8 +43,9 @@ def Definition.namesOK (d : Definition) : Bool :=
     d.sem.hooksApart && d.sem.predsApart && d.sem.idsOK
 
 /-- Which variables the left side of a rule leaves open the values decide, an existential variable
-of the right side among them: each is held by the right side under constructors, or of a confined
-sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
+of the right side among them: each is held by the right side under constructors, injections and
+the symbols under which a value's element has values' elements as arguments (`heldOccs`), or of a
+confined sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
 `ensures` or `post` holds; and a rule that competes with a larger one has open condition variables
 of confined sorts, or closed conditions. A rule's predicates `pre` and `post` are not asked to be
 `\top`. -/
@@ -52,7 +53,7 @@ def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
   let conf := fun i => (r.vars[i]?.map c.confined).getD false
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
-  r.opens.all (fun i => (ctorOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
+  r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
 /-- Clauses bind no variable by `\exists` and have no predicate; and a clause's open condition

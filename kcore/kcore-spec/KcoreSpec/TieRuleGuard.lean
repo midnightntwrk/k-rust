@@ -6,10 +6,11 @@
   left side and the `requires` hold. Those conjuncts are the `pre`'s patterns, the negation of the
   rules of a smaller priority, and the definedness of the right side with its `ensures`.
 
-  - `ruleGuard_of_stepBy_pp`: at the valuation that gives the rule's variables the elements of a
+  - `ruleGuard_of_stepBy_held`: at the valuation that gives the rule's variables the elements of a
     step's match σ (`overV`), the guard holds: the left side there holds of x's element alone; at
     it the `pre` holds, no rule of a smaller priority applies (`StepBy.hprio`, through
-    `not_applies_guarded_pp`) and the right side is defined (it evaluates, `StepBy.heval`, and the
+    `not_applies_guarded_held`, for rules with `rulePlainHeldH H` in a model where the symbols of
+    H that are no constructors have `HeldBack`) and the right side is defined (it evaluates, `StepBy.heval`, and the
     `ensures` is `true`: `ruleRight_at_pp`, `ceil_right_pp`).
   - `ruleGuard_of_stepBy`, `rules_w2_stepBy`: so, for a semantics meeting `coreOK` whose
     conditions read no confined sort, the guard holds there in every model of Γ, and the text's
@@ -33,12 +34,15 @@ open HoldsShape (hasBinder Reads reads_of_agrees)
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-/-- **The guard of W2 at a step's match.** In a model of `Γc`, at the valuation `overV` of a step's
-match σ, every conjunct Γ's axiom of the rule adds to the text's left side and `requires` holds of
+/-- **The guard of W2 at a step's match.** For rules with `ruleSorted` and `rulePlainHeldH H`, in a
+model of `Γc` where each symbol of H that is no constructor has `HeldBack`, at the valuation `overV`
+of a step's match σ, every conjunct Γ's axiom of the rule adds to the text's left side and `requires` holds of
 every element at which those hold. -/
-theorem ruleGuard_of_stepBy_pp (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
+theorem ruleGuard_of_stepBy_held {H : Sym → Bool} (h : c.coreOK = true)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true)
     (hIc : I ⊧ᴵP Γc c)
+    (hback : ∀ f k, c.isCtor f = false → H f = true →
+      lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {r : Rule}
     (hs : c.ruleSorted r = true)
     (hrcP : hasBinder r.pre = true → c.readsConfined = true)
@@ -174,7 +178,7 @@ theorem ruleGuard_of_stepBy_pp (h : c.coreOK = true)
           hvarsL _ (Model.varsOf_and_mem hnot (by
             simp only [KoreAML.varsOf]
             exact List.mem_append_right _ (mem_varsOf_anyOfC (hcomp r' hr'm hlt') hk)))
-        exact not_applies_guarded_pp h hIc hcw (hrules r' hr'm).1 (hrules r' hr'm).2 (hlarger r' hr'm hlt') hrc'
+        exact not_applies_guarded_held h hIc hback hcw (hrules r' hr'm).1 (hrules r' hr'm).2 (hlarger r' hr'm hlt') hrc'
           (readsConfined_of_pre hr'm) (hw r' hr'm hlt') (hprio r' hr'm hlt')
           (fun i hi hil => hvC ((Model.varsOf_applies_pp r').1 i hi hil))
           (fun k hk => hvC ((Model.varsOf_applies_pp r').2 k hk)) e'
@@ -199,8 +203,8 @@ theorem ruleGuard_of_stepBy {c : Semantics} (hcore : c.coreOK = true) (hrc : c.r
     RuleGuard (prioRuleK c r) I (overV c I (KoreAML.tableOf [] (prioRuleK c r)) r.vars σ (KoreAML.val0 : Valuation M)) := by
   have hod := openDecided_of_readsConfined hrc
   have hIc : I ⊧ᴵP Γc c := by rw [Γc_plain hrc]; exact hI
-  have hrules := Semantics.ruleFactsPP_of_core hcore
-  exact ruleGuard_of_stepBy_pp hcore hrules hIc hod.2 (hrules r hb.mem).1
+  have hrules := Semantics.ruleFactsHeld_of_core hcore
+  exact ruleGuard_of_stepBy_held hcore hrules hIc (heldBackAll_holds hcore I hIc) hod.2 (hrules r hb.mem).1
     (readsConfined_of_pre hb.mem) (readsConfined_of_post hb.mem)
     (fun _ _ hlt => List.any_eq_true.mpr ⟨r, hb.mem, by simpa using hlt⟩) hb.hσ hb.hmatch hb.hpre hb.heval
     hb.hens hb.hpost hb.hprio (fun r' hr' _ hn _ => hod.1 r' hr' hn)

@@ -107,19 +107,18 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
   · rw [ht] at hens; simpa [reqOK] using hens
 
 /-- The facts on a rule of a definition that `HypModelCore`'s `sortedOKCl` gives, its predicates
-left aside: `ruleSorted` and `rulePlainPP`. -/
-theorem HypModelCore.ruleFactsPP (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
-    c.ruleSorted r = true ∧ c.rulePlainPP r = true := by
+left aside: `ruleSorted` and `rulePlainHO1`. -/
+theorem HypModelCore.ruleFactsHO1 (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
+    c.ruleSorted r = true ∧ c.rulePlainHO1 r = true := by
   obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_pp.mp hrp r hr⟩
+  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_held.mp hrp r hr⟩
 
-/-- Where every rule has `\top` predicates, `HypModelCore` gives `ruleSorted` and `rulePlainEx` of
-each rule: `rulePlainEx` is `rulePlainPP` with `\top` predicates. -/
-theorem HypModelCore.ruleFactsEx_of_top (h : HypModelCore c)
-    (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun r hr =>
-  ⟨(h.ruleFactsPP hr).1, Semantics.rulePlainEx_iff_pp.mpr
-    ⟨by rw [(htop r hr).1]; rfl, by rw [(htop r hr).2]; rfl, (h.ruleFactsPP hr).2⟩⟩
+/-- Where every rule has `rulePlainEx` (a decidable fact of the rules), `HypModelCore` gives
+`ruleSorted` and `rulePlainEx` of each rule. -/
+theorem HypModelCore.ruleFactsEx_of_all (h : HypModelCore c)
+    (hex : c.rules.all c.rulePlainEx = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun _ hr =>
+  ⟨(h.ruleFactsHO1 hr).1, List.all_eq_true.mp hex _ hr⟩
 
 mutual
   /-- The variables of a sorted term of a numbered sort have numbered sorts, in a context whose

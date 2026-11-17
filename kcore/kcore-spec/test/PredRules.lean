@@ -13,8 +13,8 @@
   - `rBad`: `b => b ensures ?Z ==Int 0`: Z of the unconfined sort Int under the hooked function
     `_==Int_` only, and in no condition: the conjunct is false.
   Each is well sorted (`ruleSorted`); `rNot` and `rOr` have the conjunct, neither has `rulePlainEx`
-  (its predicates are not `\top`). `rulePlainPP` of the definition's rules from `coreOK`
-  (`Semantics.ruleFactsPP_of_core`), `rulePlainEx_iff_pp` at `rNot`, and the definition's semantics
+  (its predicates are not `\top`). `rulePlainPP` of the definition's rules, decided, with `ruleSorted`
+  from `coreOK` (`Semantics.ruleFactsPP_of_coreAll`), `rulePlainEx_iff_pp` at `rNot`, and the definition's semantics
   with `rNot` among its rules has `rulesPlain`, `okAll`, `sortedOK` and `coreOK` (`cP_core`).
 -/
 import KcoreSpec
@@ -79,9 +79,9 @@ example : ¬ c.rulePlainEx rNot = true := fun h =>
 
 theorem coreOK : c.coreOK = true := by decide +kernel
 
-/-- `rulePlainPP` of the definition's rules, from `coreOK`. -/
+/-- `rulePlainPP` of the definition's rules, decided. -/
 example : ∀ r ∈ c.rules, c.rulePlainPP r = true := fun r hr =>
-  (Semantics.ruleFactsPP_of_core coreOK r hr).2
+  (Semantics.ruleFactsPP_of_coreAll coreOK (by decide +kernel) r hr).2
 
 /-- The definition's semantics with `rNot`, a rule with a predicate, among its rules. -/
 noncomputable abbrev cP : Semantics := { c with rules := c.rules ++ [rNot] }
@@ -249,7 +249,7 @@ section SatRule
 open Faithful Faithful.Model
 
 theorem rules_pp : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true :=
-  Semantics.ruleFactsPP_of_core coreOK
+  Semantics.ruleFactsPP_of_coreAll coreOK (by decide +kernel)
 
 example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
     (hall : ∀ σ x y, StepVAt c rNot σ x y → T x y) :

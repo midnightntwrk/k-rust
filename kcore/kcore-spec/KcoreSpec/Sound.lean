@@ -19,11 +19,13 @@
   - Over the rules' facts `ruleSorted` and `rulePlainOpen`, given as a hypothesis: the theory has
     a model (`consistent_open`) and `Step` is exact (`exact_open`). Over `ruleSorted` and
     `rulePlainEx` a rule may have existential variables: `Step` is exact (`exact_ex`). Over
-    `ruleSorted` and `rulePlainPP`, which `coreOK` gives (`Semantics.ruleFactsPP_of_core`), a rule
-    may also have predicates: the statements at a step and at a configuration, exactness, the
-    choice among instances and the consistency of the theory are those lemmas' instances
-    (`sound_at_pp`, `complete_at_pp`, `exact_pp`, `has_model_choice_pp`, `famEx_values_pp`,
-    `famOpen_values_pp`, `consistent_pp`).
+    `ruleSorted` and `rulePlainHeldH` at the symbols `Semantics.holds` names, which `coreOK` gives
+    (`Semantics.ruleFactsHeld_of_core`), a rule may also have predicates and its right side may
+    hold an open variable under those symbols: the statements at a step and at a configuration,
+    exactness, the choice among instances and the consistency of the theory are those lemmas'
+    instances (`sound_at_held`, `complete_at_held`, `exact_held`, `has_model_choice_held`,
+    `famEx_values_held`, `consistent_held`; `famOpen_values_pp` reads `ruleSorted` only), the
+    symbols having `HeldBack` in every model (`heldBackAll_holds`).
   - At one step and one configuration (`sound_at`, `complete_at`), under `coreOK` and the condition
     on the closed open conditions the step reads. For a definition whose shapes are the plain ones
     the step and the theory are the plain ones (`step_plain`, `Γc_plain`), and the statements over
@@ -45,6 +47,11 @@ import KcoreSpec.ExFamOpen
 import KcoreSpec.SoundPP
 import KcoreSpec.ExactPP
 import KcoreSpec.FamOpenValuesPP
+import KcoreSpec.SoundHeld
+import KcoreSpec.CompleteHeld
+import KcoreSpec.ExactHeld
+import KcoreSpec.FamExValuesHeld
+import KcoreSpec.HeldBackAll
 
 set_option autoImplicit false
 
@@ -70,7 +77,7 @@ theorem sound_at (c : Semantics) (h : c.coreOK = true)
       (∃ σ', PatVal c σ' r'.lhs x.val) → r'.CondDecided c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     (Γc c ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :=
-  sound_at_pp c h (Semantics.ruleFactsPP_of_core h) x y r σ hs hw hc
+  sound_at_held c h (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h) x y r σ hs hw hc
 
 /-- **Completeness at a configuration** of a semantics that `coreOK` accepts, where the evaluations
 the step at x reads have results (`StepDecided`): with the step's closure, every successor of x is
@@ -83,7 +90,7 @@ theorem complete_at (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : S
       ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
-  complete_at_pp c h (Semantics.ruleFactsPP_of_core h) x hd os hval hfam hc
+  complete_at_held c h (Semantics.ruleFactsHeld_of_core h) x hd os hval hfam hc
 
 open Faithful.Model in
 /-- **The theory of a definition whose rules' left sides need not bind every variable is
@@ -124,10 +131,10 @@ open Faithful.Model in
 /-- **Consistency** of a semantics that `coreOK` accepts, whose functions have at most one result
 at each argument list (`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose
 interpretation satisfies the open generators' laws (`OpenLaws`): the value model at its own step
-(`consistent_pp`). -/
+(`consistent_held`). -/
 theorem consistent_of (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
     (hl : OpenLaws c) : Consistent c :=
-  consistent_pp c h hd hs hl (Semantics.ruleFactsPP_of_core h)
+  consistent_held c h hd hs hl (Semantics.ruleFactsHeld_of_core h)
 
 /-! ## The statements over a semantics, under the hypothesis on its functions -/
 
@@ -169,10 +176,10 @@ theorem exact_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     exact step_of_successor_ex c h hf hrules hI x y e h2
 
 /-- **Exactness of a semantics** that `coreOK` accepts and whose functions meet `FnHyp`: left to
-right in the value model, right to left in any model (`exact_pp`, with the rules' facts `coreOK`
+right in the value model, right to left in any model (`exact_held`, with the rules' facts `coreOK`
 gives). -/
 theorem exact_hyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : ExactC c :=
-  exact_pp c h hf (Semantics.ruleFactsPP_of_core h)
+  exact_held c h hf (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h)
 
 /-! ## The lemmas that carry the strength -/
 
@@ -187,14 +194,14 @@ theorem has_model_choice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  has_model_choice_pp c h hf (Semantics.ruleFactsPP_of_core h) T hsub hall hsome
+  has_model_choice_held c h hf (Semantics.ruleFactsHeld_of_core h) T hsub hall hsome
 
 /-- A value in the instances of an application is a step by it. -/
 theorem famEx_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (x y : Config c)
     (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
     (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :
     ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
-  famEx_values_pp c h hf (Semantics.ruleFactsPP_of_core h) x y r σ hs hy
+  famEx_values_held c h hf (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h) x y r σ hs hy
 
 /-- The outcomes of a match are, in every model, among any values that hold its steps. -/
 theorem famOpen_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
@@ -204,7 +211,7 @@ theorem famOpen_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys) :
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  famOpen_values_pp c h hf x r hr (Semantics.ruleFactsPP_of_core h r hr).1 σ hu hcf ys hys
+  famOpen_values_pp c h hf x r hr (Semantics.ruleFactsHO1_of_core h r hr).1 σ hu hcf ys hys
 
 /-- Where every rule's left side binds every variable, completeness lists values. -/
 theorem completeC_closed (c : Semantics) (ref : StepFn) (hop : ∀ r ∈ c.rules, r.opens = []) :
@@ -243,7 +250,7 @@ theorem sound_at_step (c : Semantics) (h : c.coreOK = true) (hrc : c.readsConfin
   obtain ⟨r, σ, hb⟩ := step_iff_by.mp hs
   obtain ⟨h1, -⟩ := sound_at c h x y r σ hb (fun r' hr' _ hn _ => hod.1 r' hr' hn) hod.2
   have hcl : Γc c ⊧ (famEx c r σ ≡ den c y.val) :=
-    famEx_closed c h hb (Semantics.exs_nil_of_opens (Semantics.ruleFactsPP_of_core h r hb.mem).1
+    famEx_closed c h hb (Semantics.exs_nil_of_opens (Semantics.ruleFactsHO1_of_core h r hb.mem).1
       ((Semantics.opens_of_readsConfined hrc).1 r hb.mem)) hod.2
   rw [Γc_plain hrc] at h1 hcl
   intro M _ I hI e m
