@@ -1395,6 +1395,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
   `⌈1 /Int X⌉ = true` at Bool is read as `false = true`: Γ's left side holds nothing in a model of
   definedness, `ΓSig` and `ΓDomains` (`left0_empty`), so W1 (`rule_from_text`) holds without the
-  sentence; that the sentence's own left side is empty is not shown (the header says what it
-  needs). Expectation from `Pre H`, through the reading (the priority premise): `ceil_other`
-  (`go(1)` steps to `other`). About 4 minutes.
+  sentence. The reading's direction, at values (`EntailsAtValues`, `rule157_at_values`): at a value
+  of X the sentence's own left side holds nothing (`ltext0_empty`: `1 /Int n` is an integer's
+  element or nothing, `LibEv.den_val`, so its `\ceil` at Bool is all of Bool or none of it,
+  `TieReqBool.ceil_const`, and not `{true}`, `TieReqBool.eqTrue_empty`). Expectation from `Pre H`,
+  through the reading (the priority premise): `ceil_other` (`go(1)` steps to `other`). About 4
+  minutes.
+- `test/NoteAndBool.lean`: the tie (C14) of the reading note `andAtBool` on its construct fixture's
+  kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
+  113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
+  `rule113_at_values`): where B is `false` its left side holds nothing; where B is `true` it is in
+  Γ's (`ltext_sub`: Γ's `true ~> B ~> . ==K true ~> true ~> .` denotes `true` by the graph of `==K`,
+  and `⌈r⌉` holds, the right side denoting a value's element, `TieReqBool.substAt_iff`), and Γ's
+  item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`: `and_true`
+  (`go(true)` steps to `done`), `and_false` (`go(false)` has no successor, with `Γstep`). About 5
+  minutes.

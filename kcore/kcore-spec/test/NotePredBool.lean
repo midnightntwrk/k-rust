@@ -22,10 +22,12 @@
   `ΓSig` and `ΓDomains` (`left0_empty`: `false` and `true` are two elements of Bool), so Γ's item
   holds there whatever the sentence says, and `rule_from_text` (W1) for it does not use the
   sentence: the direction *weaker* is met and says nothing of the reading. What the reading
-  claims is the other direction, that the sentence's left side is empty too: `\ceil{Int, Bool}(φ)`
-  is every element of Bool or none, so it is not `{true}` where Bool has the two values. That
-  needs the elements of `1 /Int X` to be in Int, which `ΓDomains` states at the values of X only;
-  it is not shown here, and at an element of Int that is no value it does not follow from Γ.
+  claims is the other direction, that the sentence's left side is empty too. At every valuation it
+  does not follow from Γ: at an element of Int that is no value nothing constrains `1 /Int X`. At
+  values it does (`EntailsAtValues`, `rule157_at_values`): at a value n of X, `1 /Int n` denotes the
+  element of an integer or nothing (`LibEv.den_val`, the graph of `/Int` in `ΓDomains`), so
+  `\ceil{SortInt{}, SortBool{}}(1 /Int n)` is every element of Bool or none, and neither is `{true}`
+  where `false` and `true` are two elements of Bool (`ltext0_empty`).
   `consistent` for every H.
 
   The expectation (C7 form (a), through the reading; family the priority premise), from `Pre H`
@@ -241,6 +243,118 @@ theorem rule_from_text (H : HookParams) :
       (hI _ (Or.inl (Or.inl (Or.inl (List.mem_cons_of_mem _ (List.mem_cons_self ..))))))
       fun e _ _ a ha => left1 e a ha
 
+/-! ## Sentence 157 at values (`EntailsAtValues`) -/
+
+/-- Sentence 157 is the item of the text's left side at the table of Γ's axiom. -/
+theorem trS157 : (trS U.ax157).pat = TieRuleLhs.itemAt (tableOf [] p0) fT0 q0.1 Ltext0 q0.2.2 := by
+  have h := rule_text0
+  simp only [TiePair.renSeq, Option.some.injEq] at h
+  exact h.symm
+
+/-- The sentence's one variable `X` is free in it and has the index of Γ's variable at the
+argument of `go`. -/
+theorem x_index : KoreAML.VarKey.evar "VarX" (KoreAML.srt "Int") ∈ (freeOf [] U.ax157.ax.pattern).eraseDups ∧
+    (tableOf U.ax157.ax.sortVars U.ax157.ax.pattern).ev (.evar "VarX" (KoreAML.srt "Int")) =
+      (tableOf [] p0).ev (evarKey x0) := by decide +kernel
+
+/-- `1 /Int X` as a library term over the one variable of Γ's axiom. -/
+noncomputable def divVars : LibEv.Vars := [(x0.var.ident.name, Srt.int)]
+def divT : Term := .app intTDiv [.dv Srt.int (.int 1), .var 0]
+
+theorem div_kore_all : (fun H : HookParams => LibEv.kore (cH H) divVars divT) =
+    fun _ => .app ⟨⟨"Lbl'UndsSlsh'Int'Unds'"⟩⟩ [] [.dv (KoreAML.srt "Int") "1", .var (.evar x0)] := by
+  kernel_rfl
+theorem div_kore (H : HookParams) : LibEv.kore (cH H) divVars divT =
+    .app ⟨⟨"Lbl'UndsSlsh'Int'Unds'"⟩⟩ [] [.dv (KoreAML.srt "Int") "1", .var (.evar x0)] :=
+  congrFun div_kore_all H
+theorem div_srt (H : HookParams) : LibEv.srt? (cH H) divVars divT = some Srt.int := by
+  simp only [divT, LibEv.srt?, LibEv.srts?, Semantics.sortOf_withHooks _ _ noRaw]
+  decide +kernel
+theorem div_key (H : HookParams) : LibEv.vkey (cH H) divVars 0 = evarKey x0 := by
+  show LibEv.vkey c divVars 0 = _; decide +kernel
+theorem int_name (H : HookParams) : (cH H).sortName Srt.int = "Int" := by
+  show c.sortName Srt.int = _; decide +kernel
+
+/-- The one sort named `Int` is the registry's. -/
+theorem int_of_name (S : Srt) (h : KoreAML.srt (c.sortName S) = KoreAML.srt "Int") : S = Srt.int := by
+  by_cases hS : S < nRegSorts + c.sortNames.length
+  · exact (by decide +kernel : ∀ S ∈ List.range (nRegSorts + c.sortNames.length),
+      KoreAML.srt (c.sortName S) = KoreAML.srt "Int" → S = Srt.int) S (List.mem_range.mpr hS) h
+  · exfalso
+    have hlt : ¬ S < nRegSorts := fun h' => hS (Nat.lt_of_lt_of_le h' (Nat.le_add_right _ _))
+    have hge : c.sortNames.length ≤ S - nRegSorts :=
+      Nat.le_sub_of_add_le (by rw [Nat.add_comm]; exact Nat.le_of_not_lt hS)
+    have he : c.sortName S = "" := by
+      unfold Semantics.sortName
+      simp only [hlt, ↓reduceIte]
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]; rfl
+    rw [he] at h
+    exact absurd h (by decide)
+
+/-- **The text's left side holds nothing at values**, in every model of Γ: at a value `n` of X,
+`1 /Int n` denotes the element of an integer or nothing (`LibEv.den_val`: the graph of `/Int` in
+`ΓDomains`), so `\ceil{SortInt{}, SortBool{}}(1 /Int n)` is all of Bool or none of it
+(`TieReqBool.ceil_const`), and neither is `{true}` where `false` and `true` are two elements of Bool
+(`TieReqBool.eqTrue_empty`). -/
+theorem ltext0_empty (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (hat : AtValues (cH H) I e U.ax157.ax) (a : M) :
+    ¬ (tr ⟨tableOf [] p0, []⟩ Ltext0).interpret I e a := by
+  intro h
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  have hD := defOK hI
+  have hc : I ⊧ᴵ ceilDefItem.pat := sat_sigItem hI (sig_ceilDef (c := cH H))
+  have hSig : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => sat_dom hI hφ
+  obtain ⟨σ, hσ1, hσ2⟩ := TieRhs.sortSing_sig hD hSig (top_numbered (c := cH H))
+  rw [top_name] at hσ1
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSig
+    (Nat.lt_of_lt_of_le (by decide : Srt.int < nRegSorts) (Nat.le_add_right _ _) : Srt.int < nRegSorts + (cH H).sortNames.length)
+  rw [int_name] at hσI1
+  have hSI : ∀ b, (trSort (tableOf [] p0) (KoreAML.srt "Int")).interpret I e b ↔ b = σI := by
+    rw [trSort_srt]; exact hσI1
+  obtain ⟨v, S, hS, hv, hden⟩ := hat "VarX" (KoreAML.srt "Int") x_index.1
+  rw [x_index.2] at hden
+  have hS' : S = Srt.int := int_of_name S hS
+  subst hS'
+  obtain ⟨a0, ha0, -⟩ := den_single hI hv e
+  have hσ : ∀ i p, divVars[i]? = some p → ∃ w, [(0, v)].lookup i = some w ∧ (cH H).sortOf w = some p.2 := by
+    intro i p hp
+    match i, hp with
+    | 0, hp => cases hp; exact ⟨v, rfl, hv⟩
+  have hag : ∀ i w, i < divVars.length → [(0, v)].lookup i = some w →
+      ∀ m, m = e.evalEvar ((tableOf [] p0).ev (LibEv.vkey (cH H) divVars i)) ↔ (den (cH H) w).interpret I e m := by
+    intro i w hi hw m
+    match i, hi, hw with
+    | 0, _, hw =>
+      cases hw
+      rw [div_key, ha0, (ha0 _).mp hden]
+  obtain ⟨hval, hsrt⟩ := LibEv.den_val (coreOKH H) hI hσ hag divT (div_srt H)
+  rw [div_kore] at hval
+  have hp : ∀ b, (tr ⟨tableOf [] p0, []⟩ (.app ⟨⟨"Lbl'UndsSlsh'Int'Unds'"⟩⟩ [] [.dv (KoreAML.srt "Int") "1", .var (.evar x0)])).interpret I e b → Inh I σI b := by
+    intro b hb
+    rw [hval] at hb
+    cases hw : LibEv.val (cH H) [(0, v)] divT with
+    | none => rw [hw] at hb; exact hb.elim
+    | some w =>
+      rw [hw] at hb
+      obtain ⟨a1, ha1, hin⟩ := den_single hI (hsrt w hw) e
+      rw [(ha1 b).mp hb]
+      rw [int_name] at hin
+      exact (interp_inhOf_of (S := sortP "Int") hσI1).mp hin
+  unfold Ltext0 at h
+  rw [interp_and (List.cons_ne_nil _ _)] at h
+  exact TieReqBool.eqTrue_empty hD hSig hDom (sortOf_false H) (sortOf_true H) (den_false H) (den_true H)
+    (by rw [C_eq, trSort_srt]; exact hσ1) hσ2
+    (fun σB hSB hσB x y hx hy => TieReqBool.ceil_const hD hc hSI hσI2 hSB hσB hp x y hx hy) a
+    (h _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+
+/-- **Sentence 157 is entailed at values** (`EntailsAtValues`, the reading's direction), for every
+H: at a value of X its left side holds nothing (`ltext0_empty`), so the sentence holds there. -/
+theorem rule157_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax157 (trS U.ax157).pat := by
+  intro M _ I hI e hat m
+  rw [trS157]
+  exact TieReqBool.ruleItem_of_empty (defOK hI) (ltext0_empty H hI e hat) m
+
 /-! ## The account -/
 
 noncomputable def tiedIdx : List Nat := fnText.map (·.index) ++ consText.map (·.index) ++ [157, 158]
@@ -333,6 +447,8 @@ end KCore.NotePredBool
 #print axioms KCore.NotePredBool.rule_text1
 #print axioms KCore.NotePredBool.left0_empty
 #print axioms KCore.NotePredBool.rule_from_text
+#print axioms KCore.NotePredBool.ltext0_empty
+#print axioms KCore.NotePredBool.rule157_at_values
 #print axioms KCore.NotePredBool.consistent
 #print axioms KCore.NotePredBool.pre_model
 #print axioms KCore.NotePredBool.ceil_other
