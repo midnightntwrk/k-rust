@@ -302,6 +302,39 @@ theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTer
     · rintro ⟨v', rfl, hv'⟩; cases hv'; rfl
     · rintro rfl; exact ⟨v, rfl, rfl⟩
 
+/-- **A parameter symbol applied to values, in the value model**: exactly `paramVal`'s value, and
+no element where `paramVal` has none. For every parameter, an open generator among them. -/
+theorem paramGraph_val (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
+    (hkp : kp ∈ c.params) (hvs : c.sortsOf vs = some kp.sig.args) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔
+      ∃ v, c.paramVal kp.sig.name vs = some v ∧ m = .val v := by
+  obtain ⟨hc, hh⟩ := h.paramKinds hkp
+  have hp : c.isParam kp.sig.name = true := by
+    unfold Semantics.isParam
+    rw [Semantics.lookupParam_eq]
+    cases hf : c.params.find? (·.sig.name == kp.sig.name) with
+    | none => have := List.find?_eq_none.mp hf kp hkp; simp at this
+    | some _ => rfl
+  rw [symApp_val h (kernel_param hkp) hvs (sortsOf_length hvs), result_param hc hh hp]
+  exact ⟨fun ⟨v, h1, h2⟩ => ⟨v, h2, h1⟩, fun ⟨v, h1, h2⟩ => ⟨v, h2, h1⟩⟩
+
+/-- **An open generator applied to values, in the value model**: the interpretation's answer, or
+the raw application where it gives none, where that has the generator's result sort; no element
+otherwise. From the parameter its symbol names (`hlp`), with no registry hook (`hi`). -/
+theorem openGraph_val (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
+    (hkp : kp ∈ c.params) (hraw : kp.raw = true) (hlp : c.lookupParam kp.sig.name = some kp)
+    (hi : kp.impl = none) (hvs : c.sortsOf vs = some kp.sig.args) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔
+      ∃ v, v = (c.hooks.app kp.sig.name vs).getD (.ctor kp.sig.name vs) ∧
+        c.sortOf v = some kp.sig.result ∧ m = .val v := by
+  rw [paramGraph_val h hkp hvs e m]
+  constructor
+  · rintro ⟨v, hv, rfl⟩
+    obtain ⟨h1, h2⟩ := (paramVal_raw_sorted hlp hraw hi).mp hv
+    exact ⟨v, h1, h2, rfl⟩
+  · rintro ⟨v, h1, h2, rfl⟩
+    exact ⟨v, (paramVal_raw_sorted hlp hraw hi).mpr ⟨h1, h2⟩, rfl⟩
+
 end AtT
 
 theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
@@ -311,6 +344,24 @@ theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTer
         | some v => den c v
         | none => ⊥)) :=
   AtT.sat_paramGraph (c := c) (T := StepM c) (h := h) (kp := kp) (vs := vs) (hkp := hkp) (hvs := hvs)
+
+/-- **A parameter symbol applied to values, in the value model** (`AtT.paramGraph_val` at the value
+model). -/
+theorem paramGraph_val (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
+    (hkp : kp ∈ c.params) (hvs : c.sortsOf vs = some kp.sig.args) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔
+      ∃ v, c.paramVal kp.sig.name vs = some v ∧ m = .val v :=
+  AtT.paramGraph_val (c := c) (T := StepM c) h hkp hvs e m
+
+/-- **An open generator applied to values, in the value model** (`AtT.openGraph_val` at the value
+model). -/
+theorem openGraph_val (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
+    (hkp : kp ∈ c.params) (hraw : kp.raw = true) (hlp : c.lookupParam kp.sig.name = some kp)
+    (hi : kp.impl = none) (hvs : c.sortsOf vs = some kp.sig.args) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔
+      ∃ v, v = (c.hooks.app kp.sig.name vs).getD (.ctor kp.sig.name vs) ∧
+        c.sortOf v = some kp.sig.result ∧ m = .val v :=
+  AtT.openGraph_val (c := c) (T := StepM c) h hkp hraw hlp hi hvs e m
 
 /-! ## Values are elements, distinct values distinct -/
 

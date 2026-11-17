@@ -11,6 +11,7 @@
 -/
 import KcoreSpec.ModelCarrier
 import KcoreSpec.FloatLaws
+import KcoreSpec.OpenValues
 
 set_option autoImplicit false
 
@@ -775,6 +776,15 @@ theorem HypModelCore.ovlHyp (h : HypModelCore c) : OvlLaws.OvlHyp c :=
 /-- `φ` denotes the one element `x` at the valuation `e`. -/
 abbrev Sing (c : Semantics) (e : Valuation Elem) (φ : KoreAML.P) (x : Elem) : Prop := ∀ m, φ.interpret (stdI c) e m ↔ m = x
 
+/-- An open generator is the parameter its symbol names, with no registry hook. Under
+`HypModelCore` no parameter is raw (`paramsPlain`), so this is where the reading of an open
+generator's value takes that fact: from the parameters' names being apart and from `paramsPlain`'s
+`raw` branch (no hook) once `paramsPlain` admits raw parameters. -/
+theorem HypModelCore.open_param (h : HypModelCore c) {f : Sym} {kp : ParamSig} (hko : c.lookupOpen f = some kp) :
+    c.lookupParam f = some kp ∧ kp.impl = none := by
+  obtain ⟨hkp, hraw, -, -⟩ := c.lookupOpen_spec hko
+  exact absurd hraw (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hkp])
+
 namespace AtT
 
 /-- `φ` denotes exactly `x` in the value model at the transition `T`. -/
@@ -788,6 +798,44 @@ namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
+/-- **An open generator's raw value denotes itself**: the symbol applied to its arguments' elements
+is the parameter's value (`result`), which is the raw application where the interpretation leaves
+it raw (`paramVal_raw_sorted`). From the parameter the symbol names (`hlp`), with no registry hook
+(`hi`), and the arguments' reading (`hargs`). -/
+theorem den_open (h : HypModelCore c) {f : Sym} {ts : List GroundTerm} {kp : ParamSig}
+    (hko : c.lookupOpen f = some kp) (hlp : c.lookupParam f = some kp) (hi : kp.impl = none)
+    (hts : c.sortsOf ts = some kp.sig.args) (hkr : c.keepsRaw f ts = true)
+    (hv : c.sortOf (.ctor f ts) = some kp.sig.result) (e : Valuation Elem)
+    (hargs : All2 (fun φ x => Sing c T e φ x) ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) (ts.map Elem.val)) :
+    Sing c T e (den c (.ctor f ts)) (.val (.ctor f ts)) := by
+  obtain ⟨hkp, hraw, hn, -⟩ := c.lookupOpen_spec hko
+  have hd : den c (.ctor f ts) = KoreAML.appList (KoreAML.sym (.symbol (c.symName f)))
+      ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) := by
+    unfold den KoreAML.den; rw [GroundTerm.kore]; exact tr_ap _ _
+  have hks : kp.sig ∈ kernelSyms c :=
+    List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hkp)))
+  have hkinds : c.isCtor kp.sig.name = false ∧ isHook kp.sig.name = false := by
+    have := h.kinds
+    simp only [kindsApart, Bool.and_eq_true, List.all_eq_true] at this
+    simpa using this.2 kp hkp
+  have hp : c.isParam kp.sig.name = true := by
+    unfold Semantics.isParam; rw [hn, hlp]; rfl
+  have hraw' : (c.hooks.app f ts).getD (.ctor f ts) = .ctor f ts := by
+    unfold Semantics.keepsRaw at hkr
+    cases ha : c.hooks.app f ts with
+    | none => rfl
+    | some w =>
+      rw [ha] at hkr
+      exact GroundTerm.cmp_eq _ _ (by simpa using hkr)
+  have hpv : c.paramVal f ts = some (.ctor f ts) :=
+    (paramVal_raw_sorted hlp hraw hi).mpr ⟨hraw'.symm, hv⟩
+  intro m
+  rw [hd, interp_symList _ _ _ hargs m, ← hn, symE_vals h.namesK hks (sortsOf_length hts),
+    result_param hkinds.1 hkinds.2 hp, hn, hpv]
+  constructor
+  · rintro ⟨v, rfl, hv'⟩; cases hv'; rfl
+  · rintro rfl; exact ⟨_, rfl, rfl⟩
+
 mutual
 
 /-- **Every value denotes itself.** -/
@@ -797,9 +845,10 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
     have hd : den c (.ctor f ts) = KoreAML.appList (KoreAML.sym (.symbol (c.symName f)))
         ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) := by
       unfold den KoreAML.den; rw [GroundTerm.kore]; exact tr_ap _ _
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩ | ⟨-, -, kp, hko, -⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩ | ⟨-, -, kp, hko, hts', hkr, rfl⟩
     rotate_right
-    · exact absurd (c.lookupOpen_spec hko).2.1 (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ (c.lookupOpen_spec hko).1])
+    · obtain ⟨hlp, hi⟩ := h.open_param hko
+      exact den_open h hko hlp hi hts' hkr hv e (den_list h ts hts' e)
     · obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
       have hks : k ∈ kernelSyms c :=
         List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hkm)))
@@ -1042,6 +1091,15 @@ theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
 end
 
 end AtT
+
+/-- **An open generator's raw value denotes itself** (`AtT.den_open` at the value model). -/
+theorem den_open (h : HypModelCore c) {f : Sym} {ts : List GroundTerm} {kp : ParamSig}
+    (hko : c.lookupOpen f = some kp) (hlp : c.lookupParam f = some kp) (hi : kp.impl = none)
+    (hts : c.sortsOf ts = some kp.sig.args) (hkr : c.keepsRaw f ts = true)
+    (hv : c.sortOf (.ctor f ts) = some kp.sig.result) (e : Valuation Elem)
+    (hargs : All2 (fun φ x => Sing c e φ x) ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) (ts.map Elem.val)) :
+    Sing c e (den c (.ctor f ts)) (.val (.ctor f ts)) :=
+  AtT.den_open (c := c) (T := StepM c) h hko hlp hi hts hkr hv e hargs
 
 /-- **Every value denotes itself.** -/
 theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s →
