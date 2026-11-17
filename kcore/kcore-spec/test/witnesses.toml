@@ -160,17 +160,20 @@ evidence = "test/WitRestIdsA.lean"
 [[conjunct]]
 key = "idsOK.5"
 text = "(List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts).all KCore.genSorts.contains"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry sort Id listed among userSorts instead of among the library sorts below KItem meets every other leaf of coreOK and FnHyp; with Id among the library sorts coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): Γ reads the sorts below KItem as the library list followed by userSorts, so the two have the same sorts there in another order, Id being a constructor sort without generator adds no item, and the kernel sorts are a range independent of both; not examined: a registry sort of domain values (genWf refuses it, its constructor sort being Int, Bool, ...), KItem or K listed in userSorts"
+evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
 key = "idsOK.6"
 text = "decide (KCore.nRegSyms ≤ k.name) || KCore.genSyms.contains k.name"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the registry constructor #KConfigValue : K → KItem listed among the definition's constructors instead of the library's meets every other leaf of coreOK and FnHyp; listed among the library's, coreOK holds, and the constructor items of the two are the same); Γ has a model (argued): ctorSigs lists the library's constructors then the definition's, so the two have the same constructors in another order (kernel-checked), the same generators per sort and the same signature items up to order; the conjunct is asked for the numbering of the own symbols, not for a model; not examined: a registry number naming no registry constructor"
+evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
 key = "idsOK.7"
 text = "c.lib.ok"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the library's sorts below KItem listing MInt, which has no sort predicate, twice meets every other leaf of coreOK and FnHyp; listed once, coreOK holds); Γ has a model (argued): Γ is that of MInt listed once up to repeated items (its subsort into KItem twice, its injection a generator of KItem twice, comparable injections having no distinctness item, the sort predicates unchanged); of Lib.ok's other parts (kernel-checked instances): a library sort KItem and a library subsort outside the library sorts fail genWf, a library sort numbered as an own sort fails namesApartK, a library sort that is a generated sort of the cells fails predsApart; not examined: a library constructor named like a map-pattern symbol, a library sort numbered beyond the own sorts"
+evidence = "test/WitRestIdsB.lean"
 
 [[conjunct]]
 key = "overloadsOK.1"
