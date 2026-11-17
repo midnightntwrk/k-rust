@@ -607,7 +607,14 @@ from the subsort closure, which lists a pair once per path: wasm's `EmptyStmt < 
 `emit` writes a library constructor's distinctness from the later constructors of its sort in the
 library only; a constructor of the definition's own whose sort is a library sort (K-REFLECTION's
 `#noParse` of K-IO's `IOError`) is distinct from each of that sort's library constructors as well,
-as KCore's values, the free terms over all the constructors, are; those axioms are induced too. -/
+as KCore's values, the free terms over all the constructors, are; those axioms are induced too.
+
+`emit` writes a cell's constructor with no distinctness axiom (a cell's sort has one constructor,
+the cell). The sort of a cell that may be absent (`multiplicity="?"`) has a second, the constant
+kompile declares for the absent cell (`.OneCell` of `<one>`), and the text states the two distinct.
+Both are constructors of the definition, so `Γ` states their distinctness (`consItemsK`: Cons-Dist
+of each pair of generators of a sort that are no open generators, unguarded where neither is a
+function-overloaded symbol and their overload closures do not meet); those axioms are induced too. -/
 
 /-- `ps` without an argument printed as the one before it. -/
 def dedupAdj : List Kore.Pattern → List Kore.Pattern
@@ -795,7 +802,13 @@ def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
     -- the distinctness of each own constructor of a library sort from that sort's library constructors
     let mixed := c.ctors.flatMap fun k => (c.lib.ctors.filter (·.result == k.result)).map fun f =>
       KoreAML.distinctnessAx (toK c f) (toK c k)
-    let induced := ((userModule d.sem d.pres).sentences ++ mixed ++ ovlInduced c).filterMap fun s => match s, ctorInert? s with
+    -- the distinctness of each cell's constructor from the other constructors of its sort
+    let cellDist := d.pres.cellCtors.flatMap fun k =>
+      (c.ctors.filter fun k' => k'.result == k.result && k'.name != k.name &&
+        !c.isOpenGen (.ctor k) && !c.isOpenGen (.ctor k') &&
+        !c.fnOvl (.ctor k) && !c.fnOvl (.ctor k') && !ovlMeet c k.name k'.name).map fun k' =>
+        KoreAML.distinctnessAx (toK c k) (toK c k')
+    let induced := ((userModule d.sem d.pres).sentences ++ mixed ++ cellDist ++ ovlInduced c).filterMap fun s => match s, ctorInert? s with
       | .axiom a, some r => some (r.name, canon a.pattern)
       | _, _ => none
     let off := preludeLength k
