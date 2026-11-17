@@ -76,7 +76,12 @@ silent point `replace` at the count (`libReplaceAll`) and `replace` at one its f
 `<=Float`, `<Float`, `>=Float`, `>Float`, `==Float` `false` and `=/=Float` `true`; `rootFloat` at a
 Float and 2 `hook`'s value of `sqrtFloat` (`libRootVal`); nothing elsewhere.
 At an interpreted symbol it is read only at silent points (`Semantics.fallback`), where `hook` gives
-no value; at `rootFloat`, a parameter symbol, at every argument. -/
+no value; at `rootFloat`, a parameter symbol, at every argument. At the Float points of a format with
+a model where K's text states no value (FloatDomain.lean) that is the operand itself for `--Float`
+and `absFloat` at NaN and for `floorFloat`, `ceilFloat`, `truncFloat` at an infinity, NaN, a zero
+result of a nonzero operand or an integer the format does not hold (`totalsVal`), and no value for
+the five arithmetic operations, `roundFloat` and `Int2Float`, which are not `total`. No sentence of
+`libSentences` reads those points: 1673 negates a `maxValueFloat`, never a NaN. -/
 def HookParams.lib : HookParams :=
   ⟨fun f vs =>
     if f == stringReplaceAll then libReplaceAll vs
@@ -253,7 +258,7 @@ theorem flCmp_none {t t' : Option Ordering → Bool} {vs : List GroundTerm} (h :
   match vs with
   | [a, b] =>
     unfold flCmp at h ⊢
-    cases ha : asFloat a <;> cases hb : asFloat b <;> simp_all
+    cases ha : asDatum a <;> cases hb : asDatum b <;> simp_all
   | [] | [_] | _ :: _ :: _ :: _ => rfl
 
 /-- `=/=Float`'s sentence holds under `HookParams.lib` in every semantics: where `=/=Float` is silent
@@ -284,7 +289,8 @@ theorem thin_nan_ok {p e : Nat} (hp : 1 ≤ p) (he : 1 ≤ e) (h1 : p = 1 ∨ e 
 
 /-- `isInfinite`'s sentence holds under `HookParams.lib` where every Float value is a Float literal:
 at a Float of a format with a field of 1, `isInfinite` is `false`, `maxValueFloat` the format's NaN,
-both comparisons `false`, `--Float` of the NaN the NaN. -/
+both comparisons `false` (by `hook` at precision 1, where the NaN is unordered, by `lib` at one
+exponent bit), `--Float` of the NaN the NaN. -/
 theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     (c.withHooks HookParams.lib).isInfiniteEq := by
   intro F hF hh
@@ -302,11 +308,19 @@ theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     unfold KFloat.spec? at hsp; split at hsp
     · cases hsp
     · rename_i h; omega
-  have hpi : asFloat (.dv Srt.float (.float p e b)) = none := by
-    unfold asFloat; simp [hsp]
   let m : GroundTerm := .dv Srt.float (.float p e (2 ^ (p + e)))
   have hm : asFloat m = none := by
     unfold asFloat; simp [m, hsp]
+  -- at precision 1 `F` has a datum and `m` is the format's NaN (`asDatum`); at one exponent bit
+  -- neither has one
+  have hnan : ∀ u, asDatum (.dv Srt.float (.float p e b)) = some u → asDatum m = some .notANumber := by
+    intro u hdF
+    have hp1 : p = 1 ∧ 2 ≤ e := by
+      by_cases hc : p = 1 ∧ 2 ≤ e
+      · exact hc
+      · simp [asDatum, hsp, hc] at hdF
+    obtain ⟨rfl, he2⟩ := hp1
+    simp [asDatum, m, hsp, he2, KFloat.thinUnpack]
   have hms : (c.withHooks HookParams.lib).sortOf m = some Srt.float := by
     rw [sortOf_dv]; exact ⟨by simp [dvOK, thin_nan_ok hp he h1], rfl⟩
   rw [hv_of_silent (k := ⟨floatIsInfinite, [Srt.float], Srt.bool⟩) rfl hh rfl rfl
@@ -322,26 +336,40 @@ theorem isInfiniteEq_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     show libMaxValue [int p, int e] = some m
     have : (1 : Int) ≤ p ∧ (1 : Int) ≤ e ∧ ((p : Int) = 1 ∨ (e : Int) = 1) := by omega
     simp [libMaxValue, asInt, int, this, m]
-  have hgt : hook floatGt [.dv Srt.float (.float p e b), m] = some none := by
+  have hgt : (c.withHooks HookParams.lib).hv floatGt [.dv Srt.float (.float p e b), m] = some (bool false) := by
     have h0 : hook floatGt [.dv Srt.float (.float p e b), m] =
       some (flCmp (fun o => o == some .gt) [.dv Srt.float (.float p e b), m]) := rfl
-    rw [h0]; simp [flCmp, hpi]
+    cases hdF : asDatum (.dv Srt.float (.float p e b)) with
+    | none =>
+      have hs : hook floatGt [.dv Srt.float (.float p e b), m] = some none := by
+        rw [h0]; simp [flCmp, hdF]
+      exact hv_of_silent (k := ⟨floatGt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
+    | some u =>
+      have hc : KFloat.cmpExact u .notANumber = none := by cases u <;> rfl
+      apply hv_of_value
+      rw [h0]; simp [flCmp, hdF, hnan u hdF, hc]
   have hng : hook floatNeg [m] = some none := by
-    have h0 : hook floatNeg [m] = some (fl1 (fun _ => Float.Model.UnpackedFloat.neg) [m]) := rfl
+    have h0 : hook floatNeg [m] = some (fl1 (fun _ => KFloat.neg?) [m]) := rfl
     rw [h0]; simp [fl1, hm]
-  have hlt : hook floatLt [.dv Srt.float (.float p e b), m] = some none := by
+  have hlt : (c.withHooks HookParams.lib).hv floatLt [.dv Srt.float (.float p e b), m] = some (bool false) := by
     have h0 : hook floatLt [.dv Srt.float (.float p e b), m] =
       some (flCmp (fun o => o == some .lt) [.dv Srt.float (.float p e b), m]) := rfl
-    rw [h0]; simp [flCmp, hpi]
+    cases hdF : asDatum (.dv Srt.float (.float p e b)) with
+    | none =>
+      have hs : hook floatLt [.dv Srt.float (.float p e b), m] = some none := by
+        rw [h0]; simp [flCmp, hdF]
+      exact hv_of_silent (k := ⟨floatLt, [Srt.float, Srt.float], Srt.bool⟩) rfl hs rfl rfl (sortOf_bool false)
+    | some u =>
+      have hc : KFloat.cmpExact u .notANumber = none := by cases u <;> rfl
+      apply hv_of_value
+      rw [h0]; simp [flCmp, hdF, hnan u hdF, hc]
   rw [hv_of_value hpr, Option.bind_some, hv_of_value hex, Option.bind_some,
     hv_of_silent (k := ⟨floatMaxValue, [Srt.int, Srt.int], Srt.float⟩) rfl hmx rfl hmv
       hms, Option.bind_some,
-    hv_of_silent (k := ⟨floatGt, [Srt.float, Srt.float], Srt.bool⟩) rfl hgt rfl rfl
-      (sortOf_bool false), Option.bind_some,
+    hgt, Option.bind_some,
     hv_of_silent (k := ⟨floatNeg, [Srt.float], Srt.float⟩) rfl hng rfl rfl
       hms, Option.bind_some,
-    hv_of_silent (k := ⟨floatLt, [Srt.float, Srt.float], Srt.bool⟩) rfl hlt rfl rfl
-      (sortOf_bool false), Option.bind_some,
+    hlt, Option.bind_some,
     hv_of_value (rfl : hook boolOr [bool false, bool false] = some (some (bool false)))]
   rfl
 
