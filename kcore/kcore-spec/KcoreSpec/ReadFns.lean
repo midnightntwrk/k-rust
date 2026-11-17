@@ -338,51 +338,60 @@ def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var
 application holds the elements its arguments' elements give, and `Z ∈ tⱼ` holds exactly where the
 element Z is one of tⱼ's. A predicate conjunct P of the conjunction is everything or nothing, so
 `C[φ ∧ P] = C[φ] ∧ P`. Nothing is asked of the tⱼ (not that each has at most one element, not an
-equality hook). -/
+equality hook). Where a conjunct is an element variable V the conjunction is V where every other
+conjunct holds it, `V ∧ t₂ ∧ … ∧ tₙ = V ∧ V ∈ t₂ ∧ … ∧ V ∈ tₙ`, so an `\exists` variable of the
+equation that is a conjunct stands in the position itself and no variable is added. -/
 
 /-- A cut: the variable that stands in the position, the conjunction's sort, its term conjuncts. -/
 abbrev Cut := Kore.EVar × Kore.KSort × List Kore.Pattern
 
 mutual
   /-- A pattern at a term position with each maximal conjunction of two or more terms under
-  applications replaced by a fresh variable (`Var'Hash'Cut` and a number from `n`, primed until no
-  name of `used` is it): the pattern, the next number, the cuts (one inside a conjunct before the
-  conjunct's own), and the predicate conjuncts lifted out of the conjunctions. A conjunction with
-  one term conjunct is that conjunct; one with none is `\top` of its sort. -/
-  def cutAnd (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat × List Cut × List Kore.Pattern
-    | .app h ss ps => let (ps', n, cs, qs) := cutAndList used n ps; (.app h ss ps', n, cs, qs)
+  applications replaced by a variable: the first conjunct that is a variable named in `bound` (the
+  equation's `\exists` variables), the cut's conjuncts then the others; where there is none, a
+  fresh variable (`Var'Hash'Cut` and a number from `n`, primed until no name of `used` is it).
+  The pattern, the next number, the cuts (one inside a conjunct before the conjunct's own), and
+  the predicate conjuncts lifted out of the conjunctions. A conjunction with one term conjunct is
+  that conjunct; one with none is `\top` of its sort. -/
+  def cutAnd (used bound : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat × List Cut × List Kore.Pattern
+    | .app h ss ps => let (ps', n, cs, qs) := cutAndList used bound n ps; (.app h ss ps', n, cs, qs)
     | .and s ps =>
-      let (ts, n, cs, qs) := cutConjList used n ps
+      let (ts, n, cs, qs) := cutConjList used bound n ps
       match ts with
       | [] => (.top s, n, cs, qs)
       | [t] => (t, n, cs, qs)
       | _ =>
-        let z := KoreAML.evar (freshIn used (used.length + 1) s!"Var'Hash'Cut{n}") s
-        (.var (.evar z), n + 1, cs ++ [(z, s, ts)], qs)
+        match ts.findSome? (fun t => match t with
+            | .var (.evar v) => if bound.contains v.var.ident.name then some v else none
+            | _ => none) with
+        | some v => (.var (.evar v), n, cs ++ [(v, s, ts.filter fun t => !decide (t = .var (.evar v)))], qs)
+        | none =>
+          let z := KoreAML.evar (freshIn used (used.length + 1) s!"Var'Hash'Cut{n}") s
+          (.var (.evar z), n + 1, cs ++ [(z, s, ts)], qs)
     | p => (p, n, [], [])
     termination_by structural p => p
-  def cutAndList (used : List String) (n : Nat) :
+  def cutAndList (used bound : List String) (n : Nat) :
       List Kore.Pattern → List Kore.Pattern × Nat × List Cut × List Kore.Pattern
     | [] => ([], n, [], [])
     | p :: ps =>
-      let (p', n, cs, qs) := cutAnd used n p
-      let (ps', n, cs', qs') := cutAndList used n ps
+      let (p', n, cs, qs) := cutAnd used bound n p
+      let (ps', n, cs', qs') := cutAndList used bound n ps
       (p' :: ps', n, cs ++ cs', qs ++ qs')
     termination_by structural ps => ps
   /-- A conjunct of a conjunction at a term position: its term conjuncts (a nested conjunction's
   flattened, each cut inside), and its predicates (`isPred`, `\top` dropped). -/
-  def cutConj (used : List String) (n : Nat) : Kore.Pattern → List Kore.Pattern × Nat × List Cut × List Kore.Pattern
-    | .and _ ps => cutConjList used n ps
-    | .app h ss ps => let (ps', n, cs, qs) := cutAndList used n ps; ([.app h ss ps'], n, cs, qs)
+  def cutConj (used bound : List String) (n : Nat) : Kore.Pattern → List Kore.Pattern × Nat × List Cut × List Kore.Pattern
+    | .and _ ps => cutConjList used bound n ps
+    | .app h ss ps => let (ps', n, cs, qs) := cutAndList used bound n ps; ([.app h ss ps'], n, cs, qs)
     | .top _ => ([], n, [], [])
     | p => if isPred p then ([], n, [], [p]) else ([p], n, [], [])
     termination_by structural p => p
-  def cutConjList (used : List String) (n : Nat) :
+  def cutConjList (used bound : List String) (n : Nat) :
       List Kore.Pattern → List Kore.Pattern × Nat × List Cut × List Kore.Pattern
     | [] => ([], n, [], [])
     | p :: ps =>
-      let (ts, n, cs, qs) := cutConj used n p
-      let (ts', n, cs', qs') := cutConjList used n ps
+      let (ts, n, cs, qs) := cutConj used bound n p
+      let (ts', n, cs', qs') := cutConjList used bound n ps
       (ts ++ ts', n, cs ++ cs', qs ++ qs')
     termination_by structural ps => ps
 end
@@ -399,8 +408,9 @@ def cutMems (N : Names) : List Var → List Cut → Rd (List Cond × List Var)
   termination_by structural _ cs => cs
 
 /-- An equation whose right side is `\exists x̄. body` (x̄ possibly empty), body under no further
-binder: one clause. `exs` is the variables x̄ in the text's order of nesting, then the variables of
-`cutAnd`, which reads each conjunction of terms under applications of the body; `rhs` is the body
+binder: one clause. `exs` is the variables x̄ in the text's order of nesting, then the fresh
+variables of `cutAnd`, which reads each conjunction of terms under applications of the body (a
+conjunction with a variable of x̄ among its conjuncts as that variable); `rhs` is the body
 so read; `post` is every predicate of the body (`condOf`), so that `Cond.fixes` reads them, then
 the cuts' memberships; the equation's own `ensures` stays `ens`.
 Refused `existentialRhs`: a variable of x̄ that the arguments, the `requires` or the `ensures` hold,
@@ -416,13 +426,14 @@ def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   let (xs, body) := peelExists e.rhs
   if hasExists body then fail .manyValuedRightSide "\\exists"
   if isPred body then fail .manyValuedRightSide "\\top"
-  let (t, _, cuts, ps) := cutAnd (evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)) 0 body
+  let bound := xs.map (·.var.ident.name)
+  let (t, _, cuts, ps) := cutAnd (evarNamesList (e.rhs :: e.pats ++ e.req.toList ++ e.ens.toList)) bound 0 body
   if let some c := (t :: cuts.flatMap (·.2.2)).findSome? manyValued? then fail .manyValuedRightSide c
   if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
     fail .existentialRhs s!"{x.var.ident.name}: bound by \\exists, not held by its body"
   let (exs, vs) ← exBind n0 vs xs
   unless nodup exs do fail .existentialRhs s!"{(xs.headD default).var.ident.name}: bound twice"
-  let (zs, vs) ← exBind n0 vs (cuts.map (·.1))
+  let (zs, vs) ← exBind n0 vs ((cuts.map (·.1)).filter (!bound.contains ·.var.ident.name))
   let (rhs, vs) ← term N vs t
   let (cs, vs) ← condOfList N vs ps
   let (ms, vs) ← cutMems N vs cuts
