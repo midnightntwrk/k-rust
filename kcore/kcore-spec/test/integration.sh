@@ -36,7 +36,7 @@
 #   agree       `kcore agree` over test/agree.jsonl, the cases built from the reference backends' cached
 #               results (test/agree.sh, test/agree.expected; after corpus, whose extraction holds
 #               the cases' definitions)
-#   agree-kore-in-k  `kcore agree` over kk/agree-kore-in-k.jsonl, the kore-in-k corpus's 49 cases
+#   agree-kore-in-k  `kcore agree` over kk/agree-kore-in-k.jsonl, the kore-in-k corpus's 52 cases
 #               against each backend's recorded finals (kk/agree-kore-in-k.py builds the case file
 #               and the kompiled texts in .lake/kore-in-k; kk/agree-kore-in-k.expected);
 #               `skipped` (neither ok nor red) when .lake/kore-in-k is absent: the texts are built

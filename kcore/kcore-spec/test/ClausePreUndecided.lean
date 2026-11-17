@@ -242,6 +242,11 @@ theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : 
   · obtain ⟨v, hl, hv⟩ := int_of ha.1
     exact noPre hl hv ha.2.2.2
 
+/-- No clause of `h` has an existential variable. -/
+theorem hExs {cl : Clause} (hcl : cl ∈ hFn.clauses) : cl.exs = [] := by
+  have hc : cl = hCl1 ∨ cl = hCl2 := by simpa [hFn] using hcl
+  rcases hc with rfl | rfl <;> rfl
+
 /-- **`h` has no result at an Int**: no clause applies, and none fails. -/
 theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval d H [v] r) :
     False := by
@@ -273,7 +278,7 @@ theorem mem_fns {fn : Fn} (h : fn ∈ d.fns) : fn = lFn ∨ fn = hFn := by
   simpa [d] using h
 
 theorem coherent_l : Coherent d lCl lCl := by
-  intro vs σ σ' ha ha' _ _ _ _
+  intro vs σ σ' ha ha' _ _ _ _ _
   obtain ⟨v, rfl, hl⟩ := match0 ha.2.1
   obtain ⟨w, hw, hl'⟩ := match0 ha'.2.1
   cases hw
@@ -288,14 +293,14 @@ theorem coherent : CoherentAll d :=
       · simp [lFn, pairs] at hp
       · have : cl = hCl1 ∧ cl' = hCl2 := by simpa [hFn, pairs] using hp
         obtain ⟨rfl, rfl⟩ := this
-        exact ⟨fun _ _ _ ha _ _ _ _ _ => (not_applies (by simp [hFn]) ha).elim,
-          fun _ _ _ ha _ _ _ _ _ => (not_applies (by simp [hFn]) ha).elim⟩)
+        exact ⟨fun _ _ _ ha _ _ _ _ _ _ => (not_applies (by simp [hFn]) ha).elim,
+          fun _ _ _ ha _ _ _ _ _ _ => (not_applies (by simp [hFn]) ha).elim⟩)
     (fun fn hfn cl hcl => by
       rcases mem_fns hfn with rfl | rfl
       · have : cl = lCl := by simpa [lFn] using hcl
-        subst this; exact ⟨coherent_l, fun hne => absurd rfl hne⟩
-      · exact ⟨fun _ _ _ ha _ _ _ _ _ => (not_applies hcl ha).elim,
-          fun _ _ _ _ _ _ _ hd => (not_applies hcl hd.1).elim⟩)
+        subst this; exact (matchIndependent_iff_noExs rfl).mpr coherent_l
+      · exact (matchIndependent_iff_noExs (hExs hcl)).mpr
+          fun _ _ _ ha _ _ _ _ _ _ => (not_applies hcl ha).elim)
 
 /-- No clause of `d` has an existential variable. -/
 theorem fnsNoExs : d.FnsNoExs := by
@@ -307,7 +312,7 @@ theorem fnsNoExs : d.FnsNoExs := by
     rcases hc with rfl | rfl <;> rfl
 
 /-- **Every function of `d` has at most one result.** -/
-theorem fnDet : FnDet d := fnDet_of_coherent coherent fnsNoExs
+theorem fnDet : FnDet d := fnDet_of_coherent coherent
 
 /-- **Evaluation solves the equations of `d`**: no clause of `h` decides, and where `l`'s clause
 decides neither `l` nor its right-hand side has a value. -/
@@ -319,6 +324,7 @@ theorem fnSolves : FnSolves d := by
     obtain ⟨w, hl, hw⟩ := int_of hdec.1.1
     obtain ⟨w', rfl, hl'⟩ := match0 hdec.1.2.1
     rw [hl] at hl'; cases hl'
+    refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := lCl) rfl rfl hdec.1.1 v).symm
     exact ⟨fun h => (noL h rfl w rfl hw).elim, fun h => (noLT h.1 rfl w hl hw).elim⟩
   · exact (not_applies hcl hdec.1).elim
 

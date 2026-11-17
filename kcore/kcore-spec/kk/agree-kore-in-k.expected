@@ -1,4 +1,4 @@
-# counts (kcore agree's summary): agree 72, agree-at-none 2, differ 4, differ-at-none 0, no-reference 16, not-runnable 4; an -at-none verdict read the interpretation of the parameters and is outside the agree and differ counts
+# counts (kcore agree's summary): agree 76, agree-at-none 2, differ 6, differ-at-none 0, no-reference 16, not-runnable 4; an -at-none verdict read the interpretation of the parameters and is outside the agree and differ counts
 agree c01-fn-prio/haskell by:CExec
 agree c01-fn-prio/llvm by:CExec
 agree c02-rule-prio/haskell by:CExec
@@ -97,3 +97,9 @@ agree c48-fn-undef-requires-larger/haskell by:CExec
 no-reference c48-fn-undef-requires-larger/llvm
 agree c49-string-bool-eq/haskell by:CExec
 agree c49-string-bool-eq/llvm by:CExec
+agree c50-fn-ensures/haskell by:CExec  # half(N) => N /Int 2 ensures N >=Int 0: at -4 the equation applies (no requires) and its ensures -4 >=Int 0 is false, so half(-4) has no value; run(-4)'s rule applies with no result, an undefined-result configuration (not compared); done(2) is the one final
+differ c50-fn-ensures/llvm by:CExec  # as haskell: KCore done(2); the backend gives done(-2) too (ensures not checked)
+agree c51-fn-ensures-owise/haskell by:CExec  # as c50: at -4 the first equation applies (its ensures is no requires) and gives no value, so the [owise] equation half(_) => 0 does not apply; run(-4) is an undefined-result configuration (not compared); done(2) is the one final
+differ c51-fn-ensures-owise/llvm by:CExec  # as haskell: KCore done(2); the backend gives done(-2) too (ensures not checked)
+agree c52-subsort-one-entry/haskell by:CExec
+agree c52-subsort-one-entry/llvm by:CExec

@@ -223,7 +223,9 @@ large.
 `kk/kk.k` is the K text the statement `kk_step` is about: `krs/semantics/kore/kore.k` (the Kore-in-K
 catalogue's interpreter) at the commit its first line names, with that line added. The catalogue may
 change its `kore.k`; `kk.k` changes only by a ticket of its own. `kk/PIN.toml` records `kk.k`'s
-SHA-256, the hashes of its kompiled text (fixture `kore-k`), and the catalogue commit last compared.
+SHA-256, the fixture that kompiles it (`kore-k`, whose `kompile.txt` must record that SHA-256 for
+`kk.k`), and the catalogue commit last compared; no hash of the kompiled text, which depends on the
+directory kompile runs in.
 `kk/COVERAGE.toml` holds the rows of what `kk.k` reads of KCore's `Clause`, `Rule`, `Term`, `Lit` and
 of the KORE `Pattern` (53 rows); the rows of the attributes the catalogue's encoder reads stay in the
 catalogue. The catalogue reads nothing of `kk/`.
@@ -244,7 +246,7 @@ its `kore.k` reaches by a route the text excludes). `catalogue-differences.toml`
 
 ## The kore-in-k corpus: `kk/agree-kore-in-k.jsonl`
 
-An external case file: the 49 cases of the kore-in-k corpus (`krs/semantics/kore` on the kore-in-k
+An external case file: the 52 cases of the kore-in-k corpus (`krs/semantics/kore` on the kore-in-k
 branch, its README), each a small K definition chosen by mutation testing of a KORE interpreter to
 tell one wrong reading of K from the right one, with the final configurations of `krun --search`
 recorded for the haskell and the llvm backends (or the backend's error). `kk/agree-kore-in-k.py DIR`
@@ -270,7 +272,7 @@ k-rust checkout) and K's `kompile`,
       python3 -I kk/agree-kore-in-k.py CORPUS_DIR > .lake/kik.jsonl
 
 49 kompiles of about 3 s (92 s wall for the first 33, 33 s for the 11 added, about 2 s each for the 5
-added from c45, 2026-11-14). The case file it prints equals the committed
+added from c45, 2026-11-14; 52 kompiles in a workspace without texts, 2026-11-18). The case file it prints equals the committed
 `kk/agree-kore-in-k.jsonl` byte for byte when the corpus is unchanged (`cmp` it; the committed file
 is the one the row reads). Rerun without `K_KOMPILE`, the script reuses the texts whose stamp matches. A
 workspace whose `.lake/kore-in-k` holds only the first 33 texts must rerun it with `K_KOMPILE` (the
@@ -332,6 +334,17 @@ the text's there. The reader reads a rule's `ensures` as the rule's `ens` (`Rule
 side's premise `Step.rule`'s `hens`), so the account does not refuse c43, c44 or the four krun cases
 of `trivial-result` in `test/agree.jsonl` (these stay `not-runnable`: their input is unread).
 `kk/agree-kore-in-k.expected` carries, after `#`, the reason of each verdict that changed or is new.
+
+Verdicts, 52 cases (c50-c52 added; the first 49 cases' lines of the case file unchanged):
+haskell **agree 47, agree-at-none 2 (c11, c42), no-reference 1 (c33), not-runnable 2 (c39, c46)**;
+llvm **agree 29, differ 6 (c10, c28, c43, c44, c50, c51), no-reference 15, not-runnable 2 (c39,
+c46)**; in all 76 agree, 2 agree-at-none, 6 differ, 16 no-reference, 4 not-runnable. c50
+(`half(N) => N /Int 2 ensures N >=Int 0`, `run(N) => done(half(N))` from `run(4)` and `run(-4)`)
+and c51 (the same with `half(_) => 0 [owise]`): at -4 the equation applies (no `requires`) and its
+`ensures` is false, so `half(-4)` has no value (in c51 the `[owise]` equation does not apply, the
+first one applying), `run(-4)` is U, not compared, and `done(2)` is the one final; haskell agrees,
+llvm gives `done(-2)` too (it does not check the `ensures`), as at c43 and c44. c52 agrees on both.
+The text below is the 49-case state.
 
 Verdicts with the `ensures` as `Rule.ens`, 49 cases (c45-c49 added from the corpus's main line,
 merge 38cac354e): haskell **agree 46, differ 0, no-reference 1 (c33), not-runnable 2 (c39, c46)**;
