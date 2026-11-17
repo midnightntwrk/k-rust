@@ -480,4 +480,39 @@ theorem commCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (CommCtor.c.wit
 theorem idemCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
   openTotal_of_lawShape (by decide +kernel) idemCtor_lawShape H
 
+/-! ## The three together at `lawHooks c HookParams.lib` (V2.d3-example)
+
+CN-4 §4.7 item 2's example, at its statement: in a semantics meeting `coreOK` and `floatShapeOK`
+where no parameter is raw, associative and idempotent at once, `lawHooks c HookParams.lib`
+satisfies the laws (`openLaws_lawHooks`), gives every open generator a value at every argument
+list of its sorts (`openTotal_lawHooks`) and is admitted by the library's sentences
+(`libAdmitted_lawHooks` from `libAdmitted_lib`). Today `coreOK` refuses every raw parameter
+(`paramsPlain`; open generators are admitted at V2.d1-flip), so the statement says nothing yet
+about a semantics with an open generator; the instances below state the same three at CommCtor
+and IdemCtor, which have open generators, from the `_of` forms whose hypotheses they meet
+(`commCtor_lawShape`, `idemCtor_lawShape`, `comm_reg`, `comm_lawLibRawFree`, `idemCtor_reg`). -/
+theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) (hf : c.floatShapeOK = true)
+    (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false) :
+    OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
+    (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
+  ⟨openLaws_lawHooks c h hl HookParams.lib, openTotal_lawHooks c h hl HookParams.lib,
+    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib c hf)⟩
+
+theorem commCtor_lawHooks_lib :
+    OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
+    OpenTotal (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
+    (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)).libAdmitted :=
+  ⟨commCtor_openLaws_lawHooks HookParams.lib, commCtor_openTotal_lawHooks HookParams.lib, comm_lawHooks_lib⟩
+
+theorem idemCtor_reg : ∀ k ∈ IdemCtor.c.params, k.raw = true → nRegSyms ≤ k.sig.name := by decide +kernel
+
+theorem idemCtor_lawHooks_lib :
+    OpenLaws (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)) ∧
+    OpenTotal (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)) ∧
+    (IdemCtor.c.withHooks (lawHooks IdemCtor.c HookParams.lib)).libAdmitted :=
+  ⟨idemCtor_openLaws_lawHooks HookParams.lib, idemCtor_openTotal_lawHooks HookParams.lib,
+    libAdmitted_lawHooks_of idemCtor_reg
+      (lawLibRawFree_of_shapes (by decide +kernel) (by decide +kernel) idemCtor_reg) HookParams.lib
+      (libAdmitted_lib IdemCtor.c (by decide +kernel))⟩
+
 end KCore.OpenGenSems
