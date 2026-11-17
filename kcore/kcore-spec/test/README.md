@@ -668,6 +668,25 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   interpretation; no row is a key of `silentTable`, and every argument list of a signature is
   covered. The readings of update at a bound key, removal at an unbound one and `removeAll` at a
   member that is no key are written in its header, with the rules of MAP-KORE-SYMBOLIC that agree.
+- `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
+  domains.md's prose, cited by line: each operation at every argument list by the members of its
+  result (the one set with them), with hand-derived values that `hook` gives, the result under
+  every interpretation and Γ's statement in every semantics with Int below KItem; `_Set_` on a
+  common member is the prose's `#False`, where Γ states ⊥ under every interpretation; no row is a
+  key of `silentTable`, and every argument list of a signature is covered. Two rows are written
+  with two readings in its header: `_Set_` of a nonempty set with itself (the prose's `#False`
+  against the attribute `idem`) and `<=Set` at two equal sets (inclusion against "strict subset");
+  SET's rule for `|Set` is proved at every pair.
+- `test/HooksList.lean`: the 9 supported hook rows of LIST (the sort and eight operations) against
+  domains.md's prose, cited by line: each operation at every argument list by the sequence of its
+  result, with hand-derived values that `hook` gives, the result under every interpretation and
+  Γ's statement in every semantics with Int below KItem. `L[I]` and `range` are the two keys of
+  `silentTable`: at every argument list of the signature `hook` gives a value on the described
+  region and none, silently, off it (an index that is none of the list's; a negative count or more
+  elements than the list has), where over all interpretations Γ entails neither ⊥ nor a value
+  (the schema of test/SilentPoints.lean, at points of a semantics with `coreOK`). `range` at more
+  elements than the list has is written with two readings in its header (unstated, taken; or the
+  removal's `.List`).
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
