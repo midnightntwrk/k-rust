@@ -1238,3 +1238,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   fixtures with a competitor (`w1`, `w_text`; `f_5` through the reading). C3EqReqTotal:
   `total_named = [f]`, `fnModelH` and `consistent` with no totality fact. C3EqPrioTotal,
   C3EqPrioTotalComp, C3EqOwiseTotal: `total_named = []`, `total_f`, `model_total`.
+  C3EqReqPrioComp, C3EqPrioTotalComp: `clauses_eq` (the function's two clauses as literals);
+  `written_refuted` (Γ with the narrowed sentence as written has no model, for every H: at 5 it
+  gives 0 where Γ gives 5) and `no_model_written` (neither has `Pre H` with that sentence in place
+  of Γ's item).
+- `test/C3EqPrioFlat.lean`: the contrast of the priority attribute on those two fixtures, on a
+  hand-built semantics with their clauses both of priority 50: `ClausesAgree` is false
+  (`not_agree_req`, `not_agree_tot`: at 5 the clauses give 5 and 0) and `agreeObligationsI` names
+  both functions (`named`); with the first clause of priority 40 it holds (`agree_req_prio`,
+  `agree_tot_prio`). A few seconds.
