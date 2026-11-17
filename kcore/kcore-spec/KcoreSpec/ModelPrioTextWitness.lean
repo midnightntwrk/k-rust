@@ -127,10 +127,10 @@ theorem hyp : Hyp c := by
     exact absurd hprio (by decide)
   · rw [List.mem_singleton.mp hg] at hcl'
     rcases List.mem_cons.mp hcl' with rfl | h
-    · exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ =>
+    · exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ _ =>
         Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl1, varOccs] at hi), fun t ht => (by simp [cl1] at ht)⟩
     · rw [List.mem_singleton.mp h]
-      exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ =>
+      exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ _ =>
         Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
 
 theorem hypSound : HypSound c :=

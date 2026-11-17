@@ -13,7 +13,7 @@
   which reads the clause's predicate at `leftVars` too).
 -/
 import KcoreSpec.RightHeld
-import KcoreSpec.EvalFunctional
+import KcoreSpec.EvalFunctionalDefs
 
 set_option autoImplicit false
 
