@@ -288,6 +288,7 @@ import KcoreSpec.ConsTransferSig
 import KcoreSpec.ConsTransferCons
 import KcoreSpec.ConsTransferDomains
 import KcoreSpec.ConsTransferFrag
+import KcoreSpec.ConsTransferFns
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
