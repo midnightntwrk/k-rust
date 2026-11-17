@@ -10,7 +10,8 @@
 # since, staged, unstaged or untracked): the cone would then not be REV's. Last, test/cone.py compares
 # the written file with the computed cone, its texts read at REV; the exit status is cone.py's.
 # Commit the written file in a commit that changes no such source, so that REV's sources are the
-# commit's own.
+# commit's own. Once `[tree].frozen_at` of kcore/core-manifest.toml is not empty, a rewrite is a
+# re-freeze: the same commit appends REV to that list, or test/cone-row.sh fails.
 # Usage: test/cone-freeze.sh          (run from anywhere)
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"

@@ -16,6 +16,12 @@
 
 [tree]
 commit = "b0440052"
+# frozen_at: the git trees the review cone was frozen at, in order: the release freeze, then each
+# re-freeze after a cone declaration is fixed. Its last entry is the revision named by core-cone.txt's
+# `# computed at git REV` line, which kcore-spec/test/cone-row.sh (integration's cone row) checks
+# before comparing the cone by the text of its declarations, read at that tree. Empty while the cone
+# is not frozen: core-cone.txt is then a baseline, rewritten by kcore-spec/test/cone-freeze.sh.
+frozen_at = []
 path = "kcore-spec"
 roots = ["KCore.SoundC", "KCore.CompleteC", "KCore.ExactC", "KCore.StepIs", "KCore.Semantics.coreOK", "KCore.FnHyp"]
 headline = ["KCore.sound_hyp (c) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c", "KCore.complete_hyp (c) (ref) (h : c.coreOK = true) (hf : FnHyp c) : CompleteC c ref"]

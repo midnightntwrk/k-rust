@@ -11,7 +11,8 @@
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
 #               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE), its
-#               texts read at the revision its `# computed at git REV` line names (test/cone-row.sh): that it
+#               texts read at the revision its `# computed at git REV` line names, which must be the last
+#               entry of core-manifest.toml's [tree].frozen_at once that is not empty (test/cone-row.sh): that it
 #               was computed from test/roots.toml, declaration names, line count, each declaration's own line
 #               count and each declaration's text (test/cone.py); never rewritten
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
