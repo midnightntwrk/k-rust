@@ -1539,3 +1539,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`: `and_true`
   (`go(true)` steps to `done`), `and_false` (`go(false)` has no successor, with `Γstep`). About 5
   minutes.
+- `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
+  each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
+  `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for
+  every first clause; two definitions have every competing pair `CoherentPrem` and a function with
+  two results (`Fx.coherentAll_not_fnDet`: every instance fails by its predicate;
+  `Fx2.coherentAll_not_fnDet`: every instance fails by its right-hand side), with `FnTerminates`.
+  `refuses`: `CoherentAll` fails at both. `coherent_iff_prem`: for a first clause without
+  existential variables `Coherent` is `CoherentPrem`. `clB_coherent`: `f() => ?B ensures ?B` is
+  coherent with itself in every semantics.

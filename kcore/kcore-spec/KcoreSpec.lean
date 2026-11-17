@@ -33,6 +33,7 @@ import KcoreSpec.DetSound
 import KcoreSpec.Determinism
 import KcoreSpec.Emit
 import KcoreSpec.EvalComplete
+import KcoreSpec.EvalFunctionalDefs
 import KcoreSpec.EvalFunctional
 import KcoreSpec.FnSolves
 import KcoreSpec.EvalLemmas

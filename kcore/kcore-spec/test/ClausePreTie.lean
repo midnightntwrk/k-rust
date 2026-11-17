@@ -76,9 +76,9 @@ example (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hs
     (hph' : patHeadsOK c = true)
     (hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x)
-    (F : NodeFacts c I) (hT : TermsInSort c I) (hco : CoherentAll c) (hno : c.FnsNoExs) : ExclEmptyCl c I gFn gCl1 :=
+    (F : NodeFacts c I) (hT : TermsInSort c I) (hco : CoherentAll c) : ExclEmptyCl c I gFn gCl1 :=
   exclEmptyCl_ofCl hI hnn hg hsc hph hcso hcs hph' hcv (L := c.fns.map Fn.sig) gCl1_facts.2.2.2.2.1 gCl1_facts.2.1
-    (fun _ => ⟨preRead_gCl1 F hT, hco, hno⟩) (fun t ht => by rw [gCl1_facts.2.2.2.2.2.1] at ht; cases ht)
+    (fun _ => ⟨preRead_gCl1 F hT, hco⟩) (fun t ht => by rw [gCl1_facts.2.2.2.2.2.1] at ht; cases ht)
     gCl1_facts.2.2.2.2.2.2.2.2
     (fun h => by rw [gCl1_facts.2.2.2.2.2.2.1] at h; cases h)
     (fun h => by rw [gCl1_facts.2.2.2.2.2.2.2.1] at h; cases h)

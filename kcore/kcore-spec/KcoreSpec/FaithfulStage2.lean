@@ -782,7 +782,7 @@ mutual
     | _, _, _, h@(.ensFails ..), fn, hfn, hws, hcall, e, m => by
       -- a callable function has a value at every argument list of its sorts, so none is its result
       obtain ⟨v, hv⟩ := hcall fn hfn _ hws
-      exact absurd (Eval.functional hmi (Semantics.fnsNoExs_of_sortedOK hok) h hv) (by simp)
+      exact absurd (Eval.functional hmi h hv) (by simp)
     | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _, _ => by
       rw [hfn] at hfn'; cases hfn'
       exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne

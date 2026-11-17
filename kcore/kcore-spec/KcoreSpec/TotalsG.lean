@@ -206,7 +206,7 @@ theorem asInt_int_inv {w : GroundTerm} {x : Int} (h : asInt w = some x) : w = in
   | _ => simp [asInt] at h
 
 /-- A term `nonzeroIn fs` with a value, the literals `fs` holding: its value is not 0. -/
-theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {fs : List (Term × Bool)} {d : Term} {y : Int}
+theorem nonzeroIn_sound (hco : CoherentAll c) {σ : Subst} {fs : List (Term × Bool)} {d : Term} {y : Int}
     (hfs : ∀ l ∈ fs, EvalTerm c σ l.1 (some (bool l.2))) (h : Semantics.nonzeroIn fs d = true)
     (hd : EvalTerm c σ d (some (int y))) : y ≠ 0 := by
   simp only [Semantics.nonzeroIn, Bool.or_eq_true, List.any_eq_true] at h
@@ -233,7 +233,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
         have hu := Term.beq_sound hu
         subst hu
         obtain ⟨v, x, ev, hx, hlo, hhi⟩ := intBound_sound hb he
-        have := EvalTerm.functional hco hno ev hd
+        have := EvalTerm.functional hco ev hd
         cases this
         simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hx
         subst hx
@@ -259,7 +259,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
             obtain ⟨w', hw', hk⟩ := intLitOf_eval hy ew
             cases hw'
             rw [hY] at hk; cases hk
-            have := EvalTerm.functional hco hno ev hd
+            have := EvalTerm.functional hco ev hd
             cases this
             simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hX
             subst hX
@@ -269,7 +269,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
             obtain ⟨w', hw', hk⟩ := intLitOf_eval hx ev
             cases hw'
             rw [hX] at hk; cases hk
-            have := EvalTerm.functional hco hno ew hd
+            have := EvalTerm.functional hco ew hd
             cases this
             simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hY
             subst hY
@@ -577,7 +577,7 @@ theorem tot_hookN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
       obtain ⟨r₁, r₂, he, _, e2⟩ := evalTerms_two hts
       simp only [List.map_cons, List.map_nil, List.cons.injEq] at he
       obtain ⟨-, rfl, -⟩ := he
-      have hy := nonzeroIn_sound hco (Semantics.fnsNoExs_of_sortedOK hok) hfs hnz e2
+      have hy := nonzeroIn_sound hco hfs hnz e2
       obtain ⟨v, hv⟩ := divHooks_value hdiv x y hy
       rw [Semantics.hookRes_of_value hv] at hr
       exact ⟨v, (Option.some.inj hr).symm⟩
@@ -670,7 +670,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact ⟨v, Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.clause hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost) hv⟩
+        exact ⟨v, Eval.functional hco (Eval.clause hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost) hv⟩
       · obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn (List.mem_append_left _ hfn')
         simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         refine ihrhs L hL cl.vars hσ _ (hrs cl hmem) (reqLits cl.req) (fun l hl => ?_) (hokG.1.2 cl hmem)
@@ -686,7 +686,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact ⟨v, Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.rest hfn hnone) hv⟩
+        exact ⟨v, Eval.functional hco (Eval.rest hfn hnone) hv⟩
       · exfalso
         simp only [Semantics.totalOKG, Bool.and_eq_true] at hokG
         replace hokG := hokG.1
@@ -731,7 +731,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
           have e1 := negT_true hnc (hft L₁ hL₁ hs1 hg1)
           have e2 := negT_true hnc (hft' L₁ hL₁ (hvv ▸ hs2) hg2)
           exact reqsExclusive_sound hex (.inl fun u hu => by
-              cases hu; exact (EvalTerm.functional_hdet hco (Semantics.fnsNoExs_of_sortedOK hok) e1).2)
+              cases hu; exact (EvalTerm.functional_hdet hco e1).2)
             (fun u hu => by cases hu; exact e1) (fun u hu => by cases hu; exact e2))
     -- a clause decides and its `ensures` is not `true`: no function `totalOKG` accepts has one
     (fun {f fn₀ vs cl σ t w} hfn hmem hσ hmatch hreq hpre hprio hex ht he hw _ _ _ _ => by
@@ -740,7 +740,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact absurd (Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.ensFails hfn hmem hσ hmatch hreq hpre hprio hex ht he hw) hv) (by simp)
+        exact absurd (Eval.functional hco (Eval.ensFails hfn hmem hσ hmatch hreq hpre hprio hex ht he hw) hv) (by simp)
       · simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         have := hokG.2 cl hmem
         rw [ht] at this
