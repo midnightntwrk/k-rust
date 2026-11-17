@@ -1195,7 +1195,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   `post := or (mem Z a) (mem Z b)`, and the text with the `\or` replaced by `\not{Exp}(a)`, `\top{Exp}()`
   and `c(\or(a, \not(b)))`. lhs-not: mlnot read as `c(Z) => G`, `pre := not (and (mem Z a) (mem Z G))`,
   and beside a rule of a larger priority `openRequires` at Exp. Each prints `ruleSorted`, `rulePlainPP`,
-  `openRefusal` and the definition's `rulesPlain`, which still asks `\top` predicates. mlor: a text the
+  `openRefusal` and the definition's `rulesPlain` and `coreOK`, true of each (a predicate does not fail `rulesPlain`). mlor: a text the
   landed reader reads has the same rules. Kernel: `cut_right`, `cut_left`.
 - `test/SetVarRewrite.lean`: `KCore.setvar_rewrite_singleton` at the rewrite axiom of e3-setvar-rewrite
   (`c(@S, @S) => d(@S)`): the axiom's translation is `sRewrites` of two `SvCtx` at the set variable

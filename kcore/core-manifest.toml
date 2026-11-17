@@ -132,7 +132,7 @@ id = "statements"
 order = 10
 status = "stable"
 teaches = "SoundC: Γ with the step closure has a model and every step is entailed. CompleteC: every successor the theory forces is a step. The two theorems, with their two hypotheses"
-file = "KcoreSpec/Sound.lean, Statements.lean"
+file = "KcoreSpec/SoundDefs.lean, Sound.lean, Statements.lean"
 declarations = ["KCore.SoundC", "KCore.CompleteC", "KCore.StepIs", "KCore.StepFn", "KCore.sound_hyp", "KCore.complete_hyp"]
 examples = "every package states coreOK_defn, sound_hyp and complete_hyp in NAME/Sound.lean (peano, ref-kimp); peano's instances are in examples/peano/User/Course.lean"
 note = "Sound d := SoundC d.sem and Complete d ref := CompleteC d.sem ref are aliases over a Definition; mention them in one line as the forms older text uses"

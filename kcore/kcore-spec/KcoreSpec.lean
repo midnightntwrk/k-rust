@@ -124,6 +124,7 @@ import KcoreSpec.FireTac
 import KcoreSpec.SetLaws
 import KcoreSpec.Collections
 import KcoreSpec.Statements
+import KcoreSpec.SoundDefs
 import KcoreSpec.Sound
 import KcoreSpec.Step
 import KcoreSpec.StepIff
