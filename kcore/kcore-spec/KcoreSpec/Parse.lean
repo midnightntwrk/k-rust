@@ -249,7 +249,8 @@ inductive RefusalReason where
   /-- A set variable (`@X`): a pattern of any set of elements, where the semantics reads patterns
   of at most one element. A function equation's two memberships in one are read as dropped
   (`ReadingNote.setVarInDropped`); every other place is refused, and for an equation the detail
-  names the variable and why (`svinShape`), elsewhere the variable. -/
+  names the variable and why (`svinShape`; on the left side, under the function's application,
+  `lhsSetVar?`), elsewhere the variable. -/
   | setVariable
   /-- A variable no left side binds, or an existential one, of a sort the text leaves unconfined,
   that the right side, the `ensures` or a `post` holds under no constructor and that no condition
@@ -1661,17 +1662,40 @@ structure RawEqn where
   /-- read from a projection's selector-domain axiom (`projDomainEqn?`), not from an equation -/
   dom : Bool
 
+/-- The element variables kompile's argument conjunction `\and(\in(X0, p₀), \and(…, \top))`
+binds, in order: each membership's left operand; `none` where one is no element variable. -/
+def memberVars_lhs : Nat → Kore.Pattern → Option (List Kore.EVar)
+  | _, .top _ => some []
+  | fuel + 1, .and _ [.in _ _ (.var (.evar x)) _, rest] => do pure (x :: (← memberVars_lhs fuel rest))
+  | _, _ => none
+
+/-- Whether an equation's left side `f(ls)` applies `f` to exactly the distinct element variables
+the premise's argument conjunction `args` binds, in order. The memberships `Xᵢ ∈ pᵢ` are what the
+reader reads as the clause's patterns (`argPats`); the sentence states the value of `f` at the
+left side's arguments, so the patterns are the clause's own only where those arguments are the
+`Xᵢ` themselves: then `(⋀ Xᵢ ∈ pᵢ) → f(X₀, …) = r` holds at a valuation exactly where the clause
+`f(p₀, …) = r` gives its value. Any other left side states the value at other arguments: with a
+set variable `@S` there (`f(@S, @S)`), the value at every set's elements (refused `setVariable`,
+`lhsSetVar?`); with a repeated variable, another order or a term, the value at other points than
+the patterns', which no clause read from the memberships states (not read as an equation). -/
+def lhsArgsOK_lhs (ls : List Kore.Pattern) (args : Kore.Pattern) : Bool :=
+  match memberVars_lhs eqnFuel args with
+  | some xs => xs.eraseDups.length == xs.length && decide (ls = xs.map fun x => .var (.evar x))
+  | none => false
+
 def rawEqn? (a : Kore.Axiom) : Option RawEqn :=
   match a.pattern with
-  | .implies _ prem (.equals _ _ (.app f ss _) (.and _ [rhs, en])) => do
+  | .implies _ prem (.equals _ _ (.app f ss ls) (.and _ [rhs, en])) => do
     -- the function: `f`, or the instance of a sort-parametric `f` at the sorts `ss` (`instName`)
     let fn ← if ss.isEmpty then some f.ident.name else (ss.mapM sortName?).map (instName f.ident.name)
     -- `\top`, or the `ensures` C as `\equals{SortBool{},S}(C, \dv{SortBool{}}("true"))`
     let ens ← req? en
     match prem with
     | .and _ [.not _ ds, .and _ [r, args]] => do
+      guard (lhsArgsOK_lhs ls args)
       pure ⟨fn, ← argPats eqnFuel args, ← req? r, some (← disjuncts eqnFuel ds), rhs, a.attributes, ens, false⟩
     | .and _ [r, args] => do
+      guard (lhsArgsOK_lhs ls args)
       pure ⟨fn, ← argPats eqnFuel args, ← req? r, none, rhs, a.attributes, ens, false⟩
     | _ => none
   | _ => none
@@ -1774,6 +1798,19 @@ def svarsOf_svin (vs : List Kore.VarPattern) : List Kore.SVar :=
   vs.filterMap fun v => match v with
     | .svar X => some X
     | .evar _ => none
+
+/-- The function and the first set variable of an axiom `P → f(ls) = R` whose left side applies
+`f` to a set variable, at any depth of its arguments (`f(@S, @S)`, with or without memberships in
+the premise): refused `setVariable` (`classifyAxiom`, outside `[simplification]`). As an axiom the
+sentence holds at every valuation of `@S`, a set of elements, and `f(@S, @S)` is the union of
+`f`'s values at the pairs of its elements; so it states `f(a, a) = r` at a singleton and, at
+`{a, b}` with `a ≠ b`, only that `f(a, b)` is `r` or undefined. A clause states one value at every
+match of its patterns, and no clause states that. -/
+def lhsSetVar? (a : Kore.Axiom) : Option (String × String) :=
+  match a.pattern with
+  | .implies _ _ (.equals _ _ (.app f _ ls) _) =>
+    (svarsOf_svin (varsOfList_svin ls)).head?.map fun X => (f.ident.name, X.var.ident.name)
+  | _ => none
 
 /-- An equation's parts other than its arguments' patterns: the `requires`, the right side, the
 `ensures` and an `[owise]` equation's exclusion. -/
@@ -3266,6 +3303,8 @@ def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
   -- refuses it by name (`ruleAttrRefused`) instead of the step being dropped as an inert lemma
   else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
+  -- an equation applying its function to a set variable on the left side (`lhsSetVar?`)
+  else if (lhsSetVar? a).isSome then .refused .setVariable
   else if hasAttr a.attributes "symbol-overload" then
     if (overloadEqn? a).isSome then .read else .refused .overloadAxiom
   else if (source? a.attributes).isNone && (projectionDomain? a).isSome then .readAs .projectionDomainAsClause
@@ -4229,7 +4268,8 @@ def Fault.toRefusal (off : Nat) (m : Kore.Module) (f : Fault) : Refusal :=
 
 /-- The detail of a refusal `classify` gives the sentence `s` of the user module `m`: for an open
 generator (`openGenerator`), the law axioms `m` states of the symbol (kompile writes none for `comm`);
-"" for the other reasons. -/
+for a set variable on an equation's left side (`setVariable`, `lhsSetVar?`), the variable, the
+function and why; "" for the other reasons. -/
 def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : String :=
   match r, s with
   | .openGenerator, .symbol x =>
@@ -4243,6 +4283,11 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
   | .userHookedSort, .hookedSort x => s!"{x.sort.ident.name}: hook {(attrStr? x.attributes "hook").getD "(none)"}"
   | .existentialAxiom, .axiom a => match existentialAxiom? a with
     | some (f, b) => s!"{f}: {f}(…) = {b}, {b} bound by \\exists at the top of the axiom"
+    | none => ""
+  | .setVariable, .axiom a => match lhsSetVar? a with
+    | some (f, X) => s!"{X}: an argument of {f} on the equation's left side: the sentence states \
+        {f} at every set's elements, at a set of two elements a, b only that {f}(a, b) is the right \
+        side or undefined; no clause states that"
     | none => ""
   | _, _ => ""
 

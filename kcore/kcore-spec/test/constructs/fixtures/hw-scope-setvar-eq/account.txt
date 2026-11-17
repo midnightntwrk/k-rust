@@ -3,12 +3,14 @@ user module E3-SETVAR-NONLINEAR: 245 sentences
   1 inert import [generated]
   159 read [generated]
   52 read [builtin]
-  5 read [user]
+  4 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   3 inert distinctCtors [generated]
   10 inert noJunk [generated]
+  1 refused setVariable [user]
+      e.g. axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortExp{}, R}(Lblf{}(@VarS:SortExp{}, @VarS:SortExp{}), \and{SortExp{}}(Lblr{}(), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("f33f3c23d8ecfddae876776b916711889fc0efbebe2058e124cb12a13f63f68b"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/c …
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
@@ -25,9 +27,4 @@ sentences every definition holds (kernelText) that the text does not: 4
       axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
       axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
       axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
-sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
-functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
-parse: ok; wf false; failing: [functions: well-sorted, covering]
-coreOK: false; failing: [clauses sorted]
-refused by the account: 0
 (exit 0)
