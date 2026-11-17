@@ -698,6 +698,54 @@ theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject
     "Lbl'Unds-LT--LT-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
   decide +kernel
 
+/-! ## The tie's statement definitions on this text
+
+`AtValues` and `EntailsAtValues` at sentence 166, `symbolsOf` at the rule, `surplusItem` at two sort
+constants, `attrsAgree` at the whole text. -/
+
+theorem shapesOK_c : c.shapesOK = true := by decide +kernel
+
+/-- The one sort named `Int` is the registry's. -/
+theorem int_of_name (S : Srt) (h : KoreAML.srt (c.sortName S) = KoreAML.srt "Int") : S = Srt.int := by
+  by_cases hS : S < nRegSorts + c.sortNames.length
+  · exact (by decide +kernel : ∀ S ∈ List.range (nRegSorts + c.sortNames.length),
+      KoreAML.srt (c.sortName S) = KoreAML.srt "Int" → S = Srt.int) S (List.mem_range.mpr hS) h
+  · exfalso
+    have hlt : ¬ S < nRegSorts := fun h' => hS (Nat.lt_of_lt_of_le h' (Nat.le_add_right _ _))
+    have hge : c.sortNames.length ≤ S - nRegSorts :=
+      Nat.le_sub_of_add_le (by rw [Nat.add_comm]; exact Nat.le_of_not_lt hS)
+    have he : c.sortName S = "" := by
+      unfold Semantics.sortName
+      simp only [hlt, ↓reduceIte]
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]; rfl
+    rw [he] at h
+    exact absurd h (by decide)
+/-- **Sentence 166 is entailed at values** (`EntailsAtValues`, direction Ev), for every H: a
+valuation that sends the sentence's one free variable to a value's element sends it to an
+integer's, where `lib166` gives the sentence. -/
+theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax166 (trS U.ax166).pat := by
+  intro M _ I hI e hat m
+  obtain ⟨v, S, hS, hv, hden⟩ := hat "VarI" (KoreAML.srt "Int") (by decide +kernel)
+  have hS' : S = Srt.int := int_of_name S hS
+  subst hS'
+  obtain ⟨n, rfl⟩ := shape_int shapesOK_c (by rw [← Semantics.sortOf_withHooks _ H noRaw]; exact hv)
+  exact lib166 H hI n e (((elemOf_spec hI hv e).1 _).mp hden) m
+
+/-- The symbols the rule's sentence applies. -/
+theorem symbolsOf_155 : symbolsOf U.ax155.ax.pattern =
+    ["Lbl'-LT-'generatedTop'-GT-'", "Lbl'-LT-'k'-GT-'", "kseq", "inj", "Lblrun", "dotk",
+     "Lbl'-LT-'generatedTop'-GT-'", "Lbl'-LT-'k'-GT-'", "kseq", "inj", "Lbldone", "Lblhalf", "dotk"] := by
+  decide +kernel
+
+/-- The text declares no sort `Float`, so Γ's sort constant of Float is surplus; it declares `Int`,
+whose sort constant is not. -/
+theorem surplus_float : surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.float)) = true ∧
+    surplusItem kore (KoreAML.sortConstantItem (sortDeclOf c Srt.int)) = false := by decide +kernel
+
+/-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,
+collection symbols, priorities. -/
+theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
+
 /-! ## The statements for a definition, their `RightHeld` argument decided -/
 
 /-- `sound`, `sound_withHooks` and `exact` at `defn`, the argument `RightHeld` left to its default
@@ -729,3 +777,5 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.run_neg4
 #print axioms KCore.TieEns.lib166
 #print axioms KCore.TieEns.absent_syms
+#print axioms KCore.TieEns.lib166_at_values
+#print axioms KCore.TieEns.defs_attrsAgree
