@@ -101,9 +101,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-As for c50, the llvm backend does not evaluate the ensures and gives half(-4) the value -2. The \
-first equation decides at -4 (its argument pattern matches, it has no requires), so the [owise] \
-equation half(_) = 0 does not apply there: the negation kompile writes as its premise names the \
-first equation's argument pattern and requires, not its ensures. half(-4) is \\bottom, not 0, \
-and run(-4) has no successor; the haskell backend gives done(2) alone, as kore.k does."""
+reason = "The llvm backend does not evaluate the equation's ensures (the manual lets a concrete backend ignore an ensures, user_manual.md:1163-1164): it gives half(-4) the value -2 and steps run(-4) to done(-2). done(-2) is a final configuration of no reading."

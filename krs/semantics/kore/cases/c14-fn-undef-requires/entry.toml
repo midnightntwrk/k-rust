@@ -38,6 +38,4 @@ quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-d
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in an equation's requires. That requires is not \
-true, so the equation does not apply and the [owise] equation gives the value."""
+reason = "The llvm backend aborts on 10 /Int 0 in the requires of f's first equation ([hook_INT_tdiv]: Division by zero): an error; the ruling has res(2)."

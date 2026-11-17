@@ -96,10 +96,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend does not evaluate the equation's ensures: it gives half(-4) the value -2 and \
-steps run(-4) to done(-2), although -4 >Int 0 is false. The axiom kompile writes is \
-half(N) = (N /Int 2 and (N >=Int 0 = true)): the ensures stands in the right side of the \
-equality, so where the equation applies and N >=Int 0 is false half(N) is \\bottom, run(-4)'s \
-rule applies with an undefined result, and run(-4) has no successor and is not final. The \
-haskell backend gives done(2) alone, as kore.k does."""
+reason = "The llvm backend does not evaluate the equation's ensures (the manual lets a concrete backend ignore an ensures, user_manual.md:1163-1164): it gives half(-4) the value -2 and steps run(-4) to done(-2). done(-2) is a final configuration of no reading."

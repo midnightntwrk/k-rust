@@ -66,21 +66,10 @@ consequence = "Only what holds under each of the other readings is a consequence
 
 [[disposition]]
 implementation = "haskell"
-is = "difference"
-reason = """
-half is a partial function (not declared total) with no equation for 3. Only an equation gives \
-an application of a function a value, and kompile states no functional axiom for a partial \
-function, so half(3) has no value and neither has b(half(3)): the rule applies at a(3) with an \
-undefined result, a(3) has no successor and is not final, and kore.k has no final \
-configuration. The haskell backend keeps b(half(3)) under the condition \\ceil(half(3)), a \
-final configuration that exists only if half(3) is defined; under kore.k's reading that \
-condition is false."""
+is = "reading:rest"
+reason = "It gives b(half(3)) under the condition that half(3) is defined: per interpretation, b(n) where half(3) is an integer n and nothing where it is none, which is the reading rest taken with applied-blocks, and cannot be compared mechanically with a list of finals."
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts (Called finish_rewriting with no output file specified) on half(3), \
-which no equation of the partial function half applies to; half(3) has no value, so the rule \
-applies with an undefined result and there is no final configuration, as the entry for the \
-haskell backend says."""
+reason = "The llvm backend aborts on half(3), at which no equation of half applies (Called finish_rewriting with no output file specified): an error, which is no reading's answer."

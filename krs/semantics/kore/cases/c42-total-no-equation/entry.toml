@@ -58,22 +58,12 @@ consequence = "The rule of priority 50 does not apply at go(3), and the [owise] 
 [[disposition]]
 implementation = "haskell"
 is = "difference"
-reason = """
-even is declared total and no equation applies to even(3): the definition states that even(3) \
-has a value, not which. The haskell backend splits the search on it and gives yes(3) under the \
-condition even(3) = true and no(3) under its negation. kore.k gives an application no equation \
-applies to no value, total or not, so the requires even(3) is undefined, does not hold, and the \
-[owise] rule gives no(3). A total function without an equation for its arguments is outside \
-what kore.k's reading decides (README, "The fragment"); the haskell backend's two conditional \
-results cover every value even(3) may have."""
+reason = "It gives yes(3) under the condition even(3) = true and no(3) under its negation: each reading's final configuration under the condition that selects it, which is the finals of no one reading. The entry rests on a base entry that names one reading per value and none for the text's leaving the value open, so no reading:<name> fits this result."
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts (Called finish_rewriting with no output file specified) on even(3), \
-which no equation of even applies to, as on c11; kore.k gives no(3), as the entry for the \
-haskell backend says."""
+reason = "The llvm backend aborts on even(3), at which no equation of even applies (Called finish_rewriting with no output file specified): an error, which is no reading's answer."
 
 [[disposition]]
 implementation = "kore.k"

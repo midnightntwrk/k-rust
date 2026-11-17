@@ -44,8 +44,4 @@ quote = "You can compute whether two integers are less than or equal to, less th
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in the requires of g's equation of priority 60, \
-which it evaluates for g(0). For g(1) the equation of priority 40 applies and gives 1; for g(0) \
-it does not, the requires of priority 60 is undefined, so not true, and the [owise] equation \
-gives 3: b(1, 3)."""
+reason = "The llvm backend aborts on 0 /Int 0 in the requires of g's equation of priority 60, which it evaluates at g(0) ([hook_INT_tdiv]: Division by zero): an error; the ruling has b(1, 3)."
