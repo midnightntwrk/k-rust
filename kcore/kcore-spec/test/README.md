@@ -1517,8 +1517,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   the values `a()` and `b()` in Exp). Function equations `shape`, `fns_entailed`; `cons_entailed`;
   `account`; `consistent`. Expectations from `Pre H` (`pre_model`): the steps `or_a`, `or_b`,
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
-  `attrsAgree` is false (`attrs_prios`: one rewrite axiom, two rules); its other four parts hold.
-  About 4 minutes each.
+  `attrsAgree` holds (`defs_attrsAgree`): each of the two rules holds the priority of the one axiom
+  it is read from. About 4 minutes each.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`

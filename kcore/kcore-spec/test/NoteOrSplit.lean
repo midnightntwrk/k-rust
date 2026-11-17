@@ -5,10 +5,8 @@
   reads it). Run from the package root: `lake env lean -j1 test/NoteOrSplit.lean`. Every statement
   is on the literal `defn`, for every interpretation H; nothing reads `Parse.parse` or `emit`.
 
-  Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree`: the attributes agree in the
-  constructors, functions, hooks and collections; `attrs_prios`: `attrsAgree kore defn` is false
-  on this text, its priority part comparing the rewrite axioms' priorities with the rules' as
-  lists, and the one sentence being two rules; the sentence's priority and each rule's are 50.
+  Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree` (`attrsAgree`): the one rewrite axiom
+  is read as two rules, and each rule's priority is that of the axiom it is read from.
   `account`: the function equations, the constructor sentences and the rule sentence are
   sentences of the user module, apart, with the count of the rest.
 
@@ -62,21 +60,10 @@ theorem wf_defn : wf defn = true := by decide_cheap
 theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
-/-- The attributes of the text agree with `defn` in the constructors, the functions, the hooks
-and the collections (`attrsAgree`'s first four parts). -/
-theorem defs_attrsAgree : (AttrsAgree.ctors kore c && AttrsAgree.fns kore c && AttrsAgree.hooks kore c &&
-    AttrsAgree.colls kore c) = true := by decide +kernel
-
-/-- **The priorities**: `attrsAgree`'s fifth part compares the priorities of the text's rewrite
-axioms with the rules' as lists, and the one sentence is two rules: the sentence's priority is
-50, each of the two rules' is 50, and each function's equations have its clauses' priorities. -/
-theorem attrs_prios : attrsAgree kore defn = false ∧
-    ((kore.axiomDecls.map (·.ax)).filter (AttrsAgree.isRewrite ·.pattern)).map (AttrsAgree.prioOf ·.attributes) = [50] ∧
-    c.rules.map (·.prio) = [50, 50] ∧
-    (c.allFns.all fun f =>
-      (((kore.axiomDecls.map (·.ax)).filter fun a => AttrsAgree.eqnHead a.pattern == some (c.symName f.label) &&
-          !AttrsAgree.has a.attributes "simplification").map
-        (AttrsAgree.prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collections, priorities. The one rewrite axiom is read as two rules, each holding the
+axiom's id, and each rule's priority is the axiom's, 50. -/
+theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The function equations -/
 
@@ -331,7 +318,6 @@ end KCore.NoteOrSplit
 #print axioms KCore.NoteOrSplit.shape
 #print axioms KCore.NoteOrSplit.fns_entailed
 #print axioms KCore.NoteOrSplit.cons_entailed
-#print axioms KCore.NoteOrSplit.attrs_prios
 #print axioms KCore.NoteOrSplit.rule_text0
 #print axioms KCore.NoteOrSplit.rule_text1
 #print axioms KCore.NoteOrSplit.rule_from_text
