@@ -203,22 +203,26 @@ evidence = "test/WitRestOvlA.lean"
 [[conjunct]]
 key = "overloadsOK.5"
 text = "(KCore.lookupSig c.ctorSigs g).isSome || (List.take i c.ovls).any fun x => x.sig.name == g"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> K overloading itself meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): against the semantics overloading nothing Γ adds the valid equation f(x) = f(x), f's applications are covered and no values (kernel-checked), and f's distinctness from the other generators of K is stated at uncovered arguments only, none at Int, so a model of that theory is one of Γ; the conjunct is asked for the acyclicity of the overloads that norm reads; not examined: a cycle through two overloading symbols"
+evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.6"
 text = "(c.ovlOver o).length == o.over.length"
-witness = "none"
+witness = "none: no witness exists: implied by overloadsOK.5 at the same overloading symbol, for every semantics (kernel-checked: ov6_of_ov5): a symbol found among the constructors or the overloading symbols listed before is found by ovlOver's lookup in the constructors and every overloading symbol"
+evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.7"
 text = "(c.ovlOver o).all (c.ovlPairOK o)"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: f : Int -> KCellOpt overloading the counter cell's constructor, whose result sort is not below KCellOpt, meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): the overload equation makes f(x) the injection from GeneratedCounterCell to KCellOpt of the counter cell of x, an injection of no declared subsort that no other item names, f's applications are covered and no values, and f's distinctness from KCellOpt's generators is that of the semantics overloading nothing or stated at uncovered arguments; a model of that theory with the injection read as the map from the counter cell of n to f(n) is one of Γ; not examined: an overload of another arity"
+evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.8"
 text = "c.ovlCoherent k1 k2"
-witness = "none"
+witness = "KcoreSpec.ModelOvlIncohWitness"
+note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the overload equations give g(x) = f(x) = h(x), against Cons-Dist of g and h"
 
 [[conjunct]]
 key = "FnDet"
