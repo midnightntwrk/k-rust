@@ -9,6 +9,8 @@
   - `exRead` (`existsAsCases`): `\exists` over one Bool variable on the right side of an equation
     of such a function, as the clauses of its two instances; `condOf`, a predicate pattern as a
     `Cond`.
+  - `ceRead`: `\exists` on an equation's right side as the clause's existential variables
+    (`Clause.exs`), the body's predicates as its right-side predicate (`Clause.post`).
 -/
 import KcoreSpec.Parse
 
@@ -309,5 +311,53 @@ def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := d
   let s ← resSort N e
   let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
   pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+
+/-! ## `\exists` on an equation's right side as the clause's existential variables
+
+The sentence is `premise → f(X̄) = ∃x̄. (t ∧ P)`. The clause with `exs` the variables x̄, `rhs` t
+and `post` P states that sentence: nothing is asked of the function or of the sorts of x̄ here.
+Whether the definition admits the clause (each variable of x̄ of a confined sort or fixed by `post`)
+is decided on the built definition. -/
+
+/-- The indices of a right side's bound variables, in order, each a variable the first `n0` do
+not name (`existentialRhs` otherwise). -/
+def exBind (n0 : Nat) : List Var → List Kore.EVar → Rd (List Nat × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, x :: xs => do
+    let (i, vs) ← varIndex vs x
+    if i < n0 then fail .existentialRhs x.var.ident.name
+    let (is, vs) ← exBind n0 vs xs
+    pure (i :: is, vs)
+  termination_by structural _ xs => xs
+
+/-- An equation whose right side is `\exists x̄. body` (x̄ possibly empty), body a conjunction of one
+term and predicates under no further binder: one clause, `exs` the variables x̄ in the text's order
+of nesting, `rhs` the term, `post` the body's predicates (`condOf`), all of them, so that
+`Cond.fixes` reads them; the equation's own `ensures` stays `ens`.
+Refused `existentialRhs`: a variable of x̄ that the arguments, the `requires` or the `ensures` hold,
+that is bound twice, or that the body does not hold (the sentence then states the term only where
+the variable's sort has an element, which the clause would not say).
+Refused `manyValuedRightSide`: no term conjunct (`\top`: the body is a predicate, every element
+or none); a further `\exists` in the body; `\or`, `\top` or `\not` in the term.
+Refused `patternConnective`: two or more term conjuncts; a predicate `condOf` does not read. -/
+def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
+  let (pats, req, ens, vs, _) ← eqnHead N e
+  let n0 := vs.length
+  let (xs, body) := peelExists e.rhs
+  if hasExists body then fail .manyValuedRightSide "\\exists"
+  let (ts, ps) := bodyParts body
+  match ts with
+  | [] => fail .manyValuedRightSide "\\top"
+  | [t] =>
+    if let some c := manyValued? t then fail .manyValuedRightSide c
+    if let some x := xs.find? (fun x => !(evarNames body).contains x.var.ident.name) then
+      fail .existentialRhs s!"{x.var.ident.name}: bound by \\exists, not held by its body"
+    let (exs, vs) ← exBind n0 vs xs
+    unless nodup exs do fail .existentialRhs s!"{(xs.headD default).var.ident.name}: bound twice"
+    let (rhs, vs) ← term N vs t
+    let (cs, vs) ← condOfList N vs ps
+    pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e, exs,
+            post := conjC cs }, vs)
+  | _ => fail .patternConnective "\\and"
 
 end KCore.Parse

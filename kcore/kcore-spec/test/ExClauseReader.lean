@@ -1,0 +1,386 @@
+/-
+  `Parse.ceRead` (KcoreSpec/ReadFns.lean): an equation whose right side is under `\exists`, read as
+  one clause with existential variables (`Clause.exs`) and a right-side predicate (`Clause.post`).
+  Run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337 kompile's KORE,
+  from the cache `kfix.py` keeps, as test/RhsReader.lean reads it) and on hand-written equations.
+  Run from the package root: `lake env lean -j1 test/ExClauseReader.lean`.
+
+  `Parse.clauseBody` does not call `ceRead`: the reader refuses each of these texts as before
+  (their accounts are unchanged). Each clause is put in the definition the landed reader builds
+  from the text with that equation's right side replaced by a plain term, and printed with
+  - the landed `clauseSorted` and `condOK` of `post`;
+  - `sortedCE`, the conjuncts CN-4b §1.3 adds to `clauseSorted` (the existential variables are
+    variables of the clause, distinct, held by neither the patterns nor the conditions; `post`
+    well sorted);
+  - `Clause.fixedExs` and whether each existential variable's sort is confined;
+  - `clauseCE`, a stand-in written here from ticket CE.clause-conjunct's text for
+    `Semantics.clausePlainEx`, which is on no tree yet: `(!exs.isEmpty || post.isTop) &&
+    exs.all (confined or among fixedExs c.confined (fun _ => false)) && (the landed conjunct on
+    open condition variables)`. The landed `clausesPlain` asks `exs = []` and `post = \top`, so it
+    is false of these clauses.
+
+  ## exists
+
+  | Fixture | Clause | `fixedExs`, confined | `clauseCE` |
+  |---|---|---|---|
+  | `e3-eq-exists-partial-ml` | `[X:Bool, B:Bool]`, `exs [1]`, `rhs B`, `post B = notBool(X)` | `[1]`, true | true |
+  | `e3-eq-exists-ctor-ml` | `[X:Col, C:Col]`, `exs [1]`, `rhs C`, `post (C =/=K X) = true` | `[]`, true | true |
+  | `e3-eq-exists-noens-ml` | `[_Gen0:Bool, B:Bool]`, `exs [1]`, `rhs B`, `post ⊤` | `[]`, true | true |
+  | `e3-eq-exists-int-ml` | `[X:Int, Z:Int]`, `exs [1]`, `rhs Z`, `post (Z *Int 2 ==Int X) = true` | `[]`, false | false: Z is neither confined nor fixed, the clause is to be refused `existentialEquation Int` on the built definition |
+  | `e3-eq-exists-ml-supersort` f | `[X:Int, B:Bool]`, `exs [1]`, `rhs inj{Bool,KItem}(B)`, `post B = (X >Int 0)` | `[1]`, true | true |
+  | `e3-eq-exists-ml-supersort` h | `[K:KItem, Z:Int]`, `exs [1]`, `rhs Z`, `post inj{Int,KItem}(Z) = K` | `[1]`, false | true |
+
+  Hand-written (`Hand`, over the names `N1`, f : Bool → Bool):
+  - `eqTwoB`, `#Exists B. #Exists C. (C #And {C #Equals B} #And {B #Equals notBool X})`: `exs` is B
+    then C, the order of nesting, though the body holds C first.
+  - `eqUnheld`, `#Exists B. X`: refused `existentialRhs`, the body does not hold B.
+  - `eqArg`, `#Exists X. X`: refused `existentialRhs`, the arguments hold X.
+  - `eqTwice`, `#Exists B. #Exists B. B`: refused `existentialRhs`.
+  - `eqNoTerm`, `#Exists B. {B #Equals notBool X}`: refused `manyValuedRightSide` (`\top`).
+  - `eqInner`, `#Exists B. (B #And #Exists C. {C #Equals B})`: refused `manyValuedRightSide`.
+  - `eqAnd`, `#Exists B. (B #And notBool X)`: refused `patternConnective` (two term conjuncts).
+  - `eqPlain`, `f(X) => notBool X #And {X #Equals true}`, no binder: `exs = []`, the predicate in
+    `post`.
+  Kernel-checked (`kernel_rfl`, `decide +kernel`): `ceRead` on the equation of
+  `e3-eq-exists-partial-ml` written by hand (`Hand.eqB`; `tie` checks that it is the scanned
+  text's), on `eqTwoB`, and the refusals' reasons.
+-/
+import KcoreSpec
+
+set_option autoImplicit false
+set_option maxRecDepth 1000000
+
+open KCore KCore.Parse
+
+namespace ExClauseReader
+
+/-! ## The harness -/
+
+/-- CE's conjunct of `clausesPlain` for one clause, from ticket CE.clause-conjunct's text (a
+stand-in for `Semantics.clausePlainEx`). -/
+def clauseCE (c : Semantics) (cl : Clause) : Bool :=
+  let conf := fun i => (cl.vars[i]?.map c.confined).getD false
+  (!cl.exs.isEmpty || cl.post.isTop) &&
+  cl.exs.all (fun i => conf i || (cl.fixedExs c.confined (fun _ => false)).contains i) &&
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all conf)
+
+/-- CN-4b §1.3's additions to `clauseSorted`. -/
+def sortedCE (c : Semantics) (cl : Clause) : Bool :=
+  cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
+  c.condOK cl.vars cl.post
+
+/-- The cache of kompiled fixture texts, as test/constructs/kfix.py names it. -/
+def cacheDir : IO String := do
+  let get := fun (n : String) => do
+    match ← IO.getEnv n with
+    | some d => pure (if d.isEmpty then none else some d)
+    | none => pure none
+  if let some d ← get "KCORE_KFIX_CACHE" then return d
+  if let some d ← get "XDG_CACHE_HOME" then return s!"{d}/kcore-kfix"
+  let home := (← get "HOME").getD "."
+  return s!"{home}/.cache/kcore-kfix"
+
+/-- The kompiled text of fixture `n`, its `BUILTIN/` and `FIXTURE/` paths restored to made-up
+directories (as `kfix.py accounts` restores them before reading). -/
+def load (n : String) : IO Kore.Definition := do
+  let t ← IO.FS.readFile s!"test/constructs/fixtures/{n}/kompile.txt"
+  let some l := (t.splitOn "\n").find? (·.startsWith "definition.kore sha256: ")
+    | throw (IO.userError s!"{n}: kompile.txt names no sha256")
+  let sha := (l.splitOn ": ").getD 1 ""
+  let raw ← IO.FS.readFile s!"{← cacheDir}/{sha}.kore"
+  let raw := ((raw.replace "BUILTIN/" "/made-up-k/include/kframework/builtin/").replace "FIXTURE/" "/made-up-fx/").replace
+    "FIXTURE" "/made-up-fx"
+  match Kore.parseDefinition raw with
+  | .ok k => pure k
+  | .error e => throw (IO.userError s!"{n}: KORE read error {e}")
+
+/-- The text with the right side of each equation of the functions `fns` replaced by a pattern the
+landed reader reads (the first argument's variable where the sorts agree, else a literal or its
+injection), so that the definition is built and the clauses read here can be put in it. -/
+def patch (fns : List String) (k : Kore.Definition) : Kore.Definition :=
+  let fix := fun (s : Kore.Sentence) => match s with
+    | .axiom a => match rawEqn? a, a.pattern with
+      | some e, .implies r prem (.equals s1 s2 l (.and s3 [_, en])) =>
+        if fns.contains e.fn then
+          let rs := (KoreAML.Parse.sortName? s1).getD ""
+          let arg := e.pats.findSome? fun p => match p with | .var (.evar x) => some x | _ => none
+          let rhs : Kore.Pattern := match arg with
+            | some x => if KoreAML.Parse.sortName? x.sort == some rs then .var (.evar x)
+                        else if rs == "KItem" then .app ⟨⟨"inj"⟩⟩ [x.sort, s1] [.var (.evar x)]
+                        else if rs == "Int" then .dv s1 "0" else .dv s1 "true"
+            | none => if rs == "Int" then .dv s1 "0" else .dv s1 "true"
+          Kore.Sentence.axiom { a with pattern := .implies r prem (.equals s1 s2 l (.and s3 [rhs, en])) }
+        else s
+      | _, _ => s
+    | s => s
+  match k.modules.reverse with
+  | m :: rest => { k with modules := (({ m with sentences := m.sentences.map fix }) :: rest).reverse }
+  | [] => k
+
+def showT (sym : Sym → String) (srt : Srt → String) (names : List String) : Term → String
+  | .var i => names.getD i s!"#{i}"
+  | .app f ts => sym f ++ "(" ++ ", ".intercalate (ts.attach.map fun ⟨t, _⟩ => showT sym srt names t) ++ ")"
+  | .inj a b t => s!"inj[{srt a},{srt b}](" ++ showT sym srt names t ++ ")"
+  | .as t i => showT sym srt names t ++ " #as " ++ names.getD i s!"#{i}"
+  | .dv _ (.bool b) => s!"{b}"
+  | .dv _ (.int i) => s!"{i}"
+  | .dv _ l => s!"{repr l}"
+
+def showC (sym : Sym → String) (srt : Srt → String) (names : List String) : Cond → String
+  | .top => "⊤" | .bot => "⊥"
+  | .not p => "¬" ++ showC sym srt names p
+  | .and p q => "(" ++ showC sym srt names p ++ " ∧ " ++ showC sym srt names q ++ ")"
+  | .or p q => "(" ++ showC sym srt names p ++ " ∨ " ++ showC sym srt names q ++ ")"
+  | .implies p q => "(" ++ showC sym srt names p ++ " → " ++ showC sym srt names q ++ ")"
+  | .ceil s t => s!"⌈{showT sym srt names t}⌉:{srt s}"
+  | .equals s t u => s!"({showT sym srt names t} =[{srt s}] {showT sym srt names u})"
+  | .mem s t u => s!"({showT sym srt names t} ∈[{srt s}] {showT sym srt names u})"
+  | .exMatch .. => "exMatch…"
+  | .ex _ b => "∃." ++ showC sym srt names b
+  | .all _ b => "∀." ++ showC sym srt names b
+
+/-- A clause's fields. -/
+def showFields (sym : Sym → String) (srt : Srt → String) (i : Nat) (cl : Clause) (vs : List KoreAML.Var) : IO Unit := do
+  let names := vs.map (·.name)
+  let T := showT sym srt names
+  let C := showC sym srt names
+  IO.println s!"  [{i}] vars {vs.map fun v => v.name ++ ":" ++ v.sort} pats {cl.pats.map T} req {cl.req.map T} prio {cl.prio} aside {cl.aside}"
+  IO.println s!"      pre {C cl.pre}"
+  IO.println s!"      rhs {T cl.rhs} ens {cl.ens.map T} exs {cl.exs} post {C cl.post}"
+
+/-- `ceRead` on the equations of the functions `fns` of fixture `n`: a refusal, or the clause, put
+in the definition built from the patched text. -/
+def run (n : String) (fns : List String) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {repr f.reason}"
+  | .ok E =>
+    match Parse.parse (patch fns k) with
+    | .error r => IO.println s!"{n}: patched text refused {repr r.reason} {r.detail}"
+    | .ok d =>
+      let c0 := d.sem
+      for fnName in fns do
+        let mut cls : List (Clause × List KoreAML.Var) := []
+        let mut stop := false
+        for e in S.eqs.filter (·.fn == fnName) do
+          match ceRead E.N e with
+          | .error f => stop := true; IO.println s!"{n} {fnName}: refused {repr f.reason} ({f.detail})"
+          | .ok x => cls := cls ++ [x]
+        if stop then continue
+        let some f := c0.fns.find? (c0.symName ·.label == fnName) | IO.println s!"{n}: no function {fnName}"
+        let f' := { f with clauses := cls.map (·.1) }
+        let c := { c0 with fns := c0.fns.map fun g => if g.label == f.label then f' else g }
+        IO.println s!"{n} {fnName}: functional sentence {eqnFnl E.N ⟨fnName, [], none, none, .top (KoreAML.srt "K"), [], none, false⟩}; clauses {cls.length}"
+        for ((cl, vs), i) in cls.zipIdx do
+          showFields c.symName c.sortName i cl vs
+          IO.println s!"      clauseSorted {c.clauseSorted f' (c.fns.map Fn.sig) cl}; condOK post {c.condOK cl.vars cl.post}; sortedCE {sortedCE c cl}; fixedExs {cl.fixedExs c.confined (fun _ => false)}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; clauseCE {clauseCE c cl}"
+        let rest := c.subsortsOK && c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) &&
+          c.rules.all c.ruleSorted && c.rulesPlain && c.paramsPlain
+        IO.println s!"  sortedOK but clausesPlain {rest}; clausesPlain {c.clausesPlain}; every clause clauseCE {c.fns.all fun f => f.clauses.all (clauseCE c)}; readsConfined {c.readsConfined}"
+
+/-- `ceRead` on a hand-written equation, a symbol and a sort the registry does not name printed
+by number. -/
+def showHand (what : String) (r : Rd (Clause × List KoreAML.Var)) : IO Unit :=
+  match r with
+  | .error f => IO.println s!"{what}: refused {repr f.reason} ({f.detail})"
+  | .ok (cl, vs) => do
+    IO.println s!"{what}:"
+    showFields (fun f => regSymNames.getD f s!"sym{f - nRegSyms}") (fun s => regSortNames.getD s s!"sort{s - nRegSorts}") 0 cl vs
+
+/-- The one equation of `fn` in the scanned text of fixture `n` is `e0` (its attributes apart). -/
+def tie (n fn : String) (e0 : RawEqn) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  match (scan m.sentences).eqs.filter (·.fn == fn) with
+  | [e] => IO.println s!"{n} {fn}: the hand-written equation is the text's: {e.pats == e0.pats && e.req == e0.req && e.competitors == e0.competitors && e.rhs == e0.rhs && e.ens == e0.ens && e.dom == e0.dom}"
+  | es => IO.println s!"{n} {fn}: {es.length} equations"
+
+
+/-! ## exists -/
+
+/--
+info: e3-eq-exists-partial-ml Lblf: functional sentence false; clauses 1
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post (B =[Bool] LblnotBool'Unds'(X))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [true]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-eq-exists-ctor-ml Lblpick: functional sentence false; clauses 1
+  [0] vars [X:Col, C:Col] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs C ens none exs [1] post (Lbl'UndsEqlsSlshEqls'K'Unds'(kseq(inj[Col,KItem](C), dotk()), kseq(inj[Col,KItem](X), dotk())) =[Bool] true)
+      clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined [true]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-eq-exists-noens-ml Lblf: functional sentence false; clauses 1
+  [0] vars ['Unds'Gen0:Bool, B:Bool] pats ['Unds'Gen0] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post ⊤
+      clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined [true]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-eq-exists-int-ml Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs Z ens none exs [1] post (Lbl'UndsEqlsEqls'Int'Unds'(Lbl'UndsStar'Int'Unds'(Z, 2), X) =[Bool] true)
+      clauseSorted true; condOK post true; sortedCE true; fixedExs []; confined [false]; clauseCE false
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE false; readsConfined true
+e3-eq-exists-ml-supersort Lblf: functional sentence false; clauses 1
+  [0] vars [X:Int, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs inj[Bool,KItem](B) ens none exs [1] post (B =[Bool] Lbl'Unds-GT-'Int'Unds'(X, 0))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [true]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-eq-exists-ml-supersort Lblh: functional sentence false; clauses 1
+  [0] vars [K:KItem, Z:Int] pats [K] req none prio 50 aside false
+      pre ⊤
+      rhs Z ens none exs [1] post (inj[Int,KItem](Z) =[KItem] K)
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  run "e3-eq-exists-partial-ml" ["Lblf"]
+  run "e3-eq-exists-ctor-ml" ["Lblpick"]
+  run "e3-eq-exists-noens-ml" ["Lblf"]
+  run "e3-eq-exists-int-ml" ["Lblh"]
+  run "e3-eq-exists-ml-supersort" ["Lblf", "Lblh"]
+
+namespace Hand
+
+open KoreAML (ev ap srt evar)
+
+/-- f : Bool → Bool, the symbol `nRegSyms`, without a `functional` sentence. -/
+def N1 : Names := { sorts := [], syms := ["Lblf"], keyFns := [(nRegSyms, "Bool")] }
+
+def bool : Kore.KSort := srt "Bool"
+def X : Kore.Pattern := ev "VarX" bool
+def B : Kore.Pattern := ev "VarB" bool
+def C : Kore.Pattern := ev "VarC" bool
+def notB (p : Kore.Pattern) : Kore.Pattern := ap "LblnotBool'Unds'" [p]
+def eqP (p q : Kore.Pattern) : Kore.Pattern := .equals bool bool p q
+/-- `#Exists V:Bool. body`. -/
+def ex (v : String) (body : Kore.Pattern) : Kore.Pattern := .exist bool (evar v bool) body
+
+def eqn (rhs : Kore.Pattern) : RawEqn := ⟨"Lblf", [X], none, none, rhs, [], none, false⟩
+
+/-- `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`: the equation of
+`e3-eq-exists-partial-ml` (`tie`). -/
+def eqB : RawEqn := eqn (ex "VarB" (.and bool [B, eqP B (notB X)]))
+def eqTwoB : RawEqn := eqn (ex "VarB" (ex "VarC" (.and bool [C, .and bool [eqP C B, eqP B (notB X)]])))
+def eqUnheld : RawEqn := eqn (ex "VarB" X)
+def eqArg : RawEqn := eqn (ex "VarX" X)
+def eqTwice : RawEqn := eqn (ex "VarB" (ex "VarB" B))
+def eqNoTerm : RawEqn := eqn (ex "VarB" (eqP B (notB X)))
+def eqInner : RawEqn := eqn (ex "VarB" (.and bool [B, ex "VarC" (eqP C B)]))
+def eqAnd : RawEqn := eqn (ex "VarB" (.and bool [B, notB X]))
+def eqPlain : RawEqn := eqn (.and bool [notB X, eqP X (.dv bool "true")])
+
+end Hand
+
+/--
+info: e3-eq-exists-partial-ml Lblf: the hand-written equation is the text's: true
+-/
+#guard_msgs in
+#eval tie "e3-eq-exists-partial-ml" "Lblf" Hand.eqB
+
+/--
+info: eqB:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post (B =[Bool] LblnotBool'Unds'(X))
+eqTwoB:
+  [0] vars [X:Bool, B:Bool, C:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs C ens none exs [1, 2] post ((C =[Bool] B) ∧ (B =[Bool] LblnotBool'Unds'(X)))
+eqUnheld: refused KCore.Parse.RefusalReason.existentialRhs (VarB: bound by \exists, not held by its body)
+eqArg: refused KCore.Parse.RefusalReason.existentialRhs (VarX)
+eqTwice: refused KCore.Parse.RefusalReason.existentialRhs (VarB: bound twice)
+eqNoTerm: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
+eqInner: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
+eqAnd: refused KCore.Parse.RefusalReason.patternConnective (\and)
+eqPlain:
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs LblnotBool'Unds'(X) ens none exs [] post (X =[Bool] true)
+-/
+#guard_msgs in
+open Hand in
+#eval show IO Unit from do
+  showHand "eqB" (ceRead N1 eqB)
+  showHand "eqTwoB" (ceRead N1 eqTwoB)
+  showHand "eqUnheld" (ceRead N1 eqUnheld)
+  showHand "eqArg" (ceRead N1 eqArg)
+  showHand "eqTwice" (ceRead N1 eqTwice)
+  showHand "eqNoTerm" (ceRead N1 eqNoTerm)
+  showHand "eqInner" (ceRead N1 eqInner)
+  showHand "eqAnd" (ceRead N1 eqAnd)
+  showHand "eqPlain" (ceRead N1 eqPlain)
+
+/-! ## Kernel-checked -/
+
+namespace Hand
+
+def notX : Term := .app (regSymNames.idxOf "LblnotBool'Unds'") [.var 0]
+
+/-- **`ceRead` on the fixture's equation, in the kernel**: one clause over `[X:Bool, B:Bool]`, B
+existential, `rhs B`, `post B = notBool(X)`. -/
+theorem ceRead_eqB : ceRead N1 eqB = .ok
+    ({ vars := [Srt.bool, Srt.bool], pats := [.var 0], req := none, rhs := .var 1, ens := none, prio := 50,
+       aside := false, exs := [1], post := .equals Srt.bool (.var 1) notX },
+     [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩]) := by
+  kernel_rfl
+
+/-- `exs` follows the nesting of the binders, B then C, where the body holds C first. -/
+theorem ceRead_eqTwoB : ceRead N1 eqTwoB = .ok
+    ({ vars := [Srt.bool, Srt.bool, Srt.bool], pats := [.var 0], req := none, rhs := .var 2, ens := none,
+       prio := 50, aside := false, exs := [1, 2],
+       post := .and (.equals Srt.bool (.var 2) (.var 1)) (.equals Srt.bool (.var 1) notX) },
+     [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩, ⟨"C", "Bool"⟩]) := by
+  kernel_rfl
+
+/-- The refusals' reasons. -/
+theorem ceRead_refused :
+    let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
+    reason eqUnheld = some .existentialRhs ∧ reason eqArg = some .existentialRhs ∧
+    reason eqTwice = some .existentialRhs ∧ reason eqNoTerm = some .manyValuedRightSide ∧
+    reason eqInner = some .manyValuedRightSide ∧ reason eqAnd = some .patternConnective := by
+  decide +kernel
+
+end Hand
+
+/-- info: 'ExClauseReader.Hand.ceRead_eqB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.ceRead_eqB
+/-- info: 'ExClauseReader.Hand.ceRead_eqTwoB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.ceRead_eqTwoB
+/-- info: 'ExClauseReader.Hand.ceRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.ceRead_refused
+
+/-! Opaque constants `ceRead` reaches (test/OpaqueAudit.lean's walk): `String.Internal.append`,
+through the details of refusals only. -/
+
+open Lean in
+def opaqueReach (roots : List Name) : MetaM (List Name) := do
+  let env ← getEnv
+  let mut seen : NameSet := {}
+  let mut todo : List Name := roots
+  let mut out : List Name := []
+  while !todo.isEmpty do
+    let n := todo.head!
+    todo := todo.tail!
+    if seen.contains n then continue
+    seen := seen.insert n
+    match env.find? n with
+    | some (.opaqueInfo _) => out := n :: out
+    | some (.defnInfo d) =>
+      for c in d.value.getUsedConstants ++ d.type.getUsedConstants do
+        unless seen.contains c do todo := c :: todo
+    | _ => pure ()
+  return out.mergeSort (·.toString < ·.toString)
+
+/-- info: KCore.Parse.ceRead: [String.Internal.append] -/
+#guard_msgs in
+#eval show Lean.MetaM Unit from do
+  for root in [``ceRead] do IO.println s!"{root}: {← opaqueReach [root]}"
+
+end ExClauseReader
