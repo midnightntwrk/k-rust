@@ -2736,6 +2736,17 @@ def account (koreFile : String) : IO UInt32 := do
       let tp := if d.sem.params.any (·.impl.isNone) then d.totalParams else []
       let owedTot := d.sem.totalObligationsRP (callOrderOf d.sem) tp
       IO.println s!"functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): {owedTot.length}: {", ".intercalate (owedTot.map fun f => decodeK (d.sem.symName f))}"
+      -- the held-named functions, as `genFnHyp` computes the package's `held_named`, each with
+      -- the variables `clauseValued` does not accept
+      let owedHeld := d.sem.heldObligations
+      IO.println s!"functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): {owedHeld.length}: {", ".intercalate (owedHeld.map fun f => decodeK (d.sem.symName f))}"
+      for (f, fp) in withPres d.sem.fns d.pres.fns do
+        for ((cl, cp), j) in (withPres f.clauses fp.clauses).zipIdx do
+          for i in List.range cl.vars.length do
+            unless cl.leftVars.contains i || (cl.vars[i]?.map d.sem.valued).getD false do
+              let s := cl.vars.getD i 0
+              let note := if d.sem.valueSorts.contains s then "" else "; the sort has no value"
+              IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
       let owedAgr := d.sem.agreeObligationsI
