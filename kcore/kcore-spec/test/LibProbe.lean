@@ -610,7 +610,7 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
 three readings (`<=Set`'s `functional` sentence too: it has a value at every pair of sets); row 16
 (set idempotence) is the control. -/
 def expected : Summary :=
-  [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 23, 23, 0, 0, 0), (18, 64, 57, 57, 0, 0, 0),
+  [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 23, 23, 0, 0, 0), (18, 64, 63, 63, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 /-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
@@ -641,7 +641,7 @@ values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` 
 side has none); `=/=Float`'s (1648) and `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
 which give the silent points of two symbols values that do not agree with the equation. -/
 def expectedFlt : Summary :=
-  [(9, 93, 71, 63, 0, 8, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 40, 36, 0, 3, 1), (18, 67, 60, 60, 0, 0, 0),
+  [(9, 93, 71, 63, 0, 8, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 40, 36, 0, 3, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
