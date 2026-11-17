@@ -764,6 +764,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`c() => d(?Z:Int) ensures ?Z *Int 2 ==Int 1`): the rule admitted, `coreOK`; the `ensures` true at
   no Int value of Z, so `<k> c() </k>` has no successor; the value model a model of the theory, the
   rule's right side under its binder empty in it.
+- `test/ExFixturesEnsFree.lean`: the fixture e3-vars-ens-free (`c() => c() ensures ?Z ==Int 0`): the
+  text is refused `openRight`, a limit of the reader; on the reader's own reading of the text before
+  it checks the rules (`core_base_of`, `Parse.coreBase`), in the kernel, `<k> c() </k>` steps to
+  itself and to nothing else, which is what the sentence states.
 - `test/SilentTotal.lean`: `totalSilentKeys` against the builtin text (native: the keys of
   `silentTable` the text declares `total`; `precisionFloat`, `exponentBitsFloat` declared `total`,
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
