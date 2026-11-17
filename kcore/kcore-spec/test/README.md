@@ -848,6 +848,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   with the memberships (`Parse.cutAnd`), on the cached kompiled texts of seven fixtures and on hand-written equations, each clause printed with
   `clauseSorted`, CN-4b §1.3's added conjuncts, `Clause.fixedExs` and a stand-in for
   `Semantics.clausePlainEx` (false for `e3-eq-exists-int-ml` alone); kernel-checked instances.
+  `Parse.hoistExists` (section hoist): an `\exists` under an application, in an `\and` conjunct and
+  in an `\or` alternative moved to the top, the last only where the test of a value accepts its
+  sort (refused `existentialEquation` otherwise), binders renamed apart, a binder under `\not` or
+  in a predicate conjunct left; on hand-written right sides (kernel-checked) and four fixtures
+  with `Semantics.valued` on the built definition as the test.
 - `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
   domains.md's prose, cited by line: each operation at every argument list by the bindings of its
   result (the one map with them), with hand-derived values that `hook` gives, the result under
@@ -888,6 +893,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   starts from the library's sorts below KItem, of which `coreOK` asks no literal, collection or
   constructor). `cLoop`: `syntax S ::= s(S)` with `coreOK`, S outside `valueSorts` and the one
   sort of `valueless`.
+  `Semantics.hasValue` on the same definitions (`cIO_hasValue`, `cLoop_hasValue`, `cIOk_hasValue`,
+  `cLit_hasValue`): IOError of `cIO` and S of `cLoop` outside; String, KItem, K, the cell sorts, a
+  token sort, a sort hooked to a carrier, a cell map sort and IOError with a constructor inside;
+  `cIO_values` applies `hasValue_value`. test/WithHooksRaw.lean's `cM_hasValue`: the sort whose one
+  generator is a raw parameter is outside.
 - `test/RuleAndWeaken.lean`: `t #And u` on a rule's right side read as `t` with the ensures
   `t == u` is a weakening the text entails and not an equality. `rewrites_weaken`,
   `denB_rule_and_weaken`: every element of the text's sentence `L → •C[t ∧ u]` is an element of

@@ -95,6 +95,26 @@
   - `eqArgVar`, `h(X) => #Exists Z. (f(Z) #And X)`: X is no `\exists` variable: a fresh variable.
   Kernel-checked: `cutAnd` and `ceRead` on the equation of k written by hand (`HandTerms.eqK`,
   tied to the text), and `ceRead` on `eqOther`.
+
+  ## hoist: `\exists` moved to the top of a right side (`Parse.hoistExists`)
+
+  Hand-written (`HandHoist`, over `HandAnd.N2`), each right side compared with the expected one
+  and then read by `ceRead`:
+  - `eqApp`, `h(X) => f(#Exists Z. (Z #And {Z #Equals g(X)}))`: the binder under an application
+    moves to the top; no test of a value is read.
+  - `eqConj`, `h(X) => f(X) #And #Exists Z. (…)`: the binder in a conjunct; likewise.
+  - `eqAlt`, `h(X) => X #Or #Exists Z. (…)`: the binder in an alternative moves where the test
+    accepts Int, and the equation is refused `existentialEquation` where it accepts no sort.
+    `ceRead` then refuses the `\or` (`manyValuedRightSide`): it reads no `\or`.
+  - `eqTwo`, two binders named Z in two arguments: the second is `Z'`.
+  - `eqArg`, a binder named as the argument X: renamed `X'` with the occurrences it binds.
+  - `eqShadow`, a binder inside a binder of the same name: the inner one is renamed.
+  - `eqNot`, `eqPredConj`: a binder under `\not` and one in a predicate conjunct stay.
+  On fixtures, with `Semantics.valued` on the built definition as the test (`valuedSort`):
+  `e3-eq-exists-ml-in-or-int` and `e3-eq-exists-ml-in-or` (the binder leaves the alternative;
+  `ceRead` refuses the `\or`), `e3-eq-exists-ml-under-app` and `e3-eq-exists-ml-and-right` (one
+  clause each).
+  Kernel-checked (`decide +kernel`): each hand-written case (`HandHoist.hoist_steps`).
 -/
 import KcoreSpec
 
@@ -731,5 +751,186 @@ KCore.Parse.cutAnd: []
 #guard_msgs in
 #eval show Lean.MetaM Unit from do
   for root in [``ceRead, ``cutAnd] do IO.println s!"{root}: {← opaqueReach [root]}"
+
+/-! ## hoist: `\exists` moved to the top of a right side (`Parse.hoistExists`) -/
+
+namespace HandHoist
+
+open KoreAML (ev ap srt evar)
+open HandAnd (N2 int X f g eqn)
+
+def Z : Kore.Pattern := ev "VarZ" int
+def Z' : Kore.Pattern := ev "VarZ'" int
+def X' : Kore.Pattern := ev "VarX'" int
+def eqI (p q : Kore.Pattern) : Kore.Pattern := .equals int int p q
+/-- `#Exists V:Int. body`. -/
+def ex (v : String) (body : Kore.Pattern) : Kore.Pattern := .exist int (evar v int) body
+
+/-- A test of a value that accepts Int only. -/
+def valInt (s : Kore.KSort) : Bool := KoreAML.Parse.sortName? s == some "Int"
+
+/-- N1, `h(X) => f(#Exists Z. (Z #And {Z #Equals g(X)}))`: the binder under an application. -/
+def eqApp : RawEqn := eqn (f (ex "VarZ" (.and int [Z, eqI Z (g X)])))
+def eqApp' : RawEqn := eqn (ex "VarZ" (f (.and int [Z, eqI Z (g X)])))
+/-- N2, `h(X) => f(X) #And #Exists Z. (Z #And {Z #Equals g(X)})`: the binder in a conjunct. -/
+def eqConj : RawEqn := eqn (.and int [f X, ex "VarZ" (.and int [Z, eqI Z (g X)])])
+def eqConj' : RawEqn := eqn (ex "VarZ" (.and int [f X, .and int [Z, eqI Z (g X)]]))
+/-- N3, `h(X) => X #Or #Exists Z. (Z #And {Z #Equals f(X)})`: the binder in an alternative. -/
+def eqAlt : RawEqn := eqn (.or int [X, ex "VarZ" (.and int [Z, eqI Z (f X)])])
+def eqAlt' : RawEqn := eqn (ex "VarZ" (.or int [X, .and int [Z, eqI Z (f X)]]))
+/-- Two binders of one name in two conjuncts: the second is renamed. -/
+def eqTwo : RawEqn := eqn (.and int [f (ex "VarZ" (.and int [Z, eqI Z X])), g (ex "VarZ" (.and int [Z, eqI Z (f X)]))])
+def eqTwo' : RawEqn :=
+  eqn (ex "VarZ" (ex "VarZ'" (.and int [f (.and int [Z, eqI Z X]), g (.and int [Z', eqI Z' (f X)])])))
+/-- A binder of the argument's name: renamed, with the occurrences it binds. -/
+def eqArg : RawEqn := eqn (f (ex "VarX" (.and int [X, eqI X (.dv int "0")])))
+def eqArg' : RawEqn := eqn (ex "VarX'" (f (.and int [X', eqI X' (.dv int "0")])))
+/-- A binder inside a binder of the same name: the inner one is renamed. -/
+def eqShadow : RawEqn := eqn (ex "VarZ" (.and int [Z, f (ex "VarZ" (.and int [Z, eqI Z X]))]))
+def eqShadow' : RawEqn := eqn (ex "VarZ" (ex "VarZ'" (.and int [Z, f (.and int [Z', eqI Z' X])])))
+/-- A binder under `\not` and a binder in a predicate conjunct stay where they are. -/
+def eqNot : RawEqn := eqn (f (.not int (ex "VarZ" Z)))
+def eqPredConj : RawEqn := eqn (.and int [f X, ex "VarZ" (eqI Z X)])
+/-- No binder. -/
+def eqNone : RawEqn := eqn (.and int [f X, g X])
+
+/-- Whether `hoistExists` gives the right side of `e'`, or the refusal. -/
+def showHoist (what : String) (val : Kore.KSort → Bool) (e e' : RawEqn) : IO Unit :=
+  match hoistExists val int e with
+  | .error f => IO.println s!"{what}: refused {repr f.reason} ({f.detail})"
+  | .ok r => IO.println s!"{what}: the expected right side {r.rhs == e'.rhs}"
+
+end HandHoist
+
+/--
+info: eqApp: the expected right side true
+eqConj: the expected right side true
+eqAlt: the expected right side true
+eqAlt, no sort accepted: refused KCore.Parse.RefusalReason.existentialEquation (VarZ: bound in an alternative of \or at the sort Int, which the test of a value does not accept)
+eqTwo: the expected right side true
+eqArg: the expected right side true
+eqShadow: the expected right side true
+eqNot: the expected right side true
+eqPredConj: the expected right side true
+eqNone: the expected right side true
+eqApp:
+  [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0(Z) ens none exs [1] post (Z =[Int] sym1(X))
+eqConj:
+  [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs Z ens none exs [1] post ((Z =[Int] sym1(X)) ∧ (Z ∈[Int] sym0(X)))
+eqAlt: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+eqTwo:
+  [0] vars [X:Int, Z:Int, Z':Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1, 2, 3] post ((Z =[Int] X) ∧ ((Z' =[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym0(Z)) ∧ ('Hash'Cut0 ∈[Int] sym1(Z')))))
+eqArg:
+  [0] vars [X:Int, X':Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0(X') ens none exs [1] post (X' =[Int] 0)
+eqShadow:
+  [0] vars [X:Int, Z:Int, Z':Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs Z ens none exs [1, 2] post ((Z' =[Int] X) ∧ (Z ∈[Int] sym0(Z')))
+eqNot: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
+eqPredConj: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists)
+-/
+#guard_msgs in
+open HandHoist HandAnd in
+#eval show IO Unit from do
+  let all := fun (_ : Kore.KSort) => true
+  showHoist "eqApp" (fun _ => false) eqApp eqApp'
+  showHoist "eqConj" (fun _ => false) eqConj eqConj'
+  showHoist "eqAlt" valInt eqAlt eqAlt'
+  showHoist "eqAlt, no sort accepted" (fun _ => false) eqAlt eqAlt'
+  showHoist "eqTwo" all eqTwo eqTwo'
+  showHoist "eqArg" all eqArg eqArg'
+  showHoist "eqShadow" all eqShadow eqShadow'
+  showHoist "eqNot" all eqNot eqNot
+  showHoist "eqPredConj" all eqPredConj eqPredConj
+  showHoist "eqNone" all eqNone eqNone
+  let rd := fun (e : RawEqn) => hoistExists valInt int e >>= ceRead N2
+  showHand "eqApp" (rd eqApp)
+  showHand "eqConj" (rd eqConj)
+  showHand "eqAlt" (rd eqAlt)
+  showHand "eqTwo" (rd eqTwo)
+  showHand "eqArg" (rd eqArg)
+  showHand "eqShadow" (rd eqShadow)
+  showHand "eqNot" (rd eqNot)
+  showHand "eqPredConj" (rd eqPredConj)
+
+/-- `hoistExists` on the equation of `fn` of fixture `n`, with `Semantics.valued` on the definition
+built from the patched text as the test of a value (`valuedSort`), then `ceRead`. -/
+def runHoist (n fn rs : String) (others : List String := []) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {repr f.reason}"
+  | .ok E =>
+    match Parse.parse (patch (fn :: others) k) with
+    | .error r => IO.println s!"{n}: patched text refused {repr r.reason} {r.detail}"
+    | .ok d =>
+      for e in S.eqs.filter (·.fn == fn) do
+        let (bs, _) := peelExists e.rhs
+        IO.println s!"{n} {fn}: binders at the top {bs.map (·.var.ident.name)}; an \\exists below {hasExists (peelExists e.rhs).2}"
+        match hoistExists (valuedSort E.N d.sem) (KoreAML.srt rs) e with
+        | .error f => IO.println s!"  hoistExists: refused {repr f.reason} ({f.detail})"
+        | .ok e' =>
+          let (bs', body) := peelExists e'.rhs
+          IO.println s!"  hoistExists: binders at the top {bs'.map (·.var.ident.name)}; an \\exists below {hasExists body}"
+          showHand "  ceRead" (ceRead E.N e')
+
+/--
+info: e3-eq-exists-ml-in-or-int Lblf: binders at the top []; an \exists below true
+  hoistExists: binders at the top [VarB]; an \exists below false
+  ceRead: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+e3-eq-exists-ml-in-or Lblf: binders at the top []; an \exists below true
+  hoistExists: binders at the top [VarB]; an \exists below false
+  ceRead: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+e3-eq-exists-ml-under-app Lblf: binders at the top []; an \exists below true
+  hoistExists: binders at the top [VarB]; an \exists below false
+  ceRead:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym5(B) ens none exs [1] post (B =[Bool] X)
+e3-eq-exists-ml-and-right Lblf: binders at the top []; an \exists below true
+  hoistExists: binders at the top [VarB]; an \exists below false
+  ceRead:
+  [0] vars [X:Bool, B:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs B ens none exs [1] post ((B =[Bool] X) ∧ (B ∈[Bool] LblnotBool'Unds'(X)))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  runHoist "e3-eq-exists-ml-in-or-int" "Lblf" "Int"
+  runHoist "e3-eq-exists-ml-in-or" "Lblf" "Bool" ["Lblfx"]
+  runHoist "e3-eq-exists-ml-under-app" "Lblf" "Bool"
+  runHoist "e3-eq-exists-ml-and-right" "Lblf" "Bool"
+
+namespace HandHoist
+
+open HandAnd (int)
+
+/-- **`hoistExists` in the kernel**: each step on a hand-written right side, the renamings, the
+binders that stay, and the refusal's reason. -/
+theorem hoist_steps :
+    let rhs := fun (val : Kore.KSort → Bool) (e : RawEqn) => match hoistExists val int e with
+      | .ok r => some r.rhs | .error _ => none
+    let reason := fun (val : Kore.KSort → Bool) (e : RawEqn) => match hoistExists val int e with
+      | .error f => some f.reason | .ok _ => none
+    rhs (fun _ => false) eqApp = some eqApp'.rhs ∧ rhs (fun _ => false) eqConj = some eqConj'.rhs ∧
+    rhs valInt eqAlt = some eqAlt'.rhs ∧ reason (fun _ => false) eqAlt = some .existentialEquation ∧
+    rhs valInt eqTwo = some eqTwo'.rhs ∧ rhs valInt eqArg = some eqArg'.rhs ∧
+    rhs valInt eqShadow = some eqShadow'.rhs ∧ rhs valInt eqNot = some eqNot.rhs ∧
+    rhs valInt eqPredConj = some eqPredConj.rhs ∧ rhs valInt eqNone = some eqNone.rhs := by
+  decide +kernel
+
+end HandHoist
+
+/-- info: 'ExClauseReader.HandHoist.hoist_steps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandHoist.hoist_steps
 
 end ExClauseReader
