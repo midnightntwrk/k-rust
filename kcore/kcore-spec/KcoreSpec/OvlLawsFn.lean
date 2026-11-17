@@ -74,6 +74,17 @@ theorem mem_of_lookupOvl {f : Sym} {o : OvlSig} (h : c.lookupOvl f = some o) : o
   obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec h
   exact he ▸ List.getElem_mem hi
 
+/-- An overloading symbol listed once is the one its name finds. -/
+theorem lookupOvl_of_nodup (hnd : (c.ovls.map (·.sig.name)).Nodup) {o : OvlSig} (ho : o ∈ c.ovls) :
+    c.lookupOvl o.sig.name = some o := by
+  unfold Semantics.lookupOvl
+  cases hf : c.ovls.find? (·.sig.name == o.sig.name) with
+  | none => exact absurd (List.find?_eq_none.mp hf o ho) (by simp)
+  | some o' =>
+    have hm := List.mem_of_find?_eq_some hf
+    have hn : o'.sig.name = o.sig.name := by simpa using List.find?_some hf
+    rw [Faithful.Model.inj_of_nodup_map hnd o' hm o ho hn]
+
 /-- An overloaded symbol whose signature is no function's has it among the constructors and the
 overloading symbols. -/
 theorem known_of_not_byFn {o : OvlSig} {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) (hb : c.ovlByFn kg = false) :
