@@ -66,7 +66,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in a map entry's value. The entry is \
-undefined; MAP.element and MAP.concat are strict, so the map and the rule's result are \
-undefined."""
+reason = "The llvm backend aborts on 1 /Int 0 in a map entry's value ([hook_INT_tdiv]: Division by zero) and reports no final configuration; the ruling has r(2, 1 |-> 2 5 |-> 1)."

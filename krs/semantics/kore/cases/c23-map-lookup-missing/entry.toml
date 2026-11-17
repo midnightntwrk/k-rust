@@ -55,8 +55,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on M[5] where M has no key 5 ([hook_MAP_lookup]: Key not found for map \
-lookup). K's MAP module states that a lookup of a missing key is #False: the rule that builds \
-a(M[5]) has an undefined result, and the rule of the same priority gives the final \
-configuration."""
+reason = "The llvm backend aborts on M[5] where M has no key 5 ([hook_MAP_lookup]: Key not found for map lookup) and reports no final configuration; the ruling has b(2)."

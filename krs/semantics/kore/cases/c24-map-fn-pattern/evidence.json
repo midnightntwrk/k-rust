@@ -14,7 +14,7 @@
   }
  },
  "inputs": {
-  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "answer": "a863e1ac00c80804dac1187509a758f60be109c95a369eaa98cdb2df1709d422",
   "def.k": "d9fbef975e03a7027e8e666bfef0f95a87e3cc393577230960d9937ed5427198",
   "pgm": "7162167889ea3775de43f6f3e196e0d4e79ac124034ba3a4a531e3a3065e1f63"
  },
@@ -25,5 +25,9 @@
   "message": null,
   "release": "K v7.1.337"
  },
- "ruling_canonical": {}
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Int(30,2))"
+  ]
+ }
 }
