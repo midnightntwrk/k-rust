@@ -15,7 +15,10 @@
 # (`openLaws_lawHooks_defn`, `openTotal_lawHooks_defn`) with the library's sentences at
 # `lawHooks defn.sem HookParams.lib` (`lawHooks_lib_defn`) and each statement's instance there
 # (`consistent_lawHooks`, `sound_defn_lawHooks`, ...); it names both obligations among its facts;
-# and it builds.
+# and it builds, with the user module test/open-gen/NS/User.lean where there is one (copied in as
+# NS.User and built against the package): e2-comm-ctor's `exact_defn` (`ExactC` for every H with
+# OpenLaws and OpenTotal) and e2-open-rule's `go_one` (for every H with OpenTotal, `<k> go </k>`
+# has one successor), each with its instance at lawHooks, from the package's `fnHyp_defn`.
 # Usage: test/open-gen.sh   (from anywhere; the library and `kcore` built first)
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
@@ -51,6 +54,7 @@ done
 [ $fail = 0 ] || exit 1
 for p in $all; do
   IFS=: read -r t x ns <<< "$p"
-  gen/build.sh "$O/$t" > "$O/$t-build.log" 2>&1 || { tail -30 "$O/$t-build.log"; say "$t: the package does not build"; exit 1; }
+  u=; if [ -f "test/open-gen/$ns/User.lean" ]; then cp "test/open-gen/$ns/User.lean" "$O/$t/$ns/User.lean"; u=$ns.User; fi
+  gen/build.sh "$O/$t" $u > "$O/$t-build.log" 2>&1 || { tail -30 "$O/$t-build.log"; say "$t: the package does not build"; exit 1; }
 done
-echo "open-gen: four packages state their statements for every H under OpenLaws and OpenTotal, discharge both at lawHooks, and build: ok"
+echo "open-gen: four packages state their statements for every H under OpenLaws and OpenTotal, discharge both at lawHooks, and build, with the user modules of e2-comm-ctor (exact) and e2-open-rule (go has one successor): ok"
