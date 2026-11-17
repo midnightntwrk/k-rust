@@ -653,6 +653,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   remainder), each with one solution, and the prose's rules between them at every pair; no row is a
   key of `silentTable`, and every argument list of a signature is covered (a value, or at divisor
   0 the prose's `#False`, where Γ states ⊥ under every interpretation).
+- `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
+  (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
+  cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under
+  every interpretation in every semantics, and the tables are every argument list (`shapesOK`);
+  `==K`, `=/=K` and `ite` at every argument list; no row is a key of `silentTable` and the prose
+  leaves no region unstated; `true` and `false` are the values of Bool, every token literal a value
+  of a token sort.
 - `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
   domains.md's prose, cited by line: each operation at every argument list by the bindings of its
   result (the one map with them), with hand-derived values that `hook` gives, the result under
