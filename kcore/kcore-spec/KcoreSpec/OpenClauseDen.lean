@@ -9,6 +9,7 @@
   semantics.
 -/
 import KcoreSpec.OpenClauseEval
+import KcoreSpec.HoldsNode
 
 set_option autoImplicit false
 
@@ -139,6 +140,47 @@ mutual
       exact ⟨t, r, ht, hr, fun v hv => EvalTerm.sorted hsc he hL hσ htS hv,
         evalTerm_den4Cl he hL hσ (by rw [canonVars_length, hlen]) hag htS⟩
   termination_by structural _ _ h => h
+  /-- **The Holds lemma along an evaluation.** A truth value `Holds` gives a condition is read in
+  the model (`HoldsAt`): each term the derivation evaluates is read by `evalTerm_den4Cl` at that
+  evaluation, and each constructor of `Holds` by its lemma (HoldsNode.lean). Asked of the model:
+  the constructors' facts, and the binders' where the condition holds a binder. -/
+  theorem holds_den4Cl : ∀ {n : Nat} {σ : Subst} {p : Cond} {b : Bool}, Holds c n σ p b →
+      HoldsShape.NodeFacts c I → (HoldsShape.hasBinder p = true → HoldsShape.BinderFacts c I) →
+      HoldsShape.HoldsAt c I n σ p b
+    | _, _, _, _, .top, F, _ => HoldsShape.holdsAt_top F
+    | _, _, _, _, .bot, F, _ => HoldsShape.holdsAt_bot F
+    | _, _, _, _, .not h, F, G => HoldsShape.holdsAt_not (holds_den4Cl h F G)
+    | _, _, _, _, .and h h', F, G => HoldsShape.holdsAt_and
+        (holds_den4Cl h F fun hp => G (by rw [HoldsShape.hasBinder, hp, Bool.true_or]))
+        (holds_den4Cl h' F fun hq => G (by rw [HoldsShape.hasBinder, hq, Bool.or_true]))
+    | _, _, _, _, .or h h', F, G => HoldsShape.holdsAt_or
+        (holds_den4Cl h F fun hp => G (by rw [HoldsShape.hasBinder, hp, Bool.true_or]))
+        (holds_den4Cl h' F fun hq => G (by rw [HoldsShape.hasBinder, hq, Bool.or_true]))
+    | _, _, _, _, .implies h h', F, G => HoldsShape.holdsAt_implies
+        (holds_den4Cl h F fun hp => G (by rw [HoldsShape.hasBinder, hp, Bool.true_or]))
+        (holds_den4Cl h' F fun hq => G (by rw [HoldsShape.hasBinder, hq, Bool.or_true]))
+    | _, _, _, _, .ceil h, F, _ => HoldsShape.holdsAt_ceil F h (HoldsShape.termAt_of_all hI
+        fun hσ hag ht m => evalTerm_den4Cl h fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .equals h h', F, _ => HoldsShape.holdsAt_equals F
+        h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4Cl h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        h' (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4Cl h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .mem h h', F, _ => HoldsShape.holdsAt_mem F
+        h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4Cl h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        h' (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4Cl h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .exNone h, F, G => HoldsShape.holdsAt_exMatch F (G rfl) h (HoldsShape.termAt_of_all hI
+        fun hσ hag ht m => evalTerm_den4Cl h fns_headsOK hσ (canonVars_length c _) hag ht m) (Or.inl ⟨rfl, rfl⟩)
+    | _, _, _, _, .exSome g h hb hr, F, G => HoldsShape.holdsAt_exMatch F (G rfl) h (HoldsShape.termAt_of_all hI
+        fun hσ hag ht m => evalTerm_den4Cl h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        (Or.inr ⟨_, g, rfl, fun σ' hx hpv => holds_den4Cl (hb σ' hx hpv) F fun _ => G rfl, hr⟩)
+    | _, _, _, _, .ex g hb hr, F, G => HoldsShape.holdsAt_ex F (G rfl) g
+        (fun σ' hx => holds_den4Cl (hb σ' hx) F fun _ => G rfl) hr
+    | _, _, _, _, .all g hb hr, F, G => HoldsShape.holdsAt_all F (G rfl) g
+        (fun σ' hx => holds_den4Cl (hb σ' hx) F fun _ => G rfl) hr
+  termination_by structural _ _ _ _ h => h
   /-- **L3, terms, fourth stage.** A well-sorted right-hand side or `requires`, at a valuation that
   agrees with a well-sorted σ, translates to what its result under σ denotes: the value's element,
   or nothing where it is undefined. -/

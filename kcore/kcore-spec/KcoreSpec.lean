@@ -297,3 +297,4 @@ import KcoreSpec.GenEqsConservative
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.HoldsNode
+import KcoreSpec.ClausePreTie

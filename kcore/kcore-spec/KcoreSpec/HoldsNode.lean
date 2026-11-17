@@ -756,6 +756,45 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
         rw [setV_on hkis (by simp; omega) hix]
         exact (hfe i h1 h2).2
 
+/-- **A term's evaluation is read where its translation denotes its result at every valuation
+that agrees with σ on all the variables in scope** (the form a recursion on evaluations
+concludes), in a model of `Γ`: the valuation is moved to a table that holds every variable's key,
+a variable that is not read given its value's element. -/
+theorem termAt_of_all (hI : I ⊧ᴵP Γ c) {σ : Subst} {t : Term} {r : Option GroundTerm}
+    (h : ∀ {vars : List Srt} {tbl : KoreAML.VarTable} {e : Valuation M} {s : Srt}, c.WellSorted vars σ →
+      Agrees c I tbl (canonVars c vars) σ e → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s →
+      ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e m ↔ Res c I e r m) :
+    TermAt c I σ t r := by
+  intro vars P tbl e s hσ hP hr ht m
+  classical
+  let tbl' : KoreAML.VarTable := (List.range vars.length).map (canonKey c vars)
+  let fe : Nat → M := fun i =>
+    if P i then e.evalEvar (tbl.ev (canonKey c vars i)) else elemOf c I ((σ.lookup i).getD default)
+  have hkeys : ∀ i < vars.length, i ∈ List.range vars.length → canonKey c vars i ∈ tbl' :=
+    fun i hi _ => List.mem_map.mpr ⟨i, List.mem_range.mpr hi, rfl⟩
+  let e' := setV c tbl' vars (List.range vars.length) fe e
+  have hat : ∀ i < vars.length, e'.evalEvar (tbl'.ev (canonKey c vars i)) = fe i :=
+    fun i hi => setV_on hkeys hi (List.mem_range.mpr hi)
+  have hag : Agrees c I tbl' (canonVars c vars) σ e' := by
+    intro i v hi hl m'
+    rw [canonVars_length] at hi
+    show m' = e'.evalEvar (tbl'.ev (canonKey c vars i)) ↔ _
+    rw [hat i hi]
+    by_cases hPi : P i
+    · obtain ⟨-, -, w, hw, -, hd⟩ := hr i hPi
+      rw [hl] at hw; cases hw
+      simp only [fe, if_pos hPi]
+      exact (hd m').trans ((den_closed c v).interp e e' m')
+    · obtain ⟨w, hw, hsw⟩ := hσ i _ (List.getElem?_eq_getElem hi)
+      rw [hl] at hw; cases hw
+      simp only [fe, if_neg hPi, hl, Option.getD_some]
+      exact ((elemOf_spec hI hsw e').1 m').symm
+  have hlt := varOccs_lt t ht
+  rw [tr_kore_congr (tbl' := tbl') (e' := e') t (fun i hi => by
+    show e.evalEvar (tbl.ev (canonKey c vars i)) = e'.evalEvar (tbl'.ev (canonKey c vars i))
+    rw [hat i (hlt i hi)]; simp only [fe, if_pos (hP i hi)]) m, h hσ hag ht m]
+  exact Res_closed r e' e m
+
 end Node
 
 end HoldsShape

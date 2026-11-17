@@ -1297,7 +1297,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   T, at `pNot`, `pEx`, `pAll`, `pMatch` (`holdsT_atR`, `termsInSort_stdI`). The variables of the
   pattern at Int are variables of the pattern at `R` (`condKore_varsOf_resort`).
 - `test/HoldsNode.lean`: the Holds lemma one constructor of `Holds` at a time
-  (KcoreSpec/HoldsNode.lean: `HoldsAt`, `TermAt`, `holdsAt_*`); each lemma's axioms are printed.
+  (KcoreSpec/HoldsNode.lean: `HoldsAt`, `TermAt`, `holdsAt_*`, `termAt_of_all`), along an evaluation
+  (`holds_den4Cl`) and at the sort variable `R` (KcoreSpec/ClausePreTie.lean); each lemma's axioms
+  are printed.
   C3EqReqPrioComp, C3EqPrioTotalComp: `clauses_eq` (the function's two clauses as literals);
   `written_refuted` (Γ with the narrowed sentence as written has no model, for every H: at 5 it
   gives 0 where Γ gives 5) and `no_model_written` (neither has `Pre H` with that sentence in place
