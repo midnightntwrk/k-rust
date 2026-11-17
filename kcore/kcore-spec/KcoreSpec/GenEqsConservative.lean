@@ -17,9 +17,10 @@
     none of them, this is the first half of the conservativity of their equations: the symbol may
     be reinterpreted in a model of `Γ` without changing what any premise of `Γ` denotes.
 
-  Not here: the model expansion (every model of `Γ` expands to one where the projection equations
-  hold), and the freeness of a name that the semantics does not number (a constructor argument's
-  projection, an own sort's projection).
+  The model half is GenEqsModel.lean: the value model with such a symbol's application replaced is
+  a model of the theory in which the symbol's equations at values hold. Not here: the freeness of
+  a name that the semantics does not number (a constructor argument's projection, an own sort's
+  projection).
 -/
 import KcoreSpec.DetachedB
 import KcoreSpec.Account
