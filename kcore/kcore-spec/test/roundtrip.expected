@@ -21,6 +21,9 @@ differs f2-examples/colls.kore
 cannot f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
+cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
+cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
+differs f2-examples/e3-setvar-rewrite.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore

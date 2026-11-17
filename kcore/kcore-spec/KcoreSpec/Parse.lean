@@ -2703,7 +2703,7 @@ body under the binders are read, or refused, as those of the axiom without binde
 read by the sentence's scoping: one whose name the left side or the `requires` holds is renamed
 apart (`rhsApart`, `ReadingNote.existsRenamedApart`), and one that binds nothing is dropped
 (`exKept`, `ReadingNote.existsDropped`); no binder is refused. -/
-def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+def ruleBodyRead (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   match a.pattern with
   | .rewrites s (.and s' [l, r0]) rx =>
     match peelExists (rhsApart a.pattern l r0 rx) with
@@ -2730,6 +2730,148 @@ where
         (aliasIsIdentity); not read as its argument"
     else fail .ruleShape
   | _ => fail .ruleShape
+
+/-! ## A set variable in a rewrite axiom
+
+A set variable `@S` of sort s ranges over every set of elements of s, and an axiom holding it holds
+at each. Where `@S` stands in the left side and the right side under applications only (in neither
+the `requires` nor the `ensures`, under no other connective), each side at S is the union of its
+instances at one element of S per occurrence, an application being pointwise over the elements its
+arguments hold. A configuration the left side matches at S is matched at the set of the elements of
+one choice ā, one per left occurrence, and the right side at that set is contained in the right side
+at S. So the axiom at every S is its instance at those sets:
+`∀ā. L[ā] → •∃z̄. R[z̄] ∧ ⋀ⱼ ⋁ᵢ zⱼ ∈ aᵢ`, one variable aᵢ per left occurrence and one zⱼ per right
+occurrence (`KCore.setvar_rewrite_singleton`, stated on denotations in every interpretation). The rule
+is read so (`svRewrite?`): each left occurrence a fresh variable, each right occurrence a fresh
+existential variable of the rule (`exs`), and `post` the conjunction, over the right occurrences, of
+the disjunction, over the left ones, of the memberships `zⱼ ∈ aᵢ`. With no right occurrence `post` is
+`\top` and the rule is `L[ā] → •R`.
+
+Refused (`setVariable`, the detail saying why): a set variable in the `requires` or the `ensures`,
+whose truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every
+subset of the sort; one under a connective that is no application, or in a right side under
+`\exists`, which the reading does not cover; one in the right side and not in the left, where the
+right side at the empty set is empty and the axiom states that its left side matches nothing; and
+two set variables or more, which the reading, stated for one, does not cover. -/
+
+mutual
+  /-- The first connective other than an application above an occurrence of a set variable in `p`,
+  `none` where every occurrence stands under applications only. -/
+  def svConn? : Kore.Pattern → Option String
+    | .var (.svar _) => none
+    | .app _ _ ps => svConnList? ps
+    | p => if (svarsOf_svin (varsOf_svin p)).isEmpty then none else some (connective p)
+    termination_by structural p => p
+  def svConnList? : List Kore.Pattern → Option String
+    | [] => none
+    | p :: ps => (svConn? p).orElse fun _ => svConnList? ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- `p` with each occurrence of a set variable under applications replaced by the element
+  variable `mk i`, numbered from `n` left to right; the pattern and the next number. -/
+  def svReplace (mk : Nat → Kore.EVar) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat
+    | .var (.svar _) => (.var (.evar (mk n)), n + 1)
+    | .app h ss ps => let (ps', m) := svReplaceList mk n ps; (.app h ss ps', m)
+    | p => (p, n)
+    termination_by structural p => p
+  def svReplaceList (mk : Nat → Kore.EVar) (n : Nat) : List Kore.Pattern → List Kore.Pattern × Nat
+    | [] => ([], n)
+    | p :: ps =>
+      let (p', m) := svReplace mk n p
+      let (ps', m') := svReplaceList mk m ps
+      (p' :: ps', m')
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- Whether `p` holds a `\mu` or `\nu` binder. -/
+  def svFix : Kore.Pattern → Bool
+    | .mu _ _ | .nu _ _ => true
+    | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => svFixList ps
+    | .not _ p | .next _ p | .ceil _ _ p | .floor _ _ p | .exist _ _ p | .forall _ _ p => svFix p
+    | .implies _ p q | .iff _ p q | .equals _ _ p q | .in _ _ p q | .rewrites _ p q => svFix p || svFix q
+    | .var _ | .string _ | .top _ | .bottom _ | .dv _ _ => false
+    termination_by structural p => p
+  def svFixList : List Kore.Pattern → Bool
+    | [] => false
+    | p :: ps => svFix p || svFixList ps
+    termination_by structural ps => ps
+end
+
+/-- The disjunction of the conditions, `\bottom` for none. -/
+def svDisj : List Cond → Cond
+  | [] => .bot
+  | [p] => p
+  | p :: ps => .or p (svDisj ps)
+
+/-- A rewrite axiom `\rewrites(\and(l, req), rhs)` holding a set variable, read as the block above
+says: the axiom with each left occurrence the fresh variable `Var<S>'Hash'L<i>`, and each right
+occurrence the fresh variable `Var<S>'Hash'R<j>` bound by `\exists` around the right side, with the
+set variable and the names (without `Var`) of the left and of the right variables; `.error` with the
+refusal's detail where the reading does not cover the axiom; `none` for an axiom holding no set
+variable, holding a `\mu` or `\nu` binder (whose set variable is bound; the connective is refused
+as such), or of another form. -/
+def svRewrite? (a : Kore.Axiom) :
+    Option (Except String (Kore.Axiom × Kore.SVar × List String × List String)) :=
+  match a.pattern with
+  | .rewrites s (.and s' [l, r0]) rx =>
+    let holds := fun (p : Kore.Pattern) => !(svarsOf_svin (varsOf_svin p)).isEmpty
+    match if svFix a.pattern then [] else svarsOf_svin (varsOf_svin a.pattern) with
+    | [] => none
+    | X :: xs => some (
+      let n := X.var.ident.name
+      let why := "its truth at a larger set is not entailed by its truth at a smaller one, so the \
+        sentence reads every subset of the sort"
+      let uncovered := "the axiom is read through its instances at one element per occurrence only \
+        where every occurrence stands under applications"
+      if !(xs.all fun Y => decide (Y = X)) then
+        .error s!"{n}: one of two set variables or more: the reading is stated for one"
+      else if holds r0 then .error s!"{n}: in the requires: {why}"
+      else match peelExists rx with
+        | (bs, .and s'' [r, en]) =>
+          if holds en then .error s!"{n}: in the ensures: {why}"
+          else match svConn? l, svConn? r with
+            | some c, _ => .error s!"{n}: under {c} in the left side: {uncovered}"
+            | none, some c => .error s!"{n}: under {c} in the right side: {uncovered}"
+            | none, none =>
+              let base := (dropPrefix? "Var" n).getD n
+              let used := evarNames a.pattern
+              let mk := fun (side : String) (i : Nat) =>
+                KoreAML.evar (freshIn used (used.length + 1) s!"Var{base}'Hash'{side}{i}") X.sort
+              let (l', nl) := svReplace (mk "L") 0 l
+              let (r', nr) := svReplace (mk "R") 0 r
+              let name := fun (x : Kore.EVar) => (dropPrefix? "Var" x.var.ident.name).getD x.var.ident.name
+              if nl == 0 then
+                .error s!"{n}: in the right side and not in the left: the right side at the empty set \
+                  is empty, so the axiom states that its left side matches nothing"
+              else if nr != 0 && !bs.isEmpty then
+                .error s!"{n}: in a right side under \\exists: {uncovered}"
+              else
+                let zs := (List.range nr).map (mk "R")
+                let rx' := if nr == 0 then rx else zs.foldr (fun z p => .exist s'' z p) (.and s'' [r', en])
+                .ok ({ a with pattern := .rewrites s (.and s' [l', r0]) rx' }, X,
+                  (List.range nl).map (name ∘ mk "L"), zs.map name)
+        | (_, p) => .error s!"{n}: under {connective p} in the right side: {uncovered}")
+  | _ => none
+
+/-- A rewrite axiom's rule (`ruleBodyRead`), a set variable read where `svRewrite?` reads it: the
+axiom it gives is read, and `post` gains, for each right variable, the disjunction of its
+memberships in the left variables. Where `svRewrite?` refuses the axiom, it is refused
+`setVariable` with its detail. -/
+def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+  match svRewrite? a with
+  | none => ruleBodyRead N msrc a
+  | some (.error d) => fail .setVariable d
+  | some (.ok (a', X, ls, rs)) => do
+    let (r, p) ← ruleBodyRead N msrc a'
+    let s ← N.sortE X.sort
+    let idx := fun (x : String) => need (p.names.idxOf? x) .setVariable x
+    let ais ← ls.mapM idx
+    let zis ← rs.mapM idx
+    let post := ovlCutConj (zis.map fun z => svDisj (ais.map fun i => Cond.mem s (.var z) (.var i)))
+    pure ({ r with post := if r.post.isTop then post else .and r.post post }, p)
 
 /-- The rule of a rewrite axiom. -/
 def ruleOf (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
