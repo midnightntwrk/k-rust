@@ -297,3 +297,5 @@ import KcoreSpec.GenEqsConservative
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
+import KcoreSpec.LibEvSetVar
+import KcoreSpec.LibEvCeil
