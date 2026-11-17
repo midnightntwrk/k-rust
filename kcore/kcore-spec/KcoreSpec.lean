@@ -283,6 +283,7 @@ import KcoreSpec.ConsTransfer
 import KcoreSpec.ConsTransferR
 import KcoreSpec.ConsTransferInst
 import KcoreSpec.ConsRegistrySat
+import KcoreSpec.ConsTransferSig
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
