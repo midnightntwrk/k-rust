@@ -88,14 +88,9 @@ t = tomllib.load(open(rows, "rb"))
 # class is outside CLASSES); every other failure is of kind "other" and is never allowed. A failure
 # is counted under the first allowance whose test holds.
 ALLOWANCE = [
-    ("ROWS-1.refresh-kore", 4,
-     "the two E5 entries whose class is outside R-a, R-b, scope, R-c (each its class and its "
-     "missing unit): convertRule:axiom#2 cases B49 (class undecided) and #Or in a left side "
-     "(class E3/E7's row decides); the E5 rows carry the status and class the merged line gives",
-     lambda l, e, k: l == "E5" and k in ("nounit", "class") and e.get("class") not in CLASSES),
     ("ROWS-1.unit-rc", 62, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
-    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
+    ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
 ]
 
