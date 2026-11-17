@@ -2751,6 +2751,8 @@ def account (koreFile : String) : IO UInt32 := do
       -- package's `agree_named`: `agreeObligationsI`
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
+      -- printed only when some clause holds an existential variable
+      for l in Parse.owedExsText d decodeK do IO.println l
       -- printed only when some equation is read so: the clauses with `Clause.aside`, each with the
       -- index of its sentence (found by the clause's `UNIQUE'Unds'ID`) and its function
       let asides := (withPres d.sem.fns d.pres.fns).flatMap fun (f, fp) =>
