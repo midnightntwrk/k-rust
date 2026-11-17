@@ -26,6 +26,10 @@
     negates the user clause only (`coreOK_cO`). At `inj 3` the user clause fails, so the `[owise]` clause decides
     with `e` (`eval_owise_inj3`), and the `aside` clause with `inj -3` (`eval_ovl_inj3_O`): two
     results, not `FnDet` (`not_fnDet_O`).
+  - The overload clause as `emit` writes it: the reader gives it priority 0 not written, `aside` and
+    the second symbol `negInt` (`ClausePres.overload`); `emit` writes its attribute
+    `symbol-overload{}(LblnegExp{}(), LblnegInt{}())` alone (`ovl_emit_attrs`), the text's
+    attributes of the sentence (natively, `#guard`, on the sentence parsed).
 -/
 import KcoreSpec
 
@@ -363,6 +367,43 @@ theorem eval_owise_inj3 : Eval cO negExp [i3] (some ve) :=
 theorem not_fnDet_O : ¬ FnDet cO := fun h =>
   im3_ne_ve (Option.some.inj (h _ _ _ _ eval_ovl_inj3_O eval_owise_inj3))
 
+/-! ## The overload clause as the text writes it
+
+The text's symbol-overload sentence (kore.txt //@ 263) has one attribute,
+`symbol-overload{}(LblnegExp{}(), LblnegInt{}())`, and no `priority{}`. Read (`Parse.overloadEqn?`),
+its priority 0 is not written (`Parse.eqnPrio`'s first component is `none`, so
+`ClausePres.prioAttr` is false), its clause is `aside` (`Parse.nonExec`), and its presentation holds
+the second symbol (`ClausePres.overload`). `emit` writes the clause with that attribute alone
+(`clauseAttrs`), the text's attributes (`ovl_text_attrs`). -/
+
+def ovlPres : ClausePres := { Faithful.canonClausePres ovlCl with overload := some "LblnegInt" }
+
+/-- The text's symbol-overload sentence, in a module of its own. -/
+def ovlText : String :=
+  "[] module M axiom{R} \\equals{SortExp{}, R}(LblnegExp{}(inj{SortInt{}, SortExp{}}(K0:SortInt{})), " ++
+  "inj{SortInt{}, SortExp{}}(LblnegInt{}(K0:SortInt{}))) " ++
+  "[symbol-overload{}(LblnegExp{}(), LblnegInt{}())] endmodule []"
+
+def ovlAxiom? : Option Kore.Axiom :=
+  match Kore.parseDefinition ovlText with
+  | .ok d => match d.modules.head?.bind (·.sentences.head?) with
+    | some (.axiom a) => some a
+    | _ => none
+  | .error _ => none
+
+-- the reader's priority (written, read), `aside` and second symbol of the sentence
+#guard (ovlAxiom?.bind Parse.overloadEqn?).map (fun e =>
+    (Parse.eqnPrio e, Parse.nonExec e, (Parse.overloadSyms? e.attrs).map (·.2))) ==
+  some ((none, 0), true, some "LblnegInt")
+
+/-- `emit`'s attributes of the clause, whatever the presentation's other parts. -/
+theorem ovl_emit_attrs (p : Presentation) :
+    clauseAttrs c p (negFn [ovlCl, userCl]) ovlCl ovlPres = [overloadAttr "LblnegExp" "LblnegInt"] := by
+  rfl
+
+-- they are the text's
+#guard decide (ovlAxiom?.map (·.attributes) = some [overloadAttr "LblnegExp" "LblnegInt"])
+
 end OvlFnFn
 
 /-! The declarations above depend on no axiom but `propext`, `Classical.choice`, `Quot.sound`. -/
@@ -392,3 +433,5 @@ end OvlFnFn
 #guard_msgs in #print axioms OvlFnFn.eval_owise_inj3
 /-- info: 'OvlFnFn.not_fnDet_O' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms OvlFnFn.not_fnDet_O
+/-- info: 'OvlFnFn.ovl_emit_attrs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms OvlFnFn.ovl_emit_attrs

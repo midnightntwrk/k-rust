@@ -1131,7 +1131,9 @@ def Presentation.cellsOK (p : Presentation) (c : Semantics) : Bool :=
 definition's own token sorts (numbered from `nRegSorts`) after the modules' token sorts and its
 own sorts hooked to a library carrier, the
 imports increasing; rule attributes inert; a rule's or an equation's priority 50 or 200 unless
-written `priority{}("n")`; variable names distinct; the cell tree as `cellsOK` says. -/
+written `priority{}("n")`, or, for an equation written as a symbol-overload axiom
+(`ClausePres.overload`), `aside` and of priority 0, which that attribute gives; variable names
+distinct; the cell tree as `cellsOK` says. -/
 def Presentation.ok (p : Presentation) (c : Semantics) : Bool :=
   (let l := libOf p.imports
    c.lib == { l with tokenSorts := l.tokenSorts ++ c.lib.tokenSorts.filter (fun s => decide (nRegSorts ≤ s)),
@@ -1142,7 +1144,7 @@ def Presentation.ok (p : Presentation) (c : Semantics) : Bool :=
   ((withPres c.fns p.fns).all fun (f, fp) =>
     (withPres f.clauses fp.clauses).all fun (cl, cp) =>
       namesFor cl.vars.length cp.names && namesFor cl.vars.length cp.exclNames &&
-      (cp.prioAttr || cl.prio == 50 || cl.prio == 200)) &&
+      (cp.prioAttr || cl.prio == 50 || cl.prio == 200 || (cp.overload.isSome && cl.aside && cl.prio == 0))) &&
   ((withPres c.rules p.rules).all fun (r, rp) => namesFor r.vars.length rp.names) &&
   p.cellsOK c
 
