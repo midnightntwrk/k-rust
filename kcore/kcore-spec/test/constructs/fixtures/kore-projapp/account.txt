@@ -25,6 +25,7 @@ library sentences of the modules held that the text does not hold: 0
 sentences every definition holds (kernelText) that the text does not: 0
 sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
 functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
+functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
 parse: ok; wf true; failing: []
 coreOK: true; failing: []
 refused by the account: 0

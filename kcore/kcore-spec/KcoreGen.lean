@@ -2660,6 +2660,22 @@ def account (koreFile : String) : IO UInt32 := do
       let tp := if d.sem.params.any (·.impl.isNone) then d.totalParams else []
       let owedTot := d.sem.totalObligationsRP (callOrderOf d.sem) tp
       IO.println s!"functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): {owedTot.length}: {", ".intercalate (owedTot.map fun f => decodeK (d.sem.symName f))}"
+      -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
+      -- package's `agree_named`: `agreeObligationsI`
+      let owedAgr := d.sem.agreeObligationsI
+      IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
+      -- printed only when some equation is read so: the clauses with `Clause.aside`, each with the
+      -- index of its sentence (found by the clause's `UNIQUE'Unds'ID`) and its function
+      let asides := (withPres d.sem.fns d.pres.fns).flatMap fun (f, fp) =>
+        ((withPres f.clauses fp.clauses).filter (·.1.aside)).map fun (_, cp) =>
+          let i? := m.sentences.findIdx? fun (s : Kore.Sentence) => match s with
+            | .axiom a => KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID" == some cp.info.uid
+            | _ => false
+          ((i?.map (off + ·)), decodeK (d.sem.symName f.label))
+      unless asides.isEmpty do
+        IO.println s!"equations read as aside clauses (non-executable: no [owise] premise negates them, Clause.aside; such an equation competes with every equation of a larger priority of its function): {asides.length}"
+        for (i?, fn) in asides do
+          IO.println s!"      sentence {(i?.map toString).getD "?"} ({fn})"
       IO.println s!"parse: ok; wf {wf d}; failing: {(d.report.filter (!·.2)).map (·.1)}"
       let core := (coreParts d.sem (tables d.sem)).filter (!·.2)
       IO.println s!"coreOK: {core.isEmpty}; failing: {core.map (·.1)}"
