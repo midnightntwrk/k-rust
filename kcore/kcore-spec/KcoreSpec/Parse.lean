@@ -188,13 +188,14 @@ inductive RefusalReason where
   says is interpreted, by a domain the reader does not give it (`syntax MyInt [hook(INT.Int)]`).
   The detail names the sort and the hook. -/
   | userHookedSort
-  /-- A rule or equation whose right side or `ensures` holds a variable its left side and conditions
-  do not bind, where the values do not decide the result: for a rule, as `openRefusal` says; for an
-  equation, a variable of a sort without an exhibited value (`Semantics.valued`): where the sort has
-  no value the equation states the function's value only in the models that give the sort an
+  /-- An equation whose right side or `ensures` holds a variable its arguments and requires do not
+  bind, of a sort without an exhibited value (`Semantics.valued`; `clauseRefusal`): where the sort
+  has no value the equation states the function's value only in the models that give the sort an
   element; where it has one that `valued` does not exhibit, the equation is not read at this
   freeze. The detail names the variable, its sort and where it occurs. An equation refused so is one
-  at whose clause `Semantics.rightValued` fails, so `FnHyp` is not derived for the package. -/
+  at whose clause `Semantics.rightValued` fails, so `FnHyp` is not derived for the package. Not
+  raised for a rule: a rule whose variable the left side leaves open is read as an open variable of
+  the rule, or refused `openRequires` or `openRight` (`openRefusal`, `ruleRefusal`). -/
   | unboundVariable
   /-- A rewrite axiom whose right side is under `\exists` (`?X` in K): the rule states a successor
   for some value of the variable, which the reading of a rule as one right side does not state.

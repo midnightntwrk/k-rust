@@ -101,6 +101,9 @@ differs f2-examples/projuser.kompile.kore
 differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
 cannot f2-examples/regeq.kompile.kore
+cannot f2-examples/rhsempty.kompile.kore
+differs f2-examples/rhsint.kompile.kore
+differs f2-examples/rhsunit.kompile.kore
 cannot f2-examples/rsn.kompile.kore
 differs f2-examples/rulecool.kompile.kore
 differs f2-examples/setcat.kompile.kore
