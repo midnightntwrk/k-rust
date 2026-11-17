@@ -194,11 +194,11 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop,
       Semantics.allFns_plainCl hpl fn hfn' cl hcl⟩
 
+theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
+
 /-- No clause of a function of a definition `ok` accepts has an existential variable. -/
 theorem _root_.KCore.Semantics.fnsNoExs_of_ok {c : Semantics} (hok : c.ok = true) : c.FnsNoExs :=
   (clauseCtx_of hok).fnsNoExs
-
-theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
 
 theorem binds_all {n : Nat} {occs : List Nat} (h : binds n occs = true) : ∀ i < n, i ∈ occs := by
   simp only [binds, List.all_eq_true] at h
