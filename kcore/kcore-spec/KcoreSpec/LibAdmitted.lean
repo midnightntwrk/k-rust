@@ -14,14 +14,18 @@
   - `libSentences`: the library sentences over Γ's symbols, besides the `functional` sentences of
     `totalSilentKeys`, that read the interpretation (test/LibProbe.lean checks the list).
   - `Semantics.libAdmitted c`: `silentTotal` and one condition per sentence of `libSentences`
-    (`neFloatEq`, `isInfiniteEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq`, `replaceAllEq`), each the sentence at
-    the values where it reads the interpretation: where its left side is at a silent point, and for
-    `sqrtFloat`'s at every Float, its right side being `rootFloat`, which no hook interprets. The
+    (`neFloatEq`, `isInfiniteEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq`, `replaceAllEq`,
+    `rangeMapAssocEq`), each the sentence at the values where it reads the interpretation: where its
+    left side is at a silent point, for `sqrtFloat`'s at every Float, its right side being
+    `rootFloat`, which no hook interprets, and for `_RangeMap_`'s associativity at every three range
+    maps, `_RangeMap_` being silent at every point. The
     conditions are named, not read off the text: a statement over
     every library sentence would hold the reader's selection of sentences and a meaning of KORE
     patterns at values, and Γ's meaning of a sentence is the reader's translation.
   - `libAdmitted_lib`: `HookParams.lib` meets them in every semantics with `floatShapeOK`, so in
     every semantics meeting `coreOK` (`floatShapeOK_of_coreOK`, `libAdmitted_lib_of_coreOK`).
+    `rangeMapAssocEq` holds under every interpretation that gives `_RangeMap_` no value
+    (`rangeMapAssocEq_of_app_none`), `HookParams.lib` among them.
 -/
 import KcoreSpec.ParamsTotal
 
@@ -87,15 +91,19 @@ def HookParams.lib : HookParams :=
 /-- The library sentences over Γ's symbols, other than the `functional` sentences of
 `totalSilentKeys` (`Semantics.silentTotal`), that read the interpretation at some value, by their
 line in domains.md (K 7.1.337), and the condition each states on it: `=/=Float` (1648),
-`isInfinite` (1673), `rfindChar` (1893), `findChar` (1891), `sqrtFloat` (1671), `replaceAll` (1917).
+`isInfinite` (1673), `rfindChar` (1893), `findChar` (1891), `sqrtFloat` (1671), `replaceAll` (1917),
+and the `assoc` attribute of `_RangeMap_` (508), a collection law: where two of its three range
+maps have a key in common, `_RangeMap_` is at a silent point.
 One sentence that reads it is not listed, since no interpretation meets it: the instance of
 `countAllOccurrences`' second equation (1898) at the empty needle, `c = 1 +Int c`. test/LibProbe.lean checks the list against the sentences a
 text holds: a sentence that reads the interpretation at a probed point is one of these or a
 `functional` sentence of `totalSilentKeys`; on f2-examples/allbuiltins.kompile.kore, every module of
-the K 7.1.337 builtin files the library holds, the list is closed. -/
+the K 7.1.337 builtin files the library holds, the list is closed. The probe names a collection
+law by its symbol, since a law sentence carries no line of its own: line 508 is that of
+`_RangeMap_`'s declaration, whose attributes the law sentences are generated from. -/
 def libSentences : List (Nat × String) :=
   [(1648, "neFloatEq"), (1673, "isInfiniteEq"), (1893, "rfindCharEq"), (1891, "findCharEq"),
-   (1671, "sqrtFloatEq"), (1917, "replaceAllEq")]
+   (1671, "sqrtFloatEq"), (1917, "replaceAllEq"), (508, "rangeMapAssocEq")]
 
 /-! ## The conditions the library's sentences state on the interpretation -/
 
@@ -172,12 +180,23 @@ def replaceAllEq : Prop :=
     c.hv stringReplaceAll [s, n, r] =
       (c.hv stringCountAll [s, n]).bind fun k => c.hv stringReplace [s, n, r, k]
 
+/-- **domains.md 508** `_RangeMap_`'s `assoc` attribute, the law `(M N) P = M (N P)` as an
+equality of patterns, at every three values of sort RangeMap. `_RangeMap_` is silent at every
+point (`silentTable`), and `hook` gives it a value at two range maps exactly where they have no key
+in common; where two of the three have one, a side reads the interpretation's value. Where none
+has one, both sides are `hook`'s, the same value (`rmConcat_assoc`). -/
+def rangeMapAssocEq : Prop :=
+  ∀ m n p, c.sortsOf [m, n, p] = some [Srt.rangeMap, Srt.rangeMap, Srt.rangeMap] →
+    ((c.hv rmConcat [m, n]).bind fun x => c.hv rmConcat [x, p]) =
+      ((c.hv rmConcat [n, p]).bind fun y => c.hv rmConcat [m, y])
+
 /-- **The interpretations the text admits**: every library sentence over Γ's symbols, two
 excepted, holds at the values where it reads the interpretation: the `functional` sentences of
 `totalSilentKeys` (`silentTotal`) and the sentences of `libSentences`. Each conjunct after the
 first is one sentence of domains.md as a condition on the interpretation: `neFloatEq` (1648),
 `isInfiniteEq` (1673), `rfindCharEq` (1893), `findCharEq` (1891) and `replaceAllEq` (1917) where
-the sentence's left side is at a silent point, `sqrtFloatEq` (1671) at every Float. The two
+the sentence's left side is at a silent point, `sqrtFloatEq` (1671) at every Float,
+`rangeMapAssocEq` (508) at every three range maps. The two
 sentences that are no condition: set idempotence, which the reading of `_Set_` does not hold of;
 and the instance of `countAllOccurrences`' second equation (1898-1899) at the empty needle, which
 reads `c = 1 +Int c` of the count c that `silentTotal` asks for, and which no interpretation
@@ -187,7 +206,7 @@ or fails for every interpretation alike. Γ does not state it; the statements ov
 every interpretation, admitted or not. -/
 def libAdmitted : Prop :=
   c.silentTotal ∧ c.neFloatEq ∧ c.isInfiniteEq ∧ c.rfindCharEq ∧ c.findCharEq ∧ c.sqrtFloatEq ∧
-    c.replaceAllEq
+    c.replaceAllEq ∧ c.rangeMapAssocEq
 
 /-- Where `rootFloat` is the library's parameter symbol, its value at a Float and 2 is `rootAt2`. -/
 theorem paramVal_libRootFloat
@@ -487,12 +506,68 @@ theorem replaceAllEq_lib (c : Semantics) : (c.withHooks HookParams.lib).replaceA
   exact hv_of_silent (k := ⟨stringReplaceAll, [Srt.string, Srt.string, Srt.string], Srt.string⟩)
     (by decide +kernel) hh rfl happ hsw
 
+/-! ### `_RangeMap_`'s associativity where the interpretation gives `_RangeMap_` no value -/
+
+/-- Where the interpretation gives `_RangeMap_` no value, its value at every argument list is
+`hook`'s. -/
+theorem hv_rmConcat_of_appNone {c : Semantics} (h : ∀ vs, c.hooks.app rmConcat vs = none)
+    (vs : List GroundTerm) : c.hv rmConcat vs = (rmHook rmConcat vs).join := by
+  have hf : c.fallback rmConcat vs = none := by
+    unfold Semantics.fallback; split <;> simp [h]
+  rw [← rmM_concat_eq]
+  unfold Semantics.hv Semantics.hookRes
+  rw [hf]
+  split <;> cases hook rmConcat vs <;> simp
+
+/-- A value of sort RangeMap is a range map of maximal intervals in order, or no map at all. -/
+theorem rmAssoc_shape {c : Semantics} {v : GroundTerm} (h : c.sortOf v = some Srt.rangeMap) :
+    (∃ es, v = rmV es ∧ rangesOK es = true) ∨ ∀ s es, v ≠ .map s es := by
+  cases v with
+  | map s es =>
+    obtain ⟨rfl, hr, -⟩ := (rmS_sortOf_map rfl).mp h
+    exact .inl ⟨es, rfl, hr⟩
+  | _ => exact .inr fun _ _ he => by cases he
+
+/-- `_RangeMap_`'s hook gives no value where its first argument is no map. -/
+theorem rmAssoc_noMap_l {v : GroundTerm} (hv : ∀ s es, v ≠ .map s es) (w : GroundTerm) :
+    (rmHook rmConcat [v, w]).join = none := by
+  cases v <;> first | exact (hv _ _ rfl).elim | rfl
+
+/-- `_RangeMap_`'s hook gives no value where its second argument is no map. -/
+theorem rmAssoc_noMap_r {v : GroundTerm} (hv : ∀ s es, v ≠ .map s es) (w : GroundTerm) :
+    (rmHook rmConcat [w, v]).join = none := by
+  cases w <;> cases v <;> first | exact (hv _ _ rfl).elim | rfl
+
+/-- **`_RangeMap_`'s associativity holds under every interpretation that gives `_RangeMap_` no
+value**: both sides are `hook`'s; at three range maps they are one result (`rmConcat_assoc`), and
+where one of the three is no map, neither side has a value. -/
+theorem rangeMapAssocEq_of_app_none {c : Semantics} (h : ∀ vs, c.hooks.app rmConcat vs = none) :
+    c.rangeMapAssocEq := by
+  intro m n p hs
+  simp only [sortsOf_eq_cons] at hs
+  obtain ⟨hm, hn, hp, -⟩ := hs
+  simp only [hv_rmConcat_of_appNone h]
+  rcases rmAssoc_shape hm with ⟨es, rfl, he⟩ | hm'
+  · rcases rmAssoc_shape hn with ⟨fs, rfl, hf⟩ | hn'
+    · rcases rmAssoc_shape hp with ⟨gs, rfl, hg⟩ | hp'
+      · exact rmConcat_assoc he hf hg
+      · simp [rmAssoc_noMap_r hp']
+    · simp [rmAssoc_noMap_r hn', rmAssoc_noMap_l hn']
+  · simp [rmAssoc_noMap_l hm']
+
+/-- `HookParams.lib` gives `_RangeMap_` no value. -/
+theorem lib_app_rmConcat_none : ∀ vs, HookParams.lib.app rmConcat vs = none := fun _ => rfl
+
+/-- `_RangeMap_`'s associativity holds under `HookParams.lib` in every semantics. -/
+theorem rangeMapAssocEq_lib (c : Semantics) : (c.withHooks HookParams.lib).rangeMapAssocEq :=
+  rangeMapAssocEq_of_app_none lib_app_rmConcat_none
+
 /-- **`HookParams.lib` is an interpretation the text admits**, in every semantics where every Float
 value is a Float literal. -/
 theorem libAdmitted_lib (c : Semantics) (hfs : c.floatShapeOK = true) :
     (c.withHooks HookParams.lib).libAdmitted := by
   refine ⟨?_, neFloatEq_lib c, isInfiniteEq_lib c hfs, rfindCharEq_lib c, findCharEq_lib c, sqrtFloatEq_lib c,
-    replaceAllEq_lib c⟩
+    replaceAllEq_lib c, rangeMapAssocEq_lib c⟩
   intro k hk hkey vs hvs _ _
   unfold Semantics.fallback
   rw [hookSigs_lookup k hk]
