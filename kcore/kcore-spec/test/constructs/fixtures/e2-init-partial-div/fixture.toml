@@ -1,0 +1,9 @@
+expect = "error"
+observed = """
+A configuration leaf whose initial value applies a partial function to literals and no
+configuration variable (1 /Int 0, the Int hook at a zero divisor): kompile writes no text. Its
+constant folding evaluates the leaf and stops: 'Division by zero. while executing phase "constant
+expression folding"' (kompile.txt). So for a hooked partial function at ground arguments no
+initializer equation or functional axiom is written; e2-init-partial-fn is the case that reaches
+the text.
+"""

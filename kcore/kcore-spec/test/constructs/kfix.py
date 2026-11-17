@@ -41,6 +41,8 @@ A fixture directory holds its K text(s) and fixture.toml:
            Source in the fixture or matching one of these are written
   args     the whole command line after kompile instead of `--backend haskell EXTRA MAIN -o out`
            (an option that writes no definition, such as --help)
+  expectation, observed  prose read by no tool: what the text's sentences give, and kore.txt lines
+           quoted with their line numbers
   kore     a KORE text (path relative to kcore-spec) that kompile 7.1.337 does not write, such as
            krust's text of a K file: `run` kompiles nothing and writes account.txt, `kcore account`
            of that text, and kompile.txt, the text's path and sha256; no kore.txt
