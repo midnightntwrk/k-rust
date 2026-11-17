@@ -737,6 +737,10 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.decl ``KCore.owise_disjunct_narrower],
       companion := [.decl ``KCore.owise_diag_svin],
       note := "both are stated on translated sentences, not over c.withHooks H; no GUARD ticket names this constructor" }
+  | .identityAlias =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/AliasRhs.lean" "Semantics equal: true"],
+      note := "reader tests only: the alias sentence decided the identity on the sentence (aliasIsIdentity), and hw-allpath-alias's Semantics equal to that of its text with the alias removed; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor (added by FIX-core.allpath-alias-read)" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -804,7 +808,7 @@ def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
-   .owiseDisjunctNarrower]
+   .owiseDisjunctNarrower, .identityAlias]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,
