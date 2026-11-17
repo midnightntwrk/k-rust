@@ -1139,12 +1139,14 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
     ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
-    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
+    ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   all_goals
     simp only [lookupSig_eq, hookSigs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
       List.find?_cons, boolNot, boolAnd, boolAndThen, boolOr, boolOrElse, boolXor, boolImplies,
       boolEq, boolNe, intAdd, intSub, intMul, intTDiv, intTMod, intEDiv, intEMod, intMin, intMax,
-      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, kEq, kNe, mapUnit, mapElem,
+      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, intShr, intShl, intLog2, kEq, kNe,
+      mapUnit, mapElem,
       mapConcat, mapUpdate, mapRemove, mapLookup, mapLookupOrDefault, mapInKeys, mapSize,
       mapRemoveAll, mapKeys, setUnit, setElem, setConcat, setUnion, setIntersect, setDifference,
       setIn, setInclusion, setSize] at hk
@@ -1156,6 +1158,9 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
     | (obtain ⟨x, y, hg⟩ := int2_some hev
        first
          | (rw [nonzero_some hg]; exact sortOf_int _)
+         | (split at hg
+            · cases hg
+            · obtain rfl := Option.some.inj hg; exact sortOf_int _)
          | (simp only [Option.some.injEq] at hg; subst hg
             first | exact sortOf_int _ | exact sortOf_bool _))
     | skip
@@ -1169,6 +1174,10 @@ theorem hook_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : GroundTe
        · obtain rfl := Option.some.inj hev; exact sortOf_bool _)
     | (obtain ⟨_, _, rfl⟩ := Option.map_eq_some_iff.mp hev
        first | exact sortOf_bool _ | exact sortOf_int _)
+    | (obtain ⟨_, _, hx⟩ := Option.bind_eq_some_iff.mp hev
+       split at hx
+       · obtain rfl := Option.some.inj hx; exact sortOf_int _
+       · cases hx)
     | (obtain rfl := Option.some.inj hev
        first
          | exact sortOf_bool _

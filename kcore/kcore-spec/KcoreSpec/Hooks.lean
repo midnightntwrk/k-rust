@@ -42,7 +42,10 @@
   are not written by hand symbol by symbol; they are read off this one function, which is what a
   reviewer checks against K's documented meaning of each hook (domains.md): Int is ℤ with
   truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0
-  (domains.md:1233-1237: t-division and Euclidean division, "Division by zero is `#False`");
+  (domains.md:1233-1237: t-division and Euclidean division, "Division by zero is `#False`"),
+  `X <<Int N` the product X · 2^N and `X >>Int N` the arithmetic right shift, the floor of X / 2^N,
+  both undefined at a negative N (domains.md 1238-1242), `log2Int(X)` the index of the highest bit
+  set of a positive X, undefined at X ≤ 0 (1298-1301);
   Float is IEEE 754 binary floating point of each value's format, every result rounded to nearest,
   ties to even; a String is a sequence of code points and a Bytes value one of bytes, positions
   counted from 0; Bool is the two-element Boolean
@@ -50,7 +53,7 @@
   from KItem to KItem, `_Map_` the union of two maps with disjoint keys.
 
   Where `hook` gives no value, the text says either that there is none (`#False`, `#Bottom`: division
-  by zero, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
+  by zero, a shift by a negative amount, `log2Int` of a number not above 0, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
   `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
   states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
   formats, a format without a model, a string off a conversion's syntax, …: `silentTable`), and Γ
@@ -159,7 +162,12 @@ def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    -- `freshInt` has no hook in the text: it is a total function with the one equation
    -- freshInt(I) => I (domains.md:1456-1457; hw-h1-fun.kore:158, :1447-1464). It is listed here
    -- because its graph at values is that equation.
-   (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none)]
+   (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none),
+   (intShr, fun vs => int2 vs fun x n => if n < 0 then none else some (int (x.fdiv (2 ^ n.toNat)))),
+   (intShl, fun vs => int2 vs fun x n => if n < 0 then none else some (int (x * 2 ^ n.toNat))),
+   (intLog2, fun vs => match vs with
+     | [a] => (asInt a).bind fun x => if 0 < x then some (int x.toNat.log2) else none
+     | _ => none)]
 
 def kHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(kEq, fun vs => match vs with | [a, b] => some (bool (GroundTerm.cmp a b == .eq)) | _ => none),
@@ -662,10 +670,12 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   that instance is a sentence of the text no interpretation satisfies and is not stated; at a
   non-empty needle the two equations give the count, and `hook` has it. `replaceAll` is `replace` at
   that count (1917), also at the empty needle.
-- `replaceAtBytes` at a negative index whose end `index + N` is within the bytes: the `#False` of
-  2146-2147 speaks of `index + N` only, and "the `N` elements starting at `index`" names no element.
 - `memsetBytes`: "This will throw an exception" (2158-2164), of a run, where the text writes `#False`
-  for no value (227-228).
+  for no value (227-228). Its sibling `replaceAtBytes` is no key: "`dest` except the `N` elements
+  starting at `index` are replaced" (2143-2144) names N elements of `dest` exactly when 0 ≤ `index`
+  and `index + N` ≤ the length, and the `#False` of 2146-2147 is read of every other range (one that
+  leaves `dest`); its bound "`index + N` is not a valid index" would deny by one position the value
+  the defining sentence describes at `index + N` = the length, and the defining sentence decides.
 - `Bytes2Int`, `Int2Bytes`: declared `total` (2082, 2083); a negative length, or an Endianness or
   Signedness that is no constructor of BYTES, is not described.
 - `sqrtFloat` at −0: its equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754
@@ -698,10 +708,6 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (string2Int, fun _ => true), (string2Base, fun _ => true), (stringReplace, fun _ => true),
    (string2Bool, fun _ => true),
    (stringCountAll, fun _ => true), (stringReplaceAll, fun _ => true),
-   (bytesReplaceAt, fun vs => match vs with
-     | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
-         decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))
-     | _ => false),
    (bytesMemset, fun _ => true), (bytes2Int, fun _ => true), (int2Bytes, fun _ => true),
    (floatSqrt, fun _ => true),
    (floatNeg, fun _ => true), (floatAbs, fun _ => true), (floatFloor, fun _ => true),

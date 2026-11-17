@@ -34,6 +34,24 @@
   (`int_value`), two integers are two values (`int_inj`), nothing else is one (`int_only`); a sort
   has no argument list, so no key of `silentTable` (a list of symbols) is about it. The reader's
   literal texts are at `reader_canonical` and `reader_other`.
+
+  The three rows `INT.shr`, `INT.shl`, `INT.log2` (`shiftRows`, the last section), none declared
+  `total` (DOM 1269, 1270, 1304). The prose: "Compute the arithmetic right shift `>>Int` of two
+  integers. Shifting by a negative quantity is `#False`. Compute the left shift of two integers.
+  Shifting by a negative quantity is `#False`." (DOM 1239-1242); "the log base 2, rounded towards
+  zero, of an integer. The log base 2 of an integer is equal to the index of the highest bit set
+  in the representation of a positive integer. Log base 2 of zero or a negative number is
+  `#False`." (DOM 1298-1301). Readings, each with the property that has one solution: the left
+  shift by `n ≥ 0` is `x · 2^n`; the arithmetic right shift by `n ≥ 0` is the `q` with
+  `q · 2^n ≤ x < (q + 1) · 2^n` (the floor of `x / 2^n`: dropping the `n` low bits of the two's
+  complement representation, the sign kept); the log of `x > 0` is the `k` with
+  `2^k ≤ x < 2^(k + 1)`. Statements: the value at every argument list of the described region
+  (`shl_at`, `shr_at`, `log2_at`), no value on the `#False` region (`shift_neg`, `log2_nonpos`),
+  which is not silent (`shift_not_silentKey`), so Γ of every semantics states ⊥ there under every
+  interpretation (`shift_neg_gamma`, `log2_nonpos_gamma`) and the value elsewhere
+  (`shl_gamma`, `shr_gamma`, `log2_gamma`); the points (`shiftVals`, `shiftBots`); every argument
+  list of the signatures is covered (`covered_shift`, `covered_log2`); none of the three is a
+  parameter symbol of a library module (`shift_not_param`).
 -/
 import KcoreSpec
 
@@ -88,9 +106,11 @@ def divs : List Sym := [intTDiv, intTMod, intEDiv, intEMod]
 def binTotals : List Sym :=
   [intAdd, intSub, intMul, intMin, intMax, intLt, intLe, intGt, intGe, intEq, intNe]
 
-/-- The rows are the registry's entries with an `INT.` hook, each with its hook name. -/
+/-- The rows are the registry's entries with an `INT.` hook, each with its hook name, before the
+three of `shiftRows` (the last section). -/
 theorem intRows_registry :
-    regHookNames.filter (fun e => e.2.toList.take 4 == "INT.".toList) = intRows := by
+    regHookNames.filter (fun e => e.2.toList.take 4 == "INT.".toList) =
+      intRows ++ [(intShr, "INT.shr"), (intShl, "INT.shl"), (intLog2, "INT.log2")] := by
   decide +kernel
 
 /-- Each row's symbol has a signature among `hookSigs`, of Int arguments: two, and a result Int
@@ -485,6 +505,250 @@ theorem div_zero_entails (c : Semantics) (x : Int) : ∀ f ∈ divs, ∀ H : Hoo
   intro f hf H M _ I hI
   exact hI _ (div_zero_gamma c H x f hf)
 
+/-! ## The shifts and `log2Int` -/
+
+/-- The three rows: the symbol and its `hook` attribute in the prose's productions (DOM 1269
+`INT.shr`, 1270 `INT.shl`, 1304 `INT.log2`), none with `total`. -/
+def shiftRows : List (Sym × String) := [(intShr, "INT.shr"), (intShl, "INT.shl"), (intLog2, "INT.log2")]
+
+/-- Their KORE names (the symbols of `_>>Int_`, `_<<Int_`, `log2Int`). -/
+theorem shiftRows_names :
+    (regSymNames.getD intShr "", regSymNames.getD intShl "", regSymNames.getD intLog2 "") =
+      ("Lbl'Unds-GT--GT-'Int'Unds'", "Lbl'Unds-LT--LT-'Int'Unds'",
+       "Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int") := by
+  decide +kernel
+
+/-- Each has a signature among `hookSigs` (Int, Int : Int for the shifts, Int : Int for the log), is
+among `partialHooks`, and is no key of `silentTable`: where `hook` gives no value the prose says
+`#False`. -/
+theorem shiftRows_sig : shiftRows.all (fun r => decide (sig r.1 ∈ hookSigs) && (sig r.1).name == r.1 &&
+    (sig r.1).args == (if r.1 == intLog2 then [Srt.int] else [Srt.int, Srt.int]) &&
+    (sig r.1).result == Srt.int && partialHooks.contains r.1 && regHookOf r.2 == some r.1) = true := by
+  decide +kernel
+
+theorem shift_not_silentKey : ∀ r ∈ shiftRows, silentKey r.1 = false := by decide +kernel
+
+theorem shift_not_silent : ∀ r ∈ shiftRows, ∀ vs : List GroundTerm, silent r.1 vs = false :=
+  fun r hr vs => silent_of_not_silentKey (shift_not_silentKey r hr) vs
+
+/-- No library module has one of the three among its parameter symbols. -/
+theorem shift_not_param : (List.range library.length).all (fun i =>
+    (libParams [i]).all fun p => !(shiftRows.map (·.1)).contains p.sig.name) = true := by
+  decide +kernel
+
+theorem hook_shr (vs : List GroundTerm) :
+    hook intShr vs = some (int2 vs fun x n => if n < 0 then none else some (int (x.fdiv (2 ^ n.toNat)))) := rfl
+theorem hook_shl (vs : List GroundTerm) :
+    hook intShl vs = some (int2 vs fun x n => if n < 0 then none else some (int (x * 2 ^ n.toNat))) := rfl
+theorem hook_log2 (x : Int) :
+    hook intLog2 [int x] = some (if 0 < x then some (int x.toNat.log2) else none) := rfl
+
+/-- "the left shift of two integers" (DOM 1241) by `n ≥ 0`: `x · 2^n`. -/
+theorem shl_at (x : Int) {n : Int} (hn : 0 ≤ n) :
+    hook intShl [int x, int n] = some (some (int (x * 2 ^ n.toNat))) := by
+  rw [hook_shl, int2_at, if_neg (by omega)]
+
+/-- "the arithmetic right shift" (DOM 1239) by `n ≥ 0`: the floor of `x / 2^n`, by its property. -/
+def Floor (x : Int) (n : Nat) (q : Int) : Prop := q * 2 ^ n ≤ x ∧ x < (q + 1) * 2 ^ n
+
+theorem floor_unique {x : Int} {n : Nat} {q q' : Int} (h : Floor x n q) (h' : Floor x n q') : q = q' := by
+  have hp : (0 : Int) < 2 ^ n := Int.pow_pos (by decide)
+  obtain ⟨a, b⟩ := h
+  obtain ⟨a', b'⟩ := h'
+  have h1 : q < q' + 1 := Int.lt_of_mul_lt_mul_right (Int.lt_of_le_of_lt a b') (Int.le_of_lt hp)
+  have h2 : q' < q + 1 := Int.lt_of_mul_lt_mul_right (Int.lt_of_le_of_lt a' b) (Int.le_of_lt hp)
+  omega
+
+theorem floor_fdiv (x : Int) (n : Nat) : Floor x n (x.fdiv (2 ^ n)) := by
+  have hp : (0 : Int) < 2 ^ n := Int.pow_pos (by decide)
+  rw [Int.fdiv_eq_ediv_of_nonneg _ (Int.le_of_lt hp)]
+  refine ⟨Int.ediv_mul_le x (Int.ne_of_gt hp), ?_⟩
+  have := Int.lt_ediv_add_one_mul_self x hp
+  exact this
+
+theorem shr_at (x : Int) {n : Int} (hn : 0 ≤ n) :
+    ∃ q, hook intShr [int x, int n] = some (some (int q)) ∧ Floor x n.toNat q :=
+  ⟨_, by rw [hook_shr, int2_at, if_neg (by omega)], floor_fdiv x n.toNat⟩
+
+/-- "Shifting by a negative quantity is `#False`" (DOM 1239-1242), of both shifts. -/
+theorem shift_neg (x : Int) {n : Int} (hn : n < 0) :
+    hook intShr [int x, int n] = some none ∧ hook intShl [int x, int n] = some none := by
+  rw [hook_shr, hook_shl, int2_at, int2_at, if_pos hn, if_pos hn]; exact ⟨rfl, rfl⟩
+
+/-- "the index of the highest bit set in the representation of a positive integer" (DOM
+1299-1300): the `k` with `2^k ≤ x < 2^(k + 1)`. -/
+def HighBit (x : Int) (k : Nat) : Prop := (2 : Int) ^ k ≤ x ∧ x < 2 ^ (k + 1)
+
+theorem highBit_unique {x : Int} {k k' : Nat} (h : HighBit x k) (h' : HighBit x k') : k = k' := by
+  obtain ⟨a, b⟩ := h
+  obtain ⟨a', b'⟩ := h'
+  have e1 : (2 : Int) ^ k < 2 ^ (k' + 1) := Int.lt_of_le_of_lt a b'
+  have e2 : (2 : Int) ^ k' < 2 ^ (k + 1) := Int.lt_of_le_of_lt a' b
+  have n1 : 2 ^ k < 2 ^ (k' + 1) := by exact_mod_cast e1
+  have n2 : 2 ^ k' < 2 ^ (k + 1) := by exact_mod_cast e2
+  have := (Nat.pow_lt_pow_iff_right (a := 2) (by decide)).mp n1
+  have := (Nat.pow_lt_pow_iff_right (a := 2) (by decide)).mp n2
+  omega
+
+theorem log2_at {x : Int} (hx : 0 < x) :
+    ∃ k, hook intLog2 [int x] = some (some (int (k : Nat))) ∧ HighBit x k := by
+  refine ⟨x.toNat.log2, by rw [hook_log2, if_pos hx], ?_⟩
+  have hne : x.toNat ≠ 0 := by omega
+  have h1 : 2 ^ x.toNat.log2 ≤ x.toNat := Nat.log2_self_le hne
+  have h2 : x.toNat < 2 ^ (x.toNat.log2 + 1) := Nat.lt_log2_self
+  have hx' : x = (x.toNat : Int) := by omega
+  constructor
+  · rw [hx']; exact_mod_cast h1
+  · rw [hx']; exact_mod_cast h2
+
+/-- "Log base 2 of zero or a negative number is `#False`" (DOM 1300-1301). -/
+theorem log2_nonpos {x : Int} (hx : x ≤ 0) : hook intLog2 [int x] = some none := by
+  rw [hook_log2, if_neg (by omega)]
+
+/-- A point of one of the three: the symbol, its integer arguments, a value. -/
+structure SPt where
+  f : Sym
+  xs : List Int
+  v : GroundTerm
+
+/-- Points, each derived from the sentence: `-5 <<Int 1` is -5 · 2 = -10; `-5 >>Int 1` is the floor
+of -5 / 2 = -3 (-3 · 2 = -6 ≤ -5 < -4); `13 >>Int 2` is 3 (12 ≤ 13 < 16); `7 <<Int 0` and
+`7 >>Int 0` are 7; `log2Int(5)` is 2 (4 ≤ 5 < 8), `log2Int(1)` is 0 (1 ≤ 1 < 2), `log2Int(8)` is 3. -/
+def shiftVals : List SPt :=
+  [⟨intShl, [-5, 1], int (-10)⟩, ⟨intShr, [-5, 1], int (-3)⟩, ⟨intShr, [13, 2], int 3⟩,
+   ⟨intShl, [7, 0], int 7⟩, ⟨intShr, [7, 0], int 7⟩, ⟨intShr, [-1, 5], int (-1)⟩,
+   ⟨intLog2, [5], int 2⟩, ⟨intLog2, [1], int 0⟩, ⟨intLog2, [8], int 3⟩]
+
+theorem shiftVals_ok : shiftVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some (some p.v)) = true := by
+  decide +kernel
+
+/-- **At each, Γ of every semantics states the value under every interpretation.** -/
+theorem shiftVals_gamma : ∀ p ∈ shiftVals, ∀ (c : Semantics) (H : HookParams),
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map int) ≡ den (c.withHooks H) p.v) := by
+  intro p hp c H
+  have h := List.all_eq_true.mp shiftVals_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨hk, hname⟩, hargs⟩, hh⟩ := h
+  exact gamma_val _ hk (by rw [hargs]; exact sortsOf_ints _ _) (by rw [hname]; exact hh)
+
+/-- The `#False` points: `1 <<Int -1`, `1 >>Int -1`, `log2Int(0)`, `log2Int(-4)`. The last
+component of a point is not read. -/
+def shiftBots : List SPt :=
+  [⟨intShl, [1, -1], int 0⟩, ⟨intShr, [1, -1], int 0⟩, ⟨intLog2, [0], int 0⟩, ⟨intLog2, [-4], int 0⟩]
+
+/-- At each, `hook` gives no value and the point is not silent. -/
+theorem shiftBots_ok : shiftBots.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some none &&
+    !silent p.f (p.xs.map int)) = true := by
+  decide +kernel
+
+/-- **At each, Γ of every semantics states ⊥ under every interpretation**, so over all
+interpretations Γ entails ⊥ there: no interpretation gives the point a value. -/
+theorem shiftBots_gamma : ∀ p ∈ shiftBots, ∀ (c : Semantics) (H : HookParams),
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map int) ≡ ⊥) := by
+  intro p hp c H
+  have h := List.all_eq_true.mp shiftBots_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨⟨hk, hname⟩, hargs⟩, hh⟩, hs⟩ := h
+  exact gamma_bot _ hk (by rw [hargs]; exact sortsOf_ints _ _) (by rw [hname]; exact hh) (by rw [hname]; exact hs)
+
+theorem shiftBots_entails : ∀ p ∈ shiftBots, ∀ (c : Semantics) (H : HookParams),
+    Γ (c.withHooks H) ⊧ (appP (c.withHooks H) (sig p.f) (p.xs.map int) ≡ ⊥) :=
+  fun p hp c H _ _ I hI => hI _ (shiftBots_gamma p hp c H)
+
+theorem shift_sigs : sig intShr = ⟨intShr, [Srt.int, Srt.int], Srt.int⟩ ∧
+    sig intShl = ⟨intShl, [Srt.int, Srt.int], Srt.int⟩ ∧ sig intLog2 = ⟨intLog2, [Srt.int], Srt.int⟩ ∧
+    sig intShr ∈ hookSigs ∧ sig intShl ∈ hookSigs ∧ sig intLog2 ∈ hookSigs := by
+  decide +kernel
+
+/-- **On the whole `#False` region of the shifts Γ states ⊥, in every semantics under every
+interpretation.** -/
+theorem shift_neg_gamma (c : Semantics) (H : HookParams) (x : Int) {n : Int} (hn : n < 0) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intShr) [int x, int n] ≡ ⊥) ∧
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intShl) [int x, int n] ≡ ⊥) := by
+  obtain ⟨e1, e2, -, m1, m2, -⟩ := shift_sigs
+  have hs := sortsOf_ints (c.withHooks H) [x, n]
+  exact ⟨gamma_bot _ m1 (by rw [e1]; exact hs) (by rw [e1]; exact (shift_neg x hn).1)
+      (by rw [e1]; exact shift_not_silent (intShr, "INT.shr") (by decide) _),
+    gamma_bot _ m2 (by rw [e2]; exact hs) (by rw [e2]; exact (shift_neg x hn).2)
+      (by rw [e2]; exact shift_not_silent (intShl, "INT.shl") (by decide) _)⟩
+
+/-- **And of `log2Int`.** -/
+theorem log2_nonpos_gamma (c : Semantics) (H : HookParams) {x : Int} (hx : x ≤ 0) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intLog2) [int x] ≡ ⊥) := by
+  obtain ⟨-, -, e3, -, -, m3⟩ := shift_sigs
+  exact gamma_bot _ m3 (by rw [e3]; exact sortsOf_ints (c.withHooks H) [x]) (by rw [e3]; exact log2_nonpos hx)
+    (by rw [e3]; exact shift_not_silent (intLog2, "INT.log2") (by decide) _)
+
+/-- **On the described region Γ states the value.** -/
+theorem shl_gamma (c : Semantics) (H : HookParams) (x : Int) {n : Int} (hn : 0 ≤ n) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intShl) [int x, int n] ≡ den (c.withHooks H) (int (x * 2 ^ n.toNat))) := by
+  obtain ⟨-, e2, -, -, m2, -⟩ := shift_sigs
+  exact gamma_val _ m2 (by rw [e2]; exact sortsOf_ints (c.withHooks H) [x, n]) (by rw [e2]; exact shl_at x hn)
+
+theorem shr_gamma (c : Semantics) (H : HookParams) (x : Int) {n : Int} (hn : 0 ≤ n) :
+    ∃ q, Floor x n.toNat q ∧
+      Γ (c.withHooks H) (appP (c.withHooks H) (sig intShr) [int x, int n] ≡ den (c.withHooks H) (int q)) := by
+  obtain ⟨e1, -, -, m1, -, -⟩ := shift_sigs
+  obtain ⟨q, hq, hf⟩ := shr_at x hn
+  exact ⟨q, hf, gamma_val _ m1 (by rw [e1]; exact sortsOf_ints (c.withHooks H) [x, n]) (by rw [e1]; exact hq)⟩
+
+theorem log2_gamma (c : Semantics) (H : HookParams) {x : Int} (hx : 0 < x) :
+    ∃ k : Nat, HighBit x k ∧
+      Γ (c.withHooks H) (appP (c.withHooks H) (sig intLog2) [int x] ≡ den (c.withHooks H) (int k)) := by
+  obtain ⟨-, -, e3, -, -, m3⟩ := shift_sigs
+  obtain ⟨k, hk, hb⟩ := log2_at hx
+  exact ⟨k, hb, gamma_val _ m3 (by rw [e3]; exact sortsOf_ints (c.withHooks H) [x]) (by rw [e3]; exact hk)⟩
+
+/-- **The shifts at every argument list of their signature**: a pair of integers, with a value
+where the amount is not negative and none where it is. -/
+theorem covered_shift {c : Semantics} (hs : c.shapesOK = true) : ∀ f ∈ [intShr, intShl],
+    ∀ vs : List GroundTerm, c.sortsOf vs = some [Srt.int, Srt.int] →
+    ∃ x n, vs = [int x, int n] ∧ (0 ≤ n → ∃ v, hook f vs = some (some v)) ∧ (n < 0 → hook f vs = some none) := by
+  intro f hf vs hvs
+  obtain ⟨x, n, rfl⟩ := cover2 hs hvs
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact ⟨x, n, rfl, fun hn => (shr_at x hn).elim fun _ h => ⟨_, h.1⟩, fun hn => (shift_neg x hn).1⟩
+  · exact ⟨x, n, rfl, fun hn => ⟨_, shl_at x hn⟩, fun hn => (shift_neg x hn).2⟩
+
+/-- **`log2Int` at every argument list of its signature.** -/
+theorem covered_log2 {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some [Srt.int]) :
+    ∃ x, vs = [int x] ∧ (0 < x → ∃ v, hook intLog2 vs = some (some v)) ∧ (x ≤ 0 → hook intLog2 vs = some none) := by
+  obtain ⟨w, rfl, hw⟩ := sortsOf_one hvs
+  obtain ⟨x, rfl⟩ := shape_int hs hw
+  exact ⟨x, rfl, fun hx => (log2_at hx).elim fun _ h => ⟨_, h.1⟩, log2_nonpos⟩
+
+/-- The four simplification rules of INT-SYMBOLIC (DOM 1380-1383: `X <<Int 0 => X`,
+`0 <<Int Y => 0 requires 0 <=Int Y`, `X >>Int 0 => X`, `0 >>Int Y => 0 requires 0 <=Int Y`) hold of
+`hook`. `Semantics.libAdmitted` names none of them (its conjuncts are about silent points, and
+these three symbols have none). -/
+theorem shift_rules (x : Int) {y : Int} (hy : 0 ≤ y) :
+    hook intShl [int x, int 0] = some (some (int x)) ∧ hook intShl [int 0, int y] = some (some (int 0)) ∧
+    hook intShr [int x, int 0] = some (some (int x)) ∧ hook intShr [int 0, int y] = some (some (int 0)) := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · rw [shl_at x (Int.le_refl 0)]; simp
+  · rw [shl_at 0 hy]; simp
+  · rw [hook_shr, int2_at, if_neg (by omega)]; simp [Int.fdiv_one]
+  · rw [hook_shr, int2_at, if_neg (by omega)]; simp [Int.zero_fdiv]
+
+/-- info: 'KCore.HooksIntTest.shiftBots_entails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms shiftBots_entails
+
+/-- info: 'KCore.HooksIntTest.shiftVals_gamma' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms shiftVals_gamma
+
+#print axioms shift_neg_gamma
+#print axioms log2_nonpos_gamma
+#print axioms shr_gamma
+#print axioms log2_gamma
+#print axioms covered_shift
+#print axioms covered_log2
+#print axioms shift_rules
+#print axioms shift_not_param
+
 /-! ## Axioms -/
 
 /-- info: 'KCore.HooksIntTest.vals_gamma' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -505,7 +769,7 @@ theorem div_zero_entails (c : Semantics) (x : Int) : ∀ f ∈ divs, ∀ H : Hoo
 /-- info: 'KCore.HooksIntTest.covered_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms covered_abs
 
-/-- info: 'KCore.HooksIntTest.int_not_silent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'KCore.HooksIntTest.int_not_silent' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms int_not_silent
 
 /-- info: 'KCore.HooksIntTest.emod_rule' depends on axioms: [propext, Classical.choice, Quot.sound] -/

@@ -378,16 +378,18 @@ def Semantics.collOK (c : Semantics) (k : CollSig) : Bool :=
 /-- The parameter symbols: first those of the imported modules (registry numbers, each one of
 `libParams`, Builtins.lean), then the user's (own numbers), whose sorts are declared ones, each with a presentation, and whose meaning
 is the one its `hook{}` attribute names: the registry's hook when the registry interprets that
-attribute (`regHookOf`), a parameter otherwise; the collection sorts (`collOK`); and the functions
+attribute and the symbol's sorts carry the sort hooks of that hook's sorts (`Parse.hookImplAt`), a
+parameter otherwise; the collection sorts (`collOK`); and the functions
 declared `hooked-symbol`, whose hooks the registry does not interpret (`hookFnsUnregOK`). -/
 def Definition.paramsOK (d : Definition) : Bool :=
   let lib := d.sem.params.takeWhile fun k => decide (k.sig.name < nRegSyms)
   let own := d.sem.params.drop lib.length
+  let stands := d.sem.colls.map (fun k => (k.sort, (builtinColl k.kind).sort)) ++ d.sem.lib.carriers
   lib.all (libParams d.pres.imports).contains &&
   own.all (fun k => decide (nRegSyms ≤ k.sig.name)) &&
   own.length == d.pres.params.length &&
   (withPres own d.pres.params).all (fun (k, pp) =>
-    k.sig.args.all d.sem.paramSortOK && d.sem.paramSortOK k.sig.result && k.impl == regHookOf pp.hook) &&
+    k.sig.args.all d.sem.paramSortOK && d.sem.paramSortOK k.sig.result && k.impl == Parse.hookImplAt stands pp.hook k.sig) &&
   -- the collection sorts: distinct, and each built by its symbols
   nodup (d.sem.colls.map (·.sort)) && d.sem.colls.all d.sem.collOK &&
   d.hookFnsUnregOK
