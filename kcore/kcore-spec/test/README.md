@@ -453,7 +453,13 @@ class (`AttrClassE2`) and key with no default arm: read, inert with why, or refu
 reason (`AttrRefusalE2`, whose `RefusalReason` is `AttrRefusalE2.reason` in Parse.lean), as the
 key's row at the class decides, else its row at class `any`, else refused (K admits the key at no
 sentence of the class); an erased row's key is refused, since only a KORE text written by hand
-carries it. The readers of Parse.lean do not call it. `test/AttrVerdict.lean` writes the rows out
+carries it. Where a row's verdict would not be the reader's, the arm says so (`attrVerdict`'s doc:
+the production's printing attributes and name inert on a rewrite axiom, which kompile copies onto
+heating and cooling rules; `anywhere` read on a symbol declaration; a declaration's key refused on a
+rewrite axiom and an equation). The readers call it through `Parse.attrVerdictOf` (a name that is no
+key refused with the class's reason): `ruleAttrFault?` (class rule), `eqnAttrFault?` (equation),
+`attrFault?` in `classify` (symbol and hooked-symbol declarations, a claim) and in `envOf` (the
+module), and `sortAttrOK` (a sort declaration). `test/AttrVerdict.lean` writes the rows out
 (class, key, status) and the kernel checks each verdict against its status; `constructs.sh`
 elaborates it and runs `test/constructs/attrkeys.py` on what it prints: the rows written there are
 exactly the table's with their statuses, the keys exactly the rows' names, and every attribute name

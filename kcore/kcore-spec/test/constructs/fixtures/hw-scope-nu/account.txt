@@ -11,8 +11,8 @@ user module E7-IMPLICITK: 240 sentences
   10 inert noJunk [generated]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
-  1 patternConnective
-      sentence 204 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\nu)
+  1 unkompiledForm
+      sentence 204 (Lbl'-LT-'generatedTop'-GT-'): unkompiledForm (\nu)
         [user] (no label) at e7-implicitk.k:3: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(\nu{}(@VarX:So …
-finish: sentence 204 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\nu)
+finish: sentence 204 (Lbl'-LT-'generatedTop'-GT-'): unkompiledForm (\nu)
 (exit 0)

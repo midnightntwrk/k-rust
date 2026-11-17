@@ -1,5 +1,6 @@
 cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
+differs f2-examples/c3-anywhere-ctor.kompile.kore
 differs f2-examples/c3-eq-ens-owise.kompile.kore
 differs f2-examples/c3-eq-ens-prio-comp.kompile.kore
 differs f2-examples/c3-eq-ens-prio.kompile.kore
@@ -14,6 +15,16 @@ differs f2-examples/c3-eq-req-owise.kompile.kore
 differs f2-examples/c3-eq-req-prio-comp.kompile.kore
 differs f2-examples/c3-eq-req-prio.kompile.kore
 differs f2-examples/c3-eq-req-total.kompile.kore
+differs f2-examples/c3-owise-simp.kompile.kore
+differs f2-examples/c3-rule-ens-owise.kompile.kore
+differs f2-examples/c3-rule-ens-prio-comp.kompile.kore
+differs f2-examples/c3-rule-ens-prio.kompile.kore
+differs f2-examples/c3-rule-prio-owise.kompile.kore
+differs f2-examples/c3-rule-req-ens.kompile.kore
+differs f2-examples/c3-rule-req-owise.kompile.kore
+differs f2-examples/c3-rule-req-prio-comp.kompile.kore
+differs f2-examples/c3-rule-req-prio.kompile.kore
+differs f2-examples/c3-simp-prio.kompile.kore
 differs f2-examples/cells.kompile.kore
 differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
@@ -22,6 +33,9 @@ differs f2-examples/colls.kore
 differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
+differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
+differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
+differs f2-examples/e5-ovl-fn-fn.kompile.kore
 differs f2-examples/e6cfg.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
@@ -103,6 +117,7 @@ differs f2-examples/opengenless.kompile.kore
 differs f2-examples/openh.kompile.kore
 cannot f2-examples/openlinked.kompile.kore
 cannot f2-examples/openlinkedbool.kompile.kore
+cannot f2-examples/openmixedunheld.kompile.kore
 differs f2-examples/openrule.kompile.kore
 differs f2-examples/optcell.kompile.kore
 differs f2-examples/ovlconf.kompile.kore

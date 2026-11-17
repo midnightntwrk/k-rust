@@ -103,6 +103,43 @@ example : Parse.floatLit? "Infinity" = some (.float 53 11 0x7FF0000000000000) �
 example : Parse.floatLit? "." = none ∧ Parse.floatLit? "1.0p1x8" = none ∧ Parse.floatLit? "abc" = none := by
   decide +kernel
 
+/-! One case per production of FLOAT-SYNTAX (domains.md:1495-1497) and the strings outside every
+production (the kk entry t90-float-literal-forms, krs/semantics/kore/texts): construct table E6
+row token:SortFloat. -/
+
+/-- The decimal production's second alternative, `.d+`, unsigned, with an exponent and a suffix. -/
+example : Parse.floatLit? ".5" = some (.float 53 11 0x3FE0000000000000) ∧
+    Parse.floatLit? ".5e2" = some (.float 53 11 0x4049000000000000) ∧
+    Parse.floatLit? ".5f" = some (.float 24 8 0x3F000000) := by
+  decide +kernel
+/-- The decimal production's first alternative: a sign before digits, a point with or without a
+fraction, an exponent, the suffix letters in either case (`1.0P24X8` is binary32's 1, as `1.0f` and
+`1.0p24x8` are). -/
+example : Parse.floatLit? "+1.5" = some (.float 53 11 0x3FF8000000000000) ∧
+    Parse.floatLit? "-1.5" = some (.float 53 11 0xBFF8000000000000) ∧
+    Parse.floatLit? "1e3" = some (.float 53 11 0x408F400000000000) ∧
+    Parse.floatLit? "1." = Parse.floatLit? "1.0" ∧ Parse.floatLit? "1.0D" = Parse.floatLit? "1.0" ∧
+    Parse.floatLit? "1.0P24X8" = some (.float 24 8 0x3F800000) ∧
+    Parse.floatLit? "1.0p24x8" = Parse.floatLit? "1.0P24X8" ∧ Parse.floatLit? "1.0F" = Parse.floatLit? "1.0P24X8" ∧
+    Parse.floatLit? "1.0P53x11" = Parse.floatLit? "1.0" := by
+  decide +kernel
+/-- The production `[+-]?Infinity` with a suffix. -/
+example : Parse.floatLit? "+Infinity" = some (.float 53 11 0x7FF0000000000000) ∧
+    Parse.floatLit? "-InfinityD" = some (.float 53 11 0xFFF0000000000000) ∧
+    Parse.floatLit? "-Infinityp24x8" = some (.float 24 8 0xFF800000) ∧
+    Parse.floatLit? "InfinityP24X8" = some (.float 24 8 0x7F800000) := by
+  decide +kernel
+/-- The production `NaN` with a suffix, unsigned: the format's canonical NaN. -/
+example : Parse.floatLit? "NaNf" = some (.float 24 8 0x7FC00000) ∧
+    Parse.floatLit? "NaNP24X8" = Parse.floatLit? "NaNf" ∧ Parse.floatLit? "NaNd" = Parse.floatLit? "NaN" := by
+  decide +kernel
+/-- Outside every production: a sign before a mantissa without an integer part, a signed NaN, a
+`p` without its `x` and an `x` without its `p`. -/
+example : Parse.floatLit? "+.5" = none ∧ Parse.floatLit? "-.5" = none ∧ Parse.floatLit? "-.5e2" = none ∧
+    Parse.floatLit? "+NaN" = none ∧ Parse.floatLit? "-NaN" = none ∧
+    Parse.floatLit? "1.0p24" = none ∧ Parse.floatLit? "1.0x8" = none := by
+  decide +kernel
+
 /-- The text of a literal is its exact decimal value with its format (`m·5^k` then `e-k`, or an
 integer of the format's top binade with `.0`), and reads back to it. -/
 example : Lit.text (.float 53 11 0x3FB999999999999A) =

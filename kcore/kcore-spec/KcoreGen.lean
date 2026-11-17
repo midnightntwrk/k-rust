@@ -2856,11 +2856,6 @@ def account (koreFile : String) : IO UInt32 := do
       for (i, xs) in tk.take 10 do
         IO.println s!"      sentence {i}: {", ".intercalate (xs.map fun (x, st) => s!"{x} ({if st then "the text states the subsort" else "the reading adds the subsort, which the text does not state"})")}"
       IO.println "      the text's sentence entails Γ's no-junk item of KItem; where such a sort has an element, the text's sentence with Γ has no model"
-    -- printed only when some equation carries such a key
-    let ia := Parse.eqnAttrsInert k
-    unless ia.isEmpty do
-      IO.println s!"equation attributes classified inert (eqnAttrInert): {ia.length}"
-      for (i, n, w) in ia.take 10 do IO.println s!"      sentence {i}: {n}: {w}"
     let lu := Parse.libraryUnstated k d
     IO.println s!"sentences the library's data induces that the text does not hold: {lu.length}"
     for r in lu.take 40 do IO.println s!"      {clip 300 r.detail}"

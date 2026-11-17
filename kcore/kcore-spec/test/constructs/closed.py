@@ -103,11 +103,10 @@ CLASSWORD = {"refused": "RefusalReason", "inert": "InertReason", "unread": "Unre
 # The catch-alls: (reason, a substring of the detail or None for any detail, the arm that gives it).
 CATCHALL = [
     ("axiomShape", None, "classifyAxiom's last arm, and classRefusal's default"),
-    ("patternConnective", None, "term's last arm `| p => fail .patternConnective (connective p)`"),
+    ("patternConnective", None, "term's last arm `| p => fail (if isUnkompiledForm p then .unkompiledForm else .patternConnective) (connective p)`"),
     ("ruleShape", None, "ruleBodyOther's arms"),
     ("requiresShape", None, "`need (req? r)`"),
     ("unaccounted", None, "Account.unconsumedWhy's other arms"),
-    ("ruleAttribute", "an attribute of no stated meaning for a rule", "ruleAttrFault?'s `getD`"),
 ]
 
 # Account lines whose refusals are printed without their reason: (line start, the reason, its
@@ -128,6 +127,7 @@ UNSHOWN = ("R2-release.C4", 7)
 # one stands here.
 PINNED = [
     ("RefusalReason.noModule", "R2-release.C4"),
+    ("RefusalReason.axiomShape", "R2-release.C4"),
     ("RefusalReason.preludeDiffers", "R2-release.C4"),
     ("RefusalReason.moduleSource", "R2-release.C4"),
     ("RefusalReason.moduleLocation", "R2-release.C4"),
@@ -139,13 +139,12 @@ PINNED = [
     ("RefusalReason.builtinModule", "R2-release.C4"),
     ("RefusalReason.builtinIncomplete", "R2-release.C4"),
     ("RefusalReason.macroSymbol", "R2-release.C4"),
+    ("RefusalReason.inertMismatch", "R2-release.C4"),
     ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
-    ("RefusalReason.unknownSymbol", "R2-release.C4"),
     ("RefusalReason.injShape", "R2-release.C4"),
     ("RefusalReason.iteShape", "R2-release.C4"),
     ("RefusalReason.variableName", "R2-release.C4"),
     ("RefusalReason.variableSort", "R2-release.C4"),
-    ("RefusalReason.literal", "R2-release.C4"),
     ("RefusalReason.requiresShape", "R2-release.C4"),
     ("RefusalReason.exclusionShape", "R2-release.C4"),
     ("RefusalReason.sentenceInfo", "R2-release.C4"),
@@ -158,12 +157,10 @@ PINNED = [
     ("RefusalReason.openLaw", "P3.rows"),
     ("RefusalReason.unheldVariable", "R2-release.C4"),
     ("RefusalReason.openRight", "R2-release.C4"),
-    ("RefusalReason.equationAttribute", "R2-release.rdr-attr-rules"),
     ("RefusalReason.constructorEquation", "R2-release.C4"),
     ("RefusalReason.existentialAxiom", "R2-release.C4"),
     ("RefusalReason.ctorResultSort", "R2-release.C4"),
     ("RefusalReason.hookEqualityUnstated", "R2-release.C4"),
-    ("RefusalReason.attrOutsideE2", "R2-release.rdr-attr-decls"),
     ("InertReason.claim", "R2-release.C4"),
     ("InertReason.vacuousLeft", "R2-release.C4"),
     ("UnreadReason.noSortPredicate", "R2-release.C4"),
