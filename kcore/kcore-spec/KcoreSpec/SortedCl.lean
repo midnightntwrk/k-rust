@@ -125,12 +125,6 @@ theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true)
   simp only [Semantics.sortedOKCl, Bool.and_eq_true]
   exact ⟨⟨⟨⟨h.1.1.1.1.1, List.all_eq_true.mpr fun f hf => List.all_eq_true.mpr (hcl f hf)⟩, h.1.1.1.2⟩, h.1.1.2⟩, h.2⟩
 
-/-- A rule of a semantics `sortedOKCl` accepts has `\top` predicates. -/
-theorem Semantics.sortedOKCl_ruleTop {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.pre = .top ∧ r.post = .top := by
-  obtain ⟨-, -, -, hrp, -⟩ := Semantics.sortedOKCl_parts h
-  exact Semantics.rulesPlain_ruleTop hrp hr
-
 /-- A rule of a semantics `sortedOKCl` accepts whose left side binds every variable has no
 existential variable (`Semantics.exs_nil_of_binds`). -/
 theorem Semantics.sortedOKCl_exsNil {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules)

@@ -26,8 +26,7 @@ by the SHA-256 of kore.k and of the krust executable), the case's kore.pgm is ru
 --allow-pending  admits an entry whose ruling has status "pending" (no ruling written yet). Such an
                  entry is judged by the rule that preceded the rulings: kore.k's result equals each
                  recorded result no disposition names and differs from each one a disposition names.
-                 Its evidence is evidence.json, or expected.json where the case has no
-                 evidence.json. Without the flag a pending entry is a schema fault.
+                 Without the flag a pending entry is a schema fault.
 
 One line per entry: its status and, per implementation, `=` (the ruling, or for a pending entry
 kore.k's result), `reading:<name>`, or `differs`. Exit 0 when no entry fails, 1 otherwise, 2 when
@@ -328,33 +327,23 @@ def mutation_ids(package):
         return {m.get('id') for m in tomllib.load(f).get('mutation', [])}
 
 
-def evidence_of(directory, pending):
-    """(evidence, its file name), in the form of evidence.json; of a pending case without
-    evidence.json, what its expected.json holds."""
+def evidence_of(directory):
+    """The entry's evidence.json, or None."""
     path = os.path.join(directory, 'evidence.json')
-    if os.path.exists(path):
-        return read_json(path), 'evidence.json'
-    path = os.path.join(directory, 'expected.json')
-    if pending and os.path.exists(path):
-        exp = read_json(path)
-        return {'inputs': exp.get('inputs'), 'implementations': exp.get('backends', {})}, 'expected.json'
-    return None, None
+    return read_json(path) if os.path.exists(path) else None
 
 
-def record_faults(entry, directory, ev, name):
+def record_faults(entry, directory, ev):
     """(schema faults, stale hashes) of the evidence against entry.toml and the entry's files."""
     schema, stale = [], []
     status = entry['ruling']['status']
     files = entry['text'].get('files', [])
     inputs = {f: sha(os.path.join(directory, f)) for f in files}
-    if name == 'evidence.json':
-        inputs['answer'] = answer_hash(entry)
+    inputs['answer'] = answer_hash(entry)
     recorded = ev.get('inputs') or {}
     for k in sorted(set(inputs) | set(recorded)):
         if inputs.get(k) != recorded.get(k):
-            stale.append(f'{k} changed since {name}')
-    if name != 'evidence.json':
-        return schema, stale
+            stale.append(f'{k} changed since evidence.json')
     kompile, declared = ev.get('kompile'), entry['text']['kompile']
     if declared == 'not-run':
         if kompile is not None:
@@ -507,10 +496,10 @@ def check_entry(directory, index, live=None, allow_pending=False):
     if faults:
         return False, f'{cid}: FAIL schema: ' + '; '.join(faults), None, []
     status = entry['ruling']['status']
-    ev, name = evidence_of(directory, status == 'pending')
+    ev = evidence_of(directory)
     if ev is None:
         return False, f'{cid}: FAIL stale: no evidence.json; run tools/case.py {cid}', status, []
-    schema, stale = record_faults(entry, directory, ev, name)
+    schema, stale = record_faults(entry, directory, ev)
     schema += observe_faults(entry, directory)
     if schema:
         return False, f'{cid}: FAIL schema: ' + '; '.join(schema), status, []

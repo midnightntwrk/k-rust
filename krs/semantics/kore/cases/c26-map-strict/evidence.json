@@ -1,0 +1,27 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(2,SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(5)|->inj{SortInt,SortKItem}(1)}))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "[hook_INT_tdiv]: Division by zero: 1 / 0; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "386a36847f5cf152ba0414b37132902750e08842babb3ae445c8278e2ce1fbce",
+  "pgm": "b53a4dd626b1468c5740d826bbfb185db470fd45e756a031aa187d7b2a3870c1"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "e713191e2ffeb914a6887ab0960069102d6d75e25d41a8b59b29bd45e2980de4",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

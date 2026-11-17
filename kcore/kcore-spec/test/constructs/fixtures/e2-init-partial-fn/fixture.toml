@@ -14,6 +14,7 @@ From the axioms at 106 and 221: initXCell() has one element, and it is <x>(f(0))
 pointwise, so f(0) has an element. No equation of f gives f(0) a value, and f is declared function
 only, so the text's equations do not give it one: the functional axiom states what f's sentences
 leave open. A model of the text interprets f(0) as some integer; under a reading in which f has no
-value where no equation applies, the axiom has no model. The account reads the text with nothing
-refused (account.txt).
+value where no equation applies, the axiom has no model. The reader refuses the axiom
+(account.txt: `generatedEquation`, the initializer's functional axiom): the right side applies a
+function of the definition, which the definition does not give exactly one value at every argument.
 """

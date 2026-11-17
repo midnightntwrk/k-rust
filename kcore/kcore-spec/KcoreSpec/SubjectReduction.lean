@@ -1443,6 +1443,12 @@ formed and the subsorts irreflexive (so the normal form of an overloading symbol
 value of its result sort, `OvlLaws.sortOf_norm`). -/
 def Semantics.OvlCase (c : Semantics) : Prop := c.ovls = [] ∨ (c.overloadsOK = true ∧ ∀ a, (a, a) ∉ c.subsorts)
 
+/-- With `OvlCase` no function overload covers anything: there is no overloading symbol, or each
+overloaded symbol is a constructor or an overloading symbol. -/
+theorem Semantics.OvlCase.fnCover_none {c : Semantics} (h : c.OvlCase) (f : Sym) (vs : List GroundTerm) :
+    c.fnCover f vs = none :=
+  h.elim (fun hno => OvlLaws.fnCover_none_of_nil hno f vs) (fun H => OvlLaws.fnCover_none_of_ok H.1 f vs)
+
 /-- `OvlCase`, decided. -/
 theorem Semantics.ovlCase_of {c : Semantics}
     (h : (c.ovls.isEmpty || (c.overloadsOK && c.subsorts.all fun p => p.1 != p.2)) = true) : c.OvlCase := by
@@ -1717,12 +1723,13 @@ mutual
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted hc hts hL hσ hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovl (f := f) (rs := rs) hk ho hts => by
+    | .ovl (f := f) (rs := rs) hk ho hts _ => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
       have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
       exact OvlLaws.sortOf_norm ⟨H.1, hc.trans, H.2⟩ hlo (EvalTerms.sorted hc hts hL hσ hargs hws)
+    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
   termination_by structural h
   theorem EvalTerms.sorted (hc : SortCtx c) {σ : Subst} {ts : List Term}
       {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs) {L : List CtorSig}

@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t93-rhs-unbound-variable.k": "a5821ccd7dbb70641697a9fa00abe526ef5cfc286872865a6d508060e21c1629"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t93-rhs-unbound-variable.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Found variable Y on right hand side of rule, not bound on\nleft hand side. Did you mean \"?Y\"?\n\tSource(t93-rhs-unbound-variable.k)\n\tLocation(6,22,6,23)\n\t6 |\t  rule <k> a(X) => b(Y) ... </k> requires X >Int 0\n\t  .\t                     ^\n[Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name\nwith underscore if this is intentional.\n\tSource(t93-rhs-unbound-variable.k)\n\tLocation(6,22,6,23)\n\t6 |\t  rule <k> a(X) => b(Y) ... </k> requires X >Int 0\n\t  .\t                     ^\n[Error] Compiler: Had 1 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT93-RHS-UNBOUND-VARIABLE-SYNTAX in definition.  Use --syntax-module to specify\none. Using T93-RHS-UNBOUND-VARIABLE as default.",
+  "release": "K v7.1.337"
+ }
+}

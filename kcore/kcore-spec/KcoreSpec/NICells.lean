@@ -641,6 +641,7 @@ theorem upd_transfer {hv : List (Nat × HPaths)} {σ σ₂ : Subst} (hs : SubstR
     | call _ hk _ _ _ _ => rw [hhk] at hk; cases hk
     | callUndef _ hk _ _ _ => rw [hhk] at hk; cases hk
     | ovl _ ho _ => have hk := (c.isOvl_parts ho).2.1; rw [hhk] at hk; cases hk
+    | ovlFn _ ho => have hk := (c.isOvl_parts ho).2.1; rw [hhk] at hk; cases hk
     | hook _ _ hts hh hund =>
       obtain ⟨r0, rs', rfl, hv0, hts'⟩ := EvalTerms.cons_inv hts
       obtain ⟨ra, rs'', rfl, hva, hts''⟩ := EvalTerms.cons_inv hts'

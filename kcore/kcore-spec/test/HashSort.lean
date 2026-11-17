@@ -7,6 +7,9 @@
     begins with `#`). No sentence can apply a projection the text does not declare: the sort is read
     without one (its presentation's projection id is empty), nothing unaccounted, `coreOK` (decided by
     the compiled `coreOK`, not in the kernel).
+  - KItem's no-junk sentence (sentence 278) lists no `inj{#Tok, KItem}` and no subsort sentence puts
+    `#Tok` below KItem: the reading adds `#Tok < KItem` (`ReadingNote.tokKItem`, listed by
+    `Parse.tokKItemOmitted` with the subsort not stated; its guards: test/TokKItem.lean).
   - with `project:#Tok` declared (`symbol Lblproject'Coln''Hash'Tok{}(SortK{}) : Sort'Hash'Tok{}
     [function{}()]`, as kompile declares a projection) and no equation: refused
     (`missingEquation`).
@@ -29,7 +32,8 @@ def withProj (k : Kore.Definition) : Kore.Definition :=
       (k.modules.getLast?.map fun m => [{ m with sentences := m.sentences.take 1 ++ [projDecl] ++ m.sentences.drop 1 }]).getD [] }
 
 /-- The reader's verdict on the text at `path` (edited by `edit`): `#Tok`'s projection id, what is
-unaccounted, `coreOK`; or the refusal. -/
+unaccounted, `coreOK`, KItem's no-junk sentences that leave out a sort below KItem (`tokKItem`); or
+the refusal. -/
 def verdict (path : String) (edit : Kore.Definition → Kore.Definition := id) : IO String := do
   match Kore.parseDefinition (← IO.FS.readFile path) with
   | .error e => return s!"KORE read error {e}"
@@ -38,11 +42,11 @@ def verdict (path : String) (edit : Kore.Definition → Kore.Definition := id) :
     return match Parse.parse k with
       | .ok d =>
         let proj := (d.sem.userSorts.filter (d.sem.sortName · == "'Hash'Tok")).map fun X => (uidsOf d.sem d.pres X).proj
-        s!"read; #Tok's projection id {repr proj}; unaccounted {(Parse.unconsumed k d).map (·.detail)}; coreOK {d.sem.coreOK}"
+        s!"read; #Tok's projection id {repr proj}; unaccounted {(Parse.unconsumed k d).map (·.detail)}; coreOK {d.sem.coreOK}; tokKItem {Parse.tokKItemOmitted k d}"
       | .error r => s!"{r.reason.name}{if r.detail.isEmpty then "" else " " ++ r.detail}"
 
 /--
-info: read; #Tok's projection id [""]; unaccounted []; coreOK true
+info: read; #Tok's projection id [""]; unaccounted []; coreOK true; tokKItem [(278, [('Hash'Tok, false)])]
 missingEquation Lblproject'Coln''Hash'Tok
 -/
 #guard_msgs in

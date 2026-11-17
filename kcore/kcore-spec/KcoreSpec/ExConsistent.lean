@@ -3,7 +3,7 @@
   value model (`stdI_model_ex`).
 -/
 import KcoreSpec.ExChoice
-import KcoreSpec.Sound
+import KcoreSpec.SoundDefs
 
 set_option autoImplicit false
 

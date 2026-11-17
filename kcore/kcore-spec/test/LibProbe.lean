@@ -38,7 +38,10 @@
   Grids: Int -3 … 3 and 2^64 + 1 (a sentence applying `<<Int` or `>>Int` without 2^64 + 1, a shift
   amount of which names a number of that many bits); Bool both; KItem the injections of 0, 1, 2, true and of a user
   constructor of one Int argument applied to 0; K `.K` and four sequences; Map, Set, List six
-  values each over the KItems 0, 1, 2 (empty, one entry, two, overlapping and disjoint);
+  values each over the KItems 0, 1, 2 (empty, one entry, two, overlapping and disjoint); RangeMap
+  six values over the same KItems (empty, `[0, 2)`, `[2, 3)` of the same value, which concatenation
+  merges with it, two touching ranges of different values, `[1, 3)`, which overlaps three of them,
+  and `[3, 5)`);
   String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN and `p1x2`'s 1.0, ∞,
   NaN; Bytes three values; Endianness `LE`, `BE` and Signedness `Signed`, `Unsigned`.
 
@@ -58,7 +61,11 @@
   sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
   needle, which no interpretation meets. Two lines of `libSentences` are outside what the probe
   evaluates: `findChar`'s equation (1891), which it does not probe, and `sqrtFloat`'s (1671), which
-  applies `rootFloat`, no symbol of Γ in these texts.
+  applies `rootFloat`, no symbol of Γ in these texts. `checkAll` excepts one more sentence from the
+  first condition only (`unlisted`): RANGEMAP's associativity, a condition on the interpretation that
+  `Semantics.libAdmitted` does not state. `checkFlt` and `checkAll` except one line of
+  `libSentences` from the third (`quiet`): `=/=Float`'s equation (1648), whose silent points are at
+  no format of the Float grid.
 -/
 import KcoreSpec
 
@@ -159,6 +166,9 @@ def mapV (es : List (Int × Int)) : GroundTerm :=
   .map Srt.map (es.foldl (fun m (k, v) => insertE (iK k) (iK v) m) [])
 def setV (es : List Int) : GroundTerm := .set Srt.set (es.foldr (fun k s => insertS (iK k) s) [])
 def listV (es : List Int) : GroundTerm := .list Srt.list (es.map iK)
+/-- The range map of the intervals `[a, b) |-> v` (`es` the triples (a, b, v), in the order of their
+lower bounds, maximal). -/
+def rangeMapV (es : List (Int × Int × Int)) : GroundTerm := rmV (es.map fun (a, b, v) => (rangeT a b, iK v))
 
 /-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
 +∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN. -/
@@ -176,6 +186,9 @@ def gridOf (c : Semantics) (s : Srt) (small : Bool := false) : Option (List Grou
     else if s == Srt.map then some [mapV [], mapV [(0, 1)], mapV [(1, 2)], mapV [(0, 1), (1, 2)], mapV [(0, 2)], mapV [(2, 0)]]
     else if s == Srt.set then some [setV [], setV [0], setV [1], setV [0, 1], setV [1, 2], setV [2]]
     else if s == Srt.list then some [listV [], listV [0], listV [1], listV [0, 1], listV [1, 0], listV [0, 0]]
+    else if s == Srt.rangeMap then
+      some [rangeMapV [], rangeMapV [(0, 2, 0)], rangeMapV [(2, 3, 0)], rangeMapV [(0, 1, 0), (1, 2, 1)],
+        rangeMapV [(1, 3, 1)], rangeMapV [(3, 5, 2)]]
     else if s == Srt.string then some (["", "a", "ab", "é∀"].map fun t => .dv Srt.string (.tok t))
     else if s == Srt.float then some (floats.map fun (p, e, b) => .dv Srt.float (.float p e b))
     else if s == Srt.bytes then some (["", "\x01", "\x00\xff"].map fun t => .dv Srt.bytes (.tok t))
@@ -653,20 +666,21 @@ structure Two where
   unevaluated : List String
   deriving BEq, Repr
 
-/-- The library's definedness lemmas of `/Int`, `%Int` and `modInt` (domains.md 1392 to 1394) and
-the generated one of a map with one entry and a rest, `#Ceil(@K0 |-> @K1 @Rest)`, as `Two` names
-them. -/
+/-- The library's definedness lemmas of `/Int`, `%Int`, `modInt`, `>>Int` and `<<Int` (domains.md
+1392 to 1396) and the generated one of a map with one entry and a rest, `#Ceil(@K0 |-> @K1 @Rest)`,
+as `Two` names them, in text order. -/
 def ceilLemmas : List String :=
-  ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394",
+  ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1396", "18 domains.md:1395", "18 domains.md:1394",
    "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"]
 
 /-- What both texts give at two-element sets, apart from row 18's count (which is of the first
-grid): of the twelve sentences with a set variable over Γ's symbols, the eight Bool ones
-(domains.md 1176 to 1179, 1181 to 1184) hold there, and the four of `ceilLemmas` have a
+grid): of the fourteen sentences with a set variable over Γ's symbols, the eight Bool ones
+(domains.md 1176 to 1179, 1181 to 1184) hold there, and the six of `ceilLemmas` have a
 counterexample: with `@I2 = {0, d}` the left side holds and `@I2 =/=Int 0` denotes both `false` and
-`true`; with `@Rest` two maps, one holding the key and one not, the left side holds and
-`@K0 in_keys(@Rest)` denotes both. -/
-def expectedTwo : Two := { sentences := 12, hold := 8, refuted := ceilLemmas, hOnly := [], unevaluated := [] }
+`true`; with `@I2` a negative and a non-negative shift, `@I2 >=Int 0` denotes both; with `@Rest`
+two maps, one holding the key and one not, the left side holds and `@K0 in_keys(@Rest)` denotes
+both. -/
+def expectedTwo : Two := { sentences := 14, hold := 8, refuted := ceilLemmas, hOnly := [], unevaluated := [] }
 def expectedFltTwo : Two := expectedTwo
 /-- `allbuiltins.kompile.kore` holds six more sentences with a set variable over Γ's symbols. Two
 hold at two-element sets (domains.md 449, 450: `@Key in_keys(.Map)` against `#Ceil(@Key)`), and four
@@ -674,9 +688,10 @@ have a counterexample there: 411 (`#Ceil(@M [@K])`, at `@K` a key of the map and
 830 (`#Ceil(@S SetItem(@E))`, at `@E` a member and one that is not), and 451, 452
 (`@Key in_keys(Key' |-> Val @M)`). -/
 def expectedAllTwo : Two :=
-  { sentences := 18, hold := 10,
-    refuted := ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1394", "18 domains.md:411",
-      "18 domains.md:830", "18 domains.md:452", "18 domains.md:451",
+  { sentences := 20, hold := 10,
+    refuted := ["18 domains.md:1393", "18 domains.md:1392", "18 domains.md:1396", "18 domains.md:1395",
+      "18 domains.md:1394", "18 domains.md:411", "18 domains.md:830", "18 domains.md:452",
+      "18 domains.md:451",
       "18 Lbl'Unds'Map'Unds' Lbl'UndsPipe'-'-GT-Unds' Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map"],
     hOnly := [], unevaluated := [] }
 
@@ -779,11 +794,27 @@ because no interpretation meets them: the second equation of `countAllOccurrence
 `HookParams.lib` as under every interpretation that gives the count a value there. -/
 def unmet : List String := ["17 domains.md:1898"]
 
+/-- The sentences reading the interpretation that state a condition on it which is not one of
+`Semantics.libAdmitted`'s: RANGEMAP's associativity of `_RangeMap_` (its `assoc` attribute, domains.md 508). Where
+two of the three maps have ranges in common, `_RangeMap_` is at a silent point, and the law states
+that the interpretation's values there associate; the readings `pick 0`, `pick 1` and `hash` do
+not (`m = [0, 2) |-> 0`, `n = [1, 3) |-> 1`, `p = [3, 5) |-> 2` under `pick 0`: `(m n) p` is `p`,
+`m (n p)` the empty map), `HookParams.none` and `HookParams.lib` do (no value on either side). -/
+def unlisted : List String := ["15 Lbl'Unds'RangeMap'Unds'"]
+
+/-- The sentences at a line of `libSentences` that read the interpretation at no point of the
+grid: `=/=Float`'s equation (domains.md 1648). Its sides apply `==Float` and `=/=Float`, which have
+their values wherever both operands have a datum (`asDatum`: a format with a model, or precision 1
+and at least 2 exponent bits); so its silent points are at the formats of one exponent bit, and
+the Float grid (`floats`: binary32 and `p1x2`) holds none. -/
+def quiet : List String := ["17 domains.md:1648"]
+
 /-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
-condition, `unmet` aside, and reads it only where its left side is silent, every named sentence the
-text holds reads it, and under `HookParams.lib` only the control (set idempotence) and `unmet` fail. -/
-def readsOK (r : Reads) : Bool :=
-  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
+condition, `unmet` and `extra` aside, and reads it only where its left side is silent, the named
+sentences the text holds that read it nowhere are exactly `unreadOK`, and under `HookParams.lib`
+only the control (set idempotence) and `unmet` fail. -/
+def readsOK (r : Reads) (extra : List String := []) (unreadOK : List String := []) : Bool :=
+  r.unnamed.all (fun n => unmet.contains n || extra.contains n) && r.unread == unreadOK && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
@@ -824,15 +855,19 @@ def checkFlt : IO Unit := do
   let (s, r, t) ← run path (modes := fltModes) (small := true)
   if s != expectedFlt then throw (IO.userError s!"{path}: counts {s}, expected {expectedFlt}")
   if t != expectedFltTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedFltTwo}")
-  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !readsOK r (unreadOK := quiet) then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
 of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
-leaving out the 213 sentences of builtin modules outside the library's text (`outOfLibrary`:
-ARRAY, RANGEMAP, RAT, FFI, …). The sentences reading the interpretation are those of silentflt. -/
+leaving out the 193 sentences of builtin modules outside the library's text (`outOfLibrary`:
+ARRAY, RAT, FFI, MINT, …). The sentences reading the interpretation are those of silentflt and
+RANGEMAP's associativity (`unlisted`), the one sentence of row 15 failing only under some
+interpretation; RANGEMAP's other sentences over Γ's symbols with a variable of sort RangeMap (the
+`functional` sentences of `lookupOrDefault`, `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size`
+and `updateRangeMap`, and the two unit laws) hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 102, 73, 64, 0, 9, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 43, 38, 0, 4, 1), (18, 114, 107, 107, 0, 0, 0),
+  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 43, 38, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
@@ -840,7 +875,9 @@ def checkAll : IO Unit := do
   let (s, r, t) ← run path (modes := fltModes) (small := true) (dropOut := true)
   if s != expectedAll then throw (IO.userError s!"{path}: counts {s}, expected {expectedAll}")
   if t != expectedAllTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedAllTwo}")
-  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !unlisted.all r.unnamed.contains then
+    throw (IO.userError s!"{path}: sentences reading the interpretation without a named condition: {r.unnamed}, expected {unlisted} among them")
+  if !readsOK r unlisted quiet then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 end KCore.LibProbe

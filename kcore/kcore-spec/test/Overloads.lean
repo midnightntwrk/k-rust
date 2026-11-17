@@ -187,15 +187,16 @@ theorem allSome_map_some : ∀ (vs : List GroundTerm), allSome (vs.map some) = s
   | v :: vs => by simp [allSome, allSome_map_some vs]
 
 mutual
-  /-- What `instO` reads off a term is its evaluation's result. -/
-  theorem evalTerm_of_instO (c : Semantics) (σ : Subst) :
+  /-- What `instO` reads off a term is its evaluation's result, where no function overload covers
+  anything. -/
+  theorem evalTerm_of_instO (c : Semantics) (σ : Subst) (hN : ∀ f vs, c.fnCover f vs = none) :
       ∀ (t : Term) {v : GroundTerm}, instO c σ t = some v → EvalTerm c σ t (some v)
     | .var _, _, h => by rw [← h]; exact .var
     | .dv _ _, _, h => by cases h; exact .dv
     | .app f ts, v, h => by
       simp only [instO] at h
       obtain ⟨vs, hvs, h⟩ := Option.bind_eq_some_iff.mp h
-      have hs := evalTerms_of_instO c σ ts hvs
+      have hs := evalTerms_of_instO c σ hN ts hvs
       by_cases hc : c.isCtor f = true
       · rw [if_pos hc] at h; cases h
         have := EvalTerm.ctor hc hs
@@ -203,21 +204,21 @@ mutual
       · rw [if_neg hc] at h
         by_cases ho : c.isOvl f = true
         · rw [if_pos ho] at h; cases h
-          have := EvalTerm.ovl (by simpa using hc) ho hs
+          have := EvalTerm.ovl (by simpa using hc) ho hs (fun vs _ => hN f vs)
           rwa [allSome_map_some] at this
         · rw [if_neg ho] at h; cases h
     | .inj _ _ t, _, h => by
       obtain ⟨w, hw, rfl⟩ := Option.map_eq_some_iff.mp h
-      exact .inj (evalTerm_of_instO c σ t hw)
+      exact .inj (evalTerm_of_instO c σ hN t hw)
     | .as _ _, _, h => by simp [instO] at h
-  theorem evalTerms_of_instO (c : Semantics) (σ : Subst) :
+  theorem evalTerms_of_instO (c : Semantics) (σ : Subst) (hN : ∀ f vs, c.fnCover f vs = none) :
       ∀ (ts : List Term) {vs : List GroundTerm}, instOs c σ ts = some vs → EvalTerms c σ ts (vs.map some)
     | [], _, h => by cases h; exact .nil
     | t :: ts, _, h => by
       simp only [instOs] at h
       obtain ⟨v, hv, h⟩ := Option.bind_eq_some_iff.mp h
       obtain ⟨vs', hvs', rfl⟩ := Option.map_eq_some_iff.mp h
-      exact .cons (evalTerm_of_instO c σ t hv) (evalTerms_of_instO c σ ts hvs')
+      exact .cons (evalTerm_of_instO c σ hN t hv) (evalTerms_of_instO c σ hN ts hvs')
 end
 
 /-- **A step by the rule `r`** under `sub vs`: its left side read by `instO` is x, it has no
@@ -227,10 +228,11 @@ theorem step_of_instO {c : Semantics} {r : Rule} (hr : r ∈ c.rules) {vs : List
     (he : instO c (sub vs) r.rhs = some y.val)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val)
     (hens : r.ens.isNone = true := by decide +kernel)
-    (hpre : r.pre.isTop = true := by decide +kernel) (hpost : r.post.isTop = true := by decide +kernel) :
+    (hpre : r.pre.isTop = true := by decide +kernel) (hpost : r.post.isTop = true := by decide +kernel)
+    (hno : c.fnOvlSyms = [] := by decide +kernel) :
     Step c x y :=
   .rule r hr (sub vs) (wellSorted_sub hσ) (patVal_of_instO c _ r.lhs hl)
-    (fun t ht => by rw [hreq] at ht; cases ht) (Cond.eq_top_of_isTop hpre ▸ .top) (evalTerm_of_instO c _ r.rhs he)
+    (fun t ht => by rw [hreq] at ht; cases ht) (Cond.eq_top_of_isTop hpre ▸ .top) (evalTerm_of_instO c _ (OvlLaws.fnCover_none_of_noFnOvl hno) r.rhs he)
     (fun t ht => by rw [ht] at hens; cases hens) (Cond.eq_top_of_isTop hpost ▸ .top) hprio
 
 end OvlStep

@@ -577,6 +577,37 @@ more (each overloaded overloading symbol is listed before the one overloading it
 application the overload of a function covers, which denotes no value of its own. -/
 def norm (f : Sym) (vs : List GroundTerm) : GroundTerm := c.normN (c.ovls.length + 1) f vs
 
+/-- The function overload of the overloading symbol `f` that covers the arguments `vs`: the first
+signature among the symbols `f` overloads (`ovlOver`) that is a function's (`ovlByFn`) and covers
+`vs`. There the application `f(vs)` denotes that function's value at the stripped arguments, lifted
+to `f`'s result sort (the overload's equation), whichever other overloads cover `vs` too. -/
+def fnCover (f : Sym) (vs : List GroundTerm) : Option CtorSig :=
+  (c.lookupOvl f).bind fun o => (c.ovlOver o).find? fun kg => c.ovlByFn kg && c.ovlCovers o.sig kg vs
+
+/-- No function overload covers `vs`: no function's signature among the overloads of `f` does. -/
+theorem fnCover_eq_none_iff {f : Sym} {vs : List GroundTerm} :
+    c.fnCover f vs = none ↔
+      ∀ o, c.lookupOvl f = some o → ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = true → c.ovlCovers o.sig kg vs = false := by
+  unfold fnCover
+  cases h : c.lookupOvl f with
+  | none => simp
+  | some o =>
+    simp only [Option.bind_some, List.find?_eq_none, Bool.and_eq_true, not_and, Bool.not_eq_true,
+      Option.some.injEq, forall_eq']
+
+/-- A symbol that is no overloading symbol has no function overload. -/
+theorem fnCover_of_lookupOvl_none {f : Sym} (h : c.lookupOvl f = none) (vs : List GroundTerm) :
+    c.fnCover f vs = none := by
+  simp [fnCover, h]
+
+/-- No function overload covers anything where no overloaded symbol's signature is a function's. -/
+theorem fnCover_none_of_noByFn (h : ∀ o ∈ c.ovls, ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = false) (f : Sym)
+    (vs : List GroundTerm) : c.fnCover f vs = none := by
+  rw [fnCover_eq_none_iff]
+  intro o ho kg hkg hb
+  rw [h o (List.mem_of_find?_eq_some ho) kg hkg] at hb
+  cases hb
+
 end Semantics
 
 def Value (c : Semantics) (s : Srt) : Type := { t : GroundTerm // c.sortOf t = some s }

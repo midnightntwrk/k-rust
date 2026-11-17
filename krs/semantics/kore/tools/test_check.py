@@ -122,12 +122,6 @@ class Package:
         with open(os.path.join(d, 'evidence.json'), 'w') as f:
             json.dump(ev, f)
 
-    def expected(self, d, backends):
-        """expected.json, the evidence of a pending case."""
-        exp = {'inputs': {n: check.sha(os.path.join(d, n)) for n in ('def.k', 'pgm')}, 'backends': backends}
-        with open(os.path.join(d, 'expected.json'), 'w') as f:
-            json.dump(exp, f)
-
     def check(self, d, live=None, allow_pending=False):
         ok, line, _, differing = check.check_entry(d, check.index_of(self.root), live, allow_pending)
         return ok, line, differing
@@ -231,8 +225,7 @@ class PassRule(unittest.TestCase):
         self.fails(d, 'schema', 'text.kompile is rejects and kompile exited 0')
 
     def test_schema_pending_without_the_flag(self):
-        d = self.p.entry('c01-x', PENDING, evidence=False)
-        self.p.expected(d, {'haskell': finals(B1)})
+        d = self.p.entry('c01-x', PENDING, {'haskell': finals(B1)})
         self.fails(d, 'schema', 'ruling.status is pending', live=finals(B1))
 
     def test_schema_observe_pointer(self):
@@ -337,9 +330,7 @@ class PassRule(unittest.TestCase):
     # a pending entry, under --allow-pending
 
     def pending(self, body=PENDING, **backends):
-        d = self.p.entry('c01-x', body, evidence=False)
-        self.p.expected(d, backends)
-        return d
+        return self.p.entry('c01-x', body, backends)
 
     def test_pending_pass(self):
         d = self.pending(PENDING + disposition('llvm'), haskell=finals(B1), llvm={'error': 'abort'})
@@ -359,14 +350,25 @@ class PassRule(unittest.TestCase):
         d = self.pending(haskell=finals(B1))
         with open(os.path.join(d, 'pgm'), 'a') as f:
             f.write('// changed\n')
-        self.fails(d, 'stale', 'pgm changed since expected.json', live=finals(B1), allow_pending=True)
+        self.fails(d, 'stale', 'pgm changed since evidence.json', live=finals(B1), allow_pending=True)
+
+    def test_pending_without_evidence(self):
+        d = self.p.entry('c01-x', PENDING, evidence=False)
+        self.fails(d, 'stale', 'no evidence.json', live=finals(B1), allow_pending=True)
+
+    def test_pending_kompile_record(self):
+        d = self.pending(haskell=finals(B1))
+        path = os.path.join(d, 'evidence.json')
+        ev = json.loads(check.read_text(path))
+        del ev['kompile']
+        rewrite(path, json.dumps(ev))
+        self.fails(d, 'stale', 'evidence.json records no kompile run', live=finals(B1), allow_pending=True)
 
     # the command, without a run
 
     def test_command_no_run(self):
         self.p.entry('c01-x', SETTLED + disposition('llvm'), {'haskell': finals(B1), 'llvm': finals(B0)})
-        d = self.p.entry('c02-y', PENDING, evidence=False)
-        self.p.expected(d, {'haskell': finals(B1)})
+        self.p.entry('c02-y', PENDING, {'haskell': finals(B1)})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = check.main(['--no-run', '--allow-pending'], package=self.p.root)

@@ -296,6 +296,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       by_cases ho : c.isOvl k.name = true
       · have hp' := (c.isOvl_parts ho).2.2.1
         simp only [hp', ho, Bool.false_eq_true, ↓reduceIte] at hr
+        rw [ovlRes_none (OvlLaws.fnCover_none_of_ok h.ovlOK _ _)] at hr
         subst hr
         exact ⟨_, .ovl hc' ho hws rfl, rfl⟩
       have hcp : c.isCollPat k.name = true := by
@@ -348,7 +349,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
           exact key _ hts ((result_param hc hh' (collPat_param hcp hh') _).mpr ⟨v, rfl, hv'⟩)
       | ovl _ ho hts hnv =>
         subst hf
-        exact key _ hts ((result_ovl ho _).mpr (by rw [hnv]))
+        exact key _ hts ((result_ovl ho (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) _).mpr (by rw [hnv]))
 
 end AtT
 
@@ -557,7 +558,7 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs⟩
+      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

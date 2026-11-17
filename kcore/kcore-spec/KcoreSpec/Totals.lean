@@ -645,7 +645,7 @@ mutual
           have hpar : c.isParam f = false := isParam_false_of (by simpa using hnp)
           cases hov : c.isOvl f with
           | true =>
-            have := EvalTerm.ovl hct hov hts
+            have := EvalTerm.ovl hct hov hts (fun vs _ => hc.ovl.fnCover_none f vs)
             rw [hall] at this
             exact ⟨_, this⟩
           | false =>

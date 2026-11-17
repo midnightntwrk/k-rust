@@ -543,6 +543,45 @@ theorem rank_of_take {f g : Sym} {i : Nat} (hr : ovlRank c f = i + 1) (ht : (c.o
 theorem find_ovlSigs (f : Sym) : c.ovlSigs.find? (·.name == f) = (c.lookupOvl f).map (·.sig) := by
   simp [Semantics.ovlSigs, Semantics.lookupOvl, List.find?_map, Function.comp_def]
 
+/-- Under `overloadsOK` a signature among the symbols an overloading symbol overloads is the one its
+name has among the constructors and the overloading symbols. -/
+theorem ovlOver_known_of_ok (hok : c.overloadsOK = true) {f : Sym} {o : OvlSig}
+    (ho : c.lookupOvl f = some o) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := by
+  obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
+  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
+  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
+  obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
+  have hfound : (lookupSig (c.ctorSigs ++ c.ovlSigs) g).isSome = true := by
+    rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
+    · rw [lookupSig_append_of_isSome h1]; exact h1
+    · obtain ⟨o', ho', hn'⟩ := List.any_eq_true.mp h2
+      rw [lookupSig_eq, List.find?_isSome]
+      exact ⟨o'.sig, List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_mem_take ho')), hn'⟩
+  rw [lookupSig_append_of_isSome hfound] at hgk
+  have hkn : kg.name = g := by
+    rw [lookupSig_eq] at hgk
+    simpa using List.find?_some hgk
+  unfold KnownSig; rw [hkn]; exact hgk
+
+/-- No function overload covers anything where the overloading symbols are well formed
+(`overloadsOK`): each overloaded symbol is a constructor or an overloading symbol. -/
+theorem fnCover_none_of_ok (hok : c.overloadsOK = true) (f : Sym) (vs : List GroundTerm) :
+    c.fnCover f vs = none := by
+  rw [Semantics.fnCover_eq_none_iff]
+  intro o ho kg hkg hb
+  rw [ovlByFn_of_known (ovlOver_known_of_ok hok ho hkg)] at hb
+  cases hb
+
+/-- No function overload covers anything in a semantics without an overloading symbol. -/
+theorem fnCover_none_of_nil (h : c.ovls = []) (f : Sym) (vs : List GroundTerm) : c.fnCover f vs = none :=
+  c.fnCover_of_lookupOvl_none (by simp [Semantics.lookupOvl, h]) vs
+
+/-- No function overload covers anything in a semantics without a function-overloaded symbol. -/
+theorem fnCover_none_of_noFnOvl (h : c.fnOvlSyms = []) (f : Sym) (vs : List GroundTerm) :
+    c.fnCover f vs = none :=
+  c.fnCover_none_of_noByFn (fun _ ho _ hkg => ovlByFn_of_noFnOvl h ho hkg) f vs
+
 section
 variable (H : OvlHyp c)
 include H
@@ -582,24 +621,7 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
 /-- A symbol an overloading symbol overloads is a constructor or an overloading symbol
 (`overloadsOK`), and `ovlOver` holds its signature among those. -/
 theorem ovlOver_known {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {kg : CtorSig}
-    (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := by
-  obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
-  have hok := H.ok
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
-  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
-  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
-  obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
-  have hfound : (lookupSig (c.ctorSigs ++ c.ovlSigs) g).isSome = true := by
-    rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
-    · rw [lookupSig_append_of_isSome h1]; exact h1
-    · obtain ⟨o', ho', hn'⟩ := List.any_eq_true.mp h2
-      rw [lookupSig_eq, List.find?_isSome]
-      exact ⟨o'.sig, List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_mem_take ho')), hn'⟩
-  rw [lookupSig_append_of_isSome hfound] at hgk
-  have hkn : kg.name = g := by
-    rw [lookupSig_eq] at hgk
-    simpa using List.find?_some hgk
-  unfold KnownSig; rw [hkn]; exact hgk
+    (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := ovlOver_known_of_ok H.ok ho hkg
 
 /-- What `overloadsOK` gives of an overloading symbol's declaration. -/
 theorem ovl_facts {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :

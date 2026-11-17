@@ -219,7 +219,8 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
         cases h2; cases h1
         rw [h0] at hvs
         simp [allSome] at hvs)
-    (fun _ ho _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ _ _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
     trivial (fun _ _ _ _ => trivial)
     (by intros; trivial)
     (by intros; trivial)
@@ -465,7 +466,8 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
         cases h2; cases h1
         rw [h0] at hvs
         simp [allSome] at hvs)
-    (fun _ ho _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ _ _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
     trivial (fun _ _ _ _ => trivial)
     (by intros; trivial)
     (by intros; trivial)
@@ -585,6 +587,7 @@ theorem gapParam_not_total : ¬ Total gapParam F6 := by
         cases hrhs with
         | ctor hk _ => exact absurd hk (by decide +kernel)
         | ovl _ ho _ => exact absurd ho (by decide +kernel)
+        | ovlFn _ ho => exact absurd ho (by decide +kernel)
         | hook _ hhk _ _ _ => exact absurd hhk (by decide +kernel)
         | param _ _ _ hts hr =>
           cases hts with
@@ -648,6 +651,7 @@ theorem gapHook_not_total : ¬ Total gapHook F7 := by
         cases hrhs with
         | ctor hk _ => exact absurd hk (by decide +kernel)
         | ovl _ ho _ => exact absurd ho (by decide +kernel)
+        | ovlFn _ ho => exact absurd ho (by decide +kernel)
         | hook _ _ hts hh _ =>
           cases hts with
           | cons h1 h2 =>

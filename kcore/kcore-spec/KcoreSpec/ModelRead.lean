@@ -302,11 +302,19 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
       have hp' : c.isParam k.name = false := by simpa using hp
       by_cases ho : c.isOvl k.name = true
       · rw [if_pos ho] at hr
-        subst hr
-        refine ⟨_, ?_, rfl⟩
-        have := EvalTerm.ovl (σ := σ) hc' ho hws
-        rw [allSome_map] at this
-        exact this
+        cases hcov : c.fnCover k.name ws with
+        | none =>
+          rw [ovlRes_none hcov] at hr
+          subst hr
+          refine ⟨_, ?_, rfl⟩
+          have := EvalTerm.ovl (σ := σ) hc' ho hws (fun vs hvs => by
+            rw [allSome_map] at hvs; cases hvs; exact hcov)
+          rw [allSome_map] at this
+          exact this
+        | some kg =>
+          obtain ⟨o, hlo⟩ := Option.isSome_iff_exists.mp (c.isOvl_parts ho).2.2.2.2
+          obtain ⟨w, rfl, hw⟩ := (ovlRes_some hlo hcov _).mp hr
+          exact ⟨_, .ovlFn hc' ho hws (allSome_map ws) hlo hcov hw, rfl⟩
       rw [if_neg ho] at hr
       obtain ⟨v, rfl, hv⟩ := hr
       exact ⟨v, .call hc' hh' hws (allSome_map ws) hv hp', rfl⟩
@@ -354,7 +362,7 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
         subst hr
         exact key rs ws hts hvs ((result_fn hc hh hp (Eval.isOvl_false hf) _).mpr ⟨v, rfl, hf⟩)
       | callUndef => cases hr
-      | ovl hc ho hts =>
+      | ovl hc ho hts hnf =>
         rename_i rs
         cases hws : allSome rs with
         | none => rw [hws] at hr; cases hr
@@ -362,7 +370,15 @@ theorem tr_term (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} 
           rw [hws] at hr
           simp only [Option.map_some, Option.some.injEq] at hr
           subst hr
-          exact key rs ws hts hws ((result_ovl ho _).mpr rfl)
+          exact key rs ws hts hws ((result_ovl ho (hnf ws hws) _).mpr rfl)
+      | ovlFn hc ho hts hvs hlo hcov hf =>
+        rename_i rs ws o kg r
+        cases r with
+        | none => cases hr
+        | some w =>
+          simp only [Option.map_some, Option.some.injEq] at hr
+          subst hr
+          exact key rs ws hts hvs ((result_ovlFn ho hlo hcov _).mpr ⟨w, rfl, hf⟩)
 
 end AtT
 

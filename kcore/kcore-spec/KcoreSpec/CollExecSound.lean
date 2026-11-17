@@ -291,7 +291,7 @@ mutual
             by_cases ho : c.isOvl f = true
             · simp only [ho, ↓reduceIte, Option.pure_def, Option.some.injEq] at hk
               subst hk
-              exact .ovl hc' ho hts
+              exact .ovl hc' ho hts (fun vs _ => hsc.ovl.fnCover_none f vs)
             have ho' : c.isOvl f = false := by simpa using ho
             simp only [ho', Bool.false_eq_true, ↓reduceIte] at hk
             cases hall : allSome rs with

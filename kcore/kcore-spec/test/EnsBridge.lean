@@ -88,6 +88,7 @@ theorem hook_inv {f : Sym} {ts : List Term} {r : Option GroundTerm} (hc : c.isCt
   | call _ hh' _ _ _ _ => rw [hh] at hh'; cases hh'
   | callUndef _ hh' _ _ _ => rw [hh] at hh'; cases hh'
   | ovl _ ho _ => rw [(c.isOvl_parts ho).2.1] at hh; cases hh
+  | ovlFn _ ho => rw [(c.isOvl_parts ho).2.1] at hh; cases hh
 
 /-- A two-argument application of an interpreted hook with no silent point: its arguments' results,
 and the hook's value on them when both are defined, undefined otherwise. -/
@@ -132,7 +133,8 @@ theorem app_congr {f : Sym} {ts ts' : List Term} {r : Option GroundTerm}
   | param h hhk hp hts hr => exact .param h hhk hp (H _ hts) hr
   | call h hh hts hvs hf hp => exact .call h hh (H _ hts) hvs hf hp
   | callUndef h hh hts hvs hp => exact .callUndef h hh (H _ hts) hvs hp
-  | ovl h ho hts => exact .ovl h ho (H _ hts)
+  | ovl h ho hts hnf => exact .ovl h ho (H _ hts) hnf
+  | ovlFn h ho hts hvs hlo hcov hf => exact .ovlFn h ho (H _ hts) hvs hlo hcov hf
 
 /-- The defined argument results of an application with a value. -/
 theorem allSome_of_ne {rs : List (Option GroundTerm)} {g : List GroundTerm → GroundTerm}
@@ -158,6 +160,7 @@ theorem app_args_of_ne {f : Sym} {ts : List Term} {r : Option GroundTerm}
   | call _ _ hts hvs _ _ => exact ⟨_, _, hts, hvs⟩
   | callUndef _ _ _ _ _ => exact absurd rfl hr
   | @ovl _ _ _ rs _ _ hts => obtain ⟨vs, hvs⟩ := allSome_of_ne hr; exact ⟨rs, vs, hts, hvs⟩
+  | ovlFn _ _ hts hvs => exact ⟨_, _, hts, hvs⟩
 
 /-- An application with a value keeps it when its defined arguments' results carry over. -/
 theorem app_congr_def {f : Sym} {ts ts' : List Term} {r : Option GroundTerm}
@@ -177,9 +180,10 @@ theorem app_congr_def {f : Sym} {ts ts' : List Term} {r : Option GroundTerm}
     | some vs => exact .param h hhk hp (H _ _ hts hv) hr'
   | call h hh hts hvs hf hp => exact .call h hh (H _ _ hts hvs) hvs hf hp
   | callUndef _ _ _ _ _ => exact absurd rfl hr
-  | @ovl _ _ _ rs h ho hts =>
+  | @ovl _ _ _ rs h ho hts hnf =>
     obtain ⟨vs, hvs⟩ := allSome_of_ne hr
-    exact .ovl h ho (H _ _ hts hvs)
+    exact .ovl h ho (H _ _ hts hvs) hnf
+  | ovlFn h ho hts hvs hlo hcov hf => exact .ovlFn h ho (H _ _ hts hvs) hvs hlo hcov hf
 
 /-- An application whose arguments' results give other arguments with an undefined result is
 undefined with those (every evaluation rule is strict). -/
@@ -204,7 +208,10 @@ theorem app_none {f : Sym} {ts ts' : List Term} {r : Option GroundTerm}
     exact .callUndef h hh hts' hn hp
   | ovl h ho hts =>
     obtain ⟨rs', hts', hn⟩ := H _ hts
-    have := EvalTerm.ovl (σ := σ) h ho hts'; rwa [hn] at this
+    have := EvalTerm.ovl (σ := σ) h ho hts' (fun vs hv => by rw [hn] at hv; cases hv); rwa [hn] at this
+  | ovlFn h ho hts =>
+    obtain ⟨rs', hts', hn⟩ := H _ hts
+    exact .callUndef h (c.isOvl_parts ho).2.1 hts' hn (c.isOvl_parts ho).2.2.1
 
 /-! ## The guard -/
 
@@ -573,6 +580,7 @@ abbrev withRules (c : Semantics) (rs : List Rule) : Semantics := { c with rules 
 kernel_rfl sortOf_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).sortOf = c.sortOf
 kernel_rfl collVal_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).collVal = c.collVal
 kernel_rfl norm_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).norm = c.norm
+kernel_rfl fnCover_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).fnCover = c.fnCover
 kernel_rfl paramVal_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).paramVal = c.paramVal
 kernel_rfl hookRes_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).hookRes = c.hookRes
 kernel_rfl fnRest_withRules : ∀ (c : Semantics) (rs : List Rule), (withRules c rs).fnRest = c.fnRest
@@ -641,9 +649,10 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (fun hk hhk hp _ hr ih => .param hk hhk hp ih (by rw [paramVal_withRules]; exact hr))
     (fun hk hhk _ hvs _ hp ihts ihf => .call hk hhk ihts hvs ihf hp)
     (fun hk hhk _ hvs hp ih => .callUndef hk hhk ih hvs hp)
-    (fun hk ho _ ih => by
-      have := EvalTerm.ovl (c := withRules c rs) hk ho ih
+    (fun hk ho _ hnf ih => by
+      have := EvalTerm.ovl (c := withRules c rs) hk ho ih (fun vs hv => by rw [fnCover_withRules]; exact hnf vs hv)
       rwa [norm_withRules] at this)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => .ovlFn hk ho ihts hvs hlo (by rw [fnCover_withRules]; exact hcov) ihf)
     .nil (fun _ _ ih1 ih2 => .cons ih1 ih2)
     .top .bot (fun _ ih => .not ih) (fun _ _ ih ih' => .and ih ih') (fun _ _ ih ih' => .or ih ih')
     (fun _ _ ih ih' => .implies ih ih') (fun _ ih => .ceil ih) (fun _ _ ih ih' => .equals ih ih')
@@ -1104,7 +1113,9 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
         obtain ⟨rfl, rfl⟩ := h
         cases hts with
         | cons h1 h2 => cases h1; cases h2; simp [allSome] at hvs)
-      (fun {_ f _ _} _ ho' _ _ h => by
+      (fun {_ f _ _} _ ho' _ _ _ h => by
+        simp only [fApp, Term.app.injEq] at h; rw [h.1, ho] at ho'; cases ho')
+      (fun {_ f _ _ _ _ _ _} _ ho' _ _ _ _ _ _ _ h => by
         simp only [fApp, Term.app.injEq] at h; rw [h.1, ho] at ho'; cases ho')
       trivial (fun _ _ _ _ => trivial)
       (by intros; trivial)
