@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 68 | 27 | 0 | 1 | 0 | 40 | 0 | 0 |
 | E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
-| E6 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+| E6 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 157 | 71 | 1 | 7 | 1 | 77 | 0 | 0 |
+| all | 158 | 71 | 1 | 7 | 1 | 78 | 0 | 0 |
 
 Refused rows by class:
 
@@ -64,13 +64,13 @@ Refused nested entries by class:
 | E3 | 40 | 6 | 2 | 32 | 0 |
 | E4 | 4 | 2 | 2 | 0 | 0 |
 | E5 | 11 | 6 | 0 | 3 | 2 |
-| E6 | 1 | 1 | 0 | 0 | 0 |
+| E6 | 2 | 1 | 0 | 1 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 77 | 23 | 8 | 40 | 6 |
+| all | 78 | 23 | 8 | 41 | 6 |
 
-## Entries of class R-c (68)
+## Entries of class R-c (69)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -133,6 +133,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `translateSorts:hooked-#2` | cases[5] | refused | a second sort with a builtin carrier | KCore.dvOK (an Int literal is a value of Srt.int only), KCore.intHooks and the other hook tables (results at Srt.int) | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
+| E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the values a parameter symbol takes at some arguments) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a parameter symbol in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built for a function-overloaded symbol onl… | no unit |  |
 | C3 | `hook x equation` | row | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[0] | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[2] | refused | as the row's (class R-c inherited from the row, TRIAGE-hook-eq-premise section 0 item 2 and section 2.3): a premise about the symbol beside what Γ states of it, with the obligation that Γ's statement satisfies the equation | as the row's: the declarations its cone names (KCore.Semantics, KCore.Faithful.fnItems, KCore.FnHyp, KCore.consistent\_of, KCore.Semantics.coreOK) | no unit |  |
@@ -1145,6 +1146,7 @@ Not core:
 | `hook:LIST.getMInt:LblList'Coln'getMInt` | refused | R-a |  |  |  |  | yes | yes | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:LIST.range:LblList'Coln'range` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: LIST.range |
 | `hook:LIST.update:LblList'Coln'set` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: LIST; Builtins.libParams (no registry hook) |
+| cases[0]: List:set applied in a rewrite rule's left side (K's regression test list-set: a rule whose list cell's left side is \`Lis… | refused | R-c | the left side is a pattern over a function's values: the rule applies at a list value v where some list L gives v = L[I &lt;- J], so matching it needs what the function's inverse says (that I is an index of v and the element there is J), and the matcher (PatVal, over the pattern context patCtxAll) read… | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a parameter symbol in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built for a function-overloaded symbol onl… |  |  |  |  | the corpus (test/corpus.py over K-rust's reference cache, read by closed.py corpus): 8 texts labelled list-set:haskell/rust, kompiled by kompile (sha16 01408fc54a6a3e2b, 11c8ddde6de8adc2, 14fe547737014101, 2c65a56d45497f6d, 51c658cd4ae23bc7, 59882071adfc115f, 678dd40104b6bf48, db6e786d6466d578), eac… |
 | `hook:LIST.updateMInt:LblList'Coln'setMInt` | refused | R-a |  |  |  |  | yes | yes | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:LIST.element:LblListItem` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: LIST.element |
 | `hook:MINT.MInt2bytes:LblMInt2Bytes'LParUndsRParUnds'MINT'Unds'Bytes'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |

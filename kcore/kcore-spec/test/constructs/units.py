@@ -95,7 +95,9 @@ ALLOWANCE = [
     # whose completion is their fixture read, P2.d2-kompiled (findings/C3-unbound-rulings.md 8.2).
     # 38 -> 37 with CE.rows-partition: the #Exists row's case "an equation's right side" (R-c, no
     # unit) is replaced by one case per shape, each R-c with its ticket or R-a with its reason.
-    ("ROWS-1.unit-rc", 37, "entries of class R-c without unit",
+    # 37 -> 38 with R2-release.rdr-corpus-rows: E6 hook:LIST.update's case of List:set in a rule's
+    # left side (the corpus text list-set), R-c with no ticket that reads a parameter symbol there.
+    ("ROWS-1.unit-rc", 38, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
