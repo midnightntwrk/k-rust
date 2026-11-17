@@ -132,6 +132,7 @@ PINNED = [
     ("RefusalReason.existentialAxiom", "R2-release.C4"),
     ("RefusalReason.ctorResultSort", "R2-release.C4"),
     ("RefusalReason.hookEqualityUnstated", "R2-release.C4"),
+    ("RefusalReason.attrOutsideE2", "R2-release.rdr-attr-decls"),
     ("InertReason.claim", "R2-release.C4"),
     ("InertReason.vacuousLeft", "R2-release.C4"),
     ("UnreadReason.noSortPredicate", "R2-release.C4"),

@@ -11,6 +11,9 @@
 # test/constructs/closed.py: every constructor of the reader's four reason inductives is named by an
 # entry or pinned with the ticket that owes it, and every `reasons` name is such a constructor
 # (DONE-0 C4 part 1); it prints the entries per catch-all. Then
+# test/AttrVerdict.lean and test/constructs/attrkeys.py, before kfix.py check: the reader's attribute
+# keys (Parse.AttrKeyE2) are the names of E2's rows that reach KORE, and Parse.attrVerdict at each
+# row is the row's status (DONE-0 C4 part 2). Then
 # test/constructs/modifiers.py check: the pair table [C3] (DONE-0 C3). Then
 # test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
@@ -57,6 +60,10 @@ else:
 sys.exit(1 if bad else 0)
 PY
 rc=$?
+LEAN_NUM_THREADS=1 systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 timeout 1200 \
+  lake env lean -j1 test/AttrVerdict.lean > .lake/constructs/attr-verdict.out 2>&1 \
+  || { echo "constructs: test/AttrVerdict.lean does not elaborate"; tail -5 .lake/constructs/attr-verdict.out; rc=1; }
+python3 -I test/constructs/attrkeys.py .lake/constructs/attr-verdict.out || rc=1
 python3 -I test/constructs/kfix.py check || rc=1
 python3 -I test/constructs/units.py || rc=1
 python3 -I test/constructs/closed.py || rc=1

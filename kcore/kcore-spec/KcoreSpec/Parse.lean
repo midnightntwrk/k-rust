@@ -19,6 +19,7 @@ import KcoreSpec.Emit
 import KcoreSpec.Kore.Read
 import KcoreSpec.FaithOK
 import KcoreSpec.RightHeld
+import KcoreSpec.ParseAttr
 
 set_option autoImplicit false
 
@@ -328,7 +329,21 @@ inductive RefusalReason where
   projection's is refused by the reader (`coreOf`, `predEqnFaults`), the others by the account
   (`Account.unconsumed`). -/
   | generatedEquation
+  /-- An attribute of a symbol declaration, of an axiom carrying `simplification`, of a claim or of
+  the module that no kompiled text carries there: a key the frontend erases, a key whose K text
+  the frontend refuses, or a key K admits at no sentence of that class (`attrVerdict`, the construct
+  table's E2 rows). Only a KORE text written by hand carries it, and no text gives it a meaning
+  there. The detail names the attribute and the class. -/
+  | attrOutsideE2
   deriving Repr, DecidableEq, Inhabited
+
+/-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
+def AttrRefusalE2.reason : AttrRefusalE2 → RefusalReason
+  | .ruleAttribute => .ruleAttribute
+  | .equationAttribute => .equationAttribute
+  | .sortAttribute => .sortAttribute
+  | .openGenerator => .openGenerator
+  | .outsideE2 => .attrOutsideE2
 
 /-- Why the semantics does not read a sentence. -/
 inductive InertReason where
