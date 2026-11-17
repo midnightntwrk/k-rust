@@ -1,0 +1,38 @@
+id = "t205-set-inclusion-equal"
+kind = "text"
+subject = "<=Set at two equal sets: what the SET module states of S <=Set S."
+retro = ["H6"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:786 (K 7.1.337)", quote = 'syntax Bool ::= Set "<=Set" Set [function, total, hook(SET.inclusion)]' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["SET.inclusion"]
+statement = "S <=Set T is true where every element of S is an element of T and false otherwise; at two equal sets it is true: SetItem(1) <=Set SetItem(1) is true."
+points = [
+  { at = "SetItem(1) <=Set SetItem(1) SetItem(2)", value = "true" },
+  { at = "SetItem(1) SetItem(2) <=Set SetItem(1)", value = "false" },
+  { at = "S <=Set S, any set S", value = "true" },
+]
+reason = """
+(1) The module says four things of the symbol: the heading Set inclusion (domains.md:780), the sentence "You can determine whether a Set is a strict subset of another Set" (domains.md:782-783), the name <=, and the declaration function and total, so one Bool value at every two sets (domains.md:786; user_manual.md:546-551).
+(2) At two different sets S and T, S is a strict subset of T exactly where every element of S is one of T: there the sentence and inclusion agree, and fix the value.
+(3) At S = T the sentence, which speaks of a set and another set, says nothing; inclusion, which the heading and the name state, is true of a set and itself, and total says there is one value: true. The value false would make the heading and the name false of the symbol, under any reading of the sentence; true makes all four true. So the text states true there."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:780-783 (K 7.1.337)"
+quote = "### Set inclusion You can determine whether a `Set` is a strict subset of another `Set` in O(N) time (where N is the size of the first set)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:786 (K 7.1.337)"
+quote = 'syntax Bool ::= Set "<=Set" Set [function, total, hook(SET.inclusion)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "It can be added to a production with the `function` attribute to indicate to the symbolic reasoning engine that a given symbol is a *total function*, that is it has *exactly* one return value for every possible input."

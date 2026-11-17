@@ -1,0 +1,32 @@
+id = "t220-rule-total-rejected"
+kind = "text"
+subject = "The attribute total on a rewrite rule: whether the K text has a KORE text."
+retro = ["R4"]
+origin = "kcore-spec fixture c3-rule-total"
+
+[text]
+files = ["t220-rule-total-rejected.k"]
+kompile = "rejects"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'Rule cannot have the following attributes: [total]'). The manual gives total as an attribute of productions, of symbols, and not of rules."
+reason = """
+(1) The manual describes total as an attribute that indicates that a symbol cannot be equal to bottom (user_manual.md:546-551), and its table of attributes gives total the type prod (user_manual.md:3093): an attribute of a production.
+(2) The text puts total on a rewrite rule, where no sentence gives it a meaning, and kompile refuses it (kompile.txt)."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:3093 (K 7.1.337)"
+quote = "| `total` | prod | all | [`function` and `total` attributes](#function-and-total-attributes)"
+
+[[observe]]
+file = "kompile.txt"
+contains = "Rule cannot have the following attributes: [total]"

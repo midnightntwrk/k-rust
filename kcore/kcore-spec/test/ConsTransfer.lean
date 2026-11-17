@@ -56,7 +56,7 @@ example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧�
     {O : String → Prop}
     (hO : ∀ N, O N → ¬ D (.sort N) ∧ ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort N) a ↔ a = σ)
     {R : EVar} (hRt : R ≠ KoreAML.topVar) (hne : ∃ τ, KoreAML.IsSort I τ ∧ ∃ m, KoreAML.Inh I τ m)
-    {G : List (EVar × String)} (hG : ∀ p ∈ G, O p.2) (hR : R ∉ G.map (·.1)) {π : KoreAML.P}
+    {G : List (EVar × String)} (hG : ∀ p ∈ G, ¬ D (.sort p.2)) (hR : R ∉ G.map (·.1)) {π : KoreAML.P}
     (hπ : RPred D O R G π)
     (h : I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
       (π ≡ KoreAML.inhOf (.evar R))) :

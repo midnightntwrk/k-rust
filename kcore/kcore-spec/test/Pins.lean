@@ -7,8 +7,8 @@
   `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
-  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
-  reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
+  `FnDet`, `FnSolves` and `ClausePreDecided`, hypotheses of `consistent_of` and of `CExec.run_exact`
+  that no cone root reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
   to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
   `SetVarsAtMostOne`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
   checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
@@ -217,6 +217,11 @@ example (c : Semantics) : Consistent c =
 
 /-- `FnDet`: every function has at most one result at each argument list. -/
 example (c : Semantics) : FnDet c = (∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r') := rfl
+
+/-- `ClausePreDecided`: each clause's predicate has a truth value wherever its patterns match. -/
+example (c : Semantics) : ClausePreDecided c =
+    (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ vs, c.WellSortedAt cl.vars cl.leftVars σ → PatVals c σ cl.pats vs →
+      ∃ b, Holds c cl.vars.length σ cl.pre b) := rfl
 
 /-- `FnSolves`: where a clause decides, the function's values are the values the instances of that
 clause's right side give. `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`,
@@ -550,7 +555,8 @@ example : ∀ (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : StepDec
     (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
   @complete_at
 
-example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → OpenLaws c → Consistent c :=
+example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → ClausePreDecided c → OpenLaws c →
+    Consistent c :=
   @consistent_of
 
 example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)

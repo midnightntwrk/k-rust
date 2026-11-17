@@ -30,3 +30,15 @@ argument = "configurations are values (ap, iv, bv, tk, ij, co); vr, hk, as, cb a
 [[coverage.argued]]
 item = "requirement:KORE.m-tok:S:Int ==Int T:Int:false"
 argument = "a token pattern of sort S stands at a position of sort S in a well-sorted left side, and the value matched there is of sort S: a token of S itself, since a token of another sort T < S stands under inj{T,S}, which m-inj-same and m-inj-sub compare by sort before reaching the token; so m-tok never meets two tokens of different sorts"
+
+[[coverage.argued]]
+item = "rule:KORE.leq-refl"
+argument = "leq is applied only in the requires of m-inj-sub, A =/=Int C andBool leq(C, A, S); m-inj-sub is tried only where m-inj-same, of the same priority and before it in the text, does not apply, and both match ij against ij, so only where A =/=Int C: leq never receives two equal sorts; the rule is kept so that leq is the reflexive-transitive closure at every argument list, as its comment states"
+
+[[coverage.argued]]
+item = "requirement:KORE.leq-refl:held"
+argument = "as rule:KORE.leq-refl: leq never receives two equal sorts"
+
+[[coverage.argued]]
+item = "requirement:KORE.leq-up:refuted"
+argument = "A =/=Int B is false only where A and B are equal, which leq never receives (rule:KORE.leq-refl)"

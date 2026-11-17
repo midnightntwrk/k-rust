@@ -1,0 +1,27 @@
+id = "t222-rule-lhs-fun-rejected"
+kind = "text"
+subject = "A function application under a constructor in a rewrite rule's left side, c(f(X:Int)) => d(X): whether the K text has a KORE text."
+retro = ["R6"]
+origin = "kcore-spec fixture e3-rule-lhs-fun"
+
+[text]
+files = ["t222-rule-lhs-fun-rejected.k"]
+kompile = "rejects"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'Illegal function symbol f on LHS of rule'). The manual states the rule the text breaks: terms which are functions should not appear on the left hand side of rules, collection patterns being the stated exception."
+reason = """
+(1) The manual allows collection patterns of sort Map, List and Set on a left side, despite their ostensibly breaking the rule that terms which are functions should not appear on the left hand side of rules (user_manual.md:2212-2216): the rule it states is that a function's application does not appear on a left side.
+(2) The left side c(f(X:Int)) holds the application of the function f under the constructor c, which is no collection pattern. kompile refuses it (kompile.txt), the refusal the manual's sentence foresees."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2212-2216 (K 7.1.337)"
+quote = "It is allowed to write patterns on the left hand side of rules which refer to complex terms of sort Map, List, and Set, despite these patterns ostensibly breaking the rule that terms which are functions should not appear on the left hand side of rules."
+
+[[observe]]
+file = "kompile.txt"
+contains = "Illegal function symbol f on LHS of rule"

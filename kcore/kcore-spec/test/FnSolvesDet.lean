@@ -439,8 +439,9 @@ example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hl : OpenLaws c
   consistent_open c h (fnDet_of_fnSolves h hs) hs hl hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hl : OpenLaws c) : Consistent c :=
-  consistent_of c h (fnDet_of_fnSolves h hs) hs hl
+example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
+    Consistent c :=
+  consistent_of c h (fnDet_of_fnSolves h hs) hs hp hl
 
 /-! ## An instance: a definition meeting both hypotheses -/
 

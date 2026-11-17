@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t227-all-path-module.k": "756aeadccad9cc9e3a5fd9e726fa5755919113b818a85f8115eb1d72848e77d6"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t227-all-path-module.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "kore-exec: [PID] Error (ErrorParse):\n    definition.kore:635:3: unexpected token TokenLeftBracket\n\ndefinition.kore:635:3: unexpected token TokenLeftBracket\n\nCreated bug report: kore-exec.tar.gz\n[Error] Critical: Haskell backend reported errors validating compiled\ndefinition.\nExamine output to see errors.\n[Warning] Compiler: Could not find main syntax module with name\nT227-ALL-PATH-MODULE-SYNTAX in definition.  Use --syntax-module to specify one.\nUsing T227-ALL-PATH-MODULE as default.",
+  "release": "K v7.1.337"
+ }
+}

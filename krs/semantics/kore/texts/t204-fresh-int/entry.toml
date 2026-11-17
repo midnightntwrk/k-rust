@@ -1,0 +1,32 @@
+id = "t204-fresh-int"
+kind = "text"
+subject = "freshInt: whether it is a hooked symbol, and what the INT module states of its value."
+retro = ["H5"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1456-1457 (K 7.1.337)", quote = "syntax Int ::= freshInt(Int) [freshGenerator, function, total, private] rule freshInt(I:Int) => I" }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "freshInt is no hooked symbol: it is a total function of the INT module with the one unconditional equation freshInt(I) => I, the identity on Int: freshInt(5) = 5. Its freshGenerator attribute makes it the function that turns the fresh Int of a !-variable into a value of the variable's sort, here Int itself. Which Int a !-variable takes is not this entry's point."
+reason = """
+(1) domains.md:1456-1457 declares freshInt(Int) with freshGenerator, function, total and private, and no hook attribute, and gives it the one rule freshInt(I:Int) => I, an equation of the function at every integer I.
+(2) So freshInt(i) = i at every integer i, and total agrees with it (user_manual.md:546-551).
+(3) A function marked freshGenerator is the converter K uses to turn a fresh Int into a value of the sort of a !-variable (user_manual.md:585-588)."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1456-1457 (K 7.1.337)"
+quote = "syntax Int ::= freshInt(Int) [freshGenerator, function, total, private] rule freshInt(I:Int) => I"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:585-588 (K 7.1.337)"
+quote = "For this, K will still generate a fresh `Int`, but can use a converter function you supply to turn it into the correct sort."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments."

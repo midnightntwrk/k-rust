@@ -295,7 +295,7 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
 example : ∀ r' ∈ c.rules, ∀ {k}, k ∈ KoreAML.freeOf [] (applies c r' (canonRulePres r')) → False :=
   fun r' hr' _ hk => freeOf_appliesPP (rules_pp r' hr').1 hk
 
-example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs (openLaws_of_plain (by decide +kernel)) rules_pp
+example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) rules_pp
 
 example (hf : FnHyp c) (T : Config c → Config c → Prop) (hsub : ∀ x y, T x y → Step c x y)
     (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)

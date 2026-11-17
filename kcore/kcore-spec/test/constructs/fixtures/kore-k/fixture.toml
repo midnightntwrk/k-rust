@@ -1,3 +1,4 @@
-main = "kore.k"
-external = ["krs/semantics/kore/kore.k"]
+main = "kk.k"
+external = ["kcore/kcore-spec/kk/kk.k"]
+extra = ["--main-module", "KORE", "--syntax-module", "KORE-SYNTAX"]
 kore_txt = false

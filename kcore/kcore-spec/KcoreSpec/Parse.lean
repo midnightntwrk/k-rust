@@ -138,8 +138,8 @@ inductive RefusalReason where
   both equations apply. -/
   | owisePriority
   /-- A rule's left side or a clause's argument pattern that applies a function symbol (a function
-  or sort predicate of the definition, a parameter, a hooked symbol of the registry), neither a
-  constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
+  or sort predicate of the definition, a parameter that is no open generator, a hooked symbol of the
+  registry), neither a constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
   values it matches; a function's application denotes the values the function takes at some
   arguments, and matching it needs what the function's inverse says, which no part of the semantics
   gives (the account's check, `Account.functionInPattern`). -/
@@ -221,8 +221,15 @@ inductive RefusalReason where
   the variable and its sort. -/
   | existentialEquation
   /-- An open generator (a symbol the text declares total, lists among its result sort's
-  generators and gives no constructor axiom) binding a variable in a left side: matching it needs
-  which elements its sort has, which the text does not state. The detail names the symbol. -/
+  generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
+  pattern (`Account.openGeneratorInPattern`): the pattern matches a value where the interpretation
+  sends some arguments to it, which the text leaves open beyond the laws it writes. One row, two
+  reasons, by the generator's result sort S (`Semantics.confined`): where S is not confined (it is
+  recursive or reaches an unconfined sort), an element of S that is no value's may be the
+  generator's image of other such elements, so the arguments that match depend on elements the
+  text does not name; where S is confined, the arguments that match are values, the value's
+  preimage under the interpretation's graph, which the semantics does not build. The detail names
+  the symbol, S and the reason. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -836,6 +843,9 @@ structure Names where
   `functional` axiom or their sentence `hookEqSentence`, each with what is missing
   (`hookEqualityUnstated`) -/
   eqUnstated : List (Sym × String) := []
+  /-- the overloading symbols one of whose own overloads is a function of the definition, each with
+  its result sort's name: a rule's left side applying one is read through the cut (`ovlCut`) -/
+  ovlCutSyms : List (Sym × String) := []
 
 /-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
 axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
@@ -1273,6 +1283,68 @@ def keyCut (N : Names) (lhs : Term) (vs : List Var) (req : Option Term) : Rd (Te
       pure (lhs', vs', match parts with
         | [c] => some c
         | _ => some (Term.app kEq [seqOf parts, seqOf (parts.map fun _ => .dv Srt.bool (.bool true))]))
+
+/-! ## A function-overloaded symbol in a rule's left side
+
+An overloading symbol g one of whose own overloads is a function of the definition
+(`Semantics.fnOvlSyms`) denotes, at arguments an overload covers, the injected value of that
+function, and elsewhere its own application; matching `g(P̄)` against a value would need the
+function's inverse. A left side `C[g(P̄)]`, the hole under applications, is `∃V. C[V] ∧ V ∈ g(P̄)` in
+every interpretation, V fresh of g's sort: an application is pointwise over the elements its
+arguments hold (the cut, `KCore.cut_identity`). With V not in the right side or the `ensures`,
+`(∃V. C[V] ∧ V ∈ g(P̄)) ∧ req → •R` is `∀V. (C[V] ∧ req ∧ V ∈ g(P̄) → •R)`. So the reader reads the
+application as a fresh variable V and conjoins `V ∈ g(P̄)` to the rule's `pre` (`Cond.mem`, whose
+term is evaluated, not matched): the left side so read applies no function-overloaded symbol.
+Outermost applications are cut, left to right; an inner one stays in the term. An application whose
+arguments hold `#as` is not cut, since an `#as` names a matched subterm and the cut's term is not
+matched: it stays in the left side, refused (`functionInPattern`). The variables of P̄ that the rest of
+the left side does not hold are then variables the left side does not bind, decided as any such
+(`rulesPlain`; `openRefusal` names the symbol). -/
+
+mutual
+  /-- `t` with each outermost application of a symbol of `cs` whose arguments hold no `#as`
+  replaced by a fresh variable numbered from `n`: the term, the next number, and each fresh
+  variable with the symbol's result sort's name and the application it stands for, left to
+  right. -/
+  def cutOvlApps (cs : List (Sym × String)) (n : Nat) : Term → Term × Nat × List (Nat × String × Term)
+    | .app f ts => match cs.lookup f with
+      | some X => if asFreeList ts then (.var n, n + 1, [(n, X, .app f ts)]) else (.app f ts, n, [])
+      | none => let (ts', m, xs) := cutOvlAppsList cs n ts; (.app f ts', m, xs)
+    | .inj a b t => let (t', m, xs) := cutOvlApps cs n t; (.inj a b t', m, xs)
+    | .as t i => let (t', m, xs) := cutOvlApps cs n t; (.as t' i, m, xs)
+    | t => (t, n, [])
+    termination_by structural t => t
+  /-- `cutOvlApps` on each term of `ts`, the numbers continuing. -/
+  def cutOvlAppsList (cs : List (Sym × String)) (n : Nat) :
+      List Term → List Term × Nat × List (Nat × String × Term)
+    | [] => ([], n, [])
+    | t :: ts =>
+      let (t', m, xs) := cutOvlApps cs n t
+      let (ts', m', xs') := cutOvlAppsList cs m ts
+      (t' :: ts', m', xs ++ xs')
+    termination_by structural ts => ts
+end
+
+/-- The conjunction of the conditions, `\top` for none. -/
+def ovlCutConj : List Cond → Cond
+  | [] => .top
+  | [p] => p
+  | p :: ps => .and p (ovlCutConj ps)
+
+/-- A rule's left side `lhs` and its variables `vs`, read with each application of a
+function-overloaded symbol (`Names.ovlCutSyms`) cut (`cutOvlApps`): the left side, the variables with
+the fresh ones after them (`Ovl0`, `Ovl1`, …, primed until new), and the conjunction of the
+memberships `V ∈ g(P̄)` of the fresh variables in their applications, `\top` where nothing is cut. -/
+def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
+  match N.ovlCutSyms with
+  | [] => pure (lhs, vs, .top)
+  | cs => match cutOvlApps cs vs.length lhs with
+    | (_, _, []) => pure (lhs, vs, .top)
+    | (lhs', _, xs) => do
+      let vs' := xs.foldl (fun acc (_, X, _) =>
+        acc ++ [⟨freshName acc (acc.length + 1) ("Ovl" ++ toString (acc.length - vs.length)), X⟩]) vs
+      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
+      pure (lhs', vs', ovlCutConj mems)
 
 /-! ## Connectives with a term's reading
 
@@ -2622,6 +2694,9 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
     let (lhs, vs, req) ← keyCut N lhs vs req
+    -- an application of a function-overloaded symbol in the left side: a fresh variable, its
+    -- membership in the application a conjunct of `pre` (`ovlCut`)
+    let (lhs, vs, pre) ← ovlCut N lhs vs
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
@@ -2631,7 +2706,7 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     let prio := match explicit with
       | some n => n
       | none => if plain.contains "owise" then 200 else 50
-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs },
+    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
            plain.filter (· != "owise"), explicit.isSome,
            a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -2653,7 +2728,7 @@ body under the binders are read, or refused, as those of the axiom without binde
 read by the sentence's scoping: one whose name the left side or the `requires` holds is renamed
 apart (`rhsApart`, `ReadingNote.existsRenamedApart`), and one that binds nothing is dropped
 (`exKept`, `ReadingNote.existsDropped`); no binder is refused. -/
-def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+def ruleBodyRead (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   match a.pattern with
   | .rewrites s (.and s' [l, r0]) rx =>
     match peelExists (rhsApart a.pattern l r0 rx) with
@@ -2680,6 +2755,148 @@ where
         (aliasIsIdentity); not read as its argument"
     else fail .ruleShape
   | _ => fail .ruleShape
+
+/-! ## A set variable in a rewrite axiom
+
+A set variable `@S` of sort s ranges over every set of elements of s, and an axiom holding it holds
+at each. Where `@S` stands in the left side and the right side under applications only (in neither
+the `requires` nor the `ensures`, under no other connective), each side at S is the union of its
+instances at one element of S per occurrence, an application being pointwise over the elements its
+arguments hold. A configuration the left side matches at S is matched at the set of the elements of
+one choice ā, one per left occurrence, and the right side at that set is contained in the right side
+at S. So the axiom at every S is its instance at those sets:
+`∀ā. L[ā] → •∃z̄. R[z̄] ∧ ⋀ⱼ ⋁ᵢ zⱼ ∈ aᵢ`, one variable aᵢ per left occurrence and one zⱼ per right
+occurrence (`KCore.setvar_rewrite_singleton`, stated on denotations in every interpretation). The rule
+is read so (`svRewrite?`): each left occurrence a fresh variable, each right occurrence a fresh
+existential variable of the rule (`exs`), and `post` the conjunction, over the right occurrences, of
+the disjunction, over the left ones, of the memberships `zⱼ ∈ aᵢ`. With no right occurrence `post` is
+`\top` and the rule is `L[ā] → •R`.
+
+Refused (`setVariable`, the detail saying why): a set variable in the `requires` or the `ensures`,
+whose truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every
+subset of the sort; one under a connective that is no application, or in a right side under
+`\exists`, which the reading does not cover; one in the right side and not in the left, where the
+right side at the empty set is empty and the axiom states that its left side matches nothing; and
+two set variables or more, which the reading, stated for one, does not cover. -/
+
+mutual
+  /-- The first connective other than an application above an occurrence of a set variable in `p`,
+  `none` where every occurrence stands under applications only. -/
+  def svConn? : Kore.Pattern → Option String
+    | .var (.svar _) => none
+    | .app _ _ ps => svConnList? ps
+    | p => if (svarsOf_svin (varsOf_svin p)).isEmpty then none else some (connective p)
+    termination_by structural p => p
+  def svConnList? : List Kore.Pattern → Option String
+    | [] => none
+    | p :: ps => (svConn? p).orElse fun _ => svConnList? ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- `p` with each occurrence of a set variable under applications replaced by the element
+  variable `mk i`, numbered from `n` left to right; the pattern and the next number. -/
+  def svReplace (mk : Nat → Kore.EVar) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat
+    | .var (.svar _) => (.var (.evar (mk n)), n + 1)
+    | .app h ss ps => let (ps', m) := svReplaceList mk n ps; (.app h ss ps', m)
+    | p => (p, n)
+    termination_by structural p => p
+  def svReplaceList (mk : Nat → Kore.EVar) (n : Nat) : List Kore.Pattern → List Kore.Pattern × Nat
+    | [] => ([], n)
+    | p :: ps =>
+      let (p', m) := svReplace mk n p
+      let (ps', m') := svReplaceList mk m ps
+      (p' :: ps', m')
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- Whether `p` holds a `\mu` or `\nu` binder. -/
+  def svFix : Kore.Pattern → Bool
+    | .mu _ _ | .nu _ _ => true
+    | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => svFixList ps
+    | .not _ p | .next _ p | .ceil _ _ p | .floor _ _ p | .exist _ _ p | .forall _ _ p => svFix p
+    | .implies _ p q | .iff _ p q | .equals _ _ p q | .in _ _ p q | .rewrites _ p q => svFix p || svFix q
+    | .var _ | .string _ | .top _ | .bottom _ | .dv _ _ => false
+    termination_by structural p => p
+  def svFixList : List Kore.Pattern → Bool
+    | [] => false
+    | p :: ps => svFix p || svFixList ps
+    termination_by structural ps => ps
+end
+
+/-- The disjunction of the conditions, `\bottom` for none. -/
+def svDisj : List Cond → Cond
+  | [] => .bot
+  | [p] => p
+  | p :: ps => .or p (svDisj ps)
+
+/-- A rewrite axiom `\rewrites(\and(l, req), rhs)` holding a set variable, read as the block above
+says: the axiom with each left occurrence the fresh variable `Var<S>'Hash'L<i>`, and each right
+occurrence the fresh variable `Var<S>'Hash'R<j>` bound by `\exists` around the right side, with the
+set variable and the names (without `Var`) of the left and of the right variables; `.error` with the
+refusal's detail where the reading does not cover the axiom; `none` for an axiom holding no set
+variable, holding a `\mu` or `\nu` binder (whose set variable is bound; the connective is refused
+as such), or of another form. -/
+def svRewrite? (a : Kore.Axiom) :
+    Option (Except String (Kore.Axiom × Kore.SVar × List String × List String)) :=
+  match a.pattern with
+  | .rewrites s (.and s' [l, r0]) rx =>
+    let holds := fun (p : Kore.Pattern) => !(svarsOf_svin (varsOf_svin p)).isEmpty
+    match if svFix a.pattern then [] else svarsOf_svin (varsOf_svin a.pattern) with
+    | [] => none
+    | X :: xs => some (
+      let n := X.var.ident.name
+      let why := "its truth at a larger set is not entailed by its truth at a smaller one, so the \
+        sentence reads every subset of the sort"
+      let uncovered := "the axiom is read through its instances at one element per occurrence only \
+        where every occurrence stands under applications"
+      if !(xs.all fun Y => decide (Y = X)) then
+        .error s!"{n}: one of two set variables or more: the reading is stated for one"
+      else if holds r0 then .error s!"{n}: in the requires: {why}"
+      else match peelExists rx with
+        | (bs, .and s'' [r, en]) =>
+          if holds en then .error s!"{n}: in the ensures: {why}"
+          else match svConn? l, svConn? r with
+            | some c, _ => .error s!"{n}: under {c} in the left side: {uncovered}"
+            | none, some c => .error s!"{n}: under {c} in the right side: {uncovered}"
+            | none, none =>
+              let base := (dropPrefix? "Var" n).getD n
+              let used := evarNames a.pattern
+              let mk := fun (side : String) (i : Nat) =>
+                KoreAML.evar (freshIn used (used.length + 1) s!"Var{base}'Hash'{side}{i}") X.sort
+              let (l', nl) := svReplace (mk "L") 0 l
+              let (r', nr) := svReplace (mk "R") 0 r
+              let name := fun (x : Kore.EVar) => (dropPrefix? "Var" x.var.ident.name).getD x.var.ident.name
+              if nl == 0 then
+                .error s!"{n}: in the right side and not in the left: the right side at the empty set \
+                  is empty, so the axiom states that its left side matches nothing"
+              else if nr != 0 && !bs.isEmpty then
+                .error s!"{n}: in a right side under \\exists: {uncovered}"
+              else
+                let zs := (List.range nr).map (mk "R")
+                let rx' := if nr == 0 then rx else zs.foldr (fun z p => .exist s'' z p) (.and s'' [r', en])
+                .ok ({ a with pattern := .rewrites s (.and s' [l', r0]) rx' }, X,
+                  (List.range nl).map (name ∘ mk "L"), zs.map name)
+        | (_, p) => .error s!"{n}: under {connective p} in the right side: {uncovered}")
+  | _ => none
+
+/-- A rewrite axiom's rule (`ruleBodyRead`), a set variable read where `svRewrite?` reads it: the
+axiom it gives is read, and `post` gains, for each right variable, the disjunction of its
+memberships in the left variables. Where `svRewrite?` refuses the axiom, it is refused
+`setVariable` with its detail. -/
+def ruleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+  match svRewrite? a with
+  | none => ruleBodyRead N msrc a
+  | some (.error d) => fail .setVariable d
+  | some (.ok (a', X, ls, rs)) => do
+    let (r, p) ← ruleBodyRead N msrc a'
+    let s ← N.sortE X.sort
+    let idx := fun (x : String) => need (p.names.idxOf? x) .setVariable x
+    let ais ← ls.mapM idx
+    let zis ← rs.mapM idx
+    let post := ovlCutConj (zis.map fun z => svDisj (ais.map fun i => Cond.mem s (.var z) (.var i)))
+    pure ({ r with post := if r.post.isTop then post else .and r.post post }, p)
 
 /-- The rule of a rewrite axiom. -/
 def ruleOf (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
@@ -4142,6 +4359,14 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
                                | F, E => some (f, s!"{σ}: declared without " ++ " and ".intercalate
                                    ((if F then [] else ["its functional axiom"]) ++
                                     (if E then [] else [s!"((K1 {σ} K2) = true) = (K1 = K2)"]))) }
+  -- the overloading symbols one of whose own overloads is a function of the definition, with
+  -- their result sorts (`ovlCut`)
+  let ovlCutSyms := ovlDecls.filterMap fun (d : Kore.SentenceSymbol) =>
+    match (ovlOver d.symbol.ident.ident.name).any (fnNames.contains ·), N.sym? d.symbol.ident.ident.name,
+        sortName? d.sort with
+    | true, some g, some X => some (g, X)
+    | _, _, _ => none
+  let N : Names := { N with ovlCutSyms := ovlCutSyms }
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))

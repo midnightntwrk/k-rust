@@ -2985,9 +2985,108 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
           (single_sorts ((inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2)) hU
           (fun covs h => by simp [ovlArgsOf] at h) (fun m => by rw [hset]; exact (hvset m).symm)
 
+/-- **A function-covered application in a model.** An overloading symbol applied to the elements
+of values of its argument sorts that the function overload `kg` covers is what `kg` applied to the
+elements of the stripped arguments is, lifted to the symbol's result sort: by the overload's
+equation, which `Γ` holds of every overload, a function's too. Where the function's application
+denotes nothing, so does the symbol's. -/
+theorem covDen_of {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {r : Option GroundTerm}
+    (hlo : c.lookupOvl f = some o) (hws : c.sortsOf ws = some o.sig.args) (hcov : c.fnCover f ws = some kg)
+    (hpl : iteSort? (c.symName kg.name) = none) (hr : ∀ v, r = some v → c.sortOf v = some kg.result)
+    (e : Valuation M)
+    (hg : ∀ m, (KoreAML.den (symApp c kg.name (GroundTerm.koreList c (stripAll kg.args o.sig.args ws)))).interpret I e m ↔
+      Res c I e r m) (m : M) :
+    (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
+      Res c I e (r.map (lift kg.result o.sig.result)) m := by
+  have H : OvlLaws.OvlHyp c := hO.hyp htr
+  have F := H.fnFacts
+  obtain ⟨hom, hn, -, -, -, -⟩ := OvlLaws.ovl_facts_ovlF F hlo
+  obtain ⟨-, -, -, hplain, -⟩ := OvlLaws.ovl_parts H.ok hlo
+  obtain ⟨o', ho', hkg, -, hcv⟩ := OvlLaws.fnCover_some_parts hcov
+  rw [hlo] at ho'; cases ho'
+  obtain ⟨hlen, hle, hres, -⟩ := OvlLaws.over_ovlF F hlo hkg
+  obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+  have hus := OvlLaws.sortsOf_stripAll hlen hws hlies
+  have hwsl := (OvlLaws.liftAll_stripAll hlen hws hlies).symm
+  have hsym : KoreAML.den (symApp c f (GroundTerm.koreList c ws)) = den c (.ctor f ws) := by
+    unfold symApp; rw [hplain]; rfl
+  rw [hsym, den_sig_gs hI hn hws e m]
+  generalize stripAll kg.args o.sig.args ws = us at hus hwsl hg
+  -- the function's application, as the generator `kg` at the elements of the stripped arguments
+  have hgs : ∀ x, GS I (c.sortName kg.result) (Gen.toK c (.ctor kg)) (us.map (elemOf c I)) x ↔ Res c I e r x := by
+    intro x
+    rw [← hg x]
+    have hsym' : KoreAML.den (symApp c kg.name (GroundTerm.koreList c us)) = den c (.ctor kg.name us) := by
+      unfold symApp; rw [hpl]; rfl
+    rw [hsym', den_sig_gs hI rfl hus e x]
+  have hax := sat_cons hI (Or.inl ⟨_, ovlEqItem_mem hom hkg, rfl⟩)
+  have hname : ∀ A ∈ kg.result :: kg.args, ∀ B ∈ o.sig.result :: o.sig.args,
+      A ≠ B → c.sortName A ≠ c.sortName B := fun A hA B hB hne he => hne (hO.names o hom kg hkg A hA B hB he)
+  have hl2 := sortsOf_length hus
+  have key := ovlEq_at (defOK hI) (N := c.sortName o.sig.result) (N' := c.sortName kg.result) hax
+    (zs := us.map (elemOf c I)) (ys := ws.map (elemOf c I))
+    (by simp [toK, hl2]) (by simp [toK, hlen])
+    (by rw [hwsl]; simp [toK, OvlLaws.length_liftAll, hl2, hlen])
+    (elems_sorts hI hus)
+    (by
+      rw [hwsl]
+      intro i A B z y hA hB hz hy m'
+      simp only [toK, List.getElem?_map, Option.map_eq_some_iff] at hA hB hz hy
+      obtain ⟨Ai, hAi, rfl⟩ := hA
+      obtain ⟨Bi, hBi, rfl⟩ := hB
+      obtain ⟨u, hu, rfl⟩ := hz
+      obtain ⟨w, hw, rfl⟩ := hy
+      have hwu : w = lift Ai Bi u := by
+        simp only [liftAll, List.getElem?_map, Option.map_eq_some_iff, List.getElem?_zip_eq_some] at hw
+        obtain ⟨⟨⟨A', B'⟩, u'⟩, ⟨⟨h1, h2⟩, h3⟩, rfl⟩ := hw
+        rw [hAi] at h1; rw [hBi] at h2; rw [hu] at h3
+        cases h1; cases h2; cases h3; rfl
+      subst hwu
+      obtain ⟨u', hu', hsu⟩ := sortsOf_get hus hAi
+      rw [hu] at hu'; cases hu'
+      by_cases hAB : Ai = Bi
+      · subst hAB
+        simp only [beq_self_eq_true, ↓reduceIte, OvlLaws.lift_self]
+      · have hne := hname Ai (List.mem_cons_of_mem _ (List.mem_of_getElem? hAi)) Bi
+          (List.mem_cons_of_mem _ (List.mem_of_getElem? hBi)) hAB
+        have hsub : (Ai, Bi) ∈ c.subsorts := by
+          obtain ⟨i', hi'⟩ : ∃ h : i < kg.args.length, kg.args[i] = Ai := List.getElem?_eq_some_iff.mp hAi
+          obtain ⟨i'', hi''⟩ : ∃ h : i < o.sig.args.length, o.sig.args[i] = Bi := List.getElem?_eq_some_iff.mp hBi
+          have := (OvlLaws.zip2_all_iff.mp hle) i i' i''
+          rw [hi', hi''] at this
+          exact OvlLaws.mem_of_le this hAB
+        simp only [beq_iff_eq, hne, ↓reduceIte, OvlLaws.lift_ne hAB]
+        rw [← den_injNormal_gs hI htr hsub hsu KoreAML.val0 m']
+        exact (elemOf_spec hI (sortOf_injNormal htr hsub hsu) KoreAML.val0).1 m') m
+  refine key.trans ?_
+  by_cases hRR : kg.result = o.sig.result
+  · simp only [toK, hRR, beq_self_eq_true, ↓reduceIte, OvlLaws.lift_self]
+    rw [hRR] at hgs
+    refine (hgs m).trans ?_
+    cases r with
+    | none => exact Iff.rfl
+    | some v => rw [Option.map_some, OvlLaws.lift_self]
+  · have hne := hname _ (List.mem_cons_self ..) _ (List.mem_cons_self ..) hRR
+    have hsub : (kg.result, o.sig.result) ∈ c.subsorts := OvlLaws.mem_of_le hres hRR
+    simp only [toK, beq_iff_eq, hne, ↓reduceIte]
+    cases r with
+    | none =>
+      simp only [Option.map_none, Res, iff_false]
+      rintro ⟨x, hx, -⟩
+      exact (hgs x).mp hx
+    | some v =>
+      have hv := hr v rfl
+      simp only [Option.map_some, Res, OvlLaws.lift_ne hRR]
+      rw [den_injNormal_gs hI htr hsub hv e m]
+      have hx : ∀ x, GS I (c.sortName kg.result) (Gen.toK c (.ctor kg)) (us.map (elemOf c I)) x ↔ x = elemOf c I v :=
+        fun x => (hgs x).trans ((elemOf_spec hI hv e).1 x)
+      exact ⟨fun ⟨x, hx', hm⟩ => by rw [(hx x).mp hx'] at hm; exact hm,
+        fun hm => ⟨_, (hx _).mpr rfl, hm⟩⟩
+
 /-- **Every model of `Γ` reads the overloading symbols by their normal forms** at arguments no
-function overload covers (`NormDen`). -/
+function overload covers, and by the covering function's value at the others (`NormDen`). -/
 theorem normDen_of : NormDen c I := by
+  refine ⟨?_, fun hlo hws hcov hpl hr e hg m => covDen_of hI htr hlo hws hcov hpl hr e hg m⟩
   intro f o ws hlo hws hnf e m
   have H : OvlLaws.OvlHyp c := hO.hyp htr
   obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo

@@ -20,6 +20,8 @@ import KcoreSpec.SatRulePP
 import KcoreSpec.ExConsistent
 import KcoreSpec.CondTwoTables
 import KcoreSpec.CondKoreVars
+import KcoreSpec.ModelFnsPre
+import KcoreSpec.ClausePreFn
 
 set_option autoImplicit false
 
@@ -364,16 +366,17 @@ open ML Faithful Faithful.Model
 /-- **The value model at a transition T is a model of `Γc` with the step's closure**, for rules with
 `ruleSorted` and `rulePlainPP`: `stdI_T_model` with `StepV` for `StepM` in `hsub` and `StepVBy` for
 `StepMBy` in `hall` and `hsome`, and `stdI_T_model`'s `hl` (the open generators' laws hold in the
-value model). -/
-theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
+value model), where the value model satisfies the functions' equations (`hFns`). -/
+theorem stdI_T_model_pp_fns (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
     (T : GroundTerm → GroundTerm → Prop)
+    (hFns : stdI_T c T ⊧ᴵP ΓFns c)
     (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
     (hall : ∀ r σ x y, StepVBy c r σ x y → r.exs = [] → T x y)
     (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) := by
-  obtain ⟨hSig, hCons, hDom, hColls, hFns, hFb, hBool⟩ := model_parts_T hm h hl T
+  obtain ⟨hSig, hCons, hDom, hColls, -, hFb, hBool⟩ := model_parts_T hm h hl T
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
@@ -388,16 +391,36 @@ theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore
     exact hBool hl
   · exact satStepGoal_pp hm hrules T hsub φ hφ
 
+/-- `stdI_T_model_pp_fns` with the functions' equations by `model_parts_T`. -/
+theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
+    (T : GroundTerm → GroundTerm → Prop)
+    (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
+    (hall : ∀ r σ x y, StepVBy c r σ x y → r.exs = [] → T x y)
+    (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
+       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
+    stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) :=
+  stdI_T_model_pp_fns c h hm hl hrules T (model_parts_T hm h hl T).2.2.2.2.1 hsub hall hsome
+
 /-- **The theory of a definition whose rules have `pre` and `post` is consistent**: for a semantics
-that `coreOK` accepts, whose functions have at most one result (`FnDet`) and whose evaluation
-solves the equations (`FnSolves`), whose open generators' laws hold in the value model (`OpenLaws`,
-as `consistent_open` asks), and whose rules have `ruleSorted` and `rulePlainPP`, `Γc c` with
-the step's closure has a model: the value model at its own step, `stdI_T c (StepV c)`. No function
-is asked to terminate and no condition to have a truth value. -/
-theorem consistent_pp (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c)
+that `coreOK` accepts, whose functions have at most one result (`FnDet`), whose evaluation
+solves the equations (`FnSolves`) and whose clauses' predicates have a truth value wherever their
+patterns match (`ClausePreDecided`), whose open generators' laws hold in the value model
+(`OpenLaws`, as `consistent_open` asks), and whose rules have `ruleSorted` and `rulePlainPP`,
+`Γc c` with the step's closure has a model: the value model at its own step,
+`stdI_T c (StepV c)`, which satisfies each clause's equation with its predicate in the premise
+(`satFnsGoalPre`). No function is asked to terminate and no condition of a rule to have a truth
+value. -/
+theorem consistent_pp (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
+    (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true) : Consistent c :=
+  have hm := hypModel_of_fn h hd hs
   ⟨Elem, inferInstance, stdI_T c (StepV c),
-    stdI_T_model_pp c h (hypModel_of_fn h hd hs) hl hrules (StepV c) (fun _ _ _ _ hT => hT)
+    stdI_T_model_pp_fns c h hm hl hrules (StepV c)
+      (AtT.satFnsGoalPre hm
+        (Semantics.sortedOK_preOK (Semantics.coreOK_parts h).1)
+        (fun fn hfn cl hcl σ ws hσ hpv _ => hp fn hfn cl hcl σ ws (hσ.at _) hpv))
+      (fun _ _ _ _ hT => hT)
       (fun r σ _ _ hb _ => ⟨r, σ, hb⟩) (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩)⟩
 
 /-! ## `StepBy` and `StepVBy` -/

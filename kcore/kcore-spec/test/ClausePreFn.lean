@@ -288,6 +288,13 @@ theorem solved : (∀ v, Eval c G [iv 0] (some v) ↔ v = iv 0) ∧ (∀ v, Eval
   · cases h.1; rfl
   · subst h; exact ⟨.dv, (fun _ h => nomatch h)⟩
 
+/-! ## The semantics that shows `FnSolves` cannot be dropped meets `ClausePreDecided` -/
+
+/-- `FnSolvesWitness.c` has `coreOK`, `FnDet` and `OpenLaws` and no model of its theory; it meets
+`ClausePreDecided` too, its clauses' predicates being `⊤`, so of `consistent_of`'s hypotheses it
+lacks `FnSolves` alone. -/
+example : ClausePreDecided FnSolvesWitness.c := clausePreDecided_of_isTop (by decide +kernel)
+
 /-! ## Axioms -/
 
 /-- info: 'KCore.ClausePreFn.fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/

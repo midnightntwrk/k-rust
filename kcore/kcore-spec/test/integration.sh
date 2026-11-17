@@ -36,9 +36,9 @@
 #   agree       `kcore agree` over test/agree.jsonl, the cases built from the reference backends' cached
 #               results (test/agree.sh, test/agree.expected; after corpus, whose extraction holds
 #               the cases' definitions)
-#   agree-kore-in-k  `kcore agree` over test/agree-kore-in-k.jsonl, the kore-in-k corpus's 49 cases
-#               against each backend's recorded finals (test/agree-kore-in-k.py builds the case file
-#               and the kompiled texts in .lake/kore-in-k; test/agree-kore-in-k.expected);
+#   agree-kore-in-k  `kcore agree` over kk/agree-kore-in-k.jsonl, the kore-in-k corpus's 49 cases
+#               against each backend's recorded finals (kk/agree-kore-in-k.py builds the case file
+#               and the kompiled texts in .lake/kore-in-k; kk/agree-kore-in-k.expected);
 #               `skipped` (neither ok nor red) when .lake/kore-in-k is absent: the texts are built
 #               from a corpus outside this tree (test/README.md, "The kore-in-k corpus")
 #   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
@@ -140,7 +140,7 @@ axiomsPackages() {
 }
 agreeKoreInK() {
   [ -d .lake/kore-in-k ] || { echo "texts not built"; return 77; }
-  test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected
+  test/agree.sh kk/agree-kore-in-k.jsonl kk/agree-kore-in-k.expected
 }
 predSorted() {
   [ -d .lake/regen/peano ] || { echo "no regenerated peano (test/regen.sh)"; return 1; }

@@ -1,7 +1,7 @@
 id = "c10-strict-ite"
 kind = "case"
 subject = "#if with a branch that has no value, in the right side of a rule beside a rule of larger priority number whose requires has an andBool operand with no value: what #if denotes there, and whether a(0) is final."
-retro = ["H1"]
+retro = ["H1", "R1"]
 rests_on = ["kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t32-keq-ite"]
 
 [text]
