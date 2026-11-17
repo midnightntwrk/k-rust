@@ -2174,7 +2174,7 @@ end {ns}
   -- Facts: termination, with and without the tie
   let termNamed := c.orderObligations ++ d.cert.obligations c
   let okAllT := if exec then "(Semantics.okAll_of_ok ok)" else "okAll"
-  let termHooks := if !hasParams then "" else if termNamed.isEmpty then s!"
+  let termHooks := if termNamed.isEmpty then s!"
 
 /-- Every function terminates, for every interpretation of the parameters. -/
 theorem terminates_withHooks (H : HookParams) : ∀ f, Terminates (c.withHooks H) f :=
@@ -2210,7 +2210,7 @@ of its argument sorts), the sort predicates among them, given the named ones' to
 theorem totals{termHyp} (htot : ∀ g ∈ ({totNamed} : List Sym), Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   totals_of_order {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) {termArg} (by rw [named_totals]; exact htot)"
-  let totHooks := if !hasParams then "" else if totNamed.isEmpty then s!"
+  let totHooks := if totNamed.isEmpty then s!"
 
 /-- Every function declared `[total]` is total, for every interpretation of the parameters. -/
 theorem totals_withHooks (H : HookParams){termHypH} :
