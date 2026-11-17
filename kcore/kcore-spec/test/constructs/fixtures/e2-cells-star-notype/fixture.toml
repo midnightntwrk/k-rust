@@ -1,0 +1,6 @@
+expect = "error"
+observed = """
+A cell of multiplicity * with no type attribute (<bt multiplicity="*"> 0 </bt>): kompile reads it as
+a cell bag and rejects it ('Cell bags are only supported on the Java backend ... add the attribute
+type="Set"', exit 113).
+"""

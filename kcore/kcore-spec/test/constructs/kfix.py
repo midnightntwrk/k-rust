@@ -42,6 +42,10 @@ A fixture directory holds its K text(s) and fixture.toml:
            Source in the fixture or matching one of these are written
   args     the whole command line after kompile instead of `--backend haskell EXTRA MAIN -o out`
            (an option that writes no definition, such as --help)
+  pre      a kompile command line run first in the same directory (its exit code and output are
+           recorded); pre_copy [FROM, TO]: then FROM, a file it wrote, is copied to TO, which the
+           main command reads (a definition given in another input form, such as the JSON
+           `--emit-json` writes, read back under `--outer-parsed-json`)
   left_lines  [FIRST, LAST], for an error fixture: when kompile leaves out/definition.kore, its
            size and sha256 go into kompile.txt and kore.txt holds those lines of it (paths
            replaced), each after a line `//@ line N` (a text a backend rejects, such as at the
@@ -453,11 +457,23 @@ def run(name):
     args = c["args"] if "args" in c else ["--backend", "haskell", *c["extra"], c["main"], "-o", "out"]
     cmd = ["kompile", *args]
     t0 = time.time()
+    pre = []
+    if "pre" in c:
+        q = subprocess.run([*WRAP, "timeout", "900", KOMPILE, *c["pre"]], cwd=src, capture_output=True,
+                           text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
+        pre = [f"pre: kompile {' '.join(c['pre'])}  (cwd: the fixture directory)", f"pre exit: {q.returncode}"]
+        if "pre_copy" in c:
+            fr, to = c["pre_copy"]
+            ok_copy = os.path.exists(os.path.join(src, fr))
+            if ok_copy:
+                shutil.copy(os.path.join(src, fr), os.path.join(src, to))
+            pre.append(f"pre_copy: {fr} -> {to}" + ("" if ok_copy else f": {fr} not written"))
+        pre += ["pre output:"] + ["  " + l for l in norm(q.stdout + q.stderr, src).strip().split("\n")[:40]]
     p = subprocess.run([*WRAP, "timeout", "900", KOMPILE, *args], cwd=src, capture_output=True,
                        text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
     secs = time.time() - t0
     out = norm(p.stdout + p.stderr, src)
-    rep = [f"command: {' '.join(cmd)}  (cwd: the fixture directory)", f"exit: {p.returncode}",
+    rep = [*pre, f"command: {' '.join(cmd)}  (cwd: the fixture directory)", f"exit: {p.returncode}",
            f"seconds: {secs:.1f}", *ext]
     kp = os.path.join(src, "out/definition.kore")
     for f in ("kore.txt", "account.txt"):
