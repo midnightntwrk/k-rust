@@ -5,6 +5,7 @@ subject = "Two constructor productions of one sort, a(Int) and b(Int): whether a
 [text]
 files = ["t228-ctor-distinct.k"]
 kompile = "accepts"
+frontend = "as-ruled"
 
 [ruling]
 status = "settled"
@@ -45,3 +46,15 @@ quote = "The reasoning behind this is that instead of the symbol in question bei
 source = "manual"
 locator = "docs/user_manual.md:381-390 (K 7.1.337)"
 quote = "That is, a term from production `P` is a restriction of one from production `Q`; when its arguments are more precise, we can give the result a more precise sort."
+
+[[observe]]
+file = "kore.txt"
+contains = "axiom{}\\not{SortT{}} (\\and{SortT{}} (Lbla{}(X0:SortInt{}), Lblb{}(Y0:SortInt{}))) [constructor{}()] // no confusion different constructors"
+
+[[observe]]
+file = "kore.txt"
+contains = "axiom{}\\implies{SortT{}} (\\and{SortT{}} (Lbla{}(X0:SortInt{}), Lbla{}(Y0:SortInt{})), Lbla{}(\\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}))) [constructor{}()] // no confusion same constructor"
+
+[[note]]
+implementation = "kompile"
+text = "kompile writes the two no-confusion sentences of the ruling as axioms (kore.txt:60, 62, 68), and also a no-junk axiom, every element of T an a(x) or a b(x) (kore.txt:86), which no sentence of the K text this entry cites states and which the ruling does not use."
