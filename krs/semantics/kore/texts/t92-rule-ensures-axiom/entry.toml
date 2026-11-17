@@ -1,0 +1,73 @@
+id = "t92-rule-ensures-axiom"
+kind = "text"
+subject = "A rewrite rule with a requires and an ensures clause: what the sentence the K text gives states, and where each of the two conditions stands in it."
+retro = ["R3"]
+rests_on = ["kk:t01-rule-applies", "kk:t05-rule-ensures-result"]
+
+[text]
+files = ["t92-rule-ensures-axiom.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives a(0) ~> K no successor by the rule (user_manual.md:1159-1173); the axiom kompile writes has the ensures as a conjunct of its right side (kore.txt:96-98), and read as a rewrite axiom it is false in every model where a(0) ~> K in the k cell is an element: as written the text has no model holding it, rather than one where it has no successor."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The rule represents the transition from a(x) ~> K with x >=Int 0 true to b(x -Int 1) ~> K with x >Int 0 true: the requires is a condition on the configuration the rule starts from, and the ensures a condition on the configuration it ends in. Where x < 0 the rule does not apply; where x > 0 it steps a(x) ~> K to b(x - 1) ~> K; at x = 0 it applies and gives no successor."
+reason = """
+(1) The transition a rule represents is from a state LHS #And REQ ending in a state RHS #And ENS (user_manual.md:1166-1173): here from a(X) ~> K #And X >=Int 0 to b(X -Int 1) ~> K #And X >Int 0. So the requires stands with the left side and the ensures with the right side.
+(2) Where the requires does not evaluate to true, at x < 0, the rule does not apply and gives no step (kk:t01-rule-applies; user_manual.md:1154-1157).
+(3) Where the requires is true, the rule applies; where the ensures is then true, at x > 0, the result is b(x -Int 1) ~> K (domains.md:1238, 1324-1325), and where it is not, at x = 0, the result has no value and the rule has applied all the same, giving no successor (kk:t05-rule-ensures-result; user_manual.md:1159-1163).
+(4) The written sentence states more than (3) at x = 0: [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "Finally is the *ensures clause*, represented here as `ENS`. The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case. Note that concrete backends (eg. the LLVM backend) are free to ignore the ensures clause."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = '''The rule is one axiom \rewrites(\and(L, \equals(X >=Int 0, true)), \and(R, \equals(X >Int 0, true))) at the top cell sort (kore.txt:89-99): the requires is the conjunct \equals of the left side, at sort Bool (kore.txt:92-94), and the ensures the conjunct \equals of the right side (kore.txt:96-98). At X < 0 the left side denotes nothing and the axiom asks nothing; at X > 0 every instance of the left side has a successor among b(X -Int 1) ~> K; at X = 0 the right side denotes nothing, so the axiom holds only where that instance of its left side has no element: a is a constructor with a functional axiom (kore.txt:58), and the written sentence has no model in which a(0) ~> K in the k cell is an element.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:92-94"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-Eqls'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true"))),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:96-98"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true"))))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:882-883 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lbl'Unds-GT-Eqls'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")),'''

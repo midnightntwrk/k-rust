@@ -56,7 +56,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT
     c.symName nCell = "Lbl'-LT-'n'-GT-'" ∧ c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r2 : Rule := c.rules[2]'(by decide +kernel)
 
@@ -241,7 +241,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT
     c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 

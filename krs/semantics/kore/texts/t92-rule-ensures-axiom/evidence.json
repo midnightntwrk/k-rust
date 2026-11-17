@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t92-rule-ensures-axiom.k": "6eb003e9a74301260a2a677d0be67547b5db3a2e1e1ad3f60b45ecf84d91b192"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t92-rule-ensures-axiom.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "73a7442c32077353092137007cbf40c1e60ab5456b7046f3e3a50bdd82330bce",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

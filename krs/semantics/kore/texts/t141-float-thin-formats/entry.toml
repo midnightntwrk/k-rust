@@ -1,0 +1,48 @@
+id = "t141-float-thin-formats"
+kind = "text"
+subject = "Float formats pNxM with a precision or an exponent width of 1 (p1x8, p24x1): whether they are formats like any other."
+retro = ["FL2"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1474-1476 (K 7.1.337)", quote = "and an integer. The expoennt is followed by an optional suffix, which can be either `f`, `F`, `d`, `D`, or `pNxM` where `N` and `M` are positive integers. `p` and `x` can be either upper or lowercase." }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A format pNxM with N = 1 or M = 1 is a format like any other: a literal with that suffix has a value, Infinity and NaN have a literal at it, and each operation is stated at its data where it is stated at the data of any format; isNaN(NaNp1x2) is true. What depends on the data of such a format alone (a tie between two data at p = 1, maxValueFloat(1, 1), minValueFloat(1, 1)) is not ruled by this entry."
+reason = '''
+(1) The suffix pNxM names N bits of precision and M bits of exponent, N and M positive integers (domains.md:1474-1476, 1486-1488). 1 is a positive integer.
+(2) The value of a literal is given for every suffix (1478-1483), and the tokens Infinity and NaN take every suffix (1496-1497).
+(3) No sentence of an operation of the section names a format or excludes one: each speaks of a float, or of two floats.
+(4) isNaN checks whether a Float value is Not-a-Number (1541, 1544): at NaNp1x2 it is true.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1474-1476 (K 7.1.337)"
+quote = "and an integer. The expoennt is followed by an optional suffix, which can be either `f`, `F`, `d`, `D`, or `pNxM` where `N` and `M` are positive integers. `p` and `x` can be either upper or lowercase."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1484-1488 (K 7.1.337)"
+quote = "A suffix of `f` or `f` represents the IEEE `binary32` format. A suffix of `d` or `D`, or no suffix, represents the IEEE `binary64` format. A suffix of `pNxM` (either upper or lowercase) specifies exactly `N` bits of precision and `M` bits of exponent. The number of bits of precision is assumed to include any optional `1` that precedes the IEEE 754 mantissa. In other words, `p24x8`"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1478-1490 (K 7.1.337)"
+quote = "The value of a floating-point literal is computed as follows: First the mantissa is read as a rational number. Then it is multiplied by 10 to the power of the exponent, which is interpreted as an integer, and defaults to zero if it is not present. Finally, it is rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type, with the number of bits of precision and exponent specified by the suffix. A suffix of `f` or `f` represents the IEEE `binary32` format. A suffix of `d` or `D`, or no suffix, represents the IEEE `binary64` format. A suffix of `pNxM` (either upper or lowercase) specifies exactly `N` bits of precision and `M` bits of exponent. The number of bits of precision is assumed to include any optional `1` that precedes the IEEE 754 mantissa. In other words, `p24x8` is equal to the IEEE `binary32` format, and `p53x11` is equal to the IEEE `binary64` format."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1496-1497 (K 7.1.337)"
+quote = 'syntax Float ::= r"[\\+\\-]?Infinity([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(3)] syntax Float ::= r"NaN([fFdD]|([pP][0-9]+[xX][0-9]+))?" [token, prec(3)]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1541 (K 7.1.337)"
+quote = "You can check whether a `Float` value is infinite or Not-a-Number."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1544-1545 (K 7.1.337)"
+quote = "syntax Bool ::= isNaN(Float) [function, total, smt-hook(fp.isNaN), hook(FLOAT.isNaN)] | isInfinite(Float) [function, total]"

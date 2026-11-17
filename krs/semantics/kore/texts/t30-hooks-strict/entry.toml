@@ -1,0 +1,45 @@
+id = "t30-hooks-strict"
+kind = "text"
+subject = "A hooked function (andThenBool, andBool, orBool, orElseBool, impliesBool, #if, and any other) applied to an argument that has no value, although domains.md calls andThenBool and orElseBool short-circuiting."
+retro = ["H1"]
+rests_on = ["kk:t31-int-division"]
+
+[text]
+files = ["t30-hooks-strict.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "An application of a hooked symbol to an argument that denotes nothing denotes nothing, whatever its other arguments are. So at X = 0, false andThenBool (1 /Int X ==Int 0) and false andBool (1 /Int X ==Int 0) have no value, and #if true #then 1 #else 1 /Int X #fi has none: each of a(0), b(0) and c(0) has no successor by its rule. The same holds of orBool, orElseBool, impliesBool and of each argument of #if. domains.md's short-circuiting is a statement about the order of evaluation, not about the value; whether a run of a(0) that does not evaluate the second argument answers r(false) is not a question about the value, and such an answer is no value of the theory."
+reason = """
+(1) In a model a symbol is interpreted as a function from elements to sets of elements, extended to argument sets, and the denotation of an application is that extension at the denotations of its arguments (introduction-to-matching-logic.tex:704-710, 714-716, 728-729). The extension to sets is the union over the elements of the argument sets, the only extension the notation names; so an application with an argument that denotes the empty set denotes the empty set. No sentence of a definition can change that: it is what an application denotes.
+(2) 1 /Int X has no value at X = 0 (kk:t31-int-division), so 1 /Int X ==Int 0 has none there by (1), and so has false andThenBool of it, false andBool of it, and #if true #then 1 #else 1 /Int X #fi. The text takes as its argument without a value a point domains.md states, not a user function without an equation, whose value there is another entry's question.
+(3) domains.md:1115-1117 says that andThenBool and orElseBool are short-circuiting and that andBool and orBool may be short-circuited in concrete execution. By (1) that cannot be a statement about the value at an argument without one; it is a statement about which arguments are evaluated. Where the skipped argument has a value it changes nothing of the value. Where it has none, the application has no value, and domains.md:14-17 says that invoking a function on an undefined input has undefined behaviour: a run that answers false there is within what the text allows of a run, and gives no value of the theory. domains.md:2314-2317 says of #if that it returns its second argument where the first evaluates to true, and that it does not short-circuit on symbolic execution: again a statement of evaluation.
+(4) A rule whose right side denotes nothing at the matched configuration gives that configuration no successor by the rule (the rule's reading is the entries on rules; here only the value of the right side is ruled)."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-716 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$. ... We tacitly use the same notation $\sigma_M$ for its extension to argument sets,'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:728-729 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1115-1117 (K 7.1.337)"
+quote = "Note that only `andThenBool` and `orElseBool` are short-circuiting. `andBool` and `orBool` may be short-circuited in concrete backends, but in symbolic backends, both arguments will be evaluated."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:14-16 (K 7.1.337)"
+quote = "Note that some functions in the K prelude functions are not total, that is, they are not defined on all possible input values. When you invoke such a function on an undefined input, the behavior is undefined."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2314-2317 (K 7.1.337)"
+quote = "`#if #then #else #fi` - polymorphic conditional function. If the first argument evaluates to `true`, the second argument is returned. Otherwise, the third argument is returned. Note that this does not short-circuit on symbolic backends."
+

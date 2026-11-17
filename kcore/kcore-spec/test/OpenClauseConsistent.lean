@@ -71,12 +71,12 @@ noncomputable def cE : Semantics :=
 and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `cE`. -/
 theorem shapeE : cE.ctorSigs.all (·.result != 33) = true ∧ cE.valued 33 = false ∧ clE.leftVars = [] ∧
     cE.rightValued = false ∧ cE.sortedOK = true ∧ cE.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 /-- What `consistent_ofCl` asks of `cE` beside the functions' facts, decided. -/
 theorem decidedE : cE.sortedOKCl = true ∧ cE.srReady = true ∧ cE.faithCoreOK = true ∧
     Faithful.patHooksApart cE = true ∧ cE.idsOK = true ∧ cE.ovls = [] ∧ cE.subsorts.all (fun p => p.1 != p.2) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s other conjuncts hold at `cE`. -/
 example : cE.hooksApart = true ∧ cE.predsApart = true ∧ cE.overloadsOK = true := by decide +kernel
@@ -280,12 +280,12 @@ noncomputable def cI : Semantics := { c with fns := c.fns ++ [fI], params := c.p
 /-- `clI`'s variable is outside its patterns and conditions, of Int: `rightValued` holds and
 `sortedOK` and `coreOK` hold at `cI`. -/
 theorem shapeI : clI.leftVars = [] ∧ cI.rightValued = true ∧ cI.sortedOK = true ∧ cI.coreOK = true ∧ cI.rules.length = 1 := by
-  decide +kernel
+  decide_cheap
 
 /-- What `consistent_ofCl` asks of `cI` beside the functions' facts, decided. -/
 theorem decidedI : cI.sortedOKCl = true ∧ cI.srReady = true ∧ cI.faithCoreOK = true ∧
     Faithful.patHooksApart cI = true ∧ cI.idsOK = true ∧ cI.ovls = [] ∧ cI.subsorts.all (fun p => p.1 != p.2) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s other conjuncts hold at `cI`. -/
 example : cI.hooksApart = true ∧ cI.predsApart = true ∧ cI.overloadsOK = true := by decide +kernel
@@ -387,6 +387,7 @@ theorem evalTerm_gY {σ : Subst} (hσ : cI.WellSorted clI.vars σ) {r : Option G
       rw [hv] at hvs
       simp [allSome] at hvs
   | ovl _ ho _ => rw [h4] at ho; cases ho
+  | ovlFn _ ho => rw [h4] at ho; cases ho
 
 /-- `f()` is `0`: `clI` applies under Y := 0. -/
 theorem evalF : Eval cI 391 [] (some (.dv Srt.int (.int 0))) := by

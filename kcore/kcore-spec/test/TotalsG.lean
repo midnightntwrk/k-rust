@@ -26,6 +26,7 @@
   `V(X) = V(X +Int 1) requires X >Int 0` (the counter grows), neither declared total (`tg_dec`).
 -/
 import KcoreSpec.FnObligations
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -85,7 +86,7 @@ def tg : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem tg_sorted : tg.sortedOK = true ∧ tg.srReady = true := by decide +kernel
+theorem tg_sorted : tg.sortedOK = true ∧ tg.srReady = true := by decide_cheap
 
 def ord : List Sym := [A, D, E, S, B, C, N]
 

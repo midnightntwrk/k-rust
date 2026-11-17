@@ -1,0 +1,65 @@
+id = "t100-ctor-unit"
+kind = "text"
+subject = "A constructor production with unit(.E) and no assoc: what the K text says of the unit, and what the sentences kompile writes state of it."
+retro = ["A1"]
+origin = "kcore-spec fixture c3-ctor-unit"
+
+[text]
+files = ["t100-ctor-unit.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual says that the unit attribute indicates that the production has a unit and that K generates the axioms of that concept; the kompiled text holds no unit axiom, keeps plus a constructor (injective, and with no element in common with .E or x), and carries unit{}(Lbl'Stop'E{}()) as an attribute of the symbol only."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "By the K text, the production Exp \"+\" Exp [unit(.E)] has the unit .E: for every E of sort Exp, E + .E and .E + E denote what E denotes."
+reason = """
+(1) The manual says that the unit attribute indicates that a production has a unit, and that K generates axioms related to the concept into the definition (user_manual.md:958-963). The text names .E as the unit of + (the attribute's argument). So the K text states the unit law of + with .E.
+(2) The manual's sentence names the four attributes separately and puts no condition on unit: it does not say that unit means anything only beside assoc. The production carries no assoc, and the unit law is stated all the same.
+(3) What the kompiled text states is another matter, ruled in [ruling.kore]: there the law is not stated, and its negation is."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[ruling.kore]
+statement = "The kompiled text states no unit law for Lblplus and states its negation at x. It holds no axiom that equates Lblplus{}(X, Lbl'Stop'E{}()) or Lblplus{}(Lbl'Stop'E{}(), X) with X; it declares Lblplus a constructor (kore.txt:8), states that Lblplus{}(X0, X1) and Lblx{}() have no element in common (kore.txt:28), and states Lblplus and Lblx functional (kore.txt:24, 30). So in every model plus(x, .E) and x denote two distinct elements: the written sentences entail that .E is not a right unit of plus at x. The unit{}() attribute is no sentence."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:8"
+quote = '''symbol Lblplus{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("plus"), unit{}(Lbl'Stop'E{}())]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:28"
+quote = '''axiom{}\not{SortExp{}} (\and{SortExp{}} (Lblplus{}(X0:SortExp{}, X1:SortExp{}), Lblx{}())) [constructor{}()] // no confusion different constructors'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:24"
+quote = '''axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lblplus{}(K0:SortExp{}, K1:SortExp{}))) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[observe]]
+file = "kore.txt"
+contains = "unit{}(Lbl'Stop'E{}())]"
+
+[[observe]]
+file = "kore.txt"
+absent = "// left unit"
+
+[[observe]]
+file = "kore.txt"
+absent = "// right unit"

@@ -37,9 +37,9 @@ theorem names_ok : c.symName capN = "LblcapN" ∧ c.symName capGas = "LblcapGas"
     c.sortName nS = "N" ∧ c.ovls = [⟨capSig, [capN]⟩] ∧ c.fns = [] := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 /-- `c` has no function of its own: `FnHyp` holds. -/
 theorem fnHyp : FnHyp c :=
@@ -67,12 +67,12 @@ theorem capGas_covs : Faithful.ovlArgsOf c (.ctor capSig) = some [["N"]] ∧
 /-- **Cons-Fun at uncovered arguments**, at `capGas` in the value model. -/
 theorem capGas_funUnc :
     stdI c ⊧ᴵ (KoreAML.Cons.funUncItem (c.sortName gasS) (Gen.toK c (.ctor capSig)) [["N"]]).pat :=
-  funUncItem_of_funItem _ (sat_funItem hyp gas_cons capGas_gen)
+  funUncItem_of_funItem _ (sat_funItem hyp gas_cons capGas_gen (by decide +kernel))
 
 /-- **Cons-Inj at uncovered arguments**, at `capGas` in the value model. -/
 theorem capGas_injUnc :
     stdI c ⊧ᴵ (KoreAML.Cons.injUncItem (c.sortName gasS) (Gen.toK c (.ctor capSig)) [["N"]]).pat :=
-  injUncItem_of_injItem _ (sat_injItem hyp gas_cons capGas_gen)
+  injUncItem_of_injItem _ (sat_injItem hyp gas_cons capGas_gen (by decide +kernel))
 
 /-- info: 'OvlUncItems.names_ok' depends on axioms: [propext] -/
 #guard_msgs in #print axioms names_ok

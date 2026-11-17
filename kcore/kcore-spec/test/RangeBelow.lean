@@ -49,8 +49,8 @@ def cR : Semantics :=
 
 instance : OvlOK cR := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : cR.sortedOK = true := by decide +kernel
-theorem coreOK : cR.coreOK = true := by decide +kernel
+theorem sortedOK : cR.sortedOK = true := by decide_cheap
+theorem coreOK : cR.coreOK = true := by decide_cheap
 
 theorem fnHyp : FnHyp cR :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
@@ -92,7 +92,7 @@ theorem cx_not_below : ¬ RangeBelow cx :=
 def c0 : Semantics :=
   { cx with pgmSort := Srt.k, lib := { sortsBelowKItem := [Srt.int] } }
 
-theorem c0_core : c0.coreOK = true := by decide +kernel
+theorem c0_core : c0.coreOK = true := by decide_cheap
 example : RangeBelow c0 ∧ (Srt.range, Srt.kitem) ∉ c0.subsorts := ⟨rangeBelow_of_core c0_core, by decide +kernel⟩
 
 example : mapConcat ≠ rmKeys := patternHooks_ne_rmKeys mapConcat (by decide)

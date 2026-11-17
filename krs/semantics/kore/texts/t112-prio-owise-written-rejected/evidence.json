@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "8cbe4365f297dfeaa13a29b5893f0a473127ae0ea64cd5efe63b02a3bbe28d33",
+  "t112-prio-owise-written-rejected.k": "8e0058c04ef013b93761fcd4e3d835459911f627f3fc77677331d3b7552479de"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t112-prio-owise-written-rejected.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "kore-exec: [PID] Error (ErrorException):\n    An axiom cannot have the following  combination of attributes: (Priority {getPriority = Just 40},Owise {isOwise = True},NotSimplification) Please report this error.\n    CallStack (from HasCallStack):\n      error, called at src/Kore/Attribute/Axiom.hs:304:17 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Attribute.Axiom\n      getPriorityOfAxiom, called at src/Kore/Rewrite/Rule.hs:126:24 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Rewrite.Rule\nAn axiom cannot have the following  combination of attributes: (Priority {getPriority = Just 40},Owise {isOwise = True},NotSimplification) Please report this error.\nCallStack (from HasCallStack):\n  error, called at src/Kore/Attribute/Axiom.hs:304:17 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Attribute.Axiom\n  getPriorityOfAxiom, called at src/Kore/Rewrite/Rule.hs:126:24 in kore-0.1.155-60w5LAibwEJ9yF8A5USn4M:Kore.Rewrite.Rule\nCreated bug report: kore-exec.tar.gz\n[Error] Critical: Haskell backend reported errors validating compiled\ndefinition.\nExamine output to see errors.\n[Warning] Compiler: Could not find main syntax module with name\nT112-PRIO-OWISE-WRITTEN-REJECTED-SYNTAX in definition.  Use --syntax-module to\nspecify one. Using T112-PRIO-OWISE-WRITTEN-REJECTED as default.",
+  "release": "K v7.1.337"
+ }
+}

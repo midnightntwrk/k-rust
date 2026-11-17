@@ -33,7 +33,7 @@ theorem sortPred_totalCl (hsc : SortCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) 
   have hlk : c.lookupFn fn.label = some fn := by
     rw [Semantics.lookupFn_eq]; exact find?_label hsc.nodupFns (List.mem_append_right _ hfn)
   have hsh := sortPreds_shape hfn
-  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
+  exact eval_result hlk (fun cl hcl => ⟨Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩) (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
       Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hsh cl hcl; rw [h]; exact ⟨_, .dv⟩)
     (fun cl hcl _ _ t ht => by rw [sortPreds_ens hfn cl hcl] at ht; cases ht)
@@ -78,7 +78,7 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hovf : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hovf hrs⟩
+      | true => exact ⟨_, .ovl hc' hovf hrs (fun vs _ => hsc.ovl.fnCover_none f vs)⟩
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

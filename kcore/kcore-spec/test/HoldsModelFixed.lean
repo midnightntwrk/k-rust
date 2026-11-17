@@ -35,7 +35,7 @@ def pNotEx : Cond := .not pOrEx
 def pFree : Cond := .ex Srt.int (.mem Srt.int (.var 0) (.var 1))
 def pBool : Cond := .ex Srt.bool (.equals Srt.bool (.var 1) (.dv Srt.bool (.bool true)))
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem conds_ok :
     c.confined Srt.int = false ∧ c.valueSorts.contains Srt.int = true ∧

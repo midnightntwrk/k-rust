@@ -3,6 +3,8 @@
 
   check.py [--no-run] [--allow-pending] [cases/<id> | texts/<id> ...]
                                          (relative to the package directory, or absolute)
+  check.py --ruling-sha ID...            print `ID SHA` per entry id (kk:ID or ID): the SHA-256 of
+                                         its ruling (SCHEMA.md, "The ruling hash"); writes nothing
 
 An entry is a directory with a hand-written entry.toml (SCHEMA.md) and tool-written evidence.
 This script writes neither. An entry fails for one of three causes, and for nothing else:
@@ -26,8 +28,7 @@ by the SHA-256 of kore.k and of the krust executable), the case's kore.pgm is ru
 --allow-pending  admits an entry whose ruling has status "pending" (no ruling written yet). Such an
                  entry is judged by the rule that preceded the rulings: kore.k's result equals each
                  recorded result no disposition names and differs from each one a disposition names.
-                 Its evidence is evidence.json, or expected.json where the case has no
-                 evidence.json. Without the flag a pending entry is a schema fault.
+                 Without the flag a pending entry is a schema fault.
 
 One line per entry: its status and, per implementation, `=` (the ruling, or for a pending entry
 kore.k's result), `reading:<name>`, or `differs`. Exit 0 when no entry fails, 1 otherwise, 2 when
@@ -60,7 +61,7 @@ KIND_DIR = {'case': 'cases', 'text': 'texts'}
 ID_FORM = {'case': re.compile(r'c\d\d+-[a-z0-9-]+\Z'), 'text': re.compile(r't\d\d+-[a-z0-9-]+\Z')}
 STATUSES = ('settled', 'unsettled', 'pending')
 KOMPILE = ('accepts', 'rejects', 'not-run')
-SOURCES = ('manual', 'domains', 'builtin-module', 'kore-syntax', 'prelude', 'kompiled', 'matching-logic')
+SOURCES = ('manual', 'tutorial', 'domains', 'builtin-module', 'kore-syntax', 'prelude', 'kompiled', 'matching-logic')
 FRONTEND = ('as-ruled', 'differs', 'manual-silent')
 # form -> the further fields a text ruling of that form carries
 FORMS = {'means': (), 'same-text': ('other',), 'differs-in': ('other', 'sentences'), 'no-sentence': (),
@@ -94,6 +95,16 @@ def answer_hash(entry):
                             'finals_canonical': r.get('finals_canonical')}
                            for r in entry.get('reading', [])]}
     text = json.dumps(answer, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def ruling_hash(entry):
+    """The SHA-256 of an entry's ruling (SCHEMA.md, "The ruling hash"): its [ruling] table, which
+    holds [ruling.kore] and [[ruling.basis]], and its [[reading]] blocks, serialized as
+    answer_hash serializes the answer. Dispositions, notes, observe pointers and the other fields
+    are outside it, so a row that cites the entry stays current when only they change."""
+    ruling = {'ruling': entry.get('ruling', {}), 'reading': entry.get('reading', [])}
+    text = json.dumps(ruling, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -328,33 +339,23 @@ def mutation_ids(package):
         return {m.get('id') for m in tomllib.load(f).get('mutation', [])}
 
 
-def evidence_of(directory, pending):
-    """(evidence, its file name), in the form of evidence.json; of a pending case without
-    evidence.json, what its expected.json holds."""
+def evidence_of(directory):
+    """The entry's evidence.json, or None."""
     path = os.path.join(directory, 'evidence.json')
-    if os.path.exists(path):
-        return read_json(path), 'evidence.json'
-    path = os.path.join(directory, 'expected.json')
-    if pending and os.path.exists(path):
-        exp = read_json(path)
-        return {'inputs': exp.get('inputs'), 'implementations': exp.get('backends', {})}, 'expected.json'
-    return None, None
+    return read_json(path) if os.path.exists(path) else None
 
 
-def record_faults(entry, directory, ev, name):
+def record_faults(entry, directory, ev):
     """(schema faults, stale hashes) of the evidence against entry.toml and the entry's files."""
     schema, stale = [], []
     status = entry['ruling']['status']
     files = entry['text'].get('files', [])
     inputs = {f: sha(os.path.join(directory, f)) for f in files}
-    if name == 'evidence.json':
-        inputs['answer'] = answer_hash(entry)
+    inputs['answer'] = answer_hash(entry)
     recorded = ev.get('inputs') or {}
     for k in sorted(set(inputs) | set(recorded)):
         if inputs.get(k) != recorded.get(k):
-            stale.append(f'{k} changed since {name}')
-    if name != 'evidence.json':
-        return schema, stale
+            stale.append(f'{k} changed since evidence.json')
     kompile, declared = ev.get('kompile'), entry['text']['kompile']
     if declared == 'not-run':
         if kompile is not None:
@@ -507,10 +508,10 @@ def check_entry(directory, index, live=None, allow_pending=False):
     if faults:
         return False, f'{cid}: FAIL schema: ' + '; '.join(faults), None, []
     status = entry['ruling']['status']
-    ev, name = evidence_of(directory, status == 'pending')
+    ev = evidence_of(directory)
     if ev is None:
         return False, f'{cid}: FAIL stale: no evidence.json; run tools/case.py {cid}', status, []
-    schema, stale = record_faults(entry, directory, ev, name)
+    schema, stale = record_faults(entry, directory, ev)
     schema += observe_faults(entry, directory)
     if schema:
         return False, f'{cid}: FAIL schema: ' + '; '.join(schema), status, []
@@ -589,7 +590,27 @@ def run_interpreter(case, exe, kc):
         return {'error': f'no result from kore.k ({err}; exit {r.returncode}: {r.stderr[-300:]})'}, ms
 
 
+def print_ruling_hashes(ids, package):
+    """One line per id: `ID SHA`, the ruling hash of the entry kk:ID; exit 1 when an id names no entry
+    or its entry.toml does not parse."""
+    known = {os.path.basename(d): d for d in entries_of(package)}
+    bad = 0
+    for i in ids:
+        i = i[3:] if i.startswith('kk:') else i
+        entry, fault = load(known[i]) if i in known else (None, 'names no entry')
+        if entry is None:
+            print(f'{i}: {fault}', file=sys.stderr)
+            bad += 1
+        else:
+            print(f'{i} {ruling_hash(entry)}')
+    return 1 if bad else 0
+
+
 def main(args, package=PACKAGE):
+    if args[:1] == ['--ruling-sha']:
+        if len(args) < 2:
+            sys.exit(__doc__)
+        return print_ruling_hashes(args[1:], package)
     flags = {a for a in args if a.startswith('--')}
     if flags - {'--no-run', '--allow-pending'}:
         sys.exit(__doc__)

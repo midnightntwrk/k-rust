@@ -110,10 +110,10 @@ theorem meets_others : outside c ∧
     genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_namesNumbered : namesNumbered c = false := by decide +kernel
 theorem ite_named : iteSort? (c.symName g) = some "KCell" := by decide +kernel
@@ -144,10 +144,10 @@ theorem meets_others : outside c ∧
     genWf c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_namesNumbered : namesNumbered c = false := by decide +kernel
 
@@ -167,10 +167,10 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_genWf : genWf c = false := by decide +kernel
 theorem int_not_cons : (consSorts c).contains Srt.int = false := by decide +kernel
@@ -178,7 +178,7 @@ theorem int_not_cons : (consSorts c).contains Srt.int = false := by decide +kern
 /-- `c` without `k` and its name. -/
 def c0 : Semantics := { base "Lblk" with symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell"] }
 
-theorem c0_core : c0.coreOK = true := by decide +kernel
+theorem c0_core : c0.coreOK = true := by decide_cheap
 
 end CtorInt
 
@@ -199,10 +199,10 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_genWf : genWf c = false := by decide +kernel
 theorem int_cons : (consSorts c).contains Srt.int = true := by decide +kernel
@@ -235,10 +235,10 @@ theorem meets_others : outside c ∧
     namesNumbered c = true ∧ genWf c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧
     namesApartK c = true ∧ LitsApart c = true ∧ sortsNumbered c = true ∧ itesApart c = true ∧
     kindsApart c = true ∧ ctorsOnce c = true ∧ fnsApart c = true ∧ FnHyp c :=
-  ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_collSortsOK : collSortsOK c = false := by decide +kernel
 

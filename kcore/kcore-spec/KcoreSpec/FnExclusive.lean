@@ -80,6 +80,7 @@ mutual
       | call hc _ _ _ _ _ => rw [hct] at hc; cases hc
       | callUndef hc _ _ _ _ => rw [hct] at hc; cases hc
       | ovl hc _ _ => rw [hct] at hc; cases hc
+      | ovlFn hc _ => rw [hct] at hc; cases hc
   theorem gvalList_eval {σ : Subst} : ∀ {ts : List Term} {rs : List (Option GroundTerm)},
       c.groundValueList ts = true → EvalTerms c σ ts rs → rs = (gvalList ts).map some
     | [], _, _, h => by cases h; rfl
@@ -168,6 +169,7 @@ theorem kEq_inv {σ : Subst} {t u : Term} (h : EvalTerm c σ (.app kEq [t, u]) (
   | call _ hh _ _ _ _ => cases ht; rw [isHook_kEq] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [isHook_kEq] at hh; cases hh
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_kEq] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_kEq] at this; cases this
 
 /-- An Int comparison hook: on two Ints, the truth of `P`; elsewhere undefined. -/
 theorem int2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} {P : Int → Int → Prop}
@@ -211,6 +213,7 @@ theorem int2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} {P : Int → Int
   | call _ hh _ _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [hhk] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [hhk] at this; cases this
 
 theorem hook_intLt (vs : List GroundTerm) : hook intLt vs = some (int2 vs fun x y => some (bool (decide (x < y)))) := rfl
 theorem hook_intLe (vs : List GroundTerm) : hook intLe vs = some (int2 vs fun x y => some (bool (decide (x ≤ y)))) := rfl
@@ -527,6 +530,7 @@ theorem or_inv {σ : Subst} {t₁ t₂ : Term} (h : EvalTerm c σ (.app boolOr [
   | call _ hhk _ _ _ _ => cases ht; rw [isHook_or] at hhk; cases hhk
   | callUndef _ _ _ _ _ => cases ht; cases hr
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_or] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_or] at this; cases this
   | _ => cases ht
 
 /-! ## Patterns apart (`overlap`) -/
@@ -1127,7 +1131,7 @@ an `ensures` (`clausesAgree_sound`). -/
 theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true)
     (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveOK heads f = true) :
-    ClausesAgree c f := by
+    ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
@@ -1162,9 +1166,10 @@ theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = t
     simp only [Semantics.ok, Bool.and_eq_true, Semantics.fnsOK, List.all_eq_true] at hf
     have hfo := hf.1.2 fn hfn
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
-    exact fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
+    exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)) hx
+        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)) hx).agree
+      (Semantics.fnsNoExs_of_ok hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(matchCtx_of hmr).noOvl] using hx⟩, rfl⟩

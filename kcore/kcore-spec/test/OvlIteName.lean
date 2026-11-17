@@ -119,7 +119,7 @@ def c : Semantics :=
     rules := []
     ovls := [o] }
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 /-- `c` has no function: `FnHyp` holds. -/
 theorem fnHyp : FnHyp c :=
@@ -131,7 +131,7 @@ set_option maxHeartbeats 1000000 in
 /-- Every condition of `coreOK` but `overloadsOK` holds, and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- Every condition of `overloadsOK` but this one holds. -/
 theorem ovlsButIte_c : ovlsButIte c = true := by decide +kernel
@@ -146,7 +146,7 @@ theorem ite_f : iteSort? (c.symName fSig.name) = some "KCell" := by decide +kern
 
 /-- Both halves of `itesApart` hold: `Lblite{KCell}` is the only symbol named like `ite`, at a
 numbered sort. -/
-theorem itesApart_c : Model.itesApart c = true := by decide +kernel
+theorem itesApart_c : Model.itesApart c = true := by decide_cheap
 
 /-- In `c`, a right-hand side applying the symbol and the value it builds have different heads. -/
 theorem rhs_value_heads (vs : List KoreAML.Var) (ts : List Term) (ws : List GroundTerm) :

@@ -6,6 +6,7 @@
   configuration is a configuration; a literal accepted at a sort is a value of it.
 -/
 import KcoreSpec.ModelDen
+import KcoreSpec.OvlLawsFn
 
 set_option autoImplicit false
 
@@ -169,15 +170,32 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
   rw [if_neg hp] at hx
   by_cases ho : c.isOvl k.name = true
   · rw [if_pos ho] at hx
-    subst hx
     obtain ⟨-, -, -, -, hsome⟩ := c.isOvl_parts ho
     obtain ⟨o, hlo⟩ := Option.isSome_iff_exists.mp hsome
     have H := h.ovlHyp
-    obtain ⟨hon, -⟩ := OvlLaws.ovl_facts H hlo
-    have hom : o ∈ c.ovls := List.mem_of_find?_eq_some hlo
+    have F := H.fnFacts
+    obtain ⟨hom, hon, -⟩ := OvlLaws.ovl_facts_ovlF F hlo
     have := same_sym hn hk (List.mem_append_right _ (List.mem_map_of_mem hom)) hon.symm
     subst this
-    exact OvlLaws.sortOf_norm H hlo hvs
+    cases hfc : c.fnCover o.sig.name vs with
+    | none =>
+      rw [ovlRes_none hfc] at hx
+      subst hx
+      exact OvlLaws.sortOf_norm_ovlF H F hlo hvs hfc
+    | some kg =>
+      -- a function overload covers the arguments: the function's value at the stripped
+      -- arguments has the function's result sort, and lifts to the symbol's
+      obtain ⟨v, rfl, hv⟩ := (ovlRes_some hlo hfc _).mp hx
+      obtain ⟨o', ho', hkg, hb, hcv⟩ := OvlLaws.fnCover_some_parts hfc
+      rw [hlo] at ho'; cases ho'
+      obtain ⟨hl, -, hres, -⟩ := OvlLaws.over_ovlF F hlo hkg
+      obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+      obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
+      have hsv : c.sortOf v = some kg.result := by
+        subst hsig
+        exact Eval.sorted (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase) hv hfn
+          (OvlLaws.sortsOf_stripAll hl hvs hlies) rfl
+      exact OvlLaws.sortOf_lift H hsv hres
   rw [if_neg ho] at hx
   obtain ⟨v, rfl, hv⟩ := hx
   have hfn : ∃ fn, c.lookupFn k.name = some fn := Option.ne_none_iff_exists'.mp (Eval.lookupFn_ne hv)

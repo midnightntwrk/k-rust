@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t05-rule-ensures-result.k": "d77137cdbe34fb778f37adc68c770c26278e6bed4c9d86cf3f4643bd9b53ce87"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t05-rule-ensures-result.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "a00781d1b280922e0ace4ca6719c53d5a4cc959d6125c9347bd7677e6cf178a6",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

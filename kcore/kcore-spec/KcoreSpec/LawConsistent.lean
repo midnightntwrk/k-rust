@@ -140,8 +140,12 @@ theorem consistent_with_laws {c : Semantics} (h : c.coreOK = true) (hd : FnDet c
     (ho : OpenLaws c) {ls : List LawEq} (hl : FnLaws c ls) (hsort : ∀ l ∈ ls, lawSorted c l = true) :
     ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
       (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧ ∀ l ∈ ls, I ⊧ᴵ lawPattern c l :=
-  ⟨Elem, inferInstance, stdI c,
-    stdI_model_ex c h (hypModel_of_fn h hd hs) ho (Semantics.ruleFactsEx_of_core h),
-    fun l hmem => sat_lawPattern (hypModel_of_fn h hd hs) (hl l hmem) (hsort l hmem)⟩
+  ⟨Elem, inferInstance, stdI_T c (StepV c),
+    stdI_T_model_held c h (hypModel_of_fn h hd hs) ho (Semantics.ruleFactsHeld_of_core h) (StepV c)
+      (fun _ _ _ _ hT => hT) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
+      (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩),
+    fun l hmem => by
+      obtain ⟨s, hl', hr, hs', hb⟩ := lawSorted_parts (hsort l hmem)
+      exact AtT.sat_lawPattern (T := StepV c) (hypModel_of_fn h hd hs) (hl l hmem) hl' hr hs' hb⟩
 
 end KCore

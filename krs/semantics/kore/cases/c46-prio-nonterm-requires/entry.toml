@@ -1,10 +1,25 @@
 id = "c46-prio-nonterm-requires"
 kind = "case"
 subject = "A rule of priority 50 applies; the rule of priority 60 beside it, whose requires has no value (its evaluation does not terminate), is not tried."
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t08-priority-order"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(1)"]
+reason = """
+(1) At a(1) the rule of priority 50 matches with no requires and applies: a(1) steps to b(1). Where a rule of a smaller number applies, a rule of a larger number is not tried, and its requires is not evaluated, so what loop(1) denotes does not change the step (kk:t08-priority-order; user_manual.md:1722-1724). The rule of priority 60 gives no successor at a(1): c(1) is not reached (kk:t02-step-successors).
+(2) No rule's left side matches b(1), so it is final (kk:t06-final-configuration). The final configurations are b(1) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1727-1730 (K 7.1.337)"
+quote = "In practice, each rule in your semantics is implicitly or explicitly assigned a numerical priority. Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."

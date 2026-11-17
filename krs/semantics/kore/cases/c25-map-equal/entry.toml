@@ -1,10 +1,31 @@
 id = "c25-map-equal"
 kind = "case"
 subject = "Map concatenation is commutative: A B and B A are one map, so the variable M seen twice in p(M, M) matches them."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t17-nonlinear", "kk:t34-collection-values", "kk:t36-map-concat"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["same(1 |-> 2 3 |-> 4)"]
+reason = """
+(1) go(3 |-> 4, 1 |-> 2): the rule for go applies (kk:t01-rule-applies), with A the map of 3 |-> 4 and B that of 1 |-> 2. A and B have no key in common, so A B and B A are each the map of the pairs of both, and the concatenation does not depend on the order of its arguments (kk:t36-map-concat; domains.md:205-206): A B and B A denote one map, that of 1 |-> 2 and 3 |-> 4 (kk:t34-collection-values). go(...) steps to p(M1, M1), M1 that map.
+(2) In p(M, M) the variable M stands for one value at both places (kk:t17-nonlinear): it matches p(M1, M1) with M = M1. p(M1, M1) steps to same(M1) (kk:t02-step-successors).
+(3) No rule's left side matches same(M1), which is final (kk:t06-final-configuration). The final configurations are same(1 |-> 2 3 |-> 4) alone."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:205-206 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of immutable, associative, commutative maps from `KItem` to `KItem`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'''

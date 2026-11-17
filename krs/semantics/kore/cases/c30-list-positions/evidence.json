@@ -1,0 +1,39 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List(SortList[inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(1,SortList[inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(3,SortList[inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)]))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List(SortList[inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(1,SortList[inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(3,SortList[inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)]))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "4a882086c3c53918016deb6d70abda8bc90b06da9ea70bfb4850432339001e18",
+  "def.k": "07220c29a7a2e92c147c6c08050b5cdbf54702c2e170ab4d52bface9a8d76325",
+  "pgm": "8c9d63691603ae5a1001dbfdb6557c23c0a9352fe34cdb964ee976786ef2a420"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "e8b89a1a47d3f9ab49279bd737ae76de31d529a7bc7200e76cb1453e9f25a671",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List(SortList[inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(1,SortList[inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)]))",
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'List(3,SortList[inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)]))"
+  ]
+ }
+}

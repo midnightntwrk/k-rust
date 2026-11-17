@@ -36,7 +36,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT
     c.symName symC = "Lblc" ∧ c.symName symD = "Lbld" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 
@@ -138,7 +138,7 @@ theorem fnHyp : FnHyp c :=
 theorem value_model : Faithful.Model.stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
   stdI_model_ex c coreOK (hypModel_of_fnHyp coreOK fnHyp)
     (openLaws_of_plain (fun k hk => (by rw [facts.2.2.2.2] at hk; cases hk)))
-    (Semantics.ruleFactsEx_of_core coreOK)
+    (Semantics.ruleFactsEx_of_coreAll coreOK (by decide +kernel))
 
 open Faithful.Model in
 /-- **`∃Z. (rhs ∧ ens)` is empty in the value model**, at every valuation that reads the counter

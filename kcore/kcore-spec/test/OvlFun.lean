@@ -119,7 +119,7 @@ open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ok : itesApart c = true := by decide +kernel
+theorem ites_ok : itesApart c = true := by decide_cheap
 
 theorem others_ok : others c = true := others_of light_ok names_ok ites_ok
 
@@ -147,6 +147,15 @@ theorem norm_facts :
     c.norm plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] =
       .ctor plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] ∧
     c.sortOf (.ctor plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))]) = none := by
+  decide +kernel
+
+/-- The function overload `plusInt` covers `inj{Int,Exp}(1), inj{Int,Exp}(2)` (`fnCover`), and no
+function overload covers two arguments that are no injections from Int. -/
+theorem fnCover_facts :
+    c.fnCover plusExp [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))] =
+      some ⟨plusInt, [Srt.int, Srt.int], Srt.int⟩ ∧
+    c.fnCover plusExp [.ctor plusExp [], .ctor plusExp []] = none ∧
+    c.fnCover plusInt [.dv Srt.int (.int 1), .dv Srt.int (.int 2)] = none := by
   decide +kernel
 
 /-- The uncovered items of `plusExp` are guarded by the function's argument sorts. -/
@@ -220,7 +229,7 @@ open Faithful.Model in
 theorem names_ovlfun : namesApartFast ovlfun = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ovlfun : itesApart ovlfun = true := by decide +kernel
+theorem ites_ovlfun : itesApart ovlfun = true := by decide_cheap
 
 theorem others_ovlfun : others ovlfun = true := others_of light_ovlfun names_ovlfun ites_ovlfun
 
@@ -230,7 +239,7 @@ open Faithful.Model in
 theorem names_lhs : namesApartFast lhs = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_lhs : itesApart lhs = true := by decide +kernel
+theorem ites_lhs : itesApart lhs = true := by decide_cheap
 
 theorem others_lhs : others lhs = true := others_of light_lhs names_lhs ites_lhs
 
@@ -263,6 +272,13 @@ theorem norm_facts :
     ovlfun.uncovered capGas [.inj nS gasS (.ctor z [])] = false ∧
     ovlfun.norm capGas [.inj nS gasS (.ctor z [])] = .ctor capGas [.inj nS gasS (.ctor z [])] ∧
     ovlfun.sortOf (.ctor capGas [.inj nS gasS (.ctor z [])]) = none := by
+  decide +kernel
+
+/-- The function overload `capN` covers `inj{N,Gas}(z)` (`fnCover`); no function overload covers
+`inf`. -/
+theorem fnCover_facts :
+    (ovlfun.fnCover capGas [.inj nS gasS (.ctor z [])]).map (·.name) = some capN ∧
+    ovlfun.fnCover capGas [.ctor inf []] = none := by
   decide +kernel
 
 /-- `capGas(inj{N,Gas}(z))`. -/
@@ -311,7 +327,7 @@ open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ok : itesApart c = true := by decide +kernel
+theorem ites_ok : itesApart c = true := by decide_cheap
 
 theorem others_ok : others c = true := others_of light_ok names_ok ites_ok
 
@@ -535,5 +551,155 @@ end Conf
 #guard_msgs in #print axioms Conf.confined_S
 /-- info: 'OvlFun.Conf.confined_S_control' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Conf.confined_S_control
+
+/-! ## The value model at `capGas`, a function among its overloads -/
+
+namespace Cap
+
+open Faithful Faithful.Model ML
+
+def capGasO : OvlSig := ⟨⟨capGas, [gasS], gasS⟩, [capN]⟩
+def capNSig : CtorSig := ⟨capN, [nS], nS⟩
+
+/-- What the model's cases read of `capGas` holds of `ovlfun`, whose `capGas` overloads the
+function `capN`. -/
+theorem ovlAt_capGas : OvlAtF ovlfun capGasO :=
+  { names := namesApartK_spec (namesApartK_of_fast names_ovlfun)
+    mem := by decide +kernel
+    lookup := by decide +kernel
+    isOvl := by decide +kernel
+    sorts := by decide +kernel
+    over := by decide +kernel }
+
+/-- The function overload covering a value of N lifted to Gas is `capN`'s: `capGas` overloads
+nothing else. -/
+theorem capN_cover (as : List GroundTerm) (h : ovlfun.sortsOf as = some capNSig.args) :
+    ovlfun.fnCover capGasO.sig.name (liftAll capNSig.args capGasO.sig.args as) = some capNSig :=
+  fnCover_of_unique_ovlF (o := capGasO) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (covers_liftAll_ovlF (by decide +kernel) h)
+    (fun kg' hkg' _ _ => by
+      have : ovlfun.ovlOver capGasO = [capNSig] := by decide +kernel
+      rw [this] at hkg'; simpa using hkg')
+
+/-- **In the value model of `ovlfun`** (at any transition), `capGas(inj{N,Gas}(z))` has the
+values of `capN(z)` injected into Gas, and no other. -/
+theorem model_capZ (x : Elem) :
+    result ovlfun capGasO.sig [.inj nS gasS (.ctor z [])] x ↔
+      ∃ v, x = .val (lift nS gasS v) ∧ Eval ovlfun capN [.ctor z []] (some v) :=
+  result_ovlFn (o := capGasO) (kg := capNSig) (by decide +kernel) (by decide +kernel) (by decide +kernel) x
+
+/-- **The value model of `ovlfun` satisfies the three items `Γ` writes of `capGas`**: its overload
+equation over the function `capN`, and its functionality and injectivity at uncovered arguments.
+Nothing is asked of `capN`. -/
+theorem model_capGas_items (T : GroundTerm → GroundTerm → Prop) :
+    (stdI_T ovlfun T ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK ovlfun capGasO.sig) (toK ovlfun capNSig)).pat) ∧
+    (stdI_T ovlfun T ⊧ᴵ (KoreAML.Cons.funUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+      ((ovlfun.ovlOver capGasO).map fun kg => kg.args.map ovlfun.sortName)).pat) ∧
+    (stdI_T ovlfun T ⊧ᴵ (KoreAML.Cons.injUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+      ((ovlfun.ovlOver capGasO).map fun kg => kg.args.map ovlfun.sortName)).pat) :=
+  ⟨AtT.sat_ovlEq_ovlF ovlAt_capGas (by decide +kernel) (by decide +kernel) (by decide +kernel)
+      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+      (irrefl_of_all (by decide +kernel)) capN_cover,
+    AtT.sat_funUnc_ovlF ovlAt_capGas, AtT.sat_injUnc_ovlF ovlAt_capGas⟩
+
+/-- The three items are the ones `consItemsK ovlfun` holds for `capGas`. -/
+theorem model_capGas_items_mem :
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.ovlEqItem (toK ovlfun capGasO.sig) (toK ovlfun capNSig)).pat) = true ∧
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.funUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+        ((ovlfun.ovlOver capGasO).map fun kg => kg.args.map ovlfun.sortName)).pat) = true ∧
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.injUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+        ((ovlfun.ovlOver capGasO).map fun kg => kg.args.map ovlfun.sortName)).pat) = true := by
+  decide +kernel
+
+/-- **The value model of `ovlfun` satisfies the two distinctness items `Γ` writes of `capGas`**,
+both at uncovered arguments: against the constructor `inf` and against the injection from N. -/
+theorem model_capGas_dist (T : GroundTerm → GroundTerm → Prop) :
+    (stdI_T ovlfun T ⊧ᴵ (KoreAML.Cons.distUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor ⟨inf, [], gasS⟩))
+      (Gen.toK ovlfun (.ctor capGasO.sig)) (Model.ovlArgsOf ovlfun (.ctor ⟨inf, [], gasS⟩))
+      (Model.ovlArgsOf ovlfun (.ctor capGasO.sig))).pat) ∧
+    (stdI_T ovlfun T ⊧ᴵ (KoreAML.Cons.distUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+      (Gen.toK ovlfun (.inj nS)) (Model.ovlArgsOf ovlfun (.ctor capGasO.sig)) (Model.ovlArgsOf ovlfun (.inj nS))).pat) :=
+  ⟨AtT.sat_distUnc_ovlF ovlAt_capGas.names
+      (AtT.genAt_ctor_ovlF ovlAt_capGas.names (k := ⟨inf, [], gasS⟩) (by decide +kernel) (by decide +kernel) gasS)
+      (AtT.genAt_ovlF ovlAt_capGas gasS)
+      (fun vs ws _ _ _ _ he => absurd (GroundTerm.ctor.inj he).1 (by decide)),
+    AtT.sat_distUnc_ovlF ovlAt_capGas.names (AtT.genAt_ovlF ovlAt_capGas gasS)
+      (AtT.genAt_inj_ovlF ovlAt_capGas.names (a := nS) (N := gasS) (by decide +kernel) (by decide +kernel))
+      (fun vs ws _ _ _ _ he => by
+        generalize ws.headD (.ctor 0 []) = w at he
+        cases w <;> simp [injNormal] at he)⟩
+
+/-- The two items are the ones `consItemsK ovlfun` holds for `capGas`. -/
+theorem model_capGas_dist_mem :
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.distUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor ⟨inf, [], gasS⟩))
+        (Gen.toK ovlfun (.ctor capGasO.sig)) (Model.ovlArgsOf ovlfun (.ctor ⟨inf, [], gasS⟩))
+        (Model.ovlArgsOf ovlfun (.ctor capGasO.sig))).pat) = true ∧
+    ((Faithful.consItemsK ovlfun).any fun it =>
+      it.pat == (KoreAML.Cons.distUncItem (ovlfun.sortName gasS) (Gen.toK ovlfun (.ctor capGasO.sig))
+        (Gen.toK ovlfun (.inj nS)) (Model.ovlArgsOf ovlfun (.ctor capGasO.sig)) (Model.ovlArgsOf ovlfun (.inj nS))).pat) = true := by
+  decide +kernel
+
+/-! ## Evaluation at a covered application, and the declarations' facts -/
+
+/-- The clause of `capN`: `capN(z #as G0) = G0`. -/
+def capNCl : Clause := { vars := [nS], pats := [.as (.app z []) 0], req := none, rhs := .var 0, ens := none }
+
+/-- **`capN(z)` evaluates to `z`**, by its one clause. -/
+theorem eval_capN_z : Eval ovlfun capN [.ctor z []] (some (.ctor z [])) :=
+  .clause (fn := capNFn) (cl := capNCl) (σ := [(0, .ctor z [])])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by
+      cases i with
+      | zero => cases h; exact ⟨.ctor z [], rfl, by decide +kernel⟩
+      | succ i => simp [capNCl] at h)
+    (.cons (.as (.ctor (by decide +kernel) .nil) rfl) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNCl := by simpa [capNFn, capNCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    .var (fun t ht => by cases ht)
+
+/-- **A covered application evaluates to the function's value, injected** (`EvalTerm.ovlFn`):
+`capGas(inj{N,Gas}(z))` evaluates to `inj{N,Gas}(z)`, the value of `capN(z)` in Gas. -/
+theorem evalTerm_capZ : EvalTerm ovlfun [] capZ (some (.inj nS gasS (.ctor z []))) :=
+  EvalTerm.ovlFn (rs := [some (.inj nS gasS (.ctor z []))]) (vs := [.inj nS gasS (.ctor z [])])
+    (o := capGasO) (kg := capNSig) (r := some (.ctor z []))
+    (by decide +kernel) (by decide +kernel)
+    (.cons (.inj (.ctor (f := z) (rs := []) (by decide +kernel) .nil)) .nil) rfl
+    (by decide +kernel) (by decide +kernel) eval_capN_z
+
+/-- **The facts the laws of `norm` read of the declarations hold of `ovlfun`**, whose `capGas`
+overloads the function `capN`: they exclude no function among the overloads. -/
+theorem fnFacts_ovlfun : OvlLaws.OvlFnFacts ovlfun where
+  isOvl := by decide +kernel
+  over := by decide +kernel
+  coh := by decide +kernel
+  closed := fun o ho kg hkg o' ho' => by
+    have he : ovlfun.ovls = [capGasO] := by decide +kernel
+    rw [he] at ho
+    obtain rfl := List.mem_singleton.mp ho
+    have hov : ovlfun.ovlOver capGasO = [capNSig] := by decide +kernel
+    rw [hov] at hkg
+    obtain rfl := List.mem_singleton.mp hkg
+    have hn : ovlfun.lookupOvl capNSig.name = none := by decide +kernel
+    rw [hn] at ho'
+    cases ho'
+
+/-- info: 'OvlFun.Cap.evalTerm_capZ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms evalTerm_capZ
+/-- info: 'OvlFun.Cap.fnFacts_ovlfun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnFacts_ovlfun
+/-- info: 'OvlFun.Cap.model_capGas_dist' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms model_capGas_dist
+/-- info: 'OvlFun.Cap.model_capGas_items' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms model_capGas_items
+/-- info: 'OvlFun.Cap.model_capZ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms model_capZ
+
+end Cap
 
 end OvlFun

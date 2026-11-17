@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t16-match-inj.k": "df6fa346a9dfdc1f6e028c62c2eb603773a921a14f290703422997995328ed6b"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t16-match-inj.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "5baea9e4b18b2724be404370ea761acbc37232b9ca7a4c67f1be49636494409f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

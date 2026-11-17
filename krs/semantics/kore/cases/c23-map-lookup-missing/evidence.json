@@ -1,0 +1,31 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblb'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'KItem(inj{SortInt,SortKItem}(2)))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "[hook_MAP_lookup]: Key not found for map lookup; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "32250469395b2315af154ffd0894ca24c73d03af5c79ef7401f06217a4c68e8d",
+  "def.k": "f683d88ec8cba52d752f931c40d1fe37b68d017f92be4cc88e0395cd9c487547",
+  "pgm": "aea1046db0db814a88f7d25ab5a6b990dfccf1b731b784cb64be12562bdb7d9f"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "dd343f2f6d5084b98893fd80db106f3300ec14013694efb41e3fbe809d16820f",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lblb'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'KItem(inj{SortInt,SortKItem}(2)))"
+  ]
+ }
+}

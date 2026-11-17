@@ -173,6 +173,9 @@ example : ∃ r, Eval cV qL [.dv Srt.bool (.bool false)] r :=
   eval_resultRH (fn := fQ) rfl
     (fun cl hcl => by
       rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
+      exact ⟨rfl, rfl⟩)
+    (fun cl hcl => by
+      rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
       exact rightHeld_cV.heldAt (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))) (List.Mem.head _))
     (fun cl hcl _ _ _ => by
       rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
@@ -312,7 +315,21 @@ theorem no_result {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl
   have hnf := not_fails hσ hm hreq hpre
   rintro ⟨r, h⟩
   cases h with
-  | @clause _ fn' _ cl' σ' _ hfn' hmem hσ' hmatch hreq' _ hprio hrhs hens =>
+  | @clauseEx _ fn' _ cl' σ' _ hfn' hmem hσ' _ _ _ hprio _ _ _ _ _ =>
+    have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
+    subst hE
+    by_cases hc : cl' = cl
+    · subst hc; exact not_wellSorted hi hno σ' hσ'
+    · exact hnf (hprio cl hcl hna (hlow cl' hmem hc))
+  | @exNone _ fn' _ cl' σ' hfn' hmem _ _ _ _ _ hprio hsome _ =>
+    have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
+    subst hE
+    by_cases hc : cl' = cl
+    · subst hc
+      obtain ⟨σ₁, -, hσ₁⟩ := hsome
+      exact not_wellSorted hi hno σ₁ hσ₁
+    · exact hnf (hprio cl hcl hna (hlow cl' hmem hc))
+  | @clause _ fn' _ cl' σ' _ hfn' hmem hσ' hmatch hreq' _ hprio _ hrhs hens _ =>
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     by_cases hc : cl' = cl
@@ -322,7 +339,7 @@ theorem no_result {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     exact hnf (hnone cl hcl)
-  | @ensFails _ fn' _ cl' σ' t w hfn' hmem hσ' hmatch hreq' _ hprio ht he hw =>
+  | @ensFails _ fn' _ cl' σ' t w hfn' hmem hσ' hmatch hreq' _ hprio _ ht he hw =>
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     by_cases hc : cl' = cl
@@ -370,8 +387,9 @@ theorem peer_decides {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} 
     {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hmem : cl' ∈ fn.clauses) (ha : cl'.AppliesAt c σ vs)
     (hprio : ∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'')
-    (hens : cl'.ens = none) (hrhs : EvalTerm c σ cl'.rhs r) : Eval c f vs r :=
-  Eval.clause hfn hmem ha.1 ha.2.1 ha.2.2.1 ha.2.2.2 hprio hrhs (fun t ht => by rw [hens] at ht; cases ht)
+    (hens : cl'.ens = none) (hrhs : EvalTerm c σ cl'.rhs r) (hx : cl'.exs = [] := by rfl)
+    (hpost : Holds c cl'.vars.length σ cl'.post true := by exact .top) : Eval c f vs r :=
+  Eval.clause hfn hmem ha.1 ha.2.1 ha.2.2.1 ha.2.2.2 hprio hx hrhs (fun t ht => by rw [hens] at ht; cases ht) hpost
 
 theorem eval_aTerm : EvalTerm cEA [] clA.rhs (some (.ctor aL [])) :=
   EvalTerm.ctor (rs := []) (by decide +kernel) .nil
@@ -386,7 +404,7 @@ theorem fEA_a : Eval cEA fEAL [] (some (.ctor aL [])) :=
 
 /-- `clA` has no variable: it is match independent. -/
 theorem clA_coherent : Coherent cEA clA clA := fun _ _ _ _ _ _ _ _ _ =>
-  .inl ⟨rfl, rfl, fun i hi => by simp [clA, varOccs, varOccsList] at hi, fun t ht => by cases ht⟩
+  .inl ⟨rfl, rfl, rfl, rfl, fun i hi => by simp [clA, varOccs, varOccsList] at hi, fun t ht => by cases ht⟩
 
 theorem sortsOf_nil {vs : List GroundTerm} (h : cEA.sortsOf vs = some []) : vs = [] := by
   cases vs with
@@ -415,8 +433,8 @@ theorem fnHyp_cEA : FnHyp cEA := by
     subst hfn
     simp only [fEA, List.mem_cons, List.not_mem_nil, or_false] at hcl
     rcases hcl with rfl | rfl
-    · exact coherent_left (i := 0) rfl no_E' _
-    · exact clA_coherent
+    · exact (matchIndependent_iff_noExs rfl).mpr (coherent_left (i := 0) rfl no_E' _)
+    · exact (matchIndependent_iff_noExs rfl).mpr clA_coherent
   · exact openDecided_of_plain (fun r hr => by cases hr) (by decide +kernel)
   · exact openLaws_of_plain (fun k hk => by cases hk)
 
@@ -451,8 +469,9 @@ theorem fU_hu : Eval c fUL [] (some (.ctor hL [.ctor uL []])) :=
 /-- **`clU` is match independent**: every σ well sorted on its variables gives Y the value `u`
 (`u_only`), so two matches are one instance of the right side. -/
 theorem matchIndependent_U : MatchIndependent c clU := by
+  refine ⟨?_, fun hne => absurd rfl hne⟩
   intro vs σ σ' ha ha' _ _ _ _
-  refine .inl ⟨rfl, rfl, fun i hi => ?_, fun t ht => by cases ht⟩
+  refine .inl ⟨rfl, rfl, rfl, rfl, fun i hi => ?_, fun t ht => by cases ht⟩
   simp only [clU, varOccs, varOccsList, List.append_nil, List.mem_singleton] at hi
   subst hi
   obtain ⟨v, hv, hs⟩ := ha.1 0 U rfl
@@ -494,11 +513,13 @@ theorem hdet_k (σ : Subst) : HDet c σ clI.rhs := by
       | call h => rw [k_ctor] at h; cases h
       | callUndef h => rw [k_ctor] at h; cases h
       | ovl h => rw [k_ctor] at h; cases h
+      | ovlFn h => rw [k_ctor] at h; cases h
     | hook h => rw [k_ctor] at h; cases h
     | param h => rw [k_ctor] at h; cases h
     | call h => rw [k_ctor] at h; cases h
     | callUndef h => rw [k_ctor] at h; cases h
     | ovl h => rw [k_ctor] at h; cases h
+    | ovlFn h => rw [k_ctor] at h; cases h
   · rw [EvalTerm.var_inv h1, EvalTerm.var_inv h2]
 
 theorem hfnI : c.lookupFn fIL = some fI := rfl
@@ -514,11 +535,12 @@ theorem not_matchIndependent_I : ¬ MatchIndependent c clI := fun h => by
     fun n => ⟨ws_int n, .nil, (fun t h => by cases h), .top⟩
   have hdec : ∀ n : Int, clI.Decides c fI [(0, .dv Srt.int (.int n))] [] := fun n =>
     ⟨ha n, fun cl' h _ hlt => by simp only [fI, List.mem_singleton] at h; subst h; simp at hlt⟩
-  rcases h [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ => hdet_k σ0) (fun t h => by cases h)
-      ⟨fIL, fI, hfnI, List.Mem.head _, List.Mem.head _, hdec 0, hdec 1⟩ with ⟨-, -, hv, -⟩ | hr
+  rcases h.1 [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ => hdet_k σ0) (fun t h => by cases h)
+      ⟨fIL, fI, hfnI, List.Mem.head _, List.Mem.head _, hdec 0, hdec 1⟩ with ⟨-, -, -, -, hv, -⟩ | hr
   · have := hv 0 (by simp [clI, varOccs, varOccsList])
     simp [σ0, σ1] at this
-  · have := hr _ _ (.inl ⟨(fun t h => by cases h), eval_k 0⟩) (.inl ⟨(fun t h => by cases h), eval_k 1⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun t h => by cases h), .top, eval_k 0⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun t h => by cases h), .top, eval_k 1⟩⟩)
     simp at this
 
 /-- info: 'KCore.RightOnlyTest.rightHeld_cV' depends on axioms: [propext, Classical.choice, Quot.sound] -/

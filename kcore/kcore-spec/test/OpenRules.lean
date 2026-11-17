@@ -117,7 +117,7 @@ noncomputable def okB : Rule := mk [sK, sC, Srt.bool] (cfg (.var 1)) none (some 
 
 /-! ## Arms A and C: `Rule.decided_of_fnHyp` -/
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- The text's semantics reads no confined sort, so each clause's conditions are decided where
 `needsWitness` holds (`openDecided_of_readsConfined`): the clause-side hypothesis of the lemmas
@@ -202,7 +202,7 @@ noncomputable def okBc : Rule := mk [sK, sC, Srt.bool] (cfg (.var 1)) (some (.va
 /-- The text's semantics with the larger rule. -/
 noncomputable abbrev c2 : Semantics := { c with rules := c.rules ++ [plain] }
 
-theorem coreOK2 : c2.coreOK = true := by decide +kernel
+theorem coreOK2 : c2.coreOK = true := by decide_cheap
 
 /-- `hcT` at `c2`. -/
 theorem hcT2 : ∀ fn ∈ c2.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c2 = true → cl.CondDecided c2 :=
@@ -255,19 +255,19 @@ example (hd : FnDet c) (hs : FnSolves c) : True := by
   have := @Faithful.Model.applies_iff_open c h okB okB_open.1 okB_open.2
   have := @Faithful.Model.applies_iff_open c h ok2 ok2_open.1 ok2_open.2.1
   have := @Faithful.Model.applies_iff_open c h ok4 ok4_open.1 ok4_open.2.1
-  have := Faithful.Model.rule_premise_open h ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.rule_premise_open h okB_open.1 okB_open.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.rule_premise_open h ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := Faithful.Model.rule_premise_open h ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := Faithful.Model.rule_premise_open h ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.rule_premise_open h okB_open.1 okB_open.2 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.rule_premise_open h ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := Faithful.Model.rule_premise_open h ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
   trivial
 
 /-- `freeOf_prioOpen` at each of the four rules: the free variables of the rule's axiom are its own. -/
 example (hd : FnDet c) (hs : FnSolves c) : True := by
   have h := hypModel_of_fn coreOK hd hs
-  have := @Faithful.Model.freeOf_prioOpen c h ok1 ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := @Faithful.Model.freeOf_prioOpen c h okB okB_open.1 okB_open.2 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := @Faithful.Model.freeOf_prioOpen c h ok2 ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
-  have := @Faithful.Model.freeOf_prioOpen c h ok4 ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+  have := @Faithful.Model.freeOf_prioOpen c h ok1 ok1_open.1 ok1_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := @Faithful.Model.freeOf_prioOpen c h okB okB_open.1 okB_open.2 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := @Faithful.Model.freeOf_prioOpen c h ok2 ok2_open.1 ok2_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
+  have := @Faithful.Model.freeOf_prioOpen c h ok4 ok4_open.1 ok4_open.2.1 (h.ruleFactsEx_of_all (by decide +kernel))
   trivial
 
 /-- `ok1` at priority 300 in `c2`: both rules of `c2` are its competitors, so its axiom's left part
@@ -280,22 +280,24 @@ theorem ok1hi_open : c2.ruleSorted ok1hi = true ∧ c2.rulePlainOpen ok1hi = tru
 
 example (hd : FnDet c2) (hs : FnSolves c2) : True := by
   have := Faithful.Model.rule_premise_open (hypModel_of_fn coreOK2 hd hs) ok1hi_open.1 ok1hi_open.2.1
-    ((hypModel_of_fn coreOK2 hd hs).ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel)))
+    ((hypModel_of_fn coreOK2 hd hs).ruleFactsEx_of_all (by decide +kernel))
   trivial
 
 /-! ## Consistency over `Γc`: `consistent_open` -/
 
 /-- `consistent_open` at the text's semantics and at `c2`, for every `FnDet` and `FnSolves`, the
-rules' facts from `HypModelCore` (`ruleSorted`, `rulePlainEx`) with no rule having an existential
+rules' facts from `HypModelCore` and their `rulePlainEx`, decided (`ruleSorted`, `rulePlainEx`) with no rule having an existential
 variable (decided). Neither has an open rule; `test/OpenRulesCore.lean` instantiates it at `cO`,
 which has. -/
 example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : Consistent c ∧ Consistent c2 := by
   have hex : ∀ r ∈ c.rules, r.exs = [] := by decide +kernel
   have hex2 : ∀ r ∈ c2.rules, r.exs = [] := by decide +kernel
-  exact ⟨consistent_open c coreOK hd hs (openLaws_of_plain (by decide +kernel)) fun _ hr => ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).2, hex _ hr⟩⟩,
-    consistent_open c2 coreOK2 hd2 hs2 (openLaws_of_plain (by decide +kernel)) fun _ hr => ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).2, hex2 _ hr⟩⟩⟩
+  have hf := (hypModel_of_fn coreOK hd hs).ruleFactsEx_of_all (by decide +kernel)
+  have hf2 := (hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx_of_all (by decide +kernel)
+  exact ⟨consistent_open c coreOK hd hs (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf r hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf r hr).2, hex r hr⟩⟩,
+    consistent_open c2 coreOK2 hd2 hs2 (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf2 r hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf2 r hr).2, hex2 r hr⟩⟩⟩
 
 /-! ## A successor in two cases: `successor_split_rule`, `step_successor_open` -/
 

@@ -1,0 +1,47 @@
+id = "t127-rule-rhs-bottom"
+kind = "text"
+subject = "A rewrite rule whose right side is #Bottom, go(_) => #Bottom, beside go(_) => done [priority(60)]: what a rule with an empty right side states."
+retro = ["M7"]
+origin = "kcore-spec fixture e3-ml-rule-rhs-bottom"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t127-rule-rhs-bottom.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The first rule states that its left side has no element: in every model, at every valuation, the configuration holding go(n) ~> K denotes nothing. That is stronger than 'go(n) has no successor': in a model where that configuration denotes an element, as where the sequence and the cell symbols each denote one element, the axiom is false, so the text has a model only where no such configuration exists. Its priority, and the rule of priority 60 beside it, do not change what the axiom states."
+reason = '''
+(1) #Bottom is the bottom pattern of ML-SYNTAX (kast.md:139), the negation of top, which denotes nothing (introduction-to-matching-logic.tex:679-681, 732-733). The right side is written append(\bottom, _DotVar1) under the cells (kore.txt:100). An application to a union of arguments is the union of the applications, and an application to an argument that denotes nothing denotes nothing (kk:t10-fn-innermost, point (2)). So the right side denotes nothing at every valuation.
+(2) A rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)). With an empty right side, no element of the left side has a successor in it, so the axiom holds at a valuation exactly where its left side is empty.
+(3) The left side is the configuration holding go(n) ~> K at every valuation of the variables. So the axiom states that this configuration denotes nothing, for every n and K. Where the symbols that build it denote an element, that statement is false.
+(4) A priority orders the rules for evaluation (user_manual.md:1739-1746); it is an attribute of the axiom and no part of its pattern, so it does not weaken (2).'''
+
+[ruling.kore]
+statement = 'The rule is written \rewrites(L, <generatedTop>(<k>(append(\bottom{SortK{}}(), _DotVar1)), _DotVar0)) (kore.txt:95-101); it states what the ruling states.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:100"
+quote = '''append{}(\bottom{SortK{}}(),Var'Unds'DotVar1:SortK{})'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[observe]]
+file = "kore.txt"
+contains = '''append{}(\bottom{SortK{}}(),Var'Unds'DotVar1:SortK{})'''

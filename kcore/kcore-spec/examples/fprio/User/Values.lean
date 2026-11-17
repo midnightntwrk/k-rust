@@ -88,6 +88,7 @@ theorem agSq_val {σ : Subst} {r : Option GroundTerm}
       | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
       | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
       | ovl _ ho _ => exact absurd ho (by decide +kernel)
+      | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- **`ag`'s agreement**, the package's one named agreement (`agree_obligations`): its two clauses,
 of one priority, give one result where both apply, at `ag(0)`, in both orders. -/
@@ -161,7 +162,7 @@ theorem eval_of_evalAt {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} 
 /-- The value the executable evaluation gives is f's only result. -/
 theorem only_of_evalAt {f : Sym} {vs : List GroundTerm} {r r' : Option GroundTerm} (n : Nat)
     (h : evalAt n f vs r = true) (h' : Eval c f vs r') : r' = r :=
-  Eval.functional coherent h' (eval_of_evalAt n h)
+  Eval.functional coherent (Semantics.fnsNoExs_of_ok ok) h' (eval_of_evalAt n h)
 
 /-- `pr-low` (40) decides at 0, where `pr-def` (50) and `pr-mid` (100) also match. -/
 theorem pr_0 : Eval c Sym.«pr» [int 0] (some (int 1)) := eval_of_evalAt 20 (by decide +kernel)
@@ -228,7 +229,8 @@ theorem t4_none : CExec.successorsN (c.withHooks HookParams.none) 100 (cfg (cmd 
 at -200, and its rest is undefined there. -/
 theorem t4_ends (hf : (c.withHooks HookParams.none).sortOf (cfg (cmd Sym.«t4»)) = some topCellSort) :
     ∀ y, ¬ Step (c.withHooks HookParams.none) ⟨_, hf⟩ y :=
-  CExec.noStep_at (by decide +kernel) (fnDet_of_coherent (coherent_withHooks HookParams.none ag_agree)) t4_fuel t4_none
+  CExec.noStep_at (by decide +kernel) (fnDet_of_coherent (coherent_withHooks HookParams.none ag_agree)
+      (Semantics.fnsNoExs_of_ok ((Semantics.ok_withHooks c HookParams.none).trans ok))) t4_fuel t4_none
 
 /-- info: 'Fprio.Values.sound_defn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

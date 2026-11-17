@@ -222,17 +222,30 @@ def colls (k : Kore.Definition) (c : Semantics) : Bool :=
   declared.all (fun x => c.allColls.any fun cs => own cs == x) &&
     c.colls.all fun cs => declared.contains (own cs)
 
-/-- The priorities of the text's rewrite axioms, in text order, are the rules'; and for each
-function of the semantics, the priorities of the text's equations with the function at the head of
-their left side, less the `simplification` ones, are its clauses' priorities, as lists up to order.
-The semantics need not hold a function's clauses in text order, so which equation has which
-priority is not compared here. It is decided where a tie pairs each clause's item with its
+/-- The id an axiom's attributes state (`UNIQUE'Unds'ID{}("…")`). -/
+def uidOf (as : List Kore.AppPattern) : Option String := strArg as "UNIQUE'Unds'ID"
+
+/-- The priority of the text's rewrite axiom whose id is `u`. -/
+def rewritePrioOf (k : Kore.Definition) (u : String) : Option Nat :=
+  ((k.axiomDecls.map (·.ax)).find? fun a => isRewrite a.pattern && uidOf a.attributes == some u).map
+    (prioOf ·.attributes)
+
+/-- Each rule's priority is the priority of the text's rewrite axiom it is read from, the axiom
+whose id the rule's presentation holds (`RulePres.info`; the rules a reading makes of one axiom,
+`orSplit`'s, each hold that axiom's id), and every rewrite axiom of the text is read as some rule.
+For each function of the semantics, the priorities of the text's equations with the function at
+the head of their left side, less the `simplification` ones, are its clauses' priorities, as lists
+up to order. The semantics need not hold a function's clauses in text order, so which equation has
+which priority is not compared here. It is decided where a tie pairs each clause's item with its
 sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of
 one function with distinct `priority{}` numbers, where the text states the attribute only, by the
 priorities of the paired sentences in the items' order, which a tie of such a text states. -/
-def prios (k : Kore.Definition) (c : Semantics) : Bool :=
+def prios (k : Kore.Definition) (d : Definition) : Bool :=
+  let c := d.sem
   let axs := k.axiomDecls.map (·.ax)
-  ((axs.filter (isRewrite ·.pattern)).map (prioOf ·.attributes) == c.rules.map (·.prio)) &&
+  d.pres.rules.length == c.rules.length &&
+  ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
+  ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
   c.allFns.all fun f =>
     let n := c.symName f.label
     ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
@@ -244,7 +257,7 @@ end AttrsAgree
 only is what the attributes say (`AttrsAgree.ctors`, `fns`, `hooks`, `colls`, `prios`). -/
 def attrsAgree (k : Kore.Definition) (d : Definition) : Bool :=
   AttrsAgree.ctors k d.sem && AttrsAgree.fns k d.sem && AttrsAgree.hooks k d.sem &&
-    AttrsAgree.colls k d.sem && AttrsAgree.prios k d.sem
+    AttrsAgree.colls k d.sem && AttrsAgree.prios k d
 
 /-! ## The classes of a tie and their directions -/
 
@@ -281,13 +294,15 @@ sentences under these names, in this order.
 - library: an equation or a lemma of the builtin library over symbols `Γ` has;
 - set idempotence: `_Set_(K, K) = K`, against which `Γ` states the concatenation of two sets with
   a common member undefined;
+- set-variable lemma: a library lemma over set variables that `Γ` refutes at a valuation sending
+  each free set variable to a set of values (`SetVarsAtValues`);
 - no direction: a sentence that applies a symbol `Γ` does not have. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
    ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
    ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
-   ("set idempotence", .refuted), ("no direction", .none)]
+   ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/
 

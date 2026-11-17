@@ -1,18 +1,69 @@
 id = "c26-map-strict"
 kind = "case"
 subject = "A map is strict in its entries: an entry whose value is undefined (1 /Int 0) makes the map, and so the rule's result, undefined; the rule of the same priority with a defined entry gives the one final configuration."
+retro = ["H1"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t30-hooks-strict", "kk:t31-int-division", "kk:t36-map-concat"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives go(1 |-> 2, 0) no successor by the first rule and the successor r(2, 1 |-> 2 5 |-> 1) by the second (user_manual.md:1166-1173); the axiom kompile writes for the first rule has M (5 |-> 1 /Int Z) in its right side (kore.txt:94), empty at Z = 0, and read as a rewrite axiom it is false in every model where go(1 |-> 2, 0) in the k cell is an element: as written the text has no model holding it, rather than one where it has the one successor r(2, 1 |-> 2 5 |-> 1)."
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(2, 1 |-> 2 5 |-> 1)"]
+reason = """
+(1) Both rules have priority 50 and no requires (user_manual.md:1748-1749): at go(1 |-> 2, 0) each whose result has a value gives a successor, whatever the other gives (kk:t02-step-successors).
+(2) The first rule's right side is r(1, M (5 |-> 1 /Int 0)) at M = 1 |-> 2. 1 /Int 0 has no value (domains.md:1233-1234; kk:t31-int-division); the hooked symbol |-> applied to an argument that has no value has none, and so has _Map_ applied to it (kk:t30-hooks-strict), and r (kk:t10-fn-innermost). The transition of that rule ends in RHS #And ENS (user_manual.md:1166-1173), which has no value: it gives no successor, and r(1, _) is reached by no rule.
+(3) The second rule's right side holds 1 /Int (0 +Int 1) = 1 (domains.md:1238), and M (5 |-> 1) is the map of 1 |-> 2 and 5 |-> 1, the two having no key in common (kk:t36-map-concat): go(...) steps to r(2, 1 |-> 2 5 |-> 1).
+(4) No rule's left side matches r(_, _), which is final (kk:t06-final-configuration). The final configurations are r(2, 1 |-> 2 5 |-> 1) alone.
+(5) The written sentences state more than (2): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[ruling.kore]
+statement = "Each rule is one rewrite axiom, of one priority (kore.txt:88-105). The right side of the first holds M (5 |-> 1 /Int Z) (kore.txt:94); 1 /Int Z denotes nothing at Z = 0, and so does every application to it, the interpretation of each symbol being extended to argument sets (introduction-to-matching-logic.tex:714-716), so at Z = 0 that axiom holds only where its left side has no element; go is a constructor with a functional axiom (kore.txt:62). The written sentences have no model in which go(1 |-> 2, 0) in the k cell is an element, while the manual's transition gives it the one final configuration r(2, 1 |-> 2 5 |-> 1)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:94"
+quote = '''Lbl'Unds'Map'Unds'{}(VarM:SortMap{},Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5")),inj{SortInt{}, SortKItem{}}(Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"),VarZ:SortInt{}))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:62"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblgo'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map'Unds'Int{}(K0:SortMap{}, K1:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in a map entry's value. The entry is \
-undefined; MAP.element and MAP.concat are strict, so the map and the rule's result are \
-undefined."""
+reason = "The llvm backend aborts on 1 /Int 0 in a map entry's value ([hook_INT_tdiv]: Division by zero) and reports no final configuration; the ruling has r(2, 1 |-> 2 5 |-> 1)."

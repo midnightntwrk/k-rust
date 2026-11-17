@@ -1119,16 +1119,21 @@ theorem clause_ctx (hok : c.sortedOK = true)
   let ⟨h1, h2, L, h3, h4, h5, _⟩ := clause_ctxE hok hbc hfn hcl
   ⟨h1, h2, L, h3, h4, h5⟩
 
-/-- A semantics `ok` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
-theorem _root_.KCore.Semantics.ok_clauseBinds {c : Semantics} (h : c.ok = true) :
+/-- A semantics `okM` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
+theorem _root_.KCore.Semantics.okM_clauseBinds {c : Semantics} (h : c.okM = true) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true := by
   intro fn hfn cl hcl
-  simp only [Semantics.ok, Bool.and_eq_true] at h
-  have hf := h.1.2
+  simp only [Semantics.okM, Bool.and_eq_true] at h
+  have hf := h.1.1.2
   simp only [Semantics.fnsOK, Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hf
   have h2 := (hf fn hfn).1 cl hcl
   simp only [Semantics.clauseOK, Bool.and_eq_true] at h2
   exact h2.1.1.1.2
+
+/-- A semantics `ok` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
+theorem _root_.KCore.Semantics.ok_clauseBinds {c : Semantics} (h : c.ok = true) :
+    ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true :=
+  Semantics.okM_clauseBinds (Semantics.okM_of_ok h)
 
 /-- The sort predicates' right-hand sides are domain values. -/
 theorem sortPreds_rhs {fn : Fn} (hfn : fn ∈ c.sortPreds) : ∀ cl ∈ fn.clauses, ∃ s lit, cl.rhs = .dv s lit := by
@@ -1147,8 +1152,9 @@ theorem MatchIndependentAll_of (hy : HypCore c) : MatchIndependentAll c := by
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with hu | hp
   · exact hy.2.2.2.2.2.1 fn hu cl hcl
-  · intro vs σ σ' _ _ _ _ _ _
-    refine Or.inl ⟨rfl, rfl, fun i hi => absurd hi ?_, fun t ht => ?_⟩
+  · refine ⟨fun vs σ σ' _ _ _ _ _ _ => ?_, fun hne => absurd (Semantics.sortPreds_exs hp cl hcl) hne⟩
+    refine Or.inl ⟨Semantics.sortPreds_exs hp cl hcl, Semantics.sortPreds_exs hp cl hcl, rfl, rfl,
+      fun i hi => absurd hi ?_, fun t ht => ?_⟩
     · obtain ⟨s', lit, hr⟩ := sortPreds_rhs hp cl hcl
       rw [hr, varOccs]
       exact List.not_mem_nil
@@ -1164,16 +1170,18 @@ theorem CoherentAll_of (hy : HypCore c) : CoherentAll c :=
     · exact sortPreds_agree hp
 
 /-- **Every function has at most one result where its equations agree and its clauses are match
-independent**: the user's functions by the two hypotheses, a sort predicate's because its
-right-hand sides have no variable and its clauses agree. Nothing else of the semantics is read. -/
+independent, and no clause has an existential variable**: the user's functions by the
+hypotheses, a sort predicate's because its right-hand sides have no variable and its clauses
+agree. Nothing else of the semantics is read. -/
 theorem fnDet_of_agree {c : Semantics} (h3 : ∀ fn ∈ c.fns, ClausesAgree c fn)
-    (h4 : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) : FnDet c :=
+    (h4 : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) (hno : c.FnsNoExs) : FnDet c :=
   fnDet_of_coherent (coherentAll_of_parts (fun f fn hfn cl hcl => by
       obtain ⟨hmem, -⟩ := lookupFn_spec hfn
       rcases List.mem_append.mp hmem with hu | hp
       · exact h4 fn hu cl hcl
-      · intro vs σ σ' _ _ _ _ _ _
-        refine Or.inl ⟨rfl, rfl, fun i hi => absurd hi ?_, fun t ht => ?_⟩
+      · refine ⟨fun vs σ σ' _ _ _ _ _ _ => ?_, fun hne => absurd (Semantics.sortPreds_exs hp cl hcl) hne⟩
+        refine Or.inl ⟨Semantics.sortPreds_exs hp cl hcl, Semantics.sortPreds_exs hp cl hcl, rfl, rfl,
+          fun i hi => absurd hi ?_, fun t ht => ?_⟩
         · obtain ⟨s', lit, hr⟩ := sortPreds_rhs hp cl hcl
           rw [hr, varOccs]
           exact List.not_mem_nil
@@ -1182,7 +1190,7 @@ theorem fnDet_of_agree {c : Semantics} (h3 : ∀ fn ∈ c.fns, ClausesAgree c fn
       obtain ⟨hmem, -⟩ := lookupFn_spec hfn
       rcases List.mem_append.mp hmem with hu | hp
       · exact h3 fn hu
-      · exact sortPreds_agree hp)
+      · exact sortPreds_agree hp) hno
 
 /-- **Where every function has at most one result, a clause is `Witnessed` exactly where some
 values satisfy its conditions**: the second half of `Witnessed`'s `requires` conjunct (no result
@@ -1214,11 +1222,11 @@ theorem injApp_empty {e : Valuation M} {A B : String} {φ : KoreAML.P} (h : ∀ 
   exact h b hb
 
 /-- In the model `I`, an overloading symbol applied to the elements of values of its argument sorts
-is the element of their normal form (`norm`). Every model of `Γ` has it (`normDen_of`,
-FaithfulNeg.lean). -/
+that no function overload covers is the element of their normal form (`norm`). Every model of `Γ`
+has it (`normDen_of`, FaithfulNeg.lean). -/
 def NormDen [Inhabited M] (c : Semantics) (I : Interpretation KoreAML.Sym M) : Prop :=
   ∀ {f : Sym} {o : OvlSig} {ws : List GroundTerm}, c.lookupOvl f = some o → c.sortsOf ws = some o.sig.args →
-    ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
+    c.fnCover f ws = none → ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
       (den c (c.norm f ws)).interpret I e m
 
 section
@@ -1232,7 +1240,7 @@ mutual
   theorem eval_den : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args → Callable c f →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ _ hrhs hens, fn, hfn, hws, hcall, e, m => by
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ _ _ hrhs hens _, fn, hfn, hws, hcall, e, m => by
       rw [hfn] at hfn'; cases hfn'
       obtain ⟨hlows, -⟩ := hcall fn' hfn
       have hol := hlows cl hcl
@@ -1258,7 +1266,13 @@ mutual
     | _, _, _, h@(.ensFails ..), fn, hfn, hws, hcall, e, m => by
       -- a callable function has a value at every argument list of its sorts, so none is its result
       obtain ⟨v, hv⟩ := (hcall fn hfn).2 _ hws
-      exact absurd (Eval.functional hmi h hv) (by simp)
+      exact absurd (Eval.functional hmi (Semantics.fnsNoExs_of_sortedOK hok) h hv) (by simp)
+    | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+    | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- **L3, terms.** A well-sorted right-hand side or `requires` whose symbols are callable in the
   first stage, at a valuation that agrees with a well-sorted σ, translates to what its result
@@ -1378,7 +1392,9 @@ mutual
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
-    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
+    | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+      rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
+    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       obtain ⟨-, hcalls⟩ := heads_app hcall
@@ -1392,7 +1408,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := hnd hlo hws e m
+        have := hnd hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this

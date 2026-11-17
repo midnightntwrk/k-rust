@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t39-cell-collection-map.k": "f7f7c6daa4339966978c540ef56321a2e67d3dfe206308fa8cdb4639a778f0c7"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t39-cell-collection-map.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "e2366d42de63aa3c11013fbb965115a1ed774dc55bd526113a85fedb40f5cc46",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

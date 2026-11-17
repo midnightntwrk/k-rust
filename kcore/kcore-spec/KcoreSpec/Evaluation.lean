@@ -319,7 +319,8 @@ def collVal (f : Sym) (vs : List GroundTerm) : Option GroundTerm :=
 
 /-- An overloading symbol of `c` (`ovls`) of no other kind: not a constructor, an interpreted
 hook, a parameter symbol or a function, which are read first. Its applications denote normal
-forms (`norm`). -/
+forms (`norm`), or, at arguments a function it overloads covers (`fnCover`), that function's
+value. -/
 def isOvl (f : Sym) : Bool :=
   !c.isCtor f && !isHook f && !c.isParam f && (c.lookupFn f).isNone && (c.lookupOvl f).isSome
 
@@ -413,6 +414,10 @@ def AgreeOff (is : List Nat) (σ σ' : Subst) : Prop := ∀ i, i ∉ is → σ'.
 /-- The variables of a clause that its right side does not bind. -/
 def Clause.univ (cl : Clause) : List Nat := (List.range cl.vars.length).filter (!cl.exs.contains ·)
 
+/-- The existential variables the left side (patterns, `requires`, `pre`) does not hold: the ones
+an instance of the right side varies. -/
+def Clause.exsFree (cl : Clause) : List Nat := cl.exs.filter (!cl.leftVars.contains ·)
+
 /-- Without existential variables, well sorted on `univ` is well sorted. -/
 theorem wellSortedAt_univ {c : Semantics} {cl : Clause} {σ : Subst} (h : cl.exs = []) :
     c.WellSortedAt cl.vars cl.univ σ ↔ c.WellSorted cl.vars σ := by
@@ -441,7 +446,8 @@ mutual
     /-- A clause that applies decides, when no clause of a smaller priority that is not `aside`
     applies: its patterns denote `vs` under a well-sorted σ, its `requires` evaluates to `true`
     under σ, its predicate `pre` is true under σ, and every clause of a smaller priority that is
-    not `aside` fails. Where its `ensures` evaluates to `true` (or it has none), the result is its
+    not `aside` fails. For a clause without existential variables, where its `ensures` evaluates to
+    `true` (or it has none) and its right side's predicate `post` is true, the result is its
     right-hand side's. -/
     | clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
         {σ : Subst} {r : Option GroundTerm}
@@ -452,15 +458,17 @@ mutual
         (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
         (hpre : Holds c cl.vars.length σ cl.pre true)
         (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
+        (hex : cl.exs = [])
         (hrhs : EvalTerm c σ cl.rhs r)
-        (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) : Eval c f vs r
+        (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)))
+        (hpost : Holds c cl.vars.length σ cl.post true) : Eval c f vs r
     /-- Where every clause fails, `f` has its rest (`fnRest`). -/
     | rest {f : Sym} {fn : Fn} {vs : List GroundTerm}
         (hfn : c.lookupFn f = some fn)
         (hnone : ∀ cl ∈ fn.clauses, Fails c vs cl) : Eval c f vs (c.fnRest fn vs)
-    /-- A clause that decides (as in `clause`) whose `ensures` evaluates to something other than
-    `true` (`false`, or undefined): `f` has no value there, `rhs ∧ ⊥` being empty whatever the
-    right-hand side is. The rest is not read. -/
+    /-- A clause without existential variables that decides (as in `clause`) whose `ensures`
+    evaluates to something other than `true` (`false`, or undefined): `f` has no value there,
+    `rhs ∧ ⊥` being empty whatever the right-hand side is. The rest is not read. -/
     | ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
         {σ : Subst} {t : Term} {w : Option GroundTerm}
         (hfn : c.lookupFn f = some fn)
@@ -470,7 +478,45 @@ mutual
         (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
         (hpre : Holds c cl.vars.length σ cl.pre true)
         (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
+        (hex : cl.exs = [])
         (ht : cl.ens = some t) (he : EvalTerm c σ t w) (hw : w ≠ some (bool true)) :
+        Eval c f vs none
+    /-- A clause with existential variables that decides under σ: the instance of its right side at
+    σ gives the value `v` (its right-hand side has the value `v`, its `ensures` evaluates to `true`,
+    its predicate `post` is true), and every instance, at a well-sorted σ' that is σ off the
+    existential variables the left side does not hold, is decided and gives `v` or nothing
+    (`InstIs`). The right side being the union of its instances, the result is `v`. -/
+    | clauseEx {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
+        {σ : Subst} {v : GroundTerm}
+        (hfn : c.lookupFn f = some fn)
+        (hmem : cl ∈ fn.clauses)
+        (hσ : c.WellSorted cl.vars σ)
+        (hmatch : PatVals c σ cl.pats vs)
+        (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+        (hpre : Holds c cl.vars.length σ cl.pre true)
+        (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
+        (hne : cl.exs ≠ [])
+        (hrhs : EvalTerm c σ cl.rhs (some v))
+        (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)))
+        (hpost : Holds c cl.vars.length σ cl.post true)
+        (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl (some v)) :
+        Eval c f vs (some v)
+    /-- A clause with existential variables that decides under σ (well sorted on the variables its
+    right side does not bind), with an instance of its right side (a well-sorted σ' that is σ off
+    the existential variables the left side does not hold) and every instance decided and giving
+    nothing: `f` has no value there, the union of the instances being empty. The rest is not
+    read. -/
+    | exNone {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
+        (hfn : c.lookupFn f = some fn)
+        (hmem : cl ∈ fn.clauses)
+        (hne : cl.exs ≠ [])
+        (hσ : c.WellSortedAt cl.vars cl.univ σ)
+        (hmatch : PatVals c σ cl.pats vs)
+        (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+        (hpre : Holds c cl.vars.length σ cl.pre true)
+        (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
+        (hsome : ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ')
+        (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl none) :
         Eval c f vs none
   /-- `Fails c vs cl`: the clause does not apply at `vs`: for every σ that gives the variables of
   its patterns and conditions values of their sorts and under which its patterns denote `vs`, it
@@ -522,10 +568,21 @@ mutual
     | callUndef {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
         (h : c.isCtor f = false) (hh : isHook f = false) (hts : EvalTerms c σ ts rs)
         (hvs : allSome rs = none) (hp : c.isParam f = false) : EvalTerm c σ (.app f ts) none
-    /-- An overloading symbol builds the normal form (`norm`; undefined if an argument is). -/
+    /-- An overloading symbol builds the normal form (`norm`; undefined if an argument is), where
+    no function it overloads covers the arguments (`fnCover`). -/
     | ovl {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
-        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs) :
+        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+        (hnf : ∀ vs, allSome rs = some vs → c.fnCover f vs = none) :
         EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))
+    /-- An overloading symbol at values a function it overloads covers (`fnCover`) has that
+    function's result at the stripped arguments, lifted to the symbol's result sort; undefined
+    where the function is. -/
+    | ovlFn {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
+        {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig} {r : Option GroundTerm}
+        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+        (hvs : allSome rs = some vs) (hlo : c.lookupOvl f = some o) (hcov : c.fnCover f vs = some kg)
+        (hf : Eval c kg.name (stripAll kg.args o.sig.args vs) r) :
+        EvalTerm c σ (.app f ts) (r.map (lift kg.result o.sig.result))
   inductive EvalTerms (c : Semantics) : Subst → List Term → List (Option GroundTerm) → Prop where
     | nil {σ : Subst} : EvalTerms c σ [] []
     | cons {σ : Subst} {t : Term} {ts : List Term} {r : Option GroundTerm}
@@ -557,14 +614,90 @@ mutual
     | all {n σ s body b} (g : Subst → Bool)
         (hb : ∀ σ', Extends c n [s] σ σ' → Holds c (n + 1) σ' body (g σ'))
         (hr : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : Holds c n σ (.all s body) b
+  /-- `InstFails c σ cl`: the instance of the clause's right side at σ gives nothing: its `ensures`
+  evaluates to something other than `true` (`ens`), its predicate `post` is false (`post`), or its
+  right-hand side is undefined (`rhs`). -/
+  inductive InstFails (c : Semantics) : Subst → Clause → Prop where
+    | ens {σ : Subst} {cl : Clause} {t : Term} {w : Option GroundTerm}
+        (ht : cl.ens = some t) (he : EvalTerm c σ t w) (hw : w ≠ some (bool true)) : InstFails c σ cl
+    | post {σ : Subst} {cl : Clause} (h : Holds c cl.vars.length σ cl.post false) : InstFails c σ cl
+    | rhs {σ : Subst} {cl : Clause} (h : EvalTerm c σ cl.rhs none) : InstFails c σ cl
+  /-- `InstIs c σ cl r`: the instance of the clause's right side at σ is decided and agrees with
+  the result `r`: its predicate `post` has a truth value and it gives nothing (`fails`), or it gives
+  the value `v` and `r` is `some v` (`gives`). -/
+  inductive InstIs (c : Semantics) : Subst → Clause → Option GroundTerm → Prop where
+    | fails {σ : Subst} {cl : Clause} {r : Option GroundTerm} {b : Bool}
+        (hp : Holds c cl.vars.length σ cl.post b) (h : InstFails c σ cl) : InstIs c σ cl r
+    | gives {σ : Subst} {cl : Clause} {v : GroundTerm} (hrhs : EvalTerm c σ cl.rhs (some v))
+        (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)))
+        (hpost : Holds c cl.vars.length σ cl.post true) : InstIs c σ cl (some v)
 end
 
 /-- A function with a result is a function, so no overloading symbol. -/
 theorem Eval.isOvl_false {c : Semantics} {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm}
     (h : Eval c f vs r) : c.isOvl f = false := by
   cases h with
-  | clause hfn _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | clause hfn _ _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
   | rest hfn _ => exact c.isOvl_of_lookupFn hfn
-  | ensFails hfn _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | ensFails hfn _ _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | clauseEx hfn _ _ _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+  | exNone hfn _ _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
+
+/-- An extension of a match is the match on the variables of the left side, so the match is well
+sorted there where the extension is well sorted. -/
+theorem wellSortedAt_left_of_ext {c : Semantics} {cl : Clause} {σ σ' : Subst}
+    (ha : AgreeOff cl.exsFree σ σ') (hw : c.WellSorted cl.vars σ') :
+    c.WellSortedAt cl.vars cl.leftVars σ := by
+  intro i hi s hs
+  obtain ⟨v, hv, hvs⟩ := hw i s hs
+  refine ⟨v, ?_, hvs⟩
+  rw [← ha i ?_]; exact hv
+  intro hm
+  simp only [Clause.exsFree, List.mem_filter] at hm
+  simp [hi] at hm
+
+theorem AgreeOff.refl (is : List Nat) (σ : Subst) : AgreeOff is σ σ := fun _ _ => rfl
+
+theorem AgreeOff.trans {is : List Nat} {σ σ' σ'' : Subst} (h : AgreeOff is σ σ') (h' : AgreeOff is σ' σ'') :
+    AgreeOff is σ σ'' := fun i hi => (h' i hi).trans (h i hi)
+
+/-- Without existential variables an instance varies nothing. -/
+theorem Clause.exsFree_nil {cl : Clause} (h : cl.exs = []) : cl.exsFree = [] := by
+  simp [Clause.exsFree, h]
+
+/-- No clause of a generated sort predicate has an existential variable. -/
+theorem Semantics.sortPreds_exs {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
+    ∀ cl ∈ fn.clauses, cl.exs = [] := by
+  simp only [Semantics.sortPreds, List.cons_append, List.nil_append, List.mem_cons,
+    List.mem_filterMap, Option.map_eq_some_iff] at hfn
+  rcases hfn with rfl | rfl | ⟨X, -, _, _, rfl⟩ <;> intro cl hcl <;>
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
+    rcases hcl with rfl | rfl <;> rfl
+
+/-- The right side's predicate of each clause of a generated sort predicate is `\top`. -/
+theorem Semantics.sortPreds_post {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
+    ∀ cl ∈ fn.clauses, cl.post = .top := by
+  simp only [Semantics.sortPreds, List.cons_append, List.nil_append, List.mem_cons,
+    List.mem_filterMap, Option.map_eq_some_iff] at hfn
+  rcases hfn with rfl | rfl | ⟨X, -, _, _, rfl⟩ <;> intro cl hcl <;>
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
+    rcases hcl with rfl | rfl <;> rfl
+
+/-- No clause of a function of the definition has an existential variable. -/
+def Semantics.FnsNoExs (c : Semantics) : Prop := ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs = []
+
+/-- Then no clause of a function evaluation reads has one: the generated sort predicates' have
+none by their text. -/
+theorem Semantics.FnsNoExs.allFns {c : Semantics} (h : c.FnsNoExs) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] := by
+  intro fn hfn
+  rcases List.mem_append.mp hfn with hu | hp
+  · exact h fn hu
+  · exact Semantics.sortPreds_exs hp
+
+theorem Semantics.FnsNoExs.lookup {c : Semantics} (h : c.FnsNoExs) {f : Sym} {fn : Fn}
+    (hfn : c.lookupFn f = some fn) {cl : Clause} (hcl : cl ∈ fn.clauses) : cl.exs = [] := by
+  rw [Semantics.lookupFn_eq] at hfn
+  exact h.allFns fn (List.mem_of_find?_eq_some hfn) cl hcl
 
 end KCore

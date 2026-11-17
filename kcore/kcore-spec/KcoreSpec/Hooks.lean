@@ -5,7 +5,7 @@
   `SetItem`, `_Set_` and `|Set` (union), `intersectSet`, `Set:difference`, `Set:in`, `<=Set`,
   `size`) and finite lists (`.List`, `ListItem`, `_List_`, `pushList`, `L[I]`, `range`, `inList`,
   `size`, and `L[I <- V]`, `makeList`, `updateList`, `fillList` on the ranges the text describes),
-  and FLOAT's IEEE 754 operations (FloatDomain.lean): `+ - * / %Float`, `--Float`,
+  and FLOAT's operations where K's text states their value (FloatDomain.lean): `+ - * / %Float`, `--Float`,
   `absFloat`, floor, ceil, trunc, `sqrtFloat`, `roundFloat`, `Int2Float`, the comparisons, `isNaN`,
   `isInfinite`, precision, exponent width, `maxValueFloat`, `minValueFloat`; STRING's operations on
   Strings (StringDomain.lean): `+String`, `lengthString`, `ordChar`, `substrString`, `findString`,
@@ -49,8 +49,11 @@
   the right sides of their equations (1438, 1440), which apply the shifts, so undefined at a
   negative index or length and the second also at length 0, `A ^%Int B C` undefined at C = 0
   (equal in value to `(A ^Int B) %Int C`, 1229-1231), `A ^Int B` the power at B ≥ 0 (1228);
-  Float is IEEE 754 binary floating point of each value's format, every result rounded to nearest,
-  ties to even; a String is a sequence of code points and a Bytes value one of bytes, positions
+  a Float is a datum of its format (represented as IEEE 754 represents it, domains.md 1481-1490), an
+  arithmetic result the exact result rounded to nearest, ties to even, where the text states it
+  (FloatDomain.lean; no value at an infinity, NaN or zero divisor, at a zero result the text gives
+  no sign, above the format's largest finite value, or where `roundFloat` or `Int2Float` would have
+  to round); a String is a sequence of code points and a Bytes value one of bytes, positions
   counted from 0; Bool is the two-element Boolean
   algebra; `==K` is equality of values; a Map is a finite function
   from KItem to KItem, `_Map_` the union of two maps with disjoint keys.
@@ -60,7 +63,8 @@
   negative index or length, `^%Int` at a zero modulus, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
   `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
   states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
-  formats, a format without a model, a string off a conversion's syntax, …: `silentTable`), and Γ
+  formats, a Float operation off the region the text states, a format without a model, a string off
+  a conversion's syntax, …: `silentTable`), and Γ
   states the interpretation's value there.
 -/
 import KcoreSpec.Value
@@ -310,32 +314,54 @@ def floatV (p e : Nat) (sp : Format) (u : UnpackedFloat) : GroundTerm :=
   .dv Srt.float (.float p e (KFloat.packBits sp u))
 
 open Float.Model in
-/-- An operation on one Float, in its format. -/
-def fl1 (op : Format → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+/-- An operation on one Float, in its format; undefined where the operation gives no datum. -/
+def fl1 (op : Format → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
-  | [a] => (asFloat a).map fun (p, e, sp, u) => floatV p e sp (op sp u)
+  | [a] => (asFloat a).bind fun (p, e, sp, u) => (op sp u).map (floatV p e sp)
   | _ => none
 
 open Float.Model in
-/-- An operation on two Floats of one format, in that format; undefined on two formats. -/
-def fl2 (op : Format → UnpackedFloat → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) :
+/-- An operation on two Floats of one format, in that format; undefined on two formats and where
+the operation gives no datum. -/
+def fl2 (op : Format → UnpackedFloat → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) :
     Option GroundTerm :=
   match vs with
   | [a, b] => (asFloat a).bind fun (p, e, sp, u) => (asFloat b).bind fun (p', e', _, v) =>
-      if p = p' ∧ e = e' then some (floatV p e sp (op sp u v)) else none
+      if p = p' ∧ e = e' then (op sp u v).map (floatV p e sp) else none
   | _ => none
 
 open Float.Model in
-/-- A test of one Float. -/
+/-- A Float value's datum, without its format: at a format with a model (`asFloat`), and at a format
+of precision 1 and at least 2 exponent bits (`KFloat.thinUnpack`); none at a format of one exponent
+bit. -/
+def asDatum : GroundTerm → Option UnpackedFloat
+  | .dv s (.float p e b) =>
+    if s == Srt.float then
+      match KFloat.spec? p e with
+      | some sp => some (KFloat.unpackBits sp b)
+      | none => if p = 1 ∧ 2 ≤ e then some (KFloat.thinUnpack e b) else none
+    else none
+  | _ => none
+
+open Float.Model in
+/-- A test of one Float's datum (`asDatum`). -/
 def flTest (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asDatum a).map fun u => bool (t u)
+  | _ => none
+
+open Float.Model in
+/-- A test of one Float of a format with a model (`asFloat`): `isInfinite`, whose equation (domains.md
+1673) reads `maxValueFloat` and `--Float`, which compute at such a format only. -/
+def flTestM (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [a] => (asFloat a).map fun (_, _, _, u) => bool (t u)
   | _ => none
 
-/-- A comparison of two Floats of any formats, by their exact values (`KFloat.cmpExact`). -/
+/-- A comparison of two Floats of any formats, by their exact values (`asDatum`, `KFloat.cmpExact`). -/
 def flCmp (t : Option Ordering → Bool) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
-  | [a, b] => (asFloat a).bind fun (_, _, _, u) => (asFloat b).map fun (_, _, _, v) => bool (t (KFloat.cmpExact u v))
+  | [a, b] => (asDatum a).bind fun u => (asDatum b).map fun v => bool (t (KFloat.cmpExact u v))
   | _ => none
 
 /-- A property of a Float's format `(p, e)`, read off the value: `p` and `e` positive (domains.md
@@ -355,36 +381,39 @@ def flAt (op : Format → UnpackedFloat) (vs : List GroundTerm) : Option GroundT
 
 open Float.Model in
 /-- A datum converted to the format `(p, e)` given by two Ints (`roundFloat`); undefined at a format
-without a model. -/
-def flTo (op : Format → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+without a model and where the conversion gives no datum. -/
+def flTo (op : Format → UnpackedFloat → Option UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [a, x, y] => (asFloat a).bind fun (_, _, _, u) => (asInt x).bind fun p => (asInt y).bind fun e =>
-      (KFloat.spec? p.toNat e.toNat).map fun sp => floatV p.toNat e.toNat sp (op sp u)
+      (KFloat.spec? p.toNat e.toNat).bind fun sp => (op sp u).map (floatV p.toNat e.toNat sp)
   | _ => none
 
 /-- An Int converted to the format `(p, e)` given by two Ints (`Int2Float`); undefined at a format
-without a model. -/
+without a model and at an Int the format does not hold (`KFloat.ofInt?`). -/
 def flOfInt (vs : List GroundTerm) : Option GroundTerm :=
   match vs with
   | [i, x, y] => (asInt i).bind fun n => (asInt x).bind fun p => (asInt y).bind fun e =>
-      (KFloat.spec? p.toNat e.toNat).map fun sp => floatV p.toNat e.toNat sp (Float.Model.UnpackedFloat.ofInt sp n)
+      (KFloat.spec? p.toNat e.toNat).bind fun sp => (KFloat.ofInt? sp n).map (floatV p.toNat e.toNat sp)
   | _ => none
 
-/-- FLOAT's interpreted symbols (IEEE 754, nearest ties to even; FloatDomain.lean). A binary
-operation on two formats is undefined (K's documentation leaves it open; the symbols are not
-total); a comparison of two formats compares the exact values. -/
+/-- FLOAT's interpreted symbols, each with a value where K's text states one (FloatDomain.lean:
+the exact result rounded to nearest, ties to even, off the infinities, NaN, a zero divisor, the
+zero results the text gives no sign and the values above the format's largest finite one;
+`roundFloat` and `Int2Float` at a value the format holds). A binary operation on two formats is
+undefined (K's documentation leaves it open; the symbols are not total); a comparison of two
+formats compares the exact values. -/
 def floatHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
-  [(floatAdd, fl2 Float.Model.UnpackedFloat.add), (floatSub, fl2 Float.Model.UnpackedFloat.sub),
-   (floatMul, fl2 Float.Model.UnpackedFloat.mul), (floatDiv, fl2 Float.Model.UnpackedFloat.div),
+  [(floatAdd, fl2 KFloat.sum?), (floatSub, fl2 KFloat.diff?),
+   (floatMul, fl2 KFloat.prod?), (floatDiv, fl2 KFloat.quot?),
    (floatRem, fl2 KFloat.remainder),
-   (floatNeg, fl1 fun _ => Float.Model.UnpackedFloat.neg), (floatAbs, fl1 fun _ => Float.Model.UnpackedFloat.abs),
+   (floatNeg, fl1 fun _ => KFloat.neg?), (floatAbs, fl1 fun _ => KFloat.abs?),
    (floatFloor, fl1 fun s => KFloat.roundToIntegral s .down), (floatCeil, fl1 fun s => KFloat.roundToIntegral s .up),
    (floatTrunc, fl1 fun s => KFloat.roundToIntegral s .zero), (floatSqrt, fun vs => match vs with
      | [a] => (asFloat a).bind fun (p, e, sp, u) => (KFloat.sqrt? sp u).map (floatV p e sp) | _ => none),
    (floatLe, flCmp fun o => o == some .lt || o == some .eq), (floatLt, flCmp fun o => o == some .lt),
    (floatGe, flCmp fun o => o == some .gt || o == some .eq), (floatGt, flCmp fun o => o == some .gt),
    (floatEq, flCmp fun o => o == some .eq), (floatNe, flCmp fun o => o != some .eq),
-   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTest KFloat.isInf),
+   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTestM KFloat.isInf),
    (floatPrecision, flFmt fun p _ => p), (floatExponentBits, flFmt fun _ e => e),
    (floatRound, flTo KFloat.convertFormat), (int2Float, flOfInt),
    (floatMaxValue, flAt KFloat.maxValue), (floatMinValue, flAt KFloat.minValue)]
@@ -696,7 +725,16 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   from the front and the back (1012-1013); an index off the list, or more elements than there are, is
   not described.
 - `+Float`, `-Float`, `*Float`, `/Float`, `%Float`: the exact result rounded (1556-1570); on two
-  formats the format of the result is not given.
+  formats the format of the result is not given. Nor does the text give (it writes no `#False` in
+  FLOAT, and names IEEE 754 for no operation, 1464-1466) a value at an infinite or NaN operand or
+  a zero divisor, the sign of a zero result other than `0.0 -Float 0.0` (1553), a result whose
+  exact value is above the format's largest finite value, or the integer nearest a quotient halfway
+  between two (`%Float`, 1557-1558).
+- `roundFloat`, `Int2Float` at a value the format asked for does not hold: no direction to round in
+  (1579, 1653); `roundFloat` at an infinity or NaN.
+- `--Float`, `absFloat` at NaN; `floorFloat`, `ceilFloat`, `truncFloat` at an infinity or NaN, at a
+  zero result of a nonzero operand (no sign, 1583-1588) and at an integer the format does not hold
+  (the "double-rounding" of 1655-1658 is described nowhere).
 - `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` at a format without a model (`p < 2` or
   `e < 2`): `pNxM` names a format for positive N and M only (1469-1476); at a field of 1 the format
   is named and KCore computes none of its data (`KFloat.thinOK`).
@@ -727,11 +765,15 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
 - `Bytes2Int`, `Int2Bytes`: declared `total` (2082, 2083); a negative length, or an Endianness or
   Signedness that is no constructor of BYTES, is not described.
 - `sqrtFloat` at −0: its equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754
-  operations that differ there only (FloatDomain.lean `sqrt?`).
-- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, the six comparisons, `isNaN`,
-  `isInfinite` (and the operations above) at a value of a format with a field of 1
-  (`KFloat.thinOK`): KCore computes no operation on such a format's data, so Γ states there only
-  the interpretation's value, less than the text's IEEE 754 description (1481-1483).
+  operations that differ there only (FloatDomain.lean `sqrt?`; as recalled, not confirmed).
+  Elsewhere `sqrtFloat` has the square root rounded as Lean core's `sqrt` gives it, at NaN and the
+  infinities included: not restricted to the regions the text states, as the operations above are.
+- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, `isInfinite` (and the operations
+  above) at a value of a format with a field of 1 (`KFloat.thinOK`), and the six comparisons and
+  `isNaN` at one of a single exponent bit: KCore computes no operation there, so Γ states there
+  only the interpretation's value, less than the text states (an operation at such a format has
+  the status it has at any format, 1475, 1481-1488). At precision 1 and at least 2 exponent bits
+  the comparisons and `isNaN` read the datum (`asDatum`, `KFloat.thinUnpack`).
 - RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
   (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
 - RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for

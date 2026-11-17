@@ -60,7 +60,7 @@ theorem not_isTop_of_hasBinder {p : Cond} (h : hasBinder p = true) : p.isTop = f
 theorem readsConfined_of_post {r : Rule} (hr : r ∈ c.rules) (hb : hasBinder r.post = true) :
     c.readsConfined = true := by
   simp only [Semantics.readsConfined, Bool.or_eq_true, List.any_eq_true]
-  exact Or.inl ⟨r, hr, by simp [not_isTop_of_hasBinder hb]⟩
+  exact Or.inl ⟨r, hr, by simp [hb]⟩
 
 variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
@@ -192,7 +192,7 @@ theorem famEx_closed_post (c : Semantics) (h : c.coreOK = true) {x y : Config c}
     Γc c ⊧ (famEx c r σ ≡ den c y.val) := by
   intro M _ I hI e m
   rw [KoreAML.interp_equal (defOK fun φ hφ => hI φ (Or.inl hφ))]
-  exact fun a => famEx_denPP h (Semantics.ruleFactsEx_of_core h r hs.mem).1 hex
+  exact fun a => famEx_denPP h (Semantics.ruleFactsHO1_of_core h r hs.mem).1 hex
     (readsConfined_of_post hs.mem) hs.hσ hs.heval hs.hens hs.hpost hI hc e a
 
 end KCore

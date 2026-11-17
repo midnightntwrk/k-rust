@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t124-rule-lhs-top.k": "df3410e1791c88d2cefe4bc6bb3bce071c980744199713b92c3688c84a155126"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t124-rule-lhs-top.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "ba4fc42c8d0f81cb69ee4acff20dff932505bc4bb548f110ac3aadadbeb7f456",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

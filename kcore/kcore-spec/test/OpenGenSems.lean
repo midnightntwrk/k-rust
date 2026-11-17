@@ -1,7 +1,8 @@
 /-
   Hand-built semantics with open generators (`ParamSig.raw`), one per text, for the checks of
-  CN-4 §4.7 (the reader refuses an open generator, `RefusalReason.openGenerator`, so these are
-  built by hand). No expectation is stated here; each namespace checks only that its numbering is
+  CN-4 §4.7. The reader reads an open generator the text declares `functional` as a `raw`
+  parameter where its result sort is a constructor sort whose constructors are nullary
+  (`Parse.openGenFault`); `OpenRule.textCheck` reads e2-open-rule's text. No expectation is stated here; each namespace checks only that its numbering is
   the one `idsOK` asks and that `lookupOpen` finds each open generator and no constructor. Run from
   the package root: `lake env lean -j1 test/OpenGenSems.lean`. Kernel-checked.
 
@@ -167,7 +168,9 @@ def declOf (ss : List Kore.Sentence) (n : String) : Option (List Kore.KSort × K
       else none
     | _ => none
 
-/-- `c` against the text: the reader's refusal with the law axioms the text states of `and`; `and`,
+/-- `c` against the text: the reader's open generators (`and : Exp Exp → Exp`), `coreOK` of the
+semantics read and the inert constructor axioms it does not induce (none: Exp's no-junk axiom
+lists `and`, as `Γ` does); `and`,
 `go`, `same`, `x` and `y` declared with `c`'s signatures and kinds (an open generator: `functional`
 alone; constructors; a function); the text's one rewrite axiom is `ruleGo`'s two sides as
 `Term.kore` writes them at `c`'s names, with the text's variable name; `same`'s one equation has
@@ -178,10 +181,13 @@ def textCheck : IO Unit := do
   | .ok k =>
     let ss := (k.modules.getLast?.map (·.sentences)).getD []
     let E := KoreAML.srt "Exp"
-    -- the reader's verdict, with the law axioms the text states of `and`
+    -- the reader's verdict: `and` an open generator
     match Parse.parse k with
     | .error r => IO.println s!"parse: refused {r.reason.name} {r.detail}"
-    | .ok _ => IO.println "parse: read"
+    | .ok d =>
+      let cr := d.sem
+      IO.println s!"parse: read; open generators {(cr.params.filter (·.raw)).map fun p =>
+        (cr.symName p.sig.name, p.sig.args.map cr.sortName, cr.sortName p.sig.result)}; coreOK {cr.coreOK}; uninduced {(Parse.uninduced k d).length}"
     -- the declarations (:6, :8, :14, :16, :18)
     IO.println s!"and: {declOf ss (c.symName andS) == some ([E, E], E, ["functional"])}"
     IO.println s!"go: {declOf ss (c.symName goS) == some ([], KoreAML.srt "KItem", ["constructor", "functional", "injective"])}"
@@ -206,7 +212,7 @@ def textCheck : IO Unit := do
     IO.println s!"same's equation: {eqs.map fun (p, r) => (p == KCore.premise [c.sortName exp, c.sortName exp] none (Term.koreList c vc clSame.pats), r == Kore.Pattern.and (KoreAML.srt "Bool") [Term.kore c vc clSame.rhs, .top (KoreAML.srt "Bool")])}"
 
 /--
-info: parse: refused openGenerator Lbland: neither function nor constructor; law axioms: none
+info: parse: read; open generators [(Lbland, ([Exp, Exp], Exp))]; coreOK true; uninduced 0
 and: true
 go: true
 same: true
@@ -393,8 +399,9 @@ theorem open_paramVal_Hx :
 /-! ### `lawHooks` is admitted where H is (`libAdmitted_lawHooks_of`)
 
 CommCtor has two open generators. Its open generators bear no registry number, and every value of a
-sort the library's sentences read applies none (`shapesOK`, `floatShapeOK`), so `lawHooks c H` is
-admitted wherever H is; at `HookParams.lib`, admitted in every semantics with `floatShapeOK`
+sort the library's sentences other than `_RangeMap_`'s associativity read applies none (`shapesOK`,
+`floatShapeOK`), so `lawHooks c H` is admitted wherever H is and gives `_RangeMap_` no value; at
+`HookParams.lib`, admitted in every semantics with `floatShapeOK`
 (`libAdmitted_lib`), so is `lawHooks c HookParams.lib`, which differs from it at `and` and `or`. -/
 
 theorem comm_reg : ∀ k ∈ CommCtor.c.params, k.raw = true → nRegSyms ≤ k.sig.name := by decide +kernel
@@ -404,7 +411,7 @@ theorem comm_lawLibRawFree : CommCtor.c.lawLibRawFree :=
 
 theorem comm_lawHooks_lib : (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)).libAdmitted :=
   libAdmitted_lawHooks_of comm_reg comm_lawLibRawFree HookParams.lib
-    (libAdmitted_lib CommCtor.c (by decide +kernel))
+    (libAdmitted_lib CommCtor.c (by decide +kernel)) lib_app_rmConcat_none
 
 example : (lawHooks CommCtor.c HookParams.lib).app CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []] =
       some (.ctor CommCtor.andS [.ctor CommCtor.xS [], .ctor CommCtor.xS []]) ∧
@@ -465,7 +472,7 @@ theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.sha
     (c2.subsortsOK && c2.fns.all (fun f => f.clauses.all (c2.clauseSorted f (c2.fns.map Fn.sig))) &&
       c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain && c2.carriersOK &&
       c2.faithCoreOK && c2.hooksApart && c2.predsApart && c2.idsOK && c2.overloadsOK) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `c` itself is refused as well. -/
 theorem coreOK_refuses_c : c.coreOK = false ∧ c.paramsPlain = false := by decide +kernel
@@ -476,7 +483,7 @@ def c2n : Semantics :=
 
 /-- The raw parameter is the cause of the refusal: the same semantics with the parameter not raw
 meets `coreOK` and `shapesOK`. -/
-theorem coreOK_c2n : c2n.coreOK = true ∧ c2n.shapesOK = true := by decide +kernel
+theorem coreOK_c2n : c2n.coreOK = true ∧ c2n.shapesOK = true := by decide_cheap
 
 /-- The reason holds at `c2`: a value of Endianness applies its raw parameter, so the hypothesis
 of `libAdmitted_lawHooks_of` is false there. -/
@@ -603,7 +610,7 @@ theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) :
     OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
     (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
   ⟨openLaws_lawHooks c h HookParams.lib, openTotal_lawHooks c h HookParams.lib,
-    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib_of_coreOK h)⟩
+    libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib_of_coreOK h) lib_app_rmConcat_none⟩
 
 theorem commCtor_lawHooks_lib :
     OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧
@@ -620,7 +627,7 @@ theorem idemCtor_lawHooks_lib :
   ⟨idemCtor_openLaws_lawHooks HookParams.lib, idemCtor_openTotal_lawHooks HookParams.lib,
     libAdmitted_lawHooks_of idemCtor_reg
       (lawLibRawFree_of_shapes (by decide +kernel) (by decide +kernel) idemCtor_reg) HookParams.lib
-      (libAdmitted_lib IdemCtor.c (by decide +kernel))⟩
+      (libAdmitted_lib IdemCtor.c (by decide +kernel)) lib_app_rmConcat_none⟩
 
 /-! ## `coreOK` admits the four semantics
 
@@ -629,10 +636,10 @@ statements for a semantics meeting `coreOK` are read with a raw parameter at han
 `paramsPlain`'s raw branch (`raw_of_core`), `raw_open_core`, `lawShape_core`, `openTotal_none`,
 `libAdmitted_lawHooks`, and the three of `lawHooks_lib` (also at IdemCtor). -/
 
-theorem commCtor_coreOK : CommCtor.c.coreOK = true := by decide +kernel
-theorem idemCtor_coreOK : IdemCtor.c.coreOK = true := by decide +kernel
-theorem openMixed_coreOK : OpenMixed.c.coreOK = true := by decide +kernel
-theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide +kernel
+theorem commCtor_coreOK : CommCtor.c.coreOK = true := by decide_cheap
+theorem idemCtor_coreOK : IdemCtor.c.coreOK = true := by decide_cheap
+theorem openMixed_coreOK : OpenMixed.c.coreOK = true := by decide_cheap
+theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide_cheap
 
 theorem commCtor_raw_or : CommCtor.orP.impl = none ∧
     ((CommCtor.orP.assoc || CommCtor.orP.idem) = true →
@@ -652,9 +659,10 @@ theorem commCtor_lawShape_core : ∀ k ∈ CommCtor.c.params, k.raw = true → L
 theorem commCtor_openTotal_none_core : OpenTotal (CommCtor.c.withHooks HookParams.none) :=
   openTotal_none _ commCtor_coreOK
 
-theorem commCtor_libAdmitted_lawHooks (H : HookParams) (ha : (CommCtor.c.withHooks H).libAdmitted) :
+theorem commCtor_libAdmitted_lawHooks (H : HookParams) (ha : (CommCtor.c.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) :
     (CommCtor.c.withHooks (lawHooks CommCtor.c H)).libAdmitted :=
-  libAdmitted_lawHooks _ commCtor_coreOK H ha
+  libAdmitted_lawHooks _ commCtor_coreOK H ha hrm
 
 theorem commCtor_lawHooks_lib_core :
     OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.lib)) ∧

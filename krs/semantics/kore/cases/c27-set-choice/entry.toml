@@ -1,10 +1,62 @@
 id = "c27-set-choice"
 kind = "case"
-subject = "A rule whose left side is SetItem(X) S, with S a frame variable, matches every element of the set: one successor per element, each with the rest of the set bound to S."
+subject = "A rule whose left side is SetItem(X) S, with S a frame variable, matched against a set of three elements: the substitutions it matches at (one per element with the rest bound to S, and whether also with S holding X), and the successor each gives."
+retro = ["A3"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t34-collection-values", "kk:t35-set-concat-overlap", "kk:t38-collection-patterns"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading with a model shares:
+(1) The program is s(T), T the set of 1, 2 and 3 (kk:t34-collection-values). The pattern SetItem(X:Int) S:Set is one of the allowed forms (user_manual.md:2231-2233), and matches T at every substitution under which it denotes T (kk:t38-collection-patterns). The rule has no requires and gives a successor for each such substitution (kk:t02-step-successors).
+(2) At X = 1 and S = SetItem(2) SetItem(3), and likewise for 2 and 3, the pattern denotes T, the two parts having no element in common (kk:t35-set-concat-overlap, point (1)). The right side out(X, S SetItem(X +Int 10)) then joins S with an element it does not hold (11, 12, 13; domains.md:1238), and gives out(1, SetItem(2) SetItem(3) SetItem(11)), out(2, SetItem(1) SetItem(3) SetItem(12)) and out(3, SetItem(1) SetItem(2) SetItem(13)). No rule's left side matches out(_, _): each is final (kk:t06-final-configuration).
+What the text does not determine:
+(3) Whether the pattern also matches T at a substitution where S holds X: SetItem(1) T is a concatenation of two sets with the element 1 in common, which domains.md:705-709 makes #False and the declaration's idem, with its assoc, makes T (domains.md:721; user_manual.md:958-963): kk:t35-set-concat-overlap's question. The readings are that entry's, with the final configurations each gives."""
+interpreter = "nilpotent"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2231-2233 (K 7.1.337)"
+quote = "// 0 or more elements in any order plus 0 or 1 variables of sort Set // in any order SetItem(K1) SetItem(K2) S::Set SetItem(K3) SetItem(K4)"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:705-709 (K 7.1.337)"
+quote = "The `Set` sort represents a mathematical set (A collection of unique items). The sets are nilpotent, i.e., the concatenation of two sets containing elements in common is `#False` (note however, this may be silently allowed during concrete execution). If you intend to add an element to a set that might already be present in the set, use the `|Set` operator instead."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:721 (K 7.1.337)"
+quote = "syntax Set ::= Set Set [left, function, hook(SET.concat), symbol(_Set_), assoc, comm, unit(.Set), idem, element(SetItem), format(%1%n%2)]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[reading]]
+name = "nilpotent"
+statement = "The concatenation of two sets with an element in common has no value (kk:t35-set-concat-overlap, reading nilpotent): the pattern matches T only where S does not hold X."
+finals = ["out(1, SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(13))"]
+consequence = "One successor per element of T, and those three are the final configurations."
+
+[[reading]]
+name = "idempotent"
+statement = "S S = S (kk:t35-set-concat-overlap, reading idempotent). With assoc and comm on the same declaration, SetItem(1) T = SetItem(1) SetItem(1) SetItem(2) SetItem(3) = T, and likewise for 2 and 3: the pattern also matches at X in T with S = T. A set S holding an element outside T gives no T, its items being items of the concatenation (kk:t34-collection-values)."
+finals = ["out(1, SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(13))", "out(1, SetItem(1) SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(2) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(3) SetItem(13))"]
+consequence = "Two successors per element of T, the second keeping X in the set."
+
+[[reading]]
+name = "as-written"
+statement = "Both sentences hold (kk:t35-set-concat-overlap, reading as-written)."
+answer = "No model has a set with an element; nothing is concluded about s(T)."
+consequence = "No final configuration is a consequence of the text."

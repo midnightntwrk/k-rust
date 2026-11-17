@@ -1,0 +1,13 @@
+command: kompile --backend haskell t110-klabel-term.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Internal: Cannot yet translate #klabel to kore
+  	Source(t110-klabel-term.k)
+  	Location(5,23,5,37)
+  	5 |	  rule <k> bar() => h(#klabel(`bar`)) ... </k>
+  	  .	                      ^~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  T110-KLABEL-TERM-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using T110-KLABEL-TERM as default.

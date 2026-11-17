@@ -1,0 +1,77 @@
+id = "t12-eq-priority-owise"
+kind = "text"
+subject = "Three equations of one function at three priorities, f(X) => 1 requires X >Int 0 [priority(40)], f(X) => 2 requires X >Int 10 (priority 50), f(_) => 3 [owise]: which equation gives the value where several apply, and what premise kompile writes for each."
+retro = ["P1"]
+rests_on = ["kk:t11-eq-applies"]
+
+[text]
+files = ["t12-eq-priority-owise.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual orders the equations by priority, so an equation of a larger priority number applies only where those of smaller numbers do not. kompile writes that order into the premise of the [owise] equation alone (kore.txt:103-152): the priority-50 equation's premise is its own requires (kore.txt:83-99), with no negation of the priority-40 equation, and the priorities stand as attributes (kore.txt:80)."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "By the K text f(x) = 1 for every integer x > 0 (the priority-40 equation), the priority-50 equation gives no value anywhere (it is tried only where x > 0 fails, and there x > 10 fails too), and f(x) = 3 for every x <= 0 ([owise], priority 200, where both others do not apply): f(20) = 1, f(5) = 1, f(-1) = 3."
+reason = '''
+(1) Every rule has a priority: 200 for owise (user_manual.md:1739-1741), 50 where none is written (:1748-1749), and the number written with priority. Rules are tried in increasing order of priority, and a rule is tried only after those of a smaller number have been shown not to apply (:1722-1730); owise rules only if all the other rules have been tried and failed (:1711-1713). The section's example is a function's equations (:1716-1720).
+(2) An equation applies where its argument pattern matches and its requires evaluates to true (kk:t11-eq-applies). So at x > 0 the priority-40 equation applies and gives 1. At x <= 0 it does not, the priority-50 equation is tried, and its requires x > 10 is false there; then the owise equation is tried and gives 3. The comparisons are those of domains.md:1324-1325.
+(3) At x > 10 both of the first two requires hold. The order of (1) decides: the priority-40 equation applies there, so the priority-50 one is not tried. What the kompiled axioms state at those points is ruled in [ruling.kore].'''
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1730 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply. ... Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1716-1720 (K 7.1.337)"
+quote = "syntax Int ::= foo(Int) [function] rule foo(0) => 0 rule foo(_) => 1 [owise]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = '''The kompiled text has no model. The priority-40 axiom states f(X0) = 1 where X0 > 0 (kore.txt:63-79), the priority-50 axiom f(X0) = 2 where X0 > 10 (kore.txt:83-99), each premise being its own requires and the priority an attribute (kore.txt:80), which states no sentence (kore-syntax.md:223-228). At X0 = 20 both premises are the whole carrier, so both equalities hold there: f(20) denotes {1} and {2} (introduction-to-matching-logic.tex:880-885), and 1 and 2 are distinct integers. The [owise] axiom's premise negates the matches of both other equations with their requires (kore.txt:103-152) and states f(X0) = 3 at X0 <= 0, as the K text does. Read as written, the kompiled sentences give f two values wherever the first two requires overlap; the order of the K text is not in them.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:80"
+quote = '''[UNIQUE'Unds'ID{}("862f93697ceb3e667470848498517f8db8217508e97a4d69138b28193078ad13"), priority{}("40")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:83-99"
+quote = '''axiom{R} \implies{R} ( \and{R}( \equals{SortBool{},R}( Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("10")), \dv{SortBool{}}("true")), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, VarX:SortInt{} ), \top{R} () )), \equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( \dv{SortInt{}}("2"), \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:103-111"
+quote = '''axiom{R} \implies{R} ( \and{R} ( \not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \equals{SortBool{},R}( Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen0:SortInt{},\dv{SortInt{}}("10")), \dv{SortBool{}}("true")),'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. ... All semantic information contained in attributes should correspond to axioms declared explicitly. ... The meaning of particular attributes is implementation-defined."
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''

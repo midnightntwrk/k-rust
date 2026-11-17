@@ -1,12 +1,12 @@
 /-
-  KCore. `lawHooks c H` is an interpretation the text admits wherever H is
-  (`libAdmitted_lawHooks`).
+  KCore. `lawHooks c H` is an interpretation the text admits wherever H is and gives `_RangeMap_` no
+  value (`libAdmitted_lawHooks`).
 
-  `lawHooks c H` differs from H only at the `raw` parameters. The conditions of `libAdmitted` read
-  the interpretation only through `fallback` at interpreted symbols (registry symbols, `hookSigs`)
-  and at `rootFloat`, a registry symbol too (`sqrtFloatEq`), and the sorts only at the argument and result sorts of those symbols: Int, Bool, Float, String,
-  Bytes, Endianness and Signedness (`lawLibSorts`). So the conditions carry over from H to
-  `lawHooks c H` where
+  `lawHooks c H` differs from H only at the `raw` parameters. The conditions of `libAdmitted` but
+  the last read the interpretation only through `fallback` at interpreted symbols (registry symbols,
+  `hookSigs`) and at `rootFloat`, a registry symbol too (`sqrtFloatEq`), and the sorts only at the
+  argument and result sorts of those symbols: Int, Bool, Float, String, Bytes, Endianness and
+  Signedness (`lawLibSorts`). So those conditions carry over from H to `lawHooks c H` where
   - no `raw` parameter bears a registry symbol's number (`nRegSyms ≤ k.sig.name`): then
     `lawHooks c H` is H at every interpreted symbol;
   - no value of one of those sorts applies a `raw` parameter, under any interpretation
@@ -15,7 +15,14 @@
     `totalSilentKeys` and no symbol the library's other sentences read takes an argument of a sort
     that holds a raw application.
 
-  `libAdmitted_lawHooks_of` states it with these two hypotheses. `lawLibRawFree_of_shapes` gives the
+  The last, `rangeMapAssocEq`, reads RangeMap, whose values hold KItems, and a KItem can hold a raw
+  application: such a value can have its sort under `lawHooks c H` and none under H (`keepsRaw`), so
+  H's condition does not reach it, and H's values of `_RangeMap_` at it are unconstrained. The
+  condition is therefore not carried over; it holds under `lawHooks c H` wherever H gives
+  `_RangeMap_` no value, as `lawHooks c H` then gives none either
+  (`rangeMapAssocEq_of_app_none`), `HookParams.lib` among them (`lib_app_rmConcat_none`).
+
+  `libAdmitted_lawHooks_of` states it with these two hypotheses and the third on `_RangeMap_`. `lawLibRawFree_of_shapes` gives the
   second from `shapesOK` and `floatShapeOK` (every value of those sorts is a literal, or one of
   BYTES' nullary constructors of Endianness and Signedness) and the first. `libAdmitted_lawHooks`,
   for a semantics meeting `coreOK`, takes the number outside the registry and `shapesOK` from
@@ -122,12 +129,14 @@ theorem lawLib_hv (hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.si
   unfold Semantics.hv Semantics.hookRes
   rw [lawLib_fallback hreg hl H hr vs]
 
-/-- **`lawHooks c H` is admitted where H is**, where no `raw` parameter bears a registry number and
-no value of a sort the library's sentences read applies a `raw` parameter. -/
+/-- **`lawHooks c H` is admitted where H is and gives `_RangeMap_` no value**, where no `raw`
+parameter bears a registry number and no value of a sort the library's sentences other than
+`_RangeMap_`'s associativity read applies a `raw` parameter. -/
 theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.sig.name)
-    (hl : c.lawLibRawFree) (H : HookParams) (ha : (c.withHooks H).libAdmitted) :
+    (hl : c.lawLibRawFree) (H : HookParams) (ha : (c.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) :
     (c.withHooks (lawHooks c H)).libAdmitted := by
-  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := ha
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7, -⟩ := ha
   have e : ∀ f, (lookupSig hookSigs f).all (fun k => lawLibSorts.contains k.result) = true →
       ∀ vs, (c.withHooks (lawHooks c H)).hv f vs = (c.withHooks H).hv f vs :=
     fun f hr vs => lawLib_hv hreg hl H hr vs
@@ -159,7 +168,8 @@ theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRe
   have eRa := e stringReplaceAll (by decide +kernel)
   have eCa := e stringCountAll (by decide +kernel)
   have eRp := e stringReplace (by decide +kernel)
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    rangeMapAssocEq_of_app_none fun vs => (lawLib_app_reg hreg H (by decide) vs).trans (hrm vs)⟩
   · intro k hk hkey vs hvs hh hs
     have hvs' := lawLib_sortsOf hl (lawHooks c H) H (lawLib_totalSilentKeys_sorts k hk hkey) hvs
     rw [lawLib_fallback hreg hl H (by
@@ -262,16 +272,17 @@ theorem lawLibRawFree_of_shapes (hs : c.shapesOK = true) (hf : c.floatShapeOK = 
 
 end
 
-/-- **`lawHooks c H` is admitted wherever H is**, in a semantics meeting `coreOK`: there both
-hypotheses of `libAdmitted_lawHooks_of` hold. A raw parameter is numbered outside the registry
+/-- **`lawHooks c H` is admitted wherever H is and gives `_RangeMap_` no value**, in a semantics
+meeting `coreOK`: there the two hypotheses of `libAdmitted_lawHooks_of` on c hold. A raw parameter is numbered outside the registry
 (`raw_of_core`); and no value of a sort of `lawLibSorts` applies one: where no parameter is raw by
 `lawLibRawFree_of_noRaw`, and otherwise by `lawLibRawFree_of_shapes`, `paramsPlain`'s `raw` branch
 asking `shapesOK` and `coreOK` giving `floatShapeOK` (`floatShapeOK_of_coreOK`). -/
 theorem libAdmitted_lawHooks (c : Semantics) (h : c.coreOK = true) (H : HookParams)
-    (ha : (c.withHooks H).libAdmitted) : (c.withHooks (lawHooks c H)).libAdmitted := by
+    (ha : (c.withHooks H).libAdmitted) (hrm : ∀ vs, H.app rmConcat vs = none) :
+    (c.withHooks (lawHooks c H)).libAdmitted := by
   have hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.sig.name :=
     fun k hk hr => (Semantics.raw_of_core h hk hr).2.2.1
-  refine libAdmitted_lawHooks_of hreg ?_ H ha
+  refine libAdmitted_lawHooks_of hreg ?_ H ha hrm
   cases hany : c.params.any (·.raw)
   · exact lawLibRawFree_of_noRaw fun k hk => by simpa using List.any_eq_false.mp hany k hk
   · obtain ⟨k, hk, hr⟩ := List.any_eq_true.mp hany

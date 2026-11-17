@@ -1,10 +1,38 @@
 id = "c39-tokens-preds"
 kind = "case"
 subject = "A token sort with literals, and sort predicates: a token literal in a left side matches only that token; tokens of two sorts with one text are two values; isS holds of a value of S and of a sort below S, and not of a value of another sort."
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t16-match-inj", "kk:t19-token-sort-pred", "kk:t32-keq-ite"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(true, false, true, false, false, false)", "z"]
+reason = """
+(1) Id and Key are token sorts: their elements are their tokens, of the texts their regular expressions admit (user_manual.md:610-612; kk:t19-token-sort-pred). Int and Id are subsorts of Val, and Val of S. The program go(x, 3) holds the token x of Id and the Int 3, each injected into Val (kk:t16-match-inj).
+(2) The three rules for go have priority 50 and no requires (user_manual.md:1748-1749). The first matches go(x, 3) with V = x and W = 3. The second's left side holds the token x of Id and matches. The third's holds the token y of Id, another token than x, and does not match. So go(x, 3) has two successors (kk:t02-step-successors).
+(3) The first rule's right side: isId(x) is true and isInt(x) false, x being an Id and no Int; isVal(x) is true, Id being below Val; isId(3) is false, 3 being an Int and no Id (user_manual.md:1372-1374; kk:t19-token-sort-pred). x ==K #token("x", "Key") compares the token x of Id with the token x of Key: they are two terms, of two sorts neither of which is below the other, and they are not equal, so ==K is false (domains.md:2312-2313; kk:t32-keq-ite). Were they one element, isId would be true and false at it, isId being a function and the token of Key no Id (user_manual.md:1372-1374). x ==K 3 is false likewise, x being no Int. So the successor is r(true, false, true, false, false, false).
+(4) The second rule's successor is the token z of Id, at S through Val.
+(5) No rule's left side matches r(...) or z, the rules for go matching go terms only; both are final (kk:t06-final-configuration). The final configurations are those two: 0 would need the third rule to match, which (2) excludes."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:610-612 (K 7.1.337)"
+quote = "The `token` attribute signals to the Kore generator that the associated sort will be inhabited by domain values."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1372-1374 (K 7.1.337)"
+quote = "Essentially, `isFoo` for some sort `Foo` will tell you whether a particular term of sort `K` is a `Foo`,"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2312-2313 (K 7.1.337)"
+quote = "`==K` - the equality between two terms. Returns `true` if they are equal and `false` if they are not equal."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."

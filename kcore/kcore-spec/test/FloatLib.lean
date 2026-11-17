@@ -8,13 +8,16 @@
     module's missing sentence (`builtinIncomplete`, FLOAT); with `isNaN`'s `total` and
     `functional` dropped: no sentence of the library, refused (`builtinText`).
   - `f2-examples/flt-lit.kompile.kore` (`flt-lit.k`): a Float literal `0.0`, read as binary64's +0.
-  - Float literals read (`Parse.floatLit?`): the decimal value rounded to the format, nearest ties
-    to even, the sign after; the suffixes `f` (binary32), none or `d` (binary64), `pNxM`;
+  - Float literals read (`Parse.floatLit?`): the decimal value rounded to the nearest datum of the
+    format, the sign after, where K's text states which that is (refused at a tie, above the
+    largest finite datum, and nonzero rounding to zero); the suffixes `f` (binary32), none or `d` (binary64), `pNxM`;
     `Infinity`, `NaN` (the canonical NaN). The literal's text (`Lit.text`, `KFloat.text`) is its
     exact decimal value with its format, which reads back to the same literal.
   - FLOAT's interpreted operations on concrete values, in the kernel (`hook`): `0.1 + 0.2`, `1 / 3`,
-    overflow, subnormals and ties, the canonical NaN, signed zeros and NaN compared, binary32, two
-    formats, rounding to integral, `Int2Float`, `%Float`, `sqrtFloat`, the format's properties.
+    subnormals and ties, no value where K's text states none (above the largest finite datum, a
+    zero result of unstated sign, an infinite or NaN operand, an inexact `Int2Float`), signed zeros
+    and NaN compared, binary32, two formats, rounding to integral, `Int2Float`, `%Float`,
+    `sqrtFloat`, the format's properties.
   - in the kernel, for `f2-examples/fltadd.kompile.kore` (`fltadd.k`: `Number ::= Int | Float`, a
     Float literal `0.5`): `Float < Number` is read, `coreOK`, `inj{Float,Number}(0.5)` is a value
     of `Number`, and `add(0.1, 0.2)` steps to `done` of the computed sum.
@@ -87,16 +90,54 @@ example : Parse.floatLit? "1.5e3f" = some (.float 24 8 0x44BB8000) ∧
     Parse.floatLit? "0.1f" = some (.float 24 8 0x3DCCCCCD) := by decide +kernel
 /-- The explicit format `p24x8` is binary32. -/
 example : Parse.floatLit? "0.1p24x8" = Parse.floatLit? "0.1f" := by decide +kernel
-/-- `Infinity`, `-Infinity`, `NaN` (the canonical quiet NaN), and overflow and underflow of a
-decimal. -/
+/-- `Infinity`, `-Infinity`, `NaN` (the canonical quiet NaN); a decimal above the largest finite
+datum, or nonzero and rounding to zero, is refused (K's text does not say whether an infinity or
+which zero is its nearest value). -/
 example : Parse.floatLit? "Infinity" = some (.float 53 11 0x7FF0000000000000) ∧
     Parse.floatLit? "-Infinityf" = some (.float 24 8 0xFF800000) ∧
     Parse.floatLit? "NaN" = some (.float 53 11 0x7FF8000000000000) ∧
-    Parse.floatLit? "1e400" = some (.float 53 11 0x7FF0000000000000) ∧
+    Parse.floatLit? "1e400" = none ∧
     Parse.floatLit? "4.9e-324" = some (.float 53 11 1) ∧
-    Parse.floatLit? "1e-400" = some (.float 53 11 0) := by decide +kernel
+    Parse.floatLit? "1e-400" = none := by decide +kernel
 /-- Not a Float literal: no digit, a format without a model. -/
 example : Parse.floatLit? "." = none ∧ Parse.floatLit? "1.0p1x8" = none ∧ Parse.floatLit? "abc" = none := by
+  decide +kernel
+
+/-! One case per production of FLOAT-SYNTAX (domains.md:1495-1497) and the strings outside every
+production (the kk entry t90-float-literal-forms, krs/semantics/kore/texts): construct table E6
+row token:SortFloat. -/
+
+/-- The decimal production's second alternative, `.d+`, unsigned, with an exponent and a suffix. -/
+example : Parse.floatLit? ".5" = some (.float 53 11 0x3FE0000000000000) ∧
+    Parse.floatLit? ".5e2" = some (.float 53 11 0x4049000000000000) ∧
+    Parse.floatLit? ".5f" = some (.float 24 8 0x3F000000) := by
+  decide +kernel
+/-- The decimal production's first alternative: a sign before digits, a point with or without a
+fraction, an exponent, the suffix letters in either case (`1.0P24X8` is binary32's 1, as `1.0f` and
+`1.0p24x8` are). -/
+example : Parse.floatLit? "+1.5" = some (.float 53 11 0x3FF8000000000000) ∧
+    Parse.floatLit? "-1.5" = some (.float 53 11 0xBFF8000000000000) ∧
+    Parse.floatLit? "1e3" = some (.float 53 11 0x408F400000000000) ∧
+    Parse.floatLit? "1." = Parse.floatLit? "1.0" ∧ Parse.floatLit? "1.0D" = Parse.floatLit? "1.0" ∧
+    Parse.floatLit? "1.0P24X8" = some (.float 24 8 0x3F800000) ∧
+    Parse.floatLit? "1.0p24x8" = Parse.floatLit? "1.0P24X8" ∧ Parse.floatLit? "1.0F" = Parse.floatLit? "1.0P24X8" ∧
+    Parse.floatLit? "1.0P53x11" = Parse.floatLit? "1.0" := by
+  decide +kernel
+/-- The production `[+-]?Infinity` with a suffix. -/
+example : Parse.floatLit? "+Infinity" = some (.float 53 11 0x7FF0000000000000) ∧
+    Parse.floatLit? "-InfinityD" = some (.float 53 11 0xFFF0000000000000) ∧
+    Parse.floatLit? "-Infinityp24x8" = some (.float 24 8 0xFF800000) ∧
+    Parse.floatLit? "InfinityP24X8" = some (.float 24 8 0x7F800000) := by
+  decide +kernel
+/-- The production `NaN` with a suffix, unsigned: the format's canonical NaN. -/
+example : Parse.floatLit? "NaNf" = some (.float 24 8 0x7FC00000) ∧
+    Parse.floatLit? "NaNP24X8" = Parse.floatLit? "NaNf" ∧ Parse.floatLit? "NaNd" = Parse.floatLit? "NaN" := by
+  decide +kernel
+/-- Outside every production: a sign before a mantissa without an integer part, a signed NaN, a
+`p` without its `x` and an `x` without its `p`. -/
+example : Parse.floatLit? "+.5" = none ∧ Parse.floatLit? "-.5" = none ∧ Parse.floatLit? "-.5e2" = none ∧
+    Parse.floatLit? "+NaN" = none ∧ Parse.floatLit? "-NaN" = none ∧
+    Parse.floatLit? "1.0p24" = none ∧ Parse.floatLit? "1.0x8" = none := by
   decide +kernel
 
 /-- The text of a literal is its exact decimal value with its format (`m·5^k` then `e-k`, or an
@@ -135,17 +176,18 @@ def f32 (b : Nat) : GroundTerm := .dv Srt.float (.float 24 8 b)
 example : hook floatAdd [f64 0x3FB999999999999A, f64 0x3FC999999999999A] = some (some (f64 0x3FD3333333333334)) ∧
     hook floatDiv [f64 0x3FF0000000000000, f64 0x4008000000000000] = some (some (f64 0x3FD5555555555555)) := by
   decide +kernel
-/-- Overflow to `+∞`: `1e308 * 10`. -/
-example : hook floatMul [f64 0x7FE1CCF385EBC8A0, f64 0x4024000000000000] = some (some (f64 0x7FF0000000000000)) := by
+/-- Above the largest finite datum, no value: `1e308 * 10`. -/
+example : hook floatMul [f64 0x7FE1CCF385EBC8A0, f64 0x4024000000000000] = some none := by
   decide +kernel
-/-- Subnormals: the smallest normal over 4; the smallest subnormal over 2 is a tie, rounded to the
-even `+0`; three times it over 2 is a tie, rounded to the even 2. -/
+/-- Subnormals: the smallest normal over 4; three times the smallest subnormal over 2 is a tie,
+rounded to the even 2; the smallest subnormal over 2 rounds to zero, of a sign the text does not
+give: no value. -/
 example : hook floatDiv [f64 0x0010000000000000, f64 0x4010000000000000] = some (some (f64 0x0004000000000000)) ∧
-    hook floatDiv [f64 1, f64 0x4000000000000000] = some (some (f64 0)) ∧
+    hook floatDiv [f64 1, f64 0x4000000000000000] = some none ∧
     hook floatDiv [f64 3, f64 0x4000000000000000] = some (some (f64 2)) := by decide +kernel
-/-- NaN is the canonical NaN: `0 / 0`, `∞ − ∞`. -/
-example : hook floatDiv [f64 0, f64 0] = some (some (f64 0x7FF8000000000000)) ∧
-    hook floatSub [f64 0x7FF0000000000000, f64 0x7FF0000000000000] = some (some (f64 0x7FF8000000000000)) := by
+/-- No value at a zero divisor or an infinite operand: `0 / 0`, `∞ − ∞`. -/
+example : hook floatDiv [f64 0, f64 0] = some none ∧
+    hook floatSub [f64 0x7FF0000000000000, f64 0x7FF0000000000000] = some none := by
   decide +kernel
 /-- Signed zeros compare equal, though they are two values; NaN is unordered, even with itself. -/
 example : hook floatEq [f64 0x8000000000000000, f64 0] = some (some (bool true)) ∧
@@ -153,22 +195,26 @@ example : hook floatEq [f64 0x8000000000000000, f64 0] = some (some (bool true))
     hook floatEq [f64 0x7FF8000000000000, f64 0x7FF8000000000000] = some (some (bool false)) ∧
     hook floatNe [f64 0x7FF8000000000000, f64 0x7FF8000000000000] = some (some (bool true)) ∧
     hook floatLe [f64 0x7FF8000000000000, f64 0] = some (some (bool false)) := by decide +kernel
-/-- binary32: `0.1f + 0.2f` is `0x3E99999A`; `1 / 3` rounded to binary32 is `0x3EAAAAAB`. -/
+/-- binary32: `0.1f + 0.2f` is `0x3E99999A`; `roundFloat` of binary64's `1.5` to binary32 is `1.5f`,
+which binary32 holds; of binary64's `1 / 3`, which it does not hold, no value (the text names no
+direction to round in). -/
 example : hook floatAdd [f32 0x3DCCCCCD, f32 0x3E4CCCCD] = some (some (f32 0x3E99999A)) ∧
-    hook floatRound [f64 0x3FD5555555555555, int 24, int 8] = some (some (f32 0x3EAAAAAB)) := by decide +kernel
+    hook floatRound [f64 0x3FF8000000000000, int 24, int 8] = some (some (f32 0x3FC00000)) ∧
+    hook floatRound [f64 0x3FD5555555555555, int 24, int 8] = some none := by decide +kernel
 /-- Two formats: compared by their exact values (`1.0 == 1.0f`, `0.1 < 0.1f`); added, undefined. -/
 example : hook floatEq [f64 0x3FF0000000000000, f32 0x3F800000] = some (some (bool true)) ∧
     hook floatLt [f64 0x3FB999999999999A, f32 0x3DCCCCCD] = some (some (bool true)) ∧
     hook floatAdd [f64 0x3FF0000000000000, f32 0x3F800000] = some none := by decide +kernel
-/-- Rounding to integral: `floor(-2.5) = -3`, `ceil(-0.5) = -0`, `trunc(2.7) = 2`, `floor(0.5) = +0`. -/
+/-- Rounding to integral: `floor(-2.5) = -3`, `trunc(2.7) = 2`; `ceil(-0.5)` and `floor(0.5)`, a zero
+of a sign the text does not give: no value. -/
 example : hook floatFloor [f64 0xC004000000000000] = some (some (f64 0xC008000000000000)) ∧
-    hook floatCeil [f64 0xBFE0000000000000] = some (some (f64 0x8000000000000000)) ∧
+    hook floatCeil [f64 0xBFE0000000000000] = some none ∧
     hook floatTrunc [f64 0x400599999999999A] = some (some (f64 0x4000000000000000)) ∧
-    hook floatFloor [f64 0x3FE0000000000000] = some (some (f64 0)) := by decide +kernel
-/-- `Int2Float(2^53 + 1, 53, 11)` is a tie, rounded to the even `2^53`; `5 %Float 3 = -1`;
+    hook floatFloor [f64 0x3FE0000000000000] = some none := by decide +kernel
+/-- `Int2Float(2^53 + 1, 53, 11)`, which binary64 does not hold: no value; `5 %Float 3 = -1`;
 `sqrtFloat(2)`, `sqrtFloat(4.0) = 2.0`, `sqrtFloat(+0.0) = +0.0`, `sqrtFloat(-1.0)` NaN, no value
 at `sqrtFloat(-0.0)` (squareRoot gives −0, rootn(−0, 2) +0); a format without a model gives no value. -/
-example : hook int2Float [int 9007199254740993, int 53, int 11] = some (some (f64 0x4340000000000000)) ∧
+example : hook int2Float [int 9007199254740993, int 53, int 11] = some none ∧
     hook floatRem [f64 0x4014000000000000, f64 0x4008000000000000] = some (some (f64 0xBFF0000000000000)) ∧
     hook floatSqrt [f64 0x4000000000000000] = some (some (f64 0x3FF6A09E667F3BCD)) ∧
     hook floatSqrt [f64 0x4010000000000000] = some (some (f64 0x4000000000000000)) ∧
@@ -190,8 +236,6 @@ example : hook floatAdd [f64 (0.1 : Float).toBits.toNat, f64 (0.2 : Float).toBit
       some (some (f64 ((0.1 : Float) + 0.2).toBits.toNat)) ∧
     hook floatDiv [f64 (1.0 : Float).toBits.toNat, f64 (3.0 : Float).toBits.toNat] =
       some (some (f64 ((1.0 : Float) / 3.0).toBits.toNat)) ∧
-    hook floatMul [f64 (1.0e308 : Float).toBits.toNat, f64 (10.0 : Float).toBits.toNat] =
-      some (some (f64 ((1.0e308 : Float) * 10.0).toBits.toNat)) ∧
     hook floatSqrt [f64 (2.0 : Float).toBits.toNat] = some (some (f64 (Float.sqrt 2.0).toBits.toNat)) := by
   decide +kernel
 
@@ -251,9 +295,7 @@ open Faithful Faithful.Model in
 /-- `coreOK`, conjunct by conjunct, the sort checks from the tables. -/
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (Semantics.faithCoreOK_of_parts (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
+    (by decide_cheap)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 end FltAdd

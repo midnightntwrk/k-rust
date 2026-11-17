@@ -34,21 +34,22 @@ theorem law_model_choice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
       ∀ l ∈ ls, I ⊧ᴵ lawPattern c l := by
   have hm := hypModel_of_fnHyp h hf
   have hfd := (fnModel_of_fnHyp h hf).1
-  have hrules := Semantics.ruleFactsEx_of_core h
+  have hrules := Semantics.ruleFactsHeld_of_core h
+  have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
   refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T),
-    stdI_T_model c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
+    stdI_T_model_held c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y), fun l hmem => ?_⟩
   · intro x y hx hy hT
     obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))
-    exact (stepM_iff_by c).mpr ⟨r, σ, stepMBy_of_stepBy_ex hfd hrules hb⟩
+    exact ⟨r, σ, stepVBy_of_stepBy hfd hb⟩
   · intro r σ x y hb hex hx hy
-    exact hall ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepMBy_ex (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hf.1 hrules hb) hex
+    exact hall ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepVBy (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hfd hf.1 hsr hb) hex
   · intro r σ x y hb _
     by_cases hx : c.sortOf x = some topCellSort
     · have hy := rhs_sorted_open hm (hrules r hb.1).1 hb.2.1 hb.2.2.2.2.2.1
       obtain ⟨y', σ', hag, hb', hT⟩ :=
-        hsome ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepMBy_ex (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hf.1 hrules hb)
-      exact ⟨y'.val, σ', hag, stepMBy_of_stepBy_ex hfd hrules hb', fun _ _ => hT⟩
+        hsome ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepVBy (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hfd hf.1 hsr hb)
+      exact ⟨y'.val, σ', hag, stepVBy_of_stepBy hfd hb', fun _ _ => hT⟩
     · exact ⟨y, σ, fun _ _ => rfl, hb, fun hx' => absurd hx' hx⟩
   · obtain ⟨s, hls, hrs, hs, hb⟩ := lawSorted_parts (hsort l hmem)
     exact AtT.sat_lawPattern (T := liftT_ex c T) hm (hl l hmem) hls hrs hs hb

@@ -12,8 +12,9 @@
 
   A symbol is interpreted by its name (`Γ` writes every symbol under its name): a constructor
   builds the constructor term, an injection `injNormal`, an interpreted hook `hook`, a parameter
-  `paramVal`, an overloading symbol the normal form (`norm`), a function `f` the values `v` with
-  `Eval c f vs (some v)`; `next` applied to `y` is
+  `paramVal`, an overloading symbol the normal form (`norm`) or, at arguments a function it
+  overloads covers, that function's values at the stripped arguments, lifted (`ovlRes`), a function
+  `f` the values `v` with `Eval c f vs (some v)`; `next` applied to `y` is
   the configurations `x` with `StepM c x y`: `Step` with its competitor premise read as "no rule
   of a smaller priority applies" (`RuleApplies`), which the rule's axiom states, rather than "each
   of them has a `requires` that evaluates to something other than `true`" (`NotApplies`), which
@@ -116,11 +117,6 @@ structure HypModelCore (c : Semantics) : Prop where
   /-- no overloading symbol is listed twice -/
   ovlsOnce : (c.ovls.map (·.sig.name)).Nodup
 
-/-- No overloading symbol overloads a function, from `HypModelCore`: each overloaded symbol is a
-constructor or an overloading symbol (`overloadsOK`), and no function is named like one (`fnsApart`). -/
-theorem HypModelCore.noFn {c : Semantics} (h : HypModelCore c) : c.fnOvlSyms = [] :=
-  fnOvlSyms_nil_of_apart h.ovlOK h.fns
-
 /-- What subject reduction reads of the overloading symbols, from `HypModelCore`. -/
 theorem HypModelCore.ovlCase {c : Semantics} (h : HypModelCore c) : c.OvlCase :=
   OvlOK.ovlCase h.sound.2.2.2.2.2.2.2.2
@@ -182,14 +178,26 @@ def resolve (n : String) (args : List Elem) : Option (CtorSig × Nat) :=
     ((kernelSyms c).find? fun k => iteSort? (c.symName k.name) == some (c.sortName s)).map (·, 1)
   | _, _ => ((kernelSyms c).find? fun k => c.symName k.name == n).map (·, 0)
 
+/-- What the overloading symbol `f` gives at the argument values `vs`: where a function it
+overloads covers them (`fnCover`), that function's results under `Eval` at the stripped arguments,
+lifted to `f`'s result sort (none where the function has none: the overload's equation states the
+application equal to the lifted application of the function, whatever that is); otherwise the
+normal form (`norm`). It is `EvalTerm`'s reading of the application (`EvalTerm.ovlFn`,
+`EvalTerm.ovl`). -/
+def ovlRes (f : Sym) (vs : List GroundTerm) : Set Elem := fun x =>
+  match c.fnCover f vs with
+  | some kg => ∃ o v, c.lookupOvl f = some o ∧ x = .val (lift kg.result o.sig.result v) ∧
+      Eval c kg.name (stripAll kg.args o.sig.args vs) (some v)
+  | none => x = .val (c.norm f vs)
+
 /-- What the symbol `k` gives at the argument values `vs`: a constructor the constructor term, an
-interpreted hook its value, a parameter `paramVal`, an overloading symbol the normal form (`norm`),
-a function its results under `Eval`. -/
+interpreted hook its value, a parameter `paramVal`, an overloading symbol `ovlRes` (the normal
+form, or the covering function's lifted results), a function its results under `Eval`. -/
 def result (k : CtorSig) (vs : List GroundTerm) : Set Elem := fun x =>
   if c.isCtor k.name then x = .val (.ctor k.name vs)
   else if isHook k.name then ∃ v, x = .val v ∧ c.hookRes k.name vs = some (some v)
   else if c.isParam k.name then ∃ v, x = .val v ∧ c.paramVal k.name vs = some v
-  else if c.isOvl k.name then x = .val (c.norm k.name vs)
+  else if c.isOvl k.name then ovlRes c k.name vs x
   else ∃ v, x = .val v ∧ Eval c k.name vs (some v)
 
 /-- The head named `n` applied to `args`: a partial application while arguments are missing, the

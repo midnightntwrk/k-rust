@@ -1,0 +1,271 @@
+/-
+  The tie (C14) of the fixture c3-rule-ens-prio (the pair rule `ensures` x rule `priority`):
+  `rule <k> a(X) => b(X) </k> ensures X >=Int 0 [priority(40)]`, the one rule.
+  The text is `f2-examples/c3-rule-ens-prio.kompile.kore`: the kompiled text that
+  `test/constructs/fixtures/c3-rule-ens-prio/kompile.txt` records (sha256 fef409dd…), with its paths restored.
+  Run from the package root: `lake env lean -j1 test/C3RuleEnsPrio.lean`. Every statement is on the literal
+  `defn`, for every interpretation H; nothing reads `Parse.parse` or `emit`.
+
+  Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree`: the attributes of the text agree with
+  `defn`, each rule's priority and `owise` with the `Rule`'s `prio` (`rule_prios`); `account`: the
+  function equations, the constructor sentences and the rule sentences are sentences of the user
+  module, apart, with the count of the rest.
+
+  Layer 2.
+  - Function equations (`fnText`, the sort predicates'): each of Γ's items is the translation of its
+    sentence (`shape`), so Γ entails each (`fns_entailed`) and each item is a consequence of its
+    sentence (`fns_from_text`).
+  - Constructor sentences (`consText`): entailed by Γ (`cons_entailed`).
+  - The rule sentences (`ruleText`, in the order of `c.rules`): Γ's axiom of each rule
+    (`prioRuleK`) is its sentence with conjuncts more on the left side, the definedness of the right
+    side with its `ensures` and, beside a rule of a smaller priority, the negation of that rule's
+    left side and `requires` (`rules_tie`, kernel, `TieRulePair.ruleTextB`). So each of Γ's rule
+    items is a consequence of its sentence (`rules_from_text`, W1), and in a model of Γ each sentence
+    holds at each valuation where those conjuncts hold of every element the sentence's left side and
+    `requires` hold (`rules_w2`, W2 with the guard `TieRulePair.RuleGuard`).
+  - `consistent`: Γ with the step's closure has a model, for every H.
+
+  The expectations (C7 form (a)); `Pre H` (the function sentences as written, Γ's rule items, the
+  families) has a model with the step's closure (`pre_model`):
+  - `a5_step`: [158]. Through the reading, from `Pre H`: ruleRightDefined (Γ's item of a rule holds only where its right side with its ensures is defined).
+  - `an1_none`: `a(-1)` has no successor: the rule applies (no `requires`) and its `ensures` is not true at -1. Through the reading, from `Pre H` with the step's closure: ruleRightDefined (Γ's item of a rule holds only where its right side with its ensures is defined); the step's closure (Γstep: every successor is one Step gives).
+  The priority decides nothing on this text (one rule): the companion with a competitor is c3-rule-ens-prio-comp (test/C3RuleEnsPrioComp.lean). The sentence as written states at X = -1 a step into the empty pattern, which no configuration has; so the expectations are derived from Γ's item (`ruleRightDefined`), not from the sentence.
+-/
+import KcoreSpec
+
+set_option autoImplicit false
+set_option maxRecDepth 1000000
+
+namespace KCore.C3RuleEnsPrio
+
+open KCore ML Faithful KoreAML
+
+kore_term kore from "f2-examples/c3-rule-ens-prio.kompile.kore"
+definition_of defn from "f2-examples/c3-rule-ens-prio.kompile.kore"
+user_axioms U from "f2-examples/c3-rule-ens-prio.kompile.kore" module "C3-RULE-ENS-PRIO"
+
+noncomputable abbrev c : Semantics := defn.sem
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
+
+/-- No parameter of the definition is an open generator. -/
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map trS := rfl
+
+/-! ## Layer 1 -/
+
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
+
+/-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,
+collection symbols, the priorities and `owise` of rules and equations. -/
+theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
+
+/-! ## The function equations (the sort predicates') -/
+
+noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all
+
+theorem fnText_index : fnText.map (·.index) = [231, 239, 238, 237, 236, 243, 242, 245, 244, 241, 240, 218, 217, 230, 229, 226, 225, 228, 227, 233, 232, 235, 234, 222, 221, 224, 223, 220, 219] := by decide +kernel
+
+noncomputable def textPats : List P := fnText.map (trS · |>.pat)
+
+/-- **Each of Γ's equations is the translation of its text sentence** (`TiePair.sameB`; kernel). -/
+theorem shape : TiePair.shapeB (TiePair.gammaPats c) textPats = true := by decide +kernel
+
+theorem shapeH (H : HookParams) : TiePair.shapeB (TiePair.gammaPats (cH H)) textPats = true := by
+  rw [TiePair.gammaPats_withHooks]; exact shape
+
+/-- **E for the function equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat :=
+  fun _ had => TiePair.entailed (shapeH H) _ (List.mem_map_of_mem had)
+
+/-- **The converse for `fnItems`**: each item is a consequence of a text sentence. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  obtain ⟨t, ht, hent⟩ := TiePair.from_text (shapeH H) j it hj
+  unfold textPats at ht
+  rw [List.getElem?_map] at ht
+  cases hf : fnText[j]? with
+  | none => rw [hf] at ht; cases ht
+  | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩
+
+/-! ## The constructor sentences -/
+
+noncomputable def consText : List AxiomDecl := U.all.filter fun ad => tieConsB c ad.ax
+
+theorem cons_trS : consText.all (fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat)) = true := by
+  decide +kernel
+
+/-- **E for the constructor sentences**: Γ entails each, for every H. -/
+theorem cons_entailed (H : HookParams) : ∀ ad ∈ consText, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  rw [of_decide_eq_true (List.all_eq_true.mp cons_trS ad had)]
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  exact tieCons_entailed (c := cH H) (a := ad.ax)
+    ((tieConsB_withHooks c H ad.ax).trans (List.mem_filter.mp had).2) ad.index ad.module hI
+
+/-! ## The rule sentences -/
+
+/-- The rule sentences, in the order of `c.rules`. -/
+noncomputable def ruleText : List AxiomDecl := [U.ax158]
+
+noncomputable def rulePats : List P := ruleText.map (trS · |>.pat)
+
+/-- The rules' priorities (the text's `priority` and `owise` attributes, `defs_attrsAgree`) and
+their sentences' indices. -/
+theorem rule_prios : c.rules.map (·.prio) = [40] ∧ ruleText.map (·.index) = [158] := by
+  decide +kernel
+
+/-- **Γ's axiom of each rule is its sentence with conjuncts more on the left side** (kernel). -/
+theorem rules_tie : TieRulePair.rulesTieB c rulePats = true := by decide +kernel
+
+theorem rules_tieH (H : HookParams) : TieRulePair.rulesTieB (cH H) rulePats = true :=
+  (TieRulePair.rulesTieB_withHooks c H rulePats).trans rules_tie
+
+/-- **W1 for the rules**: each of Γ's rule items is a consequence of its sentence, for every H. -/
+theorem rules_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (ruleItems (cH H))[j]? = some it →
+      ∃ ad, ruleText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  obtain ⟨t, ht, hent⟩ := TieRulePair.rules_from_text (rules_tieH H) j it hj
+  unfold rulePats at ht
+  rw [List.getElem?_map] at ht
+  cases hf : ruleText[j]? with
+  | none => rw [hf] at ht; cases ht
+  | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩
+
+/-- **W2 for the rules, with the guard**: in a model of Γ, for every H, each rule's sentence holds
+at each valuation at which the conjuncts Γ's axiom of the rule adds (the definedness of the right
+side with its `ensures`, the negation of the rules of a smaller priority) hold of every element the
+sentence's left side and `requires` hold. -/
+theorem rules_w2 (H : HookParams) {j : Nat} {r : Rule} {ad : AxiomDecl} (hr : (cH H).rules[j]? = some r)
+    (had : ruleText[j]? = some ad) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (e : Valuation M) (hx : TieRulePair.RuleGuard (prioRuleK (cH H) r) I e) (m : M) :
+    (trS ad).pat.interpret I e m :=
+  TieRulePair.rules_w2 (rules_tieH H) hr (by unfold rulePats; rw [List.getElem?_map, had]; rfl) hI e hx m
+
+/-! ## The account -/
+
+noncomputable def tiedIdx : List Nat := fnText.map (·.index) ++ consText.map (·.index) ++ ruleText.map (·.index)
+
+/-- **The account**: the function equations, the constructor sentences and the rule sentences are
+sentences of the user module, each once and none in two classes; the sizes of the classes and of the
+rest (library sentences, hooked symbols' `functional` sentences, collection laws, no junk, the
+projections and initializers: not tied here). -/
+theorem account : tiedIdx.Nodup ∧ tiedIdx.all (fun i => (U.all.map (·.index)).contains i) = true ∧
+    (U.all.map (·.index)).Nodup ∧
+    (fnText.length, consText.length, ruleText.length, U.all.length - tiedIdx.length) = (29, 33, 1, 202) := by
+  decide +kernel
+
+/-! ## The facts the deciders leave -/
+
+theorem hok : c.ok = true := by decide +kernel
+theorem hsr : c.srReady = true := by decide +kernel
+theorem hmr : c.matchReady = true := by decide +kernel
+theorem hokH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans hok
+theorem readsConfined_c : c.readsConfined = false := by decide +kernel
+theorem readsConfinedH (H : HookParams) : (cH H).readsConfined = false :=
+  (Semantics.readsConfined_withHooks c H).trans readsConfined_c
+
+def callOrder : List Nat := []
+
+theorem term_named : c.rankObligations callOrder ++ c.decObligationsL = [] := by decide +kernel
+theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
+theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+theorem total_named : c.totalObligationsRP callOrder [] = [] := by decide +kernel
+
+theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] :=
+  FnObligations.of_nil
+    (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named)
+    ((Semantics.totalObligationsRP_withHooks _ H _ _).trans total_named)
+    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)
+    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named)
+
+theorem fnHypH (H : HookParams) : FnHyp (cH H) :=
+  fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil (obl_nil H)
+
+/-- **Γ with the step's closure has a model, for every H** (C14 closure (a)). -/
+theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
+
+/-- The clauses of one priority are coherent, for every H (no agreement is owed). -/
+theorem coherentH (H : HookParams) : CoherentAll (cH H) :=
+  Det.coherentAll_of_nil (hokH H) ((Semantics.srReady_withHooks c H).trans hsr)
+    ((Semantics.matchReady_withHooks c H).trans hmr) ((TiePair.clausesFixed_withHooks c H).trans (by decide +kernel))
+    ((Semantics.agreeObligations_withHooks c H).trans (by decide +kernel))
+
+/-! ## The expectations (C7 form (a)) -/
+
+/-- The premises of the derivations through the reading: the function sentences as written, Γ's
+rule items, and the families (the parts of Γ no sentence states). -/
+noncomputable abbrev Pre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) textPats
+
+/-- **`Pre` with the step's closure has a model, for every H.** -/
+theorem pre_model (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) :=
+  TiePair.pre_model (shapeH H) (consistent H)
+
+/-- The premises of the derivations from sentences: the function sentences and the rule sentences
+as written, and the families. -/
+noncomputable abbrev PreS (H : HookParams) : Premises KoreAML.Sym := TieRulePair.PreS (cH H) textPats rulePats
+
+def kCell : Sym := 383
+def a_ : Sym := 385
+def b_ : Sym := 386
+def c_ : Sym := 387
+def cmd : Srt := 32
+
+theorem names : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName a_ = "Lbla" ∧
+    c.symName b_ = "Lblb" ∧ c.symName c_ = "Lblc" ∧ c.sortName cmd = "Cmd" := by
+  decide +kernel
+
+/-- The configuration with `it` in the k cell and the counter at 0. -/
+def cfg (it : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kCell [.ctor kseq [.inj cmd Srt.kitem it, .ctor dotk []]],
+    .ctor counterLabel [.dv Srt.int (.int 0)]]
+
+/-- A configuration of the data under the interpretation H. -/
+noncomputable abbrev XH (x : Config c) (H : HookParams) : Config (cH H) := TieRulePair.cfgH noRaw x H
+noncomputable def A5 : Config c := ⟨cfg (.ctor a_ [int (5)]), by decide +kernel⟩
+noncomputable def B5 : Config c := ⟨cfg (.ctor b_ [int (5)]), by decide +kernel⟩
+noncomputable def An1 : Config c := ⟨cfg (.ctor a_ [int (-1)]), by decide +kernel⟩
+
+/-- **[158]**, for every H: derived from `Pre`, through Γ's rule item. -/
+theorem a5_step (H : HookParams) :
+    Pre H ⊧ (den (cH H) (XH A5 H).val ⇒ KoreAML.sNext (den (cH H) (XH B5 H).val)) :=
+  TiePair.cut (shapeH H)
+    (sound_at_step (cH H) (coreOKH H) (readsConfinedH H) _ _
+      (TieRulePair.step_withHooks hok hsr hmr noRaw (n := 100) (by decide +kernel) H))
+
+/-- **`a(-1)` has no successor: the rule applies (no `requires`) and its `ensures` is not true at -1**, for every H: derived from `Pre` with the step's closure. -/
+theorem an1_none (H : HookParams) :
+    (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (XH An1 H).val ⇒
+      KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
+  TiePair.cutStep (shapeH H)
+    (complete_at_step (cH H) (coreOKH H) (readsConfinedH H) _
+      (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) _
+      (TieRulePair.listed_sound hok hsr hmr H (coherentH H) (x := An1) (n := 100) (by decide +kernel)
+        (by decide +kernel) noRaw))
+
+end KCore.C3RuleEnsPrio
+
+#print axioms KCore.C3RuleEnsPrio.wf_defn
+#print axioms KCore.C3RuleEnsPrio.defs_attrsAgree
+#print axioms KCore.C3RuleEnsPrio.shape
+#print axioms KCore.C3RuleEnsPrio.fns_entailed
+#print axioms KCore.C3RuleEnsPrio.fns_from_text
+#print axioms KCore.C3RuleEnsPrio.cons_entailed
+#print axioms KCore.C3RuleEnsPrio.rule_prios
+#print axioms KCore.C3RuleEnsPrio.rules_tie
+#print axioms KCore.C3RuleEnsPrio.rules_from_text
+#print axioms KCore.C3RuleEnsPrio.rules_w2
+#print axioms KCore.C3RuleEnsPrio.account
+#print axioms KCore.C3RuleEnsPrio.consistent
+#print axioms KCore.C3RuleEnsPrio.pre_model
+#print axioms KCore.C3RuleEnsPrio.a5_step
+#print axioms KCore.C3RuleEnsPrio.an1_none

@@ -427,10 +427,10 @@ theorem mx_lawAt_fst : LawAt (mx.withHooks Hfst) idemLaw := by
 
 /-! ## The theory with the law's sentence has a model -/
 
-theorem pl_coreOK : pl.coreOK = true := by decide +kernel
-theorem plBad_coreOK : plBad.coreOK = true := by decide +kernel
-theorem pk_coreOK : pk.coreOK = true := by decide +kernel
-theorem mx_coreOK : mx.coreOK = true := by decide +kernel
+theorem pl_coreOK : pl.coreOK = true := by decide_cheap
+theorem plBad_coreOK : plBad.coreOK = true := by decide_cheap
+theorem pk_coreOK : pk.coreOK = true := by decide_cheap
+theorem mx_coreOK : mx.coreOK = true := by decide_cheap
 
 /-- The hypotheses of `consistent_with_laws` that do not read the law, for a semantics `mkSem fn`
 that `coreOK` accepts and none of whose functions is named by an obligation list, under every
@@ -526,7 +526,7 @@ def badLaw : LawEq := ⟨[9999, 9999], .var 0, .var 1⟩
 /-- `x = y` at two variables of `wn`'s sort `nRegSorts + 2`. -/
 def realLaw : LawEq := ⟨[nRegSorts + 2, nRegSorts + 2], .var 0, .var 1⟩
 
-theorem wn_coreOK : wn.coreOK = true := by decide +kernel
+theorem wn_coreOK : wn.coreOK = true := by decide_cheap
 
 /-- The sort 9999 is none of `wn`'s, and has the name of `wn`'s sort `nRegSorts + 2`. -/
 theorem wn_sortName : ¬ 9999 < nRegSorts + wn.sortNames.length ∧

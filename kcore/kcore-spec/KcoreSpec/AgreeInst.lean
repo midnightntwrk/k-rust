@@ -346,7 +346,8 @@ theorem EvalTerm.app_args {σ σ' : Subst} {f : Sym} {ts ts' : List Term} {r : O
   | param hc hhk hp hts hr => cases ht; exact EvalTerm.param hc hhk hp (ha _ hts) hr
   | call hc hh hts hvs hf hp => cases ht; exact EvalTerm.call hc hh (ha _ hts) hvs hf hp
   | callUndef hc hh hts hvs hp => cases ht; exact EvalTerm.callUndef hc hh (ha _ hts) hvs hp
-  | ovl hc ho hts => cases ht; exact EvalTerm.ovl hc ho (ha _ hts)
+  | ovl hc ho hts hnf => cases ht; exact EvalTerm.ovl hc ho (ha _ hts) hnf
+  | ovlFn hc ho hts hvs hlo hcov hf => cases ht; exact EvalTerm.ovlFn hc ho (ha _ hts) hvs hlo hcov hf
   | _ => cases ht
 
 theorem EvalTerm.as_false {σ : Subst} {t : Term} {i : Nat} {r : Option GroundTerm}
@@ -551,6 +552,7 @@ theorem hook2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} (hhk : isHook f
   | call _ h _ _ _ _ => cases ht; rw [hhk] at h; cases h
   | callUndef _ h _ _ _ => cases ht; rw [hhk] at h; cases h
   | ovl _ ho _ => cases ht; have h := (c.isOvl_parts ho).2.1; rw [hhk] at h; cases h
+  | ovlFn _ ho => cases ht; have h := (c.isOvl_parts ho).2.1; rw [hhk] at h; cases h
   | _ => cases ht
 
 theorem hook_kNe (v w : GroundTerm) : hook kNe [v, w] = some (some (bool (GroundTerm.cmp v w != .eq))) := rfl
@@ -686,11 +688,12 @@ theorem litsApartI_sound {σ : Subst} {ls ls' : List (Term × Bool)} (h : c.lits
   · exact negConjLits_sound hn hF e e'
   · exact negConjLits_sound hn hF.symm e' e
 
-/-- **Two clauses `instAgree` accepts are coherent, in both orders.** -/
+/-- **Two clauses `instAgree` accepts are coherent, in both orders**, in the form of clauses without
+existential variables (`CoherentPlain`). -/
 theorem instAgree_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Clause} {ss ss' : List Srt}
     (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
     (hpt' : sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some ss')
-    (h : c.instAgree heads cl cl' = true) : Coherent c cl cl' ∧ Coherent c cl' cl := by
+    (h : c.instAgree heads cl cl' = true) : CoherentPlain c cl cl' ∧ CoherentPlain c cl' cl := by
   unfold Semantics.instAgree at h
   split at h
   · cases h
@@ -702,8 +705,8 @@ theorem instAgree_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Cla
   rcases h with ⟨⟨⟨hb, he⟩, hn⟩, hn'⟩ | h
   · have he := Term.beq_sound he
     simp only [Option.isNone_iff_eq_none] at hn hn'
-    refine ⟨Coherent.of_rhs hn hn' fun vs σ σ' ha ha' _ hd _ => .inr fun r r' h1 h2 => ?_,
-      Coherent.of_rhs hn' hn fun vs σ' σ ha' ha _ hd _ => .inr fun r' r h2 h1 => ?_⟩
+    refine ⟨CoherentPlain.of_rhs hn hn' fun vs σ σ' ha ha' _ hd _ => .inr fun r r' h1 h2 => ?_,
+      CoherentPlain.of_rhs hn' hn fun vs σ' σ ha' ha _ hd _ => .inr fun r' r h2 h1 => ?_⟩
     · have hθ := inst ha ha'
       rw [← he] at h2
       exact hd cl.rhs (self_mem_subterms _) r r' h1 ((substT_eval hθ cl.rhs hb r').mpr h2)
@@ -833,7 +836,7 @@ theorem pairAgreeL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn} {cl
     (h : c.pairAgreeL heads cl cl' = true)
     (hprio : cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
       (cl'.aside = true ∧ cl'.prio < cl.prio)) :
-    Coherent c cl cl' ∧ Coherent c cl' cl := by
+    CoherentPlain c cl cl' ∧ CoherentPlain c cl' cl := by
   by_cases hn : notCompeting cl cl' = true
   · exact (notCompeting_iff.mp hn hprio).elim
   let g : Fn := { f with clauses := [cl, cl'] }
@@ -859,7 +862,7 @@ theorem pairAgreeL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn} {cl
 /-- **The equations `fnExclusiveI` accepts agree.** -/
 theorem fnExclusiveI_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true) (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveI heads f = true) :
-    ClausesAgree c f := by
+    ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
@@ -890,8 +893,9 @@ theorem patVal_head (hmc : MatchCtxO c) {σ : Subst} {vars : List Srt} (hσ : c.
   · obtain ⟨vs, hvs, hv⟩ := PatVal.ovl_inv ho h
     obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp hs
     obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup ho hk'
-    obtain ⟨hn, -, -, hks, -⟩ := OvlLaws.ovl_facts hmc.ovlHyp hlo
-    obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head hmc.ovlHyp hks (patVals_sortedAllO hmc hσ hvs hargs)
+    obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF hmc.ovlHyp.fnFacts hlo
+    obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hks
+      (patVals_sortedAllO hmc hσ hvs hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
     rw [hn] at he hg
     exact ⟨A, g, us, by rw [← hv]; exact he, hg⟩
 
@@ -958,7 +962,7 @@ theorem clausesHeadApart_sound (hmc : MatchCtxO c) {cl cl' : Clause} {ss : List 
 /-- **The equations `fnExclusiveIO` accepts agree.** -/
 theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveIO heads f = true) :
-    ClausesAgree c f := by
+    ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
@@ -996,9 +1000,10 @@ theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     cases he : c.ovls.isEmpty
     · rw [he, Bool.cond_false] at hx
-      exact fnExclusiveIO_sound hmc (hf.1.2 fn hfn) hx
+      exact (fnExclusiveIO_sound hmc (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
     · rw [he, Bool.cond_true] at hx
-      exact fnExclusiveI_sound hmc (fun _ _ => ovlFreeList_of_nil (List.isEmpty_iff.mp he) _) (hf.1.2 fn hfn) hx
+      exact (fnExclusiveI_sound hmc (fun _ _ => ovlFreeList_of_nil (List.isEmpty_iff.mp he) _) (hf.1.2 fn hfn) hx).agree
+        (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligationsI, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by rw [Bool.eq_false_iff.mpr hx]; rfl⟩, rfl⟩

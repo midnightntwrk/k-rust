@@ -13,7 +13,7 @@
   - `exvarsbool` (e3-vars-bool): `c() => d(?Z:Bool)`: read (arm A, and Bool is confined).
   - `exvarslist` (e3-vars-list): `L => ListItem(?V:Int) L`: `openRight`, `?V` under the list's
     symbols, which are no constructors, and Int unconfined.
-  `rulesPlain` asks `rulePlainEx` of each rule (`Semantics.rulesPlain_iff_ex`), so the three read
+  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), so the three read
   texts are well formed and have `coreOK` (`Vars.rule2` for e3-vars, by the kernel).
 
   The binders are read by the sentence's scoping (C3.reader-exists-binders; section "Hand-written
@@ -309,7 +309,7 @@ theorem rule2 :
     c.rulePlainEx (c.rules[2]'(by decide +kernel)) = true ∧
     (Parse.openRefusal c (c.rules[2]'(by decide +kernel)) []).isNone = true ∧
     c.rulesPlain = true ∧ c.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 end Vars
 

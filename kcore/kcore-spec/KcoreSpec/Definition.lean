@@ -13,7 +13,10 @@
     that kompile copies onto its heating and cooling rules;
   - `RulePres.prioAttr`, `ClausePres.prioAttr`: whether the rule's or the equation's priority is
     written `priority{}("n")`; otherwise it is 50 (no attribute) or 200 (`owise{}()`), and `emit`
-    writes it accordingly.
+    writes it accordingly;
+  - `ClausePres.overload`: an equation written as a symbol-overload axiom, whose only attribute is
+    `symbol-overload{}(f(), g())` (no id, place or priority), and which gives the clause `aside`
+    and priority 0.
 -/
 import KcoreSpec.Core
 import KcoreSpec.Kore.Base
@@ -37,6 +40,10 @@ structure ClausePres where
   src : Option String := none
   /-- the priority is written `priority{}("n")` (otherwise 50 is no attribute, 200 is `owise`) -/
   prioAttr : Bool := false
+  /-- the second symbol `g` of the equation's `symbol-overload{}(f(), g())` attribute, its only
+  attribute: a symbol-overload axiom read as a clause of the function `f`, `aside` and of
+  priority 0, which that attribute gives (no `priority{}` is written) -/
+  overload : Option String := none
   deriving Repr, Inhabited
 
 structure FnPres where
@@ -300,7 +307,7 @@ structure Presentation where
   pgmCell : String := "k"
   /-- the laws the text writes for its functions, each an equation it states for every element;
   `Semantics` holds none of them: the statements about the definition take them at values
-  (`FnLaws`). `Parse.presOf` writes none. -/
+  (`FnLaws`). `Parse.presOf` reads them from the text's law axioms on its functions (`Parse.fnLawOf`). -/
   laws : List LawEq := []
   deriving Repr
 

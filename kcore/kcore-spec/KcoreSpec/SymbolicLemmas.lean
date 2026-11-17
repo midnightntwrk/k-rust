@@ -19,6 +19,7 @@
   state's pattern both denote is read by rewriting both with these lemmas.
 -/
 import KcoreSpec.Symbolic
+import KcoreSpec.RightHeldExtend
 import KcoreSpec.EvalLemmas
 import KcoreSpec.SubjectReduction
 
@@ -490,6 +491,7 @@ theorem EvalTerm.hook_iff {f : Sym} {ts : List Term} {r : Option GroundTerm}
     | call _ h _ _ _ _ => cases ht; rw [hh] at h; cases h
     | callUndef _ h _ _ _ => cases ht; rw [hh] at h; cases h
     | ovl _ ho _ => cases ht; rw [(c.isOvl_parts ho).2.1] at hh; cases hh
+    | ovlFn _ ho => cases ht; rw [(c.isOvl_parts ho).2.1] at hh; cases hh
     | _ => cases ht
   · rintro ⟨_, hts, hh', hund⟩
     exact .hook hc hh hts hh' hund
@@ -538,7 +540,9 @@ theorem EvalTerm.call_iff {f : Sym} {ts : List Term} {r : Option GroundTerm}
 /-- The `i`-th clause of `f` gives `f`'s result at `vs`: its patterns denote `vs` under a
 well-sorted σ, its `requires` evaluates to `true`, its predicate is true (by default shown for
 the predicate `\top`), the clauses of a smaller priority fail, its right-hand side has the result
-`r` under σ, and its `ensures` evaluates to `true` (by default shown for a clause without one). -/
+`r` under σ, its `ensures` evaluates to `true` (by default shown for a clause without one), it has
+no existential variable and its right side's predicate is true (by default shown for a clause
+without either). -/
 theorem Eval.of_clause {f : Sym} {fn : Fn} {i : Nat} {cl : Clause} {vs : List GroundTerm}
     {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hi : fn.clauses[i]? = some cl)
@@ -548,8 +552,11 @@ theorem Eval.of_clause {f : Sym} {fn : Fn} {i : Nat} {cl : Clause} {vs : List Gr
     (hrhs : EvalTerm c σ cl.rhs r)
     (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
       exact fun _ h => nomatch h)
-    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top) : Eval c f vs r :=
-  .clause hfn (List.mem_of_getElem? hi) hσ hmatch hreq hholds (fun cl' h _ hlt => hpre cl' h hlt) hrhs hens
+    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top)
+    (hex : cl.exs = [] := by rfl)
+    (hpost : Holds c cl.vars.length σ cl.post true := by exact .top) : Eval c f vs r :=
+  .clause hfn (List.mem_of_getElem? hi) hσ hmatch hreq hholds (fun cl' h _ hlt => hpre cl' h hlt) hex hrhs hens
+    hpost
 
 /-- `Eval.of_clause` with the clause as a package's data lemma states it,
 `(c.lookupFn f).bind (·.clauses[i]?) = some cl`; the clauses of a smaller priority are read the
@@ -564,16 +571,18 @@ theorem Eval.of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List GroundT
     (hrhs : EvalTerm c σ cl.rhs r)
     (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
       exact fun _ h => nomatch h)
-    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top) : Eval c f vs r := by
+    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top)
+    (hex : cl.exs = [] := by rfl)
+    (hpost : Holds c cl.vars.length σ cl.post true := by exact .top) : Eval c f vs r := by
   cases hfn : c.lookupFn f with
   | none => rw [hfn] at hcl; cases hcl
   | some fn =>
     rw [hfn] at hcl hpre
-    refine Eval.of_clause hfn hcl (fun cl' hm hlt => ?_) hσ hmatch hreq hrhs hens hholds
+    refine Eval.of_clause hfn hcl (fun cl' hm hlt => ?_) hσ hmatch hreq hrhs hens hholds hex hpost
     obtain ⟨j, hj, hjc⟩ := List.getElem_of_mem hm
     exact hpre j cl' (by rw [Option.bind_some, List.getElem?_eq_getElem hj, hjc]) hlt
 
-/-- A clause without a `requires`, a predicate or an `ensures` that matches, every other clause of a priority at
+/-- A clause without a `requires`, a predicate, an `ensures` or an existential variable that matches, every other clause of a priority at
 most its own matching under no well-sorted σ, the clause not `aside` (so every clause of a larger
 priority reads it), gives `f`'s only result: every result of `f` at `vs`
 is its right-hand side's under some σ that matches. (Without functionality of `EvalTerm`, a `requires`
@@ -586,7 +595,7 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
       ∀ σ', c.WellSorted cl'.vars σ' → ¬ PatVals c σ' cl'.pats vs)
     (hnoreq : cl.req = none) (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
     (h : Eval c f vs r) (hnoens : cl.ens = none := by rfl) (hna : cl.aside = false := by rfl)
-    (hnopre : cl.pre = .top := by rfl) :
+    (hnopre : cl.pre = .top := by rfl) (hnoex : cl.exs = [] := by rfl) :
     ∃ σ', c.WellSorted cl.vars σ' ∧ PatVals c σ' cl.pats vs ∧ EvalTerm c σ' cl.rhs r := by
   -- the clause applies at `vs`, so it does not fail there
   have hnf : ¬ Fails c vs cl := fun ⟨hf⟩ => by
@@ -594,7 +603,7 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
     | intro ht _ _ => rw [hnoreq] at ht; cases ht
     | pre hp => rw [hnopre] at hp; exact absurd hp.top_eq (by simp)
   cases h with
-  | @clause _ fn _ cl' σ' _ hfn hmem hσ' hmatch' _ _ hprio' hrhs _ =>
+  | @clause _ fn _ cl' σ' _ hfn hmem hσ' hmatch' _ _ hprio' _ hrhs _ _ =>
     rw [hfn] at hcl hpre
     simp only [Option.bind_some] at hcl hpre
     by_cases he : cl' = cl
@@ -610,7 +619,7 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
   | rest hfn hnone =>
     rw [hfn] at hcl
     exact absurd (hnone cl (List.mem_of_getElem? hcl)) hnf
-  | @ensFails _ fn _ cl' σ' _ _ hfn hmem hσ' hmatch' _ _ hprio' ht _ _ =>
+  | @ensFails _ fn _ cl' σ' _ _ hfn hmem hσ' hmatch' _ _ hprio' _ ht _ _ =>
     rw [hfn] at hcl hpre
     simp only [Option.bind_some] at hcl hpre
     by_cases he : cl' = cl
@@ -623,6 +632,36 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
       by_cases hle : cl'.prio ≤ cl.prio
       · exact absurd hmatch' (hpre j hji cl' (by rw [List.getElem?_eq_getElem hj, hjc]) hle σ' hσ')
       · exact absurd (hprio' cl (List.mem_of_getElem? hcl) hna (by omega)) hnf
+  | @clauseEx _ fn _ cl' σ' _ hfn hmem hσ' hmatch' _ _ hprio' hne _ _ _ _ =>
+    rw [hfn] at hcl hpre
+    simp only [Option.bind_some] at hcl hpre
+    by_cases he : cl' = cl
+    · subst he; exact absurd hnoex hne
+    · obtain ⟨j, hj, hjc⟩ := List.getElem_of_mem hmem
+      have hji : j ≠ i := fun hji => he (by
+        subst hji
+        rw [List.getElem?_eq_getElem hj, hjc] at hcl
+        exact Option.some.inj hcl)
+      by_cases hle : cl'.prio ≤ cl.prio
+      · exact absurd hmatch' (hpre j hji cl' (by rw [List.getElem?_eq_getElem hj, hjc]) hle σ' hσ')
+      · exact absurd (hprio' cl (List.mem_of_getElem? hcl) hna (by omega)) hnf
+  | @exNone _ fn _ cl' σ' hfn hmem hne _ hmatch' _ _ hprio' hsome _ =>
+    -- an instance of the other clause is well sorted and matches as its match does
+    rw [hfn] at hcl hpre
+    simp only [Option.bind_some] at hcl hpre
+    by_cases he : cl' = cl
+    · subst he; exact absurd hnoex hne
+    · obtain ⟨j, hj, hjc⟩ := List.getElem_of_mem hmem
+      have hji : j ≠ i := fun hji => he (by
+        subst hji
+        rw [List.getElem?_eq_getElem hj, hjc] at hcl
+        exact Option.some.inj hcl)
+      by_cases hle : cl'.prio ≤ cl.prio
+      · obtain ⟨σ₁, ha, hσ₁⟩ := hsome
+        exact absurd (PatVals.congr_varsRH hmatch' fun k hk =>
+            ha k (by simp [Clause.exsFree, Clause.leftVars, hk]))
+          (hpre j hji cl' (by rw [List.getElem?_eq_getElem hj, hjc]) hle σ₁ hσ₁)
+      · exact absurd (hprio' cl (List.mem_of_getElem? hcl) hna (by omega)) hnf
 
 /-- The `i`-th rule takes `x` to `y` when it fires there. -/
 theorem Step.of_rule (hs : c.sortedOK = true) {x y : Config c} {i : Nat} {r : Rule}
@@ -634,6 +673,32 @@ theorem Step.of_rule (hs : c.sortedOK = true) {x y : Config c} {i : Nat} {r : Ru
 `ensures` true. The
 successor is the right-hand side's value, a configuration by subject reduction (`step_of_apply`;
 the overloading symbols' condition `OvlCase`, decided by default). -/
+theorem Step.exists_of_rule_all (hok : c.okAll = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
+    {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
+    (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
+    (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val)
+    {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
+    (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
+    (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : ∃ y : Config c, y.val = v ∧ Step c x y :=
+  ⟨_, rfl, step_of_apply_all hok hsr hov (List.mem_of_getElem? hr) hσ hm hreq hpre he hens hpost hprio⟩
+
+/-- `Step.exists_of_rule_all` as the progress half of a symbolic step. -/
+theorem Step.progress_of_rule_all (hok : c.okAll = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
+    {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
+    (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
+    (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val)
+    {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
+    (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
+    (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : Reachability.Progress (Step c) x :=
+  let ⟨y, _, h⟩ := Step.exists_of_rule_all hok hsr hr hσ hm hreq hpre hprio he hens hpost hov
+  ⟨y, h⟩
+
+/-- `Step.exists_of_rule_all` in a core that `ok` accepts: its rules' predicates are `\top`
+(`ok_rule`). -/
 theorem Step.exists_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
     {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
@@ -641,7 +706,9 @@ theorem Step.exists_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Co
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : ∃ y : Config c, y.val = v ∧ Step c x y :=
-  ⟨_, rfl, step_of_apply hok hsr hov (List.mem_of_getElem? hr) hσ hm hreq he hens hprio⟩
+  Step.exists_of_rule_all (Semantics.okAll_of_ok hok) hsr hr hσ hm hreq
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.1 ▸ .top) hprio he hens
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.2.1 ▸ .top) hov
 
 /-- `Step.exists_of_rule` as the progress half of a symbolic step. -/
 theorem Step.progress_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
@@ -651,8 +718,9 @@ theorem Step.progress_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : 
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : Reachability.Progress (Step c) x :=
-  let ⟨y, _, h⟩ := Step.exists_of_rule hok hsr hr hσ hm hreq hprio he hens hov
-  ⟨y, h⟩
+  Step.progress_of_rule_all (Semantics.okAll_of_ok hok) hsr hr hσ hm hreq
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.1 ▸ .top) hprio he hens
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.2.1 ▸ .top) hov
 
 /-! ## Which rule fired
 

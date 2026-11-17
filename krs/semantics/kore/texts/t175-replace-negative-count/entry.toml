@@ -1,0 +1,41 @@
+id = "t175-replace-negative-count"
+kind = "text"
+subject = 'replace with a negative count, here replace("aaa", "a", "b", -1): the module says the function is undefined there and leaves it to each implementation.'
+retro = ["ST5"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1853 (K 7.1.337)", quote = 'syntax String ::= "replace" "(" haystack: String "," needle: String "," replacement: String "," times: Int ")" [function, hook(STRING.replace)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. replace replaces the first times occurrences (domains.md:1845); its two equations hold where Count > 0 and where Count >= 0 (1911-1916), and the comment before them says the function is undefined when Count < 0, which allows implementations their own behaviour without contradicting the semantics: #Bottom for one, an exception for another (1908-1910). replace is not total (1853).
+So the text states no value at a negative count and states that it gives none of its own: both a value and none are consistent with its sentences.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1908-1910 (K 7.1.337)"
+quote = "// Note that the replace function is undefined when Count < 0. This allows different backends to // implement their own behavior without contradicting these semantics. For instance, a symbolic // backend can return #Bottom for that case, while a concrete backend can throw an exception."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1911-1916 (K 7.1.337)"
+quote = "rule replace(Source:String, ToReplace:String, Replacement:String, Count:Int) => substrString(Source, 0, findString(Source, ToReplace, 0)) +String Replacement +String replace(substrString(Source, findString(Source, ToReplace, 0) +Int lengthString(ToReplace), lengthString(Source)), ToReplace, Replacement, Count -Int 1) requires Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0 rule replace(Source:String, _, _, Count) => Source requires Count >=Int 0 [owise]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1853 (K 7.1.337)"
+quote = 'syntax String ::= "replace" "(" haystack: String "," needle: String "," replacement: String "," times: Int ")" [function, hook(STRING.replace)]'
+
+[[reading]]
+name = "no-value"
+statement = "replace has no value at a negative count."
+answer = 'replace("aaa", "a", "b", -1) denotes nothing'
+consequence = "The #Bottom the comment names for one implementation."
+
+[[reading]]
+name = "some-value"
+statement = "replace has some value at a negative count, not named."
+answer = 'replace("aaa", "a", "b", -1) is some string'
+consequence = "Any string is consistent with the text there."

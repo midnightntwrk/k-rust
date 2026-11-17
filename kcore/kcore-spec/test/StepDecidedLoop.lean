@@ -53,7 +53,7 @@ def c : Semantics :=
     pgmSort := Srt.k
     rules := [r] }
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 def i0 : GroundTerm := .dv Srt.int (.int 0)
 
@@ -117,7 +117,8 @@ theorem loop_none {res : Option GroundTerm} : ¬ Eval c L [i0] res := by
         cases h2; cases h1
         rw [h0] at hvs
         simp [allSome] at hvs)
-    (fun _ ho _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
+    (fun _ ho _ _ _ _ _ _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
     trivial (fun _ _ _ _ => trivial)
     (by intros; trivial)
     (by intros; trivial)
@@ -152,6 +153,7 @@ theorem req_none (σ : Subst) (res : Option GroundTerm) : ¬ EvalTerm c σ req r
     cases hts with
     | cons h1 h2 => cases h2; cases h1; simp [allSome] at hvs
   | ovl _ ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- `<k> . </k> <generatedCounter> 0 </generatedCounter>`. -/
 def cfg : GroundTerm := .ctor topLabel [.ctor kIds.label [.ctor dotk []], .ctor counterLabel [int 0]]

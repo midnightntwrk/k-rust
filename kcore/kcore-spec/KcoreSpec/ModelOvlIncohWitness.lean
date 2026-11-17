@@ -113,7 +113,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
     exact key
   have hg := eq_at gSig g_over (beq_self_eq_true _) rfl
   have hh := eq_at hSig h_over (beq_self_eq_true _) rfl
-  have hit := sat_cons hI (Or.inl ⟨_, distItem_mem (by decide +kernel) kcell_cons gh_pair (fun _ _ h _ => by cases h) gh_unguarded, rfl⟩)
+  have hit := sat_cons hI (Or.inl ⟨_, distItem_mem kcell_cons gh_pair (fun _ _ h _ => by cases h) gh_unguarded, rfl⟩)
   exact dist_at hD hit (xs := [elemOf c I (int 0)]) (ys := [elemOf c I (int 0)]) rfl rfl
     (single_sorts hx) (single_sorts hx) (fun m => (hg m).symm.trans (hh m))
 

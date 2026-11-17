@@ -56,8 +56,8 @@ theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map tr
 
 /-! ## Layer 1 -/
 
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,
@@ -174,6 +174,7 @@ theorem cl0_vars : cl0.vars = [Srt.int] := by decide +kernel
 theorem cl0_pats : cl0.pats = [.var 0] := rfl
 theorem cl0_req : cl0.req = none := rfl
 theorem cl0_rhs : cl0.rhs = .var 0 := rfl
+theorem cl0_pre : cl0.pre = .top := rfl
 theorem cl0_ens : cl0.ens = some (.app intEq [.var 0, .var 0]) := rfl
 theorem cl0_least : fn.clauses.all (fun cl' => !decide (cl'.prio < cl0.prio)) = true := by decide +kernel
 
@@ -194,7 +195,7 @@ theorem eval_all (H : HookParams) (n : Int) : Eval (cH H) f [int n] (some (int n
   have hr : EvalTerm (cH H) [(0, int n)] cl0.rhs (some (int n)) := by
     rw [cl0_rhs]; exact .var
   refine .clause (cl := cl0) (σ := [(0, int n)]) (hfnH H) (List.getElem_mem _) hσ hm
-    (fun t ht => by rw [cl0_req] at ht; cases ht)
+    (fun t ht => by rw [cl0_req] at ht; cases ht) (by rw [cl0_pre]; exact .top)
     (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl0_least cl' hcl')) hr
     (fun t ht => ?_)
   rw [cl0_ens] at ht

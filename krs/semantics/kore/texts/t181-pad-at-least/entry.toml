@@ -1,0 +1,36 @@
+id = "t181-pad-at-least"
+kind = "text"
+subject = 'padLeftBytes(B, length, value) and padRightBytes: the result is "at least length bytes long"; here padLeftBytes(b"ab", 4, 0).'
+retro = ["BY4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:2184 (K 7.1.337)", quote = "| padLeftBytes(Bytes, length: Int, value: Int) [function, hook(BYTES.padLeft)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The result is at least length bytes long, made by taking the input and padding it on the left (on the right) with value; one implementation returns the input unchanged if it is already at least that long; the result is #False if value is outside [0..255] or the length is negative (domains.md:2172-2177). So padLeftBytes(b"ab", 4, 300) and padLeftBytes(b"ab", -1, 0) have no value.
+Where the readings part: how many bytes the padding adds. 'At least length bytes long' does not count them.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2172-2177 (K 7.1.337)"
+quote = "You can create a new `Bytes` object which is at least `length` bytes long by taking the input sequence and padding it on the right (respectively, on the left) with the specified `value`. If `--llvm-mutable-bytes` is active, this does not create a new `Bytes` object if the input is already at least `length` bytes long, and will instead return the input unchanged. The result is `#False` if `value` is not in the range `[0..255]`, or if the length is negative."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2184 (K 7.1.337)"
+quote = "| padLeftBytes(Bytes, length: Int, value: Int) [function, hook(BYTES.padLeft)]"
+
+[[reading]]
+name = "fewest"
+statement = "The padding adds the fewest bytes that reach the length, none where the input already has it."
+answer = 'padLeftBytes(b"ab", 4, 0) = b"\x00\x00ab"'
+consequence = "The result is exactly max(length, the input's length) bytes long."
+
+[[reading]]
+name = "at-least"
+statement = "Any padding that reaches at least the length is a result."
+answer = 'padLeftBytes(b"ab", 4, 0) is b"\x00\x00ab" or a longer padding of b"ab" with 0, not named'
+consequence = "A consumer may not rely on the length of the result beyond the bound."

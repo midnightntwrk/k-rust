@@ -262,8 +262,9 @@ mutual
         obtain ⟨vs', hvs', hv'⟩ := PatVal.ovl_inv hfo.2 h'
         obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp hs
         obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup hfo.2 hk'
-        have he := OvlLaws.norm_inj hmc.ovlHyp hlo (patVals_sortedAllO hmc hσ hvs hargs)
-          (patVals_sortedAllO hmc hσ' hvs' hargs) (hv.trans hv'.symm)
+        have he := OvlLaws.norm_inj_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hlo (patVals_sortedAllO hmc hσ hvs hargs)
+          (patVals_sortedAllO hmc hσ' hvs' hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
+          (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _) (hv.trans hv'.symm)
         subst he
         exact uniqLList_sound hmc hσ hσ' ps hu hvs hvs' hargs hD
       · exact uniq_sound hmc hσ hσ' (.app f ps) hu h h' hs hD
@@ -415,14 +416,15 @@ theorem uniqArgs_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
     obtain ⟨h1, h2⟩ := uniqPass_sound hmc hσ hσ' (p :: ps) hps hD
     exact uniqArgs_sound hmc hσ hσ' n _ hu (fun q hq => hps q (h2 q hq)) h1
 
-/-- **A clause that `clauseFixedL` accepts is match independent**: its patterns, well sorted in a
+/-- **A clause without existential variables that `clauseFixedL` accepts is match independent**: its patterns, well sorted in a
 left-hand side's context, fix all of its variables (`uniqArgs_sound`), and its right-hand side's
 and its `ensures`' are among them. -/
 theorem clauseFixedL_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
     (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hens : reqOK x cl.vars cl.ens = true)
-    (hfx : c.clauseFixedL cl = true) :
+    (hfx : c.clauseFixedL cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
+  refine ⟨?_, fun hne => absurd hx hne⟩
   intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
   unfold Semantics.clauseFixedL at hfx
   split at hfx
@@ -431,7 +433,7 @@ theorem clauseFixedL_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt}
     have hag : ∀ i, i < cl.vars.length → σ.lookup i = σ'.lookup i := fun i hi =>
       uniqArgs_sound hmc hσ hσ' _ cl.pats hD
         (fun p hp => ⟨patVals_pairs hm hm' p hp, sortsOfTerms_each hpt p hp⟩) (fun _ h => by cases h) i (hfx i hi)
-    refine .inl ⟨rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
+    refine .inl ⟨hx, hx, rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
     rw [ht] at hens
     exact hag i (sortOfTerm_vars (reqOK_some hens) i hi)
   · cases hfx
@@ -457,7 +459,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
     | some t => simpa [reqOK, he] using hens t he
   rcases List.mem_append.mp hmem with hf | hp
   · cases hfx : c.clauseFixedL cl with
-    | true => exact clauseFixedL_sound hmc hpt hrt hens' hfx
+    | true => exact clauseFixedL_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false =>
       obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
       refine hob (fn.label, i) ?_ fn (by rw [hlab]; exact hfn) _ (List.getElem?_eq_getElem hi)
@@ -466,7 +468,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx]
   · cases hfx : c.clauseFixed cl with
-    | true => exact clauseFixed_sound hmc hpt hrt hens' hfx
+    | true => exact clauseFixed_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false => exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
 
 kernel_rfl Semantics.matchObligationsL_withHooks :

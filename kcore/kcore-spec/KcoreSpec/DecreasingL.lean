@@ -663,6 +663,7 @@ theorem int2_val_inv {σ : Subst} {f : Sym} {t u : Term} {g : Int → Int → Op
   | call _ hh _ _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | ovl _ ho _ => cases ht; rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk
+  | ovlFn _ ho => cases ht; rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk
 
 theorem evalTerm_var_inv {σ : Subst} {x : Nat} {v : GroundTerm} (h : EvalTerm c σ (.var x) (some v)) :
     σ.lookup x = some v := by
@@ -714,7 +715,7 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_resultRH hlook hb
+    refine eval_resultRH hlook (hc.plain fn hfn) hb
       (fun cl hcl σ hσ _ => ⟨fun t ht => ?_, true, Clause.holds_preTop (hc.pres fn hfn cl hcl) σ⟩)
       (fun cl hcl σ ha => ?_) (fun cl hcl σ ha t ht => ?_)
     · have hq := hreqs cl hcl

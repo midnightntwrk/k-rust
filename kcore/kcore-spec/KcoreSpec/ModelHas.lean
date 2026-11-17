@@ -19,6 +19,7 @@ import KcoreSpec.ModelDupCtorWitness
 import KcoreSpec.ModelFnCtorWitness
 import KcoreSpec.OpenConsistent
 import KcoreSpec.ExStepT
+import KcoreSpec.ModelChoiceHeld
 
 set_option autoImplicit false
 -- the witnesses' conditions decided in the kernel enumerate `hookSigs` (`itesApart` compares every
@@ -46,19 +47,34 @@ theorem has_model_step_of_hyp (h : HypModelCore c) (h2 : SatConsGoal c) (h5 : Sa
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
   has_model_step_of c (satSigGoal h) h2 (satDomainsGoal h) (satCollsGoal h) h5 h6 h7 (satFallbackGoal h)
 
-/-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model. Of the
-rules it reads `ruleSorted` and `rulePlainEx` (`satRulesGoal_StepM`, `satStepGoal_StepM`), so it is
-stated for rules with `\top` predicates. -/
-theorem has_model_core (h : HypModelCore c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
+/-- **The value model at its own step satisfies `Γ` with the step's closure** under
+`HypModelCore`: of the rules it reads `ruleSorted` and `rulePlainHeldH` (`satRulesGoal_held`,
+`satStepGoal_held`), which `HypModelCore` gives (`HypModelCore.ruleFactsHeld`). -/
+theorem stdI_V_model_core (h : HypModelCore c) (hl : OpenLaws c) :
+    stdI_T c (StepV c) ⊧ᴵP (Γ c ∪ Γstep c) := by
+  intro φ hφ
+  rcases hφ with hφ | hφ
+  · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
+    · exact AtT.satSigGoal h φ hφ
+    · exact AtT.satConsGoal h hl φ hφ
+    · exact AtT.satDomainsGoal h φ hφ
+    · exact AtT.satCollsGoal h φ hφ
+    · exact AtT.satFnsGoal h φ hφ
+    · exact satRulesGoal_held h h.ruleFactsHeld (StepV c) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
+        (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩) φ hφ
+    · exact AtT.satFallbackGoal h φ hφ
+  · exact satStepGoal_held h h.ruleFactsHeld (StepV c) (fun _ _ _ _ hT => hT) φ hφ
+
+/-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model at its own
+step (`stdI_V_model_core`). The rules' predicates are not read. -/
+theorem has_model_core (h : HypModelCore c) (_htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  has_model_step_of c (satSigGoal h) (satConsGoal h hl) (satDomainsGoal h) (satCollsGoal h) (satFnsGoal h)
-    (satRulesGoal_StepM h (h.ruleFactsEx_of_top htop))
-    (satStepGoal_StepM h (h.ruleFactsEx_of_top htop)) (satFallbackGoal h)
+  ⟨Elem, inferInstance, stdI_T c (StepV c), stdI_V_model_core h hl⟩
 
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
 (`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/
 theorem HypModel.core (h : HypModel c) : HypModelCore c :=
-  have hd := fnDet_of_coherent (CoherentAll_of h.hyp.core)
+  have hd := fnDet_of_coherent (CoherentAll_of h.hyp.core) (Semantics.fnsNoExs_of_sortedOK h.sound.core.1)
   HypModel.core_of h hd (fnSolves_of_total h.sound.core hd h.hyp.core.2.2.1)
 
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/

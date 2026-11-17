@@ -1,0 +1,33 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblq'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool(false,false,false,false,false,true,false,true,true))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblq'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool(false,false,false,false,false,true,false,true,true))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "ca24463715c78ffdd71643466ec1cb727b64b1546cea2c55a4dfcd9eac9947f4",
+  "def.k": "fccec55e5b70cd66af14e0822f4b81f4256e8355e0c52b386aed2a95b0c9aaf9",
+  "pgm": "fc75c6b38e0c7919baa1a80847d137f5392f0406b819c382122fbd149452a927"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "cadff105d78691050c04e33fe10cb5dc8b63070fe78051a7f19d125c3004a546",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lblq'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool(false,false,false,false,false,true,false,true,true))"
+  ]
+ }
+}

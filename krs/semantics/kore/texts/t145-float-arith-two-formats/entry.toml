@@ -1,0 +1,41 @@
+id = "t145-float-arith-two-formats"
+kind = "text"
+subject = "Float arithmetic on two operands of different formats: 1.0f +Float 1.0."
+retro = ["FL5"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1569 (K 7.1.337)", quote = 'Float "+Float" Float [function, left, smt-hook((fp.add roundNearestTiesToEven #1 #2)), hook(FLOAT.add)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The prose computes the sum +Float of two floats (domains.md:1559), and +Float is not total (1569). The result is a Float, and a Float value has a format (1484-1488). No sentence names the format of a result whose operands have different formats, and none says the operation has no value there. Under both readings of the IEEE references (kk:t140-float-ieee-references) this is so: the standard's operations are defined on one format.
+So at 1.0f +Float 1.0 the text states neither a value nor that there is none.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1552-1559 (K 7.1.337)"
+quote = "* Compute the unary negation `--Float` of a float. `--Float X` is distinct from `0.0 -Float X`. For example, `0.0 -Float 0.0` is positive zero. `--Float 0.0` is negative zero. * Compute the exponentation `^Float` of two floats. * Compute the product `*Float`, quotient `/Float`, or remainder `%Float` of two floats. The remainder is computed based on rounding the quotient of the two floats to the nearest integer. * Compute the sum `+Float` or difference `-Float` of two floats."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1569 (K 7.1.337)"
+quote = 'Float "+Float" Float [function, left, smt-hook((fp.add roundNearestTiesToEven #1 #2)), hook(FLOAT.add)]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1484-1488 (K 7.1.337)"
+quote = "A suffix of `f` or `f` represents the IEEE `binary32` format. A suffix of `d` or `D`, or no suffix, represents the IEEE `binary64` format. A suffix of `pNxM` (either upper or lowercase) specifies exactly `N` bits of precision and `M` bits of exponent. The number of bits of precision is assumed to include any optional `1` that precedes the IEEE 754 mantissa. In other words, `p24x8`"
+
+[[reading]]
+name = "some-value"
+statement = "The operation has a value at two formats, of a format the text does not name."
+answer = "1.0f +Float 1.0 is a Float of some format; which, and its value, are not stated."
+consequence = "A consumer that gives it a value must name the format it chose."
+
+[[reading]]
+name = "no-value"
+statement = "The operation has no value at two formats."
+answer = "1.0f +Float 1.0 denotes nothing."
+consequence = "A rule whose right side holds such a sum has no successor there."

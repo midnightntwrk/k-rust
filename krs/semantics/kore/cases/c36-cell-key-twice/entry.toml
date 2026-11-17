@@ -1,22 +1,83 @@
 id = "c36-cell-key-twice"
 kind = "case"
-subject = "Two instances of one key in a cell collection (multiplicity=\"*\", type=\"Map\"): adding an instance whose key is present has an undefined result (Map concatenation is undefined on a common key), so that path has no final configuration; a rule that matches any instance gives one successor for each instance."
+subject = "Two instances of one key in a cell collection (multiplicity=\"*\", type=\"Map\"): adding an instance whose key is present has an undefined result (Map concatenation is undefined on a common key), and whether that path then has a final configuration; a rule that matches any instance gives one successor for each instance."
+retro = ["R1"]
+rests_on = ["kk:t02-step-successors", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t34-collection-values", "kk:t36-map-concat", "kk:t38-collection-patterns", "kk:t39-cell-collection-map"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives the configuration holding new(1, 20) ; end no successor by the rule for new (user_manual.md:1166-1173); the axiom kompile writes for that rule concatenates the new instance with the collection's rest by _AcctCellMap_, hooked MAP.concat (kore.txt:20, 62, 422), empty at a rest holding key 1, and read as a rewrite axiom it is false in every model where that configuration is an element: as written the text has no model holding it, rather than one where it has no successor by that rule."
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = '''
+What every reading shares:
+(1) The <acct> cells are a collection read as a map from the content of an instance's <id> to the whole instance, and the initial configuration holds no instance (kk:t39-cell-collection-map; user_manual.md:1036-1042). The two rules for alt have priority 50 and both apply: alt(P1, P2) has the successors P1 and P2 (kk:t02-step-successors; user_manual.md:1748-1749).
+(2) The first path, new(1, 10) ; new(2, 20) ; pick ; end, adds the instances of keys 1 and 2, which have no key in common, so the collection has a value (kk:t36-map-concat). The rule for pick names <id> I with I a variable: its left side matches at each split of the collection into one instance and the rest, the instance of key 1 and the instance of key 2 (kk:t38-collection-patterns, kk:t39-cell-collection-map). So the rule gives two successors, got(1, 10) and got(2, 20) in <k> beside the two instances, and no rule's left side matches either: both are final (kk:t06-final-configuration).
+(3) The second path adds the instance of key 1 with <bal> 10, then meets new(1, 20) ; end. The rule for new matches; its right side puts a second instance of key 1 beside the first, a concatenation of two maps with a key in common, which has no value (domains.md:227-229; kk:t36-map-concat, kk:t39-cell-collection-map). So that rule gives no successor there, and no other rule's left side matches.
+What the text does not determine is whether that configuration is final: whether the rule for new, which matched and whose result has no value, has applied, or has been tried and failed (kk:t03-applied-rule-blocks; user_manual.md:1711-1713, 1722-1724). The readings are that entry's, with the final configurations each gives.
+(4) The final configurations are written in the canonical text, since kast does not parse a collection of two instances: each symbol by its name in kore.txt with its arguments, an injection as inj{A,B}(v), an integer as its numeral, and the collection, whose sort is AcctCellMap (kore.txt:20), as SortAcctCellMap{K|->V,...} with the texts of its pairs in sorted order, a map being given by its pairs and not their order (kk:t34-collection-values).'''
+interpreter = "applied-blocks"
+separates = ["undefined-result-does-not-block"]
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1036-1042 (K 7.1.337)"
+quote = "Declaring `multiplicity=\"*\"` indicates that the cell may appear any number of times in a runtime configuration. Setting `multiplicity=\"?\"` indicates that the cell may only appear exactly 0 or 1 times in a runtime configuration. If there are no configuration variables present in the cell collection, the initial configuration will start with exactly 0 instances of the cell collection."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[reading]]
+name = "applied-blocks"
+statement = "The rule for new applies at <k> new(1, 20) ; end, its left side matching and no requires standing against it, and gives nothing (kk:t03-applied-rule-blocks, reading applied-blocks); a configuration to which a rule applies is not final."
+finals_canonical = ["Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(1,10)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))", "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(2,20)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))"]
+consequence = "The second path has no final configuration: the final configurations are the two of pick."
+
+[[reading]]
+name = "undefined-rhs-does-not-block"
+statement = "The rule for new, whose right side has no value under its match, has been tried and failed there (kk:t03-applied-rule-blocks, reading undefined-rhs-does-not-block); no rule then applies to <k> new(1, 20) ; end with the instance of key 1, which is final (kk:t06-final-configuration)."
+finals_canonical = ["Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(1,10)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))", "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int(2,20)),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10)),Lbl'-LT-'id'-GT-'(2)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(2),Lbl'-LT-'bal'-GT-'(20))}))", "Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKItem}(Lbl'UndsSClnUndsUnds'CASE-SYNTAX'Unds'Cmds'Unds'Cmd'Unds'Cmds(Lblnew'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int(1,20),Lblend'Unds'CASE-SYNTAX'Unds'Cmds())),dotk())),Lbl'-LT-'accts'-GT-'(SortAcctCellMap{Lbl'-LT-'id'-GT-'(1)|->Lbl'-LT-'acct'-GT-'(Lbl'-LT-'id'-GT-'(1),Lbl'-LT-'bal'-GT-'(10))}))"]
+consequence = "Beside the two of pick, the configuration holding new(1, 20) ; end in <k> and the instance of key 1 with <bal> 10 is final."
+
+[ruling.kore]
+statement = "The collection's sort is SortAcctCellMap, with the sort hook MAP.Map and its concatenation hooked MAP.concat (kore.txt:20, 62). The rule for new is one rewrite axiom (kore.txt:417-423) whose right side holds in <accts> the concatenation _AcctCellMap_ of the element of key I with the rest of the collection (kore.txt:422); at a rest holding key 1 that concatenation denotes nothing (kk:t36-map-concat), and so does the right side, so the axiom holds only where that instance of its left side has no element. The written sentences have no model in which the configuration holding new(1, 20) ; end and an instance of key 1 is an element."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:20"
+quote = '''hooked-sort SortAcctCellMap{} [concat{}(Lbl'Unds'AcctCellMap'Unds'{}()), element{}(LblAcctCellMapItem{}()), hook{}("MAP.Map"), unit{}(Lbl'Stop'AcctCellMap{}())]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:422"
+quote = '''Lbl'-LT-'accts'-GT-'{}(Lbl'Unds'AcctCellMap'Unds'{}(LblAcctCellMapItem{}(Lbl'-LT-'id'-GT-'{}(VarI:SortInt{}),Lbl'-LT-'acct'-GT-'{}(Lbl'-LT-'id'-GT-'{}(VarI:SortInt{}),Lbl'-LT-'bal'-GT-'{}(VarB:SortInt{}))),Var'Unds'DotVar2:SortAcctCellMap{}))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the second new(1, _), which adds an instance of the key <id>(1) to a \
-cell collection that has one ([hook_MAP_concat]: Duplicate keys in map concatenation). The \
-collection's sort AcctCellMap has the MAP hooks, and Map concatenation is defined only on maps \
-of disjoint keys (K's MAP module states the concatenation of maps with a common key to be \
-#False), so that \
-rule's result is undefined and the path has no final configuration; the other path gives the \
-two final configurations of pick, which the haskell backend gives too."""
+reason = "The llvm backend aborts on the second new(1, _) ([hook_MAP_concat]: Duplicate keys in map concatenation) and reports no final configuration: an error, which is no reading's answer."

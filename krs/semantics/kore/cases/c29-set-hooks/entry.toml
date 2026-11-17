@@ -1,10 +1,36 @@
 id = "c29-set-hooks"
 kind = "case"
 subject = "The Set hooks on a two-element set: membership of a present and of a missing element, size, and the union with an element below, between and above the present ones, and with a present one."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t34-collection-values"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(true, false, 2, SetItem(0) SetItem(1) SetItem(3), SetItem(1) SetItem(2) SetItem(3), SetItem(1) SetItem(3) SetItem(9), SetItem(1) SetItem(3))"]
+reason = """
+(1) T is the set of 1 and 3, a finite set of items, two sets of the same items being one set (kk:t34-collection-values; domains.md:705). The program concatenates SetItem(1) and SetItem(3), which have no element in common, and the rule's right side uses |Set, not the concatenation: no concatenation in the case joins sets with an element in common.
+(2) The one rule matches go(T) with no requires and applies (kk:t01-rule-applies). 1 in T is true and 5 in T false (domains.md:774); size(T) is 2, its number of elements (domains.md:791). The union consists of all the elements present in either set (domains.md:742-745): T |Set SetItem(0) is the set of 0, 1 and 3; SetItem(2) |Set T that of 1, 2 and 3; T |Set SetItem(9) that of 1, 3 and 9; T |Set SetItem(3) is T, 3 being present.
+(3) The right side denotes r(true, false, 2, SetItem(0) SetItem(1) SetItem(3), SetItem(1) SetItem(2) SetItem(3), SetItem(1) SetItem(3) SetItem(9), SetItem(1) SetItem(3)) (kk:t10-fn-innermost); go(T) has that one successor (kk:t02-step-successors), and no rule's left side matches r(...), which is final (kk:t06-final-configuration). The final configurations are that one."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:705 (K 7.1.337)"
+quote = "The `Set` sort represents a mathematical set (A collection of unique items)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:742-745 (K 7.1.337)"
+quote = "The union consists of all the elements present in either set."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:774 (K 7.1.337)"
+quote = "You can compute whether an element is a member of a set in O(1) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:791 (K 7.1.337)"
+quote = "You can get the number of elements (the cardinality) of a set in O(1) time."

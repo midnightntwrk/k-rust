@@ -169,7 +169,7 @@ theorem eval_f {vs : List GroundTerm} (hvs : c.sortsOf vs = some [Srt.kitem]) :
   cases he
   obtain rfl := sortsOf_nil_eq h
   refine .clause lookup_f (cl := cl2) (σ := [(0, w)]) (by simp [fn]) (fun i s hi => ?_)
-    (.cons (.var ((by rw [List.lookup_cons, beq_self_eq_true]))) .nil) (fun t ht => nomatch ht) .top (fun cl hcl _ hlt => ?_) .dv (fun t ht => nomatch ht)
+    (.cons (.var ((by rw [List.lookup_cons, beq_self_eq_true]))) .nil) (fun t ht => nomatch ht) .top (fun cl hcl _ hlt => ?_) rfl .dv (fun t ht => nomatch ht) .top
   · cases i with
     | zero =>
       simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi
@@ -194,10 +194,12 @@ theorem hyp : Hyp c := by
   · rw [List.mem_singleton.mp hg] at hcl
     simp only [fn, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hcl
     rcases hcl with rfl | rfl
-    · intro vs σ _ h _ _ _ _
+    · refine (matchIndependent_iff_noExs rfl).mpr ?_
+      intro vs σ _ h _ _ _ _
       exact (cl1_noσ σ h.1).elim
-    · intro vs σ σ' _ _ _ _ _ _
-      exact .inl ⟨rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
+    · refine (matchIndependent_iff_noExs rfl).mpr ?_
+      intro vs σ σ' _ _ _ _ _ _
+      exact .inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
 
 end JunkWitness
 

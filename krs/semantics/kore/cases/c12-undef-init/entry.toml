@@ -1,17 +1,30 @@
 id = "c12-undef-init"
 kind = "case"
 subject = "An initial term that is undefined (a division by zero in a function the term applies) is no configuration: there is no final one."
+rests_on = ["kk:t07-undefined-initial-term", "kk:t10-fn-innermost", "kk:t31-int-division"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = []
+reason = """
+(1) inv(0) has the one equation inv(X) => 1 /Int X at X = 0, whose right side 1 /Int 0 has no value (domains.md:1233-1234; kk:t31-int-division). So inv(0) denotes nothing, and so does a(inv(0)), an application to an argument that denotes nothing (kk:t10-fn-innermost).
+(2) An initial term that denotes no value puts nothing in the k cell: there is no configuration to rewrite and no final configuration (kk:t07-undefined-initial-term). The rule a(X) => b(X) is never applied, so b(n) is not reached for any n. The final configurations are none."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2337-2341 (K 7.1.337)"
+quote = "In Matching Mu Logic, terms evaluate to sets of values. This is useful for both capturing partiality (as in `3/0`) and capturing non-determinism (as in `3 #Or 5`). Consequently, symbol interpretation is extended to have a collective interpretation over sets of input values."
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in the initial term. The initial configuration \
-is \\bottom, which has no final configuration."""
+reason = "The llvm backend aborts on the division by zero in the initial term ([hook_INT_tdiv]: Division by zero) instead of reporting that there is no final configuration."

@@ -54,7 +54,7 @@ theorem overloads_ok : c.overloadsOK = true := by decide +kernel
 
 /-! ## The theory's conditions -/
 
-theorem faith_namesNumbered : namesNumbered c = true := by decide +kernel
+theorem faith_namesNumbered : namesNumbered c = true := by decide_cheap
 theorem faith_genWf : genWf c = true := by decide +kernel
 theorem faith_collSortsOK : collSortsOK c = true := by decide +kernel
 theorem faith_collsOK : collsOK c = true := by decide +kernel

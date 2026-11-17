@@ -1,5 +1,5 @@
 /-
-  KCore. K's Float values and the IEEE 754 operations KCore interprets on them (KCORE-SPEC.md §6).
+  KCore. K's Float values and the FLOAT operations KCore interprets on them (KCORE-SPEC.md §6).
   Frozen layer; imports nothing but Init, whose `Float.Model` (Lean core's logical model of binary
   floating point) it uses.
 
@@ -15,17 +15,24 @@
   Lean's model covers p ≥ 2 and e ≥ 2. A format K names with a field of 1 (`p1xM`, `pNx1`, N and
   M positive) has values too (`thinOK`): its encodings in the same p + e bits that are no NaN
   pattern, and one code past the bits for its NaN (at p = 1 there is no significand field to mark
-  one). No operation computes on them; they are values an interpretation can give.
+  one). At precision 1 and at least 2 exponent bits their data are read (`thinUnpack`) for `isNaN`
+  and the comparisons (Hooks.lean `asDatum`); no other operation computes on them.
 
-  **Operations.** Every operation rounds the exact result to the nearest value of the format,
-  ties to the even significand (IEEE 754's roundTiesToEven; K's FLOAT has no other
-  rounding). The arithmetic is Lean core's (`UnpackedFloat.add`, `sub`, `mul`, `div`, `sqrt`,
-  `round`, `ofInt`, `ofScientific`, `neg`, `abs`), computed on the unpacked datum
-  (`unpack`, `pack`). This file adds what core does not have, each written over Nat and Int
-  after the IEEE 754 operation it is named for (the standard's clauses were not at hand and are
-  not confirmed): `roundToIntegral` toward −∞, +∞ or 0, `remainder`, `cmpExact`, the comparison of
-  two data of any formats by their exact values (±0 equal, NaN unordered), `convertFormat`, and
-  the format's largest finite and smallest positive values.
+  **Operations.** An operation has a value here exactly where K's text (domains.md, FLOAT) states
+  one; elsewhere it gives none, and Γ states the interpretation's value (`silentTable`, Hooks.lean).
+  The text names IEEE 754 for the representation of a format's data (1481-1490) and for equality at
+  NaN and the zeros (1636-1638); its general reference ("based on a generalization of the IEEE 754
+  standard", 1464-1466) names no operation and is taken to state no value. So: an arithmetic
+  result is the exact result rounded to the nearest value of the format, a tie to the even
+  significand (the rounding the productions' attributes name, 1565-1570), where the exact result
+  is not zero, is at most the format's largest finite value in magnitude and rounds to a nonzero
+  datum (`nearest?`), and positive zero at `0.0 -Float 0.0` (1553); `roundFloat`, `Int2Float`, the
+  three roundings to an integer and `%Float` have a value where the value the text describes is one
+  the format holds (`held?`), with the sign of a zero where the operation's own words give it; no
+  arithmetic operation has a value at an infinity or NaN, nor a division at a zero divisor.
+  Rounding is Lean core's (`normalize`, `div`, `ofScientific`, on the unpacked datum, `unpack`,
+  `pack`); the regions and the exact values are written here over Nat and Int. Comparisons
+  (`cmpExact`) are by the exact values of two data of any formats.
 
   **Text.** `text p e b` is a literal K reads back to the same datum: the exact decimal value of
   the datum with the suffix `pPxE` (`m·2^q` as the integer `m·2^q` followed by `.0` when q ≥ 0, as
@@ -123,7 +130,7 @@ def text (p e b : Nat) : String :=
     else if x = 2 ^ e - 1 then (if f = 0 then sign ++ "Infinity" else "NaN") else sign ++ magText p e x f
   body ++ "p" ++ Nat.repr p ++ "x" ++ Nat.repr e
 
-/-! ## Operations core does not have -/
+/-! ## Operations, where K's text states their value -/
 
 /-- The rounding direction of `roundToIntegral`. -/
 inductive Dir where
@@ -131,26 +138,6 @@ inductive Dir where
   | up
   | zero
   deriving Repr, DecidableEq
-
-/-- roundToIntegral (the IEEE 754 operation of that name, clause not confirmed) toward −∞ (`down`), +∞ (`up`) or 0: the integral value of
-the format nearest the datum in that direction. NaN, ±∞ and ±0 are their own result, and a zero
-result keeps the datum's sign. A datum `±m·2^q` with `q ≥ 0` is integral; otherwise its magnitude's
-integer part is `m / 2^(−q)`, raised by one when the direction points away from zero and a fraction
-is dropped. The result is at most `2^p` in magnitude, so representable, and `round` gives its
-canonical form. -/
-def roundToIntegral (s : Format) (d : Dir) : UnpackedFloat → UnpackedFloat
-  | .finite sg m q h =>
-    if 0 ≤ q then .finite sg m q h
-    else
-      let k := (-q).toNat
-      let n := m / 2 ^ k
-      let up := match d, sg with
-        | .down, .negative => true
-        | .up, .positive => true
-        | _, _ => false
-      let n := if up && m % 2 ^ k != 0 then n + 1 else n
-      if n = 0 then .zero sg else round s sg n 0
-  | u => u
 
 /-- A zero or finite datum as `(a, q)` with value `a·2^q`; `none` for ∞ and NaN. -/
 def exact : UnpackedFloat → Option (Int × Int)
@@ -163,9 +150,9 @@ def cmpScaled (a qa b qb : Int) : Ordering :=
   let q := min qa qb
   compare (a * 2 ^ (qa - q).toNat) (b * 2 ^ (qb - q).toNat)
 
-/-- The comparison of two data of any formats by their exact values (IEEE 754's comparison, clause not
-confirmed): NaN is
-unordered with everything, ±0 are equal, −∞ is below and +∞ above every other datum. -/
+/-- The comparison of two data of any formats by their exact values (domains.md 1631-1638, 1541):
+NaN, which is no number, stands in no order with any datum and is unequal to every one, itself
+included; ±0 are equal; −∞ is below and +∞ above every other datum. -/
 def cmpExact : UnpackedFloat → UnpackedFloat → Option Ordering
   | .notANumber, _ => none
   | _, .notANumber => none
@@ -178,43 +165,177 @@ def cmpExact : UnpackedFloat → UnpackedFloat → Option Ordering
     | some (a, qa), some (b, qb) => some (cmpScaled a qa b qb)
     | _, _ => none
 
-/-- `n`, the integer nearest `x / y` for naturals `x` and `y > 0`, ties to even. -/
-def divNearestEven (x y : Nat) : Nat :=
-  let n := x / y
-  let r := x % y
-  if 2 * r > y then n + 1 else if 2 * r = y then n + n % 2 else n
-
-/-- remainder (the IEEE 754 operation of that name, clause not confirmed): `x − y·n` for `n` the integer nearest `x / y`, ties to even; exact,
-so representable in the format. NaN when either is NaN, when `x` is infinite or `y` is zero; `x`
-itself when `y` is infinite or `x` is zero; a zero result has the sign of `x`. For finite data both
-are scaled to the smaller exponent `q`: `x = ±X·2^q`, `y = ±Y·2^q`, and the result is
-`±(X − n·Y)·2^q` with the sign of `x`. -/
-def remainder (s : Format) : UnpackedFloat → UnpackedFloat → UnpackedFloat
-  | .notANumber, _ => .notANumber
-  | _, .notANumber => .notANumber
-  | .infinity _, _ => .notANumber
-  | _, .zero _ => .notANumber
-  | x, .infinity _ => x
-  | .zero sg, _ => .zero sg
-  | .finite sx mx qx _, .finite _ my qy _ =>
-    let q := min qx qy
-    let X := mx * 2 ^ (qx - q).toNat
-    let Y := my * 2 ^ (qy - q).toNat
-    let n := divNearestEven X Y
-    normalize s (sx.apply ((X : Int) - (n * Y : Nat))) q sx
-
-/-- convertFormat (the IEEE 754 operation of that name, clause not confirmed) to the format `s`: a finite datum rounded to it; NaN, ±∞ and
-±0 kept. -/
-def convertFormat (s : Format) : UnpackedFloat → UnpackedFloat
-  | .finite sg m q _ => round s sg m q
-  | u => u
-
 /-- The largest finite value of the format, `(2^p − 1)·2^(emax − p + 1)`. -/
 def maxValue (s : Format) : UnpackedFloat :=
   round s .positive (2 ^ s.mantissaBits - 1) ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit)
 
 /-- The smallest positive (subnormal) value of the format, `2^(emin − p + 1)`. -/
 def minValue (s : Format) : UnpackedFloat := round s .positive 1 s.minExponent
+
+/-- The value `a·2^q` rounded to the format `s`, to the nearest of its values, a tie to the one of
+even significand (`normalize`; the rounding the attributes of `+Float`, `-Float`, `*Float` and
+`/Float` name, domains.md 1565-1570), where the text states the result of an operation whose exact
+value it is: the value is not zero (the text gives a zero result no sign), its magnitude is at most
+the format's largest finite value (`maxValue`, 1601-1602: above it the text does not say whether an
+infinity is a value to round to), and the rounding is a nonzero datum. `none` elsewhere. -/
+def nearest? (s : Format) (a q : Int) : Option UnpackedFloat :=
+  match exact (maxValue s) with
+  | some (M, Q) =>
+    if a ≠ 0 ∧ cmpScaled a.natAbs q M Q ≠ .gt then
+      match normalize s a q .positive with
+      | .finite sg m e h => some (.finite sg m e h)
+      | _ => none
+    else none
+  | none => none
+
+/-- The datum of the format `s` whose value is `a·2^q`, where that value is not zero and the format
+holds it: `nearest?`, kept where its value is `a·2^q` itself. `none` elsewhere. -/
+def held? (s : Format) (a q : Int) : Option UnpackedFloat :=
+  (nearest? s a q).filter fun r =>
+    match exact r with
+    | some (b, e) => cmpScaled a q b e == .eq
+    | none => false
+
+/-- `--Float` (domains.md 1552-1554): the datum of the other sign, of a finite datum, a zero
+("`--Float 0.0` is negative zero") or an infinity. `none` at NaN, of which the text says nothing. -/
+def neg? : UnpackedFloat → Option UnpackedFloat
+  | .notANumber => none
+  | u => some u.neg
+
+/-- `absFloat` (domains.md 1578): the datum of the same magnitude and the positive sign, of a finite
+datum, a zero or an infinity. `none` at NaN. -/
+def abs? : UnpackedFloat → Option UnpackedFloat
+  | .notANumber => none
+  | u => some u.abs
+
+/-- `+Float` (domains.md 1559, 1569) at two zero or finite data: their exact sum, rounded
+(`nearest?`). `none` at an infinity or NaN and where `nearest?` gives none (a zero sum, a sum above
+the largest finite value, a rounding to zero). -/
+def sum? (s : Format) (u v : UnpackedFloat) : Option UnpackedFloat :=
+  match exact u, exact v with
+  | some (a, qa), some (b, qb) =>
+    nearest? s (a * 2 ^ (qa - min qa qb).toNat + b * 2 ^ (qb - min qa qb).toNat) (min qa qb)
+  | _, _ => none
+
+/-- `-Float` (domains.md 1559, 1570) at two zero or finite data: their exact difference, rounded
+(`nearest?`); and positive zero at two positive zeros ("`0.0 -Float 0.0` is positive zero", 1553),
+the one zero difference the text gives a sign. `none` elsewhere. -/
+def diff? (s : Format) (u v : UnpackedFloat) : Option UnpackedFloat :=
+  match u, v with
+  | .zero .positive, .zero .positive => some (.zero .positive)
+  | _, _ =>
+    match exact u, exact v with
+    | some (a, qa), some (b, qb) =>
+      nearest? s (a * 2 ^ (qa - min qa qb).toNat - b * 2 ^ (qb - min qa qb).toNat) (min qa qb)
+    | _, _ => none
+
+/-- `*Float` (domains.md 1556, 1565) at two zero or finite data: their exact product, rounded
+(`nearest?`). `none` elsewhere (a zero factor among them: a zero product has no sign in the text). -/
+def prod? (s : Format) (u v : UnpackedFloat) : Option UnpackedFloat :=
+  match exact u, exact v with
+  | some (a, qa), some (b, qb) => nearest? s (a * b) (qa + qb)
+  | _, _ => none
+
+/-- `/Float` (domains.md 1556, 1566) at two finite nonzero data `a·2^qa` and `b·2^qb` whose
+quotient is at most the format's largest finite value `M·2^Q` in magnitude (`|a|·2^qa ≤ M·|b|·2^(Q + qb)`):
+the quotient rounded to the nearest value of the format, a tie to the even significand (`div`),
+where that is a nonzero datum. `none` elsewhere: an infinity or NaN, a zero divisor, a zero
+dividend (a zero quotient has no sign in the text), a quotient above the largest finite value, a
+rounding to zero. -/
+def quot? (s : Format) (u v : UnpackedFloat) : Option UnpackedFloat :=
+  match exact u, exact v, exact (maxValue s) with
+  | some (a, qa), some (b, qb), some (M, Q) =>
+    if a ≠ 0 ∧ b ≠ 0 ∧ cmpScaled a.natAbs qa (M * b.natAbs) (Q + qb) ≠ .gt then
+      match UnpackedFloat.div s u v with
+      | .finite sg m e h => some (.finite sg m e h)
+      | _ => none
+    else none
+  | _, _, _ => none
+
+/-- `%Float` (domains.md 1557-1558: "computed based on rounding the quotient of the two floats to
+the nearest integer") at two finite nonzero data `x` and `y`: `x − y·n` for `n` the integer nearest
+`x / y`, where one integer is nearest and the result is a nonzero datum of the format. Both are
+scaled to the smaller exponent `q`: `|x| = X·2^q`, `|y| = Y·2^q`, `r = X mod Y`; the quotient is
+halfway between two integers when `2·r = Y`; otherwise `|x| − |y|·n'` for `n'` nearest `X / Y` is
+`r` when `2·r < Y` and `r − Y` when `2·r > Y`, and `x − y·n` is that with the sign of `x`, times
+`2^q` (`held?`: kept where the format holds it). `none` elsewhere: an infinity or NaN, a zero
+divisor or dividend, a quotient halfway between two integers (the text names no integer there), a
+zero result (`r = 0`; no sign in the text). -/
+def remainder (s : Format) : UnpackedFloat → UnpackedFloat → Option UnpackedFloat
+  | .finite sx mx qx _, .finite _ my qy _ =>
+    let q := min qx qy
+    let X := mx * 2 ^ (qx - q).toNat
+    let Y := my * 2 ^ (qy - q).toNat
+    let r := X % Y
+    if 2 * r = Y then none
+    else held? s (sx.apply (if Y < 2 * r then (r : Int) - Y else r)) q
+  | _, _ => none
+
+/-- `floorFloat` (`down`), `ceilFloat` (`up`), `truncFloat` (`zero`) (domains.md 1583-1588: "the
+next lowest / next highest / next closest, in the direction of zero, floating-point value which is
+an integer"). A zero, and a finite datum `±m·2^q` with `q ≥ 0`, is an integer and its own result.
+Otherwise the magnitude's integer part is `m / 2^(−q)`, raised by one when the direction points
+away from zero and a fraction is dropped; the result is the datum of that integer with the
+operand's sign, where it is not zero and the format holds it (`held?`). `none` elsewhere: an
+infinity or NaN (the sentence names no value), a zero result of a nonzero operand (no sign in the
+text), an integer the format does not hold. -/
+def roundToIntegral (s : Format) (d : Dir) : UnpackedFloat → Option UnpackedFloat
+  | .zero sg => some (.zero sg)
+  | .finite sg m q h =>
+    if 0 ≤ q then some (.finite sg m q h)
+    else
+      let k := (-q).toNat
+      let up := match d, sg with
+        | .down, .negative => true
+        | .up, .positive => true
+        | _, _ => false
+      held? s (sg.apply (if up && m % 2 ^ k != 0 then m / 2 ^ k + 1 else m / 2 ^ k : Nat)) 0
+  | _ => none
+
+/-- `roundFloat` (domains.md 1579-1582) to the format `s`: the datum of `s` with the operand's
+value, where `s` holds it (`held?`); a zero is the zero of its sign. `none` elsewhere: a value `s`
+does not hold (the text gives no direction to round in), an infinity, NaN. -/
+def convertFormat (s : Format) : UnpackedFloat → Option UnpackedFloat
+  | .zero sg => some (.zero sg)
+  | .finite sg m q _ => held? s (sg.apply m) q
+  | _ => none
+
+/-- `Int2Float` (domains.md 1653-1654) to the format `s`: the datum of `s` with the Int's value,
+where `s` holds it (`held?`); positive zero at 0 (0 is not negative). `none` at an Int `s` does not
+hold (the text gives no direction to round in). -/
+def ofInt? (s : Format) (n : Int) : Option UnpackedFloat :=
+  if n = 0 then some (.zero .positive) else held? s n 0
+
+/-- `m·10^x` against `M·2^Q`, exactly (naturals `m` and `M`). -/
+def cmpDec (m : Nat) (x : Int) (M : Nat) (Q : Int) : Ordering :=
+  compare (m * 10 ^ x.toNat * 2 ^ (-Q).toNat) (M * 2 ^ Q.toNat * 10 ^ (-x).toNat)
+
+/-- The format `s` holds `m·10^x`, a nonzero value: its rounding to `s` (`ofScientific`) is a finite
+datum of that value. -/
+def decHeld (s : Format) (m : Nat) (x : Int) : Bool :=
+  match ofScientific s m x with
+  | .finite _ M Q _ => cmpDec m x M Q == .eq
+  | _ => false
+
+/-- The datum of a decimal literal of value `m·10^x` in the format `s` (domains.md 1478-1483:
+"rounded to the nearest possible value"), `s'` the format of one more bit of precision and the same
+exponent bits. Positive zero at `m = 0`. Otherwise the value rounded to the nearest datum of `s`
+(`ofScientific`), where the text states it: the value is at most the format's largest finite value
+(above it the text does not say whether an infinity is a possible value), the rounding is a
+nonzero datum (the text does not say which zero a nonzero value nearer to zero rounds to), and the
+value is not halfway between two data of `s` (the text names no value at a tie). Up to the largest
+finite value of `s`, the data of `s'` are the data of `s` and the points halfway between two
+neighbours (and between zero and the smallest), so the value is at a tie exactly when `s'` holds it
+and `s` does not. `none` elsewhere. -/
+def ofDecimal? (s s' : Format) (m : Nat) (x : Int) : Option UnpackedFloat :=
+  if m = 0 then some (.zero .positive)
+  else
+    match exact (maxValue s), ofScientific s m x with
+    | some (M, Q), .finite sg M' Q' h =>
+      if cmpDec m x M.toNat Q != .gt && (cmpDec m x M' Q' == .eq || !decHeld s' m x) then
+        some (.finite sg M' Q' h)
+      else none
+    | _, _ => none
 
 /-- `sqrtFloat` (domains.md FLOAT, 1671: `rule sqrtFloat(F:Float) => rootFloat(F, 2)`, and described
 as the square root): IEEE 754 squareRoot (Lean core's `sqrt`) at every datum but −0, none at −0. The two
@@ -234,5 +355,19 @@ def isNaN : UnpackedFloat → Bool
 def isInf : UnpackedFloat → Bool
   | .infinity _ => true
   | _ => false
+
+/-- The datum of the encoding `b` of the format `(1, e)`, `e ≥ 2`, which Lean core's model does not
+cover (`thinOK`): with no significand field, the sign bit is bit `e` and the exponent field the `e`
+bits below it (`fields`); the field 0 is a zero, the field of all ones an infinity, and another
+field `x` the value `2^(x − bias)`, bias `2^(e−1) − 1` (the significand is the implicit 1 alone, as
+`text` reads it: `sig`, `shift`); `2 ^ (1 + e)` is the format's NaN. -/
+def thinUnpack (e b : Nat) : UnpackedFloat :=
+  if 2 ^ (1 + e) ≤ b then .notANumber
+  else
+    let sg : UnpackedFloat.Sign := if b / 2 ^ e = 0 then .positive else .negative
+    let x := b % 2 ^ e
+    if x = 0 then .zero sg
+    else if x = 2 ^ e - 1 then .infinity sg
+    else .finite sg 1 ((x : Int) - (2 ^ (e - 1) - 1 : Nat)) Nat.one_pos
 
 end KCore.KFloat

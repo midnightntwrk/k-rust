@@ -1,0 +1,46 @@
+id = "t34-collection-values"
+kind = "text"
+subject = "What a value of Map, Set and List is, as built from each sort's unit, element and concatenation: when two such terms denote one value, and that _List_ is defined everywhere."
+
+[text]
+files = ["t34-collection-values.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A Map built from .Map, K |-> V and _Map_ is a finite associative array: a finite set of key and value pairs with at most one pair for each key; two such terms with the same pairs denote one map, whatever the order in which the pairs are written. A Set built from .Set, SetItem and _Set_ is a finite set of items; two such terms with the same items denote one set, whatever the order. A List built from .List, ListItem and _List_ is a finite sequence of items, in which an item may occur more than once and the order counts: ListItem(1) ListItem(2) and ListItem(2) ListItem(1) are two lists. _List_ is the concatenation of sequences, has a value at every two lists and is associative, with .List its unit. Where _Map_ and _Set_ have a value is ruled by kk:t36-map-concat and kk:t35-set-concat-overlap."
+reason = """
+(1) Map. The sort represents a generalized associative array in which each key can be paired with a value and multiple bindings for the same key are not allowed (domains.md:223-225), and the module provides associative, commutative maps (domains.md:205-206). An associative array is given by its pairs, so two terms with the same pairs are one map, whatever the order of the pairs. The map with zero elements is .Map (domains.md:245). A term built from the unit, the element and the concatenation has finitely many pairs.
+(2) Set. The sort represents a mathematical set, a collection of unique items (domains.md:705). A set is given by its members, so two terms with the same items are one set, whatever their order.
+(3) List. The sort is an ordered collection that may contain duplicate elements (domains.md:919): its values are sequences, in which the order counts and an item may repeat. Its concatenation is declared total and assoc with unit .List (domains.md:930), and the concatenation of two sequences is a sequence, associative with the empty sequence its unit."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:205-206 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of immutable, associative, commutative maps from `KItem` to `KItem`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:223-225 (K 7.1.337)"
+quote = "The `Map` sort represents a generalized associative array. Each key can be paired with an arbitrary value, and can be used to reference its associated value. Multiple bindings for the same key are not allowed."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:245 (K 7.1.337)"
+quote = "The map with zero elements is represented by `.Map`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:705 (K 7.1.337)"
+quote = "The `Set` sort represents a mathematical set (A collection of unique items)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:919 (K 7.1.337)"
+quote = "The `List` sort is an ordered collection that may contain duplicate elements."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:930 (K 7.1.337)"
+quote = "syntax List ::= List List [left, function, total, hook(LIST.concat), symbol(_List_), smtlib(smt_seq_concat), assoc, unit(.List), element(ListItem), update(List:set), format(%1%n%2)]"

@@ -45,7 +45,7 @@ noncomputable def dist : List AxiomDecl := U.all.filter fun ad => match ad.ax.pa
 
 theorem dist_one : dist.length = 1 := by decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- Both symbols are constructors of the read definition, of one sort. -/

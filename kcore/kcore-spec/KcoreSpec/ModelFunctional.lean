@@ -18,13 +18,15 @@
   `complete_total`).
 
   The functional axiom reads no step, so it holds in the value model at every transition
-  (`AtT.sat_functional`, `AtT.sat_total`). For rules with `ruleSorted` and `rulePlainPP`, whose
-  axioms the value model satisfies at a transition between `StepV` steps (`stdI_T_model_pp`), the
-  theory with the totality axioms has that model (`has_model_total_core`, `sound_total_pp`); under
-  `FnHyp` every condition has a truth value, `StepV` is `StepM` (`stepV_iff_stepM`), and the model
-  is `stdI` (`has_model_total_pp`).
+  (`AtT.sat_functional`, `AtT.sat_total`). For rules with `ruleSorted` and `rulePlainHeldH` over
+  any set of symbols (the conjunct is carried, not read), whose axioms the value model satisfies at
+  a transition between `StepV` steps (`stdI_T_model_held`), the theory with the totality axioms has
+  that model (`has_model_total_core_held`, `sound_total_held`); under `FnHyp` every condition has a
+  truth value, `StepV` is `StepM` (`stepV_iff_stepM`), and the model is `stdI`
+  (`has_model_total_held`).
 -/
-import KcoreSpec.ModelChoicePP
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.Sound
 
 set_option autoImplicit false
 
@@ -378,13 +380,15 @@ theorem sat_total (h : HypModelCore c)
     stdI c ⊧ᴵP ΓTotal c :=
   AtT.sat_total (T := StepM c) h hv
 
+variable {H : Sym → Bool}
+
 /-- **`Γ` with the step's closure and the totality axioms has a model** under `HypModelCore`, for
-rules with `ruleSorted` and `rulePlainPP`: the value model at a transition `T` that holds only steps
+rules with `ruleSorted` and `rulePlainHeldH`: the value model at a transition `T` that holds only steps
 of `StepV` between configurations, every `StepVBy` step of a rule without existential variables,
 and for each `StepVBy` step of a rule with existential variables one of its instances. -/
-theorem has_model_total_core (h : HypModelCore c) (hl : OpenLaws c)
+theorem has_model_total_core_held (h : HypModelCore c) (hl : OpenLaws c)
     (hv : ∀ fn ∈ c.fns, fn.total = true → ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c fn.label vs (some v))
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true)
     (T : GroundTerm → GroundTerm → Prop)
     (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
     (hall : ∀ r σ x y, StepVBy c r σ x y → r.exs = [] → T x y)
@@ -399,12 +403,10 @@ theorem has_model_total_core (h : HypModelCore c) (hl : OpenLaws c)
     · exact AtT.satDomainsGoal h φ hφ
     · exact AtT.satCollsGoal h φ hφ
     · exact AtT.satFnsGoal h φ hφ
-    · exact satRulesGoal_pp h hrules T hall hsome φ hφ
+    · exact satRulesGoal_held h hrules T hall hsome φ hφ
     · exact AtT.satFallbackGoal h φ hφ
-  · exact satStepGoal_pp h hrules T hsub φ hφ
+  · exact satStepGoal_held h hrules T hsub φ hφ
   · exact AtT.sat_total h hv φ hφ
-
-/-! ## `StepM` and `StepV` -/
 
 /-- **`StepVAt` is `StepMAt`** for a semantics that `coreOK` accepts where a term has at most one
 result and every function terminates, whose rules are well sorted: `pre`, `post` and each
@@ -442,28 +444,22 @@ end Model
 
 /-- **The value model satisfies `Γ`, the step's closure and the totality axioms**, for a semantics
 that `coreOK` accepts whose functions meet `FnHyp` and whose rules have `ruleSorted` and
-`rulePlainPP`: under `FnHyp` the value model's step `StepV` is `StepM`, the transition of `stdI`. -/
-theorem has_model_total_pp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true) :
+`rulePlainHeldH`: under `FnHyp` the value model's step `StepV` is `StepM`, the transition of `stdI`. -/
+theorem has_model_total_held {c : Semantics} {H : Sym → Bool} (h : c.coreOK = true) (hf : FnHyp c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) :
     Model.stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ Model.ΓTotal c) := by
   have hiff : ∀ {x y : GroundTerm}, Model.StepV c x y ↔ Model.StepM c x y :=
     Model.stepV_iff_stepM h (fnModel_of_fnHyp h hf).1 hf.1 (fun r hr => (hrules r hr).1)
-  exact Model.has_model_total_core (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hf.2.1 hrules (Model.StepM c)
+  exact Model.has_model_total_core_held (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hf.2.1 hrules (Model.StepM c)
     (fun _ _ _ _ hT => hiff.mpr hT) (fun r σ _ _ hb _ => hiff.mp ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, hiff.mp ⟨r, σ, hb⟩⟩)
-
-/-- The per-rule facts of a semantics that `coreOK` accepts: `ruleSorted` and `rulePlainPP`. -/
-theorem ruleFactsTotal_of_core {c : Semantics} (h : c.coreOK = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true :=
-  fun r hr => ⟨(Semantics.ruleFactsEx_of_core h r hr).1,
-    Semantics.rulePlainPP_of_ex (Semantics.ruleFactsEx_of_core h r hr).2⟩
 
 /-- **The model conjunct of `SoundC` holds with the totality axioms**: for a semantics that
 `coreOK` accepts and whose functions meet `FnHyp`, the value model satisfies `Γ c`, the step's
 closure, and the functional axiom `∃y. f(x̄) = y` of every function declared `total`. -/
 theorem has_model_total {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
     Model.stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ Model.ΓTotal c) :=
-  has_model_total_pp h hf (ruleFactsTotal_of_core h)
+  has_model_total_held h hf (Semantics.ruleFactsHeld_of_core h)
 
 /-- The functional axiom of each `total` function holds in the value model, under `coreOK` and
 `FnHyp`, at every valuation. -/
@@ -472,10 +468,10 @@ theorem sat_functional_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHy
   Model.sat_functional (hypModel_of_fnHyp h hf) hf.2.1 hfn ht
 
 /-- **Soundness with the totality axioms, for rules with `pre` and `post`**: `sound_total`'s
-statement from the per-rule facts `ruleSorted` and `rulePlainPP`. The model is the value model at
+statement from the per-rule facts `ruleSorted` and `rulePlainHeldH`. The model is the value model at
 its own step, `stdI_T c (StepV c)`. -/
-theorem sound_total_pp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true) :
+theorem sound_total_held {c : Semantics} {H : Sym → Bool} (h : c.coreOK = true) (hf : FnHyp c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) :
     (∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
       I ⊧ᴵP (Γc c ∪ Γstep c ∪ Model.ΓTotal c)) ∧
     ∀ (x y : Config c) (r : Rule) (σ : Subst), StepBy c r σ x y →
@@ -484,7 +480,7 @@ theorem sound_total_pp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
   have hm : Model.stdI_T c (Model.StepV c) ⊧ᴵP (Γc c ∪ Γstep c ∪ Model.ΓTotal c) := by
     intro φ hφ
     rcases hφ with hφ | hφ
-    · exact stdI_T_model_pp c h (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hrules (Model.StepV c)
+    · exact stdI_T_model_held c h (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hrules (Model.StepV c)
         (fun _ _ _ _ hT => hT) (fun r σ _ _ hb _ => ⟨r, σ, hb⟩)
         (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩) φ hφ
     · exact Model.AtT.sat_total (hypModel_of_fnHyp h hf) hf.2.1 φ hφ
@@ -505,7 +501,7 @@ theorem sound_total {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
     ∀ (x y : Config c) (r : Rule) (σ : Subst), StepBy c r σ x y →
       ((Γc c ∪ Model.ΓTotal c) ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧
       ((Γc c ∪ Model.ΓTotal c) ⊧ (den c y.val ⇒ famEx c r σ)) :=
-  sound_total_pp h hf (ruleFactsTotal_of_core h)
+  sound_total_held h hf (Semantics.ruleFactsHeld_of_core h)
 
 /-- **Completeness with the totality axioms**: under `coreOK` and `FnHyp`, for an outcome function
 that lists the outcomes at each configuration (`OutIs`), `complete_hyp`'s statement holds of

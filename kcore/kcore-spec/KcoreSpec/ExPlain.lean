@@ -1,5 +1,6 @@
 /-
-  KCore. What `rulesPlain` asks of one rule once a rule may have existential variables.
+  KCore. The conjunct of the rules' plain shapes for one rule without predicates, once a rule may
+  have existential variables.
 
   `Semantics.rulePlainEx` is `Semantics.rulePlainOpen` less `r.exs.isEmpty`: `\top` predicates, and
   each variable the left side does not bind, an existential one included, held by the right side
@@ -8,7 +9,7 @@
   variables of confined sorts or closed conditions. An existential variable is in no condition of the
   left side, so it passes by the first two arms only. `rulePlainOpen` is `rulePlainEx` with no
   existential variable (`rulePlainOpen_iff_ex`); the predicates of a rule with `rulePlainEx` are
-  `\top` (`rulePlainEx_top`).
+  `\top` (`rulePlainEx_top`). `rulesPlain` asks less of a rule: `rulePlainHO1` (PredPlain.lean).
 -/
 import KcoreSpec.OpenStep
 
@@ -16,8 +17,9 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `rulesPlain` asks of the rule r, less that its left side binds every variable and that it
-has no existential variable. -/
+/-- What `rulesPlain` asks of the rule r with the first arm reading constructors and injections
+only (`ctorOccs`), and `\top` predicates; its left side need not bind every variable and it may
+have existential variables. -/
 def Semantics.rulePlainEx (c : Semantics) (r : Rule) : Bool :=
   r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false
@@ -35,29 +37,6 @@ theorem Semantics.rulePlainOpen_iff_ex {c : Semantics} {r : Rule} :
     exact ⟨⟨⟨hpre, hpost⟩, hrest⟩, hex⟩
   · rintro ⟨⟨⟨hpre, hpost⟩, hrest⟩, hex⟩
     exact ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩
-
-/-- `rulesPlain` is `rulePlainEx` of each rule. -/
-theorem Semantics.rulesPlain_iff_ex {c : Semantics} :
-    c.rulesPlain = true ↔ ∀ r ∈ c.rules, c.rulePlainEx r = true := by
-  simp only [Semantics.rulesPlain, Semantics.rulePlainEx, List.all_eq_true]
-
-/-- What `sortedOK` gives of each rule, with no fact on its left side's variables or its
-existential variables: `ruleSorted` and `rulePlainEx`. -/
-theorem Semantics.ruleFactsEx_of_sortedOK {c : Semantics} (h : c.sortedOK = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := by
-  intro r hr
-  have hs := Semantics.sortedOK_sorted h
-  simp only [Bool.and_eq_true, List.all_eq_true] at hs
-  have hp : c.rulesPlain = true := by
-    simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-    exact h.1.1.2
-  exact ⟨hs.2 r hr, Semantics.rulesPlain_iff_ex.mp hp r hr⟩
-
-/-- What `coreOK` gives of each rule, with no fact on its left side's variables or its existential
-variables: `ruleSorted` and `rulePlainEx`. -/
-theorem Semantics.ruleFactsEx_of_core {c : Semantics} (h : c.coreOK = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
-  Semantics.ruleFactsEx_of_sortedOK (Semantics.coreOK_parts h).1
 
 /-- The predicates of a rule with `rulePlainEx` are `\top`. -/
 theorem Semantics.rulePlainEx_top {c : Semantics} {r : Rule} (h : c.rulePlainEx r = true) :

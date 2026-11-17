@@ -477,7 +477,8 @@ mutual
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup ho hk'
       rw [← hv]
-      exact OvlLaws.sortOf_norm hc.ovlHyp hlo (patVals_sortedAllO hc hτ hs hargs)
+      exact OvlLaws.sortOf_norm_ovlF hc.ovlHyp hc.ovlHyp.fnFacts hlo (patVals_sortedAllO hc hτ hs hargs)
+        (OvlLaws.fnCover_none_of_ok hc.ovlHyp.ok _ _)
   theorem patVals_sortedAllO (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ {ps : List Term} {vs : List GroundTerm} {ss : List Srt},
       PatVals c τ ps vs → sortsOfTerms c.patCtxAll vars ps = some ss → c.sortsOf vs = some ss

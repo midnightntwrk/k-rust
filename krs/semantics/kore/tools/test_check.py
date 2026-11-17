@@ -122,12 +122,6 @@ class Package:
         with open(os.path.join(d, 'evidence.json'), 'w') as f:
             json.dump(ev, f)
 
-    def expected(self, d, backends):
-        """expected.json, the evidence of a pending case."""
-        exp = {'inputs': {n: check.sha(os.path.join(d, n)) for n in ('def.k', 'pgm')}, 'backends': backends}
-        with open(os.path.join(d, 'expected.json'), 'w') as f:
-            json.dump(exp, f)
-
     def check(self, d, live=None, allow_pending=False):
         ok, line, _, differing = check.check_entry(d, check.index_of(self.root), live, allow_pending)
         return ok, line, differing
@@ -181,6 +175,12 @@ class PassRule(unittest.TestCase):
         d = self.p.entry('c01-x', SETTLED.replace(BASIS, ''), {})
         self.fails(d, 'schema', 'ruling: no basis')
 
+    def test_schema_basis_source(self):
+        d = self.p.entry('c01-x', SETTLED.replace('source = "manual"', 'source = "tutorial"'), {'haskell': finals(B1)})
+        self.passes(d, 'ok settled')
+        d = self.p.entry('c02-x', SETTLED.replace('source = "manual"', 'source = "lecture"'), {})
+        self.fails(d, 'schema', 'source is not one of')
+
     def test_schema_basis_without_quote(self):
         d = self.p.entry('c01-x', SETTLED.replace('quote = "A sentence."\n', ''), {})
         self.fails(d, 'schema', 'no locator or no quote')
@@ -231,8 +231,7 @@ class PassRule(unittest.TestCase):
         self.fails(d, 'schema', 'text.kompile is rejects and kompile exited 0')
 
     def test_schema_pending_without_the_flag(self):
-        d = self.p.entry('c01-x', PENDING, evidence=False)
-        self.p.expected(d, {'haskell': finals(B1)})
+        d = self.p.entry('c01-x', PENDING, {'haskell': finals(B1)})
         self.fails(d, 'schema', 'ruling.status is pending', live=finals(B1))
 
     def test_schema_observe_pointer(self):
@@ -337,9 +336,7 @@ class PassRule(unittest.TestCase):
     # a pending entry, under --allow-pending
 
     def pending(self, body=PENDING, **backends):
-        d = self.p.entry('c01-x', body, evidence=False)
-        self.p.expected(d, backends)
-        return d
+        return self.p.entry('c01-x', body, backends)
 
     def test_pending_pass(self):
         d = self.pending(PENDING + disposition('llvm'), haskell=finals(B1), llvm={'error': 'abort'})
@@ -359,14 +356,25 @@ class PassRule(unittest.TestCase):
         d = self.pending(haskell=finals(B1))
         with open(os.path.join(d, 'pgm'), 'a') as f:
             f.write('// changed\n')
-        self.fails(d, 'stale', 'pgm changed since expected.json', live=finals(B1), allow_pending=True)
+        self.fails(d, 'stale', 'pgm changed since evidence.json', live=finals(B1), allow_pending=True)
+
+    def test_pending_without_evidence(self):
+        d = self.p.entry('c01-x', PENDING, evidence=False)
+        self.fails(d, 'stale', 'no evidence.json', live=finals(B1), allow_pending=True)
+
+    def test_pending_kompile_record(self):
+        d = self.pending(haskell=finals(B1))
+        path = os.path.join(d, 'evidence.json')
+        ev = json.loads(check.read_text(path))
+        del ev['kompile']
+        rewrite(path, json.dumps(ev))
+        self.fails(d, 'stale', 'evidence.json records no kompile run', live=finals(B1), allow_pending=True)
 
     # the command, without a run
 
     def test_command_no_run(self):
         self.p.entry('c01-x', SETTLED + disposition('llvm'), {'haskell': finals(B1), 'llvm': finals(B0)})
-        d = self.p.entry('c02-y', PENDING, evidence=False)
-        self.p.expected(d, {'haskell': finals(B1)})
+        self.p.entry('c02-y', PENDING, {'haskell': finals(B1)})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = check.main(['--no-run', '--allow-pending'], package=self.p.root)
@@ -382,6 +390,39 @@ class PassRule(unittest.TestCase):
             entry = tomllib.load(f)
         text = '{"finals":["b(1)"],"finals_canonical":null,"kompile":"accepts","readings":[]}'
         self.assertEqual(check.answer_hash(entry), hashlib.sha256(text.encode()).hexdigest())
+
+    # the ruling hash a rows.toml row of kcore-spec cites (check.py --ruling-sha)
+
+    def test_ruling_hash_reads_the_ruling_and_the_readings_only(self):
+        d = self.p.entry('c01-x', UNSETTLED.format(interpreter='blocks'), {})
+        with open(os.path.join(d, 'entry.toml'), 'rb') as f:
+            entry = tomllib.load(f)
+        text = json.dumps({'ruling': entry['ruling'], 'reading': entry['reading']}, sort_keys=True,
+                          separators=(',', ':'), ensure_ascii=False)
+        h = check.ruling_hash(entry)
+        self.assertEqual(h, hashlib.sha256(text.encode()).hexdigest())
+        # a disposition, a note or the subject leaves it; a basis or a reading's consequence moves it
+        same = dict(entry, subject='Another subject.', disposition=[{'implementation': 'llvm'}],
+                    note=[{'implementation': 'llvm', 'text': 'x'}])
+        self.assertEqual(check.ruling_hash(same), h)
+        moved = json.loads(json.dumps(entry))
+        moved['ruling']['basis'][0]['quote'] = 'Another sentence.'
+        self.assertNotEqual(check.ruling_hash(moved), h)
+        moved = json.loads(json.dumps(entry))
+        moved['reading'][1]['consequence'] = 'Another consequence.'
+        self.assertNotEqual(check.ruling_hash(moved), h)
+
+    def test_command_ruling_sha(self):
+        d = self.p.entry('t01-x', TEXT_RULING, {}, kind='text')
+        with open(os.path.join(d, 'entry.toml'), 'rb') as f:
+            h = check.ruling_hash(tomllib.load(f))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = check.main(['--ruling-sha', 'kk:t01-x', 't01-x'], package=self.p.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), f't01-x {h}\nt01-x {h}\n')
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(check.main(['--ruling-sha', 't02-none'], package=self.p.root), 1)
 
 
 if __name__ == '__main__':

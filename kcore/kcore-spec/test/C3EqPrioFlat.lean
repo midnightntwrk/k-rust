@@ -23,6 +23,7 @@
   smaller number first), checked by the expectations `f_5` of the two fixtures' tie files.
 -/
 import KcoreSpec.AgreeInst
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -63,7 +64,7 @@ def fnT : Fn := ⟨fT, [Srt.int], Srt.int, [clT, clB], true⟩
 
 def flat : Semantics := core [fnR, fnT]
 
-theorem flat_sorted : flat.sortedOK = true ∧ flat.srReady = true ∧ flat.matchReady = true := by decide +kernel
+theorem flat_sorted : flat.sortedOK = true ∧ flat.srReady = true ∧ flat.matchReady = true := by decide_cheap
 
 /-- **The agreement decider names both functions**: their agreement is an owed fact. -/
 theorem named : flat.agreeObligationsI = [fR, fT] := by decide +kernel

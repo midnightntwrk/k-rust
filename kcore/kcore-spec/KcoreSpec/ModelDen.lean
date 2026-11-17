@@ -10,6 +10,7 @@
   one-entry collection with a collection of larger keys being the collection of both.
 -/
 import KcoreSpec.ModelCarrier
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.FloatLaws
 import KcoreSpec.OpenValues
 
@@ -383,10 +384,43 @@ theorem result_param {k : CtorSig} {vs : List GroundTerm} (hc : c.isCtor k.name 
     result c k vs x ↔ ∃ v, x = .val v ∧ c.paramVal k.name vs = some v := by
   unfold result; simp [hc, hh, hp]
 
-theorem result_ovl {k : CtorSig} {vs : List GroundTerm} (ho : c.isOvl k.name = true) (x : Elem) :
-    result c k vs x ↔ x = .val (c.norm k.name vs) := by
+/-- Where no function overload covers the arguments, an overloading symbol gives the normal form. -/
+theorem ovlRes_none {f : Sym} {vs : List GroundTerm} (hnf : c.fnCover f vs = none) (x : Elem) :
+    ovlRes c f vs x = (x = .val (c.norm f vs)) := by
+  unfold ovlRes; rw [hnf]
+
+/-- Where the function overload `kg` covers the arguments, an overloading symbol gives that
+function's results at the stripped arguments, lifted to the symbol's result sort. -/
+theorem ovlRes_some {f : Sym} {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig}
+    (hlo : c.lookupOvl f = some o) (hcov : c.fnCover f vs = some kg) (x : Elem) :
+    ovlRes c f vs x ↔ ∃ v, x = .val (lift kg.result o.sig.result v) ∧
+      Eval c kg.name (stripAll kg.args o.sig.args vs) (some v) := by
+  unfold ovlRes; rw [hcov]
+  constructor
+  · rintro ⟨o', v, ho', hx, hv⟩
+    rw [hlo] at ho'; cases ho'
+    exact ⟨v, hx, hv⟩
+  · rintro ⟨v, hx, hv⟩; exact ⟨o, v, hlo, hx, hv⟩
+
+theorem result_ovlRes {k : CtorSig} {vs : List GroundTerm} (ho : c.isOvl k.name = true) (x : Elem) :
+    result c k vs x ↔ ovlRes c k.name vs x := by
   obtain ⟨hc, hh, hp, -, -⟩ := c.isOvl_parts ho
   unfold result; simp [hc, hh, hp, ho]
+
+theorem result_ovl {k : CtorSig} {vs : List GroundTerm} (ho : c.isOvl k.name = true)
+    (hnf : c.fnCover k.name vs = none) (x : Elem) :
+    result c k vs x ↔ x = .val (c.norm k.name vs) := by
+  rw [result_ovlRes ho, ovlRes_none hnf]
+
+/-- **A function-covered application, in the model**: an overloading symbol at arguments the
+function overload `kg` covers gives the values `lift v`, `v` a result of that function at the
+stripped arguments. -/
+theorem result_ovlFn {k : CtorSig} {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig}
+    (ho : c.isOvl k.name = true) (hlo : c.lookupOvl k.name = some o) (hcov : c.fnCover k.name vs = some kg)
+    (x : Elem) :
+    result c k vs x ↔ ∃ v, x = .val (lift kg.result o.sig.result v) ∧
+      Eval c kg.name (stripAll kg.args o.sig.args vs) (some v) := by
+  rw [result_ovlRes ho, ovlRes_some hlo hcov]
 
 theorem result_fn {k : CtorSig} {vs : List GroundTerm} (hc : c.isCtor k.name = false)
     (hh : isHook k.name = false) (hp : c.isParam k.name = false) (ho : c.isOvl k.name = false) (x : Elem) :
@@ -844,7 +878,7 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
     have hd : den c (.ctor f ts) = KoreAML.appList (KoreAML.sym (.symbol (c.symName f)))
         ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) := by
       unfold den KoreAML.den; rw [GroundTerm.kore]; exact tr_ap _ _
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩ | ⟨-, -, kp, hko, hts', hkr, rfl⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', hu, -⟩ | ⟨-, -, kp, hko, hts', hkr, rfl⟩
     rotate_right
     · obtain ⟨hlp, hi⟩ := h.open_param hko
       exact den_open h hko hlp hi hts' hkr hv e (den_list h ts hts' e)
@@ -857,13 +891,13 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
         symE_vals h.namesK hks (sortsOf_length hts'), result_ctor hc]
     · -- a raw overloading application: the symbol's normal form, which is itself (`norm_fixed`)
       have H := h.ovlHyp
-      obtain ⟨hon, hio, -⟩ := OvlLaws.ovl_facts H ho
-      have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho
+      obtain ⟨hom, hon, hio, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts ho
       have hks : o.sig ∈ kernelSyms c := List.mem_append_right _ (List.mem_map_of_mem hom)
-      have hfix := OvlLaws.norm_fixed H ho hv
+      have hfix := OvlLaws.norm_fixed_ovlF H H.fnFacts ho hv
       intro m
       rw [hd, interp_symList _ _ _ (den_list h ts hts' e) m, ← hon,
-        symE_vals h.namesK hks (sortsOf_length hts'), result_ovl (by rw [hon]; exact hio), hon, hfix]
+        symE_vals h.namesK hks (sortsOf_length hts'), result_ovl (by rw [hon]; exact hio)
+          (by rw [hon]; exact OvlLaws.fnCover_none_of_uncovered hu), hon, hfix]
   | .inj a b t, s, hv, e => by
     rw [Semantics.sortOf] at hv
     split at hv

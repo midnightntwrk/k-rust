@@ -55,7 +55,7 @@ example : c3.rules.length = 1 ∧ c3.isParam 391 = false := by decide +kernel
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/
 theorem shape : c3.ctorSigs.all (·.result != 33) = true ∧ c3.valued 33 = false ∧ clYE.leftVars = [] ∧
     c3.rightValued = false ∧ c3.sortedOK = true ∧ c3.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 /-- What `stepDecided_of_coreCl` asks of `c3`, decided. -/
 theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] ∧
@@ -65,7 +65,7 @@ theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] �
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c3`. -/
 example : c3.faithCoreOK = true ∧ c3.hooksApart = true ∧ c3.predsApart = true ∧ c3.idsOK = true ∧
     c3.overloadsOK = true := by
-  decide +kernel
+  decide_cheap
 
 theorem ovl3 : OvlOK c3 := OvlOK.of_nil decided.2.2.1 decided.2.2.2
 
@@ -123,6 +123,6 @@ example (hf : FnHyp c3) (x : Config c3) : StepDecided c3 x.val :=
   stepDecided_of_fnHypCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 (OvlOK.of_nil decided.2.2.1 decided.2.2.2) hf x
 
 /-- `sortedOKCl_of_sortedOK` at the text's semantics. -/
-example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide +kernel)).1
+example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide_cheap)).1
 
 end RightHeldStepTest

@@ -44,7 +44,8 @@
     rules, the diagonal included (a rule whose match is not shown to fix its right-hand side is an
     obligation (i, i)); `deterministic_except` lists them in its conclusion instead. With
     determinism's obligations, noninterference is stated relative to an invariant, and each of them
-    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates. Every kind and
+    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates (none where a
+    parameter is an open generator, as the root module's header says). Every kind and
     certificate is stated for every interpretation H of the parameters (`c.withHooks H`), from
     conditions decided once on the data, which do not read the interpretation;
   - with `--tie`, `NAME/Tie/*.lean`: the tie by blocks, each module one decision of bounded size.
@@ -496,7 +497,8 @@ priority are coherent, in both orders (`ClausesAgree`, `Coherent`), is a named o
 theorem agree_obligations : defn.sem.agreeObligations = {c.agreeObligations} := {if exec then "agreeObligations_of_T T_eq (by decide +kernel)" else "by decide +kernel"}
 
 /-- The clauses whose patterns `clauseFixed` does not show to fix their variables, as (function,
-index of the clause): that each is coherent with itself (`MatchIndependent`) is a named obligation
+index of the clause): that each is match independent (`MatchIndependent`: coherent with itself, and
+with a result at each match where it decides if it has existential variables) is a named obligation
 (`KCore.Obligations`). The lazy obligations are `lazy_obligations` (`{ns}.Facts.Lazy`). -/
 theorem match_obligations : defn.sem.matchObligations = {c.matchObligations} := {if exec then "matchObligations_nil_of_fixed clausesFixed (by decide +kernel)" else "by decide +kernel"}{oblNil}
 
@@ -1197,7 +1199,8 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
     let hobT := if raw then hobA else if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
     headlineAtOpen bindN hobT givenH (!none || held) runExact owesR owesC held
   -- with an open generator: `lawHooks defn.sem H` satisfies the laws and gives the generators
-  -- values, for every H, and is admitted by the library's sentences where H is; beside each
+  -- values, for every H, and is admitted by the library's sentences where H is and gives
+  -- `_RangeMap_` no value; beside each
   -- statement, its instance there with both obligations discharged
   let lawPart := if !raw then "" else
     let named := !none || held
@@ -1226,11 +1229,12 @@ for every H (`KCore.openTotal_lawHooks`). -/
 theorem openTotal_lawHooks_defn (H : HookParams) : OpenTotal (defn.sem.withHooks (lawHooks defn.sem H)) :=
   openTotal_lawHooks defn.sem coreOK_defn H
 
-/-- `lawHooks defn.sem H` is admitted by the library's sentences wherever H is
-(`KCore.libAdmitted_lawHooks`). -/
-theorem libAdmitted_lawHooks_defn (H : HookParams) (ha : (defn.sem.withHooks H).libAdmitted) :
+/-- `lawHooks defn.sem H` is admitted by the library's sentences wherever H is and gives `_RangeMap_`
+no value (`KCore.libAdmitted_lawHooks`). -/
+theorem libAdmitted_lawHooks_defn (H : HookParams) (ha : (defn.sem.withHooks H).libAdmitted)
+    (hrm : ∀ vs, H.app rmConcat vs = none) :
     (defn.sem.withHooks (lawHooks defn.sem H)).libAdmitted :=
-  libAdmitted_lawHooks defn.sem coreOK_defn H ha
+  libAdmitted_lawHooks defn.sem coreOK_defn H ha hrm
 
 /-- `lawHooks defn.sem HookParams.lib` satisfies the laws, the generators' `functional` sentences and
 the library's sentences together. -/
@@ -1239,7 +1243,7 @@ theorem lawHooks_lib_defn :
     OpenTotal (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)) ∧
     (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)).libAdmitted :=
   ⟨openLaws_lawHooks_defn HookParams.lib, openTotal_lawHooks_defn HookParams.lib,
-    libAdmitted_lawHooks_defn HookParams.lib (libAdmitted_lib_of_coreOK coreOK_defn)⟩
+    libAdmitted_lawHooks_defn HookParams.lib (libAdmitted_lib_of_coreOK coreOK_defn) lib_app_rmConcat_none⟩
 " ++ inst "fnHyp_defn" "" ++ inst "sound_defn" "" ++ inst "complete_defn" " (ref : OutFn)" ++
       inst s!"consistent{sfxC}" "" ++ inst s!"sound_at{sfxS}" "" ++ inst s!"complete_at{sfxP}" "" ++
       (if runExact then inst s!"run_exact{sfxC}" "" else "")
@@ -2361,8 +2365,14 @@ theorem named_totals : defn.sem.totalObligations = {totNamed} := by decide +kern
 
 end {ns}
 ")
-  -- Certificates: krust's runs, each checked by the kernel against `Step`
-  for (nm, path) in certs do
+  -- Certificates: krust's runs, each checked by the kernel against `Step`. With an open generator
+  -- (a `raw` parameter) none: `checkRun_sound` and `stuckCheck_sound` take `∀ k ∈ c.params,
+  -- k.raw = false`, false there (a raw application's sort is read from the interpretation, which
+  -- the checks do not evaluate)
+  let rawCerts := c.params.any (·.raw)
+  if rawCerts && !certs.isEmpty then
+    IO.eprintln s!"{koreFile}: a parameter is an open generator: no run certificate and no stuckness theorem ({certs.length} runs not written)"
+  for (nm, path) in (if rawCerts then [] else certs) do
     match ← readCert c d.pres path with
     | .error e => IO.eprintln e; return 1
     | .ok (start, steps, stuck) =>
@@ -2641,7 +2651,7 @@ end {ns}
   o ← o.write ns (String.join ((if exec then [s!"{ns}.Surface"] ++ kindMods.toList else [s!"{ns}.Names", s!"{ns}.Facts"]).map (s!"import {·}\n")) ++
     s!"import {ns}.Syntax\n" ++
     s!"import {ns}.Facts.Terminates\n" ++
-    hdr s!"The package of `{koreFile}`.")
+    hdr s!"The package of `{koreFile}`.{if c.params.any (·.raw) then " It states no run certificate and no stuckness theorem: a parameter is an open generator, whose application's sort is read from the interpretation, and the certificates' soundness (`KCore.Cert.checkRun_sound`, `KCore.Cert.stuckCheck_sound`) holds where no parameter is." else ""}")
   writeLakefile out ns
   IO.FS.writeFile (out / "modules.txt") ("\n".intercalate o.mods.toList ++ "\n")
   if tie then IO.FS.writeFile (out / "tie.txt") ("\n".intercalate tieMods.toList ++ "\n")
@@ -2784,6 +2794,21 @@ def account (koreFile : String) : IO UInt32 := do
     let lu := Parse.lawUnmatched k d
     IO.println s!"law axioms of no collection's concatenation: {lu.length}"
     for r in lu.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when the text writes a law for an open generator that is read
+    let ol := Parse.openLawSentences k d
+    unless ol.isEmpty do
+      IO.println s!"law axioms of open generators, read as axioms of Γ (ParamSig.assoc, ParamSig.idem; OpenLaws owed): {ol.length}"
+      for (i, h, ls) in ol do IO.println s!"      sentence {i} ({h}): openLaw ({", ".intercalate ls}): OpenLaws owed"
+    -- printed only when the text has an open generator
+    let of := Parse.openFunctionalSentences k d
+    unless of.isEmpty do
+      IO.println s!"functional axioms of open generators, stated at values under OpenTotal (no item of Γ; OpenTotal owed): {of.length}"
+      for (i, f) in of do IO.println s!"      sentence {i} ({f}): stated at values, under OpenTotal"
+    -- printed only when the text writes a law for a function
+    let fl := Parse.fnLawSentences k d
+    unless fl.isEmpty do
+      IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
+      for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
     IO.println s!"rules with an `ensures`: {Parse.rulesWithEnsures d}"
     IO.println s!"rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): {Parse.rulesRightDefined d}"
     let fp := Parse.functionInPattern k d
@@ -2841,11 +2866,13 @@ def account (koreFile : String) : IO UInt32 := do
       for (i, f, j) in on.take 10 do
         IO.println s!"      sentence {i} ({f}): its disjunct for sentence {j}, read with its set variable's memberships dropped, holds one element variable at both arguments"
       IO.println "      if the two right sides differ at two distinct arguments, the text has no model (kompile 7.1.337 writes the exclusion of a set-variable equation at equal arguments)"
-    -- printed only when some equation carries such a key
-    let ia := Parse.eqnAttrsInert k
-    unless ia.isEmpty do
-      IO.println s!"equation attributes classified inert (eqnAttrInert): {ia.length}"
-      for (i, n, w) in ia.take 10 do IO.println s!"      sentence {i}: {n}: {w}"
+    -- printed only when KItem's no-junk axiom leaves out a sort of `d` below KItem
+    let tk := Parse.tokKItemOmitted k d
+    unless tk.isEmpty do
+      IO.println s!"KItem no-junk axioms read with a generator inj\{X, KItem} they do not list, X a sort of d below KItem (tokKItem): {tk.length}"
+      for (i, xs) in tk.take 10 do
+        IO.println s!"      sentence {i}: {", ".intercalate (xs.map fun (x, st) => s!"{x} ({if st then "the text states the subsort" else "the reading adds the subsort, which the text does not state"})")}"
+      IO.println "      the text's sentence entails Γ's no-junk item of KItem; where such a sort has an element, the text's sentence with Γ has no model"
     let lu := Parse.libraryUnstated k d
     IO.println s!"sentences the library's data induces that the text does not hold: {lu.length}"
     for r in lu.take 40 do IO.println s!"      {clip 300 r.detail}"
@@ -2876,6 +2903,14 @@ def account (koreFile : String) : IO UInt32 := do
               IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
+      -- the open generators, whose laws and values every statement takes as hypotheses at each
+      -- interpretation H (the package's `hop`, `_hot`)
+      let og := d.sem.params.filter (·.raw)
+      unless og.isEmpty do
+        let lawsOf := fun (k : ParamSig) =>
+          let ls := (if k.assoc then ["assoc"] else []) ++ (if k.idem then ["idem"] else [])
+          if ls.isEmpty then "" else s!" ({", ".intercalate ls})"
+        IO.println s!"open generators, whose laws and values at every argument list are owed at each interpretation H (OpenLaws and OpenTotal of defn.sem.withHooks H, hypotheses of every statement; not a condition of wf or coreOK): {og.length}: {", ".intercalate (og.map fun k => decodeK (d.sem.symName k.sig.name) ++ lawsOf k)}"
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
       -- printed only when some clause holds an existential variable
@@ -2884,12 +2919,15 @@ def account (koreFile : String) : IO UInt32 := do
       -- index of its sentence (found by the clause's `UNIQUE'Unds'ID`) and its function
       let asides := (withPres d.sem.fns d.pres.fns).flatMap fun (f, fp) =>
         ((withPres f.clauses fp.clauses).filter (·.1.aside)).map fun (_, cp) =>
+          -- a symbol-overload axiom, which has no id, by its first symbol
           let i? := m.sentences.findIdx? fun (s : Kore.Sentence) => match s with
-            | .axiom a => KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID" == some cp.info.uid
+            | .axiom a => if cp.info.uid.isEmpty then
+                ((Parse.overloadSyms? a.attributes).map fun (g : String × String) => g.1) == some (d.sem.symName f.label)
+              else KoreAML.Parse.attrStr? a.attributes "UNIQUE'Unds'ID" == some cp.info.uid
             | _ => false
           ((i?.map (off + ·)), decodeK (d.sem.symName f.label))
       unless asides.isEmpty do
-        IO.println s!"equations read as aside clauses (non-executable: no [owise] premise negates them, Clause.aside; such an equation competes with every equation of a larger priority of its function): {asides.length}"
+        IO.println s!"equations read as aside clauses (non-executable, or a symbol-overload axiom of a function: no [owise] premise negates them, Clause.aside; such an equation competes with every equation of a larger priority of its function): {asides.length}"
         for (i?, fn) in asides do
           IO.println s!"      sentence {(i?.map toString).getD "?"} ({fn})"
       IO.println s!"parse: ok; wf {wf d}; failing: {(d.report.filter (!·.2)).map (·.1)}"
@@ -3245,7 +3283,7 @@ sentences the text lacks (module by module, as `roundtrip` finds them), each cla
 (the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
 what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
 stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
-account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, a `readAs`, `unread` or `inert` class; an
+account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
 inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
 read in another form under a note is a named reading (C14's weaker or more, with its note); one
 without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
@@ -3319,6 +3357,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let keys := Parse.keysAsRequires k
   -- the `[owise]` equations read with a premise narrower than the text's
   let narrowed := (Parse.owiseNarrowed k d).map (·.1)
+  -- KItem's no-junk axioms read with a generator they do not list
+  let tokOmitted := (Parse.tokKItemOmitted k d).map (·.1)
   -- the inert constructor axioms the account finds not induced by `d`'s constructors (`uninduced`):
   -- the others `d` holds as values, written or not
   let uninduced := (Parse.uninduced k d).filterMap (·.index)
@@ -3332,7 +3372,8 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
       ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
-      (if narrowed.contains n then ["owiseDisjunctNarrower"] else [])
+      (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
+      (if tokOmitted.contains n then ["tokKItem"] else [])
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty

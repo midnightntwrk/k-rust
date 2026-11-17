@@ -1,6 +1,7 @@
 """Build the agreement cases of the kore-in-k corpus (test/agree-kore-in-k.jsonl, read by `kcore agree`)
 from that corpus's directory: the argument, else $KORE_IN_K (krs/semantics/kore of a checkout of the
-kore-in-k branch). The expected results are only the corpus's recorded ones (`expected.json`).
+kore-in-k branch). The expected results are only the corpus's recorded ones: the haskell and llvm
+rows of each case's `evidence.json` (`implementations`).
 
 A corpus case `cases/<id>/` is an object definition `def.k` (`configuration <k> $PGM:S </k>`, or a
 top cell holding `<k> $PGM:S </k>` and other cells), its initial term `pgm.kore` (KORE of sort S)
@@ -9,9 +10,10 @@ canonical text (its README, "A case"), or the backend's error. Each (case, backe
 
 - `definition`: the case's kompiled text, `../.lake/kore-in-k/build/<id>/hs/definition.kore`, built
   here by the corpus's own `tools/case.py` (needs $K_KOMPILE) on a copy of the case in
-  `.lake/kore-in-k/cases/<id>/`, so the corpus is not written. case.py reruns a reference backend
-  only when the SHA-256 of `def.k` or `pgm` differs from the `inputs` its `expected.json` records;
-  such a case is refused here before case.py runs. The texts case.py regenerates in the copy
+  `.lake/kore-in-k/cases/<id>/`, so the corpus is not written; case.py runs with `--no-backends`,
+  so no reference backend runs. A case whose `def.k` or `pgm` differs from the `inputs` its
+  `evidence.json` records is refused here before case.py runs, and the copy's `inputs` and
+  `implementations` must be the corpus's after it. The texts case.py regenerates in the copy
   (`pgm.kore`, `kore.pgm`, `symbols.json`) are compared with the corpus's, a difference reported on
   stderr. A kompiled text whose `inputs.json` stamp (case.py's) matches is not rebuilt.
 - `input`: the initial configuration, kompile's `initGeneratedTopCell` at `$PGM |-> PGM` with PGM the
@@ -44,7 +46,7 @@ BUILD = os.path.join(WORK, 'build')
 COPIES = os.path.join(WORK, 'cases')
 DEFREL = '../.lake/kore-in-k/build'
 BACKENDS = ('haskell', 'llvm')
-COPIED = ('def.k', 'pgm', 'expected.json', 'pgm.kore', 'kore.pgm', 'symbols.json')
+COPIED = ('def.k', 'pgm', 'entry.toml', 'evidence.json', 'pgm.kore', 'kore.pgm', 'symbols.json')
 REGENERATED = ('pgm.kore', 'kore.pgm', 'symbols.json')
 
 
@@ -62,13 +64,20 @@ def kompiled(cid, key):
     return None
 
 
+def recorded(ev):
+    """What case.py must leave as it is in a copy of the case: the hashes of def.k and pgm, and the
+    implementations' results."""
+    inputs = ev.get('inputs') or {}
+    return {'def.k': inputs.get('def.k'), 'pgm': inputs.get('pgm')}, ev.get('implementations')
+
+
 def build(corpus, cid):
     src = os.path.join(corpus, 'cases', cid)
-    exp = json.load(open(os.path.join(src, 'expected.json')))
+    ev = json.load(open(os.path.join(src, 'evidence.json')))
     key = {'def.k': sha(os.path.join(src, 'def.k')), 'pgm': sha(os.path.join(src, 'pgm'))}
-    if exp.get('inputs') != key:
-        sys.exit(f'{cid}: def.k or pgm differs from the inputs expected.json records; case.py would '
-                 'rerun the reference backends, which this script does not do')
+    if recorded(ev)[0] != key:
+        sys.exit(f'{cid}: def.k or pgm differs from the inputs evidence.json records; its recorded '
+                 'results are not of this text')
     if kompiled(cid, key):
         return
     if not os.environ.get('K_KOMPILE'):
@@ -79,13 +88,13 @@ def build(corpus, cid):
     for f in COPIED:
         shutil.copy(os.path.join(src, f), copy)
     env = dict(os.environ, KORE_IN_K_BUILD=BUILD)
-    r = subprocess.run([sys.executable, '-I', os.path.join(corpus, 'tools', 'case.py'), copy],
+    r = subprocess.run([sys.executable, '-I', os.path.join(corpus, 'tools', 'case.py'), '--no-backends', copy],
                        env=env, capture_output=True, text=True)
     print(f'{cid}: case.py: {r.stdout.strip()[:300]}', file=sys.stderr)
     if r.returncode != 0 or not kompiled(cid, key):
         sys.exit(f'{cid}: case.py failed (exit {r.returncode}): {r.stderr[-2000:]}')
-    if json.load(open(os.path.join(copy, 'expected.json'))) != exp:
-        sys.exit(f'{cid}: case.py rewrote expected.json')
+    if recorded(json.load(open(os.path.join(copy, 'evidence.json')))) != recorded(ev):
+        sys.exit(f'{cid}: case.py changed the inputs or the implementations of evidence.json')
     for f in REGENERATED:
         if sha(os.path.join(copy, f)) != sha(os.path.join(src, f)):
             print(f'{cid}: the regenerated {f} differs from the corpus\'s', file=sys.stderr)
@@ -312,11 +321,11 @@ def main(argv):
         what = defk.splitlines()[0].lstrip('/ ').strip()
         pgm = open(os.path.join(src, 'pgm.kore')).read().strip()
         colls = {s: c for s, c in json.load(open(os.path.join(src, 'symbols.json'))).get('collections', {}).items()}
-        exp = json.load(open(os.path.join(src, 'expected.json')))
+        rows = json.load(open(os.path.join(src, 'evidence.json')))['implementations']
         defn = open(os.path.join(BUILD, cid, 'hs', 'definition.kore')).read()
         init = initial(corpus, defn, sort, pgm)
         for b in BACKENDS:
-            r = exp['backends'][b]
+            r = rows[b]
             case = {'id': f'{cid}/{b}', 'definition': f'{DEFREL}/{cid}/hs/definition.kore',
                     'input': init, 'mode': 'search-final'}
             if 'finals' in r:
@@ -326,7 +335,7 @@ def main(argv):
             else:
                 case['no_reference'] = f"{b} backend error: {r.get('error', '')}"
             case['source'] = {'case': f'cases/{cid}', 'tests': what, 'backend': b,
-                              'reference': exp['reference'][b], 'canonical': r.get('finals', r.get('error'))}
+                              'reference': r['version'], 'canonical': r.get('finals', r.get('error'))}
             print(json.dumps(case))
 
 

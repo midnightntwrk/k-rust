@@ -93,6 +93,13 @@
     values where no other equation applies and do not override one that applies (`owise_values`);
     the point is reached: with the `[owise]` equations not read, `f(1, 5)` is the interpretation's
     (`owise_unread_H9`).
+  - `tokKItem` (a sort below KItem that KItem's no-junk sentence does not list; the reading adds the
+    subsort): for every semantics with `coreOK` and every H, a no-junk sentence without a non-open
+    injection from a sort with a value, its generators injections from sorts apart from that one,
+    has no model with `Γ (c.withHooks H)` (`Faithful.noJunk_omitted_refuted`, the shape of TieEns'
+    `idem_refuted`). On hashsort's text (`#Tok`), test/TokKItem.lean: the sentence entails `Γ`'s
+    item (`text_entails_item`), is refuted for every H (`tok_refuted`), and `Γ` has a model
+    (`consistent`), so `Γ` does not entail it (`text_not_entailed`).
   - G4 for the inert constructor classes (`distinctCtors`, `injectivity`, `noJunk`), for every
     semantics with `coreOK` and every H: a constructor sentence the check `Faithful.tieConsB`
     accepts on the data is entailed by `Γ (c.withHooks H)` (`inertCons_everyH`; the check reads no
@@ -227,7 +234,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn half = some (c.fns[0]'(by decide +kernel)) := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem half_neg4_none (H : HookParams) : Eval (c.withHooks H) half [int (-4)] none :=
   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H
@@ -259,7 +266,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn half = some (c.fns[0]'(by decide +kernel)) := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem half_neg4_none (H : HookParams) : Eval (c.withHooks H) half [int (-4)] none :=
   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H
@@ -372,7 +379,7 @@ def domCl : Clause := ⟨[Srt.k], [.var 0], none, .app projInt [.var 0], some (.
 theorem fn_clauses : fn.clauses = [eqnCl, domCl] := rfl
 
 private theorem hfn : c.lookupFn projInt = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 kernel_rfl isCtor_withHooks : ∀ (c : Semantics) (H : HookParams), (c.withHooks H).isCtor = c.isCtor
 
@@ -611,7 +618,7 @@ theorem rest_undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k �
 
 namespace RestOpen
 
-theorem nc_coreOK : nc.coreOK = true := by decide +kernel
+theorem nc_coreOK : nc.coreOK = true := by decide_cheap
 theorem nc_noRaw : ∀ k ∈ nc.params, k.raw = false := by decide +kernel
 
 /-- `F` has no clause, so `FnHyp` holds under every interpretation: `F`'s result everywhere is its
@@ -1277,7 +1284,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- **`andAsEnsures`, for every interpretation**: `f(1)` is 1, and `f(0)` has no value: the right
 side `X ∧ ⌈X >Int 0 = true⌉` is empty at 0, so `Γ` entails `f(0) = ⊥`. -/
@@ -1325,7 +1332,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- **`bottomAsEnsures`, for every interpretation**: `f(2)` is 2 (the `[owise]` equation), and
 `f(-1)` has no value: the first equation applies there, its right side is empty, and it blocks the
@@ -1589,6 +1596,7 @@ theorem owise_unread_H9 : Eval (c1.withHooks H9) f [int 1, int 5] (some (int 9))
   eval_atH hok1 hsr1 hmr1 noRaw1 hfn1 (by decide +kernel) H9 (n := 10) (by decide +kernel)
 
 end DevOwise
+
 
 /-! ## G4: the inert constructor classes, for every interpretation -/
 
@@ -1895,6 +1903,13 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.decl ``KCore.Faithful.funUncItem_of_funItem, .decl ``KCore.Faithful.injUncItem_of_injItem,
         .test "test/Overloads.lean" "overloadFunction", .test "test/OvlFun.lean" "cons_items"],
       note := "each sentence entails the item read of it (the item is the sentence at fewer arguments), in every interpretation; that the functional, injectivity and distinctness items of a function-overloaded symbol are the uncovered ones is kernel-checked on two hand-built semantics; no statement over c.withHooks H: coreOK admits no function overload yet" }
+  | .tokKItem =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Faithful.noJunk_omitted_refuted, .test "test/TokKItem.lean" "tok_refuted",
+        .test "test/TokKItem.lean" "text_entails_item", .test "test/HashSort.lean" "tokKItem"],
+      companion := [.test "test/TokKItem.lean" "consistent", .test "test/TokKItem.lean" "text_not_entailed"],
+      invariant := [``KCore.Semantics.sortsBelowKItem, ``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
+      note := "for every semantics with coreOK and every H, a no-junk sentence of a constructor sort that leaves out a non-open injection inj{a, N} from a sort with a value, its generators injections from sorts incomparable with a and sharing no lower bound with it, has no model with Γ (c.withHooks H) (noJunk_omitted_refuted: Cons-Fun and Cons-Dist); on hashsort's text (syntax #Tok [token]; KItem's no-junk sentence, axiom 125, lists 13 injections and not inj{#Tok, KItem}; no subsort axiom states #Tok < KItem; the equations of is#Tok apply inj{#Tok, KItem}), where the reading adds the subsort #Tok < KItem: the sentence entails Γ's no-junk item of KItem in every interpretation with definedness (text_entails_item), Γ with it has no model for every H (tok_refuted), and Γ has one (consistent), so Γ does not entail it (text_not_entailed)" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -1978,7 +1993,7 @@ def readingNotes : List ReadingNote :=
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
-   .overloadFunction]
+   .overloadFunction, .tokKItem]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

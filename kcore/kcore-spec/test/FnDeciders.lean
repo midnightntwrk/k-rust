@@ -36,6 +36,7 @@
      lighter, would accept M.
 -/
 import KcoreSpec.FnObligations
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -70,7 +71,7 @@ def rk : Semantics := core
   [⟨F, [Srt.int], Srt.int, [⟨[Srt.int], [.var 0], none, .app G [.var 0], none, 50, false, [], .top, .top⟩], true⟩,
    ⟨G, [Srt.int], Srt.int, [⟨[Srt.int], [.var 0], none, .dv Srt.int (.int 0), none, 50, false, [], .top, .top⟩], true⟩]
 
-theorem rk_sorted : rk.sortedOK = true ∧ rk.srReady = true := by decide +kernel
+theorem rk_sorted : rk.sortedOK = true ∧ rk.srReady = true := by decide_cheap
 
 /-- Declaration order names F, for termination and totality. -/
 theorem rk_order : rk.orderObligations = [F] ∧ rk.totalObligations = [F] := by decide +kernel
@@ -114,7 +115,7 @@ def ls : Semantics := core
   [⟨H, [Srt.list], Srt.kitem, [clH], false⟩, ⟨K, [Srt.map, Srt.kitem], Srt.kitem, [clK], false⟩,
    ⟨S, [Srt.list], Srt.list, [clS], false⟩]
 
-theorem ls_sorted : ls.sortedOK = true ∧ ls.matchReady = true := by decide +kernel
+theorem ls_sorted : ls.sortedOK = true ∧ ls.matchReady = true := by decide_cheap
 
 /-- `clauseFixed` refuses H's and K's clauses; `clauseFixedL` accepts them; both refuse S's. -/
 theorem ls_fixed : ls.matchObligations = [(H, 0), (K, 0), (S, 0)] ∧ ls.matchObligationsL = [(S, 0)] := by
@@ -187,7 +188,7 @@ def fnB : Fn := ⟨B, [Srt.list], Srt.int, [clB0, clB1], false⟩
 
 def ag : Semantics := core [fnA, fnB]
 
-theorem ag_sorted : ag.sortedOK = true ∧ ag.matchReady = true := by decide +kernel
+theorem ag_sorted : ag.sortedOK = true ∧ ag.matchReady = true := by decide_cheap
 
 /-- `fnExclusiveOK` refuses A and B; `fnExclusiveL` accepts A and refuses B. -/
 theorem ag_A : ag.agreeObligations = [A, B] ∧ ag.agreeObligationsL = [B] := by decide +kernel
@@ -264,7 +265,7 @@ def gd : Semantics := core
    ⟨Ee, [Srt.int], Srt.int,
      [⟨[], [lit 0], none, lit 0, none, 50, false, [], .top, .top⟩, ⟨[Srt.int], [.var 0], some (.app intGe [.var 0, lit 0]), lit 1, none, 50, false, [], .top, .top⟩], false⟩]
 
-theorem gd_sorted : gd.sortedOK = true ∧ gd.matchReady = true := by decide +kernel
+theorem gd_sorted : gd.sortedOK = true ∧ gd.matchReady = true := by decide_cheap
 
 /-- `fnExclusiveOK` refuses C, C', D and E; `fnExclusiveL` accepts C, C' and D. -/
 theorem gd_C : gd.agreeObligations = [Cc, Cc', Dd, Ee] ∧ gd.agreeObligationsL = [Ee] := by decide +kernel
@@ -289,7 +290,7 @@ def dc : Semantics := { core
      [⟨[Srt.map], [.app mapConcat [.app mapUnit [], .var 0]], none, .app Mm [.var 0], none, 50, false, [], .top, .top⟩], false⟩]
   with userSorts := cellSorts ++ [T0], ctors := cellCtors ++ [⟨cK, [Srt.int, T0], T0⟩, ⟨nRegSyms + 53, [], T0⟩] }
 
-theorem dc_sorted : dc.sortedOK = true ∧ dc.srReady = true := by decide +kernel
+theorem dc_sorted : dc.sortedOK = true ∧ dc.srReady = true := by decide_cheap
 
 /-- The certificate names all four; `decObligationsL` names only the map's frame. -/
 theorem dc_dec : (Parse.certOf dc).obligations dc = [Nn, Pp, Qq, Mm] ∧ dc.decObligationsL = [Mm] := by
