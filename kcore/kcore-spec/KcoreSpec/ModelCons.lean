@@ -206,17 +206,17 @@ namespace AtT
 variable {T : GroundTerm → GroundTerm → Prop}
 
 theorem gs_ovl (hn : NamesApartK c) {o : OvlSig} (ho : o ∈ c.ovls) (hio : c.isOvl o.sig.name = true) (N : String)
-    {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (m : Elem) :
+    {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (hnf : c.fnCover o.sig.name vs = none) (m : Elem) :
     GS (stdI_T c T) N (Gen.toK c (.ctor o.sig)) (vs.map Elem.val) m ↔ m = .val (c.norm o.sig.name vs) := by
-  rw [← result_ovl (vs := vs) hio]
+  rw [← result_ovl (vs := vs) hio hnf]
   exact symE_vals hn (ovl_kernel ho) hl m
 
 end AtT
 
 theorem gs_ovl (hn : NamesApartK c) {o : OvlSig} (ho : o ∈ c.ovls) (hio : c.isOvl o.sig.name = true) (N : String)
-    {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (m : Elem) :
+    {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (hnf : c.fnCover o.sig.name vs = none) (m : Elem) :
     GS (stdI c) N (Gen.toK c (.ctor o.sig)) (vs.map Elem.val) m ↔ m = .val (c.norm o.sig.name vs) :=
-  AtT.gs_ovl (c := c) (T := StepM c) (hn := hn) (o := o) (ho := ho) (hio := hio) (N := N) (vs := vs) (hl := hl) (m := m)
+  AtT.gs_ovl (c := c) (T := StepM c) (hn := hn) (o := o) (ho := ho) (hio := hio) (N := N) (vs := vs) (hl := hl) (hnf := hnf) (m := m)
 
 namespace AtT
 
@@ -338,7 +338,8 @@ theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen}
     exact result_sorted h (ctor_kernel hk) hvs ((result_ctor (isCtor_of_mem hk) _).mpr rfl)
   · have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
     obtain ⟨-, hio, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
-    exact ⟨fun m => gs_ovl hn ho hio _ (sortsOf_len hvs) m, OvlLaws.sortOf_norm h.ovlHyp hlo hvs⟩
+    exact ⟨fun m => gs_ovl hn ho hio _ (sortsOf_len hvs) (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) m,
+      OvlLaws.sortOf_norm h.ovlHyp hlo hvs⟩
   · obtain ⟨v, rfl, hv⟩ := sortsOf_single hvs
     obtain ⟨hsa, hsN⟩ := h.subSorts ha
     refine ⟨fun m => ?_, sortOf_injNormal h.trans ha hv⟩
@@ -1689,7 +1690,7 @@ theorem result_known (h : HypModelCore c) {k : CtorSig} (hk : OvlLaws.KnownSig c
     (x : Elem) : result c k vs x ↔ x = .val (c.norm k.name vs) := by
   rcases OvlLaws.knownSig_cases h.ovlHyp hk with ⟨hct, hn⟩ | ⟨-, o, hlo, rfl⟩
   · rw [result_ctor (by simp [Semantics.isCtor, hct]), OvlLaws.norm_none hn]
-  · exact result_ovl (OvlLaws.ovl_facts h.ovlHyp hlo).2.1 x
+  · exact result_ovl (OvlLaws.ovl_facts h.ovlHyp hlo).2.1 (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) x
 
 theorem known_kernel {k : CtorSig} (hk : OvlLaws.KnownSig c k) : k ∈ kernelSyms c := by
   rcases OvlLaws.knownSig_mem hk with hm | hm
@@ -1797,7 +1798,8 @@ theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Ct
   intro b
   rw [interp_symList _ _ ((liftAll kg.args o.sig.args as).map Elem.val)
     (liftArgs_den hn _ (fun A B xi => rfl) kg.args o.sig.args _ as hkn hon hxs hl hal) b,
-    symE_vals hn (ovl_kernel ho) (by simp [OvlLaws.length_liftAll]; omega) b, result_ovl hio,
+    symE_vals hn (ovl_kernel ho) (by simp [OvlLaws.length_liftAll]; omega) b,
+    result_ovl hio (OvlLaws.fnCover_none_of_ok h.ovlOK _ _),
     OvlLaws.norm_ovlEq H hlo hkg has]
   have hin : ∀ m, (KoreAML.appList (KoreAML.sym (.symbol (c.symName kg.name)))
       ((KoreAML.Cons.xs 0 kg.args.length).map Pattern.evar)).interpret (stdI_T c T) e m ↔

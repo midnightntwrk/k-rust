@@ -468,7 +468,10 @@ theorem result_val {c : Semantics} {k : CtorSig} {vs : List GroundTerm} {x : Ele
     · split at h
       · obtain ⟨v, rfl, -⟩ := h; exact ⟨v, rfl⟩
       · split at h
-        · exact ⟨_, h⟩
+        · unfold ovlRes at h
+          split at h
+          · obtain ⟨o, v, -, rfl, -⟩ := h; exact ⟨_, rfl⟩
+          · exact ⟨_, h⟩
         · obtain ⟨v, rfl, -⟩ := h; exact ⟨v, rfl⟩
 
 /-- A symbol holds of a head without arguments only as that head's symbol. -/

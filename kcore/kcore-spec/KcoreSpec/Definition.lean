@@ -300,7 +300,7 @@ structure Presentation where
   pgmCell : String := "k"
   /-- the laws the text writes for its functions, each an equation it states for every element;
   `Semantics` holds none of them: the statements about the definition take them at values
-  (`FnLaws`). `Parse.presOf` writes none. -/
+  (`FnLaws`). `Parse.presOf` reads them from the text's law axioms on its functions (`Parse.fnLawOf`). -/
   laws : List LawEq := []
   deriving Repr
 

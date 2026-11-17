@@ -25,6 +25,7 @@ open KCore KCore.HoldsShape
 #print axioms holdsAt_exMatch
 #print axioms termAt_of_all
 #print axioms KCore.Faithful.holds_den4Cl
+#print axioms KCore.Faithful.holds_den4ClPre
 #print axioms nodeFacts_of_core
 #print axioms holdsAt_atR
 #print axioms withPre_interp
