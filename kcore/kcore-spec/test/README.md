@@ -644,6 +644,14 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   remainder), each with one solution, and the prose's rules between them at every pair; no row is a
   key of `silentTable`, and every argument list of a signature is covered (a value, or at divisor
   0 the prose's `#False`, where Γ states ⊥ under every interpretation).
+- `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
+  domains.md's prose, cited by line: each operation at every argument list by the bindings of its
+  result (the one map with them), with hand-derived values that `hook` gives, the result under
+  every interpretation and Γ's statement in every semantics with Int below KItem; `_Map_` on a
+  common key and a lookup off the keys are the prose's `#False`, where Γ states ⊥ under every
+  interpretation; no row is a key of `silentTable`, and every argument list of a signature is
+  covered. The readings of update at a bound key, removal at an unbound one and `removeAll` at a
+  member that is no key are written in its header, with the rules of MAP-KORE-SYMBOLIC that agree.
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
