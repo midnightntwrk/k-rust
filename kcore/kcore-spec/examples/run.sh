@@ -2,7 +2,8 @@
 # The example definitions as generated packages: regenerate each with `kcore gen`, build it, then the
 # user's modules over it. Peano is generated with `--tie` and built with its tie (by blocks): the one
 # worked example of a definition read from its KORE text whose `emit` gives the text back, proved in the
-# kernel. The others are generated with `--wf` (`wf defn` decided in the kernel, no tie). krust's runs in
+# kernel. The others are generated with `--wf` (`wf defn` decided in the kernel, no tie), but ref-kk
+# with `--core` (`coreOK` decided in the kernel, no `wf`). krust's runs in
 # examples/runs (findings/work/m25/rpcrun.py) become certificate modules (NAME.Certs.*). Each module in its
 # own process under a 12 GiB memory scope, one thread (gen/build.sh).
 # With --build-only, nothing is generated: the committed packages are built as they stand (test/regen.sh
@@ -11,7 +12,7 @@
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
 only=0; [ "${1:-}" = --build-only ] && { only=1; shift; }
-want=" ${*:-peano prio kink-imp kimp imp-sec imp-sec-leaky ph kimp-ni kryp vault vault-leaky colls-list lazy fprio colls ref-peano ref-fprio ref-kimp} "
+want=" ${*:-peano prio kink-imp kimp imp-sec imp-sec-leaky ph kimp-ni kryp vault vault-leaky colls-list lazy fprio colls ref-peano ref-fprio ref-kimp ref-kk} "
 on() { case "$want" in *" $1 "*) return 0;; esac; return 1; }
 # gen KORE NAME NS OPTION...: `kcore gen` into examples/NAME (skipped with --build-only)
 gen() { [ $only = 1 ] && return 0; a=$1 b=$2; shift 2; gen/gen.sh "$a" "examples/$b" "$@" || exit 1; }
@@ -61,4 +62,11 @@ if on ref-fprio; then gen f2-examples/fprio.kompile.kore ref-fprio RefFprio --wf
 # `sum-N` (imp-simple-spec.k), the whole program from the empty store (User.SumN); each step `fire i`
 if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
   step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.RunInstance; fi
+# kore.k (krs/semantics/kore), read from K 7.1.337 kompile's KORE of it (test/kk-kompile.toml records
+# the command), with `--core`: `coreOK_defn`, its conjuncts each decided on its own and those that
+# read names on the names' codes, and from it `sound_hyp` and `complete_hyp`. With `--wf` one module
+# decides every conjunct of `faithOK` on the names themselves, and for this text the kernel needs
+# more than the 12 GiB scope there (namesNumbered about 10 GiB alone, itesApart beyond 12 GiB alone)
+if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
+  step gen/build.sh examples/ref-kk; fi
 echo "all built"
