@@ -138,3 +138,15 @@ openGeneratorInPattern: [sentence 210 (Lbl'-LT-'generatedTop'-GT-'): openGenerat
 #guard_msgs in
 #eval show IO Unit from do
   for l in ← patternsOf "f2-examples/openrec.kompile.kore" do IO.println l
+
+/-! e2-open-mixed: `&` across sorts (`A A → B`), read as a raw parameter without a law (`comm` has
+no sentence); B is confined, and the rule's left side is refused with the second reason. -/
+
+/--
+info: open generators: [Lbland : [A, A] → B assoc false idem false confined true]
+functionInPattern: []
+openGeneratorInPattern: [sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)]
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for l in ← patternsOf "f2-examples/openmixed.kompile.kore" do IO.println l
