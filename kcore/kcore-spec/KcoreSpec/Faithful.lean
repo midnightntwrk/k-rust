@@ -557,45 +557,88 @@ def competingPremise (args : List String) (competitors : List Kore.Pattern) (req
     (pats : List Kore.Pattern) : Kore.Pattern :=
   .and R [.not R (KoreAML.anyOf competitors), premise args req pats]
 
-/-- A clause with no competitor: `⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre → f(X̄) = rhs ∧ ens`; `ens` is
-`⌈E = true⌉` for an `ensures` E, `⊤` without one. Where the clause's predicate `pre` is `\top` the
-premise is `⌈req = true⌉ ∧ X̄ ∈ p̄` (`withPre`, `clauseEquation_top`), the equation `clauseAx` writes. -/
+/-- The right side and the `ensures` part of a clause's equations. Without existential variables:
+`rhs` and `ens`, `ens` being `⌈E = true⌉` for an `ensures` E, `⊤` without one. With existential
+variables ē (`exs`) the right side is under their binder, `∃ē. (rhs ∧ ens ∧ post)`, as a rule's
+(`ruleRight`), and the `ensures` part is `⊤`: the function's elements at the arguments are those of
+the instances of `rhs` over ē at which `ens` and `post` hold. -/
+def clauseRhs (c : Semantics) (f : Fn) (cl : Clause) : Kore.Pattern × Kore.Pattern :=
+  let vs := canonVars c cl.vars
+  let S := srtOf c f.result
+  if cl.exs.isEmpty then (Term.kore c vs cl.rhs, reqPat S (cl.ens.map (Term.kore c vs)))
+  else ((cl.exs.filterMap (vs[·]?)).foldr (fun v p => .exist S v.kore p)
+      (.and S ([Term.kore c vs cl.rhs, reqPat S (cl.ens.map (Term.kore c vs))] ++ Cond.conj c vs S cl.post)),
+    reqPat S none)
+
+/-- Without existential variables the pair is `rhs` and `ens`, whatever `post` is. -/
+theorem clauseRhs_nil {c : Semantics} {f : Fn} {cl : Clause} (h : cl.exs = []) :
+    clauseRhs c f cl = (Term.kore c (canonVars c cl.vars) cl.rhs,
+      reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
+  unfold clauseRhs; rw [h]; rfl
+
+/-- No clause of a generated sort predicate has an existential variable. -/
+theorem _root_.KCore.Semantics.sortPreds_exs {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
+    ∀ cl ∈ fn.clauses, cl.exs = [] := by
+  simp only [Semantics.sortPreds, List.cons_append, List.nil_append, List.mem_cons,
+    List.mem_filterMap, Option.map_eq_some_iff] at hfn
+  rcases hfn with rfl | rfl | ⟨X, -, _, _, rfl⟩ <;> intro cl hcl <;>
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
+    rcases hcl with rfl | rfl <;> rfl
+
+/-- No clause of a function of a plain definition has an existential variable: the user's by
+`plain`, the generated sort predicates' by their text. -/
+theorem _root_.KCore.Semantics.exs_of_plain_mem {c : Semantics} (hp : c.plain = true) {fn : Fn}
+    (hfn : fn ∈ c.allFns) : ∀ cl ∈ fn.clauses, cl.exs = [] := by
+  simp only [Semantics.allFns, List.mem_append] at hfn
+  rcases hfn with hfn | hfn
+  · simp only [Semantics.plain, Bool.and_eq_true, List.all_eq_true] at hp
+    intro cl hcl
+    exact List.isEmpty_iff.mp (hp.1.1.1.2 fn hfn cl hcl).1.1.1.2
+  · exact Semantics.sortPreds_exs hfn
+
+/-- A clause with no competitor: `⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre → f(X̄) = right ∧ ens'`, the pair
+`(right, ens')` being `clauseRhs`'s: `rhs` and `ens` for a clause without existential variables
+(`clauseRhs_nil`). Where moreover the clause's predicate `pre` is `\top` the premise is
+`⌈req = true⌉ ∧ X̄ ∈ p̄` (`withPre`, `clauseEquation_top`), the equation `clauseAx` writes. -/
 def clauseEquation (c : Semantics) (f : Fn) (cl : Clause) : Kore.Sentence :=
   let vs := canonVars c cl.vars
   eqnSentence c f
     (withPre c vs cl (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)))
-    (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs)))
+    (clauseRhs c f cl).1 (clauseRhs c f cl).2
 
 /-- A clause under the negation of the clauses `others`: it applies where none of them does, its
 own `requires` holds, its patterns match and its predicate holds,
 `¬ ⋁ competitors ∧ (⌈req = true⌉ ∧ X̄ ∈ p̄ ∧ pre)`; where the predicate is `\top` the premise is
-`competingPremise`'s (`competingEquation_top`). Its right side is `rhs ∧ ens`, as `clauseEquation`'s. -/
+`competingPremise`'s (`competingEquation_top`). Its right side is `clauseEquation`'s (`clauseRhs`). -/
 def competingEquation (c : Semantics) (f : Fn) (others : List Clause) (cl : Clause) : Kore.Sentence :=
   let vs := canonVars c cl.vars
   eqnSentence c f
     (.and R [.not R (KoreAML.anyOf (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))),
       withPre c vs cl (premise (f.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats))])
-    (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs)))
+    (clauseRhs c f cl).1 (clauseRhs c f cl).2
 
-/-- The equation of a clause whose predicate is `\top` has the premise `⌈req = true⌉ ∧ X̄ ∈ p̄`. -/
-theorem clauseEquation_top {c : Semantics} {f : Fn} {cl : Clause} (h : cl.pre = .top) :
+/-- The equation of a clause without existential variables whose predicate is `\top` has the
+premise `⌈req = true⌉ ∧ X̄ ∈ p̄` and the right side `rhs ∧ ens`. -/
+theorem clauseEquation_top {c : Semantics} {f : Fn} {cl : Clause} (h : cl.pre = .top) (hex : cl.exs = []) :
     clauseEquation c f cl =
       eqnSentence c f (premise (f.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
           (Term.koreList c (canonVars c cl.vars) cl.pats))
         (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
-  unfold clauseEquation; simp only [withPre_top h]
+  unfold clauseEquation; simp only [withPre_top h, clauseRhs_nil hex]
 
-/-- The competing equation of a clause whose predicate is `\top` has the premise
-`competingPremise` writes, `¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`. -/
-theorem competingEquation_top {c : Semantics} {f : Fn} {others : List Clause} {cl : Clause} (h : cl.pre = .top) :
+/-- The competing equation of a clause without existential variables whose predicate is `\top` has
+the premise `competingPremise` writes, `¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`, and the right side
+`rhs ∧ ens`. -/
+theorem competingEquation_top {c : Semantics} {f : Fn} {others : List Clause} {cl : Clause} (h : cl.pre = .top)
+    (hex : cl.exs = []) :
     competingEquation c f others cl =
       eqnSentence c f
         (competingPremise (f.args.map c.sortName) (others.map fun cl' => exclusion c f cl' (canonClausePres cl'))
           (cl.req.map (Term.kore c (canonVars c cl.vars))) (Term.koreList c (canonVars c cl.vars) cl.pats))
         (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
-  unfold competingEquation competingPremise; simp only [withPre_top h]
+  unfold competingEquation competingPremise; simp only [withPre_top h, clauseRhs_nil hex]
 
 /-- The clauses of f of a smaller priority than cl's that are not `aside`: those that apply
 before it. -/

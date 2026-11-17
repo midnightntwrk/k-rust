@@ -122,6 +122,7 @@ theorem fnItems_plain {c : Semantics} (hp : c.plain = true) : fnItems c = fnItem
   have hB := Semantics.binds_of_plain_mem hp hf
   have hA := Semantics.aside_of_plain_mem hp hf
   have hP := Semantics.pre_of_plain_mem hp hf
+  have hE := Semantics.exs_of_plain_mem hp hf
   unfold fnEquationsK fnEquationsK₀
   refine congrArg kernelItems (List.map_congr_left fun cl hcl => ?_)
   have hlow : lowerClauses f cl = lowerClauses₀ f cl :=
@@ -133,7 +134,7 @@ theorem fnItems_plain {c : Semantics} (hp : c.plain = true) : fnItems c = fnItem
       exclusion_top _ (hP cl' (List.mem_filter.mp h').1) (hB cl' (List.mem_filter.mp h').1)
   show (if (lowerClauses f cl).isEmpty then clauseEquation c f cl
     else competingEquation c f (lowerClauses f cl) cl) = _
-  rw [clauseEquation_top (hP cl hcl), competingEquation_top (hP cl hcl)]
+  rw [clauseEquation_top (hP cl hcl) (hE cl hcl), competingEquation_top (hP cl hcl) (hE cl hcl)]
   unfold prioEquation₀
   rw [hex, hlow]
   rfl

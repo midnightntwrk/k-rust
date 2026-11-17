@@ -44,6 +44,7 @@ import KcoreSpec.ExecBasics
 import KcoreSpec.FaithOK
 import KcoreSpec.Faithful
 import KcoreSpec.FaithfulTr
+import KcoreSpec.TieUnion
 import KcoreSpec.FaithfulStage1
 import KcoreSpec.FaithfulStep
 import KcoreSpec.FaithfulNeg

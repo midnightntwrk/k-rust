@@ -37,9 +37,15 @@
   The amendment D shape (`D`): `k(X) => (X -Int Z) #Or X`, Z bound by no pattern. Split as above,
   Z would stand in the first clause's `pre` and so among its open condition variables
   (`openCondVars`); at Int (unconfined) CN-4 §4.9's final clause conjunct refuses the clause, with
-  no reason naming the shape (`D.clauseE3_1`). The reader is to refuse the equation itself,
-  `manyValuedRightSide`, with the detail that the patterns do not bind Z (to run once the reader
-  splits `\or`; today every `\or` on an equation's right side is refused `manyValuedRightSide`).
+  no reason naming the shape (`D.clauseE3_1`). `Parse.frRead` refuses the equation itself,
+  `manyValuedRightSide`, naming Z as a variable of an alternative that the arguments do not bind
+  (test/RhsReader.lean, `eqD`), so these clauses are hand-built only.
+  `c.clausesPlain` is false of the three clauses (`D.clausesPlain_now`), and today that says nothing
+  of Z's sort: the landed text asks `pre = \top` of every clause, and the second clause, which
+  holds no Z, fails it too (`D.pre_now`). What Z's sort contributes is the final conjunct's
+  verdict: false at Int, and true where Z is of Bool, which is confined (`DB`, the shape
+  `k(X) => (X andBool Z) #Or X`: `DB.clauseE3_ok`, with `DB.clausesPlain_now` false for the same
+  reason as at Int).
 
   Reader expectations, to run on the fixtures with that reader: `e3-ml-eq-rhs-or-total` read as
   `Fx`'s clauses of h; `e3-ml-eq-rhs-or` (h not `total`) refused `manyValuedRightSide`.
@@ -257,7 +263,48 @@ naming the shape; the second, whose `pre` reads X only, passes. -/
 theorem clauseE3_1 : clauseE3 c cl1 = false ∧ clauseE3 c cl3 = false ∧ clauseE3 c cl2 = true := by
   decide +kernel
 
+/-- The landed `clausesPlain` refuses the definition, for a reason that is not Z's sort: each of
+the three clauses has a `pre` that is not `\top`, the second, which holds no Z, among them. -/
+theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
+
+theorem pre_now : cl1.pre.isTop = false ∧ cl2.pre.isTop = false ∧ cl3.pre.isTop = false ∧
+    cl2.openCondVars = [] := by decide +kernel
+
 end D
+
+/-! ## `DB`: the same shape with Z of a confined sort -/
+
+namespace DB
+
+/-- `X andBool Z` (X the variable 0, Z the variable 1) and `X`. -/
+def a1 : Term := .app boolAnd [.var 0, .var 1]
+def a2 : Term := .var 0
+
+def p1 : Cond := .ceil Srt.bool a1
+def p2 : Cond := .ceil Srt.bool a2
+
+/-- The three clauses the split would give `k(X) => (X andBool Z) #Or X`, X and Z of Bool. -/
+def cl1 : Clause := ⟨[Srt.bool, Srt.bool], [.var 0], none, a1, none, 50, false, [], p1, .top⟩
+def cl2 : Clause := ⟨[Srt.bool, Srt.bool], [.var 0], none, a2, none, 50, false, [], p2, .top⟩
+def cl3 : Clause := ⟨[Srt.bool, Srt.bool], [.var 0], none, a1, some falseT, 50, false, [],
+  .and (.not p1) (.not p2), .top⟩
+
+def kFn : Fn := ⟨D.K, [Srt.bool], Srt.bool, [cl1, cl2, cl3], true⟩
+
+def c : Semantics := { D.c with fns := [kFn] }
+
+/-- Z is an open condition variable of the first and last clauses as at Int; Bool is confined. -/
+theorem openCondVars_Z : cl1.openCondVars = [1] ∧ cl3.openCondVars = [1] ∧ cl2.openCondVars = [] ∧
+    c.confined Srt.bool = true := by decide +kernel
+
+/-- The final clause conjunct admits the three clauses: Z's sort is confined. -/
+theorem clauseE3_ok : clauseE3 c cl1 = true ∧ clauseE3 c cl2 = true ∧ clauseE3 c cl3 = true := by
+  decide +kernel
+
+/-- The landed `clausesPlain` refuses this definition too, by `pre`. -/
+theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
+
+end DB
 
 end EqRhsOr
 
@@ -291,3 +338,9 @@ end KCore
 #guard_msgs in #print axioms KCore.EqRhsOr.D.openCondVars_Z
 /-- info: 'KCore.EqRhsOr.D.clauseE3_1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.D.clauseE3_1
+/-- info: 'KCore.EqRhsOr.D.clausesPlain_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.D.clausesPlain_now
+/-- info: 'KCore.EqRhsOr.DB.clauseE3_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.DB.clauseE3_ok
+/-- info: 'KCore.EqRhsOr.DB.clausesPlain_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.DB.clausesPlain_now

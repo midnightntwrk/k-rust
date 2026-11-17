@@ -71,9 +71,10 @@ theorem clause_den3 {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ
   have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
   have ihreq' := fun tbl e' hag t ht m' => ihreq t ht tbl e' hag m'
   by_cases hlow : lowerClauses fn cl = []
-  · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) hws hσ' hmatch hplain hpats
+  · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
   · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+          (clause_exsNil hok hmem hcl)
           (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_) hσ' hmatch hplain hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
     obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'

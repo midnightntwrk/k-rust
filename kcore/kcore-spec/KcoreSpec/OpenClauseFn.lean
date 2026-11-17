@@ -35,7 +35,7 @@ theorem clauseOpenFacts_of_sortedOKCl {c : Semantics} (hok : c.sortedOKCl = true
     have hpp := sortPreds_topCl hp cl hcl
     refine ⟨[], fun k hk => absurd hk List.not_mem_nil,
       sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats, hpp.1, hpp.2,
-      fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
+      fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_, Semantics.sortPreds_exs hp cl hcl⟩
     · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
       simp only [List.mem_append]; exact Or.inl (Or.inl (Or.inl (Or.inl (hb i hi))))
     · rw [ht] at hreq; simpa [reqOK] using hreq
