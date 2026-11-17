@@ -206,7 +206,7 @@ theorem no_model :
   have hN : Srt.kitem ∈ consSorts c := by decide +kernel
   have hinj : ∀ j', Inh I σE j' → ∃ x, Inh I σK x ∧ ∀ m, GS I "KItem" (.inj "IOError") [j'] m ↔ m = x := by
     intro j' hj'
-    obtain ⟨x, hx, hgs⟩ := gen_fun hI hN hgm (xs := [j']) rfl (fun i x s h1 h2 => by
+    obtain ⟨x, hx, hgs⟩ := gen_fun hI hN (List.mem_filter.mpr ⟨hgm, rfl⟩) (xs := [j']) rfl (fun i x s h1 h2 => by
       cases i with
       | zero =>
         simp only [show (Gen.inj Srt.ioError).argSorts = [Srt.ioError] from rfl, List.map_cons, List.map_nil,

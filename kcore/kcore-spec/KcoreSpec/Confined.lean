@@ -375,8 +375,8 @@ omit hI hO htr [Inhabited M] in
 theorem noJunkItem_mem {N : Srt} (hN : N ∈ consSorts c) (hg : (c.gens N).isEmpty = false) :
     KoreAML.Cons.noJunkItem (c.sortName N) ((c.gens N).map (Gen.toK c)) ∈ consItemsK c := by
   unfold consItemsK
-  exact List.mem_append_left _ (List.mem_append_left _
-    (List.mem_flatMap.mpr ⟨N, hN, List.mem_append_right _ (by simp only [hg]; exact List.mem_singleton_self _)⟩))
+  exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
+    (List.mem_flatMap.mpr ⟨N, hN, List.mem_append_right _ (by simp only [hg]; exact List.mem_singleton_self _)⟩)))
 
 omit hI in
 /-- **Every element of a sort confined at depth k is a value's**, in a model of `Γc` of a definition

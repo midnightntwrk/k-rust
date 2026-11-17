@@ -85,7 +85,12 @@ theorem f_args : ovlArgsOf c (.ctor fSig) = some [] := by decide +kernel
 /-- **`Γ c` has no model.** -/
 theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
   intro M _ I hI
-  have hit := sat_cons hI (Or.inl ⟨_, distUncItem_mem k_cons f_pair (fun _ _ h _ => by cases h) f_guarded, rfl⟩)
+  have hF : (c.gens Srt.k).filter (!c.isOpenGen ·) = c.gens Srt.k := List.filter_eq_self.mpr fun g _ => by
+    cases g with
+    | ctor k => simp [Semantics.isOpenGen, Semantics.lookupOpen_of_noRaw c (by decide +kernel) k.name]
+    | inj _ => rfl
+  have hit := sat_cons hI (Or.inl ⟨_, distUncItem_mem k_cons (by rw [hF]; exact f_pair) (fun _ _ h _ => by cases h)
+    f_guarded, rfl⟩)
   have hx : InS I (c.sortName Srt.int) (elemOf c I (int 0)) :=
     (inS_iff _).mp (elemOf_spec hI (sortOf_int 0) KoreAML.val0).2
   have hu : ∀ covs, ovlArgsOf c (.ctor fSig) = some covs → ∀ bs xv z (e : Valuation M) m,

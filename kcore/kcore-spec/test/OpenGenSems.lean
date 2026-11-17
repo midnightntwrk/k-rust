@@ -379,4 +379,40 @@ theorem not_lawLibRawFree : ¬ c.lawLibRawFree := fun h => by
 
 end EndRaw
 
+
+/-! ### The constructors' items at an open generator (`consItemsK`)
+
+At CommCtor: the constructor `x` has its functionality item and the open generators `and` and
+`or` none; Exp's no-junk item lists all three; `or`'s associativity sentence is an item, and it
+is the translation of the text's sentence 186 (`commctor.kompile.kore`, kompiled from
+e2-comm-ctor.k: `axiom{R} \equals{SortExp{}, R}(Lblor{}(Lblor{}(K1,K2),K3), Lblor{}(K1,Lblor{}(K2,K3)))
+[assoc{}()]`), read with the text's declarations. -/
+
+kore_term commKore from "f2-examples/commctor.kompile.kore"
+
+/-- `or`'s associativity item. -/
+def orAssocItem : KoreAML.Item := KoreAML.trAxiom [] [] ⟨0, "kernel", Faithful.assocAxK CommCtor.c CommCtor.orP⟩
+
+theorem comm_lawItems : (Faithful.lawItemsK CommCtor.c).map (·.pat) = [orAssocItem.pat] := by decide +kernel
+
+theorem comm_items :
+    (Faithful.consItemsK CommCtor.c).any (·.pat == orAssocItem.pat) = true ∧
+    (Faithful.consItemsK CommCtor.c).any (·.pat ==
+      (KoreAML.Cons.funItem "Exp" (Gen.toK CommCtor.c (.ctor ⟨CommCtor.xS, [], CommCtor.exp⟩))).pat) = true ∧
+    (Faithful.consItemsK CommCtor.c).any (·.pat ==
+      (KoreAML.Cons.funItem "Exp" (Gen.toK CommCtor.c (.ctor CommCtor.andP.sig))).pat) = false ∧
+    (Faithful.consItemsK CommCtor.c).any (·.pat ==
+      (KoreAML.Cons.funItem "Exp" (Gen.toK CommCtor.c (.ctor CommCtor.orP.sig))).pat) = false ∧
+    (Faithful.consItemsK CommCtor.c).any (·.pat ==
+      (KoreAML.Cons.noJunkItem "Exp" ((CommCtor.c.gens CommCtor.exp).map (Gen.toK CommCtor.c))).pat) = true ∧
+    (CommCtor.c.gens CommCtor.exp).length = 3 := by
+  decide +kernel
+
+/-- The item is the text's sentence 186 (its axiom 76, `AxiomDecl.index`), translated with the text's
+declarations. -/
+theorem comm_assoc_is_text :
+    (commKore.axiomDecls.find? (·.index == 76)).map (fun ad => (KoreAML.trAxiom commKore.symbolDecls
+      commKore.aliasNames ad).pat) = some orAssocItem.pat := by
+  decide +kernel
+
 end KCore.OpenGenSems

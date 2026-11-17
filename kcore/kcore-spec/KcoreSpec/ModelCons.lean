@@ -603,6 +603,20 @@ theorem inj_sing' (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortN
 
 /-! ## The pairs of generators -/
 
+/-- A pair of a filtered list is a pair of the list. -/
+theorem pairs_filter_sub {α : Type} {p : α → Bool} {x y : α} : ∀ {l : List α},
+    (x, y) ∈ pairs (l.filter p) → (x, y) ∈ pairs l
+  | [], hp => by simp [pairs] at hp
+  | a :: as, hp => by
+    rw [List.filter_cons] at hp
+    split at hp
+    · simp only [pairs, List.mem_append, List.mem_map, Prod.mk.injEq] at hp ⊢
+      rcases hp with ⟨y', hy', rfl, rfl⟩ | hp
+      · exact Or.inl ⟨y', (List.mem_filter.mp hy').1, rfl, rfl⟩
+      · exact Or.inr (pairs_filter_sub hp)
+    · simp only [pairs, List.mem_append]
+      exact Or.inr (pairs_filter_sub hp)
+
 theorem pairs_mem {α : Type} {x y : α} : ∀ {l : List α}, (x, y) ∈ pairs l → x ∈ l ∧ y ∈ l
   | [], hp => by simp [pairs] at hp
   | a :: as, hp => by
@@ -1732,6 +1746,10 @@ theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
   dsimp only at hit
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
+  · obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hit
+    simp [Semantics.params_raw_of_sortedOKCl h.sound.1 k hk] at hit
+  rcases List.mem_append.mp hit with hit | hit
+  rotate_left
   · obtain ⟨o, ho, hit⟩ := List.mem_flatMap.mp hit
     obtain ⟨kg, hkg, rfl⟩ := List.mem_map.mp hit
     exact sat_ovlEq h ho hkg
@@ -1742,12 +1760,12 @@ theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
       · rcases List.mem_append.mp hit with hit | hit
         · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
           obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hg'
-          exact sat_funItem h hN hg
+          exact sat_funItem h hN (List.mem_filter.mp hg).1
         · obtain ⟨g', hg', rfl⟩ := List.mem_map.mp hit
           obtain ⟨g, hg, rfl⟩ := List.mem_map.mp (List.mem_filter.mp hg').1
-          exact sat_injItem h hN hg
+          exact sat_injItem h hN (List.mem_filter.mp hg).1
       · obtain ⟨⟨g, g'⟩, hp, hit⟩ := List.mem_flatMap.mp hit
-        exact sat_pairItem h hN hp hit
+        exact sat_pairItem h hN (pairs_filter_sub hp) hit
     · split at hit
       · exact absurd hit List.not_mem_nil
       · rw [List.mem_singleton.mp hit]

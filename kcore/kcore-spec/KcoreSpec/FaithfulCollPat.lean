@@ -1985,7 +1985,7 @@ mutual
       rw [Term.kore, KoreAML.tr_injP, interp_injApp] at hm
       obtain ⟨x, hx, hm⟩ := hm
       have hxs := patSortC hp ht' x hx
-      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gens_inj hab) (xs := [x]) rfl (single_sorts hxs)
+      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) (xs := [x]) rfl (single_sorts hxs)
       rw [(hys m).mp hm]; exact hy
     | .as p i, s, hp, ht, m, hm => by
       obtain ⟨-, ht'⟩ := Exec.sortOfTerm_as ht

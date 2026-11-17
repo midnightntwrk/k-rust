@@ -132,11 +132,43 @@ def _root_.KCore.Semantics.distGuarded (c : Semantics) : Gen → Gen → Bool
   | .inj _, .ctor k' => c.isOvl k'.name
   | .inj _, .inj _ => false
 
-/-- The constructors' items, over `consSorts`: per sort, each generator's functionality and
-injectivity, the distinctness of each pair (Cons-Dist for constructors and for injections without a
+/-- The associativity sentence the text writes for the open generator `k` (`[assoc]`):
+`axiom{R} \equals{S, R}(f(f(K1, K2), K3), f(K1, f(K2, K3)))`, S its result sort. -/
+def assocAxK (c : Semantics) (k : ParamSig) : Kore.Axiom :=
+  let f := c.symName k.sig.name
+  let s := KoreAML.srt (c.sortName k.sig.result)
+  let K1 := KoreAML.ev "K1" s
+  let K2 := KoreAML.ev "K2" s
+  let K3 := KoreAML.ev "K3" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s R (KoreAML.ap f [KoreAML.ap f [K1, K2], K3]) (KoreAML.ap f [K1, KoreAML.ap f [K2, K3]])
+    attributes := [] }
+
+/-- The idempotence sentence the text writes for the open generator `k` (`[idem]`):
+`axiom{R} \equals{S, R}(f(K, K), K)`, S its result sort. -/
+def idemAxK (c : Semantics) (k : ParamSig) : Kore.Axiom :=
+  let s := KoreAML.srt (c.sortName k.sig.result)
+  let K := KoreAML.ev "K" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s R (KoreAML.ap (c.symName k.sig.name) [K, K]) K
+    attributes := [] }
+
+/-- The law sentences the text writes for its open generators, each translated as written
+(`trAxiom`): the associativity sentence of each `raw`, `assoc` parameter and the idempotence
+sentence of each `raw`, `idem` one. -/
+def lawItemsK (c : Semantics) : List KoreAML.Item :=
+  c.params.flatMap fun k => if k.raw then
+    (if k.assoc then [KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩] else []) ++
+    (if k.idem then [KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩] else [])
+  else []
+
+/-- The constructors' items, over `consSorts`: per sort, the functionality and injectivity of each
+generator that is no open generator (`isOpenGen`: the text states neither of an open generator),
+the distinctness of each pair of those (Cons-Dist for constructors and for injections without a
 common lower bound, Cons-Dist′ with one, `distLbItem`; none for comparable injections; at uncovered
-arguments for a pair `distGuarded` names), and no-junk; then the coherence triangles of every chain
-of `subsorts` (which holds the closure of the declared pairs), and each overload equation. -/
+arguments for a pair `distGuarded` names), and no-junk over every generator; then the coherence
+triangles of every chain of `subsorts` (which holds the closure of the declared pairs), each
+overload equation, and the law sentences of the open generators (`lawItemsK`). -/
 def consItemsK (c : Semantics) : List KoreAML.Item :=
   let n := c.sortName
   let ovlArgs := fun (g : Gen) => match g with
@@ -145,9 +177,10 @@ def consItemsK (c : Semantics) : List KoreAML.Item :=
     | .inj _ => none
   let perSort := (consSorts c).flatMap fun N =>
     let gs := c.gens N
-    (gs.map (Gen.toK c)).map (KoreAML.Cons.funItem (n N)) ++
-    ((gs.map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (n N)) ++
-    (pairs gs).flatMap (fun (g, g') => match g, g' with
+    let fr := gs.filter (!c.isOpenGen ·)
+    (fr.map (Gen.toK c)).map (KoreAML.Cons.funItem (n N)) ++
+    ((fr.map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (n N)) ++
+    (pairs fr).flatMap (fun (g, g') => match g, g' with
       | .inj a, .inj b =>
         if c.le a b || c.le b a then []
         else match c.lowerBounds a b with
@@ -161,7 +194,7 @@ def consItemsK (c : Semantics) : List KoreAML.Item :=
   let coh := c.subsorts.flatMap fun (a, b) =>
     (c.subsorts.filter (·.1 == b)).map fun (_, e) => KoreAML.Cons.cohItem (n a) (n b) (n e)
   let ovlEqs := c.ovls.flatMap fun o => (c.ovlOver o).map fun kg => KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)
-  perSort ++ coh ++ ovlEqs
+  perSort ++ coh ++ ovlEqs ++ lawItemsK c
 
 /-- **The constructors.** Per constructor sort, each generator is a total function, injective, and
 apart from the others, and the sort holds nothing but what its generators build where it has a

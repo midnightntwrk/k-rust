@@ -239,7 +239,7 @@ theorem injApp_congr {e e' : Valuation M} {A B : String} {φ φ' : KoreAML.P}
 theorem coh_mem {a' a b : Srt} (h1 : (a', a) ∈ c.subsorts) (h2 : (a, b) ∈ c.subsorts) :
     KoreAML.Cons.cohItem (c.sortName a') (c.sortName a) (c.sortName b) ∈ consItemsK c := by
   unfold consItemsK
-  refine List.mem_append_left _ (List.mem_append_right _ (List.mem_flatMap.mpr ⟨(a', a), h1, ?_⟩))
+  refine List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_flatMap.mpr ⟨(a', a), h1, ?_⟩)))
   exact List.mem_map.mpr ⟨(a, b), List.mem_filter.mpr ⟨h2, beq_iff_eq.mpr rfl⟩, rfl⟩
 
 /-- Coherence of injections in a model of `Γ`: `inj{A,B}(inj{A',A}(x)) = inj{A',B}(x)` for an

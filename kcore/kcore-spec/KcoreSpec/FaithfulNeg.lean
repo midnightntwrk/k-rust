@@ -645,10 +645,14 @@ theorem gens_inj {a b : Srt} (h : (a, b) ∈ c.subsorts) : Gen.inj a ∈ c.gens 
   refine List.mem_append_right _ (List.mem_map.mpr ⟨a, (mem_sortBy id a _).mpr ?_, rfl⟩)
   exact List.mem_map.mpr ⟨(a, b), List.mem_filter.mpr ⟨h, by simp⟩, rfl⟩
 
+/-- An injection is no open generator: `consItemsK` writes its items. -/
+theorem gensF_inj {a b : Srt} (h : (a, b) ∈ c.subsorts) : Gen.inj a ∈ (c.gens b).filter (!c.isOpenGen ·) :=
+  List.mem_filter.mpr ⟨gens_inj h, rfl⟩
+
 theorem perSort_mem {N : Srt} (hN : N ∈ consSorts c) {it : KoreAML.Item}
-    (h : it ∈ ((c.gens N).map (Gen.toK c)).map (KoreAML.Cons.funItem (c.sortName N)) ∨
-      it ∈ (((c.gens N).map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (c.sortName N)) ∨
-      it ∈ (pairs (c.gens N)).flatMap (fun (g, g') => match g, g' with
+    (h : it ∈ (((c.gens N).filter (!c.isOpenGen ·)).map (Gen.toK c)).map (KoreAML.Cons.funItem (c.sortName N)) ∨
+      it ∈ ((((c.gens N).filter (!c.isOpenGen ·)).map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (c.sortName N)) ∨
+      it ∈ (pairs ((c.gens N).filter (!c.isOpenGen ·))).flatMap (fun (g, g') => match g, g' with
         | .inj a, .inj b =>
           if c.le a b || c.le b a then []
           else match c.lowerBounds a b with
@@ -668,20 +672,21 @@ theorem perSort_mem {N : Srt} (hN : N ∈ consSorts c) {it : KoreAML.Item}
           else [KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')])) :
     it ∈ consItemsK c := by
   unfold consItemsK
-  refine List.mem_append_left _ (List.mem_append_left _ (List.mem_flatMap.mpr ⟨N, hN, ?_⟩))
+  refine List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_flatMap.mpr ⟨N, hN, ?_⟩)))
   rcases h with h | h | h
   · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ h))
   · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ h))
   · exact List.mem_append_left _ (List.mem_append_right _ h)
 
-theorem funItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N) :
+theorem funItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g) ∈ consItemsK c :=
   perSort_mem hN (Or.inl (List.mem_map.mpr ⟨_, List.mem_map.mpr ⟨g, hg, rfl⟩, rfl⟩))
 
 theorem toK_argSorts (g : Gen) : (Gen.toK c g).argSorts = g.argSorts.map c.sortName := by
   cases g <;> rfl
 
-theorem injItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N) (hne : g.argSorts ≠ []) :
+theorem injItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hne : g.argSorts ≠ []) :
     KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g) ∈ consItemsK c := by
   refine perSort_mem hN (Or.inr (Or.inl (List.mem_map.mpr ⟨_, List.mem_filter.mpr ⟨List.mem_map.mpr ⟨g, hg, rfl⟩, ?_⟩, rfl⟩)))
   rw [toK_argSorts]
@@ -690,7 +695,8 @@ theorem injItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.g
   | cons _ _ => rfl
 
 /-- Two generators of a constructor sort, not both injections, are apart in `Γ` (Cons-Dist). -/
-theorem distItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N))
+theorem distItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
+    (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hni : ∀ a b, g = .inj a → g' = .inj b → False) (hgd : c.distGuarded g g' = false) :
     KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') ∈ consItemsK c := by
   refine perSort_mem hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨(g, g'), hp, ?_⟩)))
@@ -711,7 +717,8 @@ def ovlArgsOf (c : Semantics) : Gen → Option (List (List String))
 
 /-- Two generators of a constructor sort, not both injections, that `distGuarded` names are apart
 in `Γ` at uncovered arguments (Cons-Dist at uncovered arguments). -/
-theorem distUncItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N))
+theorem distUncItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
+    (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hni : ∀ a b, g = .inj a → g' = .inj b → False) (hgd : c.distGuarded g g' = true) :
     KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g) (ovlArgsOf c g') ∈
       consItemsK c := by
@@ -726,7 +733,8 @@ theorem distUncItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hp : (g
 
 /-- Two injections from incomparable sorts into a constructor sort: Cons-Dist without a common
 lower bound, Cons-Dist′ with one. -/
-theorem injPair_mem {N : Srt} (hN : N ∈ consSorts c) {a b : Srt} (hp : (Gen.inj a, Gen.inj b) ∈ pairs (c.gens N))
+theorem injPair_mem {N : Srt} (hN : N ∈ consSorts c) {a b : Srt}
+    (hp : (Gen.inj a, Gen.inj b) ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hab : (c.le a b || c.le b a) = false) :
     (c.lowerBounds a b = [] ∧ KoreAML.Cons.distItem (c.sortName N) (.inj (c.sortName a)) (.inj (c.sortName b)) ∈ consItemsK c) ∨
     (c.lowerBounds a b ≠ [] ∧
@@ -824,6 +832,28 @@ theorem genWf_flat_sub {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) 
 theorem genWf_flat_name {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
     (∀ g ∈ c.ctorSigs, g.name ≠ k.sig.name) ∧ (∀ g ∈ c.ovlSigs, g.name ≠ k.sig.name) :=
   ⟨fun g hgm => ((genWf_flat_parts hg hk hr).1 g hgm).1, fun g hgm => ((genWf_flat_parts hg hk hr).2.1 g hgm).1⟩
+
+/-- A constructor is no open generator. -/
+theorem isOpenGen_ctor {k : CtorSig} (hk : k ∈ c.ctorSigs) : c.isOpenGen (.ctor k) = false := by
+  cases ho : c.lookupOpen k.name with
+  | none => simp [Semantics.isOpenGen, ho]
+  | some p =>
+    obtain ⟨hp, hr, hn, -⟩ := c.lookupOpen_spec ho
+    exact absurd hn.symm ((genWf_flat_name hg hp hr).1 k hk)
+
+/-- An overloading symbol is no open generator. -/
+theorem isOpenGen_ovl {k : CtorSig} (hk : k ∈ c.ovlSigs) : c.isOpenGen (.ctor k) = false := by
+  cases ho : c.lookupOpen k.name with
+  | none => simp [Semantics.isOpenGen, ho]
+  | some p =>
+    obtain ⟨hp, hr, hn, -⟩ := c.lookupOpen_spec ho
+    exact absurd hn.symm ((genWf_flat_name hg hp hr).2 k hk)
+
+theorem gensF_ctor {k : CtorSig} (hk : k ∈ c.ctorSigs) : Gen.ctor k ∈ (c.gens k.result).filter (!c.isOpenGen ·) :=
+  List.mem_filter.mpr ⟨gens_ctor hk, by simp [isOpenGen_ctor hg hk]⟩
+
+theorem gensF_of_ovl {o : OvlSig} (ho : o ∈ c.ovls) : Gen.ctor o.sig ∈ (c.gens o.sig.result).filter (!c.isOpenGen ·) :=
+  List.mem_filter.mpr ⟨gens_of_ovl ho, by simp [isOpenGen_ovl hg (List.mem_map_of_mem (f := (·.sig)) ho)]⟩
 
 omit hg in
 /-- KConfigVar is `apartSort`: it is among `distinctSorts`. -/
@@ -969,7 +999,8 @@ theorem den_inj_gs {a b : Srt} {w : GroundTerm} (hw : c.sortOf w = some a) (e : 
   · intro hm; exact ⟨_, ((elemOf_spec hI hw e).1 _).mpr rfl, hm⟩
 
 /-- Cons-Fun for a generator of a constructor sort, read in a model of `Γ`. -/
-theorem gen_fun {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ c.gens N) {xs : List M}
+theorem gen_fun {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+    {xs : List M}
     (hl : xs.length = (g.argSorts.map c.sortName).length)
     (hxs : ∀ (i : Nat) x s, xs[i]? = some x → (g.argSorts.map c.sortName)[i]? = some s → InS I s x) :
     ∃ y, InS I (c.sortName N) y ∧ ∀ m, GS I (c.sortName N) (Gen.toK c g) xs m ↔ m = y :=
@@ -977,7 +1008,8 @@ theorem gen_fun {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ c.gens
     (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
 
 /-- Cons-Inj for a generator of a constructor sort with arguments, read in a model of `Γ`. -/
-theorem gen_inj {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ c.gens N) (hne : g.argSorts ≠ [])
+theorem gen_inj {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hne : g.argSorts ≠ [])
     {xs ys : List M} (hl : xs.length = (g.argSorts.map c.sortName).length)
     (hl' : ys.length = (g.argSorts.map c.sortName).length)
     (hxs : ∀ (i : Nat) x s, xs[i]? = some x → (g.argSorts.map c.sortName)[i]? = some s → InS I s x)
@@ -990,7 +1022,8 @@ theorem gen_inj {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ c.gens
 
 /-- Cons-Dist for two generators of a constructor sort, not both injections, read in a model of
 `Γ`: they build no element in common from arguments of their sorts. -/
-theorem gen_dist {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ c.gens N) (hgm' : g' ∈ c.gens N)
+theorem gen_dist {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hgm' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : g ≠ g') (hni : ∀ a b, g = .inj a → g' = .inj b → False)
     (hgd : c.distGuarded g g' = false) (hgd' : c.distGuarded g' g = false)
     {xs ys : List M} (hl : xs.length = (g.argSorts.map c.sortName).length)
@@ -1020,7 +1053,8 @@ theorem distGuarded_symm (g g' : Gen) : c.distGuarded g g' = c.distGuarded g' g 
 /-- Cons-Dist for two generators of a constructor sort, not both injections, read in a model of
 `Γ`, guarded or not: they build no element in common from arguments of their sorts that, for each
 overloading generator among them, no overload covers in the model (`UncE`). -/
-theorem gen_dist' {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ c.gens N) (hgm' : g' ∈ c.gens N)
+theorem gen_dist' {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+    (hgm' : g' ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : g ≠ g') (hni : ∀ a b, g = .inj a → g' = .inj b → False)
     {xs ys : List M} (hl : xs.length = (g.argSorts.map c.sortName).length)
     (hl' : ys.length = (g'.argSorts.map c.sortName).length)
@@ -1457,7 +1491,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
     ∃ w', c.sortOf w' = some a ∧ w = injNormal a s w' ∧ b = elemOf c I w'
   | .inj a0 s' w0, a, s, has, hsw, b, hb, hm => by
     have hN := (genWf_sub hg has).1
-    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
+    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gensF_inj has) (xs := [b]) rfl (single_sorts hb)
     have hset : ∀ m, GS I (c.sortName s) (.inj (c.sortName a)) [b] m ↔ m = elemOf c I (.inj a0 s' w0) :=
       fun m => by rw [show (.inj (c.sortName a) : KoreAML.Gen) = Gen.toK c (.inj a) from rfl, hy, ((hy _).mp hm)]
     obtain ⟨has0, hni, hw0, rfl⟩ := sortOf_inj.mp hsw
@@ -1466,7 +1500,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
       fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
     by_cases h0 : a0 = a
     · subst h0
-      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
+      have := gen_inj hI hN (gensF_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
         (single_sorts hb) (single_sorts hx0) (fun m => by
           show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
           rw [hset, hvset])
@@ -1476,7 +1510,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
       have hy1 : ∀ m, GS I (c.sortName a) (.inj (c.sortName a0)) [elemOf c I w0] m ↔ m = elemOf c I (.inj a0 a w0) :=
         fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hw' KoreAML.val0).1 m
       have hc := coh_gs hI h1 has hx0 hy1
-      have := gen_inj hI hN (gens_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I (.inj a0 a w0)]) rfl rfl
+      have := gen_inj hI hN (gensF_inj has) (by simp [Gen.argSorts]) (xs := [b]) (ys := [elemOf c I (.inj a0 a w0)]) rfl rfl
         (single_sorts hb) (single_sorts ((inS_iff _).mp (elemOf_spec hI hw' KoreAML.val0).2)) (fun m => by
           show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
           rw [hset, hc, hvset])
@@ -1484,9 +1518,9 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
     by_cases h2 : (a, a0) ∈ c.subsorts
     · exfalso
       have hN0 := (genWf_sub hg h2).1
-      obtain ⟨y2, hy2s, hy2⟩ := gen_fun hI hN0 (gens_inj h2) (xs := [b]) rfl (single_sorts hb)
+      obtain ⟨y2, hy2s, hy2⟩ := gen_fun hI hN0 (gensF_inj h2) (xs := [b]) rfl (single_sorts hb)
       have hc := coh_gs hI h2 has0 hb hy2
-      have := gen_inj hI hN (gens_inj has0) (by simp [Gen.argSorts]) (xs := [y2]) (ys := [elemOf c I w0]) rfl rfl
+      have := gen_inj hI hN (gensF_inj has0) (by simp [Gen.argSorts]) (xs := [y2]) (ys := [elemOf c I w0]) rfl rfl
         (single_sorts hy2s) (single_sorts hx0) (fun m => by
           show GS I _ (.inj _) _ m ↔ GS I _ (.inj _) _ m
           rw [hc, hset, hvset])
@@ -1509,7 +1543,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
         obtain ⟨w'', -, hw'', -⟩ := inj_back htr w0 hC hw0 hz (by rw [hzs])
         have := injNormal_isInj C a0 w''
         rw [← hw''] at this; rw [hni] at this; cases this
-      rcases mem_pairs_of (fun h => h0 (by cases h; rfl)) (gens_inj has0) (gens_inj has) with hp | hp
+      rcases mem_pairs_of (fun h => h0 (by cases h; rfl)) (gensF_inj has0) (gensF_inj has) with hp | hp
       · rcases injPair_mem hN hp hle with ⟨-, hit⟩ | ⟨-, hit⟩
         · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [elemOf c I w0]) (ys := [b]) rfl rfl
             (single_sorts hx0) (single_sorts hb) hseq
@@ -1526,7 +1560,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
   | .ctor g ws, a, s, has, hsw, b, hb, hm => by
     exfalso
     have hN := (genWf_sub hg has).1
-    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gens_inj has) (xs := [b]) rfl (single_sorts hb)
+    obtain ⟨y, -, hy⟩ := gen_fun hI hN (gensF_inj has) (xs := [b]) rfl (single_sorts hb)
     have hset : ∀ m, GS I (c.sortName s) (Gen.toK c (.inj a)) [b] m ↔ m = elemOf c I (.ctor g ws) :=
       fun m => by rw [hy, ((hy _).mp hm)]
     rcases sortOf_ctor_cases hg hsw with ⟨kg, hkg, hws, hres⟩ | ⟨o, hlo, -, hws, hu, hres, -⟩ |
@@ -1540,7 +1574,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
       have hvset : ∀ m, GS I (c.sortName s) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
           m = elemOf c I (.ctor g ws) := fun m => by
         rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
-      exact gen_dist' hI hN (gens_inj has) (by rw [hres]; exact gens_of_ovl hom) (fun h => by cases h)
+      exact gen_dist' hI hN (gensF_inj has) (by rw [hres]; exact gensF_of_ovl hg hom) (fun h => by cases h)
         (fun _ _ _ h => by cases h) rfl (elems_length hI hws) (single_sorts hb) (elems_sorts hI hws)
         (fun covs h => by simp [ovlArgsOf] at h)
         (uncE_of_value hI hg htr hlo hws hu fun u hu' A B hAB hsu y hy hmy => by
@@ -1553,7 +1587,7 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
         m = elemOf c I (.ctor g ws) := fun m => by
       rw [← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact (elemOf_spec hI hsw KoreAML.val0).1 m
     rw [← hres] at hvset
-    exact gen_dist hI hN (gens_inj has) (by rw [hres]; exact gens_ctor hkgm) (fun h => by cases h)
+    exact gen_dist hI hN (gensF_inj has) (by rw [hres]; exact gensF_ctor hg hkgm) (fun h => by cases h)
       (fun _ _ _ h => by cases h)
       (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkgm))
       (distGuarded_ctorSigs (fun _ h => by cases h; exact hkgm) (fun _ h => by cases h)) rfl (elems_length hI hws) (single_sorts hb)
@@ -1586,7 +1620,7 @@ theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subso
     ∃ ws, w = .ctor f ws ∧ c.sortsOf ws = some k.args ∧ bs = ws.map (elemOf c I) := by
   obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
   have hN := genWf_ctor hg hkm
-  have hgk := gens_ctor hkm
+  have hgk := gensF_ctor hg hkm
   obtain ⟨y, -, hy⟩ := gen_fun hI hN hgk hbl hbs
   have hyw : y = elemOf c I w := ((hy _).mp hm).symm
   have hset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor k)) bs m ↔ m = elemOf c I w := fun m => by
@@ -1622,7 +1656,7 @@ theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subso
       have hvset : ∀ m, GS I (c.sortName k.result) (Gen.toK c (.ctor o.sig)) (ws.map (elemOf c I)) m ↔
           m = elemOf c I (.ctor g ws) := fun m => by
         rw [hres, ← den_sig_gs hI hn hws KoreAML.val0 m]; exact hwe m
-      exact gen_dist' hI hN hgk (by rw [hres]; exact gens_of_ovl hom)
+      exact gen_dist' hI hN hgk (by rw [hres]; exact gensF_of_ovl hg hom)
         (fun h => by cases h; exact hgf (hn.symm.trans hkn))
         (fun _ _ h _ => by cases h) hbl (elems_length hI hws) hbs (elems_sorts hI hws)
         (fun covs h => by simp [ovlArgsOf, isOvl_of_ctorSigs hkm] at h)
@@ -1645,7 +1679,7 @@ theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subso
       · exact gen_inj hI hN hgk hne hbl (elems_length hI hws) hbs (elems_sorts hI hws)
           (fun m => by rw [hset, hvset])
     · exfalso
-      have hgm' : Gen.ctor kg ∈ c.gens k.result := by rw [hres]; exact gens_ctor hkgm
+      have hgm' : Gen.ctor kg ∈ (c.gens k.result).filter (!c.isOpenGen ·) := by rw [hres]; exact gensF_ctor hg hkgm
       exact gen_dist hI hN hgk hgm' (fun h => by cases h; exact hgf (hkgn.symm.trans hkn))
         (fun _ _ h _ => by cases h)
         (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h; exact hkgm))
@@ -1657,7 +1691,7 @@ theorem ctor_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subso
     have hvset : ∀ m, GS I (c.sortName k.result) (.inj (c.sortName a)) [elemOf c I w0] m ↔
         m = elemOf c I (.inj a k.result w0) :=
       fun m => by rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact hwe m
-    exact gen_dist hI hN hgk (gens_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h)
+    exact gen_dist hI hN hgk (gensF_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h)
       (distGuarded_ctorSigs (fun _ h => by cases h; exact hkm) (fun _ h => by cases h))
       (distGuarded_ctorSigs (fun _ h => by cases h) (fun _ h => by cases h; exact hkm)) (ys := [elemOf c I w0])
       hbl rfl hbs (single_sorts ((inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2))
@@ -1833,7 +1867,7 @@ mutual
       rw [Term.kore, KoreAML.tr_injP, interp_injApp] at hm
       obtain ⟨x, hx, hm⟩ := hm
       have hxs := patSort hp ht' x hx
-      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gens_inj hab) (xs := [x]) rfl (single_sorts hxs)
+      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) (xs := [x]) rfl (single_sorts hxs)
       rw [(hys m).mp hm]; exact hy
     | .as p i, s, hp, ht, m, hm => by
       obtain ⟨-, ht'⟩ := Exec.sortOfTerm_as ht
@@ -2396,7 +2430,7 @@ theorem ovlEq_at (hD : DefOK I) {N N' : String} {F G : KoreAML.CtorSig} (h : I �
 theorem ovlEqItem_mem {o : OvlSig} {kg : CtorSig} (ho : o ∈ c.ovls) (hkg : kg ∈ c.ovlOver o) :
     KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg) ∈ consItemsK c := by
   unfold consItemsK
-  exact List.mem_append_right _ (List.mem_flatMap.mpr ⟨o, ho, List.mem_map.mpr ⟨kg, hkg, rfl⟩⟩)
+  exact List.mem_append_left _ (List.mem_append_right _ (List.mem_flatMap.mpr ⟨o, ho, List.mem_map.mpr ⟨kg, hkg, rfl⟩⟩))
 
 variable (hI : I ⊧ᴵP Γ c) [hO : OvlOK c]
   (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
@@ -2565,7 +2599,7 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
     have hko : k = o.sig := OvlLaws.knownSig_inj hk hks hn.symm
     subst hko
     obtain ⟨hom, -, -, -, hN⟩ := OvlLaws.ovl_parts H.ok ho
-    have hgo : Gen.ctor o.sig ∈ c.gens o.sig.result := gens_of_ovl hom
+    have hgo : Gen.ctor o.sig ∈ (c.gens o.sig.result).filter (!c.isOpenGen ·) := gensF_of_ovl hg hom
     obtain ⟨y, -, hy⟩ := gen_fun hI hN hgo hbl hbs
     have hyw : y = elemOf c I w := ((hy _).mp hm).symm
     have hset : ∀ m, GS I (c.sortName o.sig.result) (Gen.toK c (.ctor o.sig)) bs m ↔ m = elemOf c I w :=
@@ -2626,7 +2660,7 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
               (List.mem_cons_of_mem _ (List.mem_of_getElem? hBi)) hAB
             simp only [beq_iff_eq, hn', ↓reduceIte]
             have hsub := hsubAt i Ai Bi hAi hBi hAB
-            obtain ⟨y', -, hy'⟩ := gen_fun hI (genWf_sub hg hsub).1 (gens_inj hsub) (xs := [z]) rfl (single_sorts hzA)
+            obtain ⟨y', -, hy'⟩ := gen_fun hI (genWf_sub hg hsub).1 (gensF_inj hsub) (xs := [z]) rfl (single_sorts hzA)
             have : y' = b := ((hy' b).mp (hne hAB)).symm
             subst this
             exact hy' m') (elemOf c I w)
@@ -2637,11 +2671,11 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
         · exact genWf_ctor hg h
         · obtain ⟨o', ho', rfl⟩ := List.mem_map.mp h
           exact (OvlLaws.ovl_parts H.ok (OvlLaws.lookupOvl_of_mem H ho')).2.2.2.2
-      have hgkg : Gen.ctor kg ∈ c.gens kg.result := by
+      have hgkg : Gen.ctor kg ∈ (c.gens kg.result).filter (!c.isOpenGen ·) := by
         rcases OvlLaws.knownSig_mem hkk with h | h
-        · exact gens_ctor h
+        · exact gensF_ctor hg h
         · obtain ⟨o', ho', rfl⟩ := List.mem_map.mp h
-          exact gens_of_ovl ho'
+          exact gensF_of_ovl hg ho'
       have hzl' : zs.length = (kg.args.map c.sortName).length := by simp [hzl, hbl', hlen]
       obtain ⟨w0, hw0, hww, us, hus, hzu, hnu⟩ : ∃ w0, c.sortOf w0 = some kg.result ∧
           w = lift kg.result o.sig.result w0 ∧ ∃ us, c.sortsOf us = some kg.args ∧ zs = us.map (elemOf c I) ∧
@@ -2726,7 +2760,7 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
               m = elemOf c I (.ctor g ws) := fun m => by
             rw [hres, ← den_ctor_gs hI hkg hws KoreAML.val0 m]; exact (elemOf_spec hI hw KoreAML.val0).1 m
           rw [lookupSig_eq] at hct
-          exact gen_dist' hI hN hgo (by rw [hres]; exact gens_ctor hkgm)
+          exact gen_dist' hI hN hgo (by rw [hres]; exact gensF_ctor hg hkgm)
             (fun h => by injection h with h; subst h; exact absurd (List.find?_eq_none.mp hct _ hkgm) (by simp))
             (fun _ _ h _ => by cases h) hbl (elems_length hI hws) hbs (elems_sorts hI hws) hU
             (fun covs h => by simp [ovlArgsOf, isOvl_of_ctorSigs hkgm] at h) (fun m => by rw [hset, hvset])
@@ -2749,7 +2783,7 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
             have hvset : ∀ m, GS I (c.sortName o.sig.result) (Gen.toK c (.ctor o'.sig)) (ws.map (elemOf c I)) m ↔
                 m = elemOf c I (.ctor g ws) := fun m => by
               rw [hres, ← den_sig_gs hI hn' hws KoreAML.val0 m]; exact (elemOf_spec hI hw KoreAML.val0).1 m
-            exact gen_dist' hI hN hgo (by rw [hres]; exact gens_of_ovl hom')
+            exact gen_dist' hI hN hgo (by rw [hres]; exact gensF_of_ovl hg hom')
               (fun h => by injection h with h; exact hgf (by rw [← hn', ← h]))
               (fun _ _ h _ => by cases h) hbl (elems_length hI hws) hbs (elems_sorts hI hws) hU
               (uncE_of_value hI hg htr hlo' hws hu fun u _ => hback u) (fun m => by rw [hset, hvset])
@@ -2759,7 +2793,7 @@ theorem ovl_back (hg : genWf c = true) : ∀ (n : Nat) (k : CtorSig), OvlLaws.Kn
         have hvset : ∀ m, GS I (c.sortName o.sig.result) (.inj (c.sortName a)) [elemOf c I w0] m ↔
             m = elemOf c I (.inj a o.sig.result w0) := fun m => by
           rw [← den_inj_gs hI hw0 KoreAML.val0 m]; exact (elemOf_spec hI hw KoreAML.val0).1 m
-        exact gen_dist' hI hN hgo (gens_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h) hbl rfl hbs
+        exact gen_dist' hI hN hgo (gensF_inj hab) (fun h => by cases h) (fun _ _ h _ => by cases h) hbl rfl hbs
           (single_sorts ((inS_iff _).mp (elemOf_spec hI hw0 KoreAML.val0).2)) hU
           (fun covs h => by simp [ovlArgsOf] at h) (fun m => by rw [hset]; exact (hvset m).symm)
 
