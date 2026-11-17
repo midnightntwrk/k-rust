@@ -286,16 +286,18 @@ example (hd : FnDet c2) (hs : FnSolves c2) : True := by
 /-! ## Consistency over `Γc`: `consistent_open` -/
 
 /-- `consistent_open` at the text's semantics and at `c2`, for every `FnDet` and `FnSolves`, the
-rules' facts from `HypModelCore` (`ruleSorted`, `rulePlainEx`) with no rule having an existential
+rules' facts from `HypModelCore` and their `\top` predicates (`ruleSorted`, `rulePlainEx`) with no rule having an existential
 variable (decided). Neither has an open rule; `test/OpenRulesCore.lean` instantiates it at `cO`,
 which has. -/
 example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : Consistent c ∧ Consistent c2 := by
   have hex : ∀ r ∈ c.rules, r.exs = [] := by decide +kernel
   have hex2 : ∀ r ∈ c2.rules, r.exs = [] := by decide +kernel
-  exact ⟨consistent_open c coreOK hd hs (openLaws_of_plain (by decide +kernel)) fun _ hr => ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK hd hs).ruleFactsEx hr).2, hex _ hr⟩⟩,
-    consistent_open c2 coreOK2 hd2 hs2 (openLaws_of_plain (by decide +kernel)) fun _ hr => ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨((hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx hr).2, hex2 _ hr⟩⟩⟩
+  have hf := (hypModel_of_fn coreOK hd hs).ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel))
+  have hf2 := (hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx_of_top (Semantics.rulesTop_of_isTop (by decide +kernel))
+  exact ⟨consistent_open c coreOK hd hs (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf r hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf r hr).2, hex r hr⟩⟩,
+    consistent_open c2 coreOK2 hd2 hs2 (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf2 r hr).1,
+      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf2 r hr).2, hex2 r hr⟩⟩⟩
 
 /-! ## A successor in two cases: `successor_split_rule`, `step_successor_open` -/
 

@@ -55,6 +55,15 @@ def predFaults (S : Scan) (E : Env) : List Fault :=
     | .error _ => []
   | _, _ => []
 
+/-- Every sentence of the counter's getter and of the cell tree's initializers that the reader
+refuses (`initFaults`), where the productions, the rules and the core are read. -/
+def initContentFaults (m : Kore.Module) (S : Scan) (E : Env) : List Fault :=
+  match (prodSyms S E).mapM (symProd E S.eqs), S.rewrites.mapM (ruleOf E.N E.src) with
+  | .ok sp, .ok rules => match coreOf S E (prodsOf S E sp) rules with
+    | .ok core => initFaults E.N E.src m.sentences S.eqs (functionalSyms S.events) core (Cell.top E.config)
+    | .error _ => []
+  | _, _ => []
+
 /-- Every refusal of the text: the prelude's, each sentence `classify` refuses, and the stages'
 on the sentences read: the names, then each production and each rule (all of them), then the
 assembly when those pass. -/
@@ -87,7 +96,10 @@ def refusals (k : Kore.Definition) : List Refusal :=
             | .unheldVariable, us@(_ :: _), _ => us.map toR
             -- every equation `coreOf` refuses by `predEqnFaults`, not only the first
             | _, _, ps@(p :: _) => if p.reason == f.reason && p.detail == f.detail then ps.map toR else [toR f]
-            | _, _, _ => [toR f]
+            -- every sentence `presOf` refuses by `initFaults`, not only the first
+            | _, _, _ => match initContentFaults m S E with
+              | is@(p :: _) => if p.reason == f.reason && p.detail == f.detail then is.map toR else [toR f]
+              | [] => [toR f]
           | .ok _ => []
         else ps ++ rs
     pre ++ cls ++ stages
@@ -139,8 +151,8 @@ as `S`, named as `E`) accounts for:
 - a symbol-overload axiom of an overloading symbol is one of `d`'s overloads (`Semantics.ovls`: the
   symbol, and the symbol it overloads among its `over`), which `Γ` states (`KoreAML.Cons.ovlEqItem`);
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
-  one), or the first equation of a cell's initializer or of `getGeneratedCounterCell`, whose ids
-  and values `d`'s presentation holds; or an equation of a sort predicate `isX` that is a clause
+  one), or the equation of `getGeneratedCounterCell` or of a cell's initializer, each no symbol of
+  `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
   of that predicate (which KCore defines from the sort order), or of a sort's projection that `d`
   does not read (`predProjOK?`; a projection a sentence applies is a function of `d` with its
   equation, `Presentation.libProjs`); or, generated (without a user source), a constructor
@@ -148,15 +160,18 @@ as `S`, named as `E`) accounts for:
   (`kconfigOwnSentence`); any other generated equation is refused
   (`RefusalReason.generatedEquation`);
 - a `functional` axiom is a constructor's (its place among the productions), a cell
-  initializer's, a projection's (none is declared total, and a projection applied is a function
+  initializer's whose equation's right side has exactly one value (`initFunctionalOK`), a projection's (none is declared total, and a projection applied is a function
   with its equation or, without one, a parameter), or a function's of `d` that `d` reads total: one of
   its own declared `total` (`Fn.total`, whose totality is decided or an obligation) or one of the
   registry's; or a parameter's: the registry's, or one of `d`'s own declared `total`
-  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`);
+  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`), an
+  open generator's not among them (`Definition.totalParams` leaves it out);
 - a `subsort` axiom is one of `d`'s subsorts or one of the library's below a sort of `d` (its
   place, `eventOf`), one of the library's (`Lib.subsorts`) or of the cells' (`cellSubsorts`), or
   a sort of `d` below KItem, as every sort is in KCore;
-- KItem's no-junk axiom gives the presentation's place of the fixed constructors. -/
+- KItem's no-junk axiom gives the presentation's place of the fixed constructors; a sort of `d`
+  below KItem that it does not list is read below KItem all the same (`ReadingNote.tokKItem`,
+  listed by `tokKItemOmitted`). -/
 def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence) : Bool :=
   let c := d.sem
   let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
@@ -164,26 +179,21 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   let sortOfName := fun (n : String) => (dropPrefix? "Sort" n).getD n
   let cells := Cell.all d.pres.topCell
   let initLabels := cells.map (·.initLabel c)
-  let uidLabels := ["LblgetGeneratedCounterCell"]
+  -- the cell whose initializer `f` is, where that is no symbol of the registry or of `d`
+  let initCell := fun (f : String) => if symOfDefn c f then none else cells.find? (·.initLabel c == f)
   let fnLabels := c.fns.map fun f => c.symName f.label
   -- `project:X` and a named argument's `project:#c:x` (`Lblproject'ColnHash'…`)
   let isProj := fun (f : String) => (dropPrefix? "Lblproject'Coln" f).isSome
   let isPredOrProj := fun (f : String) => isProj f || match dropPrefix? "Lblis" f with
     | some X => sortHas X
     | none => false
-  -- the first equation of `f` (its first `[owise]` one when `owise`) is `e`
-  let first := fun (e : RawEqn) (owise : Bool) =>
-    match S.eqs.find? fun e' => e'.fn == e.fn && e'.competitors.isSome == owise with
-    | some e' => decide (e'.attrs = e.attrs)
-    | none => false
-  let firstAny := fun (e : RawEqn) =>
-    match S.eqs.find? (·.fn == e.fn) with
-    | some e' => decide (e'.attrs = e.attrs)
-    | none => false
   -- the definition's own parameters and their presentations: a `functional` axiom of one is what
   -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
   let ownParams := withPres (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)) d.pres.params
   let paramNotTotal := fun (f : String) => ownParams.any fun (k, kp) => c.symName k.sig.name == f && !kp.total
+  -- an open generator's `functional` axiom reads the sort at the interpretation's values
+  -- (`OpenTotal`), which `Definition.totalParams` leaves out: no parameter's declared total
+  let openGen := fun (f : String) => c.params.any fun k => k.raw && c.symName k.sig.name == f
   -- the overloading symbol f overloads g (`Semantics.ovls`)
   let ovlPair := fun (as : List Kore.AppPattern) => match overloadSyms? as with
     | some (f, g) => c.ovls.any fun o => c.symName o.sig.name == f && o.over.any (c.symName · == g)
@@ -203,8 +213,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- every equation of a function is one of its clauses, each `[owise]` one among them (a
       -- selector-domain axiom: a clause of the projection, or generated with it)
       fnLabels.contains e.fn || ovlPair a.attributes ||
-      (uidLabels.contains e.fn && first e e.competitors.isSome) ||
-      (initLabels.contains e.fn && firstAny e) ||
+      -- the getter's equation and a tree initializer's, by their content
+      (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
+      ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||
       -- a sort predicate's equation that is its clause, or a sort's projection's that no symbol
       -- of `d` reads (`predProjOK?`), whoever wrote it; or, generated (no user source), a
       -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
@@ -214,8 +225,8 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
-        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f) ||
-        initLabels.contains f ||
+        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f && !openGen f) ||
+        ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
         isProj f
       | some (.inr (x, y)) =>
         let libNames := ((importsOf E.imports).flatMap (·.sorts)).map (regSortNames.getD · "")
@@ -361,6 +372,35 @@ def owiseNarrowed (k : Kore.Definition) (d : Definition) : List (Nat × String �
         if e.fn == o.fn && e.competitors.isNone && !nonExec e &&
             ds.any (fun d => ((svinExcl? e d).map (·.1)).getD false)
         then some (off + i, o.fn, off + j) else none
+
+/-- The sort X a disjunct `\exists{KItem}(V:X, inj{X, KItem}(V))` of KItem's no-junk axiom names. -/
+def tokKItemDisjunctSort? : Kore.Pattern → Option String
+  | .exist _ _ (.app h [A, _] _) => if h.ident.name == "inj" then sortName? A else none
+  | _ => none
+
+/-- The user module's KItem no-junk axioms read (`scanOr`) that leave out a sort of `d` below KItem
+(`ReadingNote.tokKItem`): each with its place and the sorts X whose `inj{X, KItem}` is one of
+KItem's generators (`Semantics.gens`) and none of its disjuncts, each with whether the text states
+the subsort (a `subsort{X, KItem}` axiom). -/
+def tokKItemOmitted (k : Kore.Definition) (d : Definition) : List (Nat × List (String × Bool)) :=
+  let c := d.sem
+  let srcs := (c.gens Srt.kitem).filterMap fun g => match g with
+    | .inj b => some (c.sortName b)
+    | .ctor _ => none
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let off := preludeLength k
+    let stated := m.sentences.filterMap fun s => match scanEvent s with
+      | some (.inr (x, y)) => if y == "KItem" then some x else none
+      | _ => none
+    m.sentences.zipIdx.filterMap fun (s, i) => if !isRead s then none else match scanOr s with
+      | some ds =>
+        let named := ds.filterMap tokKItemDisjunctSort?
+        match srcs.filter (!named.contains ·) with
+        | [] => none
+        | xs => some (off + i, xs.map fun x => (x, stated.contains x))
+      | none => none
 
 /-! ## A function symbol in a left side
 
@@ -522,8 +562,9 @@ ranges overlap the text states no value (`silentTable`), Γ states the interpret
 there is a condition on the interpretation. The same law of another
 symbol states something of that symbol which no reading of the collections states. -/
 
-/-- The law axioms whose symbol is not the concatenation of a collection of `d` (an idempotence
-axiom: of a set): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
+/-- The law axioms whose symbol is neither the concatenation of a collection of `d` (an idempotence
+axiom: of a set) nor a function of `d` or a parameter no hook implements and no open generator
+(`fnLawHead`; whose laws `presOf` reads into `Presentation.laws`, `fnLawAxioms`): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
 def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -535,9 +576,18 @@ def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
     m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
       | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
         let h := (lawHead? a).getD ""
-        if concatOf h (hasAttr a.attributes "idem") then none
+        if concatOf h (hasAttr a.attributes "idem") || fnLawHead c h then none
         else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {", ".intercalate (lawKeys a)}"⟩
       | _, _ => none
+
+/-- The law axioms on the functions of `d` (`fnLawAxioms`), each read as the law of
+`Presentation.laws` at its place: the sentence's index, the symbol and the laws named. Each is
+stated at values under `FnLaws`, owed. -/
+def fnLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String × List String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m => (fnLawAxioms d.sem m.sentences).map fun (i, a) =>
+    (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
 
 /-! ## The library's modules in a K installation's text
 
@@ -774,9 +824,19 @@ def ovlInduced (c : Semantics) : List Kore.Sentence :=
     KoreAML.axiom0 (.or (srtOf c N) (KoreAML.noJunkDisjuncts (c.sortName N) [] (gs.map (Gen.toK c))))
       [KoreAML.attr "constructor"]
 
+/-- The no-junk axiom of each open generator's result sort, as `Γ` states it (`consItemsK`: an open
+generator is a generator of its sort, with no functionality, injectivity or distinctness item):
+over the sort's generators (`Semantics.gens`), the open generators among them. `emit` writes it
+without them. -/
+def openInduced (c : Semantics) : List Kore.Sentence :=
+  ((c.params.filter (·.raw)).map (·.sig.result)).eraseDups.map fun N =>
+    KoreAML.axiom0 (.or (srtOf c N) (KoreAML.noJunkDisjuncts (c.sortName N) [] ((c.gens N).map (Gen.toK c))))
+      [KoreAML.attr "constructor"]
+
 /-- The axioms of the user module classified inert as constructor axioms that are not, up to the
 names of their variables and the order of conjuncts and disjuncts, one the definition's
-constructors and overloading symbols induce (`emit`'s of the same class, `ovlInduced`), nor an
+constructors, overloading symbols and open generators induce (`emit`'s of the same class,
+`ovlInduced`, `openInduced`), nor an
 overload's confusion (`ovlConfused`): one refusal (`inertMismatch`) for each. -/
 def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
@@ -792,7 +852,15 @@ def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
         !c.isOpenGen (.ctor k) && !c.isOpenGen (.ctor k') &&
         !c.fnOvl (.ctor k) && !c.fnOvl (.ctor k') && !ovlMeet c k.name k'.name).map fun k' =>
         KoreAML.distinctnessAx (toK c k) (toK c k')
-    let induced := ((userModule d.sem d.pres).sentences ++ mixed ++ cellDist ++ ovlInduced c).filterMap fun s => match s, ctorInert? s with
+    -- the no-junk axiom of an open generator's result sort is `openInduced`'s alone: `emit`'s,
+    -- without the open generators, would take a text whose axiom does not list them
+    let rawSorts := ((c.params.filter (·.raw)).map (·.sig.result)).map (srtOf c)
+    let emitted := (userModule d.sem d.pres).sentences.filter fun s => match s, ctorInert? s with
+      | .axiom a, some .noJunk => match a.pattern with
+        | .or S _ => !rawSorts.any fun T => decide (S = T)
+        | _ => true
+      | _, _ => true
+    let induced := (emitted ++ mixed ++ cellDist ++ ovlInduced c ++ openInduced c).filterMap fun s => match s, ctorInert? s with
       | .axiom a, some r => some (r.name, canon a.pattern)
       | _, _ => none
     let off := preludeLength k

@@ -434,6 +434,7 @@ theorem req_only {σ : Subst} (hl : σ.lookup 2 = some (.ctor symK [])) {r : Opt
       rw [hl] at hvs
       cases hvs
   | ovl h ho _ => exact absurd ho (by decide +kernel)
+  | ovlFn h ho => exact absurd ho (by decide +kernel)
 
 /-! ## The rule 0 is not witnessed -/
 

@@ -1,0 +1,10 @@
+id = "t92-rule-ensures-axiom"
+kind = "text"
+subject = "A rewrite rule with a requires and an ensures clause: what the sentence the K text gives states, and where each of the two conditions stands in it."
+
+[text]
+files = ["t92-rule-ensures-axiom.k"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

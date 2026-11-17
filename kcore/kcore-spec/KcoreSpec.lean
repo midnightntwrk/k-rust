@@ -124,6 +124,7 @@ import KcoreSpec.FireTac
 import KcoreSpec.SetLaws
 import KcoreSpec.Collections
 import KcoreSpec.Statements
+import KcoreSpec.SoundDefs
 import KcoreSpec.Sound
 import KcoreSpec.Step
 import KcoreSpec.StepIff
@@ -248,6 +249,7 @@ import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
 import KcoreSpec.DetachedB
 import KcoreSpec.TieLemmas
+import KcoreSpec.TieTokKItem
 import KcoreSpec.TieRule
 import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues
@@ -276,6 +278,10 @@ import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
 import KcoreSpec.ConsOwnValues
+import KcoreSpec.ConsTransfer
+import KcoreSpec.ConsTransferR
+import KcoreSpec.ConsTransferInst
+import KcoreSpec.ConsRegistrySat
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
@@ -294,6 +300,15 @@ import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
+import KcoreSpec.GenEqsModel
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
+import KcoreSpec.HoldsNode
+import KcoreSpec.ClausePreTie
+import KcoreSpec.TieRuleLhs
+import KcoreSpec.LibEvSetVar
+import KcoreSpec.LibEvCeil
+import KcoreSpec.LibEvBoolSet
+import KcoreSpec.LibEvStr
+import KcoreSpec.TieRulePair

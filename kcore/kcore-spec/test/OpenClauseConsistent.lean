@@ -387,6 +387,7 @@ theorem evalTerm_gY {σ : Subst} (hσ : cI.WellSorted clI.vars σ) {r : Option G
       rw [hv] at hvs
       simp [allSome] at hvs
   | ovl _ ho _ => rw [h4] at ho; cases ho
+  | ovlFn _ ho => rw [h4] at ho; cases ho
 
 /-- `f()` is `0`: `clI` applies under Y := 0. -/
 theorem evalF : Eval cI 391 [] (some (.dv Srt.int (.int 0))) := by

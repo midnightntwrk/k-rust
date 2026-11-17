@@ -78,10 +78,10 @@ inductive RefusalReason where
   | cellCollectionInjection
   /-- An alias declaration: KCore reads no alias, whose applications stand for its body. -/
   | aliasDeclaration
-  /-- An axiom kompile writes for a `symbol-overload` pair whose first symbol is no overloading
-  symbol (`overloadForm` for one that is) and that is not an equation of the overloading function:
-  one not of the form `f(p̄) = r`, or between symbols one of which is not a function (a function
-  agreeing with a constructor on its subsorts, which no clause of the function states as read). -/
+  /-- An axiom kompile writes for a `symbol-overload` pair that is not an equation `f(p̄) = r` of
+  its first symbol f (`overloadEqn?`), or whose first symbol is neither an overloading symbol
+  (`overloadForm` for one that is) nor a function of the definition (whose clause it is, aside, of
+  priority 0: `overloadEqn?`). -/
   | overloadAxiom
   /-- An axiom of no form the reader reads or knows inert, of a form kompile 7.1.337 writes (a form
   it does not write at the top is `unkompiledForm`). -/
@@ -176,12 +176,18 @@ inductive RefusalReason where
   values of its sort that the laws equate: a generator with laws, of which the semantics has no
   reading (its values of a user sort are the free terms over the constructors, and a function
   without clauses would be no generator at all). The detail names the symbol and the law axioms the
-  text states of it (`isOpenGenerator`). -/
+  text states of it (`isOpenGenerator`). A symbol of this shape that the text declares `functional`
+  is read as an open generator (`ParamSig.raw`, a parameter symbol listed among its result sort's
+  generators) where that sort is a constructor sort whose constructors take no argument and that
+  no overloading symbol or subsort ends at (`openGenFault`); otherwise it is refused, the detail
+  naming the symbol and why. -/
   | openGenerator
-  /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is not the concatenation of a
-  collection of the definition (an `[idem]` axiom: of a set): the law of another symbol, which no
-  reading of the collections states (`Account.lawUnmatched`). The detail names the symbol and the
-  law. -/
+  /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is neither the concatenation
+  of a collection of the definition (an `[idem]` axiom: of a set) nor a function of the definition
+  or a parameter no hook implements and no open generator (`fnLawHead`, read into
+  `Presentation.laws`): the law of another symbol, which no reading of the collections states
+  (`Account.lawUnmatched`); or a function's law that is no equation between terms (`fnLawOf`) or
+  whose sides are of no one sort of the definition (`fnLawSortedOf`). The detail names the symbol and the law. -/
   | lawAxiom
   /-- A sort declaration with an attribute that is neither its place, `hasDomainValues`, `token`
   (a token sort), nor `label` (a name, which says nothing of the sort's values): an attribute whose
@@ -727,6 +733,23 @@ inductive ReadingNote where
   arguments, which the sentence entails; whether g is so is not decided
   (`Parse.overloadFunctions`). -/
   | overloadFunction
+  /-- A sort X of the definition that KItem's no-junk axiom (`\or{SortKItem{}}(…)`, `scanOr`) does
+  not list, read below KItem all the same; where the text states no `subsort{X, KItem}` axiom
+  either (a token sort whose name begins with `#`, `syntax #Tok [token]`), the reading adds the
+  subsort X < KItem. Every sort of the definition is below KItem (`Semantics.sortsBelowKItem`,
+  `Semantics.subsorts`), so `inj{X, KItem}` is one of KItem's generators (`Semantics.gens`) and
+  `Γ`'s no-junk item of KItem lists it. K's text states that every sort is a KItem
+  (user_manual.md:504, 515; kast.md:363 `syntax {Sort} KItem ::= Sort`), and the text itself applies
+  `inj{X, KItem}` (in the equations of the sort predicate `isX`), which denotes elements of KItem
+  only with X below KItem. The text's sentence entails `Γ`'s item (an item over more generators is
+  a consequence, `Faithful.noJunkItem_of_subset`), not conversely: where X has an element (a token's
+  domain value), `inj{X, KItem}` of it is an element of KItem (Cons-Fun) apart from the image of
+  every other generator (Cons-Dist), and the text's sentence says it is in one of them, so the
+  text's sentence with `Γ` has no model. The reading keeps the subsort that the text's application
+  of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so
+  (`classify` reads a sentence alone, and which sorts the definition has it does not know): the
+  account lists the sentences and the sorts (`tokKItemOmitted`). -/
+  | tokKItem
   deriving Repr, DecidableEq, Inhabited
 
 /-- A sentence of the user module: read, read in another form than written (`readAs`, with the
@@ -2134,9 +2157,11 @@ def pairExcl : List RawEqn → List Kore.Pattern → List (RawEqn × Option Kore
       | some (i, d) => (e, some d) :: pairExcl es (ds.eraseIdx i)
       | none => (e, some unexcluded) :: pairExcl es ds
 
-/-- An equation declared `non-executable`: an axiom of the text that kompile's `[owise]` premise
-does not negate, read as an `aside` clause. -/
-def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable"
+/-- An equation that no premise of the text negates, read as an `aside` clause: one declared
+`non-executable`, which kompile's `[owise]` premise does not negate, or a symbol-overload axiom
+(`overloadEqn?`), which states its equation with no premise and which no `[owise]` premise
+negates (the premise's disjuncts are as many as the other equations, `fnFrom`). -/
+def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || hasAttr e.attrs "symbol-overload"
 
 /-- As `pairExcl`, the equations declared `non-executable` (`nonExec`) with no disjunct: no
 disjunct of an `[owise]` equation's exclusion excludes them. -/
@@ -2181,8 +2206,10 @@ def appendEqns : List RawEqn :=
 
 /-- A symbol-overload axiom as an equation of the overloading symbol `f`:
 `\equals(f(p̄), r) [symbol-overload{}(f(), g())]` states `f(p̄) = r` (`f(inj{Int,Gas}(K)) =
-inj{Int,Gas}(g(K))`), a clause of `f` of the default priority when `f` and `g` are functions
-(`envOf`). -/
+inj{Int,Gas}(g(K))`). When `f` is a function (`envOf`) it is a clause of `f`, `aside` (`nonExec`)
+and of priority 0 (`eqnPrio`): the sentence states `f(p̄) = r` wherever `p̄` matches, with no
+premise, so its clause is the one below which no clause is (`Eval.clause` reads no clause
+before it) and which no other clause's premise negates. -/
 def overloadEqn? (a : Kore.Axiom) : Option RawEqn :=
   match a.attributes, a.pattern with
   | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app _ [] []]⟩], .equals _ _ (.app h [] args) rhs =>
@@ -2262,11 +2289,14 @@ def eqnInfo? (as : List Kore.AppPattern) : Option KoreAML.Meta :=
 def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
   (source? attrs).bind fun s => if s == msrc then none else some s
 
-/-- An equation's priority: `priority{}("n")`'s n, otherwise 200 for an `[owise]` equation (one
-with competitors) and 50 for the others. -/
+/-- An equation's priority, with it where the presentation writes it `priority{}("n")`
+(`ClausePres.prioAttr`): `priority{}("n")`'s n; for a symbol-overload axiom (`overloadEqn?`) 0,
+written so, the attribute that gives it being none `emit` writes; otherwise 200 for an `[owise]`
+equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
-  let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
+  let explicit := ((attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0).orElse fun _ =>
+    if hasAttr e.attrs "symbol-overload" then some 0 else none
   (explicit, explicit.getD (if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
@@ -2749,15 +2779,33 @@ def configOf (syms : List Kore.SentenceSymbol) : Rd (List RCell) := do
     | _ => fail .configuration "GeneratedCounterCell"
   | _ => fail .configuration "GeneratedTopCell"
 
-/-- The variables standing for the top-level cells in `getGeneratedCounterCell`'s premise. -/
+/-- `x` is one of `xs` (by the decided equality: the kernel evaluates it). -/
+def evarIn (xs : List Kore.EVar) (x : Kore.EVar) : Bool := xs.any fun y => decide (x = y)
+
+/-- No two of `xs` are the same variable. -/
+def evarsDistinct : List Kore.EVar → Bool
+  | [] => true
+  | x :: xs => !evarIn xs x && evarsDistinct xs
+
+/-- The element variables `ps` are, where each is one and no two are the same. -/
+def distinctEVars? (ps : List Kore.Pattern) : Option (List Kore.EVar) := do
+  let xs ← ps.mapM fun
+    | .var (.evar x) => some x
+    | _ => none
+  if evarsDistinct xs then some xs else none
+
+/-- The variables standing for the top-level cells in `getGeneratedCounterCell`'s premise: its
+pattern is an application to distinct element variables and its right side is the last of them
+(`counterShape` otherwise); the others are the top-level cells'. -/
 def counterVarsOf (eqs : List RawEqn) : Rd (List String) := do
   let e ← need (eqs.find? fun e => e.fn == "LblgetGeneratedCounterCell" && e.competitors.isNone)
     .missingEquation "LblgetGeneratedCounterCell"
-  Rd.within (.attrs e.attrs) (match e.pats with
-    | [.app _ [] ps] => need ((ps.dropLast).mapM fun
-        | .var (.evar x) => some x.var.ident.name
-        | _ => none) .counterShape
-    | _ => fail .counterShape)
+  Rd.within (.attrs e.attrs) (match e.pats, e.rhs with
+    | [.app _ [] ps], .var (.evar v) => match distinctEVars? ps with
+      | some xs => if decide (xs.getLast? = some v) then pure (xs.dropLast.map (·.var.ident.name))
+        else fail .counterShape
+      | none => fail .counterShape
+    | _, _ => fail .counterShape)
 
 /-- The unique id of the first equation of `f` (its `[owise]` equation when `owise`). -/
 def uidOf (eqs : List RawEqn) (f : String) (owise : Bool) : Rd String := do
@@ -3374,7 +3422,8 @@ def lawKeys (a : Kore.Axiom) : List String :=
   ["assoc", "comm", "unit", "idem"].filter (hasAttr a.attributes ·)
 
 /-- A symbol of a user's file declared neither `function` nor `constructor`, nor `anywhere` (an
-overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before). -/
+overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before):
+an open generator, read as a `raw` parameter where the text declares it `functional`. -/
 def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
   isUserSource s.attributes && !hasKey s.attributes .function && !hasKey s.attributes .constructor &&
     !hasKey s.attributes .anywhere && !hasKey s.attributes .cell
@@ -3582,7 +3631,9 @@ def classify : Kore.Sentence → SentenceClass
   | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
       else if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then classifyKBuiltin (.symbol s)
       else if !s.symbol.sortVars.isEmpty && isUserSource s.attributes then .unread .parametricUnused
-      else if isOpenGenerator s then .refused .openGenerator
+      -- an open generator is read where the text declares it `functional`: a parameter symbol
+      -- that is a generator of its sort (`ParamSig.raw`)
+      else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
       else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
       else match attrFault? .symbol .symbolAttribute s.attributes with
         | some (r, _) => .refused r
@@ -3777,7 +3828,8 @@ def eqnHeadFault? (S : Scan) (e : RawEqn) : Option (RefusalReason × String) :=
         | .var _ => "a variable"
         | _ => "no application"
       some (.constructorEquation, s!"{e.fn}: a constructor; right side headed by {right}")
-    else if S.refused.any (fun (r, n) => r == .openGenerator && n == e.fn) then
+    else if S.refused.any (fun (r, n) => r == .openGenerator && n == e.fn) ||
+        S.userSyms.any (fun s => isOpenGenerator s && s.symbol.ident.ident.name == e.fn) then
       some (.openGeneratorEquation, s!"{e.fn}: an open generator")
     else none
 
@@ -3989,7 +4041,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- an instance without an equation is one whatever its totality: the declaration's `total`, which
   -- kompile states of every instance by one axiom quantified over the sort variables
   -- (`InertReason.parametricFunctional`), is the parameter's (`ParamPres.total`)
-  let clauseless := ((S.userSyms ++ collCells).filter fun s => !isCtorDecl s && !isTotalDecl s &&
+  -- an open generator (`isOpenGenerator`, declared `functional`) is a parameter without equations
+  let clauseless := ((S.userSyms ++ collCells).filter fun s => !isCtorDecl s && (!isTotalDecl s || isOpenGenerator s) &&
     !S.eqs.any (·.fn == s.symbol.ident.ident.name)).map (·.symbol.ident.ident.name) ++
     (instSyms.filter fun s => !S.eqs.any (·.fn == s.symbol.ident.ident.name)).map (·.symbol.ident.ident.name)
   let ctorNames := ((S.userSyms ++ collCells ++ genSyms).filter isCtorDecl).map (·.symbol.ident.ident.name)
@@ -4000,8 +4053,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the definition's own hooked symbols are its parameter symbols, but those read as functions
   let paramNames := (S.userHooked.filter (!hookFnSym S ·)).map (·.symbol.ident.ident.name)
   -- an overload axiom of an overloading symbol is the kernel's overload equation (`ovlEqMissing`) of
-  -- a constructor, an overloading symbol or a function with equations; any other is an equation of
-  -- the overloading function, both symbols functions
+  -- a constructor, an overloading symbol or a function with equations; one whose first symbol is a
+  -- function is a clause of that function (`overloadEqn?`), whatever the second symbol is
   let fnDecls := notOvl (((S.userSyms ++ genSyms).filter (!isCtorDecl ·)).map (·.symbol.ident.ident.name))
   let _ ← S.eqs.mapM fun e => match overloadSyms? e.attrs with
     | some (f, g) =>
@@ -4013,7 +4066,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
             | some m => fail .overloadForm m
           else fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition"
         | _, _ => fail .overloadForm s!"{g}: neither a constructor, an overloading symbol nor a function of the definition")
-      else if fnDecls.contains f && fnDecls.contains g then pure ()
+      else if fnDecls.contains f then pure ()
       else Rd.within (.attrs e.attrs) (fail .overloadAxiom f)
     | none => pure ()
   let N₀ : Names := { sorts := ownSortNames, macros := S.macros, own := libProjNames, carriers := S.carriers
@@ -4074,7 +4127,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let clauselessParams ← ((S.userSyms ++ collCells ++ instSyms).filter (clauseless.contains ·.symbol.ident.ident.name)).mapM
     fun h => Rd.within (.sentence (.symbol h)) do
       let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
-      pure (({ sig } : ParamSig),
+      -- an open generator is a generator of its result sort (`Semantics.gens`)
+      pure (({ sig, raw := isOpenGenerator h } : ParamSig),
         (⟨"", attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
           isTotalDecl h⟩ : ParamPres))
   let params := userParams ++ iteParams ++ genParams ++ clauselessParams
@@ -4474,6 +4528,20 @@ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
     else none
 
+/-- Why the open generator `k` of `c` is not read, or `none`. Its sort's values are the
+applications of the sort's generators, among them `k`'s (the no-junk sentence the text writes),
+which `Γ` states of a constructor sort only; and an application of `k` to values is a value that is
+one element where the sort is flat: every constructor of it is nullary, and no overloading symbol
+or subsort ends at it (`Faithful.genWf`'s conjuncts for a `raw` parameter). -/
+def openGenFault (c : Semantics) (k : ParamSig) : Option String :=
+  let s := k.sig.result
+  if !(Faithful.consSorts c).contains s then some "its result sort is no constructor sort"
+  else if c.ctorSigs.any (fun g => g.result == s && !g.args.isEmpty) then
+    some s!"its result sort {c.sortName s} has a constructor with arguments"
+  else if c.ovlSigs.any (fun g => g.result == s) then some s!"its result sort {c.sortName s} has an overloading symbol"
+  else if c.subsorts.any (fun p => p.2 == s) then some s!"its result sort {c.sortName s} has a subsort"
+  else none
+
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
@@ -4500,6 +4568,15 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
       | none => .unset
     Rd.within site (fail .ctorResultSort s!"{n}: result sort {core.sortName s}, {kind}")
   | none => pure ()
+  -- an open generator into a sort that is no flat constructor sort (`openGenFault`)
+  match core.params.findSome? (fun k => if k.raw then (openGenFault core k).map (k, ·) else none) with
+  | some (k, why) =>
+    let n := core.symName k.sig.name
+    let site := match S.syms.find? (·.symbol.ident.ident.name == n) with
+      | some d => Site.sentence (.symbol d)
+      | none => .unset
+    Rd.within site (fail .openGenerator s!"{n}: {why}")
+  | none => pure ()
   match (S.rewrites.zip rules).findSome? (fun (a, r, rp) => (ruleRefusal core E.N a r rp.names).map (a, ·)) with
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
   | none =>
@@ -4513,6 +4590,259 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
     | none => match predEqnFaults E.N E.src S.eqs core with
       | f :: _ => .error f
       | [] => pure core
+
+/-! ## The counter's getter and the cell tree's initializers
+
+`getGeneratedCounterCell` and the initializer `initXCell` of a cell of the top cell tree are, where
+no read sentence applies them, symbols of neither the registry nor the definition: `Γ` holds no
+sentence naming them. The text's sentences naming such a symbol f state nothing over `Γ`'s
+signature exactly where every model of `Γ` extends by an interpretation of f satisfying them. One
+equation `x̄ ∈ p̄ → f(x̄) = t` without conditions, the variables of `t` among those of `p̄`, each
+point matched at one valuation at most, and `t` over symbols that have an interpretation already,
+is satisfied by taking f to be `t`'s value. A second equation states that two right sides agree,
+an `ensures` is stated under the premise whatever f is, and a right-side variable no pattern holds
+makes `f(x̄) = y` hold of every `y`: each a sentence over `Γ`'s signature. A `functional` axiom of
+f states with the equation that `t` has exactly one value. -/
+
+/-- The name of the counter's getter. -/
+def getterName : String := "LblgetGeneratedCounterCell"
+
+mutual
+  /-- The symbols a pattern of applications, element variables and domain values applies, each
+  with its sort arguments, and the variables it holds; `none` where it holds anything else. -/
+  def initAtoms : Kore.Pattern → Option (List (String × List Kore.KSort) × List Kore.EVar)
+    | .var (.evar x) => some ([], [x])
+    | .dv _ _ => some ([], [])
+    | .app h ss ps => (initAtomsList ps).map fun (hs, xs) => ((h.ident.name, ss) :: hs, xs)
+    | _ => none
+    termination_by structural p => p
+  def initAtomsList : List Kore.Pattern → Option (List (String × List Kore.KSort) × List Kore.EVar)
+    | [] => some ([], [])
+    | p :: ps => match initAtoms p, initAtomsList ps with
+      | some (hs, xs), some (hs', xs') => some (hs ++ hs', xs ++ xs')
+      | _, _ => none
+    termination_by structural ps => ps
+end
+
+/-- `f` is a symbol of the registry or of `c`. -/
+def symOfDefn (c : Semantics) (f : String) : Bool := regSymNames.contains f || c.symNames.contains f
+
+/-- **The getter's equation is the one the account takes** (`e` among the text's equations `eqs`):
+it is the only equation of the getter, it has no `requires`, no `ensures` and no exclusion, its
+one pattern is the top cell's constructor at distinct element variables, and its right side is the
+last of them. The constructor is injective, so the equation defines the getter on the
+constructor's image and states nothing of another symbol. -/
+def getterEqnOK (c : Semantics) (eqs : List RawEqn) (e : RawEqn) : Bool :=
+  e.fn == getterName && (eqs.filter (·.fn == getterName)).length == 1 &&
+  e.req.isNone && e.ens.isNone && e.competitors.isNone && !e.dom &&
+  match e.pats, e.rhs with
+  | [.app h [] args], .var (.evar v) =>
+    h.ident.name == c.symName topLabel &&
+    match distinctEVars? args with
+    | some xs => decide (xs.getLast? = some v)
+    | none => false
+  | _, _ => false
+
+/-- The initializers of the cells strictly below `x`. -/
+def initsBelow (c : Semantics) (x : Cell) : List String := (x.all.drop 1).map (·.initLabel c)
+
+/-- **The equation of the initializer of the cell `x` is one the account takes** (`e` among the
+text's equations `eqs`): it is the only equation of the initializer, it has no `requires`, no
+`ensures` and no exclusion, its patterns are distinct element variables, every variable of its
+right side is one of them, and its right side applies only `inj`, symbols of the registry or of
+`c` (an instance of a sort-parametric symbol by its instance's name), initializers of cells
+strictly below `x`, and sort projections each of whose equations `predProjOK?` accounts. The
+initializers below are checked at their own equations, so the order is the tree's. -/
+def initEqnOK (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (x : Cell) (e : RawEqn) : Bool :=
+  let L := x.initLabel c
+  e.fn == L && (eqs.filter (·.fn == L)).length == 1 &&
+  e.req.isNone && e.ens.isNone && e.competitors.isNone && !e.dom &&
+  match distinctEVars? e.pats, initAtoms e.rhs with
+  | some xs, some (hs, ys) =>
+    ys.all (evarIn xs) &&
+    hs.all fun (h, ss) =>
+      if h == "inj" then true
+      else if !ss.isEmpty then match ss.mapM sortName? with
+        | some ns => symOfDefn c (if h == "Lblite" then (ns.head?.map iteName).getD "" else instName h ns)
+        | none => false
+      else symOfDefn c h || (initsBelow c x).contains h ||
+        ((dropPrefix? "Lblproject'Coln'" h).isSome &&
+          (eqs.filter (·.fn == h)).all fun e' => predProjOK? N msrc eqs c e' == some true)
+  | _, _ => false
+
+/-- The symbol named `h` is interpreted and total: a registry hook outside `partialHooks`, or a
+parameter of `c` whose `impl` is one (it has that hook's meaning). -/
+def totalInterp (c : Semantics) (h : String) : Bool :=
+  let tot := fun (g : Sym) => hookSigs.any (·.name == g) && !partialHooks.contains g
+  (match regSymNames.idxOf? h with
+    | some g => tot g
+    | none => false) ||
+  c.params.any fun k => c.symName k.sig.name == h && match k.impl with
+    | some g => tot g
+    | none => false
+
+/-- **The right side of the equation `e` of the initializer of `x` has exactly one value at every
+valuation**, which is what a `functional` axiom of the initializer states with the equation: it
+applies only `inj`, constructors of `c`, interpreted total symbols (`totalInterp`) and
+initializers of cells strictly below `x` whose own `functional` axiom the text holds (`funcs`:
+the symbols of the text's `functional` axioms). No projection, no function of `c`, no parameter
+without a meaning. -/
+def initTotalOK (funcs : List String) (c : Semantics) (x : Cell) (e : RawEqn) : Bool :=
+  match initAtoms e.rhs with
+  | some (hs, _) => hs.all fun (h, ss) =>
+      h == "inj" || (ss.isEmpty &&
+        (c.ctorSigs.any (c.symName ·.name == h) || totalInterp c h ||
+          ((initsBelow c x).contains h && funcs.contains h)))
+  | none => false
+
+mutual
+  /-- The value of a ground term of literals, injections, constructors of `c` and interpreted
+  symbols (a registry hook, or a parameter of `c` whose `impl` is one), each hook applied to
+  values where it gives one (`hook`); `none` otherwise. -/
+  def initGroundVal (c : Semantics) : Term → Option GroundTerm
+    | .dv s l => some (.dv s l)
+    | .inj a b t => (initGroundVal c t).map (.inj a b)
+    | .app f ts => do
+      let vs ← initGroundVals c ts
+      if c.ctorSigs.any (·.name == f) then some (.ctor f vs)
+      else
+        let g := match c.params.find? (·.sig.name == f) with
+          | some k => k.impl
+          | none => some f
+        match g.bind (hook · vs) with
+        | some (some v) => some v
+        | _ => none
+    | _ => none
+    termination_by structural t => t
+  /-- `initGroundVal` of each term. -/
+  def initGroundVals (c : Semantics) : List Term → Option (List GroundTerm)
+    | [] => some []
+    | t :: ts => do pure ((← initGroundVal c t) :: (← initGroundVals c ts))
+    termination_by structural ts => ts
+end
+
+/-- The right side of the equation `e` has exactly one value because it is ground and its value is
+computed: literals, injections, constructors, and interpreted symbols each applied to values where
+its meaning gives a value (a partial hook among them, `<s> SetItem(1) SetItem(2) </s>`). `Γ` states
+each interpreted symbol's graph on values, so the term denotes that value. -/
+def initGroundOK (N : Names) (c : Semantics) (e : RawEqn) : Bool :=
+  match term N [] e.rhs with
+  | .ok (t, []) => (initGroundVal c t).isSome
+  | _ => false
+
+/-- The `functional` axiom of the initializer of `x` is one the account takes: the initializer's
+equation is (`initEqnOK`) and its right side has exactly one value (`initTotalOK`, or
+`initGroundOK`). -/
+def initFunctionalOK (N : Names) (msrc : String) (eqs : List RawEqn) (funcs : List String) (c : Semantics)
+    (x : Cell) : Bool :=
+  match eqs.find? (·.fn == x.initLabel c) with
+  | some e => initEqnOK N msrc eqs c x e && (initTotalOK funcs c x e || initGroundOK N c e)
+  | none => false
+
+/-- The symbols of the text's `functional` axioms. -/
+def functionalSyms (events : List (Sum String (String × String))) : List String :=
+  events.filterMap fun
+    | .inl f => some f
+    | .inr _ => none
+
+/-- The sentences of the getter and of the initializers of the cell tree `top`, each no symbol of
+the registry or of `c`, that the account does not take, as failures: an equation outside
+`getterEqnOK` or `initEqnOK`, `generatedEquation` with the symbol and the shape (`eqnShape`), at
+the equation; a `functional` axiom outside `initFunctionalOK`, `generatedEquation` with the symbol
+and what the axiom states, at the axiom. An initializer that is a function of `c` has its
+equations as clauses and is not listed. -/
+def initFaults (N : Names) (msrc : String) (sents : List Kore.Sentence) (eqs : List RawEqn)
+    (funcs : List String) (c : Semantics) (top : Cell) : List Fault :=
+  -- the equations of the getter and of the initializers: the others are not looked at again
+  let ieqs := eqs.filter fun e => e.fn == getterName || (dropPrefix? "Lblinit" e.fn).isSome
+  let eqFault := fun (e : RawEqn) => (⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩ : Fault)
+  let getter := if symOfDefn c getterName then [] else
+    (ieqs.filter fun e => e.fn == getterName && !getterEqnOK c ieqs e).map eqFault
+  let cells := top.all.filter fun x => !symOfDefn c (x.initLabel c)
+  let inits := cells.flatMap fun x =>
+    (ieqs.filter fun e => e.fn == x.initLabel c && !initEqnOK N msrc eqs c x e).map eqFault
+  let fns := cells.filterMap fun x =>
+    let L := x.initLabel c
+    if funcs.contains L && !initFunctionalOK N msrc eqs funcs c x then
+      some (⟨.generatedEquation, s!"{L}: functional axiom of a cell's initializer whose equation's right side the definition does not give exactly one value at every argument",
+        match sents.find? (fun s => scanEvent s == some (.inl L)) with
+        | some s => .sentence s
+        | none => .unset⟩ : Fault)
+    else none
+  getter ++ inits ++ fns
+
+/-! ## The laws of functions
+
+An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is a function of the definition and
+no collection's concatenation states an equation between applications of the function for every
+element: `f(f(K1, K2), K3) = f(K1, f(K2, K3))` and the like. The function's value is its clauses'
+where one applies and the interpretation's elsewhere (`Semantics.fnRest`), so the equation reads
+the interpretation. It is read as a `LawEq` of `Presentation.laws`, which `Γ` does not hold: the
+statements take it at values, under `FnLaws`, which the account lists as owed. -/
+
+/-- The symbol named `h` is a function of `c`, or a parameter that no registry hook implements and
+that is no open generator (a `function` production without equations), and no collection's
+concatenation. -/
+def fnLawHead (c : Semantics) (h : String) : Bool :=
+  (c.fns.any (c.symName ·.label == h) ||
+    c.params.any fun k => k.impl.isNone && !k.raw && c.symName k.sig.name == h) &&
+  !c.allColls.any (c.symName ·.concat == h)
+
+/-- The law axioms of the sentences `ss` whose symbol is a function of `c` and no collection's
+concatenation (`fnLawHead`), each with its position: the axioms classified as a collection's laws
+(`InertReason.collectionLaw`, `UnreadReason.setIdempotence`) by their shape alone. -/
+def fnLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Axiom) :=
+  ss.zipIdx.filterMap fun (s, i) => match s, classify s with
+    | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
+      if (lawHead? a).any (fnLawHead c) then some (i, a) else none
+    | _, _ => none
+
+mutual
+  /-- The pattern with each element variable `K` named `VarK`, the names `term` reads; `none`
+  where it holds anything but applications, element variables and domain values. -/
+  def lawVarsNamed : Kore.Pattern → Option Kore.Pattern
+    | .var (.evar x) => some (.var (.evar { x with var := { x.var with ident := { x.var.ident with name := "Var" ++ x.var.ident.name } } }))
+    | .dv s t => some (.dv s t)
+    | .app h ss ps => (lawVarsNamedList ps).map (.app h ss ·)
+    | _ => none
+    termination_by structural p => p
+  def lawVarsNamedList : List Kore.Pattern → Option (List Kore.Pattern)
+    | [] => some []
+    | p :: ps => match lawVarsNamed p, lawVarsNamedList ps with
+      | some q, some qs => some (q :: qs)
+      | _, _ => none
+    termination_by structural ps => ps
+end
+
+/-- Both sides of the law have one sort in the context of right sides, that sort is one of the
+definition's, and each of its variables occurs in one of them: `Faithful`'s `lawSorted`, which this
+module does not import, by the same body (test/OpenGenerator.lean checks the two are equal). -/
+def fnLawSorted (c : Semantics) (l : LawEq) : Bool :=
+  let x := c.rhsCtx (c.fns.map Fn.sig)
+  (sortOfTerm x l.vars l.lhs).any (· < nRegSorts + c.sortNames.length) &&
+    sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
+    binds l.vars.length (varOccs l.lhs ++ varOccs l.rhs)
+
+/-- The law the axiom `a` states, `\equals{S,R}(lhs, rhs)` over its free element variables. -/
+def fnLawOf (N : Names) (a : Kore.Axiom) : Rd LawEq := Rd.within (.sentence (.axiom a)) do
+  match a.pattern with
+  | .equals _ _ l r =>
+    let detail := s!"{(lawHead? a).getD ""}: {", ".intercalate (lawKeys a)}: a side that is no term"
+    let l ← need (lawVarsNamed l) .lawAxiom detail
+    let r ← need (lawVarsNamed r) .lawAxiom detail
+    let (lt, vs) ← term N [] l
+    let (rt, vs) ← term N vs r
+    pure { vars := ← varSorts N vs, lhs := lt, rhs := rt }
+  | _ => fail .lawAxiom s!"{(lawHead? a).getD ""}: no equation"
+
+/-- The law the axiom `a` states (`fnLawOf`), where both its sides are of one sort and every variable
+is in a side (`fnLawSorted`): the law's sentence is then `Faithful.lawPattern`'s, whose model
+`consistent_with_laws` exhibits. -/
+def fnLawSortedOf (c : Semantics) (N : Names) (a : Kore.Axiom) : Rd LawEq := do
+  let l ← fnLawOf N a
+  if fnLawSorted c l then pure l
+  else Rd.within (.sentence (.axiom a)) (fail .lawAxiom
+    s!"{(lawHead? a).getD ""}: {", ".intercalate (lawKeys a)}: its sides are of no one sort")
 
 /-- The presentation's per-sort and per-cell parts: the sorts' unique ids, the cell sorts' unique
 ids, the cells' initializers' ids, and the leaf cells' initial values. -/
@@ -4549,6 +4879,10 @@ def presOf (m : Kore.Module) (S : Scan) (E : Env) (prods : List Prod) (rules : L
   -- whose declaration has a place
   let kSym ← need ((cellSym? S.syms "KCell").orElse fun _ => (Cell.all (Cell.top E.config)).findSome? fun x =>
     (cellSym? S.syms (core.sortName x.sort)).filter fun s => (loc? s.attributes).isSome) .configuration "KCell"
+  -- the getter's and the tree's initializers' sentences are those the account takes
+  match initFaults E.N E.src m.sentences eqs (functionalSyms S.events) core (Cell.top E.config) with
+  | f :: _ => .error f
+  | [] => pure ()
   pure { source := E.src, moduleName := m.name.ident.name, moduleLoc := ← need (loc? m.attributes) .moduleLocation
          imports := E.imports, simpArg := E.simpArg
          sortUids := cp.sortUids
@@ -4566,7 +4900,8 @@ def presOf (m : Kore.Module) (S : Scan) (E : Env) (prods : List Prod) (rules : L
          config := E.config
          sortLocs := ← S.locSorts.mapM fun (X, l, src) => do pure (← E.N.srtE X, l, src)
          libProjs := E.libProjs
-         generatedFns := E.genFns.map (·.1.label) }
+         generatedFns := E.genFns.map (·.1.label)
+         laws := ← (fnLawAxioms core m.sentences).mapM fun (_, a) => fnLawSortedOf core E.N a }
 
 /-- The certificates: for each function, its first decreasing argument. -/
 def certOf (core : Semantics) : Certificates :=

@@ -405,7 +405,8 @@ theorem case_ctor {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
     | param h => rw [hk] at h; cases h
     | call h => rw [hk] at h; cases h
     | callUndef h => rw [hk] at h; cases h
-    | ovl h => rw [hk] at h; cases h) (sub_app ihts)
+    | ovl h => rw [hk] at h; cases h
+    | ovlFn h => rw [hk] at h; cases h) (sub_app ihts)
 
 theorem case_hook {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
     {r : Option GroundTerm} (hk : c.isCtor f = false) (hhk : isHook f = true)
@@ -422,7 +423,8 @@ theorem case_hook {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
     | param _ h => rw [hhk] at h; cases h
     | call _ h => rw [hhk] at h; cases h
     | callUndef _ h => rw [hhk] at h; cases h
-    | ovl _ ho => rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk) (sub_app ihts)
+    | ovl _ ho => rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk
+    | ovlFn _ ho => rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk) (sub_app ihts)
 
 theorem case_param {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
     {r : Option GroundTerm} (hk : c.isCtor f = false) (hhk : isHook f = false)
@@ -435,7 +437,8 @@ theorem case_param {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gr
     | param _ _ _ hts' hr' => have := ihts.1 _ hts'; subst this; rw [hr, hr']
     | call _ _ _ _ _ h => rw [hp] at h; cases h
     | callUndef _ _ _ _ h => rw [hp] at h; cases h
-    | ovl _ ho => rw [(c.isOvl_parts ho).2.2.1] at hp; cases hp) (sub_app ihts)
+    | ovl _ ho => rw [(c.isOvl_parts ho).2.2.1] at hp; cases hp
+    | ovlFn _ ho => rw [(c.isOvl_parts ho).2.2.1] at hp; cases hp) (sub_app ihts)
 
 theorem case_call {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
     {vs : List GroundTerm} {r : Option GroundTerm} (hk : c.isCtor f = false)
@@ -453,7 +456,8 @@ theorem case_call {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
     | callUndef _ _ hts' hvs' _ =>
       have := ihts.1 _ hts'; subst this
       rw [hvs] at hvs'; cases hvs'
-    | ovl _ ho => rw [hno] at ho; cases ho) (sub_app ihts)
+    | ovl _ ho => rw [hno] at ho; cases ho
+    | ovlFn _ ho => rw [hno] at ho; cases ho) (sub_app ihts)
 
 theorem case_callUndef {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
     (hk : c.isCtor f = false) (hhk : isHook f = false) (hvs : allSome rs = none)
@@ -467,10 +471,12 @@ theorem case_callUndef {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Optio
       have := ihts.1 _ hts'; subst this
       rw [hvs] at hvs'; cases hvs'
     | callUndef => rfl
-    | ovl _ _ hts' => have := ihts.1 _ hts'; subst this; rw [hvs]; rfl) (sub_app ihts)
+    | ovl _ _ hts' => have := ihts.1 _ hts'; subst this; rw [hvs]; rfl
+    | ovlFn _ _ hts' hvs' => have := ihts.1 _ hts'; subst this; rw [hvs] at hvs'; cases hvs') (sub_app ihts)
 
 theorem case_ovl {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
-    (hk : c.isCtor f = false) (ho : c.isOvl f = true) (ihts : M5 c σ ts rs) :
+    (hk : c.isCtor f = false) (ho : c.isOvl f = true)
+    (hnf : ∀ vs, allSome rs = some vs → c.fnCover f vs = none) (ihts : M5 c σ ts rs) :
     M4 c σ (.app f ts) ((allSome rs).map (c.norm f)) :=
   have hp := c.isOvl_parts ho
   mk4 (fun r' h' => by
@@ -480,7 +486,32 @@ theorem case_ovl {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Grou
     | param _ _ h => rw [hp.2.2.1] at h; cases h
     | call _ _ _ _ hf' _ => rw [hf'.isOvl_false] at ho; cases ho
     | callUndef _ _ hts' hvs' _ => have := ihts.1 _ hts'; subst this; rw [hvs']; rfl
-    | ovl _ _ hts' => have := ihts.1 _ hts'; subst this; rfl) (sub_app ihts)
+    | ovl _ _ hts' => have := ihts.1 _ hts'; subst this; rfl
+    | ovlFn _ _ hts' hvs' _ hcov' =>
+      have := ihts.1 _ hts'; subst this
+      rw [hnf _ hvs'] at hcov'; cases hcov') (sub_app ihts)
+
+theorem case_ovlFn {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
+    {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig} {r : Option GroundTerm}
+    (hk : c.isCtor f = false) (ho : c.isOvl f = true) (hvs : allSome rs = some vs)
+    (hlo : c.lookupOvl f = some o) (hcov : c.fnCover f vs = some kg) (ihts : M5 c σ ts rs)
+    (ihf : M1 c kg.name (stripAll kg.args o.sig.args vs) r) :
+    M4 c σ (.app f ts) (r.map (lift kg.result o.sig.result)) :=
+  have hp := c.isOvl_parts ho
+  mk4 (fun r' h' => by
+    cases h' with
+    | ctor h => rw [hk] at h; cases h
+    | hook _ h => rw [hp.2.1] at h; cases h
+    | param _ _ h => rw [hp.2.2.1] at h; cases h
+    | call _ _ _ _ hf' _ => rw [hf'.isOvl_false] at ho; cases ho
+    | callUndef _ _ hts' hvs' _ => have := ihts.1 _ hts'; subst this; rw [hvs] at hvs'; cases hvs'
+    | ovl _ _ hts' hnf' => have := ihts.1 _ hts'; subst this; rw [hnf' _ hvs] at hcov; cases hcov
+    | ovlFn _ _ hts' hvs' hlo' hcov' hf' =>
+      have := ihts.1 _ hts'; subst this
+      rw [hvs] at hvs'; cases hvs'
+      rw [hlo] at hlo'; cases hlo'
+      rw [hcov] at hcov'; cases hcov'
+      rw [ihf _ hf']) (sub_app ihts)
 
 theorem case_cons {σ : Subst} {t : Term} {ts : List Term} {r : Option GroundTerm}
     {rs : List (Option GroundTerm)} (ih1 : M4 c σ t r) (ih2 : M5 c σ ts rs) :
@@ -597,7 +628,8 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
     (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
     (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
     (fun b' h' => by cases h'; rfl)
@@ -640,7 +672,8 @@ theorem EvalTerm.functional_hdet {c : Semantics} (hco : CoherentAll c) {σ : Sub
     (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
     (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
     (fun b' h' => by cases h'; rfl)
@@ -688,7 +721,8 @@ theorem Holds.functional {c : Semantics} (hco : CoherentAll c) {n : Nat} {σ : S
     (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
     (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
     (fun b' h' => by cases h'; rfl)
@@ -763,7 +797,8 @@ theorem EvalTerm.functional_hdet_of_fnDet {c : Semantics} (hd : FnDet c) {σ : S
     (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
     (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
     (fun b' h' => by cases h'; rfl)
@@ -812,7 +847,8 @@ theorem Holds.functional_of_fnDet {c : Semantics} (hd : FnDet c) {n : Nat} {σ :
     (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
     (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
     (fun b' h' => by cases h'; rfl)

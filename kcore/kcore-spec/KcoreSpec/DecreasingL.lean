@@ -663,6 +663,7 @@ theorem int2_val_inv {σ : Subst} {f : Sym} {t u : Term} {g : Int → Int → Op
   | call _ hh _ _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | callUndef _ hh _ _ _ => cases ht; rw [hhk] at hh; cases hh
   | ovl _ ho _ => cases ht; rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk
+  | ovlFn _ ho => cases ht; rw [(c.isOvl_parts ho).2.1] at hhk; cases hhk
 
 theorem evalTerm_var_inv {σ : Subst} {x : Nat} {v : GroundTerm} (h : EvalTerm c σ (.var x) (some v)) :
     σ.lookup x = some v := by

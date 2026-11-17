@@ -229,12 +229,13 @@ example (hd : FnDet cO) (hs : FnSolves cO) : True := by
   have := @Faithful.Model.applies_iff_open cO h ok2 facts.2.2.1.1 facts.2.2.1.2.1
   trivial
 
-/-- The rules' open facts at `cO`: `ruleSorted` and `rulePlainEx` from `coreOK`, and no rule of
-`cO` has an existential variable (decided), which with `rulePlainEx` is `rulePlainOpen`. -/
+/-- The rules' open facts at `cO`: `ruleSorted` and `rulePlainEx` from `coreOK` and the rules'
+`\top` predicates (decided), and no rule of `cO` has an existential variable (decided), which with
+`rulePlainEx` is `rulePlainOpen`. -/
 theorem hopenO : ∀ r ∈ cO.rules, cO.ruleSorted r = true ∧ cO.rulePlainOpen r = true := by
   have hex : ∀ r ∈ cO.rules, r.exs = [] := by decide +kernel
-  exact fun r hr => ⟨(Semantics.ruleFactsEx_of_core coreO.1 r hr).1,
-    Semantics.rulePlainOpen_iff_ex.mpr ⟨(Semantics.ruleFactsEx_of_core coreO.1 r hr).2, hex r hr⟩⟩
+  have hfacts := Semantics.ruleFactsEx_of_coreTop coreO.1 (by decide +kernel)
+  exact fun r hr => ⟨(hfacts r hr).1, Semantics.rulePlainOpen_iff_ex.mpr ⟨(hfacts r hr).2, hex r hr⟩⟩
 
 /-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts `hopenO`. -/
 example (x : Config cO) (hd : StepDecided cO x.val) {M : Type} [Inhabited M]
@@ -378,6 +379,7 @@ theorem witW : clW.Witnessed cOC := by
     | call h hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef h hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl h ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn h ho => exact absurd ho (by decide +kernel)
 
 /-- `exclEmptyCl_of` at `clB`, `clP`, `clW` in every model of `Γc cOC`: that `cOC` reads a confined
 sort and that `clW` is decided are proved, not assumed. -/
@@ -447,6 +449,7 @@ theorem witOW : clW.Witnessed cOW := by
     | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl _ ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- The clause that needs a witness, `clW`, is `Witnessed`; no other clause needs one. -/
 theorem hcW : ∀ fn ∈ cOW.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cOW = true → cl.CondDecided cOW := by

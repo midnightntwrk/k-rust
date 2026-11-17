@@ -1,0 +1,29 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Int(30,2))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Int(30,2))"
+   ],
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "d9fbef975e03a7027e8e666bfef0f95a87e3cc393577230960d9937ed5427198",
+  "pgm": "7162167889ea3775de43f6f3e196e0d4e79ac124034ba3a4a531e3a3065e1f63"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "7d19210efc8ba98b11670f26288c954b3f37289111d2eaef0b366d38c31589f5",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}

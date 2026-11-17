@@ -373,6 +373,7 @@ theorem witW : clW.Witnessed c6 := by
     | call h hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef h hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl h ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn h ho => exact absurd ho (by decide +kernel)
 
 /-- Every `needsWitness` clause of `c6` is decided: `sound_at`'s `hc` at `c6`. -/
 theorem hc6 : ∀ fn ∈ c6.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c6 = true → cl.CondDecided c6 := by

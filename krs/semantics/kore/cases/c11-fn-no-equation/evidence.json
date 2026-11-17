@@ -1,0 +1,27 @@
+{
+ "implementations": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblb'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int(Lblhalf'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'Int(3))) if defined(Lblhalf'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'Int(3))"
+   ],
+   "version": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)"
+  },
+  "llvm": {
+   "error": "what(): Called finish_rewriting with no output file specified; [Error] krun: search",
+   "version": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+  }
+ },
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "def.k": "e0b32e5cdc12fc20f59493607ea0d9562dcb8e5a4b2aa192ba5c2868a60213c6",
+  "pgm": "4da72476dc0d06a91fb086b66215c953631ed2ad61f163f4a70cb48993fe1a01"
+ },
+ "kompile": {
+  "command": "kompile def.k --main-module CASE --syntax-module CASE-SYNTAX --backend haskell -o hs",
+  "exit": 0,
+  "kore.txt": "a2cc76b484019cdd5bcb473bba398af64f880787748ae43fc669a3ba4d274c88",
+  "message": null,
+  "release": "K v7.1.337"
+ },
+ "ruling_canonical": {}
+}
