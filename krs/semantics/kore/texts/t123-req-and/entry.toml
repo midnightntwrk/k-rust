@@ -1,0 +1,53 @@
+id = "t123-req-and"
+kind = "text"
+subject = "A rewrite rule whose requires is X >Int 0 #And X <Int 5: what the matching-logic conjunction of two Bool terms states as a condition."
+retro = ["M4"]
+origin = "kcore-spec fixture e3-ml-req-and"
+
+[text]
+files = ["t123-req-and.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The rule states that go(x) has the successor done exactly at the x where both x > 0 and x < 5 hold, that is at 1, 2, 3 and 4; elsewhere its left side is empty and it states nothing. #And of two Bool terms is their intersection, not the Bool conjunction; it agrees with andBool here because each of the two comparisons denotes one value at every integer."
+reason = '''
+(1) The requires is written \equals(\and{SortBool}(X >Int 0, X <Int 5), true), conjoined to the left side (kore.txt:96-100).
+(2) \and denotes the intersection of what its two sides denote (introduction-to-matching-logic.tex:734-736); the equality is the whole carrier where its two sides denote the same set and empty otherwise (:880-885).
+(3) >Int and <Int compare two integers (domains.md:1324-1325): at each integer x each comparison denotes one value, true or false. The intersection is {true} where both are true and empty where they differ or are both false; the equality with true holds exactly where both are true.
+(4) A rewrite axiom \rewrites(L, R) is L -> next R, and a model satisfies it when, at every valuation, every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980). The left side is empty at the other x, so there the axiom states nothing.
+(5) Where a conjunct denotes two values or none, the intersection is not the Bool conjunction of the two: {true, false} meets {true} in {true}. No conjunct of this text is of that kind.'''
+
+[ruling.kore]
+statement = 'The rule is one \rewrites axiom whose left side is \and(L, \equals{SortBool}(\and{SortBool}(X >Int 0, X <Int 5), true)) (kore.txt:95-103); it states what the ruling states.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:98-100"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( \and{SortBool{}}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")),Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("5"))), \dv{SortBool{}}("true"))),'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148-149 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)] > Sort "#Or" Sort [symbol(#Or), assoc, left, comm, unit(#Bottom), mlOp, group(mlOp), format(%i%1%d%n%2%n%i%3%d)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''

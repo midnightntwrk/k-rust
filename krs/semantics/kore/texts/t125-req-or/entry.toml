@@ -1,0 +1,86 @@
+id = "t125-req-or"
+kind = "text"
+subject = "A rewrite rule whose requires is X >Int 0 #Or X <Int -5, a matching-logic disjunction of two Bool terms; kompile writes it conjoined with a free Bool variable _Gen0 that the K text does not hold."
+retro = ["M5"]
+origin = "kcore-spec fixture e3-ml-req-or"
+
+[text]
+files = ["t125-req-or.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated, under both readings. #Or is the matching-logic disjunction (kast.md:149), the union of what its two sides denote (introduction-to-matching-logic.tex:684 with :732-736). >Int and <Int compare two integers (domains.md:1324-1325), so at each integer x the two sides denote one value each, and the requires denotes {true} where both are true, {true, false} where exactly one is, and {false} where neither is. No x makes both true.
+Where the readings part. The manual says the requires clause is a predicate, a function-like term of sort Bool, evaluated before the rule applies, and that the rule does not apply if the requires clause does not evaluate to true (user_manual.md:1154-1157). It does not say what a requires that denotes two values evaluates to: whether {true, false} evaluates to true. At x = 1 and at x = -10 the requires denotes {true, false}.
+What the written sentence states is ruled in [ruling.kore]; it is one of the two readings.'''
+
+[ruling.kore]
+statement = 'The written axiom states the reading can-evaluate-to-true: go(x) has the successor done exactly where x > 0 or x < -5. The requires is written \equals(\and{SortBool}(\or{SortBool}(X >Int 0, X <Int -5), _Gen0), true) with _Gen0 a free Bool variable (kore.txt:98-100). An axiom holds at every valuation of its free variables. At _Gen0 = true the equality holds exactly where true is among the values of the disjunction; at _Gen0 = false the intersection never equals {true}, so at that valuation the left side is empty and the axiom states nothing. Together: the rule applies where one of the two comparisons is true.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:98-100"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( \and{SortBool{}}(\or{SortBool{}}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")),Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("-5"))),Var'Unds'Gen0:SortBool{}), \dv{SortBool{}}("true"))),'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "Next is the *requires clause*, represented here as `REQ`. The requires clause is an additional predicate (function-like term of sort `Bool`), which is to be evaluated before applying the rule. If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148-149 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)] > Sort "#Or" Sort [symbol(#Or), assoc, left, comm, unit(#Bottom), mlOp, group(mlOp), format(%i%1%d%n%2%n%i%3%d)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[reading]]
+name = "evaluates-to-true"
+statement = "A requires holds where it denotes the value true and nothing else."
+answer = "The requires never holds: it denotes {true} only where both comparisons are true, which no integer gives. go(x) has no successor by this rule at any x."
+consequence = "An #Or of two exclusive conditions in a requires makes the rule apply nowhere; the requires X >Int 0 orBool X <Int -5 would apply at x > 0 or x < -5."
+
+[[reading]]
+name = "can-evaluate-to-true"
+statement = "A requires holds where true is among the values it denotes."
+answer = "go(x) steps to done exactly where x > 0 or x < -5."
+consequence = "The requires X >Int 0 #Or X <Int -5 and the requires X >Int 0 orBool X <Int -5 give the same rule; a requires of two values, one of them true, holds."
+
+[[observe]]
+file = "kore.txt"
+contains = "Var'Unds'Gen0:SortBool{}),"

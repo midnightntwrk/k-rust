@@ -1,0 +1,62 @@
+id = "t122-rule-lhs-exists"
+kind = "text"
+subject = "A rewrite rule whose left side holds #Exists Y. d(Y, b()) under a constructor: what an existential binder on a left side states."
+retro = ["M2"]
+origin = "kcore-spec fixture e3-ml-rule-lhs-exists"
+
+[text]
+files = ["t122-rule-lhs-exists.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The rule states that every configuration c(d(y, b())), for every y of sort Exp, has the successor a(). The binder ranges over every element of Exp; the same rule with a free variable Y of the left side in place of the binder states the same in every model."
+reason = '''
+(1) The left side is written c(\exists Y. d(Y, b())) under the cells (kore.txt:51).
+(2) \exists Y. d(Y, b()) denotes the union over every element y of Exp of d(y, b()) (introduction-to-matching-logic.tex:737-741). The extension of a symbol's interpretation to sets of arguments is named and not written out (introduction-to-matching-logic.tex:714-716); it is taken here as the union over the elements of the argument sets, the extension that notation names, so that an application to a union of arguments is the union of the applications, and an application to an argument that denotes nothing denotes nothing. So c of it, and the cells around it, denote the configurations holding c(d(y, b())) for every y.
+(3) A rewrite axiom \rewrites(L, R) is L -> next R, and a model satisfies it when, at every valuation, every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980). So each of those configurations has a successor holding a().
+(4) With a free variable Y of the left side in place of the binder, the axiom holds at a valuation where each c(d(y, b())) at the value y of Y has the successor a(); an axiom holds at every valuation (introduction-to-matching-logic.tex:767-768). That is (3) again, so the two state the same in every model.'''
+
+[ruling.kore]
+statement = 'The rule is one \rewrites axiom whose left side holds Lblc{}(\exists{SortExp{}}(VarY:SortExp{}, Lbld{}(VarY:SortExp{}, Lblb{}()))) (kore.txt:51); it states what the ruling states.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:51"
+quote = 'Lblc{}(\exists{SortExp{}}(VarY:SortExp{},Lbld{}(VarY:SortExp{},Lblb{}()))'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:154 (K 7.1.337)"
+quote = 'syntax {Sort1, Sort2} Sort2 ::= "#Exists" Sort1 "." Sort2 [symbol(#Exists), mlOp, mlBinder, group(mlQuantifier, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = 'We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:728-730 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$ for all $\sigma\in\Sigma_{s_1...s_n,s}$ and appropriate $\varphi_1,...,\varphi_n$'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1978-1980 (K 7.1.337)"
+quote = '''\varphi\mathrel{\parametric{\Rightarrow}{s}}\varphi' \equiv \varphi \rightarrow \parametric{\snext}{s} \varphi' & \textrm{\doubleslash a ``rewrite relation'' alias schema}'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'

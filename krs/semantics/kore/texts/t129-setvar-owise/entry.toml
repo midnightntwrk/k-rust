@@ -1,0 +1,62 @@
+id = "t129-setvar-owise"
+kind = "text"
+subject = "A function equation over a set variable named twice, f(@S, @S) => one(), beside f(_, _) => two() [owise]: what the two sentences state."
+retro = ["M8"]
+origin = "kcore-spec fixture e3-setvar-owise"
+
+[text]
+files = ["t129-setvar-owise.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "The sentences as written have no model: at f(a(), b()) the first states the value one() and the second the value two(), and the text states one() and two() distinct."
+reason = '''
+(1) A variable that begins with @ is a set variable and refers to a set of values (kast.md:182-185); terms evaluate to sets of values (user_manual.md:2338-2341). So @S ranges over every set of elements of Exp, among them {a(), b()}.
+(2) The first equation is written \implies(X0 in @S and X1 in @S, \equals(f(X0, X1), one())) (kore.txt:47-65). Membership holds exactly where the element is in the set (introduction-to-matching-logic.tex:898-902), and an axiom holds at every valuation (:767-768). At @S = {a(), b()}, X0 = a(), X1 = b() the premise holds, so f(a(), b()) = one().
+(3) The owise equation is written with the premise that no element G is equal to both arguments, X0 in G and X1 in G with G an element variable (kore.txt:69-90): that excludes the arguments that are equal, and only those. a() and b() are distinct (kore.txt:22), so at X0 = a(), X1 = b() the premise holds and f(a(), b()) = two().
+(4) one() and two() are distinct elements (kore.txt:38), each denoting one element. So no model satisfies both (2) and (3). The diagonal premise the owise equation carries excludes the points where the arguments are one element; the first equation, by its set variable, holds at pairs of distinct elements too.'''
+
+[ruling.kore]
+statement = "The two equations and the constructor axioms are written as in the reason (kore.txt:22, 38, 47-65, 69-110)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:51-57"
+quote = '\in{SortExp{}, R} ( X0:SortExp{}, @VarS:SortExp{} ),\and{R} ( \in{SortExp{}, R} ( X1:SortExp{}, @VarS:SortExp{}'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:77-83"
+quote = '''\in{SortExp{}, R} ( X0:SortExp{}, Var'Unds'Gen0:SortExp{} ),\and{R} ( \in{SortExp{}, R} ( X1:SortExp{}, Var'Unds'Gen0:SortExp{}'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:38"
+quote = 'axiom{}\not{SortExp{}} (\and{SortExp{}} (Lblone{}(), Lbltwo{}())) [constructor{}()] // no confusion different constructors'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:182-185 (K 7.1.337)"
+quote = "4. Set variables. These are denoted by variables that begin with a `@`. These variables refer to a set of values and are generally used when writing simplification rules in the Haskell Backend. For more information, refer to K's documentation."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2338-2341 (K 7.1.337)"
+quote = "foundations for K. In Matching Mu Logic, terms evaluate to sets of values. This is useful for both capturing partiality (as in `3/0`) and capturing non-determinism (as in `3 #Or 5`). Consequently, symbol interpretation is extended to have a collective interpretation over sets of input values."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:898-902 (K 7.1.337)"
+quote = 'Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''

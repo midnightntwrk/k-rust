@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t120-rule-rhs-exists.k": "b8f34e1ab4d8f887d5bd01ce0c40200e3e07b4886c7d5fb1169cc6f932c4c716"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t120-rule-rhs-exists.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "310703c9d26fa81c42bf701061b3ef46bc1d6efec3467e84f5b00d00fae0779d",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
