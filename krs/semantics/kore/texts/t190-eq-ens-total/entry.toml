@@ -1,0 +1,58 @@
+id = "t190-eq-ens-total"
+kind = "text"
+subject = "A function declared total whose one equation has an ensures false at some arguments: f(X) => X ensures X >=Int 0. What the text states of f at a negative argument."
+retro = ["F3"]
+origin = "kcore-spec fixture c3-eq-ens-total"
+rests_on = ["kk:t11-eq-applies", "kk:t15-eq-ensures"]
+
+[text]
+files = ["t190-eq-ens-total.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "At every integer x < 0 the equation gives f(x) no value and the total attribute gives f(x) exactly one: the text has no model in which f is applied to a negative integer, and, f being applied to every integer in every model, it has no model at all. At x >= 0 both agree: f(x) = x."
+reason = """
+(1) The equation applies at every integer, its argument pattern X matching and no requires standing against it; its ensures does not decide whether it applies, and where the ensures is not true the equation gives f(x) no value (kk:t15-eq-ensures; user_manual.md:1159-1163): at x < 0, x >=Int 0 is false (domains.md:1324-1325) and f(x) has no value.
+(2) The total attribute states that f cannot be equal to bottom and has at least one value at every argument, exactly one with function (user_manual.md:546-551).
+(3) At x = -1, (1) and (2) cannot both hold. A symbol is interpreted at every element of its argument sort (introduction-to-matching-logic.tex:704-713), so every model applies f to -1, and no model satisfies both sentences there. At x >= 0 the equation gives f(x) = x, one value, which (2) admits."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "kompile writes f's functional axiom, \\exists Val. Val = f(K0) (kore.txt:50), and the equation as f(X0) = X and (X >=Int 0 = true) at X0 = X (kore.txt:64-81). At X = -1 the second makes f(-1) the empty set and the first makes it one element: the written sentences have no model, as the K text has none."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:50"
+quote = '''axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lblf{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:75-81"
+quote = '''\equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( VarX:SortInt{}, \equals{SortBool{},SortInt{}}( Lbl'Unds-GT-Eqls'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true")))))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''
