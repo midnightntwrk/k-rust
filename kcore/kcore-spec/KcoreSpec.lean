@@ -215,6 +215,7 @@ import KcoreSpec.CondPred
 import KcoreSpec.FamExValuesPP
 import KcoreSpec.CompletePP
 import KcoreSpec.FamOpenValuesPP
+import KcoreSpec.SoundPP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn

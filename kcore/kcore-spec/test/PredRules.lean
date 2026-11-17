@@ -546,4 +546,62 @@ example : ∀ (hf : FnHyp c)
 
 end FamOpenValues
 
+/-! ## Soundness at a step (`KCore.Faithful.applies_match_pp`, `not_applies_guarded_pp`, `step_sound_pp`, `KCore.sound_at_pp`)
+
+  At `rNot` (a `pre` that is not `\top`): x's element in its `applies` gives a match of its left
+  side at x, and where it does not apply at x, x's element is in no `applies` of it, its conditions
+  asked decided only at such a match (a rule of a larger priority assumed). At `rOr` (an existential
+  variable and a `post` that is not `\top`): the successor of a step is among its instances. At the
+  definition: `sound_at`'s statement from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+
+section SoundPP
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+example (hI : I ⊧ᴵP Γ c) {x : Config c} {tbl : KoreAML.VarTable}
+    (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl) (e : ML.Valuation M)
+    (hm : (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val)) :
+    ∃ σ', PatVal c σ' rNot.lhs x.val :=
+  applies_match_pp coreOK hI rNot_pp.1 hkeys e hm
+
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hlarger : c.rules.any (fun r'' => rNot.prio < r''.prio) = true) {x : Config c}
+    (hw : rNot.needsWitness c = true → (∃ σ', PatVal c σ' rNot.lhs x.val) → rNot.CondDecided c)
+    (hna : NotApplies c rNot x.val)
+    {tbl : KoreAML.VarTable} (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
+    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
+    (e : ML.Valuation M) :
+    ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) :=
+  not_applies_guarded_pp coreOK hI hcw rNot_pp.1 rNot_pp.2.1 hlarger
+    (fun h => absurd h (by rw [compete_facts.2.2]; decide))
+    (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hw hna hkeys hkP e
+
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    {σ : Subst} (hσ : c.WellSorted rOr.vars σ) {y : Config c}
+    (heval : EvalTerm c σ rOr.rhs (some y.val)) (hpost : Holds c rOr.vars.length σ rOr.post true)
+    (e : ML.Valuation M) : (famEx c rOr σ).interpret I e (elemOf c I y.val) :=
+  famEx_mem_pp coreOK rOr_pp.1 (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ heval
+    (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpost hI hcw e
+
+/-- `step_sound_pp` at `rNot`, its axiom, the rules of a larger priority and the step's premises
+left as arguments. -/
+example (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :=
+  step_sound_pp (r := rNot) coreOK rules_pp hI hcw rNot_pp.1 rNot_pp.2.1
+    (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
+    (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
+
+/-- The pinned type of `sound_at` (`test/Pins.lean`), from the per-rule facts. -/
+example : ∀ (x y : Config c) (r : Rule) (σ : Subst) (hs : StepBy c r σ x y)
+    (hw : ∀ r' ∈ c.rules, r'.prio < r.prio → r'.needsWitness c = true →
+      (∃ σ', PatVal c σ' r'.lhs x.val) → r'.CondDecided c)
+    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c),
+    (Γc c ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :=
+  sound_at_pp c coreOK rules_pp
+
+end SoundPP
+
 end PredRules
