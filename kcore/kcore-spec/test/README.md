@@ -389,6 +389,16 @@ except for the failures its allowance (`ALLOWANCE` in units.py) names as owed by
 each kind of failure with its ticket and an exact pinned count, printed on every run, failing when
 the count differs from the pin or the ticket is missing or done (GUARD.units-standing).
 
+`test/constructs/K-coverage.md` is the coverage document of DONE-0 C11, generated, not written by
+hand: `python3 -I test/constructs/coverage.py` writes it from `rows.toml` and `../core-manifest.toml`
+alone (the rows by status per list, the refused rows and nested entries by class R-a, R-b, R-c and
+scope, counted as `units.py` counts them, every R-c entry with its cone declaration and unit, the rows
+not yet decided, each manifest layer's `teaches` with its declarations, and one table per list, a line
+per row and per nested entry). `coverage.py check` (run by `constructs.sh`, and alone in under a
+second) fails when the committed document differs from what the generator writes, so a change to
+`rows.toml` or to the manifest is committed with the document regenerated; a merge that conflicts in
+the document is resolved by running the generator on the merged inputs.
+
 `test/provenance.sh` (run by `constructs.sh` last, and alone in about a second) is DONE-0 C7's first
 check, on the evidence theorems a row names in `derived` (rows-header.toml): each derivation carries
 its form ((a), (b), (c)) and, for form (a), its kind (`from sentences`, or `through the reading` with
