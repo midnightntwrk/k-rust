@@ -26,7 +26,7 @@ theorem ruleOK_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
     simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at hok
     exact hok.2 r hr
   simp only [Semantics.ruleOK, Bool.and_eq_true, beq_iff_eq] at hrule
-  exact ⟨hrule.1.1.1.1.1.1, hrule.1.1.1.1.1.2, hrule.1.1.1.1.2, hrule.1.1.1.2, hrule.1.2⟩
+  exact ⟨hrule.1.1.1.1.1.1.1.1, hrule.1.1.1.1.1.1.1.2, hrule.1.1.1.1.1.1.2, hrule.1.1.1.1.1.2, hrule.1.1.1.2⟩
 
 /-- What `ok` checks of a rule's `ensures`: a Bool. -/
 theorem ruleOK_ens_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
@@ -35,7 +35,7 @@ theorem ruleOK_ens_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
     simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at hok
     exact hok.2 r hr
   simp only [Semantics.ruleOK, Bool.and_eq_true, beq_iff_eq] at hrule
-  exact hrule.1.1.2
+  exact hrule.1.1.1.1.2
 
 theorem headsOK_fns : HeadsOK c (c.fns.map Fn.sig) :=
   fun k hk => by obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk; exact ⟨g, List.mem_append_left _ hg, rfl⟩

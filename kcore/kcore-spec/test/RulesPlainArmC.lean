@@ -15,7 +15,8 @@
     library's text accepts exactly what the text with the conjunct `r.opens.isEmpty` and the arm as
     first written (`rulesPlainA3`) accepts. `ruleSorted` is read since R2's flip: `rulesPlain` no
     longer asks `r.exs = []`, and an existential variable is an open one by `ruleSorted`
-    (`Semantics.exs_nil_of_opens`).
+    (`Semantics.exs_nil_of_opens`). That every rule has `\top` predicates is a hypothesis (`ht`):
+    `rulesPlainA3` asks it, and the statement does not rest on `rulesPlain` asking it too.
 -/
 import KcoreSpec.Statements
 
@@ -56,13 +57,15 @@ def rulesPlainA3 (c : Semantics) : Bool := c.rules.all fun r =>
 /-- Where no rule leaves a variable open and every rule is well sorted, the library's text and
 `rulesPlainA3` accept the same semantics. -/
 theorem rulesPlainLand_eq (c : Semantics) (h0 : ∀ r ∈ c.rules, r.opens = [])
-    (hs : ∀ r ∈ c.rules, c.ruleSorted r = true) :
+    (hs : ∀ r ∈ c.rules, c.ruleSorted r = true)
+    (ht : ∀ r ∈ c.rules, r.pre.isTop = true ∧ r.post.isTop = true) :
     c.rulesPlain = rulesPlainA3 c := by
   apply Bool.eq_iff_iff.mpr
   unfold rulesPlainA3 Semantics.rulesPlain
   simp only [List.all_eq_true]
   refine forall_congr' fun r => imp_congr_right fun hr => ?_
-  simp [Rule.reqOpen, Rule.openCondVars, h0 r hr, Semantics.exs_nil_of_opens (hs r hr) (h0 r hr)]
+  simp [Rule.reqOpen, Rule.openCondVars, h0 r hr, Semantics.exs_nil_of_opens (hs r hr) (h0 r hr),
+    (ht r hr).1, (ht r hr).2]
 
 /-- info: 'rulesPlainLand_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rulesPlainLand_eq

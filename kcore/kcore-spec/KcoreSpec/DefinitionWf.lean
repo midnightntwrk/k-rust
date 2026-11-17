@@ -1003,7 +1003,9 @@ def totalObligations : List Sym :=
 /-- A rule: a left-hand side of the configuration sort whose map patterns have at most one
 frame, binding every variable (repetitions allowed); a Bool `requires` and a right-hand side of
 the configuration sort over constructors, hooks and the user's functions; a Bool `ensures`; no
-existential variable (the left side binds every variable, so none is left for one). -/
+existential variable (the left side binds every variable, so none is left for one); `\top`
+predicates (the executable step reads neither `pre` nor `post`, so it is the step of rules whose
+predicates say nothing). -/
 def ruleOK (r : Rule) : Bool :=
   sortOfTerm c.patCtx r.vars r.lhs == some topCellSort &&
   noMapIn r.lhs &&
@@ -1011,7 +1013,7 @@ def ruleOK (r : Rule) : Bool :=
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req &&
   reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens &&
   sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
-  r.exs.isEmpty
+  r.exs.isEmpty && r.pre.isTop && r.post.isTop
 
 /-- A rule, as `ruleOK`, its left-hand side well-sorted over the collection pattern symbols too
 (`patCtxAll`), and each of its variables occurring somewhere in it rather than in its left side
@@ -1063,8 +1065,8 @@ theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
 
 theorem ruleOKAll_of {r : Rule} (h : c.ruleOK r = true) : c.ruleOKAll r = true := by
   simp only [ruleOK, ruleOKAll, Bool.and_eq_true, beq_iff_eq] at h ⊢
-  have hex : r.exs = [] := List.isEmpty_iff.mp h.2
-  have h := h.1
+  have hex : r.exs = [] := List.isEmpty_iff.mp h.1.1.2
+  have h := h.1.1.1
   refine ⟨⟨⟨⟨⟨⟨⟨sortOfTerm_heads _ _ _ _ h.1.1.1.1.1, h.1.1.1.1.2⟩, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩, ?_⟩, ?_⟩
   · have hb := h.1.1.1.2
     simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append] at hb ⊢

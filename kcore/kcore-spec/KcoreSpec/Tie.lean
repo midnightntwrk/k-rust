@@ -102,23 +102,6 @@ def Semantics.ok (c : Semantics) : Bool :=
   c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOK
 
-/-- The definition is well-formed: as `ok`, with the rules' left-hand sides well-sorted over the
-collection pattern symbols too (`ruleOKAll`: a list's `ListItem(P) L`, a cell map's). `ok` is the
-narrower condition the executable matcher's theorems read; `okAll` is what the tie checks. -/
-def Semantics.okAll (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
-    c.rules.all c.ruleOKAll
-
-/-- The rules, clauses and parameters of a core `okAll` accepts are plain. -/
-theorem Semantics.plain_of_okAll {c : Semantics} (h : c.okAll = true) :
-    c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true := by
-  simp only [Semantics.okAll, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.2.1.1, h.1.1.1.2.1.2, h.1.1.1.2.2⟩
-
-theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true := by
-  simp only [Semantics.ok, Semantics.okAll, Bool.and_eq_true, List.all_eq_true] at h ⊢
-  exact ⟨⟨h.1.1, c.fnsOKAll_of h.1.2⟩, fun r hr => c.ruleOKAll_of (h.2 r hr)⟩
-
 namespace Semantics
 variable (c : Semantics)
 
@@ -159,6 +142,17 @@ def condOK (vars : List Srt) : Cond → Bool
       decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
 
+/-- A rule's predicates are well sorted (`condOK`), with binders that range where values and
+elements agree (`Cond.bound`): what `ruleSorted` asks of `pre` and `post`. -/
+def rulePredsOK (r : Rule) : Bool :=
+  c.condOK r.vars r.pre && c.condOK r.vars r.post &&
+  Cond.bound c r.vars.length r.pre && Cond.bound c r.vars.length r.post
+
+/-- `\top` predicates are well sorted. -/
+theorem rulePredsOK_top {r : Rule} (hpre : r.pre = .top) (hpost : r.post = .top) :
+    c.rulePredsOK r = true := by
+  simp [rulePredsOK, hpre, hpost, condOK, Cond.bound]
+
 /-- A rule is well sorted: its left-hand side has the configuration sort in a left-hand side's
 context (`patCtxAll`), each of its variables occurs in it, its existential variables are distinct
 variables the left side and the conditions do not hold, its `requires` and its `ensures` are
@@ -197,18 +191,15 @@ theorem rulesPlain_ruleTop {c : Semantics} (h : c.rulesPlain = true) {r : Rule} 
   exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
 
 /-- Each variable of a rule of a semantics `sortedOK` accepts occurs in its left side, its
-`requires`, its right side or its `ensures`. -/
+`requires`, its right side, its `ensures` or its `post`. -/
 theorem sortedOK_rule_occurs {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
-    binds r.vars.length (varOccs r.lhs ++ r.condVars ++ varOccs r.rhs ++ (r.ens.map varOccs).getD []) = true := by
+    binds r.vars.length (varOccs r.lhs ++ r.condVars ++ varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++
+      varOccsCond r.vars.length r.post) = true := by
   have hs := sortedOK_sorted h
-  simp only [sortedOK, Bool.and_eq_true] at h
-  obtain ⟨-, hpost⟩ := rulesPlain_ruleTop h.1.1.2 hr
   simp only [Bool.and_eq_true, List.all_eq_true] at hs
   have hrs := hs.2 r hr
   simp only [ruleSorted, Bool.and_eq_true] at hrs
-  have hb := hrs.1.1.1.1.1.1.1.1.1.2
-  rw [hpost] at hb
-  simpa [varOccsCond] using hb
+  exact hrs.1.1.1.1.1.1.1.1.1.2
 
 /-- A rule with `ruleSorted` and no open variable has no existential variable. -/
 theorem exs_nil_of_opens {c : Semantics} {r : Rule} (hs : c.ruleSorted r = true) (hop : r.opens = []) :
@@ -269,15 +260,21 @@ theorem clauseBound_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c
   rw [Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost]
   rfl
 
-/-- `ruleOKAll` with `\top` predicates gives `ruleSorted`: `ruleOKAll` checks the existential
-variables as `ruleSorted` does. -/
-theorem ruleSorted_of_allTop {r : Rule} (h : c.ruleOKAll r = true) (hpre : r.pre = .top)
-    (hpost : r.post = .top) : c.ruleSorted r = true := by
+/-- `ruleOKAll` and `rulePredsOK` give `ruleSorted`: `ruleOKAll` checks the existential variables
+as `ruleSorted` does, and `rulePredsOK` the predicates. -/
+theorem ruleSorted_of_allPreds {r : Rule} (h : c.ruleOKAll r = true) (hp : c.rulePredsOK r = true) :
+    c.ruleSorted r = true := by
   simp only [ruleOKAll, Bool.and_eq_true] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨h1, -⟩, h3⟩, h4⟩, h5⟩, h6⟩, hn⟩, hx⟩ := h
+  simp only [rulePredsOK, Bool.and_eq_true] at hp
+  obtain ⟨⟨⟨p1, p2⟩, p3⟩, p4⟩ := hp
   simp only [ruleSorted, Bool.and_eq_true]
-  refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, hn⟩, hx⟩, h4⟩, ?_⟩, h5⟩, ?_⟩, ?_⟩, ?_⟩, h6⟩ <;>
-    simp [hpre, hpost, condOK, Cond.bound]
+  exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, hn⟩, hx⟩, h4⟩, p1⟩, h5⟩, p2⟩, p3⟩, p4⟩, h6⟩
+
+/-- `ruleOKAll` with `\top` predicates gives `ruleSorted` (`ruleSorted_of_allPreds`). -/
+theorem ruleSorted_of_allTop {r : Rule} (h : c.ruleOKAll r = true) (hpre : r.pre = .top)
+    (hpost : r.post = .top) : c.ruleSorted r = true :=
+  c.ruleSorted_of_allPreds h (c.rulePredsOK_top hpre hpost)
 
 theorem ruleSorted_of_all {r : Rule} (h : c.ruleOKAll r = true) (_hex : r.exs = []) (hpre : r.pre = .top)
     (hpost : r.post = .top) : c.ruleSorted r = true :=
@@ -295,16 +292,36 @@ theorem ruleSorted_parts {r : Rule} (h : c.ruleSorted r = true) :
 
 end Semantics
 
+/-- The definition is well-formed: as `ok`, with the rules' left-hand sides well-sorted over the
+collection pattern symbols too (`ruleOKAll`: a list's `ListItem(P) L`, a cell map's) and the rules'
+predicates well sorted (`rulePredsOK`). `ok` is the narrower condition the executable matcher's
+theorems read; `okAll` is what the tie checks. -/
+def Semantics.okAll (c : Semantics) : Bool :=
+  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
+    c.rules.all c.ruleOKAll && c.rules.all c.rulePredsOK
+
+/-- The rules, clauses and parameters of a core `okAll` accepts are plain. -/
+theorem Semantics.plain_of_okAll {c : Semantics} (h : c.okAll = true) :
+    c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true := by
+  simp only [Semantics.okAll, Bool.and_eq_true] at h
+  exact ⟨h.1.1.1.1.2.1.1, h.1.1.1.1.2.1.2, h.1.1.1.1.2.2⟩
+
+theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true := by
+  simp only [Semantics.ok, Semantics.okAll, Bool.and_eq_true, List.all_eq_true] at h ⊢
+  refine ⟨⟨⟨h.1.1, c.fnsOKAll_of h.1.2⟩, fun r hr => c.ruleOKAll_of (h.2 r hr)⟩, fun r hr => ?_⟩
+  have hro := h.2 r hr
+  simp only [Semantics.ruleOK, Bool.and_eq_true] at hro
+  exact c.rulePredsOK_top (Cond.eq_top_of_isTop hro.1.2) (Cond.eq_top_of_isTop hro.2)
+
 /-- `okAll` checks each condition of `sortedOK`. -/
 theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) : c.sortedOK = true := by
   obtain ⟨hrp, hcp, hpp⟩ := Semantics.plain_of_okAll h
   simp only [Semantics.okAll, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨-, hs⟩, hf⟩, hr⟩ := h
+  obtain ⟨⟨⟨⟨-, hs⟩, hf⟩, hr⟩, hq⟩ := h
   simp only [Semantics.fnsOKAll, List.all_eq_true] at hf
   simp only [Semantics.sortedOK, Bool.and_eq_true, List.all_eq_true, hrp, hcp, hpp, and_true]
   refine ⟨⟨hs, fun f hf' cl hcl => ?_⟩, fun r hr' =>
-    let ⟨hpre, hpost⟩ := Semantics.rulesPlain_ruleTop hrp hr'
-    c.ruleSorted_of_allTop (List.all_eq_true.mp hr r hr') hpre hpost⟩
+    c.ruleSorted_of_allPreds (List.all_eq_true.mp hr r hr') (List.all_eq_true.mp hq r hr')⟩
   have := hf f hf'
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
   exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl)
@@ -318,12 +335,11 @@ theorem Semantics.okAll_ruleTop {c : Semantics} (h : c.okAll = true) {r : Rule} 
 variable (`ruleOK`). -/
 theorem Semantics.ok_rule {c : Semantics} (h : c.ok = true) {r : Rule} (hr : r ∈ c.rules) :
     r.exs = [] ∧ r.pre = .top ∧ r.post = .top ∧ binds r.vars.length (varOccs r.lhs) = true := by
-  have hp := (Semantics.plain_of_okAll (Semantics.okAll_of_ok h)).1
-  obtain ⟨hpre, hpost⟩ := Semantics.rulesPlain_ruleTop hp hr
   simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at h
   have hro := h.2 r hr
   simp only [Semantics.ruleOK, Bool.and_eq_true] at hro
-  exact ⟨List.isEmpty_iff.mp hro.2, hpre, hpost, hro.1.1.1.1.2⟩
+  exact ⟨List.isEmpty_iff.mp hro.1.1.2, Cond.eq_top_of_isTop hro.1.2, Cond.eq_top_of_isTop hro.2,
+    hro.1.1.1.1.1.1.2⟩
 
 /-- The functions declared `hooked-symbol` (their presentation carries a `hook{}` attribute) name
 hooks no registry hook interprets (`regHookOf`). Such a function's meaning is its clauses and,
@@ -388,7 +404,7 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("parameters plain (paramsPlain): no law on a parameter that is no open generator, an open generator of the admitted shape; carriers well formed", d.sem.paramsPlain),
    ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
    ("functions: well-sorted, covering", d.sem.fnsOKAll),
-   ("rules: well-sorted over the configuration sort", d.sem.rules.all d.sem.ruleOKAll),
+   ("rules: well-sorted over the configuration sort", d.sem.rules.all fun r => d.sem.ruleOKAll r && d.sem.rulePredsOK r),
    ("certificate: self calls decrease", d.cert.ok d.sem),
    ("presentation: variable names distinct; cells named apart, the cell holding $PGM of content K or its sort, each with its kind's sorts and symbols, the core's first sorts, constructors and subsorts", d.pres.ok d.sem),
    ("theory: no function or constructor named like ite at a sort, functions' sorts numbered", Faithful.namesNumbered d.sem),

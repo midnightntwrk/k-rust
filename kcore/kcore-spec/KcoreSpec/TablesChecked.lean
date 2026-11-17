@@ -173,7 +173,7 @@ def ruleOKT (r : Rule) : Bool :=
   reqOK (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.req &&
   reqOK (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.ens &&
   sortOfTerm (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
-  r.exs.isEmpty
+  r.exs.isEmpty && r.pre.isTop && r.post.isTop
 
 /-- `ok`, read from the tables. -/
 def okT : Bool :=
