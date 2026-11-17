@@ -1,10 +1,39 @@
 id = "c31-list-concat"
 kind = "case"
 subject = "List concatenation is associative and not commutative: A B and B A differ, so p(L, L) does not match them; (A B) A and A (B A) are one list, which q(L, L) matches; a list may hold an element twice; size counts every element."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t17-nonlinear", "kk:t34-collection-values"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["p(ListItem(1) ListItem(2), ListItem(2) ListItem(1))", "assoc(ListItem(1) ListItem(2) ListItem(1))", "n(3)"]
+reason = """
+(1) A List is a finite sequence of items in which an item may occur more than once and the order counts; _List_ is the concatenation of sequences, has a value at every two lists and is associative (kk:t34-collection-values; domains.md:919, 930).
+(2) The three rules for go have priority 50 and no requires (user_manual.md:1748-1749): go(ListItem(1), ListItem(2)) has the three successors below (kk:t02-step-successors).
+(3) A B is the list 1, 2 and B A the list 2, 1: two lists. In p(L, L) the variable L stands for one value at both places (kk:t17-nonlinear), so it does not match p(A B, B A), and no rule applies there: p(ListItem(1) ListItem(2), ListItem(2) ListItem(1)) is final (kk:t06-final-configuration).
+(4) (A B) A and A (B A) are both the list 1, 2, 1, concatenation being associative: q(L, L) matches with L that list, and q(...) steps to assoc(ListItem(1) ListItem(2) ListItem(1)) (kk:t01-rule-applies), which is final.
+(5) size(A B A) is the number of elements of the list 1, 2, 1 (domains.md:1031), 3, the item 1 counted at each of its two positions: go steps to n(3), which is final.
+(6) The final configurations are those three: same(_) would need A B and B A to be one list, which (1) and (3) exclude."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:919 (K 7.1.337)"
+quote = "The `List` sort is an ordered collection that may contain duplicate elements."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:930 (K 7.1.337)"
+quote = "syntax List ::= List List [left, function, total, hook(LIST.concat), symbol(_List_), smtlib(smt_seq_concat), assoc, unit(.List), element(ListItem), update(List:set), format(%1%n%2)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1031 (K 7.1.337)"
+quote = "You can get the number of elements of a list in O(1) time."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."

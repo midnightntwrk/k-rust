@@ -1,13 +1,73 @@
 id = "c28-set-overlap"
 kind = "case"
-subject = "Set concatenation of sets with a common element: S SetItem(1) where S has the element 1. K's sources call the concatenation idempotent in one place and undefined on a common element in another; kore.k reads it as undefined. S SetItem(2) is the union of disjoint sets, and S |Set SetItem(1), the union operation, is total."
+subject = "Set concatenation of sets with a common element: S SetItem(1) where S has the element 1, beside S SetItem(2), the union of disjoint sets, and S |Set SetItem(1), the union operation. K's SET module calls the concatenation nilpotent in its prose and declares it idem."
+retro = ["A3"]
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t34-collection-values", "kk:t35-set-concat-overlap"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading with a model shares:
+(1) The three rules for go have priority 50 and no requires (user_manual.md:1748-1749): at go(SetItem(1)) each rule whose result has a value gives a successor, whatever the others give (kk:t02-step-successors).
+(2) S SetItem(2) at S = SetItem(1) joins two sets with no element in common: the set of 1 and 2 (kk:t35-set-concat-overlap, point (1); kk:t34-collection-values). go(SetItem(1)) steps to r(2, SetItem(1) SetItem(2)).
+(3) S |Set SetItem(1) is the union, which consists of all the elements present in either set (domains.md:742-745), and is total (domains.md:748): SetItem(1). go(SetItem(1)) steps to r(3, SetItem(1)).
+(4) No rule's left side matches r(_, _): each successor is final (kk:t06-final-configuration).
+What the text does not determine:
+(5) S SetItem(1) at S = SetItem(1): the SET module states both that the concatenation of two sets with an element in common is #False (domains.md:705-709) and, by idem on the declaration, that a set concatenated with itself is itself (domains.md:721; user_manual.md:958-963). At SetItem(1) the two cannot both hold: kk:t35-set-concat-overlap's question, at this very concatenation. The readings are that entry's, with the final configurations each gives."""
+interpreter = "nilpotent"
+separates = ["set-idempotent"]
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:705-709 (K 7.1.337)"
+quote = "The `Set` sort represents a mathematical set (A collection of unique items). The sets are nilpotent, i.e., the concatenation of two sets containing elements in common is `#False` (note however, this may be silently allowed during concrete execution). If you intend to add an element to a set that might already be present in the set, use the `|Set` operator instead."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:721 (K 7.1.337)"
+quote = "syntax Set ::= Set Set [left, function, hook(SET.concat), symbol(_Set_), assoc, comm, unit(.Set), idem, element(SetItem), format(%1%n%2)]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:742-745 (K 7.1.337)"
+quote = "The union consists of all the elements present in either set."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:748 (K 7.1.337)"
+quote = 'syntax Set ::= Set "|Set" Set [left, function, total, hook(SET.union), comm]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[reading]]
+name = "nilpotent"
+statement = "SetItem(1) SetItem(1) has no value (kk:t35-set-concat-overlap, reading nilpotent), and so has r(1, SetItem(1) SetItem(1)) (kk:t10-fn-innermost): the first rule gives go(SetItem(1)) no successor."
+finals = ["r(2, SetItem(1) SetItem(2))", "r(3, SetItem(1))"]
+consequence = "The first rule makes no difference; the other two give the final configurations."
+
+[[reading]]
+name = "idempotent"
+statement = "SetItem(1) SetItem(1) = SetItem(1) (kk:t35-set-concat-overlap, reading idempotent): the first rule gives r(1, SetItem(1))."
+finals = ["r(1, SetItem(1))", "r(2, SetItem(1) SetItem(2))", "r(3, SetItem(1))"]
+consequence = "Each of the three rules gives a final configuration."
+
+[[reading]]
+name = "as-written"
+statement = "Both sentences hold (kk:t35-set-concat-overlap, reading as-written)."
+answer = "No model has a set with an element; nothing is concluded about go(SetItem(1))."
+consequence = "No final configuration is a consequence of the text."
 
 [[disposition]]
 implementation = "llvm"
