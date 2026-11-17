@@ -48,6 +48,7 @@ row = 'C3 equation requires x equation ensures'
 fixture = "c3-eq-req-ens"
 theorems = "test/C3EqReqEns.lean"
 expect = "killed"
+killed_by = "theorems: shape, f_5 (test/C3EqReqEns.lean; the account of the fixture unchanged; 2026-11-18)"
 patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
