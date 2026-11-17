@@ -741,7 +741,7 @@ mutual
   theorem eval_den2 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args → Callable2 c f →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio _ hrhs hens _,
         fn, hfn, hws, hcall, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -782,7 +782,13 @@ mutual
     | _, _, _, h@(.ensFails ..), fn, hfn, hws, hcall, e, m => by
       -- a callable function has a value at every argument list of its sorts, so none is its result
       obtain ⟨v, hv⟩ := hcall fn hfn _ hws
-      exact absurd (Eval.functional hmi h hv) (by simp)
+      exact absurd (Eval.functional hmi (Semantics.fnsNoExs_of_sortedOK hok) h hv) (by simp)
+    | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+    | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
   theorem fails_den2 : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →

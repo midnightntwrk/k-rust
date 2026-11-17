@@ -105,6 +105,33 @@ example (c : Semantics) : FnHyp c =
       (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) ∧
       OpenDecided c ∧ OpenLaws c) := rfl
 
+example (c : Semantics) (cl : Clause) : MatchIndependent c cl =
+    (Coherent c cl cl ∧
+      (cl.exs ≠ [] → ∀ f fn vs σ, c.lookupFn f = some fn → cl ∈ fn.clauses →
+        cl.Decides c fn σ vs → ∃ r, cl.Res c σ r)) := rfl
+
+example : ∀ {c : Semantics} {cl : Clause}, cl.exs = [] → (MatchIndependent c cl ↔ Coherent c cl cl) :=
+  @matchIndependent_iff_noExs
+
+example (c : Semantics) (cl cl' : Clause) : CoherentPlain c cl cl' =
+    (∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
+      (∀ t, cl.req = some t → HDet c σ t) →
+      ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs) →
+      (∀ t, cl.ens = some t → HDet c σ t) →
+      (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
+        cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
+      (cl.rhs = cl'.rhs ∧ cl.ens = cl'.ens ∧ (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∧
+        ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) ∨
+      ∀ r r',
+        ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧ EvalTerm c σ cl.rhs r ∨
+          ∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ r = none) →
+        ((∀ t, cl'.ens = some t → EvalTerm c σ' t (some (bool true))) ∧ EvalTerm c σ' cl'.rhs r' ∨
+          ∃ t w, cl'.ens = some t ∧ EvalTerm c σ' t w ∧ w ≠ some (bool true) ∧ r' = none) →
+        r = r') := rfl
+
+example : ∀ {c : Semantics} {cl cl' : Clause}, cl.exs = [] → cl'.exs = [] → cl.post = .top → cl'.post = .top →
+    (Coherent c cl cl' ↔ CoherentPlain c cl cl') := @coherent_iff_noExs
+
 example (c : Semantics) : OpenDecided c =
     ((∀ r ∈ c.rules, r.needsWitness c = true → r.CondDecided c) ∧
       (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)) := rfl
@@ -702,6 +729,9 @@ example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n
 
 /-- info: 'KCore.Coherent.of_fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Coherent.of_fnDet
+
+/-- info: 'KCore.coherent_iff_noExs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.coherent_iff_noExs
 
 /-- info: 'KCore.sound_hyp₀' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.sound_hyp₀

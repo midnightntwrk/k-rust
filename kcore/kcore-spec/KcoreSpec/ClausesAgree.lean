@@ -22,6 +22,31 @@ def ClausesAgree (c : Semantics) (f : Fn) : Prop :=
       (cl'.aside = true ∧ cl'.prio < cl.prio)) →
     Coherent c cl cl' ∧ Coherent c cl' cl
 
+/-- `ClausesAgree` in the form of clauses without existential variables (`CoherentPlain`): what
+the deciders of agreement show, which read no existential variable. -/
+def ClausesAgreePlain (c : Semantics) (f : Fn) : Prop :=
+  ∀ cl cl', (cl, cl') ∈ pairs f.clauses →
+    (cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
+      (cl'.aside = true ∧ cl'.prio < cl.prio)) →
+    CoherentPlain c cl cl' ∧ CoherentPlain c cl' cl
+
+/-- Two clauses of a pair of a list are in the list. -/
+theorem mem_of_mem_pairs {α : Type} {a b : α} : ∀ {l : List α}, (a, b) ∈ pairs l → a ∈ l ∧ b ∈ l
+  | [], h => nomatch h
+  | x :: l, h => by
+    simp only [pairs, List.mem_append, List.mem_map, Prod.mk.injEq] at h
+    rcases h with ⟨y, hy, rfl, rfl⟩ | h
+    · exact ⟨List.mem_cons_self .., List.mem_cons_of_mem _ hy⟩
+    · exact ⟨List.mem_cons_of_mem _ (mem_of_mem_pairs h).1, List.mem_cons_of_mem _ (mem_of_mem_pairs h).2⟩
+
+/-- The equations of a function whose clauses have no existential variable agree where they agree
+in the form without them. -/
+theorem ClausesAgreePlain.agree {c : Semantics} {f : Fn} (h : ClausesAgreePlain c f)
+    (hx : ∀ cl ∈ f.clauses, cl.exs = []) : ClausesAgree c f := fun cl cl' hp hprio =>
+  have hm := mem_of_mem_pairs hp
+  ⟨Coherent.of_plain (hx cl hm.1) (hx cl' hm.2) (h cl cl' hp hprio).1,
+    Coherent.of_plain (hx cl' hm.2) (hx cl hm.1) (h cl cl' hp hprio).2⟩
+
 /-- Two clauses of different priorities, neither `aside`, do not compete: the one of the smaller
 priority blocks the other. -/
 theorem not_compete {cl cl' : Clause} (h : (cl.prio != cl'.prio && !cl.aside && !cl'.aside) = true) :
@@ -66,7 +91,7 @@ theorem coherentAll_of_parts {c : Semantics} (hmi : MatchIndependentAll c)
     (hag : ∀ f fn, c.lookupFn f = some fn → ClausesAgree c fn) : CoherentAll c := by
   intro f fn hfn cl hcl cl' hcl' hprio
   by_cases he : cl = cl'
-  · subst he; exact hmi f fn hfn cl hcl
+  · subst he; exact (hmi f fn hfn cl hcl).1
   · rcases mem_pairs_of_ne hcl hcl' he with hp | hp
     · exact (hag f fn hfn cl cl' hp hprio).1
     · refine (hag f fn hfn cl' cl hp ?_).2

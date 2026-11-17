@@ -44,7 +44,7 @@ theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true
   obtain ⟨hpt, -, L, -, -, hrt, hens⟩ := Faithful.clause_ctxOccE hok hmem hcl
   cases hfx : c.clauseFixed cl with
   | true =>
-    refine clauseFixed_sound (Exec.matchCtx_of hmr) hpt hrt ?_ hfx
+    refine clauseFixed_sound (Exec.matchCtx_of hmr) hpt hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     cases he : cl.ens with
     | none => rfl
     | some t => simpa [reqOK, he] using hens t he
@@ -71,8 +71,8 @@ theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hsr 
   · have hf := hok
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
-    exact Det.fnExclusiveOK_sound (Exec.matchCtx_of hmr) (fun _ _ => Det.ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) hx
+    exact (Det.fnExclusiveOK_sound (Exec.matchCtx_of hmr) (fun _ _ => Det.ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
+      (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(Exec.matchCtx_of hmr).noOvl] using hx⟩, rfl⟩
@@ -246,22 +246,24 @@ independence of the clauses give coherence, so one result (`fnDet_of_coherent`);
 every `requires` and right-hand side read has a result, so where a clause decides the function's
 values are its right-hand side's (`fnSolves_of_total`). `FnHyp`'s totality conjunct is not read. -/
 theorem fnModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : FnDet c ∧ FnSolves c :=
-  have hd := fnDet_of_coherent (CoherentAll_of (hyp_of_fnHyp h hf))
+  have hd := fnDet_of_coherent (CoherentAll_of (hyp_of_fnHyp h hf)) (Semantics.fnsNoExs_of_coreOK h)
   ⟨hd, fnSolves_of_total (hypSound_of_core h) hd hf.1⟩
 
 /-- **Under `FnHyp`, values that satisfy a clause's conditions witness it**: `FnHyp`'s agreement and
-match-independence conjuncts give `FnDet` (`fnDet_of_agree`), with no fact on the semantics. -/
-theorem Clause.witnessedDet_of_fnHyp {c : Semantics} (hf : FnHyp c) {cl : Clause}
+match-independence conjuncts give `FnDet` (`fnDet_of_agree`) where no clause has an existential
+variable, with no other fact on the semantics. -/
+theorem Clause.witnessedDet_of_fnHyp {c : Semantics} (hf : FnHyp c) (hno : c.FnsNoExs) {cl : Clause}
     (hw : ∃ σ, c.WellSortedAt cl.vars cl.condVars σ ∧
       (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c cl.vars.length σ cl.pre true) :
     cl.Witnessed c :=
-  (Clause.witnessedDet_iff_of_fnDet (fnDet_of_agree hf.2.2.1 hf.2.2.2.1) cl).mpr hw
+  (Clause.witnessedDet_iff_of_fnDet (fnDet_of_agree hf.2.2.1 hf.2.2.2.1 hno) cl).mpr hw
 
 /-- **`FnDet`, `PrioDecided` and `CoDefined` give `FnSolves`** in a semantics that `coreOK`
 accepts (`fnSolves_of_parts_lookup`, FnSolves.lean; the labels are apart, `lookupFn_of_core`). -/
 theorem fnSolves_of_parts (h : c.coreOK = true) (hd : FnDet c) (hp : PrioDecided c) (ha : CoDefined c) :
     FnSolves c :=
-  fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_core h hfn) hd hp ha
+  fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_core h hfn) hd
+    (fun fn hfn => Semantics.sortedOK_plainCl (Semantics.coreOK_parts h).1 fn (List.mem_append_left _ hfn)) hp ha
 
 /-- **What the existence of a model reads, from `coreOK` and `FnHyp`**: `hypModel_of_fn` with
 `fnModel_of_fnHyp`. -/

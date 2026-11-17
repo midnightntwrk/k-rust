@@ -30,7 +30,8 @@ priority are coherent, in both orders (`ClausesAgree`, `Coherent`), is a named o
 theorem agree_obligations : defn.sem.agreeObligations = [] := agreeObligations_of_T T_eq (by decide +kernel)
 
 /-- The clauses whose patterns `clauseFixed` does not show to fix their variables, as (function,
-index of the clause): that each is coherent with itself (`MatchIndependent`) is a named obligation
+index of the clause): that each is match independent (`MatchIndependent`: coherent with itself, and
+with a result at each match where it decides if it has existential variables) is a named obligation
 (`KCore.Obligations`). The lazy obligations are `lazy_obligations` (`Lazy.Facts.Lazy`). -/
 theorem match_obligations : defn.sem.matchObligations = [] := matchObligations_nil_of_fixed clausesFixed (by decide +kernel)
 

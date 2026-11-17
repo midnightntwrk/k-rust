@@ -485,7 +485,7 @@ theorem sortPred_total (hs : HypSoundCore c) {fn : Fn} (hfn : fn ∈ c.sortPreds
     ∃ r, Eval c fn.label vs r := by
   have hlk := lookupFn_of_sound hs (List.mem_append_right _ hfn)
   have hsh := sortPreds_shape hfn
-  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
+  exact eval_result hlk (fun cl hcl => ⟨Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩) (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
       Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hsh cl hcl; rw [h]; exact ⟨_, .dv⟩)
     (fun cl hcl _ _ t ht => by rw [sortPreds_ens hfn cl hcl] at ht; cases ht)
@@ -653,6 +653,7 @@ theorem coDefined_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : CoDefin
 at arguments of its sorts. -/
 theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c) : FnSolves c :=
   fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
+    (fun fn hfn => Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn))
     (prioDecided_of_total hs ht) (coDefined_of_total hs ht)
 
 /-! ## `⌈req = true⌉` -/

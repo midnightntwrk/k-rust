@@ -147,10 +147,21 @@ sort, over the function signatures of some list L. -/
 def CClauseCtx (c : Semantics) : Prop :=
   ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses,
     reqOK (c.rhsCtx L) cl.vars cl.req = true ∧ sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
-      reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧ cl.pre = .top
+      reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧ cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top
+
+/-- A clause of a function under `CClauseCtx` has no existential variable and the right side's
+predicate `\top`. -/
+theorem CClauseCtx.plainCl (hcc : CClauseCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : cl.exs = [] ∧ cl.post = .top :=
+  let ⟨_, _, h⟩ := hcc fn hfn
+  (h cl hcl).2.2.2.2
+
+theorem CClauseCtx.fnsNoExs (hcc : CClauseCtx c) : c.FnsNoExs :=
+  fun _ hfn _ hcl => (hcc.plainCl (List.mem_append_left _ hfn) hcl).1
 
 theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   have htop := Semantics.sortedOK_preTop hok
+  have hpl := Semantics.sortedOK_plainCl hok
   replace hok := Semantics.sortedOK_sorted hok
   simp only [Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨⟨_, hfns⟩, _⟩ := hok
@@ -159,10 +170,10 @@ theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   · refine ⟨c.fns.map Fn.sig, Exec.headsOK_fns, fun cl hcl => ?_⟩
     have := hfns fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
-    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl⟩
+    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl, hpl fn hfn' cl hcl⟩
   · exact ⟨[], fun k hk => (nomatch hk), fun cl h =>
       ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2,
-        htop fn hfn' cl h⟩⟩
+        htop fn hfn' cl h, hpl fn hfn' cl h⟩⟩
 
 /-! ## The clauses' candidates, as `firstClause` computes them -/
 
@@ -365,7 +376,7 @@ mutual
         obtain ⟨⟨cl', σ, b⟩, hmem, hres⟩ := List.exists_of_findSome?_eq_some hfind
         obtain ⟨hcl', hσm, rfl⟩ := mem_candidates.mp hmem
         obtain ⟨hcf, hpr⟩ := hin cl' hcl'
-        obtain ⟨hreq, hrhs, hensOK, htop⟩ := hclk cl' hcf
+        obtain ⟨hreq, hrhs, hensOK, htop, hexs, hpostT⟩ := hclk cl' hcf
         obtain ⟨hσw, hpv⟩ := cmatch_sound hσm
         unfold candResult at hres
         simp only at hres
@@ -383,7 +394,8 @@ mutual
           unfold candBody at hres
           split at hres
           · rename_i he
-            refine .clause hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+            refine .clause hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE hexs (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+              (Clause.holds_postTop hpostT σ)
             unfold clauseEns at he
             rw [ht] at he hensOK
             obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
@@ -397,7 +409,7 @@ mutual
             · rename_i t ht
               rw [ht] at hensOK
               obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
-              exact .ensFails hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
+              exact .ensFails hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE hexs ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
                 (fun h => by rw [isTrue_iff.mpr h] at he'; cases he')
           · cases hres
         · cases hres

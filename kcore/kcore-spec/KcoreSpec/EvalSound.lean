@@ -106,19 +106,52 @@ theorem _root_.KCore.Semantics.allFns_preTop {c : Semantics} (hp : c.clausesPlai
     exact Cond.eq_top_of_isTop (hp fn hfn cl hcl).1.1.2
   · exact Semantics.sortPreds_pre hfn cl hcl
 
+/-- Where the clauses are plain (`clausesPlain`), each clause of each function evaluation reads has
+no existential variable and the right side's predicate `\top`. -/
+theorem _root_.KCore.Semantics.allFns_plainCl {c : Semantics} (hp : c.clausesPlain = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
+  intro fn hfn' cl hcl
+  rcases List.mem_append.mp hfn' with hfn | hfn
+  · simp only [Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
+    exact ⟨List.isEmpty_iff.mp (hp fn hfn cl hcl).1.1.1, Cond.eq_top_of_isTop (hp fn hfn cl hcl).1.2⟩
+  · exact ⟨Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩
+
+/-- `allFns_plainCl` from `sortedOK`, which holds `clausesPlain`. -/
+theorem _root_.KCore.Semantics.sortedOK_plainCl {c : Semantics} (h : c.sortedOK = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
+  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
+  exact Semantics.allFns_plainCl h.1.2
+
+/-- Where the clauses are plain (`clausesPlain`), no clause of a function of the definition has an
+existential variable. -/
+theorem _root_.KCore.Semantics.fnsNoExs_of_clausesPlain {c : Semantics} (hp : c.clausesPlain = true) :
+    c.FnsNoExs :=
+  fun fn hfn cl hcl => (Semantics.allFns_plainCl hp fn (List.mem_append_left _ hfn) cl hcl).1
+
+/-- `fnsNoExs_of_clausesPlain` from `sortedOK`, which holds `clausesPlain`. -/
+theorem _root_.KCore.Semantics.fnsNoExs_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.FnsNoExs := by
+  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
+  exact Semantics.fnsNoExs_of_clausesPlain h.1.2
+
 /-- `allFns_preTop` from `sortedOK`, which holds `clausesPlain`. -/
 theorem _root_.KCore.Semantics.sortedOK_preTop {c : Semantics} (h : c.sortedOK = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
   simp only [Semantics.sortedOK, Bool.and_eq_true] at h
   exact Semantics.allFns_preTop h.1.2
 
+/-- A clause whose right side's predicate is `\top` has it true under every substitution. -/
+theorem _root_.KCore.Clause.holds_postTop {c : Semantics} {cl : Clause} (h : cl.post = .top) (σ : Subst) :
+    Holds c cl.vars.length σ cl.post true := by
+  rw [h]; exact .top
+
 /-- A clause whose predicate is `\top` has it true under every substitution. -/
 theorem _root_.KCore.Clause.holds_preTop {c : Semantics} {cl : Clause} (h : cl.pre = .top) (σ : Subst) :
     Holds c cl.vars.length σ cl.pre true := by
   rw [h]; exact .top
 
-/-- The clauses of every function, as `fnOK` checks them, each with the predicate `\top`: the
-executable evaluation reads a clause's patterns and its `requires`, not its predicate. -/
+/-- The clauses of every function, as `fnOK` checks them, each with the predicates `\top` and no
+existential variable: the executable evaluation reads a clause's patterns, its `requires`, its
+right-hand side and its `ensures`, not its predicates. -/
 def ClauseCtx (c : Semantics) : Prop :=
   ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧
     (∀ cl ∈ fn.clauses, sortsOfTerms c.patCtx cl.vars cl.pats = some fn.args ∧
@@ -127,7 +160,17 @@ def ClauseCtx (c : Semantics) : Prop :=
       reqOK (c.rhsCtx L) cl.vars cl.req = true ∧
       sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
       reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧
-      cl.pre = .top)
+      cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
+
+/-- A clause of a function under `ClauseCtx` has no existential variable and the right side's
+predicate `\top`. -/
+theorem ClauseCtx.plainCl (hcc : ClauseCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : cl.exs = [] ∧ cl.post = .top :=
+  let ⟨_, _, h⟩ := hcc fn hfn
+  (h cl hcl).2.2.2.2.2.2.2
+
+theorem ClauseCtx.fnsNoExs (hcc : ClauseCtx c) : c.FnsNoExs :=
+  fun _ hfn _ hcl => (hcc.plainCl (List.mem_append_left _ hfn) hcl).1
 
 theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
   simp only [Semantics.okM, Bool.and_eq_true] at hok
@@ -137,7 +180,8 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
   rotate_left
   · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl =>
       let ⟨h1, h2, h3, h4, h5, h6⟩ := sortPreds_ctx hfn cl hcl
-      ⟨h1, h2, h3, h4, h5, h6, Semantics.sortPreds_pre hfn cl hcl⟩⟩
+      ⟨h1, h2, h3, h4, h5, h6, Semantics.sortPreds_pre hfn cl hcl, Semantics.sortPreds_exs hfn cl hcl,
+        Semantics.sortPreds_post hfn cl hcl⟩⟩
   have hok := (List.all_eq_true.mp hfns) fn hfn
   simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨hcls, _⟩ := hok
@@ -147,7 +191,12 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     have htop : cl.pre = .top := Semantics.allFns_preTop hpl fn hfn' cl hcl
-    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop⟩
+    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop,
+      Semantics.allFns_plainCl hpl fn hfn' cl hcl⟩
+
+/-- No clause of a function of a definition `ok` accepts has an existential variable. -/
+theorem _root_.KCore.Semantics.fnsNoExs_of_ok {c : Semantics} (hok : c.ok = true) : c.FnsNoExs :=
+  (clauseCtx_of hok).fnsNoExs
 
 theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
 
@@ -340,7 +389,7 @@ mutual
         obtain ⟨⟨cl', σ, b⟩, hmem, hres⟩ := List.exists_of_findSome?_eq_some hfind
         obtain ⟨hcl', hσm, rfl⟩ := mem_candidates.mp hmem
         obtain ⟨hcf, hpr⟩ := hin cl' hcl'
-        obtain ⟨_, _, _, hreq, hrhs, hensOK, htop⟩ := hclk cl' hcf
+        obtain ⟨_, _, _, hreq, hrhs, hensOK, htop, hexs, hpostT⟩ := hclk cl' hcf
         obtain ⟨hmL, hws⟩ := List.mem_filter.mp hσm
         have hσw := wellSorted_iff.mp hws
         obtain ⟨_, hpv⟩ := matchL_sound _ (canonVs_of_sortsOf hvs) hmL
@@ -361,7 +410,8 @@ mutual
           unfold candBody at hres
           split at hres
           · rename_i he
-            refine .clause hfn hcf hσw hpv hreqE hpreE hprioE (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+            refine .clause hfn hcf hσw hpv hreqE hpreE hprioE hexs (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+              (Clause.holds_postTop hpostT σ)
             unfold clauseEns at he
             rw [ht] at he hensOK
             obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
@@ -375,7 +425,7 @@ mutual
             · rename_i t ht
               rw [ht] at hensOK
               obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
-              exact .ensFails hfn hcf hσw hpv hreqE hpreE hprioE ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
+              exact .ensFails hfn hcf hσw hpv hreqE hpreE hprioE hexs ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
                 (fun h => by rw [isTrue_iff.mpr h] at he'; cases he')
           · cases hres
         · cases hres

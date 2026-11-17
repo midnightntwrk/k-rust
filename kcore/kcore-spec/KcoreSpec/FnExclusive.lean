@@ -1131,7 +1131,7 @@ an `ensures` (`clausesAgree_sound`). -/
 theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true)
     (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveOK heads f = true) :
-    ClausesAgree c f := by
+    ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
@@ -1166,9 +1166,10 @@ theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = t
     simp only [Semantics.ok, Bool.and_eq_true, Semantics.fnsOK, List.all_eq_true] at hf
     have hfo := hf.1.2 fn hfn
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
-    exact fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
+    exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)) hx
+        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)) hx).agree
+      (Semantics.fnsNoExs_of_ok hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(matchCtx_of hmr).noOvl] using hx⟩, rfl⟩

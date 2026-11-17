@@ -143,8 +143,9 @@ theorem match_dec {σ : Subst} {v : GroundTerm} (hσ : gapDec.WellSorted [Srt.ma
 
 /-- The clause is match independent: every match binds its one variable to the argument. -/
 theorem gapDec_matchIndependent : MatchIndependent gapDec clDec := by
+  refine ⟨?_, fun hne => absurd rfl hne⟩
   intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
-  refine .inl ⟨rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
+  refine .inl ⟨rfl, rfl, rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
   intro i hi
   have hi0 : i = 0 := by simpa [clDec, varOccs, varOccsList] using hi
   subst hi0
@@ -178,7 +179,8 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] → σ.lookup 0 = some m0 → False)
     (motive_5 := fun _ _ _ _ => True)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ _ _ _} hfn hmem hσ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ _ _ _} hfn hmem hσ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [gapDec_lookup] at hfn; cases hfn
       change _ ∈ [clDec] at hmem
@@ -192,12 +194,24 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
         cases h [(0, m0)] (fun i _ => wellSorted_m0 i) match_m0 with
         | intro ht _ _ => cases ht
         | pre h => exact absurd (Holds.top_eq h) (by simp))
-    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
+    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [gapDec_lookup] at hfn; cases hfn
       change _ ∈ [clDec] at hmem
       obtain rfl := List.mem_singleton.mp hmem
       cases ht)
+    (fun {_ _ _ _ _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [gapDec_lookup] at hfn; cases hfn
+      change _ ∈ [clDec] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
+    (fun {_ _ _ _ _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [gapDec_lookup] at hfn; cases hfn
+      change _ ∈ [clDec] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
     (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
     (fun h _ => by cases h) (fun h _ => by cases h) (fun _ _ => fun h _ => by cases h)
     (fun hk _ _ => fun h _ => by
@@ -235,6 +249,8 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     hr rfl rfl
 
 /-! ## 2. Coverage over a collection sort of the definition -/
@@ -277,8 +293,8 @@ theorem gapCov_match : gapCov.matchObligations = [(G, 0)] := by decide +kernel
 
 /-- The clause's obligation holds: it has no variable. -/
 theorem gapCov_matchIndependent : MatchIndependent gapCov clCov :=
-  fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
-    fun t ht => (by simp [clCov] at ht)⟩
+  ⟨fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
+    fun t ht => (by simp [clCov] at ht)⟩, fun hne => absurd rfl hne⟩
 
 def mS : GroundTerm := .map S [(.dv Srt.int (.int 1), .dv Srt.int (.int 1))]
 
@@ -297,6 +313,11 @@ theorem gapCov_not_total : ¬ Total gapCov G := by
   obtain ⟨v, hv⟩ := h fCov rfl [mS] gapCov_sorted
   have hlook : gapCov.lookupFn G = some fCov := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clCov] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clCov] at hmem
@@ -357,6 +378,11 @@ theorem gapLin_not_total : ¬ Total gapLin L := by
   obtain ⟨v, hv⟩ := h fLin rfl _ gapLin_sorted
   have hlook : gapLin.lookupFn L = some fLin := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clLin] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clLin] at hmem
@@ -417,7 +443,8 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
     (motive_4 := fun σ t _ _ => t = .app S4 [.var 0] → σ.lookup 0 = some i1 → False)
     (motive_5 := fun _ _ _ _ => True)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clSelf] at hmem
@@ -440,12 +467,24 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
         cases h [(0, i1)] (fun i _ => hσ i) (.cons (.var rfl) .nil) with
         | intro ht _ _ => cases ht
         | pre h => exact absurd (Holds.top_eq h) (by simp))
-    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
+    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clSelf] at hmem
       obtain rfl := List.mem_singleton.mp hmem
       cases ht)
+    (fun {_ _ _ _ _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [hlook] at hfn; cases hfn
+      change _ ∈ [clSelf] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
+    (fun {_ _ _ _ _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [hlook] at hfn; cases hfn
+      change _ ∈ [clSelf] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
     (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
     (fun h _ => by cases h) (fun h _ => by cases h) (fun _ _ => fun h _ => by cases h)
     (fun hk _ _ => fun h _ => by cases h; rw [hct] at hk; cases hk)
@@ -482,6 +521,8 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     hv rfl rfl
 
 /-! ## 5. A user sort holding domain values -/
@@ -521,6 +562,11 @@ theorem gapDv_not_total : ¬ Total gapDv F5 := by
   obtain ⟨v, hv⟩ := h fDv rfl [i1] (by decide +kernel)
   have hlook : gapDv.lookupFn F5 = some fDv := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clDv] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clDv] at hmem
@@ -575,7 +621,12 @@ theorem gapParam_not_total : ¬ Total gapParam F6 := by
   have hlook : gapParam.lookupFn F6 = some fPar := rfl
   have hpv : gapParam.paramVal P6 [i1] = none := rfl
   cases hv with
-  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ hrhs =>
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clPar] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
+  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ _ hrhs =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clPar] at hmem
     obtain rfl := List.mem_singleton.mp hmem
@@ -639,7 +690,12 @@ theorem gapHook_not_total : ¬ Total gapHook F7 := by
   have hlook : gapHook.lookupFn F7 = some fHook := rfl
   have hdiv : hook intTDiv [i1, .dv Srt.int (.int 0)] = some none := rfl
   cases hv with
-  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ hrhs =>
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clHook] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
+  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ _ hrhs =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clHook] at hmem
     obtain rfl := List.mem_singleton.mp hmem

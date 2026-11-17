@@ -86,7 +86,8 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
     (motive_5 := fun σ ts _ _ => ts = [.app F [.var 0], .dv Srt.int (.int 2)] →
       ∀ w, σ.lookup 0 = some w → c.sortOf w = some Srt.int → False)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ _ ihreq _ ihprio _ _ => fun hf w hvs hw => by
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ ihreq _ ihprio _ _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -98,7 +99,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       exact ihnone cl1 (by simp [fF]) rfl w rfl hw)
-    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihreq _ ihprio _ => fun hf w hvs hw => by
+    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ ihreq _ ihprio _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -106,6 +107,16 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       · cases hmatch with
         | cons h1 _ => cases h1 with | var hl => exact ihreq req1 rfl (.inl rfl) w hl hw
       · exact ihprio cl1 (by simp [fF]) rfl (by decide) rfl w rfl hw)
+    (fun {_ _ _ cl _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf _ _ _ => by
+      subst hf
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl <;> exact absurd rfl hne)
+    (fun {_ _ _ cl _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf _ _ _ => by
+      subst hf
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl <;> exact absurd rfl hne)
     (fun _ ih => fun hcl w hvs hw => by
       subst hcl; subst hvs
       refine ih [(0, w)] (fun i _ s hi => ?_) (.cons (.var rfl) .nil) rfl w rfl hw
@@ -177,6 +188,8 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     hv rfl w rfl hw
 
 /-- The first equation's `requires` has no result at a substitution giving `X` an integer. -/
@@ -221,6 +234,7 @@ theorem fnDet : FnDet c := by
   have hcf : c.clausesFixed = true := by decide +kernel
   refine fnDet_of_coherent (coherentAll_of_parts
     (matchIndependentAll_of_sortedOK hok hmr (.of_fixed hcf (Exec.matchCtx_of hmr).noOvl)) fun f fn hfn => ?_)
+    (Semantics.fnsNoExs_of_sortedOK hok)
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with h | h
   · exact clausesAgree_of_sortedOK hok hsr hmr (fun f hf => by rw [hag] at hf; nomatch hf) fn h

@@ -292,7 +292,7 @@ theorem fnModel_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = 
     rcases List.mem_append.mp hmem with hu | hp
     · exact hag fn hu
     · exact sortPreds_agree hp
-  have hd := fnDet_of_coherent hco
+  have hd := fnDet_of_coherent hco (Semantics.fnsNoExs_of_sortedOK hok)
   exact ⟨hd, Faithful.Model.fnSolves_of_total (hypSound_of_core h) hd
     fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs⟩
 

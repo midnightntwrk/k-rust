@@ -88,10 +88,12 @@ theorem fails_of_not_applies {vs : List GroundTerm} {cl : Clause}
       rw [hq] at ht'; cases ht'; rw [← he]; exact hr
 
 /-- **One function's equations are solved**, where it is the one `lookupFn` finds under its
-label, every function has at most one result, and its clauses meet `PrioDecided` and `CoDefined`'s
-conditions at `vs`: where a clause decides, the function's values are that clause's right-hand
-side's where its `ensures` evaluates to `true`. -/
-theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : FnDet c) {vs : List GroundTerm}
+label, every function has at most one result, its clauses have no existential variable and the
+right side's predicate `\top`, and they meet `PrioDecided` and `CoDefined`'s conditions at `vs`:
+where a clause decides, the function's values are that clause's right-hand side's where its
+`ensures` evaluates to `true`. -/
+theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : FnDet c)
+    (hx : ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) {vs : List GroundTerm}
     (hp : ∀ cl σ, cl ∈ fn.clauses → cl.AppliesAt c σ vs →
       ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats vs →
         (∀ t, cl'.req = some t → ∃ r, EvalTerm c σ' t r) ∧ ∃ b, Holds c cl'.vars.length σ' cl'.pre b)
@@ -107,13 +109,14 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
         (hdec.2 cl' hcl' ha hlt)
   have back : ∀ r, cl.InstRes c σ r → Eval c fn.label vs r := fun r hr => by
     rcases hr with ⟨he, hr⟩ | ⟨t, w, ht, he, hw, rfl⟩
-    · exact .clause hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow hr he
-    · exact .ensFails hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow ht he hw
+    · exact .clause hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 hr he
+        (Clause.holds_postTop (hx cl hcl).2 σ)
+    · exact .ensFails hlk hcl hdec.1.1 hdec.1.2.1 hdec.1.2.2.1 hdec.1.2.2.2 hlow (hx cl hcl).1 ht he hw
   have fwd : ∀ r, Eval c fn.label vs r → ∀ v, r = some v →
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
     intro r hE
     cases hE with
-    | @clause _ fn' _ cl₂ σ₂ _ hfn' hmem₂ hσ₂ hm₂ hq₂ hpr₂ hprio₂ hr₂ he₂ =>
+    | @clause _ fn' _ cl₂ σ₂ _ hfn' hmem₂ hσ₂ hm₂ hq₂ hpr₂ hprio₂ hex₂ hr₂ he₂ hpost₂ =>
       intro v hv; subst hv
       rw [hlk] at hfn'; cases hfn'
       rcases EvalFunctional.compete_or_blocks cl₂ cl with hcomp | ⟨ha, hlt⟩ | ⟨ha, hlt⟩
@@ -121,7 +124,7 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
         have hdec₂ : cl₂.DecidesAt c fn σ₂ vs :=
           ⟨⟨hσ₂, hm₂, hq₂, hpr₂⟩, fun cl' h1 h2 h3 σ' hw hp' hq' => not_true_of_fails hd (hprio₂ cl' h1 h2 h3) hw hp' hq'.1 hq'.2⟩
         obtain ⟨r, hr⟩ := ha cl₂ σ₂ cl σ hmem₂ hcl hdec₂ hdec ⟨v, .inl ⟨he₂, hr₂⟩⟩
-        have := hd _ _ _ _ (back r hr) (.clause hlk hmem₂ hσ₂ hm₂ hq₂ hpr₂ hprio₂ hr₂ he₂)
+        have := hd _ _ _ _ (back r hr) (.clause hlk hmem₂ hσ₂ hm₂ hq₂ hpr₂ hprio₂ hex₂ hr₂ he₂ hpost₂)
         subst this
         rcases hr with ⟨he, hr⟩ | ⟨_, _, _, _, _, h⟩
         · exact ⟨hr, he⟩
@@ -132,14 +135,20 @@ theorem solves_of_parts {fn : Fn} (hlk : c.lookupFn fn.label = some fn) (hd : Fn
       rw [hlk] at hfn'; cases hfn'
       exact (not_fails_of_applies hd hdec.1 (hnone cl hcl)).elim
     | ensFails => intro v hv; cases hv
+    | clauseEx hfn' hmem₂ _ _ _ _ _ hne₂ _ _ _ _ =>
+      rw [hlk] at hfn'; cases hfn'
+      exact absurd (hx _ hmem₂).1 hne₂
+    | exNone => intro v hv; cases hv
   exact ⟨fun hE => fwd _ hE v rfl, fun hr => back _ (.inl ⟨hr.2, hr.1⟩)⟩
 
 /-- **`FnDet`, `PrioDecided` and `CoDefined` give `FnSolves`**, where each function is the one
-`lookupFn` finds under its label. -/
+`lookupFn` finds under its label and no clause has an existential variable or a right side's
+predicate other than `\top`. -/
 theorem fnSolves_of_parts_lookup (hl : ∀ fn ∈ c.fns, c.lookupFn fn.label = some fn) (hd : FnDet c)
+    (hx : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top)
     (hp : PrioDecided c) (ha : CoDefined c) : FnSolves c :=
   fun fn hfn vs _ _ hcl _ hdec v =>
-    solves_of_parts (hl fn hfn) hd (hp fn hfn vs) (ha fn hfn vs) hcl hdec v
+    solves_of_parts (hl fn hfn) hd (hx fn hfn) (hp fn hfn vs) (ha fn hfn vs) hcl hdec v
 
 /-- Every function of the definition has a result at every argument list of its sorts (`FnHyp`'s
 first conjunct). -/

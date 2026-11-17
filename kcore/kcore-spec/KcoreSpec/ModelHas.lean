@@ -74,7 +74,7 @@ theorem has_model_core (h : HypModelCore c) (_htop : ∀ r ∈ c.rules, r.pre = 
 /-- `HypModel` gives `HypModelCore`: its functions' coherence gives `FnDet`
 (`fnDet_of_coherent`), and with their termination `FnSolves` (`fnSolves_of_total`). -/
 theorem HypModel.core (h : HypModel c) : HypModelCore c :=
-  have hd := fnDet_of_coherent (CoherentAll_of h.hyp.core)
+  have hd := fnDet_of_coherent (CoherentAll_of h.hyp.core) (Semantics.fnsNoExs_of_sortedOK h.sound.core.1)
   HypModel.core_of h hd (fnSolves_of_total h.sound.core hd h.hyp.core.2.2.1)
 
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/

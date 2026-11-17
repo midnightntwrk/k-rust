@@ -548,7 +548,8 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ
         show CExec.evalT c m σ₀ cl.rhs = some r
         rw [hag cl.rhs m (sortOfTerm_vars hrt)]
         exact evalT_mono_le hsc hcc hcm hfd (by omega : nr ≤ m) hnr hL hσ hrt⟩⟩
-  refine evalF_of_some hsc hcc hcm hfd hfn hvs (.clause hfn hmem hσ hmatch hreq hpre (fun cl' h _ hlt => hprio cl' h hlt) hrhs hens)
+  refine evalF_of_some hsc hcc hcm hfd hfn hvs (.clause hfn hmem hσ hmatch hreq hpre (fun cl' h _ hlt => hprio cl' h hlt)
+      (hcc.plainCl hfm hmem).1 hrhs hens (Clause.holds_postTop (hcc.plainCl hfm hmem).2 σ))
     (firstClause_some (p := cl.prio) _ _ (Nat.le_refl _) (pairwise_byPrio _)
       (fun x hx hlt => ihprio x (mem_byPrio.mp hx) hlt fn f hfn (mem_byPrio.mp hx) hvs)
       (.inl ⟨cl, mem_byPrio.mpr hmem, rfl, happ⟩))
@@ -603,7 +604,8 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {
         unfold candResult candBody
         simp only [beq_self_eq_true, ↓reduceIte]
         rw [hef m (by omega)]⟩⟩
-  refine evalF_of_some hsc hcc hcm hfd hfn hvs (.ensFails hfn hmem hσ hmatch hreq hpre (fun cl' h _ hlt => hprio cl' h hlt) ht he hw)
+  refine evalF_of_some hsc hcc hcm hfd hfn hvs (.ensFails hfn hmem hσ hmatch hreq hpre (fun cl' h _ hlt => hprio cl' h hlt)
+      (hcc.plainCl hfm hmem).1 ht he hw)
     (firstClause_some (p := cl.prio) _ _ (Nat.le_refl _) (pairwise_byPrio _)
       (fun x hx hlt => ihprio x (mem_byPrio.mp hx) hlt fn f hfn (mem_byPrio.mp hx) hvs)
       (.inl ⟨cl, mem_byPrio.mpr hmem, rfl, happ⟩))
@@ -623,7 +625,7 @@ theorem case_fails {vs : List GroundTerm} {cl : Clause}
   intro fn f hfn hmem hvs
   have hfm := (lookupFn_spec hfn).1
   obtain ⟨L, hL, hclk⟩ := hcc fn hfm
-  obtain ⟨hreq, -, -, htop⟩ := hclk cl hmem
+  obtain ⟨hreq, -, -, htop, -⟩ := hclk cl hmem
   obtain ⟨N, hN⟩ := fuel_max (P := fun m σ => clauseReq c m cl σ = some false)
     (l := clauseMatches c cl vs) (fun σ hσ => by
       obtain ⟨hσw, hpv⟩ := cmatch_sound hσ
@@ -744,13 +746,16 @@ theorem EvalTerm.exec (hna : c.AsideFree) {σ : Subst} {t : Term} {r : Option Gr
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hrhs hens ihreq _ ihprio ihrhs ihens =>
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun hfn hmem hσ hmatch hreq hpre hprio _ hrhs hens _ ihreq _ ihprio ihrhs ihens _ =>
       case_clause hsc hcc hcm hfd hfn hmem hσ hmatch hreq hpre (fun x h hlt => hprio x h (hna hfn x h) hlt)
         hrhs hens (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihrhs ihens)
     (fun hfn hnone ihnone => case_rest hsc hcc hcm hfd hfn hnone ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre hprio ht he hw ihreq _ ihprio ihe =>
+    (fun hfn hmem hσ hmatch hreq hpre hprio _ ht he hw ihreq _ ihprio ihe =>
       case_ensFails hsc hcc hcm hfd hfn hmem hσ hmatch hreq hpre (fun x h hlt => hprio x h (hna hfn x h) hlt)
         ht he hw (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihe)
+    (fun hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => absurd (hcc.plainCl (lookupFn_spec hfn).1 hmem).1 hne)
+    (fun hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => absurd (hcc.plainCl (lookupFn_spec hfn).1 hmem).1 hne)
     (fun _ ih => case_fails hsc hcc hcm hfd ih)
     (fun ht _ hr ihe => case_reqFails hsc hcc hcm hfd ht hr ihe)
     (fun h _ => by intro _ _ _ _ htop; rw [htop] at h; exact absurd h.top_eq (by simp))
@@ -779,6 +784,8 @@ theorem EvalTerm.exec (hna : c.AsideFree) {σ : Subst} {t : Term} {r : Option Gr
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     h
 
 /-- A function's `Eval` result is computed by the executable evaluation with some fuel, at
@@ -789,13 +796,16 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hrhs hens ihreq _ ihprio ihrhs ihens =>
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun hfn hmem hσ hmatch hreq hpre hprio _ hrhs hens _ ihreq _ ihprio ihrhs ihens _ =>
       case_clause hsc hcc hcm hfd hfn hmem hσ hmatch hreq hpre (fun x h hlt => hprio x h (hna hfn x h) hlt)
         hrhs hens (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihrhs ihens)
     (fun hfn hnone ihnone => case_rest hsc hcc hcm hfd hfn hnone ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre hprio ht he hw ihreq _ ihprio ihe =>
+    (fun hfn hmem hσ hmatch hreq hpre hprio _ ht he hw ihreq _ ihprio ihe =>
       case_ensFails hsc hcc hcm hfd hfn hmem hσ hmatch hreq hpre (fun x h hlt => hprio x h (hna hfn x h) hlt)
         ht he hw (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihe)
+    (fun hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => absurd (hcc.plainCl (lookupFn_spec hfn).1 hmem).1 hne)
+    (fun hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => absurd (hcc.plainCl (lookupFn_spec hfn).1 hmem).1 hne)
     (fun _ ih => case_fails hsc hcc hcm hfd ih)
     (fun ht _ hr ihe => case_reqFails hsc hcc hcm hfd ht hr ihe)
     (fun h _ => by intro _ _ _ _ htop; rw [htop] at h; exact absurd h.top_eq (by simp))
@@ -824,6 +834,8 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     h
 
 /-- **A predicate's `Holds` value is computed with some fuel**, for a predicate `predVal`

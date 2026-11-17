@@ -576,15 +576,6 @@ theorem clauseRhs_nil {c : Semantics} {f : Fn} {cl : Clause} (h : cl.exs = []) :
       reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))) := by
   unfold clauseRhs; rw [h]; rfl
 
-/-- No clause of a generated sort predicate has an existential variable. -/
-theorem _root_.KCore.Semantics.sortPreds_exs {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
-    ∀ cl ∈ fn.clauses, cl.exs = [] := by
-  simp only [Semantics.sortPreds, List.cons_append, List.nil_append, List.mem_cons,
-    List.mem_filterMap, Option.map_eq_some_iff] at hfn
-  rcases hfn with rfl | rfl | ⟨X, -, _, _, rfl⟩ <;> intro cl hcl <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl <;>
-    rcases hcl with rfl | rfl <;> rfl
-
 /-- No clause of a function of a plain definition has an existential variable: the user's by
 `plain`, the generated sort predicates' by their text. -/
 theorem _root_.KCore.Semantics.exs_of_plain_mem {c : Semantics} (hp : c.plain = true) {fn : Fn}

@@ -396,6 +396,7 @@ theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
   · exact h.solves fn hu ws hws cl hcl σ hdec
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
+      (fun cl' hcl' => ⟨Semantics.sortPreds_exs hp cl' hcl', Semantics.sortPreds_post hp cl' hcl'⟩)
       (fun _ _ _ _ cl' hcl' _ _ σ' _ _ => ⟨(fun t ht => by rw [(hsh cl' hcl').1] at ht; cases ht), true,
         Clause.holds_preTop (Semantics.sortPreds_pre hp cl' hcl') σ'⟩)
       (fun _ _ cl' _ _ hcl' _ _ _ => by
