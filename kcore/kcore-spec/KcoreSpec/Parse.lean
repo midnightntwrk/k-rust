@@ -185,7 +185,7 @@ inductive RefusalReason where
   or a parameter no hook implements and no open generator (`fnLawHead`, read into
   `Presentation.laws`): the law of another symbol, which no reading of the collections states
   (`Account.lawUnmatched`); or a function's law that is no equation between terms (`fnLawOf`) or
-  whose sides are of no one sort (`fnLawSortedOf`). The detail names the symbol and the law. -/
+  whose sides are of no one sort of the definition (`fnLawSortedOf`). The detail names the symbol and the law. -/
   | lawAxiom
   /-- A sort declaration with an attribute that is neither its place, `hasDomainValues`, `token`
   (a token sort), nor `label` (a name, which says nothing of the sort's values): an attribute whose
@@ -4759,12 +4759,13 @@ mutual
     termination_by structural ps => ps
 end
 
-/-- Both sides of the law have one sort in the context of right sides, and each of its variables
-occurs in one of them: `Faithful`'s `lawSorted`, which this module does not import, by the same
-body (test/OpenGenerator.lean checks the two are equal). -/
+/-- Both sides of the law have one sort in the context of right sides, that sort is one of the
+definition's, and each of its variables occurs in one of them: `Faithful`'s `lawSorted`, which this
+module does not import, by the same body (test/OpenGenerator.lean checks the two are equal). -/
 def fnLawSorted (c : Semantics) (l : LawEq) : Bool :=
   let x := c.rhsCtx (c.fns.map Fn.sig)
-  (sortOfTerm x l.vars l.lhs).isSome && sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
+  (sortOfTerm x l.vars l.lhs).any (· < nRegSorts + c.sortNames.length) &&
+    sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
     binds l.vars.length (varOccs l.lhs ++ varOccs l.rhs)
 
 /-- The law the axiom `a` states, `\equals{S,R}(lhs, rhs)` over its free element variables. -/
