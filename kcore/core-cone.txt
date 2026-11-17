@@ -2,6 +2,7 @@
 # roots: KCore.SoundC, KCore.CompleteC, KCore.ExactC, KCore.StepIs, KCore.Semantics.coreOK, KCore.FnHyp
 # computed by #review_cone (KcoreSpec/ReviewCone.lean); rule: types of reached declarations, values of reached non-theorem definitions, proofs not entered, Init/Std/Lean trusted
 # written by kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt and by kcore-spec/test/ReviewCone.lean to kcore-spec/.lake/review-cone-core-hyp.txt; kcore-spec/test/cone.py compares either with this file
+# computed at git 408691596b4e33562d25691631085e72a3b9b304 (written by kcore-spec/test/cone-freeze.sh): the sources its declarations' texts are read at
 
 ## KcoreSpec.Kore.Base  (8 declarations, 33 lines)
   12-17      structure  KoreAML.CtorSig                              via KoreAML.Gen
@@ -59,10 +60,10 @@
 
 ## KcoreSpec.Kore.Build  (22 declarations, 69 lines)
   13-14      def        KoreAML.srt                                  via KCore.srtOf
-  16-17      def        KoreAML.Rv                                   via KoreAML.R
-  18-18      def        KoreAML.R                                    via KCore.premise
+  16-17      def        KoreAML.Rv                                   via KCore.Faithful.assocAxK
+  18-18      def        KoreAML.R                                    via KCore.Faithful.assocAxK
   20-20      def        KoreAML.evar                                 via KoreAML.Var.kore
-  21-21      def        KoreAML.ev                                   via KoreAML.argsConj
+  21-21      def        KoreAML.ev                                   via KCore.Faithful.assocAxK
   22-22      def        KoreAML.ap                                   via KCore.GroundTerm.koreElems
   23-23      def        KoreAML.injP                                 via KCore.GroundTerm.kore
   36-37      def        KoreAML.axiomR                               via KoreAML.equationAx
@@ -73,7 +74,7 @@
   101-107    def        KoreAML.noJunkVars                           via KoreAML.noJunkDisjuncts
   109-117    def        KoreAML.noJunkDisjuncts                      via KoreAML.Cons.noJunkAx
   119-122    def        KoreAML.argsConj                             via KCore.premise
-  128-131    def        KoreAML.anyOf                                via KCore.Faithful.competingPremise
+  128-131    def        KoreAML.anyOf                                via KCore.Faithful.competingEquation
   138-143    def        KoreAML.equationAx                           via KCore.Faithful.eqnSentence
   145-149    structure  KoreAML.Var                                  via KCore.Faithful.famEx
   149-149    instance   KoreAML.instInhabitedVar                     via KCore.Term.kore
@@ -381,10 +382,10 @@
   203-203    abbrev     KCore.stringLe                               via KCore.hookSigs
   204-204    abbrev     KCore.stringGt                               via KCore.hookSigs
   205-205    abbrev     KCore.stringGe                               via KCore.hookSigs
-  206-206    abbrev     KCore.littleEndianBytes                      via KCore.asEndian
-  207-207    abbrev     KCore.bigEndianBytes                         via KCore.asEndian
-  208-208    abbrev     KCore.signedBytes                            via KCore.asSigned
-  209-209    abbrev     KCore.unsignedBytes                          via KCore.asSigned
+  206-206    abbrev     KCore.littleEndianBytes                      via KCore.Semantics.enumShapesOK
+  207-207    abbrev     KCore.bigEndianBytes                         via KCore.Semantics.enumShapesOK
+  208-208    abbrev     KCore.signedBytes                            via KCore.Semantics.enumShapesOK
+  209-209    abbrev     KCore.unsignedBytes                          via KCore.Semantics.enumShapesOK
   210-210    abbrev     KCore.bytes2Int                              via KCore.hookSigs
   211-211    abbrev     KCore.bytesUpdate                            via KCore.hookSigs
   212-212    abbrev     KCore.bytesGet                               via KCore.hookSigs
@@ -431,9 +432,9 @@
   482-499    structure  KCore.Lib                                    via KCore.Semantics
   507-513    def        KCore.Lib.carrier                            via KCore.dvOK
   554-617    def        KCore.hookSigs                               via KCore.Semantics.hooksApart
-  790-791    def        KCore.patternHooks                           via KCore.PatVal
-  793-794    def        KCore.listPatternHooks                       via KCore.collPatternHooks
-  796-801    def        KCore.collPatternHooks                       via KCore.Semantics.isCollPat
+  791-792    def        KCore.patternHooks                           via KCore.PatVal
+  794-795    def        KCore.listPatternHooks                       via KCore.collPatternHooks
+  797-802    def        KCore.collPatternHooks                       via KCore.Semantics.isCollPat
 
 ## KcoreSpec.NatMap  (11 declarations, 55 lines)
   17-22      inductive  KCore.NatMap                                 via KCore.NatMap.find
@@ -503,32 +504,32 @@
   60-75      structure  KCore.RulePres                               via KCore.applies
   75-75      instance   KCore.instInhabitedRulePres                  via KCore.Faithful.canonRulePres
 
-## KcoreSpec.FloatDomain  (25 declarations, 155 lines)
-  40-43      def        KCore.KFloat.spec?                           via KCore.KFloat.ok
-  45-50      def        KCore.KFloat.validBits                       via KCore.KFloat.ok
-  52-60      def        KCore.KFloat.thinOK                          via KCore.KFloat.ok
-  62-67      def        KCore.KFloat.ok                              via KCore.dvOK
-  69-70      def        KCore.KFloat.unpackBits                      via KCore.asFloat
-  72-74      def        KCore.KFloat.packBits                        via KCore.floatV
-  88-91      def        KCore.KFloat.fields                          via KCore.KFloat.text
-  93-95      def        KCore.KFloat.sig                             via KCore.KFloat.magText
-  97-98      def        KCore.KFloat.expo                            via KCore.KFloat.magText
-  100-101    def        KCore.KFloat.shift                           via KCore.KFloat.magText
-  103-110    def        KCore.KFloat.magText                         via KCore.KFloat.text
-  112-122    def        KCore.KFloat.text                            via KCore.Lit.text
-  126-131    inductive  KCore.KFloat.Dir                             via KCore.floatHooks
-  133-151    def        KCore.KFloat.roundToIntegral                 via KCore.floatHooks
-  153-157    def        KCore.KFloat.exact                           via KCore.KFloat.cmpExact
-  159-162    def        KCore.KFloat.cmpScaled                       via KCore.KFloat.cmpExact
-  164-176    def        KCore.KFloat.cmpExact                        via KCore.flCmp
-  178-182    def        KCore.KFloat.divNearestEven                  via KCore.KFloat.remainder
-  184-201    def        KCore.KFloat.remainder                       via KCore.floatHooks
-  203-207    def        KCore.KFloat.convertFormat                   via KCore.floatHooks
-  209-211    def        KCore.KFloat.maxValue                        via KCore.floatHooks
-  213-214    def        KCore.KFloat.minValue                        via KCore.floatHooks
-  216-222    def        KCore.KFloat.sqrt?                           via KCore.floatHooks
-  224-227    def        KCore.KFloat.isNaN                           via KCore.floatHooks
-  229-232    def        KCore.KFloat.isInf                           via KCore.floatHooks
+## KcoreSpec.FloatDomain  (25 declarations, 157 lines)
+  42-45      def        KCore.KFloat.spec?                           via KCore.KFloat.ok
+  47-52      def        KCore.KFloat.validBits                       via KCore.KFloat.ok
+  54-62      def        KCore.KFloat.thinOK                          via KCore.KFloat.ok
+  64-69      def        KCore.KFloat.ok                              via KCore.dvOK
+  71-72      def        KCore.KFloat.unpackBits                      via KCore.asFloat
+  74-76      def        KCore.KFloat.packBits                        via KCore.floatV
+  90-93      def        KCore.KFloat.fields                          via KCore.KFloat.text
+  95-97      def        KCore.KFloat.sig                             via KCore.KFloat.magText
+  99-100     def        KCore.KFloat.expo                            via KCore.KFloat.magText
+  102-103    def        KCore.KFloat.shift                           via KCore.KFloat.magText
+  105-112    def        KCore.KFloat.magText                         via KCore.KFloat.text
+  114-124    def        KCore.KFloat.text                            via KCore.Lit.text
+  128-133    inductive  KCore.KFloat.Dir                             via KCore.floatHooks
+  135-153    def        KCore.KFloat.roundToIntegral                 via KCore.floatHooks
+  155-159    def        KCore.KFloat.exact                           via KCore.KFloat.cmpExact
+  161-164    def        KCore.KFloat.cmpScaled                       via KCore.KFloat.cmpExact
+  166-179    def        KCore.KFloat.cmpExact                        via KCore.flCmp
+  181-185    def        KCore.KFloat.divNearestEven                  via KCore.KFloat.remainder
+  187-204    def        KCore.KFloat.remainder                       via KCore.floatHooks
+  206-210    def        KCore.KFloat.convertFormat                   via KCore.floatHooks
+  212-214    def        KCore.KFloat.maxValue                        via KCore.floatHooks
+  216-217    def        KCore.KFloat.minValue                        via KCore.floatHooks
+  219-226    def        KCore.KFloat.sqrt?                           via KCore.floatHooks
+  228-231    def        KCore.KFloat.isNaN                           via KCore.floatHooks
+  233-236    def        KCore.KFloat.isInf                           via KCore.floatHooks
 
 ## KcoreSpec.Value  (50 declarations, 258 lines)
   26-28      def        KCore.GroundTerm.isInj                       via KCore.Semantics.sortOf
@@ -582,7 +583,7 @@
   571-571    def        KCore.Value                                  via KCore.Config
   573-573    abbrev     KCore.Config                                 via KCore.SoundC
 
-## KcoreSpec.DefinitionWf  (36 declarations, 164 lines)
+## KcoreSpec.DefinitionWf  (41 declarations, 199 lines)
   36-36      def        KCore.Fn.sig                                 via KCore.Semantics.sortedOK
   38-40      def        KCore.nodup                                  via KCore.Semantics.predsApart
   42-44      def        KCore.pairs                                  via KCore.ClausesAgree
@@ -608,6 +609,7 @@
   336-340    inductive  KCore.Gen                                    via KCore.Faithful.consItemsK
   342-344    def        KCore.Gen.argSorts                           via KCore.Semantics.confinedAt
   349-357    def        KCore.Semantics.gens                         via KCore.Faithful.consItemsK
+  359-362    def        KCore.Semantics.isOpenGen                    via KCore.Faithful.consItemsK
   420-422    def        KCore.reqOK                                  via KCore.Semantics.clauseSorted
   427-430    def        KCore.Semantics.libValueSorts                via KCore.Semantics.subsortsOK
   432-434    def        KCore.Semantics.libCtorSorts                 via KCore.Faithful.consSorts
@@ -619,8 +621,12 @@
   577-584    def        KCore.Semantics.collPatSigs                  via KCore.Semantics.patCtxAll
   586-588    def        KCore.Semantics.patCtxAll                    via KCore.Semantics.clauseSorted
   589-593    def        KCore.Semantics.rhsCtx                       via KCore.Semantics.clauseSorted
+  693-695    def        KCore.shapeSorts                             via KCore.Semantics.shapesOK
+  697-698    def        KCore.litShapeSorts                          via KCore.Semantics.shapesOK
+  700-712    def        KCore.Semantics.enumShapesOK                 via KCore.Semantics.shapesOK
+  714-726    def        KCore.Semantics.shapesOK                     via KCore.Semantics.paramsPlain
 
-## KcoreSpec.Emit  (12 declarations, 64 lines)
+## KcoreSpec.Emit  (13 declarations, 69 lines)
   34-35      def        KCore.srtOf                                  via KCore.Faithful.famEx
   37-37      def        KCore.toK                                    via KCore.Faithful.consItemsK
   39-41      def        KCore.Gen.toK                                via KCore.Faithful.consItemsK
@@ -632,7 +638,8 @@
   119-120    def        KCore.Cond.binder                            via KCore.Cond.kore
   122-143    def        KCore.Cond.kore                              via KCore.Cond.conj
   145-147    def        KCore.Cond.conj                              via KCore.Faithful.ruleRight
-  225-231    def        KCore.exclusion                              via KCore.Faithful.competingEquation
+  225-228    def        KCore.withPre                                via KCore.Faithful.clauseEquation
+  239-246    def        KCore.exclusion                              via KCore.Faithful.competingEquation
 
 ## KcoreSpec.StringDomain  (35 declarations, 144 lines)
   17-18      def        KCore.KStr.occursAt                          via KCore.KStr.find
@@ -671,7 +678,7 @@
   230-236    def        KCore.KBytes.toInt                           via KCore.bytesHooks
   295-302    def        KCore.KBytes.ofInt                           via KCore.bytesHooks
 
-## KcoreSpec.Hooks  (66 declarations, 510 lines)
+## KcoreSpec.Hooks  (67 declarations, 528 lines)
   68-68      def        KCore.hasKey                                 via KCore.mapHooks
   70-76      def        KCore.insertE                                via KCore.mapHooks
   78-80      def        KCore.eraseK                                 via KCore.mapHooks
@@ -725,19 +732,20 @@
   486-489    def        KCore.rmCutOne                               via KCore.rmCut
   491-492    def        KCore.rmCut                                  via KCore.rangeMapHooks
   494-495    def        KCore.rmFind                                 via KCore.rangeMapHooks
-  497-499    def        KCore.rmDisjoint                             via KCore.rangeMapHooks
-  501-505    def        KCore.rmIncluded                             via KCore.rangeMapHooks
-  507-510    def        KCore.rmDiffT                                via KCore.rangeMapHooks
-  512-514    def        KCore.rmOverT                                via KCore.rangeMapHooks
-  516-517    def        KCore.rmV                                    via KCore.rangeMapHooks
-  519-563    def        KCore.rangeMapHooks                          via KCore.hookTable
-  565-569    def        KCore.rmKeysHook                             via KCore.rangeMapKeysHooks
-  571-573    def        KCore.rangeMapKeysHooks                      via KCore.hookTable
-  575-578    def        KCore.hookTable                              via KCore.hookTrie
-  580-583    def        KCore.hookTrie                               via KCore.hook
-  585-588    def        KCore.hook                                   via KCore.PatVal
-  605-674    def        KCore.silentTable                            via KCore.silent
-  676-680    def        KCore.silent                                 via KCore.Faithful.ΓDomains
+  497-498    def        KCore.rmMeets                                via KCore.rangeMapHooks
+  500-502    def        KCore.rmDisjoint                             via KCore.rangeMapHooks
+  504-508    def        KCore.rmIncluded                             via KCore.rangeMapHooks
+  510-513    def        KCore.rmDiffT                                via KCore.rangeMapHooks
+  515-517    def        KCore.rmOverT                                via KCore.rangeMapHooks
+  519-520    def        KCore.rmV                                    via KCore.rangeMapHooks
+  522-574    def        KCore.rangeMapHooks                          via KCore.hookTable
+  576-580    def        KCore.rmKeysHook                             via KCore.rangeMapKeysHooks
+  582-584    def        KCore.rangeMapKeysHooks                      via KCore.hookTable
+  586-589    def        KCore.hookTable                              via KCore.hookTrie
+  591-594    def        KCore.hookTrie                               via KCore.hook
+  596-599    def        KCore.hook                                   via KCore.PatVal
+  616-693    def        KCore.silentTable                            via KCore.silent
+  695-699    def        KCore.silent                                 via KCore.Faithful.ΓDomains
 
 ## KcoreSpec.Evaluation  (28 declarations, 240 lines)
   41-41      abbrev     KCore.Subst                                  via KCore.SoundC
@@ -760,14 +768,14 @@
   362-391    inductive  KCore.PatVal                                 via KCore.StepBy
   392-395    inductive  KCore.PatVals                                via KCore.Eval
   400-402    def        KCore.Semantics.WellSortedAt                 via KCore.NotApplies
-  421-453    inductive  KCore.Eval                                   via KCore.FnHyp
-  454-462    inductive  KCore.Fails                                  via KCore.Eval
-  463-467    inductive  KCore.ReqFails                               via KCore.Eval
-  468-505    inductive  KCore.EvalTerm                               via KCore.StepBy
-  506-510    inductive  KCore.EvalTerms                              via KCore.Eval
-  523-526    def        KCore.sameResult                             via KCore.Holds
-  528-531    def        KCore.Extends                                via KCore.Holds
-  533-558    inductive  KCore.Holds                                  via KCore.StepBy
+  422-425    def        KCore.sameResult                             via KCore.Holds
+  427-430    def        KCore.Extends                                via KCore.Holds
+  433-465    inductive  KCore.Eval                                   via KCore.FnHyp
+  466-474    inductive  KCore.Fails                                  via KCore.Eval
+  475-479    inductive  KCore.ReqFails                               via KCore.Eval
+  480-517    inductive  KCore.EvalTerm                               via KCore.StepBy
+  518-522    inductive  KCore.EvalTerms                              via KCore.Eval
+  523-548    inductive  KCore.Holds                                  via KCore.StepBy
 
 ## KcoreSpec.FaithOK  (37 declarations, 266 lines)
   29-33      def        KCore.builtinColl                            via KCore.Faithful.collSymsOK
@@ -808,17 +816,18 @@
   528-530    def        KCore.Semantics.ovlClosure                   via KCore.Semantics.distGuarded
   545-551    def        KCore.Semantics.faithCoreOK                  via KCore.Semantics.coreOK
 
-## KcoreSpec.Tie  (10 declarations, 98 lines)
+## KcoreSpec.Tie  (11 declarations, 122 lines)
   18-26      def        KCore.Semantics.hooksApart                   via KCore.Semantics.coreOK
   28-35      def        KCore.Semantics.predsApart                   via KCore.Semantics.coreOK
   45-56      def        KCore.Semantics.rulesPlain                   via KCore.Semantics.sortedOK
   58-63      def        KCore.Semantics.clausesPlain                 via KCore.Semantics.sortedOK
   65-71      def        KCore.Semantics.carriersOK                   via KCore.Semantics.paramsPlain
-  73-77      def        KCore.Semantics.paramsPlain                  via KCore.Semantics.sortedOK
-  106-119    def        KCore.Semantics.clauseSorted                 via KCore.Semantics.sortedOK
-  121-135    def        KCore.Semantics.condOK                       via KCore.Semantics.ruleSorted
-  137-151    def        KCore.Semantics.ruleSorted                   via KCore.Semantics.sortedOK
-  153-159    def        KCore.Semantics.sortedOK                     via KCore.Semantics.coreOK
+  73-82      def        KCore.Semantics.floatShapeOK                 via KCore.Semantics.paramsPlain
+  84-96      def        KCore.Semantics.paramsPlain                  via KCore.Semantics.sortedOK
+  108-121    def        KCore.Semantics.clauseSorted                 via KCore.Semantics.sortedOK
+  123-143    def        KCore.Semantics.condOK                       via KCore.Semantics.ruleSorted
+  156-170    def        KCore.Semantics.ruleSorted                   via KCore.Semantics.sortedOK
+  172-178    def        KCore.Semantics.sortedOK                     via KCore.Semantics.coreOK
 
 ## KcoreSpec.Step  (5 declarations, 35 lines)
   27-32      inductive  KCore.RuleReqFails                           via KCore.NotApplies
@@ -865,7 +874,7 @@
   263-269    def        KCore.Semantics.coreOK                       root
   294-297    def        KCore.StepIs                                 root
 
-## KcoreSpec.Faithful  (72 declarations, 537 lines)
+## KcoreSpec.Faithful  (74 declarations, 565 lines)
   44-45      def        KCore.Faithful.canonNames                    via KCore.Faithful.canonVars
   47-49      def        KCore.Faithful.canonVars                     via KCore.Faithful.famEx
   51-53      def        KCore.Faithful.canonRulePres                 via KCore.Faithful.prioRuleK
@@ -877,70 +886,72 @@
   97-110     def        KCore.Faithful.sigItems                      via KCore.Faithful.ΓSig
   112-120    def        KCore.Faithful.ΓSig                          via KCore.Faithful.Γ
   124-133    def        KCore.Semantics.distGuarded                  via KCore.Faithful.consItemsK
-  135-164    def        KCore.Faithful.consItemsK                    via KCore.Faithful.ΓCons
-  166-176    def        KCore.Faithful.ΓCons                         via KCore.Faithful.Γ
-  180-190    def        KCore.Faithful.collNoJunk                    via KCore.Faithful.ΓDomains
-  192-224    def        KCore.Faithful.ΓDomains                      via KCore.Faithful.Γ
-  226-241    def        KCore.Faithful.ΓFallback                     via KCore.Faithful.Γ
-  261-262    def        KCore.Faithful.collU                         via KCore.Faithful.mapUnitSplitAx
-  263-264    def        KCore.Faithful.collE                         via KCore.Faithful.mapElemNotUnitAx
-  265-266    def        KCore.Faithful.collC                         via KCore.Faithful.mapUnitSplitAx
-  267-268    def        KCore.Faithful.inSort                        via KCore.Faithful.mapUnitSplitAx
-  270-277    def        KCore.Faithful.mapUnitSplitAx                via KCore.Faithful.mapCollAxioms
-  279-285    def        KCore.Faithful.mapElemNotUnitAx              via KCore.Faithful.mapCollAxioms
-  287-300    def        KCore.Faithful.mapElemAtomAx                 via KCore.Faithful.mapCollAxioms
-  302-324    def        KCore.Faithful.mapDecompAx                   via KCore.Faithful.mapCollAxioms
-  326-328    def        KCore.Faithful.mapCollAxioms                 via KCore.Faithful.collAxioms
-  330-331    def        KCore.Faithful.collI                         via KCore.Faithful.setElemNotUnitAx
-  333-340    def        KCore.Faithful.listUnitSplitAx               via KCore.Faithful.listCollAxioms
-  342-346    def        KCore.Faithful.listElemNotUnitAx             via KCore.Faithful.listCollAxioms
-  348-357    def        KCore.Faithful.listElemAtomAx                via KCore.Faithful.listCollAxioms
-  359-368    def        KCore.Faithful.listElemAtomBackAx            via KCore.Faithful.listCollAxioms
-  370-389    def        KCore.Faithful.listDecompAx                  via KCore.Faithful.listCollAxioms
-  391-393    def        KCore.Faithful.listCollAxioms                via KCore.Faithful.collAxioms
-  395-402    def        KCore.Faithful.setUnitSplitAx                via KCore.Faithful.setCollAxioms
-  404-408    def        KCore.Faithful.setElemNotUnitAx              via KCore.Faithful.setCollAxioms
-  410-419    def        KCore.Faithful.setElemAtomAx                 via KCore.Faithful.setCollAxioms
-  421-440    def        KCore.Faithful.setDecompAx                   via KCore.Faithful.setCollAxioms
-  442-445    def        KCore.Faithful.setCollAxioms                 via KCore.Faithful.collAxioms
-  447-453    def        KCore.Faithful.collAxioms                    via KCore.Faithful.ΓColls
-  457-460    def        KCore.Faithful.ΓColls                        via KCore.Faithful.Γ
-  464-466    def        KCore.Faithful.eqnSentence                   via KCore.Faithful.clauseEquation
-  468-473    def        KCore.Faithful.competingPremise              via KCore.Faithful.competingEquation
-  475-480    def        KCore.Faithful.clauseEquation                via KCore.Faithful.prioEquation
-  482-489    def        KCore.Faithful.competingEquation             via KCore.Faithful.prioEquation
-  491-494    def        KCore.Faithful.lowerClauses                  via KCore.Faithful.prioEquation
-  496-501    def        KCore.Faithful.prioEquation                  via KCore.Faithful.fnEquationsK
-  503-509    def        KCore.Faithful.fnEquationsK                  via KCore.Faithful.fnItems
-  511-512    def        KCore.Faithful.fnItems                       via KCore.Faithful.ΓFns
-  514-522    def        KCore.Faithful.ΓFns                          via KCore.Faithful.Γ
-  526-531    def        KCore.Faithful.ruleRight                     via KCore.Faithful.famEx
-  533-554    def        KCore.Faithful.prioRuleK                     via KCore.Faithful.stepClosureItem
-  573-575    def        KCore.Faithful.ruleItems                     via KCore.Faithful.ΓRules
-  577-580    def        KCore.Faithful.ΓRules                        via KCore.Faithful.Γ
-  584-589    def        KCore.Faithful.Γ                             via KCore.Faithful.Γc
-  591-603    def        KCore.Faithful.stepClosureItem               via KCore.Faithful.Γstep
-  605-607    def        KCore.Faithful.Γstep                         via KCore.SoundC
-  609-612    def        KCore.Faithful.boolClosed                    via KCore.Faithful.Γcl
-  614-617    def        KCore.Faithful.Γcl                           via KCore.Faithful.Γc
-  619-620    def        KCore.Faithful.Γc                            via KCore.SoundC
-  631-637    def        KCore.Faithful.fixK                          via KCore.Faithful.famEx
-  639-646    def        KCore.Faithful.famEx                         via KCore.SoundC
-  648-656    def        KCore.Faithful.famOpen                       via KCore.Outcome.pat
-  733-736    def        KCore.Outcome.pat                            via KCore.CompleteC
-  740-746    def        KCore.Rule.condK                             via KCore.Rule.Refuted
-  747-748    def        KCore.Rule.Refuted                           via KCore.Rule.CondDecided
-  749-750    def        KCore.Rule.CondDecided                       via KCore.OpenDecided
-  752-758    def        KCore.Clause.condK                           via KCore.Clause.Refuted
-  759-760    def        KCore.Clause.Refuted                         via KCore.Clause.CondDecided
-  761-762    def        KCore.Clause.CondDecided                     via KCore.OpenDecided
-  764-767    def        KCore.OpenDecided                            via KCore.FnHyp
-  771-775    def        KCore.OpenAssoc                              via KCore.OpenLaws
-  776-778    def        KCore.OpenIdem                               via KCore.OpenLaws
-  779-783    def        KCore.OpenLaws                               via KCore.FnHyp
+  135-145    def        KCore.Faithful.assocAxK                      via KCore.Faithful.lawItemsK
+  147-154    def        KCore.Faithful.idemAxK                       via KCore.Faithful.lawItemsK
+  156-163    def        KCore.Faithful.lawItemsK                     via KCore.Faithful.consItemsK
+  165-197    def        KCore.Faithful.consItemsK                    via KCore.Faithful.ΓCons
+  199-209    def        KCore.Faithful.ΓCons                         via KCore.Faithful.Γ
+  213-223    def        KCore.Faithful.collNoJunk                    via KCore.Faithful.ΓDomains
+  225-257    def        KCore.Faithful.ΓDomains                      via KCore.Faithful.Γ
+  259-274    def        KCore.Faithful.ΓFallback                     via KCore.Faithful.Γ
+  294-295    def        KCore.Faithful.collU                         via KCore.Faithful.mapUnitSplitAx
+  296-297    def        KCore.Faithful.collE                         via KCore.Faithful.mapElemNotUnitAx
+  298-299    def        KCore.Faithful.collC                         via KCore.Faithful.mapUnitSplitAx
+  300-301    def        KCore.Faithful.inSort                        via KCore.Faithful.mapUnitSplitAx
+  303-310    def        KCore.Faithful.mapUnitSplitAx                via KCore.Faithful.mapCollAxioms
+  312-318    def        KCore.Faithful.mapElemNotUnitAx              via KCore.Faithful.mapCollAxioms
+  320-333    def        KCore.Faithful.mapElemAtomAx                 via KCore.Faithful.mapCollAxioms
+  335-357    def        KCore.Faithful.mapDecompAx                   via KCore.Faithful.mapCollAxioms
+  359-361    def        KCore.Faithful.mapCollAxioms                 via KCore.Faithful.collAxioms
+  363-364    def        KCore.Faithful.collI                         via KCore.Faithful.setElemNotUnitAx
+  366-373    def        KCore.Faithful.listUnitSplitAx               via KCore.Faithful.listCollAxioms
+  375-379    def        KCore.Faithful.listElemNotUnitAx             via KCore.Faithful.listCollAxioms
+  381-390    def        KCore.Faithful.listElemAtomAx                via KCore.Faithful.listCollAxioms
+  392-401    def        KCore.Faithful.listElemAtomBackAx            via KCore.Faithful.listCollAxioms
+  403-422    def        KCore.Faithful.listDecompAx                  via KCore.Faithful.listCollAxioms
+  424-426    def        KCore.Faithful.listCollAxioms                via KCore.Faithful.collAxioms
+  428-435    def        KCore.Faithful.setUnitSplitAx                via KCore.Faithful.setCollAxioms
+  437-441    def        KCore.Faithful.setElemNotUnitAx              via KCore.Faithful.setCollAxioms
+  443-452    def        KCore.Faithful.setElemAtomAx                 via KCore.Faithful.setCollAxioms
+  454-473    def        KCore.Faithful.setDecompAx                   via KCore.Faithful.setCollAxioms
+  475-478    def        KCore.Faithful.setCollAxioms                 via KCore.Faithful.collAxioms
+  480-486    def        KCore.Faithful.collAxioms                    via KCore.Faithful.ΓColls
+  490-493    def        KCore.Faithful.ΓColls                        via KCore.Faithful.Γ
+  497-499    def        KCore.Faithful.eqnSentence                   via KCore.Faithful.clauseEquation
+  508-515    def        KCore.Faithful.clauseEquation                via KCore.Faithful.prioEquation
+  517-526    def        KCore.Faithful.competingEquation             via KCore.Faithful.prioEquation
+  548-551    def        KCore.Faithful.lowerClauses                  via KCore.Faithful.prioEquation
+  553-558    def        KCore.Faithful.prioEquation                  via KCore.Faithful.fnEquationsK
+  560-566    def        KCore.Faithful.fnEquationsK                  via KCore.Faithful.fnItems
+  568-569    def        KCore.Faithful.fnItems                       via KCore.Faithful.ΓFns
+  571-579    def        KCore.Faithful.ΓFns                          via KCore.Faithful.Γ
+  583-588    def        KCore.Faithful.ruleRight                     via KCore.Faithful.famEx
+  590-611    def        KCore.Faithful.prioRuleK                     via KCore.Faithful.stepClosureItem
+  630-632    def        KCore.Faithful.ruleItems                     via KCore.Faithful.ΓRules
+  634-637    def        KCore.Faithful.ΓRules                        via KCore.Faithful.Γ
+  641-646    def        KCore.Faithful.Γ                             via KCore.Faithful.Γc
+  648-660    def        KCore.Faithful.stepClosureItem               via KCore.Faithful.Γstep
+  662-664    def        KCore.Faithful.Γstep                         via KCore.SoundC
+  666-669    def        KCore.Faithful.boolClosed                    via KCore.Faithful.Γcl
+  671-674    def        KCore.Faithful.Γcl                           via KCore.Faithful.Γc
+  676-677    def        KCore.Faithful.Γc                            via KCore.SoundC
+  688-694    def        KCore.Faithful.fixK                          via KCore.Faithful.famEx
+  696-703    def        KCore.Faithful.famEx                         via KCore.SoundC
+  705-713    def        KCore.Faithful.famOpen                       via KCore.Outcome.pat
+  790-793    def        KCore.Outcome.pat                            via KCore.CompleteC
+  797-803    def        KCore.Rule.condK                             via KCore.Rule.Refuted
+  804-805    def        KCore.Rule.Refuted                           via KCore.Rule.CondDecided
+  806-807    def        KCore.Rule.CondDecided                       via KCore.OpenDecided
+  809-815    def        KCore.Clause.condK                           via KCore.Clause.Refuted
+  816-817    def        KCore.Clause.Refuted                         via KCore.Clause.CondDecided
+  818-819    def        KCore.Clause.CondDecided                     via KCore.OpenDecided
+  821-824    def        KCore.OpenDecided                            via KCore.FnHyp
+  828-832    def        KCore.OpenAssoc                              via KCore.OpenLaws
+  833-835    def        KCore.OpenIdem                               via KCore.OpenLaws
+  836-840    def        KCore.OpenLaws                               via KCore.FnHyp
 
 ## KcoreSpec.Obligations  (1 declarations, 12 lines)
-  19-30      def        KCore.FnHyp                                  root
+  20-31      def        KCore.FnHyp                                  root
 
 ## KcoreSpec.Sound  (4 declarations, 28 lines)
   52-59      def        KCore.SoundC                                 root
@@ -965,27 +976,27 @@
   28     5     303    KcoreSpec.Kore.Print
   130    22    216    KcoreSpec.Kore.Gamma
   225    5     240    KcoreSpec.BuiltinNames
-  499    182   803    KcoreSpec.FixedSignature
+  499    182   804    KcoreSpec.FixedSignature
   55     11    318    KcoreSpec.NatMap
   299    46    415    KcoreSpec.Core
   29     5     341    KcoreSpec.Definition
-  155    25    234    KcoreSpec.FloatDomain
+  157    25    238    KcoreSpec.FloatDomain
   258    50    642    KcoreSpec.Value
-  164    36    1146   KcoreSpec.DefinitionWf
-  64     12    579    KcoreSpec.Emit
+  199    41    1148   KcoreSpec.DefinitionWf
+  69     13    613    KcoreSpec.Emit
   144    35    323    KcoreSpec.StringDomain
-  510    66    742    KcoreSpec.Hooks
-  240    28    560    KcoreSpec.Evaluation
+  528    67    761    KcoreSpec.Hooks
+  240    28    559    KcoreSpec.Evaluation
   266    37    570    KcoreSpec.FaithOK
-  98     10    481    KcoreSpec.Tie
-  35     5     169    KcoreSpec.Step
-  51     8     614    KcoreSpec.EvalFunctional
+  122    11    522    KcoreSpec.Tie
+  35     5     178    KcoreSpec.Step
+  51     8     776    KcoreSpec.EvalFunctional
   10     1     78     KcoreSpec.ClausesAgree
   111    23    299    KcoreSpec.Statements
-  537    72    816    KcoreSpec.Faithful
-  12     1     195    KcoreSpec.Obligations
+  565    74    873    KcoreSpec.Faithful
+  12     1     306    KcoreSpec.Obligations
   28     4     425    KcoreSpec.Sound
-  4731   873   11364  total
+  4843   883   11803  total
 
 ## roots, as elaborated (type of a theorem, value of a definition)
   KCore.SoundC :=

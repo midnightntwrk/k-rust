@@ -10,8 +10,8 @@
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
-#               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE with
-#               $KCORE_CONE_REV), its texts read at the revision it was computed at (test/cone-row.sh): that it
+#               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE), its
+#               texts read at the revision its `# computed at git REV` line names (test/cone-row.sh): that it
 #               was computed from test/roots.toml, declaration names, line count, each declaration's own line
 #               count and each declaration's text (test/cone.py); never rewritten
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
