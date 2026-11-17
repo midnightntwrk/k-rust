@@ -331,7 +331,7 @@ value model, the one `has_model_core` gives. -/
 theorem has_model_total_core (h : HypModelCore c)
     (hv : ∀ fn ∈ c.fns, fn.total = true → ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c fn.label vs (some v)) :
     stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ ΓTotal c) := by
-  have hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true := fun _ hr => h.ruleFactsOpen hr
+  have hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun _ hr => h.ruleFactsEx hr
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
@@ -340,9 +340,9 @@ theorem has_model_total_core (h : HypModelCore c)
     · exact satDomainsGoal h φ hφ
     · exact satCollsGoal h φ hφ
     · exact satFnsGoal h φ hφ
-    · exact satRulesGoal_open h hrules φ hφ
+    · exact satRulesGoal_StepM h hrules φ hφ
     · exact satFallbackGoal h φ hφ
-  · exact satStepGoal_open h hrules φ hφ
+  · exact satStepGoal_StepM h hrules φ hφ
   · exact sat_total h hv φ hφ
 
 end Model
@@ -372,7 +372,7 @@ theorem sound_total {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
   have hm : Model.stdI c ⊧ᴵP (Γc c ∪ Γstep c ∪ Model.ΓTotal c) := by
     intro φ hφ
     rcases hφ with hφ | hφ
-    · exact stdI_modelOpen c h (hypModel_of_fnHyp h hf) (Semantics.ruleFactsOpen_of_core h) φ hφ
+    · exact stdI_model_ex c h (hypModel_of_fnHyp h hf) (Semantics.ruleFactsEx_of_core h) φ hφ
     · exact Model.sat_total (hypModel_of_fnHyp h hf) hf.2.1 φ hφ
   refine ⟨⟨_, inferInstance, _, hm⟩, fun x y r σ hs => ?_⟩
   obtain ⟨h1, h2⟩ := (sound_hyp c h hf).2 x y r σ hs

@@ -11,9 +11,11 @@
     step, at a non-value Int element h with `2 *Int h = 1` one) and are refused by the library's
     text; `bad2` is admitted by the narrower one. `ok1` to `ok4` (the shapes of e2-unbound and
     e2-rule among them) are admitted by every reading.
-  - `rulesPlainLand_eq`: where no rule leaves a variable open, the library's text accepts exactly
-    what the text with the conjunct `r.opens.isEmpty` and the arm as first written (`rulesPlainA3`)
-    accepts.
+  - `rulesPlainLand_eq`: where no rule leaves a variable open and every rule is well sorted, the
+    library's text accepts exactly what the text with the conjunct `r.opens.isEmpty` and the arm as
+    first written (`rulesPlainA3`) accepts. `ruleSorted` is read since R2's flip: `rulesPlain` no
+    longer asks `r.exs = []`, and an existential variable is an open one by `ruleSorted`
+    (`Semantics.exs_nil_of_opens`).
 -/
 import KcoreSpec.Statements
 
@@ -51,15 +53,16 @@ def rulesPlainA3 (c : Semantics) : Bool := c.rules.all fun r =>
        !(varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post).contains i)) &&
    (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed))
 
-/-- Where no rule leaves a variable open, the library's text and `rulesPlainA3` accept the same
-semantics. -/
-theorem rulesPlainLand_eq (c : Semantics) (h0 : ∀ r ∈ c.rules, r.opens = []) :
+/-- Where no rule leaves a variable open and every rule is well sorted, the library's text and
+`rulesPlainA3` accept the same semantics. -/
+theorem rulesPlainLand_eq (c : Semantics) (h0 : ∀ r ∈ c.rules, r.opens = [])
+    (hs : ∀ r ∈ c.rules, c.ruleSorted r = true) :
     c.rulesPlain = rulesPlainA3 c := by
   apply Bool.eq_iff_iff.mpr
   unfold rulesPlainA3 Semantics.rulesPlain
   simp only [List.all_eq_true]
   refine forall_congr' fun r => imp_congr_right fun hr => ?_
-  simp [Rule.reqOpen, Rule.openCondVars, h0 r hr]
+  simp [Rule.reqOpen, Rule.openCondVars, h0 r hr, Semantics.exs_nil_of_opens (hs r hr) (h0 r hr)]
 
 /-- info: 'rulesPlainLand_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rulesPlainLand_eq
@@ -68,7 +71,7 @@ def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`: the symbols and sorts of the text
 (named in the output's first line). -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 def run : IO Unit := do
   match Kore.parseDefinition (← IO.FS.readFile "f2-examples/symrule.kompile.kore") with
@@ -81,7 +84,7 @@ def run : IO Unit := do
       let vs0 := (c.rules.map (·.vars)).getD 0 []
       let sK := vs0.getD 1 0
       let sC := vs0.getD 2 0
-      IO.println s!"names {c.symName 71} {c.symName 379} {c.symName 0} {c.symName 382} {c.symName 73} {c.sortName 32} {c.sortName 1}"
+      IO.println s!"names {c.symName 71} {c.symName 383} {c.symName 0} {c.symName 386} {c.symName 73} {c.sortName 32} {c.sortName 1}"
       let mk := fun (vars : List Srt) (rhs : Term) (req ens : Option Term) (prio : Nat) =>
         ({ vars := vars, lhs := cfg (.var 1), req := req, rhs := rhs, ens := ens, prio := prio } : Rule)
       -- a() => b(X) requires X ==Int 2 *Int H

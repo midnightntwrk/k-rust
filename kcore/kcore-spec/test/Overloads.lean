@@ -83,7 +83,7 @@ def order (path : String) : IO String := do
 #guard_msgs in
 #eval show IO Unit from do IO.println (← verdict "f2-examples/ovllist.kompile.kore" (names := false))
 
-/-- info: [(396 nil Defns, [389 nil EmptyStmts]), (397 nil Instrs, [389 nil EmptyStmts]), (398 cons Defns, [390 cons EmptyStmts]), (399 cons Instrs, [390 cons EmptyStmts]), (400 nil Stmts, [396 nil Defns, 389 nil EmptyStmts, 397 nil Instrs]), (401 cons Stmts, [399 cons Instrs, 390 cons EmptyStmts, 398 cons Defns])]; last 401; idsOK true -/
+/-- info: [(400 nil Defns, [393 nil EmptyStmts]), (401 nil Instrs, [393 nil EmptyStmts]), (402 cons Defns, [394 cons EmptyStmts]), (403 cons Instrs, [394 cons EmptyStmts]), (404 nil Stmts, [400 nil Defns, 393 nil EmptyStmts, 401 nil Instrs]), (405 cons Stmts, [403 cons Instrs, 394 cons EmptyStmts, 402 cons Defns])]; last 405; idsOK true -/
 #guard_msgs in
 #eval show IO Unit from do IO.println (← order "f2-examples/ovllist.kompile.kore")
 
@@ -229,14 +229,14 @@ definition_of defn from "f2-examples/ovlsub.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the facts name, by number (`names_ok`). -/
-def kCell : Sym := 381
-def capN : Sym := 383
-def done : Sym := 384
-def inf : Sym := 385
-def run : Sym := 386
-def wrap : Sym := 388
-def z : Sym := 389
-def capGas : Sym := 390
+def kCell : Sym := 385
+def capN : Sym := 387
+def done : Sym := 388
+def inf : Sym := 389
+def run : Sym := 390
+def wrap : Sym := 392
+def z : Sym := 393
+def capGas : Sym := 394
 def gasS : Srt := 32
 def nS : Srt := 33
 def pgmS : Srt := 34

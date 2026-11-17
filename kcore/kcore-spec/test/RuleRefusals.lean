@@ -3,13 +3,15 @@
   runs of one K text, read from K 7.1.337 kompile's own KORE (the construct triage's fixtures, their
   kompiled texts copied). Run from the package root: `lake env lean test/RuleRefusals.lean`.
   - `rulecool` (e2-rule): `rule <k> c(1) => b(1) ... </k> [cool]`, which kompile writes with the
-    `requires` `isKResult(HOLE)`, HOLE bound by no side: `unboundVariable`.
-  - `unbound` (e2-unbound): `a() => b(X)` with `[unboundVariables(X)]`: X in the right side only:
-    `unboundVariable`.
+    `requires` `isKResult(HOLE)`, HOLE bound by no side and the condition's only variable (a closed
+    condition no variable of which the rest of the rule holds): read, its `CondDecided` owed.
+  - `unbound` (e2-unbound): `a() => b(X)` with `[unboundVariables(X)]`: X in the right side only,
+    under the constructor b: read.
   - `cooleq` (e2-cool-eq): `f(X) => X [cool]` on a function: the equation's `requires` holds HOLE,
     which the arguments do not bind and which is the condition's only variable (a closed condition):
     read.
-  - `exrhs` (e3-vars): `c(_, _Y) => d(?Z:Int)`, a right side under `\exists`: `existentialRhs`.
+  - `exrhs` (e3-vars): `c(_, _Y) => d(?Z:Int)`, a right side under `\exists`: read, `?Z` an
+    existential variable of the rule (`exs`; test/ExReader.lean).
   - `antileft` (e8-enable-kore-antileft): a left side that is an alias application (`rule29LHS`):
     `aliasApplication`.
   - `mlag` (e3-ml-ag): `#AG(b())`, the prelude alias `allPathGlobally` at a sort: `aliasApplication`,
@@ -45,10 +47,10 @@ def absent (path : String) : IO String := do
     | .error r => s!"refused {r.toText}"
 
 /--
-info: rulecool: unboundVariable VarHOLE: in the requires, not bound by the left side
-unbound: unboundVariable VarX: in the right side, not bound by the left side
+info: rulecool: read
+unbound: read
 cooleq: read
-exrhs: existentialRhs Var'Ques'Z
+exrhs: read
 antileft: aliasApplication rule29LHS
 mlag: aliasApplication allPathGlobally
 symrule: read

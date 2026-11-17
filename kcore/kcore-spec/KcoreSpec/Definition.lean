@@ -74,6 +74,13 @@ structure RulePres where
   src : Option String := none
   deriving Repr, Inhabited
 
+/-- An equation between two terms that the text states for every element. -/
+structure LawEq where
+  vars : List Srt
+  lhs : Term
+  rhs : Term
+  deriving Repr
+
 /-- A user parameter symbol's presentation: its `hook{}` attribute, keyword, location and
 source. kompile writes a hooked function symbol as `hooked-symbol f(…) : s [function{}(),
 hook{}("…"), Location, Source, symbol'Kywd'{}("…")]`, with no axiom about it. -/
@@ -291,6 +298,10 @@ structure Presentation where
   /-- the leaf cell whose initializer holds `$PGM` projected to `Semantics.pgmSort`, by name: the
   text's initializer equations state which cell it is (`<k>`, or another) -/
   pgmCell : String := "k"
+  /-- the laws the text writes for its functions, each an equation it states for every element;
+  `Semantics` holds none of them: the statements about the definition take them at values
+  (`FnLaws`). `Parse.presOf` writes none. -/
+  laws : List LawEq := []
   deriving Repr
 
 namespace Presentation
@@ -319,6 +330,9 @@ structure Definition where
   pres : Presentation
   cert : Certificates
   deriving Repr
+
+/-- The laws the text writes for its functions (`Presentation.laws`). -/
+def Definition.laws (d : Definition) : List LawEq := d.pres.laws
 
 def withPres {α β : Type} [Inhabited β] : List α → List β → List (α × β)
   | [], _ => []

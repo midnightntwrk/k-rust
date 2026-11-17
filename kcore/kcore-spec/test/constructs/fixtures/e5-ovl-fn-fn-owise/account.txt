@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E5-OVL-FN-FN-OWISE: 405 sentences
+  1 inert import [generated]
+  188 read [generated]
+  184 read [builtin]
+  6 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 exclusionShape
+      sentence 399 (LblnegExp): exclusionShape
+        [user] (no label) at e5-ovl-fn-fn-owise.k:8: axiom{R} \implies{R}(\and{R}(\not{R}(\or{R}(\exists{R}(Var'Unds'Gen1:SortExp{}, \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, \and{SortExp{}}(Lble{}(), Var'Unds'Gen1:SortExp{})), \top{R}()))), \bottom{R}())), \and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, Var'Unds'Gen0:SortExp{}), \top{R}()))), \equals{SortExp{}, R}(LblnegExp{}(X0:SortExp{}), \and{SortExp{}}(Lble{}(), \top …
+finish: sentence 399 (LblnegExp): exclusionShape
+(exit 0)

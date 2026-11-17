@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E5-OVL-FN-FN-CTOR: 416 sentences
+  1 inert import [generated]
+  197 read [generated]
+  184 read [builtin]
+  5 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  1 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 overloadAxiom
+      sentence 287 (LblsExp): overloadAxiom (LblsExp)
+        [generated] (no label) at :0: axiom{R} \equals{SortExp{}, R}(LblsExp{}(inj{SortN{}, SortExp{}}(K0:SortN{})), inj{SortN{}, SortExp{}}(LblsN{}(K0:SortN{}))) [symbol-overload{}(LblsExp{}(), LblsN{}())]
+finish: sentence 287 (LblsExp): overloadAxiom (LblsExp)
+(exit 0)

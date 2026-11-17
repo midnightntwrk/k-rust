@@ -117,6 +117,11 @@ example (c : Semantics) (f : Sym) (s : Srt) : OpenAssoc c f s =
 example (c : Semantics) (f : Sym) (s : Srt) : OpenIdem c f s =
     (∀ a, c.sortOf a = some s → c.paramVal f [a, a] = some a) := rfl
 
+example (c : Semantics) (l : LawEq) : LawAt c l =
+    (∀ σ, c.WellSorted l.vars σ → ∀ r, EvalTerm c σ l.lhs r ↔ EvalTerm c σ l.rhs r) := rfl
+
+example (c : Semantics) (ls : List LawEq) : FnLaws c ls = (∀ l ∈ ls, LawAt c l) := rfl
+
 example (c : Semantics) (r : Rule) : r.needsWitness c =
     (r.reqOpen && r.reqClosed && !r.openCondVars.all fun i => (r.vars[i]?.map c.confined).getD false) := rfl
 

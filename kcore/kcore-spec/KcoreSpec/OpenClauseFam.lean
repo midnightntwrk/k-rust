@@ -1,12 +1,12 @@
 /-
-  KCore. The instances of a step are its successor (`famEx_den`), and a step by a rule without
+  KCore. The instances of a step are its successor (`famEx_den_exNil`), and a step by a rule without
   existential variables has one instance (`famEx_closed`), for a semantics whose clauses are asked
   CN-4's bodies (`Semantics.sortedOKCl`), with no hypothesis on the sorts of the variables the
   patterns and conditions do not hold.
 
   Of the clauses, the proof reads what the evaluation lemmas read (`eval_den4_coreCl`'s hypotheses:
   `evalTerm_den4Cl` with each negated clause's exclusion empty, `neg_of_coreCl`); of the rule, its
-  sorts and shape (`rule_ctxCl`, `rule_ctx_ensCl`, `Semantics.sortedOKCl_rule`). The sorts of the
+  sorts and shape (`rule_ctxCl`, `rule_ctx_ensCl`, `Semantics.sortedOKCl_ruleTop`). The sorts of the
   values are numbered from `genWf` and `OvlOK` (`sortOf_numbered_ofCl`), and the valuation that
   satisfies the equations `fixK` writes agrees with σ (`agrees_of_fixKCl`).
 -/
@@ -36,7 +36,9 @@ theorem sortOf_numbered_ofCl (hg : genWf c = true) [OvlOK c] (hsorts : Model.sor
     fun hk => (hn.2 _ hk).1.1
   cases v with
   | ctor f ts =>
-    rcases sortOf_ctor_cases hg hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩
+    rcases sortOf_ctor_cases hg hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩ | ⟨kp, hko, -, -, -, -, rfl, -⟩
+    rotate_right
+    · exact hsym (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem (f := (·.sig)) (c.lookupOpen_spec hko).1)))) _ (List.mem_cons_self ..)
     · exact hsym (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
         (List.mem_append_left _ (lookupSig_spec hk).1)))) _ (List.mem_cons_self ..)
     · exact hsym (List.mem_append_right _ (List.mem_map_of_mem (OvlLaws.ovl_parts hov hlo).1)) _
@@ -116,14 +118,14 @@ end
 section
 variable {c : Semantics}
 
-/-- `famEx_eq` from `sortedOKCl`. -/
-theorem famEx_eqCl (hok : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) (σ : Subst) :
+/-- `famEx_eq_exNil` from `sortedOKCl`. -/
+theorem famEx_eqCl_exNil (hok : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (σ : Subst) :
     famEx c r σ = KoreAML.denB (KoreAML.existsAll (srtOf c topCellSort)
       ((canonVars c r.vars).map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) (fixK c r σ (List.range r.vars.length) ++
         [.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]]))) := by
-  obtain ⟨hex, -, hpost⟩ := Semantics.sortedOKCl_rule hok hr
+  obtain ⟨-, hpost⟩ := Semantics.sortedOKCl_ruleTop hok hr
   have hv := filterMap_range_getElem? (canonVars c r.vars)
   rw [canonVars_length] at hv
   have hf : (List.range r.vars.length).filter (fun _ => true) = List.range r.vars.length :=
@@ -137,13 +139,13 @@ variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 /-- **The instances of a step are its successor**, in every model of `Γc`, for a semantics whose
 clauses are asked CN-4's bodies (`sortedOKCl`) with `srReady`, `OvlOK`, `faithCoreOK`,
 `patHooksApart` and `overloadsOK`, and whose clauses' conditions are decided where `needsWitness`
-holds (`neg_of_coreCl`'s hypotheses). `famEx_den` with no fact on the clauses' variables beyond
-each occurring in its clause. -/
-theorem famEx_denCl (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hno : OvlOK c]
+holds (`neg_of_coreCl`'s hypotheses). `famEx_den_exNil` with no fact on the clauses' variables beyond
+each occurring in its clause; a rule without existential variables. -/
+theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hno : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hov : c.overloadsOK = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (e : Valuation M) (m : M) :
-    (famEx c r σ).interpret I e m ↔ (den c y.val).interpret I e m := by
+    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hexs : r.exs = []) (e : Valuation M)
+    (m : M) : (famEx c r σ).interpret I e m ↔ (den c y.val).interpret I e m := by
   have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
   obtain ⟨hnn, hg, -, -, -, -, -⟩ := faithCoreOK_parts hfa
   have hnn := namesNumbered_spec hnn
@@ -154,7 +156,7 @@ theorem famEx_denCl (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c
   have hneg := neg_of_coreCl hIc hok hsr hfa hph hc
   obtain ⟨-, -, hrhss⟩ := rule_ctxCl hok hs.mem
   have hensS := rule_ctx_ensCl hok hs.mem
-  rw [famEx_eqCl hok hs.mem]
+  rw [famEx_eqCl_exNil hok hs.mem hexs]
   unfold KoreAML.denB
   generalize htbl : KoreAML.tableOf [] _ = tbl
   have hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl := fun i hi => by
@@ -224,7 +226,7 @@ theorem famEx_denCl (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c
 
 /-- **A step by a rule without existential variables has one instance**, for a semantics whose
 clauses are asked CN-4's bodies: `famEx_closed`'s conclusion with `sortedOKCl` and the conjuncts of
-`coreOK` the proof reads in place of `coreOK` (`famEx_denCl`). No hypothesis on the sorts of
+`coreOK` the proof reads in place of `coreOK` (`famEx_denCl_exNil`). No hypothesis on the sorts of
 the variables the patterns and conditions do not hold. -/
 theorem famEx_closedCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hov : c.overloadsOK = true)
@@ -233,7 +235,7 @@ theorem famEx_closedCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srRe
     Γc c ⊧ (famEx c r σ ≡ den c y.val) := by
   intro M _ I hI e m
   rw [KoreAML.interp_equal (defOK fun φ hφ => hI φ (Or.inl hφ))]
-  exact famEx_denCl hI hok hsr hfa hph hov hc hs e
+  exact famEx_denCl_exNil hI hok hsr hfa hph hov hc hs _hex e
 
 end
 

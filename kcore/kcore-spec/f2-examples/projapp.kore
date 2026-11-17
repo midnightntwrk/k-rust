@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+    "Source(kcore-spec/f2-examples/projapp.k)"
   )
 ]
 module BASIC-K
@@ -1012,7 +1012,7 @@ module PROJAPP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,38)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+      "Source(kcore-spec/f2-examples/projapp.k)"
     ),
     symbol'Kywd'{}("run")
   ]
@@ -1023,7 +1023,7 @@ module PROJAPP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,41,8,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+      "Source(kcore-spec/f2-examples/projapp.k)"
     ),
     symbol'Kywd'{}("done")
   ]
@@ -1037,7 +1037,7 @@ module PROJAPP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+      "Source(kcore-spec/f2-examples/projapp.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -4754,7 +4754,7 @@ module PROJAPP
       label{}("PROJAPP.go"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,53)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+        "Source(kcore-spec/f2-examples/projapp.k)"
       )
     ]
   axiom{R}
@@ -5573,6 +5573,6 @@ module PROJAPP
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,16,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/projapp.k)"
+    "Source(kcore-spec/f2-examples/projapp.k)"
   )
 ]

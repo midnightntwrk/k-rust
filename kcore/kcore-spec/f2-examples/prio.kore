@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+    "Source(kcore-spec/f2-examples/prio.k)"
   )
 ]
 module BASIC-K
@@ -567,7 +567,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,16,4,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("d")
   ]
@@ -578,7 +578,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,20,5,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("b")
   ]
@@ -589,7 +589,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,20,6,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("c")
   ]
@@ -600,7 +600,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,20,7,38)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("go")
   ]
@@ -611,7 +611,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,41,7,61)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("out")
   ]
@@ -622,7 +622,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,64,7,88)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("other")
   ]
@@ -633,7 +633,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,91,7,112)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     ),
     symbol'Kywd'{}("stop")
   ]
@@ -645,7 +645,7 @@ module PRIO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+      "Source(kcore-spec/f2-examples/prio.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -2183,7 +2183,7 @@ module PRIO
       UNIQUE'Unds'ID{}("8d0113ae9c4b7761729247841896cfb9b4e1e2e25f2fee7425b181676cfd57d4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,53)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+        "Source(kcore-spec/f2-examples/prio.k)"
       ),
       priority{}("40")
     ]
@@ -2208,7 +2208,7 @@ module PRIO
       UNIQUE'Unds'ID{}("f870fe5e8aa29b4496aafb2eb973b7059d04f57bae4d3f535957d82838840041"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+        "Source(kcore-spec/f2-examples/prio.k)"
       )
     ]
   axiom{}
@@ -2232,7 +2232,7 @@ module PRIO
       UNIQUE'Unds'ID{}("33e59ea5792aa0ff691888299086368ea2394599ba41733e2e7e7281d2f938c6"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+        "Source(kcore-spec/f2-examples/prio.k)"
       ),
       owise{}()
     ]
@@ -3332,6 +3332,6 @@ module PRIO
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,12,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/prio.k)"
+    "Source(kcore-spec/f2-examples/prio.k)"
   )
 ]

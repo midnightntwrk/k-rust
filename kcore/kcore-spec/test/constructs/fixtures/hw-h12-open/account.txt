@@ -12,7 +12,7 @@ user module HW-BASE: 427 sentences
   11 inert noJunk [generated]
   1 inert simplification [generated]
   1 refused openGenerator [user]
-      e.g. symbol Lblk{}(SortInt{}, SortInt{}) : SortMap{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/hw-base/src/hw-base.k)")]
+      e.g. symbol Lblk{}(SortInt{}, SortInt{}) : SortMap{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/hw-base/hw-base.k)")]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0

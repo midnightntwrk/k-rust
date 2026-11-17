@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+    "Source(m2-spec/examples/fn.k)"
   )
 ]
 module BASIC-K
@@ -237,7 +237,7 @@ module FN
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     ),
     symbol'Kywd'{}("z")
   ]
@@ -248,7 +248,7 @@ module FN
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,34,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     ),
     symbol'Kywd'{}("c")
   ]
@@ -259,7 +259,7 @@ module FN
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,20,4,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     ),
     symbol'Kywd'{}("go")
   ]
@@ -270,7 +270,7 @@ module FN
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,43,4,68)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     ),
     symbol'Kywd'{}("run")
   ]
@@ -279,7 +279,7 @@ module FN
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     ),
     symbol'Kywd'{}("size")
   ]
@@ -1068,7 +1068,7 @@ module FN
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+      "Source(m2-spec/examples/fn.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -4799,7 +4799,7 @@ module FN
       UNIQUE'Unds'ID{}("150b369be43db513cec092aa4acc41eecf161177854d5a80e27c81eb9acea3b5"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,3,11,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+        "Source(m2-spec/examples/fn.k)"
       )
     ]
   axiom{}
@@ -4834,7 +4834,7 @@ module FN
       UNIQUE'Unds'ID{}("e8330a9b8f3e7f8ad6b190a577f3e4aa7657e7052a5689e98ec9d3a8f94ee9b6"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,67)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+        "Source(m2-spec/examples/fn.k)"
       )
     ]
   axiom{}
@@ -4858,7 +4858,7 @@ module FN
       UNIQUE'Unds'ID{}("9bf006b3364aa4e93c9b44515a8468bdb9913e34f4e44bf08cd4de40d1725091"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,37)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+        "Source(m2-spec/examples/fn.k)"
       )
     ]
   axiom{R}
@@ -4873,7 +4873,7 @@ module FN
       UNIQUE'Unds'ID{}("973436c1521585fa0b83c5e63e1788f08b43a4cdc8fc2b9605e944dd7a7b5e81"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,20)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+        "Source(m2-spec/examples/fn.k)"
       )
     ]
   axiom{R}
@@ -4891,7 +4891,7 @@ module FN
       UNIQUE'Unds'ID{}("4662e3ead62b8cb24f1001304df0b1846b05f2c1dda20f8f8c526d94d6ccf18e"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,36)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+        "Source(m2-spec/examples/fn.k)"
       )
     ]
   axiom{R}
@@ -5705,6 +5705,6 @@ module FN
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,1,16,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/examples/fn.k)"
+    "Source(m2-spec/examples/fn.k)"
   )
 ]

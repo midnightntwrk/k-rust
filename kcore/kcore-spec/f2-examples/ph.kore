@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+    "Source(kcore-spec/f2-examples/ph.k)"
   )
 ]
 module BASIC-K
@@ -664,7 +664,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,33)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("a")
   ]
@@ -675,7 +675,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,36,8,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("b")
   ]
@@ -685,7 +685,7 @@ module PH
     hook{}("PH.ok"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,19,9,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("ok")
   ]
@@ -695,7 +695,7 @@ module PH
     hook{}("PH.bad"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,19,10,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("bad")
   ]
@@ -705,7 +705,7 @@ module PH
     hook{}("BOOL.and"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,19,11,76)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("both")
   ]
@@ -716,7 +716,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("go")
   ]
@@ -727,7 +727,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,43,12,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("yes")
   ]
@@ -738,7 +738,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,65,12,82)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("no")
   ]
@@ -749,7 +749,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,85,12,106)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     ),
     symbol'Kywd'{}("oops")
   ]
@@ -761,7 +761,7 @@ module PH
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,3,13,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+      "Source(kcore-spec/f2-examples/ph.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -2895,7 +2895,7 @@ module PH
       UNIQUE'Unds'ID{}("60919bdb478f0b13e9be765262e31a3fd422f38f03bac5182aed34060b6830e4"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+        "Source(kcore-spec/f2-examples/ph.k)"
       )
     ]
   axiom{}
@@ -2922,7 +2922,7 @@ module PH
       UNIQUE'Unds'ID{}("b207bb1be3a5c8b19a3f0f8b2f50c6a595a1d3a9e0bfe4338d6e21b6c356b3a9"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,57)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+        "Source(kcore-spec/f2-examples/ph.k)"
       )
     ]
   axiom{}
@@ -2949,7 +2949,7 @@ module PH
       UNIQUE'Unds'ID{}("fb4f1143d2c1588f3e813c51b151845e0b66402f3fc6d9959a3492949c295e03"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,16,64)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+        "Source(kcore-spec/f2-examples/ph.k)"
       )
     ]
   axiom{R}
@@ -3861,6 +3861,6 @@ module PH
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,1,17,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/ph.k)"
+    "Source(kcore-spec/f2-examples/ph.k)"
   )
 ]

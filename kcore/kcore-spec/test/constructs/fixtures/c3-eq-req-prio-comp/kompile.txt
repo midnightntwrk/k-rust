@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-req-prio-comp.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 203526
+definition.kore sha256: 5b21e93ba88cacb453e1784bd10a7ceae0e7eca948a6030c7cdd074dcdd0b30c
+stripped sha256: 1c70f2753cadfb5c7bf2d36499b5f07a24255daac12aca69b18e47c2499a2d21
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-REQ-PRIO-COMP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-REQ-PRIO-COMP as default.

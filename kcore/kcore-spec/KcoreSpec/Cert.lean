@@ -24,9 +24,13 @@
   checks evaluate with `evalTC`, the executable evaluation except that it has no result (`none`,
   as out of fuel) where it would consult the interpretation: a parameter of `impl = none` applied
   to defined arguments, a silent point, or a function where every clause fails (its rest). So a
-  check succeeds only for a run none of whose evaluations reads `hooks`, and that is decided with the run: the checks never read `hooks` (`checkRun_withHooks`,
-  `stuckCheck_withHooks`, `rfl` for a variable `c`), and a result `evalTC` gives on the data is the
-  executable evaluation's under every interpretation (`evalTC_withHooks`, `evalTC_sound`).
+  check succeeds only for a run none of whose evaluations reads `hooks`, and that is decided with
+  the run. Where no parameter is raw the checks read no interpretation (`checkRun_withHooks`,
+  `stuckCheck_withHooks`): they read it only through `sortOf`, and an open generator's (a raw
+  parameter's) application has its sort from the interpretation. A result `evalTC` gives on the
+  data is then the executable evaluation's under every interpretation (`evalTC_withHooks`,
+  `evalTC_sound`). The soundness theorems take "no parameter is raw" as their last argument,
+  decided where the semantics is closed; for a definition with a raw parameter they say nothing.
 
   `checkRun_sound`: under the core's three decided conditions (`ok`, `srReady`, `matchReady`, the
   ones determinism and `step_iff_of_ok` use), a certificate accepted on the data gives, for every
@@ -219,29 +223,125 @@ def ruleStuck (c : Semantics) (n : Nat) (r : Rule) (x : GroundTerm) : Bool :=
 def stuckCheck (c : Semantics) (n : Nat) (x : GroundTerm) : Bool :=
   c.rules.all fun r => ruleStuck c n r x
 
-/-! ## The checks do not read the interpretation of the parameters -/
+/-! ## The checks do not read the interpretation of the parameters, where no parameter is raw
 
-kernel_rfl paramValC_withHooks : ∀ (c : Semantics) (H : HookParams) (f : Sym) (vs : List GroundTerm),
-  paramValC (c.withHooks H) f vs = paramValC c f vs
-kernel_rfl evalTC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (σ : Subst) (t : Term),
-  evalTC (c.withHooks H) n σ t = evalTC c n σ t
-kernel_rfl ruleMatchesC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (r : Rule) (x : GroundTerm),
-  ruleMatchesC (c.withHooks H) n r x = ruleMatchesC c n r x
-kernel_rfl ruleSuccs_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (r : Rule) (x : GroundTerm),
-  ruleSuccs (c.withHooks H) n r x = ruleSuccs c n r x
-kernel_rfl lowerBlocked_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (r : Rule) (x : GroundTerm),
-  lowerBlocked (c.withHooks H) n r x = lowerBlocked c n r x
-kernel_rfl checkStep_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (r : Rule) (x y : GroundTerm),
-  checkStep (c.withHooks H) n r x y = checkStep c n r x y
-kernel_rfl checkSteps_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (x : GroundTerm)
-  (steps : List (Nat × GroundTerm)) (z : GroundTerm), checkSteps (c.withHooks H) n x steps z = checkSteps c n x steps z
-kernel_rfl checkRun_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (start : GroundTerm)
-  (steps : List (Nat × GroundTerm)) (final : GroundTerm),
-  checkRun (c.withHooks H) n start steps final = checkRun c n start steps final
-kernel_rfl ruleStuck_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (r : Rule) (x : GroundTerm),
-  ruleStuck (c.withHooks H) n r x = ruleStuck c n r x
-kernel_rfl stuckCheck_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (x : GroundTerm),
-  stuckCheck (c.withHooks H) n x = stuckCheck c n x
+The checks read the interpretation only through `sortOf` (`paramValC`'s filter, `wellSorted`, a
+result's being a configuration), and with no raw parameter the sorts are the same under every
+interpretation (`Semantics.sortOf_withHooks`). The matcher reads no sort. -/
+
+kernel_rfl matchP_withHooksC : ∀ (c : Semantics) (H : HookParams) (n : Nat) (σ : Subst) (p : Term)
+  (v : GroundTerm), matchP (c.withHooks H) n σ p v = matchP c n σ p v
+kernel_rfl matchL_withHooksC : ∀ (c : Semantics) (H : HookParams) (n : Nat) (σ : Subst) (ps : List Term)
+  (vs : List GroundTerm), matchL (c.withHooks H) n σ ps vs = matchL c n σ ps vs
+
+section
+-- The proofs below read `sortOf` only through `Semantics.sortOf_withHooks`: it is irreducible here,
+-- so that they do not depend on what its body reads.
+attribute [local irreducible] Semantics.sortOf Semantics.sortsOf
+
+variable (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false)
+include hr
+
+theorem sortOf_withHooks_hrC (v : GroundTerm) : (c.withHooks H).sortOf v = c.sortOf v :=
+  congrFun (Semantics.sortOf_withHooks c H hr) v
+
+theorem wellSorted_withHooks_hr (vars : List Srt) : wellSorted (c.withHooks H) vars = wellSorted c vars := by
+  funext σ; unfold wellSorted; simp only [sortOf_withHooks_hrC c H hr]
+
+theorem clauseMatches_withHooks_hr (cl : Clause) (vs : List GroundTerm) :
+    clauseMatches (c.withHooks H) cl vs = clauseMatches c cl vs := by
+  unfold clauseMatches
+  rw [matchL_withHooksC, wellSorted_withHooks_hr c H hr]
+
+theorem paramValC_withHooks (f : Sym) (vs : List GroundTerm) :
+    paramValC (c.withHooks H) f vs = paramValC c f vs := by
+  unfold paramValC; simp only [sortOf_withHooks_hrC c H hr]; rfl
+
+theorem evalC_withHooks_hr : ∀ n,
+    (∀ σ t, evalTC (c.withHooks H) n σ t = evalTC c n σ t) ∧
+    (∀ σ ts, evalTsC (c.withHooks H) n σ ts = evalTsC c n σ ts) ∧
+    (∀ f vs, evalFC (c.withHooks H) n f vs = evalFC c n f vs) ∧
+    (∀ vs cls, firstClauseC (c.withHooks H) n vs cls = firstClauseC c n vs cls)
+  | 0 => ⟨fun _ _ => by simp only [evalTC], fun _ _ => by simp only [evalTsC],
+      fun _ _ => by simp only [evalFC], fun _ _ => by simp only [firstClauseC]⟩
+  | n + 1 => by
+    obtain ⟨ih1, ih2, ih3, ih4⟩ := evalC_withHooks_hr n
+    refine ⟨fun σ t => ?_, fun σ ts => ?_, fun f vs => ?_, fun vs cls => ?_⟩
+    · cases t with
+      | app f ts =>
+        simp only [evalTC, ih2, ih3, paramValC_withHooks c H hr]
+        rfl
+      | inj a b t => simp only [evalTC, ih1]
+      | _ => simp only [evalTC]
+    · cases ts with
+      | nil => simp only [evalTsC]
+      | cons t ts => simp only [evalTsC, ih1, ih2]
+    · simp only [evalFC, ih4]
+      rfl
+    · cases cls with
+      | nil => simp only [firstClauseC]
+      | cons cl rest => simp only [firstClauseC, ih1, ih4, clauseMatches_withHooks_hr c H hr]
+
+theorem evalTC_withHooks (n : Nat) (σ : Subst) (t : Term) :
+    evalTC (c.withHooks H) n σ t = evalTC c n σ t := (evalC_withHooks_hr c H hr n).1 σ t
+
+theorem evalFC_withHooks (n : Nat) (f : Sym) (vs : List GroundTerm) :
+    evalFC (c.withHooks H) n f vs = evalFC c n f vs := (evalC_withHooks_hr c H hr n).2.2.1 f vs
+
+theorem reqValC_withHooks_hr (n : Nat) (r : Rule) (σ : Subst) :
+    reqValC (c.withHooks H) n r σ = reqValC c n r σ := by
+  unfold reqValC; simp only [evalTC_withHooks c H hr]
+
+theorem ensValC_withHooks_hr (n : Nat) (r : Rule) (σ : Subst) :
+    ensValC (c.withHooks H) n r σ = ensValC c n r σ := by
+  unfold ensValC; simp only [evalTC_withHooks c H hr]
+
+theorem ruleMatchesC_withHooks (n : Nat) (r : Rule) (x : GroundTerm) :
+    ruleMatchesC (c.withHooks H) n r x = ruleMatchesC c n r x := by
+  unfold ruleMatchesC
+  rw [matchP_withHooksC, wellSorted_withHooks_hr c H hr]
+  simp only [reqValC_withHooks_hr c H hr]
+
+theorem ruleSuccs_withHooks (n : Nat) (r : Rule) (x : GroundTerm) :
+    ruleSuccs (c.withHooks H) n r x = ruleSuccs c n r x := by
+  unfold ruleSuccs
+  simp only [ruleMatchesC_withHooks c H hr, evalTC_withHooks c H hr, sortOf_withHooks_hrC c H hr,
+    ensValC_withHooks_hr c H hr]
+
+theorem lowerBlocked_withHooks (n : Nat) (r : Rule) (x : GroundTerm) :
+    lowerBlocked (c.withHooks H) n r x = lowerBlocked c n r x := by
+  unfold lowerBlocked
+  simp only [ruleMatchesC_withHooks c H hr]
+  rfl
+
+theorem checkStep_withHooks (n : Nat) (r : Rule) (x y : GroundTerm) :
+    checkStep (c.withHooks H) n r x y = checkStep c n r x y := by
+  unfold checkStep; rw [lowerBlocked_withHooks c H hr, ruleSuccs_withHooks c H hr]
+
+theorem checkSteps_withHooks (n : Nat) : ∀ (x : GroundTerm) (steps : List (Nat × GroundTerm)) (z : GroundTerm),
+    checkSteps (c.withHooks H) n x steps z = checkSteps c n x steps z
+  | x, [], z => by simp only [checkSteps]
+  | x, (i, y) :: rest, z => by
+    simp only [checkSteps, checkStep_withHooks c H hr, checkSteps_withHooks n y rest z]
+    rfl
+
+theorem checkRun_withHooks (n : Nat) (start : GroundTerm) (steps : List (Nat × GroundTerm))
+    (final : GroundTerm) : checkRun (c.withHooks H) n start steps final = checkRun c n start steps final := by
+  unfold checkRun; rw [Semantics.sortOf_withHooks c H hr, checkSteps_withHooks c H hr]
+
+theorem ruleStuck_withHooks (n : Nat) (r : Rule) (x : GroundTerm) :
+    ruleStuck (c.withHooks H) n r x = ruleStuck c n r x := by
+  unfold ruleStuck
+  rw [matchP_withHooksC, wellSorted_withHooks_hr c H hr]
+  simp only [reqValC_withHooks_hr c H hr, evalTC_withHooks c H hr, sortOf_withHooks_hrC c H hr,
+    ensValC_withHooks_hr c H hr]
+
+theorem stuckCheck_withHooks (n : Nat) (x : GroundTerm) :
+    stuckCheck (c.withHooks H) n x = stuckCheck c n x := by
+  unfold stuckCheck
+  simp only [ruleStuck_withHooks c H hr]
+  rfl
+end
 
 /-! ## Soundness -/
 
@@ -602,13 +702,15 @@ include hok hsr hmr in
 /-- **Soundness of run certificates, for every interpretation of the parameters.** A certificate
 that `checkRun` accepts on the data (at any evaluation fuel `n`) shows, for every H, that `final`
 is a configuration reachable from the configuration `start` by `Step (c.withHooks H)`s: none of the
-check's evaluations consults the interpretation. -/
+check's evaluations consults the interpretation, and where no parameter is raw (`hr`) neither does
+a sort. -/
 theorem checkRun_sound {n : Nat} {start final : GroundTerm} {steps : List (Nat × GroundTerm)}
-    (h : checkRun c n start steps final = true) (H : HookParams) :
+    (h : checkRun c n start steps final = true) (H : HookParams)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∃ (hs : (c.withHooks H).sortOf start = some topCellSort)
       (hf : (c.withHooks H).sortOf final = some topCellSort),
       Reach (Step (c.withHooks H)) ⟨start, hs⟩ ⟨final, hf⟩ := by
-  rw [← checkRun_withHooks c H] at h
+  rw [← checkRun_withHooks c H hr] at h
   unfold checkRun at h
   rw [Bool.and_eq_true, decide_eq_true_iff] at h
   obtain ⟨hs, h⟩ := h
@@ -760,32 +862,35 @@ include hok hsr hmr in
 /-- **Stuckness, for every interpretation of the parameters.** A configuration that `stuckCheck`
 accepts on the data at some fuel has no `Step (c.withHooks H)` successor, for every H whose clauses
 of one priority are coherent (a step is then listed by the executable step, `Exec.step_iff_all`),
-where no clause is `aside`. -/
+where no clause is `aside` and no parameter is raw. -/
 theorem stuckCheck_sound (H : HookParams) (hco : CoherentAll (c.withHooks H)) {n : Nat}
     {x : Config (c.withHooks H)} (h : stuckCheck c n x.val = true)
-    (hna : c.asideFree = true := by decide +kernel) : ∀ y, ¬ Step (c.withHooks H) x y := by
+    (hna : c.asideFree = true := by decide +kernel)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : ∀ y, ¬ Step (c.withHooks H) x y := by
   intro y hstep
   obtain ⟨m, hm⟩ := (Exec.step_iff_all hok hsr hmr H hco x y hna).mp hstep
   rw [successorsN_nil_of_stuckCheck ((Semantics.ok_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr) hco
-    ((stuckCheck_withHooks c H n x.val).trans h) m] at hm
+    ((stuckCheck_withHooks c H hr n x.val).trans h) m] at hm
   cases hm
 
 end
 
 /-- `checkRun_sound` from `wf` and `ok`, without overloading symbols. -/
 theorem checkRun_sound_wf {d : Definition} (hwf : wf d = true) (hok : d.sem.ok = true) (hno : d.sem.ovls = []) {n : Nat} {start final : GroundTerm}
-    {steps : List (Nat × GroundTerm)} (h : checkRun d.sem n start steps final = true) (H : HookParams) :
+    {steps : List (Nat × GroundTerm)} (h : checkRun d.sem n start steps final = true) (H : HookParams)
+    (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) :
     ∃ (hs : (d.sem.withHooks H).sortOf start = some topCellSort)
       (hf : (d.sem.withHooks H).sortOf final = some topCellSort),
       Reach (Step (d.sem.withHooks H)) ⟨start, hs⟩ ⟨final, hf⟩ :=
-  checkRun_sound hok (NamesApart.srReady_of_wf hwf) (NamesApart.matchReady_of_wf hwf hno) h H
+  checkRun_sound hok (NamesApart.srReady_of_wf hwf) (NamesApart.matchReady_of_wf hwf hno) h H hr
 
 /-- `stuckCheck_sound` from `wf` and `ok`, without overloading symbols. -/
 theorem stuckCheck_sound_wf {d : Definition} (hwf : wf d = true) (hok : d.sem.ok = true) (hno : d.sem.ovls = [])
     (H : HookParams) (hco : CoherentAll (d.sem.withHooks H)) {n : Nat} {x : Config (d.sem.withHooks H)}
-    (h : stuckCheck d.sem n x.val = true) (hna : d.sem.asideFree = true := by decide +kernel) :
+    (h : stuckCheck d.sem n x.val = true) (hna : d.sem.asideFree = true := by decide +kernel)
+    (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) :
     ∀ y, ¬ Step (d.sem.withHooks H) x y :=
-  stuckCheck_sound hok (NamesApart.srReady_of_wf hwf) (NamesApart.matchReady_of_wf hwf hno) H hco h hna
+  stuckCheck_sound hok (NamesApart.srReady_of_wf hwf) (NamesApart.matchReady_of_wf hwf hno) H hco h hna hr
 
 end KCore.Cert

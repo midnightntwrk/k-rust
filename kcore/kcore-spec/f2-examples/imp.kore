@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+    "Source(kink/examples/imp/imp.k)"
   )
 ]
 module BASIC-K
@@ -2327,7 +2327,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,20,11,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsSlshUndsUnds'IMP-SYNTAX'Unds'AExp'Unds'AExp'Unds'AExp{}(SortAExp{}, SortAExp{}) : SortAExp{}
@@ -2337,7 +2337,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,61)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsPlusUndsUnds'IMP-SYNTAX'Unds'AExp'Unds'AExp'Unds'AExp{}(SortAExp{}, SortAExp{}) : SortAExp{}
@@ -2347,7 +2347,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,61)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'Unds-LT-EqlsUndsUnds'IMP-SYNTAX'Unds'BExp'Unds'AExp'Unds'AExp{}(SortAExp{}, SortAExp{}) : SortBExp{}
@@ -2357,7 +2357,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,58)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'BangUndsUnds'IMP-SYNTAX'Unds'BExp'Unds'BExp{}(SortBExp{}) : SortBExp{}
@@ -2367,7 +2367,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,20,17,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsAnd-And-UndsUnds'IMP-SYNTAX'Unds'BExp'Unds'BExp'Unds'BExp{}(SortBExp{}, SortBExp{}) : SortBExp{}
@@ -2377,7 +2377,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'LBraRBraUnds'IMP-SYNTAX'Unds'Block{}() : SortBlock{}
@@ -2387,7 +2387,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,20,20,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'LBraUndsRBraUnds'IMP-SYNTAX'Unds'Block'Unds'Stmt{}(SortStmt{}) : SortBlock{}
@@ -2397,7 +2397,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,20,21,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsEqlsUndsSClnUnds'IMP-SYNTAX'Unds'Stmt'Unds'Id'Unds'AExp{}(SortId{}, SortAExp{}) : SortStmt{}
@@ -2407,7 +2407,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,58)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lblif'LParUndsRParUnds'else'UndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'BExp'Unds'Block'Unds'Block{}(
@@ -2421,7 +2421,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,25,58)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lblwhile'LParUndsRParUndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'BExp'Unds'Block{}(
@@ -2434,7 +2434,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,20,26,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsUndsUnds'IMP-SYNTAX'Unds'Stmt'Unds'Stmt'Unds'Stmt{}(SortStmt{}, SortStmt{}) : SortStmt{}
@@ -2444,7 +2444,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,20,27,53)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lblint'UndsSClnUndsUnds'IMP-SYNTAX'Unds'Pgm'Unds'Ids'Unds'Stmt{}(SortIds{}, SortStmt{}) : SortPgm{}
@@ -2454,7 +2454,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,18,28,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'UndsCommUndsUnds'IMP-SYNTAX'Unds'Ids'Unds'Id'Unds'Ids{}(SortId{}, SortIds{}) : SortIds{}
@@ -2464,7 +2464,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,18,29,30)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol Lbl'Stop'List'LBraQuotUndsCommUndsUnds'IMP-SYNTAX'Unds'Ids'Unds'Id'Unds'Ids'QuotRBraUnds'Ids{}() : SortIds{}
@@ -2474,7 +2474,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,18,29,30)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     ),
     symbol'Kywd'{}(".List{\"_,__IMP-SYNTAX\"}")
   ]
@@ -2502,7 +2502,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,21)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -2514,7 +2514,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,21)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol LblinitStateCell{}() : SortStateCell{} [function{}(), functional{}(), total{}()]
@@ -2526,7 +2526,7 @@ module IMP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,21)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+      "Source(kink/examples/imp/imp.k)"
     )
   ]
   symbol LblinitTCell{}(SortMap{}) : SortTCell{} [function{}()]
@@ -19049,7 +19049,7 @@ module IMP
       cool-like{}(),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,60)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19099,7 +19099,7 @@ module IMP
       UNIQUE'Unds'ID{}("6afd6e6a38cfbe63d88684cb832028c72316c47cf3bd4a98ab50da45d8d4f338"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19146,7 +19146,7 @@ module IMP
       UNIQUE'Unds'ID{}("558153b25ed67940d62fe6aba2c159725c68ef58cf9fdcd03034b94d6013593b"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,29)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19190,7 +19190,7 @@ module IMP
       UNIQUE'Unds'ID{}("11257cfa6e4acf011c9eb56e4c968dee1a99d1dcbca3fbda5360adc3c0683b80"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,25)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19237,7 +19237,7 @@ module IMP
       UNIQUE'Unds'ID{}("f3294578cd4f3183bed59df22c8899bcf796bf26593a7c5e36540ac0829f6d69"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,31)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19281,7 +19281,7 @@ module IMP
       UNIQUE'Unds'ID{}("df02fc0d0e5961db2abfb367f3e75a41da73560b1bd8104ba77b08a90463d01f"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,24)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19323,7 +19323,7 @@ module IMP
       UNIQUE'Unds'ID{}("c78d274bec7913fb60cd62c41693aa099f25ba70160c4ab4a7af9c99043b8bd0"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,22)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19370,7 +19370,7 @@ module IMP
       UNIQUE'Unds'ID{}("aad2bcfd509bccd60d7e25b0eec1c400a385c8a8ddd49c668f15f83eeac44567"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,27)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19405,7 +19405,7 @@ module IMP
       UNIQUE'Unds'ID{}("0255d55170b700341bb1eaef9b9a1bb9ec0b69a07978e89382ae437997a2cb1d"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,16)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19444,7 +19444,7 @@ module IMP
       UNIQUE'Unds'ID{}("dd487914e94e64fee85796be97956497cdb521583b7425a9edb1006781f5bd95"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,16)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19500,7 +19500,7 @@ module IMP
       UNIQUE'Unds'ID{}("a0a72505d185a6c73b32c5e8214f768a82c2d0282eda985c38900967af1e8093"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,74)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19545,7 +19545,7 @@ module IMP
       UNIQUE'Unds'ID{}("918c73f4bade35ef0fa17d167dc1c6e6642bb1862db26b0ec5b54cf218535404"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19588,7 +19588,7 @@ module IMP
       UNIQUE'Unds'ID{}("3db8362dabb3eb158afddd5722f7130eae1135170929330ee1aaf9eb2fd3dcda"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19631,7 +19631,7 @@ module IMP
       UNIQUE'Unds'ID{}("f12ec760036f191754935e67853214c87c49da500e49c7b913ddbc732150ee1a"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,32)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19690,7 +19690,7 @@ module IMP
       UNIQUE'Unds'ID{}("6982fc19b573a992a91998f99dda4522de227858f7b5371a56f013b3aaaacb51"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,53)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19759,7 +19759,7 @@ module IMP
       UNIQUE'Unds'ID{}("8a8d39fed34974de05d217d0c7014950a846aae159a11794bd36c81db4b3ede1"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,64,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19801,7 +19801,7 @@ module IMP
       UNIQUE'Unds'ID{}("f2ebd3e9ee3a1cdaa9c1b05b9c9f3667349ea62964ecd42377c799a78521c27f"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,24)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{R}
@@ -19907,7 +19907,7 @@ module IMP
       label{}("IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -19969,7 +19969,7 @@ module IMP
       label{}("IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20028,7 +20028,7 @@ module IMP
       label{}("IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20090,7 +20090,7 @@ module IMP
       label{}("IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20149,7 +20149,7 @@ module IMP
       label{}("IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20211,7 +20211,7 @@ module IMP
       label{}("IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20270,7 +20270,7 @@ module IMP
       label{}("IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20332,7 +20332,7 @@ module IMP
       label{}("IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,61)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20391,7 +20391,7 @@ module IMP
       label{}("IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20453,7 +20453,7 @@ module IMP
       label{}("IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20515,7 +20515,7 @@ module IMP
       label{}("IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20577,7 +20577,7 @@ module IMP
       label{}("IMP-SYNTAX._<=__IMP-SYNTAX_BExp_AExp_AExp2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20631,7 +20631,7 @@ module IMP
       label{}("IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,20,17,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20688,7 +20688,7 @@ module IMP
       label{}("IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,20,17,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20747,7 +20747,7 @@ module IMP
       label{}("IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,64)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20809,7 +20809,7 @@ module IMP
       label{}("IMP-SYNTAX._&&__IMP-SYNTAX_BExp_BExp_BExp1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,64)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20868,7 +20868,7 @@ module IMP
       label{}("IMP-SYNTAX._=_;_IMP-SYNTAX_Stmt_Id_AExp2-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20930,7 +20930,7 @@ module IMP
       label{}("IMP-SYNTAX._=_;_IMP-SYNTAX_Stmt_Id_AExp2-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,20,23,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -20991,7 +20991,7 @@ module IMP
       label{}("IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-heat"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,25,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{}
@@ -21055,7 +21055,7 @@ module IMP
       label{}("IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block1-cool"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,25,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+        "Source(kink/examples/imp/imp.k)"
       )
     ]
   axiom{R}
@@ -22491,6 +22491,6 @@ module IMP
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,1,70,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/kink/examples/imp/imp.k)"
+    "Source(kink/examples/imp/imp.k)"
   )
 ]

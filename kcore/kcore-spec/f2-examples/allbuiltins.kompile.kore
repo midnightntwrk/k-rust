@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/constructs-e6/all-builtins.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/.lake/constructs-e6/all-builtins.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -11130,4 +11130,4 @@ module ALL-BUILTINS
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,1,97,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/constructs-e6/all-builtins.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,1,97,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/.lake/constructs-e6/all-builtins.k)")]

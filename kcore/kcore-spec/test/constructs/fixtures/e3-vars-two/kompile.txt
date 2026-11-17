@@ -1,9 +1,9 @@
 command: kompile --backend haskell e3-vars-two.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 1.9
 definition.kore bytes: 206972
 definition.kore sha256: 28d66178129f9a34d543a7f6e58f7efa1c8470d00c9e67460ce51b7ce1cc988b
-stripped sha256: fdea7f295f6c412b95c6a90f115b4aff4f5280e9738f39bf356f3279f0a6a45a
+stripped sha256: 837bc4a03ae7bd3f0c5dd980648e549a9602b6451bb122d7d2daba49c1bfd024
 main module: 405 sentences, 49 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable '?Y' defined but not used. Prefix variable name

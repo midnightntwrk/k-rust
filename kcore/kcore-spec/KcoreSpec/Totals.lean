@@ -289,7 +289,7 @@ theorem covers_sound : ∀ (n : Nat) (ss : List Srt) (rows : List (List Term)),
         obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
         have hg : Gen.ctor k ∈ c.gens s := by
           simp only [Semantics.gens, List.mem_append, List.mem_map, List.mem_filter, beq_iff_eq]
-          exact Or.inl (Or.inl ⟨k, ⟨hkm, hres⟩, rfl⟩)
+          exact Or.inl (Or.inl (Or.inl ⟨k, ⟨hkm, hres⟩, rfl⟩))
         have hcov := hall _ hg
         simp only [Gen.argSorts] at hcov
         have htyped : ∀ r' ∈ rows.filterMap (specialize (.ctor k)), ∃ vars, RowTyped c vars (k.args ++ ss) r' := by

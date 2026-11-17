@@ -8,20 +8,20 @@ namespace Prio
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isB» : KCore.Sym := 378
-@[match_pattern, reducible] def «isC» : KCore.Sym := 379
-@[match_pattern, reducible] def «isD» : KCore.Sym := 380
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 381
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 382
-@[match_pattern, reducible] def «d» : KCore.Sym := 383
-@[match_pattern, reducible] def «b» : KCore.Sym := 384
-@[match_pattern, reducible] def «c» : KCore.Sym := 385
-@[match_pattern, reducible] def «go» : KCore.Sym := 386
-@[match_pattern, reducible] def «out» : KCore.Sym := 387
-@[match_pattern, reducible] def «other» : KCore.Sym := 388
-@[match_pattern, reducible] def «stop» : KCore.Sym := 389
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isB» : KCore.Sym := 382
+@[match_pattern, reducible] def «isC» : KCore.Sym := 383
+@[match_pattern, reducible] def «isD» : KCore.Sym := 384
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 385
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 386
+@[match_pattern, reducible] def «d» : KCore.Sym := 387
+@[match_pattern, reducible] def «b» : KCore.Sym := 388
+@[match_pattern, reducible] def «c» : KCore.Sym := 389
+@[match_pattern, reducible] def «go» : KCore.Sym := 390
+@[match_pattern, reducible] def «out» : KCore.Sym := 391
+@[match_pattern, reducible] def «other» : KCore.Sym := 392
+@[match_pattern, reducible] def «stop» : KCore.Sym := 393
 end Sym
 
 namespace Srt
@@ -33,7 +33,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 14).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisB", "LblisC", "LblisD", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbld", "Lblb", "Lblc",
+    ((List.range 14).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisB", "LblisC", "LblisD", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbld", "Lblb", "Lblc",
  "Lblgo", "Lblout", "Lblother", "Lblstop"] ∧
     ((List.range 5).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "B", "C", "D"] := by
   decide +kernel

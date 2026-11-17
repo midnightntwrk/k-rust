@@ -1,0 +1,3 @@
+# pair priority x [owise] on one equation with priority(200): f(X) => X requires X >Int 0 beside f(_) => 0 [owise, priority(200)]; the two marks state the same number, expected read (C3-open-pairs-decision section 2, n = 200); differs_from c3-eq-req-owise: the text without priority(200)
+differs_from = "c3-eq-req-owise"
+# read (account coreOK true, no refusal); sem-fields equal to c3-eq-req-owise's (clauses 50 with req and 200): a text difference with no Semantics difference, the n = 200 case where both marks state the same number

@@ -1,0 +1,3 @@
+# pair priority x [owise], a sibling of priority 200 or more (TRIAGE-B c3.pair 5): f(X) => X [priority(250)] beside f(_) => 0 [owise]; the exclusion of the [owise] equation names the sibling while the sibling's priority orders it after the [owise] one; expected refused owisePriority (R-a, C3-open-pairs-decision section 2 (ii)); differs_from c3-eq-only-owise: the text without priority(250)
+differs_from = "c3-eq-only-owise"
+# account: refused owisePriority at account sentence 348, the priority(250) equation (c3-eq-owise-sib-prio250.k:5)

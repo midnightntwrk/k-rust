@@ -28,7 +28,7 @@ def hookFnWfLine (what : String) (d : Definition) : String :=
 /--
 info: functions 1
 read: wf true; paramsOK true; hookFnsUnregOK true; failing []
-INT.add: wf false; paramsOK false; hookFnsUnregOK false; failing [hooked functions: no registry hook interprets their hook]
+INT.add: wf false; paramsOK false; hookFnsUnregOK false; failing [hooked functions: no registry hook interprets their hook, parameter symbols (paramsOK): the imported modules' and the user's, each as its hook names]
 INT.log2: wf true; paramsOK true; hookFnsUnregOK true; failing []
 -/
 #guard_msgs in

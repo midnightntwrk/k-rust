@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -124,10 +124,10 @@ module E3-ML-REQ-AND-VAR
   hooked-symbol Lbl'Unds'xorBool'Unds'{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), functional{}(), hook{}("BOOL.xor"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1123,19,1123,138)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("xor"), symbol'Kywd'{}("_xorBool_"), total{}()]
   hooked-symbol Lbl'UndsPipe'-'-GT-Unds'{}(SortKItem{}, SortKItem{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(257,18,257,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("_|->_"), total{}()]
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lbldone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,42,3,63)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)"), symbol'Kywd'{}("done")]
+  symbol Lbldone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,42,3,63)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)"), symbol'Kywd'{}("done")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
-  symbol Lblgo{}(SortBool{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)"), symbol'Kywd'{}("go")]
+  symbol Lblgo{}(SortBool{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)"), symbol'Kywd'{}("go")]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -361,7 +361,7 @@ module E3-ML-REQ-AND-VAR
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("88327456f82448e5a8387e1b180240db11201dd91cad6b2086350a57ec6598c4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1176,8,1176,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), simplification{}()]
 
-// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(go(B))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(done(.KList))~>_DotVar1),_DotVar0) requires #And{Bool}(#token("true","Bool"),B) ensures #token("true","Bool") [UNIQUE_ID(94deca5d75bc8cd5e7b004062a38285f649dfeb57cf31b0b0b87756ae044ce63), org.kframework.attributes.Location(Location(4,8,4,55)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "requires" Bool [symbol(#ruleRequires)])]
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(go(B))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(done(.KList))~>_DotVar1),_DotVar0) requires #And{Bool}(#token("true","Bool"),B) ensures #token("true","Bool") [UNIQUE_ID(94deca5d75bc8cd5e7b004062a38285f649dfeb57cf31b0b0b87756ae044ce63), org.kframework.attributes.Location(Location(4,8,4,55)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "requires" Bool [symbol(#ruleRequires)])]
   axiom{} \rewrites{SortGeneratedTopCell{}} (
       \and{SortGeneratedTopCell{}} (
         Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(VarB:SortBool{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
@@ -370,7 +370,7 @@ module E3-ML-REQ-AND-VAR
         \dv{SortBool{}}("true"))),
       \and{SortGeneratedTopCell{}} (
       Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbldone{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
-  [UNIQUE'Unds'ID{}("94deca5d75bc8cd5e7b004062a38285f649dfeb57cf31b0b0b87756ae044ce63"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)")]
+  [UNIQUE'Unds'ID{}("94deca5d75bc8cd5e7b004062a38285f649dfeb57cf31b0b0b87756ae044ce63"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)")]
 
 // rule `_=/=Bool_`(B1,B2)=>`notBool_`(`_==Bool_`(B1,B2)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(31fe72efcfddcd8588a11d9d10c1b1a9f96ae3da46b647d4cb9d1e8b1bd1654f), org.kframework.attributes.Location(Location(1170,8,1170,57)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
@@ -1952,4 +1952,4 @@ module E3-ML-REQ-AND-VAR
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}()]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-req-and-var/src/e3-ml-req-and-var.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-req-and-var/e3-ml-req-and-var.k)")]

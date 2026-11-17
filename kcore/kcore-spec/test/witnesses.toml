@@ -1,0 +1,210 @@
+# The leaf conjuncts of coreOK and the hypotheses FnDet and FnSolves, each with the witness module
+# that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
+# with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
+# coreOK, sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK and itesApart are
+# unfolded, `&&` is split, and List.all lambdas, single-alternative matches and lets are entered;
+# Witnesses.lean fails when a leaf has no row or its text differs. `evidence`: files with the
+# kernel-checked part of a `none` row. `note`: what a witness module shows, where it is less than
+# every other conjunct of coreOK.
+
+[[conjunct]]
+key = "sortedOK.1"
+text = "c.subsortsOK"
+witness = "none"
+
+[[conjunct]]
+key = "sortedOK.2"
+text = "f.clauses.all (c.clauseSorted f (List.map KCore.Fn.sig c.fns))"
+witness = "none"
+
+[[conjunct]]
+key = "sortedOK.3"
+text = "c.rules.all c.ruleSorted"
+witness = "none"
+
+[[conjunct]]
+key = "sortedOK.4"
+text = "c.rulesPlain"
+witness = "none"
+
+[[conjunct]]
+key = "sortedOK.5"
+text = "c.clausesPlain"
+witness = "none"
+
+[[conjunct]]
+key = "sortedOK.6"
+text = "c.paramsPlain"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.1"
+text = "KCore.Faithful.namesNumbered c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.2"
+text = "KCore.Faithful.genWf c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.3"
+text = "KCore.Faithful.collSortsOK c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.4"
+text = "KCore.Faithful.collsOK c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.5"
+text = "KCore.Faithful.patHeadsOK c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.6"
+text = "KCore.Faithful.Model.namesApartK c"
+witness = "KcoreSpec.ModelNamesWitness"
+note = "two constructors with one name; the module shows Hyp and no model, not every other conjunct of coreOK"
+
+[[conjunct]]
+key = "faithCoreOK.7"
+text = "KCore.Faithful.Model.LitsApart c"
+witness = "none"
+
+[[conjunct]]
+key = "faithCoreOK.8"
+text = "KCore.Faithful.Model.sortsNumbered c"
+witness = "KcoreSpec.ModelSortsWitness"
+
+[[conjunct]]
+key = "itesApart.1"
+text = "match KCore.iteSort? (c.symName k.name) with | some X => (KCore.Faithful.kernelSorts c).any fun s => c.sortName s == X | none => true"
+witness = "none: not found; the half is not implied by the others, and Γ of a semantics failing it alone has a model (argued, not kernel-checked)"
+evidence = "test/ItesNumbered.lean"
+
+[[conjunct]]
+key = "itesApart.2"
+text = "(KCore.iteSort? (c.symName k.name)).isNone || KCore.iteSort? (c.symName k.name) != KCore.iteSort? (c.symName k'.name) || k == k'"
+witness = "KcoreSpec.ModelItesWitness"
+
+[[conjunct]]
+key = "faithCoreOK.9"
+text = "KCore.Faithful.Model.kindsApart c"
+witness = "KcoreSpec.ModelKindsWitness"
+
+[[conjunct]]
+key = "faithCoreOK.10"
+text = "KCore.Faithful.Model.ctorsOnce c"
+witness = "KcoreSpec.ModelDupCtorWitness"
+note = "the module shows Hyp, HypSound and the other conditions of HypModel, not every other conjunct of coreOK"
+
+[[conjunct]]
+key = "faithCoreOK.11"
+text = "KCore.Faithful.Model.fnsApart c"
+witness = "KcoreSpec.ModelFnCtorWitness"
+note = "the module shows Hyp, HypSound and the other conditions of HypModel, not every other conjunct of coreOK"
+
+[[conjunct]]
+key = "hooksApart.1"
+text = "!KCore.hookSigs.any fun x => x.name == k.name"
+witness = "none"
+
+[[conjunct]]
+key = "hooksApart.2"
+text = "!KCore.hookSigs.any fun x => x.name == f.label"
+witness = "none"
+
+[[conjunct]]
+key = "predsApart.1"
+text = "KCore.nodup (List.map (fun x => x.label) c.allFns)"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.1"
+text = "c.ownSorts == List.range' KCore.nRegSorts c.sortNames.length"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.2"
+text = "c.ownSyms == List.range' c.symBase (c.symNames.length - c.sortNames.length)"
+witness = "KcoreSpec.ModelOvlTwiceWitness"
+note = "one overloading symbol listed twice: ownSyms lists it twice; the module shows every other conjunct of coreOK as a whole (faithCoreOK, overloadsOK, ...), and idsOK false"
+
+[[conjunct]]
+key = "idsOK.3"
+text = "decide (c.sortNames.length ≤ c.symNames.length)"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.4"
+text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.5"
+text = "(List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts).all KCore.genSorts.contains"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.6"
+text = "decide (KCore.nRegSyms ≤ k.name) || KCore.genSyms.contains k.name"
+witness = "none"
+
+[[conjunct]]
+key = "idsOK.7"
+text = "c.lib.ok"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.1"
+text = "c.isOvl o.sig.name"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.2"
+text = "c.lookupOvl o.sig.name == some o"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.3"
+text = "(KCore.iteSort? (c.symName o.sig.name)).isNone"
+witness = "none: not found in the no-model form; the conjunct is not implied by the others, Γ has a model (argued), and the step to a value applying the symbol appears not to be entailed (conjectured: SoundC's den y ⇒ famEx; no rule-bearing definition built, not kernel-checked)"
+evidence = "test/OvlIteName.lean"
+
+[[conjunct]]
+key = "overloadsOK.4"
+text = "(KCore.Faithful.consSorts c).contains o.sig.result"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.5"
+text = "(KCore.lookupSig c.ctorSigs g).isSome || (List.take i c.ovls).any fun x => x.sig.name == g"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.6"
+text = "(c.ovlOver o).length == o.over.length"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.7"
+text = "(c.ovlOver o).all (c.ovlPairOK o)"
+witness = "none"
+
+[[conjunct]]
+key = "overloadsOK.8"
+text = "c.ovlCoherent k1 k2"
+witness = "none"
+
+[[conjunct]]
+key = "FnDet"
+text = "KCore.FnDet"
+witness = "none: derivable from coreOK and FnSolves at the current Eval block (test/FnSolvesDet.lean), reopened after CE.flip"
+evidence = "test/FnSolvesDet.lean"
+
+[[conjunct]]
+key = "FnSolves"
+text = "KCore.FnSolves"
+witness = "KcoreSpec.ModelFnSolvesWitness"

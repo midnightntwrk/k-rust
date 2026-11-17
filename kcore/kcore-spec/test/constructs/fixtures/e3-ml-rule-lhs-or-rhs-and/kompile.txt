@@ -1,6 +1,6 @@
 command: kompile --backend haskell e3-ml-rule-lhs-or-rhs-and.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 1.9
 definition.kore bytes: 86677
 definition.kore sha256: ff01f91cbf960bc37756f706f72e6612f44dadf85b87be5b68e126266c04b4ef
 stripped sha256: 04ac2c296d52620401a52a7710ae46b77fe5240f25442be6d0eb5daf585b66db

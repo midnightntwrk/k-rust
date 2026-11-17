@@ -144,9 +144,9 @@ definition_of defn from "f2-examples/ensrule.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def kCell : Sym := 379
-def assume : Sym := 381
-def ok_ : Sym := 382
+def kCell : Sym := 383
+def assume : Sym := 385
+def ok_ : Sym := 386
 def cmdS : Srt := 32
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName assume = "Lblassume" ∧
@@ -190,9 +190,9 @@ definition_of defn from "f2-examples/ensrule-overlap.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def kCell : Sym := 379
-def assume : Sym := 381
-def ok_ : Sym := 382
+def kCell : Sym := 383
+def assume : Sym := 385
+def ok_ : Sym := 386
 def cmdS : Srt := 32
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName assume = "Lblassume" ∧
@@ -240,10 +240,10 @@ definition_of defn from "f2-examples/ensrule-prio.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def kCell : Sym := 379
-def assume : Sym := 381
-def ok_ : Sym := 382
-def stuck_ : Sym := 383
+def kCell : Sym := 383
+def assume : Sym := 385
+def ok_ : Sym := 386
+def stuck_ : Sym := 387
 def cmdS : Srt := 32
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName assume = "Lblassume" ∧

@@ -788,4 +788,29 @@ def OpenTotal (c : Semantics) : Prop :=
   ∀ k ∈ c.params, k.raw = true → ∀ vs, c.sortsOf vs = some k.sig.args →
     (c.paramVal k.sig.name vs).isSome = true
 
+/-! ## The laws of functions -/
+
+/-- The law at values: under every well-sorted substitution the two sides have the same results. -/
+def LawAt (c : Semantics) (l : LawEq) : Prop :=
+  ∀ σ, c.WellSorted l.vars σ → ∀ r, EvalTerm c σ l.lhs r ↔ EvalTerm c σ l.rhs r
+
+/-- The interpretation satisfies, at values, the laws the text writes. -/
+def FnLaws (c : Semantics) (ls : List LawEq) : Prop := ∀ l ∈ ls, LawAt c l
+
+/-- Both sides of the law have one sort in the context of right sides, and each of its variables
+occurs in one of them. -/
+def lawSorted (c : Semantics) (l : LawEq) : Bool :=
+  let x := c.rhsCtx (c.fns.map Fn.sig)
+  (sortOfTerm x l.vars l.lhs).isSome && sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
+    binds l.vars.length (varOccs l.lhs ++ varOccs l.rhs)
+
+/-- The law's sentence, `axiom{R} \equals{S,R}(lhs, rhs)` (S the sort of its left side; its
+variables free, so universal), translated as `kernelItems` translates an axiom. -/
+def lawPattern (c : Semantics) (l : LawEq) : KoreAML.P :=
+  let vs := canonVars c l.vars
+  let S := srtOf c ((sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) l.vars l.lhs).getD 0)
+  (KoreAML.trAxiom [] [] ⟨0, "kernel",
+    { sortVars := [KoreAML.Rv], pattern := .equals S KoreAML.R (Term.kore c vs l.lhs) (Term.kore c vs l.rhs),
+      attributes := [] }⟩).pat
+
 end KCore

@@ -29,7 +29,8 @@ them; where an input's own productions add some, `DECLARED_SUBSORTS` holds the o
 declares for the module, and only those are kept.
 
 A module of `APPENDED` is numbered after every other, its sorts and symbols in the order listed
-there (the generated `isX` and `project:X` of its sorts are not numbered). Where an input holds
+there, then the generated `isX` and `project:X` of each of its sorts below KItem
+(`APPENDED_PREDS`), as every other library sort below KItem has them. Where an input holds
 it, the listed names must be exactly its declarations, and it is a module of the library like any
 other (a row of BuiltinData.lean, a text in builtin.kore, at its place in its file); where none
 does, only its names are written.
@@ -59,14 +60,18 @@ FILES = ["kast.md", "domains.md", "json.md"]
 
 
 def builtin_dir():
-    """krust's copies of K's builtin files."""
-    roots = [os.environ["K_RUST"]] if os.environ.get("K_RUST") else [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../.."),
-        os.path.expanduser("~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust")]
+    """krust's copies of K's builtin files: in $K_RUST, or in the nearest directory above this file
+    that holds crates/k-rust/builtin (the k-rust checkout)."""
+    if os.environ.get("K_RUST"):
+        roots = [os.environ["K_RUST"]]
+    else:
+        d, roots = os.path.dirname(os.path.abspath(__file__)), []
+        while d != os.path.dirname(d):
+            d = os.path.dirname(d); roots.append(d)
     for r in roots:
         d = os.path.join(r, "crates/k-rust/builtin/")
         if os.path.isdir(d): return d
-    raise SystemExit(f"no crates/k-rust/builtin under {roots}")
+    raise SystemExit("no crates/k-rust/builtin in $K_RUST or a directory above " + os.path.dirname(os.path.abspath(__file__)))
 norm = lambda s: " ".join(s.split())
 # kompile writes an argument-less `simplification` as `simplification{}("")` when some sentence of
 # the definition gives the attribute an argument (INT-KORE's `simplification(51)`), and as
@@ -174,6 +179,16 @@ APPENDED = OrderedDict([
                    "Lblkeys'Unds'list'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap",
                    "Lblvalues'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap"])),
 ])
+
+# The sorts below KItem of each `APPENDED` module, in its sorts' order: each one's `isX` and
+# `project:X` are numbered after the module's symbols (the add-module mode checks the list against
+# the sorts K's text puts below KItem)
+APPENDED_PREDS = {"RANGEMAP": ["Range", "RangeMap"]}
+
+
+def appended_syms(name):
+    """The numbered symbols of the `APPENDED` module `name`, in their order."""
+    return APPENDED[name][1] + [n for X in APPENDED_PREDS.get(name, []) for n in (is_l(X), pr_l(X))]
 
 
 def appended_names(texts, gens):
@@ -366,7 +381,7 @@ def main(paths):
     for name, d in decls.items():
         if name not in reg_syms and name not in app_syms: new_syms.append(name)
     new_sorts += [X for X in app_sorts if X not in reg_sorts]
-    new_syms += [x for x in app_syms if x not in reg_syms]
+    new_syms += [x for name in APPENDED for x in appended_syms(name) if x not in reg_syms]
     all_sorts = reg_sorts + new_sorts
     sort_no = {X: i for i, X in enumerate(all_sorts)}
     all_syms = reg_syms + new_syms
@@ -376,7 +391,9 @@ def main(paths):
     uids = {X: sort_uids(X, gen_n) for X in below}
     totals = total_names(gen_n, decls)
     write_kore(mods, texts, stored, kernel)
-    write_names(new_sorts, new_syms, [X for X in new_sorts if X in below and X not in app_sorts], sort_no, sym_no)
+    app_preds = [X for name in APPENDED for X in APPENDED_PREDS.get(name, [])]
+    write_names(new_sorts, new_syms, [X for X in new_sorts if X in below and X not in app_sorts] + app_preds,
+                sort_no, sym_no)
     rows = [module_row(m, texts[m], [X for X, mm in sort_mod.items() if mm == m], below,
                        [d for x, d in decls.items() if sym_mod[x] == m], sort_no, sig, reg_syms, totals, uids, gen_n,
                        lambda X: X in sort_mod) for m in mods]
@@ -435,7 +452,8 @@ def write_data(rows):
     w("  RANGEMAP is added by the script's add-module mode from K 7.1.337's kompile of")
     w("  prelude/rangemap-probe.k (prelude/add-rangemap.sh): its sentences in K's layout (`[a, b]`, where")
     w("  krust writes `[ a, b ]`; both parse to the same KORE). Its sorts and symbols have the numbers")
-    w("  `APPENDED` gives them, after every other module's; its sorts' `isX` and `project:X` have none.")
+    w("  `APPENDED` gives them, after every other module's, its sorts' `isX` and `project:X` after its")
+    w("  symbols.")
     w("  Builtins.lean reads it.\n-/")
     w("import KcoreSpec.FixedSignature\n\nset_option autoImplicit false\n\nnamespace KCore.BuiltinData\n")
     w("/-- Each module's declarations as numbers: name, file, line range, sorts, sorts the text declares")
@@ -520,7 +538,7 @@ def add(name, path):
     if name not in APPENDED: raise SystemExit(f"--add {name}: not a module of APPENDED")
     reg_sorts, reg_syms = reg_lists()
     new_sorts, new_syms = names_lists()
-    app_sorts, app_syms = APPENDED[name]
+    app_sorts, app_syms = APPENDED[name][0], appended_syms(name)
     # the numbers are BuiltinNames.lean's, the module's names last, in `APPENDED`'s order
     if new_sorts[len(new_sorts) - len(app_sorts):] != app_sorts or new_syms[len(new_syms) - len(app_syms):] != app_syms:
         raise SystemExit(f"--add {name}: BuiltinNames.lean does not end with its names of APPENDED")
@@ -577,6 +595,8 @@ def add(name, path):
     ss = declared + [X for X in plain_sorts if X in app_sorts and X not in declared]
     if sorted(ss) != sorted(app_sorts): raise SystemExit(f"module {name}: sorts {ss}, APPENDED {app_sorts}")
     below = [X for X in ss if below_kitem(X, gen_n)]
+    if sorted(below) != sorted(APPENDED_PREDS.get(name, [])):
+        raise SystemExit(f"module {name}: sorts below KItem {below}, APPENDED_PREDS {APPENDED_PREDS.get(name, [])}")
     own = set(ss) | set(decls) | KERNEL_NAMES
     stored = [gens[n] for n in gen_n if LAW.search(n) and names(n) <= own and names(n) & set(decls)]
     def sig(d):

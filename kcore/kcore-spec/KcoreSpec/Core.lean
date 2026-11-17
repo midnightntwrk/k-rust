@@ -155,8 +155,8 @@ structure Clause where
   deriving Repr
 
 /-- A function of the definition. `total`: declared `[total]` (kompile writes `functional` and
-`total` on the symbol and the axiom `∃y. f(x̄) = y`); `wf` admits that only for a function its
-check shows defined everywhere (KCORE-SPEC.md §2.5). Without it the function may be partial: where no
+`total` on the symbol and the axiom `∃y. f(x̄) = y`); `wf` does not refuse one `totalOK` does not
+confirm: it is in `totalObligations` (KCORE-SPEC.md §2.5). Without it the function may be partial: where no
 clause applies, it has its rest (`Eval.rest`, the interpretation's value, `Semantics.fnRest`). The
 order of `clauses` carries no meaning: the reader keeps the file's, so that printing is stable. -/
 structure Fn where
@@ -406,5 +406,10 @@ theorem lookupSig_eq (heads : List CtorSig) (f : Sym) : lookupSig heads f = head
   rw [lookupSig, NatMap.find_ofList, List.find?_map]
   simp only [Function.comp_def]
   cases heads.find? (·.name == f) <;> rfl
+
+/-- The function-overloaded symbols: the overloading symbols one of whose own overloads (`over`)
+is the label of a function of `c.fns`. -/
+def Semantics.fnOvlSyms (c : Semantics) : List Sym :=
+  (c.ovls.filter fun o => o.over.any fun f => c.fns.any (·.label == f)).map (·.sig.name)
 
 end KCore

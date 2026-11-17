@@ -92,8 +92,15 @@ userModules() {
   examples/run.sh --build-only peano prio kink-imp kimp imp-sec imp-sec-leaky ph kimp-ni colls-list \
     lazy fprio colls ref-peano ref-fprio ref-kimp vault-leaky
 }
+# the k2lean directory: $K2LEAN, or k2lean/ in the nearest directory above kcore-spec holding one
+# with lean/prelude (the k-rust checkout); exported for ../consumer/cs2/build.sh
+k2lean() {
+  local d=$K
+  while [ "$d" != / ]; do d=$(dirname "$d"); [ -d "$d/k2lean/lean/prelude" ] && { echo "$d/k2lean"; return; }; done
+}
 cs2() {
-  [ -d "${K2LEAN:-/artifacts/worktrees/cs2-k2lean/k2lean}" ] || { echo "no k2lean directory"; return 77; }
+  export K2LEAN=${K2LEAN:-$(k2lean)}
+  [ -n "$K2LEAN" ] && [ -d "$K2LEAN" ] || { echo "no k2lean directory"; return 77; }
   [ -d ../consumer/cs2/.lake/build/lib/lean/CS2 ] && find ../consumer/cs2/.lake/build/lib/lean/CS2 -name '*.olean' -delete
   rm -f ../consumer/cs2/.lake/build/lib/lean/CS2.olean
   ../consumer/cs2/build.sh $(cd ../consumer/cs2/CS2 && ls *.lean | sed 's/\.lean$//; s/^/CS2./')

@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+    "Source(findings/work/p23/probe/k/kryp.k)"
   )
 ]
 module BASIC-K
@@ -2637,7 +2637,7 @@ module KRYP
     hook{}("KRYPTO.keccak256"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,23,35,101)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha256'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2646,7 +2646,7 @@ module KRYP
     hook{}("KRYPTO.sha256"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,23,36,98)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha512'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2655,7 +2655,7 @@ module KRYP
     hook{}("KRYPTO.sha512"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,23,37,98)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha512'Unds'256'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2664,7 +2664,7 @@ module KRYP
     hook{}("KRYPTO.sha512_256"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,23,38,102)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha3'Unds'256'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2673,7 +2673,7 @@ module KRYP
     hook{}("KRYPTO.sha3"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,23,39,96)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblRipEmd160'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2682,7 +2682,7 @@ module KRYP
     hook{}("KRYPTO.ripemd160"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,23,40,101)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblBlake2Compress'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2691,7 +2691,7 @@ module KRYP
     hook{}("KRYPTO.blake2compress"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,23,41,106)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblKeccak256raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2700,7 +2700,7 @@ module KRYP
     hook{}("KRYPTO.keccak256raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,22,50,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha256raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2709,7 +2709,7 @@ module KRYP
     hook{}("KRYPTO.sha256raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,23,51,101)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha512raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2718,7 +2718,7 @@ module KRYP
     hook{}("KRYPTO.sha512raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,23,52,101)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha512'Unds'256raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2727,7 +2727,7 @@ module KRYP
     hook{}("KRYPTO.sha512_256raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,23,53,105)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblSha3'Unds'256raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2736,7 +2736,7 @@ module KRYP
     hook{}("KRYPTO.sha3raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,23,54,99)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblRipEmd160raw'LParUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes{}(SortBytes{}) : SortBytes{}
@@ -2745,7 +2745,7 @@ module KRYP
     hook{}("KRYPTO.ripemd160raw"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,23,55,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblECDSARecover'LParUndsCommUndsCommUndsCommUndsRParUnds'KRYPTO'Unds'Bytes'Unds'Bytes'Unds'Int'Unds'Bytes'Unds'Bytes{}(
@@ -2759,7 +2759,7 @@ module KRYP
     hook{}("KRYPTO.ecdsaRecover"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(86,23,86,105)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblECDSASign'LParUndsCommUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes'Unds'Bytes{}(
@@ -2771,7 +2771,7 @@ module KRYP
     hook{}("KRYPTO.ecdsaSign"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(87,23,87,102)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblECDSAPubKey'LParUndsRParUnds'KRYPTO'Unds'String'Unds'Bytes{}(SortBytes{}) : SortString{}
@@ -2780,7 +2780,7 @@ module KRYP
     hook{}("KRYPTO.ecdsaPubKey"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(88,23,88,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   symbol Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}) : SortG1Point{}
@@ -2790,7 +2790,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(103,24,103,52)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   symbol Lbl'LParUnds'x'UndsCommUnds'x'UndsRParUnds'KRYPTO'Unds'G2Point'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(
@@ -2805,7 +2805,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(104,24,104,59)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblBN128Add'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'G1Point'Unds'G1Point{}(
@@ -2817,7 +2817,7 @@ module KRYP
     hook{}("KRYPTO.bn128add"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(105,24,105,84)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblBN128Mul'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'G1Point'Unds'Int{}(
@@ -2829,7 +2829,7 @@ module KRYP
     hook{}("KRYPTO.bn128mul"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(106,24,106,84)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblBN128AtePairing'LParUndsCommUndsRParUnds'KRYPTO'Unds'Bool'Unds'List'Unds'List{}(
@@ -2841,7 +2841,7 @@ module KRYP
     hook{}("KRYPTO.bn128ate"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(109,21,109,82)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblisValidPoint'LParUndsRParUnds'KRYPTO'Unds'Bool'Unds'G1Point{}(SortG1Point{}) : SortBool{}
@@ -2850,7 +2850,7 @@ module KRYP
     hook{}("KRYPTO.bn128valid"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(112,21,112,78)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   hooked-symbol LblisValidG2Point{}(SortG2Point{}) : SortBool{}
@@ -2859,7 +2859,7 @@ module KRYP
     hook{}("KRYPTO.bn128g2valid"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(113,21,113,104)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     ),
     symbol'Kywd'{}("isValidG2Point")
   ]
@@ -2874,7 +2874,7 @@ module KRYP
     hook{}("KRYPTO.verifyKZGProof"),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(122,21,122,106)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/krypto.md)"
+      "Source(findings/work/p23/probe/k/krypto.md)"
     )
   ]
   symbol LblisG1Point{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
@@ -2888,7 +2888,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,19,6,30)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+      "Source(findings/work/p23/probe/k/kryp.k)"
     )
   ]
   symbol Lbldigest'LParUndsRParUnds'KRYP'Unds'Item'Unds'String{}(SortString{}) : SortItem{}
@@ -2898,7 +2898,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,33,6,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+      "Source(findings/work/p23/probe/k/kryp.k)"
     )
   ]
   symbol Lbllen'LParUndsRParUnds'KRYP'Unds'Item'Unds'Int{}(SortInt{}) : SortItem{}
@@ -2908,7 +2908,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,50,6,58)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+      "Source(findings/work/p23/probe/k/kryp.k)"
     )
   ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
@@ -2919,7 +2919,7 @@ module KRYP
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+      "Source(findings/work/p23/probe/k/kryp.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -17941,7 +17941,7 @@ module KRYP
       UNIQUE'Unds'ID{}("75d0fa7b7453ac6be8a7c962e4b6b53e73f76dc508f3c7b1e48aa0c5a385b7bf"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,48)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+        "Source(findings/work/p23/probe/k/kryp.k)"
       )
     ]
   axiom{}
@@ -17983,7 +17983,7 @@ module KRYP
       UNIQUE'Unds'ID{}("f965fe18a75d5463b66768bf370fca9b658630b9def41a120a393c4af9aa0189"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,9,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+        "Source(findings/work/p23/probe/k/kryp.k)"
       )
     ]
   axiom{R}
@@ -18906,6 +18906,6 @@ module KRYP
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,1,10,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/findings/work/p23/probe/k/kryp.k)"
+    "Source(findings/work/p23/probe/k/kryp.k)"
   )
 ]

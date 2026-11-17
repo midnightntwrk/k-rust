@@ -83,10 +83,10 @@ theorem freeOf_prioOpen (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = t
     · exfalso
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨r', hr', rfl⟩ := List.mem_map.mp hφ
-      obtain ⟨hs', hp'⟩ := h.ruleFactsOpen (List.mem_filter.mp hr').1
-      obtain ⟨hlhs', -, hreqs', -, -⟩ := ruleSorted_partsOpen hs' hp'
+      obtain ⟨hs', hp'⟩ := h.ruleFactsEx (List.mem_filter.mp hr').1
+      obtain ⟨hlhs', -, hreqs', -, -, -⟩ := ruleSorted_partsEx hs' hp'
       exact freeOf_appliesOpen hlhs' (fun t ht i hi => varOccs_lt t (hreqs' t ht) i hi)
-        (Semantics.rulePlainOpen_top hp').2.1 hk
+        (Semantics.rulePlainEx_top hp').1 hk
     · exact hparts (Or.inr (Or.inr hk))
     · exact hparts (Or.inr (Or.inr hk))
 

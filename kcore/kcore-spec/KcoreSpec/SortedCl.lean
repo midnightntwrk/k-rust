@@ -98,6 +98,14 @@ theorem Semantics.sortedOKCl_parts {c : Semantics} (h : c.sortedOKCl = true) :
   have := List.all_eq_true.mp (List.all_eq_true.mp h2 f hf) cl hcl
   simpa only [Bool.and_eq_true] using this
 
+/-- `sortedOKCl` gives the parameters no open generator (`paramsPlain`). -/
+theorem Semantics.params_raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) :
+    ∀ k ∈ c.params, k.raw = false := by
+  have hp := (Semantics.sortedOKCl_parts h).2.2.2.2
+  simp only [Semantics.paramsPlain, Bool.and_eq_true, List.all_eq_true] at hp
+  intro k hk
+  simpa using (hp.1 k hk).1.1
+
 /-- **`sortedOK` gives `sortedOKCl`**: the two ask the same of each clause (`clauseSorted` is
 `clauseSortedOpen`, and `clausesPlain` asks `clausePlainOpen` of each clause). -/
 theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.sortedOKCl = true := by
@@ -116,11 +124,18 @@ theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true)
   simp only [Semantics.sortedOKCl, Bool.and_eq_true]
   exact ⟨⟨⟨⟨h.1.1.1.1.1, List.all_eq_true.mpr fun f hf => List.all_eq_true.mpr (hcl f hf)⟩, h.1.1.1.2⟩, h.1.1.2⟩, h.2⟩
 
-/-- A rule of a semantics `sortedOKCl` accepts has no existential variable and `\top` predicates. -/
-theorem Semantics.sortedOKCl_rule {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.exs = [] ∧ r.pre = .top ∧ r.post = .top := by
+/-- A rule of a semantics `sortedOKCl` accepts has `\top` predicates. -/
+theorem Semantics.sortedOKCl_ruleTop {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.pre = .top ∧ r.post = .top := by
   obtain ⟨-, -, -, hrp, -⟩ := Semantics.sortedOKCl_parts h
-  exact Semantics.rulesPlain_rule hrp hr
+  exact Semantics.rulesPlain_ruleTop hrp hr
+
+/-- A rule of a semantics `sortedOKCl` accepts whose left side binds every variable has no
+existential variable (`Semantics.exs_nil_of_binds`). -/
+theorem Semantics.sortedOKCl_exsNil {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules)
+    (hb : binds r.vars.length (varOccs r.lhs) = true) : r.exs = [] := by
+  obtain ⟨-, -, hrs, -, -⟩ := Semantics.sortedOKCl_parts h
+  exact Semantics.exs_nil_of_binds (List.all_eq_true.mp hrs r hr) hb
 
 
 namespace Faithful

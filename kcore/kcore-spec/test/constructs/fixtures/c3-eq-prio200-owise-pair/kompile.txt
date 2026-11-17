@@ -1,0 +1,11 @@
+command: kompile --backend haskell foo.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 203489
+definition.kore sha256: 319b46a3241088104d99c06380daf8d340efc492ecc0bd205c3565a94f844233
+stripped sha256: def457af04e14ddb8ce0ba344333c3df980078d131fbea79b8bcd68fe54f765f
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-prio200-owise-pair-owise: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name FOO-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using FOO as default.

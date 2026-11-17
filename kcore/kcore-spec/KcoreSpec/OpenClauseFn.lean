@@ -70,7 +70,7 @@ theorem neg_of_coreCl (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : 
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
   have hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := fun hr s hs x hx =>
-    confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk) hr hI _ s hs x hx
+    confinedAt_valueCl hsc.trans (Model.namesApartK_spec hnk) (Semantics.params_raw_of_sortedOKCl hok) hr hI _ s hs x hx
   intro fn hfn cl hcl _ ws
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts hok).2.1 fn hu cl hcl

@@ -1,29 +1,37 @@
 /-
-  `FnSolves` is the condition on the functions that `consistent_of` reads beside `FnDet`, and it
-  is false where the equations ask a value the evaluation cannot give. Run from the package root:
-  `lake env lean test/FnSolvesParadox.lean`.
+  KCore. A witness that `FnSolves` cannot be dropped from `consistent_of`: a semantics with
+  `coreOK`, `FnDet` and `OpenLaws`, without `FnSolves`, whose `Γ` has no model.
 
   One function `f : Int → Int` with two equations:
   - `f(X) => 1 requires f(X) ==Int 2 [priority(40)]`;
   - `f(X) => 2 [owise]` (priority 200).
   At an integer `w`, the first equation's `requires` calls `f` at `w`, and so does the second's
   premise, which asks the first to fail: `Eval` has no derivation of `f(w)` (`f_none`). So `FnDet`
-  holds (`fnDet`), and `coreOK` holds; `FnSolves` does not (`not_fnSolves`): at `0` the second
-  equation decides (the first does not apply, its `requires` having no result), and its right-hand
-  side has the value `2`, which `f` does not have.
+  holds (`fnDet`), and `coreOK` holds (`coreOK`, hence `OpenLaws`, `openLaws`); `FnSolves` does not
+  (`not_fnSolves`): at `0` the second equation decides (the first does not apply, its `requires`
+  having no result), and its right-hand side has the value `2`, which `f` does not have.
 
-  `Γ` has no model (`no_model`): where `f(0) ==Int 2` is `true`, the first equation makes `f(0)`
-  the value 1, and then `f(0) ==Int 2` is `false`; where it is not `true`, the second makes `f(0)`
-  the value 2, and then it is `true`.
+  `Γ` has no model (`no_model`), so neither has `Γc ∪ Γstep` (`not_consistent`): where
+  `f(0) ==Int 2` is `true`, the first equation makes `f(0)` the value 1, and then `f(0) ==Int 2` is
+  `false`; where it is not `true`, the second makes `f(0)` the value 2, and then it is `true`.
 -/
-import KcoreSpec
+import KcoreSpec.HypWf
+import KcoreSpec.ClausesAgree
+import KcoreSpec.MatchComplete
+import KcoreSpec.SubjectReduction
+import KcoreSpec.FaithfulStage4
+import KcoreSpec.FaithfulNeg
+import KcoreSpec.FaithfulStep
+import KcoreSpec.Sound
+import KcoreSpec.Obligations
+import KcoreSpec.ModelUndefRhsWitness
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
 
 namespace KCore
 
-namespace FnSolvesParadox
+namespace FnSolvesWitness
 
 open Faithful.UndefRhsWitness (kIds cellSorts cellCtors cellSubsorts)
 
@@ -585,22 +593,13 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
 
 end NoModel
 
-end FnSolvesParadox
+/-- `OpenLaws`, the remaining hypothesis of `consistent_of`, from `coreOK`. -/
+theorem openLaws : OpenLaws c := openLaws_of_core coreOK
+
+/-- **Not `Consistent`**: `Γ` is part of `Γc ∪ Γstep`. -/
+theorem not_consistent : ¬ Consistent c := fun ⟨M, hM, I, hI⟩ =>
+  no_model M hM I (fun φ hφ => hI φ (Or.inl (Or.inl hφ)))
+
+end FnSolvesWitness
 
 end KCore
-
-/-- info: 'KCore.FnSolvesParadox.coreOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms KCore.FnSolvesParadox.coreOK
-
-/-- info: 'KCore.FnSolvesParadox.fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms KCore.FnSolvesParadox.fnDet
-
-/-- info: 'KCore.FnSolvesParadox.not_fnSolves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms KCore.FnSolvesParadox.not_fnSolves
-
-/-- info: 'KCore.FnSolvesParadox.no_model' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms KCore.FnSolvesParadox.no_model

@@ -8,23 +8,23 @@ namespace CollsList
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isStackCell» : KCore.Sym := 378
-@[match_pattern, reducible] def «isStackCellOpt» : KCore.Sym := 379
-@[match_pattern, reducible] def «isSumCell» : KCore.Sym := 380
-@[match_pattern, reducible] def «isSumCellOpt» : KCore.Sym := 381
-@[match_pattern, reducible] def «isOp» : KCore.Sym := 382
-@[match_pattern, reducible] def «isOps» : KCore.Sym := 383
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 384
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 385
-@[match_pattern, reducible] def «<stack>» : KCore.Sym := 386
-@[match_pattern, reducible] def «noStackCell» : KCore.Sym := 387
-@[match_pattern, reducible] def «<sum>» : KCore.Sym := 388
-@[match_pattern, reducible] def «noSumCell» : KCore.Sym := 389
-@[match_pattern, reducible] def «pop» : KCore.Sym := 390
-@[match_pattern, reducible] def «drop» : KCore.Sym := 391
-@[match_pattern, reducible] def «seq» : KCore.Sym := 392
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isStackCell» : KCore.Sym := 382
+@[match_pattern, reducible] def «isStackCellOpt» : KCore.Sym := 383
+@[match_pattern, reducible] def «isSumCell» : KCore.Sym := 384
+@[match_pattern, reducible] def «isSumCellOpt» : KCore.Sym := 385
+@[match_pattern, reducible] def «isOp» : KCore.Sym := 386
+@[match_pattern, reducible] def «isOps» : KCore.Sym := 387
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 388
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 389
+@[match_pattern, reducible] def «<stack>» : KCore.Sym := 390
+@[match_pattern, reducible] def «noStackCell» : KCore.Sym := 391
+@[match_pattern, reducible] def «<sum>» : KCore.Sym := 392
+@[match_pattern, reducible] def «noSumCell» : KCore.Sym := 393
+@[match_pattern, reducible] def «pop» : KCore.Sym := 394
+@[match_pattern, reducible] def «drop» : KCore.Sym := 395
+@[match_pattern, reducible] def «seq» : KCore.Sym := 396
 end Sym
 
 namespace Srt
@@ -39,7 +39,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 17).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisStackCell", "LblisStackCellOpt", "LblisSumCell", "LblisSumCellOpt", "LblisOp",
+    ((List.range 17).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisStackCell", "LblisStackCellOpt", "LblisSumCell", "LblisSumCellOpt", "LblisOp",
  "LblisOps", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbl'-LT-'stack'-GT-'", "LblnoStackCell", "Lbl'-LT-'sum'-GT-'",
  "LblnoSumCell", "Lblpop", "Lbldrop", "Lblseq"] ∧
     ((List.range 8).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "StackCell", "StackCellOpt", "SumCell", "SumCellOpt", "Op", "Ops"] := by

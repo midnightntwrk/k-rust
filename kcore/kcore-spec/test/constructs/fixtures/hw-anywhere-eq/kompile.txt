@@ -1,3 +1,3 @@
 command: none: fixture.toml kore = 'test/constructs/fixtures/hw-anywhere-eq/hw-anywhere-eq.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-anywhere-eq/hw-anywhere-eq.kore` (cwd: kcore-spec)
-definition.kore bytes: 239788
-definition.kore sha256: 226a80e99bafe6bbddd4744792bc4cdfa6b5bb6e9313826a660911830567c234
+definition.kore bytes: 239778
+definition.kore sha256: 6250d7756eb28e129297a4e7532c92c34af25f89ac353815a7df42e6920019f3

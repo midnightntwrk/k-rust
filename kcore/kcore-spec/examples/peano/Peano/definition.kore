@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+    "Source(milestone-1/peano.k)"
   )
 ]
 module BASIC-K
@@ -567,7 +567,7 @@ module PEANO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,33)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     ),
     symbol'Kywd'{}("z")
   ]
@@ -578,7 +578,7 @@ module PEANO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     ),
     symbol'Kywd'{}("s")
   ]
@@ -587,7 +587,7 @@ module PEANO
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,52)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     ),
     symbol'Kywd'{}("pred")
   ]
@@ -598,7 +598,7 @@ module PEANO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,20,9,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     ),
     symbol'Kywd'{}("run")
   ]
@@ -609,7 +609,7 @@ module PEANO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,20,10,44)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     ),
     symbol'Kywd'{}("done")
   ]
@@ -621,7 +621,7 @@ module PEANO
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+      "Source(milestone-1/peano.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -2123,7 +2123,7 @@ module PEANO
       UNIQUE'Unds'ID{}("1c67ad9676a62c91ada47779a408cd3ca896bac42c3c9651d9b7ddc83ae29a69"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,3,5,23)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+        "Source(milestone-1/peano.k)"
       )
     ]
   axiom{R}
@@ -2152,7 +2152,7 @@ module PEANO
       UNIQUE'Unds'ID{}("46a0a9b0c199ecb13a86d4721a8d637bc0727f3ae377381925ac742db42a3423"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+        "Source(milestone-1/peano.k)"
       ),
       owise{}()
     ]
@@ -2189,7 +2189,7 @@ module PEANO
       UNIQUE'Unds'ID{}("3c3050a8b4eac563611272de7afc1bd98e92fb7387cd46284c3560af0f784d75"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,3,14,45)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+        "Source(milestone-1/peano.k)"
       )
     ]
   axiom{}
@@ -2227,7 +2227,7 @@ module PEANO
       UNIQUE'Unds'ID{}("421053a17d79ef69e79e507a6e625cccdc844ece1995a935fa3d8fa8c46d41ce"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+        "Source(milestone-1/peano.k)"
       )
     ]
   axiom{R}
@@ -3346,6 +3346,6 @@ module PEANO
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,16,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/milestone-1/peano.k)"
+    "Source(milestone-1/peano.k)"
   )
 ]

@@ -188,9 +188,9 @@ mutual
   theorem sortOfT_tables (c : Semantics) :
       ∀ t, c.rawFree t = true → sortOfT (tables c) c.lib t = c.sortOf t
     | .ctor f ts, hv => by
-      simp only [Semantics.rawFree, Bool.and_eq_true] at hv
+      simp only [Semantics.rawFree, Bool.and_eq_true, Bool.not_eq_true'] at hv
       rw [sortOfT, Semantics.sortOf, sig_tables, sortsOfT_tables c ts hv.2, lookupOvl_tables,
-        uncovered_tables] <;> try rfl
+        uncovered_tables, c.lookupOpen_none_of_any hv.1] <;> try rfl
     | .inj a b t, hv => by
       rw [Semantics.rawFree] at hv
       rw [sortOfT, Semantics.sortOf, sub_tables, sortOfT_tables c t hv] <;> try rfl

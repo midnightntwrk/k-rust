@@ -1,9 +1,9 @@
 command: kompile --backend haskell e2-cool-eq.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.1
+seconds: 2.2
 definition.kore bytes: 206988
 definition.kore sha256: 53443c7abfe63cd70b9d9621ec765f33ba016fba4d5eb34e94e18454bbadf650
-stripped sha256: 27988b036df305f9e6ea251cdf28815f65adcfeb354ab483a2af616019282809
+stripped sha256: 64e2e422c03e2d0b378132d2d564dbfcb6e1e9fe6c155bdd4620fb8077a4a1bc
 main module: 402 sentences, 46 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name

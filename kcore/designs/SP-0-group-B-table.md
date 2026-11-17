@@ -2,14 +2,14 @@
 
 2026-11-14. Read-only; no lean, lake or kompile was run. Every Lean text below is marked "to run" where it is a claim.
 
-Abbreviations: DOM = `k-distribution/include/kframework/builtin/domains.md` of K 7.1.337 (line numbers as in `findings/K4-K5-quotes.md`, section K5); Q = that quotes file; HK = `KcoreSpec/Hooks.lean`, SD = `StringDomain.lean`, FD = `FloatDomain.lean`, FS = `FixedSignature.lean` in `/artifacts/worktrees/kcore-merge/.../kcore-spec`.
+Abbreviations: DOM = `k-distribution/include/kframework/builtin/domains.md` of K 7.1.337 (line numbers as in `findings/K4-K5-quotes.md`, section K5); Q = that quotes file; HK = `KcoreSpec/Hooks.lean`, SD = `StringDomain.lean`, FD = `FloatDomain.lean`, FS = `FixedSignature.lean` in `<worktree:kcore-merge>/.../kcore-spec`.
 
 Classes: **(a)** the text says there is no value (`#False`, `#Bottom`): ⊥ stays. **(b)** the text describes the operation on part of its arguments, says "exception", or says backends may differ: silent point. **(c)** the text gives a value: computed.
 
 ## 0. What was read, and what was not
 
 - Read: RULES.md; SP-0 (whole); Q section K5; REVIEW-SYNTH (whole); GATE-R1 (whole); HK, SD, FD (whole); `test/SilentPoints.lean`; `test/FloatFieldOne.lean`; `Evaluation.lean:55-110` (`fallback`, `hookRes`); `Faithful.lean:186-236` (`ΓDomains`, `ΓFallback`); FS:486-580 (`hookSigs`, `partialHooks`); KCORE-vs-krust-readings.md by grep of the hook rows (insight only).
-- **Path deviation.** The brief's SP-0 path (`/artifacts/worktrees/kcore-merge/.../designs/SP-0-silent-points.md`) does not exist; kcore-merge has no `designs/`. I read the only copy found, `/artifacts/worktrees/kcore-kinds/draft-personal/k-semantics-core-2026-11/designs/SP-0-silent-points.md` (579 lines, with §5.2's group A state).
+- **Path deviation.** The brief's SP-0 path (`<worktree:kcore-merge>/.../designs/SP-0-silent-points.md`) does not exist; kcore-merge has no `designs/`. I read the only copy found, `<worktree:kcore-kinds>/draft-personal/k-semantics-core-2026-11/designs/SP-0-silent-points.md` (579 lines, with §5.2's group A state).
 - **Outside the set, read narrowly.** Q has no quote for the List, Map, Int and several String hooks. I read these lines of DOM directly (`k/result/include/kframework/builtin/domains.md`): 222-232, 262-270, 283-300, 326-358, 366-374, 700-722, 751-795, 958-1027, 1218-1240, 1735-1745, 1770-1836, 1857-1873, 2037-2050, 2059-2070, 2097-2120, 2140-2150, 2190-2217. Quotes from those lines below are first-hand and marked "DOM direct".
 - Two greps outside the set to locate, not to read: `silentKey` over `KcoreSpec/` (proof sites that need a symbol off the table), `sortOf`/`enumShapesOK` (existence only).
 - Not read: `Parse.lean` (`floatLit?`), `Value.lean`, `Core.lean`, `FloatLaws.lean`, every proof file, the cone listing, the ticket file, KN-4 findings, the K manual. Cone membership of `KFloat.ok`, `Lit` and `hookTable` is assumed from SP-0 and GATE-R1, not checked.

@@ -118,8 +118,9 @@ theorem sortOf_ctor_of_isCtor {f : Sym} {ts : List GroundTerm} {s : Srt} (hf : c
     c.sortOf (.ctor f ts) = some s ↔
       ∃ k, lookupSig c.ctorSigs f = some k ∧ c.sortsOf ts = some k.args ∧ s = k.result := by
   refine ⟨fun h => ?_, sortOf_ctor_intro⟩
-  rcases c.sortOf_ctor_iff.mp h with h | ⟨hk, -⟩
+  rcases c.sortOf_ctor_iff.mp h with h | ⟨hk, -⟩ | ⟨hk, -⟩
   · exact h
+  · simp [Semantics.isCtor, hk] at hf
   · simp [Semantics.isCtor, hk] at hf
 
 theorem sortOf_inj {a b : Srt} {t : GroundTerm} {s : Srt} :
@@ -1315,9 +1316,10 @@ theorem rangeBelow_of_keysOK {c : Semantics} (h : c.rangeKeysOK = true) : RangeB
   rcases Bool.or_eq_true_iff.mp h with h | h
   · exact List.contains_iff_mem.mp h
   · exfalso
-    rcases c.sortOf_ctor_iff.mp hs with ⟨k, hk, -, hres⟩ | ⟨hn, o, ho, -, -, hres⟩
+    rcases c.sortOf_ctor_iff.mp hs with ⟨k, hk, -, hres⟩ | ⟨hn, o, ho, -, -, hres⟩ | ⟨-, -, k, hk, -⟩
     · rw [hk] at h; simp [← hres] at h
     · rw [hn] at h; simp only [ho] at h; simp [← hres] at h
+    · rw [c.lookupOpen_reg (show rangeCtor < nRegSyms by decide)] at hk; cases hk
 
 open Faithful in
 /-- A constructor sort Range is below KItem, under `genWf`: a constructor sort is `apartSort`, and
@@ -1328,7 +1330,7 @@ theorem rangeKeys_cons_below {c : Semantics} (hg : genWf c = true) (hc : Srt.ran
       c.collOf Srt.range = none := by
     have hg' := hg
     simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg'
-    have := hg'.1.2 _ hc
+    have := hg'.1.1.2 _ hc
     simp only [Bool.and_eq_true, bne_iff_ne, Bool.not_eq_true', Option.isNone_iff_eq_none] at this
     obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, -⟩, -⟩, -⟩, h5⟩, h6⟩, h7⟩, -⟩, -⟩, -⟩ := this
     refine ⟨h1, fun hm => ?_, fun hm => ?_, h7⟩
@@ -1377,7 +1379,7 @@ theorem rangeKeysOK_of_genWf {c : Semantics} (hg : genWf c = true) (ho : c.overl
       have hkc : k.result ∈ consSorts c := by
         have hg' := hg
         simp only [genWf, Bool.and_eq_true, List.all_eq_true] at hg'
-        exact List.contains_iff_mem.mp (hg'.1.1.1 k (lookupSig_spec hk).1)
+        exact List.contains_iff_mem.mp (hg'.1.1.1.1 k (lookupSig_spec hk).1)
       exact hm (rangeKeys_cons_below hg (hres ▸ hkc))
     | none =>
       cases hl : c.lookupOvl rangeCtor with
@@ -1843,7 +1845,7 @@ theorem step_of_apply_core {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_core hok hsr hov hr hσ he⟩ :=
-  let ⟨_, hp, hq⟩ := Semantics.sortedOK_rule hok hr
+  let ⟨hp, hq⟩ := Semantics.sortedOK_ruleTop hok hr
   Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
 
 /-- `step_of_apply_core` in a core that `okAll` accepts. -/

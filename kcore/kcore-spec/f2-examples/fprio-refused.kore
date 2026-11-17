@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+    "Source(kcore-spec/f2-examples/fprio-refused.k)"
   )
 ]
 module BASIC-K
@@ -237,7 +237,7 @@ module FPRIO-REFUSED
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+      "Source(kcore-spec/f2-examples/fprio-refused.k)"
     ),
     symbol'Kywd'{}("t1")
   ]
@@ -1023,7 +1023,7 @@ module FPRIO-REFUSED
     function{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+      "Source(kcore-spec/f2-examples/fprio-refused.k)"
     ),
     symbol'Kywd'{}("hi")
   ]
@@ -1034,7 +1034,7 @@ module FPRIO-REFUSED
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+      "Source(kcore-spec/f2-examples/fprio-refused.k)"
     ),
     symbol'Kywd'{}("res")
   ]
@@ -1046,7 +1046,7 @@ module FPRIO-REFUSED
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+      "Source(kcore-spec/f2-examples/fprio-refused.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -4740,7 +4740,7 @@ module FPRIO-REFUSED
       label{}("FPRIO-REFUSED.hi-z"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+        "Source(kcore-spec/f2-examples/fprio-refused.k)"
       )
     ]
   axiom{R}
@@ -4759,7 +4759,7 @@ module FPRIO-REFUSED
       label{}("FPRIO-REFUSED.hi-top"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,16,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+        "Source(kcore-spec/f2-examples/fprio-refused.k)"
       ),
       priority{}("250")
     ]
@@ -4799,7 +4799,7 @@ module FPRIO-REFUSED
       label{}("FPRIO-REFUSED.hi-ow"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,17,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+        "Source(kcore-spec/f2-examples/fprio-refused.k)"
       ),
       owise{}()
     ]
@@ -4825,7 +4825,7 @@ module FPRIO-REFUSED
       label{}("FPRIO-REFUSED.t1"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,20,39)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+        "Source(kcore-spec/f2-examples/fprio-refused.k)"
       )
     ]
   axiom{R}
@@ -5644,6 +5644,6 @@ module FPRIO-REFUSED
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,1,21,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/artifacts/worktrees/kcore-symbolic/draft-personal/k-semantics-core-2026-11/kcore-spec/f2-examples/fprio-refused.k)"
+    "Source(kcore-spec/f2-examples/fprio-refused.k)"
   )
 ]

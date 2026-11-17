@@ -49,9 +49,9 @@ definition_of defn from "f2-examples/defcfg.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def kCell : Sym := 378
-def inc : Sym := 380
-def val : Sym := 381
+def kCell : Sym := 382
+def inc : Sym := 384
+def val : Sym := 385
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName inc = "Lblinc" ∧
     c.symName val = "Lblval" := by decide +kernel

@@ -1,7 +1,7 @@
 # FD-CS: the consumer slice (Fable design agent, 2026-11-14)
 
 Read-only review. Nothing was built or run; every Lean text below is marked "to run" where it is a claim to check.
-KCore tree read: `/artifacts/worktrees/kcore-merge/draft-personal/k-semantics-core-2026-11/kcore-spec/` (called `KS/` below).
+KCore tree read: `<worktree:kcore-merge>/draft-personal/k-semantics-core-2026-11/kcore-spec/` (called `KS/` below).
 k2lean read: `k-rust/k2lean/` in the main checkout (called `K2/` below).
 
 Vocabulary used below:

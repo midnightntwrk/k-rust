@@ -7,7 +7,8 @@
 # test/constructs/kfix.py check: every row of E1, E2, E3, E7, E8 points at a fixture of
 # test/constructs/fixtures/ whose committed kore.txt holds the sentences the row names. Exit 1 on any
 # difference. Then test/constructs/units.py: every refused row and every class R-c row names in `unit`
-# a ticket or unit of progress/ (KCORE_PROGRESS), or "none (CLASS)" (rows-header.toml). Needs E6's
+# a ticket or unit of progress/ (KCORE_PROGRESS), or "none (CLASS)" (rows-header.toml). Then
+# test/constructs/modifiers.py check: the pair table [C3] (DONE-0 C3). Needs E6's
 # kompiled text (test/constructs/kompile-e6.sh; exit 77 without it).
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
@@ -49,4 +50,5 @@ PY
 rc=$?
 python3 -I test/constructs/kfix.py check || rc=1
 python3 -I test/constructs/units.py || rc=1
+python3 -I test/constructs/modifiers.py check || rc=1
 exit $rc

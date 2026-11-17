@@ -77,7 +77,7 @@ theorem pairs_twice {α : Type} {x : α} : ∀ (l1 l2 : List α), (x, x) ∈ pai
 theorem f_pair : (Gen.ctor fSig, Gen.ctor fSig) ∈ pairs (c.gens Srt.k) := by
   have : c.gens Srt.k = (c.ctorSigs.filter (·.result == Srt.k)).map .ctor ++ (Gen.ctor fSig :: Gen.ctor fSig ::
       (sortBy id ((c.subsorts.filter (·.2 == Srt.k)).map (·.1))).map .inj) := by
-    unfold Semantics.gens; rw [List.append_assoc]; rfl
+    unfold Semantics.gens; rw [List.append_assoc, List.append_assoc]; rfl
   rw [this]; exact pairs_twice _ _
 theorem f_guarded : c.distGuarded (.ctor fSig) (.ctor fSig) = true := by decide +kernel
 theorem f_args : ovlArgsOf c (.ctor fSig) = some [] := by decide +kernel

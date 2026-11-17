@@ -21,7 +21,7 @@ theorem overloads_ok : defn.sem.overloadsOK = true := by decide +kernel
 one, the self-calling functions with no decreasing argument, and the `[total]` functions `totalOK`
 does not confirm. -/
 theorem obligations : defn.sem.orderObligations = [] ∧ defn.cert.obligations defn.sem = [] ∧
-    defn.sem.totalObligations = [415] := by decide +kernel
+    defn.sem.totalObligations = [419] := by decide +kernel
 
 /-- The functions whose equations `fnExclusiveOK` does not show to agree: that each two of one
 priority are coherent, in both orders (`ClausesAgree`, `Coherent`), is a named obligation

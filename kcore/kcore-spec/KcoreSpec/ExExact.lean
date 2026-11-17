@@ -15,7 +15,6 @@
     values (`successor_split_ex`, under `StepDecided`). So `Step c x y` (`step_of_successor_ex`).
 -/
 import KcoreSpec.ExComplete
-import KcoreSpec.ExConsistent
 
 set_option autoImplicit false
 
@@ -130,30 +129,5 @@ theorem step_of_successor_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c
   obtain ⟨σ, hσ, hm, hrq, hpre, hev, hen, hpo⟩ := stepVals_of_right_ex h hf.1 hIc hf.2.2.2.2.1.2 hsr hpr hrc
     (hf.2.2.2.2.1.1 r hr) hkeys hin x y hl hreq hy
   exact step_iff_by.mpr ⟨r, σ, ⟨hr, hσ, hm, hrq, hpre, hev, hen, hpo, hprio⟩⟩
-
-/-- **Exactness of a definition whose rules may have existential variables**: `ExactC`, for a
-semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have `ruleSorted` and
-`rulePlainEx`. Left to right in the value model (`has_model_choice_ex` at `T := Step`), right to
-left in any model (`step_of_successor_ex`). -/
-theorem exact_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) : ExactC c := by
-  intro x y
-  constructor
-  · intro hs
-    obtain ⟨M, hM, I, hI, hT⟩ := has_model_choice_ex c h hf hrules (Step c) (fun _ _ hst => hst)
-      (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
-      (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
-    exact ⟨M, hM, I, hI, (hT x y).mp hs⟩
-  · rintro ⟨M, hM, I, hI, hn⟩
-    have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-    simp only [Interpretation.satisfies, Valuation.satifies] at hn
-    obtain ⟨e, hn⟩ := Classical.not_forall.mp hn
-    obtain ⟨m, hn⟩ := Classical.not_forall.mp hn
-    rw [interpret_impl] at hn
-    have h1 : (den c x.val).interpret I e m := Classical.byContradiction fun hc => hn fun h => absurd h hc
-    have h2 : (KoreAML.sNext (den c y.val)).interpret I e m :=
-      Classical.byContradiction fun hc => hn fun _ => interpret_neg.mpr hc
-    rw [((elemOf_spec hIΓ x.property e).1 m).mp h1] at h2
-    exact step_of_successor_ex c h hf hrules hI x y e h2
 
 end KCore

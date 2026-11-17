@@ -3,7 +3,7 @@ exit: 0
 seconds: 2.0
 definition.kore bytes: 209875
 definition.kore sha256: bf61e5c5709241c2577e36c65b59b7f91e1b2a8c3269347506c568d48943ccd8
-stripped sha256: e818d977d5ec3dcb3b2ac6de253d7d140bbd0e97812f9929782a266cff0e67b9
+stripped sha256: e44203a47c5cf6eadaa4b3280f54e0244f4e8164cbde7ea5dc9aff0a89c3df07
 main module: 409 sentences, 55 not in base's, in kore.txt
 differs_from c3-eq-ens-owise-base: different after stripping
 output:

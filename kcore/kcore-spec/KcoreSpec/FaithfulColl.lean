@@ -990,7 +990,7 @@ theorem step_sound_stage4 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
         hfail m
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
     exact fun hx _ hkeys e hfail =>
-      applies_empty4 hI hC hph hmo hg hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hr4 r hr hn) (Semantics.sortedOK_rule hy.1 hr).2.1 hx hkeys e hfail
+      applies_empty4 hI hC hph hmo hg hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hr4 r hr hn) (Semantics.sortedOK_ruleTop hy.1 hr).1 hx hkeys e hfail
 
 
 end Faithful

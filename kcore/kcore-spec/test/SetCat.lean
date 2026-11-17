@@ -129,17 +129,17 @@ definition_of defn from "f2-examples/setcat.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the facts name, by number. -/
-def kCell : Sym := 389
-def sCell : Sym := 391
-def tasksCell : Sym := 393
-def addL : Sym := 395
-def bumpL : Sym := 396
-def doneL : Sym := 397
-def goL : Sym := 398
-def idCell : Sym := 399
-def taskCell : Sym := 400
-def taskItem : Sym := 407
-def taskConcat : Sym := 408
+def kCell : Sym := 393
+def sCell : Sym := 395
+def tasksCell : Sym := 397
+def addL : Sym := 399
+def bumpL : Sym := 400
+def doneL : Sym := 401
+def goL : Sym := 402
+def idCell : Sym := 403
+def taskCell : Sym := 404
+def taskItem : Sym := 411
+def taskConcat : Sym := 412
 def pgmS : Srt := 41
 def taskSetS : Srt := 42
 

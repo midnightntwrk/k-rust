@@ -47,13 +47,16 @@ theorem boolValues {c : Semantics} (h : c.coreOK = true) (hl : c.litSort Srt.boo
   have _ := h
   simp only [Semantics.litSort, Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq,
     Bool.not_eq_true'] at hl
-  obtain ⟨⟨⟨⟨⟨⟨⟨hct, hov⟩, hsub⟩, -⟩, hcoll⟩, htok⟩, hbyte⟩, -⟩ := hl
+  obtain ⟨⟨⟨⟨⟨⟨⟨hct, hov⟩, hsub⟩, hpr⟩, hcoll⟩, htok⟩, hbyte⟩, -⟩ := hl
   cases v with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -, hs⟩ | ⟨-, o, ho, -, -, hs⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -, hs⟩ | ⟨-, o, ho, -, -, hs⟩ | ⟨-, -, k, hk, -, -, hs⟩
     · exact absurd hs.symm (hct k (lookupSig_spec hk).1)
     · obtain ⟨-, i, hi, he, -⟩ := OvlLaws.lookupOvl_spec ho
       exact absurd hs.symm (hov o.sig (List.mem_map.mpr ⟨o, he ▸ List.getElem_mem hi, rfl⟩))
+    · obtain ⟨hm, hraw, -, -⟩ := c.lookupOpen_spec hk
+      have := hpr k hm
+      simp [hraw, ← hs] at this
   | inj a b t =>
     obtain ⟨hab, -, -, rfl⟩ := OvlLaws.sortOf_inj_iff.mp hv
     exact (hsub _ hab rfl).elim
@@ -76,11 +79,15 @@ theorem boolValues {c : Semantics} (h : c.coreOK = true) (hl : c.litSort Srt.boo
   | set s es => obtain ⟨rfl, hk⟩ := sortOf_set_sort hv; rw [Option.isNone_iff_eq_none.mp hcoll] at hk; cases hk
   | list s es => obtain ⟨rfl, hk⟩ := sortOf_list_sort hv; rw [Option.isNone_iff_eq_none.mp hcoll] at hk; cases hk
 
+namespace Faithful.Model.AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 open Faithful.Model in
 /-- **The value model satisfies the closure axiom** where Bool holds only literals: its elements of
 Bool are the values of Bool, `true` and `false` (`boolValues`). -/
 theorem boolClosed_model {c : Semantics} (h : HypModelCore c) (hc : c.coreOK = true)
-    (hl : c.litSort Srt.bool = true) : stdI c ⊧ᴵ boolClosed c := by
+    (hl : c.litSort Srt.bool = true) : stdI_T c T ⊧ᴵ boolClosed c := by
   intro e m
   unfold boolClosed
   rw [KoreAML.interp_included defOK_std]
@@ -88,12 +95,21 @@ theorem boolClosed_model {c : Semantics} (h : HypModelCore c) (hc : c.coreOK = t
   have ha' := (inhOf_sort h.namesK (bool_numbered (c := c)) e a).mp ha
   obtain ⟨v, rfl, hv⟩ := inSort_val ha'
   obtain ⟨b, rfl⟩ := boolValues hc hl hv
-  have hs := den_val h (.dv Srt.bool (.bool b)) hv e
+  have hs := den_val (T := T) h (.dv Srt.bool (.bool b)) hv e
   simp only [Pattern.interpret]
   intro hn
   cases b with
   | true => exact absurd ((hs _).mpr rfl) hn
   | false => exact (hs _).mpr rfl
+
+end Faithful.Model.AtT
+
+open Faithful.Model in
+/-- **The value model satisfies the closure axiom** where Bool holds only literals: its elements of
+Bool are the values of Bool, `true` and `false` (`boolValues`). -/
+theorem boolClosed_model {c : Semantics} (h : HypModelCore c) (hc : c.coreOK = true)
+    (hl : c.litSort Srt.bool = true) : stdI c ⊧ᴵ boolClosed c :=
+  Faithful.Model.AtT.boolClosed_model (c := c) (T := StepM c) (h := h) (hc := hc) (hl := hl)
 
 /-! ## Confined sorts -/
 
@@ -311,8 +327,10 @@ include hI htr
 
 /-- **A generator applied to values' elements builds a value's element**: a constructor or an
 overloading symbol the element of the normal form of the application (`norm_gs`), an injection
-the element of the injected value (through Cons-Coh where the argument is itself an injection). -/
-theorem gen_value (hn : Model.NamesApartK c) {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm}
+the element of the injected value (through Cons-Coh where the argument is itself an injection).
+Where no parameter is raw (`hraw`): no generator is an open generator. -/
+theorem gen_value (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params, k.raw = false)
+    {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm}
     (hws : c.sortsOf ws = some g.argSorts) {m : M}
     (hm : GS I (c.sortName N) (Gen.toK c g) (ws.map (elemOf c I)) m) :
     ∃ v, c.sortOf v = some N ∧ elemOf c I v = m := by
@@ -324,9 +342,11 @@ theorem gen_value (hn : Model.NamesApartK c) {N : Srt} {g : Gen} (hgm : g ∈ c.
     have hr := OvlLaws.ovlRank_le (c := c) k.name
     refine ⟨c.norm k.name ws, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k hks hr ws hws, ?_⟩
     exact ((norm_gs hI htr _ k hks hr ws hws m).mp hm).symm
-  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩
+  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, -, -⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl
+  rotate_left
+  · exact absurd hkr (by simp [hraw k hk])
   · -- an injection from a subsort a
     obtain ⟨w, rfl, hw⟩ : ∃ w, ws = [w] ∧ c.sortOf w = some a := by
       cases ws with
@@ -365,7 +385,8 @@ no-junk sentence makes each element a generator applied to elements of its argum
 (`noJunk_elim`); those are values' elements by the depth below, and the generator applied to
 values' elements is a value's element (`gen_value`). From the subsorts' transitivity, `OvlOK` and
 `NamesApartK`. -/
-theorem confinedAt_valueCl (hn : Model.NamesApartK c) (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
+theorem confinedAt_valueCl (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params, k.raw = false)
+    (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
     ∀ (k : Nat) (s : Srt), c.confinedAt k s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := by
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
@@ -402,7 +423,7 @@ theorem confinedAt_valueCl (hn : Model.NamesApartK c) (hr : c.readsConfined = tr
     rw [List.length_map] at hlen
     obtain ⟨ws, hws, rfl⟩ := values_of_elems (c := c) (I := I) g.argSorts xs hlen.symm (fun j y b hy hb =>
       ih b ((hgs g hg).1 b (List.mem_of_getElem? hb)) y (all2_map_get (R := fun s y => InS I s y) hxs hy hb))
-    exact gen_value hIΓ htr hn hg hws hm
+    exact gen_value hIΓ htr hn hraw hg hws hm
 
 
 omit hI hO htr in
@@ -413,7 +434,8 @@ theorem confinedAt_value (h : c.coreOK = true) (hr : c.readsConfined = true) (hI
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   exact confinedAt_valueCl (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
-    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1) hr hI
+    (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
+    (Semantics.params_raw_of_core h) hr hI
 
 end
 
@@ -443,8 +465,10 @@ theorem values_of_each {c : Semantics} : ∀ (ss : List Srt), (∀ b ∈ ss, ∃
 
 /-- A generator of N applied to values of its argument sorts gives a value of N: a constructor or
 an overloading symbol its normal form, an injection the injected value (or the core of an injected
-one, injected into N). -/
+one, injected into N). Where no parameter is raw (`hraw`): an open generator's application is a
+value only where the interpretation leaves it raw. -/
 theorem gen_hasValue {c : Semantics} [hO : OvlOK c] (hn : Model.NamesApartK c)
+    (hraw : ∀ k ∈ c.params, k.raw = false)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm} (hws : c.sortsOf ws = some g.argSorts) :
     ∃ v, c.sortOf v = some N := by
@@ -453,9 +477,11 @@ theorem gen_hasValue {c : Semantics} [hO : OvlOK c] (hn : Model.NamesApartK c)
     intro k hk hkr hg
     subst hg hkr
     exact ⟨_, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k (knownSig_of_mem hn hk) (OvlLaws.ovlRank_le (c := c) k.name) ws hws⟩
-  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩
+  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, -, -⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl
+  rotate_left
+  · exact absurd hkr (by simp [hraw k hk])
   · obtain ⟨w, hw⟩ : ∃ w, c.sortOf w = some a := by
       cases ws with
       | nil => rw [show c.sortsOf [] = some [] from rfl] at hws; cases hws
@@ -475,7 +501,6 @@ open Faithful in
 /-- A confined sort none of whose generators is an open generator has a value. -/
 theorem confined_has_value {c : Semantics} (h : c.coreOK = true) {s : Srt}
     (hs : c.confined s = true) (hr : ∀ k ∈ c.params, k.raw = false) : ∃ v, c.sortOf v = some s := by
-  have _ := hr
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have htr := (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
@@ -501,6 +526,6 @@ theorem confined_has_value {c : Semantics} (h : c.coreOK = true) {s : Srt}
       | nil => rw [hgl] at hne; simp at hne
       | cons g _ => exact ⟨g, List.mem_cons_self ..⟩
     obtain ⟨ws, hws⟩ := values_of_each g.argSorts fun b hb => ih b ((hgs g hg).1 b hb)
-    exact gen_hasValue hn htr hg hws
+    exact gen_hasValue hn hr htr hg hws
 
 end KCore

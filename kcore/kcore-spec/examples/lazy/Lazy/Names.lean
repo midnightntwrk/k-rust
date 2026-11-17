@@ -8,22 +8,22 @@ namespace Lazy
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isCmd» : KCore.Sym := 378
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 379
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 380
-@[match_pattern, reducible] def «t1» : KCore.Sym := 381
-@[match_pattern, reducible] def «t2» : KCore.Sym := 382
-@[match_pattern, reducible] def «t3» : KCore.Sym := 383
-@[match_pattern, reducible] def «t4» : KCore.Sym := 384
-@[match_pattern, reducible] def «t5» : KCore.Sym := 385
-@[match_pattern, reducible] def «res» : KCore.Sym := 386
-@[match_pattern, reducible] def «resB» : KCore.Sym := 387
-@[match_pattern, reducible] def «inv» : KCore.Sym := 388
-@[match_pattern, reducible] def «p» : KCore.Sym := 389
-@[match_pattern, reducible] def «dbl» : KCore.Sym := 390
-@[match_pattern, reducible] def «ite{Int}» : KCore.Sym := 391
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isCmd» : KCore.Sym := 382
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 383
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 384
+@[match_pattern, reducible] def «t1» : KCore.Sym := 385
+@[match_pattern, reducible] def «t2» : KCore.Sym := 386
+@[match_pattern, reducible] def «t3» : KCore.Sym := 387
+@[match_pattern, reducible] def «t4» : KCore.Sym := 388
+@[match_pattern, reducible] def «t5» : KCore.Sym := 389
+@[match_pattern, reducible] def «res» : KCore.Sym := 390
+@[match_pattern, reducible] def «resB» : KCore.Sym := 391
+@[match_pattern, reducible] def «inv» : KCore.Sym := 392
+@[match_pattern, reducible] def «p» : KCore.Sym := 393
+@[match_pattern, reducible] def «dbl» : KCore.Sym := 394
+@[match_pattern, reducible] def «ite{Int}» : KCore.Sym := 395
 end Sym
 
 namespace Srt
@@ -33,7 +33,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 16).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisCmd", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblt1", "Lblt2", "Lblt3", "Lblt4",
+    ((List.range 16).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisCmd", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblt1", "Lblt2", "Lblt3", "Lblt4",
  "Lblt5", "Lblres", "LblresB", "Lblinv", "Lblp", "Lbldbl", "Lblite{Int}"] ∧
     ((List.range 3).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "Cmd"] := by
   decide +kernel

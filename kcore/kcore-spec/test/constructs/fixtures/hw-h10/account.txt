@@ -4,7 +4,7 @@ user module E2-OPEN-MIXED-CLAUSE: 252 sentences
   167 read [generated]
   52 read [builtin]
   1 refused openGenerator [user]
-      e.g. symbol Lbland{}(SortA{}, SortA{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("and")]
+      e.g. symbol Lbland{}(SortA{}, SortA{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e2-open-mixed-clause/e2-open-mixed-clause.k)"), symbol'Kywd'{}("and")]
   4 read [user]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]

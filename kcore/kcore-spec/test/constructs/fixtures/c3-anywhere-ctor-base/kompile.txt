@@ -1,0 +1,17 @@
+command: kompile --backend haskell c3-anywhere-ctor-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 207750
+definition.kore sha256: 326787169996f97ee7e68cdbb3979b1a6353f17b2827e35b00eb1175c8945e89
+stripped sha256: 43eb75c94609fc9c1aab6e8b8d4b401efda54333d52a4a58d2cdb37c9ad0e55e
+main module: 407 sentences, 53 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'I' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/c3-anywhere-ctor-base.k)
+  	Location(7,23,7,24)
+  	7 |	  rule <k> sum(E:Exp, I:Int) => sum(E, E) ... </k>
+  	  .	                      ^
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-ANYWHERE-CTOR-BASE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-ANYWHERE-CTOR-BASE as default.

@@ -24,7 +24,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def projExp : Sym := 386
+def projExp : Sym := 390
 
 def exp : Srt := 33
 

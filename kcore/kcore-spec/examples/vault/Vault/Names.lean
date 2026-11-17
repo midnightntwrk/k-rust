@@ -8,25 +8,25 @@ namespace Vault
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isPubCell» : KCore.Sym := 378
-@[match_pattern, reducible] def «isPubCellOpt» : KCore.Sym := 379
-@[match_pattern, reducible] def «isSecCell» : KCore.Sym := 380
-@[match_pattern, reducible] def «isSecCellOpt» : KCore.Sym := 381
-@[match_pattern, reducible] def «isOp» : KCore.Sym := 382
-@[match_pattern, reducible] def «isOps» : KCore.Sym := 383
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 384
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 385
-@[match_pattern, reducible] def «<pub>» : KCore.Sym := 386
-@[match_pattern, reducible] def «noPubCell» : KCore.Sym := 387
-@[match_pattern, reducible] def «<sec>» : KCore.Sym := 388
-@[match_pattern, reducible] def «noSecCell» : KCore.Sym := 389
-@[match_pattern, reducible] def «inc» : KCore.Sym := 390
-@[match_pattern, reducible] def «save» : KCore.Sym := 391
-@[match_pattern, reducible] def «store» : KCore.Sym := 392
-@[match_pattern, reducible] def «wipe» : KCore.Sym := 393
-@[match_pattern, reducible] def «seq» : KCore.Sym := 394
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isPubCell» : KCore.Sym := 382
+@[match_pattern, reducible] def «isPubCellOpt» : KCore.Sym := 383
+@[match_pattern, reducible] def «isSecCell» : KCore.Sym := 384
+@[match_pattern, reducible] def «isSecCellOpt» : KCore.Sym := 385
+@[match_pattern, reducible] def «isOp» : KCore.Sym := 386
+@[match_pattern, reducible] def «isOps» : KCore.Sym := 387
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 388
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 389
+@[match_pattern, reducible] def «<pub>» : KCore.Sym := 390
+@[match_pattern, reducible] def «noPubCell» : KCore.Sym := 391
+@[match_pattern, reducible] def «<sec>» : KCore.Sym := 392
+@[match_pattern, reducible] def «noSecCell» : KCore.Sym := 393
+@[match_pattern, reducible] def «inc» : KCore.Sym := 394
+@[match_pattern, reducible] def «save» : KCore.Sym := 395
+@[match_pattern, reducible] def «store» : KCore.Sym := 396
+@[match_pattern, reducible] def «wipe» : KCore.Sym := 397
+@[match_pattern, reducible] def «seq» : KCore.Sym := 398
 end Sym
 
 namespace Srt
@@ -41,7 +41,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 19).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisPubCell", "LblisPubCellOpt", "LblisSecCell", "LblisSecCellOpt", "LblisOp",
+    ((List.range 19).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisPubCell", "LblisPubCellOpt", "LblisSecCell", "LblisSecCellOpt", "LblisOp",
  "LblisOps", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbl'-LT-'pub'-GT-'", "LblnoPubCell", "Lbl'-LT-'sec'-GT-'",
  "LblnoSecCell", "Lblinc", "Lblsave", "Lblstore", "Lblwipe", "Lblseq"] ∧
     ((List.range 8).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "PubCell", "PubCellOpt", "SecCell", "SecCellOpt", "Op", "Ops"] := by

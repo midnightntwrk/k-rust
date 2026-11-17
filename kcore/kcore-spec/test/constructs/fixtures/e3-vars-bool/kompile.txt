@@ -1,6 +1,6 @@
 command: kompile --backend haskell e3-vars-bool.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 1.9
 definition.kore bytes: 126584
 definition.kore sha256: f0ec34041f491277602ba3b184c607c508ede2690d86d5c39daa11652fc8d6fb
 stripped sha256: dc99b8595f57f434f52d9db0172e83b5448021941da8e28fdce829e8c7a2b33a

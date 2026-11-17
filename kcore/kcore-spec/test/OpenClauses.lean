@@ -5,9 +5,9 @@
   The semantics is the reader's for `f2-examples/opencl.kompile.kore` (`opencl.k`): Int, Bool, a
   sort S whose generator `c(Empty)` takes a sort without a value (so S is not confined), the total
   predicate `isC`, and the functions `f()` (no equation) and `g(Int)` (`g(_) => 0 [owise]`). The
-  reader refuses a variable of a `requires` that the arguments do not bind, so the clauses below are
-  written by hand, as `test/OpenRules.lean` writes its rules; each is one arm of the conjunct of
-  `clausePlainOpen` on open condition variables:
+  clauses below are written by hand over that vocabulary, as `test/OpenRules.lean` writes its rules
+  (the reader reads such clauses from their own texts: `test/B1bClauses.lean`); each is one arm of
+  the conjunct of `clausePlainOpen` on open condition variables:
   - `clH`, `f() => 0 requires 1 ==Int 2 *Int H`, H:Int (`f2-examples/openh.k`): closed conditions
     over an unconfined sort, `needsWitness`;
   - `clG`, `g(X) => 1 requires isC(H)`, H:S (`f2-examples/clgenless.k`'s `f(_) => 1 requires
@@ -26,6 +26,10 @@
   hypotheses; `c2` meets `coreOK` (`clauseSorted` asks of H only that it occur), which gives the
   clause facts (`clauseOpenFacts_of_sortedOK` at `c2`);
   `readsConfined_of_coreCl`, `Γc_coreCl` and `openDecided_of_coreCl` at the text's semantics.
+  `cBH` (the text with `clB` among `g`'s clauses and `f` the function of `clH`) meets `coreOK` and
+  reads a confined sort, and `exclEmptyCl_of` is instantiated at `clB` and `clH` as clauses of it:
+  the confined-sort premise is decided; `clH`'s `CondDecided` stays a hypothesis, the fact the
+  text owes (no value witnesses it, `test/ClauseOpenCond.lean`, and nothing here refutes it).
 -/
 import KcoreSpec
 
@@ -43,7 +47,7 @@ noncomputable abbrev c : Semantics := defn.sem
 def i (n : Int) : Term := .dv Srt.int (.int n)
 
 /-- The symbols and sorts the clauses name. -/
-example : c.symName 387 = "Lblf" ∧ c.symName 385 = "Lblg" ∧ c.symName 386 = "LblisC" ∧ c.symName 383 = "Lblc" ∧
+example : c.symName 391 = "Lblf" ∧ c.symName 389 = "Lblg" ∧ c.symName 390 = "LblisC" ∧ c.symName 387 = "Lblc" ∧
     c.sortName 32 = "S" ∧ c.sortName 33 = "Empty" ∧ c.symName intEq = "Lbl'UndsEqlsEqls'Int'Unds'" ∧
     c.symName intMul = "Lbl'UndsStar'Int'Unds'" := by
   decide +kernel
@@ -56,22 +60,22 @@ example : c.confined 32 = false ∧ c.confined Srt.int = false ∧ c.confined Sr
 /-- `g`'s clauses in the text: `g(_) => 0 [owise]`. -/
 noncomputable def gText : List Clause := (c.fns.map (·.clauses)).getD 0 []
 
-example : (c.fns.map (·.label)).getD 0 0 = 385 ∧ gText.length = 1 := by decide +kernel
+example : (c.fns.map (·.label)).getD 0 0 = 389 ∧ gText.length = 1 := by decide +kernel
 
 /-- `f() => 0 requires 1 ==Int 2 *Int H` -/
 def clH : Clause :=
   { vars := [Srt.int], pats := [], req := some (.app intEq [i 1, .app intMul [i 2, .var 0]]), rhs := i 0, ens := none }
 /-- `g(X) => 1 requires isC(H)` -/
-def clG : Clause := { vars := [Srt.int, 32], pats := [.var 0], req := some (.app 386 [.var 1]), rhs := i 1, ens := none }
+def clG : Clause := { vars := [Srt.int, 32], pats := [.var 0], req := some (.app 390 [.var 1]), rhs := i 1, ens := none }
 /-- `g(X) => 1 requires B` -/
 def clB : Clause := { vars := [Srt.int, Srt.bool], pats := [.var 0], req := some (.var 1), rhs := i 1, ens := none }
 /-- `g(X) => 1 requires X ==Int 0` -/
 def clP : Clause := { vars := [Srt.int], pats := [.var 0], req := some (.app intEq [.var 0, i 0]), rhs := i 1, ens := none }
 
-def fH : Fn := { label := 387, args := [], result := Srt.int, clauses := [clH] }
-noncomputable def gG : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clG :: gText }
-noncomputable def gB : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clB :: gText }
-noncomputable def gP : Fn := { label := 385, args := [Srt.int], result := Srt.int, clauses := clP :: gText }
+def fH : Fn := { label := 391, args := [], result := Srt.int, clauses := [clH] }
+noncomputable def gG : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clG :: gText }
+noncomputable def gB : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clB :: gText }
+noncomputable def gP : Fn := { label := 389, args := [Srt.int], result := Srt.int, clauses := clP :: gText }
 
 /-- Each clause has `clauseSortedOpen` and `clausePlainOpen`, and `clauseSorted`, which asks of H and
 B only that they occur in the clause (the patterns of the first three do not bind them). -/
@@ -118,6 +122,29 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
    Faithful.exclEmptyCl_of coreOK hI Faithful.fns_headsOK sorted.2.2.2.1 sorted.2.2.2.2.1
       (fun h' => by rw [conf.2.2.2] at h'; cases h') (fun h' => by rw [arms.2.2.2.2] at h'; cases h')⟩
 
+/-- The text with `clB` among `g`'s clauses and `f` the function of the clause `clH`. -/
+noncomputable abbrev cBH : Semantics :=
+  { c with fns := gB :: c.fns.drop 1 ++ [fH], params := c.params.filter (·.sig.name != 391) }
+
+/-- **`cBH` has `coreOK` and reads a confined sort**; `clB` and `clH` are clauses of it with the
+facts `exclEmptyCl_of` reads; `clH` needs a witness, `clB` does not. -/
+theorem coreBH : cBH.coreOK = true ∧ cBH.readsConfined = true ∧
+    (cBH.clauseSortedOpen gB (cBH.fns.map Fn.sig) clB = true ∧ cBH.clausePlainOpen clB = true) ∧
+    (cBH.clauseSortedOpen fH (cBH.fns.map Fn.sig) clH = true ∧ cBH.clausePlainOpen clH = true) ∧
+    clB.needsWitness cBH = false ∧ clH.needsWitness cBH = true ∧
+    clH.openCondVars.any (fun i => (clH.vars[i]?.map cBH.confined).getD false) = false := by
+  decide +kernel
+
+/-- **`exclEmptyCl_of` at `clB` and `clH`, clauses of `cBH`**, in every model of `Γc cBH`: that
+`cBH` reads a confined sort is decided; `clH`'s owed `CondDecided` is the one hypothesis. -/
+example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cBH)
+    (hH : clH.CondDecided cBH) :
+    Faithful.ExclEmptyCl cBH I gB clB ∧ Faithful.ExclEmptyCl cBH I fH clH :=
+  ⟨Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.1.1 coreBH.2.2.1.2
+      (fun _ => coreBH.2.1) (fun h' => by rw [coreBH.2.2.2.2.1] at h'; cases h'),
+   Faithful.exclEmptyCl_of coreBH.1 hI Faithful.fns_headsOK coreBH.2.2.2.1.1 coreBH.2.2.2.1.2
+      (fun h' => by rw [coreBH.2.2.2.2.2.2] at h'; cases h') (fun _ => hH)⟩
+
 /-- `exclEmptyCl_core` at `clG`, from `Fails` alone: where `clG` fails at `[w]`, its exclusion is
 empty at every valuation giving `X0` w's element. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c)
@@ -133,7 +160,7 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
 semantics, of a smaller priority than the `[owise]` clause, which negates it. -/
 noncomputable abbrev c2 : Semantics := { c with fns := gG :: c.fns.drop 1 }
 
-theorem hfn2 : c2.lookupFn 385 = some gG := by rfl
+theorem hfn2 : c2.lookupFn 389 = some gG := by rfl
 
 /-- The `[owise]` clause of `g`. -/
 noncomputable def clO : Clause := gText.getD 0 { vars := [], pats := [], req := none, rhs := .var 0, ens := none }
@@ -219,9 +246,9 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
     (hnn : Faithful.NamesNumbered c2) (hsc : SortCtx c2) [OvlOK c2] (hph : Faithful.patHooksApart c2 = true)
     (hcls : ∀ fn ∈ c2.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c2 L ∧ Faithful.ClauseOpenFacts c2 fn L cl)
     (hneg : ∀ fn ∈ c2.allFns, ∀ cl ∈ fn.clauses, Faithful.ClauseNeg c2 fn cl → Faithful.ExclEmptyCl c2 I fn cl)
-    {ws : List GroundTerm} {r : Option GroundTerm} (hE : Eval c2 385 ws r) (hws : c2.sortsOf ws = some gG.args)
+    {ws : List GroundTerm} {r : Option GroundTerm} (hE : Eval c2 389 ws r) (hws : c2.sortsOf ws = some gG.args)
     (e : ML.Valuation M) (m : M) :
-    (KoreAML.den (Faithful.symApp c2 385 (GroundTerm.koreList c2 ws))).interpret I e m ↔ Faithful.Res c2 I e r m :=
+    (KoreAML.den (Faithful.symApp c2 389 (GroundTerm.koreList c2 ws))).interpret I e m ↔ Faithful.Res c2 I e r m :=
   Faithful.eval_den4Cl hI hnn hsc hph hcls hneg hE hfn2 hws e m
 
 /-- info: 'OpenClauses.sorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/

@@ -10,11 +10,12 @@
   has a result at arguments of its sorts (`FnTerminates`) and that the right sides are well sorted
   (`SortCtx`, `sortCtx_of_allCl`): a well-sorted term has a result under a well-sorted substitution
   (`Model.evalTerm_totalCl`), and a rule's conditions and right side are well sorted
-  (`rule_ctxCl`, `rule_ctx_ensCl`, `Semantics.sortedOKCl_rule`). This is `stepDecided_of_coreCl`;
+  (`rule_ctxCl`, `rule_ctx_ensCl`, `Semantics.sortedOKCl_ruleTop`). This is `stepDecided_of_coreCl`;
   `stepDecided_of_fnHypCl` takes `FnTerminates` from `FnHyp`.
 -/
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.OpenClause
+import KcoreSpec.HoldsDecided
 
 set_option autoImplicit false
 
@@ -111,7 +112,7 @@ theorem stepDecided_of_coreCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rule
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
   intro r hr _
   obtain ⟨-, hreqs, hrhss⟩ := rule_ctxCl hok hr
-  obtain ⟨-, hpre, hpost⟩ := Semantics.sortedOKCl_rule hok hr
+  obtain ⟨hpre, hpost⟩ := Semantics.sortedOKCl_ruleTop hok hr
   have hensS := rule_ctx_ensCl hok hr
   refine ⟨fun σ hσ _ => ⟨fun t ht => Model.evalTerm_totalCl hsc hov hft fns_headsOK (Rule.wellSorted_of_at (hb r hr) hσ)
       (hreqs t ht), true, hpre ▸ .top⟩,

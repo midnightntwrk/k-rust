@@ -1,0 +1,3 @@
+# pair anywhere rule x constructor, the overload form alone (C3-open-pairs-decision section 3; TRIAGE-B-E2 [[c3.pair]] n = 15): sum(Exp, Int) [symbol(sumEI)] and sum(Exp, Exp) [symbol(sumEE)] with overload(sum), one rule over sumEI, no ?X; differs_from c3-anywhere-ctor-base: the text without overload(sum)
+differs_from = "c3-anywhere-ctor-base"
+# expected: sumEE written with anywhere{}() and no constructor{}(), the symbol-overload equation and the no-confusion axiom of sumEE and sumEI; the account reads the overloading symbol with overloadConfusion counted and no refusal

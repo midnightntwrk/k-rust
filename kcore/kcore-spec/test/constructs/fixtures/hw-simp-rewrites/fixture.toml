@@ -1,0 +1,7 @@
+# Hand-written KORE: f2-examples/ens.kompile.kore (K 7.1.337's text of f2-examples/ens.k) with one
+# attribute, simplification{}(), put first in the attribute list of the rewrite axiom of rule ENS.go; nothing
+# else changed. No text kompile 7.1.337 delivers holds the key there: kompile refuses simplification on a rule
+# whose left side is a configuration (fixture e2-simp-on-rule, exit 113), and a rule whose left side is a
+# function application is written as an \equals axiom. Shows a \rewrites axiom carrying simplification: refused
+# by name (ruleAttribute), not classed inert.
+kore = "test/constructs/fixtures/hw-simp-rewrites/hw-simp-rewrites.kore"

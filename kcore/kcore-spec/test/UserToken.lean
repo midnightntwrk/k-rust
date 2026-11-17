@@ -63,9 +63,9 @@ def tagS : Srt := 32
 def identS : Srt := 33
 def cmdS : Srt := 34
 def nameS : Srt := 35
-def kCell : Sym := 382
-def done : Sym := 385
-def go : Sym := 386
+def kCell : Sym := 386
+def done : Sym := 389
+def go : Sym := 390
 
 theorem names_ok : c.sortName tagS = "Tag" ∧ c.sortName identS = "Ident" ∧ c.sortName cmdS = "Cmd" ∧
     c.sortName nameS = "Name" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName done = "Lbldone" ∧

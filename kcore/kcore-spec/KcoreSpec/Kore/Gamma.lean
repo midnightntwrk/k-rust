@@ -96,6 +96,28 @@ def distUncItem (N : String) (g g' : Gen) (ug ug' : Option (List (List String)))
         unc ug' g'.argSorts y)
       (notEqual (genPat N g (x.map .evar)) (genPat N g' (y.map .evar))) }
 
+/-- Cons-Fun at uncovered arguments (`covs`: the argument sorts of the generator's overloads). -/
+def funUncItem (N : String) (g : Gen) (covs : List (List String)) : Item :=
+  let n := g.argSorts.length
+  let x := xs 0 n
+  let y : EVar := ⟨n + 1⟩
+  let z : EVar := ⟨n + 2⟩
+  { label := s!"cons-fun-uncovered {genName N g}", rule := "Cons-Fun-Unc", names := names "x" n ++ ["y"]
+    pat := guarded (memGuards x g.argSorts ++ [uncoveredP g.argSorts covs x z])
+      (sExists y (sortP N) (genPat N g (x.map .evar) ≡ .evar y)) }
+
+/-- Cons-Inj at uncovered arguments. -/
+def injUncItem (N : String) (g : Gen) (covs : List (List String)) : Item :=
+  let n := g.argSorts.length
+  let x := xs 0 n
+  let y := xs n n
+  let z : EVar := ⟨2 * n + 1⟩
+  { label := s!"cons-inj-uncovered {genName N g}", rule := "Cons-Inj-Unc", names := names "x" n ++ names "y" n
+    pat := guarded (memGuards x g.argSorts ++ memGuards y g.argSorts ++
+        [uncoveredP g.argSorts covs x z, uncoveredP g.argSorts covs y z])
+      ((genPat N g (x.map .evar) ≡ genPat N g (y.map .evar)) ⇒
+        conjList ((x.zip y).map fun (a, b) => .evar a ≡ .evar b)) }
+
 /-- An overload equation: `f(lift ā) = lift (g(ā))` for the symbol `f` overloading `g`, `lift`
 the injection between two different sorts. -/
 def ovlEqItem (f g : CtorSig) : Item :=

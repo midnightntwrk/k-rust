@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-scope-left-assoc-krust-builtin/hw-scope-left-assoc-krust-builtin.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-scope-left-assoc-krust-builtin/hw-scope-left-assoc-krust-builtin.kore` (cwd: kcore-spec)
+definition.kore bytes: 90913
+definition.kore sha256: aca3d97ebff504ca8380197e446917363abbedb9576ef5bc07b60c7aef41b1eb

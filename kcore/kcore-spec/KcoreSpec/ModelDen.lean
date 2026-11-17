@@ -97,17 +97,21 @@ theorem symAt_full {n : String} {args : List Elem} {k : CtorSig} {p : Nat} {vs :
   refine (ite_mem _ _ x).trans ?_
   rw [if_pos hl, hv]
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- A symbol applied to the elements of values, one at a time, from a partial application. -/
 theorem appE_sym {n : String} {k : CtorSig}
     (hres : ∀ args : List Elem, (∀ s, args.head? ≠ some (.srt s)) → resolve c n args = some (k, 0)) :
     ∀ (pre rest : List GroundTerm), pre.length < k.args.length → pre.length + rest.length = k.args.length →
-      ∀ m, AppE (stdI c) (.app (.sym n) (pre.map Elem.val)) (rest.map Elem.val) m ↔ result c k (pre ++ rest) m
+      ∀ m, AppE (stdI_T c T) (.app (.sym n) (pre.map Elem.val)) (rest.map Elem.val) m ↔ result c k (pre ++ rest) m
   | pre, [], hlt, hlen, _ => by simp at hlen; omega
   | pre, w :: rest, hlt, hlen, m => by
     have hv2 : pre.map Elem.val ++ [Elem.val w] = (pre ++ [w]).map Elem.val := by simp
     have hr := hres ((pre ++ [w]).map Elem.val) (by intro s; cases pre <;> simp)
     have hl2 : ((pre ++ [w]).map Elem.val).length = pre.length + 1 := by simp
-    have hev : ∀ x, (stdI c).evalApp (.app (.sym n) (pre.map Elem.val)) (.val w) x ↔
+    have hev : ∀ x, (stdI_T c T).evalApp (.app (.sym n) (pre.map Elem.val)) (.val w) x ↔
         symAt c n ((pre ++ [w]).map Elem.val) x := fun x => by rw [← hv2]; exact Iff.rfl
     simp only [List.map_cons, AppE, hev]
     by_cases hl : pre.length + 1 < k.args.length
@@ -128,11 +132,24 @@ theorem appE_sym {n : String} {k : CtorSig}
       · rintro ⟨a', ha', rfl⟩; exact ha'
       · intro h; exact ⟨m, h, rfl⟩
 
+end AtT
+
+/-- A symbol applied to the elements of values, one at a time, from a partial application. -/
+theorem appE_sym {n : String} {k : CtorSig}
+    (hres : ∀ args : List Elem, (∀ s, args.head? ≠ some (.srt s)) → resolve c n args = some (k, 0)) :
+    ∀ (pre rest : List GroundTerm), pre.length < k.args.length → pre.length + rest.length = k.args.length →
+      ∀ m, AppE (stdI c) (.app (.sym n) (pre.map Elem.val)) (rest.map Elem.val) m ↔ result c k (pre ++ rest) m :=
+  AtT.appE_sym (c := c) (T := StepM c) (n := n) (k := k) (hres := hres)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **A symbol of the semantics, at values**: the symbol of a name, applied to the elements of
 values, gives what the symbol gives on the values (`result`). -/
 theorem symE_vals (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
     (hl : vs.length = k.args.length) (m : Elem) :
-    SymE (stdI c) (c.symName k.name) (vs.map Elem.val) m ↔ result c k vs m := by
+    SymE (stdI_T c T) (c.symName k.name) (vs.map Elem.val) m ↔ result c k vs m := by
   have hinj : c.symName k.name ≠ "inj" := hn.2.1 k hk
   have hres := resolve_sym hn hk
   unfold SymE
@@ -147,11 +164,20 @@ theorem symE_vals (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ kernelSyms c) {
     · rintro ⟨a, ha, rfl⟩; exact ha
     · intro h; exact ⟨m, h, rfl⟩
   · simp only [if_neg h0]
-    have := appE_sym hres [] vs (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
+    have := appE_sym (T := T) hres [] vs (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
     simp only [List.map_nil, List.nil_append] at this
     constructor
     · rintro ⟨a, ha, h⟩; rw [ha] at h; exact this.mp h
     · intro h; exact ⟨_, rfl, this.mpr h⟩
+
+end AtT
+
+/-- **A symbol of the semantics, at values**: the symbol of a name, applied to the elements of
+values, gives what the symbol gives on the values (`result`). -/
+theorem symE_vals (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
+    (hl : vs.length = k.args.length) (m : Elem) :
+    SymE (stdI c) (c.symName k.name) (vs.map Elem.val) m ↔ result c k vs m :=
+  AtT.symE_vals (c := c) (T := StepM c) (hn := hn) (k := k) (hk := hk) (vs := vs) (hl := hl) (m := m)
 
 /-! ## Sorts by name -/
 
@@ -169,12 +195,23 @@ theorem sortOfName_eq (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sor
     have h2 := List.mem_of_find?_eq_some h
     rw [hn.2.2 s' h2 s hm (append_cancel (a := "Sort") (by simpa using h1))]
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sort_den (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length)
     (e : Valuation Elem) (m : Elem) :
-    (KoreAML.sym (.sort ("Sort" ++ c.sortName s))).interpret (stdI c) e m ↔ m = .srt s := by
+    (KoreAML.sym (.sort ("Sort" ++ c.sortName s))).interpret (stdI_T c T) e m ↔ m = .srt s := by
   show (∃ s', sortOfName c _ = some s' ∧ m = .srt s') ↔ _
   rw [sortOfName_eq hn hs]
   simp
+
+end AtT
+
+theorem sort_den (hn : NamesApartK c) {s : Srt} (hs : s < nRegSorts + c.sortNames.length)
+    (e : Valuation Elem) (m : Elem) :
+    (KoreAML.sym (.sort ("Sort" ++ c.sortName s))).interpret (stdI c) e m ↔ m = .srt s :=
+  AtT.sort_den (c := c) (T := StepM c) (hn := hn) (s := s) (hs := hs) (e := e) (m := m)
 
 /-! ## Literals -/
 
@@ -544,8 +581,26 @@ theorem tr_ap (f : String) (ps : List Kore.Pattern) :
   unfold KoreAML.ap
   rw [KoreAML.tr_app0, trArgs_appList]
 
-theorem stdI_symb (σ : KoreAML.Sym) : (stdI c).evalSymb σ = evalSymb c σ := rfl
-theorem stdI_app : (stdI c).evalApp = evalApp c := rfl
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem stdI_symb (σ : KoreAML.Sym) : (stdI_T c T).evalSymb σ = evalSymb c σ := rfl
+
+end AtT
+
+theorem stdI_symb (σ : KoreAML.Sym) : (stdI c).evalSymb σ = evalSymb c σ :=
+  AtT.stdI_symb (c := c) (T := StepM c) (σ := σ)
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem stdI_app : (stdI_T c T).evalApp = evalApp_T c T := rfl
+
+end AtT
+
+theorem stdI_app : (stdI c).evalApp = evalApp c :=
+  AtT.stdI_app (c := c) (T := StepM c)
 
 theorem injNormal_plain {a b : Srt} {t : GroundTerm} (h : t.isInj = false) : injNormal a b t = .inj a b t := by
   cases t <;> first | rfl | cases h
@@ -569,10 +624,61 @@ theorem hook_listElem_eq (vs : List GroundTerm) :
 theorem hook_listConcat_eq (vs : List GroundTerm) :
     hook listConcat vs = some (match vs with | [.list _ a, .list _ b] => some (.list Srt.list (a ++ b)) | _ => none) := rfl
 
-theorem evalApp_inj0 (b : Elem) : evalApp c (.app .inj []) b = fun x => x = .app .inj [b] := rfl
-theorem evalApp_inj1 (a b : Elem) : evalApp c (.app .inj [a]) b = fun x => x = .app .inj [a, b] := rfl
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem evalApp_inj0 (b : Elem) : evalApp_T c T (.app .inj []) b = fun x => x = .app .inj [b] := rfl
+
+end AtT
+
+theorem evalApp_inj0 (b : Elem) : evalApp c (.app .inj []) b = fun x => x = .app .inj [b] :=
+  AtT.evalApp_inj0 (c := c) (T := StepM c) (b := b)
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem evalApp_inj1 (a b : Elem) : evalApp_T c T (.app .inj [a]) b = fun x => x = .app .inj [a, b] := rfl
+
+end AtT
+
+theorem evalApp_inj1 (a b : Elem) : evalApp c (.app .inj [a]) b = fun x => x = .app .inj [a, b] :=
+  AtT.evalApp_inj1 (c := c) (T := StepM c) (a := a) (b := b)
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem evalApp_inj2 (a b : Srt) (v : GroundTerm) :
-    evalApp c (.app .inj [.srt a, .srt b]) (.val v) = fun x => x = .val (injNormal a b v) := rfl
+    evalApp_T c T (.app .inj [.srt a, .srt b]) (.val v) = fun x => x = .val (injNormal a b v) := rfl
+
+end AtT
+
+theorem evalApp_inj2 (a b : Srt) (v : GroundTerm) :
+    evalApp c (.app .inj [.srt a, .srt b]) (.val v) = fun x => x = .val (injNormal a b v) :=
+  AtT.evalApp_inj2 (c := c) (T := StepM c) (a := a) (b := b) (v := v)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- A collection's symbol applied to patterns that denote values: the value its library hook gives,
+at the collection's sort. -/
+theorem coll_app (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) {f g : Sym} {args : List Srt}
+    (hf : (f = k.unit ∧ g = (builtinColl k.kind).unit ∧ args = []) ∨
+      (f = k.elem ∧ g = (builtinColl k.kind).elem ∧ args = elemArgs k) ∨
+      (f = k.concat ∧ g = (builtinColl k.kind).concat ∧ args = [k.sort, k.sort]))
+    {vs : List GroundTerm} {φs : List KoreAML.P} {e : Valuation Elem}
+    (H : All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x) φs (vs.map Elem.val))
+    (hlen : vs.length = args.length) {r : GroundTerm} (hv : hook g vs = some (some r))
+    (hws : r.withSort (builtinColl k.kind).sort = r) (hsr : c.sortOf (r.withSort k.sort) = some k.sort)
+    (m : Elem) :
+    (KoreAML.appList (KoreAML.sym (.symbol (c.symName f))) φs).interpret (stdI_T c T) e m ↔
+      m = .val (r.withSort k.sort) := by
+  obtain ⟨kf, hkf, hkfn, hkfa, hres⟩ := coll_sym h hk hf
+  rw [interp_symList _ φs _ H m, ← hkfn, symE_vals h.namesK hkf (by rw [hkfa]; exact hlen)]
+  exact hres hv hws hsr m
+
+end AtT
 
 /-- A collection's symbol applied to patterns that denote values: the value its library hook gives,
 at the collection's sort. -/
@@ -586,10 +692,8 @@ theorem coll_app (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) {f g
     (hws : r.withSort (builtinColl k.kind).sort = r) (hsr : c.sortOf (r.withSort k.sort) = some k.sort)
     (m : Elem) :
     (KoreAML.appList (KoreAML.sym (.symbol (c.symName f))) φs).interpret (stdI c) e m ↔
-      m = .val (r.withSort k.sort) := by
-  obtain ⟨kf, hkf, hkfn, hkfa, hres⟩ := coll_sym h hk hf
-  rw [interp_symList _ φs _ H m, ← hkfn, symE_vals h.namesK hkf (by rw [hkfa]; exact hlen)]
-  exact hres hv hws hsr m
+      m = .val (r.withSort k.sort) :=
+  AtT.coll_app (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (f := f) (g := g) (args := args) (hf := hf) (vs := vs) (φs := φs) (e := e) (H := H) (hlen := hlen) (r := r) (hv := hv) (hws := hws) (hsr := hsr) (m := m)
 
 theorem elemArgs_length {k : CollSig} (hk : k.kind = .map) : (elemArgs k).length = 2 := by
   unfold elemArgs; rw [hk]; rfl
@@ -628,13 +732,17 @@ theorem collOf_spec {s : Srt} {k : CollSig} (h : c.collOf s = some k) : k ∈ c.
   exact ⟨List.mem_of_find?_eq_some h, by simpa using List.find?_some h⟩
 
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- A one-element set or list, from the reading of its element. -/
 theorem den_elem1 (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
     (hkind : k.kind = .set ∨ k.kind = .list) (x : GroundTerm) (hs : c.sortOf (elemsVal k [x]) = some k.sort)
-    {e : Valuation Elem} (hx : ∀ m, (den c x).interpret (stdI c) e m ↔ m = .val x) :
-    ∀ m, (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k [x])).interpret (stdI c) e m ↔ m = .val (elemsVal k [x]) := by
+    {e : Valuation Elem} (hx : ∀ m, (den c x).interpret (stdI_T c T) e m ↔ m = .val x) :
+    ∀ m, (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k [x])).interpret (stdI_T c T) e m ↔ m = .val (elemsVal k [x]) := by
   rw [GroundTerm.koreElems.eq_2, tr_ap]
-  have H : All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
+  have H : All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x)
       ([GroundTerm.kore c x].map (KoreAML.tr ⟨[], []⟩)) ([x].map Elem.val) := .cons hx .nil
   have hl := (elemArgs_length' hkind).symm
   rcases hkind with hkind | hkind
@@ -647,6 +755,15 @@ theorem den_elem1 (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
     exact coll_app h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) H hl (r := .list Srt.list [x])
       (by rw [hkind, builtinColl_list, hook_listElem_eq]) (by rw [hkind, builtinColl_list]; rfl) hs
 
+end AtT
+
+/-- A one-element set or list, from the reading of its element. -/
+theorem den_elem1 (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .set ∨ k.kind = .list) (x : GroundTerm) (hs : c.sortOf (elemsVal k [x]) = some k.sort)
+    {e : Valuation Elem} (hx : ∀ m, (den c x).interpret (stdI c) e m ↔ m = .val x) :
+    ∀ m, (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k [x])).interpret (stdI c) e m ↔ m = .val (elemsVal k [x]) :=
+  AtT.den_elem1 (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind) (x := x) (hs := hs) (e := e) (hx := hx)
+
 /-- What the laws of the overloading symbols' normal forms read (OvlLaws.lean): `overloadsOK`, and
 transitive, irreflexive subsorts. -/
 theorem HypModelCore.ovlHyp (h : HypModelCore c) : OvlLaws.OvlHyp c :=
@@ -658,16 +775,31 @@ theorem HypModelCore.ovlHyp (h : HypModelCore c) : OvlLaws.OvlHyp c :=
 /-- `φ` denotes the one element `x` at the valuation `e`. -/
 abbrev Sing (c : Semantics) (e : Valuation Elem) (φ : KoreAML.P) (x : Elem) : Prop := ∀ m, φ.interpret (stdI c) e m ↔ m = x
 
+namespace AtT
+
+/-- `φ` denotes exactly `x` in the value model at the transition `T`. -/
+abbrev Sing (c : Semantics) (T : GroundTerm → GroundTerm → Prop) (e : ML.Valuation Elem) (φ : KoreAML.P)
+    (x : Elem) : Prop :=
+  ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x
+
+end AtT
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 mutual
 
 /-- **Every value denotes itself.** -/
 theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s →
-    ∀ (e : Valuation Elem), Sing c e (den c v) (.val v)
+    ∀ (e : Valuation Elem), Sing c T e (den c v) (.val v)
   | .ctor f ts, s, hv, e => by
     have hd : den c (.ctor f ts) = KoreAML.appList (KoreAML.sym (.symbol (c.symName f)))
         ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) := by
       unfold den KoreAML.den; rw [GroundTerm.kore]; exact tr_ap _ _
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩ | ⟨-, -, kp, hko, -⟩
+    rotate_right
+    · exact absurd (c.lookupOpen_spec hko).2.1 (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ (c.lookupOpen_spec hko).1])
     · obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
       have hks : k ∈ kernelSyms c :=
         List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hkm)))
@@ -763,7 +895,7 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
   termination_by structural v => v
 
 theorem den_list (h : HypModelCore c) : ∀ (ts : List GroundTerm) {ss : List Srt}, c.sortsOf ts = some ss →
-    ∀ (e : Valuation Elem), All2 (fun φ x => Sing c e φ x)
+    ∀ (e : Valuation Elem), All2 (fun φ x => Sing c T e φ x)
       ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) (ts.map Elem.val)
   | [], _, _, _ => .nil
   | t :: ts, _, hts, e => by
@@ -774,7 +906,7 @@ theorem den_list (h : HypModelCore c) : ∀ (ts : List GroundTerm) {ss : List Sr
 theorem den_entries (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
     (hkind : k.kind = .map) : ∀ (es : List (GroundTerm × GroundTerm)), keysSorted es = true →
       c.entriesOK k.key (valSort k) es = true → ∀ (e : Valuation Elem),
-      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es))
+      Sing c T e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es))
   | [], _, _, e => by
     rw [GroundTerm.koreEntries, tr_ap]
     exact coll_app h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) .nil rfl (r := .map Srt.map [])
@@ -795,7 +927,7 @@ theorem den_entries (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (
 
 theorem den_entry (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
     (hkind : k.kind = .map) : ∀ (x : GroundTerm × GroundTerm), c.entryOK k.key (valSort k) x = true →
-      ∀ (e : Valuation Elem), Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x]))
+      ∀ (e : Valuation Elem), Sing c T e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x]))
   | (a, b), hx, e => by
     obtain ⟨ha, hb⟩ := entryOK_iff.mp hx
     rw [GroundTerm.koreEntry, tr_ap]
@@ -811,7 +943,7 @@ theorem den_rmEntriesK (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls
     (hkind : k.kind = .rangeMap) (hval : k.val = some (valSort k)) :
     ∀ (es : List (GroundTerm × GroundTerm)), rangesOK es = true →
       c.entriesOK k.key (valSort k) es = true → ∀ (e : Valuation Elem),
-      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es))
+      Sing c T e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es))
   | [], _, _, e => by
     rw [GroundTerm.koreEntries, tr_ap]
     exact coll_app h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) .nil rfl (r := rmV [])
@@ -837,7 +969,7 @@ theorem den_rmEntryK (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) 
     (hkind : k.kind = .rangeMap) (hval : k.val = some (valSort k)) :
     ∀ (x : GroundTerm × GroundTerm), (asRange x.1).isSome = true →
       c.entryOK k.key (valSort k) x = true → ∀ (e : Valuation Elem),
-      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x]))
+      Sing c T e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x]))
   | (a, b), hr, hx, e => by
     obtain ⟨ha, hb⟩ := entryOK_iff.mp hx
     rw [GroundTerm.koreEntry, tr_ap]
@@ -850,7 +982,7 @@ theorem den_rmEntryK (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) 
 theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
     (hkind : k.kind = .set ∨ k.kind = .list) : ∀ (es : List GroundTerm),
       c.sortOf (elemsVal k es) = some k.sort → ∀ (e : Valuation Elem),
-      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k es)) (.val (elemsVal k es))
+      Sing c T e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k es)) (.val (elemsVal k es))
   | [], hs, e => by
     rw [GroundTerm.koreElems, tr_ap]
     rcases hkind with hkind | hkind
@@ -865,7 +997,7 @@ theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
   | [x], hs, e => by
     have hx : c.sortOf x = some k.key := ((sortOf_elems_iff hco hkind).mp hs).2 x (List.mem_singleton_self _)
     rw [GroundTerm.koreElems.eq_2, tr_ap]
-    have H : All2 (fun φ x => Sing c e φ x) ([GroundTerm.kore c x].map (KoreAML.tr ⟨[], []⟩)) ([x].map Elem.val) :=
+    have H : All2 (fun φ x => Sing c T e φ x) ([GroundTerm.kore c x].map (KoreAML.tr ⟨[], []⟩)) ([x].map Elem.val) :=
       .cons (den_val h x hx e) .nil
     have hl := (elemArgs_length' hkind).symm
     rcases hkind with hkind | hkind
@@ -887,7 +1019,7 @@ theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
         have := hso hk'; simp only [elemsSorted, Bool.and_eq_true] at this; exact this.2,
         fun z hz => hall z (List.mem_cons_of_mem _ hz)⟩
     rw [GroundTerm.koreElems.eq_3 c k x (y :: es) (List.cons_ne_nil _ _), tr_ap]
-    have H1 : Sing c e (KoreAML.tr ⟨[], []⟩ (KoreAML.ap (c.symName k.elem) [GroundTerm.kore c x]))
+    have H1 : Sing c T e (KoreAML.tr ⟨[], []⟩ (KoreAML.ap (c.symName k.elem) [GroundTerm.kore c x]))
         (.val (elemsVal k [x])) := by
       rw [← GroundTerm.koreElems.eq_2]
       exact den_elem1 h k hk hco hkind x hs1 (den_val h x hx e)
@@ -909,6 +1041,53 @@ theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hc
 
 end
 
+end AtT
+
+/-- **Every value denotes itself.** -/
+theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s →
+    ∀ (e : Valuation Elem), Sing c e (den c v) (.val v) :=
+  AtT.den_val (c := c) (T := StepM c) (h := h)
+
+theorem den_list (h : HypModelCore c) : ∀ (ts : List GroundTerm) {ss : List Srt}, c.sortsOf ts = some ss →
+    ∀ (e : Valuation Elem), All2 (fun φ x => Sing c e φ x)
+      ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) (ts.map Elem.val) :=
+  AtT.den_list (c := c) (T := StepM c) (h := h)
+
+theorem den_entries (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .map) : ∀ (es : List (GroundTerm × GroundTerm)), keysSorted es = true →
+      c.entriesOK k.key (valSort k) es = true → ∀ (e : Valuation Elem),
+      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es)) :=
+  AtT.den_entries (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind)
+
+theorem den_entry (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .map) : ∀ (x : GroundTerm × GroundTerm), c.entryOK k.key (valSort k) x = true →
+      ∀ (e : Valuation Elem), Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x])) :=
+  AtT.den_entry (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind)
+
+/-- A range map value of a collection of kind `.rangeMap`, the library's or the definition's own,
+denotes itself: the unit, or its first entry's element concatenated with the rest. -/
+theorem den_rmEntriesK (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .rangeMap) (hval : k.val = some (valSort k)) :
+    ∀ (es : List (GroundTerm × GroundTerm)), rangesOK es = true →
+      c.entriesOK k.key (valSort k) es = true → ∀ (e : Valuation Elem),
+      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntries c k es)) (.val (.map k.sort es)) :=
+  AtT.den_rmEntriesK (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind) (hval := hval)
+
+/-- One entry of a range map of a collection of kind `.rangeMap`: the element symbol at its proper
+range and its value. -/
+theorem den_rmEntryK (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .rangeMap) (hval : k.val = some (valSort k)) :
+    ∀ (x : GroundTerm × GroundTerm), (asRange x.1).isSome = true →
+      c.entryOK k.key (valSort k) x = true → ∀ (e : Valuation Elem),
+      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c k x)) (.val (.map k.sort [x])) :=
+  AtT.den_rmEntryK (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind) (hval := hval)
+
+theorem den_elems (h : HypModelCore c) (k : CollSig) (hk : k ∈ c.allColls) (hco : c.collOf k.sort = some k)
+    (hkind : k.kind = .set ∨ k.kind = .list) : ∀ (es : List GroundTerm),
+      c.sortOf (elemsVal k es) = some k.sort → ∀ (e : Valuation Elem),
+      Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreElems c k es)) (.val (elemsVal k es)) :=
+  AtT.den_elems (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hco := hco) (hkind := hkind)
+
 /-- A range map value of the library's sort denotes itself (`den_rmEntriesK` at `builtinColls`'
 range-map row). -/
 theorem den_rmEntries (h : HypModelCore c) : ∀ (es : List (GroundTerm × GroundTerm)), rangesOK es = true →
@@ -923,9 +1102,19 @@ theorem den_rmEntry (h : HypModelCore c) : ∀ (x : GroundTerm × GroundTerm), (
       Sing c e (KoreAML.tr ⟨[], []⟩ (GroundTerm.koreEntry c (builtinColl .rangeMap) x)) (.val (.map Srt.rangeMap [x])) :=
   den_rmEntryK h _ rmM_mem collOf_rangeMap rfl rfl
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- **`DenGoal`**: under `HypModelCore`, every value of a sort denotes exactly its own element. -/
+theorem denGoal (h : HypModelCore c) : DenGoalT c T :=
+  fun v _ hv e m => den_val h v hv e m
+
+end AtT
+
 /-- **`DenGoal`**: under `HypModelCore`, every value of a sort denotes exactly its own element. -/
 theorem denGoal (h : HypModelCore c) : DenGoal c :=
-  fun v _ hv e m => den_val h v hv e m
+  AtT.denGoal (c := c) (T := StepM c) (h := h)
 
 
 end Model

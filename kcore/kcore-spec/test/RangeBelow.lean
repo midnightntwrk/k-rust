@@ -131,10 +131,11 @@ theorem cy_below : RangeBelow cy := by
   intro a b hs
   exfalso
   have hk' : lookupSig cy.ctorSigs rangeCtor = some ⟨rangeCtor, [Srt.bool], Srt.range⟩ := by decide +kernel
-  rcases cy.sortOf_ctor_iff.mp hs with ⟨k, hk, hargs, -⟩ | ⟨hn, -⟩
+  rcases cy.sortOf_ctor_iff.mp hs with ⟨k, hk, hargs, -⟩ | ⟨hn, -⟩ | ⟨hn, -⟩
   · rw [hk'] at hk; cases hk
     have := sortsOf_length hargs
     simp at this
+  · rw [hk'] at hn; cases hn
   · rw [hk'] at hn; cases hn
 example : cy.rangeKeysOK = false ∧ genWf cy = false := by decide +kernel
 

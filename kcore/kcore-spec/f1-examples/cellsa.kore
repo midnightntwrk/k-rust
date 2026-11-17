@@ -1,7 +1,7 @@
 [
   topCellInitializer{}(LblinitGeneratedTopCell{}()),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+    "Source(m2-spec/probe/k/cellsa.k)"
   )
 ]
 module BASIC-K
@@ -1017,7 +1017,7 @@ module CELLSA
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+      "Source(m2-spec/probe/k/cellsa.k)"
     ),
     symbol'Kywd'{}("foo")
   ]
@@ -1029,7 +1029,7 @@ module CELLSA
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+      "Source(m2-spec/probe/k/cellsa.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -1041,7 +1041,7 @@ module CELLSA
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+      "Source(m2-spec/probe/k/cellsa.k)"
     )
   ]
   symbol LblinitCCell{}() : SortCCell{} [function{}(), functional{}(), total{}()]
@@ -1053,7 +1053,7 @@ module CELLSA
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
-      "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+      "Source(m2-spec/probe/k/cellsa.k)"
     )
   ]
   symbol LblinitTCell{}(SortMap{}) : SortTCell{} [function{}()]
@@ -4867,7 +4867,7 @@ module CELLSA
       UNIQUE'Unds'ID{}("eb7da450ab7b9d9a12ab91c066cd5a910a3f0d89ed896edb78b8cc87984e8287"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,3,5,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+        "Source(m2-spec/probe/k/cellsa.k)"
       )
     ]
   axiom{R}
@@ -6333,6 +6333,6 @@ module CELLSA
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
-    "Source(/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/m2-spec/probe/k/cellsa.k)"
+    "Source(m2-spec/probe/k/cellsa.k)"
   )
 ]

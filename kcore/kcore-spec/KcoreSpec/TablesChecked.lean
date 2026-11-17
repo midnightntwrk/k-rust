@@ -86,6 +86,7 @@ def rhsCtxT (fns : List CtorSig) : TermCtx :=
 def gensT (N : Srt) : List Gen :=
   (c.ctorSigs.filter (·.result == N)).map .ctor ++
   (c.ovlSigs.filter (·.result == N)).map .ctor ++
+  (((c.params.filter (·.raw)).map (·.sig)).filter (·.result == N)).map .ctor ++
   (sortBy id ((T.subs.filter (·.2 == N)).map (·.1))).map .inj
 
 def meetT (a b : Srt) : Bool :=
@@ -171,7 +172,8 @@ def ruleOKT (r : Rule) : Bool :=
   binds r.vars.length (varOccs r.lhs) &&
   reqOK (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.req &&
   reqOK (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.ens &&
-  sortOfTerm (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort
+  sortOfTerm (c.rhsCtxT T (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
+  r.exs.isEmpty
 
 /-- `ok`, read from the tables. -/
 def okT : Bool :=
@@ -188,6 +190,8 @@ variable {c : Semantics}
 
 theorem meetT_tables : meetT (tables c) = c.meet := by
   funext a b; simp only [Semantics.meetT, Semantics.meet, le_tables, tables_subs]
+
+theorem gensT_tables : c.gensT (tables c) = c.gens := rfl
 
 theorem coversT_tables : ∀ n ss rows, c.coversT (tables c) n ss rows = c.covers n ss rows
   | 0, _, _ => by rw [Semantics.coversT, Semantics.covers]

@@ -81,36 +81,54 @@ theorem consSorts_numbered (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts 
 theorem ovl_kernel {o : OvlSig} (ho : o ∈ c.ovls) : o.sig ∈ kernelSyms c :=
   List.mem_append_right _ (List.mem_map_of_mem ho)
 
-/-- The generators: the constructors, the overloading symbols and the injections. -/
+/-- The generators: the constructors, the overloading symbols, the open generators (the `raw`
+parameters) and the injections. -/
 theorem mem_gens {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
     (∃ k ∈ c.ctorSigs, k.result = N ∧ g = .ctor k) ∨ (∃ o ∈ c.ovls, o.sig.result = N ∧ g = .ctor o.sig) ∨
-      (∃ a, (a, N) ∈ c.subsorts ∧ g = .inj a) := by
+      (∃ a, (a, N) ∈ c.subsorts ∧ g = .inj a) ∨
+      (∃ k ∈ c.params, k.raw = true ∧ k.sig.result = N ∧ g = .ctor k.sig) := by
   unfold Semantics.gens at hg
   rcases List.mem_append.mp hg with hg | hg
   · rcases List.mem_append.mp hg with hg | hg
+    · rcases List.mem_append.mp hg with hg | hg
+      · obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
+        obtain ⟨hk, hr⟩ := List.mem_filter.mp hk
+        exact Or.inl ⟨k, hk, by simpa using hr, rfl⟩
+      · obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
+        obtain ⟨hk, hr⟩ := List.mem_filter.mp hk
+        obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hk
+        exact Or.inr (Or.inl ⟨o, ho, by simpa using hr, rfl⟩)
     · obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
       obtain ⟨hk, hr⟩ := List.mem_filter.mp hk
-      exact Or.inl ⟨k, hk, by simpa using hr, rfl⟩
-    · obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hg
-      obtain ⟨hk, hr⟩ := List.mem_filter.mp hk
-      obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hk
-      exact Or.inr (Or.inl ⟨o, ho, by simpa using hr, rfl⟩)
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hk
+      obtain ⟨hp, hraw⟩ := List.mem_filter.mp hp
+      exact Or.inr (Or.inr (Or.inr ⟨p, hp, hraw, by simpa using hr, rfl⟩))
   · obtain ⟨a, ha, rfl⟩ := List.mem_map.mp hg
     rw [mem_sortBy] at ha
     obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ha
     obtain ⟨hp, hr⟩ := List.mem_filter.mp hp
     have : p.2 = N := by simpa using hr
-    exact Or.inr (Or.inr ⟨p.1, by rw [← this]; exact hp, rfl⟩)
+    exact Or.inr (Or.inr (Or.inl ⟨p.1, by rw [← this]; exact hp, rfl⟩))
+
+/-- Under `HypModelCore` no parameter is raw, so no generator is an open generator. -/
+theorem mem_gens_core (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
+    (∃ k ∈ c.ctorSigs, k.result = N ∧ g = .ctor k) ∨ (∃ o ∈ c.ovls, o.sig.result = N ∧ g = .ctor o.sig) ∨
+      (∃ a, (a, N) ∈ c.subsorts ∧ g = .inj a) := by
+  rcases mem_gens hg with h1 | h2 | h3 | ⟨k, hk, hraw, -, -⟩
+  · exact Or.inl h1
+  · exact Or.inr (Or.inl h2)
+  · exact Or.inr (Or.inr h3)
+  · exact absurd hraw (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
 
 theorem gens_ovl {o : OvlSig} (ho : o ∈ c.ovls) : Gen.ctor o.sig ∈ c.gens o.sig.result := by
   unfold Semantics.gens
-  exact List.mem_append_left _ (List.mem_append_right _
-    (List.mem_map.mpr ⟨o.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem ho, by simp⟩, rfl⟩))
+  exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _
+    (List.mem_map.mpr ⟨o.sig, List.mem_filter.mpr ⟨List.mem_map_of_mem ho, by simp⟩, rfl⟩)))
 
 /-- The argument sorts of a generator of a constructor sort are numbered. -/
 theorem gen_args_numbered (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
     ∀ s ∈ g.argSorts, s < nRegSorts + c.sortNames.length := by
-  rcases mem_gens hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, ha, rfl⟩
+  rcases mem_gens_core h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, ha, rfl⟩
   · exact fun s hs => h.symSorts (ctor_kernel hk) s (List.mem_cons_of_mem _ hs)
   · exact fun s hs => h.symSorts (ovl_kernel ho) s (List.mem_cons_of_mem _ hs)
   · intro s hs
@@ -132,20 +150,46 @@ theorem norm_ctor (h : HypModelCore c) {k : CtorSig} (hk : k ∈ c.ctorSigs) (vs
     c.norm k.name vs = .ctor k.name vs :=
   OvlLaws.norm_none (OvlLaws.lookupOvl_none_of_ctor h.ovlHyp hk) vs
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem gs_ovl (hn : NamesApartK c) {o : OvlSig} (ho : o ∈ c.ovls) (hio : c.isOvl o.sig.name = true) (N : String)
     {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (m : Elem) :
-    GS (stdI c) N (Gen.toK c (.ctor o.sig)) (vs.map Elem.val) m ↔ m = .val (c.norm o.sig.name vs) := by
+    GS (stdI_T c T) N (Gen.toK c (.ctor o.sig)) (vs.map Elem.val) m ↔ m = .val (c.norm o.sig.name vs) := by
   rw [← result_ovl (vs := vs) hio]
   exact symE_vals hn (ovl_kernel ho) hl m
 
+end AtT
+
+theorem gs_ovl (hn : NamesApartK c) {o : OvlSig} (ho : o ∈ c.ovls) (hio : c.isOvl o.sig.name = true) (N : String)
+    {vs : List GroundTerm} (hl : vs.length = o.sig.args.length) (m : Elem) :
+    GS (stdI c) N (Gen.toK c (.ctor o.sig)) (vs.map Elem.val) m ↔ m = .val (c.norm o.sig.name vs) :=
+  AtT.gs_ovl (c := c) (T := StepM c) (hn := hn) (o := o) (ho := ho) (hio := hio) (N := N) (vs := vs) (hl := hl) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem gs_ctor (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ c.ctorSigs) (N : String) {vs : List GroundTerm}
     (hl : vs.length = k.args.length) (m : Elem) :
-    GS (stdI c) N (Gen.toK c (.ctor k)) (vs.map Elem.val) m ↔ m = .val (.ctor k.name vs) := by
+    GS (stdI_T c T) N (Gen.toK c (.ctor k)) (vs.map Elem.val) m ↔ m = .val (.ctor k.name vs) := by
   rw [← result_ctor (vs := vs) (isCtor_of_mem hk)]
   exact symE_vals hn (ctor_kernel hk) hl m
 
+end AtT
+
+theorem gs_ctor (hn : NamesApartK c) {k : CtorSig} (hk : k ∈ c.ctorSigs) (N : String) {vs : List GroundTerm}
+    (hl : vs.length = k.args.length) (m : Elem) :
+    GS (stdI c) N (Gen.toK c (.ctor k)) (vs.map Elem.val) m ↔ m = .val (.ctor k.name vs) :=
+  AtT.gs_ctor (c := c) (T := StepM c) (hn := hn) (k := k) (hk := hk) (N := N) (vs := vs) (hl := hl) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem appE_inj2 (a N : Srt) (x m : Elem) :
-    AppE (stdI c) (.app .inj [.srt a, .srt N]) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) := by
+    AppE (stdI_T c T) (.app .inj [.srt a, .srt N]) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) := by
   simp only [AppE]
   constructor
   · rintro ⟨a', ha', rfl⟩
@@ -156,12 +200,22 @@ theorem appE_inj2 (a N : Srt) (x m : Elem) :
   · rintro ⟨v, rfl, rfl⟩
     exact ⟨_, rfl, rfl⟩
 
+end AtT
+
+theorem appE_inj2 (a N : Srt) (x m : Elem) :
+    AppE (stdI c) (.app .inj [.srt a, .srt N]) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) :=
+  AtT.appE_inj2 (c := c) (T := StepM c) (a := a) (N := N) (x := x) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem gs_inj (hn : NamesApartK c) {a N : Srt} (ha : a < nRegSorts + c.sortNames.length)
     (hN : N < nRegSorts + c.sortNames.length) (x m : Elem) :
-    GS (stdI c) (c.sortName N) (.inj (c.sortName a)) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) := by
+    GS (stdI_T c T) (c.sortName N) (.inj (c.sortName a)) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) := by
   unfold GS genHead
   have hh : ∀ y, (KoreAML.appList (KoreAML.sym (.symbol "inj"))
-      [KoreAML.Cons.sortP (c.sortName a), KoreAML.Cons.sortP (c.sortName N)]).interpret (stdI c) KoreAML.val0 y ↔
+      [KoreAML.Cons.sortP (c.sortName a), KoreAML.Cons.sortP (c.sortName N)]).interpret (stdI_T c T) KoreAML.val0 y ↔
       y = .app .inj [.srt a, .srt N] := by
     intro y
     rw [interp_appList_sing _ _ [.srt a, .srt N]
@@ -170,6 +224,13 @@ theorem gs_inj (hn : NamesApartK c) {a N : Srt} (ha : a < nRegSorts + c.sortName
       evalApp_inj1]
   simp only [hh, exists_eq_left]
   exact appE_inj2 a N x m
+
+end AtT
+
+theorem gs_inj (hn : NamesApartK c) {a N : Srt} (ha : a < nRegSorts + c.sortNames.length)
+    (hN : N < nRegSorts + c.sortNames.length) (x m : Elem) :
+    GS (stdI c) (c.sortName N) (.inj (c.sortName a)) [x] m ↔ ∃ v, x = .val v ∧ m = .val (injNormal a N v) :=
+  AtT.gs_inj (c := c) (T := StepM c) (hn := hn) (a := a) (N := N) (ha := ha) (hN := hN) (x := x) (m := m)
 
 theorem sortsOf_len : ∀ {ws : List GroundTerm} {ss : List Srt}, c.sortsOf ws = some ss → ws.length = ss.length
   | [], ss, h => by rw [sortsOf_nil] at h; cases h; rfl
@@ -187,13 +248,17 @@ theorem sortsOf_single {vs : List GroundTerm} {a : Srt} (h : c.sortsOf vs = some
     obtain ⟨rfl, rfl⟩ := he
     exact ⟨v, by rw [sortsOf_nil_eq hss'], hv⟩
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **A generator builds one value of its sort** from values of its argument sorts. -/
 theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N)
     {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
-    (∀ m, GS (stdI c) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
+    (∀ m, GS (stdI_T c T) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
       c.sortOf (genVal c N g vs) = some N := by
   have hn := h.namesK
-  rcases mem_gens hg with ⟨k, hk, rfl, rfl⟩ | ⟨o, ho, rfl, rfl⟩ | ⟨a, ha, rfl⟩
+  rcases mem_gens_core h hg with ⟨k, hk, rfl, rfl⟩ | ⟨o, ho, rfl, rfl⟩ | ⟨a, ha, rfl⟩
   · simp only [genVal, norm_ctor h hk]
     refine ⟨fun m => gs_ctor hn hk _ (sortsOf_len hvs) m, ?_⟩
     exact result_sorted h (ctor_kernel hk) hvs ((result_ctor (isCtor_of_mem hk) _).mpr rfl)
@@ -203,11 +268,20 @@ theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen}
   · obtain ⟨v, rfl, hv⟩ := sortsOf_single hvs
     obtain ⟨hsa, hsN⟩ := h.subSorts ha
     refine ⟨fun m => ?_, sortOf_injNormal h.trans ha hv⟩
-    show GS (stdI c) (c.sortName N) (.inj (c.sortName a)) [Elem.val v] m ↔ _
+    show GS (stdI_T c T) (c.sortName N) (.inj (c.sortName a)) [Elem.val v] m ↔ _
     rw [gs_inj hn hsa hsN]
     constructor
     · rintro ⟨v', hv', rfl⟩; cases hv'; rfl
     · rintro rfl; exact ⟨v, rfl, rfl⟩
+
+end AtT
+
+/-- **A generator builds one value of its sort** from values of its argument sorts. -/
+theorem gs_gen (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ c.gens N)
+    {vs : List GroundTerm} (hvs : c.sortsOf vs = some g.argSorts) :
+    (∀ m, GS (stdI c) (c.sortName N) (Gen.toK c g) (vs.map Elem.val) m ↔ m = .val (genVal c N g vs)) ∧
+      c.sortOf (genVal c N g vs) = some N :=
+  AtT.gs_gen (c := c) (T := StepM c) (h := h) (N := N) (hN := hN) (g := g) (hg := hg) (vs := vs) (hvs := hvs)
 
 /-! ## Injections -/
 
@@ -244,7 +318,7 @@ theorem injNormal_inj' (h : HypModelCore c) {a N : Srt} {v w : GroundTerm} (hv :
 theorem genVal_inj (h : HypModelCore c) {N : Srt} {g : Gen} (hg : g ∈ c.gens N) {vs ws : List GroundTerm}
     (hvs : c.sortsOf vs = some g.argSorts) (hws : c.sortsOf ws = some g.argSorts)
     (he : genVal c N g vs = genVal c N g ws) : vs = ws := by
-  rcases mem_gens hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, -, rfl⟩
+  rcases mem_gens_core h hg with ⟨k, hk, -, rfl⟩ | ⟨o, ho, -, rfl⟩ | ⟨a, -, rfl⟩
   · simp only [genVal, norm_ctor h hk, GroundTerm.ctor.injEq] at he
     exact he.2
   · exact OvlLaws.norm_inj h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho) hvs hws he
@@ -301,8 +375,12 @@ theorem injNormal_comp (a b d : Srt) (v : GroundTerm) :
 
 /-! ## Reading the items' patterns -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem disjList_intro {e : Valuation Elem} {m : Elem} : ∀ {ws : List KoreAML.P} {w : KoreAML.P}, w ∈ ws →
-    w.interpret (stdI c) e m → (KoreAML.disjList ws).interpret (stdI c) e m
+    w.interpret (stdI_T c T) e m → (KoreAML.disjList ws).interpret (stdI_T c T) e m
   | [], _, hw, _ => absurd hw List.not_mem_nil
   | [_], _, hw, h => by rw [List.mem_singleton.mp hw] at h; exact h
   | w' :: w'' :: ws, w, hw, h => by
@@ -312,14 +390,24 @@ theorem disjList_intro {e : Valuation Elem} {m : Elem} : ∀ {ws : List KoreAML.
     · exact Or.inl h
     · exact Or.inr (disjList_intro hw h)
 
+end AtT
+
+theorem disjList_intro {e : Valuation Elem} {m : Elem} : ∀ {ws : List KoreAML.P} {w : KoreAML.P}, w ∈ ws →
+    w.interpret (stdI c) e m → (KoreAML.disjList ws).interpret (stdI c) e m :=
+  AtT.disjList_intro (c := c) (T := StepM c) (e := e) (m := m)
+
 theorem memGuards_cons (x : EVar) (xs : List EVar) (s : String) (ss : List String) :
     KoreAML.Cons.memGuards (x :: xs) (s :: ss) =
       (x ∈∈ KoreAML.inhOf (KoreAML.Cons.sortP s)) :: KoreAML.Cons.memGuards xs ss := rfl
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- Membership guards of numbered sorts hold of values of those sorts. -/
 theorem memGuards_vals (hn : NamesApartK c) {e : Valuation Elem} {m : Elem} :
     ∀ (xs : List EVar) (ss : List Srt), (∀ s ∈ ss, s < nRegSorts + c.sortNames.length) → xs.length = ss.length →
-    (∀ w ∈ KoreAML.Cons.memGuards xs (ss.map c.sortName), w.interpret (stdI c) e m) →
+    (∀ w ∈ KoreAML.Cons.memGuards xs (ss.map c.sortName), w.interpret (stdI_T c T) e m) →
     ∃ vs, xs.map e.evalEvar = vs.map Elem.val ∧ c.sortsOf vs = some ss
   | [], [], _, _, _ => ⟨[], rfl, sortsOf_nil⟩
   | [], _ :: _, _, hl, _ => by simp at hl
@@ -333,6 +421,15 @@ theorem memGuards_vals (hn : NamesApartK c) {e : Valuation Elem} {m : Elem} :
       (by simpa using hl) (fun w hw => hg w (List.mem_cons_of_mem _ hw))
     exact ⟨v :: vs, by simp [hv, h3], sortsOf_cons.mpr ⟨_, _, hvs, h4, rfl⟩⟩
 
+end AtT
+
+/-- Membership guards of numbered sorts hold of values of those sorts. -/
+theorem memGuards_vals (hn : NamesApartK c) {e : Valuation Elem} {m : Elem} :
+    ∀ (xs : List EVar) (ss : List Srt), (∀ s ∈ ss, s < nRegSorts + c.sortNames.length) → xs.length = ss.length →
+    (∀ w ∈ KoreAML.Cons.memGuards xs (ss.map c.sortName), w.interpret (stdI c) e m) →
+    ∃ vs, xs.map e.evalEvar = vs.map Elem.val ∧ c.sortsOf vs = some ss :=
+  AtT.memGuards_vals (c := c) (T := StepM c) (hn := hn) (e := e) (m := m)
+
 theorem zip_map_eq {α β : Type} (f : α → β) : ∀ (l1 l2 : List α), l1.map f = l2.map f →
     ∀ p ∈ l1.zip l2, f p.1 = f p.2
   | [], _, _, p, hp => by simp at hp
@@ -343,17 +440,32 @@ theorem zip_map_eq {α β : Type} (f : α → β) : ∀ (l1 l2 : List α), l1.ma
     · exact h.1
     · exact zip_map_eq f l1 l2 h.2 p hp
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- `inj{s,t}(φ)` at a pattern that denotes one value. -/
+theorem inj_sing (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortNames.length)
+    (ht : t < nRegSorts + c.sortNames.length) {e : Valuation Elem} {φ : KoreAML.P} {u : GroundTerm}
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = .val u) (m : Elem) :
+    (KoreAML.appList (KoreAML.sym (.symbol "inj"))
+      [KoreAML.Cons.sortP (c.sortName s), KoreAML.Cons.sortP (c.sortName t), φ]).interpret (stdI_T c T) e m ↔
+      m = .val (injNormal s t u) := by
+  rw [interp_injApp]
+  simp only [hφ, exists_eq_left]
+  rw [gs_inj hn hs ht]
+  simp
+
+end AtT
+
 /-- `inj{s,t}(φ)` at a pattern that denotes one value. -/
 theorem inj_sing (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortNames.length)
     (ht : t < nRegSorts + c.sortNames.length) {e : Valuation Elem} {φ : KoreAML.P} {u : GroundTerm}
     (hφ : ∀ m, φ.interpret (stdI c) e m ↔ m = .val u) (m : Elem) :
     (KoreAML.appList (KoreAML.sym (.symbol "inj"))
       [KoreAML.Cons.sortP (c.sortName s), KoreAML.Cons.sortP (c.sortName t), φ]).interpret (stdI c) e m ↔
-      m = .val (injNormal s t u) := by
-  rw [interp_injApp]
-  simp only [hφ, exists_eq_left]
-  rw [gs_inj hn hs ht]
-  simp
+      m = .val (injNormal s t u) :=
+  AtT.inj_sing (c := c) (T := StepM c) (hn := hn) (s := s) (t := t) (hs := hs) (ht := ht) (e := e) (φ := φ) (u := u) (hφ := hφ) (m := m)
 
 /-! ## Cons-Fun, Cons-Inj, Cons-Dist -/
 
@@ -361,16 +473,20 @@ section
 variable (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c)
 include h hN
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
-    stdI c ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
   unfold KoreAML.Cons.funItem
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length]) hgd
-  obtain ⟨hgs, hsort⟩ := gs_gen h hN hg hvs
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length]) hgd
+  obtain ⟨hgs, hsort⟩ := gs_gen (T := T) h hN hg hvs
   rw [KoreAML.interp_sExists]
   refine ⟨.val (genVal c N g vs), ?_, ?_⟩
   · rw [KoreAML.interp_member defOK_std]
@@ -383,8 +499,18 @@ theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
     rw [map_update_xs 0 _ _ _ _ (fun i hi he => by simp only [EVar.mk.injEq, List.length_map] at he hi; omega), hxs]
     exact hgs a
 
+end AtT
+
+theorem sat_funItem {g : Gen} (hg : g ∈ c.gens N) :
+    stdI c ⊧ᴵ (KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g)).pat :=
+  AtT.sat_funItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
-    stdI c ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat := by
   have hn := h.namesK
   intro e m
   unfold KoreAML.Cons.injItem
@@ -392,9 +518,9 @@ theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
   have hnum := gen_args_numbered h hg
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals hn _ g.argSorts hnum (by simp [xs_length])
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts hnum (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ hw))
-  obtain ⟨ws, hys, hws⟩ := memGuards_vals hn _ g.argSorts hnum (by simp [xs_length])
+  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g.argSorts hnum (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_right _ hw))
   rw [interpret_impl]
   intro heq
@@ -413,19 +539,29 @@ theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
   intro z
   rw [KoreAML.interp_evar, KoreAML.interp_evar, zip_map_eq e.evalEvar _ _ hxs _ hab]
 
+end AtT
+
+theorem sat_injItem {g : Gen} (hg : g ∈ c.gens N) :
+    stdI c ⊧ᴵ (KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g)).pat :=
+  AtT.sat_injItem (c := c) (T := StepM c) (g := g) (hg := hg) (h := h) (hN := hN)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       genVal c N g vs ≠ genVal c N g' ws) :
-    stdI c ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat := by
   have hn := h.namesK
   intro e m
   unfold KoreAML.Cons.distItem
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ hw))
-  obtain ⟨ws, hys, hws⟩ := memGuards_vals hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
+  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_right _ hw))
   rw [KoreAML.interp_notEqual defOK_std]
   intro heq
@@ -433,7 +569,29 @@ theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
   rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs).1, (gs_gen h hN hg' hws).1] at this
   exact hne vs ws hvs hws (Elem.val.inj (this.mp rfl))
 
+end AtT
+
+theorem sat_dist_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+    (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
+      genVal c N g vs ≠ genVal c N g' ws) :
+    stdI c ⊧ᴵ (KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')).pat :=
+  AtT.sat_dist_of (c := c) (T := StepM c) (g := g) (g' := g') (hg := hg) (hg' := hg') (hne := hne) (h := h) (hN := hN)
+
 end
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem inj_sing' (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortNames.length)
+    (ht : t < nRegSorts + c.sortNames.length) {e : Valuation Elem} {φ : KoreAML.P} {u : GroundTerm}
+    (hφ : ∀ m, φ.interpret (stdI_T c T) e m ↔ m = .val u) (m : Elem) :
+    (KoreAML.appList (KoreAML.sym (.symbol "inj"))
+      [sortP (c.sortName s), sortP (c.sortName t), φ]).interpret (stdI_T c T) e m ↔
+      m = .val (injNormal s t u) :=
+  inj_sing hn hs ht hφ m
+
+end AtT
 
 theorem inj_sing' (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortNames.length)
     (ht : t < nRegSorts + c.sortNames.length) {e : Valuation Elem} {φ : KoreAML.P} {u : GroundTerm}
@@ -441,7 +599,7 @@ theorem inj_sing' (hn : NamesApartK c) {s t : Srt} (hs : s < nRegSorts + c.sortN
     (KoreAML.appList (KoreAML.sym (.symbol "inj"))
       [sortP (c.sortName s), sortP (c.sortName t), φ]).interpret (stdI c) e m ↔
       m = .val (injNormal s t u) :=
-  inj_sing hn hs ht hφ m
+  AtT.inj_sing' (c := c) (T := StepM c) (hn := hn) (s := s) (t := t) (hs := hs) (ht := ht) (e := e) (φ := φ) (u := u) (hφ := hφ) (m := m)
 
 /-! ## The pairs of generators -/
 
@@ -483,6 +641,9 @@ theorem pairs_ctor_names (h : HypModelCore c) {N : Srt} {k k' : CtorSig}
     (hp : (Gen.ctor k, Gen.ctor k') ∈ pairs (c.gens N)) : k.name ≠ k'.name := by
   have hnd : ((c.gens N).filterMap genKey).Nodup := by
     unfold Semantics.gens
+    rw [show c.params.filter (·.raw) = [] from List.filter_eq_nil_iff.mpr fun k hk => by
+      simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk]]
+    simp only [List.map_nil, List.filter_nil, List.append_nil]
     rw [List.filterMap_append, List.filterMap_append, keys_ctor, keys_ctor, keys_inj, List.append_nil]
     have ho : (c.ovlSigs.map (·.name)).Nodup := by
       simpa [Semantics.ovlSigs, Function.comp_def] using h.ovlsOnce
@@ -505,10 +666,14 @@ section
 variable (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c)
 include h hN
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 omit hN in
 theorem sat_distLb {a b : Srt} (ha : (a, N) ∈ c.subsorts) (hb : (b, N) ∈ c.subsorts)
     (hab : (c.le a b || c.le b a) = false) :
-    stdI c ⊧ᴵ (distLbItem (c.sortName N) (c.sortName a) (c.sortName b) ((c.lowerBounds a b).map c.sortName)).pat := by
+    stdI_T c T ⊧ᴵ (distLbItem (c.sortName N) (c.sortName a) (c.sortName b) ((c.lowerBounds a b).map c.sortName)).pat := by
   have hn := h.namesK
   obtain ⟨hsa, hsN⟩ := h.subSorts ha
   obtain ⟨hsb, -⟩ := h.subSorts hb
@@ -516,14 +681,14 @@ theorem sat_distLb {a b : Srt} (ha : (a, N) ∈ c.subsorts) (hb : (b, N) ∈ c.s
   unfold distLbItem
   dsimp only
   refine guarded_intro fun hgd => ?_
-  obtain ⟨v, hv1, hv⟩ := guard_val hn hsa (hgd _ (List.mem_cons_self ..))
-  obtain ⟨w, hw1, hw⟩ := guard_val hn hsb (hgd _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  obtain ⟨v, hv1, hv⟩ := guard_val (T := T) hn hsa (hgd _ (List.mem_cons_self ..))
+  obtain ⟨w, hw1, hw⟩ := guard_val (T := T) hn hsb (hgd _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
   rw [interpret_impl]
   intro heq
   rw [KoreAML.interp_equal defOK_std] at heq
-  have hx : ∀ m, (Pattern.evar ⟨1⟩ : KoreAML.P).interpret (stdI c) e m ↔ m = .val v := fun m => by
+  have hx : ∀ m, (Pattern.evar ⟨1⟩ : KoreAML.P).interpret (stdI_T c T) e m ↔ m = .val v := fun m => by
     rw [KoreAML.interp_evar, hv1]
-  have hy : ∀ m, (Pattern.evar ⟨2⟩ : KoreAML.P).interpret (stdI c) e m ↔ m = .val w := fun m => by
+  have hy : ∀ m, (Pattern.evar ⟨2⟩ : KoreAML.P).interpret (stdI_T c T) e m ↔ m = .val w := fun m => by
     rw [KoreAML.interp_evar, hw1]
   have he := heq (.val (injNormal a N v))
   rw [inj_sing' hn hsa hsN hx, inj_sing' hn hsb hsN hy] at he
@@ -535,7 +700,7 @@ theorem sat_distLb {a b : Srt} (ha : (a, N) ∈ c.subsorts) (hb : (b, N) ∈ c.s
   · rw [KoreAML.interp_member defOK_std]
     simp only [Function.update_same]
     exact (inhOf_sort hn hsx _ _).mpr hu
-  · have hz : ∀ m, (Pattern.evar ⟨3⟩ : KoreAML.P).interpret (stdI c)
+  · have hz : ∀ m, (Pattern.evar ⟨3⟩ : KoreAML.P).interpret (stdI_T c T)
         ⟨Function.update e.evalEvar ⟨3⟩ (.val u), e.evalSvar⟩ m ↔ m = .val u := fun m => by
       rw [KoreAML.interp_evar]; simp only [Function.update_same]
     rw [interpret_conj, KoreAML.interp_equal defOK_std, KoreAML.interp_equal defOK_std]
@@ -544,6 +709,14 @@ theorem sat_distLb {a b : Srt} (ha : (a, N) ∈ c.subsorts) (hb : (b, N) ∈ c.s
       simp only [upd_ne (show 1 ≠ 3 by decide), hv1]
     · rw [inj_sing' hn hsx hsb hz, KoreAML.interp_evar, injNormal_of_not hui]
       simp only [upd_ne (show 2 ≠ 3 by decide), hw1]
+
+end AtT
+
+omit hN in
+theorem sat_distLb {a b : Srt} (ha : (a, N) ∈ c.subsorts) (hb : (b, N) ∈ c.subsorts)
+    (hab : (c.le a b || c.le b a) = false) :
+    stdI c ⊧ᴵ (distLbItem (c.sortName N) (c.sortName a) (c.sortName b) ((c.lowerBounds a b).map c.sortName)).pat :=
+  AtT.sat_distLb (c := c) (T := StepM c) (a := a) (b := b) (ha := ha) (hb := hb) (hab := hab) (h := h)
 
 /-- The argument sorts of the overloads of an overloading generator (as `consItemsK` writes them). -/
 def ovlArgsOf (c : Semantics) : Gen → Option (List (List String))
@@ -561,7 +734,7 @@ omit hN in
 /-- A generator of N that is a constructor or an overloading symbol: its signature is the one its
 name finds, of result sort N. -/
 theorem gen_known {k : CtorSig} (hg : Gen.ctor k ∈ c.gens N) : OvlLaws.KnownSig c k ∧ k.result = N := by
-  rcases mem_gens hg with ⟨k', hk', hr, he⟩ | ⟨o, ho, hr, he⟩ | ⟨a, -, he⟩
+  rcases mem_gens_core h hg with ⟨k', hk', hr, he⟩ | ⟨o, ho, hr, he⟩ | ⟨a, -, he⟩
   · cases he
     refine ⟨?_, hr⟩
     unfold OvlLaws.KnownSig
@@ -582,13 +755,17 @@ omit hN in
 application. -/
 theorem genVal_unc {k : CtorSig} (hg : Gen.ctor k ∈ c.gens N) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some k.args) (hu : UncG c (.ctor k) vs) : genVal c N (.ctor k) vs = .ctor k.name vs := by
-  rcases mem_gens hg with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+  rcases mem_gens_core h hg with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
   · cases he; exact norm_ctor h hk' vs
   · cases he
     have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
     obtain ⟨-, hio, -⟩ := OvlLaws.ovl_facts h.ovlHyp hlo
     exact (OvlLaws.norm_eq_raw_iff h.ovlHyp hlo hvs).mpr (hu hio)
   · cases he
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 omit hN in
 /-- The uncovered guard of an overloading generator, in the model: its arguments are covered by
@@ -597,7 +774,7 @@ theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (h
     {m : Elem} {vs : List GroundTerm} (hxs : x.map e.evalEvar = vs.map Elem.val)
     (hvs : c.sortsOf vs = some o.sig.args)
     (hg : (KoreAML.Cons.uncoveredP (o.sig.args.map c.sortName) ((c.ovlOver o).map fun kg => kg.args.map c.sortName)
-      x z).interpret (stdI c) e m) :
+      x z).interpret (stdI_T c T) e m) :
     c.uncovered o.sig.name vs = true := by
   have H := h.ovlHyp
   have hn := h.namesK
@@ -613,7 +790,7 @@ theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (h
   have hli := OvlLaws.zip3_all_iff.mp hli
   have hxl : x.length = vs.length := by simpa using congrArg List.length hxs
   unfold KoreAML.Cons.uncoveredP at hg
-  have hd := conjList_elim hg _ (List.mem_map.mpr ⟨kg.args.map c.sortName, List.mem_map_of_mem hkg, rfl⟩)
+  have hd := conjList_elim (T := T) hg _ (List.mem_map.mpr ⟨kg.args.map c.sortName, List.mem_map_of_mem hkg, rfl⟩)
   obtain ⟨w, hw, hwi⟩ := disjList_mem hd
   obtain ⟨⟨⟨A, B⟩, xi⟩, hmem, hF⟩ := List.mem_filterMap.mp hw
   obtain ⟨i, hi, hie⟩ := List.getElem_of_mem hmem
@@ -665,6 +842,19 @@ theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (h
       rw [KoreAML.interp_evar]; simp only [Function.update_same]; exact Iff.rfl) b, hback]
     simp only [Function.update_noteq hxz, hex]
 
+end AtT
+
+omit hN in
+/-- The uncovered guard of an overloading generator, in the model: its arguments are covered by
+none of its overloads. -/
+theorem unc_guard {o : OvlSig} (ho : o ∈ c.ovls) {x : List EVar} {z : EVar} (hz : z ∉ x) {e : Valuation Elem}
+    {m : Elem} {vs : List GroundTerm} (hxs : x.map e.evalEvar = vs.map Elem.val)
+    (hvs : c.sortsOf vs = some o.sig.args)
+    (hg : (KoreAML.Cons.uncoveredP (o.sig.args.map c.sortName) ((c.ovlOver o).map fun kg => kg.args.map c.sortName)
+      x z).interpret (stdI c) e m) :
+    c.uncovered o.sig.name vs = true :=
+  AtT.unc_guard (c := c) (T := StepM c) (o := o) (ho := ho) (x := x) (z := z) (hz := hz) (e := e) (m := m) (vs := vs) (hxs := hxs) (hvs := hvs) (hg := hg) (h := h)
+
 omit h hN in
 theorem notMem_xs_z {off n k : Nat} (hk : off + n < k) : (⟨k⟩ : EVar) ∉ KoreAML.Cons.xs off n := by
   intro hm
@@ -673,10 +863,14 @@ theorem notMem_xs_z {off n k : Nat} (hk : off + n < k) : (⟨k⟩ : EVar) ∉ Ko
   simp only [EVar.mk.injEq] at he
   omega
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
     (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
       UncG c g vs → UncG c g' ws → genVal c N g vs ≠ genVal c N g' ws) :
-    stdI c ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g)
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g)
       (ovlArgsOf c g')).pat := by
   have hn := h.namesK
   intro e m
@@ -684,21 +878,21 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N
   dsimp only
   simp only [toK_argSorts]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
+  obtain ⟨vs, hxs, hvs⟩ := memGuards_vals (T := T) hn _ g.argSorts (gen_args_numbered h hg) (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ hw))))
-  obtain ⟨ws, hys, hws⟩ := memGuards_vals hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
+  obtain ⟨ws, hys, hws⟩ := memGuards_vals (T := T) hn _ g'.argSorts (gen_args_numbered h hg') (by simp [xs_length])
     (fun w hw => hgd w (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ hw))))
   have unc : ∀ (g0 : Gen), g0 ∈ c.gens N → ∀ (x : List EVar) (us : List GroundTerm) (z : EVar), z ∉ x →
       x.map e.evalEvar = us.map Elem.val → c.sortsOf us = some g0.argSorts →
       (∀ w ∈ (match ovlArgsOf c g0 with
         | some covs => [KoreAML.Cons.uncoveredP (g0.argSorts.map c.sortName) covs x z]
-        | none => []), w.interpret (stdI c) e m) → UncG c g0 us := by
+        | none => []), w.interpret (stdI_T c T) e m) → UncG c g0 us := by
     intro g0 hg0 x us z hz hx hus hw
     cases g0 with
     | inj a => trivial
     | ctor k =>
       intro hio
-      rcases mem_gens hg0 with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+      rcases mem_gens_core h hg0 with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
       · cases he; rw [isOvl_of_ctorSigs hk'] at hio; cases hio
       · cases he
         have hlo := OvlLaws.lookupOvl_of_mem h.ovlHyp ho
@@ -721,6 +915,19 @@ theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N
   rw [interp_genPat_vars, interp_genPat_vars, hxs, hys, (gs_gen h hN hg hvs).1, (gs_gen h hN hg' hws).1] at this
   exact hne vs ws hvs hws hu hu' (Elem.val.inj (this.mp rfl))
 
+end AtT
+
+theorem sat_distUnc_of {g g' : Gen} (hg : g ∈ c.gens N) (hg' : g' ∈ c.gens N)
+    (hne : ∀ vs ws, c.sortsOf vs = some g.argSorts → c.sortsOf ws = some g'.argSorts →
+      UncG c g vs → UncG c g' ws → genVal c N g vs ≠ genVal c N g' ws) :
+    stdI c ⊧ᴵ (KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g)
+      (ovlArgsOf c g')).pat :=
+  AtT.sat_distUnc_of (c := c) (T := StepM c) (g := g) (g' := g') (hg := hg) (hg' := hg') (hne := hne) (h := h) (hN := hN)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : KoreAML.Item}
     (hit : it ∈ (match g, g' with
       | .inj a, .inj b =>
@@ -733,13 +940,13 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
           [KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')
             (ovlArgsOf c g) (ovlArgsOf c g')]
         else [KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')])) :
-    stdI c ⊧ᴵ it.pat := by
+    stdI_T c T ⊧ᴵ it.pat := by
   obtain ⟨hg, hg'⟩ := pairs_mem hp
   have hci : ∀ (f : Sym) (b : Srt) (vs ws : List GroundTerm), GroundTerm.ctor f vs ≠ injNormal b N (ws.headD (.ctor 0 [])) :=
     fun f b vs ws he => by have := injNormal_isInj b N (ws.headD (.ctor 0 [])); rw [← he] at this; cases this
   have hctor : ∀ {k : CtorSig}, Gen.ctor k ∈ c.gens N → c.isOvl k.name = false → k ∈ c.ctorSigs := by
     intro k hk hio
-    rcases mem_gens hk with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
+    rcases mem_gens_core h hk with ⟨k', hk', -, he⟩ | ⟨o, ho, -, he⟩ | ⟨a, -, he⟩
     · cases he; exact hk'
     · cases he
       rw [(OvlLaws.ovl_facts h.ovlHyp (OvlLaws.lookupOvl_of_mem h.ovlHyp ho)).2.1] at hio
@@ -815,12 +1022,12 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
         exact hci k'.name a ws vs he.symm
     | inj b =>
       have ha : (a, N) ∈ c.subsorts := by
-        rcases mem_gens hg with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨a', ha', he⟩
+        rcases mem_gens_core h hg with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨a', ha', he⟩
         · cases he
         · cases he
         · cases he; exact ha'
       have hb : (b, N) ∈ c.subsorts := by
-        rcases mem_gens hg' with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨b', hb', he⟩
+        rcases mem_gens_core h hg' with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨b', hb', he⟩
         · cases he
         · cases he
         · cases he; exact hb'
@@ -845,6 +1052,23 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : Kore
           rw [List.mem_singleton.mp hit, ← hl]
           exact sat_distLb h ha hb hle
 
+end AtT
+
+theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs (c.gens N)) {it : KoreAML.Item}
+    (hit : it ∈ (match g, g' with
+      | .inj a, .inj b =>
+        if c.le a b || c.le b a then []
+        else match c.lowerBounds a b with
+          | [] => [KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')]
+          | lbs => [distLbItem (c.sortName N) (c.sortName a) (c.sortName b) (lbs.map c.sortName)]
+      | _, _ =>
+        if c.distGuarded g g' then
+          [KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')
+            (ovlArgsOf c g) (ovlArgsOf c g')]
+        else [KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')])) :
+    stdI c ⊧ᴵ it.pat :=
+  AtT.sat_pairItem (c := c) (T := StepM c) (g := g) (g' := g') (hp := hp) (it := it) (hit := hit) (h := h) (hN := hN)
+
 omit h hN in
 /-- Cons-NoJunk's item is the translation of the text's sentence: the guards of its free variables
 imply that the sentence's translation is the whole of the sort N. -/
@@ -855,16 +1079,28 @@ theorem noJunk_pat (c : Semantics) (N : Srt) :
       (KoreAML.conjList (((KoreAML.freeOf [] X).eraseDups).map (KoreAML.guardOf (KoreAML.tableOf [] X))) ⇒
         (KoreAML.tr ⟨KoreAML.tableOf [] X, []⟩ X ≡ KoreAML.inhOf (KoreAML.Cons.sortP (c.sortName N)))) := rfl
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 omit h hN in
 theorem genPat_interp (N' : String) (g : KoreAML.Gen) (args : List KoreAML.P) (e : Valuation Elem) (x : Elem) :
-    (KoreAML.Cons.genPat N' g args).interpret (stdI c) e x ↔
-      ∃ bs, All2 (fun φ b => φ.interpret (stdI c) e b) args bs ∧ GS (stdI c) N' g bs x := by
+    (KoreAML.Cons.genPat N' g args).interpret (stdI_T c T) e x ↔
+      ∃ bs, All2 (fun φ b => φ.interpret (stdI_T c T) e b) args bs ∧ GS (stdI_T c T) N' g bs x := by
   rw [genPat_eq, interp_appList]
   constructor
   · rintro ⟨a, ha, bs, hbs, hx⟩
     exact ⟨bs, hbs, a, ((genHead_closed N' g).interp e KoreAML.val0 a).mp ha, hx⟩
   · rintro ⟨bs, hbs, a, ha, hx⟩
     exact ⟨a, ((genHead_closed N' g).interp e KoreAML.val0 a).mpr ha, bs, hbs, hx⟩
+
+end AtT
+
+omit h hN in
+theorem genPat_interp (N' : String) (g : KoreAML.Gen) (args : List KoreAML.P) (e : Valuation Elem) (x : Elem) :
+    (KoreAML.Cons.genPat N' g args).interpret (stdI c) e x ↔
+      ∃ bs, All2 (fun φ b => φ.interpret (stdI c) e b) args bs ∧ GS (stdI c) N' g bs x :=
+  AtT.genPat_interp (c := c) (T := StepM c) (N' := N') (g := g) (args := args) (e := e) (x := x)
 
 end
 
@@ -1062,8 +1298,12 @@ theorem updAll_off : ∀ (xs : List EVar) (as : List Elem) (e : Valuation Elem) 
     rw [updAll, updAll_off xs as _ x (fun h => hx (List.mem_cons_of_mem _ h))]
     exact Function.update_noteq (fun h => hx (by subst h; exact List.mem_cons_self ..)) _ _
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem updAll_at : ∀ (xs : List EVar) (as : List Elem) (e : Valuation Elem), xs.Nodup → xs.length = as.length →
-    All2 (fun x a => (Pattern.evar x : KoreAML.P).interpret (stdI c) (updAll e xs as) a) xs as
+    All2 (fun x a => (Pattern.evar x : KoreAML.P).interpret (stdI_T c T) (updAll e xs as) a) xs as
   | [], [], _, _, _ => .nil
   | [], _ :: _, _, _, h => by simp at h
   | _ :: _, [], _, _, h => by simp at h
@@ -1073,26 +1313,46 @@ theorem updAll_at : ∀ (xs : List EVar) (as : List Elem) (e : Valuation Elem), 
     show a = (updAll _ xs as).evalEvar x
     rw [updAll_off xs as _ x hn.1]; simp
 
+end AtT
+
+theorem updAll_at : ∀ (xs : List EVar) (as : List Elem) (e : Valuation Elem), xs.Nodup → xs.length = as.length →
+    All2 (fun x a => (Pattern.evar x : KoreAML.P).interpret (stdI c) (updAll e xs as) a) xs as :=
+  AtT.updAll_at (c := c) (T := StepM c)
+
 theorem all2_map_left {α β γ : Type} {R : α → β → Prop} {f : γ → α} : ∀ {l : List γ} {bs : List β},
     All2 (fun x b => R (f x) b) l bs → All2 R (l.map f) bs
   | _, _, .nil => .nil
   | _, _, .cons h hs => .cons h (all2_map_left hs)
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- `∃b̄. body` holds where body holds at the valuation updated at the binders with elements of their sorts. -/
 theorem existsAll_upd (hn : NamesApartK c) (t : KoreAML.VarTable) (S : Kore.KSort) (body : Kore.Pattern) :
     ∀ {bs : List Kore.EVar} {as : List Elem} (e : Valuation Elem) (m : Elem),
     All2 (fun (b : Kore.EVar) a => ∃ s, s < nRegSorts + c.sortNames.length ∧ b.sort = KoreAML.srt (c.sortName s) ∧ InSort c s a) bs as →
-    (KoreAML.tr ⟨t, []⟩ body).interpret (stdI c) (updAll e (bs.map fun b => t.ev (KoreAML.evarKey b)) as) m →
-    (KoreAML.tr ⟨t, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI c) e m
+    (KoreAML.tr ⟨t, []⟩ body).interpret (stdI_T c T) (updAll e (bs.map fun b => t.ev (KoreAML.evarKey b)) as) m →
+    (KoreAML.tr ⟨t, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI_T c T) e m
   | _, _, _, _, .nil, hb => hb
   | b :: bs, a :: as, e, m, .cons ⟨s, hs, hbs, ha⟩ hrest, hb => by
-    show (KoreAML.tr ⟨t, []⟩ (.exist S b (KoreAML.existsAll S bs body))).interpret (stdI c) e m
+    show (KoreAML.tr ⟨t, []⟩ (.exist S b (KoreAML.existsAll S bs body))).interpret (stdI_T c T) e m
     rw [KoreAML.tr, KoreAML.interp_sExists]
     refine ⟨a, ?_, existsAll_upd hn t S body _ m hrest hb⟩
     rw [KoreAML.interp_member defOK_std]
     simp only [Function.update_same]
     rw [hbs, trSort_srt]
     exact (inhOf_sort hn hs _ _).mpr ha
+
+end AtT
+
+/-- `∃b̄. body` holds where body holds at the valuation updated at the binders with elements of their sorts. -/
+theorem existsAll_upd (hn : NamesApartK c) (t : KoreAML.VarTable) (S : Kore.KSort) (body : Kore.Pattern) :
+    ∀ {bs : List Kore.EVar} {as : List Elem} (e : Valuation Elem) (m : Elem),
+    All2 (fun (b : Kore.EVar) a => ∃ s, s < nRegSorts + c.sortNames.length ∧ b.sort = KoreAML.srt (c.sortName s) ∧ InSort c s a) bs as →
+    (KoreAML.tr ⟨t, []⟩ body).interpret (stdI c) (updAll e (bs.map fun b => t.ev (KoreAML.evarKey b)) as) m →
+    (KoreAML.tr ⟨t, []⟩ (KoreAML.existsAll S bs body)).interpret (stdI c) e m :=
+  AtT.existsAll_upd (c := c) (T := StepM c) (hn := hn) (t := t) (S := S) (body := body)
 
 theorem guards_of (hn : NamesApartK c) : ∀ {bs : List Kore.EVar} {ss : List Srt} {vs : List GroundTerm},
     bs.map (·.sort) = (ss.map c.sortName).map KoreAML.srt → c.sortsOf vs = some ss →
@@ -1111,10 +1371,14 @@ theorem guards_of (hn : NamesApartK c) : ∀ {bs : List Kore.EVar} {ss : List Sr
     exact .cons ⟨s, hs s (List.mem_cons_self ..), hb.1, hv⟩
       (guards_of hn hb.2 hvs' (fun s' h' => hs s' (List.mem_cons_of_mem _ h')))
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem trOrList_intro {ctx : KoreAML.Ctx} {s : KoreAML.P} {e : Valuation Elem} {m : Elem}
-    (hs : (KoreAML.inhOf s).interpret (stdI c) e m) :
-    ∀ {ps : List Kore.Pattern} {p : Kore.Pattern}, p ∈ ps → (KoreAML.tr ctx p).interpret (stdI c) e m →
-      (KoreAML.trOrList ctx s ps).interpret (stdI c) e m
+    (hs : (KoreAML.inhOf s).interpret (stdI_T c T) e m) :
+    ∀ {ps : List Kore.Pattern} {p : Kore.Pattern}, p ∈ ps → (KoreAML.tr ctx p).interpret (stdI_T c T) e m →
+      (KoreAML.trOrList ctx s ps).interpret (stdI_T c T) e m
   | [_], _, hp, h => by rw [List.mem_singleton.mp hp] at h; rw [KoreAML.trOrList]; exact h
   | q :: q' :: ps, p, hp, h => by
     rw [KoreAML.trOrList, KoreAML.interp_sOr]
@@ -1123,10 +1387,22 @@ theorem trOrList_intro {ctx : KoreAML.Ctx} {s : KoreAML.P} {e : Valuation Elem} 
     · exact Or.inl h
     · exact Or.inr (trOrList_intro hs hp h)
 
+end AtT
+
+theorem trOrList_intro {ctx : KoreAML.Ctx} {s : KoreAML.P} {e : Valuation Elem} {m : Elem}
+    (hs : (KoreAML.inhOf s).interpret (stdI c) e m) :
+    ∀ {ps : List Kore.Pattern} {p : Kore.Pattern}, p ∈ ps → (KoreAML.tr ctx p).interpret (stdI c) e m →
+      (KoreAML.trOrList ctx s ps).interpret (stdI c) e m :=
+  AtT.trOrList_intro (c := c) (T := StepM c) (ctx := ctx) (s := s) (e := e) (m := m) (hs := hs)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem trOr_noJunk_inh {ctx : KoreAML.Ctx} {N : String} {seen : List (String × List String)}
     {gs : List KoreAML.Gen} {e : Valuation Elem} {m : Elem}
-    (h : (KoreAML.trOrList ctx (KoreAML.trSort ctx.vars (KoreAML.srt N)) (KoreAML.noJunkDisjuncts N seen gs)).interpret (stdI c) e m) :
-    (KoreAML.inhOf (KoreAML.trSort ctx.vars (KoreAML.srt N))).interpret (stdI c) e m := by
+    (h : (KoreAML.trOrList ctx (KoreAML.trSort ctx.vars (KoreAML.srt N)) (KoreAML.noJunkDisjuncts N seen gs)).interpret (stdI_T c T) e m) :
+    (KoreAML.inhOf (KoreAML.trSort ctx.vars (KoreAML.srt N))).interpret (stdI_T c T) e m := by
   cases gs with
   | nil =>
     simp only [KoreAML.noJunkDisjuncts, KoreAML.trOrList, KoreAML.tr] at h
@@ -1151,22 +1427,34 @@ theorem trOr_noJunk_inh {ctx : KoreAML.Ctx} {N : String} {seen : List (String ×
     rw [hdr, KoreAML.trOrList] at h
     exact (KoreAML.interp_sOr.mp h).1
 
+end AtT
+
+theorem trOr_noJunk_inh {ctx : KoreAML.Ctx} {N : String} {seen : List (String × List String)}
+    {gs : List KoreAML.Gen} {e : Valuation Elem} {m : Elem}
+    (h : (KoreAML.trOrList ctx (KoreAML.trSort ctx.vars (KoreAML.srt N)) (KoreAML.noJunkDisjuncts N seen gs)).interpret (stdI c) e m) :
+    (KoreAML.inhOf (KoreAML.trSort ctx.vars (KoreAML.srt N))).interpret (stdI c) e m :=
+  AtT.trOr_noJunk_inh (c := c) (T := StepM c) (ctx := ctx) (N := N) (seen := seen) (gs := gs) (e := e) (m := m) (h := h)
+
 section
 variable (h : HypModelCore c) {N : Srt} (hN : N ∈ consSorts c)
 include h hN
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- The text's no-junk sentence of N, read in the value model, holds of N's values and nothing else. -/
 theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
     (KoreAML.tr ⟨KoreAML.tableOf [] (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern, []⟩
-        (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern).interpret (stdI c) e a ↔
+        (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern).interpret (stdI_T c T) e a ↔
       InSort c N a := by
   have hn := h.namesK
   have hNn := consSorts_numbered h hN
   let X := (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern
   let t := KoreAML.tableOf [] X
-  have hinh : ∀ e' a', (KoreAML.inhOf (KoreAML.trSort t (KoreAML.srt (c.sortName N)))).interpret (stdI c) e' a' ↔ InSort c N a' :=
+  have hinh : ∀ e' a', (KoreAML.inhOf (KoreAML.trSort t (KoreAML.srt (c.sortName N)))).interpret (stdI_T c T) e' a' ↔ InSort c N a' :=
     fun e' a' => by rw [trSort_srt]; exact inhOf_sort hn hNn e' a'
-  show (KoreAML.tr ⟨t, []⟩ (.or (KoreAML.srt (c.sortName N)) _)).interpret (stdI c) e a ↔ _
+  show (KoreAML.tr ⟨t, []⟩ (.or (KoreAML.srt (c.sortName N)) _)).interpret (stdI_T c T) e a ↔ _
   rw [KoreAML.tr]
   constructor
   · intro ha
@@ -1175,7 +1463,9 @@ theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
     obtain ⟨w, rfl, hw⟩ := inSort_val ha
     have hgen : ∃ g ∈ c.gens N, ∃ vs, c.sortsOf vs = some g.argSorts ∧ genVal c N g vs = w := by
       rcases consSort_shape h.genWf hN hw with ⟨f, ws, rfl⟩ | ⟨a, b, w0, rfl⟩
-      · rcases c.sortOf_ctor_iff.mp hw with ⟨k, hk, hws, rfl⟩ | ⟨-, o, hlo, hws, hu, rfl⟩
+      · rcases c.sortOf_ctor_iff.mp hw with ⟨k, hk, hws, rfl⟩ | ⟨-, o, hlo, hws, hu, rfl⟩ | ⟨-, -, kp, hko, -⟩
+        rotate_right
+        · exact absurd (c.lookupOpen_spec hko).2.1 (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ (c.lookupOpen_spec hko).1])
         · obtain ⟨hkm, rfl⟩ := lookupSig_spec hk
           exact ⟨.ctor k, gens_ctor hkm, ws, hws, norm_ctor h hkm ws⟩
         · have hom : o ∈ c.ovls := List.mem_of_find?_eq_some hlo
@@ -1208,8 +1498,8 @@ theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
       obtain ⟨b, hb, rfl⟩ := List.mem_map.mp hk
       obtain ⟨b', hb', rfl⟩ := List.mem_map.mp hk'
       exact ev_inj (hkt b hb) (hkt b' hb') he
-    have := updAll_at (c := c) _ (vs.map Elem.val) e hidx (by rw [List.length_map, hgd.length])
-    have h2 := all2_map_left_inv (R := fun x a => (Pattern.evar x : KoreAML.P).interpret (stdI c) _ a)
+    have := updAll_at (T := T) (c := c) _ (vs.map Elem.val) e hidx (by rw [List.length_map, hgd.length])
+    have h2 := all2_map_left_inv (R := fun x a => (Pattern.evar x : KoreAML.P).interpret (stdI_T c T) _ a)
       (f := fun b => t.ev (KoreAML.evarKey b)) this
     refine all2_map_left ?_
     exact h2
@@ -1221,7 +1511,27 @@ where
     | _ :: _, [], hb => by cases hb
     | _ :: _, _ :: _, .cons h hs => .cons h (all2_map_left_inv hs)
 
-theorem sat_noJunk : stdI c ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName N) ((c.gens N).map (Gen.toK c))).pat := by
+end AtT
+
+/-- The text's no-junk sentence of N, read in the value model, holds of N's values and nothing else. -/
+theorem noJunk_sentence (e : Valuation Elem) (a : Elem) :
+    (KoreAML.tr ⟨KoreAML.tableOf [] (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern, []⟩
+        (KoreAML.Cons.noJunkAx (c.sortName N) ((c.gens N).map (Gen.toK c))).pattern).interpret (stdI c) e a ↔
+      InSort c N a :=
+  AtT.noJunk_sentence (c := c) (T := StepM c) (e := e) (a := a) (h := h) (hN := hN)
+where
+  all2_map_left_inv {α β γ : Type} {R : α → β → Prop} {f : γ → α} : ∀ {l : List γ} {bs : List β},
+      All2 R (l.map f) bs → All2 (fun x b => R (f x) b) l bs
+    | [], [], _ => .nil
+    | [], _ :: _, hb => by cases hb
+    | _ :: _, [], hb => by cases hb
+    | _ :: _, _ :: _, .cons h hs => .cons h (all2_map_left_inv hs)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_noJunk : stdI_T c T ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName N) ((c.gens N).map (Gen.toK c))).pat := by
   have hn := h.namesK
   have hNn := consSorts_numbered h hN
   intro e m
@@ -1235,12 +1545,21 @@ theorem sat_noJunk : stdI c ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName N) ((c.g
   unfold KoreAML.Cons.sortP
   exact (inhOf_sort hn hNn e a).symm
 
+end AtT
+
+theorem sat_noJunk : stdI c ⊧ᴵ (KoreAML.Cons.noJunkItem (c.sortName N) ((c.gens N).map (Gen.toK c))).pat :=
+  AtT.sat_noJunk (c := c) (T := StepM c) (h := h) (hN := hN)
+
 end
 
 /-! ## Cons-Coh -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_coh (h : HypModelCore c) {a b d : Srt} (hab : (a, b) ∈ c.subsorts) (hbd : (b, d) ∈ c.subsorts) :
-    stdI c ⊧ᴵ (KoreAML.Cons.cohItem (c.sortName a) (c.sortName b) (c.sortName d)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.cohItem (c.sortName a) (c.sortName b) (c.sortName d)).pat := by
   have hn := h.namesK
   obtain ⟨hsa, hsb⟩ := h.subSorts hab
   obtain ⟨-, hsd⟩ := h.subSorts hbd
@@ -1248,12 +1567,18 @@ theorem sat_coh (h : HypModelCore c) {a b d : Srt} (hab : (a, b) ∈ c.subsorts)
   unfold KoreAML.Cons.cohItem
   dsimp only
   refine guarded_intro fun hgd => ?_
-  obtain ⟨v, hv1, -⟩ := guard_val hn hsa (hgd _ (List.mem_cons_self ..))
-  have hx : ∀ m, (Pattern.evar ⟨1⟩ : KoreAML.P).interpret (stdI c) e m ↔ m = .val v := fun m => by
+  obtain ⟨v, hv1, -⟩ := guard_val (T := T) hn hsa (hgd _ (List.mem_cons_self ..))
+  have hx : ∀ m, (Pattern.evar ⟨1⟩ : KoreAML.P).interpret (stdI_T c T) e m ↔ m = .val v := fun m => by
     rw [KoreAML.interp_evar, hv1]
   rw [KoreAML.interp_equal defOK_std]
   intro z
   rw [inj_sing hn hsb hsd (inj_sing hn hsa hsb hx), inj_sing hn hsa hsd hx, injNormal_comp]
+
+end AtT
+
+theorem sat_coh (h : HypModelCore c) {a b d : Srt} (hab : (a, b) ∈ c.subsorts) (hbd : (b, d) ∈ c.subsorts) :
+    stdI c ⊧ᴵ (KoreAML.Cons.cohItem (c.sortName a) (c.sortName b) (c.sortName d)).pat :=
+  AtT.sat_coh (c := c) (T := StepM c) (h := h) (a := a) (b := b) (d := d) (hab := hab) (hbd := hbd)
 
 /-! ## The overload equations -/
 
@@ -1269,15 +1594,30 @@ theorem known_kernel {k : CtorSig} (hk : OvlLaws.KnownSig c k) : k ∈ kernelSym
   · exact ctor_kernel hm
   · exact List.mem_append_right _ hm
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem evars_den {e : Valuation Elem} :
     ∀ (xs : List EVar) (us : List GroundTerm), xs.map e.evalEvar = us.map Elem.val →
-      All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x) (xs.map Pattern.evar) (us.map Elem.val)
+      All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x) (xs.map Pattern.evar) (us.map Elem.val)
   | [], [], _ => .nil
   | [], _ :: _, he => by simp at he
   | _ :: _, [], he => by simp at he
   | x :: xs, u :: us, he => by
     simp only [List.map_cons, List.cons.injEq] at he
     exact .cons (fun m => by rw [KoreAML.interp_evar, he.1]) (evars_den xs us he.2)
+
+end AtT
+
+theorem evars_den {e : Valuation Elem} :
+    ∀ (xs : List EVar) (us : List GroundTerm), xs.map e.evalEvar = us.map Elem.val →
+      All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x) (xs.map Pattern.evar) (us.map Elem.val) :=
+  AtT.evars_den (c := c) (T := StepM c) (e := e)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- The overload equation's argument patterns: each variable, injected where the two sorts differ,
 denotes its value lifted. -/
@@ -1287,7 +1627,7 @@ theorem liftArgs_den (hn : NamesApartK c) {e : Valuation Elem} (F : (String × S
     ∀ (as bs : List Srt) (xs : List EVar) (us : List GroundTerm),
       (∀ s ∈ as, s < nRegSorts + c.sortNames.length) → (∀ s ∈ bs, s < nRegSorts + c.sortNames.length) →
       xs.map e.evalEvar = us.map Elem.val → as.length = bs.length → us.length = as.length →
-      All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
+      All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x)
         ((((as.map c.sortName).zip (bs.map c.sortName)).zip xs).map F) ((liftAll as bs us).map Elem.val)
   | [], _, _, _, _, _, _, _, _ => by simp [liftAll]; exact .nil
   | _ :: _, [], _, _, _, _, _, hl, _ => by simp at hl
@@ -1313,9 +1653,27 @@ theorem liftArgs_den (hn : NamesApartK c) {e : Valuation Elem} (F : (String × S
       simp only [hne, Bool.false_eq_true, ↓reduceIte]
       rw [inj_sing hn han hbn (fun m => by rw [KoreAML.interp_evar, he.1]) m, OvlLaws.lift_ne hab]
 
+end AtT
+
+/-- The overload equation's argument patterns: each variable, injected where the two sorts differ,
+denotes its value lifted. -/
+theorem liftArgs_den (hn : NamesApartK c) {e : Valuation Elem} (F : (String × String) × EVar → KoreAML.P)
+    (hF : ∀ A B xi, F ((A, B), xi) = if A == B then Pattern.evar xi else
+      KoreAML.appList (KoreAML.sym (.symbol "inj")) [KoreAML.Cons.sortP A, KoreAML.Cons.sortP B, .evar xi]) :
+    ∀ (as bs : List Srt) (xs : List EVar) (us : List GroundTerm),
+      (∀ s ∈ as, s < nRegSorts + c.sortNames.length) → (∀ s ∈ bs, s < nRegSorts + c.sortNames.length) →
+      xs.map e.evalEvar = us.map Elem.val → as.length = bs.length → us.length = as.length →
+      All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
+        ((((as.map c.sortName).zip (bs.map c.sortName)).zip xs).map F) ((liftAll as bs us).map Elem.val) :=
+  AtT.liftArgs_den (c := c) (T := StepM c) (hn := hn) (e := e) (F := F) (hF := hF)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **Each overload equation holds**: `f(lift x̄) = lift (g(x̄))` (`OvlLaws.norm_ovlEq`). -/
 theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
-    stdI c ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat := by
+    stdI_T c T ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat := by
   have hn := h.namesK
   have H := h.ovlHyp
   have hlo := OvlLaws.lookupOvl_of_mem H ho
@@ -1331,7 +1689,7 @@ theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Ct
   dsimp only
   simp only [toK, List.length_map]
   refine guarded_intro fun hgd => ?_
-  obtain ⟨as, hxs, has⟩ := memGuards_vals hn _ kg.args hkn (by simp [xs_length]) hgd
+  obtain ⟨as, hxs, has⟩ := memGuards_vals (T := T) hn _ kg.args hkn (by simp [xs_length]) hgd
   have hal := (OvlLaws.sortsOf_iff.mp has).1
   rw [KoreAML.interp_equal defOK_std]
   intro b
@@ -1340,7 +1698,7 @@ theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Ct
     symE_vals hn (ovl_kernel ho) (by simp [OvlLaws.length_liftAll]; omega) b, result_ovl hio,
     OvlLaws.norm_ovlEq H hlo hkg has]
   have hin : ∀ m, (KoreAML.appList (KoreAML.sym (.symbol (c.symName kg.name)))
-      ((KoreAML.Cons.xs 0 kg.args.length).map Pattern.evar)).interpret (stdI c) e m ↔
+      ((KoreAML.Cons.xs 0 kg.args.length).map Pattern.evar)).interpret (stdI_T c T) e m ↔
       m = .val (c.norm kg.name as) := fun m => by
     rw [interp_symList _ _ (as.map Elem.val) (evars_den _ _ hxs) m,
       symE_vals hn (known_kernel hkk) (by omega) m, result_known h hkk]
@@ -1354,10 +1712,21 @@ theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Ct
     simp only [hne, Bool.false_eq_true, ↓reduceIte]
     rw [inj_sing hn hkr hor hin b, OvlLaws.lift_ne hres]
 
+end AtT
+
+/-- **Each overload equation holds**: `f(lift x̄) = lift (g(x̄))` (`OvlLaws.norm_ovlEq`). -/
+theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
+    stdI c ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat :=
+  AtT.sat_ovlEq (c := c) (T := StepM c) (h := h) (o := o) (ho := ho) (kg := kg) (hkg := hkg)
+
 /-! ## The constructors' axioms -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **`SatConsGoal`**: the value model satisfies the constructors' axioms. -/
-theorem satConsGoal (h : HypModelCore c) : SatConsGoal c := by
+theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
   refine sat_itemsPremises c fun it hit => ?_
   unfold consItemsK at hit
   dsimp only at hit
@@ -1389,6 +1758,12 @@ theorem satConsGoal (h : HypModelCore c) : SatConsGoal c := by
     have hb : b0 = b := by simpa using hb0
     rw [hb] at hbd
     exact sat_coh h hab hbd
+
+end AtT
+
+/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms. -/
+theorem satConsGoal (h : HypModelCore c) : SatConsGoal c :=
+  AtT.satConsGoal (c := c) (T := StepM c) (h := h)
 
 end Model
 

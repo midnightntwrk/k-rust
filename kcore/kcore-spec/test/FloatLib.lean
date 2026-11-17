@@ -215,9 +215,9 @@ theorem half_value :
 
 
 /-- The definition's symbols the step names, by number. -/
-def kCell : Sym := 380
-def addL : Sym := 382
-def doneL : Sym := 383
+def kCell : Sym := 384
+def addL : Sym := 386
+def doneL : Sym := 387
 def cmdS : Srt := 33
 
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName addL = "Lbladd" ∧ c.symName doneL = "Lbldone" ∧

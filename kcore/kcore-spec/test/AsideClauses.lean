@@ -37,9 +37,9 @@ definition_of defn from "f2-examples/owisene.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-def choose : Sym := 386
-def a : Sym := 382
-def b : Sym := 383
+def choose : Sym := 390
+def a : Sym := 386
+def b : Sym := 387
 def exp : Srt := 33
 def va : GroundTerm := .ctor a []
 def vb : GroundTerm := .ctor b []
@@ -370,7 +370,8 @@ theorem no_err' (v : GroundTerm) : c'.sortOf v ≠ some Srt.ioError := by
     rw [Semantics.sortOf]
     cases hk : lookupSig c'.ctorSigs f with
     | none => have : c'.lookupOvl f = none := rfl
-              simp [this]
+              have ho : c'.lookupOpen f = none := c'.lookupOpen_of_noRaw (by intro k hk; cases hk) f
+              simp [this, ho]
     | some k =>
       simp only
       have hm := List.mem_of_find?_eq_some (by rw [← lookupSig_eq]; exact hk)

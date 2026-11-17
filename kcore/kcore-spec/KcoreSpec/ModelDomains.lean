@@ -54,7 +54,9 @@ theorem sortOf_numbered (h : HypModelCore c) {v : GroundTerm} {s : Srt} (hv : c.
   cases v with
   | ctor f ts =>
     haveI : OvlOK c := h.sound.2.2.2.2.2.2.2.2
-    rcases sortOf_ctor_cases h.sound.2.2.2.1 hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩
+    rcases sortOf_ctor_cases h.sound.2.2.2.1 hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩ | ⟨kp, hko, -, -, -, -, rfl, -⟩
+    rotate_right
+    · exact h.symSorts (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem (f := (·.sig)) (c.lookupOpen_spec hko).1)))) _ (List.mem_cons_self ..)
     · exact h.symSorts (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
         (List.mem_append_left _ (lookupSig_spec hk).1)))) _ (List.mem_cons_self ..)
     · exact h.symSorts (List.mem_append_right _ (List.mem_map_of_mem (OvlLaws.ovl_parts h.ovlOK hlo).1)) _
@@ -90,17 +92,33 @@ theorem hook_plain {k : CtorSig} (hk : k ∈ hookSigs) : iteSort? (c.symName k.n
 
 /-! ## Applications at values, as the graphs write them -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem den_koreList (h : HypModelCore c) {vs : List GroundTerm} {ss : List Srt} (hvs : c.sortsOf vs = some ss)
+    (e : Valuation Elem) :
+    All2 (fun φ x => ∀ m, φ.interpret (stdI_T c T) e m ↔ m = x)
+      ((GroundTerm.koreList c vs).map (KoreAML.tr ⟨[], []⟩)) (vs.map Elem.val) :=
+  den_list h vs hvs e
+
+end AtT
+
 theorem den_koreList (h : HypModelCore c) {vs : List GroundTerm} {ss : List Srt} (hvs : c.sortsOf vs = some ss)
     (e : Valuation Elem) :
     All2 (fun φ x => ∀ m, φ.interpret (stdI c) e m ↔ m = x)
       ((GroundTerm.koreList c vs).map (KoreAML.tr ⟨[], []⟩)) (vs.map Elem.val) :=
-  den_list h vs hvs e
+  AtT.den_koreList (c := c) (T := StepM c) (h := h) (vs := vs) (ss := ss) (hvs := hvs) (e := e)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- A symbol not named like `ite`, applied to values: what the symbol gives. -/
 theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
     (hi : iteSort? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
     (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m := by
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔ result c k vs m := by
   unfold symApp
   rw [hi]
   dsimp only
@@ -110,31 +128,44 @@ theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c
     interp_symList _ _ _ (den_koreList h hvs e) m]
   exact symE_vals h.namesK hk hl m
 
+end AtT
+
+/-- A symbol not named like `ite`, applied to values: what the symbol gives. -/
+theorem symApp_plain (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c)
+    (hi : iteSort? (c.symName k.name) = none) {vs : List GroundTerm} {ss : List Srt}
+    (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m :=
+  AtT.symApp_plain (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (hi := hi) (vs := vs) (ss := ss) (hvs := hvs) (hl := hl) (e := e) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- `Lblite` applied to the sort `X` of a symbol named like `ite` at `X`, then to values: what the
 symbol gives. -/
 theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
     (hi : iteSort? (c.symName k.name) = some X) {vs : List GroundTerm} (hl : vs.length = k.args.length)
     (e : Valuation Elem) (m : Elem) :
-    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI c) e a ∧
-      AppE (stdI c) a (vs.map Elem.val) m) ↔ result c k vs m := by
+    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI_T c T) e a ∧
+      AppE (stdI_T c T) a (vs.map Elem.val) m) ↔ result c k vs m := by
   have hn := h.namesK
   obtain ⟨s', hs'm, rfl⟩ := h.iteSorted hk hi
   have hr : ∀ tail, resolve c "Lblite" (.srt s' :: tail) = some (k, 1) := fun tail => by
     rw [resolve_ite, find_ite h hk hi]; rfl
   have hhead : ∀ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ c.sortName s'))).interpret
-      (stdI c) e a ↔ symAt c "Lblite" [.srt s'] a := by
+      (stdI_T c T) e a ↔ symAt c "Lblite" [.srt s'] a := by
     intro a
     rw [KoreAML.interp_app]
     simp only [KoreAML.interp_sym, stdI_symb]
     constructor
     · rintro ⟨h0, b0, hh0, hb0, hab⟩
       rw [(evalSymb_lblite hn h0).mp hh0] at hab
-      have hb0' : b0 = .srt s' := (sort_den hn (List.mem_range.mp hs'm) e b0).mp hb0
+      have hb0' : b0 = .srt s' := (sort_den (T := T) hn (List.mem_range.mp hs'm) e b0).mp hb0
       subst hb0'
       exact hab
     · intro ha
       exact ⟨_, _, (evalSymb_lblite hn _).mpr rfl,
-        (sort_den hn (List.mem_range.mp hs'm) e _).mpr rfl, ha⟩
+        (sort_den (T := T) hn (List.mem_range.mp hs'm) e _).mpr rfl, ha⟩
   simp only [hhead]
   by_cases h0 : k.args = []
   · rw [h0] at hl
@@ -145,17 +176,32 @@ theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) 
     · rintro ⟨a, ha, rfl⟩; exact ha
     · intro hm; exact ⟨m, hm, rfl⟩
   · simp only [symAt_partial (hr []) (by simp; exact List.length_pos_iff.mpr h0)]
-    have := appE_symP (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
+    have := appE_symP (T := T) (P := [.srt s']) (n := "Lblite") (k := k) (fun pre _ => hr _) [] vs
       (by simp; exact List.length_pos_iff.mpr h0) (by simpa using hl) m
     simp only [List.map_nil, List.append_nil, List.nil_append] at this
     constructor
     · rintro ⟨a, rfl, ha⟩; exact this.mp ha
     · intro hm; exact ⟨_, rfl, this.mpr hm⟩
 
+end AtT
+
+/-- `Lblite` applied to the sort `X` of a symbol named like `ite` at `X`, then to values: what the
+symbol gives. -/
+theorem lblite_app (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String}
+    (hi : iteSort? (c.symName k.name) = some X) {vs : List GroundTerm} (hl : vs.length = k.args.length)
+    (e : Valuation Elem) (m : Elem) :
+    (∃ a, (KoreAML.sym (.symbol "Lblite") ⬝ KoreAML.sym (.sort ("Sort" ++ X))).interpret (stdI c) e a ∧
+      AppE (stdI c) a (vs.map Elem.val) m) ↔ result c k vs m :=
+  AtT.lblite_app (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (X := X) (hi := hi) (vs := vs) (hl := hl) (e := e) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- Any symbol of the semantics applied to values, as `symApp` writes it: what the symbol gives. -/
 theorem symApp_val (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
     {ss : List Srt} (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
-    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m := by
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI_T c T) e m ↔ result c k vs m := by
   cases hi : iteSort? (c.symName k.name) with
   | none => exact symApp_plain h hk hi hvs hl e m
   | some X =>
@@ -170,11 +216,23 @@ theorem symApp_val (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) 
     rw [trSort_srt, interp_appList_sing _ _ _ (den_koreList h hvs e) m]
     exact lblite_app h hk hi hl e m
 
+end AtT
+
+/-- Any symbol of the semantics applied to values, as `symApp` writes it: what the symbol gives. -/
+theorem symApp_val (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
+    {ss : List Srt} (hvs : c.sortsOf vs = some ss) (hl : vs.length = k.args.length) (e : Valuation Elem) (m : Elem) :
+    (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs))).interpret (stdI c) e m ↔ result c k vs m :=
+  AtT.symApp_val (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (vs := vs) (ss := ss) (hvs := hvs) (hl := hl) (e := e) (m := m)
+
 /-! ## The graphs -/
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 theorem sat_hookGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} {r : Option GroundTerm}
     (hk : k ∈ hookSigs) (hvs : c.sortsOf vs = some k.args) (hr : c.hookRes k.name vs = some r) :
-    stdI c ⊧ᴵ (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match (generalizing := false) r with
+    stdI_T c T ⊧ᴵ (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match (generalizing := false) r with
       | some v => den c v
       | none => ⊥)) := by
   intro e m
@@ -200,9 +258,22 @@ theorem sat_hookGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} 
     · rintro ⟨v', rfl, hv'⟩; rw [hr] at hv'; cases hv'; rfl
     · rintro rfl; exact ⟨v, rfl, hr⟩
 
+end AtT
+
+theorem sat_hookGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} {r : Option GroundTerm}
+    (hk : k ∈ hookSigs) (hvs : c.sortsOf vs = some k.args) (hr : c.hookRes k.name vs = some r) :
+    stdI c ⊧ᴵ (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match (generalizing := false) r with
+      | some v => den c v
+      | none => ⊥)) :=
+  AtT.sat_hookGraph (c := c) (T := StepM c) (h := h) (k := k) (vs := vs) (r := r) (hk := hk) (hvs := hvs) (hr := hr)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
     (hkp : kp ∈ c.params) (hvs : c.sortsOf vs = some kp.sig.args) :
-    stdI c ⊧ᴵ (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs)) ≡
+    stdI_T c T ⊧ᴵ (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs)) ≡
       (match c.paramVal kp.sig.name vs with
         | some v => den c v
         | none => ⊥)) := by
@@ -231,10 +302,24 @@ theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTer
     · rintro ⟨v', rfl, hv'⟩; cases hv'; rfl
     · rintro rfl; exact ⟨v, rfl, rfl⟩
 
+end AtT
+
+theorem sat_paramGraph (h : HypModelCore c) {kp : ParamSig} {vs : List GroundTerm}
+    (hkp : kp ∈ c.params) (hvs : c.sortsOf vs = some kp.sig.args) :
+    stdI c ⊧ᴵ (KoreAML.den (symApp c kp.sig.name (GroundTerm.koreList c vs)) ≡
+      (match c.paramVal kp.sig.name vs with
+        | some v => den c v
+        | none => ⊥)) :=
+  AtT.sat_paramGraph (c := c) (T := StepM c) (h := h) (kp := kp) (vs := vs) (hkp := hkp) (hvs := hvs)
+
 /-! ## Values are elements, distinct values distinct -/
 
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_valElem (h : HypModelCore c) {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s) :
-    stdI c ⊧ᴵ KoreAML.sExists ⟨1⟩ (sortP (c.sortName s)) (den c v ≡ .evar ⟨1⟩) := by
+    stdI_T c T ⊧ᴵ KoreAML.sExists ⟨1⟩ (sortP (c.sortName s)) (den c v ≡ .evar ⟨1⟩) := by
   intro e m
   rw [KoreAML.interp_sExists]
   refine ⟨.val v, ?_, ?_⟩
@@ -246,15 +331,35 @@ theorem sat_valElem (h : HypModelCore c) {v : GroundTerm} {s : Srt} (hv : c.sort
     rw [den_val h v hv, KoreAML.interp_evar]
     simp only [Function.update_same]
 
+end AtT
+
+theorem sat_valElem (h : HypModelCore c) {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s) :
+    stdI c ⊧ᴵ KoreAML.sExists ⟨1⟩ (sortP (c.sortName s)) (den c v ≡ .evar ⟨1⟩) :=
+  AtT.sat_valElem (c := c) (T := StepM c) (h := h) (v := v) (s := s) (hv := hv)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem sat_distinct (h : HypModelCore c) {v w : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
-    (hw : c.sortOf w = some s) (hne : GroundTerm.cmp v w ≠ .eq) : stdI c ⊧ᴵ ∼(den c v ⋀ den c w) := by
+    (hw : c.sortOf w = some s) (hne : GroundTerm.cmp v w ≠ .eq) : stdI_T c T ⊧ᴵ ∼(den c v ⋀ den c w) := by
   intro e m
   rw [interpret_neg, interpret_conj, den_val h v hv, den_val h w hw]
   rintro ⟨rfl, hvw⟩
   cases hvw
   exact hne (GroundTerm.cmp_refl v)
 
+end AtT
+
+theorem sat_distinct (h : HypModelCore c) {v w : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    (hw : c.sortOf w = some s) (hne : GroundTerm.cmp v w ≠ .eq) : stdI c ⊧ᴵ ∼(den c v ⋀ den c w) :=
+  AtT.sat_distinct (c := c) (T := StepM c) (h := h) (v := v) (w := w) (s := s) (hv := hv) (hw := hw) (hne := hne)
+
 /-! ## No junk in the collection sorts -/
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- A collection's symbol applied to values, read as `SymE`: the library hook's value at the
 collection's sort. -/
@@ -264,26 +369,62 @@ theorem coll_symE (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) {f 
       (f = k.concat ∧ g = (builtinColl k.kind).concat ∧ args = [k.sort, k.sort]))
     {vs : List GroundTerm} (hlen : vs.length = args.length) {r : GroundTerm} (hv : hook g vs = some (some r))
     (hws : r.withSort (builtinColl k.kind).sort = r) (hsr : c.sortOf (r.withSort k.sort) = some k.sort)
-    (m : Elem) : SymE (stdI c) (c.symName f) (vs.map Elem.val) m ↔ m = .val (r.withSort k.sort) := by
+    (m : Elem) : SymE (stdI_T c T) (c.symName f) (vs.map Elem.val) m ↔ m = .val (r.withSort k.sort) := by
   obtain ⟨kf, hkf, hkfn, hkfa, hres⟩ := coll_sym h hk hf
   rw [← hkfn, symE_vals h.namesK hkf (by rw [hkfa]; exact hlen)]
   exact hres hv hws hsr m
 
+end AtT
+
+/-- A collection's symbol applied to values, read as `SymE`: the library hook's value at the
+collection's sort. -/
+theorem coll_symE (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) {f g : Sym} {args : List Srt}
+    (hf : (f = k.unit ∧ g = (builtinColl k.kind).unit ∧ args = []) ∨
+      (f = k.elem ∧ g = (builtinColl k.kind).elem ∧ args = elemArgs k) ∨
+      (f = k.concat ∧ g = (builtinColl k.kind).concat ∧ args = [k.sort, k.sort]))
+    {vs : List GroundTerm} (hlen : vs.length = args.length) {r : GroundTerm} (hv : hook g vs = some (some r))
+    (hws : r.withSort (builtinColl k.kind).sort = r) (hsr : c.sortOf (r.withSort k.sort) = some k.sort)
+    (m : Elem) : SymE (stdI c) (c.symName f) (vs.map Elem.val) m ↔ m = .val (r.withSort k.sort) :=
+  AtT.coll_symE (c := c) (T := StepM c) (h := h) (k := k) (hk := hk) (f := f) (g := g) (args := args) (hf := hf) (vs := vs) (hlen := hlen) (r := r) (hv := hv) (hws := hws) (hsr := hsr) (m := m)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 theorem symP_unit_of {k : CollSig} {e : Valuation Elem} {x : Elem}
-    (hs : SymE (stdI c) (c.symName k.unit) [] x) :
-    (symP (c.symName k.unit)).interpret (stdI c) e x := by
+    (hs : SymE (stdI_T c T) (c.symName k.unit) [] x) :
+    (symP (c.symName k.unit)).interpret (stdI_T c T) e x := by
   obtain ⟨a, ha, hx⟩ := hs
   have : x = a := hx
   subst this
   exact ha
 
+end AtT
+
+theorem symP_unit_of {k : CollSig} {e : Valuation Elem} {x : Elem}
+    (hs : SymE (stdI c) (c.symName k.unit) [] x) :
+    (symP (c.symName k.unit)).interpret (stdI c) e x :=
+  AtT.symP_unit_of (c := c) (T := StepM c) (k := k) (e := e) (x := x) (hs := hs)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- An application `f(φ₁, …, φₙ)` holds of `x` when `f` applied to elements of the `φᵢ` gives `x`. -/
 theorem appList_of {f : String} {φs : List KoreAML.P} {bs : List Elem} {e : Valuation Elem} {x : Elem}
-    (hb : All2 (fun φ b => φ.interpret (stdI c) e b) φs bs) (hs : SymE (stdI c) f bs x) :
-    (KoreAML.appList (symP f) φs).interpret (stdI c) e x := by
+    (hb : All2 (fun φ b => φ.interpret (stdI_T c T) e b) φs bs) (hs : SymE (stdI_T c T) f bs x) :
+    (KoreAML.appList (symP f) φs).interpret (stdI_T c T) e x := by
   obtain ⟨a, ha, hx⟩ := hs
   rw [interp_appList]
   exact ⟨a, ha, bs, hb, hx⟩
+
+end AtT
+
+/-- An application `f(φ₁, …, φₙ)` holds of `x` when `f` applied to elements of the `φᵢ` gives `x`. -/
+theorem appList_of {f : String} {φs : List KoreAML.P} {bs : List Elem} {e : Valuation Elem} {x : Elem}
+    (hb : All2 (fun φ b => φ.interpret (stdI c) e b) φs bs) (hs : SymE (stdI c) f bs x) :
+    (KoreAML.appList (symP f) φs).interpret (stdI c) e x :=
+  AtT.appList_of (c := c) (T := StepM c) (f := f) (φs := φs) (bs := bs) (e := e) (x := x) (hb := hb) (hs := hs)
 
 /-- A value of a collection sort is a collection of that sort, of the collection's kind (`coll_shape`,
 read with the overloading symbols: a raw overloading application has a constructor sort,
@@ -303,7 +444,9 @@ theorem HypModelCore.coll_shape' (h : HypModelCore c) {k : CollSig} (hco : c.col
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨hi, hb⟩, hkv⟩, ht⟩, hy⟩, hfl⟩, hstr⟩, hbys⟩, -⟩ := hso
   cases w with
   | ctor f ts =>
-    rcases c.sortOf_ctor_iff.mp hw with ⟨k', hk, -, hr⟩ | ⟨-, o, ho, -, -, hr⟩
+    rcases c.sortOf_ctor_iff.mp hw with ⟨k', hk, -, hr⟩ | ⟨-, o, ho, -, -, hr⟩ | ⟨-, -, kp, hko, -, -, hr⟩
+    rotate_right
+    · exact absurd (hr ▸ genWf_raw_cons hg (c.lookupOpen_spec hko).1 (c.lookupOpen_spec hko).2.1) hnc
     · exact absurd (hr ▸ genWf_ctor hg (lookupSig_spec hk).1) hnc
     · exact absurd (hr ▸ OvlLaws.ovl_result_cons h.ovlHyp ho) hnc
   | inj a b t =>
@@ -340,7 +483,11 @@ theorem HypModelCore.coll_shape' (h : HypModelCore c) {k : CollSig} (hco : c.col
     rw [hco] at hk'; cases hk'
     exact Or.inr (Or.inr ⟨hkind, es, rfl⟩)
 
-theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) : stdI c ⊧ᴵ collNoJunk c k := by
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) : stdI_T c T ⊧ᴵ collNoJunk c k := by
   have hn := h.namesK
   have hco := h.collOf_self hk
   obtain ⟨hsS, hsK, hsV⟩ := h.collSorts hk
@@ -355,11 +502,11 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
   intro B hB
   -- the valuation inside the fixed point
   let e' : Valuation Elem := ⟨e.evalEvar, Function.update e.evalSvar ⟨1⟩ B⟩
-  have hX : ∀ x, (Pattern.svar ⟨1⟩ : KoreAML.P).interpret (stdI c) e' x ↔ B x := fun x => by
+  have hX : ∀ x, (Pattern.svar ⟨1⟩ : KoreAML.P).interpret (stdI_T c T) e' x ↔ B x := fun x => by
     show Function.update e.evalSvar ⟨1⟩ B ⟨1⟩ x ↔ B x
     rw [Function.update_same]
   have hinh : ∀ (s : Srt), s < nRegSorts + c.sortNames.length → ∀ x, c.sortOf x = some s →
-      (KoreAML.inhOf (sortP (c.sortName s))).interpret (stdI c) e' (.val x) := fun s hs x hx =>
+      (KoreAML.inhOf (sortP (c.sortName s))).interpret (stdI_T c T) e' (.val x) := fun s hs x hx =>
     (inhOf_sort hn hs e' _).mpr hx
   rcases h.coll_shape' hco (collSortsOK_mem h.collSortsOK hk) hw with
     ⟨hkind, es, rfl⟩ | ⟨hkind, es, rfl⟩ | ⟨hkind, es, rfl⟩
@@ -376,7 +523,7 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
       rw [hkind] at hB
       induction es with
       | nil =>
-        have hU : SymE (stdI c) (c.symName k.unit) [] (.val (.map k.sort [])) :=
+        have hU : SymE (stdI_T c T) (c.symName k.unit) [] (.val (.map k.sort [])) :=
           (coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := rmV []) (by rw [hkind]; exact rmM_unit)
             (by rw [hkind]; rfl) ((sortOf_rmK_iff hco hkind hval).mpr ⟨rfl, rfl⟩) _).mpr rfl
         exact hB _ (interpret_disj.mpr (Or.inl (symP_unit_of hU)))
@@ -387,24 +534,24 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
         obtain ⟨xa, xb⟩ := x
         obtain ⟨ha', hb'⟩ := entryOK_iff.mp hx
         have hxr := rangesOK_head hr
-        have hE : SymE (stdI c) (c.symName k.elem) [.val xa, .val xb] (.val (.map k.sort [(xa, xb)])) :=
+        have hE : SymE (stdI_T c T) (c.symName k.elem) [.val xa, .val xb] (.val (.map k.sort [(xa, xb)])) :=
           (coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [xa, xb]) (by unfold elemArgs; rw [hkind]; rfl)
             (r := rmV [(xa, xb)]) (by rw [hkind]; exact rmM_elem hxr) (by rw [hkind]; rfl)
             ((sortOf_rmK_iff hco hkind hval).mpr
               ⟨by simpa [rangesOK] using hxr, by simp [Semantics.entriesOK, hx]⟩) _).mpr rfl
-        have hC : SymE (stdI c) (c.symName k.concat) [.val (.map k.sort [(xa, xb)]), .val (.map k.sort es)]
+        have hC : SymE (stdI_T c T) (c.symName k.concat) [.val (.map k.sort [(xa, xb)]), .val (.map k.sort es)]
             (.val (.map k.sort ((xa, xb) :: es))) :=
           (coll_symE h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩)) (vs := [.map k.sort [(xa, xb)], .map k.sort es]) rfl
             (r := rmV ((xa, xb) :: es)) (by rw [hkind]; exact rmM_concat_sortK hr) (by rw [hkind]; rfl)
             ((sortOf_rmK_iff hco hkind hval).mpr ⟨hr, hent⟩) _).mpr rfl
-        have hEl := appList_of (e := e') (.cons (hinh _ hsK _ ha') (.cons (hinh _ hsV _ hb') .nil)) hE
+        have hEl := appList_of (T := T) (e := e') (.cons (hinh _ hsK _ ha') (.cons (hinh _ hsV _ hb') .nil)) hE
         exact hB _ (interpret_disj.mpr (Or.inr (appList_of (.cons hEl (.cons ((hX _).mpr hB') .nil)) hC)))
     obtain ⟨-, hks, hent⟩ := (sortOf_map_iff hco (h.mapVal hk hkind) hkind).mp hw
     clear hw ha
     rw [hkind] at hB
     induction es with
     | nil =>
-      have hU : SymE (stdI c) (c.symName k.unit) [] (.val (.map k.sort [])) :=
+      have hU : SymE (stdI_T c T) (c.symName k.unit) [] (.val (.map k.sort [])) :=
         (coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .map Srt.map [])
           (by rw [hkind, builtinColl_map, Exec.hook_unit_eq]) (by rw [hkind, builtinColl_map]; rfl)
           ((sortOf_map_iff hco (h.mapVal hk hkind) hkind).mpr ⟨hkind, rfl, rfl⟩) _).mpr rfl
@@ -415,19 +562,19 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
       have hB' := ih hks' hent'
       obtain ⟨xa, xb⟩ := x
       obtain ⟨ha', hb'⟩ := entryOK_iff.mp hx
-      have hE : SymE (stdI c) (c.symName k.elem) [.val xa, .val xb] (.val (.map k.sort [(xa, xb)])) :=
+      have hE : SymE (stdI_T c T) (c.symName k.elem) [.val xa, .val xb] (.val (.map k.sort [(xa, xb)])) :=
         (coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [xa, xb]) (elemArgs_length hkind).symm
           (r := .map Srt.map [(xa, xb)]) (by rw [hkind, builtinColl_map, Exec.hook_elem_eq])
           (by rw [hkind, builtinColl_map]; rfl)
           ((sortOf_map_iff hco (h.mapVal hk hkind) hkind).mpr ⟨hkind, rfl, by simp [Semantics.entriesOK, hx]⟩) _).mpr rfl
-      have hC : SymE (stdI c) (c.symName k.concat) [.val (.map k.sort [(xa, xb)]), .val (.map k.sort es)]
+      have hC : SymE (stdI_T c T) (c.symName k.concat) [.val (.map k.sort [(xa, xb)]), .val (.map k.sort es)]
           (.val (.map k.sort ((xa, xb) :: es))) :=
         (coll_symE h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩)) (vs := [.map k.sort [(xa, xb)], .map k.sort es]) rfl
           (r := .map Srt.map ((xa, xb) :: es))
           (by rw [hkind, builtinColl_map, Exec.hook_concat_eq]
               show some ((union [(xa, xb)] es).map (GroundTerm.map Srt.map)) = _; rw [union_first hks]; rfl)
           (by rw [hkind, builtinColl_map]; rfl) ((sortOf_map_iff hco (h.mapVal hk hkind) hkind).mpr ⟨hkind, hks, hent⟩) _).mpr rfl
-      have hEl := appList_of (e := e') (.cons (hinh _ hsK _ ha') (.cons (hinh _ hsV _ hb') .nil)) hE
+      have hEl := appList_of (T := T) (e := e') (.cons (hinh _ hsK _ ha') (.cons (hinh _ hsV _ hb') .nil)) hE
       exact hB _ (interpret_disj.mpr (Or.inr (appList_of (.cons hEl (.cons ((hX _).mpr hB') .nil)) hC)))
   · -- sets
     have hkind' : k.kind = .set ∨ k.kind = .list := .inl hkind
@@ -441,7 +588,7 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
       rw [← hev]; exact (sortOf_elems_iff hco hkind').mpr ⟨h1, h2⟩
     induction es with
     | nil =>
-      have hU : SymE (stdI c) (c.symName k.unit) [] (.val (.set k.sort [])) :=
+      have hU : SymE (stdI_T c T) (c.symName k.unit) [] (.val (.set k.sort [])) :=
         (coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .set Srt.set [])
           (by rw [hkind, builtinColl_set, hook_setUnit_eq]) (by rw [hkind, builtinColl_set]; rfl)
           (hsv [] (fun _ => rfl) (fun _ h => nomatch h)) _).mpr rfl
@@ -454,12 +601,12 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
         | cons y es => simp only [elemsSorted, Bool.and_eq_true] at this; exact this.2
       have hB' := ih (fun _ => hso') (fun z hz => hall z (List.mem_cons_of_mem _ hz))
       have hx := hall x (List.mem_cons_self ..)
-      have hE : SymE (stdI c) (c.symName k.elem) [.val x] (.val (.set k.sort [x])) :=
+      have hE : SymE (stdI_T c T) (c.symName k.elem) [.val x] (.val (.set k.sort [x])) :=
         (coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [x]) (elemArgs_length' hkind').symm
           (r := .set Srt.set [x]) (by rw [hkind, builtinColl_set, hook_setElem_eq])
           (by rw [hkind, builtinColl_set]; rfl)
           (hsv [x] (fun _ => rfl) (fun z hz => by rw [List.mem_singleton.mp hz]; exact hx)) _).mpr rfl
-      have hC : SymE (stdI c) (c.symName k.concat) [.val (.set k.sort [x]), .val (.set k.sort es)]
+      have hC : SymE (stdI_T c T) (c.symName k.concat) [.val (.set k.sort [x]), .val (.set k.sort es)]
           (.val (.set k.sort (x :: es))) :=
         (coll_symE h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩)) (vs := [.set k.sort [x], .set k.sort es]) rfl
           (r := .set Srt.set (x :: es))
@@ -467,7 +614,7 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
               show some ((concatS [x] es).map (GroundTerm.set Srt.set)) = _
               rw [concatS_first (elemsSorted_iff.mp (hso hkind))]; rfl)
           (by rw [hkind, builtinColl_set]; rfl) (hsv _ hso hall) _).mpr rfl
-      have hEl := appList_of (e := e') (.cons (hinh _ hsK _ hx) .nil) hE
+      have hEl := appList_of (T := T) (e := e') (.cons (hinh _ hsK _ hx) .nil) hE
       exact hB _ (interpret_disj.mpr (Or.inr (appList_of (.cons hEl (.cons ((hX _).mpr hB') .nil)) hC)))
   · -- lists
     have hkind' : k.kind = .set ∨ k.kind = .list := .inr hkind
@@ -481,7 +628,7 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
       rw [← hev]; exact (sortOf_elems_iff hco hkind').mpr ⟨fun h => absurd h hnset, h2⟩
     induction es with
     | nil =>
-      have hU : SymE (stdI c) (c.symName k.unit) [] (.val (.list k.sort [])) :=
+      have hU : SymE (stdI_T c T) (c.symName k.unit) [] (.val (.list k.sort [])) :=
         (coll_symE h hk (Or.inl ⟨rfl, rfl, rfl⟩) (vs := []) rfl (r := .list Srt.list [])
           (by rw [hkind, builtinColl_list, hook_listUnit_eq]) (by rw [hkind, builtinColl_list]; rfl)
           (hsv [] (fun _ h => nomatch h)) _).mpr rfl
@@ -489,22 +636,31 @@ theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls
     | cons x es ih =>
       have hB' := ih (fun z hz => hall z (List.mem_cons_of_mem _ hz))
       have hx := hall x (List.mem_cons_self ..)
-      have hE : SymE (stdI c) (c.symName k.elem) [.val x] (.val (.list k.sort [x])) :=
+      have hE : SymE (stdI_T c T) (c.symName k.elem) [.val x] (.val (.list k.sort [x])) :=
         (coll_symE h hk (Or.inr (Or.inl ⟨rfl, rfl, rfl⟩)) (vs := [x]) (elemArgs_length' hkind').symm
           (r := .list Srt.list [x]) (by rw [hkind, builtinColl_list, hook_listElem_eq])
           (by rw [hkind, builtinColl_list]; rfl)
           (hsv [x] (fun z hz => by rw [List.mem_singleton.mp hz]; exact hx)) _).mpr rfl
-      have hC : SymE (stdI c) (c.symName k.concat) [.val (.list k.sort [x]), .val (.list k.sort es)]
+      have hC : SymE (stdI_T c T) (c.symName k.concat) [.val (.list k.sort [x]), .val (.list k.sort es)]
           (.val (.list k.sort (x :: es))) :=
         (coll_symE h hk (Or.inr (Or.inr ⟨rfl, rfl, rfl⟩)) (vs := [.list k.sort [x], .list k.sort es]) rfl
           (r := .list Srt.list (x :: es))
           (by rw [hkind, builtinColl_list, hook_listConcat_eq]; rfl)
           (by rw [hkind, builtinColl_list]; rfl) (hsv _ hall) _).mpr rfl
-      have hEl := appList_of (e := e') (.cons (hinh _ hsK _ hx) .nil) hE
+      have hEl := appList_of (T := T) (e := e') (.cons (hinh _ hsK _ hx) .nil) hE
       exact hB _ (interpret_disj.mpr (Or.inr (appList_of (.cons hEl (.cons ((hX _).mpr hB') .nil)) hC)))
 
+end AtT
+
+theorem sat_collNoJunk (h : HypModelCore c) {k : CollSig} (hk : k ∈ c.allColls) : stdI c ⊧ᴵ collNoJunk c k :=
+  AtT.sat_collNoJunk (c := c) (T := StepM c) (h := h) (k := k) (hk := hk)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
 /-- **`SatDomainsGoal`**: the value model satisfies the domains. -/
-theorem satDomainsGoal (h : HypModelCore c) : SatDomainsGoal c := by
+theorem satDomainsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓDomains c) := by
   intro φ hφ
   rcases hφ with ⟨k, vs, r, hk, hvs, hr, hs, rfl⟩ | ⟨kp, vs, hkp, hvs, rfl⟩ | ⟨v, s, hv, rfl⟩ |
     ⟨v, w, s, -, hv, hw, hne, rfl⟩ | ⟨k, hk, rfl⟩
@@ -514,6 +670,27 @@ theorem satDomainsGoal (h : HypModelCore c) : SatDomainsGoal c := by
   · exact sat_distinct h hv hw hne
   · exact sat_collNoJunk h hk
 
+end AtT
+
+/-- **`SatDomainsGoal`**: the value model satisfies the domains. -/
+theorem satDomainsGoal (h : HypModelCore c) : SatDomainsGoal c :=
+  AtT.satDomainsGoal (c := c) (T := StepM c) (h := h)
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- The value model satisfies the interpretation's values at silent points: there an interpreted
+symbol's result (`result`, through `hookRes`) is the fallback. -/
+theorem sat_silentGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} (hk : k ∈ hookSigs)
+    (hvs : c.sortsOf vs = some k.args) (hh : hook k.name vs = some none) (hs : silent k.name vs = true) :
+    stdI_T c T ⊧ᴵ (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match c.fallback k.name vs with
+      | some v => den c v
+      | none => ⊥)) :=
+  sat_hookGraph h hk hvs (Semantics.hookRes_of_silent hh hs)
+
+end AtT
+
 /-- The value model satisfies the interpretation's values at silent points: there an interpreted
 symbol's result (`result`, through `hookRes`) is the fallback. -/
 theorem sat_silentGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} (hk : k ∈ hookSigs)
@@ -521,7 +698,7 @@ theorem sat_silentGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm
     stdI c ⊧ᴵ (KoreAML.den (symApp c k.name (GroundTerm.koreList c vs)) ≡ (match c.fallback k.name vs with
       | some v => den c v
       | none => ⊥)) :=
-  sat_hookGraph h hk hvs (Semantics.hookRes_of_silent hh hs)
+  AtT.sat_silentGraph (c := c) (T := StepM c) (h := h) (k := k) (vs := vs) (hk := hk) (hvs := hvs) (hh := hh) (hs := hs)
 
 end Model
 

@@ -32,17 +32,6 @@ kernel_rfl Semantics.matchObligations_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).matchObligations = c.matchObligations
 kernel_rfl Semantics.agreeObligations_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).agreeObligations = c.agreeObligations
--- A value's sort is the same under every interpretation where no parameter is an open generator
--- (`raw`): the sort of an open generator's application is read from the interpretation.
-kernel_rfl Semantics.sortOf_withHooks :
-  ∀ (c : Semantics) (H : HookParams) (_hr : ∀ k ∈ c.params, k.raw = false),
-    (c.withHooks H).sortOf = c.sortOf
-
--- A value that applies no open generator has its sort at every interpretation.
-kernel_rfl Semantics.sortOf_withHooks_rawFree :
-  ∀ (c : Semantics) (H : HookParams) {v : GroundTerm} (_hv : c.rawFree v = true),
-    (c.withHooks H).sortOf v = c.sortOf v
-
 kernel_rfl Det.detOKExcept_withHooks : ∀ (c : Semantics) (T : Tables) (H : HookParams) (ix : Det.DetIndex)
   (ovl : List (Nat × Nat)), Det.detOKExcept (c.withHooks H) T ix ovl = Det.detOKExcept c T ix ovl
 kernel_rfl Det.idxOK_withHooks : ∀ (c : Semantics) (T : Tables) (H : HookParams) (ix : Det.DetIndex),
@@ -50,6 +39,25 @@ kernel_rfl Det.idxOK_withHooks : ∀ (c : Semantics) (T : Tables) (H : HookParam
 kernel_rfl Det.detCond_withHooks : ∀ (c : Semantics) (T : Tables) (H : HookParams) (p : Nat × Nat),
   Det.detCond (c.withHooks H) T p = Det.detCond c T p
 kernel_rfl tables_withHooks : ∀ (c : Semantics) (H : HookParams), tables (c.withHooks H) = tables c
+kernel_rfl Semantics.rawFree_withHooks :
+  ∀ (c : Semantics) (H : HookParams), (c.withHooks H).rawFree = c.rawFree
+
+/-- A value that applies no open generator has its sort at every interpretation: there the sort is
+the tables' (`sortOfT_tables`), which hold no interpretation. -/
+theorem Semantics.sortOf_withHooks_rawFree :
+  ∀ (c : Semantics) (H : HookParams) {v : GroundTerm} (_hv : c.rawFree v = true),
+    (c.withHooks H).sortOf v = c.sortOf v := fun c H v hv =>
+  have hv' : (c.withHooks H).rawFree v = true := (congrFun (Semantics.rawFree_withHooks c H) v).trans hv
+  (sortOfT_tables (c.withHooks H) v hv').symm.trans
+    ((congrArg (fun T => sortOfT T c.lib v) (tables_withHooks c H)).trans (sortOfT_tables c v hv))
+
+/-- A value's sort is the same under every interpretation where no parameter is an open generator
+(`raw`): the sort of an open generator's application is read from the interpretation. -/
+theorem Semantics.sortOf_withHooks :
+  ∀ (c : Semantics) (H : HookParams) (_hr : ∀ k ∈ c.params, k.raw = false),
+    (c.withHooks H).sortOf = c.sortOf := fun c H hr =>
+  funext fun v => Semantics.sortOf_withHooks_rawFree c H (Semantics.rawFree_of_noRaw hr v)
+
 kernel_rfl Definition.wf_withHooks :
   ∀ (d : Definition) (H : HookParams), wf { d with sem := d.sem.withHooks H } = wf d
 
@@ -137,7 +145,7 @@ theorem step_of_apply_all_withHooks {c : Semantics} (hok : c.okAll = true) (hsr 
     (hens : ∀ t, r.ens = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies (c.withHooks H) r' x.val) :
     Step (c.withHooks H) x ⟨v, rhs_sorted_all_withHooks hok hsr hov H hr hσ he⟩ :=
-  let ⟨_, hp, hq⟩ := Semantics.okAll_rule hok hr
+  let ⟨hp, hq⟩ := Semantics.okAll_ruleTop hok hr
   Step.rule_top r hr σ hp hq hσ hm hreq he hens hprio
 
 end KCore

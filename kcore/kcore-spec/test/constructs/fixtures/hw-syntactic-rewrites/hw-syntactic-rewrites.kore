@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -90,7 +90,7 @@ module ENS
   symbol Lbl'-LT-'generatedCounter'-GT-'{}(SortInt{}) : SortGeneratedCounterCell{} [cell{}(), constructor{}(), functional{}(), injective{}()]
   symbol Lbl'-LT-'generatedTop'-GT-'{}(SortKCell{}, SortGeneratedCounterCell{}) : SortGeneratedTopCell{} [cell{}(), constructor{}(), functional{}(), injective{}()]
   symbol Lbl'-LT-'generatedTop'-GT-'-fragment{}(SortKCellOpt{}, SortGeneratedCounterCellOpt{}) : SortGeneratedTopCellFragment{} [constructor{}(), functional{}(), injective{}()]
-  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,17,15,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)")]
+  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,17,15,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)")]
   hooked-symbol LblList'Coln'get{}(SortList{}, SortInt{}) : SortKItem{} [function{}(), hook{}("LIST.get"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(968,20,968,91)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:get")]
   hooked-symbol LblList'Coln'getMInt{SortWidth}(SortList{}, SortMInt{SortWidth}) : SortKItem{} [function{}(), hook{}("LIST.getMInt"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(969,28,969,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:getMInt")]
   hooked-symbol LblList'Coln'range{}(SortList{}, SortInt{}, SortInt{}) : SortList{} [function{}(), hook{}("LIST.range"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1017,19,1017,112)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("List:range")]
@@ -149,11 +149,11 @@ module ENS
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [function{}(), functional{}(), hook{}("INT.abs"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1293,18,1293,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("(ite (< #1 0) (- 0 #1) #1)"), total{}()]
   hooked-symbol LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.bitRange"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1318,18,1318,103)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lbldone{}(SortInt{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,43,8,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)"), symbol'Kywd'{}("done")]
+  symbol Lbldone{}(SortInt{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,43,8,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)"), symbol'Kywd'{}("done")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [freshGenerator{}(), function{}(), functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1456,18,1456,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
-  symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,52)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)"), symbol'Kywd'{}("half")]
+  symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,52)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)"), symbol'Kywd'{}("half")]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -200,7 +200,7 @@ module ENS
   hooked-symbol LblpushList{}(SortKItem{}, SortList{}) : SortList{} [function{}(), functional{}(), hook{}("LIST.push"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(954,19,954,99)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), symbol'Kywd'{}("pushList"), total{}()]
   hooked-symbol LblrandInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [function{}(), hook{}("INT.rand"), impure{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1352,18,1352,65)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-symbol LblremoveAll'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Set{}(SortMap{}, SortSet{}) : SortMap{} [function{}(), functional{}(), hook{}("MAP.removeAll"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(333,18,333,87)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lblrun{}(SortInt{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,40)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)"), symbol'Kywd'{}("run")]
+  symbol Lblrun{}(SortInt{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,40)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)"), symbol'Kywd'{}("run")]
   hooked-symbol LblsignExtendBitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.signExtendBitRange"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1319,18,1319,113)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   hooked-symbol Lblsize'LParUndsRParUnds'SET'Unds'Int'Unds'Set{}(SortSet{}) : SortInt{} [function{}(), functional{}(), hook{}("SET.size"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(794,18,794,76)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol LblsizeList{}(SortList{}) : SortInt{} [function{}(), functional{}(), hook{}("LIST.size"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1039,18,1039,116)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smtlib{}("smt_seq_len"), symbol'Kywd'{}("sizeList"), total{}()]
@@ -627,14 +627,14 @@ module ENS
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("88327456f82448e5a8387e1b180240db11201dd91cad6b2086350a57ec6598c4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1176,8,1176,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), simplification{}("")]
 
-// rule `<generatedTop>`(`<k>`(inj{Cmd,KItem}(run(N))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Cmd,KItem}(done(half(N)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(32270c1950dd605802522f561cde6342b7cd0324ae88b703de6736889f733702), label(ENS.go), org.kframework.attributes.Location(Location(17,14,17,46)), org.kframework.attributes.Source(Source(/tmp/claude-1000/kc/ens/ens.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule `<generatedTop>`(`<k>`(inj{Cmd,KItem}(run(N))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Cmd,KItem}(done(half(N)))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(32270c1950dd605802522f561cde6342b7cd0324ae88b703de6736889f733702), label(ENS.go), org.kframework.attributes.Location(Location(17,14,17,46)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/ens.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{} \rewrites{SortGeneratedTopCell{}} (
       \and{SortGeneratedTopCell{}} (
         Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblrun{}(VarN:SortInt{})),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
         \top{SortGeneratedTopCell{}}()),
       \and{SortGeneratedTopCell{}} (
       Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lbldone{}(Lblhalf{}(VarN:SortInt{}))),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
-  [syntactic{}("1"), UNIQUE'Unds'ID{}("32270c1950dd605802522f561cde6342b7cd0324ae88b703de6736889f733702"), label{}("ENS.go"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,14,17,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)")]
+  [syntactic{}("1"), UNIQUE'Unds'ID{}("32270c1950dd605802522f561cde6342b7cd0324ae88b703de6736889f733702"), label{}("ENS.go"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,14,17,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)")]
 
 // rule `_%Int_`(X,N)=>X requires `_andBool_`(`_<=Int_`(#token("0","Int"),X),`_<Int_`(X,N)) ensures #token("true","Bool") [UNIQUE_ID(0475fccae6d02d5ccbc06bc91b95a1b0ef801a80c2df353830b70eaa8822c87d), org.kframework.attributes.Location(Location(1377,8,1377,59)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "requires" Bool [symbol(#ruleRequires)]), simplification]
   axiom{R} \implies{R} (
@@ -1446,7 +1446,7 @@ module ENS
         \top{SortGeneratedCounterCell{}}())))
   [UNIQUE'Unds'ID{}("9ef5eb9b9e6bbd7436911fad20615821f61e06e742dd27773001ab0664bd1de3")]
 
-// rule half(N)=>`_/Int_`(N,#token("2","Int")) requires #token("true","Bool") ensures `_>=Int_`(N,#token("0","Int")) [UNIQUE_ID(2d846f4b7f5bd951f211e5a4a1c70c8876d404b54a034a682c3da12848533b75), org.kframework.attributes.Location(Location(16,8,16,45)), org.kframework.attributes.Source(Source(/tmp/claude-1000/kc/ens/ens.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "ensures" Bool [symbol(#ruleEnsures)])]
+// rule half(N)=>`_/Int_`(N,#token("2","Int")) requires #token("true","Bool") ensures `_>=Int_`(N,#token("0","Int")) [UNIQUE_ID(2d846f4b7f5bd951f211e5a4a1c70c8876d404b54a034a682c3da12848533b75), org.kframework.attributes.Location(Location(16,8,16,45)), org.kframework.attributes.Source(Source(kcore-spec/f2-examples/ens.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "ensures" Bool [symbol(#ruleEnsures)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -1464,7 +1464,7 @@ module ENS
         \equals{SortBool{},SortInt{}}(
         Lbl'Unds-GT-Eqls'Int'Unds'{}(VarN:SortInt{},\dv{SortInt{}}("0")),
         \dv{SortBool{}}("true")))))
-  [UNIQUE'Unds'ID{}("2d846f4b7f5bd951f211e5a4a1c70c8876d404b54a034a682c3da12848533b75"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,8,16,45)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)")]
+  [UNIQUE'Unds'ID{}("2d846f4b7f5bd951f211e5a4a1c70c8876d404b54a034a682c3da12848533b75"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,8,16,45)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)")]
 
 // rule initGeneratedCounterCell(.KList)=>`<generatedCounter>`(#token("0","Int")) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(5de11f6b50c4684c0e05b773f809d756f4ce9c03a4f24e23a9cddaf3fa31f553), initializer]
   axiom{R} \implies{R} (
@@ -2740,4 +2740,4 @@ module ENS
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,18,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/tmp/claude-1000/kc/ens/ens.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,18,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/f2-examples/ens.k)")]

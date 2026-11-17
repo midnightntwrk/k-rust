@@ -118,47 +118,6 @@ theorem freeOf_prio_T (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c
     · exact hR hk
     · exact hR hk
 
-theorem sExists_foldr_intro_T {T : GroundTerm → GroundTerm → Prop} {tbl : KoreAML.VarTable} {body : KoreAML.P} :
-    ∀ (free : List (KoreAML.VarKey × Kore.KSort)) (e e' : Valuation Elem) (m : Elem),
-    (∀ x, (∀ ks ∈ free, x ≠ tbl.ev ks.1) → e'.evalEvar x = e.evalEvar x) →
-    e'.evalSvar = e.evalSvar →
-    (∀ ks ∈ free, ∃ n, ks.2 = KoreAML.srt n ∧ InS (stdI_T c T) n (e'.evalEvar (tbl.ev ks.1))) →
-    body.interpret (stdI_T c T) e' m →
-    (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body).interpret
-      (stdI_T c T) e m
-  | [], e, e', m, hoff, hsv, _, hb => by
-    have : e' = e := by
-      cases e; cases e'
-      simp only at hsv
-      subst hsv
-      congr 1
-      funext x
-      exact hoff x (fun _ h => absurd h List.not_mem_nil)
-    subst this
-    exact hb
-  | (k, s) :: free, e, e', m, hoff, hsv, hg, hb => by
-    show (KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s)
-      (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body)).interpret
-        (stdI_T c T) e m
-    rw [KoreAML.interp_sExists]
-    refine ⟨e'.evalEvar (tbl.ev k), ?_, ?_⟩
-    · rw [KoreAML.interp_member AtT.defOK_std]
-      simp only [Function.update_same]
-      obtain ⟨n, hn, hin⟩ := hg (k, s) (List.mem_cons_self ..)
-      simp only at hn
-      rw [hn, trSort_srt]
-      exact (inS_iff _).mpr hin
-    · refine sExists_foldr_intro_T free _ e' m (fun x hx => ?_) hsv
-        (fun ks hks => hg ks (List.mem_cons_of_mem _ hks)) hb
-      show e'.evalEvar x = Function.update e.evalEvar (tbl.ev k) (e'.evalEvar (tbl.ev k)) x
-      by_cases hxk : x = tbl.ev k
-      · subst hxk; simp only [Function.update_same]
-      · rw [Function.update_noteq hxk]
-        exact hoff x (fun ks hks => by
-          rcases List.mem_cons.mp hks with rfl | hks
-          · exact hxk
-          · exact hx ks hks)
-
 /-- **A step by a rule is in its disjunct of the closure, at any T.** For a rule with `ruleSorted`
 and `rulePlainEx` (not asked to be one of the definition's), among rules with those facts: a
 `StepMAt` step from the configuration x to y, y the value of the closure's variable, puts x in the
@@ -319,6 +278,19 @@ theorem satStepGoal_T (h : HypModelCore c)
       off + (KoreAML.tableOf [] (prioRuleK c r)).length := by simp
   simp only at h1
   omega
+
+/-- **The rules' axioms hold in the value model**, for rules with `ruleSorted` and `rulePlainEx`
+taken per rule: `satRulesGoal_T` at `T := StepM c`. -/
+theorem satRulesGoal_StepM (h : HypModelCore c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) : SatRulesGoal c :=
+  satRulesGoal_T h hrules (StepM c) (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
+    (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
+
+/-- **The step's closure holds in the value model**, for rules with `ruleSorted` and `rulePlainEx`
+taken per rule: `satStepGoal_T` at `T := StepM c`. -/
+theorem satStepGoal_StepM (h : HypModelCore c)
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) : SatStepGoal c :=
+  satStepGoal_T h hrules (StepM c) (fun _ _ _ _ hT => hT)
 
 end Model
 

@@ -590,7 +590,7 @@ theorem successorsN_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   obtain ⟨r, hr, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩ := successorsN_sound hok hsr hov hcm hrc hy
-  exact ⟨hs, Step.rule_top r hr σ (Semantics.sortedOK_rule hok hr).2.1 (Semantics.sortedOK_rule hok hr).2.2 hσ hpv hreq hrhs hens hprio⟩
+  exact ⟨hs, Step.rule_top r hr σ (Semantics.sortedOK_ruleTop hok hr).1 (Semantics.sortedOK_ruleTop hok hr).2 hσ hpv hreq hrhs hens hprio⟩
 
 /-- `successors` keeps successors of `successorsN` only. -/
 theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),

@@ -1,7 +1,7 @@
 # Stage-4 common brief (every lane R/F/V; read after RULES.md)
 
 Base: BASE-1 head cd4909b2 (CN-3 U1 complete + RC-2 + C6). Main checkout (read-only spec):
-/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust/draft-personal/k-semantics-core-2026-11/
+<k-rust>/draft-personal/k-semantics-core-2026-11/
 - designs/CN-3-merged-constructs.md: READ ITS TOP "Annotations after U1" FIRST; §2-3 are fixed texts no lane edits; §4 is your lane.
 - findings/CN3-ADD-addendum.md, findings/REVIEW-CN3-ADD.md, findings/REVIEW-U1c.md, findings/HOOK-READING-decision.md.
 - TICKETS-2026-11-11.toml: the [goal] table, and the entries "BASE-1 partial", "U1a+U1b DONE", "REVIEW-U1c DONE".

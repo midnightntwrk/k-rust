@@ -14,6 +14,6 @@ user module HW-BASE: 427 sentences
 stage refusals (of sentences classified read): 1
   1 constructorEquation
       sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by the same constructor)
-        [user] (no label) at hw-base.k:99: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lbla{}(X0:SortInt{}), \and{SortExp{}}(Lbla{}(\dv{SortInt{}}("0")), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("hw-h1-same"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/wo …
+        [user] (no label) at hw-base.k:99: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lbla{}(X0:SortInt{}), \and{SortExp{}}(Lbla{}(\dv{SortInt{}}("0")), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("hw-h1-same"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/te …
 finish: sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by the same constructor)
 (exit 0)

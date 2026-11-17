@@ -16,7 +16,7 @@ Criterion numbers C1 to C13 are those of the first version; C14 is new.
 | `T_HLC` | workspace `kcore-kinds` at `1e306534` (HL-B, HL-C); lane CE runs on it | `[resume].found`, entry "2026-11-15 HL-C done and reviewed" |
 | `T_R2` | the freeze tree; does not exist yet | to be `[tree].commit` after node R2; `[tree].frozen_at` (proposed) lists it and every later re-freeze (section 2.6) |
 | `T_DONE` | the tree at which section 1 is checked; does not exist yet | `[tree].commit` at completion |
-| `KS` | the library: `/artifacts/worktrees/kcore-merge/draft-personal/k-semantics-core-2026-11/kcore-spec` | `core-manifest.toml` `[tree].path` |
+| `KS` | the library: `<worktree:kcore-merge>/draft-personal/k-semantics-core-2026-11/kcore-spec` | `core-manifest.toml` `[tree].path` |
 | `KK` | `krs/semantics/kore/` on k-rust git `main` (`38cac354e` today): `kore.k`, `README.md`, `cases/`, `MUTATIONS.toml`, `kill-matrix.json`, `kink.lock` | |
 | `K` | K 7.1.337: `k/result` (installed), `k/` (source checkout, `4a46d12314`) | |
 

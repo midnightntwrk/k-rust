@@ -8,68 +8,68 @@ namespace ImpSecLeaky
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isExpr» : KCore.Sym := 378
-@[match_pattern, reducible] def «isKResult» : KCore.Sym := 379
-@[match_pattern, reducible] def «isLevel» : KCore.Sym := 380
-@[match_pattern, reducible] def «isStmt» : KCore.Sym := 381
-@[match_pattern, reducible] def «isValue» : KCore.Sym := 382
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 383
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 384
-@[match_pattern, reducible] def «-__EXPR-SYNTAX_Expr_Expr» : KCore.Sym := 385
-@[match_pattern, reducible] def «!__EXPR-SYNTAX_Expr_Expr» : KCore.Sym := 386
-@[match_pattern, reducible] def «_*__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 387
-@[match_pattern, reducible] def «_/__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 388
-@[match_pattern, reducible] def «_+__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 389
-@[match_pattern, reducible] def «_-__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 390
-@[match_pattern, reducible] def «_>=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 391
-@[match_pattern, reducible] def «_>__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 392
-@[match_pattern, reducible] def «_<=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 393
-@[match_pattern, reducible] def «_<__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 394
-@[match_pattern, reducible] def «_==__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 395
-@[match_pattern, reducible] def «_!=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 396
-@[match_pattern, reducible] def «_&&__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 397
-@[match_pattern, reducible] def «_||__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 398
-@[match_pattern, reducible] def «_=_;_CALC-SYNTAX_Stmt_Id_Expr» : KCore.Sym := 399
-@[match_pattern, reducible] def «___CALC-SYNTAX_Stmt_Stmt_Stmt» : KCore.Sym := 400
-@[match_pattern, reducible] def «if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt» : KCore.Sym := 401
-@[match_pattern, reducible] def «if(_)__IMP-SYNTAX_Stmt_Expr_Stmt» : KCore.Sym := 402
-@[match_pattern, reducible] def «while(_)__IMP-SYNTAX_Stmt_Expr_Stmt» : KCore.Sym := 403
-@[match_pattern, reducible] def «{_}_IMP-SYNTAX_Stmt_Stmt» : KCore.Sym := 404
-@[match_pattern, reducible] def «{}_IMP-SYNTAX_Stmt» : KCore.Sym := 405
-@[match_pattern, reducible] def «lo_IMP-SEC_Level» : KCore.Sym := 406
-@[match_pattern, reducible] def «hi_IMP-SEC_Level» : KCore.Sym := 407
-@[match_pattern, reducible] def «#freezer-__EXPR-SYNTAX_Expr_Expr0_» : KCore.Sym := 408
-@[match_pattern, reducible] def «#freezer!__EXPR-SYNTAX_Expr_Expr0_» : KCore.Sym := 409
-@[match_pattern, reducible] def «#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 410
-@[match_pattern, reducible] def «#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 411
-@[match_pattern, reducible] def «#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 412
-@[match_pattern, reducible] def «#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 413
-@[match_pattern, reducible] def «#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 414
-@[match_pattern, reducible] def «#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 415
-@[match_pattern, reducible] def «#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 416
-@[match_pattern, reducible] def «#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 417
-@[match_pattern, reducible] def «#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 418
-@[match_pattern, reducible] def «#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 419
-@[match_pattern, reducible] def «#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 420
-@[match_pattern, reducible] def «#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 421
-@[match_pattern, reducible] def «#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 422
-@[match_pattern, reducible] def «#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 423
-@[match_pattern, reducible] def «#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 424
-@[match_pattern, reducible] def «#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 425
-@[match_pattern, reducible] def «#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 426
-@[match_pattern, reducible] def «#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 427
-@[match_pattern, reducible] def «#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 428
-@[match_pattern, reducible] def «#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 429
-@[match_pattern, reducible] def «#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 430
-@[match_pattern, reducible] def «#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 431
-@[match_pattern, reducible] def «#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr1_» : KCore.Sym := 432
-@[match_pattern, reducible] def «#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt0_» : KCore.Sym := 433
-@[match_pattern, reducible] def «join(_,_)_IMP-SEC_Level_Level_Level» : KCore.Sym := 434
-@[match_pattern, reducible] def «lev(_,_)_IMP-SEC_Level_Expr_Map» : KCore.Sym := 435
-@[match_pattern, reducible] def «conf(_,_)_IMP-SEC_Bool_Stmt_Map» : KCore.Sym := 436
-@[match_pattern, reducible] def «sec(_,_)_IMP-SEC_Bool_Stmt_Map» : KCore.Sym := 437
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isExpr» : KCore.Sym := 382
+@[match_pattern, reducible] def «isKResult» : KCore.Sym := 383
+@[match_pattern, reducible] def «isLevel» : KCore.Sym := 384
+@[match_pattern, reducible] def «isStmt» : KCore.Sym := 385
+@[match_pattern, reducible] def «isValue» : KCore.Sym := 386
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 387
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 388
+@[match_pattern, reducible] def «-__EXPR-SYNTAX_Expr_Expr» : KCore.Sym := 389
+@[match_pattern, reducible] def «!__EXPR-SYNTAX_Expr_Expr» : KCore.Sym := 390
+@[match_pattern, reducible] def «_*__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 391
+@[match_pattern, reducible] def «_/__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 392
+@[match_pattern, reducible] def «_+__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 393
+@[match_pattern, reducible] def «_-__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 394
+@[match_pattern, reducible] def «_>=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 395
+@[match_pattern, reducible] def «_>__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 396
+@[match_pattern, reducible] def «_<=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 397
+@[match_pattern, reducible] def «_<__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 398
+@[match_pattern, reducible] def «_==__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 399
+@[match_pattern, reducible] def «_!=__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 400
+@[match_pattern, reducible] def «_&&__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 401
+@[match_pattern, reducible] def «_||__EXPR-SYNTAX_Expr_Expr_Expr» : KCore.Sym := 402
+@[match_pattern, reducible] def «_=_;_CALC-SYNTAX_Stmt_Id_Expr» : KCore.Sym := 403
+@[match_pattern, reducible] def «___CALC-SYNTAX_Stmt_Stmt_Stmt» : KCore.Sym := 404
+@[match_pattern, reducible] def «if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt» : KCore.Sym := 405
+@[match_pattern, reducible] def «if(_)__IMP-SYNTAX_Stmt_Expr_Stmt» : KCore.Sym := 406
+@[match_pattern, reducible] def «while(_)__IMP-SYNTAX_Stmt_Expr_Stmt» : KCore.Sym := 407
+@[match_pattern, reducible] def «{_}_IMP-SYNTAX_Stmt_Stmt» : KCore.Sym := 408
+@[match_pattern, reducible] def «{}_IMP-SYNTAX_Stmt» : KCore.Sym := 409
+@[match_pattern, reducible] def «lo_IMP-SEC_Level» : KCore.Sym := 410
+@[match_pattern, reducible] def «hi_IMP-SEC_Level» : KCore.Sym := 411
+@[match_pattern, reducible] def «#freezer-__EXPR-SYNTAX_Expr_Expr0_» : KCore.Sym := 412
+@[match_pattern, reducible] def «#freezer!__EXPR-SYNTAX_Expr_Expr0_» : KCore.Sym := 413
+@[match_pattern, reducible] def «#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 414
+@[match_pattern, reducible] def «#freezer_*__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 415
+@[match_pattern, reducible] def «#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 416
+@[match_pattern, reducible] def «#freezer_/__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 417
+@[match_pattern, reducible] def «#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 418
+@[match_pattern, reducible] def «#freezer_+__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 419
+@[match_pattern, reducible] def «#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 420
+@[match_pattern, reducible] def «#freezer_-__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 421
+@[match_pattern, reducible] def «#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 422
+@[match_pattern, reducible] def «#freezer_>=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 423
+@[match_pattern, reducible] def «#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 424
+@[match_pattern, reducible] def «#freezer_>__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 425
+@[match_pattern, reducible] def «#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 426
+@[match_pattern, reducible] def «#freezer_<=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 427
+@[match_pattern, reducible] def «#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 428
+@[match_pattern, reducible] def «#freezer_<__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 429
+@[match_pattern, reducible] def «#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 430
+@[match_pattern, reducible] def «#freezer_==__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 431
+@[match_pattern, reducible] def «#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 432
+@[match_pattern, reducible] def «#freezer_!=__EXPR-SYNTAX_Expr_Expr_Expr1_» : KCore.Sym := 433
+@[match_pattern, reducible] def «#freezer_&&__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 434
+@[match_pattern, reducible] def «#freezer_||__EXPR-SYNTAX_Expr_Expr_Expr0_» : KCore.Sym := 435
+@[match_pattern, reducible] def «#freezer_=_;_CALC-SYNTAX_Stmt_Id_Expr1_» : KCore.Sym := 436
+@[match_pattern, reducible] def «#freezerif(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt0_» : KCore.Sym := 437
+@[match_pattern, reducible] def «join(_,_)_IMP-SEC_Level_Level_Level» : KCore.Sym := 438
+@[match_pattern, reducible] def «lev(_,_)_IMP-SEC_Level_Expr_Map» : KCore.Sym := 439
+@[match_pattern, reducible] def «conf(_,_)_IMP-SEC_Bool_Stmt_Map» : KCore.Sym := 440
+@[match_pattern, reducible] def «sec(_,_)_IMP-SEC_Bool_Stmt_Map» : KCore.Sym := 441
 end Sym
 
 namespace Srt
@@ -83,7 +83,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 62).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisExpr", "LblisKResult", "LblisLevel", "LblisStmt", "LblisValue",
+    ((List.range 62).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisExpr", "LblisKResult", "LblisLevel", "LblisStmt", "LblisValue",
  "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbl-'UndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr",
  "Lbl'BangUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr", "Lbl'UndsStarUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr",
  "Lbl'UndsSlshUndsUnds'EXPR-SYNTAX'Unds'Expr'Unds'Expr'Unds'Expr",

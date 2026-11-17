@@ -65,8 +65,10 @@ theorem plain_defn : defn.sem.plain = true := by decide +kernel
 theorem plain_withHooks_defn (H : HookParams) : (defn.sem.withHooks H).plain = true :=
   (Semantics.plain_withHooks defn.sem H).trans plain_defn
 
-/-- **The theory has a model** (`KCore.Consistent`, by `KCore.consistent_of`) under every
-interpretation H, no fact being named (`obl_nil`) (the facts still owed are `namedFacts`). -/
+/-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
+`KCore.consistent_of`) under every interpretation H, no fact being named (`obl_nil`) (the facts still owed are
+`namedFacts`). `Γ` holds no axiom `∃y. f(x̄) = y` of a function, so no `[total]` declaration is
+read here (the theory with them: `KCore.Faithful.has_model_total`). -/
 theorem consistent (H : HookParams) (hH : HooksTotal H) : Consistent (defn.sem.withHooks H) :=
   consistent_of_fnHyp _ (coreOK_withHooks_defn H) (fnHyp_defn H hH)
 

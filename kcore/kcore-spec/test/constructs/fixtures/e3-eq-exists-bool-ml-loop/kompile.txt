@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-bool-ml-loop.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 205937
+definition.kore sha256: bf5dd39c45b8051a0b0d9875efa5f02517f515c3199c942ca17ce45c72b0c9a8
+stripped sha256: 33b6360e017a35d67a8f688aa3c1c7194b7c3a484d51f07c8fe5f084a232efb5
+main module: 397 sentences, 40 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-BOOL-ML-LOOP-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-BOOL-ML-LOOP as default.

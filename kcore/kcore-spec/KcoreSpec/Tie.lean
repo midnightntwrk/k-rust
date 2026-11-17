@@ -42,13 +42,13 @@ def Definition.namesOK (d : Definition) : Bool :=
   KoreAML.nodup (D.sortDecls.map (·.name)) && KoreAML.nodup (D.symbolDecls.map (·.name) ++ D.aliasNames) &&
     d.sem.hooksApart && d.sem.predsApart && d.sem.idsOK
 
-/-- Rules use no variable bound by `\exists` on the right side and no predicate of either side. The
-last conjunct says which variables the left side leaves open the values decide: each is held by the
-right side under constructors, or of a confined sort, or held by closed conditions (`OpenDecided`)
-no variable of which the right side, the `ensures` or `post` holds; and a rule that competes with a
-larger one has open condition variables of confined sorts, or closed conditions. -/
+/-- Rules use no predicate of either side. The last conjunct says which variables the left side
+leaves open the values decide, an existential variable of the right side among them: each is held
+by the right side under constructors, or of a confined sort, or held by closed conditions
+(`OpenDecided`) no variable of which the right side, the `ensures` or `post` holds; and a rule that
+competes with a larger one has open condition variables of confined sorts, or closed conditions. -/
 def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
-  r.exs.isEmpty && r.pre.isTop && r.post.isTop &&
+  r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false
    let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
    let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
@@ -164,12 +164,12 @@ theorem sortedOK_sorted {c : Semantics} (h : c.sortedOK = true) :
       c.rules.all c.ruleSorted) = true := by
   simp only [sortedOK, Bool.and_eq_true] at h ⊢; exact h.1.1.1
 
-/-- A rule of a semantics `rulesPlain` accepts has no existential variable and `\top` predicates. -/
-theorem rulesPlain_rule {c : Semantics} (h : c.rulesPlain = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.exs = [] ∧ r.pre = .top ∧ r.post = .top := by
+/-- A rule of a semantics `rulesPlain` accepts has `\top` predicates. -/
+theorem rulesPlain_ruleTop {c : Semantics} (h : c.rulesPlain = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.pre = .top ∧ r.post = .top := by
   simp only [rulesPlain, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, -⟩ := h r hr
-  exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
+  obtain ⟨⟨hpre, hpost⟩, -⟩ := h r hr
+  exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
 
 /-- Each variable of a rule of a semantics `sortedOK` accepts occurs in its left side, its
 `requires`, its right side or its `ensures`. -/
@@ -177,7 +177,7 @@ theorem sortedOK_rule_occurs {c : Semantics} (h : c.sortedOK = true) {r : Rule} 
     binds r.vars.length (varOccs r.lhs ++ r.condVars ++ varOccs r.rhs ++ (r.ens.map varOccs).getD []) = true := by
   have hs := sortedOK_sorted h
   simp only [sortedOK, Bool.and_eq_true] at h
-  obtain ⟨-, -, hpost⟩ := rulesPlain_rule h.1.1.2 hr
+  obtain ⟨-, hpost⟩ := rulesPlain_ruleTop h.1.1.2 hr
   simp only [Bool.and_eq_true, List.all_eq_true] at hs
   have hrs := hs.2 r hr
   simp only [ruleSorted, Bool.and_eq_true] at hrs
@@ -185,12 +185,40 @@ theorem sortedOK_rule_occurs {c : Semantics} (h : c.sortedOK = true) {r : Rule} 
   rw [hpost] at hb
   simpa [varOccsCond] using hb
 
-/-- A rule of a semantics `sortedOK` accepts has the plain shapes: no existential variable and `\top`
-predicates. -/
-theorem sortedOK_rule {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.exs = [] ∧ r.pre = .top ∧ r.post = .top := by
+/-- A rule with `ruleSorted` and no open variable has no existential variable. -/
+theorem exs_nil_of_opens {c : Semantics} {r : Rule} (hs : c.ruleSorted r = true) (hop : r.opens = []) :
+    r.exs = [] := by
+  simp only [ruleSorted, Bool.and_eq_true, List.all_eq_true] at hs
+  have hx := hs.1.1.1.1.1.1.1.2
+  match hr : r.exs with
+  | [] => rfl
+  | i :: _ =>
+    have hi := (hx i (by rw [hr]; exact List.mem_cons_self ..)).1
+    simp [hop] at hi
+
+/-- A rule with `ruleSorted` whose left side binds every variable has no existential variable: an
+existential variable is one the left side leaves open (`ruleSorted`), and it leaves none. -/
+theorem exs_nil_of_binds {c : Semantics} {r : Rule} (hs : c.ruleSorted r = true)
+    (hb : binds r.vars.length (varOccs r.lhs) = true) : r.exs = [] :=
+  exs_nil_of_opens hs (by
+    simp only [Rule.opens, List.filter_eq_nil_iff, List.mem_range, Bool.not_eq_eq_eq_not, Bool.not_true,
+      Bool.not_eq_false]
+    intro i hi
+    simpa using List.all_eq_true.mp hb i (List.mem_range.mpr hi))
+
+/-- A rule of a semantics `sortedOK` accepts whose left side binds every variable has no existential
+variable (`exs_nil_of_binds`). -/
+theorem sortedOK_exsNil {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules)
+    (hb : binds r.vars.length (varOccs r.lhs) = true) : r.exs = [] := by
+  have hs := sortedOK_sorted h
+  simp only [Bool.and_eq_true, List.all_eq_true] at hs
+  exact exs_nil_of_binds (hs.2 r hr) hb
+
+/-- A rule of a semantics `sortedOK` accepts has `\top` predicates. -/
+theorem sortedOK_ruleTop {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.pre = .top ∧ r.post = .top := by
   simp only [sortedOK, Bool.and_eq_true] at h
-  exact rulesPlain_rule h.1.1.2 hr
+  exact rulesPlain_ruleTop h.1.1.2 hr
 
 theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.clauseOKAll f H cl = true)
     (hb : (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true) :
@@ -216,13 +244,19 @@ theorem clauseBound_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c
   rw [Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost]
   rfl
 
-theorem ruleSorted_of_all {r : Rule} (h : c.ruleOKAll r = true) (hex : r.exs = []) (hpre : r.pre = .top)
+/-- `ruleOKAll` with `\top` predicates gives `ruleSorted`: `ruleOKAll` checks the existential
+variables as `ruleSorted` does. -/
+theorem ruleSorted_of_allTop {r : Rule} (h : c.ruleOKAll r = true) (hpre : r.pre = .top)
     (hpost : r.post = .top) : c.ruleSorted r = true := by
   simp only [ruleOKAll, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨h1, -⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨h1, -⟩, h3⟩, h4⟩, h5⟩, h6⟩, hn⟩, hx⟩ := h
   simp only [ruleSorted, Bool.and_eq_true]
-  refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, ?_⟩, ?_⟩, h4⟩, ?_⟩, h5⟩, ?_⟩, ?_⟩, ?_⟩, h6⟩ <;>
-    simp [hex, hpre, hpost, nodup, condOK, Cond.bound]
+  refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, hn⟩, hx⟩, h4⟩, ?_⟩, h5⟩, ?_⟩, ?_⟩, ?_⟩, h6⟩ <;>
+    simp [hpre, hpost, condOK, Cond.bound]
+
+theorem ruleSorted_of_all {r : Rule} (h : c.ruleOKAll r = true) (_hex : r.exs = []) (hpre : r.pre = .top)
+    (hpost : r.post = .top) : c.ruleSorted r = true :=
+  c.ruleSorted_of_allTop h hpre hpost
 
 /-- What `ruleSorted` says of a rule's left side, its `requires`, its `ensures` and its right side. -/
 theorem ruleSorted_parts {r : Rule} (h : c.ruleSorted r = true) :
@@ -244,27 +278,27 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) : c.sor
   simp only [Semantics.fnsOKAll, List.all_eq_true] at hf
   simp only [Semantics.sortedOK, Bool.and_eq_true, List.all_eq_true, hrp, hcp, hpp, and_true]
   refine ⟨⟨hs, fun f hf' cl hcl => ?_⟩, fun r hr' =>
-    let ⟨hex, hpre, hpost⟩ := Semantics.rulesPlain_rule hrp hr'
-    c.ruleSorted_of_all (List.all_eq_true.mp hr r hr') hex hpre hpost⟩
+    let ⟨hpre, hpost⟩ := Semantics.rulesPlain_ruleTop hrp hr'
+    c.ruleSorted_of_allTop (List.all_eq_true.mp hr r hr') hpre hpost⟩
   have := hf f hf'
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
   exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl)
 
-/-- A rule of a semantics `okAll` accepts has the plain shapes (`sortedOK_rule`). -/
-theorem Semantics.okAll_rule {c : Semantics} (h : c.okAll = true) {r : Rule} (hr : r ∈ c.rules) :
-    r.exs = [] ∧ r.pre = .top ∧ r.post = .top :=
-  Semantics.sortedOK_rule (Semantics.sortedOK_of_okAll h) hr
+/-- A rule of a semantics `okAll` accepts has `\top` predicates (`sortedOK_ruleTop`). -/
+theorem Semantics.okAll_ruleTop {c : Semantics} (h : c.okAll = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.pre = .top ∧ r.post = .top :=
+  Semantics.sortedOK_ruleTop (Semantics.sortedOK_of_okAll h) hr
 
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
 variable (`ruleOK`). -/
 theorem Semantics.ok_rule {c : Semantics} (h : c.ok = true) {r : Rule} (hr : r ∈ c.rules) :
     r.exs = [] ∧ r.pre = .top ∧ r.post = .top ∧ binds r.vars.length (varOccs r.lhs) = true := by
   have hp := (Semantics.plain_of_okAll (Semantics.okAll_of_ok h)).1
-  obtain ⟨hex, hpre, hpost⟩ := Semantics.rulesPlain_rule hp hr
+  obtain ⟨hpre, hpost⟩ := Semantics.rulesPlain_ruleTop hp hr
   simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at h
   have hro := h.2 r hr
   simp only [Semantics.ruleOK, Bool.and_eq_true] at hro
-  exact ⟨hex, hpre, hpost, hro.1.1.1.2⟩
+  exact ⟨List.isEmpty_iff.mp hro.2, hpre, hpost, hro.1.1.1.1.2⟩
 
 /-- The functions declared `hooked-symbol` (their presentation carries a `hook{}` attribute) name
 hooks no registry hook interprets (`regHookOf`). Such a function's meaning is its clauses and,
@@ -272,29 +306,6 @@ where none applies, the interpretation's value; a hook the registry interprets w
 symbol the registry's graph as well, which the core does not state of a function. -/
 def Definition.hookFnsUnregOK (d : Definition) : Bool :=
   d.pres.fns.all fun fp => fp.hook.all fun h => (regHookOf h).isNone
-
-def Definition.report (d : Definition) : List (String × Bool) :=
-  [("names declared once, none named like a hook, functions named apart, own sorts and symbols numbered in order", d.namesOK),
-   ("declarations over declared sorts", d.sem.declsOK),
-   ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
-   ("functions: well-sorted, covering", d.sem.fnsOKAll),
-   ("rules: well-sorted over the configuration sort", d.sem.rules.all d.sem.ruleOKAll),
-   ("certificate: self calls decrease", d.cert.ok d.sem),
-   ("presentation: variable names distinct; cells named apart, the cell holding $PGM of content K or its sort, each with its kind's sorts and symbols, the core's first sorts, constructors and subsorts", d.pres.ok d.sem),
-   ("theory: no function or constructor named like ite at a sort, functions' sorts numbered", Faithful.namesNumbered d.sem),
-   ("theory: values generated (constructor sorts)", Faithful.genWf d.sem),
-   ("theory: no collection sort holds a domain value", Faithful.collSortsOK d.sem),
-   ("theory: collections built by the parameters their names denote", Faithful.collsOK d.sem),
-   ("theory: every left-hand-side head a constructor or read downwards", Faithful.patHeadsOK d.sem),
-   ("theory: symbols and sorts named apart", Faithful.Model.namesApartK d.sem),
-   ("theory: no token or byte sort is Int or Bool", Faithful.Model.LitsApart d.sem),
-   ("theory: sorts of values and symbols numbered", Faithful.Model.sortsNumbered d.sem),
-   ("theory: collection symbols apart from constructors", Faithful.Model.collsNotCtors d.sem),
-   ("theory: symbols named like ite apart by their sort", Faithful.Model.itesApart d.sem),
-   ("theory: hooks, parameters and constructors apart", Faithful.Model.kindsApart d.sem),
-   ("theory: each constructor listed once", Faithful.Model.ctorsOnce d.sem),
-   ("theory: functions apart from constructors, hooks and parameters", Faithful.Model.fnsApart d.sem),
-   ("hooked functions: no registry hook interprets their hook", d.hookFnsUnregOK)]
 
 /-- A parameter symbol's argument or result sort: a declared sort below KItem, K or KItem. Unlike a
 constructor's, it may be a sort of which KCore represents no value (List): the symbol is then
@@ -341,6 +352,36 @@ def Definition.paramsOK (d : Definition) : Bool :=
   -- the collection sorts: distinct, and each built by its symbols
   nodup (d.sem.colls.map (·.sort)) && d.sem.colls.all d.sem.collOK &&
   d.hookFnsUnregOK
+
+/-- `wf`'s conditions, each by name: one row for each conjunct of `wf` and of `okAll`, and the
+conjuncts of `faithOK`, so that a definition `wf` refuses has a failing row. -/
+def Definition.report (d : Definition) : List (String × Bool) :=
+  [("names declared once, none named like a hook, functions named apart, own sorts and symbols numbered in order", d.namesOK),
+   ("declarations over declared sorts", d.sem.declsOK),
+   ("rules plain (rulesPlain): \\top predicates, open and existential variables held, open condition variables confined or closed conditions apart", d.sem.rulesPlain),
+   ("clauses plain (clausesPlain): no existential variable, \\top predicates, open condition variables confined or closed conditions", d.sem.clausesPlain),
+   ("parameters plain (paramsPlain): no open generator, associativity or idempotence; carriers well formed", d.sem.paramsPlain),
+   ("subsorts: a strict partial order into user sorts and library constructor sorts, closed", d.sem.subsortsOK),
+   ("functions: well-sorted, covering", d.sem.fnsOKAll),
+   ("rules: well-sorted over the configuration sort", d.sem.rules.all d.sem.ruleOKAll),
+   ("certificate: self calls decrease", d.cert.ok d.sem),
+   ("presentation: variable names distinct; cells named apart, the cell holding $PGM of content K or its sort, each with its kind's sorts and symbols, the core's first sorts, constructors and subsorts", d.pres.ok d.sem),
+   ("theory: no function or constructor named like ite at a sort, functions' sorts numbered", Faithful.namesNumbered d.sem),
+   ("theory: values generated (constructor sorts)", Faithful.genWf d.sem),
+   ("theory: no collection sort holds a domain value", Faithful.collSortsOK d.sem),
+   ("theory: collections built by the parameters their names denote", Faithful.collsOK d.sem),
+   ("theory: every left-hand-side head a constructor or read downwards", Faithful.patHeadsOK d.sem),
+   ("theory: symbols and sorts named apart", Faithful.Model.namesApartK d.sem),
+   ("theory: no token or byte sort is Int or Bool", Faithful.Model.LitsApart d.sem),
+   ("theory: sorts of values and symbols numbered", Faithful.Model.sortsNumbered d.sem),
+   ("theory: collection symbols apart from constructors", Faithful.Model.collsNotCtors d.sem),
+   ("theory: symbols named like ite apart by their sort", Faithful.Model.itesApart d.sem),
+   ("theory: hooks, parameters and constructors apart", Faithful.Model.kindsApart d.sem),
+   ("theory: each constructor listed once", Faithful.Model.ctorsOnce d.sem),
+   ("theory: functions apart from constructors, hooks and parameters", Faithful.Model.fnsApart d.sem),
+   ("hooked functions: no registry hook interprets their hook", d.hookFnsUnregOK),
+   ("parameter symbols (paramsOK): the imported modules' and the user's, each as its hook names", d.paramsOK),
+   ("overloading symbols (overloadsOK)", d.sem.overloadsOK)]
 
 /-- **A well-formed definition**: its names (`namesOK`), its core (`okAll`), its certificate, its
 presentation and its parameters are well formed, its semantics meets the decidable conditions

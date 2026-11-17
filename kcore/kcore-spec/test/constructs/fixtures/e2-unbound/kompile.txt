@@ -1,9 +1,9 @@
 command: kompile --backend haskell e2-unbound.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.4
+seconds: 2.3
 definition.kore bytes: 206672
 definition.kore sha256: 3c6d8bee53bd78872dd531193dcf0cda2ee0303b17ea827ad1865d3ebe4151e1
-stripped sha256: a1679865b992794615cf23a71b6fd80a738cdacc456fb21ca268e7896a537452
+stripped sha256: 7f23f1087e4f875b21f88f00fd7f0374c2264e2e03df7aedd6127fa800de8a3c
 main module: 405 sentences, 49 not in base's, in kore.txt
 output:
   [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name

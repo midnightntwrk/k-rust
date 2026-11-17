@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -149,14 +149,14 @@ module E3-ML-RULE-RHS-AND-TERM
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [function{}(), functional{}(), hook{}("INT.abs"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1293,18,1293,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("(ite (< #1 0) (- 0 #1) #1)"), total{}()]
   hooked-symbol LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.bitRange"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1318,18,1318,103)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lbldone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,41,3,62)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("done")]
-  symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("f")]
+  symbol Lbldone{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,41,3,62)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("done")]
+  symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("f")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [freshGenerator{}(), function{}(), functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1456,18,1456,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
-  symbol Lblg{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,49,4,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("g")]
+  symbol Lblg{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,49,4,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("g")]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
-  symbol Lblgo{}(SortInt{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("go")]
-  symbol Lblh{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,80,4,108)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("h")]
+  symbol Lblgo{}(SortInt{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,38)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("go")]
+  symbol Lblh{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,80,4,108)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("h")]
   symbol LblinitGeneratedCounterCell{}() : SortGeneratedCounterCell{} [function{}(), functional{}(), total{}()]
   symbol LblinitGeneratedTopCell{}(SortMap{}) : SortGeneratedTopCell{} [function{}()]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
@@ -186,7 +186,7 @@ module E3-ML-RULE-RHS-AND-TERM
   symbol LblnoGeneratedCounterCell{}() : SortGeneratedCounterCellOpt{} [constructor{}(), functional{}(), injective{}()]
   symbol LblnoKCell{}() : SortKCellOpt{} [constructor{}(), functional{}(), injective{}()]
   hooked-symbol LblnotBool'Unds'{}(SortBool{}) : SortBool{} [function{}(), functional{}(), hook{}("BOOL.not"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1120,19,1120,131)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("not"), symbol'Kywd'{}("notBool_"), total{}()]
-  symbol Lblother{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,65,3,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("other")]
+  symbol Lblother{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,65,3,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)"), symbol'Kywd'{}("other")]
   symbol Lblproject'Coln'Bool{}(SortK{}) : SortBool{} [function{}()]
   symbol Lblproject'Coln'Exp{}(SortK{}) : SortExp{} [function{}()]
   symbol Lblproject'Coln'GeneratedCounterCell{}(SortK{}) : SortGeneratedCounterCell{} [function{}()]
@@ -632,14 +632,14 @@ module E3-ML-RULE-RHS-AND-TERM
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("88327456f82448e5a8387e1b180240db11201dd91cad6b2086350a57ec6598c4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1176,8,1176,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), simplification{}("")]
 
-// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(go(X))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(#And{Int}(f(X),g(X)))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(4b8d4bc2b634711be71b6a1410c60cfb9a9b209ac3469843e19394508eadedbc), org.kframework.attributes.Location(Location(7,8,7,44)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(go(X))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Int,KItem}(#And{Int}(f(X),g(X)))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(4b8d4bc2b634711be71b6a1410c60cfb9a9b209ac3469843e19394508eadedbc), org.kframework.attributes.Location(Location(7,8,7,44)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{} \rewrites{SortGeneratedTopCell{}} (
       \and{SortGeneratedTopCell{}} (
         Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(VarX:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
         \top{SortGeneratedTopCell{}}()),
       \and{SortGeneratedTopCell{}} (
       Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\and{SortInt{}}(Lblf{}(VarX:SortInt{}),Lblg{}(VarX:SortInt{}))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
-  [UNIQUE'Unds'ID{}("4b8d4bc2b634711be71b6a1410c60cfb9a9b209ac3469843e19394508eadedbc"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,8,7,44)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)")]
+  [UNIQUE'Unds'ID{}("4b8d4bc2b634711be71b6a1410c60cfb9a9b209ac3469843e19394508eadedbc"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,8,7,44)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)")]
 
 // rule `_%Int_`(X,N)=>X requires `_andBool_`(`_<=Int_`(#token("0","Int"),X),`_<Int_`(X,N)) ensures #token("true","Bool") [UNIQUE_ID(0475fccae6d02d5ccbc06bc91b95a1b0ef801a80c2df353830b70eaa8822c87d), org.kframework.attributes.Location(Location(1377,8,1377,59)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "requires" Bool [symbol(#ruleRequires)]), simplification]
   axiom{R} \implies{R} (
@@ -1415,7 +1415,7 @@ module E3-ML-RULE-RHS-AND-TERM
         \top{SortInt{}}())))
   [UNIQUE'Unds'ID{}("147fc15c2ec6c36de1a9c0cad6212b8acd8b224f21c0aeabd36726e9c8a06119"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1438,8,1438,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule f(X)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e), org.kframework.attributes.Location(Location(5,8,5,17)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule f(X)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e), org.kframework.attributes.Location(Location(5,8,5,17)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -1431,7 +1431,7 @@ module E3-ML-RULE-RHS-AND-TERM
      \and{SortInt{}} (
        VarX:SortInt{},
         \top{SortInt{}}())))
-  [UNIQUE'Unds'ID{}("e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,17)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)")]
+  [UNIQUE'Unds'ID{}("e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,17)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)")]
 
 // rule `freshInt(_)_INT_Int_Int`(I)=>I requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cf2cb8f038b4bdc4edb1334a3b8ced9cd296a7af43f0a1916e082a4e1aefa08b), org.kframework.attributes.Location(Location(1457,8,1457,28)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
@@ -1451,7 +1451,7 @@ module E3-ML-RULE-RHS-AND-TERM
         \top{SortInt{}}())))
   [UNIQUE'Unds'ID{}("cf2cb8f038b4bdc4edb1334a3b8ced9cd296a7af43f0a1916e082a4e1aefa08b"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1457,8,1457,28)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule g(X)=>`_-Int_`(#token("0","Int"),X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2b8a0bd994656c4db8320b4f8159b51255bae77b723ccd6c75d2e5a40ea9033c), org.kframework.attributes.Location(Location(6,8,6,24)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule g(X)=>`_-Int_`(#token("0","Int"),X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2b8a0bd994656c4db8320b4f8159b51255bae77b723ccd6c75d2e5a40ea9033c), org.kframework.attributes.Location(Location(6,8,6,24)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -1467,7 +1467,7 @@ module E3-ML-RULE-RHS-AND-TERM
      \and{SortInt{}} (
        Lbl'Unds'-Int'Unds'{}(\dv{SortInt{}}("0"),VarX:SortInt{}),
         \top{SortInt{}}())))
-  [UNIQUE'Unds'ID{}("2b8a0bd994656c4db8320b4f8159b51255bae77b723ccd6c75d2e5a40ea9033c"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)")]
+  [UNIQUE'Unds'ID{}("2b8a0bd994656c4db8320b4f8159b51255bae77b723ccd6c75d2e5a40ea9033c"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)")]
 
 // rule getGeneratedCounterCell(`<generatedTop>`(_DotVar0,Cell))=>Cell requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(9ef5eb9b9e6bbd7436911fad20615821f61e06e742dd27773001ab0664bd1de3)]
   axiom{R} \implies{R} (
@@ -2761,4 +2761,4 @@ module E3-ML-RULE-RHS-AND-TERM
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,8,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-rule-rhs-and-term/src/e3-ml-rule-rhs-and-term.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,8,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-rule-rhs-and-term/e3-ml-rule-rhs-and-term.k)")]

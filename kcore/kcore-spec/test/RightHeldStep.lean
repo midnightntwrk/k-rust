@@ -28,28 +28,28 @@ definition_of defn from "f2-examples/opencl.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- The symbols and sorts the clauses name. -/
-example : c.symName 387 = "Lblf" ∧ c.symName 386 = "LblisC" ∧ c.symName 383 = "Lblc" ∧
+example : c.symName 391 = "Lblf" ∧ c.symName 390 = "LblisC" ∧ c.symName 387 = "Lblc" ∧
     c.sortName 32 = "S" ∧ c.sortName 33 = "Empty" := by
   decide +kernel
 
 /-- `f() => 0 ensures isC(c(Y:Empty))` -/
 def clYE : Clause :=
   { vars := [33], pats := [], req := none, rhs := .dv Srt.int (.int 0),
-    ens := some (.app 386 [.app 383 [.var 0]]) }
+    ens := some (.app 390 [.app 387 [.var 0]]) }
 /-- `f() => 1` -/
 def clOne : Clause := { vars := [], pats := [], req := none, rhs := .dv Srt.int (.int 1), ens := none }
 
 /-- `f` with the clauses `clYE` and `clOne`. -/
-def fF : Fn := { label := 387, args := [], result := Srt.int, clauses := [clYE, clOne] }
+def fF : Fn := { label := 391, args := [], result := Srt.int, clauses := [clYE, clOne] }
 
 /-- In the text `f` is a parameter. -/
-example : c.params.map (·.sig.name) = [387] ∧ c.fns.map (·.label) = [385, 386] := by decide +kernel
+example : c.params.map (·.sig.name) = [391] ∧ c.fns.map (·.label) = [389, 390] := by decide +kernel
 
 /-- `c` with `f` a function of the clauses `clYE` and `clOne`. -/
-noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.params.filter (·.sig.name != 387) }
+noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.params.filter (·.sig.name != 391) }
 
 /-- `c3` has one rule (`go => g(f())`), and `f` is no parameter of it. -/
-example : c3.rules.length = 1 ∧ c3.isParam 387 = false := by decide +kernel
+example : c3.rules.length = 1 ∧ c3.isParam 391 = false := by decide +kernel
 
 /-- Empty is the result of no constructor and not `valued`; `clYE`'s variable is outside its
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/

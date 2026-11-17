@@ -1,12 +1,12 @@
 /-
   KCore. The evaluations a step reads, for a rule whose left side need not bind every variable.
 
-  - `Semantics.rulePlainOpen`: what `rulesPlain` asks of one rule: no existential variable, `\top`
-    predicates, each open variable held by the right side under constructors, of a confined sort,
-    or held by closed conditions no variable of which the right side, the `ensures` or `post`
+  - `Semantics.rulePlainOpen`: what `rulesPlain` asks of one rule, and no existential variable:
+    `\top` predicates, each open variable held by the right side under constructors, of a confined
+    sort, or held by closed conditions no variable of which the right side, the `ensures` or `post`
     holds, and a rule that competes with a larger one has open condition variables of confined
-    sorts or closed conditions. `rulesPlain` is `rulePlainOpen` of each rule
-    (`Semantics.rulesPlain_iff_open`).
+    sorts or closed conditions. `rulesPlain` asks `Semantics.rulePlainEx` of each rule
+    (`Semantics.rulesPlain_iff_ex`, ExPlain.lean), which is `rulePlainOpen` less `r.exs = []`.
   - A term has a result, and a defined result has the term's sort, under a σ that gives the
     variables the term holds values of their sorts (`evalTerm_total_at`, `EvalTerm.sorted_at`):
     other variables are not read.
@@ -16,9 +16,10 @@
     (`WellSortedAt r.vars r.leftVars`), the variables of the `requires` being among those; its right
     side and `ensures` under a σ that gives every variable one (`WellSorted r.vars`); its predicates
     are `\top`. No variable is asked to be bound by the left side.
-  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainOpen`
-    (`Semantics.ruleFactsOpen_of_sortedOK`, `Semantics.ruleFactsOpen_of_core`); so under `coreOK` and
-    `FnHyp` every configuration is `StepDecided` (`stepDecided_of_fnHyp`).
+  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainEx`
+    (`Semantics.ruleFactsEx_of_sortedOK`, `Semantics.ruleFactsEx_of_core`, ExPlain.lean); under
+    `coreOK` and `FnHyp` every configuration is `StepDecided` (`stepDecided_of_fnHyp`,
+    HoldsDecided.lean, which reads `ruleSorted` only).
 -/
 import KcoreSpec.ModelPat
 import KcoreSpec.HypWf
@@ -28,7 +29,7 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `rulesPlain` asks of the rule r. -/
+/-- What `rulesPlain` asks of the rule r, and no existential variable. -/
 def Semantics.rulePlainOpen (c : Semantics) (r : Rule) : Bool :=
   r.exs.isEmpty && r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false
@@ -36,34 +37,6 @@ def Semantics.rulePlainOpen (c : Semantics) (r : Rule) : Bool :=
    let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
    r.opens.all (fun i => (ctorOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
    (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed))
-
-/-- `rulesPlain` is `rulePlainOpen` of each rule. -/
-theorem Semantics.rulesPlain_iff_open {c : Semantics} :
-    c.rulesPlain = true ↔ ∀ r ∈ c.rules, c.rulePlainOpen r = true := by
-  simp only [Semantics.rulesPlain, Semantics.rulePlainOpen, List.all_eq_true]
-
-/-- `rulesPlain` asks `rulePlainOpen` of each rule. -/
-theorem Semantics.rulePlainOpen_of_rulesPlain {c : Semantics} (h : c.rulesPlain = true) {r : Rule}
-    (hr : r ∈ c.rules) : c.rulePlainOpen r = true :=
-  Semantics.rulesPlain_iff_open.mp h r hr
-
-/-- What `sortedOK` gives of each rule, with no fact on its left side's variables: `ruleSorted` and
-`rulePlainOpen`. -/
-theorem Semantics.ruleFactsOpen_of_sortedOK {c : Semantics} (h : c.sortedOK = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true := by
-  intro r hr
-  have hs := Semantics.sortedOK_sorted h
-  simp only [Bool.and_eq_true, List.all_eq_true] at hs
-  have hp : c.rulesPlain = true := by
-    simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-    exact h.1.1.2
-  exact ⟨hs.2 r hr, Semantics.rulePlainOpen_of_rulesPlain hp hr⟩
-
-/-- What `coreOK` gives of each rule, with no fact on its left side's variables: `ruleSorted` and
-`rulePlainOpen`. -/
-theorem Semantics.ruleFactsOpen_of_core {c : Semantics} (h : c.coreOK = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true :=
-  Semantics.ruleFactsOpen_of_sortedOK (Semantics.coreOK_parts h).1
 
 /-- The predicates of a rule with `rulePlainOpen` are `\top`. -/
 theorem Semantics.rulePlainOpen_top {c : Semantics} {r : Rule} (h : c.rulePlainOpen r = true) :
@@ -297,11 +270,5 @@ theorem Rule.decided_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp 
         (∃ v, EvalTerm c σ r.rhs v) ∧ (∀ e, r.ens = some e → ∃ w, EvalTerm c σ e w) ∧
         ∃ b, Holds c r.vars.length σ r.post b) :=
   Faithful.Rule.decided_of_total (hypSound_of_core h) hf.1 hs hp x
-
-/-- Every configuration of a semantics that `coreOK` accepts and whose functions meet `FnHyp` is
-`StepDecided`: `stepDecided_of_rules` with the rules' facts `coreOK` gives. -/
-theorem stepDecided_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (x : Config c) :
-    StepDecided c x.val :=
-  stepDecided_of_rules (hypSound_of_core h) hf.1 (Semantics.ruleFactsOpen_of_core h) x.val
 
 end KCore

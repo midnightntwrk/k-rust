@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-fn-fn-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 209274
+definition.kore sha256: fddbe6afe06974a360660b90eb05e9c987749ae855622886673cb95d6c5bdc00
+stripped sha256: 42b18441ea3abb7b6dd3a5387804e10b9c633bf02fd222b690af6ce7b2028e63
+main module: 408 sentences, 52 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-FN-FN-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E5-OVL-FN-FN-OWISE as default.

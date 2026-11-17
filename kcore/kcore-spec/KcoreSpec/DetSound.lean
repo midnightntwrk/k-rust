@@ -780,8 +780,9 @@ theorem sortPred_eval {f : Sym} {fn : Fn} {S s : Srt} {u : GroundTerm} {r : Opti
             have hkq := KCore.lookupSig_ctorSigs_of_fixed (c := c) (L := [])
               (show lookupSig fixedCtors kseq = some _ from rfl)
             rw [List.append_nil] at hkq
-            rcases c.sortOf_ctor_iff.mp hx with ⟨k, hk, -, rfl⟩ | ⟨hk, -⟩
+            rcases c.sortOf_ctor_iff.mp hx with ⟨k, hk, -, rfl⟩ | ⟨hk, -⟩ | ⟨hk, -⟩
             · rw [hkq] at hk; cases hk; rfl
+            · rw [hkq] at hk; cases hk
             · rw [hkq] at hk; cases hk
         have hF := hnone o (by rw [hcl]; exact List.mem_cons_of_mem _ (List.mem_singleton_self _))
         cases hF with

@@ -1,15 +1,17 @@
 command: kompile --backend haskell e2-open-genless.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
-definition.kore bytes: 217254
-definition.kore sha256: 3b6262495a60a9c2bbaf9c120a45042b4532973f71eca5ea2e53d8495772e7f8
-stripped sha256: 3044199093a2791aa425048124218169ddb3ed2c7d706f33563f028c13ba1e9c
-main module: 430 sentences, 76 not in base's, in kore.txt
+seconds: 2.2
+definition.kore bytes: 138167
+definition.kore sha256: 22f6b6b2e9b819031fe53445c75b230693a729d23e0c04536aa0eff97aaa21d7
+stripped sha256: 781b25bdf7fd3dbbf47e5d9f650d91767bce3d0ec359fa911f6b9e9327e54b6c
+main module: 327 sentences, 59 not in base's, in kore.txt
 output:
-  [Warning] Compiler: Variable 'E' defined but not used. Prefix variable name
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
   with underscore if this is intentional.
   	Source(FIXTURE/e2-open-genless.k)
-  	Location(18,45,18,46)
-  	18 |	  rule <k> go(I) => done(I) </k> requires g(E:Empty) ==Int 1
-  [unboundVariables(E)]
-  	   .	                                            ^
+  	Location(9,46,9,47)
+  	9 |	  rule <k> a() => b() ... </k> requires isMk(X:S) [unboundVariables(X)]
+  	  .	                                             ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-GENLESS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-GENLESS as default.

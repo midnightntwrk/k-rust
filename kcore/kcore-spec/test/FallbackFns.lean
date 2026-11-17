@@ -40,8 +40,10 @@ def int (n : Int) : GroundTerm := .dv Srt.int (.int n)
 
 kernel_rfl clausesFixed_withHooks : ∀ (c : Semantics) (H : HookParams),
   (c.withHooks H).clausesFixed = c.clausesFixed
-kernel_rfl evalFC_withHooks : ∀ (c : Semantics) (H : HookParams) (n : Nat) (f : Sym) (vs : List GroundTerm),
-  Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs
+/-- `evalFC` reads no interpretation where no parameter is raw. -/
+theorem evalFC_withHooks (c : Semantics) (H : HookParams) (hr : ∀ k ∈ c.params, k.raw = false) (n : Nat) (f : Sym)
+    (vs : List GroundTerm) : Cert.evalFC (c.withHooks H) n f vs = Cert.evalFC c n f vs :=
+  Cert.evalFC_withHooks c H hr n f vs
 
 /-! ## `half`, whose one clause has an `ensures` -/
 
@@ -54,10 +56,10 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def half : Sym := 383
-def run : Sym := 382
-def done : Sym := 381
-def kCell : Sym := 379
+def half : Sym := 387
+def run : Sym := 386
+def done : Sym := 385
+def kCell : Sym := 383
 def cmd : Srt := 32
 
 theorem names : c.symName half = "Lblhalf" ∧ c.symName run = "Lblrun" ∧ c.symName done = "Lbldone" ∧
@@ -89,7 +91,7 @@ interpretation. -/
 theorem eval_of_evalFC {vs : List GroundTerm} (hvs : c.sortsOf vs = some fn.args) {n : Nat} {r : Option GroundTerm}
     (h : Cert.evalFC c n half vs = some r) (H : HookParams) : Eval (c.withHooks H) half vs r :=
   Exec.evalF_sound (sortCtx_of (hokH H) (hsrH H) (Exec.ovlCase_of (hmrH H))) (Exec.clauseCtx_of (hokH H))
-    (Exec.matchCtx_of (hmrH H)) n (Cert.evalFC_sound n (by rw [evalFC_withHooks]; exact h)) (hfnH H)
+    (Exec.matchCtx_of (hmrH H)) n (Cert.evalFC_sound n (by rw [evalFC_withHooks _ _ noRaw]; exact h)) (hfnH H)
     (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; exact hvs)
 
 theorem coherent (H : HookParams) : CoherentAll (c.withHooks H) :=
@@ -306,9 +308,9 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- No parameter of the definition is an open generator. -/
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
-def f : Sym := 383
-def a : Sym := 381
-def kCell : Sym := 379
+def f : Sym := 387
+def a : Sym := 385
+def kCell : Sym := 383
 def cmd : Srt := 32
 
 theorem names : c.symName f = "Lblf" ∧ c.symName a = "Lbla" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
@@ -344,7 +346,7 @@ theorem coherent (H : HookParams) : CoherentAll (c.withHooks H) :=
 `requires`) and its `ensures` `0 >Int 0` is false. -/
 theorem f0_none (H : HookParams) : Eval (c.withHooks H) f [int 0] none :=
   Exec.evalF_sound (sortCtx_of (hokH H) (hsrH H) (Exec.ovlCase_of (hmrH H))) (Exec.clauseCtx_of (hokH H))
-    (Exec.matchCtx_of (hmrH H)) 10 (Cert.evalFC_sound 10 (by rw [evalFC_withHooks]; decide +kernel)) (hfnH H)
+    (Exec.matchCtx_of (hmrH H)) 10 (Cert.evalFC_sound 10 (by rw [evalFC_withHooks _ _ noRaw]; decide +kernel)) (hfnH H)
     (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel)
 
 /-- The point is reached: `H7` gives `f(0)` the rest 7, which is not read there. -/

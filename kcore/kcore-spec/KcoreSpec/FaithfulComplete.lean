@@ -257,7 +257,7 @@ theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hb : binds r.vars.length 
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
   have hag := overV_agrees hI hkeys hσ (e := e)
   have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
-  rw [applies_top _ (Semantics.sortedOK_rule hok hr).2.1 hb]
+  rw [applies_top _ (Semantics.sortedOK_ruleTop hok hr).1 hb]
   show (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll (srtOf c topCellSort) (vs.map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))]))).interpret
         I e _
@@ -306,7 +306,8 @@ theorem rule_parts {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (
         ∀ r' ∈ c.rules, r'.prio < r.prio →
           ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret I e a := by
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.sortedOK_rule hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hok hr
+  have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hok hr (hb r hr)
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let comps := (c.rules.filter (·.prio < r.prio)).map fun r' => applies c r' (canonRulePres r')
@@ -336,7 +337,7 @@ theorem rule_parts {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (
     · refine Model.varsOf_and_mem (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))) ?_
       simp only [KoreAML.varsOf]
       exact List.mem_append_right _ (mem_varsOf_anyOfC (hcomp r' hr' hlt)
-        (varsOf_applies (Semantics.sortedOK_rule hok hr').2.1 (hb _ hr') hi))
+        (varsOf_applies (Semantics.sortedOK_ruleTop hok hr').1 (hb _ hr') hi))
     · rw [tr_and4, KoreAML.interp_sAnd, KoreAML.interp_sAnd, KoreAML.interp_sAnd] at h
       obtain ⟨h1, h2, h3, -⟩ := h
       rw [KoreAML.tr, KoreAML.interp_sNot] at h3

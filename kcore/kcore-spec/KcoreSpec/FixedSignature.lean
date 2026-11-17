@@ -263,7 +263,7 @@ sort parameter S, so it has no number of its own there; the registry numbers it 
 library's symbols, as a hook of signature `Bool, KItem, KItem → KItem`. A definition applies it
 at a sort S through an own parameter symbol `ite{S}` of signature `Bool, S, S → S` that this hook
 implements (Parse.lean, `iteName`). -/
-@[match_pattern, reducible] def kIte : Sym := 375
+@[match_pattern, reducible] def kIte : Sym := 379
 
 theorem kIte_eq : kIte = 173 + BuiltinNames.nNewSyms := rfl
 

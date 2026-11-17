@@ -8,52 +8,52 @@ namespace KinkImp
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isTCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isTCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isTCellFragment» : KCore.Sym := 378
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 379
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 380
-@[match_pattern, reducible] def «isStateCell» : KCore.Sym := 381
-@[match_pattern, reducible] def «isStateCellOpt» : KCore.Sym := 382
-@[match_pattern, reducible] def «isAExp» : KCore.Sym := 383
-@[match_pattern, reducible] def «isBExp» : KCore.Sym := 384
-@[match_pattern, reducible] def «isBlock» : KCore.Sym := 385
-@[match_pattern, reducible] def «isIds» : KCore.Sym := 386
-@[match_pattern, reducible] def «isKResult» : KCore.Sym := 387
-@[match_pattern, reducible] def «isPgm» : KCore.Sym := 388
-@[match_pattern, reducible] def «isStmt» : KCore.Sym := 389
-@[match_pattern, reducible] def «<T>» : KCore.Sym := 390
-@[match_pattern, reducible] def «noTCell» : KCore.Sym := 391
-@[match_pattern, reducible] def «<T>-fragment» : KCore.Sym := 392
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 393
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 394
-@[match_pattern, reducible] def «<state>» : KCore.Sym := 395
-@[match_pattern, reducible] def «noStateCell» : KCore.Sym := 396
-@[match_pattern, reducible] def «-__IMP-SYNTAX_AExp_Int» : KCore.Sym := 397
-@[match_pattern, reducible] def «_/__IMP-SYNTAX_AExp_AExp_AExp» : KCore.Sym := 398
-@[match_pattern, reducible] def «_+__IMP-SYNTAX_AExp_AExp_AExp» : KCore.Sym := 399
-@[match_pattern, reducible] def «_<=__IMP-SYNTAX_BExp_AExp_AExp» : KCore.Sym := 400
-@[match_pattern, reducible] def «!__IMP-SYNTAX_BExp_BExp» : KCore.Sym := 401
-@[match_pattern, reducible] def «_&&__IMP-SYNTAX_BExp_BExp_BExp» : KCore.Sym := 402
-@[match_pattern, reducible] def «{}_IMP-SYNTAX_Block» : KCore.Sym := 403
-@[match_pattern, reducible] def «{_}_IMP-SYNTAX_Block_Stmt» : KCore.Sym := 404
-@[match_pattern, reducible] def «_=_;_IMP-SYNTAX_Stmt_Id_AExp» : KCore.Sym := 405
-@[match_pattern, reducible] def «if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block» : KCore.Sym := 406
-@[match_pattern, reducible] def «while(_)__IMP-SYNTAX_Stmt_BExp_Block» : KCore.Sym := 407
-@[match_pattern, reducible] def «___IMP-SYNTAX_Stmt_Stmt_Stmt» : KCore.Sym := 408
-@[match_pattern, reducible] def «int_;__IMP-SYNTAX_Pgm_Ids_Stmt» : KCore.Sym := 409
-@[match_pattern, reducible] def «_,__IMP-SYNTAX_Ids_Id_Ids» : KCore.Sym := 410
-@[match_pattern, reducible] def «.List{"_,__IMP-SYNTAX_Ids_Id_Ids"}_Ids» : KCore.Sym := 411
-@[match_pattern, reducible] def «#freezer_/__IMP-SYNTAX_AExp_AExp_AExp0_» : KCore.Sym := 412
-@[match_pattern, reducible] def «#freezer_/__IMP-SYNTAX_AExp_AExp_AExp1_» : KCore.Sym := 413
-@[match_pattern, reducible] def «#freezer_+__IMP-SYNTAX_AExp_AExp_AExp0_» : KCore.Sym := 414
-@[match_pattern, reducible] def «#freezer_+__IMP-SYNTAX_AExp_AExp_AExp1_» : KCore.Sym := 415
-@[match_pattern, reducible] def «#freezer_<=__IMP-SYNTAX_BExp_AExp_AExp0_» : KCore.Sym := 416
-@[match_pattern, reducible] def «#freezer_<=__IMP-SYNTAX_BExp_AExp_AExp1_» : KCore.Sym := 417
-@[match_pattern, reducible] def «#freezer!__IMP-SYNTAX_BExp_BExp0_» : KCore.Sym := 418
-@[match_pattern, reducible] def «#freezer_&&__IMP-SYNTAX_BExp_BExp_BExp0_» : KCore.Sym := 419
-@[match_pattern, reducible] def «#freezer_=_;_IMP-SYNTAX_Stmt_Id_AExp1_» : KCore.Sym := 420
-@[match_pattern, reducible] def «#freezerif(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block0_» : KCore.Sym := 421
+@[match_pattern, reducible] def «isTCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isTCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isTCellFragment» : KCore.Sym := 382
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 383
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 384
+@[match_pattern, reducible] def «isStateCell» : KCore.Sym := 385
+@[match_pattern, reducible] def «isStateCellOpt» : KCore.Sym := 386
+@[match_pattern, reducible] def «isAExp» : KCore.Sym := 387
+@[match_pattern, reducible] def «isBExp» : KCore.Sym := 388
+@[match_pattern, reducible] def «isBlock» : KCore.Sym := 389
+@[match_pattern, reducible] def «isIds» : KCore.Sym := 390
+@[match_pattern, reducible] def «isKResult» : KCore.Sym := 391
+@[match_pattern, reducible] def «isPgm» : KCore.Sym := 392
+@[match_pattern, reducible] def «isStmt» : KCore.Sym := 393
+@[match_pattern, reducible] def «<T>» : KCore.Sym := 394
+@[match_pattern, reducible] def «noTCell» : KCore.Sym := 395
+@[match_pattern, reducible] def «<T>-fragment» : KCore.Sym := 396
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 397
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 398
+@[match_pattern, reducible] def «<state>» : KCore.Sym := 399
+@[match_pattern, reducible] def «noStateCell» : KCore.Sym := 400
+@[match_pattern, reducible] def «-__IMP-SYNTAX_AExp_Int» : KCore.Sym := 401
+@[match_pattern, reducible] def «_/__IMP-SYNTAX_AExp_AExp_AExp» : KCore.Sym := 402
+@[match_pattern, reducible] def «_+__IMP-SYNTAX_AExp_AExp_AExp» : KCore.Sym := 403
+@[match_pattern, reducible] def «_<=__IMP-SYNTAX_BExp_AExp_AExp» : KCore.Sym := 404
+@[match_pattern, reducible] def «!__IMP-SYNTAX_BExp_BExp» : KCore.Sym := 405
+@[match_pattern, reducible] def «_&&__IMP-SYNTAX_BExp_BExp_BExp» : KCore.Sym := 406
+@[match_pattern, reducible] def «{}_IMP-SYNTAX_Block» : KCore.Sym := 407
+@[match_pattern, reducible] def «{_}_IMP-SYNTAX_Block_Stmt» : KCore.Sym := 408
+@[match_pattern, reducible] def «_=_;_IMP-SYNTAX_Stmt_Id_AExp» : KCore.Sym := 409
+@[match_pattern, reducible] def «if(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block» : KCore.Sym := 410
+@[match_pattern, reducible] def «while(_)__IMP-SYNTAX_Stmt_BExp_Block» : KCore.Sym := 411
+@[match_pattern, reducible] def «___IMP-SYNTAX_Stmt_Stmt_Stmt» : KCore.Sym := 412
+@[match_pattern, reducible] def «int_;__IMP-SYNTAX_Pgm_Ids_Stmt» : KCore.Sym := 413
+@[match_pattern, reducible] def «_,__IMP-SYNTAX_Ids_Id_Ids» : KCore.Sym := 414
+@[match_pattern, reducible] def «.List{"_,__IMP-SYNTAX_Ids_Id_Ids"}_Ids» : KCore.Sym := 415
+@[match_pattern, reducible] def «#freezer_/__IMP-SYNTAX_AExp_AExp_AExp0_» : KCore.Sym := 416
+@[match_pattern, reducible] def «#freezer_/__IMP-SYNTAX_AExp_AExp_AExp1_» : KCore.Sym := 417
+@[match_pattern, reducible] def «#freezer_+__IMP-SYNTAX_AExp_AExp_AExp0_» : KCore.Sym := 418
+@[match_pattern, reducible] def «#freezer_+__IMP-SYNTAX_AExp_AExp_AExp1_» : KCore.Sym := 419
+@[match_pattern, reducible] def «#freezer_<=__IMP-SYNTAX_BExp_AExp_AExp0_» : KCore.Sym := 420
+@[match_pattern, reducible] def «#freezer_<=__IMP-SYNTAX_BExp_AExp_AExp1_» : KCore.Sym := 421
+@[match_pattern, reducible] def «#freezer!__IMP-SYNTAX_BExp_BExp0_» : KCore.Sym := 422
+@[match_pattern, reducible] def «#freezer_&&__IMP-SYNTAX_BExp_BExp_BExp0_» : KCore.Sym := 423
+@[match_pattern, reducible] def «#freezer_=_;_IMP-SYNTAX_Stmt_Id_AExp1_» : KCore.Sym := 424
+@[match_pattern, reducible] def «#freezerif(_)_else__IMP-SYNTAX_Stmt_BExp_Block_Block0_» : KCore.Sym := 425
 end Sym
 
 namespace Srt
@@ -74,7 +74,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 46).map fun i => c.symName (376 + i)) = ["LblisTCell", "LblisTCellOpt", "LblisTCellFragment", "LblisKCell", "LblisKCellOpt", "LblisStateCell",
+    ((List.range 46).map fun i => c.symName (380 + i)) = ["LblisTCell", "LblisTCellOpt", "LblisTCellFragment", "LblisKCell", "LblisKCellOpt", "LblisStateCell",
  "LblisStateCellOpt", "LblisAExp", "LblisBExp", "LblisBlock", "LblisIds", "LblisKResult", "LblisPgm", "LblisStmt",
  "Lbl'-LT-'T'-GT-'", "LblnoTCell", "Lbl'-LT-'T'-GT-'-fragment", "Lbl'-LT-'k'-GT-'", "LblnoKCell",
  "Lbl'-LT-'state'-GT-'", "LblnoStateCell", "Lbl-'UndsUnds'IMP-SYNTAX'Unds'AExp'Unds'Int",

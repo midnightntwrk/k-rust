@@ -23,6 +23,7 @@
   are not used here, since the value model is shown to be one from these.
 -/
 import KcoreSpec.OpenCompete
+import KcoreSpec.ExPlain
 import KcoreSpec.ModelFns
 import KcoreSpec.ModelUndefRhsWitness
 import KcoreSpec.ModelJunkWitness
@@ -105,11 +106,11 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
   · rw [ht] at hens; simpa [reqOK] using hens
 
 /-- The facts on a rule of a definition that `HypModelCore`'s `sortedOKCl` gives: `ruleSorted` and
-`rulePlainOpen`. -/
-theorem HypModelCore.ruleFactsOpen (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
-    c.ruleSorted r = true ∧ c.rulePlainOpen r = true := by
+`rulePlainEx`. -/
+theorem HypModelCore.ruleFactsEx (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
+    c.ruleSorted r = true ∧ c.rulePlainEx r = true := by
   obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulePlainOpen_of_rulesPlain hrp hr⟩
+  exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_ex.mp hrp r hr⟩
 
 mutual
   /-- The variables of a sorted term of a numbered sort have numbered sorts, in a context whose
@@ -233,21 +234,100 @@ theorem freeOf_appliesOpen {r : Rule} (hlhs : sortOfTerm c.patCtxAll r.vars r.lh
         rw [hb] at h2; cases h2
       · rw [KoreAML.freeOf] at hk; cases hk
 
-/-- **The reading of a competitor whose left side need not bind every variable**: a configuration
-is in a rule's `applies` pattern exactly when the rule applies to it (`RuleApplies`), for a rule
-with `ruleSorted` and `rulePlainOpen`. The rule need not be one of the definition's. -/
-theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
-    (hp : c.rulePlainOpen r = true) {tbl : KoreAML.VarTable}
+/-! ## What a well-sorted rule with `rulePlainEx` says -/
+
+/-- The parts of a well-sorted rule with `\top` predicates, and its existential variables: distinct
+variables of the rule that neither the left side nor a condition holds. -/
+theorem ruleSorted_partsEx {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rulePlainEx r = true) :
+    sortOfTerm c.patCtxAll r.vars r.lhs = some topCellSort ∧
+      (∀ i < r.vars.length, i ∈ varOccs r.lhs ∨ (∃ t, r.req = some t ∧ i ∈ varOccs t) ∨ i ∈ varOccs r.rhs ∨
+        ∃ t, r.ens = some t ∧ i ∈ varOccs t) ∧
+      (∀ t, r.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) ∧
+      (∀ t, r.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) ∧
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs = some topCellSort ∧
+      r.exs.Nodup ∧ ∀ i ∈ r.exs, i < r.vars.length ∧ i ∉ varOccs r.lhs ∧ i ∉ r.condVars := by
+  obtain ⟨hpre, hpost⟩ := Semantics.rulePlainEx_top hp
+  have hs' := hs
+  simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, hnd⟩, hex⟩, hreq⟩, -⟩, hens⟩, -⟩, -⟩, -⟩, hrhs⟩ := hs'
+  refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs, (NamesApart.nodupB_iff _).mp hnd,
+    fun i hi => ?_⟩
+  · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)
+    simp only [Rule.condVars, hpre, hpost, varOccsCond, List.append_nil, List.contains_iff_mem,
+      List.mem_append] at this
+    rcases this with ((h1 | h2) | h3) | h4
+    · exact Or.inl h1
+    · cases hq : r.req with
+      | none => rw [hq] at h2; cases h2
+      | some t => rw [hq] at h2; exact Or.inr (Or.inl ⟨t, rfl, h2⟩)
+    · exact Or.inr (Or.inr (Or.inl h3))
+    · cases hq : r.ens with
+      | none => rw [hq] at h4; cases h4
+      | some t => rw [hq] at h4; exact Or.inr (Or.inr (Or.inr ⟨t, rfl, h4⟩))
+  · rw [ht] at hreq; simpa [reqOK] using hreq
+  · rw [ht] at hens; simpa [reqOK] using hens
+  · have := List.all_eq_true.mp hex i hi
+    simp only [Bool.and_eq_true, Bool.not_eq_true', List.contains_iff_mem, Rule.opens, List.mem_filter,
+      List.mem_range] at this
+    obtain ⟨⟨hlt, hnl⟩, hnc⟩ := this
+    refine ⟨hlt, fun h' => ?_, fun h' => ?_⟩
+    · simp [h'] at hnl
+    · simp [h'] at hnc
+
+/-- A well-sorted rule's variables with `\top` predicates have numbered sorts. -/
+theorem rule_vars_numEx (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
+    (hp : c.rulePlainEx r = true) : ∀ i < r.vars.length, r.vars.getD i 0 < nRegSorts + c.sortNames.length := by
+  obtain ⟨hlhs, hocc, hreqs, hens, hrhs, -⟩ := ruleSorted_partsEx hs hp
+  intro i hi
+  have hg : r.vars[i]? = some (r.vars.getD i 0) := by
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]; rfl
+  have hx : ∀ k ∈ (c.rhsCtx (c.fns.map Fn.sig)).heads, k ∈ kernelSyms c := fun k hk => rhsHead_kernel fns_headsOK hk
+  have hsub : ∀ a b, (a, b) ∈ (c.rhsCtx (c.fns.map Fn.sig)).subs → (a, b) ∈ c.subsorts := fun _ _ h' => h'
+  rcases hocc i hi with hL | ⟨t, ht, hit⟩ | hR | ⟨t, ht, hit⟩
+  · exact varOccs_num h r.lhs hlhs top_numbered i hL _ hg
+  · exact varOccs_numOpen h hx hsub t (hreqs t ht) bool_numbered i hit _ hg
+  · exact varOccs_numOpen h hx hsub r.rhs hrhs top_numbered i hR _ hg
+  · exact varOccs_numOpen h hx hsub t (hens t ht) bool_numbered i hit _ hg
+
+/-! ## Readers at T -/
+
+/-- A `requires` or `ensures` at a configuration, read at T: where it is a term, its value under σ
+is `true`. -/
+theorem reqRead_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {P : Nat → Prop}
+    {vs : List KoreAML.Var} {tbl : KoreAML.VarTable} {e : Valuation Elem} {σ : Subst}
+    (hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e m ↔
+      ∃ v, σ.lookup i = some v ∧ m = .val v)
+    (q : Option Term) (hq : ∀ t, q = some t → TermOK c P t) {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
+    (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort) (q.map (Term.kore c vs)))).interpret (stdI_T c T) e (.val x) ↔
+      ∀ t, q = some t → EvalTerm c σ t (some (bool true)) := by
+  cases hq' : q with
+  | none =>
+    simp only [Option.map_none, reqPat]
+    rw [KoreAML.tr, KoreAML.interp_sTop AtT.defOK_std (top_free _), KoreAML.interp_inhOf_of (srtOf_top_den_T h e),
+      AtT.inh_srt]
+    exact ⟨fun _ _ ht => (by cases ht), fun _ => hx⟩
+  | some t =>
+    simp only [Option.map_some]
+    rw [AtT.reqPat_iff h hvar (hq t hq') (srtOf_top_den_T h e) top_isSort_T]
+    constructor
+    · rintro ⟨-, hv⟩ t' ht'; cases ht'; exact hv
+    · intro hv; exact ⟨(AtT.inh_srt _ _).mpr hx, hv t rfl⟩
+
+/-- **A competitor read at T**: a configuration is in a rule's `applies` pattern exactly where the
+rule applies to it, for a rule with `ruleSorted` and `rulePlainEx`, not asked to be one of the
+definition's. -/
+theorem applies_iff_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Prop} {r : Rule}
+    (hs : c.ruleSorted r = true) (hp : c.rulePlainEx r = true) {tbl : KoreAML.VarTable}
     (hkeys : ∀ i < r.vars.length, i ∈ r.leftVars → canonKey c r.vars i ∈ tbl) (e : Valuation Elem)
     {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
-    (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret (stdI c) e (.val x) ↔ RuleApplies c r x := by
+    (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret (stdI_T c T) e (.val x) ↔
+      RuleApplies c r x := by
   have hn := h.namesK
-  obtain ⟨hlhs, -, hreqS, -, -⟩ := ruleSorted_partsOpen hs hp
-  obtain ⟨-, hpre, -⟩ := Semantics.rulePlainOpen_top hp
-  have hnum := rule_vars_numOpen h hs hp
+  obtain ⟨hlhs, -, hreqS, -, -⟩ := ruleSorted_partsEx hs hp
+  obtain ⟨hpre, -⟩ := Semantics.rulePlainEx_top hp
+  have hnum := rule_vars_numEx h hs hp
   let vs := canonVars c r.vars
   let n := r.vars.length
-  let C := srtOf c topCellSort
   let l := (List.range n).filter r.leftVars.contains
   have hl : ∀ i ∈ l, i < n := fun i hi => List.mem_range.mp (List.mem_filter.mp hi).1
   have hlm : ∀ i ∈ l, i ∈ r.leftVars := fun i hi => by simpa using (List.mem_filter.mp hi).2
@@ -265,7 +345,6 @@ theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = 
   have hltL : ∀ i ∈ varOccs r.lhs, i < n := fun i hi => varOccs_lt r.lhs hlhs i hi
   have hreqLt : ∀ t, r.req = some t → ∀ i ∈ varOccs t, i < n ∧ i ∈ r.leftVars := fun t ht i hi =>
     ⟨varOccs_lt t (hreqS t ht) i hi, Rule.req_leftVars ht i hi⟩
-  -- the left side and the `requires` read the variables of the left side and the conditions only
   let P : Nat → Prop := fun i => i < n ∧ i ∈ r.leftVars
   have hpat : PatOK c P r.lhs :=
     (patOK_of_sorted h hlhs).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
@@ -274,19 +353,19 @@ theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = 
   rw [applies_eqOpen hpre]
   constructor
   · intro hm
-    obtain ⟨e', -, hguard, hbody⟩ := existsAll_elim defOK_std _ e _ hnd hsrt hm
+    obtain ⟨e', -, hguard, hbody⟩ := existsAll_elim AtT.defOK_std _ e _ hnd hsrt hm
     rw [tr_and2, KoreAML.interp_sAnd] at hbody
     obtain ⟨hl', hreq⟩ := hbody
     have hin : ∀ i < n, i ∈ r.leftVars → InSort c (r.vars.getD i 0) (e'.evalEvar (tbl.ev (canonKey c r.vars i))) :=
-      fun i hi hil => (inhOf_sort hn (hnum i hi) KoreAML.val0 _).mp
+      fun i hi hil => (AtT.inhOf_sort (T := T) hn (hnum i hi) KoreAML.val0 _).mp
         (hguard _ (List.mem_map_of_mem (List.mem_map_of_mem (hml i hi hil))) _
           (by show (vs.getD i default).kore.sort = _; rw [canonVars_getD c hi]; rfl))
     let σ := substE c tbl r.vars e'
-    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e' m ↔
+    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e' m ↔
         ∃ v, σ.lookup i = some v ∧ m = .val v := by
       rintro i ⟨hi, hil⟩ m
       obtain ⟨v, he, -⟩ := inSort_val (hin i hi hil)
-      rw [var_read, substE_lookup hi]
+      rw [AtT.var_read, substE_lookup hi]
       show m = e'.evalEvar (tbl.ev (canonKey c r.vars i)) ↔ _
       rw [he]
       simp [toVal]
@@ -295,26 +374,26 @@ theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = 
       obtain ⟨v, he, hsv⟩ := inSort_val (hin i hi hil)
       refine ⟨v, by rw [substE_lookup hi, he]; rfl, ?_⟩
       rwa [List.getD_eq_getElem?_getD, hs', Option.getD_some] at hsv
-    obtain ⟨x', hx', he⟩ := (tr_pat h hvar hpat _).mp hl'
+    obtain ⟨x', hx', he⟩ := (AtT.tr_pat h hvar hpat _).mp hl'
     cases he
     refine ⟨σ, hσ, hx', fun t ht => ?_, hpre ▸ .top⟩
     rw [ht] at hreq
     simp only [Option.map_some] at hreq
-    exact ((reqPat_iff h hvar (hreqT t ht) (srtOf_top_den h e') top_isSort _).mp hreq).2
+    exact ((AtT.reqPat_iff h hvar (hreqT t ht) (srtOf_top_den_T h e') top_isSort_T _).mp hreq).2
   · rintro ⟨σ, hσ, hp', hq, -⟩
     have hσv : ∀ i < n, i ∈ r.leftVars → ∃ w, σ.lookup i = some w ∧ c.sortOf w = some (r.vars.getD i 0) :=
       fun i hi hil => hσ i hil _ (by rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]; rfl)
     let f : Nat → Elem := fun j => .val ((σ.lookup j).getD default)
     let e' := setV c tbl r.vars r.leftVars f e
-    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e' m ↔
+    have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI_T c T) e' m ↔
         ∃ v, σ.lookup i = some v ∧ m = .val v := by
       rintro i ⟨hi, hil⟩ m
-      rw [var_read]
+      rw [AtT.var_read]
       show m = (setV c tbl r.vars r.leftVars f e).evalEvar (tbl.ev (canonKey c r.vars i)) ↔ _
       rw [setV_on hkeys hi hil]
       obtain ⟨w, hw, -⟩ := hσv i hi hil
       simp [f, hw]
-    refine Model.existsAll_intro _ e e' _ hnd hsrt (fun z hz => ?_) rfl (fun b hb k hk => ?_) ?_
+    refine AtT.existsAll_intro _ e e' _ hnd hsrt (fun z hz => ?_) rfl (fun b hb k hk => ?_) ?_
     · show (if h : _ then _ else _) = _
       rw [dif_neg]
       rintro ⟨i, hi, hil, rfl⟩
@@ -326,24 +405,45 @@ theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = 
       change ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt k at hk
       rw [hs'] at hk
       rw [← srt_inj hk]
-      show InS (stdI c) _ ((setV c tbl r.vars r.leftVars f e).evalEvar (tbl.ev (canonKey c r.vars i)))
+      show InS (stdI_T c T) _ ((setV c tbl r.vars r.leftVars f e).evalEvar (tbl.ev (canonKey c r.vars i)))
       rw [setV_on hkeys (hl i hil) (hlm i hil)]
       obtain ⟨w, hw, hws⟩ := hσv i (hl i hil) (hlm i hil)
-      show InS (stdI c) _ (Elem.val ((σ.lookup i).getD default))
+      show InS (stdI_T c T) _ (Elem.val ((σ.lookup i).getD default))
       rw [hw, Option.getD_some]
-      exact (inhOf_sort hn (hnum i (hl i hil)) KoreAML.val0 _).mpr hws
+      exact (AtT.inhOf_sort (T := T) hn (hnum i (hl i hil)) KoreAML.val0 _).mpr hws
     · rw [tr_and2, KoreAML.interp_sAnd]
-      refine ⟨(tr_pat h hvar hpat _).mpr ⟨x, hp', rfl⟩, ?_⟩
+      refine ⟨(AtT.tr_pat h hvar hpat _).mpr ⟨x, hp', rfl⟩, ?_⟩
       cases hrq : r.req with
       | none =>
         simp only [Option.map_none, reqPat]
-        rw [KoreAML.tr, KoreAML.interp_sTop defOK_std (by unfold srtOf; rw [trSort_srt]; rfl),
-          KoreAML.interp_inhOf_of (srtOf_top_den h e'), inh_srt]
+        rw [KoreAML.tr, KoreAML.interp_sTop AtT.defOK_std (by unfold srtOf; rw [trSort_srt]; rfl),
+          KoreAML.interp_inhOf_of (srtOf_top_den_T h e'), AtT.inh_srt]
         exact hx
       | some t =>
         simp only [Option.map_some]
-        exact (reqPat_iff h hvar (hreqT t hrq) (srtOf_top_den h e') top_isSort _).mpr
-          ⟨(inh_srt _ _).mpr hx, hq t hrq⟩
+        exact (AtT.reqPat_iff h hvar (hreqT t hrq) (srtOf_top_den_T h e') top_isSort_T _).mpr
+          ⟨(AtT.inh_srt _ _).mpr hx, hq t hrq⟩
+
+/-! ## A rule's right side under its binders -/
+
+/-- The binders of a rule's right side: its existential variables, named canonically. -/
+def ruleExBinders (c : Semantics) (r : Rule) : List Kore.EVar :=
+  r.exs.map fun i => ((canonVars c r.vars).getD i default).kore
+
+/-- The body of a rule's right side whose `post` is `\top`: `rhs ∧ ens`. -/
+def ruleRightBody (c : Semantics) (r : Rule) : Kore.Pattern :=
+  .and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
+    reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]
+
+/-- **The reading of a competitor whose left side need not bind every variable**: a configuration
+is in a rule's `applies` pattern exactly when the rule applies to it (`RuleApplies`), for a rule
+with `ruleSorted` and `rulePlainOpen`. The rule need not be one of the definition's. -/
+theorem applies_iff_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
+    (hp : c.rulePlainOpen r = true) {tbl : KoreAML.VarTable}
+    (hkeys : ∀ i < r.vars.length, i ∈ r.leftVars → canonKey c r.vars i ∈ tbl) (e : Valuation Elem)
+    {x : GroundTerm} (hx : c.sortOf x = some topCellSort) :
+    (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret (stdI c) e (.val x) ↔ RuleApplies c r x :=
+  applies_iff_T (T := StepM c) h hs (Semantics.rulePlainOpen_iff_ex.mp hp).1 hkeys e hx
 
 /-! ## A rule's axiom -/
 
@@ -440,20 +540,9 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
       (∀ i, i < r.vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
         ∃ v, σ.lookup i = some v ∧ m = .val v) →
       ((KoreAML.tr ⟨tbl, []⟩ (reqPat C (q.map (Term.kore c vs)))).interpret (stdI c) e (.val x) ↔
-        ∀ t, q = some t → EvalTerm c σ t (some (bool true))) := by
-    intro tbl e σ x hx q hqs hvar
-    cases hq : q with
-    | none =>
-      simp only [Option.map_none, reqPat]
-      rw [KoreAML.tr, KoreAML.interp_sTop defOK_std (top_free _), KoreAML.interp_inhOf_of (srtOf_top_den h e),
-        inh_srt]
-      exact ⟨fun _ _ ht => (by cases ht), fun _ => hx⟩
-    | some t =>
-      simp only [Option.map_some]
-      rw [reqPat_iff h hvar (termOK_of_sorted h fns_headsOK (hqs t hq)) (srtOf_top_den h e) top_isSort]
-      constructor
-      · rintro ⟨-, hv⟩ t' ht'; cases ht'; exact hv
-      · intro hv; exact ⟨(inh_srt _ _).mpr hx, hv t rfl⟩
+        ∀ t, q = some t → EvalTerm c σ t (some (bool true))) :=
+    fun tbl e σ x hx q hqs hvar =>
+      reqRead_T (T := StepM c) h hvar q (fun t ht => termOK_of_sorted h fns_headsOK (hqs t ht)) hx
   have hreadCeil : ∀ (tbl : KoreAML.VarTable) (e : Valuation Elem) (σ : Subst) (x : GroundTerm),
       c.WellSorted r.vars σ → c.sortOf x = some topCellSort →
       (∀ i, i < r.vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt vs i)).interpret (stdI c) e m ↔
@@ -485,13 +574,13 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
         ((KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret (stdI c) e (.val x) ↔
           RuleApplies c r' x) := by
       intro r' hr' hp'
-      obtain ⟨hs', hpo'⟩ := h.ruleFactsOpen hr'
+      obtain ⟨hs', hpo'⟩ := h.ruleFactsEx hr'
       have hφ : applies c r' (canonRulePres r') ∈ comps :=
         List.mem_map.mpr ⟨r', List.mem_filter.mpr ⟨hr', by simpa using hp'⟩, rfl⟩
-      refine applies_iff_open h hs' hpo' (fun i hi hil => hk _ ?_) e hx
+      refine applies_iff_T (T := StepM c) h hs' hpo' (fun i hi hil => hk _ ?_) e hx
       rw [KoreAML.varsOf]
       exact List.mem_append_right _ (mem_varsOf_anyOfC hφ
-        (varsOf_appliesOpen (Semantics.rulePlainOpen_top hpo').2.1 hi hil))
+        (varsOf_appliesOpen (Semantics.rulePlainEx_top hpo').1 hi hil))
     rw [KoreAML.tr, KoreAML.interp_sNot]
     constructor
     · rintro ⟨hnc, -⟩ r' hr' hp' hna

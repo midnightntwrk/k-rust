@@ -83,14 +83,14 @@ definition_of defn from "f2-examples/svowise.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- `f`, the definition's function, and the four constructors of `Exp`. -/
-def f : Sym := 385
-def ca : GroundTerm := .ctor 381 []
-def cb : GroundTerm := .ctor 382 []
-def one : GroundTerm := .ctor 383 []
-def two : GroundTerm := .ctor 384 []
+def f : Sym := 389
+def ca : GroundTerm := .ctor 385 []
+def cb : GroundTerm := .ctor 386 []
+def one : GroundTerm := .ctor 387 []
+def two : GroundTerm := .ctor 388 []
 
-theorem names : c.symName f = "Lblf" ∧ c.symName 381 = "Lbla" ∧ c.symName 382 = "Lblb" ∧
-    c.symName 383 = "Lblone" ∧ c.symName 384 = "Lbltwo" := by decide +kernel
+theorem names : c.symName f = "Lblf" ∧ c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧
+    c.symName 387 = "Lblone" ∧ c.symName 388 = "Lbltwo" := by decide +kernel
 
 private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
@@ -141,13 +141,13 @@ definition_of defn from "f2-examples/svnonlinear.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
 /-- `f`, the definition's function, and the three constructors of `Exp`. -/
-def f : Sym := 384
-def ca : GroundTerm := .ctor 381 []
-def cb : GroundTerm := .ctor 382 []
-def r : GroundTerm := .ctor 383 []
+def f : Sym := 388
+def ca : GroundTerm := .ctor 385 []
+def cb : GroundTerm := .ctor 386 []
+def r : GroundTerm := .ctor 387 []
 
-theorem names : c.symName f = "Lblf" ∧ c.symName 381 = "Lbla" ∧ c.symName 382 = "Lblb" ∧
-    c.symName 383 = "Lblr" := by decide +kernel
+theorem names : c.symName f = "Lblf" ∧ c.symName 385 = "Lbla" ∧ c.symName 386 = "Lblb" ∧
+    c.symName 387 = "Lblr" := by decide +kernel
 
 private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel

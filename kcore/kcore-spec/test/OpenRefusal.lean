@@ -29,7 +29,7 @@ namespace OpenRefusalTest
 def i (n : Int) : Term := .dv Srt.int (.int n)
 /-- `<generatedTop>(<k>(kseq(inj{Exp,KItem}(b), V0)), cnt)`. -/
 def cfg (cnt : Term) : Term :=
-  .app 71 [.app 379 [.app 0 [.inj 32 1 (.app 382 []), .var 0]], cnt]
+  .app 71 [.app 383 [.app 0 [.inj 32 1 (.app 386 []), .var 0]], cnt]
 
 def run : IO Unit := do
   match Kore.parseDefinition (← IO.FS.readFile "f2-examples/symrule.kompile.kore") with

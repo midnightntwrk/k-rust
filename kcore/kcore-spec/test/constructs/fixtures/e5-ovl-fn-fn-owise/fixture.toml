@@ -1,0 +1,10 @@
+# e5-ovl-fn-fn with rule neg(_:Exp) => e [owise] (CN-4b section 5, second row). Recorded from
+# kore.txt (kompile 7.1.337):
+# - the symbol-overload axiom of negExp over negInt is written as in e5-ovl-fn-fn (kore.txt //@ 263).
+# - the [owise] equation's premise (//@ 386, negExp(_Gen0) => e) negates one disjunct only,
+#     \exists Gen1. X0 \in (e /\ Gen1)
+#   the pattern of neg(e) => e: the premise lists the rules of the function only and does not
+#   negate the overload axiom. So at inj 3 the [owise] sentence states negExp(inj 3) = e and the
+#   overload sentence states negExp(inj 3) = inj(negInt(3)) = inj(-3): the text has no model.
+# - account.txt: today the reader refuses the [owise] equation with exclusionShape (its excluded
+#   pattern is written e #as _Gen1).

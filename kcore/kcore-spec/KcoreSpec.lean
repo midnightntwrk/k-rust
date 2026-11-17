@@ -150,6 +150,7 @@ import KcoreSpec.CollExecFinal
 import KcoreSpec.ModelFunctional
 import KcoreSpec.ModelStrict
 import KcoreSpec.ModelJunkNonemptyWitness
+import KcoreSpec.ModelFnSolvesWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
@@ -184,7 +185,6 @@ import KcoreSpec.OpenClauseFam
 import KcoreSpec.OpenClauseModel
 import KcoreSpec.OpenClauseComplete
 import KcoreSpec.OpenRuleStepCl
-import KcoreSpec.ModelAtT
 import KcoreSpec.ExModelT
 import KcoreSpec.ExStepT
 import KcoreSpec.HoldsDecided
@@ -193,11 +193,16 @@ import KcoreSpec.ExConsistent
 import KcoreSpec.ExFamValues
 import KcoreSpec.ExSound
 import KcoreSpec.ExComplete
+import KcoreSpec.ExFamOpen
 import KcoreSpec.HoldsModel
 import KcoreSpec.PredPlain
 import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs
 import KcoreSpec.HoldsAtoms
+import KcoreSpec.HoldsFacts
+import KcoreSpec.HoldsFactsCore
+import KcoreSpec.CondTwoTables
+import KcoreSpec.StepValuesPP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
@@ -205,3 +210,5 @@ import KcoreSpec.RangeMapLaws
 import KcoreSpec.RangeMapSorted
 import KcoreSpec.RangeMapKeys
 import KcoreSpec.LawHooks
+import KcoreSpec.OpenValues
+import KcoreSpec.LawHooksLib

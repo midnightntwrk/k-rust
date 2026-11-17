@@ -1,7 +1,7 @@
 /-
   KCore. The families of an application of a rule in a model (`famEx`, `famOpen`, Faithful.lean),
   for a rule of the shapes `coreOK` admits (no existential variable, `\top` predicates, a left side
-  that binds every variable): the instances of a step are its successor (`famEx_den`), and the
+  that binds every variable): the instances of a step are its successor (`famEx_den_exNil`, a rule without existential variables), and the
   outcomes of an unblocked match are among the successors of its steps (`famOpen_step`). And, in
   every model of `Γ` with the step's closure, a configuration x has a successor in the element of
   a value y exactly where `Step c x y` (`step_iff_model`).
@@ -144,7 +144,9 @@ theorem sortOf_numbered_of (hs : HypSoundCore c) (hsorts : Model.sortsNumbered c
   cases v with
   | ctor f ts =>
     haveI : OvlOK c := hs.2.2.2.2.2.2.2.2
-    rcases sortOf_ctor_cases hs.2.2.2.1 hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩
+    rcases sortOf_ctor_cases hs.2.2.2.1 hv with ⟨k, hk, -, rfl⟩ | ⟨o, hlo, -, -, -, rfl, -⟩ | ⟨kp, hko, -, -, -, -, rfl, -⟩
+    rotate_right
+    · exact hsym (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem (f := (·.sig)) (c.lookupOpen_spec hko).1)))) _ (List.mem_cons_self ..)
     · exact hsym (List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _
         (List.mem_append_left _ (lookupSig_spec hk).1)))) _ (List.mem_cons_self ..)
     · exact hsym (List.mem_append_right _ (List.mem_map_of_mem (OvlLaws.ovl_parts hov hlo).1)) _
@@ -259,14 +261,15 @@ end
 section
 variable {c : Semantics}
 
-/-- The pattern `famEx` reads, for a rule of the shapes `coreOK` admits. -/
-theorem famEx_eq (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (σ : Subst) :
+/-- The pattern `famEx` reads, for a rule of the shapes `coreOK` admits without existential
+variables. -/
+theorem famEx_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (σ : Subst) :
     famEx c r σ = KoreAML.denB (KoreAML.existsAll (srtOf c topCellSort)
       ((canonVars c r.vars).map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) (fixK c r σ (List.range r.vars.length) ++
         [.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]]))) := by
-  obtain ⟨hex, -, hpost⟩ := Semantics.sortedOK_rule hok hr
+  obtain ⟨-, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
   have hv := filterMap_range_getElem? (canonVars c r.vars)
   rw [canonVars_length] at hv
   have hf : (List.range r.vars.length).filter (fun _ => true) = List.range r.vars.length :=
@@ -287,8 +290,8 @@ variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **The instances of a step are its successor**, in every model of `Γ`, for a rule of the shapes
 `coreOK` admits: every variable is fixed to its value, and the right side is the successor. -/
-theorem famEx_den (h : HypSoundCore c) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hsorts : Model.sortsNumbered c = true) (hov : c.overloadsOK = true)
-    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y)
+theorem famEx_den_exNil (h : HypSoundCore c) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hsorts : Model.sortsNumbered c = true) (hov : c.overloadsOK = true)
+    {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hexs : r.exs = [])
     (hI : I ⊧ᴵP Γ c) (e : Valuation M) (m : M) :
     (famEx c r σ).interpret I e m ↔ (den c y.val).interpret I e m := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := h
@@ -305,7 +308,7 @@ theorem famEx_den (h : HypSoundCore c) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.cl
   have hs0 : HypSoundCore c := ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩
   obtain ⟨-, -, hrhss⟩ := rule_ctx hok hs.mem
   have hensS := rule_ctx_ens hok hs.mem
-  rw [famEx_eq hok hs.mem]
+  rw [famEx_eq_exNil hok hs.mem hexs]
   unfold KoreAML.denB
   generalize htbl : KoreAML.tableOf [] _ = tbl
   have hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl := fun i hi => by
@@ -379,15 +382,16 @@ end
 section
 variable {c : Semantics}
 
-/-- The pattern `famOpen` reads, for a rule of the shapes `coreOK` admits. -/
-theorem famOpen_eq (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (σ : Subst) :
+/-- The pattern `famOpen` reads, for a rule of the shapes `coreOK` admits without existential
+variables. -/
+theorem famOpen_eq_exNil (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) (hex : r.exs = []) (σ : Subst) :
     famOpen c r σ = KoreAML.denB (KoreAML.existsAll (srtOf c topCellSort)
       ((canonVars c r.vars).map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) (fixK c r σ (varOccs r.lhs) ++
         [reqPat (srtOf c topCellSort) (r.req.map (Term.kore c (canonVars c r.vars)))] ++
         [.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]]))) := by
-  obtain ⟨hex, hpre, hpost⟩ := Semantics.sortedOK_rule hok hr
+  obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
   have hv := filterMap_range_getElem? (canonVars c r.vars)
   rw [canonVars_length] at hv
   have hf : (List.range r.vars.length).filter (fun _ => true) = List.range r.vars.length :=
@@ -421,12 +425,12 @@ theorem famOpen_step (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.
     fun fn hfn cl hcl _ => hex fn hfn cl hcl
   obtain ⟨-, hreqs, hrhss⟩ := rule_ctx hok hr
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨-, hpre, hpost⟩ := Semantics.sortedOK_rule hok hr
+  obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
   have hensS := rule_ctx_ens hok hr
   obtain ⟨hσat, hmatch, hprio⟩ := hu
   have hσ : c.WellSorted r.vars σ := fun i s hs =>
     hσat i (hbinds i (List.getElem?_eq_some_iff.mp hs).1) s hs
-  rw [famOpen_eq hok hr] at hm
+  rw [famOpen_eq_exNil hok hr (Semantics.sortedOK_exsNil hok hr (hb r hr))] at hm
   unfold KoreAML.denB at hm
   generalize htbl : KoreAML.tableOf [] _ = tbl at hm
   have hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl := fun i hi => by

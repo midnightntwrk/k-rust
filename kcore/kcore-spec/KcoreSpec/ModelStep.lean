@@ -105,13 +105,14 @@ theorem stepClosure_pat (c : Semantics) :
 
 /-! ## Existentials over a disjunct's free variables -/
 
-theorem sExists_foldr_intro {tbl : KoreAML.VarTable} {body : KoreAML.P} :
+theorem sExists_foldr_intro_T {T : GroundTerm → GroundTerm → Prop} {tbl : KoreAML.VarTable} {body : KoreAML.P} :
     ∀ (free : List (KoreAML.VarKey × Kore.KSort)) (e e' : Valuation Elem) (m : Elem),
     (∀ x, (∀ ks ∈ free, x ≠ tbl.ev ks.1) → e'.evalEvar x = e.evalEvar x) →
     e'.evalSvar = e.evalSvar →
-    (∀ ks ∈ free, ∃ n, ks.2 = KoreAML.srt n ∧ InS (stdI c) n (e'.evalEvar (tbl.ev ks.1))) →
-    body.interpret (stdI c) e' m →
-    (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body).interpret (stdI c) e m
+    (∀ ks ∈ free, ∃ n, ks.2 = KoreAML.srt n ∧ InS (stdI_T c T) n (e'.evalEvar (tbl.ev ks.1))) →
+    body.interpret (stdI_T c T) e' m →
+    (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body).interpret
+      (stdI_T c T) e m
   | [], e, e', m, hoff, hsv, _, hb => by
     have : e' = e := by
       cases e; cases e'
@@ -124,16 +125,17 @@ theorem sExists_foldr_intro {tbl : KoreAML.VarTable} {body : KoreAML.P} :
     exact hb
   | (k, s) :: free, e, e', m, hoff, hsv, hg, hb => by
     show (KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s)
-      (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body)).interpret (stdI c) e m
+      (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body)).interpret
+        (stdI_T c T) e m
     rw [KoreAML.interp_sExists]
     refine ⟨e'.evalEvar (tbl.ev k), ?_, ?_⟩
-    · rw [KoreAML.interp_member defOK_std]
+    · rw [KoreAML.interp_member AtT.defOK_std]
       simp only [Function.update_same]
       obtain ⟨n, hn, hin⟩ := hg (k, s) (List.mem_cons_self ..)
       simp only at hn
       rw [hn, trSort_srt]
       exact (inS_iff _).mpr hin
-    · refine sExists_foldr_intro free _ e' m (fun x hx => ?_) hsv
+    · refine sExists_foldr_intro_T free _ e' m (fun x hx => ?_) hsv
         (fun ks hks => hg ks (List.mem_cons_of_mem _ hks)) hb
       show e'.evalEvar x = Function.update e.evalEvar (tbl.ev k) (e'.evalEvar (tbl.ev k)) x
       by_cases hxk : x = tbl.ev k
@@ -143,6 +145,15 @@ theorem sExists_foldr_intro {tbl : KoreAML.VarTable} {body : KoreAML.P} :
           rcases List.mem_cons.mp hks with rfl | hks
           · exact hxk
           · exact hx ks hks)
+
+theorem sExists_foldr_intro {tbl : KoreAML.VarTable} {body : KoreAML.P} :
+    ∀ (free : List (KoreAML.VarKey × Kore.KSort)) (e e' : Valuation Elem) (m : Elem),
+    (∀ x, (∀ ks ∈ free, x ≠ tbl.ev ks.1) → e'.evalEvar x = e.evalEvar x) →
+    e'.evalSvar = e.evalSvar →
+    (∀ ks ∈ free, ∃ n, ks.2 = KoreAML.srt n ∧ InS (stdI c) n (e'.evalEvar (tbl.ev ks.1))) →
+    body.interpret (stdI c) e' m →
+    (free.foldr (fun (k, s) φ => KoreAML.sExists (tbl.ev k) (KoreAML.trSort tbl s) φ) body).interpret (stdI c) e m :=
+  sExists_foldr_intro_T (T := StepM c)
 
 /-- The element variables of a list of keys, with their sorts (`closureDisjunct`'s binders). -/
 def evarsOf (l : List KoreAML.VarKey) : List (KoreAML.VarKey × Kore.KSort) :=
@@ -170,7 +181,8 @@ well sorted. -/
 theorem freeOf_prio_of_sorted (hok : c.sortedOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) {r : Rule} (hr : r ∈ c.rules) {k : KoreAML.VarKey}
     (hk : k ∈ KoreAML.freeOf [] (prioRuleK c r)) : ∃ i < r.vars.length, k = canonKey c r.vars i := by
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
-  obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.sortedOK_rule hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hok hr
+  have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hok hr (hb r hr)
   rw [prioRuleK_top hex₀ hpre₀ hpost₀] at hk
   dsimp only at hk
   split at hk
@@ -194,7 +206,7 @@ theorem freeOf_prio_of_sorted (hok : c.sortedOK = true) (hb : ∀ r ∈ c.rules,
       have hr'm := (List.mem_filter.mp hr').1
       obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hok hr'm
       exact freeOf_applies hlhs' (fun t ht i hi => varOccs_lt t (hreqs' t ht) i hi)
-        (Semantics.sortedOK_rule hok hr'm).2.1 (hb _ hr'm) hk
+        (Semantics.sortedOK_ruleTop hok hr'm).1 (hb _ hr'm) hk
     · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
     · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
 

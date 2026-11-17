@@ -1,0 +1,8 @@
+# e5-ovl-fn-fn with the smaller symbol a constructor (CN-4b section 5, third row), over a user sort
+# N because kompile rejects a constructor of Int (e5-ovl-fn-fn-ctor-int). Recorded from kore.txt
+# (kompile 7.1.337):
+# - the symbol-overload axiom of the function sExp over the constructor sN is written (kore.txt //@ 273):
+#     \equals{SortExp{}, R}(LblsExp{}(inj{SortN{}, SortExp{}}(K0:SortN{})),
+#                          inj{SortN{}, SortExp{}}(LblsN{}(K0:SortN{})))
+#   its right side a constructor term; sExp carries anywhere{}() and function{}(), sN constructor{}().
+# - account.txt: today the reader refuses it with overloadAxiom.

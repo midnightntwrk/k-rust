@@ -276,10 +276,14 @@ example : kBelow.coreOK = true := by decide +kernel
 
 end RowWitnesses
 
-/-! The sort predicates of Range and RangeMap: the registry gives those sorts no predicate symbol,
-so the text's `isRange` and `isRangeMap` sentences are listed unread (`noSortPredicate`); `isK`,
-`isKItem` (registry symbols), `isInt` (a predicate) and a user sort's `isX` are not. -/
-example : KCore.Parse.isNoPredName "LblisRange" = true ∧ KCore.Parse.isNoPredName "LblisRangeMap" = true ∧
+/-! The sort predicates of Range and RangeMap: the registry numbers `isRange` and `isRangeMap` after
+RANGEMAP's symbols (`predOf`), as every other library sort below KItem has its predicate, so the
+text's sentences of them are read and none is listed unread (`noSortPredicate`); nor are `isK`,
+`isKItem` (registry symbols), `isInt` (a predicate) and a user sort's `isX`. -/
+example : predOf Srt.range = some 375 ∧ predOf Srt.rangeMap = some 377 ∧
+    regSymNames[375]? = some "LblisRange" ∧ regSymNames[377]? = some "LblisRangeMap" := by
+  decide +kernel
+example : KCore.Parse.isNoPredName "LblisRange" = false ∧ KCore.Parse.isNoPredName "LblisRangeMap" = false ∧
     KCore.Parse.isNoPredName "LblisK" = false ∧ KCore.Parse.isNoPredName "LblisKItem" = false ∧
     KCore.Parse.isNoPredName "LblisInt" = false ∧ KCore.Parse.isNoPredName "LblisExp" = false := by
   decide +kernel

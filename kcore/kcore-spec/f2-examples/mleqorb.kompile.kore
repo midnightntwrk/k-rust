@@ -1,4 +1,4 @@
-[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-eq-rhs-or-bottom/src/e3-ml-eq-rhs-or-bottom.k)")]
+[topCellInitializer{}(LblinitGeneratedTopCell{}()), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-bottom/e3-ml-eq-rhs-or-bottom.k)")]
 
 module BASIC-K
     sort SortK{} []
@@ -148,7 +148,7 @@ module E3-ML-EQ-RHS-OR-BOTTOM
   hooked-symbol Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), functional{}(), hook{}("SET.union"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(748,18,748,92)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   hooked-symbol LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [function{}(), functional{}(), hook{}("INT.abs"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1293,18,1293,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), smt-hook{}("(ite (< #1 0) (- 0 #1) #1)"), total{}()]
   hooked-symbol LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.bitRange"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1318,18,1318,103)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
-  symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-eq-rhs-or-bottom/src/e3-ml-eq-rhs-or-bottom.k)"), symbol'Kywd'{}("f")]
+  symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-bottom/e3-ml-eq-rhs-or-bottom.k)"), symbol'Kywd'{}("f")]
   hooked-symbol LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem{}(SortList{}, SortInt{}, SortInt{}, SortKItem{}) : SortList{} [function{}(), hook{}("LIST.fill"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1007,19,1007,100)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
   symbol LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{} [freshGenerator{}(), function{}(), functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1456,18,1456,77)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)"), total{}()]
   symbol LblgetGeneratedCounterCell{}(SortGeneratedTopCell{}) : SortGeneratedCounterCell{} [function{}()]
@@ -1388,7 +1388,7 @@ module E3-ML-EQ-RHS-OR-BOTTOM
         \top{SortInt{}}())))
   [UNIQUE'Unds'ID{}("147fc15c2ec6c36de1a9c0cad6212b8acd8b224f21c0aeabd36726e9c8a06119"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1438,8,1438,85)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)")]
 
-// rule f(X)=>#Or{Int}(X,#Bottom{Int}(.KList)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d08c28554ca1e27342c6d64916b986249160c4b1b73bf6f1429292c8eed071ad), org.kframework.attributes.Location(Location(4,8,4,29)), org.kframework.attributes.Source(Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-eq-rhs-or-bottom/src/e3-ml-eq-rhs-or-bottom.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+// rule f(X)=>#Or{Int}(X,#Bottom{Int}(.KList)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d08c28554ca1e27342c6d64916b986249160c4b1b73bf6f1429292c8eed071ad), org.kframework.attributes.Location(Location(4,8,4,29)), org.kframework.attributes.Source(Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-bottom/e3-ml-eq-rhs-or-bottom.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
     \and{R}(
       \top{R}(),
@@ -1404,7 +1404,7 @@ module E3-ML-EQ-RHS-OR-BOTTOM
      \and{SortInt{}} (
        \or{SortInt{}}(VarX:SortInt{},\bottom{SortInt{}}()),
         \top{SortInt{}}())))
-  [UNIQUE'Unds'ID{}("d08c28554ca1e27342c6d64916b986249160c4b1b73bf6f1429292c8eed071ad"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-eq-rhs-or-bottom/src/e3-ml-eq-rhs-or-bottom.k)")]
+  [UNIQUE'Unds'ID{}("d08c28554ca1e27342c6d64916b986249160c4b1b73bf6f1429292c8eed071ad"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-bottom/e3-ml-eq-rhs-or-bottom.k)")]
 
 // rule `freshInt(_)_INT_Int_Int`(I)=>I requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cf2cb8f038b4bdc4edb1334a3b8ced9cd296a7af43f0a1916e082a4e1aefa08b), org.kframework.attributes.Location(Location(1457,8,1457,28)), org.kframework.attributes.Source(Source(/nix/store/18pfm4wc0m4b8phf1x7nwla65iv2s44r-k-7.1.337-4a46d1231473b599c699160132fd6e76a5c46406/include/kframework/builtin/domains.md)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
   axiom{R} \implies{R} (
@@ -2644,4 +2644,4 @@ module E3-ML-EQ-RHS-OR-BOTTOM
         \top{Q0}())))
   [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
 
-endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e3-ml-eq-rhs-or-bottom/src/e3-ml-eq-rhs-or-bottom.k)")]
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-ml-eq-rhs-or-bottom/e3-ml-eq-rhs-or-bottom.k)")]

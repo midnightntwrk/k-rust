@@ -11,7 +11,7 @@ namespace KCore.BuiltinNames
 def nNewSorts : Nat := 9
 
 /-- How many symbols the library adds (numbered from 173). -/
-def nNewSyms : Nat := 202
+def nNewSyms : Nat := 206
 
 /-- The names of the sorts the library adds to the registry's, numbered from 21. -/
 def newSortNames : List String :=
@@ -228,9 +228,13 @@ def newSymNames : List String :=
    "Lbl'Unds-LT-Eqls'RangeMap'UndsUnds'RANGEMAP'Unds'Bool'Unds'RangeMap'Unds'RangeMap",
    "LblRangeMap'Coln'choice",
    "Lblkeys'Unds'list'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap",
-   "Lblvalues'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap"]
+   "Lblvalues'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap",
+   "LblisRange",
+   "Lblproject'Coln'Range",
+   "LblisRangeMap",
+   "Lblproject'Coln'RangeMap"]
 
 /-- The `isX` and `project:X` symbols of the library's added sorts below KItem. -/
-def newPreds : List (Nat × Nat × Nat) := [(21, 173, 174), (22, 175, 176), (23, 177, 178), (24, 179, 180), (25, 181, 182), (26, 183, 184), (27, 185, 186)]
+def newPreds : List (Nat × Nat × Nat) := [(21, 173, 174), (22, 175, 176), (23, 177, 178), (24, 179, 180), (25, 181, 182), (26, 183, 184), (27, 185, 186), (28, 375, 376), (29, 377, 378)]
 
 end KCore.BuiltinNames

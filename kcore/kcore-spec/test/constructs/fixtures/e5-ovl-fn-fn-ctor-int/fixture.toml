@@ -1,0 +1,4 @@
+# e5-ovl-fn-fn with the smaller symbol a constructor of Int (CN-4b section 5, third row, the text as
+# the design writes it): kompile rejects it, a hooked token sort takes no constructor; the user-sort
+# form is e5-ovl-fn-fn-ctor
+expect = "error"

@@ -25,7 +25,7 @@ theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) 
   have hok := (Semantics.coreOK_parts h).1
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr => ?_, fun fn hfn => ?_⟩
-  · obtain ⟨-, hpre, hpost⟩ := Semantics.sortedOK_rule hok hr
+  · obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
     simp [Rule.opens_of_binds (hb r hr), hpre, hpost, Cond.isTop]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'

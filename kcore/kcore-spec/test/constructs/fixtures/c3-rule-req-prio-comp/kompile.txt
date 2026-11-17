@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-rule-req-prio-comp.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 209138
+definition.kore sha256: 868518697de0b420fabfc303ff6eb3d09da3dbce3c27123effc84364f77445b3
+stripped sha256: 228af1906cadce28cd250ddb789206aa209b5c937b049081716334a5691c16ba
+main module: 411 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-REQ-PRIO-COMP-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-RULE-REQ-PRIO-COMP as default.

@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-rule-ens-prio-comp.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.3
+definition.kore bytes: 209141
+definition.kore sha256: 285b0fde0be7d5651c26417c1fb2684152f20f96a8cab28227f3ea83e5b8be35
+stripped sha256: 0e0fa74b4403481f76f814ed71092af8c282c801d5e964638a7ae35ebecd5943
+main module: 411 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-ENS-PRIO-COMP-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-RULE-ENS-PRIO-COMP as default.

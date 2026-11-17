@@ -8,20 +8,20 @@ namespace Ph
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isVal» : KCore.Sym := 378
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 379
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 380
-@[match_pattern, reducible] def «a» : KCore.Sym := 381
-@[match_pattern, reducible] def «b» : KCore.Sym := 382
-@[match_pattern, reducible] def «go» : KCore.Sym := 383
-@[match_pattern, reducible] def «yes» : KCore.Sym := 384
-@[match_pattern, reducible] def «no» : KCore.Sym := 385
-@[match_pattern, reducible] def «oops» : KCore.Sym := 386
-@[match_pattern, reducible] def «ok» : KCore.Sym := 387
-@[match_pattern, reducible] def «bad» : KCore.Sym := 388
-@[match_pattern, reducible] def «both» : KCore.Sym := 389
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isVal» : KCore.Sym := 382
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 383
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 384
+@[match_pattern, reducible] def «a» : KCore.Sym := 385
+@[match_pattern, reducible] def «b» : KCore.Sym := 386
+@[match_pattern, reducible] def «go» : KCore.Sym := 387
+@[match_pattern, reducible] def «yes» : KCore.Sym := 388
+@[match_pattern, reducible] def «no» : KCore.Sym := 389
+@[match_pattern, reducible] def «oops» : KCore.Sym := 390
+@[match_pattern, reducible] def «ok» : KCore.Sym := 391
+@[match_pattern, reducible] def «bad» : KCore.Sym := 392
+@[match_pattern, reducible] def «both» : KCore.Sym := 393
 end Sym
 
 namespace Srt
@@ -31,7 +31,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 14).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisVal", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbla", "Lblb", "Lblgo", "Lblyes",
+    ((List.range 14).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisVal", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lbla", "Lblb", "Lblgo", "Lblyes",
  "Lblno", "Lbloops", "Lblok", "Lblbad", "Lblboth"] ∧
     ((List.range 3).map fun i => c.sortName (30 + i)) = ["KCell", "KCellOpt", "Val"] := by
   decide +kernel

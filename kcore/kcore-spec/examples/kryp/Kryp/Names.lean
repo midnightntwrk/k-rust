@@ -8,40 +8,40 @@ namespace Kryp
 open KCore
 
 namespace Sym
-@[match_pattern, reducible] def «isKCell» : KCore.Sym := 376
-@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 377
-@[match_pattern, reducible] def «isG1Point» : KCore.Sym := 378
-@[match_pattern, reducible] def «isG2Point» : KCore.Sym := 379
-@[match_pattern, reducible] def «isItem» : KCore.Sym := 380
-@[match_pattern, reducible] def «<k>» : KCore.Sym := 381
-@[match_pattern, reducible] def «noKCell» : KCore.Sym := 382
-@[match_pattern, reducible] def «(_,_)_KRYPTO_G1Point_Int_Int» : KCore.Sym := 383
-@[match_pattern, reducible] def «(_x_,_x_)_KRYPTO_G2Point_Int_Int_Int_Int» : KCore.Sym := 384
-@[match_pattern, reducible] def «hash(_)_KRYP_Item_Bytes» : KCore.Sym := 385
-@[match_pattern, reducible] def «digest(_)_KRYP_Item_String» : KCore.Sym := 386
-@[match_pattern, reducible] def «len(_)_KRYP_Item_Int» : KCore.Sym := 387
-@[match_pattern, reducible] def «Keccak256(_)_KRYPTO_String_Bytes» : KCore.Sym := 388
-@[match_pattern, reducible] def «Sha256(_)_KRYPTO_String_Bytes» : KCore.Sym := 389
-@[match_pattern, reducible] def «Sha512(_)_KRYPTO_String_Bytes» : KCore.Sym := 390
-@[match_pattern, reducible] def «Sha512_256(_)_KRYPTO_String_Bytes» : KCore.Sym := 391
-@[match_pattern, reducible] def «Sha3_256(_)_KRYPTO_String_Bytes» : KCore.Sym := 392
-@[match_pattern, reducible] def «RipEmd160(_)_KRYPTO_String_Bytes» : KCore.Sym := 393
-@[match_pattern, reducible] def «Blake2Compress(_)_KRYPTO_String_Bytes» : KCore.Sym := 394
-@[match_pattern, reducible] def «Keccak256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 395
-@[match_pattern, reducible] def «Sha256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 396
-@[match_pattern, reducible] def «Sha512raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 397
-@[match_pattern, reducible] def «Sha512_256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 398
-@[match_pattern, reducible] def «Sha3_256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 399
-@[match_pattern, reducible] def «RipEmd160raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 400
-@[match_pattern, reducible] def «ECDSARecover(_,_,_,_)_KRYPTO_Bytes_Bytes_Int_Bytes_Bytes» : KCore.Sym := 401
-@[match_pattern, reducible] def «ECDSASign(_,_)_KRYPTO_String_Bytes_Bytes» : KCore.Sym := 402
-@[match_pattern, reducible] def «ECDSAPubKey(_)_KRYPTO_String_Bytes» : KCore.Sym := 403
-@[match_pattern, reducible] def «BN128Add(_,_)_KRYPTO_G1Point_G1Point_G1Point» : KCore.Sym := 404
-@[match_pattern, reducible] def «BN128Mul(_,_)_KRYPTO_G1Point_G1Point_Int» : KCore.Sym := 405
-@[match_pattern, reducible] def «BN128AtePairing(_,_)_KRYPTO_Bool_List_List» : KCore.Sym := 406
-@[match_pattern, reducible] def «isValidPoint(_)_KRYPTO_Bool_G1Point» : KCore.Sym := 407
-@[match_pattern, reducible] def «isValidG2Point» : KCore.Sym := 408
-@[match_pattern, reducible] def «verifyKZGProof(_,_,_,_)_KRYPTO_Bool_Bytes_Bytes_Bytes_Bytes» : KCore.Sym := 409
+@[match_pattern, reducible] def «isKCell» : KCore.Sym := 380
+@[match_pattern, reducible] def «isKCellOpt» : KCore.Sym := 381
+@[match_pattern, reducible] def «isG1Point» : KCore.Sym := 382
+@[match_pattern, reducible] def «isG2Point» : KCore.Sym := 383
+@[match_pattern, reducible] def «isItem» : KCore.Sym := 384
+@[match_pattern, reducible] def «<k>» : KCore.Sym := 385
+@[match_pattern, reducible] def «noKCell» : KCore.Sym := 386
+@[match_pattern, reducible] def «(_,_)_KRYPTO_G1Point_Int_Int» : KCore.Sym := 387
+@[match_pattern, reducible] def «(_x_,_x_)_KRYPTO_G2Point_Int_Int_Int_Int» : KCore.Sym := 388
+@[match_pattern, reducible] def «hash(_)_KRYP_Item_Bytes» : KCore.Sym := 389
+@[match_pattern, reducible] def «digest(_)_KRYP_Item_String» : KCore.Sym := 390
+@[match_pattern, reducible] def «len(_)_KRYP_Item_Int» : KCore.Sym := 391
+@[match_pattern, reducible] def «Keccak256(_)_KRYPTO_String_Bytes» : KCore.Sym := 392
+@[match_pattern, reducible] def «Sha256(_)_KRYPTO_String_Bytes» : KCore.Sym := 393
+@[match_pattern, reducible] def «Sha512(_)_KRYPTO_String_Bytes» : KCore.Sym := 394
+@[match_pattern, reducible] def «Sha512_256(_)_KRYPTO_String_Bytes» : KCore.Sym := 395
+@[match_pattern, reducible] def «Sha3_256(_)_KRYPTO_String_Bytes» : KCore.Sym := 396
+@[match_pattern, reducible] def «RipEmd160(_)_KRYPTO_String_Bytes» : KCore.Sym := 397
+@[match_pattern, reducible] def «Blake2Compress(_)_KRYPTO_String_Bytes» : KCore.Sym := 398
+@[match_pattern, reducible] def «Keccak256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 399
+@[match_pattern, reducible] def «Sha256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 400
+@[match_pattern, reducible] def «Sha512raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 401
+@[match_pattern, reducible] def «Sha512_256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 402
+@[match_pattern, reducible] def «Sha3_256raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 403
+@[match_pattern, reducible] def «RipEmd160raw(_)_KRYPTO_Bytes_Bytes» : KCore.Sym := 404
+@[match_pattern, reducible] def «ECDSARecover(_,_,_,_)_KRYPTO_Bytes_Bytes_Int_Bytes_Bytes» : KCore.Sym := 405
+@[match_pattern, reducible] def «ECDSASign(_,_)_KRYPTO_String_Bytes_Bytes» : KCore.Sym := 406
+@[match_pattern, reducible] def «ECDSAPubKey(_)_KRYPTO_String_Bytes» : KCore.Sym := 407
+@[match_pattern, reducible] def «BN128Add(_,_)_KRYPTO_G1Point_G1Point_G1Point» : KCore.Sym := 408
+@[match_pattern, reducible] def «BN128Mul(_,_)_KRYPTO_G1Point_G1Point_Int» : KCore.Sym := 409
+@[match_pattern, reducible] def «BN128AtePairing(_,_)_KRYPTO_Bool_List_List» : KCore.Sym := 410
+@[match_pattern, reducible] def «isValidPoint(_)_KRYPTO_Bool_G1Point» : KCore.Sym := 411
+@[match_pattern, reducible] def «isValidG2Point» : KCore.Sym := 412
+@[match_pattern, reducible] def «verifyKZGProof(_,_,_,_)_KRYPTO_Bool_Bytes_Bytes_Bytes_Bytes» : KCore.Sym := 413
 end Sym
 
 namespace Srt
@@ -53,7 +53,7 @@ namespace Srt
 end Srt
 
 theorem names_ok :
-    ((List.range 34).map fun i => c.symName (376 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisG1Point", "LblisG2Point", "LblisItem", "Lbl'-LT-'k'-GT-'", "LblnoKCell",
+    ((List.range 34).map fun i => c.symName (380 + i)) = ["LblisKCell", "LblisKCellOpt", "LblisG1Point", "LblisG2Point", "LblisItem", "Lbl'-LT-'k'-GT-'", "LblnoKCell",
  "Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int",
  "Lbl'LParUnds'x'UndsCommUnds'x'UndsRParUnds'KRYPTO'Unds'G2Point'Unds'Int'Unds'Int'Unds'Int'Unds'Int",
  "Lblhash'LParUndsRParUnds'KRYP'Unds'Item'Unds'Bytes", "Lbldigest'LParUndsRParUnds'KRYP'Unds'Item'Unds'String",

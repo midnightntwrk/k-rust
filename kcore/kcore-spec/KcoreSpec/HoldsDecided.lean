@@ -201,4 +201,16 @@ end
 
 end Faithful
 
+open Faithful
+
+/-- Every configuration of a semantics that `coreOK` accepts and whose functions meet `FnHyp` is
+`StepDecided`: `stepDecided_pp` with the rules' `ruleSorted`, which `coreOK` gives. -/
+theorem stepDecided_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (x : Config c) :
+    StepDecided c x.val :=
+  stepDecided_pp (hypSound_of_core h) hf.1
+    (fun r hr => List.all_eq_true.mp (by
+      have hs := Semantics.sortedOK_sorted (Semantics.coreOK_parts h).1
+      simp only [Bool.and_eq_true] at hs
+      exact hs.2) r hr) x.val
+
 end KCore
