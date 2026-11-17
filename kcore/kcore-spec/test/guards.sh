@@ -2,7 +2,9 @@
 # The table of readings (DONE-0 C6) of test/Guards.lean, checked. Exit 1 when:
 #   - the file does not elaborate: among the causes, a constructor of ReadingNote, InertReason or
 #     UnreadReason with no entry (its `match` misses a case), a name literal of a guard that no
-#     longer exists, or a constructor list that is not the inductive's (the file's `run_cmd`);
+#     longer exists, a constructor list that is not the inductive's, or an entry marked guarded none
+#     of whose guards is a declaration quantified over H : HookParams that states something about
+#     Semantics.withHooks (C6's form; the file's `run_cmd`s);
 #   - a wildcard arm stands between the file's `-- table:begin` and `-- table:end` lines (it would
 #     give a new constructor an entry nobody wrote);
 #   - a pointer into another test file names a file that does not exist or a text it does not hold;

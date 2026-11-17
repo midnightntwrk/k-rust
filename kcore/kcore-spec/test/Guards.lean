@@ -619,7 +619,8 @@ inductive GuardRef where
 
 /-- How far an entry is. -/
 inductive GuardStatus where
-  /-- The guard, its companion and its invariant are named. -/
+  /-- The guard, its companion and its invariant are named, and a guard is a declaration stated about
+  `c.withHooks H` for every `H : HookParams` (C6's form; the `run_cmd` after the lists checks it). -/
   | guarded
   /-- No value is at stake: the reading decides which sentences are part of the definition, and the
   reader test that fixes its verdict is named. -/
@@ -660,12 +661,12 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.test "test/StreamIO.lean" "#guard_msgs"],
       note := "the sentence is a rule of the definition read as written, its hooks parameter symbols (REVIEW-RN RN7): no value-level claim" }
   | .ruleRightDefined =>
-    { status := .guarded,
+    { status := .pending "GUARD.final",
       guard := [.decl ``KCore.Guards.ruleRightDefined_weaker],
       companion := [.decl ``KCore.Faithful.UndefRhsWitness.not_model_text,
         .decl ``KCore.Faithful.UndefRhsWitness.gamma_of_text],
       invariant := [``KCore.Faithful.prioRuleK],
-      note := "G8 is stated for every semantics, hence at every c.withHooks H, without naming withHooks; the companion is a semantics whose text reading has no model while Γ's does" }
+      note := "G8 names no H and covers only rules with exs = [] and pre and post top; owed: a statement about c.withHooks H for every H, and the rules with existential variables, pre or post once R3.flip lands; the companion is a semantics whose text reading has no model while Γ's does" }
   | .projectionDomainAsClause =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.ProjK.projInt_none_off, .decl ``KCore.Guards.ProjK.projInt_off_gamma,
@@ -789,11 +790,11 @@ def unreadReason : UnreadReason → GuardEntry
       guard := [.test "test/ParametricUnused.lean" "#guard_msgs"],
       note := "the declaration is read only through the instances a sentence applies (REVIEW-RN RN9)" }
   | .setIdempotence =>
-    { status := .guarded,
+    { status := .pending "GUARD.unread",
       guard := [.decl ``KCore.Guards.setIdem_bot],
       companion := [.test "test/TieEns.lean" "idem_refuted"],
       invariant := [``KCore.silentKey_fixed],
-      note := "G7: _Set_ at a common member is no silent point and has no value, so Γ states ⊥ at every H; idem_refuted: Γ with the idempotence axiom has no model, for every H" }
+      note := "G7 (setIdem_bot) names no H: _Set_ at a common member is no silent point and hook gives it no value; its every-H half is idem_refuted (Γ with the idempotence axiom has no model, for every H), a pointer into another test file; owed: a statement about c.withHooks H for every H" }
   | .overloadConfusion =>
     { status := .readerTest,
       guard := [.test "test/Overloads.lean" "overloadConfusion"],
@@ -801,7 +802,7 @@ def unreadReason : UnreadReason → GuardEntry
   | .noSortPredicate =>
     { status := .readerTest,
       guard := [.test "test/RangeMap.lean" "isNoPredName"],
-      note := "the theory has no symbol isX for a sort the registry gives no predicate; GUARD.unread counts five UnreadReason constructors, this is the sixth" }
+      note := "the theory has no symbol isX for a sort the registry gives no predicate; the sixth of the six UnreadReason constructors GUARD.unread counts" }
 -- table:end
 
 def readingNotes : List ReadingNote :=
@@ -836,6 +837,29 @@ run_cmd do
     let some (.inductInfo i) := env.find? ind | throwError "guards: no inductive {ind}"
     unless i.ctors.length == n do
       throwError "guards: {ind} has {i.ctors.length} constructors, its list {n}"
+
+/-- A type with a binder of type `HookParams` (an `∀ H`, possibly after other binders). -/
+def hasHookBinder : Expr → Bool
+  | .forallE _ t b _ => t.isConstOf ``KCore.HookParams || hasHookBinder b
+  | _ => false
+
+-- C6's literal form: an entry is `guarded` only where one of its guards is a declaration whose type
+-- quantifies over `H : HookParams` and states something about `Semantics.withHooks` (a statement
+-- about `c.withHooks H` for every H). A pointer into another test file is not checked here, so it
+-- never makes an entry guarded alone.
+run_cmd do
+  let env ← getEnv
+  let everyH := fun (n : Name) => match env.find? n with
+    | some ci => hasHookBinder ci.type && (ci.type.find? (·.isConstOf ``KCore.Semantics.withHooks)).isSome
+    | none => false
+  let entries : List (String × GuardEntry) :=
+    readingNotes.map (fun r => (reprStr r, readingNote r)) ++
+    inertReasons.map (fun r => (reprStr r, inertReason r)) ++
+    unreadReasons.map (fun r => (reprStr r, unreadReason r))
+  for (ctor, e) in entries do
+    if let .guarded := e.status then
+      unless e.guard.any (fun | .decl n => everyH n | .test _ _ => false) do
+        throwError "guards: {ctor} is marked guarded, but no guard of it is a declaration stated about c.withHooks H for every H : HookParams"
 
 #eval show IO Unit from do
   let short := fun (s : String) => (s.splitOn "Parse.").getLast!
