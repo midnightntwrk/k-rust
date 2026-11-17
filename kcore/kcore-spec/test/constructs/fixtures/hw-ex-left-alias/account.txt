@@ -1,0 +1,21 @@
+test/constructs/fixtures/hw-ex-left-alias/hw-ex-left-alias.kore: 5 modules; prelude agrees
+user module E3-VARS: 430 sentences
+  1 inert import [generated]
+  198 read [generated]
+  183 read [builtin]
+  10 read [user]
+  8 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  6 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 refused aliasDeclaration [generated]
+      e.g. alias rule2LHS{}(SortInt{}, SortInt{}, SortK{}, SortNCell{}, SortGeneratedCounterCell{}) : SortGeneratedTopCell{} where rule2LHS{}(Var'Unds'Gen0:SortInt{}, Var'Unds'Y:SortInt{}, Var'Unds'DotVar1:SortK{}, Var'Unds'Gen1:SortNCell{}, Var'Unds'Gen2:SortGeneratedCounterCell{}) := \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{Sor …
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 aliasApplication
+      sentence 330 (rule2LHS): aliasApplication (rule2LHS)
+        [user] (no label) at e3-vars.k:8: axiom{} \rewrites{SortGeneratedTopCell{}}(rule2LHS{}(Var'Unds'Gen0:SortInt{}, Var'Unds'Y:SortInt{}, Var'Unds'DotVar1:SortK{}, Var'Unds'Gen1:SortNCell{}, Var'Unds'Gen2:SortGeneratedCounterCell{}), \exists{SortGeneratedTopCell{}}(Var'Ques'Z:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbld{}(Var'Ques'Z:SortInt{})), Var'Un …
+finish: sentence 330 (rule2LHS): aliasApplication (rule2LHS)
+(exit 0)

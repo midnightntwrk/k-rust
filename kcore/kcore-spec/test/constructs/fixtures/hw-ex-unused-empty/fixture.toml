@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture c3-unbound-req-nokey (K 7.1.337, kompile.txt sha256 a07a87e7d73a218af3d28e22b3534b763f7a8bff9442db4d959c14bb9980f2f7,
+# BUILTIN/ and FIXTURE/ restored), whose `syntax Empty` declares a sort without a constructor, with one rewrite axiom
+# changed by hand: the right side of rule <k> a() => c() ... </k> [owise] under \exists Var'Ques'Z:SortEmpty{}, which
+# its body does not hold (e3-vars' text holds no sort without a value). Expected: read, the binder dropped
+# (existsDropped), no premise on the sort; the rest of the account as c3-unbound-req-nokey's.
+kore = "test/constructs/fixtures/hw-ex-unused-empty/hw-ex-unused-empty.kore"
