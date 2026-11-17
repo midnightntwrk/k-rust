@@ -96,7 +96,10 @@ inductive RefusalReason where
   | registrySortName
   /-- A symbol the definition does not have. -/
   | unknownSymbol
-  /-- An application of an alias of K's prelude. -/
+  /-- An application of an alias of K's prelude: in a term, or heading a rewrite axiom's right side
+  (`weakAlwaysFinally{S}(\and(rhs, ens))`, kompile's form of a rule of a module carrying all-path or
+  one-path; the detail names the alias). Refused by name and not expanded (FIX-core.allpath-alias-refuse,
+  ruled R-a): the refusal states nothing of the sentence. -/
   | aliasApplication
   /-- A symbol applied with sort arguments (other than `inj` and `ite`) that is not an instance the
   definition has (`instName`): a hooked or constructor instance, one of a symbol outside the user's
@@ -2433,6 +2436,14 @@ where
   -- req)`: an alias's (kompile's `ruleNLHS`, under --enable-kore-antileft)
   | .rewrites _ (.app h [] _) _ =>
     if (N.sym? h.ident.name).isNone then fail .aliasApplication h.ident.name else fail .ruleShape
+  -- a right side headed by an alias of K's prelude (`preludeAliases`): kompile's right side for a
+  -- rule of a module carrying all-path or one-path, `weakAlwaysFinally{S}(\and(rhs, ens))`
+  | .rewrites _ _ (.app h _ _) =>
+    if preludeAliases.contains h.ident.name then
+      fail .aliasApplication s!"{h.ident.name}: an alias of K's prelude heading the right side of the \
+        rewrite axiom (the form kompile writes for a rule of a module carrying all-path or one-path); \
+        not read as its argument"
+    else fail .ruleShape
   | _ => fail .ruleShape
 
 /-- The rule of a rewrite axiom. -/

@@ -4,4 +4,6 @@
 # added at the end of line 634, closing the \rewrites of line 628 (findings/KPROV-citations.md section 4). The rule axiom
 # of rule <k> a() => b() ... </k> in a module carrying all-path: \rewrites(\and(l, \top), weakAlwaysFinally(\and(r, \top))),
 # the right side an application of the prelude alias weakAlwaysFinally{A}(@X:A) := @X:A (line 60).
+# Account (FIX-core.allpath-alias-refuse): stage refusal aliasApplication, the detail naming weakAlwaysFinally on the
+# right side of the rewrite axiom; before it, the bare ruleShape of ruleBody's last arm.
 kore = "test/constructs/fixtures/hw-allpath-alias/hw-allpath-alias.kore"

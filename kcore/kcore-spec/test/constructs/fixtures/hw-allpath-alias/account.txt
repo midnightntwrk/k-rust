@@ -12,8 +12,8 @@ user module E2-ALL-PATH: 401 sentences
   10 inert noJunk [generated]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
-  1 ruleShape
-      sentence 305 (Lbl'-LT-'generatedTop'-GT-'): ruleShape
+  1 aliasApplication
+      sentence 305 (Lbl'-LT-'generatedTop'-GT-'): aliasApplication (weakAlwaysFinally: an alias of K's prelude heading the right side of the rewrite axiom (the form kompile writes for a rule of a module carrying all-path or one-path); not read as its argument)
         [user] (no label) at e2-all-path.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), weakAlwaysFinally{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}( …
-finish: sentence 305 (Lbl'-LT-'generatedTop'-GT-'): ruleShape
+finish: sentence 305 (Lbl'-LT-'generatedTop'-GT-'): aliasApplication (weakAlwaysFinally: an alias of K's prelude heading the right side of the rewrite axiom (the form kompile writes for a rule of a module carrying all-path or one-path); not read as its argument)
 (exit 0)
