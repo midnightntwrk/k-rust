@@ -29,6 +29,7 @@ all=(
 "ref-peano|RefPeano|--wf"
 "ref-fprio|RefFprio|--wf"
 "ref-kimp|RefKimp|--wf"
+"ref-kk|RefKk|--core"
 )
 want=" $* "
 O=.lake/regen; mkdir -p "$O"

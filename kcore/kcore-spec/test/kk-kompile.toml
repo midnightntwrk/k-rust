@@ -1,0 +1,16 @@
+# Row KORE in K: the kompile command that produced examples/ref-kk/RefKk/definition.kore, read by
+# test/kk-kompile.sh.
+#
+# ${kk} is krs/semantics/kore of the k-rust checkout, ${out} the output directory. The text committed
+# is kompile's definition.kore with the user `Source` paths made relative to the checkout
+# (test/relsource.py): ${kk} is written `krs/semantics/kore`.
+k_version = "7.1.337"
+source = "krs/semantics/kore/kore.k"
+source_sha256 = "273c2d8bb931a9d8a65865edeb1170a27e549583efc832c17de44ef9a3d97fba"
+argv = [
+  "kompile", "${kk}/kore.k",
+  "--backend", "haskell",
+  "--output-definition", "${out}",
+]
+text = "examples/ref-kk/RefKk/definition.kore"
+sha256 = "d4e22f144974b948715c8630fe4aaffba522a1704cb574768ec8d6a9469de439"
