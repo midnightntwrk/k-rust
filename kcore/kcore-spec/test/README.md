@@ -1164,3 +1164,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   C3EqEnsTotal: `eval_neg1`, `not_total`, `not_fnHyp`, `not_obl` (`total_named = [f]`), `fnModelH`
   and `consistent` by `consistent_of`, a model of Γc alone. C3EqEnsTotalHolds: `eval_all`, `total_f`,
   `obl`, `model_total` (`has_model_total`). About 3 to 5 minutes and 8 GiB each.
+- `test/C3EqReqPrio.lean`, `C3EqReqPrioComp.lean`, `C3EqReqOwise.lean`, `C3EqReqTotal.lean`,
+  `C3EqPrioOwise.lean`, `C3EqPrioTotal.lean`, `C3EqPrioTotalComp.lean`, `C3EqOwiseTotal.lean`: the
+  same tie for the six equation pairs without `ensures`, the two priority pairs also on the
+  fixtures with a competitor (`w1`, `w_text`; `f_5` through the reading). C3EqReqTotal:
+  `total_named = [f]`, `fnModelH` and `consistent` with no totality fact. C3EqPrioTotal,
+  C3EqPrioTotalComp, C3EqOwiseTotal: `total_named = []`, `total_f`, `model_total`.
