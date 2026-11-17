@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-macro-app/hw-macro-app.kore: 5 modules; prelude agrees
+user module C3-MACRO-RULE: 244 sentences
+  1 inert import [generated]
+  159 read [generated]
+  52 read [builtin]
+  4 read [user]
+  1 unread macroUnused [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 macroSymbol
+      sentence 209 (Lblf): macroSymbol (Lblm)
+        [user] (no label) at c3-macro-rule.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarX:SortExp{}), \top{R}())), \equals{SortExp{}, R}(Lblf{}(X0:SortExp{}), \and{SortExp{}}(Lblm{}(VarX:SortExp{}), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("c8def67e3eb1088391a3579374860a63dc687118b9dba64287f3cbed112edec0"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,20)"), org'Stop'kframework'Sto …
+finish: sentence 209 (Lblf): macroSymbol (Lblm)
+(exit 0)

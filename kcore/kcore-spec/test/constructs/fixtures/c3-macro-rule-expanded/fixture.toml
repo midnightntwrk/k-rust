@@ -1,0 +1,2 @@
+# pair macro x a use (TRIAGE-B c3.pair 21; findings/C3-noncore-rulings.md section 11): c3-macro-rule with f's equation written f(X) => g(X), the expansion of the use m(X) by hand. Predicted: equal to c3-macro-rule after stripping, but possibly for f's equation's UNIQUE_ID (not known whether the id is computed before or after expansion)
+differs_from = "c3-macro-rule"

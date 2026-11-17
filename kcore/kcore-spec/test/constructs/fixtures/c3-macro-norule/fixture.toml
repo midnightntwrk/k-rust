@@ -1,0 +1,2 @@
+# macro x a use with no rule of the macro symbol (TRIAGE-B c3.pair 21; findings/C3-noncore-rulings.md section 11): c3-macro-rule without rule m(X) => g(X). Predicted: exit 0 with the application Lblm{}(VarX) left in f's equation and the account macroSymbol. Observed: kompile rejects the text (exit 113, `Rule contains macro symbol that was not expanded` at rule f(X) => m(X), phase "expand macros"): prediction failed; the hand-written hw-macro-app holds the application instead
+expect = "error"

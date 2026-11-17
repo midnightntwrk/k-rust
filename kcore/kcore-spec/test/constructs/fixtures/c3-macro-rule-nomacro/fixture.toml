@@ -1,0 +1,1 @@
+# companion of c3-macro-rule (TRIAGE-B c3.pair 21; findings/C3-noncore-rulings.md section 11): its text without macro on m, so m is a constructor, rule m(X) => g(X) a rewrite axiom and f's equation applies m

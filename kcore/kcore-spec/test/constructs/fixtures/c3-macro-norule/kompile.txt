@@ -1,0 +1,16 @@
+command: kompile --backend haskell c3-macro-norule.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 5.9
+output:
+  [Error] Compiler: Rule contains macro symbol that was not expanded
+  	Source(FIXTURE/c3-macro-norule.k)
+  	Location(4,8,4,20)
+  	4 |	  rule f(X) => m(X)
+  	  .	       ^~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors after macro expansion.
+    while executing phase "expand macros" on sentence at
+  	Source(FIXTURE/c3-macro-norule.k)
+  	Location(4,8,4,20)
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MACRO-NORULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-MACRO-NORULE as default.
