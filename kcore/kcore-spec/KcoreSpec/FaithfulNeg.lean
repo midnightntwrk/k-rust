@@ -628,11 +628,11 @@ theorem distGuarded_ctorSigs {g g' : Gen} (h : ∀ k, g = .ctor k → k ∈ c.ct
   cases g with
   | ctor k =>
     cases g' with
-    | ctor k' => simp [Semantics.distGuarded, isOvl_of_ctorSigs (h k rfl), isOvl_of_ctorSigs (h' k' rfl)]
-    | inj _ => simp [Semantics.distGuarded, isOvl_of_ctorSigs (h k rfl)]
+    | ctor k' => simp [Semantics.distGuarded, Semantics.fnOvl, isOvl_of_ctorSigs (h k rfl), isOvl_of_ctorSigs (h' k' rfl)]
+    | inj _ => simp [Semantics.distGuarded, Semantics.fnOvl, isOvl_of_ctorSigs (h k rfl)]
   | inj _ =>
     cases g' with
-    | ctor k' => simp [Semantics.distGuarded, isOvl_of_ctorSigs (h' k' rfl)]
+    | ctor k' => simp [Semantics.distGuarded, Semantics.fnOvl, isOvl_of_ctorSigs (h' k' rfl)]
     | inj _ => rfl
 
 theorem gens_of_ovl {o : OvlSig} (ho : o ∈ c.ovls) : Gen.ctor o.sig ∈ c.gens o.sig.result := by
@@ -649,7 +649,7 @@ theorem gens_inj {a b : Srt} (h : (a, b) ∈ c.subsorts) : Gen.inj a ∈ c.gens 
 theorem gensF_inj {a b : Srt} (h : (a, b) ∈ c.subsorts) : Gen.inj a ∈ (c.gens b).filter (!c.isOpenGen ·) :=
   List.mem_filter.mpr ⟨gens_inj h, rfl⟩
 
-theorem perSort_mem {N : Srt} (hN : N ∈ consSorts c) {it : KoreAML.Item}
+theorem perSort_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {it : KoreAML.Item}
     (h : it ∈ (((c.gens N).filter (!c.isOpenGen ·)).map (Gen.toK c)).map (KoreAML.Cons.funItem (c.sortName N)) ∨
       it ∈ ((((c.gens N).filter (!c.isOpenGen ·)).map (Gen.toK c)).filter (!·.argSorts.isEmpty)).map (KoreAML.Cons.injItem (c.sortName N)) ∨
       it ∈ (pairs ((c.gens N).filter (!c.isOpenGen ·))).flatMap (fun (g, g') => match g, g' with
@@ -671,35 +671,35 @@ theorem perSort_mem {N : Srt} (hN : N ∈ consSorts c) {it : KoreAML.Item}
                 | .inj _ => none)]
           else [KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g')])) :
     it ∈ consItemsK c := by
-  unfold consItemsK
+  rw [consItemsK_eq_of_noFnOvl hno]
   refine List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ (List.mem_flatMap.mpr ⟨N, hN, ?_⟩)))
   rcases h with h | h | h
   · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_left _ h))
   · exact List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ h))
   · exact List.mem_append_left _ (List.mem_append_right _ h)
 
-theorem funItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
+theorem funItem_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·)) :
     KoreAML.Cons.funItem (c.sortName N) (Gen.toK c g) ∈ consItemsK c :=
-  perSort_mem hN (Or.inl (List.mem_map.mpr ⟨_, List.mem_map.mpr ⟨g, hg, rfl⟩, rfl⟩))
+  perSort_mem hno hN (Or.inl (List.mem_map.mpr ⟨_, List.mem_map.mpr ⟨g, hg, rfl⟩, rfl⟩))
 
 theorem toK_argSorts (g : Gen) : (Gen.toK c g).argSorts = g.argSorts.map c.sortName := by
   cases g <;> rfl
 
-theorem injItem_mem {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
+theorem injItem_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hg : g ∈ (c.gens N).filter (!c.isOpenGen ·))
     (hne : g.argSorts ≠ []) :
     KoreAML.Cons.injItem (c.sortName N) (Gen.toK c g) ∈ consItemsK c := by
-  refine perSort_mem hN (Or.inr (Or.inl (List.mem_map.mpr ⟨_, List.mem_filter.mpr ⟨List.mem_map.mpr ⟨g, hg, rfl⟩, ?_⟩, rfl⟩)))
+  refine perSort_mem hno hN (Or.inr (Or.inl (List.mem_map.mpr ⟨_, List.mem_filter.mpr ⟨List.mem_map.mpr ⟨g, hg, rfl⟩, ?_⟩, rfl⟩)))
   rw [toK_argSorts]
   cases h : g.argSorts with
   | nil => exact absurd h hne
   | cons _ _ => rfl
 
 /-- Two generators of a constructor sort, not both injections, are apart in `Γ` (Cons-Dist). -/
-theorem distItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
+theorem distItem_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
     (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hni : ∀ a b, g = .inj a → g' = .inj b → False) (hgd : c.distGuarded g g' = false) :
     KoreAML.Cons.distItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') ∈ consItemsK c := by
-  refine perSort_mem hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨(g, g'), hp, ?_⟩)))
+  refine perSort_mem hno hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨(g, g'), hp, ?_⟩)))
   cases g with
   | ctor k =>
     cases g' <;> (simp only [hgd, Bool.false_eq_true, ↓reduceIte]; exact List.mem_singleton_self _)
@@ -717,12 +717,12 @@ def ovlArgsOf (c : Semantics) : Gen → Option (List (List String))
 
 /-- Two generators of a constructor sort, not both injections, that `distGuarded` names are apart
 in `Γ` at uncovered arguments (Cons-Dist at uncovered arguments). -/
-theorem distUncItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
+theorem distUncItem_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
     (hp : (g, g') ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hni : ∀ a b, g = .inj a → g' = .inj b → False) (hgd : c.distGuarded g g' = true) :
     KoreAML.Cons.distUncItem (c.sortName N) (Gen.toK c g) (Gen.toK c g') (ovlArgsOf c g) (ovlArgsOf c g') ∈
       consItemsK c := by
-  refine perSort_mem hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨(g, g'), hp, ?_⟩)))
+  refine perSort_mem hno hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨(g, g'), hp, ?_⟩)))
   cases g with
   | ctor k =>
     cases g' <;> (simp only [hgd, ↓reduceIte]; exact List.mem_singleton_self _)
@@ -733,7 +733,7 @@ theorem distUncItem_mem {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen}
 
 /-- Two injections from incomparable sorts into a constructor sort: Cons-Dist without a common
 lower bound, Cons-Dist′ with one. -/
-theorem injPair_mem {N : Srt} (hN : N ∈ consSorts c) {a b : Srt}
+theorem injPair_mem (hno : c.fnOvlSyms = []) {N : Srt} (hN : N ∈ consSorts c) {a b : Srt}
     (hp : (Gen.inj a, Gen.inj b) ∈ pairs ((c.gens N).filter (!c.isOpenGen ·)))
     (hab : (c.le a b || c.le b a) = false) :
     (c.lowerBounds a b = [] ∧ KoreAML.Cons.distItem (c.sortName N) (.inj (c.sortName a)) (.inj (c.sortName b)) ∈ consItemsK c) ∨
@@ -741,11 +741,11 @@ theorem injPair_mem {N : Srt} (hN : N ∈ consSorts c) {a b : Srt}
       distLbItem (c.sortName N) (c.sortName a) (c.sortName b) ((c.lowerBounds a b).map c.sortName) ∈ consItemsK c) := by
   cases hl : c.lowerBounds a b with
   | nil =>
-    refine Or.inl ⟨rfl, perSort_mem hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨_, hp, ?_⟩)))⟩
+    refine Or.inl ⟨rfl, perSort_mem hno hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨_, hp, ?_⟩)))⟩
     simp only [hab, Bool.false_eq_true, ↓reduceIte, hl, List.mem_singleton]
     rfl
   | cons l ls =>
-    refine Or.inr ⟨List.cons_ne_nil _ _, perSort_mem hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨_, hp, ?_⟩)))⟩
+    refine Or.inr ⟨List.cons_ne_nil _ _, perSort_mem hno hN (Or.inr (Or.inr (List.mem_flatMap.mpr ⟨_, hp, ?_⟩)))⟩
     simp only [hab, Bool.false_eq_true, ↓reduceIte, hl, List.mem_singleton]
 
 end
@@ -1004,7 +1004,7 @@ theorem gen_fun {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ (c.gen
     (hl : xs.length = (g.argSorts.map c.sortName).length)
     (hxs : ∀ (i : Nat) x s, xs[i]? = some x → (g.argSorts.map c.sortName)[i]? = some s → InS I s x) :
     ∃ y, InS I (c.sortName N) y ∧ ∀ m, GS I (c.sortName N) (Gen.toK c g) xs m ↔ m = y :=
-  fun_at (defOK hI) (sat_cons hI (Or.inl ⟨_, funItem_mem hN hgm, rfl⟩)) (by rw [toK_argSorts]; exact hl)
+  fun_at (defOK hI) (sat_cons hI (Or.inl ⟨_, funItem_mem OvlOK.noFn hN hgm, rfl⟩)) (by rw [toK_argSorts]; exact hl)
     (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
 
 /-- Cons-Inj for a generator of a constructor sort with arguments, read in a model of `Γ`. -/
@@ -1015,7 +1015,7 @@ theorem gen_inj {N : Srt} (hN : N ∈ consSorts c) {g : Gen} (hgm : g ∈ (c.gen
     (hxs : ∀ (i : Nat) x s, xs[i]? = some x → (g.argSorts.map c.sortName)[i]? = some s → InS I s x)
     (hys : ∀ (i : Nat) x s, ys[i]? = some x → (g.argSorts.map c.sortName)[i]? = some s → InS I s x)
     (heq : ∀ m, GS I (c.sortName N) (Gen.toK c g) xs m ↔ GS I (c.sortName N) (Gen.toK c g) ys m) : xs = ys :=
-  inj_at (defOK hI) (sat_cons hI (Or.inl ⟨_, injItem_mem hN hgm hne, rfl⟩)) (by rw [toK_argSorts]; exact hl)
+  inj_at (defOK hI) (sat_cons hI (Or.inl ⟨_, injItem_mem OvlOK.noFn hN hgm hne, rfl⟩)) (by rw [toK_argSorts]; exact hl)
     (by rw [toK_argSorts]; exact hl')
     (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
     (fun i x s h1 h2 => hys i x s h1 (by rw [← toK_argSorts]; exact h2)) heq
@@ -1032,11 +1032,11 @@ theorem gen_dist {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (c
     (hys : ∀ (i : Nat) x s, ys[i]? = some x → (g'.argSorts.map c.sortName)[i]? = some s → InS I s x)
     (heq : ∀ m, GS I (c.sortName N) (Gen.toK c g) xs m ↔ GS I (c.sortName N) (Gen.toK c g') ys m) : False := by
   rcases mem_pairs_of hne hgm hgm' with hp | hp
-  · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distItem_mem hN hp hni hgd, rfl⟩))
+  · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distItem_mem OvlOK.noFn hN hp hni hgd, rfl⟩))
       (by rw [toK_argSorts]; exact hl) (by rw [toK_argSorts]; exact hl')
       (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
       (fun i x s h1 h2 => hys i x s h1 (by rw [← toK_argSorts]; exact h2)) heq
-  · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distItem_mem hN hp (fun a b h1 h2 => hni b a h2 h1) hgd', rfl⟩))
+  · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distItem_mem OvlOK.noFn hN hp (fun a b h1 h2 => hni b a h2 h1) hgd', rfl⟩))
       (by rw [toK_argSorts]; exact hl') (by rw [toK_argSorts]; exact hl)
       (fun i x s h1 h2 => hys i x s h1 (by rw [← toK_argSorts]; exact h2))
       (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2)) (fun m => (heq m).symm)
@@ -1044,11 +1044,13 @@ theorem gen_dist {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (c
 omit hI in
 theorem distGuarded_symm (g g' : Gen) : c.distGuarded g g' = c.distGuarded g' g := by
   cases g <;> cases g' <;> simp only [Semantics.distGuarded]
-  rw [Bool.or_comm]
-  congr 1
-  apply Bool.eq_iff_iff.mpr
-  simp only [List.any_eq_true, List.contains_iff_mem]
-  exact ⟨fun ⟨x, h1, h2⟩ => ⟨x, h2, h1⟩, fun ⟨x, h1, h2⟩ => ⟨x, h2, h1⟩⟩
+  rename_i k k'
+  have hc : (c.ovlClosure k.name).any (c.ovlClosure k'.name).contains =
+      (c.ovlClosure k'.name).any (c.ovlClosure k.name).contains := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true, List.contains_iff_mem]
+    exact ⟨fun ⟨x, h1, h2⟩ => ⟨x, h2, h1⟩, fun ⟨x, h1, h2⟩ => ⟨x, h2, h1⟩⟩
+  rw [hc, Bool.or_comm (c.fnOvl (.ctor k)), Bool.or_comm (c.isOvl k.name)]
 
 /-- Cons-Dist for two generators of a constructor sort, not both injections, read in a model of
 `Γ`, guarded or not: they build no element in common from arguments of their sorts that, for each
@@ -1071,7 +1073,7 @@ theorem gen_dist' {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (
     have hl2 : ys.length = (Gen.toK c g').argSorts.length := by rw [toK_argSorts]; exact hl'
     rcases mem_pairs_of hne hgm hgm' with hp | hp
     · have hsp := listVal_split xs ys _ _ hl1 hl2
-      exact distUnc_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distUncItem_mem hN hp hni hgd, rfl⟩)) hl1 hl2
+      exact distUnc_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distUncItem_mem OvlOK.noFn hN hp hni hgd, rfl⟩)) hl1 hl2
         (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
         (fun i x s h1 h2 => hys i x s h1 (by rw [← toK_argSorts]; exact h2))
         (fun covs hc m => uncoveredP_of (defOK hI) hsp.1
@@ -1082,7 +1084,7 @@ theorem gen_dist' {N : Srt} (hN : N ∈ consSorts c) {g g' : Gen} (hgm : g ∈ (
             (k := (Gen.toK c g).argSorts.length + (Gen.toK c g').argSorts.length + 1) (by omega))
           (hu' covs hc) m) heq
     · have hsp := listVal_split ys xs _ _ hl2 hl1
-      exact distUnc_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distUncItem_mem hN hp (fun a b h1 h2 => hni b a h2 h1) hgd',
+      exact distUnc_at (defOK hI) (sat_cons hI (Or.inl ⟨_, distUncItem_mem OvlOK.noFn hN hp (fun a b h1 h2 => hni b a h2 h1) hgd',
           rfl⟩)) hl2 hl1
         (fun i x s h1 h2 => hys i x s h1 (by rw [← toK_argSorts]; exact h2))
         (fun i x s h1 h2 => hxs i x s h1 (by rw [← toK_argSorts]; exact h2))
@@ -1544,13 +1546,13 @@ theorem inj_back (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsor
         have := injNormal_isInj C a0 w''
         rw [← hw''] at this; rw [hni] at this; cases this
       rcases mem_pairs_of (fun h => h0 (by cases h; rfl)) (gensF_inj has0) (gensF_inj has) with hp | hp
-      · rcases injPair_mem hN hp hle with ⟨-, hit⟩ | ⟨-, hit⟩
+      · rcases injPair_mem OvlOK.noFn hN hp hle with ⟨-, hit⟩ | ⟨-, hit⟩
         · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [elemOf c I w0]) (ys := [b]) rfl rfl
             (single_sorts hx0) (single_sorts hb) hseq
         · obtain ⟨C, hC, z, hz, hz1, -⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hx0 hb hseq
           obtain ⟨C', hC', rfl⟩ := List.mem_map.mp hC
           exact hdist C' z (mem_lowerBounds hC').1 hz hz1
-      · rcases injPair_mem hN hp hle' with ⟨-, hit⟩ | ⟨-, hit⟩
+      · rcases injPair_mem OvlOK.noFn hN hp hle' with ⟨-, hit⟩ | ⟨-, hit⟩
         · exact dist_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [b]) (ys := [elemOf c I w0]) rfl rfl
             (single_sorts hb) (single_sorts hx0) (fun m => (hseq m).symm)
         · obtain ⟨C, hC, z, hz, -, hz2⟩ := distLb_at (defOK hI) (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) hb hx0

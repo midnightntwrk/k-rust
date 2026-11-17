@@ -10,10 +10,15 @@
 #                one configuration); kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance; ref-kimp's row
-#                statements coreOK_defn, consistent, sound_at, complete_at, run_exact and totals (every
-#                [total] function is Total); the noninterference results over kimp, imp-sec,
-#                imp-sec-leaky, vault, vault-leaky
-#   sorry        no `sorry` in the code of KcoreSpec, KcoreGen.lean, examples (comments excluded)
+#                statements coreOK_defn, consistent, sound_at, complete_at, run_exact, totals (every
+#                [total] function is Total) and totals_withHooks (the same at every hook
+#                interpretation H); the noninterference results over kimp, imp-sec, imp-sec-leaky,
+#                vault, vault-leaky
+#   tripwire     in the code (comments and strings removed) of KcoreSpec, KcoreGen.lean, GammaD.lean,
+#                examples and test: no `sorry`, `native_decide`, `decide +native`, `bv_decide`,
+#                `implemented_by`, `extern` attribute, `debug.skipKernelTC`, nor an `axiom`
+#                declaration. Not the check (the axioms rows of test/integration.sh are): it covers
+#                what no declaration holds, such as an `example`'s proof
 #
 # No step builds a KEVM or mir package: the release run builds the committed example packages only.
 #
@@ -51,8 +56,8 @@ axioms() {
   fi
   echo "axioms: $(echo $4 | wc -w) declarations within propext, Classical.choice, Quot.sound"
 }
-noSorry() {
-  python3 -I - KcoreSpec KcoreGen.lean examples <<'NS'
+tripwire() {
+  python3 -I - KcoreSpec KcoreGen.lean GammaD.lean examples test <<'NS'
 import os, re, sys
 def code(t):
     # the text without comments (nested /- -/ and --) and string literals
@@ -77,9 +82,12 @@ for r in sys.argv[1:]:
     for d, ds, ns in os.walk(r):
         ds[:] = [x for x in ds if x != '.lake']
         fs += [os.path.join(d, x) for x in ns if x.endswith('.lean')]
-hits = [f'{f}:{k}' for f in sorted(fs) for k, l in enumerate(code(open(f).read()).split('\n'), 1)
-        if re.search(r'\bsorry\b', l)]
-print('\n'.join(hits + [f'sorry: {len(hits)} in the code of {len(fs)} files']))
+pat = re.compile(r'\bsorry\b|\bnative_decide\b|\bdecide\s*\+\s*native\b|\bbv_decide\b|\bimplemented_by\b'
+                 r'|@\[\s*extern\b|\bskipKernelTC\b'
+                 r'|^\s*(@\[[^\]]*\]\s*)?((private|protected|noncomputable|unsafe|partial)\s+)*axiom\s')
+hits = [f'{f}:{k}: {l.strip()[:80]}' for f in sorted(fs) for k, l in enumerate(code(open(f).read()).split('\n'), 1)
+        if pat.search(l)]
+print('\n'.join(hits + [f'tripwire: {len(hits)} in the code of {len(fs)} files']))
 sys.exit(1 if hits else 0)
 NS
 }
@@ -101,11 +109,11 @@ if grep -q '|ok|' "$R/examples.res"; then
 else
   for n in axioms-peano axioms-sumspec axioms-refkimp axioms-ni; do echo "$n|not run|0|the examples step failed" > "$R/$n.res"; done
 fi
-step sorry noSorry
+step tripwire tripwire
 
 printf '%-16s %-7s %7s  %s\n' step verdict seconds note
 fail=0
-for n in integration examples axioms-peano axioms-sumspec axioms-refkimp axioms-ni sorry; do
+for n in integration examples axioms-peano axioms-sumspec axioms-refkimp axioms-ni tripwire; do
   IFS='|' read -r a b c d < "$R/$n.res"
   printf '%-16s %-7s %7s  %s\n' "$a" "$b" "$c" "$d"
   [ "$b" = ok ] || fail=1

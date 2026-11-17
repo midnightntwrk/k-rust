@@ -227,7 +227,13 @@ interpretation's value of g; a collection it builds is one of f's result sort, `
 building an `AccountCellMap`, and a literal of the carrier of f's result sort one of that sort,
 `asSort`) or the interpretation's
 (`impl = none`; at an open generator, `raw`, the interpretation's answer, and where it gives none
-the raw application `.ctor f vs`), kept only when it has f's declared result sort. -/
+the raw application `.ctor f vs`), kept only when it has f's declared result sort. The filter is
+the sorted interpretation of a symbol: a symbol of result sort s denotes a set of elements of s
+(introduction-to-matching-logic.tex:707-710), and an answer outside it is read as none, so each
+interpretation of the parameters is read as a sorted one. That a registry hook's description holds
+of a symbol declared at another sort than the library's (`_AccountCellMap_` with `MAP.concat`,
+Hooks.lean) is a design rule, not a K sentence: no K text says what a `hook` attribute states of a
+symbol (user_manual.md:3053). -/
 def paramVal (f : Sym) (vs : List GroundTerm) : Option GroundTerm :=
   match c.lookupParam f with
   | none => none
