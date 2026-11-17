@@ -1985,7 +1985,7 @@ mutual
       rw [Term.kore, KoreAML.tr_injP, interp_injApp] at hm
       obtain ⟨x, hx, hm⟩ := hm
       have hxs := patSortC hp ht' x hx
-      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) (xs := [x]) rfl (single_sorts hxs)
+      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) rfl (xs := [x]) rfl (single_sorts hxs)
       rw [(hys m).mp hm]; exact hy
     | .as p i, s, hp, ht, m, hm => by
       obtain ⟨-, ht'⟩ := Exec.sortOfTerm_as ht
@@ -2082,8 +2082,8 @@ mutual
           obtain ⟨a, ha, bs, hbs, hm⟩ := hm
           have hsorts := patSortsC hI hph hcs hcso hg htr hnm hvs hin hps hargs hbs
           have H := (inferInstance : OvlOK c).hyp htr
-          obtain ⟨-, -, -, hks, -⟩ := OvlLaws.ovl_facts H hlo
-          obtain ⟨ws, hws, rfl, hv⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) hw hsorts.1 hsorts.2
+          obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
+          obtain ⟨ws, hws, rfl, hv⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) (OvlOK.noFnOver _) hw hsorts.1 hsorts.2
             ⟨a, by rw [← hn] at ha; exact ha, hm⟩
           have ih := patVals_backC hps hargs hws hbs
           refine ⟨.ovl hc hov ih.1 (by rw [← hn]; exact hv), fun j hj => ih.2 j (by rw [varOccs] at hj; exact hj)⟩

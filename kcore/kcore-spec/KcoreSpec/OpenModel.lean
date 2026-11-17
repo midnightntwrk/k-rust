@@ -64,8 +64,8 @@ theorem PatOK.monoOpen {P Q : Nat → Prop} {p : Term} (h : PatOK c P p) (hq : �
   | inj ha hb _ ih => exact .inj ha hb (ih fun i hi => hq i (by rw [varOccs]; exact hi))
   | as _ _ ih =>
     exact .as (ih fun j hj => hq j (by rw [varOccs]; exact List.mem_append_left _ hj)) (hq _ (by simp [varOccs]))
-  | app hk hkn hl hkind _ ih =>
-    exact .app hk hkn hl hkind fun t ht => ih t ht fun i hi => hq i (by rw [varOccs]; exact varOccsList_of_memOpen ht hi)
+  | app hk hkn hl hkind hnf _ ih =>
+    exact .app hk hkn hl hkind hnf fun t ht => ih t ht fun i hi => hq i (by rw [varOccs]; exact varOccsList_of_memOpen ht hi)
 
 /-- `TermOK` reads its predicate at the term's variables only. -/
 theorem TermOK.monoOpen {P Q : Nat → Prop} {t : Term} (h : TermOK c P t) (hq : ∀ i ∈ varOccs t, Q i) :
