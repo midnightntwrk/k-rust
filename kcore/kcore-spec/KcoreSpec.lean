@@ -280,3 +280,4 @@ import KcoreSpec.LibEvFun
 import KcoreSpec.LibEvBool
 import KcoreSpec.LibEvPred
 import KcoreSpec.LawConsistent
+import KcoreSpec.LawModelChoice
