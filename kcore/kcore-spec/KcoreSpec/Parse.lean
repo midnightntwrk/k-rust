@@ -425,7 +425,10 @@ inductive UnreadReason where
   a collection of unique items whose concatenation on a common element is `#False`
   (domains.md:704-705); for Map, an associative, commutative map with one value per key whose
   concatenation on a common key is `#False` (domains.md:205-207, 223-229). They are written from
-  those sentences, not read from the text's axioms, so this axiom is part of no reading. -/
+  those sentences, not read from the text's axioms. This axiom is the one sentence of a text that
+  `Γ` denies: `Γ` with it has no model under any interpretation of the hooks, since the graph of
+  `_Set_` states `_Set_(S, S) = ⊥` at a set S with a member, a point that is not silent. Under the
+  definedness of its left side, `⌈_Set_(K, K)⌉ → _Set_(K, K) = K`, it holds at every set value. -/
   | setIdempotence
   /-- The distinctness `¬(f(X̄) ∧ g(Ȳ))` of two symbols of one sort whose overload closures meet
   (`Semantics.ovlClosure`: one overloads the other, or both overload a third): wherever an overload
