@@ -110,6 +110,12 @@ def hCl3 : Clause := ⟨[Srt.int], [.var 0], none, fX, some falseT, 50, false, [
 /-- h, declared `total`. -/
 def hFn : Fn := ⟨H, [Srt.int], Srt.int, [hCl1, hCl2, hCl3], true⟩
 
+/-- The three clauses are what the reading function's builder (`Parse.frClauses`,
+KcoreSpec/ReadFns.lean) gives for the alternatives `f(X)`, `g(X)`, neither with a predicate of its
+own; test/RhsReader.lean runs the reading function on the fixture's text. -/
+theorem frClauses_h :
+    Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false [(fX, []), (gX, [])] = [hCl1, hCl2, hCl3] := rfl
+
 /-- The semantics with f's and g's functions given. -/
 def sem (fFn gFn : Fn) : Semantics :=
   { lib := {}

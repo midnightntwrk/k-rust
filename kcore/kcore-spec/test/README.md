@@ -668,6 +668,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   point of each part of it where Γ over all interpretations entails neither ⊥ nor a value;
   `replaceFirst` against its equation; the header's findings (`substrString`'s two readings, code
   points, a search index above the length).
+- `test/RhsReader.lean`: the reading functions of `KcoreSpec/ReadFns.lean` for an equation's right
+  side (`Parse.frRead`: `\or`), which `clauseBody` does not call. Each is run on the fixtures'
+  kompiled texts from `kfix.py`'s cache (so the cache must hold them, as for `kfix.py accounts`) and
+  on hand-written equations, the clauses printed with `clauseSorted`, `condOK` and CN-4 §4.9's
+  clause conjunct; one instance of each function is checked by the kernel (`kernel_rfl`).
 - `test/HooksMap.lean`: the 12 supported hook rows of MAP (the sort and eleven operations) against
   domains.md's prose, cited by line: each operation at every argument list by the bindings of its
   result (the one map with them), with hand-derived values that `hook` gives, the result under
