@@ -6,6 +6,7 @@
     inside `∃ē` the existential ones theirs, y's element is in `rhs ∧ ens`.
 -/
 import KcoreSpec.ExFamValues
+import KcoreSpec.CondPredAt
 import KcoreSpec.OpenSound
 
 set_option autoImplicit false
@@ -61,7 +62,7 @@ theorem famEx_mem_ex (h : c.coreOK = true) {r : Rule} (hs : c.ruleSorted r = tru
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
-  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hIc))
   obtain ⟨-, -, -, hensS, hrhss, hexnd, hexs⟩ := Model.ruleSorted_partsEx hs hp
   obtain ⟨-, hpost₀⟩ := Semantics.rulePlainEx_top hp
   have hlt : ∀ i ∈ r.exs, i < r.vars.length := fun i hi => (hexs i hi).1
@@ -159,11 +160,11 @@ theorem famEx_mem_ex (h : c.coreOK = true) {r : Rule} (hs : c.ruleSorted r = tru
         exact hinσ i hi e₂
       · unfold Model.ruleRightBody
         rw [tr_and2, KoreAML.interp_sAnd]
-        refine ⟨(evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-          hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag₂ hrhss _).mpr
+        refine ⟨(evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+          hneg (HoldsShape.preReadAll_of_core h hIc) heval fns_headsOK hσ (canonVars_length c r.vars) hag₂ hrhss _).mpr
             ((elemOf_spec hI y.property e₂).1 _ |>.mpr rfl), reqPat_holds hI (fun t ht b =>
-            evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-              hneg (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag₂ (hensS t ht) b) (hinC e₂)⟩
+            evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+              hneg (HoldsShape.preReadAll_of_core h hIc) (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag₂ (hensS t ht) b) (hinC e₂)⟩
 
 
 /-- The binders of the canonical variables listed in l, at their indices in a table holding their
@@ -174,11 +175,6 @@ theorem binders_nodupEx {vars : List Srt} {tbl : VarTable} (hkeys : ∀ i < vars
   rw [List.map_map]
   refine List.pairwise_map.mpr (hnd.imp_of_mem fun {i j} hi hj hne he => hne ?_)
   exact canonKey_inj (hl i hi) (hl j hj) (ev_inj (hkeys i (hl i hi)) (hkeys j (hl j hj)) he)
-
-theorem binders_sortEx {vars : List Srt} {l : List Nat} (hl : ∀ i ∈ l, i < vars.length) :
-    ∀ b ∈ l.map (fun i => ((canonVars c vars).getD i default).kore), ∃ n, b.sort = KoreAML.srt n := fun b hb => by
-  obtain ⟨i, hi, rfl⟩ := List.mem_map.mp hb
-  rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
 
 /-- Every variable of a rule has its key in the table of `famEx`'s pattern. -/
 theorem famEx_keysEx {r : Rule} {σ : Subst} :
@@ -375,7 +371,7 @@ theorem ruleRight_at_ex (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
-  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hIc))
   obtain ⟨-, -, -, hensS, hrhss, hexnd, hexs⟩ := Model.ruleSorted_partsEx hs hp
   obtain ⟨-, hpost₀⟩ := Semantics.rulePlainEx_top hp
   have hlt : ∀ i ∈ r.exs, i < r.vars.length := fun i hi => (hexs i hi).1
@@ -396,11 +392,11 @@ theorem ruleRight_at_ex (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     exact (inS_iff e').mp (elemOf_spec hI hsw e').2
   · unfold Model.ruleRightBody
     rw [tr_and2, KoreAML.interp_sAnd]
-    exact ⟨(evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-      hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss _).mpr
+    exact ⟨(evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+      hneg (HoldsShape.preReadAll_of_core h hIc) heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss _).mpr
         ((elemOf_spec hI y.property e').1 _ |>.mpr rfl), reqPat_holds hI (fun t ht b =>
-        evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-          hneg (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht) b) (elemOf_top hI y tbl e')⟩
+        evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+          hneg (HoldsShape.preReadAll_of_core h hIc) (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht) b) (elemOf_top hI y tbl e')⟩
 
 /-- **`⌈∃ē. (rhs ∧ ens)⌉` holds of every configuration's element** where the right side has an
 element, at a valuation that gives the variables other than the existential ones their values. -/
@@ -473,7 +469,7 @@ theorem step_sound_ex (h : c.coreOK = true)
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hIc))
   have hD := defOK hIΓ
   obtain ⟨hlhs, hocc, hreqs, -, -, -, -⟩ := Model.ruleSorted_partsEx hs hp
   obtain ⟨hpre₀, -⟩ := Semantics.rulePlainEx_top hp
@@ -490,8 +486,8 @@ theorem step_sound_ex (h : c.coreOK = true)
     fun tbl e' hag =>
       ⟨(patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch hlhs).2 _ |>.mpr
         ((elemOf_spec hIΓ x.property e').1 _ |>.mpr rfl),
-       reqPat_holds hIΓ (fun t ht b => evalTerm_den4Cl hIΓ hnn hsc hph
-        (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (hreq t ht) fns_headsOK hσ
+       reqPat_holds hIΓ (fun t ht b => evalTerm_den4ClPre hIΓ hnn hsc hph
+        (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hIc) (hreq t ht) fns_headsOK hσ
         (canonVars_length c r.vars) hag (hreqs t ht) b) (elemOf_top hIΓ x tbl e')⟩
   -- every variable of the rule is a variable of the left part
   have hkeysL : ∀ {ps : List Kore.Pattern}, Term.kore c vs r.lhs ∈ ps → reqPat C (r.req.map (Term.kore c vs)) ∈ ps →

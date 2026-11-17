@@ -233,7 +233,7 @@ accepts with `HypModelCore`, whose rules have `ruleSorted` and `rulePlainOpen`: 
 axioms by `satRulesGoal_open`, the step's closure by `satStepGoal_open`, and `boolClosed`, which
 `Γcl` holds where Bool holds only its literals, by `boolClosed_model`. -/
 theorem stdI_modelOpen (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) :
+    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) (hFns : SatFnsGoal c) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
@@ -242,7 +242,7 @@ theorem stdI_modelOpen (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore 
     · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
-    · exact satFnsGoal hm φ hφ
+    · exact hFns φ hφ
     · exact satRulesGoal_open hm hrules φ hφ
     · exact satFallbackGoal hm φ hφ
   · obtain ⟨-, hl, rfl⟩ := hφ

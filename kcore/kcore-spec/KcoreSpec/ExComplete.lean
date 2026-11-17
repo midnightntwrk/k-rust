@@ -260,7 +260,7 @@ theorem successor_split_ex (h : c.coreOK = true)
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hIΓ
-  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI))
   obtain ⟨hlhs, -, hreqs, hensS, hrhss, hexnd, hexs⟩ := Model.ruleSorted_partsEx hs hp
   obtain ⟨hpre₀, hpost₀⟩ := Semantics.rulePlainEx_top hp
   have hlt : ∀ i ∈ r.exs, i < r.vars.length := fun i hi => (hexs i hi).1
@@ -337,14 +337,14 @@ theorem successor_split_ex (h : c.coreOK = true)
       · exfalso
         rw [ht] at hqm
         exact reqFalse_empty hIΓ hSC hσC2 hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hqs t ht) hu)
-          (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-            hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
+          (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+            hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
     have hreqT := htrue r.req _ hreqs (hdr'.1 σ (hσ.at _) hmatch).1 hreqR
     have hrest := hdr'.2 σ hσ hmatch hreqT (hpre₀ ▸ .top)
     have hensT := htrue r.ens _ hensS hrest.2.1 hensR
     obtain ⟨v, hv⟩ := hrest.1
-    have hbR := (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-      hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hyR
+    have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+      hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hyR
     cases v with
     | none => exact hbR.elim
     | some yv =>

@@ -65,8 +65,7 @@ theorem clausePreDecided_of_total (hs : HypSoundCore c) (ht : FnTerminates c)
 `sortedOK`. -/
 theorem _root_.KCore.Semantics.sortedOK_preOK (h : c.sortedOK = true) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true :=
-  fun fn hfn cl hcl => by
-    rw [Semantics.sortedOK_preTop h fn (List.mem_append_left _ hfn) cl hcl]; rfl
+  fun _ hfn _ hcl => (Semantics.sortedOK_clausePre h hfn hcl).1
 
 /-- **`ClausePreDecided` where every function has a result** at arguments of its sorts, in a
 semantics with `sortedOK`. -/

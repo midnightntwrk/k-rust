@@ -329,3 +329,7 @@ import KcoreSpec.GenEqsNames
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
+import KcoreSpec.CondPredAt
+import KcoreSpec.CondCross
+import KcoreSpec.ClausePreCore
+import KcoreSpec.ModelFnsDecided

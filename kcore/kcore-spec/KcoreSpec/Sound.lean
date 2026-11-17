@@ -96,12 +96,15 @@ theorem complete_at (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : S
 open Faithful.Model in
 /-- **The theory of a definition whose rules' left sides need not bind every variable is
 consistent**: for a semantics that `coreOK` accepts, whose functions have at most one result
-(`FnDet`) and whose evaluation solves the equations (`FnSolves`), and whose rules have `ruleSorted`
+(`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose clauses' predicates have a
+truth value wherever their patterns match (`ClausePreDecided`), and whose rules have `ruleSorted`
 and `rulePlainOpen`, `Γc c` with the step's closure has a model: the value model
 (`stdI_modelOpen`). -/
-theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c)
+theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
+    (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hl hrules⟩
+  ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hl hrules
+    (satFnsGoal_decided (hypModel_of_fn h hd hs) hp)⟩
 
 /-- **Exactness of a definition whose rules' left sides need not bind every variable**: `ExactC`,
 for a semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have
@@ -137,13 +140,6 @@ interpretation satisfies the open generators' laws (`OpenLaws`): the value model
 theorem consistent_of (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
     (hp : ClausePreDecided c) (hl : OpenLaws c) : Consistent c :=
   consistent_held c h hd hs hp hl (Semantics.ruleFactsHeld_of_core h)
-
-open Faithful.Model in
-/-- **`ClausePreDecided` under `FnHyp`**, for a semantics that `coreOK` accepts: every function has
-a result at arguments of its sorts (`FnHyp`'s first conjunct), so each clause's predicate has a
-truth value at each σ well sorted on its patterns and conditions. -/
-theorem clausePreDecided_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) : ClausePreDecided c :=
-  clausePreDecided_of_terminates (hypSound_of_core h) hf.1
 
 /-! ## The statements over a semantics, under the hypothesis on its functions -/
 

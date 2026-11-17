@@ -151,8 +151,8 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
   have hsorts : Model.sortsNumbered c = true := (faithCoreOK_parts hfa).2.2.2.2.2.2.2.1
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
-  have hcls := clauseOpenFacts_of_sortedOKCl hok
-  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc
+  have hcls := clauseOpenFactsP_of_sortedOKCl hok
+  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok))
   obtain ⟨-, -, hrhss⟩ := rule_ctxCl hok hs.mem
   have hensS := rule_ctx_ensCl hok hs.mem
   rw [famEx_eqCl_exNil hok hs.mem hexs hpost]
@@ -170,7 +170,7 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
       (fun i hi => List.mem_range.mpr hi) (fun p hp => hb p (List.mem_append_left _ hp))
     have hRm := hb _ (List.mem_append_right _ (List.mem_singleton_self _))
     rw [tr_and2, KoreAML.interp_sAnd] at hRm
-    have := (evalTerm_den4Cl hI hnn hsc hph hcls hneg hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+    have := (evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
       hrhss m).mp hRm.1
     exact ((den_closed c y.val).interp e' e m).mp this
   · intro hm
@@ -217,9 +217,9 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
           rw [hvk, overV_at hkeys hi, hg', Option.getD_some]
         · cases hpi
       · rw [List.mem_singleton.mp hp, tr_and2, KoreAML.interp_sAnd]
-        refine ⟨(evalTerm_den4Cl hI hnn hsc hph hcls hneg hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+        refine ⟨(evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
           hrhss m).mpr (((den_closed c y.val).interp e _ m).mp hm), reqPat_holds hI (fun t ht b =>
-            evalTerm_den4Cl hI hnn hsc hph hcls hneg (hs.hens t ht) fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+            evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) (hs.hens t ht) fns_headsOK hs.hσ (canonVars_length c r.vars) hag
               (hensS t ht) b) hinC⟩
 
 

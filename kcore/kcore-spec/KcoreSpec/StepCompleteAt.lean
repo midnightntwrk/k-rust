@@ -59,13 +59,14 @@ def execReadyRest (c : Semantics) : Bool :=
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
     predAtoms r.pre && predAtoms r.post) &&
-  c.asideFree
+  c.asideFree &&
+  c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop)
 
 theorem execReady_of_rest (h : c.coreOK = true) (hsr : c.srReady = true) (hr : execReadyRest c = true) :
     execReady c = true := by
   simp only [execReadyRest, Bool.and_eq_true] at hr
   simp only [execReady, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨⟨(Semantics.coreOK_parts h).1, hsr⟩, hr.1.1.1⟩, hr.1.1.2⟩, hr.1.2⟩, hr.2⟩
+  exact ⟨⟨⟨⟨⟨⟨(Semantics.coreOK_parts h).1, hsr⟩, hr.1.1.1.1⟩, hr.1.1.1.2⟩, hr.1.1.2⟩, hr.1.2⟩, hr.2⟩
 
 kernel_rfl execReady_withHooks : ∀ (c : Semantics) (H : HookParams), execReady (c.withHooks H) = execReady c
 
@@ -85,6 +86,7 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
   have hok := (Semantics.coreOK_parts h).1
   have hready := hr
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  replace hr := hr.1
   obtain ⟨⟨⟨-, hfn⟩, -⟩, -⟩ := hr
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun fn hfn' => ?_⟩

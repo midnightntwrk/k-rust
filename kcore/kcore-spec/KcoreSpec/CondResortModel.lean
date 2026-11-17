@@ -8,7 +8,7 @@
   the values `EvalTerm` gives it (`AtT.tr_term`), which are of its sort (`EvalTerm.sorted_at`).
   `holdsT_atR` is `HoldsT`'s reading of a condition at the sort a valuation gives `R`.
 -/
-import KcoreSpec.CondResort
+import KcoreSpec.CondCross
 import KcoreSpec.HoldsModel
 
 set_option autoImplicit false

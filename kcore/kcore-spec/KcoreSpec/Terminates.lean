@@ -247,6 +247,7 @@ theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov 
         exact ⟨g, List.mem_append_left _ hg, rfl⟩
       · have := hok.1.2 fn hfn cl hcl
         simp only [Semantics.clauseSorted, Bool.and_eq_true] at this
+        replace this := this.1
         exact this.1.1.1.2
     · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl => (sortPreds_ctx hfn cl hcl).2.2.2.1⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
@@ -257,6 +258,7 @@ theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov 
         exact ⟨g, List.mem_append_left _ hg, rfl⟩
       · have := hok.1.2 fn hfn cl hcl
         simp only [Semantics.clauseSorted, Bool.and_eq_true] at this
+        replace this := this.1
         exact this.1.2
     · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl => (sortPreds_ctx hfn cl hcl).2.2.2.2.2⟩
 

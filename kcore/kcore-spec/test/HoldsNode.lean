@@ -5,6 +5,7 @@
   package root: `lake env lean -j1 test/HoldsNode.lean`.
 -/
 import KcoreSpec.ClausePreTie
+import KcoreSpec.ClausePreCore
 
 open KCore KCore.HoldsShape
 

@@ -8,8 +8,7 @@
 -/
 import KcoreSpec.ModelChoicePP
 import KcoreSpec.SatRuleHeld
-import KcoreSpec.ModelFnsPre
-import KcoreSpec.ClausePreFn
+import KcoreSpec.ModelFnsDecided
 
 set_option autoImplicit false
 
@@ -204,7 +203,7 @@ theorem stdI_T_model_held_fns (c : Semantics) {H : Sym → Bool} (h : c.coreOK =
     (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) := by
-  obtain ⟨hSig, hCons, hDom, hColls, -, hFb, hBool⟩ := model_parts_T hm h hl T
+  obtain ⟨hSig, hCons, hDom, hColls, -, hFb, hBool⟩ := model_parts_T hm h hl T hFns
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
@@ -219,8 +218,10 @@ theorem stdI_T_model_held_fns (c : Semantics) {H : Sym → Bool} (h : c.coreOK =
     exact hBool hl
   · exact satStepGoal_held hm hrules T hsub φ hφ
 
-/-- `stdI_T_model_held_fns` with the functions' equations by `model_parts_T`. -/
-theorem stdI_T_model_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
+/-- `stdI_T_model_held_fns` where each clause's predicate has a truth value wherever its patterns
+match (`ClausePreDecided`): the functions' equations by `AtT.satFnsGoal_decided`. -/
+theorem stdI_T_model_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK = true) (hm : HypModelCore c) (hp : ClausePreDecided c)
+    (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true)
     (T : GroundTerm → GroundTerm → Prop)
     (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
@@ -228,7 +229,7 @@ theorem stdI_T_model_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK = tru
     (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model_held_fns c h hm hl hrules T (model_parts_T hm h hl T).2.2.2.2.1 hsub hall hsome
+  stdI_T_model_held_fns c h hm hl hrules T (AtT.satFnsGoal_decided hm hp) hsub hall hsome
 
 /-- **The theory of a definition whose rules have `pre` and `post` is consistent**: for a semantics
 that `coreOK` accepts, whose functions have at most one result (`FnDet`), whose evaluation
@@ -237,17 +238,13 @@ patterns match (`ClausePreDecided`), whose open generators' laws hold in the val
 (`OpenLaws`, as `consistent_open` asks), and whose rules have `ruleSorted` and `rulePlainHeldH`,
 `Γc c` with the step's closure has a model: the value model at its own step,
 `stdI_T c (StepV c)`, which satisfies each clause's equation with its predicate in the premise
-(`satFnsGoalPre`). No function is asked to terminate and no condition of a rule to have a truth
+(`AtT.satFnsGoal_decided`). No function is asked to terminate and no condition of a rule to have a truth
 value. -/
 theorem consistent_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
     (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) : Consistent c :=
-  have hm := hypModel_of_fn h hd hs
   ⟨Elem, inferInstance, stdI_T c (StepV c),
-    stdI_T_model_held_fns c h hm hl hrules (StepV c)
-      (AtT.satFnsGoalPre hm
-        (Semantics.sortedOK_preOK (Semantics.coreOK_parts h).1)
-        (fun fn hfn cl hcl σ ws hσ hpv _ => hp fn hfn cl hcl σ ws (hσ.at _) hpv))
+    stdI_T_model_held c h (hypModel_of_fn h hd hs) hp hl hrules (StepV c)
       (fun _ _ _ _ hT => hT)
       (fun r σ _ _ hb _ => ⟨r, σ, hb⟩) (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩)⟩
 
@@ -267,7 +264,7 @@ theorem has_model_choice_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK =
   have hm := hypModel_of_fnHyp h hf
   have hfd := (fnModel_of_fnHyp h hf).1
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
-  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_held c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
+  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_held c h hm (clausePreDecided_of_fnHyp h hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
     fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
   · intro x y hx hy hT
     obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))

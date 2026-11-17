@@ -325,7 +325,7 @@ theorem successor_split_rule (h : c.coreOK = true)
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hIΓ
-  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI))
   obtain ⟨hlhs, -, hensK, hrhss⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨-, -, hreqs, hensS, -⟩ := Model.ruleSorted_partsOpen hs hp
   obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
@@ -368,12 +368,12 @@ theorem successor_split_rule (h : c.coreOK = true)
       · exfalso
         rw [ht] at hqm
         exact reqFalse_empty hIΓ hSC hσC2 hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hqs t ht) hu)
-          (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
+          (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
     have hreqT := htrue r.req _ hreqs (hdr'.1 σ (hσ.at _) hmatch).1 hreqm
     have hrest := hdr'.2 σ hσ hmatch hreqT (hpre₀ ▸ .top)
     have hensT := htrue r.ens _ hensS hrest.2.1 hensm
     obtain ⟨v, hv⟩ := hrest.1
-    have hbR := (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hy
+    have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hy
     cases v with
     | none => exact hbR.elim
     | some yv =>

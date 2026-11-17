@@ -95,21 +95,6 @@ def Semantics.ok (c : Semantics) : Bool :=
 namespace Semantics
 variable (c : Semantics)
 
-/-- A clause of `f` is well sorted over the function signatures `rhsHeads`: its patterns have the
-argument sorts in a left-hand side's context (`patCtxAll`), each of its variables occurs in it (in
-its patterns, its conditions, its right-hand side, its `ensures` or its right side's predicate), its
-`requires` is a Bool, its right-hand side has the result sort, its `ensures` is a Bool, and each
-binder of its premise's and its right side's predicates ranges where values and elements agree
-(`Cond.bound`). -/
-def clauseSorted (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
-  sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
-  binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
-    (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) &&
-  reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
-  sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
-  reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
-  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post)
-
 /-- Every term of a condition is well sorted: a term at the sort its connective names, over the
 right-hand side's context, and a pattern of an `exMatch` over a left-hand side's (`patCtxAll`);
 a binder extends the variable sorts by the sorts it binds. The sort an atom names is a numbered
@@ -131,6 +116,22 @@ def condOK (vars : List Srt) : Cond → Bool
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body) &&
       decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
+
+/-- A clause of `f` is well sorted over the function signatures `rhsHeads`: its patterns have the
+argument sorts in a left-hand side's context (`patCtxAll`), each of its variables occurs in it (in
+its patterns, its conditions, its right-hand side, its `ensures` or its right side's predicate), its
+`requires` is a Bool, its right-hand side has the result sort, its `ensures` is a Bool, each
+binder of its premise's and its right side's predicates ranges where values and elements agree
+(`Cond.bound`), and its premise's predicate is well sorted (`condOK`). -/
+def clauseSorted (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
+  sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
+  binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
+    (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
+  sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
+  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) &&
+  condOK c cl.vars cl.pre
 
 /-- A rule's predicates are well sorted (`condOK`), with binders that range where values and
 elements agree (`Cond.bound`): what `ruleSorted` asks of `pre` and `post`. -/
@@ -172,6 +173,17 @@ theorem sortedOK_sorted {c : Semantics} (h : c.sortedOK = true) :
     (c.subsortsOK && c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) &&
       c.rules.all c.ruleSorted) = true := by
   simp only [sortedOK, Bool.and_eq_true] at h ⊢; exact h.1.1.1
+
+/-- Each clause's predicate, in a semantics `sortedOK` accepts, is well sorted over the clause's
+variables (`condOK`), with binders that range where values and elements agree (`Cond.bound`). -/
+theorem sortedOK_clausePre {c : Semantics} (h : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ fn.clauses) :
+    c.condOK cl.vars cl.pre = true ∧ Cond.bound c cl.vars.length cl.pre = true := by
+  have hs := sortedOK_sorted h
+  simp only [Bool.and_eq_true, List.all_eq_true] at hs
+  have := hs.1.2 fn hfn cl hcl
+  simp only [clauseSorted, Bool.and_eq_true] at this
+  exact ⟨this.2, this.1.2.1⟩
 
 /-- Rules whose predicates `Cond.isTop` accepts have `\top` predicates: the decidable form of the
 hypothesis the lemmas for rules without predicates take. -/
@@ -223,10 +235,11 @@ theorem sortedOK_exsNil {c : Semantics} (h : c.sortedOK = true) {r : Rule} (hr :
   exact exs_nil_of_binds (hs.2 r hr) hb
 
 theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.clauseOKAll f H cl = true)
-    (hb : (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true) :
+    (hb : (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true)
+    (hc : c.condOK cl.vars cl.pre = true) :
     c.clauseSorted f H cl = true := by
   simp only [clauseOKAll, clauseSorted, Bool.and_eq_true] at h hb ⊢
-  refine ⟨⟨⟨⟨⟨h.1.1.1.1.1, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩, hb⟩
+  refine ⟨⟨⟨⟨⟨⟨h.1.1.1.1.1, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩, hb⟩, hc⟩
   have hbd := h.1.1.1.2
   simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append, Clause.leftVars] at hbd ⊢
   intro i hi
@@ -244,6 +257,15 @@ theorem clauseBound_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c
   simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
   obtain ⟨⟨⟨-, hpre⟩, hpost⟩, -⟩ := hp f hf cl hcl
   rw [Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost]
+  rfl
+
+/-- A clause of a semantics whose clauses are plain (`clausesPlain`: `\top` predicates) has a well
+sorted predicate in its premise (`condOK`): `\top`. -/
+theorem clausePreOK_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
+    (hcl : cl ∈ f.clauses) : c.condOK cl.vars cl.pre = true := by
+  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
+  obtain ⟨⟨⟨-, hpre⟩, -⟩, -⟩ := hp f hf cl hcl
+  rw [Cond.eq_top_of_isTop hpre]
   rfl
 
 /-- `ruleOKAll` and `rulePredsOK` give `ruleSorted`: `ruleOKAll` checks the existential variables
@@ -336,7 +358,7 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) : c.sor
     c.ruleSorted_of_allPreds (List.all_eq_true.mp hr r hr') (List.all_eq_true.mp hq r hr')⟩
   have := hf f hf'
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
-  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl)
+  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl) (c.clausePreOK_of_plain hcp hf' hcl)
 
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
 variable (`ruleOK`). -/

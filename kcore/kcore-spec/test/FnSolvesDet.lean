@@ -410,9 +410,9 @@ theorem fnDet_of_fnSolves (h : c.coreOK = true) (hs : FnSolves c) : FnDet c := b
 /-! ## The statements that read `FnDet` beside `FnSolves` -/
 
 /-- `consistent_open` with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hl : OpenLaws c)
+example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  consistent_open c h (fnDet_of_fnSolves h hs) hs hl hrules
+  consistent_open c h (fnDet_of_fnSolves h hs) hs hp hl hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
 example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
