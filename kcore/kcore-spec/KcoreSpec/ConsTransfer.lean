@@ -6,7 +6,7 @@
 
   A pattern of the class has a kind, which says what its interpretation in the extension is, at a
   valuation that gives the listed element variables old elements and the listed set variables sets
-  with the same old elements (`Rel`):
+  with the same old elements (`OwnRel`):
   - `ex`: the old elements the model gives it, and no added element (a term over symbols outside
     `D`, a sort outside `D`, a sorted connective, `μ`);
   - `hd`: the old elements the model gives it, and added elements whose application to an old
@@ -45,7 +45,7 @@ open ML Faithful
 open KoreAML (DefOK Inh IsSort)
 
 /-- What the interpretation of a pattern in the extension is, given its interpretation in the
-model (`Inv`). -/
+model (`OwnInv`). -/
 inductive OwnKind where
   | ex
   | hd
@@ -251,7 +251,7 @@ section
 variable (c : Semantics) (D : KoreAML.Sym → Prop) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M)
 
 /-- What kind `k` says of a set `A` of the model and a set `A'` of the extension. -/
-def Inv (k : OwnKind) (A : M → Prop) (A' : Ext M → Prop) : Prop :=
+def OwnInv (k : OwnKind) (A : M → Prop) (A' : Ext M → Prop) : Prop :=
   (∀ m, A' (.inl m) ↔ A m) ∧
   match k with
   | .ex => ∀ n, ¬ A' (.inr n)
@@ -262,19 +262,19 @@ def Inv (k : OwnKind) (A : M → Prop) (A' : Ext M → Prop) : Prop :=
 
 /-- The valuation `e'` of the extension gives the variables of `V` the old elements `e` gives
 them, and the set variables of `W` sets with the old elements `e` gives them. -/
-def Rel (V : List EVar) (W : List SVar) (e : Valuation M) (e' : Valuation (Ext M)) : Prop :=
+def OwnRel (V : List EVar) (W : List SVar) (e : Valuation M) (e' : Valuation (Ext M)) : Prop :=
   (∀ x ∈ V, e'.evalEvar x = .inl (e.evalEvar x)) ∧ ∀ X ∈ W, ∀ m, e'.evalSvar X (.inl m) ↔ e.evalSvar X m
 
 variable {c D I}
 
-theorem Inv.congr {k : OwnKind} {A B : M → Prop} {A' B' : Ext M → Prop} (h : Inv c D I k A A')
-    (h1 : ∀ m, A m ↔ B m) (h2 : ∀ x, A' x ↔ B' x) : Inv c D I k B B' := by
+theorem OwnInv.congr {k : OwnKind} {A B : M → Prop} {A' B' : Ext M → Prop} (h : OwnInv c D I k A A')
+    (h1 : ∀ m, A m ↔ B m) (h2 : ∀ x, A' x ↔ B' x) : OwnInv c D I k B B' := by
   have e1 : A = B := funext fun m => propext (h1 m)
   have e2 : A' = B' := funext fun x => propext (h2 x)
   rw [← e1, ← e2]; exact h
 
-theorem Inv.weak {k k' : OwnKind} {A : M → Prop} {A' : Ext M → Prop} (hk : OwnKind.le k k')
-    (h : Inv c D I k A A') : Inv c D I k' A A' := by
+theorem OwnInv.weak {k k' : OwnKind} {A : M → Prop} {A' : Ext M → Prop} (hk : OwnKind.le k k')
+    (h : OwnInv c D I k A A') : OwnInv c D I k' A A' := by
   cases k <;> cases k' <;> first | exact hk.elim | exact ⟨h.1, trivial⟩ | skip
   exact ⟨h.1, fun n hn => absurd hn (h.2 n)⟩
 
@@ -290,7 +290,7 @@ theorem sym_old {σ : KoreAML.Sym} (hσ : ¬ D σ) (m : M) :
   (ext_embeds c D I).2.1 σ hσ m
 
 theorem inv_sym {σ : KoreAML.Sym} (hp : plainSym σ) (hσ : ¬ D σ) :
-    Inv c D I .ex (I.evalSymb σ) ((extModel c D I).evalSymb σ) := by
+    OwnInv c D I .ex (I.evalSymb σ) ((extModel c D I).evalSymb σ) := by
   refine ⟨sym_old hσ, fun n h => ?_⟩
   cases n with
   | srt nm => exact hσ (h.2 ▸ h.1)
@@ -321,20 +321,20 @@ theorem sym_new {σ : KoreAML.Sym} (hp : ¬ plainSym σ) {n : Added M}
   | ceil1 _ => exact h.elim
   | ceil2 _ _ => exact h.elim
 
-theorem inv_inh (hσ : ¬ D .inh) : Inv c D I .hd (I.evalSymb .inh) ((extModel c D I).evalSymb .inh) := by
+theorem inv_inh (hσ : ¬ D .inh) : OwnInv c D I .hd (I.evalSymb .inh) ((extModel c D I).evalSymb .inh) := by
   refine ⟨sym_old hσ, fun n h b x hx => ?_⟩
   rcases sym_new (σ := .inh) (fun h => h) h with ⟨h, _⟩ | ⟨_, rfl⟩ | ⟨h, _⟩ | ⟨h, _⟩ | ⟨_, h, _⟩ <;>
     first | exact hx | cases h
 
 theorem inv_dv (l : String) (hσ : ¬ D (.dv l)) :
-    Inv c D I .hd (I.evalSymb (.dv l)) ((extModel c D I).evalSymb (.dv l)) := by
+    OwnInv c D I .hd (I.evalSymb (.dv l)) ((extModel c D I).evalSymb (.dv l)) := by
   refine ⟨sym_old hσ, fun n h b x hx => ?_⟩
   rcases sym_new (σ := .dv l) (fun h => h) h with ⟨h, _⟩ | ⟨h, _⟩ | ⟨h, _⟩ | ⟨h, _⟩ | ⟨_, h, rfl⟩ <;>
     first | exact hx | cases h
 
 /-- Application of a head to a pattern without added elements. -/
-theorem inv_app_hd {A B : M → Prop} {A' B' : Ext M → Prop} (hA : Inv c D I .hd A A') (hB : Inv c D I .ex B B') :
-    Inv c D I .ex (fun m => ∃ a b, A a ∧ B b ∧ I.evalApp a b m)
+theorem inv_app_hd {A B : M → Prop} {A' B' : Ext M → Prop} (hA : OwnInv c D I .hd A A') (hB : OwnInv c D I .ex B B') :
+    OwnInv c D I .ex (fun m => ∃ a b, A a ∧ B b ∧ I.evalApp a b m)
       (fun x => ∃ a b, A' a ∧ B' b ∧ (extModel c D I).evalApp a b x) := by
   refine ⟨fun m => ⟨?_, ?_⟩, fun n => ?_⟩
   · rintro ⟨a, b, ha, hb, h⟩
@@ -355,8 +355,8 @@ theorem inv_app_hd {A B : M → Prop} {A' B' : Ext M → Prop} (hA : Inv c D I .
       | inr na => exact absurd h (hA.2 na ha b0 _)
 
 /-- Application of a pattern without added elements. -/
-theorem inv_app_ex {A B : M → Prop} {A' B' : Ext M → Prop} (hA : Inv c D I .ex A A') (hB : Inv c D I .old B B') :
-    Inv c D I .ex (fun m => ∃ a b, A a ∧ B b ∧ I.evalApp a b m)
+theorem inv_app_ex {A B : M → Prop} {A' B' : Ext M → Prop} (hA : OwnInv c D I .ex A A') (hB : OwnInv c D I .old B B') :
+    OwnInv c D I .ex (fun m => ∃ a b, A a ∧ B b ∧ I.evalApp a b m)
       (fun x => ∃ a b, A' a ∧ B' b ∧ (extModel c D I).evalApp a b x) := by
   refine ⟨fun m => ⟨?_, ?_⟩, fun n => ?_⟩
   · rintro ⟨a, b, ha, hb, h⟩
@@ -377,8 +377,8 @@ theorem inv_app_ex {A B : M → Prop} {A' B' : Ext M → Prop} (hA : Inv c D I .
       | inr nb => exact absurd h app_inl_inr
 
 /-- `⌈_⌉{s,_}` at a sort without added elements. -/
-theorem inv_ceil (hσ : ¬ D .ceil) {S : M → Prop} {S' : Ext M → Prop} (hS : Inv c D I .ex S S') :
-    Inv c D I .hd (fun m => ∃ a b, I.evalSymb .ceil a ∧ S b ∧ I.evalApp a b m)
+theorem inv_ceil (hσ : ¬ D .ceil) {S : M → Prop} {S' : Ext M → Prop} (hS : OwnInv c D I .ex S S') :
+    OwnInv c D I .hd (fun m => ∃ a b, I.evalSymb .ceil a ∧ S b ∧ I.evalApp a b m)
       (fun x => ∃ a b, (extModel c D I).evalSymb .ceil a ∧ S' b ∧ (extModel c D I).evalApp a b x) := by
   refine ⟨fun m => ⟨?_, ?_⟩, ?_⟩
   · rintro ⟨a, b, ha, hb, h⟩
@@ -404,7 +404,7 @@ theorem inv_ceil (hσ : ¬ D .ceil) {S : M → Prop} {S' : Ext M → Prop} (hS :
 
 /-- `⟦Sort⟧`: the old sorts, and the detached sort names. -/
 theorem inv_sorts (h1 : ¬ D .inh) (h2 : ¬ D .sortSort) :
-    Inv c D I .old (fun m => ∃ a b, I.evalSymb .inh a ∧ I.evalSymb .sortSort b ∧ I.evalApp a b m)
+    OwnInv c D I .old (fun m => ∃ a b, I.evalSymb .inh a ∧ I.evalSymb .sortSort b ∧ I.evalApp a b m)
       (fun x => ∃ a b, (extModel c D I).evalSymb .inh a ∧ (extModel c D I).evalSymb .sortSort b ∧
         (extModel c D I).evalApp a b x) := by
   refine ⟨fun m => ⟨?_, ?_⟩, trivial⟩
@@ -431,7 +431,7 @@ theorem inv_sorts (h1 : ¬ D .inh) (h2 : ¬ D .sortSort) :
 model. -/
 theorem inv_defined (hσ : ¬ D .defined) (hI : DefOK I) {A : M → Prop} {A' : Ext M → Prop}
     (hold : ∀ m, A' (.inl m) ↔ A m) (hne : (∃ x, A' x) → ∃ m, A m) :
-    Inv c D I .pred (fun m => ∃ a b, I.evalSymb .defined a ∧ A b ∧ I.evalApp a b m)
+    OwnInv c D I .pred (fun m => ∃ a b, I.evalSymb .defined a ∧ A b ∧ I.evalApp a b m)
       (fun x => ∃ a b, (extModel c D I).evalSymb .defined a ∧ A' b ∧ (extModel c D I).evalApp a b x) := by
   have full : (∃ m, A m) → ∀ m, ∃ a b, I.evalSymb .defined a ∧ A b ∧ I.evalApp a b m := by
     rintro ⟨b, hb⟩ m
@@ -459,8 +459,8 @@ theorem inv_defined (hσ : ¬ D .defined) (hI : DefOK I) {A : M → Prop} {A' : 
 /-- A sorted quantifier at a sort without added elements. -/
 theorem inv_sEx {k : OwnKind} (hk : k = .ex ∨ k = .pred ∨ k = .old) {G : M → Prop} {F : M → M → Prop}
     {G' : Ext M → Prop} {F' : Ext M → Ext M → Prop} (hG1 : ∀ n, ¬ G' (.inr n)) (hG2 : ∀ a, G' (.inl a) ↔ G a)
-    (hF : ∀ a, Inv c D I k (F a) (F' (.inl a))) :
-    Inv c D I k (fun m => ∃ a, G a ∧ F a m) (fun x => ∃ a', G' a' ∧ F' a' x) := by
+    (hF : ∀ a, OwnInv c D I k (F a) (F' (.inl a))) :
+    OwnInv c D I k (fun m => ∃ a, G a ∧ F a m) (fun x => ∃ a', G' a' ∧ F' a' x) := by
   have hold : ∀ m, (∃ a', G' a' ∧ F' a' (.inl m)) ↔ ∃ a, G a ∧ F a m := fun m => by
     constructor
     · rintro ⟨a', hg, hf⟩
@@ -497,8 +497,8 @@ theorem inv_sEx {k : OwnKind} (hk : k = .ex ∨ k = .pred ∨ k = .old) {G : M �
 
 /-- A least fixed point of a body without added elements. -/
 theorem inv_mu {F : (M → Prop) → M → Prop} {F' : (Ext M → Prop) → Ext M → Prop}
-    (hF : ∀ (B : M → Prop) (B' : Ext M → Prop), (∀ m, B' (.inl m) ↔ B m) → Inv c D I .ex (F B) (F' B')) :
-    Inv c D I .ex (fun m => ∀ B : M → Prop, (∀ m, F B m → B m) → B m)
+    (hF : ∀ (B : M → Prop) (B' : Ext M → Prop), (∀ m, B' (.inl m) ↔ B m) → OwnInv c D I .ex (F B) (F' B')) :
+    OwnInv c D I .ex (fun m => ∀ B : M → Prop, (∀ m, F B m → B m) → B m)
       (fun x => ∀ B' : Ext M → Prop, (∀ x, F' B' x → B' x) → B' x) := by
   refine ⟨fun m => ⟨fun h B hB => ?_, fun h B' hB' => ?_⟩, fun n h => ?_⟩
   · have hi := hF B (fun x => ∃ m, x = .inl m ∧ B m)
@@ -536,8 +536,8 @@ theorem interp_sExists' {N : Type} {J : Interpretation KoreAML.Sym N} (hJ : DefO
 /-- **The interpretation of a pattern of the class in the extension**, at related valuations. -/
 theorem transfer_rel (hD : ∀ σ, D σ → plainSym σ) (hI : DefOK I) {V : List EVar} {W : List SVar} {k : OwnKind}
     {φ : KoreAML.P} (h : OwnSorted D V W k φ) :
-    ∀ (e : Valuation M) (e' : Valuation (Ext M)), Rel V W e e' →
-      Inv c D I k (φ.interpret I e) (φ.interpret (extModel c D I) e') := by
+    ∀ (e : Valuation M) (e' : Valuation (Ext M)), OwnRel V W e e' →
+      OwnInv c D I k (φ.interpret I e) (φ.interpret (extModel c D I) e') := by
   have nD : ∀ {σ}, ¬ plainSym σ → ¬ D σ := fun hp hσ => hp (hD _ hσ)
   induction h with
   | evar hx =>
@@ -615,7 +615,7 @@ theorem transfer_rel (hD : ∀ σ, D σ → plainSym σ) (hI : DefOK I) {V : Lis
     exact ⟨fun m => by simp only [Pattern.interpret]; rw [h1.1 m, h2.1 m], trivial⟩
   | @sEx V V' W k x s φ _ hV' hk _ ihs ihφ =>
     intro e e' hr
-    have hG : ∀ a a', Inv c D I .ex
+    have hG : ∀ a a', OwnInv c D I .ex
         ((KoreAML.inhOf s).interpret I ⟨Function.update e.evalEvar x a, e.evalSvar⟩)
         ((KoreAML.inhOf s).interpret (extModel c D I) ⟨Function.update e'.evalEvar x a', e'.evalSvar⟩) :=
       fun a a' => inv_app_hd (inv_inh (nD (σ := .inh) fun h => h)) (ihs _ _ ⟨fun y hy => by
@@ -623,7 +623,7 @@ theorem transfer_rel (hD : ∀ σ, D σ → plainSym σ) (hI : DefOK I) {V : Lis
         show Function.update e'.evalEvar x a' y = .inl (Function.update e.evalEvar x a y)
         rw [Function.update_noteq this.2, Function.update_noteq this.2]
         exact hr.1 y this.1, hr.2⟩)
-    refine Inv.congr (inv_sEx hk (G := fun a => (KoreAML.inhOf s).interpret I ⟨Function.update e.evalEvar x a, e.evalSvar⟩ a)
+    refine OwnInv.congr (inv_sEx hk (G := fun a => (KoreAML.inhOf s).interpret I ⟨Function.update e.evalEvar x a, e.evalSvar⟩ a)
       (F := fun a => φ.interpret I ⟨Function.update e.evalEvar x a, e.evalSvar⟩)
       (G' := fun a' => (KoreAML.inhOf s).interpret (extModel c D I) ⟨Function.update e'.evalEvar x a', e'.evalSvar⟩ a')
       (F' := fun a' => φ.interpret (extModel c D I) ⟨Function.update e'.evalEvar x a', e'.evalSvar⟩)
@@ -695,11 +695,11 @@ def liftVal (e : Valuation M) : Valuation (Ext M) :=
   ⟨fun x => .inl (e.evalEvar x), fun X x => ∃ m, x = .inl m ∧ e.evalSvar X m⟩
 
 omit [Inhabited M] in
-theorem rel_lift (V : List EVar) (W : List SVar) (e : Valuation M) : Rel V W e (liftVal e) :=
+theorem rel_lift (V : List EVar) (W : List SVar) (e : Valuation M) : OwnRel V W e (liftVal e) :=
   ⟨fun _ _ => rfl, fun _ _ m => ⟨fun ⟨_, h1, h2⟩ => Sum.inl.inj h1 ▸ h2, fun h => ⟨m, rfl, h⟩⟩⟩
 
 omit [Inhabited M] in
-theorem rel_nil (e : Valuation M) (e' : Valuation (Ext M)) : Rel [] [] e e' :=
+theorem rel_nil (e : Valuation M) (e' : Valuation (Ext M)) : OwnRel [] [] e e' :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
 
 theorem nil_sub {α : Type} {p : α → Prop} : ∀ x ∈ ([] : List α), p x := fun _ h => absurd h List.not_mem_nil
@@ -720,7 +720,7 @@ theorem guards_old {e' : Valuation (Ext M)} {pt : Ext M}
   intro p hp
   have h := hw _ (List.mem_map.mpr ⟨p, hp, rfl⟩)
   rw [KoreAML.interp_member (ext_defOK c D I)] at h
-  have hi : Inv c D I .ex ((KoreAML.inhOf p.2).interpret I e0) ((KoreAML.inhOf p.2).interpret (extModel c D I) e') :=
+  have hi : OwnInv c D I .ex ((KoreAML.inhOf p.2).interpret I e0) ((KoreAML.inhOf p.2).interpret (extModel c D I) e') :=
     inv_app_hd (inv_inh fun hσ => (hD _ hσ : plainSym .inh)) (transfer_rel (c := c) hD hI (hs p hp) e0 e' (rel_nil _ _))
   cases hx : e'.evalEvar p.1 with
   | inl m => rw [hx] at h; exact ⟨m, rfl, (hi.1 m).mp h⟩
@@ -738,7 +738,7 @@ theorem transfer {body : KoreAML.P} {k : OwnKind} (hb : OwnSorted D (gs.map (·.
     obtain ⟨m, hm, _⟩ := hold p hp
     show _ = Sum.inl (match e'.evalEvar p.1 with | .inl m => m | .inr _ => default)
     rw [hm]
-  have hrel : Rel (gs.map (·.1)) [] (pullVal e') e' :=
+  have hrel : OwnRel (gs.map (·.1)) [] (pullVal e') e' :=
     ⟨fun x hx => by obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx; exact hval p hp, nil_sub⟩
   have hbody : ∀ m, body.interpret I (pullVal e') m := fun m =>
     guarded_iff.mp (h (pullVal e') m) fun w hw' => by
@@ -768,7 +768,7 @@ theorem transfer_back {body : KoreAML.P} {k : OwnKind} (hb : OwnSorted D (gs.map
   have h1 := guarded_iff.mp (h (liftVal e) (.inl m)) fun w hw' => by
     obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hw'
     rw [KoreAML.interp_member (ext_defOK c D I)]
-    have hi : Inv c D I .ex ((KoreAML.inhOf p.2).interpret I e)
+    have hi : OwnInv c D I .ex ((KoreAML.inhOf p.2).interpret I e)
         ((KoreAML.inhOf p.2).interpret (extModel c D I) (liftVal e)) :=
       inv_app_hd (inv_inh fun hσ => (hD _ hσ : plainSym .inh)) (transfer_rel (c := c) hD hI (hs p hp) e _ (rel_lift _ _ e))
     have h2 := hw _ (List.mem_map.mpr ⟨p, hp, rfl⟩)
@@ -834,7 +834,7 @@ theorem transfer_equation (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) {R : EVar} {S 
       obtain ⟨m, hm, _⟩ := hold p hp
       show _ = Sum.inl (if p.1 = R then σ else match e'.evalEvar p.1 with | .inl m => m | .inr _ => default)
       simp only [hne, ↓reduceIte, hm]
-    have hrel : Rel (gs.map (·.1)) [] e e' :=
+    have hrel : OwnRel (gs.map (·.1)) [] e e' :=
       ⟨fun x hx => by obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx; exact hval p hp, nil_sub⟩
     have hRσ : ∀ a, (Pattern.evar R : KoreAML.P).interpret I e a ↔ a = σ := fun a => by
       rw [KoreAML.interp_evar, heR]

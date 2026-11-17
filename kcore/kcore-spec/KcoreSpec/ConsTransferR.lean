@@ -187,7 +187,7 @@ include hD hI hc hO hRt
 /-- **A pattern at the sort variable `R` denotes `R` or nothing, the same at an old sort in the
 model and at a detached sort name in the extension.** -/
 theorem rpred_inv {n : String} {G : List (EVar × String)} {π : KoreAML.P} (h : RPred D O R G π) :
-    ∀ (e : Valuation M) (e' : Valuation (Ext M)), Rel (G.map (·.1)) [] e e' → SortedAt I G e →
+    ∀ (e : Valuation M) (e' : Valuation (Ext M)), OwnRel (G.map (·.1)) [] e e' → SortedAt I G e →
       IsSort I (e.evalEvar R) → e'.evalEvar R = .inr (.srt n) →
       ∃ tv : Prop, (∀ a, π.interpret I e a ↔ tv ∧ Inh I (e.evalEvar R) a) ∧
         ∀ x, π.interpret (extModel c D I) e' x ↔ tv ∧ InhX c D I (.inr n) x := by
@@ -279,7 +279,7 @@ theorem rpred_inv {n : String} {G : List (EVar × String)} {π : KoreAML.P} (h :
       show _ ↔ tv ∧ Inh I (e.evalEvar R) m
       rw [← hu]
       exact this
-    have hi : Inv c D I .ex ((KoreAML.inhOf (KoreAML.sym (.sort N))).interpret I e)
+    have hi : OwnInv c D I .ex ((KoreAML.inhOf (KoreAML.sym (.sort N))).interpret I e)
         ((KoreAML.inhOf (KoreAML.sym (.sort N))).interpret (extModel c D I) e') :=
       inv_app_hd (inv_inh fun hσ' => (hD _ hσ' : plainSym .inh)) (inv_sym (σ := .sort N) trivial hnD)
     refine ⟨∃ a, ∃ ha : Inh I σ a, Classical.choose (key a ha), fun m => ?_, fun y => ?_⟩
@@ -363,7 +363,7 @@ theorem transfer_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {G : List (
       obtain ⟨m, hm, _⟩ := hold p hp
       show _ = Sum.inl (if p.1 = R then τ else match e'.evalEvar p.1 with | .inl m => m | .inr _ => default)
       simp only [hne, ↓reduceIte, hm]
-    have hrel : Rel (G.map (·.1)) [] e e' :=
+    have hrel : OwnRel (G.map (·.1)) [] e e' :=
       ⟨fun x hx => by
         rw [← hfst] at hx
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
