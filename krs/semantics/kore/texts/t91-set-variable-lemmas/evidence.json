@@ -1,0 +1,14 @@
+{
+  "inputs": {
+    "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+    "t91-set-variable-lemmas.k": "9ee29ab05e06ff112bf1856219b6f8c0acdd3bfbd872e12dc0d325c5545f2628"
+  },
+  "kompile": {
+    "release": "K v7.1.337",
+    "command": "kompile --backend haskell t91-set-variable-lemmas.k -o out",
+    "exit": 0,
+    "kore.txt": "73ebe0803da8eaab986c1d657c110c6129837aafa293a7a2ec702712dbe6b969",
+    "message": null
+  },
+  "implementations": {}
+}

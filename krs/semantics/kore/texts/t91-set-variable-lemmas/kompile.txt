@@ -1,0 +1,18 @@
+command: kompile --backend haskell t91-set-variable-lemmas.k -o out  (cwd: the entry's directory)
+release: K version v7.1.337
+exit: 0
+definition.kore sha256: 084fddd886fb1320efd1e32426f63bb4e21469e6a1e1c244438ab9e00a836397
+messages:
+[Warning] Compiler: Could not find main syntax module with name
+T91-SET-VARIABLE-LEMMAS-SYNTAX in definition.  Use --syntax-module to specify
+one. Using T91-SET-VARIABLE-LEMMAS as default.
+
+kore.txt: the three axioms of the kompiled text that stand for the rules of domains.md 1393, 1177
+and 449 (found by their Location attribute), each on one line, in that order, without their Source
+and Location attributes. Written by hand from the kompiled text: tools/case.py writes no text entry
+yet. evidence.json holds the fields SCHEMA.md section 4 gives a text entry (inputs, kompile), its
+hashes computed by tools/check.py's functions (answer_hash, sha), and no implementation row.
+
+The kompiled text holds 19 axioms with a set variable: those of domains.md 411, 449 to 452, 1176 to
+1179, 1181 to 1184, 1392 to 1396, and one without a Location, the definedness of a map with one
+entry and a rest (`\ceil{SortMap{}, Q0}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(@VarK0:SortKItem{},@VarK1:SortKItem{}),@VarRest:SortMap{}))`).
