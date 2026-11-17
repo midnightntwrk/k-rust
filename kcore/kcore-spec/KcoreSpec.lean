@@ -244,3 +244,4 @@ import KcoreSpec.TieLemmas
 import KcoreSpec.MemHeldValues
 import KcoreSpec.StepValuesHeld
 import KcoreSpec.CompeteHeld
+import KcoreSpec.HoldsModelFixed
