@@ -21,7 +21,7 @@
 #             It is the status's source, not yet DONE-0 C2's evidence (fixtures, theorems).
 #   kimp      the construct occurs in kimp (imp-semantics src/kimp/kdist/imp-semantics imp.k, calc.k,
 #             expr.k; for E4 and E6, its kompiled text f2-examples/ref-kimp.kore): true / false.
-#   kore      the same for krs/semantics/kore/kore.k (K sources for the K-level lists; for E4 and E6
+#   kore      the same for kcore-spec's kk/kk.k (K sources for the K-level lists; for E4 and E6
 #             its kompiled text, fixture kore-k, through extract.sh's uses-kore.E4 / uses-kore.E6).
 #             kimp / kore absent: not checked for that row. The checks are textual (seed-rows.py):
 #             a keyword, attribute or terminal found in the text, not a parse of it.
