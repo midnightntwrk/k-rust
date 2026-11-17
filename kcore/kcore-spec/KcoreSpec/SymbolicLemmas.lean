@@ -635,6 +635,32 @@ theorem Step.of_rule (hs : c.sortedOK = true) {x y : Config c} {i : Nat} {r : Ru
 `ensures` true. The
 successor is the right-hand side's value, a configuration by subject reduction (`step_of_apply`;
 the overloading symbols' condition `OvlCase`, decided by default). -/
+theorem Step.exists_of_rule_all (hok : c.okAll = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
+    {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
+    (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
+    (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val)
+    {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
+    (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
+    (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : ∃ y : Config c, y.val = v ∧ Step c x y :=
+  ⟨_, rfl, step_of_apply_all hok hsr hov (List.mem_of_getElem? hr) hσ hm hreq hpre he hens hpost hprio⟩
+
+/-- `Step.exists_of_rule_all` as the progress half of a symbolic step. -/
+theorem Step.progress_of_rule_all (hok : c.okAll = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
+    {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
+    (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
+    (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val)
+    {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
+    (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
+    (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : Reachability.Progress (Step c) x :=
+  let ⟨y, _, h⟩ := Step.exists_of_rule_all hok hsr hr hσ hm hreq hpre hprio he hens hpost hov
+  ⟨y, h⟩
+
+/-- `Step.exists_of_rule_all` in a core that `ok` accepts: its rules' predicates are `\top`
+(`ok_rule`). -/
 theorem Step.exists_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
     {r : Rule} (hr : c.rules[i]? = some r) (hσ : c.WellSorted r.vars σ)
     (hm : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
@@ -642,7 +668,9 @@ theorem Step.exists_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Co
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : ∃ y : Config c, y.val = v ∧ Step c x y :=
-  ⟨_, rfl, step_of_apply hok hsr hov (List.mem_of_getElem? hr) hσ hm hreq he hens hprio⟩
+  Step.exists_of_rule_all (Semantics.okAll_of_ok hok) hsr hr hσ hm hreq
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.1 ▸ .top) hprio he hens
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.2.1 ▸ .top) hov
 
 /-- `Step.exists_of_rule` as the progress half of a symbolic step. -/
 theorem Step.progress_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : Config c} {i : Nat}
@@ -652,8 +680,9 @@ theorem Step.progress_of_rule (hok : c.ok = true) (hsr : c.srReady = true) {x : 
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
     (hov : c.OvlCase := by exact Semantics.ovlCase_of (by decide +kernel)) : Reachability.Progress (Step c) x :=
-  let ⟨y, _, h⟩ := Step.exists_of_rule hok hsr hr hσ hm hreq hprio he hens hov
-  ⟨y, h⟩
+  Step.progress_of_rule_all (Semantics.okAll_of_ok hok) hsr hr hσ hm hreq
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.1 ▸ .top) hprio he hens
+    ((Semantics.ok_rule hok (List.mem_of_getElem? hr)).2.2.1 ▸ .top) hov
 
 /-! ## Which rule fired
 

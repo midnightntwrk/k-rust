@@ -59,7 +59,7 @@ theorem ruleComplete_of_ready (hr : execReady c = true) : RuleComplete c := by
   obtain ⟨⟨⟨⟨⟨hok, -⟩, hmr⟩, -⟩, hrules⟩, -⟩ := hr
   intro r hr x τ _ hτ hpv
   have h1 := hrules r hr
-  exact cmatch_complete (matchCtxO_of hmr) (Rule.wellSorted_of_at (rule_plain_of_execReady hr' hr).2.2 hτ)
+  exact cmatch_complete (matchCtxO_of hmr) (Rule.wellSorted_of_at (rule_atoms_of_execReady hr' hr).2.2 hτ)
     (.cons hpv .nil) h1.1.1.1
     (by simpa [varOccsList] using h1.1.1.2)
     (sortsOfTerms_cons.mpr ⟨_, _, rulePat_sorted hok hr, sortsOfTerms_nil.mpr rfl, rfl⟩)
@@ -70,10 +70,8 @@ theorem successorsN_step_ready (hr : execReady c = true) {n : Nat} {x : Config c
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
-  obtain ⟨r, hmem, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩ := successorsN_sound hr'.1.1.1.1.1 hr'.1.1.1.1.2
-    (matchCtxO_of hr'.1.1.1.2).ovlCase (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
-  obtain ⟨hpre, hpost, -⟩ := rule_plain_of_execReady hr hmem
-  exact ⟨hs, Step.rule_top r hmem σ hpre hpost hσ hpv hreq hrhs hens hprio⟩
+  exact successorsN_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
+    (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
 
 /-- **The executable step is sound** where `execReady` holds: every successor `CExec.successors`
 lists is a `Step` successor. -/

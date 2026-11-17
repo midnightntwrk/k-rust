@@ -1119,16 +1119,21 @@ theorem clause_ctx (hok : c.sortedOK = true)
   let ⟨h1, h2, L, h3, h4, h5, _⟩ := clause_ctxE hok hbc hfn hcl
   ⟨h1, h2, L, h3, h4, h5⟩
 
-/-- A semantics `ok` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
-theorem _root_.KCore.Semantics.ok_clauseBinds {c : Semantics} (h : c.ok = true) :
+/-- A semantics `okM` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
+theorem _root_.KCore.Semantics.okM_clauseBinds {c : Semantics} (h : c.okM = true) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true := by
   intro fn hfn cl hcl
-  simp only [Semantics.ok, Bool.and_eq_true] at h
-  have hf := h.1.2
+  simp only [Semantics.okM, Bool.and_eq_true] at h
+  have hf := h.1.1.2
   simp only [Semantics.fnsOK, Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hf
   have h2 := (hf fn hfn).1 cl hcl
   simp only [Semantics.clauseOK, Bool.and_eq_true] at h2
   exact h2.1.1.1.2
+
+/-- A semantics `ok` accepts has clauses whose patterns bind every variable (`clauseOK`). -/
+theorem _root_.KCore.Semantics.ok_clauseBinds {c : Semantics} (h : c.ok = true) :
+    ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true :=
+  Semantics.okM_clauseBinds (Semantics.okM_of_ok h)
 
 /-- The sort predicates' right-hand sides are domain values. -/
 theorem sortPreds_rhs {fn : Fn} (hfn : fn ∈ c.sortPreds) : ∀ cl ∈ fn.clauses, ∃ s lit, cl.rhs = .dv s lit := by
