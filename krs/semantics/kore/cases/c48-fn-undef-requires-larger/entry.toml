@@ -1,13 +1,45 @@
 id = "c48-fn-undef-requires-larger"
 kind = "case"
 subject = "An equation of priority 60 whose requires is undefined: where the equation of priority 40 applies it gives the value; elsewhere the undefined requires does not hold and the [owise] equation applies."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t30-hooks-strict", "kk:t31-int-division"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(1, 3)"]
+reason = """
+(1) g's equations have the priority numbers 40 (g(X) => 1 requires X >Int 0), 60 (g(X) => 2 requires X /Int 0 ==Int 0) and 200 ([owise] g(_) => 3) (user_manual.md:1739-1741). One of a larger number is tried only where every one of a smaller number has been shown not to apply, and one applies where its argument pattern matches and its requires is true (kk:t12-eq-priority-owise, kk:t11-eq-applies; user_manual.md:1154-1157).
+(2) g(1): 1 >Int 0 is true (domains.md:1324-1325), so the equation of 40 applies and g(1) = 1; the equation of 60 is not tried, and what its requires denotes at 1 does not change g(1).
+(3) g(0): 0 >Int 0 is false, so the equation of 40 does not apply. The requires of the equation of 60 is 0 /Int 0 ==Int 0: division by zero has no value (domains.md:1233-1234; kk:t31-int-division), and ==Int applied to an argument that denotes nothing denotes nothing (kk:t30-hooks-strict), so the requires does not evaluate to true and the equation does not apply. The [owise] equation does: g(0) = 3.
+(4) The one rule matches a(1, 0) and applies (kk:t01-rule-applies); its right side b(g(1), g(0)) denotes b(1, 3) (kk:t10-fn-innermost). a(1, 0) has that one successor (kk:t02-step-successors), and no rule's left side matches b(1, 3), which is final (kk:t06-final-configuration). The final configurations are b(1, 3) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
 
 [[disposition]]
 implementation = "llvm"

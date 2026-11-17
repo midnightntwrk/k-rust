@@ -1,10 +1,31 @@
 id = "c45-fn-owise-recursion"
 kind = "case"
 subject = "A recursive function with an [owise] equation: the [owise] right side is evaluated only where no equation of smaller priority applies, so f(2) reaches f(0) and stops."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(0)"]
+reason = """
+(1) f(0) => 0 has priority 50 and applies exactly at 0; the [owise] equation f(N) => f(N -Int 1), of 200, applies exactly where the first does not, that is at every integer other than 0 (kk:t11-eq-applies, kk:t12-eq-priority-owise; user_manual.md:1716-1720, the same pair of equations with another right side). So f(0) = 0 and f(N) = f(N -Int 1) for N not 0.
+(2) Hence f(2) = f(1) (2 -Int 1 is 1, domains.md:1238; kk:t10-fn-innermost), f(1) = f(0), and f(0) = 0: f(2) = 0. At 0 the [owise] equation states nothing, so f(0) = f(-1) is no consequence of the text; the descent stops at 0.
+(3) The one rule matches a(2) and applies (kk:t01-rule-applies); its right side b(f(2)) denotes b(0) (kk:t10-fn-innermost). a(2) has that one successor (kk:t02-step-successors), and no rule's left side matches b(0), which is final (kk:t06-final-configuration). The final configurations are b(0) alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1716-1720 (K 7.1.337)"
+quote = "syntax Int ::= foo(Int) [function] rule foo(0) => 0 rule foo(_) => 1 [owise]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

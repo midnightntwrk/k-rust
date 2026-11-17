@@ -1,10 +1,42 @@
 id = "c01-fn-prio"
 kind = "case"
 subject = "Function equations of three priorities, an [owise] equation, and requires that fail."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["out(3, 3, 4)"]
+reason = """
+(1) The equations of f have the priority numbers 40 (f(X) => 3 requires X >Int 0), 50 (f(X) => 2 requires X >Int 5, no priority attribute), 60 (f(X) => 1 requires X >Int 10) and 200 ([owise] f(_) => 4) (user_manual.md:1739-1741, 1748-1749). An equation of a larger number is tried only where every one of a smaller number has been shown not to apply, and one applies where its argument pattern matches and its requires is true (kk:t12-eq-priority-owise, kk:t11-eq-applies).
+(2) f(8): the equation of number 40 applies (8 >Int 0 is true, domains.md:1324-1325), so f(8) = 3 and the others are not tried. f(8 -Int 3) is f(5) (domains.md:1238; kk:t10-fn-innermost): 5 >Int 0 is true, so f(5) = 3. f(0 -Int 8) is f(-8): -8 >Int 0, -8 >Int 5 and -8 >Int 10 are false, so none of the equations of numbers 40, 50 and 60 applies, and the [owise] equation does: f(-8) = 4.
+(3) The one rule matches go(8) with no requires and applies (kk:t01-rule-applies); its right side out(f(8), f(8 -Int 3), f(0 -Int 8)) denotes out(3, 3, 4), each argument having one value (kk:t10-fn-innermost). So go(8) has the one successor out(3, 3, 4) (kk:t02-step-successors).
+(4) No rule's left side matches out(3, 3, 4), so it is final (kk:t06-final-configuration). The final configurations are out(3, 3, 4) alone: out(1, _, _) or out(2, _, _) would need an equation of a larger number to apply where one of a smaller number does, which (1) excludes."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

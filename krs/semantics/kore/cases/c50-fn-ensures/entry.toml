@@ -1,13 +1,97 @@
 id = "c50-fn-ensures"
 kind = "case"
-subject = "A function equation with an ensures (the sentences of kcore-spec's f2-examples/ens.k): `half(N) => N /Int 2 ensures N >=Int 0`, whose axiom is `half(N) = \\and(N /Int 2, N >=Int 0 = true)`. The ensures is part of the right side: where the equation decides and N >=Int 0 holds, half(N) is N /Int 2; where it is false, half(N) has no value. Expected from the text: run(4) steps to done(2), a final configuration; run(-4) applies its rule with an undefined result, so it has no successor and is not final. The finals are done(2) alone."
+subject = "A function equation with an ensures, half(N) => N /Int 2 ensures N >=Int 0, applied at an argument where the ensures is false, in the right side of a rule: what half(-4) is, and whether run(-4), whose rule's right side then has no value, is final."
+retro = ["R3"]
+rests_on = ["kk:t02-step-successors", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t15-eq-ensures"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual gives run(-4) no successor by its rule (user_manual.md:1166-1173); the axiom kompile writes for that rule has done(half(N)) in its right side (kore.txt:122), and half(-4) denotes nothing by the equation's axiom (kore.txt:126-142), so read as a rewrite axiom it is false in every model where run(-4) in the k cell is an element: as written the text has no model holding run(-4), rather than one where run(-4) has no successor by that rule."
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) The two rules for go have priority 50 and both apply at go, with no requires: go has the successors run(4) and run(-4) (kk:t02-step-successors; user_manual.md:1748-1749).
+(2) half's one equation applies at every integer: its argument pattern N matches and it has no requires; its ensures does not decide whether it applies, and where the ensures is not true the equation gives half(N) no value (kk:t15-eq-ensures; user_manual.md:1159-1163, 1166-1167). At 4, 4 >=Int 0 is true (domains.md:1324-1325), so half(4) = 4 /Int 2 = 2 (domains.md:1233-1234). At -4, -4 >=Int 0 is false, so half(-4) has no value.
+(3) The rule for run matches run(4) with no requires; its right side denotes done(2) (kk:t10-fn-innermost), which no rule's left side matches: done(2) is final (kk:t06-final-configuration). At run(-4) its right side done(half(-4)) has no value (kk:t10-fn-innermost), so the rule gives run(-4) no successor (user_manual.md:1166-1173), and no other rule's left side matches run(-4).
+What the text does not determine:
+(4) Whether run(-4) is final: whether the rule for run, which matched and whose right side has no value, has applied there, or has been tried and failed. The emptiness is that of the rule's right side, not of the rule's own ensures (the rule has none), so it is kk:t03-applied-rule-blocks's question, not kk:t05-rule-ensures-result's. The readings are kk:t03-applied-rule-blocks's, with the final configurations each gives.
+(5) The written sentences state more than (3): [ruling.kore], and frontend_difference."""
+interpreter = "applied-blocks"
+separates = ["undefined-result-does-not-block", "undefined-step-is-final"]
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[reading]]
+name = "applied-blocks"
+statement = "The rule for run applies at run(-4), its left side matching and no requires standing against it, and gives nothing (kk:t03-applied-rule-blocks, reading applied-blocks); a configuration to which a rule applies is not final."
+finals = ["done(2)"]
+consequence = "run(-4) has no successor and is not final: the final configurations are done(2) alone."
+
+[[reading]]
+name = "undefined-rhs-does-not-block"
+statement = "The rule for run, whose right side has no value at run(-4), has been tried and failed there (kk:t03-applied-rule-blocks, reading undefined-rhs-does-not-block); no rule applies to run(-4)."
+finals = ["done(2)", "run(-4)"]
+consequence = "run(-4) is final beside done(2)."
+
+[ruling.kore]
+statement = "half's equation is one axiom stating half(X0) = (N /Int 2) and (N >=Int 0 = true) at X0 = N (kore.txt:126-142): at N = -4 the equality conjunct denotes the empty set, and so does half(-4). The rule for run is one rewrite axiom whose right side holds done(half(N)) (kore.txt:117-123), empty at N = -4, so that instance of the axiom holds only where its left side has no element; run is a constructor with a functional axiom (kore.txt:88). The written sentences have no model in which run(-4) in the k cell is an element, and state no blocking of one rule by another."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:137-142"
+quote = '''Lblhalf'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'Int{}(X0:SortInt{}), \and{SortInt{}} ( Lbl'UndsSlsh'Int'Unds'{}(VarN:SortInt{},\dv{SortInt{}}("2")), \equals{SortBool{},SortInt{}}( Lbl'Unds-GT-Eqls'Int'Unds'{}(VarN:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true")))))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:122"
+quote = '''Lbldone'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(Lblhalf'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'Int{}(VarN:SortInt{}))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:88"
+quote = '''axiom{R} \exists{R} (Val:SortS{}, \equals{SortS{}, R} (Val:SortS{}, Lblrun'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int{}(K0:SortInt{}))) [functional{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:882-883 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
 
 [[disposition]]
 implementation = "llvm"
