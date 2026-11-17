@@ -7,8 +7,9 @@
     (no axiom for `&`'s commutativity). Exp's one constructor `x` is nullary, so each is read as an
     open generator (`ParamSig.raw`, `Parse.openGenFault` none), not as a function; nothing is
     refused `openGenerator`, and Exp's no-junk axiom is the one `Γ` states with them among its
-    generators (`Parse.uninduced` empty). The account refuses `|`'s associativity axiom
-    (`lawAxiom`): no law of an open generator is read.
+    generators (`Parse.uninduced` empty). `|`'s associativity axiom is the sentence `Γ` holds for
+    an open generator with `assoc` (`Parse.openAssocAx`, `Faithful.assocAxK`): it is read
+    (`ParamSig.assoc`, `Parse.openLawSentences`) and nothing is refused by `lawUnmatched`.
   - `f2-examples/lawfn.kompile.kore` (`lawfn.k`): `Exp "+" Exp [function, assoc]`, whose
     associativity kompile states as an axiom. The text is read, the axiom read as the law
     `plus(plus(K1, K2), K3) = plus(K1, plus(K2, K3))` of `Presentation.laws` (`Parse.fnLawOf`,
@@ -28,6 +29,12 @@ open KCore
 /-- The reader's sort check of a law is `lawSorted`. -/
 example : Parse.fnLawSorted = lawSorted := rfl
 
+/-- The law sentences the reader recognises for an open generator are those `Γ` holds for it. -/
+example (c : Semantics) (k : ParamSig) :
+    Faithful.assocAxK c k = Parse.openAssocAx (c.symName k.sig.name) (KoreAML.srt (c.sortName k.sig.result)) := rfl
+example (c : Semantics) (k : ParamSig) :
+    Faithful.idemAxK c k = Parse.openIdemAx (c.symName k.sig.name) (KoreAML.srt (c.sortName k.sig.result)) := rfl
+
 /-- The refusals of the text at `path` with the reason `r`. -/
 def refusalsOf (path : String) (r : Parse.RefusalReason) : IO (List String) := do
   match Kore.parseDefinition (← IO.FS.readFile path) with
@@ -43,8 +50,10 @@ def readLines (k : Kore.Definition) (d : Definition) : List String :=
   let ls := d.laws.map (fun l => l.vars.map c.sortName)
   let lsAt := (Parse.fnLawSentences k d).map (fun (i, h, ks) => s!"{i} {h} {ks}")
   let lu := (Parse.lawUnmatched k d).map Parse.Refusal.toText
+  let ol := (Parse.openLawSentences k d).map (fun (i, h, ks) => s!"{i} {h} {ks}")
   let ui := (Parse.uninduced k d).map Parse.Refusal.toText
-  s!"open generators: {og}" :: s!"laws: {ls} at {lsAt}" :: s!"lawUnmatched: {lu}" :: s!"uninduced: {ui}" :: []
+  s!"open generators: {og}" :: s!"laws: {ls} at {lsAt}" :: s!"open laws at: {ol}" ::
+    s!"lawUnmatched: {lu}" :: s!"uninduced: {ui}" :: []
 
 /-- The text at `path` read: its open generators (name, argument and result sorts, the laws
 read), its laws of functions (the law's variables' sorts; the symbol and laws of each sentence),
@@ -59,9 +68,9 @@ def readOf (path : String) : IO (List String) := do
 
 /--
 info: []
-[open generators: [Lbland : [Exp, Exp] → Exp assoc false idem false, Lblor : [Exp, Exp] → Exp assoc false idem false], laws: [] at [], lawUnmatched: [sentence 186 (Lblor): lawAxiom (Lblor: assoc)], uninduced: []]
-[open generators: [], laws: [[Exp, Exp, Exp]] at [267 Lblplus [assoc]], lawUnmatched: [], uninduced: []]
-[open generators: [], laws: [] at [], lawUnmatched: [], uninduced: []]
+[open generators: [Lbland : [Exp, Exp] → Exp assoc false idem false, Lblor : [Exp, Exp] → Exp assoc true idem false], laws: [] at [], open laws at: [186 Lblor [assoc]], lawUnmatched: [], uninduced: []]
+[open generators: [], laws: [[Exp, Exp, Exp]] at [267 Lblplus [assoc]], open laws at: [], lawUnmatched: [], uninduced: []]
+[open generators: [], laws: [] at [], open laws at: [], lawUnmatched: [], uninduced: []]
 -/
 #guard_msgs in
 #eval show IO Unit from do

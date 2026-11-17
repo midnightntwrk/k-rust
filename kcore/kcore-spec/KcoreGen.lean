@@ -44,7 +44,8 @@
     rules, the diagonal included (a rule whose match is not shown to fix its right-hand side is an
     obligation (i, i)); `deterministic_except` lists them in its conclusion instead. With
     determinism's obligations, noninterference is stated relative to an invariant, and each of them
-    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates. Every kind and
+    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates (none where a
+    parameter is an open generator, as the root module's header says). Every kind and
     certificate is stated for every interpretation H of the parameters (`c.withHooks H`), from
     conditions decided once on the data, which do not read the interpretation;
   - with `--tie`, `NAME/Tie/*.lean`: the tie by blocks, each module one decision of bounded size.
@@ -2364,8 +2365,14 @@ theorem named_totals : defn.sem.totalObligations = {totNamed} := by decide +kern
 
 end {ns}
 ")
-  -- Certificates: krust's runs, each checked by the kernel against `Step`
-  for (nm, path) in certs do
+  -- Certificates: krust's runs, each checked by the kernel against `Step`. With an open generator
+  -- (a `raw` parameter) none: `checkRun_sound` and `stuckCheck_sound` take `∀ k ∈ c.params,
+  -- k.raw = false`, false there (a raw application's sort is read from the interpretation, which
+  -- the checks do not evaluate)
+  let rawCerts := c.params.any (·.raw)
+  if rawCerts && !certs.isEmpty then
+    IO.eprintln s!"{koreFile}: a parameter is an open generator: no run certificate and no stuckness theorem ({certs.length} runs not written)"
+  for (nm, path) in (if rawCerts then [] else certs) do
     match ← readCert c d.pres path with
     | .error e => IO.eprintln e; return 1
     | .ok (start, steps, stuck) =>
@@ -2644,7 +2651,7 @@ end {ns}
   o ← o.write ns (String.join ((if exec then [s!"{ns}.Surface"] ++ kindMods.toList else [s!"{ns}.Names", s!"{ns}.Facts"]).map (s!"import {·}\n")) ++
     s!"import {ns}.Syntax\n" ++
     s!"import {ns}.Facts.Terminates\n" ++
-    hdr s!"The package of `{koreFile}`.")
+    hdr s!"The package of `{koreFile}`.{if c.params.any (·.raw) then " It states no run certificate and no stuckness theorem: a parameter is an open generator, whose application's sort is read from the interpretation, and the certificates' soundness (`KCore.Cert.checkRun_sound`, `KCore.Cert.stuckCheck_sound`) holds where no parameter is." else ""}")
   writeLakefile out ns
   IO.FS.writeFile (out / "modules.txt") ("\n".intercalate o.mods.toList ++ "\n")
   if tie then IO.FS.writeFile (out / "tie.txt") ("\n".intercalate tieMods.toList ++ "\n")
@@ -2787,6 +2794,16 @@ def account (koreFile : String) : IO UInt32 := do
     let lu := Parse.lawUnmatched k d
     IO.println s!"law axioms of no collection's concatenation: {lu.length}"
     for r in lu.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when the text writes a law for an open generator that is read
+    let ol := Parse.openLawSentences k d
+    unless ol.isEmpty do
+      IO.println s!"law axioms of open generators, read as axioms of Γ (ParamSig.assoc, ParamSig.idem; OpenLaws owed): {ol.length}"
+      for (i, h, ls) in ol do IO.println s!"      sentence {i} ({h}): openLaw ({", ".intercalate ls}): OpenLaws owed"
+    -- printed only when the text has an open generator
+    let of := Parse.openFunctionalSentences k d
+    unless of.isEmpty do
+      IO.println s!"functional axioms of open generators, stated at values under OpenTotal (no item of Γ; OpenTotal owed): {of.length}"
+      for (i, f) in of do IO.println s!"      sentence {i} ({f}): stated at values, under OpenTotal"
     -- printed only when the text writes a law for a function
     let fl := Parse.fnLawSentences k d
     unless fl.isEmpty do
@@ -2886,6 +2903,14 @@ def account (koreFile : String) : IO UInt32 := do
               IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
+      -- the open generators, whose laws and values every statement takes as hypotheses at each
+      -- interpretation H (the package's `hop`, `_hot`)
+      let og := d.sem.params.filter (·.raw)
+      unless og.isEmpty do
+        let lawsOf := fun (k : ParamSig) =>
+          let ls := (if k.assoc then ["assoc"] else []) ++ (if k.idem then ["idem"] else [])
+          if ls.isEmpty then "" else s!" ({", ".intercalate ls})"
+        IO.println s!"open generators, whose laws and values at every argument list are owed at each interpretation H (OpenLaws and OpenTotal of defn.sem.withHooks H, hypotheses of every statement; not a condition of wf or coreOK): {og.length}: {", ".intercalate (og.map fun k => decodeK (d.sem.symName k.sig.name) ++ lawsOf k)}"
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
       -- printed only when some clause holds an existential variable

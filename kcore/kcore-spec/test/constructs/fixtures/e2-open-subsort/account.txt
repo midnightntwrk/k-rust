@@ -12,7 +12,7 @@ user module E2-OPEN-SUBSORT: 398 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 openGenerator
-      sentence 94 (Lbland): openGenerator (Lbland: its result sort N has a subsort)
+      sentence 94 (Lbland): openGenerator (Lbland: its sort N has a constructor with arguments, an overloading symbol or a subsort (here a subsort): the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes)
         [user] (no label) at e2-open-subsort.k:3: symbol Lbland{}(SortN{}, SortN{}) : SortN{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,22,3,49)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-subsort.k)"), symbol'Kywd'{}("and")]
-finish: sentence 94 (Lbland): openGenerator (Lbland: its result sort N has a subsort)
+finish: sentence 94 (Lbland): openGenerator (Lbland: its sort N has a constructor with arguments, an overloading symbol or a subsort (here a subsort): the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes)
 (exit 0)

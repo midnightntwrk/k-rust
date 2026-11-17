@@ -179,8 +179,9 @@ inductive RefusalReason where
   text states of it (`isOpenGenerator`). A symbol of this shape that the text declares `functional`
   is read as an open generator (`ParamSig.raw`, a parameter symbol listed among its result sort's
   generators) where that sort is a constructor sort whose constructors take no argument and that
-  no overloading symbol or subsort ends at (`openGenFault`); otherwise it is refused, the detail
-  naming the symbol and why. -/
+  no overloading symbol or subsort ends at (`openGenFault`, `Faithful.genWf`); otherwise it is
+  refused, the detail naming the symbol and why: its result sort is no constructor sort, or its
+  sort has a constructor with arguments, an overloading symbol or a subsort. -/
   | openGenerator
   /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is neither the concatenation
   of a collection of the definition (an `[idem]` axiom: of a set) nor a function of the definition
@@ -228,8 +229,9 @@ inductive RefusalReason where
   unconfined; and the entry symbol at a range that is empty, inverted or not of Ints is silent, so
   at an element that is no value's the text says nothing of it. The detail names the symbol. -/
   | rangeMapPattern
-  /-- A law of an open generator the semantics has no normal form for: associativity together with
-  idempotence, or a unit law. The detail names the symbol and the laws. -/
+  /-- A law axiom of an open generator other than its associativity and idempotence sentences
+  (`openLawRead`): a unit law, for which `ParamSig` has no field and `lawHooks` no form. The detail
+  names the symbol and the laws. -/
   | openLaw
   /-- A rewrite axiom with a variable that a rule read from it would not hold, of a sort of which the
   reader exhibits no value applying no open generator (`exhibit?`): one bound by `\exists` in the
@@ -3432,6 +3434,34 @@ def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
   isUserSource s.attributes && !hasKey s.attributes .function && !hasKey s.attributes .constructor &&
     !hasKey s.attributes .anywhere && !hasKey s.attributes .cell
 
+/-- The associativity sentence of the symbol `f` of sort `s`, as `[assoc]` writes it:
+`axiom{R} \equals{S, R}(f(f(K1, K2), K3), f(K1, f(K2, K3)))`, attributes aside. -/
+def openAssocAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
+  let K1 := KoreAML.ev "K1" s
+  let K2 := KoreAML.ev "K2" s
+  let K3 := KoreAML.ev "K3" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s KoreAML.R (KoreAML.ap f [KoreAML.ap f [K1, K2], K3]) (KoreAML.ap f [K1, KoreAML.ap f [K2, K3]])
+    attributes := [] }
+
+/-- The idempotence sentence of the symbol `f` of sort `s`, as `[idem]` writes it:
+`axiom{R} \equals{S, R}(f(K, K), K)`, attributes aside. -/
+def openIdemAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
+  let K := KoreAML.ev "K" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s KoreAML.R (KoreAML.ap f [K, K]) K
+    attributes := [] }
+
+/-- The axiom `a` is the law sentence `ax` with the attribute `key`. -/
+def lawSentenceIs (key : String) (ax : Kore.Axiom) (a : Kore.Axiom) : Bool :=
+  hasAttr a.attributes key && { a with attributes := [] } == ax
+
+/-- The sentences `ss` hold the law sentence `ax` with the attribute `key`. -/
+def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :=
+  ss.any fun s => match s with
+    | .axiom a => lawSentenceIs key ax a
+    | _ => false
+
 /-- A sentence of a K installation's builtin file: read when it is a sentence of the library's
 text up to its place; read as the definition's own when it is one of K-REFLECTION's
 (`reflectionAsOwn`; the sort-parametric `#unparseKORE`'s declaration not read) or a stream module's
@@ -4131,8 +4161,13 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let clauselessParams ← ((S.userSyms ++ collCells ++ instSyms).filter (clauseless.contains ·.symbol.ident.ident.name)).mapM
     fun h => Rd.within (.sentence (.symbol h)) do
       let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
-      -- an open generator is a generator of its result sort (`Semantics.gens`)
-      pure (({ sig, raw := isOpenGenerator h } : ParamSig),
+      -- an open generator is a generator of its result sort (`Semantics.gens`), with the laws
+      -- whose sentences the text writes (`Faithful.lawItemsK`)
+      let raw := isOpenGenerator h
+      let f := h.symbol.ident.ident.name
+      let assoc := raw && holdsLaw m.sentences "assoc" (openAssocAx f h.sort)
+      let idem := raw && holdsLaw m.sentences "idem" (openIdemAx f h.sort)
+      pure (({ sig, raw, assoc, idem } : ParamSig),
         (⟨"", attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
           isTotalDecl h⟩ : ParamPres))
   let params := userParams ++ iteParams ++ genParams ++ clauselessParams
@@ -4547,19 +4582,48 @@ def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)
     else none
 
+/-- The open generator `k`'s sort is flat and no constructor or overloading symbol bears its
+name: `Faithful.genWf`'s last conjunct at `k`. -/
+def openFlat (c : Semantics) (k : ParamSig) : Bool :=
+  c.ctorSigs.all (fun g => g.name != k.sig.name && (g.result != k.sig.result || g.args.isEmpty)) &&
+  c.ovlSigs.all (fun g => g.name != k.sig.name && g.result != k.sig.result) &&
+  c.subsorts.all (fun p => p.2 != k.sig.result)
+
+/-- The ways the open generator `k`'s sort is not flat, or `k` bears another symbol's name. -/
+def openFlatFaults (c : Semantics) (k : ParamSig) : List String :=
+  let s := k.sig.result
+  (if c.ctorSigs.any (fun g => g.result == s && !g.args.isEmpty) then ["a constructor with arguments"] else []) ++
+  (if c.ovlSigs.any (fun g => g.result == s) then ["an overloading symbol"] else []) ++
+  (if c.subsorts.any (fun p => p.2 == s) then ["a subsort"] else []) ++
+  (if c.ctorSigs.any (·.name == k.sig.name) || c.ovlSigs.any (·.name == k.sig.name) then
+    ["a constructor or an overloading symbol of its name"] else [])
+
 /-- Why the open generator `k` of `c` is not read, or `none`. Its sort's values are the
 applications of the sort's generators, among them `k`'s (the no-junk sentence the text writes),
-which `Γ` states of a constructor sort only; and an application of `k` to values is a value that is
-one element where the sort is flat: every constructor of it is nullary, and no overloading symbol
-or subsort ends at it (`Faithful.genWf`'s conjuncts for a `raw` parameter). -/
+which `Γ` states of a constructor sort only. And the text writes no sentence that keeps the
+generator's applications out of a constructor's or an injection's image at an element no term
+denotes: where the sort has a constructor with arguments or a subsort, a model of the text may
+send an application of `k` to such an image (`s(z)` for an element `z` that is no value's, or an
+injected Int that is no literal), where no rule's match at values sees it, and a sentence's truth
+there needs that element to be a value's. Where the sort is flat (every constructor of it nullary,
+no overloading symbol into it and no subsort below it) an application of `k` to values is a value
+apart from every other value of the sort. These are `Faithful.genWf`'s conjuncts for a `raw`
+parameter (`openGenFault_none`). -/
 def openGenFault (c : Semantics) (k : ParamSig) : Option String :=
-  let s := k.sig.result
-  if !(Faithful.consSorts c).contains s then some "its result sort is no constructor sort"
-  else if c.ctorSigs.any (fun g => g.result == s && !g.args.isEmpty) then
-    some s!"its result sort {c.sortName s} has a constructor with arguments"
-  else if c.ovlSigs.any (fun g => g.result == s) then some s!"its result sort {c.sortName s} has an overloading symbol"
-  else if c.subsorts.any (fun p => p.2 == s) then some s!"its result sort {c.sortName s} has a subsort"
+  if !(Faithful.consSorts c).contains k.sig.result then some "its result sort is no constructor sort"
+  else if !openFlat c k then
+    some s!"its sort {c.sortName k.sig.result} has a constructor with arguments, an overloading symbol or a subsort (here {", ".intercalate (openFlatFaults c k)}): the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes"
   else none
+
+/-- An open generator the reader reads meets `Faithful.genWf`'s conjuncts for a `raw` parameter. -/
+theorem openGenFault_none {c : Semantics} {k : ParamSig} (h : openGenFault c k = none) :
+    (Faithful.consSorts c).contains k.sig.result = true ∧ openFlat c k = true := by
+  cases hc : (Faithful.consSorts c).contains k.sig.result with
+  | false => unfold openGenFault at h; rw [hc] at h; simp at h
+  | true =>
+    cases hf : openFlat c k with
+    | false => unfold openGenFault at h; rw [hc, hf] at h; simp at h
+    | true => exact ⟨rfl, rfl⟩
 
 /-- The core from the productions and the rules. The configuration's cells are ordinary sorts,
 constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSigs`,
@@ -4814,6 +4878,32 @@ def fnLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Ax
   ss.zipIdx.filterMap fun (s, i) => match s, classify s with
     | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
       if (lawHead? a).any (fnLawHead c) then some (i, a) else none
+    | _, _ => none
+
+/-! ### The laws of open generators
+
+An `[assoc]` or `[idem]` axiom of an open generator (a `raw` parameter) is the law sentence `Γ`
+holds for it (`Faithful.lawItemsK`, `Faithful.assocAxK`, `Faithful.idemAxK`): the reader sets
+`ParamSig.assoc` or `ParamSig.idem` where the text writes that sentence (`openAssocAx`,
+`openIdemAx`), and the interpretations the statements speak of satisfy it at values (`OpenLaws`,
+owed). Both laws together are read (`lawHooks` exhibits an interpretation satisfying both). A unit
+law of an open generator is refused `openLaw`: `ParamSig` has no field for it. -/
+
+/-- The law axiom `a` is the associativity or idempotence sentence of an open generator of `c`
+whose law the semantics holds (`ParamSig.assoc`, `ParamSig.idem`). -/
+def openLawRead (c : Semantics) (a : Kore.Axiom) : Bool :=
+  c.params.any fun k =>
+    let f := c.symName k.sig.name
+    let s := KoreAML.srt (c.sortName k.sig.result)
+    k.raw && ((k.assoc && lawSentenceIs "assoc" (openAssocAx f s) a) ||
+      (k.idem && lawSentenceIs "idem" (openIdemAx f s) a))
+
+/-- The law axioms of the sentences `ss` read as the laws of an open generator of `c`
+(`openLawRead`), each with its position. -/
+def openLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Axiom) :=
+  ss.zipIdx.filterMap fun (s, i) => match s, classify s with
+    | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
+      if openLawRead c a then some (i, a) else none
     | _, _ => none
 
 mutual
