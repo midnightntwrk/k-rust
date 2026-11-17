@@ -2,6 +2,7 @@ id = "t14-total-no-equation"
 kind = "text"
 subject = "A function declared total whose equations do not cover an argument: even(1), where even is [function, total] with the one equation even(0) => true. What the text states of the application there."
 retro = ["F2"]
+rests_on = ["kk:t11-eq-applies"]
 
 [text]
 files = ["t14-total-no-equation.k"]

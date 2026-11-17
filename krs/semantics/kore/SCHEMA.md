@@ -52,7 +52,7 @@ interpreter = "applied-blocks"     # unsettled case only: the reading kore.k com
 separates = ["undefined-result-does-not-block", "ensures-false-not-applied"]
 
 [[ruling.basis]]                   # at least one; each is a sentence of a text
-source = "manual"                  # manual | domains | builtin-module | kore-syntax | prelude | kompiled | matching-logic
+source = "manual"                  # manual | tutorial | domains | builtin-module | kore-syntax | prelude | kompiled | matching-logic
 locator = "docs/user_manual.md:LINE (K 7.1.337)"
 quote = "the sentence, verbatim"
 
@@ -103,7 +103,7 @@ reason = "Why the result is not the ruling, or no reading."
 
 ### 2.2 Rules on the fields
 
-- **`reason` and `ruling.basis`.** The reason is a derivation from the sentences in `ruling.basis` and from the entries in `rests_on`. It names no backend, no krust, no KCore and no document of an implementation. A `quote` is verbatim, with the file and line in the pinned K release. The sources are K's manual (`manual`), `domains.md` (`domains` for its prose, `builtin-module` for the K text of the builtin modules), `kore-syntax.md` (`kore-syntax`), the KORE prelude (`prelude`), and matching logic where the text defines it (`matching-logic`).
+- **`reason` and `ruling.basis`.** The reason is a derivation from the sentences in `ruling.basis` and from the entries in `rests_on`. It names no backend, no krust, no KCore and no document of an implementation. A `quote` is verbatim, with the file and line in the pinned K release. The sources are K's manual (`manual`), K's tutorial, `k-distribution/k-tutorial/` (`tutorial`), `domains.md` (`domains` for its prose, `builtin-module` for the K text of the builtin modules), `kore-syntax.md` (`kore-syntax`), the KORE prelude (`prelude`), and matching logic where the text defines it (`matching-logic`).
 - **`source = "kompiled"`** names a sentence by its place in `kore.txt`. It supports a statement about what the written KORE sentences mean (`[ruling.kore]`, with `matching-logic` or `kore-syntax` beside it), never a statement about what the K text means: kompile is an implementation, and its output is an observation of one release.
 - **`rests_on`.** A case rests on several readings at once (strict evaluation, when a rule applies, what a priority does). Those readings are text entries, and a case cites them instead of restating them. A `settled` entry rests only on `settled` entries. An entry that rests on an `unsettled` entry is `unsettled`, and its readings are named after that entry's.
 - **`unsettled`.** Where the text is silent, the entry has no answer of its own and at least two readings. Each reading has a name, a statement, an answer and a consequence. A reading without a single ground answer carries `answer` in prose instead of `finals`.

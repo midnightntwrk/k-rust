@@ -2,6 +2,7 @@ id = "t35-set-concat-overlap"
 kind = "text"
 subject = "_Set_ on two sets with an element in common: domains.md calls the sets nilpotent and the concatenation #False, while the declaration carries idem, an attribute the manual says indicates an idempotent production."
 retro = ["A3"]
+rests_on = ["kk:t31-int-division"]
 
 [text]
 declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:721 (K 7.1.337)", quote = "syntax Set ::= Set Set [left, function, hook(SET.concat), symbol(_Set_), assoc, comm, unit(.Set), idem, element(SetItem), format(%1%n%2)]" }

@@ -2,6 +2,7 @@ id = "t13-fn-no-equation"
 kind = "text"
 subject = "A function applied at arguments where no equation applies: g(1), where g has the one equation g(0) => 1. What the text states of the application there."
 retro = ["F1"]
+rests_on = ["kk:t11-eq-applies"]
 
 [text]
 files = ["t13-fn-no-equation.k"]

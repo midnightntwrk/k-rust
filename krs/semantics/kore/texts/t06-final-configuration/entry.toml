@@ -18,11 +18,11 @@ reason = """
 (3) No sentence names a configuration where a rule applies and nothing results (the manual uses the word once more, of alias rules applied before unparsing the final configuration, user_manual.md:1273-1274); the statement leaves it to kk:t03-applied-rule-blocks."""
 
 [[ruling.basis]]
-source = "manual"
+source = "tutorial"
 locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:82-85 (K 7.1.337)"
 quote = "Rewriting proceeds by iteratively applying rules, also called **taking steps**, until no top-level rewrite rule can be applied. At this point the configuration becomes the **final configuration** and is output by `krun`."
 
 [[ruling.basis]]
-source = "manual"
+source = "tutorial"
 locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:87-93 (K 7.1.337)"
 quote = "However, it is **non-deterministic** which rule applies. In theory, it could be any of them. By passing the `--search` flag to `krun`, you are able to tell `krun` to explore all possible non-deterministic choices, and generate a complete list of all possible final configurations reachable by each nondeterminstic choice that can be made."

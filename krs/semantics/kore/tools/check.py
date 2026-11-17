@@ -61,7 +61,7 @@ KIND_DIR = {'case': 'cases', 'text': 'texts'}
 ID_FORM = {'case': re.compile(r'c\d\d+-[a-z0-9-]+\Z'), 'text': re.compile(r't\d\d+-[a-z0-9-]+\Z')}
 STATUSES = ('settled', 'unsettled', 'pending')
 KOMPILE = ('accepts', 'rejects', 'not-run')
-SOURCES = ('manual', 'domains', 'builtin-module', 'kore-syntax', 'prelude', 'kompiled', 'matching-logic')
+SOURCES = ('manual', 'tutorial', 'domains', 'builtin-module', 'kore-syntax', 'prelude', 'kompiled', 'matching-logic')
 FRONTEND = ('as-ruled', 'differs', 'manual-silent')
 # form -> the further fields a text ruling of that form carries
 FORMS = {'means': (), 'same-text': ('other',), 'differs-in': ('other', 'sentences'), 'no-sentence': (),

@@ -175,6 +175,12 @@ class PassRule(unittest.TestCase):
         d = self.p.entry('c01-x', SETTLED.replace(BASIS, ''), {})
         self.fails(d, 'schema', 'ruling: no basis')
 
+    def test_schema_basis_source(self):
+        d = self.p.entry('c01-x', SETTLED.replace('source = "manual"', 'source = "tutorial"'), {'haskell': finals(B1)})
+        self.passes(d, 'ok settled')
+        d = self.p.entry('c02-x', SETTLED.replace('source = "manual"', 'source = "lecture"'), {})
+        self.fails(d, 'schema', 'source is not one of')
+
     def test_schema_basis_without_quote(self):
         d = self.p.entry('c01-x', SETTLED.replace('quote = "A sentence."\n', ''), {})
         self.fails(d, 'schema', 'no locator or no quote')
