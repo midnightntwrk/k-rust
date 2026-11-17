@@ -1,0 +1,3 @@
+# pair multiplicity="*" x type (TRIAGE-B c3.pair 19; findings/C3-noncore-rulings.md section 9): Set, Map and List cells with multiplicity="*"; differs_from c3-cells-star-base, the same cells bare. Predicted: both exit 0 and read with coreOK true; text and Semantics differ (the collection sorts per cell)
+main = "c.k"
+differs_from = "c3-cells-star-base"

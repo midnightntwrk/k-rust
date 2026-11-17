@@ -1,0 +1,16 @@
+command: kompile --backend haskell c.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 7.5
+output:
+  [Error] Compiler: Cell bags are only supported on the Java backend. If you want
+  this feature, comment on https://github.com/runtimeverification/k/issues/1419 .
+  As a workaround, you can add the attribute type="Set" and add a unique
+  identifier to each element in the set.
+  	Source(FIXTURE/c.k)
+  	Location(4,44,4,73)
+  	4 |	  configuration <t> <k> $PGM:Exp </k> <bs> <bt multiplicity="*"> 0 </bt>
+  </bs> </t>
+  	  .	                                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name C-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using C as default.
