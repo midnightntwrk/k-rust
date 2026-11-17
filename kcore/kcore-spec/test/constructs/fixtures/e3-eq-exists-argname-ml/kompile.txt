@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-argname-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 9.6
+definition.kore bytes: 122333
+definition.kore sha256: cb5773d0262dd1f4fb0d75ad89927a83123a2a0bd7a872045139c962924d3065
+stripped sha256: 33c1e32f56e10c3c81fa35efce8a6fb50341a30ba3460cc8553a03919d6fc77a
+main module: 282 sentences, 13 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ARGNAME-ML-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-ARGNAME-ML as default.

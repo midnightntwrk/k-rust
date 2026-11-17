@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-eq-rhs-or-empty.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 7.5
+definition.kore bytes: 205229
+definition.kore sha256: 9ee14f342ca47dc2af2b3c8e52c835d16b7b5591de1ccf692f2342d60efa7171
+stripped sha256: de4b7e7991bf6b9cf3771eb31140f6b21f540a3a37dce1547499200508aa34d8
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-OR-EMPTY-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-EQ-RHS-OR-EMPTY as default.

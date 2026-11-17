@@ -1,0 +1,23 @@
+command: kompile --backend haskell e3-eq-exists-unheld-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 9.8
+definition.kore bytes: 203730
+definition.kore sha256: f8e703472ed46b6661e7be7e0502d348b007b3e0e578b6515ce25e6c87a61938
+stripped sha256: 7d7653006f1e569dc00f022a89d5de4030b39bc23082e236d236fe7729c917f8
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Z' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-eq-exists-unheld-ml.k)
+  	Location(5,24,5,25)
+  	5 |	  rule p(X) => #Exists Z:Int. X
+  	  .	                       ^
+  [Warning] Compiler: Variable 'Z' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-eq-exists-unheld-ml.k)
+  	Location(6,24,6,25)
+  	6 |	  rule q(X) => #Exists Z:Bool. X
+  	  .	                       ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-UNHELD-ML-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-UNHELD-ML as default.

@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-EQ-RHS-CEIL-AND: 392 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  6 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 patternConnective
+      sentence 354 (Lblh): patternConnective (\and)
+        [user] (no label) at e3-ml-eq-rhs-ceil-and.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblh{}(X0:SortInt{}), \and{SortInt{}}(\and{SortInt{}}(VarX:SortInt{}, \ceil{SortInt{}, SortInt{}}(\and{SortInt{}}(Lblf{}(VarX:SortInt{}), Lblg{}(VarX:SortInt{})))), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("3775bbad871e7c6f8b81b5d195e85eb2abd930eefe521d2c64a2fc836379e8b …
+finish: sentence 354 (Lblh): patternConnective (\and)
+(exit 0)
