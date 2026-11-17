@@ -14,6 +14,9 @@
   - hand-written variants of `e3-setvar-rewrite`'s axiom: the set variable only on the left
     (`=> d(a())`: read, `post` top), only on the right (`c(a(), a())` on the left: refused), under
     `\not` on the left, in the ensures, and beside a second set variable (refused).
+  - The emitted rule (`rulePattern`) carries `post` beside the `ensures`, under the existential
+    variables' binders: `∃Z. \and(rhs, \and(ens, Z ∈ A₀ ∨ Z ∈ A₁))`, for any rule of that form
+    (kernel-checked), and on the rule read from `e3-setvar-rewrite` (printed).
 -/
 import KcoreSpec
 
@@ -118,3 +121,33 @@ setVariable (VarS: one of two set variables or more: the reading is stated for o
   IO.println (← svrVerdict "f2-examples/e3-setvar-rewrite.kompile.kore" svrNot)
   IO.println (← svrVerdict "f2-examples/e3-setvar-rewrite.kompile.kore" svrEns)
   IO.println (← svrVerdict "f2-examples/e3-setvar-rewrite.kompile.kore" svrTwo)
+
+/-- A rule with one existential variable Z (index 0) whose `post` is `Z ∈ A₀ ∨ Z ∈ A₁` and whose
+`pre` is `\top` is emitted with the disjunction beside its `ensures`, under `\exists Z`. -/
+example (c : Semantics) (z a0 a1 : KoreAML.Var) (r : Rule) (s : Srt) (hex : r.exs = [0])
+    (hpre : r.pre = .top) (hpost : r.post = .or (.mem s (.var 0) (.var 1)) (.mem s (.var 0) (.var 2))) :
+    rulePattern c [z, a0, a1] r =
+      .rewrites (srtOf c topCellSort)
+        (.and (srtOf c topCellSort) [Term.kore c [z, a0, a1] r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c [z, a0, a1]))])
+        (.exist (srtOf c topCellSort) z.kore
+          (.and (srtOf c topCellSort) [Term.kore c [z, a0, a1] r.rhs,
+            .and (srtOf c topCellSort) [reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c [z, a0, a1])),
+              .or (srtOf c topCellSort)
+                [.in (srtOf c s) (srtOf c topCellSort) (.var (.evar z.kore)) (.var (.evar a0.kore)),
+                 .in (srtOf c s) (srtOf c topCellSort) (.var (.evar z.kore)) (.var (.evar a1.kore))]]])) := by
+  simp only [rulePattern, rulePredPat_top hpre, hex, hpost]; rfl
+
+/-- Each rule of the text at `path`, emitted (`rulePattern`, under the presentation's names). -/
+def svrEmitted (path : String) : IO String := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile path) | return "KORE read error"
+  return match Parse.parse k with
+    | .error r => s!"{r.reason.name} ({r.detail})"
+    | .ok d => "\n".intercalate ((d.sem.rules.zip d.pres.rules).map fun (r, p) =>
+        Kore.Printer.pattern (rulePattern d.sem (KoreAML.varList (r.vars.map d.sem.sortName) p.names) r))
+
+/--
+info: \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(VarS'Hash'L0:SortExp{}, VarS'Hash'L1:SortExp{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \exists{SortGeneratedTopCell{}}(VarS'Hash'R0:SortExp{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbld{}(VarS'Hash'R0:SortExp{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), \or{SortGeneratedTopCell{}}(\in{SortExp{}, SortGeneratedTopCell{}}(VarS'Hash'R0:SortExp{}, VarS'Hash'L0:SortExp{}), \in{SortExp{}, SortGeneratedTopCell{}}(VarS'Hash'R0:SortExp{}, VarS'Hash'L1:SortExp{}))))))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  IO.println (← svrEmitted "f2-examples/e3-setvar-rewrite.kompile.kore")

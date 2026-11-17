@@ -41,6 +41,7 @@ differs f2-examples/e3-setvar-rewrite.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
+differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore

@@ -493,15 +493,15 @@ example : Parse.owedCondDecided c = [] ∧
 
 /-! ## The emitted rule: `rulePattern_noExs` -/
 
-/-- `ok1` has no existential variable: its emitted pattern is `\rewrites(\and(lhs, req),
-\and(rhs, ens))`, under any names. At `exA` (X, index 2, existential) the right side is emitted
-under `\exists` binding X's name. -/
+/-- `ok1` has no existential variable and its predicates are `\top`: its emitted pattern is
+`\rewrites(\and(lhs, req), \and(rhs, ens))`, under any names. At `exA` (X, index 2, existential)
+the right side is emitted under `\exists` binding X's name. -/
 example (vs : List KoreAML.Var) :
     rulePattern c vs ok1 =
       .rewrites (srtOf c topCellSort)
         (.and (srtOf c topCellSort) [Term.kore c vs ok1.lhs, reqPat (srtOf c topCellSort) (ok1.req.map (Term.kore c vs))])
-        (.and (srtOf c topCellSort) [Term.kore c vs ok1.rhs, reqPat (srtOf c topCellSort) (ok1.ens.map (Term.kore c vs))]) :=
-  rulePattern_noExs c vs ok1 rfl
+        (.and (srtOf c topCellSort) [Term.kore c vs ok1.rhs, reqPat (srtOf c topCellSort) (ok1.ens.map (Term.kore c vs))]) := by
+  rw [rulePattern_noExs c vs ok1 rfl, rulePredPat_top (p := ok1.pre) rfl, rulePredPat_top (p := ok1.post) rfl]
 
 example (v0 v1 v2 : KoreAML.Var) :
     (match rulePattern c [v0, v1, v2] exA with
