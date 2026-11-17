@@ -1163,3 +1163,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/LibEvBoolKEns.lean`: the two `==K` simplifications of `f2-examples/ens.kompile.kore` at K
+  sequences of one injected item (sentences 176, 177: domains.md 2338 at Bool, 1404 at Int) entailed
+  at values for every H, from `LibEv.boolKEq_ev` and `LibEv.intKEq_ev` (`KcoreSpec/LibEvBoolK.lean`,
+  for every semantics meeting `coreOK` and `shapesOK` with the sort below KItem). Axioms guarded.
