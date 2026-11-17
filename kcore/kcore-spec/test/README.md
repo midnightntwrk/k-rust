@@ -830,7 +830,22 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   and one has two elements): `text_at`, `gam_at` (the lemma's instance), `strict_left`,
   `strict_step`, `strict_more` (the reading's right side holds `k(e)`, the text's does not),
   `exact_right_empty`, `exact_left_fails`, `exact_text_step` (the reading's sentence says nothing
-  at `k(one)` where the text's gives a successor), `left_forces`.
+  at `k(one)` where the text's gives a successor), `left_forces`. `hoist_sub`, `hoistList_sub`:
+  every element of a KORE pattern is an element of the pattern `Parse.hoist` returns for it, at
+  every table and valuation and in every interpretation of definedness, so the inclusion of the
+  two right sides holds for every right side the reader reads (`rewrites_weaken_hoist`,
+  `denB_rule_and_weaken_hoist`, `gam_at_hoist`). `rewrites_weaken_left`, `prioRuleK_and_weaken`:
+  the entailment into `prioRuleK c r` itself, with the conjuncts of `pre` and the competitors'
+  negation on its left side. Not covered: a rule with an existential variable.
+- `test/OwedGen.lean`, `test/owed-gen.sh`: what `kcore gen --core` states for a text that owes a
+  `CondDecided`. The script generates e2-unbound, e2-rule and e2-open-genless into `.lake/owed` and
+  checks the text (`owed_rules` `[]`, `[6, 7]`, `[0]`; `Owed` and `(how : Owed)` on the `_defn`
+  statements and `sound_at_of` with `hw` where a rule is owed; `consistent` and `complete_at`
+  without a hypothesis in all three), and prints what `--wf` gives on e2-unbound; it builds
+  nothing. The Lean file applies the generated terms on the reader's semantics: at e2-rule `Owed`
+  from the two witnesses and `sound_fn` (`Cool.owed`, `Cool.sound`, `Cool.fnHyp`); at
+  e2-open-genless `Consistent` by `consistent_of_fnFacts`, the rule 0 not `Witnessed`, and `Owed`
+  exactly where the theory refutes its condition (`Genless.owed_iff_refuted`).
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
