@@ -30,9 +30,18 @@
   - G5, `total`: under `RestTotal`, a function declared total is total wherever, at each argument
     list, every clause fails or the function has a value (`total_of_restTotal`).
   - G6, a parameter symbol that is no open generator and a function with no clause have one value
-    under every interpretation (`fnRest_nil_eq_paramVal`).
+    under every interpretation (`fnRest_nil_eq_paramVal`, in every semantics;
+    `fnRest_nil_eq_paramVal_everyH`, at `c.withHooks H` for every H).
   - G7, `setIdempotence`: `_Set_` at a common member is no silent point, and `hook` gives it no value
-    (`setIdem_bot`).
+    (`setIdem_bot`); in every semantics and under every H, `Γ` holds `_Set_(S₁, S₂) = ⊥` at sets
+    where `hook` gives the concatenation no value (`setIdem_gamma`; at `{1} {1}`, `setIdem_everyH`).
+  - `rest_undetermined`, the statement of what replaced G0: at an argument list where every clause
+    of a function fails, `Γ` holds the graph of the function's rest (`gamma_rest`), so over all
+    interpretations it entails neither that the function has no value there nor that it has a
+    given one (`rest_undetermined`, every semantics `coreOK` accepts, from two interpretations,
+    one giving no rest and one giving the value; `RestOpen.F0_undetermined`, a function with no
+    clause at 0). With G1 it says where the text speaks (an `ensures` that is not `true`: ⊥ under
+    every H) and where it does not (every clause fails: the interpretation's).
   - G8, `ruleRightDefined`: for every semantics and every rule with no existential variables and
     whose predicates `pre` and `post` are `\top`, so under every interpretation, the rule's axiom
     without the premise `⌈rhs ∧ ens⌉` (`UndefRhsWitness.textRuleK`, the text's rewrite with the
@@ -454,6 +463,16 @@ theorem fnRest_nil_eq_paramVal (c : Semantics) (fn : Fn) (k : ParamSig) (hn : k.
   | none => rfl
   | some v => simp [Option.filter, hvs, hr, hn]
 
+/-- **G6, for every interpretation**: under each H, a function with no clause and a parameter symbol
+of its signature (no registry hook, no open generator) have one value at every argument list of
+its sorts, H's where it has the result sort. -/
+theorem fnRest_nil_eq_paramVal_everyH (c : Semantics) (H : HookParams) (fn : Fn) (k : ParamSig)
+    (hn : k.sig.name = fn.label) (ha : k.sig.args = fn.args) (hr : k.sig.result = fn.result) (hi : k.impl = none)
+    (hraw : k.raw = false) (hk : c.lookupParam fn.label = some k) (vs : List GroundTerm)
+    (hvs : (c.withHooks H).sortsOf vs = some fn.args) :
+    (c.withHooks H).fnRest fn vs = (c.withHooks H).paramVal fn.label vs :=
+  fnRest_nil_eq_paramVal (c.withHooks H) fn k hn ha hr hi hraw hk vs hvs
+
 /-! ## G7: `_Set_` at a common member -/
 
 /-- **G7**: `_Set_` applied to two sets with a member in common is no silent point, and `hook` gives
@@ -461,6 +480,151 @@ it no value there, so `Γ` states ⊥ at it under every interpretation (`silentK
 theorem setIdem_bot :
     silent setConcat [.set Srt.set [int 1], .set Srt.set [int 1]] = false ∧
     hook setConcat [.set Srt.set [int 1], .set Srt.set [int 1]] = some none := by decide +kernel
+
+/-! ## `rest_undetermined`: where every clause fails, `Γ` states the interpretation's value -/
+
+namespace RestOpen
+/-- A semantics with the configuration `<k> K </k>`, the generated counter and one function
+`F : Int → Int` with no clause, not declared total. -/
+def F : Sym := nRegSyms + 4
+def fnF : Fn := ⟨F, [Srt.int], Srt.int, [], false⟩
+def nc : Semantics :=
+  { lib := { sortsBelowKItem := [Srt.int] }
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "LblF"]
+    userSorts := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
+    ctors := [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+      ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
+      ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
+    fns := [fnF]
+    userSubsorts := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
+    pgmSort := Srt.k
+    rules := [] }
+def Hc : HookParams := ⟨fun f _ => if f = F then some (int 0) else none⟩
+end RestOpen
+
+/-- A function's application to values, as `Γ` writes it. -/
+abbrev fnApp (c : Semantics) (f : Sym) (vs : List GroundTerm) : KoreAML.P :=
+  KoreAML.den (symApp c f (GroundTerm.koreList c vs))
+
+/-- At values where every clause of a function fails, `Γ` holds the graph of its rest. -/
+theorem gamma_rest {c : Semantics} {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some fn.args) (hfail : ∀ cl ∈ fn.clauses, Fails c vs cl) :
+    Γ c (fnApp c f vs ≡ (match c.fnRest fn vs with
+      | some v => den c v
+      | none => ⊥)) := by
+  obtain ⟨hmem, hl⟩ := lookupFn_spec hfn
+  subst hl
+  exact Or.inr (Or.inr ⟨fn, vs, hmem, hvs, hfail, rfl⟩)
+
+/-- **`rest_undetermined`: `Γ` does not determine a function where every clause fails.** At an
+argument list where every clause of `f` fails under H₀ and under Hv, H₀ giving no rest and Hv the
+rest `v`: over all interpretations `Γ` entails neither that `f(vs)` has no value nor that it is `v`.
+Under H₀ it is ⊥ in every model, under Hv it is `v` in every model, and both theories have models
+(`sound_hyp`). -/
+theorem rest_undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+    {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : List GroundTerm} (hvs : c.sortsOf vs = some fn.args)
+    {v : GroundTerm} (hv : c.sortOf v = some fn.result) {H₀ Hv : HookParams}
+    (hfail₀ : ∀ cl ∈ fn.clauses, Fails (c.withHooks H₀) vs cl)
+    (hfailv : ∀ cl ∈ fn.clauses, Fails (c.withHooks Hv) vs cl)
+    (h0 : (c.withHooks H₀).fnRest fn vs = none) (h1 : (c.withHooks Hv).fnRest fn vs = some v)
+    (hfn₀ : FnHyp (c.withHooks H₀)) (hfnv : FnHyp (c.withHooks Hv)) :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (fnApp (c.withHooks H) f vs ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (fnApp (c.withHooks H) f vs ≡ den (c.withHooks H) v)) := by
+  have hl : ∀ H, (c.withHooks H).lookupFn f = some fn := fun H => by rw [Semantics.lookupFn_withHooks]; exact hfn
+  have hs : ∀ H, (c.withHooks H).sortsOf vs = some fn.args := fun H => by
+    rw [Semantics.sortsOf_withHooks c H hr]; exact hvs
+  constructor
+  · intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks Hv) ((Semantics.coreOK_withHooks c _).trans hok) hfnv).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks Hv) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_rest (hl Hv) (hs Hv) hfailv)
+    rw [h1] at hfb
+    have hbot := hall Hv hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks Hv)
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have e1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have e2 := (KoreAML.interp_equal hD).mp (hbot KoreAML.val0 default) a
+    exact absurd ((e2.mp (e1.mpr ((ha a).mpr rfl)))) (by simp [Pattern.interpret])
+  · intro hall
+    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks H₀) ((Semantics.coreOK_withHooks c _).trans hok) hfn₀).1
+    have hIΓ : I ⊧ᴵP Γ (c.withHooks H₀) := fun φ h => hI φ (Or.inl (Or.inl h))
+    have hD := defOK hIΓ
+    have hfb := hIΓ _ (gamma_rest (hl H₀) (hs H₀) hfail₀)
+    rw [h0] at hfb
+    have hval := hall H₀ hIΓ
+    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks H₀)
+      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
+    have e1 := (KoreAML.interp_equal hD).mp (hfb KoreAML.val0 default) a
+    have e2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) a
+    exact absurd (e1.mp (e2.mpr ((ha a).mpr rfl))) (by simp [Pattern.interpret])
+
+namespace RestOpen
+
+theorem nc_coreOK : nc.coreOK = true := by decide +kernel
+theorem nc_noRaw : ∀ k ∈ nc.params, k.raw = false := by decide +kernel
+
+/-- `F` has no clause, so `FnHyp` holds under every interpretation: `F`'s result everywhere is its
+rest, and it is not declared total. -/
+theorem nc_fnHyp (H : HookParams) : FnHyp (nc.withHooks H) := by
+  have hlook : (nc.withHooks H).lookupFn fnF.label = some fnF := by rw [Semantics.lookupFn_withHooks]; rfl
+  have hp : (nc.withHooks H).plain = true := (Semantics.plain_withHooks nc H).trans (by decide +kernel)
+  have hfns : (nc.withHooks H).fns = [fnF] := rfl
+  refine ⟨fun fn hfn vs _ => ?_, fun fn hfn ht => ?_, fun fn hfn => ?_, fun fn hfn cl hcl => ?_,
+    openDecided_of_plain (fun r hr => needsWitness_of_binds ((Semantics.plain_parts hp).1 r hr))
+      (fun fn hfn cl hcl => Clause.needsWitness_of_binds ((Semantics.plain_parts hp).2.1 fn hfn cl hcl)),
+    openLaws_of_plain (Semantics.plain_parts hp).2.2⟩
+  · rw [hfns] at hfn; rw [List.mem_singleton.mp hfn]
+    exact ⟨_, .rest hlook fun cl hcl => by simp [fnF] at hcl⟩
+  · rw [hfns] at hfn; rw [List.mem_singleton.mp hfn] at ht; cases ht
+  · rw [hfns] at hfn; rw [List.mem_singleton.mp hfn]
+    intro cl cl' h
+    simp [fnF, pairs] at h
+  · rw [hfns] at hfn; rw [List.mem_singleton.mp hfn] at hcl
+    simp [fnF] at hcl
+
+/-- **`rest_undetermined` at `F(0)`**: `F` has no clause, so over all interpretations `Γ` entails
+neither `F(0) = ⊥` (under `Hc` it is 0) nor `F(0) = 0` (under `HookParams.none` it is ⊥). -/
+theorem F0_undetermined :
+    ¬ (∀ H : HookParams, Γ (nc.withHooks H) ⊧ (fnApp (nc.withHooks H) F [int 0] ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (nc.withHooks H) ⊧ (fnApp (nc.withHooks H) F [int 0] ≡ den (nc.withHooks H) (int 0))) :=
+  rest_undetermined nc nc_coreOK nc_noRaw (f := F) (fn := fnF) rfl (by decide +kernel) (v := int 0) (by decide +kernel)
+    (H₀ := HookParams.none) (Hv := Hc) (fun cl hcl => by simp [fnF] at hcl) (fun cl hcl => by simp [fnF] at hcl)
+    (by decide +kernel) (by decide +kernel) (nc_fnHyp _) (nc_fnHyp _)
+
+end RestOpen
+
+/-! ## G7, for every interpretation -/
+
+def ki (n : Int) : GroundTerm := .inj Srt.int Srt.kitem (int n)
+def set1 : GroundTerm := .set Srt.set [ki 1]
+
+/-- `_Set_`'s signature in the registry. -/
+def setConcatSig : CtorSig := (lookupSig hookSigs setConcat).getD default
+
+theorem setConcatSig_ok : lookupSig hookSigs setConcat = some setConcatSig ∧ setConcatSig.name = setConcat ∧
+    setConcatSig.args = [Srt.set, Srt.set] := by decide +kernel
+
+/-- `_Set_` is no key of `silentTable`: it has no silent point. -/
+theorem setConcat_not_silent (vs : List GroundTerm) : silent setConcat vs = false := by
+  cases h : silent setConcat vs with
+  | false => rfl
+  | true => exact absurd (silentKey_of_silent h) (by decide +kernel)
+
+/-- **G7, for every interpretation**: in every semantics and under every H, `Γ` holds
+`_Set_(S₁, S₂) = ⊥` at sets where `hook` gives the concatenation no value (a member in common). -/
+theorem setIdem_gamma (c : Semantics) (H : HookParams) {vs : List GroundTerm}
+    (hvs : (c.withHooks H).sortsOf vs = some [Srt.set, Srt.set]) (hh : hook setConcat vs = some none) :
+    Γ (c.withHooks H) (fnApp (c.withHooks H) setConcat vs ≡ ⊥) :=
+  Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl ⟨setConcatSig, vs, none, (lookupSig_spec setConcatSig_ok.1).1,
+    by rw [setConcatSig_ok.2.2]; exact hvs, hh, fun _ => setConcat_not_silent vs, rfl⟩)))))
+
+open RestOpen in
+/-- **G7 at `{1} {1}`**, on `RestOpen.nc`: under every interpretation `Γ` holds `_Set_({1}, {1}) = ⊥`. -/
+theorem setIdem_everyH (H : HookParams) :
+    Γ (nc.withHooks H) (fnApp (nc.withHooks H) setConcat [set1, set1] ≡ ⊥) :=
+  setIdem_gamma nc H (by rw [Semantics.sortsOf_withHooks nc H nc_noRaw]; decide +kernel) (by decide +kernel)
 
 /-! ## G8: `ruleRightDefined`, the text's rule axiom entails the read one -/
 
@@ -690,6 +854,11 @@ end KCore.Guards
 #print axioms KCore.Guards.total_of_restTotal
 #print axioms KCore.Guards.fnRest_nil_eq_paramVal
 #print axioms KCore.Guards.setIdem_bot
+#print axioms KCore.Guards.fnRest_nil_eq_paramVal_everyH
+#print axioms KCore.Guards.rest_undetermined
+#print axioms KCore.Guards.RestOpen.F0_undetermined
+#print axioms KCore.Guards.setIdem_gamma
+#print axioms KCore.Guards.setIdem_everyH
 #print axioms KCore.Guards.ruleRightDefined_weaker
 #print axioms KCore.Guards.existsDropped_weaker
 #print axioms KCore.Guards.existsDropped_empty
@@ -978,6 +1147,30 @@ run_cmd do
     if let .guarded := e.status then
       unless e.guard.any (fun | .decl n => everyH n | .test _ _ => false) do
         throwError "guards: {ctor} is marked guarded, but no guard of it is a declaration stated about c.withHooks H for every H : HookParams"
+
+/-- REVIEW-RN section 3's minimum (DONE-0 C6, "Minimum content"), each with its guards: declarations
+of this file stated about `c.withHooks H` for every `H : HookParams` (the `run_cmd` below checks each
+one's form). G3 is not void: krust's text holds the selector-domain axiom (`ProjK`), K 7.1.337's
+does not (`Proj.projInt_dotk_open`). G4 is per inert class (`inertReason`). -/
+def minimum : List (String × List Name) :=
+  [("G1", [``KCore.Guards.Ens.half_neg4_none, ``KCore.Guards.Ens.half_neg4_gamma]),
+   ("G2", [``KCore.Guards.EnsOwise.half_neg4_none, ``KCore.Guards.EnsOwise.half_neg4_gamma]),
+   ("G3", [``KCore.Guards.ProjK.projInt_none_off, ``KCore.Guards.ProjK.projInt_off_gamma]),
+   ("G5", [``KCore.Guards.total_of_restTotal]),
+   ("G6", [``KCore.Guards.fnRest_nil_eq_paramVal_everyH]),
+   ("G7", [``KCore.Guards.setIdem_gamma, ``KCore.Guards.setIdem_everyH]),
+   ("rest_undetermined", [``KCore.Guards.rest_undetermined])]
+
+run_cmd do
+  let env ← getEnv
+  for (g, ns) in minimum do
+    for n in ns do
+      let some ci := env.find? n | throwError "guards: minimum {g}: no declaration {n}"
+      unless hasHookBinder ci.type && (ci.type.find? (·.isConstOf ``KCore.Semantics.withHooks)).isSome do
+        throwError "guards: minimum {g}: {n} is not stated about c.withHooks H for every H : HookParams"
+
+#eval show IO Unit from do
+  for (g, ns) in minimum do IO.println s!"GUARD-MINIMUM|{g}|{";".intercalate (ns.map toString)}"
 
 #eval show IO Unit from do
   let short := fun (s : String) => (s.splitOn "Parse.").getLast!
