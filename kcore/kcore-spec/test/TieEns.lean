@@ -85,7 +85,8 @@ theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map tr
 
 /-! ## Layer 1 -/
 
-theorem wf_defn : wf defn = true := by decide +kernel
+set_option maxHeartbeats 1000000 in
+theorem wf_defn : wf defn = true := by decide_cheap
 
 /-- `Reordered` keeps the length of each module. -/
 theorem reordered_lengths {e k : Kore.Definition} (h : Reordered e k) :
@@ -309,7 +310,8 @@ theorem idem_pattern : U.ax61.ax.pattern = .equals (srtOf c Srt.set) KoreAML.R (
   decide +kernel
 theorem idem_trS : (trS U.ax61).pat = (trAxiom [] [] U.ax61).pat := by decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+set_option maxHeartbeats 1000000 in
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- No rule or clause has an open variable or a condition with a binder. -/
