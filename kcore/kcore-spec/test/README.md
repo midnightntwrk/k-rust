@@ -644,7 +644,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor).
+  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
+  H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
+  `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
+  `rest_undetermined` says that where every clause of a function fails `Γ` over all H entails
+  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause).
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and

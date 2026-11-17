@@ -4,12 +4,13 @@
 #     UnreadReason with no entry (its `match` misses a case), a name literal of a guard that no
 #     longer exists, a constructor list that is not the inductive's, or an entry marked guarded none
 #     of whose guards is a declaration quantified over H : HookParams that states something about
-#     Semantics.withHooks (C6's form; the file's `run_cmd`s);
+#     Semantics.withHooks (C6's form; the file's `run_cmd`s), or a guard of the minimum (REVIEW-RN
+#     section 3: G1, G2, G3, G5, G6, G7, rest_undetermined) that is missing or not of that form;
 #   - a wildcard arm stands between the file's `-- table:begin` and `-- table:end` lines (it would
 #     give a new constructor an entry nobody wrote);
 #   - a pointer into another test file names a file that does not exist or a text it does not hold;
 #   - no entry is printed.
-# Prints every pending entry with the ticket that owes it, and the counts. Pending entries do not
+# Prints every pending entry with the ticket that owes it, the counts, and the minimum's guards. Pending entries do not
 # fail the check (GUARD.final asks for none on the INT-D line).
 # Lean runs under a 12 GiB memory scope, one thread. Run from anywhere; after `lake build`.
 # Usage: test/guards.sh [FILE]      (FILE defaults to test/Guards.lean; another copy for a probe)
@@ -62,6 +63,9 @@ if [ ${#pending[@]} -gt 0 ]; then
 fi
 grep -o 'GUARD-UNNOTED|.*' "$out" | while IFS='|' read -r _ what ctor; do
   echo "un-noted reading (REVIEW-RN finding 7) $what: $ctor"
+done
+grep -o 'GUARD-MINIMUM|.*' "$out" | while IFS='|' read -r _ g names; do
+  echo "minimum (REVIEW-RN section 3) $g: ${names//;/, }"
 done
 [ $fail -eq 0 ] && echo "guards: ok" || echo "guards: FAIL"
 exit $fail
