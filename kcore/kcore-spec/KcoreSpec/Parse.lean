@@ -227,8 +227,9 @@ inductive RefusalReason where
   unconfined; and the entry symbol at a range that is empty, inverted or not of Ints is silent, so
   at an element that is no value's the text says nothing of it. The detail names the symbol. -/
   | rangeMapPattern
-  /-- A law of an open generator the semantics has no normal form for: associativity together with
-  idempotence, or a unit law. The detail names the symbol and the laws. -/
+  /-- A law axiom of an open generator other than its associativity and idempotence sentences
+  (`openLawRead`): a unit law, for which `ParamSig` has no field and `lawHooks` no form. The detail
+  names the symbol and the laws. -/
   | openLaw
   /-- A rewrite axiom with a variable that a rule read from it would not hold, of a sort of which the
   reader exhibits no value applying no open generator (`exhibit?`): one bound by `\exists` in the
@@ -3423,6 +3424,34 @@ def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
   isUserSource s.attributes && !hasAttr s.attributes "function" && !hasAttr s.attributes "constructor" &&
     !hasAttr s.attributes "anywhere" && !hasAttr s.attributes "cell"
 
+/-- The associativity sentence of the symbol `f` of sort `s`, as `[assoc]` writes it:
+`axiom{R} \equals{S, R}(f(f(K1, K2), K3), f(K1, f(K2, K3)))`, attributes aside. -/
+def openAssocAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
+  let K1 := KoreAML.ev "K1" s
+  let K2 := KoreAML.ev "K2" s
+  let K3 := KoreAML.ev "K3" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s KoreAML.R (KoreAML.ap f [KoreAML.ap f [K1, K2], K3]) (KoreAML.ap f [K1, KoreAML.ap f [K2, K3]])
+    attributes := [] }
+
+/-- The idempotence sentence of the symbol `f` of sort `s`, as `[idem]` writes it:
+`axiom{R} \equals{S, R}(f(K, K), K)`, attributes aside. -/
+def openIdemAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
+  let K := KoreAML.ev "K" s
+  { sortVars := [KoreAML.Rv]
+    pattern := .equals s KoreAML.R (KoreAML.ap f [K, K]) K
+    attributes := [] }
+
+/-- The axiom `a` is the law sentence `ax` with the attribute `key`. -/
+def lawSentenceIs (key : String) (ax : Kore.Axiom) (a : Kore.Axiom) : Bool :=
+  hasAttr a.attributes key && { a with attributes := [] } == ax
+
+/-- The sentences `ss` hold the law sentence `ax` with the attribute `key`. -/
+def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :=
+  ss.any fun s => match s with
+    | .axiom a => lawSentenceIs key ax a
+    | _ => false
+
 /-- A sentence of a K installation's builtin file: read when it is a sentence of the library's
 text up to its place; read as the definition's own when it is one of K-REFLECTION's
 (`reflectionAsOwn`; the sort-parametric `#unparseKORE`'s declaration not read) or a stream module's
@@ -4097,8 +4126,13 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let clauselessParams ← ((S.userSyms ++ collCells ++ instSyms).filter (clauseless.contains ·.symbol.ident.ident.name)).mapM
     fun h => Rd.within (.sentence (.symbol h)) do
       let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
-      -- an open generator is a generator of its result sort (`Semantics.gens`)
-      pure (({ sig, raw := isOpenGenerator h } : ParamSig),
+      -- an open generator is a generator of its result sort (`Semantics.gens`), with the laws
+      -- whose sentences the text writes (`Faithful.lawItemsK`)
+      let raw := isOpenGenerator h
+      let f := h.symbol.ident.ident.name
+      let assoc := raw && holdsLaw m.sentences "assoc" (openAssocAx f h.sort)
+      let idem := raw && holdsLaw m.sentences "idem" (openIdemAx f h.sort)
+      pure (({ sig, raw, assoc, idem } : ParamSig),
         (⟨"", attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
           isTotalDecl h⟩ : ParamPres))
   let params := userParams ++ iteParams ++ genParams ++ clauselessParams
@@ -4809,6 +4843,32 @@ def fnLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Ax
   ss.zipIdx.filterMap fun (s, i) => match s, classify s with
     | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
       if (lawHead? a).any (fnLawHead c) then some (i, a) else none
+    | _, _ => none
+
+/-! ### The laws of open generators
+
+An `[assoc]` or `[idem]` axiom of an open generator (a `raw` parameter) is the law sentence `Γ`
+holds for it (`Faithful.lawItemsK`, `Faithful.assocAxK`, `Faithful.idemAxK`): the reader sets
+`ParamSig.assoc` or `ParamSig.idem` where the text writes that sentence (`openAssocAx`,
+`openIdemAx`), and the interpretations the statements speak of satisfy it at values (`OpenLaws`,
+owed). Both laws together are read (`lawHooks` exhibits an interpretation satisfying both). A unit
+law of an open generator is refused `openLaw`: `ParamSig` has no field for it. -/
+
+/-- The law axiom `a` is the associativity or idempotence sentence of an open generator of `c`
+whose law the semantics holds (`ParamSig.assoc`, `ParamSig.idem`). -/
+def openLawRead (c : Semantics) (a : Kore.Axiom) : Bool :=
+  c.params.any fun k =>
+    let f := c.symName k.sig.name
+    let s := KoreAML.srt (c.sortName k.sig.result)
+    k.raw && ((k.assoc && lawSentenceIs "assoc" (openAssocAx f s) a) ||
+      (k.idem && lawSentenceIs "idem" (openIdemAx f s) a))
+
+/-- The law axioms of the sentences `ss` read as the laws of an open generator of `c`
+(`openLawRead`), each with its position. -/
+def openLawAxioms (c : Semantics) (ss : List Kore.Sentence) : List (Nat × Kore.Axiom) :=
+  ss.zipIdx.filterMap fun (s, i) => match s, classify s with
+    | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
+      if openLawRead c a then some (i, a) else none
     | _, _ => none
 
 mutual

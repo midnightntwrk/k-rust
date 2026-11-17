@@ -584,9 +584,14 @@ ranges overlap the text states no value (`silentTable`), Γ states the interpret
 there is a condition on the interpretation. The same law of another
 symbol states something of that symbol which no reading of the collections states. -/
 
-/-- The law axioms whose symbol is neither the concatenation of a collection of `d` (an idempotence
-axiom: of a set) nor a function of `d` or a parameter no hook implements and no open generator
-(`fnLawHead`; whose laws `presOf` reads into `Presentation.laws`, `fnLawAxioms`): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
+/-- The law axioms read by none of the readings, in this order: the concatenation of a
+collection of `d` (an idempotence axiom: of a set), an open generator's associativity or
+idempotence sentence (`openLawRead`, read into `ParamSig.assoc`, `ParamSig.idem`), a function of
+`d` or a parameter no hook implements and no open generator (`fnLawHead`; whose laws `presOf` reads
+into `Presentation.laws`, `fnLawAxioms`). One refusal for each other: `openLaw` for another law of
+an open generator, `lawAxiom` for the law of any other symbol, the symbol and the law named, with,
+for the idempotence of a symbol that kept `constructor`, that it contradicts the constructor's
+no-confusion axioms (`f(x, x) = x` against the distinctness of `f` and `x`). -/
 def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -595,12 +600,27 @@ def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
     let off := preludeLength k
     let concatOf := fun (h : String) (set : Bool) =>
       c.allColls.any fun cs => c.symName cs.concat == h && (!set || cs.kind == .set)
+    let openGen := fun (h : String) => c.params.any fun k => k.raw && c.symName k.sig.name == h
+    let ctor := fun (h : String) => c.ctors.any fun k => c.symName k.name == h
     m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
       | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
         let h := (lawHead? a).getD ""
-        if concatOf h (hasAttr a.attributes "idem") || fnLawHead c h then none
-        else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {", ".intercalate (lawKeys a)}"⟩
+        let keys := ", ".intercalate (lawKeys a)
+        if concatOf h (hasAttr a.attributes "idem") || openLawRead c a || fnLawHead c h then none
+        else if openGen h then some ⟨some (off + i), headOf s, .openLaw, s!"{h}: {keys}"⟩
+        else if ctor h && hasAttr a.attributes "idem" then
+          some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}: idempotence of a constructor contradicts its no-confusion axioms"⟩
+        else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}"⟩
       | _, _ => none
+
+/-- The law axioms of the open generators of `d` (`openLawAxioms`), each an axiom of `Γ`
+(`Faithful.lawItemsK`): the sentence's index, the symbol and the laws named. The interpretations
+the statements speak of satisfy each at values (`OpenLaws`, owed). -/
+def openLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String × List String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m => (openLawAxioms d.sem m.sentences).map fun (i, a) =>
+    (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
 
 /-- The law axioms on the functions of `d` (`fnLawAxioms`), each read as the law of
 `Presentation.laws` at its place: the sentence's index, the symbol and the laws named. Each is

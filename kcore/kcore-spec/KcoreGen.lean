@@ -2784,6 +2784,11 @@ def account (koreFile : String) : IO UInt32 := do
     let lu := Parse.lawUnmatched k d
     IO.println s!"law axioms of no collection's concatenation: {lu.length}"
     for r in lu.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when the text writes a law for an open generator that is read
+    let ol := Parse.openLawSentences k d
+    unless ol.isEmpty do
+      IO.println s!"law axioms of open generators, read as axioms of Γ (ParamSig.assoc, ParamSig.idem; OpenLaws owed): {ol.length}"
+      for (i, h, ls) in ol do IO.println s!"      sentence {i} ({h}): openLaw ({", ".intercalate ls}): OpenLaws owed"
     -- printed only when the text has an open generator
     let of := Parse.openFunctionalSentences k d
     unless of.isEmpty do
