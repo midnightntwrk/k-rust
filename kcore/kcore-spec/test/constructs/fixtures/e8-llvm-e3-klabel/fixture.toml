@@ -1,0 +1,4 @@
+expect = "error"
+main = "e3-klabel.k"
+text_from = "e3-klabel"
+args = ["--backend", "llvm", "e3-klabel.k", "-o", "out"]

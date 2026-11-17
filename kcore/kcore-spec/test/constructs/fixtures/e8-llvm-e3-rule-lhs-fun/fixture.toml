@@ -1,0 +1,4 @@
+expect = "error"
+main = "e3-rule-lhs-fun.k"
+text_from = "e3-rule-lhs-fun"
+args = ["--backend", "llvm", "e3-rule-lhs-fun.k", "-o", "out"]

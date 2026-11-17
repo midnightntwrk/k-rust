@@ -1,0 +1,11 @@
+command: kompile --backend llvm e2-open-mixed-clause.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 13.7
+definition.kore bytes: 86840
+definition.kore sha256: 51191fe1e22fe7ab56744ff784d5af990f78e80f351b0d05d38bc3fbb02e86c7
+stripped sha256: 3f041bf2886df09046090b04ae3170a6fc49858d4d4f6964d5a3f1a4856baff9
+main module: 254 sentences, 30 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-MIXED-CLAUSE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-MIXED-CLAUSE as default.

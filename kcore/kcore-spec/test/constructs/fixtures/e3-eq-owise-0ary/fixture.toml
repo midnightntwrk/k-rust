@@ -1,0 +1,7 @@
+expect = "error"
+observed = """
+An [owise] equation of a 0-ary function with no unbound variable: f() => 1 requires g() beside
+f() => 0 [owise], g() => true. The frontend writes the text; kore-exec rejects it (ErrorVerify, no
+location: 'Found invalid subterm in argument of function equation: \\top{_}()', the [owise]
+equation's argument \\top, its antiLeft \\not(\\equals(Lblg{}(), true))) and kompile exits 113.
+"""

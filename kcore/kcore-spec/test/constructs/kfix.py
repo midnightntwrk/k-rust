@@ -33,7 +33,8 @@ A fixture directory holds its K text(s) and fixture.toml:
            sentence); differs_from: the same, must differ
   text_from  another fixture whose text files are copied beside this one's (an option fixture
            kompiles another fixture's text); kore.txt then holds the sentences not in that
-           fixture's main module instead of base's
+           fixture's main module instead of base's (base's still where that fixture is an error
+           fixture, which has no main module)
   external files of the k-rust checkout (K_RUST, paths relative to it) copied beside the text
            before kompiling; kompile.txt records each one's sha256
   kore_txt false: write no kore.txt (a large text no row points into, such as kore.k's)
@@ -41,6 +42,10 @@ A fixture directory holds its K text(s) and fixture.toml:
            Source in the fixture or matching one of these are written
   args     the whole command line after kompile instead of `--backend haskell EXTRA MAIN -o out`
            (an option that writes no definition, such as --help)
+  left_lines  [FIRST, LAST], for an error fixture: when kompile leaves out/definition.kore, its
+           size and sha256 go into kompile.txt and kore.txt holds those lines of it (paths
+           replaced), each after a line `//@ line N` (a text a backend rejects, such as at the
+           line its message names)
   expectation, observed  prose read by no tool: what the text's sentences give, and kore.txt lines
            quoted with their line numbers
   kore     a KORE text (path relative to kcore-spec) that kompile 7.1.337 does not write, such as
@@ -467,6 +472,8 @@ def run(name):
         cache_put(kore)
         ss = sentences(main_module(kore))
         ref = c.get("text_from", "base")
+        if conf(ref)["expect"] == "error":
+            ref = "base"
         if name == "base":
             keep = set()
         else:
@@ -508,6 +515,16 @@ def run(name):
                                if p.startswith(src + "/") else relsource.relative(p, kr))
     elif ok:
         rep.append("definition.kore: none written")
+    elif "left_lines" in c and os.path.exists(kp):
+        kore = norm(open(kp).read(), src)
+        a, b = c["left_lines"]
+        lines = kore.split("\n")
+        rep += [f"definition.kore left: {len(kore.encode())} bytes, {len(lines)} lines, sha256 {sha(kore)}",
+                f"kore.txt: its lines {a} to {b}"]
+        open(os.path.join(FX, name, "kore.txt"), "w").write(
+            "".join(f"//@ line {i}\n{lines[i - 1]}\n" for i in range(a, min(b, len(lines)) + 1)))
+    elif "left_lines" in c:
+        rep.append("definition.kore: none left")
     if (c["expect"] == "ok") != ok:
         rep.append(f"UNEXPECTED: expect {c['expect']}")
     lines = out.strip().split("\n")

@@ -1,0 +1,4 @@
+expect = "error"
+main = "e3-eq-exists-noens.k"
+text_from = "e3-eq-exists-noens"
+args = ["--backend", "llvm", "e3-eq-exists-noens.k", "-o", "out"]

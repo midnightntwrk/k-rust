@@ -1,0 +1,17 @@
+command: kompile --backend llvm e2-clause-genless.k -o out  (cwd: the fixture directory)
+exit: 1
+seconds: 5.9
+output:
+  [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-genless.k)
+  	Location(10,30,10,31)
+  	10 |	  rule f() => 1 requires isC(H:S) [unboundVariables(H)]
+  	   .	                             ^
+  [Error] Internal: Uncaught exception thrown of type NoSuchElementException.
+  Please rerun your program with the --debug flag to generate a stack trace, and
+  file a bug report at https://github.com/runtimeverification/k/issues
+  (NoSuchElementException: key not found: VarH)
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-GENLESS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-CLAUSE-GENLESS as default.
