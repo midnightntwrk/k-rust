@@ -1148,3 +1148,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
+  159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
+  every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
+  and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
+  compared with the equation's pattern over the registry's names. Axioms guarded.
