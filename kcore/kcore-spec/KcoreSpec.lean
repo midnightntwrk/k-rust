@@ -320,3 +320,4 @@ import KcoreSpec.TieRulePair
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
+import KcoreSpec.TieRuleGuard
