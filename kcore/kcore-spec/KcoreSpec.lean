@@ -305,3 +305,4 @@ import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
 import KcoreSpec.ClausePreTie
+import KcoreSpec.TieRuleLhs

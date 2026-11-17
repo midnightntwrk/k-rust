@@ -1354,3 +1354,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`fns_entailed`) and the sentence with the two families entails the item (`w1`). Expectations
   from the sentences as written: `f_neg1` (`f(-1)` has no value), `f_2` (`f(2) = 2`, the `[owise]`
   sentence). About 4 minutes.
+- `test/NoteOrSplit.lean`, `NoteTopVar.lean`, `NoteExVar.lean`: the tie (C14) of the reading notes
+  `orSplit`, `topAsVariable` and `existsAsVariable` on their construct fixtures' kompiled texts
+  (`f2-examples/mlor`, `mltop`, `mlex`), for every H. The rule sentence is of class *weaker*: it is
+  the item of the rewrite axiom with the text's left side at the table of Γ's axiom (`rule_text0`;
+  `TieRuleLhs.itemAt`, KcoreSpec/TieRuleLhs.lean), every element of Γ's left side is one of the
+  text's (`left0`: a disjunct in the disjunction, a variable of Exp in `\top{SortExp{}}`, the body
+  in the `\exists`, under a monotone application context), so the sentence entails each of Γ's
+  rule items (`rule_from_text`, `TieRuleLhs.rule_w1`; for `orSplit` with `ΓDomains`, which puts
+  the values `a()` and `b()` in Exp). Function equations `shape`, `fns_entailed`; `cons_entailed`;
+  `account`; `consistent`. Expectations from `Pre H` (`pre_model`): the steps `or_a`, `or_b`,
+  `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
+  `attrsAgree` is false (`attrs_prios`: one rewrite axiom, two rules); its other four parts hold.
+  About 4 minutes each.
