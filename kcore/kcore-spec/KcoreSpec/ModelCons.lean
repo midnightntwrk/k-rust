@@ -1067,7 +1067,8 @@ theorem sat_pairItem {g g' : Gen} (hp : (g, g') ∈ pairs ((c.gens N).filter (!c
         simp only [genVal] at he
         rw [hf, hf', hkk.2, hkk'.2] at he
         obtain ⟨rfl, -⟩ := OvlLaws.lift_ctor_inj he
-        simp only [Semantics.distGuarded, Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true,
+        rw [distGuarded_eq_of_noFnOvl h.noFn] at hdg
+        simp only [Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true,
           List.contains_iff_mem, not_and] at hdg
         cases ho : c.isOvl k.name || c.isOvl k'.name with
         | true =>
@@ -2079,7 +2080,7 @@ variable {T : GroundTerm → GroundTerm → Prop}
 of the open generators where the interpretation satisfies the laws (`OpenLaws`). -/
 theorem satConsGoal (h : HypModelCore c) (hl : OpenLaws c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
   refine sat_itemsPremises c fun it hit => ?_
-  unfold consItemsK at hit
+  rw [consItemsK_eq_of_noFnOvl h.noFn] at hit
   dsimp only at hit
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
