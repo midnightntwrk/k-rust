@@ -643,6 +643,56 @@ theorem model_capGas_dist_mem :
         (Gen.toK ovlfun (.inj nS)) (Model.ovlArgsOf ovlfun (.ctor capGasO.sig)) (Model.ovlArgsOf ovlfun (.inj nS))).pat) = true := by
   decide +kernel
 
+/-! ## Evaluation at a covered application, and the declarations' facts -/
+
+/-- The clause of `capN`: `capN(z #as G0) = G0`. -/
+def capNCl : Clause := { vars := [nS], pats := [.as (.app z []) 0], req := none, rhs := .var 0, ens := none }
+
+/-- **`capN(z)` evaluates to `z`**, by its one clause. -/
+theorem eval_capN_z : Eval ovlfun capN [.ctor z []] (some (.ctor z [])) :=
+  .clause (fn := capNFn) (cl := capNCl) (σ := [(0, .ctor z [])])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by
+      cases i with
+      | zero => cases h; exact ⟨.ctor z [], rfl, by decide +kernel⟩
+      | succ i => simp [capNCl] at h)
+    (.cons (.as (.ctor (by decide +kernel) .nil) rfl) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNCl := by simpa [capNFn, capNCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    .var (fun t ht => by cases ht)
+
+/-- **A covered application evaluates to the function's value, injected** (`EvalTerm.ovlFn`):
+`capGas(inj{N,Gas}(z))` evaluates to `inj{N,Gas}(z)`, the value of `capN(z)` in Gas. -/
+theorem evalTerm_capZ : EvalTerm ovlfun [] capZ (some (.inj nS gasS (.ctor z []))) :=
+  EvalTerm.ovlFn (rs := [some (.inj nS gasS (.ctor z []))]) (vs := [.inj nS gasS (.ctor z [])])
+    (o := capGasO) (kg := capNSig) (r := some (.ctor z []))
+    (by decide +kernel) (by decide +kernel)
+    (.cons (.inj (.ctor (f := z) (rs := []) (by decide +kernel) .nil)) .nil) rfl
+    (by decide +kernel) (by decide +kernel) eval_capN_z
+
+/-- **The facts the laws of `norm` read of the declarations hold of `ovlfun`**, whose `capGas`
+overloads the function `capN`: they exclude no function among the overloads. -/
+theorem fnFacts_ovlfun : OvlLaws.OvlFnFacts ovlfun where
+  isOvl := by decide +kernel
+  over := by decide +kernel
+  coh := by decide +kernel
+  closed := fun o ho kg hkg o' ho' => by
+    have he : ovlfun.ovls = [capGasO] := by decide +kernel
+    rw [he] at ho
+    obtain rfl := List.mem_singleton.mp ho
+    have hov : ovlfun.ovlOver capGasO = [capNSig] := by decide +kernel
+    rw [hov] at hkg
+    obtain rfl := List.mem_singleton.mp hkg
+    have hn : ovlfun.lookupOvl capNSig.name = none := by decide +kernel
+    rw [hn] at ho'
+    cases ho'
+
+/-- info: 'OvlFun.Cap.evalTerm_capZ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms evalTerm_capZ
+/-- info: 'OvlFun.Cap.fnFacts_ovlfun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnFacts_ovlfun
 /-- info: 'OvlFun.Cap.model_capGas_dist' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms model_capGas_dist
 /-- info: 'OvlFun.Cap.model_capGas_items' depends on axioms: [propext, Classical.choice, Quot.sound] -/

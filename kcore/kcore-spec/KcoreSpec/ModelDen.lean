@@ -10,6 +10,7 @@
   one-entry collection with a collection of larger keys being the collection of both.
 -/
 import KcoreSpec.ModelCarrier
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.FloatLaws
 import KcoreSpec.OpenValues
 
@@ -877,7 +878,7 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
     have hd : den c (.ctor f ts) = KoreAML.appList (KoreAML.sym (.symbol (c.symName f)))
         ((GroundTerm.koreList c ts).map (KoreAML.tr ⟨[], []⟩)) := by
       unfold den KoreAML.den; rw [GroundTerm.kore]; exact tr_ap _ _
-    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', -, -⟩ | ⟨-, -, kp, hko, hts', hkr, rfl⟩
+    rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, hts', -⟩ | ⟨hk, o, ho, hts', hu, -⟩ | ⟨-, -, kp, hko, hts', hkr, rfl⟩
     rotate_right
     · obtain ⟨hlp, hi⟩ := h.open_param hko
       exact den_open h hko hlp hi hts' hkr hv e (den_list h ts hts' e)
@@ -890,14 +891,13 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
         symE_vals h.namesK hks (sortsOf_length hts'), result_ctor hc]
     · -- a raw overloading application: the symbol's normal form, which is itself (`norm_fixed`)
       have H := h.ovlHyp
-      obtain ⟨hon, hio, -⟩ := OvlLaws.ovl_facts H ho
-      have hom : o ∈ c.ovls := List.mem_of_find?_eq_some ho
+      obtain ⟨hom, hon, hio, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts ho
       have hks : o.sig ∈ kernelSyms c := List.mem_append_right _ (List.mem_map_of_mem hom)
-      have hfix := OvlLaws.norm_fixed H ho hv
+      have hfix := OvlLaws.norm_fixed_ovlF H H.fnFacts ho hv
       intro m
       rw [hd, interp_symList _ _ _ (den_list h ts hts' e) m, ← hon,
         symE_vals h.namesK hks (sortsOf_length hts'), result_ovl (by rw [hon]; exact hio)
-          (OvlLaws.fnCover_none_of_ok h.ovlOK _ _), hon, hfix]
+          (by rw [hon]; exact OvlLaws.fnCover_none_of_uncovered hu), hon, hfix]
   | .inj a b t, s, hv, e => by
     rw [Semantics.sortOf] at hv
     split at hv

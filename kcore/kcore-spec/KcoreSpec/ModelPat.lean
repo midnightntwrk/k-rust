@@ -20,7 +20,7 @@
 -/
 import KcoreSpec.ModelRead
 import KcoreSpec.Terminates
-import KcoreSpec.ModelCons
+import KcoreSpec.ModelConsFn
 
 set_option autoImplicit false
 
