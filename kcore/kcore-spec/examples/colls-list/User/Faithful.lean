@@ -39,6 +39,9 @@ theorem patHeads_ok : patHeadsOK c = true := by decide +kernel
 
 /-- Each rule's left side binds every variable of the rule. -/
 theorem rules_bind : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true := by decide +kernel
+/-- Each rule's predicates are `\top`. -/
+theorem rules_top : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top :=
+  Semantics.rulesTop_of_isTop (by decide +kernel)
 theorem clauses_bind : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true := by
   decide +kernel
 
@@ -56,7 +59,7 @@ theorem prio_flat : c.rules.all (fun r => c.rules.all fun r0 => !decide (r.prio 
 /-- **Every step of CollsList is a theorem of `Γ`**: in every model of `Γ c`, a configuration has
 each of its `Step` successors as a successor. -/
 theorem step_sound : ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  Faithful.step_sound c hypSound rules_bind clauses_bind
+  Faithful.step_sound c hypSound rules_bind rules_top clauses_bind
 
 #print axioms step_sound
 

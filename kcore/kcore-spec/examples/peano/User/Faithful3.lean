@@ -18,7 +18,7 @@ theorem stage3 : Stage3 c := stage3_of_stage2 FaithfulWitness.stage2
 
 /-- **Every step of peano is a theorem of `Γ`**, by the third stage's theorem. -/
 theorem step_sound : ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  step_sound_stage3 c FaithfulWitness.hyp FaithfulWitness.rules_bind FaithfulWitness.clauses_bind stage3
+  step_sound_stage3 c FaithfulWitness.hyp FaithfulWitness.rules_bind FaithfulWitness.rules_top FaithfulWitness.clauses_bind stage3
 
 #print axioms step_sound
 

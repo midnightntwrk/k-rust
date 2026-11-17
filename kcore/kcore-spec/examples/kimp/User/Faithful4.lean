@@ -24,6 +24,10 @@ theorem okAll : c.okAll = true := Semantics.okAll_of_ok ok
 theorem rules_bind : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true :=
   fun _ hr => (Semantics.ok_rule ok hr).2.2.2
 
+/-- Each rule's predicates are `\top` (`ok_rule`). -/
+theorem rules_top : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top :=
+  fun _ hr => ⟨(Semantics.ok_rule ok hr).2.1, (Semantics.ok_rule ok hr).2.2.1⟩
+
 /-- Each clause's patterns bind every variable of the clause (`ok_clauseBinds`). -/
 theorem clauses_bind : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true :=
   Semantics.ok_clauseBinds ok
@@ -76,7 +80,7 @@ theorem stage4a : Stage4a c := by
 
 /-- Every step of kimp is a theorem of `Γ`, by the fourth stage's theorem. -/
 theorem step_sound_stage4a' : ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  step_sound_stage4a c hyp rules_bind clauses_bind stage4a
+  step_sound_stage4a c hyp rules_bind rules_top clauses_bind stage4a
 
 theorem mapSort_ok : mapSortOK c = true := by decide +kernel
 
@@ -95,7 +99,7 @@ theorem hypSound : HypSound c :=
 `Γ c`, a configuration has each of its `Step` successors as a successor, its store read through
 the map symbols' graphs. -/
 theorem step_sound : ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  Faithful.step_sound c hypSound rules_bind clauses_bind
+  Faithful.step_sound c hypSound rules_bind rules_top clauses_bind
 
 #print axioms step_sound
 

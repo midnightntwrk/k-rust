@@ -90,7 +90,7 @@ theorem sNext_iff (φ : KoreAML.P) (e : Valuation Elem) (x : GroundTerm) :
   AtT.sNext_iff (c := c) (T := StepM c) (φ := φ) (e := e) (x := x)
 
 /-- The right-hand side of a rule, at the configuration sort, and its value. -/
-theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {tbl : KoreAML.VarTable} {e : Valuation Elem}
+theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hpost : r.post = .top) {tbl : KoreAML.VarTable} {e : Valuation Elem}
     {σ : Subst} (hσ : c.WellSorted r.vars σ)
     (hvar : ∀ i, i < r.vars.length → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c r.vars) i)).interpret
       (stdI c) e m ↔ ∃ v, σ.lookup i = some v ∧ m = .val v)
@@ -106,8 +106,7 @@ theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {tbl : Kor
   have hys := rhs_sorted_coreCl h.hyp.1 h.hyp.2.1 h.ovlCase hr hσ hy
   have hensS := rule_ctx_ensCl h.hyp.1 hr
   rw [sNext_iff]
-  have hpq := Semantics.sortedOKCl_ruleTop h.hyp.1 hr
-  refine ⟨y, ?_, hx, hys, r, hr, σ, hσ, hmatch, hreq, hpq.1 ▸ .top, hy, hens, hpq.2 ▸ .top, hprio⟩
+  refine ⟨y, ?_, hx, hys, r, hr, σ, hσ, hmatch, hreq, hpre ▸ .top, hy, hens, hpost ▸ .top, hprio⟩
   rw [tr_and2, KoreAML.interp_sAnd]
   refine ⟨(hrhs _).mpr ⟨y, hy, rfl⟩, ?_⟩
   cases hq : r.ens with

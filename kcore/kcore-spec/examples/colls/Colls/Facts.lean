@@ -18,15 +18,17 @@ theorem rhs_sorted {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSor
   rhs_sorted_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ he
 
 /-- So every application of a rule to a configuration is a step: a match under a well-sorted σ, a
-true `requires`, a defined right-hand side, a true `ensures`, and no rule of a smaller priority
-applying. -/
+true `requires`, the predicate `pre` holding, a defined right-hand side, a true `ensures`, the
+predicate `post` holding, and no rule of a smaller priority applying. -/
 theorem step_of_apply {r : Rule} (hr : r ∈ c.rules) {x : Config c} {σ : Subst}
     (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, Colls.rhs_sorted hr hσ he⟩ :=
-  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq he hens hprio
+  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq hpre he hens hpost hprio
 
 end Colls

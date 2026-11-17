@@ -2123,16 +2123,18 @@ theorem rhs_sorted (H : HookParams) \{r : Rule} (hr : r ∈ c.rules) \{σ : Subs
   rhs_sorted_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ he
 
 /-- So every application of a rule to a configuration is a step: a match under a well-sorted σ, a
-true `requires`, a defined right-hand side, a true `ensures`, and no rule of a smaller priority
-applying. -/
+true `requires`, the predicate `pre` holding, a defined right-hand side, a true `ensures`, the
+predicate `post` holding, and no rule of a smaller priority applying. -/
 theorem step_of_apply (H : HookParams) \{r : Rule} (hr : r ∈ c.rules) \{x : Config (c.withHooks H)}
     \{σ : Subst} (hσ : (c.withHooks H).WellSorted r.vars σ) (hm : PatVal (c.withHooks H) σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpre : Holds (c.withHooks H) r.vars.length σ r.pre true)
     \{v : GroundTerm} (he : EvalTerm (c.withHooks H) σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm (c.withHooks H) σ t (some (bool true)))
+    (hpost : Holds (c.withHooks H) r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies (c.withHooks H) r' x.val) :
     Step (c.withHooks H) x ⟨v, {ns}.rhs_sorted H hr hσ he⟩ :=
-  step_of_apply_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ hm hreq he hens hprio" else s!"
+  step_of_apply_all_withHooks okAll srReady (Semantics.ovlCase_of (by decide +kernel)) H hr hσ hm hreq hpre he hens hpost hprio" else s!"
 /-- **Subject reduction**: a rule's right-hand side, evaluated under a substitution of the rule's
 variable sorts, is a configuration when defined. -/
 theorem rhs_sorted \{r : Rule} (hr : r ∈ c.rules) \{σ : Subst} (hσ : c.WellSorted r.vars σ)
@@ -2140,16 +2142,18 @@ theorem rhs_sorted \{r : Rule} (hr : r ∈ c.rules) \{σ : Subst} (hσ : c.WellS
   rhs_sorted_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ he
 
 /-- So every application of a rule to a configuration is a step: a match under a well-sorted σ, a
-true `requires`, a defined right-hand side, a true `ensures`, and no rule of a smaller priority
-applying. -/
+true `requires`, the predicate `pre` holding, a defined right-hand side, a true `ensures`, the
+predicate `post` holding, and no rule of a smaller priority applying. -/
 theorem step_of_apply \{r : Rule} (hr : r ∈ c.rules) \{x : Config c} \{σ : Subst}
     (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x.val)
     (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true)
     \{v : GroundTerm} (he : EvalTerm c σ r.rhs (some v))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, {ns}.rhs_sorted hr hσ he⟩ :=
-  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq he hens hprio"
+  step_of_apply_all okAll srReady (Semantics.ovlCase_of (by decide +kernel)) hr hσ hm hreq hpre he hens hpost hprio"
   if !exec then o ← o.write s!"{ns}.Facts" (s!"import {ns}.Facts.Ok\nimport {ns}.Facts.SrReady\nimport {ns}.Facts.Lazy\nimport KcoreSpec.Params\n" ++
     hdr "The definition's facts, joined: `okAll` and `srReady` (the core is outside `ok`, which the executable matcher's theorems read), and subject reduction from them." ++ s!"
 namespace {ns}

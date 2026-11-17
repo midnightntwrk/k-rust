@@ -588,11 +588,11 @@ theorem successorsN_sound (hok : c.sortedOK = true) (hsr : c.srReady = true) (ho
         exact absurd (isTrue_iff.mpr rfl) (by rw [hf]; simp)
 
 /-- Every successor the executable step lists, at any fuel, is a configuration `Step` reaches. -/
-theorem successorsN_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successorsN_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   obtain ⟨r, hr, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩ := successorsN_sound hok hsr hov hcm hrc hy
-  exact ⟨hs, Step.rule_top r hr σ (Semantics.sortedOK_ruleTop hok hr).1 (Semantics.sortedOK_ruleTop hok hr).2 hσ hpv hreq hrhs hens hprio⟩
+  exact ⟨hs, Step.rule_top r hr σ (htop _ hr).1 (htop _ hr).2 hσ hpv hreq hrhs hens hprio⟩
 
 /-- `successors` keeps successors of `successorsN` only. -/
 theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),
@@ -610,13 +610,13 @@ theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),
 
 /-- **The executable step is sound**: every successor `CExec.successors` lists is a `Step`
 successor, given the matcher's completeness for the clauses and the rules. -/
-theorem successors_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successors_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {x : Config c} {y : GroundTerm}
     (hy : y ∈ successors c x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   unfold successors at hy
   rcases mem_of_mem_dedup _ [] hy with h | h
   · nomatch h
-  · exact successorsN_step hok hsr hov hcm hrc h
+  · exact successorsN_step hok hsr hov htop hcm hrc h
 
 /-- `successors_step` from the readiness check. -/
 theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete c)

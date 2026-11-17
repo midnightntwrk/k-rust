@@ -32,7 +32,7 @@ variable {c : Semantics}
 
 /-- The free variables of the axiom of a rule with `ruleSorted` and `rulePlainOpen` are its own. -/
 theorem freeOf_prioOpen (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true)
-    (hp : c.rulePlainOpen r = true) {k : KoreAML.VarKey} (hk : k ∈ KoreAML.freeOf [] (prioRuleK c r)) :
+    (hp : c.rulePlainOpen r = true) (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true) {k : KoreAML.VarKey} (hk : k ∈ KoreAML.freeOf [] (prioRuleK c r)) :
     ∃ i < r.vars.length, k = canonKey c r.vars i := by
   obtain ⟨hlhs, -, hreqs, hens, hrhss⟩ := ruleSorted_partsOpen hs hp
   obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
@@ -83,7 +83,7 @@ theorem freeOf_prioOpen (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = t
     · exfalso
       obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
       obtain ⟨r', hr', rfl⟩ := List.mem_map.mp hφ
-      obtain ⟨hs', hp'⟩ := h.ruleFactsEx (List.mem_filter.mp hr').1
+      obtain ⟨hs', hp'⟩ := hrules r' (List.mem_filter.mp hr').1
       obtain ⟨hlhs', -, hreqs', -, -, -⟩ := ruleSorted_partsEx hs' hp'
       exact freeOf_appliesOpen hlhs' (fun t ht i hi => varOccs_lt t (hreqs' t ht) i hi)
         (Semantics.rulePlainEx_top hp').1 hk
@@ -95,6 +95,8 @@ model satisfies the step's closure axiom. -/
 theorem satStepGoal_open (h : HypModelCore c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : SatStepGoal c := by
   have hn := h.namesK
+  have hrulesEx : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true :=
+    fun r' hr' => ⟨(hrules r' hr').1, (Semantics.rulePlainOpen_iff_ex.mp (hrules r' hr').2).1⟩
   rintro φ rfl
   rw [stepClosure_pat]
   dsimp only
@@ -135,7 +137,7 @@ theorem satStepGoal_open (h : HypModelCore c)
   obtain ⟨hs, hp⟩ := hrules r hr
   obtain ⟨-, -, -, hensS, hrhss⟩ := ruleSorted_partsOpen hs hp
   have hnum := rule_vars_numOpen h hs hp
-  obtain ⟨L, hPL, hLk, hLread⟩ := rule_premise_open h hs hp
+  obtain ⟨L, hPL, hLk, hLread⟩ := rule_premise_open h hs hp hrulesEx
   -- its disjunct
   obtain ⟨off, hoff, hmem⟩ := stepF_mem y (c.rules.map (prioRuleK c)) ([], [], 0) (prioRuleK c r)
     (List.mem_map.mpr ⟨r, hr, rfl⟩)
@@ -194,7 +196,7 @@ theorem satStepGoal_open (h : HypModelCore c)
       ks.2 = KoreAML.srt (c.sortName (r.vars.getD i 0)) := by
     intro ks hks
     obtain ⟨hk1, n, hn⟩ := mem_filterMap_evar hks
-    obtain ⟨i, hi, he⟩ := freeOf_prioOpen h hs hp (List.mem_eraseDups.mp hk1)
+    obtain ⟨i, hi, he⟩ := freeOf_prioOpen h hs hp hrulesEx (List.mem_eraseDups.mp hk1)
     refine ⟨i, hi, he, ?_⟩
     rw [he, canonKey_eq c hi] at hn
     injection hn with _ h2

@@ -116,11 +116,11 @@ theorem fnTerminates3 : FnTerminates c3 := by
 
 /-- **`stepDecided_of_coreCl` at `c3`**: every configuration of `c3` is `StepDecided`. -/
 example (x : GroundTerm) : StepDecided c3 x :=
-  Faithful.stepDecided_of_coreCl decided.1 rulesBind3 decided.2.1 ovl3 fnTerminates3 x
+  Faithful.stepDecided_of_coreCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 ovl3 fnTerminates3 x
 
 /-- **`stepDecided_of_fnHypCl` at `c3`.** -/
 example (hf : FnHyp c3) (x : Config c3) : StepDecided c3 x.val :=
-  stepDecided_of_fnHypCl decided.1 rulesBind3 decided.2.1 (OvlOK.of_nil decided.2.2.1 decided.2.2.2) hf x
+  stepDecided_of_fnHypCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 (OvlOK.of_nil decided.2.2.1 decided.2.2.2) hf x
 
 /-- `sortedOKCl_of_sortedOK` at the text's semantics. -/
 example : c.sortedOKCl = true := Semantics.sortedOKCl_of_sortedOK (Semantics.coreOK_parts (by decide +kernel)).1

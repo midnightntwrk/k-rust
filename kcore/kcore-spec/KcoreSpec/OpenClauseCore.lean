@@ -20,12 +20,12 @@ open Faithful
 
 /-- **A semantics `coreOK` accepts, none of whose clauses has a variable its patterns do not bind,
 reads no confined sort.** -/
-theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) : c.readsConfined = false := by
   have hok := (Semantics.coreOK_parts h).1
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr => ?_, fun fn hfn => ?_⟩
-  · obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hok hr
+  · obtain ⟨hpre, hpost⟩ := htop _ hr
     simp [Rule.opens_of_binds (hb r hr), hpre, hpost, Cond.isTop]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'
@@ -33,9 +33,9 @@ theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) 
     simp [hcl fn hfn cl hcl', hpre, hpost, Cond.isTop]
 
 /-- **The theory of such a semantics is `Γ`.** -/
-theorem Γc_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) :
+theorem Γc_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) :
     Γc c = Γ c :=
-  Γc_plain (Semantics.readsConfined_of_coreCl h hb hcl)
+  Γc_plain (Semantics.readsConfined_of_coreCl h hb htop hcl)
 
 /-- **`OpenDecided` of a semantics `sortedOK` accepts, where each clause's conditions are decided
 when `needsWitness` holds**: no rule has an open variable. -/
