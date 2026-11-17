@@ -1283,6 +1283,10 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieKkNoJunk.lean`: kore.k's 28 no-junk sentences, each entailed by Γ for every H: 22 are
   Γ's items, 5 are `\or(\top, \bottom)` of sorts without constructors, KItem's is Γ's item with
   its disjuncts permuted. 6.8 GiB, 25 s.
+- `test/KkRawFree.lean`: no parameter of kore.k's semantics is an open generator
+  (`koreSem_rawFree`, by the kernel on the parse of `examples/ref-kk/RefKk/definition.kore`), so
+  its sorts and configurations are the same at every interpretation, `HookParams.none` among them
+  (`koreSem_sortOf_withHooks`, `koreSem_config_withHooks`), and `OpenTotal` holds at every H.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
