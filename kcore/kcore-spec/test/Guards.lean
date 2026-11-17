@@ -100,6 +100,13 @@
     with a generator (`inertNoJunk_everyH`). The fixture sentences are ens's, in test/TieEns.lean
     (`cons_entailed`, `nojunk_items`, `nojunk_trivial_entailed`, `nojunk_kitem_entailed`), which
     this file cannot import.
+  - G4 for `collectionLaw`, `parametricFunctional` and `vacuousLeft`, for every H, each the
+    library's statement of the class (KcoreSpec/InertEv.lean) at `c.withHooks H`: the associativity
+    and the two unit sentences of `_List_` are entailed at values (`inertListLaw_everyH`); the
+    `functional` sentence of `ite` at a sort the definition has is entailed at values
+    (`inertIteFunctional_everyH`: at the instance, the text's sentence being over a sort variable,
+    which no value has for its sort); a rewrite axiom whose left side is empty is entailed
+    (`inertVacuousLeft_everyH`). The fixture sentences are in test/InertEvFixtures.lean.
 -/
 import KcoreSpec
 
@@ -1605,6 +1612,42 @@ theorem inertNoJunk_everyH (c : Semantics) (H : HookParams) {N : Srt} (hN : N �
   intro M _ I hI
   exact sat_cons (c := c.withHooks H) hI (Or.inl ⟨_, noJunkItem_mem (c := c.withHooks H) hN hg, rfl⟩)
 
+/-! ## G4: the inert classes `collectionLaw`, `parametricFunctional`, `vacuousLeft` -/
+
+/-- **The laws of `_List_` are entailed at values, for every interpretation**: an axiom declaration
+whose pattern is the associativity, the right unit or the left unit of `_List_`. `_List_` is total
+on lists and has no silent point: the value of each side is `hook`'s, whatever H. -/
+theorem inertListLaw_everyH (c : Semantics) (hcore : c.coreOK = true) (hs : c.shapesOK = true) (H : HookParams)
+    {E : InertEv.LawEqn} (hE : E = InertEv.listAssoc ∨ E = InertEv.listUnitRight ∨ E = InertEv.listUnitLeft)
+    (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = E.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
+  InertEv.listLaw_ev (c := c.withHooks H) ((Semantics.coreOK_withHooks c H).trans hcore) hs hE ad hp hsv
+
+/-- **`ite` at a sort is total at values, for every interpretation**: for a parameter symbol
+`f : Bool × S × S → S` implemented by the registry's `kIte`, an axiom declaration whose pattern is
+the `functional` sentence of `f` (`InertEv.iteFunPat`). The sentence is the instance at the sort S
+of the text's sentence over a sort variable. `kIte` has no silent point: the value is that of the
+second or of the third argument, whatever H. -/
+theorem inertIteFunctional_everyH (c : Semantics) (hcore : c.coreOK = true) (hs : c.shapesOK = true)
+    (H : HookParams) {k : ParamSig} (hk : c.lookupParam k.sig.name = some k) (himpl : k.impl = some kIte)
+    {S : Srt} (hargs : k.sig.args = [Srt.bool, S, S]) (hres : k.sig.result = S)
+    (hS : S < nRegSorts + c.sortNames.length) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = InertEv.iteFunPat c k.sig.name S) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues (c.withHooks H) ad (KoreAML.trAxiom [] [] ad).pat :=
+  InertEv.iteFun_entailed (c := c.withHooks H) ((Semantics.coreOK_withHooks c H).trans hcore) hs hk himpl hargs
+    hres hS ad hp hsv
+
+/-- **A rewrite axiom with an empty left side is entailed, for every interpretation**: where the
+left side is one `Parse.vacuous` accepts (the condition of `Parse.classifyAxiom`), with any
+declarations and no alias. The proof reads definedness alone, and so no interpretation. -/
+theorem inertVacuousLeft_everyH (c : Semantics) (H : HookParams) {a : Kore.Axiom}
+    (hv : (match a.pattern with
+      | .rewrites _ (.and _ [l, _]) _ => Parse.vacuous l
+      | _ => false) = true)
+    (decls : List KoreAML.SymbolDecl) (i : Nat) (mod : String) :
+    Γ (c.withHooks H) ⊧ (KoreAML.trAxiom decls [] ⟨i, mod, a⟩).pat :=
+  InertEv.vacuousLeft_entailed (c.withHooks H) hv decls i mod
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -1629,6 +1672,9 @@ end KCore.Guards
 #print axioms KCore.Guards.existsDropped_empty
 #print axioms KCore.Guards.inertCons_everyH
 #print axioms KCore.Guards.inertNoJunk_everyH
+#print axioms KCore.Guards.inertListLaw_everyH
+#print axioms KCore.Guards.inertIteFunctional_everyH
+#print axioms KCore.Guards.inertVacuousLeft_everyH
 #print axioms KCore.Guards.DevOr.or_steps
 #print axioms KCore.Guards.DevOr.or_one_stuck
 #print axioms KCore.Guards.DevTop.top_steps
@@ -1881,17 +1927,21 @@ def inertReason : InertReason → GuardEntry
       invariant := [``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
       note := "for every semantics and every H, Γ entails the no-junk item of a constructor sort over its generators; on ens the sentences of the sorts with generators are those items (116 to 120, 122, 123: nojunk_items), KItem's is the item with its disjuncts in the text's order and is entailed (125), and those of the sorts without a generator are valid (115, 121, 124)" }
   | .collectionLaw =>
-    { status := .pending "GUARD.inert",
-      guard := [.test "test/LibProbe.lean" "collectionLaw"],
-      note := "the entailment at values is not stated: for a fixture's assoc, comm or unit sentence, Γ (c.withHooks H) ⊧ its translation at values of the collection sort (EntailsAtValues), from the concatenation hook's graph" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertListLaw_everyH, .test "test/InertEvFixtures.lean" "list_laws_ens"],
+      invariant := [``KCore.Semantics.coreOK, ``KCore.Faithful.ΓDomains],
+      note := "at values, for every semantics with coreOK and shapesOK and every H: the associativity and the two unit sentences of _List_ hold in every model of Γ at the valuations sending their variables to values, each side's value being hook's (_List_ is total on lists and has no silent point); the fixture sentences are ens's 53, 54, 55 (list_laws_ens). Not stated: the laws of _Map_ and _Set_ (ens 57 to 60, 62, 63), whose concatenation has no value at a common key or member, and those of a cell collection's or a range map's concatenation" }
   | .parametricFunctional =>
-    { status := .pending "GUARD.inert",
-      guard := [.test "test/LibProbe.lean" "parametricFunctional"],
-      note := "no entailment of a fixture sentence of the class is stated: the totality of an instance of ite{S} at values, from the graph of Lblite" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertIteFunctional_everyH, .test "test/InertEvFixtures.lean" "ite_int_lazy"],
+      invariant := [``KCore.Semantics.coreOK, ``KCore.Faithful.ΓDomains],
+      note := "at values and at an instance, for every semantics with coreOK and shapesOK and every H: the functional sentence of a parameter ite{S} implemented by kIte holds in every model of Γ at the valuations sending its variables to values, from the graph ΓDomains states of the parameter. The text's sentence is over a sort variable, which no value has for its sort, so it is not stated at values; the fixture is lazy's sentence 39 at SortInt{} (ax39_text, ite_instance, ite_int_lazy). Not stated: an instance of a symbol of the library's parametric sorts, or of a user's sort-parametric function declared total, whose totality where it has no equation is a condition on H (ParamPres.total)" }
   | .vacuousLeft =>
-    { status := .pending "GUARD.inert",
-      guard := [.test "test/Connectives.lean" "vacuousLeft"],
-      note := "a logical truth (⊥ → •R); its entailment is not stated: that the translation of a left side Parse.vacuous accepts is empty in every interpretation, by induction on the pattern" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertVacuousLeft_everyH, .test "test/InertEvFixtures.lean" "vacuous_lhs_bottom",
+        .test "test/Connectives.lean" "vacuousLeft"],
+      invariant := [``KCore.Parse.vacuous],
+      note := "for every semantics and every H, Γ entails a rewrite axiom whose left side Parse.vacuous accepts: the left side's translation holds of no element (InertEv.vacuous_none, by recursion on the pattern), so the axiom holds in every interpretation with definedness; the proof reads no hook. Translated without aliases: an alias application is not expanded, and a text with an alias declaration is refused (aliasDeclaration). The fixture is the rule of e3-ml-rule-lhs-bottom (vacuous_lhs_bottom)" }
 
 def unreadReason : UnreadReason → GuardEntry
   | .cellCollectionInjection =>

@@ -1238,3 +1238,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   fixtures with a competitor (`w1`, `w_text`; `f_5` through the reading). C3EqReqTotal:
   `total_named = [f]`, `fnModelH` and `consistent` with no totality fact. C3EqPrioTotal,
   C3EqPrioTotalComp, C3EqOwiseTotal: `total_named = []`, `total_f`, `model_total`.
+- `test/InertEvFixtures.lean`: the fixture sentences of the inert classes `collectionLaw`,
+  `parametricFunctional` and `vacuousLeft`, each entailed by `Γ (c.withHooks H)` for every H from the
+  library's statement of its class (`KcoreSpec/InertEv.lean`; the guards `inertListLaw_everyH`,
+  `inertIteFunctional_everyH`, `inertVacuousLeft_everyH` of `test/Guards.lean` are those statements at
+  `c.withHooks H`): ens's sentences 53, 54, 55 (associativity and the two units of `_List_`) at
+  values; lazy's sentence 39 (`functional` of `ite{S}`) at `SortInt{}`, the definition's parameter
+  `Lblite{Int}`, at values; the rule of e3-ml-rule-lhs-bottom, whose left side holds `#Bottom`, for
+  every semantics. Axioms guarded.
