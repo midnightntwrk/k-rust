@@ -6,8 +6,9 @@ A module is started only when every KcoreSpec module it imports has finished, so
 build the same module. Lake has no job limit of its own, which is why each run gets its own scope.
 
 How many run at once is decided from the machine, not fixed. Each time a slot is considered, the
-script reads MemAvailable and starts another run only if it leaves RESERVE GiB plus PEAK GiB per
-run free. PEAK is the largest resident size seen so far, starting at 4 GiB. KCORE_JOBS sets an
+script reads MemAvailable and starts another run only if it leaves RESERVE GiB free beyond the
+module's own expected peak, after charging every running lean process the room it has left to grow, up to the peak
+recorded for its source file (shared table, see PEAKS). KCORE_JOBS sets an
 upper bound if given.
 
 The script first asks lake whether anything needs building (`lake build --no-build ROOTS`). If
@@ -52,10 +53,51 @@ def avail_gib():
         if l.startswith("MemAvailable:"): return int(l.split()[1]) / 1048576
     return 0.0
 
-def mine_gib():
-    # resident size of the lean processes building this tree (their command line names K)
+# The largest resident size seen of each source file's lean run, shared by every tree of this user
+# (~/.cache/kcore-lake-peaks.json; keyed by the path below kcore-spec, e.g. KcoreSpec/Step.lean or
+# test/Pins.lean). Every run of this script samples all lean processes and records what it sees, so
+# the table also learns the test files other agents run by hand. A run is charged the room it has
+# left to grow: up to its file's known peak (with a margin), or up to a default when its file was
+# never seen. Charging every run the worst case instead admitted too few runs machine-wide.
+PEAKS = os.path.expanduser("~/.cache/kcore-lake-peaks.json")
+DEFAULT_TEST, DEFAULT_MOD = 9.0, 6.0   # GiB, for a file never seen: a test file can reach 9-10
+known, seen, last_save = {}, {}, 0.0
+try:
+    import json; known = json.load(open(PEAKS))
+except Exception:
+    known = {}
+
+def lean_procs():
+    # (rss GiB, key, args) of every lean process on the machine
     out = subprocess.run(["ps", "-o", "rss=,args=", "-C", "lean"], capture_output=True, text=True).stdout
-    return sum(int(l.split(None, 1)[0]) for l in out.splitlines() if K in l) / 1048576
+    res = []
+    for l in out.splitlines():
+        rss, args = l.split(None, 1)
+        src = next((a for a in args.split() if a.endswith(".lean")), "")
+        key = src.split("/kcore-spec/", 1)[1] if "/kcore-spec/" in src else src
+        res.append((int(rss) / 1048576, key, args))
+    return res
+
+def est_gib(key):
+    if key in known: return min(12.0, known[key] * 1.15)
+    return DEFAULT_MOD if key.startswith("KcoreSpec/") else DEFAULT_TEST
+
+def save_peaks():
+    global known
+    try:
+        import json
+        try: cur = json.load(open(PEAKS))
+        except Exception: cur = {}
+        for k, v in seen.items(): cur[k] = max(cur.get(k, 0.0), round(v, 2))
+        os.makedirs(os.path.dirname(PEAKS), exist_ok=True)
+        tmp = f"{PEAKS}.{os.getpid()}"; json.dump(cur, open(tmp, "w"), indent=0, sort_keys=True); os.replace(tmp, PEAKS)
+        known = cur
+    except Exception:
+        pass
+
+def committed_gib():
+    # the room every running lean process (this tree's and the others') has left to grow
+    return sum(max(0.0, max(est_gib(k), rss) - rss) for rss, k, _ in lean_procs())
 
 def phase1():
     # modules importing no KcoreSpec module pull the other packages (aml-port, kore-lean) in;
@@ -68,7 +110,6 @@ def phase1():
                                                      if "error" in l or "✖" in l)[:4000]); sys.exit(1)
     return {m for m in order if not deps[m]}
 
-peak = 4.0
 done, running, failed = phase1(), {}, None
 pending = [m for m in order if m not in done]
 while pending or running:
@@ -89,21 +130,22 @@ while pending or running:
         for m in list(pending):
             if len(running) >= CAP: break
             if not all(d in done for d in deps[m]): continue
-            # charge every run of this script its expected peak until it exits: a run just
-            # started has not grown yet, so MemAvailable alone would admit too many at once
-            if avail_gib() + mine_gib() - peak * (len(running) + 1) < RESERVE: break
+            # a run just started has not grown yet, so MemAvailable alone would admit too many at
+            # once: charge every running lean process the room it has left, and this module its peak
+            if avail_gib() - committed_gib() - est_gib(m.replace(".", "/") + ".lean") < RESERVE: break
             f = open(f"/tmp/lake-par-{os.getpid()}-{len(done)}-{m}.log", "w+")
             p = subprocess.Popen(["timeout", "3600"] + SCOPE + ["lake", "build", "+" + m],
                                  env=env, stdout=f, stderr=subprocess.STDOUT)
             running[m] = (p, time.time(), f); pending.remove(m)
-    # track the largest resident lean process seen, to size the next start
+    # record the largest resident size seen of each lean run, here and in other trees
     try:
-        out = subprocess.run(["ps", "-o", "rss=,args=", "-C", "lean"], capture_output=True, text=True).stdout
-        top = max([int(l.split(None, 1)[0]) for l in out.splitlines() if K in l] or [0]) / 1048576
-        peak = max(peak, min(top * 1.25, 12.0))
+        for rss, k, _ in lean_procs():
+            if k: seen[k] = max(seen.get(k, 0.0), rss)
+        if time.time() - last_save > 30: save_peaks(); last_save = time.time()
     except Exception:
         pass
     time.sleep(0.5)
 
+save_peaks()
 if failed: sys.exit(1)
-print(f"all built ({time.time()-t0:.0f} s, peak per module about {peak:.1f} GiB)")
+print(f"all built ({time.time()-t0:.0f} s)")
