@@ -186,3 +186,13 @@ A text entry is checked for causes 1 and 2.
 What the script does not check: that a `quote` stands at its `locator`, that the reason follows from the basis, and the rule on `source = "kompiled"`.
 
 A pending case, under `--allow-pending`: stale as any entry (section 5, cause 2); it passes when `kore.k`'s result equals each recorded result no disposition names and differs from each one a disposition names.
+
+## 6. The ruling hash
+
+A reader of the catalogue that rests on an entry (a `rows.toml` row of kcore-spec) records which ruling it read by the entry's ruling hash. `tools/check.py --ruling-sha ID...` prints it, one line `ID SHA` per id (`kk:ID` or `ID`). It is the SHA-256 of the UTF-8 text of this JSON value, serialized as `inputs.answer` is (`check.ruling_hash`):
+
+```json
+{"reading": <the [[reading]] blocks, in order, or []>, "ruling": <the [ruling] table, with its [ruling.kore] and [[ruling.basis]]>}
+```
+
+The dispositions, notes, `[[observe]]` pointers, `subject`, `rests_on` and `[text]` are outside it: a change of those leaves a citing row current, and a change of the ruling, of a quoted sentence or of a reading marks it stale.
