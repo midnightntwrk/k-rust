@@ -1015,6 +1015,23 @@ def ruleOK (r : Rule) : Bool :=
   sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
   r.exs.isEmpty && r.pre.isTop && r.post.isTop
 
+/-- A rule as `ruleOK` asks, its predicates aside: the conjuncts of `ruleOK` other than
+`pre.isTop` and `post.isTop`. -/
+def ruleOKM (r : Rule) : Bool :=
+  sortOfTerm c.patCtx r.vars r.lhs == some topCellSort &&
+  noMapIn r.lhs &&
+  binds r.vars.length (varOccs r.lhs) &&
+  reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req &&
+  reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens &&
+  sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort &&
+  r.exs.isEmpty
+
+/-- `ruleOK` is `ruleOKM` and the two `\top` predicates. -/
+theorem ruleOK_iff {r : Rule} :
+    c.ruleOK r = true ↔ c.ruleOKM r = true ∧ r.pre.isTop = true ∧ r.post.isTop = true := by
+  show ((c.ruleOKM r && r.pre.isTop) && r.post.isTop) = true ↔ _
+  simp only [Bool.and_eq_true, and_assoc]
+
 /-- A rule, as `ruleOK`, its left-hand side well-sorted over the collection pattern symbols too
 (`patCtxAll`), and each of its variables occurring somewhere in it rather than in its left side
 (which variables the left side may leave open is `rulesPlain`'s, Tie.lean); its existential
@@ -1062,6 +1079,18 @@ theorem fnsOKAll_of (h : c.fnsOK = true) : c.fnsOKAll = true := by
   have := h f hf
   simp only [fnOK, fnOKAll, Bool.and_eq_true, List.all_eq_true] at this ⊢
   exact ⟨fun cl hcl => c.clauseOKAll_of (this.1 cl hcl), this.2⟩
+
+/-- `ruleOKAll_of` from `ruleOKM`: it reads no predicate. -/
+theorem ruleOKAll_of_M {r : Rule} (h : c.ruleOKM r = true) : c.ruleOKAll r = true := by
+  simp only [ruleOKM, ruleOKAll, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  have hex : r.exs = [] := List.isEmpty_iff.mp h.2
+  have h := h.1
+  refine ⟨⟨⟨⟨⟨⟨⟨sortOfTerm_heads _ _ _ _ h.1.1.1.1.1, h.1.1.1.1.2⟩, ?_⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩, ?_⟩, ?_⟩
+  · have hb := h.1.1.1.2
+    simp only [binds, List.all_eq_true, List.contains_iff_mem, List.mem_append] at hb ⊢
+    exact fun i hi => Or.inl (Or.inl (Or.inl (Or.inl (hb i hi))))
+  · simp [hex, nodup]
+  · simp [hex]
 
 theorem ruleOKAll_of {r : Rule} (h : c.ruleOK r = true) : c.ruleOKAll r = true := by
   simp only [ruleOK, ruleOKAll, Bool.and_eq_true, beq_iff_eq] at h ⊢

@@ -1842,8 +1842,11 @@ theorem sortCtx_of_all {c : Semantics} (hok : c.sortedOK = true) (hr : c.srReady
       simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
       exact this.1.1.2
 
+theorem sortCtx_of_okM {c : Semantics} (hok : c.okM = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
+  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hr hov
+
 theorem sortCtx_of {c : Semantics} (hok : c.ok = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
-  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_ok hok)) hr hov
+  sortCtx_of_okM (Semantics.okM_of_ok hok) hr hov
 
 /-- Subject reduction: in a core that `sortedOK` and `srReady` accept, a rule's right-hand side
 evaluated under a well-sorted σ is, when defined, a configuration. Of the rule it reads the
@@ -1866,11 +1869,17 @@ theorem rhs_sorted_all {c : Semantics} (hok : c.okAll = true) (hsr : c.srReady =
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
   rhs_sorted_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ he
 
+/-- `rhs_sorted_all` in a core that `okM` accepts. -/
+theorem rhs_sorted_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
+    (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
+    (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
+  rhs_sorted_all (Semantics.okAll_of_okM hok) hsr hov hr hσ he
+
 /-- `rhs_sorted_all` in a core that `ok` accepts. -/
 theorem rhs_sorted {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
-  rhs_sorted_all (Semantics.okAll_of_ok hok) hsr hov hr hσ he
+  rhs_sorted_okM (Semantics.okM_of_ok hok) hsr hov hr hσ he
 
 /-- So no rule application is lost to sorts: a match, a true `requires`, the predicate `pre`
 holding, a defined right-hand side, a true `ensures`, the predicate `post` holding and no rule of a
@@ -1917,11 +1926,18 @@ theorem Eval.sorted_of_all {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     c.sortOf v = some fn.result :=
   Eval.sorted (sortCtx_of_all hok hsr hov) h hfn hvs rfl
 
+/-- `Eval.sorted_of_all` in a core that `okM` accepts. -/
+theorem Eval.sorted_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true) (hov : c.OvlCase) {f : Sym}
+    {vs : List GroundTerm} {v : GroundTerm} (h : Eval c f vs (some v)) {fn : Fn}
+    (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
+    c.sortOf v = some fn.result :=
+  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hsr hov h hfn hvs
+
 /-- `Eval.sorted_of_all` in a core that `ok` accepts. -/
 theorem Eval.sorted_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {f : Sym}
     {vs : List GroundTerm} {v : GroundTerm} (h : Eval c f vs (some v)) {fn : Fn}
     (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     c.sortOf v = some fn.result :=
-  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_ok hok)) hsr hov h hfn hvs
+  Eval.sorted_of_okM (Semantics.okM_of_ok hok) hsr hov h hfn hvs
 
 end KCore
