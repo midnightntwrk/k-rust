@@ -1334,6 +1334,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   successors listed (`TieRulePair.listed_sound`, `complete_at_step`) from `Pre` with the step's
   closure, through the priority premise where a competitor decides. C3RuleEnsOwise: `assume(false)`
   has no successor (`f_none`), through `ruleRightDefined` and the priority premise.
+  C3RuleReqPrioComp also states W2 at an instance: `stepBy_an1` (the step from `a(-1)` to `c()` by
+  the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
+  guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
+  and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
 - `test/InertEvFixtures.lean`: the fixture sentences of the inert classes `collectionLaw`,
   `parametricFunctional` and `vacuousLeft`, each entailed by `Γ (c.withHooks H)` for every H from the
   library's statement of its class (`KcoreSpec/InertEv.lean`; the guards `inertListLaw_everyH`,
