@@ -755,6 +755,18 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   starts from the library's sorts below KItem, of which `coreOK` asks no literal, collection or
   constructor). `cLoop`: `syntax S ::= s(S)` with `coreOK`, S outside `valueSorts` and the one
   sort of `valueless`.
+- `test/RuleAndWeaken.lean`: `t #And u` on a rule's right side read as `t` with the ensures
+  `t == u` is a weakening the text entails and not an equality. `rewrites_weaken`,
+  `denB_rule_and_weaken`: every element of the text's sentence `L → •C[t ∧ u]` is an element of
+  `(L ∧ ⌈R'⌉) → •R'`, `R' = C[t] ∧ (E = T)` (`gamRule`), in every interpretation of definedness
+  in which the two sorts denote sorts and the text's right side lies in the rule's sort and in
+  `C[t]`; nothing is asked of t, u, E or T. `ruleRight_ens`, `prioRuleK_ens`: `gamRule`'s right
+  side is `ruleRight`'s and `prioRuleK`'s for a rule with an `ensures`, so a change of that right
+  side fails here. The interpretation `J hk` of `k(X) => k(f(X) #And g(X))` (the conjuncts meet
+  and one has two elements): `text_at`, `gam_at` (the lemma's instance), `strict_left`,
+  `strict_step`, `strict_more` (the reading's right side holds `k(e)`, the text's does not),
+  `exact_right_empty`, `exact_left_fails`, `exact_text_step` (the reading's sentence says nothing
+  at `k(one)` where the text's gives a successor), `left_forces`.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
