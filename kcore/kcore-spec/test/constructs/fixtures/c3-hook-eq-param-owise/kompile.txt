@@ -1,9 +1,9 @@
 command: kompile --backend haskell c3-hook-eq-param-owise.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.1
+seconds: 2.6
 definition.kore bytes: 203830
-definition.kore sha256: 4c6f49a5edd6a8d5dbfda507d1c3699f12504c7dd7b0024f24e70faf345c7b06
-stripped sha256: 1df4f835980c656fbb2ccbc5e6feddaf5c3517989bf6d4c2b6fbf2affba8aa9c
+definition.kore sha256: c578169d553b92ee0d4d6da6d618c61355c75c3295fb94335cd2499c478804e6
+stripped sha256: 5ef33e212fa0a5e51e3f758443b17a4a554066d460b48e36acef8748993216a4
 main module: 392 sentences, 35 not in base's, in kore.txt
 output:
   [Warning] Compiler: Could not find main syntax module with name

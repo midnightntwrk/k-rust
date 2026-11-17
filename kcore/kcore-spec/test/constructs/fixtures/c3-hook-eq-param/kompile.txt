@@ -1,9 +1,9 @@
 command: kompile --backend haskell c3-hook-eq-param.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 3.1
 definition.kore bytes: 202407
-definition.kore sha256: a12a0e7723e4ad60b0f5b8d0d64e1d60758102be24626ab0d604145e6ea906db
-stripped sha256: 0d80f4590d76e52fa6c6eb82830b500d875359816a80e495cb553e919bb4ed0d
+definition.kore sha256: f5a5aa39a6949cdf3b08d9ab91dc6ca7df8c69cfdae9465035a3462be6c9419b
+stripped sha256: 0f75b154066e87cd79cd37c7e3fdceb3bbb4212efd106d608144e43e5aa90282
 main module: 391 sentences, 34 not in base's, in kore.txt
 differs_from c3-hook-only-param: different after stripping
 output:

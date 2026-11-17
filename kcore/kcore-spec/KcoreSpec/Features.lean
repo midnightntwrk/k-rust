@@ -112,7 +112,7 @@ def uses (p : Presentation) : Features :=
       | r :: rs => rs.any (·.prio != r.prio)
     requires := c.rules.any (·.req.isSome)
     ints := c.usesAny [intAdd, intSub, intMul, intTDiv, intTMod, intEDiv, intEMod, intMin, intMax,
-      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt]
+      intLt, intLe, intGt, intGe, intEq, intNe, intAbs, freshInt, intShr, intShl, intLog2]
     bools := c.usesAny [boolNot, boolAnd, boolAndThen, boolOr, boolOrElse, boolXor, boolImplies, boolEq, boolNe]
     kequal := c.usesAny [kEq, kNe]
     maps := c.usesAny [mapUnit, mapElem, mapConcat, mapUpdate, mapRemove, mapLookup, mapLookupOrDefault,

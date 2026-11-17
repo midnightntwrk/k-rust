@@ -230,12 +230,14 @@ def update (b : List Char) (i v : Int) : Option (List Char) :=
   if 0 ≤ i ∧ i < b.length ∧ 0 ≤ v ∧ v < 256 then some (b.set i.toNat (byte v.toNat)) else none
 
 /-- `replaceAtBytes(D, I, S)`: D with the bytes I … I + |S| − 1 replaced by S; none unless 0 ≤ I and
-I + |S| ≤ |D|. -/
+I + |S| ≤ |D|, the ranges that are |S| elements of D (so a replacement may reach the last byte, where
+I + |S| = |D|). -/
 def replaceAt (d : List Char) (i : Int) (s : List Char) : Option (List Char) :=
   if 0 ≤ i ∧ i + s.length ≤ d.length then some (d.take i.toNat ++ s ++ d.drop (i.toNat + s.length)) else none
 
 /-- `memsetBytes(D, I, N, V)`: D with the bytes I … I + N − 1 set to V's byte (`Int2Bytes(1, V, _)`, V
-mod 256); none unless 0 ≤ I, 0 ≤ N, I + N ≤ |D| and −128 ≤ V ≤ 127. -/
+mod 256); none unless 0 ≤ I, 0 ≤ N, I + N ≤ |D| (the N bytes are bytes of D, the last one included
+at I + N = |D|) and −128 ≤ V ≤ 127. -/
 def memset (d : List Char) (i n v : Int) : Option (List Char) :=
   if 0 ≤ i ∧ 0 ≤ n ∧ i + n ≤ d.length ∧ -128 ≤ v ∧ v ≤ 127 then
     some (d.take i.toNat ++ List.replicate n.toNat (byte (v % 256).toNat) ++ d.drop (i.toNat + n.toNat))

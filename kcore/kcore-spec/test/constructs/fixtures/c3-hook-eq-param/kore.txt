@@ -1,7 +1,7 @@
 //@ 0
 module C3-HOOK-EQ-PARAM
 //@ 104
-  hooked-symbol Lbllg{}(SortInt{}) : SortInt{} [function{}(), hook{}("INT.log2"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/c3-hook-eq-param.k)"), symbol'Kywd'{}("lg")]
+  hooked-symbol Lbllg{}(SortInt{}) : SortInt{} [function{}(), hook{}("INT.rand"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,64)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/c3-hook-eq-param.k)"), symbol'Kywd'{}("lg")]
 //@ 169
   axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsAnd-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
 //@ 170

@@ -19,11 +19,11 @@ Rows by status:
 | E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
-| E6 | 826 | 507 | 106 | 116 | 42 | 55 | 0 | 0 |
+| E6 | 826 | 510 | 103 | 116 | 42 | 55 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 23 | 0 | 9 | 2 | 10 | 0 | 0 |
-| all | 1458 | 805 | 113 | 209 | 192 | 134 | 5 | 0 |
+| all | 1458 | 808 | 110 | 209 | 192 | 134 | 5 | 0 |
 
 Nested entries by status:
 
@@ -1202,7 +1202,7 @@ Not core:
 | `symbol:RAT-SYNTAX:Lbl'UndsSlsh'Rat'Unds'` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `hook:MINT.sdiv:Lbl'UndsSlsh'sMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:MINT.udiv:Lbl'UndsSlsh'uMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
-| `hook:INT.shl:Lbl'Unds-LT--LT-'Int'Unds'` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.shl:Lbl'Unds-LT--LT-'Int'Unds'` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.shl |
 | `hook:MINT.shl:Lbl'Unds-LT--LT-'MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:FLOAT.le:Lbl'Unds-LT-Eqls'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.le |
 | `hook:INT.le:Lbl'Unds-LT-Eqls'Int'Unds'` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.le |
@@ -1239,7 +1239,7 @@ Not core:
 | `hook:STRING.ge:Lbl'Unds-GT-Eqls'String'UndsUnds'STRING-COMMON'Unds'Bool'Unds'String'Unds'String` | supported |  | K-coverage Part C at 57f851ec: parameter |  |  |  | no | yes | FixedSignature.lean regHookNames: STRING.ge |
 | `hook:MINT.sge:Lbl'Unds-GT-Eqls'sMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:MINT.uge:Lbl'Unds-GT-Eqls'uMInt'UndsUnds'MINT'Unds'Bool'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
-| `hook:INT.shr:Lbl'Unds-GT--GT-'Int'Unds'` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.shr:Lbl'Unds-GT--GT-'Int'Unds'` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.shr |
 | `hook:MINT.ashr:Lbl'Unds-GT--GT-'aMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:MINT.lshr:Lbl'Unds-GT--GT-'lMInt'UndsUnds'MINT'Unds'MInt'Unds'MInt'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:FLOAT.gt:Lbl'Unds-GT-'Float'UndsUnds'FLOAT'Unds'Bool'Unds'Float'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.gt |
@@ -1332,7 +1332,7 @@ Not core:
 | `hook:BYTES.lengthMInt:LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'MInt'Unds'Bytes` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:STRING.length:LbllengthString'LParUndsRParUnds'STRING-COMMON'Unds'Int'Unds'String` | supported |  | K-coverage Part C at 57f851ec: parameter |  |  |  | no | yes | FixedSignature.lean regHookNames: STRING.length |
 | `symbol:BYTES-HOOKED:LbllittleEndianBytes` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: BYTES-HOOKED, read as the library's text |
-| `hook:INT.log2:Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT-COMMON; Builtins.libParams (no registry hook) |
+| `hook:INT.log2:Lbllog2Int'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: INT.log2 |
 | `hook:FLOAT.log:LbllogFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float` | parameter |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | BuiltinData.lean modules: FLOAT; Builtins.libParams (no registry hook) |
 | `symbol:ARRAY-IN-K:LblmakeArray'LParUndsCommUndsRParUnds'ARRAY-IN-K'Unds'Array'Unds'Int'Unds'KItem` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `hook:LIST.make:LblmakeList'LParUndsCommUndsRParUnds'LIST'Unds'List'Unds'Int'Unds'KItem` | parameter |  |  |  |  |  | yes | yes | BuiltinData.lean modules: LIST; Builtins.libParams (no registry hook) |

@@ -820,13 +820,18 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
-- `test/HooksInt.lean`: the 17 supported hook rows of INT (the sort and sixteen operations) against
+- `test/HooksInt.lean`: the 20 supported hook rows of INT (the sort, sixteen operations and, in the last section, three more) against
   domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
   result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
   `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
   remainder), each with one solution, and the prose's rules between them at every pair; no row is a
   key of `silentTable`, and every argument list of a signature is covered (a value, or at divisor
   0 the prose's `#False`, where Γ states ⊥ under every interpretation).
+  The three rows `INT.shr`, `INT.shl`, `INT.log2` (last section): the left shift by n ≥ 0 is
+  x · 2^n, the arithmetic right shift the floor of x / 2^n, the log of x > 0 the index of its
+  highest set bit, each by a property with one solution; at a negative amount and at x ≤ 0 the
+  prose says `#False`, `hook` gives no value, the point is not silent and Γ states ⊥ under every
+  interpretation; none of the three is a parameter symbol of a library module.
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
   cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under
@@ -1027,16 +1032,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HooksBytes.lean`: the 14 supported hook rows of BYTES (the sort and thirteen operations)
   against domains.md's prose, cited by line: hand-derived values that `hook` gives, the result and
   Γ's statement under every interpretation (`strbytes`). Four rows are declared `total` and
-  described everywhere (no key of `silentTable`, a value at every argument list). Five have a
+  described everywhere (no key of `silentTable`, a value at every argument list). Six have a
   region the prose states as `#False` or `#Bottom` (`B[I <- V]`, `B[I]`, `substrBytes`, the two
-  paddings): `hook` gives no value exactly there (`*_none`) and Γ states ⊥ on the whole region in
-  every semantics under every interpretation (`*_bot`). Four are keys of `silentTable`:
-  `replaceAtBytes` (the guard: a negative index whose end is within the bytes; ⊥ where the end is
-  off the bytes), `memsetBytes` ("will throw an exception": unstated), `Int2Bytes` (a negative
+  paddings, `replaceAtBytes` at a range that leaves `dest`: a negative index or an end above the
+  length): `hook` gives no value exactly there (`*_none`) and Γ states ⊥ on the whole region in
+  every semantics under every interpretation (`*_bot`). Three are keys of `silentTable`:
+  `memsetBytes` ("will throw an exception": unstated), `Int2Bytes` (a negative
   length) and `Bytes2Int` (no value only at an Endianness or Signedness that is no constructor of
-  BYTES), each with a point where Γ over all interpretations entails neither ⊥ nor a value. The
-  header's findings: "valid index" at index + N = length (two readings; `hook` gives a value
-  there), `N` unnamed, `Int2Bytes` at 0 and at a negative number cut short, `Bytes2Int` at `.Bytes`.
+  BYTES), each with a point where Γ over all interpretations entails neither ⊥ nor a value. On
+  the boundary index + N = length `replaceAtBytes` and `memsetBytes` have the value their defining
+  sentence describes (`boundary_hook`). The header's findings: `Int2Bytes` at 0 and at a negative
+  number cut short, `Bytes2Int` at `.Bytes`, padding.
 - `test/HooksFloat.lean`: the 23 supported hook rows of FLOAT (the sort and twenty-two operations)
   against domains.md's prose, cited by line. Each expected value is derived by hand and marked by
   its source: the prose's sentence, an `smt-hook` attribute (the only rounding direction the text

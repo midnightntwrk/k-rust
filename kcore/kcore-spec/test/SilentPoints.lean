@@ -23,8 +23,9 @@
   - At a described point of the same keys, the result is `hook`'s value whatever the
     interpretation (`vals_hookRes`).
   - Where the text says there is no value, Γ states ⊥ for every semantics (`gamma_bot`), at each
-    `#False` / `#Bottom` point of the text (`bots`), the guard of `replaceAtBytes` included.
-  - The guard of `replaceAtBytes` against the text's region; `isInfinite` against its equation on the
+    `#False` / `#Bottom` point of the text (`bots`), `replaceAtBytes` at a range that leaves `dest`
+    included.
+  - `replaceAtBytes` has no silent point; `isInfinite` against its equation on the
     special data of binary32 and binary64; the residual at a surrogate: no String value has a code
     point 0xD800 … 0xDFFF, so `ordChar(chrChar(55296)) = 55296` is refuted at every interpretation.
   - The evaluation-level part at a one-entry table made here (`hookResWith`).
@@ -248,7 +249,6 @@ def pts : List Pt :=
    ⟨string2Bool, [s "x"], bool true⟩,
    ⟨stringCountAll, [s "a", s ""], int 0⟩,
    ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩,
-   ⟨bytesReplaceAt, [b "abc", int (-1), b "xy"], b ""⟩,
    ⟨bytesMemset, [b "abc", int 0, int 1, int 200], b ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
    ⟨floatSqrt, [f64 0x8000000000000000], f64 0⟩,
@@ -443,8 +443,8 @@ theorem vals_hookRes : ∀ p ∈ vals, ∀ H : HookParams, (c.withHooks H).hookR
 `modInt` at 0 (1233-1237); a lookup off the keys (266-267); `_Map_` on a common key (227-228);
 `_Set_` on a common member (706-707); `B[I <- V]` at `I = length` and at `V = 256` (2103-2105);
 `B[I]` at `I = length` (2115); `substrBytes(B, 2, 1)` (2136-2139); `padRightBytes(B, -1, 0)`,
-`padLeftBytes(B, 1, 256)` (2176-2177); `replaceAtBytes(b"ab", 1, b"xy")`, a key whose guard is false
-there (2146-2147). -/
+`padLeftBytes(B, 1, 256)` (2176-2177); `replaceAtBytes(b"ab", 1, b"xy")`, an end above the length,
+and `replaceAtBytes(b"abc", -1, b"xy")`, a negative index (2146-2147: a range that leaves `dest`). -/
 def bots : List Pt :=
   [⟨intTDiv, [int 7, int 0], int 0⟩, ⟨intTMod, [int 7, int 0], int 0⟩,
    ⟨intEDiv, [int 7, int 0], int 0⟩, ⟨intEMod, [int 7, int 0], int 0⟩,
@@ -455,7 +455,8 @@ def bots : List Pt :=
    ⟨bytesGet, [b "ab", int 2], int 0⟩,
    ⟨bytesSubstr, [b "abc", int 2, int 1], int 0⟩,
    ⟨bytesPadRight, [b "a", int (-1), int 0], int 0⟩, ⟨bytesPadLeft, [b "a", int 1, int 256], int 0⟩,
-   ⟨bytesReplaceAt, [b "ab", int 1, b "xy"], int 0⟩]
+   ⟨bytesReplaceAt, [b "ab", int 1, b "xy"], int 0⟩,
+   ⟨bytesReplaceAt, [b "abc", int (-1), b "xy"], int 0⟩]
 
 theorem bots_ok : bots.all (fun p => (sig p.f) ∈ hookSigs && (sig p.f).name == p.f &&
     c.sortsOf p.vs == some (sig p.f).args && hook p.f p.vs == some none && !silent p.f p.vs) = true := by
@@ -469,18 +470,12 @@ theorem bots_gamma : ∀ p ∈ bots, Γ c (appP c (sig p.f) p.vs ≡ ⊥) := by
   obtain ⟨⟨⟨⟨hk, hname⟩, hvs⟩, hh⟩, hs⟩ := h
   exact gamma_bot c hk hvs (by rw [hname]; exact hh) (by rw [hname]; exact hs)
 
-/-! ## The guard of `replaceAtBytes`, `isInfinite`'s equation, the surrogate residual -/
+/-! ## `replaceAtBytes`, `isInfinite`'s equation, the surrogate residual -/
 
-/-- The guard is the text's region: a negative index whose end is within the bytes. -/
-theorem replaceAt_guard (d t : String) (i : Int) :
-    silent bytesReplaceAt [.dv Srt.bytes (.tok d), int i, .dv Srt.bytes (.tok t)] =
-      decide (i < 0 ∧ 0 ≤ i + (t.toList.length : Int) ∧ i + (t.toList.length : Int) ≤ (d.toList.length : Int)) := by
-  have : silentTable.find? (·.1 == bytesReplaceAt) = some (bytesReplaceAt, fun vs => match vs with
-     | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
-         decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))
-     | _ => false) := rfl
-  unfold silent; rw [this]
-  simp [asBytes, asInt, int, Option.any]
+/-- `replaceAtBytes` has no silent point: where `hook` gives it no value (a negative index, an end
+above the length) the text says `#False` (2146-2147). -/
+theorem replaceAt_guard (vs : List GroundTerm) : silent bytesReplaceAt vs = false :=
+  silent_of_not_silentKey (by decide +kernel) vs
 
 /-- `isInfinite(F)` by its equation (domains.md 1673): `F >Float maxValueFloat(p, e)` or
 `F <Float --Float maxValueFloat(p, e)`, `p` and `e` F's precision and exponent width. -/

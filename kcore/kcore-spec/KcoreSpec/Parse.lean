@@ -3685,6 +3685,37 @@ def hookFnSym (S : Scan) (h : Kore.HookedSymbol) : Bool :=
   !S.colls.any (fun (_, _, u, el, cc) => n == u || n == el || n == cc) &&
   S.eqs.any fun e => e.fn == n && !e.dom && !hasAttr e.attrs "symbol-overload"
 
+/-- The library sorts of `hookSigs` that the builtin texts declare with a `hook` attribute
+(`hooked-sort SortInt{} … hook{}("INT.Int")`, and so `BOOL.Bool`, `LIST.List`, `MAP.Map`, `SET.Set`,
+`STRING.String`, `FLOAT.Float`, `BYTES.Bytes`, `RANGEMAP.RangeMap`). K, KItem, Range, Endianness and
+Signedness are declared without one. -/
+def hookedLibSorts : List Srt :=
+  [Srt.bool, Srt.int, Srt.list, Srt.map, Srt.set, Srt.string, Srt.float, Srt.bytes, Srt.rangeMap]
+
+/-- The library sort whose sort hook the sort `s` carries, `stands` listing the definition's sorts
+declared with a library sort's hook under their own name, each with that library sort (a
+collection sort of the text with its kind's, a sort hooked to a library carrier with the carrier):
+a library sort is itself, a sort of the definition off `stands` carries none and is itself. -/
+def hookSortOf (stands : List (Srt × Srt)) (s : Srt) : Srt :=
+  if s < nRegSorts then s else ((stands.find? (·.1 == s)).map (·.2)).getD s
+
+/-- The registry hook of a symbol the text declares at `k` with the attribute `hook{}(hk)`: the
+one of that name (`regHookOf`), where the symbol has that hook's number of arguments and, at each
+argument and at the result where the library's symbol has a hooked sort (`hookedLibSorts`), a sort
+carrying that sort's hook. The builtin text describes a hooked sort and its symbols together (the
+Map of MAP is the sort declared `hook(MAP.Map)` and `_Map_` its concatenation), so a sort declared
+with that sort hook is that domain by the same description, and a symbol declared on it with one
+of the domain's symbol hooks is that symbol of the domain (`_MtCellMap_`, `hook(MAP.concat)`, on a
+sort declared `hook(MAP.Map)`). Of a symbol that names a symbol hook at a sort without the sort
+hook no text says anything: it has no registry hook here and is a parameter without one, whose
+value is the interpretation's. -/
+def hookImplAt (stands : List (Srt × Srt)) (hk : String) (k : CtorSig) : Option Sym :=
+  (regHookOf hk).filter fun g => match lookupSig hookSigs g with
+    | some r => r.args.length == k.args.length &&
+        ((r.result :: r.args).zip (k.result :: k.args)).all fun (rs, s) =>
+          !hookedLibSorts.contains rs || hookSortOf stands s == rs
+    | none => false
+
 /-- `hookFnSym`'s symbols as declarations of the function path (`prodSyms`, `symProd`). -/
 def hookFnDecls (S : Scan) : List Kore.SentenceSymbol :=
   (S.userHooked.filter (hookFnSym S)).map fun h => ⟨h.symbol, h.sorts, h.sort, h.attributes⟩
@@ -3993,12 +4024,15 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
                                | F, E => some (f, s!"{σ}: declared without " ++ " and ".intercalate
                                    ((if F then [] else ["its functional axiom"]) ++
                                     (if E then [] else [s!"((K1 {σ} K2) = true) = (K1 = K2)"]))) }
+  -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
+  let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
+    (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))
   let userParams ← (S.userHooked.filter (!hookFnSym S ·)).mapM fun h => Rd.within (.sentence (.hookedSymbol h)) do
     let hk ← need (attrStr? h.attributes "hook") .hookAttribute
     let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
     let pp : ParamPres := ⟨hk, attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
       hasAttr h.attributes "total" || hasAttr h.attributes "functional"⟩
-    pure (({ sig, impl := regHookOf hk } : ParamSig), pp)
+    pure (({ sig, impl := hookImplAt stands hk sig } : ParamSig), pp)
   let iteParams ← iteNames.mapM fun n => do
     let X ← N.srtE (String.ofList ((((dropPrefix? "Lblite{" n).getD "").toList).dropLast))
     let sig : CtorSig := ⟨← N.symE n, [Srt.bool, X, X], X⟩
