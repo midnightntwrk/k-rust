@@ -493,4 +493,57 @@ example : ∀ (x : Config c) (hd : StepDecided c x.val)
 
 end CompletePP
 
+/-! ## The outcomes of a match (`KCore.Faithful.famOpen_stepPP`, `KCore.famOpen_values_pp`)
+
+  `rOpenB`: `b => b` with pre `not (mem Z true)`, Z of Bool, open and in `pre` only. Bool is
+  confined, so every open variable of the rule is of a confined sort, and its `pre` is not `\top`:
+  in any model of `Γc c`, an element of `famOpen c rOpenB σ` at a match σ is in the pattern of a
+  configuration y, with a σ' that is σ on the left side and every premise of a step by the rule to y
+  but membership and the competitors, `Holds … pre true` included. `rOpenB` is not a rule of the
+  definition, so `readsConfined` (asked for a confined open variable) is a hypothesis. At the
+  definition: `famOpen_values`'s statement from `ruleSorted` of the rule. -/
+
+section FamOpenValues
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `b => b` with pre `not (mem Z true)`, Z:Bool open. -/
+noncomputable def rOpenB : Rule :=
+  { vars := [sK, sC, Srt.bool], lhs := cfgE tB, req := none, rhs := cfgE tB, ens := none, prio := 50,
+    pre := .not (.mem Srt.bool (.var 2) (.dv Srt.bool (.bool true))) }
+
+theorem rOpenB_facts : c.ruleSorted rOpenB = true ∧ rOpenB.opens = [2] ∧ rOpenB.pre.isTop = false ∧
+    HoldsShape.hasBinder rOpenB.pre = false ∧ HoldsShape.hasBinder rOpenB.post = false ∧
+    (rOpenB.opens.all fun i => (rOpenB.vars[i]?.map c.confined).getD false) = true := by
+  decide +kernel
+
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hrc : c.readsConfined = true)
+    {x : Config c} {σ : Subst} (hσ : c.WellSortedAt rOpenB.vars (varOccs rOpenB.lhs) σ)
+    (hmatch : PatVal c σ rOpenB.lhs x.val)
+    (e : ML.Valuation M) (m : M) (hm : (famOpen c rOpenB σ).interpret I e m) :
+    ∃ (y : Config c) (σ' : Subst), (∀ i ∈ varOccs rOpenB.lhs, σ'.lookup i = σ.lookup i) ∧
+      c.WellSorted rOpenB.vars σ' ∧ PatVal c σ' rOpenB.lhs x.val ∧
+      (∀ t, rOpenB.req = some t → EvalTerm c σ' t (some (bool true))) ∧
+      Holds c rOpenB.vars.length σ' rOpenB.pre true ∧ EvalTerm c σ' rOpenB.rhs (some y.val) ∧
+      (∀ t, rOpenB.ens = some t → EvalTerm c σ' t (some (bool true))) ∧
+      Holds c rOpenB.vars.length σ' rOpenB.post true ∧ (den c y.val).interpret I e m :=
+  famOpen_stepPP coreOK hft hI hcw rOpenB_facts.1 (List.all_eq_true.mp rOpenB_facts.2.2.2.2.2) (fun _ => hrc)
+    (fun h => absurd h (by rw [rOpenB_facts.2.2.2.1]; decide))
+    (fun h => absurd h (by rw [rOpenB_facts.2.2.2.2.1]; decide)) hσ hmatch e m hm
+
+/-- The pinned type of `famOpen_values` (`test/Pins.lean`), from `ruleSorted` of the rule. -/
+example : ∀ (hf : FnHyp c)
+    (x : Config c) (r : Rule) (hr : r ∈ c.rules) (σ : Subst) (hu : Unblocked c r σ x.val)
+    (hcf : ∀ i ∈ r.opens, (r.vars[i]?.map c.confined).getD false = true)
+    (ys : List GroundTerm)
+    (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
+      y.val ∈ ys),
+    Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
+  fun hf x r hr => famOpen_values_pp c coreOK hf x r hr (rules_pp r hr).1
+
+end FamOpenValues
+
 end PredRules
