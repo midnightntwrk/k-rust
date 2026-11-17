@@ -324,7 +324,7 @@ theorem hrulesEx_of_coreC {c : Semantics} (h : c.coreOK = true)
 
 example : type_of% @stdI_modelOpen := fun c h hm hl hr => stdI_model_ex c h hm hl (hrulesEx_of_openC hr)
 example : type_of% @consistent_open := fun c h hd hs hl hr => consistent_ex c h hd hs hl (hrulesEx_of_openC hr)
-example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@consistent_of c) := fun h hd hs hl => consistent_ex c h hd hs hl (hrulesEx_of_coreC h hex)
+example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@consistent_of c) := fun h hd hs _ hl => consistent_ex c h hd hs hl (hrulesEx_of_coreC h hex)
 example : type_of% @has_model_choice_open := fun c h hf hr => has_model_choice_ex c h hf (hrulesEx_of_openC hr)
 example (c : Semantics) (hex : c.rules.all c.rulePlainEx = true) : type_of% (@has_model_choice c) := fun h hf => has_model_choice_ex c h hf (hrulesEx_of_coreC h hex)
 
@@ -731,8 +731,8 @@ example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep 
 example (hd : FnDet cX) (hs : FnSolves cX) : Consistent cX := consistent_ex cX coreX.1 hd hs (openLaws_of_plain (by decide +kernel)) hrulesX
 
 /-- The pinned `consistent_of` at `cX`. -/
-example (hd : FnDet cX) (hs : FnSolves cX) (hl : OpenLaws cX) : Consistent cX :=
-  consistent_of cX coreX.1 hd hs hl
+example (hd : FnDet cX) (hs : FnSolves cX) (hp : ClausePreDecided cX) (hl : OpenLaws cX) : Consistent cX :=
+  consistent_of cX coreX.1 hd hs hp hl
 
 /-- `has_model_choice_ex` and the pinned `has_model_choice` at `T := Step cX`: `hsome` read at
 `exTwo`'s steps. -/

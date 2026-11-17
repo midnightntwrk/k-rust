@@ -42,9 +42,11 @@ theorem complete_hyp_of_at (c : Semantics) (ref : OutFn) (h : c.coreOK = true) (
     (fun y r σ hop hs => ((href x).1 y.val).mpr ⟨y.property, r, σ, hop, hs⟩) (href x).2.2
 
 /-- **Consistency** of a semantics that `coreOK` accepts and whose functions meet `FnHyp`:
-`consistent_of`, `FnHyp` giving `FnDet` and `FnSolves` (`fnModel_of_fnHyp`) and `OpenLaws`. -/
+`consistent_of`, `FnHyp` giving `FnDet` and `FnSolves` (`fnModel_of_fnHyp`), `ClausePreDecided`
+(`clausePreDecided_of_fnHyp`) and `OpenLaws`. -/
 theorem consistent_of_fnHyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : Consistent c :=
-  consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 hf.2.2.2.2.2
+  consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf)
+    hf.2.2.2.2.2
 
 namespace CExec
 

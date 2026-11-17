@@ -29,11 +29,12 @@
   in which `h(x)` is the set of `Eval`'s values of `h` at x (none), satisfies neither sentence; and
   Int is one of `distinctSorts`, whose distinct values are distinct elements in a model of `Γ`
   (`values_apart`), so no interpretation satisfies both. A statement that gives a model of `Γ` from
-  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone (`consistent_of`) is therefore false at `d` once
+  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d` once
   `clausesPlain` admits `preU`: with a predicate in the premise it needs that each clause's own
   predicate has a truth value where its patterns match (as `holds_decided` gives where every
   function has a result, `FnTerminates`), which `PrioDecided` asks of the clauses of a smaller
-  priority only.
+  priority only. `consistent_of` asks it (`ClausePreDecided`), and `d` does not meet it
+  (`not_clausePreDecided`).
 -/
 import KcoreSpec
 
@@ -149,7 +150,7 @@ mutual
   /-- `l` has no result at an Int: its clause's right-hand side is `l` at the same Int. -/
   theorem noL : ∀ {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm}, Eval d f vs r →
       f = L → ∀ v, vs = [v] → d.sortOf v = some Srt.int → False
-    | _, _, _, .clause (fn := fn) (cl := cl) (σ := σ) hfn hcl _ hm _ _ _ hrhs _, hf, v, hvs, hv => by
+    | _, _, _, .clause (fn := fn) (cl := cl) (σ := σ) hfn hcl _ hm _ _ _ _ hrhs _ _, hf, v, hvs, hv => by
       have key := noLT hrhs
       subst hf; subst hvs
       rw [lookups.1] at hfn; cases hfn
@@ -166,11 +167,21 @@ mutual
         cases h (sg v) (sg_sortedAt hv _) (sg_match v) with
         | intro ht _ _ => cases ht
         | pre hp => exact absurd hp.top_eq (by simp)
-    | _, _, _, .ensFails (fn := fn) (cl := cl) hfn hcl _ _ _ _ _ ht _ _, hf, v, hvs, _ => by
+    | _, _, _, .ensFails (fn := fn) (cl := cl) hfn hcl _ _ _ _ _ _ ht _ _, hf, v, hvs, _ => by
       subst hf
       rw [lookups.1] at hfn; cases hfn
       have : cl = lCl := by simpa [lFn] using hcl
       subst this; cases ht
+    | _, _, _, .clauseEx (fn := fn) (cl := cl) hfn hcl _ _ _ _ _ hne _ _ _ _, hf, v, hvs, _ => by
+      subst hf
+      rw [lookups.1] at hfn; cases hfn
+      have : cl = lCl := by simpa [lFn] using hcl
+      subst this; exact absurd rfl hne
+    | _, _, _, .exNone (fn := fn) (cl := cl) hfn hcl hne _ _ _ _ _ _ _, hf, v, hvs, _ => by
+      subst hf
+      rw [lookups.1] at hfn; cases hfn
+      have : cl = lCl := by simpa [lFn] using hcl
+      subst this; exact absurd rfl hne
   termination_by structural _ _ _ h => h
   /-- `l(X)` has no result where X is an Int. -/
   theorem noLT : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm d σ t r →
@@ -200,6 +211,8 @@ mutual
         rw [hl] at hvs; simp [allSome] at hvs
     | _, _, _, .ovl _ ho _ _, ht, _, _, _ => by
       cases ht; rw [kinds.2.2.2] at ho; cases ho
+    | _, _, _, .ovlFn _ ho _ _ _ _ _, ht, _, _, _ => by
+      cases ht; rw [kinds.2.2.2] at ho; cases ho
   termination_by structural _ _ _ h => h
 end
 
@@ -210,6 +223,14 @@ theorem noPre {σ : Subst} {v : GroundTerm} (hl : σ.lookup 0 = some v) (hv : d.
   | or h1 _ =>
     cases h1 with
     | ceil he => exact noLT he rfl v hl hv
+
+/-- **`d` does not meet `ClausePreDecided`**: the predicate of `h`'s first clause has no truth value
+where its pattern matches the Int 0. -/
+theorem not_clausePreDecided : ¬ ClausePreDecided d := by
+  intro hp
+  have hv : d.sortOf (.dv Srt.int (.int 0)) = some Srt.int := by decide +kernel
+  obtain ⟨_, hb⟩ := hp hFn (by simp [d]) hCl1 (by simp [hFn]) (sg _) [_] (sg_sortedAt hv _) (sg_match _)
+  exact noPre rfl hv hb
 
 /-- No clause of `h` applies. -/
 theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : List GroundTerm}
@@ -225,9 +246,16 @@ theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : 
 theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval d H [v] r) :
     False := by
   cases h with
-  | clause hfn hcl hσ hm hreq hpre _ _ _ =>
+  | clause hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
     exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+  | clauseEx hfn hcl hσ hm hreq hpre _ _ _ _ _ _ =>
+    rw [lookups.2] at hfn; cases hfn
+    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+  | exNone hfn hcl hne _ _ _ _ _ _ _ =>
+    rw [lookups.2] at hfn; cases hfn
+    simp only [hFn, List.mem_cons, List.not_mem_nil, or_false] at hcl
+    rcases hcl with rfl | rfl <;> exact absurd rfl hne
   | rest hfn hnone =>
     rw [lookups.2] at hfn; cases hfn
     cases hnone hCl1 (by simp [hFn]) with
@@ -235,7 +263,7 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
       cases h (sg v) (sg_sortedAt hv _) (sg_match v) with
       | intro ht _ _ => cases ht
       | pre hp => exact noPre (σ := sg v) rfl hv hp
-  | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ =>
+  | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
     exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
 
@@ -249,7 +277,7 @@ theorem coherent_l : Coherent d lCl lCl := by
   obtain ⟨v, rfl, hl⟩ := match0 ha.2.1
   obtain ⟨w, hw, hl'⟩ := match0 ha'.2.1
   cases hw
-  refine .inl ⟨rfl, rfl, (fun i hi => ?_), (fun t ht => nomatch ht)⟩
+  refine .inl ⟨rfl, rfl, rfl, rfl, (fun i hi => ?_), (fun t ht => nomatch ht)⟩
   have : i = 0 := by simpa [lCl, lX, varOccs, varOccsList] using hi
   subst this; rw [hl, hl']
 
@@ -265,11 +293,21 @@ theorem coherent : CoherentAll d :=
     (fun fn hfn cl hcl => by
       rcases mem_fns hfn with rfl | rfl
       · have : cl = lCl := by simpa [lFn] using hcl
-        subst this; exact coherent_l
-      · exact fun _ _ _ ha _ _ _ _ _ => (not_applies hcl ha).elim)
+        subst this; exact ⟨coherent_l, fun hne => absurd rfl hne⟩
+      · exact ⟨fun _ _ _ ha _ _ _ _ _ => (not_applies hcl ha).elim,
+          fun _ _ _ _ _ _ _ hd => (not_applies hcl hd.1).elim⟩)
+
+/-- No clause of `d` has an existential variable. -/
+theorem fnsNoExs : d.FnsNoExs := by
+  intro fn hfn cl hcl
+  rcases mem_fns hfn with rfl | rfl
+  · have : cl = lCl := by simpa [lFn] using hcl
+    subst this; rfl
+  · have hc : cl = hCl1 ∨ cl = hCl2 := by simpa [hFn] using hcl
+    rcases hc with rfl | rfl <;> rfl
 
 /-- **Every function of `d` has at most one result.** -/
-theorem fnDet : FnDet d := fnDet_of_coherent coherent
+theorem fnDet : FnDet d := fnDet_of_coherent coherent fnsNoExs
 
 /-- **Evaluation solves the equations of `d`**: no clause of `h` decides, and where `l`'s clause
 decides neither `l` nor its right-hand side has a value. -/
@@ -319,6 +357,8 @@ theorem sentences :
 #guard_msgs in #print axioms fnSolves
 /-- info: 'KCore.ClausePreUndecided.noH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms noH
+/-- info: 'KCore.ClausePreUndecided.not_clausePreDecided' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms not_clausePreDecided
 
 end ClausePreUndecided
 

@@ -47,6 +47,7 @@ import KcoreSpec.ExFamOpen
 import KcoreSpec.SoundPP
 import KcoreSpec.ExactPP
 import KcoreSpec.FamOpenValuesPP
+import KcoreSpec.ClausePreFn
 import KcoreSpec.SoundHeld
 import KcoreSpec.CompleteHeld
 import KcoreSpec.ExactHeld
@@ -129,18 +130,27 @@ theorem exact_open (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
 
 open Faithful.Model in
 /-- **Consistency** of a semantics that `coreOK` accepts, whose functions have at most one result
-at each argument list (`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose
+at each argument list (`FnDet`), whose evaluation solves the equations (`FnSolves`), whose clauses'
+predicates have a truth value wherever their patterns match (`ClausePreDecided`) and whose
 interpretation satisfies the open generators' laws (`OpenLaws`): the value model at its own step
 (`consistent_held`). -/
 theorem consistent_of (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
-    (hl : OpenLaws c) : Consistent c :=
-  consistent_held c h hd hs hl (Semantics.ruleFactsHeld_of_core h)
+    (hp : ClausePreDecided c) (hl : OpenLaws c) : Consistent c :=
+  consistent_held c h hd hs hp hl (Semantics.ruleFactsHeld_of_core h)
+
+open Faithful.Model in
+/-- **`ClausePreDecided` under `FnHyp`**, for a semantics that `coreOK` accepts: every function has
+a result at arguments of its sorts (`FnHyp`'s first conjunct), so each clause's predicate has a
+truth value at each σ well sorted on its patterns and conditions. -/
+theorem clausePreDecided_of_fnHyp {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) : ClausePreDecided c :=
+  clausePreDecided_of_terminates (hypSound_of_core h) hf.1
 
 /-! ## The statements over a semantics, under the hypothesis on its functions -/
 
 /-- **Soundness of a semantics** that `coreOK` accepts and whose functions meet `FnHyp`. -/
 theorem sound_hyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c :=
-  ⟨consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 hf.2.2.2.2.2,
+  ⟨consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf)
+     hf.2.2.2.2.2,
    fun x y r σ hs => sound_at c h x y r σ hs (fun r' hr' _ hn _ => hf.2.2.2.2.1.1 r' hr' hn)
      hf.2.2.2.2.1.2⟩
 
