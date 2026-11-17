@@ -18,6 +18,21 @@
     `exact_text_step`): the reading's right side is empty and its sentence says nothing at
     `k(one)`, where the text's gives a successor. `left_forces`: a valuation whose `k(X)` holds
     `k(one)` gives X the element `one`.
+  - `hoist_sub`, `hoistList_sub`: for every KORE pattern p, every element of p is an element of
+    the pattern `Parse.hoist` returns for it (argument by argument for an application), at every
+    table and valuation, in every interpretation of definedness. So the inclusion `hsub` of the
+    two lemmas holds for every right side the reader reads (`rewrites_weaken_hoist`,
+    `denB_rule_and_weaken_hoist`; `gam_at_hoist` at the instance). No alias is excluded: an
+    application of an alias has one pattern on both sides.
+  - `rewrites_weaken_left`, `prioRuleK_and_weaken`: the same entailment into `prioRuleK c r`
+    itself, whose left side is the flat `\and` of the rule's left side, its `requires`, the
+    conjuncts of `pre`, the competitors' negation where a rule has a smaller priority number, and
+    `⌈R'⌉`; the text's two sides are taken in the rule's variable names.
+  Not covered: a rule with an existential variable (`ruleRight` then stands under `\exists`, and
+  where the variable is first met in the second conjunct the two sentences' tables are a
+  permutation of each other); that the reader's right side, written back with `canonVars`' names,
+  is `hoist` of the text's (`hrhs`, a hypothesis); the inclusion of the read left side in the
+  text's (`hl`, a hypothesis).
 -/
 import KcoreSpec
 
@@ -475,6 +490,219 @@ theorem prioRuleK_ens (c : Semantics) (r : Rule) (E : Term) (hex : r.exs = []) (
   simp only [hcomp, hens, hreq, ensRight, reqPat, Option.map_some, Option.map_none, List.map_nil,
     List.isEmpty_nil, ite_true]
 
+
+/-! ## Every right side `hoist` returns holds the text's right side
+
+`Parse.hoist` is the reader's function on a right side: it lifts the conjunctions out of the
+applications, keeps the first of two term conjuncts and reads `t ∨ ⊥` as t. -/
+
+open KCore (Parse.hoist Parse.hoistList Parse.isTrueOf?)
+
+section hoistSub
+variable {M : Type} {I : Interpretation KoreAML.Sym M}
+
+mutual
+  /-- The variable `⊤_s` binds is not free in a sort's pattern. -/
+  theorem trSort_topFree (t : VarTable) : ∀ s : Kore.KSort, (trSort t s).isFreeEvar topVar = false
+    | .var α => by
+      rw [trSort]
+      simp only [Pattern.isFreeEvar]
+      simp [VarTable.ev, VarTable.index, topVar]
+    | .ctor C args => by
+      rw [trSort]
+      exact trSortApp_topFree t args _ rfl
+  theorem trSortApp_topFree (t : VarTable) : ∀ (ss : List Kore.KSort) (acc : P),
+      acc.isFreeEvar topVar = false → (trSortApp t acc ss).isFreeEvar topVar = false
+    | [], acc, h => by rw [trSortApp]; exact h
+    | s :: ss, acc, h => by
+      rw [trSortApp]
+      exact trSortApp_topFree t ss _ (by simp [Pattern.isFreeEvar, h, trSort_topFree t s])
+end
+
+/-- `⊥_s` has no element. -/
+theorem sBot_empty (hD : DefOK I) {e : Valuation M} {s : P} (hs : s.isFreeEvar topVar = false) {m : M} :
+    ¬ (sBot s).interpret I e m := by
+  unfold sBot
+  rw [interp_sNot, interp_sTop hD hs]
+  exact fun h => h.1 h.2
+
+mutual
+  /-- **Every element of a pattern is an element of what `hoist` returns for it**, at every table,
+  valuation and interpretation of definedness. An application of an alias has the same pattern
+  on both sides (its arguments are not read), so nothing is asked of the aliases. -/
+  theorem hoist_sub (hD : DefOK I) (cx : Ctx) (e : Valuation M) : ∀ (p : Kore.Pattern) (m : M),
+      (tr cx p).interpret I e m → (tr cx (Parse.hoist p).1).interpret I e m
+    | .app h ss ps, m, hm => by
+      simp only [Parse.hoist]
+      rw [tr] at hm ⊢
+      split
+      · rename_i ha; simp only [ha] at hm; exact hm
+      · rename_i ha; simp only [ha] at hm
+        exact hoistList_sub hD cx e ps _ _ (fun _ h => h) m hm
+    | .or s [t, u], m, hm => by
+      simp only [Parse.hoist]
+      rw [tr, trOrList, trOrList, interp_sOr] at hm
+      split
+      · rcases hm.2 with h | h
+        · exact hoist_sub hD cx e t m h
+        · rw [tr] at h; exact absurd h (sBot_empty hD (trSort_topFree _ _))
+      · rcases hm.2 with h | h
+        · rw [tr] at h; exact absurd h (sBot_empty hD (trSort_topFree _ _))
+        · exact hoist_sub hD cx e u m h
+      · rw [tr, trOrList, trOrList, interp_sOr]; exact hm
+    | .and s [t, u], m, hm => by
+      simp only [Parse.hoist]
+      rw [tr, trAndList, trAndList, interp_sAnd] at hm
+      have iht := hoist_sub hD cx e t m hm.1
+      have ihu := hoist_sub hD cx e u m hm.2
+      split
+      · exact iht
+      · exact ihu
+      · exact iht
+    | .var _, m, hm | .string _, m, hm | .top _, m, hm | .bottom _, m, hm | .not _ _, m, hm
+    | .implies _ _ _, m, hm | .iff _ _ _, m, hm | .exist _ _ _, m, hm | .forall _ _ _, m, hm
+    | .mu _ _, m, hm | .nu _ _, m, hm | .ceil _ _ _, m, hm | .floor _ _ _, m, hm
+    | .equals _ _ _ _, m, hm | .in _ _ _ _, m, hm | .next _ _, m, hm | .rewrites _ _ _, m, hm
+    | .dv _ _, m, hm | .leftAssoc _ _ _, m, hm | .rightAssoc _ _ _, m, hm
+    | .and _ [], m, hm | .and _ [_], m, hm | .and _ (_ :: _ :: _ :: _), m, hm
+    | .or _ [], m, hm | .or _ [_], m, hm | .or _ (_ :: _ :: _ :: _), m, hm => by
+      simp only [Parse.hoist]
+      exact hm
+  /-- The same for the arguments of an application, one by one: `trArgs` over `hoistList`'s
+  patterns holds what it holds over the arguments, from any head that holds the first head. -/
+  theorem hoistList_sub (hD : DefOK I) (cx : Ctx) (e : Valuation M) : ∀ (ps : List Kore.Pattern) (acc acc' : P),
+      (∀ m, acc.interpret I e m → acc'.interpret I e m) → ∀ m,
+      (trArgs cx acc ps).interpret I e m → (trArgs cx acc' (Parse.hoistList ps).1).interpret I e m
+    | [], acc, acc', h, m, hm => by
+      simp only [Parse.hoistList]
+      rw [trArgs] at hm ⊢
+      exact h m hm
+    | p :: ps, acc, acc', h, m, hm => by
+      rw [trArgs] at hm
+      have ih := hoistList_sub hD cx e ps (acc ⬝ tr cx p) (acc' ⬝ tr cx (Parse.hoist p).1)
+        (fun m hm => by
+          rw [interp_app] at hm ⊢
+          obtain ⟨a, b, ha, hb, hab⟩ := hm
+          exact ⟨a, b, h a ha, hoist_sub hD cx e p b hb, hab⟩) m hm
+      simp only [Parse.hoistList]
+      generalize Parse.hoist p = x at ih ⊢
+      generalize Parse.hoistList ps = y at ih ⊢
+      rw [trArgs]
+      exact ih
+end
+
+/-- The monotonicity with any conjuncts on the reading's left side: the reading's left side is
+`\and{C}(ls ++ [⌈R'⌉])`, and every element of all of `ls` is an element of the text's left side
+`l` (`hl`). -/
+theorem rewrites_weaken_left [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    {cx : Ctx} {C B : Kore.KSort} {l r t' E T : Kore.Pattern} {ls : List Kore.Pattern} {e : Valuation M}
+    {σC σB : M}
+    (hSC : ∀ a, (trSort cx.vars C).interpret I e a ↔ a = σC)
+    (hSB : ∀ a, (trSort cx.vars B).interpret I e a ↔ a = σB)
+    (hσC : IsSort I σC) (hσB : IsSort I σB)
+    (hl : ∀ b, (∀ p ∈ ls, (tr cx p).interpret I e b) → (tr cx l).interpret I e b)
+    (hsub : ∀ b, (tr cx r).interpret I e b → (tr cx t').interpret I e b)
+    (hin : ∀ b, (tr cx r).interpret I e b → Inh I σC b)
+    {m : M} (h : (tr cx (.rewrites C l r)).interpret I e m) :
+    (tr cx (.rewrites C (.and C (ls ++ [.ceil C C (ensRight C B t' E T)])) (ensRight C B t' E T))).interpret I e m := by
+  have h' : (sRewrites (trSort cx.vars C) (tr cx l) (tr cx r)).interpret I e m := by
+    simpa only [tr] using h
+  have hR : ∀ b, (tr cx (ensRight C B t' E T)).interpret I e b ↔
+      (sAnd (tr cx t') (sEquals (trSort cx.vars B) (trSort cx.vars C) (tr cx E) (tr cx T))).interpret I e b :=
+    fun b => by simp only [ensRight, tr, trAndList]
+  have hgoal : tr cx (.rewrites C (.and C (ls ++ [.ceil C C (ensRight C B t' E T)])) (ensRight C B t' E T)) =
+      sRewrites (trSort cx.vars C) (trAndList cx (trSort cx.vars C) (ls ++ [.ceil C C (ensRight C B t' E T)]))
+        (tr cx (ensRight C B t' E T)) := by rw [tr, tr]
+  rw [hgoal]
+  unfold sRewrites at h' ⊢
+  rw [interp_sImp] at h' ⊢
+  refine ⟨h'.1, fun hl' => ?_⟩
+  rw [KCore.Faithful.interp_trAndList (by simp)] at hl'
+  have hceil := hl' (.ceil C C (ensRight C B t' E T)) (by simp)
+  rw [tr] at hceil
+  obtain ⟨_, _, x, _, _, hx, _⟩ := interp_sCeil_raw.mp hceil
+  have hx' := (hR x).mp hx
+  rw [interp_sAnd] at hx'
+  have heq := (interp_sEquals hD hc hSB hSC hσB hσC x).mp hx'.2
+  have hn := h'.2 (hl _ fun p hp => hl' p (List.mem_append_left _ hp))
+  unfold sNext at hn ⊢
+  rw [interp_app] at hn ⊢
+  obtain ⟨a, b, ha, hb, hab⟩ := hn
+  exact ⟨a, b, ha, (hR b).mpr (interp_sAnd.mpr ⟨hsub b hb,
+    (interp_sEquals hD hc hSB hSC hσB hσC b).mpr ⟨hin b hb, heq.2⟩⟩), hab⟩
+
+/-- `rewrites_weaken` with the right side `hoist` returns: no hypothesis on the two right sides. -/
+theorem rewrites_weaken_hoist [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    {cx : Ctx} {C B : Kore.KSort} {l r E T : Kore.Pattern} {e : Valuation M} {σC σB : M}
+    (hSC : ∀ a, (trSort cx.vars C).interpret I e a ↔ a = σC)
+    (hSB : ∀ a, (trSort cx.vars B).interpret I e a ↔ a = σB)
+    (hσC : IsSort I σC) (hσB : IsSort I σB)
+    (hin : ∀ b, (tr cx r).interpret I e b → Inh I σC b)
+    {m : M} (h : (tr cx (.rewrites C l r)).interpret I e m) :
+    (tr cx (gamRule C B l (Parse.hoist r).1 E T)).interpret I e m :=
+  rewrites_weaken hD hc hSC hSB hσC hσB (hoist_sub hD cx e r) hin h
+
+/-- **`denB_rule_and_weaken` with the right side `hoist` returns**: its hypothesis `hsub` holds
+for every right side the reader reads. -/
+theorem denB_rule_and_weaken_hoist [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    {C B : Kore.KSort} {l r E T : Kore.Pattern} {e : Valuation M} {σC σB : M}
+    (htab : tableOf [] (gamRule C B l (Parse.hoist r).1 E T) = tableOf [] (.rewrites C l r))
+    (hSC : ∀ a, (trSort (tableOf [] (.rewrites C l r)) C).interpret I e a ↔ a = σC)
+    (hSB : ∀ a, (trSort (tableOf [] (.rewrites C l r)) B).interpret I e a ↔ a = σB)
+    (hσC : IsSort I σC) (hσB : IsSort I σB)
+    (hin : ∀ b, (tr ⟨tableOf [] (.rewrites C l r), []⟩ r).interpret I e b → Inh I σC b)
+    {m : M} (h : (denB (.rewrites C l r)).interpret I e m) :
+    (denB (gamRule C B l (Parse.hoist r).1 E T)).interpret I e m :=
+  denB_rule_and_weaken hD hc htab hSC hSB hσC hσB (hoist_sub hD _ e r) hin h
+
+open KCore Faithful in
+/-- **The text's sentence entails `prioRuleK`'s**, whatever `prioRuleK` holds on its left side
+beside the rule's left side and `requires` (the conjuncts of `pre`, the competitors' negation):
+for a rule r with an `ensures`, no existential variable and a `\top` post, `l` and `rt` the
+text's two sides in r's variable names, where r's right side is what `hoist` returns for `rt`
+(`hrhs`) and r's left side with its `requires` lies inside `l` (`hl`), every element of
+`\rewrites(l, rt)` is an element of `prioRuleK c r`, at one table and one valuation. -/
+theorem prioRuleK_and_weaken [Inhabited M] (hD : DefOK I) (hc : I ⊧ᴵ ceilDefItem.pat)
+    {c : Semantics} {r : Rule} {E : Term} (hex : r.exs = []) (hpost : r.post = .top) (hens : r.ens = some E)
+    {cx : Ctx} {l rt : Kore.Pattern} {e : Valuation M} {σC σB : M}
+    (hSC : ∀ a, (trSort cx.vars (srtOf c topCellSort)).interpret I e a ↔ a = σC)
+    (hSB : ∀ a, (trSort cx.vars (srt "Bool")).interpret I e a ↔ a = σB)
+    (hσC : IsSort I σC) (hσB : IsSort I σB)
+    (hl : ∀ b, (tr cx (Term.kore c (canonVars c r.vars) r.lhs)).interpret I e b →
+      (tr cx (reqPat (srtOf c topCellSort) (r.req.map (Term.kore c (canonVars c r.vars))))).interpret I e b →
+      (tr cx l).interpret I e b)
+    (hrhs : Term.kore c (canonVars c r.vars) r.rhs = (Parse.hoist rt).1)
+    (hin : ∀ b, (tr cx rt).interpret I e b → Inh I σC b)
+    {m : M} (h : (tr cx (.rewrites (srtOf c topCellSort) l rt)).interpret I e m) :
+    (tr cx (prioRuleK c r)).interpret I e m := by
+  have hsub : ∀ b, (tr cx rt).interpret I e b →
+      (tr cx (Term.kore c (canonVars c r.vars) r.rhs)).interpret I e b := fun b hb => by
+    rw [hrhs]; exact hoist_sub hD cx e rt b hb
+  unfold prioRuleK
+  simp only [ruleRight_ens c r E hex hpost hens]
+  split
+  · exact rewrites_weaken_left hD hc hSC hSB hσC hσB
+      (fun b hb => hl b (hb _ (by simp)) (hb _ (by simp))) hsub hin h
+  · rw [show ∀ (xs : List Kore.Pattern) (a b : Kore.Pattern), xs ++ [a, b] = (xs ++ [a]) ++ [b] from
+      fun xs a b => by simp]
+    exact rewrites_weaken_left hD hc hSC hSB hσC hσB
+      (fun b hb => hl b (hb _ (by simp)) (hb _ (by simp))) hsub hin h
+end hoistSub
+
+/-! The instance: `hoist` of `k(f(X) ∧ g(X))` is `k(f(X))`, with the one condition that `f(X)` and
+`g(X)` have one value. -/
+
+theorem hoist_kr : (Parse.hoist kr).1 = kt' ∧ (Parse.hoist kr).2.2 = false := by
+  simp [Parse.hoist, Parse.hoistList, Parse.isTrueOf?, kr, kt', kt, ku, ap, vX]
+
+/-- `gam_at` with the right side `hoist` returns: no inclusion is given by hand. -/
+theorem gam_at_hoist {hk : Bool} {ρ : Valuation El} (hρ : ρ.evalEvar ⟨1⟩ = .one) :
+    (denB (gamRule Cs Bs kl (Parse.hoist kr).1 kE kT)).interpret (J hk) ρ .k1 :=
+  denB_rule_and_weaken_hoist (σC := .sC) (σB := .sB) hD hc (by rw [hoist_kr.1]; exact htab)
+    (fun a => by rw [tr_C]; exact hSC a) (fun a => by rw [tr_B]; exact hSB a) isC isB
+    (fun b hb => by rw [tr_r] at hb; exact inhC (Or.inl ((iR hρ).mp hb)))
+    (text_at hρ)
+
 end RuleAndWeaken
 
 #print axioms RuleAndWeaken.rewrites_weaken
@@ -490,3 +718,7 @@ end RuleAndWeaken
 #print axioms RuleAndWeaken.left_forces
 #print axioms RuleAndWeaken.ruleRight_ens
 #print axioms RuleAndWeaken.prioRuleK_ens
+#print axioms RuleAndWeaken.hoist_sub
+#print axioms RuleAndWeaken.denB_rule_and_weaken_hoist
+#print axioms RuleAndWeaken.prioRuleK_and_weaken
+#print axioms RuleAndWeaken.gam_at_hoist
