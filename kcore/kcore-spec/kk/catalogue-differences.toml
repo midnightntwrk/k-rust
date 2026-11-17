@@ -1,0 +1,13 @@
+# The cases of the Kore-in-K catalogue (krs/semantics/kore) where kk.k or KCore is not at the
+# catalogue's ruling: for a settled case, finals that are not the ruling's; for an unsettled one,
+# finals that are no reading's. kk/compare.py checks that this list is exactly those cases: a line
+# is never a failure, and a line whose side is at the ruling again fails as outlived.
+#
+# A line is no reason to change a ruling, a base entry or the catalogue's kore.k. It is a ticket
+# of KCore (side = "kcore"), of kk.k (side = "kk.k"), or a challenge of the ruling from the K text.
+#
+# [[difference]]
+# case = "cNN-name"       the catalogue's case
+# side = "kk.k"           kk.k or kcore
+# computes = "..."        what the side gives instead
+# reason = "..."          why the side is not at the ruling

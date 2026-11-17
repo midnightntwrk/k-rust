@@ -197,7 +197,7 @@ Not core:
 
 ## E1 sentence kinds (Outer.jj) (58 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `Require:kw:requires` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | no | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
 | `Require:node:Require` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | no | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
@@ -261,7 +261,7 @@ Not core:
 
 ## E2 attributes (Att.scala; key x KORE sentence class) (182 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `ALIAS(alias)@symbol` | inert |  |  |  |  | e2-macro | no | no | K-coverage.md A.3 macro, macro-rec, alias, alias-rec (symbols): unread macroUnused |
 | `ALIAS_REC(alias-rec)@symbol` | inert |  |  |  |  | e2-macro | no | no | K-coverage.md A.3 macro, macro-rec, alias, alias-rec (symbols): unread macroUnused |
@@ -452,7 +452,7 @@ Not core:
 
 ## E3 rule-body syntax (the rule grammar) (98 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `ML-SYNTAX:Sort::="#Top"` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-top: account \`1 read topAsVariable [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-rule-rhs-top: account \`patternConnective (\\top)\`; fixtures/e3-ml: account \`8 inert simplification [user]\`; test/Connectives.lean |
 | cases[0]: a rule's left side, under applications and conjunctions | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-top |
@@ -623,7 +623,7 @@ Not core:
 
 ## E4 KORE grammar (kore-syntax.md; the reader's syntax tree) (123 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `grammar:<string-literal>::=['"'] <char>* ['"']` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  |  |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
 | `grammar:<char>::=<escape-sequence>` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  |  |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
@@ -760,7 +760,7 @@ Not core:
 
 ## E5 emitted shapes (ModuleToKORE.java) (22 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `translateSorts:hooked-#1` | supported |  | B3 read |  |  |  |  |  | K-coverage.md Part B rows 3 |
 | `translateSorts:hooked-#2` | supported |  | The site writes \`hooked-\` before a sort whose hook is not a collection's. A hooked sort's values are the hook namespace's. The reader has the library's (INT.Int, BOOL.Bool, STRING.String, FLOAT.Float, BYTES.Bytes, via the library text), read from a builtin file or redeclared by the user without a pl… | none (reader only) for the supported cases |  |  |  |  | Parse.lean:1590-1600 (placelessModule?), :1343 (kBuiltinModule?), :1769 (classify); Value.lean:142-147 (dvOK) |
@@ -833,7 +833,7 @@ Not core:
 
 ## E6 builtin library (826 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `module:DOMAINS-SYNTAX` | erased |  | The module holds imports only. kompile writes the sentences of the imported modules into the user module with their own Source; no sentence of the kompiled text has a place inside this module, and the module's name occurs nowhere. |  |  |  |  |  | all-builtins definition.kore: 0 sentences whose Source and Location lie in the module's lines (counted by module\_at of extract.py); evidence form for erased: importing the module and importing its imports give equal texts |
 | `module:DOMAINS` | erased |  | The module holds imports only. kompile writes the sentences of the imported modules into the user module with their own Source; no sentence of the kompiled text has a place inside this module, and the module's name occurs nowhere. |  |  |  |  |  | all-builtins definition.kore: 0 sentences whose Source and Location lie in the module's lines (counted by module\_at of extract.py); evidence form for erased: importing the module and importing its imports give equal texts |
@@ -1671,7 +1671,7 @@ Not core:
 
 ## E7 compile passes (KoreBackend.steps) (42 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `01:resolveComm` | inert |  | its product is a second [simplification] axiom with the arguments swapped: a lemma, InertReason.simplification |  |  | e2-simplification |  |  | fixtures/e2-simplification: account \`14 inert simplification [user]\` |
 | `02:resolveIO` | supported |  | the stream cells get K-IO's rules instantiated on the definition's cells, written as rewrite axioms of the user module: read as the definition's rules (ReadingNote.streamRule, Parse.lean:289); the hooks they apply (#getc, #write, …) have no defining sentence and are parameter symbols. | none (reader already reads it) |  | e2-cells-stream |  |  | fixtures/e2-cells-stream: account \`stage refusals: 0\`, \`parse: ok; wf false; failing: [declarations over declared sorts]\` |
@@ -1718,7 +1718,7 @@ Not core:
 
 ## E8 kompile options (63 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `--backend` | refused | R-b | R-12: the rows are stated for --backend haskell. Another backend gives another set of builtin sentences (64 main-module sentences of the reference absent under llvm) and other pipeline steps; no row is stated for it. The text does not say which backend made it, so the reader cannot refuse: the packa… |  |  | e8-backend-llvm |  |  | fixtures/e8-backend-llvm (no\_sentence: differs\_from e8-ref) |
 | `--main-module` | supported |  | the option says which K text is the definition (the main module; the code blocks of a Markdown file) and nothing about how it is kompiled: the kompiled text is that definition's, read as any. (--syntax-module, which names the module programs are parsed with, is in group erased-options.) | none (reader already reads it) |  | e8-main-module |  |  | fixtures/e8-main-module (\`module REF-SYNTAX\`, account \`parse: ok; wf true\`), e8-md and e8-md-selector |
@@ -1786,7 +1786,7 @@ Not core:
 
 ## C3 pairs of meaning-carrying modifiers (44 rows)
 
-| row | status | class | reason | cone | unit | fixture | kimp | kore.k | evidence |
+| row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `equation requires x equation ensures` | supported (core) |  |  |  |  | c3-eq-req-ens |  |  | fixtures/c3-eq-req-ens: kompile.txt exit 0, K 7.1.337 with default options; account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; test/constructs/modifiers.py run: c3-eq-req-ens against c3-eq-only-req, text +1 -1, Semantics +1… |
 | `equation requires x equation priority` | supported (core) |  | supported with this qualifier (findings/C3-competitor-review.md section 2.5): the equation of the smallest priority is in Γ as written and each other one with the premise that no clause of a smaller priority applies (equationPriority), entailed by its sentence; where two equations of different prior… |  |  | c3-eq-req-prio |  |  | fixtures/c3-eq-req-prio: kompile.txt exit 0, K 7.1.337 with default options; account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; test/constructs/modifiers.py run: c3-eq-req-prio against c3-eq-only-req, text +1 -1, Semantics… |
