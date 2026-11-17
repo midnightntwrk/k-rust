@@ -1,7 +1,7 @@
 id = "c11-fn-no-equation"
 kind = "case"
 subject = "A partial function applied at an argument no equation applies to (half(3), half's one equation requiring an even argument), in the right side of the one rule: what the configuration a(3) steps to, and whether it is final."
-retro = ["F1"]
+retro = ["F1", "R1"]
 rests_on = ["kk:t01-rule-applies", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t13-fn-no-equation"]
 
 [text]
