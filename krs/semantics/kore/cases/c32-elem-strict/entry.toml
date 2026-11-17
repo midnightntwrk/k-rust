@@ -81,7 +81,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in a set's and a list's element. SET.element, \
-LIST.element and the concatenations are strict, so the collection and the rule's result are \
-undefined."""
+reason = "The llvm backend aborts on 1 /Int 0 in a set's and a list's element ([hook_INT_tdiv]: Division by zero) and reports no final configuration; the ruling has c(2)."

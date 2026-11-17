@@ -28,9 +28,4 @@ quote = "syntax List ::= List List [left, function, total, hook(LIST.concat), sy
 [[disposition]]
 implementation = "haskell"
 is = "difference"
-reason = """
-The haskell backend's search stops with ErrorRewritesInstantiation: its unifier finds no \
-solution for a List pattern with elements on both sides of the frame. List concatenation is \
-associative, so ListItem(X) L ListItem(Y) matches every list of at least two elements, with X \
-the first, Y the last and L the middle; kore.k gives r(1, 4, ListItem(2) ListItem(3)), as the \
-llvm backend does."""
+reason = "The haskell backend's search stops with an error (ErrorRewritesInstantiation: Unable to instantiate semantic rule at def.k:13:8-13:72) and reports no final configuration; the ruling has r(1, 4, ListItem(2) ListItem(3))."
