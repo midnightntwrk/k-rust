@@ -370,6 +370,22 @@ by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 1
 places and 6 by variable names, the 28 emitted alone the 14 projections' selector-domain axioms
 and selector-inverse lemmas (krust's; kompile writes none), no candidate.
 
+## Reader mutants: `test/mutants.sh`
+
+DONE-0 C8 part 1. `test/constructs/mutants.toml` names reader mutants, each a patch of the reader's
+files with the row it is a mutant of, the row's fixture (a fixture directory, or a KORE text) and
+theorem module, and what is expected (killed, or survives with the argument that it is equivalent).
+`test/mutants.sh [--keep] [NAME...]` applies each in a scratch copy under `.lake/mutants/NAME` (this
+tree's build must be current), rebuilds only the patched modules and relinks `kcore` (`lake build
+--old kcore`, the copy's sources dated before its build), regenerates the fixture's account with the
+mutant (`kfix.py accounts` with `KCORE_BIN`, or `kcore account` of the text against this tree's) and,
+where the account is unchanged, checks the theorem module in the copy, whose `definition_of` then
+runs the mutant's reader: killed when the account changes or the module fails, with the failing
+declarations printed. The first mutant, `ensures-as-requires` (an equation's `ensures` read as a
+conjunct of its `requires`), leaves the account of `f2-examples/ens.kompile.kore` unchanged and fails
+`test/TieEns.lean` at `fn_shape`, `half_neg4`, `run_stuck` (2 min 19 s); on fixture `c3-eq-req-ens`
+its account is unchanged too, and that row names no theorem module yet.
+
 ## The construct lists: `test/constructs/`
 
 DONE-0 C1's eight key lists E1 to E8, extracted from K 7.1.337 by `test/constructs/extract.sh`
