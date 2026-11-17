@@ -86,7 +86,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
     (motive_5 := fun σ ts _ _ => ts = [.app F [.var 0], .dv Srt.int (.int 2)] →
       ∀ w, σ.lookup 0 = some w → c.sortOf w = some Srt.int → False)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ ihreq ihprio _ _ => fun hf w hvs hw => by
+    (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ _ ihreq _ ihprio _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -98,7 +98,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       exact ihnone cl1 (by simp [fF]) rfl w rfl hw)
-    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ ihreq ihprio _ => fun hf w hvs hw => by
+    (fun {_ _ _ cl _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihreq _ ihprio _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -117,6 +117,9 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       simp only [cl1, Option.some.injEq] at ht
       subst ht
       exact ihe (.inl rfl) w hl hw)
+    (fun h _ => fun hcl _ _ _ => by
+      subst hcl
+      exact absurd (Holds.top_eq h) (by simp))
     (fun h => by rcases h with h | h <;> cases h)
     (fun h => by rcases h with h | h <;> cases h)
     (fun _ _ => fun h => by rcases h with h | h <;> cases h)
@@ -231,11 +234,11 @@ theorem not_fnSolves : ¬ FnSolves c := by
     | 0, hi => simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨i0, rfl, i0_int⟩
     | _ + 1, hi => simp [cl2] at hi
   have hdec : cl2.DecidesAt c fF σ [i0] := by
-    refine ⟨⟨hσ, .cons (.var rfl) .nil, fun _ ht => by cases ht⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
+    refine ⟨⟨hσ, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
     rcases hcl' with rfl | rfl
     · cases hm with
-      | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq req1 rfl)
+      | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq.1 req1 rfl)
     · exact absurd hlt (Nat.lt_irrefl _)
   have hE := (hs fF (by simp [c]) [i0] (by decide +kernel) cl2 (by simp [fF]) σ hdec (.dv Srt.int (.int 2))).mpr
     ⟨.dv, fun t ht => by simp [cl2] at ht⟩

@@ -101,7 +101,7 @@ theorem lookup_f : c.lookupFn fl = some fn := rfl
 
 /-- `f()` is `1`: the clause of priority 50 applies, and no clause has a smaller priority. -/
 theorem eval_f : Eval c fl [] (some v1) :=
-  .clause (σ := []) lookup_f (List.mem_cons_self ..) (fun _ _ h => by simp [cl1] at h) .nil (fun _ h => by cases h)
+  .clause (σ := []) lookup_f (List.mem_cons_self ..) (fun _ _ h => by simp [cl1] at h) .nil (fun _ h => by cases h) .top
     (fun cl' h _ hlt => by
       rcases List.mem_cons.mp h with rfl | h
       · exact absurd hlt (Nat.lt_irrefl _)

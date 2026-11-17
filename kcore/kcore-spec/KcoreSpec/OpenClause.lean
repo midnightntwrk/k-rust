@@ -474,6 +474,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
           (by rw [Clause.leftSortsB_getD hi' (List.mem_append_right _ hc)]; exact hws') (by
             show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars i))
             rw [setV_on hkeysC hi' hc, hw', Option.getD_some])]
+      | pre hpf => rw [hpre] at hpf; exact absurd hpf.top_eq (by simp)
   · -- refuted: but the conditions hold at the binders
     have h0 : (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (some (Term.kore c vs t)))).interpret I e' m := by
       rw [ht] at hreqE; exact hreqE
@@ -502,10 +503,12 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
     hreqS hconj hrc hw
 
 /-- **For a semantics `coreOK` accepts, a clause that fails fails in the model at the
-substitutions of values on its patterns and conditions** (`evalTerm_den4`). -/
+substitutions of values on its patterns and conditions** (`evalTerm_den4`), where its predicate is
+`\top`. -/
 theorem modelFailsCl_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl' ∈ fn.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
     (hIΓ : I ⊧ᴵP Γ c) {cl : Clause} {L : List CtorSig}
     (hL : HeadsOK c L) (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
+    (hpre : cl.pre = .top)
     {ws : List GroundTerm} (hf : Fails c ws cl) : ModelFailsCl c I cl ws := by
   obtain ⟨hok, hsr, hnn, -, hph, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
@@ -521,6 +524,7 @@ theorem modelFailsCl_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ 
         rw [sortOfTerm_congr t fun i hi => hagl i (Clause.req_leftVars ht i hi)]; exact hreqS t ht
       exact ⟨t, r, ht, hr, fun v hv => EvalTerm.sorted hsc he hL hσ htS hv,
         evalTerm_den4 hIΓ hnn hsc hok hbc hph (neg_of_core h hbc hIΓ) he hL hσ (by rw [canonVars_length, hlen]) hag htS⟩
+    | pre hpf => rw [hpre] at hpf; exact absurd hpf.top_eq (by simp)
 
 /-- `exclEmptyCl_of` for a semantics `coreOK` accepts, from `Fails` alone. -/
 theorem exclEmptyCl_core (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl' ∈ fn'.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
@@ -536,7 +540,8 @@ theorem exclEmptyCl_core (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl'
     {σR : M} (hR : e.evalEvar (tbl.ev (.sortVar "R")) = σR) (hσR : IsSort I σR) (m : M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret I e m :=
   exclEmptyCl_of h hI hL hs hp hrc hw hws hf
-    (modelFailsCl_of_core h hbc (fun φ hφ => hI φ (Or.inl hφ)) hL (Semantics.clauseSortedOpen_parts hs).2.2.1 hf)
+    (modelFailsCl_of_core h hbc (fun φ hφ => hI φ (Or.inl hφ)) hL (Semantics.clauseSortedOpen_parts hs).2.2.1
+      (Semantics.clausePlainOpen_parts hp).2.1 hf)
     hkeys hXkeys hRkey hX hR hσR m
 
 end

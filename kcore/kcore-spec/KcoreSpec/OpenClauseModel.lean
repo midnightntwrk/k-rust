@@ -93,8 +93,9 @@ theorem evalTerm_total_atCl (hsc : SortCtx c) (hov : OvlOK c) (hft : FnTerminate
 sorted on its patterns and conditions (`PrioDecided`), for a semantics `sortedOKCl` accepts. -/
 theorem prioDecided_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
     (ht : FnTerminates c) : PrioDecided c := by
-  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _ t hq
-  obtain ⟨L, hL, -, -, -, -, hreqs, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _
+  obtain ⟨L, hL, -, hpre, -, -, hreqs, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  refine ⟨fun t hq => ?_, true, Clause.holds_preTop hpre σ'⟩
   exact evalTerm_total_atCl (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)) hov ht hL hσ'
     (Clause.req_leftVars hq) (hreqs t hq)
 
