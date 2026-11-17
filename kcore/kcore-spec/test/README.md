@@ -1224,6 +1224,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   through the registry up to its own name. 7.2 GiB (the largest range), 189 s.
 - `test/TieKimpWf.lean`: `wf defn = true` on kimp's literal, conjunct by conjunct (`wf_of_parts`,
   `ok_of_T` on the tables, `faithOK_of_parts`, `itesApart_of_codes`). 3.3 GiB, 36 s.
+- `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
+  read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
+  the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
+  (W1, `rules_entail`), so each item of `ruleItems` is a consequence of its sentence for every H
+  (`rules_from_text`); in a model of Γ, for every H, the sentence holds where its right side holds
+  an element (W2, `rules_w2_all`, `rules_w2`). 4.9 GiB, 100 s.
 - `test/LibEvFnEns.lean`, `test/LibEvFnBoolIntEns.lean`, `test/LibEvFnCollEns.lean`: the library
   equations in the function form (`\in` premises, `#as`, `requires`; not `owise`) of
   `f2-examples/ens.kompile.kore` entailed at values (`EntailsAtValues`) for every H, each from the
