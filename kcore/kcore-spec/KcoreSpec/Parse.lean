@@ -347,6 +347,11 @@ inductive RefusalReason where
   reads none of them: a fixpoint, a step, an equivalence, an application form the KORE syntax
   abbreviates, or a pattern of no sort. The detail names the form. -/
   | unkompiledForm
+  /-- An attribute of a symbol or hooked-symbol declaration whose name is no key of the construct
+  table's E2 rows (`AttrKeyE2`): no text gives it a meaning at a symbol, so that reading the
+  declaration with it dropped states no more than the text cannot be shown (`attrFault?`). The
+  detail names the attribute. -/
+  | symbolAttrUnkeyed
   deriving Repr, DecidableEq, Inhabited
 
 /-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
@@ -356,6 +361,30 @@ def AttrRefusalE2.reason : AttrRefusalE2 → RefusalReason
   | .sortAttribute => .sortAttribute
   | .openGenerator => .openGenerator
   | .outsideE2 => .attrOutsideE2
+  | .symbolAttribute => .symbolAttrUnkeyed
+
+/-- The verdict on an attribute whose head is spelled `n` at a sentence of class `c`: its key's
+(`attrVerdict`), and for a name that spells no key of `AttrKeyE2`, refused with `r`. -/
+def attrVerdictOf (c : AttrClassE2) (r : AttrRefusalE2) (n : String) : AttrVerdict :=
+  match AttrKeyE2.ofName? n with
+  | some k => attrVerdict c k
+  | none => .refused r "the name is no attribute key of E2's rows (K 7.1.337 admits no key so spelled at this sentence): no text gives it a meaning here, so that reading the sentence with it dropped states no more than the text cannot be shown"
+
+/-- The first attribute of `as` that `attrVerdictOf c r` refuses, as the reason it gives and the
+attribute's name with why (`r` for a name that is no key). -/
+def attrFault? (c : AttrClassE2) (r : AttrRefusalE2) (as : List Kore.AppPattern) : Option (RefusalReason × String) :=
+  as.findSome? fun ap =>
+    let n := ap.head.ident.name
+    match attrVerdictOf c r n with
+    | .refused r' w => some (r'.reason, s!"{n}: {w}")
+    | _ => none
+
+/-- Whether `as` holds an attribute of key `k`. -/
+def hasKey (as : List Kore.AppPattern) (k : AttrKeyE2) : Bool := hasAttr as k.kore
+
+/-- The string argument of `as`'s attribute of key `k`. -/
+def keyStr? (as : List Kore.AppPattern) (k : AttrKeyE2) : Option String := attrStr? as k.kore
+
 
 /-- Why the semantics does not read a sentence. -/
 inductive InertReason where
@@ -2254,13 +2283,6 @@ def svinNames (e : RawEqn) (X : Kore.SVar) : String × String :=
     !held.contains ("Var" ++ cand j 0) && !held.contains ("Var" ++ cand j 1)).getD held.length
   (cand j 0, cand j 1)
 
-/-- The verdict on an attribute whose head is spelled `n` at a sentence of class `c`: its key's
-(`attrVerdict`), and for a name that spells no key of `AttrKeyE2`, refused with `r`. -/
-def attrVerdictOf (c : AttrClassE2) (r : AttrRefusalE2) (n : String) : AttrVerdict :=
-  match AttrKeyE2.ofName? n with
-  | some k => attrVerdict c k
-  | none => .refused r "the name is no attribute key of E2's rows (K 7.1.337 admits no key so spelled at this sentence): no text gives it a meaning here, so that reading the sentence with it dropped states no more than the text cannot be shown"
-
 /-- The first attribute of a function equation that `attrVerdict` refuses at class `equation`
 (`equationAttribute`), with its name and why. An inert key is one whose verdict is that the
 equation states what it states with it or without it; the others are read. -/
@@ -2639,7 +2661,7 @@ def cellName? (label : String) : Option String := do
 
 /-- The cell symbol whose result sort is `X`. -/
 def cellSym? (syms : List Kore.SentenceSymbol) (X : String) : Option Kore.SentenceSymbol :=
-  syms.find? fun s => hasAttr s.attributes "cell" && sortName? s.sort == some X
+  syms.find? fun s => hasKey s.attributes .cell && sortName? s.sort == some X
 
 /-- A cell as the text names it, before numbering. -/
 inductive RCell where
@@ -3354,8 +3376,8 @@ def lawKeys (a : Kore.Axiom) : List String :=
 /-- A symbol of a user's file declared neither `function` nor `constructor`, nor `anywhere` (an
 overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before). -/
 def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
-  isUserSource s.attributes && !hasAttr s.attributes "function" && !hasAttr s.attributes "constructor" &&
-    !hasAttr s.attributes "anywhere" && !hasAttr s.attributes "cell"
+  isUserSource s.attributes && !hasKey s.attributes .function && !hasKey s.attributes .constructor &&
+    !hasKey s.attributes .anywhere && !hasKey s.attributes .cell
 
 /-- A sentence of a K installation's builtin file: read when it is a sentence of the library's
 text up to its place; read as the definition's own when it is one of K-REFLECTION's
@@ -3539,24 +3561,37 @@ def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   else if isUnkompiledForm a.pattern then .refused .unkompiledForm
   else .refused .axiomShape
 
-/-- An attribute of a sort declaration the reader reads (its place, `hasDomainValues`, `token`) or
-knows to say nothing of the sort's values (`label`, a name). -/
+/-- An attribute of a sort declaration that is no refusal: `attrVerdict` at class `sort` rules it
+inert (`label`, a name, says nothing of the sort's values), or reads it and the reader of a sort
+declaration reads it (its place, `hasDomainValues`, `token`: `isPlaceAttr`, `isTokenSortAttr`).
+A key read at a sort that a sort declaration does not carry here (`hook`, `concat`: a hooked sort's,
+`classify`'s `.hookedSort` arm) and a name that is no key are refused (`sortAttribute`). -/
 def sortAttrOK (a : Kore.AppPattern) : Bool :=
-  isPlaceAttr a || isTokenSortAttr a || isLabelAttr a
+  match attrVerdictOf .sort .sortAttribute a.head.ident.name with
+  | .refused .. => false
+  | .inert _ => true
+  | .read => isPlaceAttr a || isTokenSortAttr a
 
 /-- The class of a sentence of the user module, from the sentence alone. -/
 def classify : Kore.Sentence → SentenceClass
   | .import _ => .inert .import
-  | .claim _ => .inert .claim
+  | .claim c => match attrFault? .claim .outsideE2 c.attributes with
+      | some (r, _) => .refused r
+      | none => .inert .claim
   | .alias _ => .refused .aliasDeclaration
   | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
       else if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then classifyKBuiltin (.symbol s)
       else if !s.symbol.sortVars.isEmpty && isUserSource s.attributes then .unread .parametricUnused
       else if isOpenGenerator s then .refused .openGenerator
       else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
-      else .read
+      else match attrFault? .symbol .symbolAttribute s.attributes with
+        | some (r, _) => .refused r
+        | none => .read
   | .hookedSymbol s => if isMacroDecl s.attributes then .unread .macroUnused
-      else if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s) else .read
+      else if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s)
+      else match attrFault? .symbol .symbolAttribute s.attributes with
+        | some (r, _) => .refused r
+        | none => .read
   | .sort s => if isKBuiltin s.attributes then classifyKBuiltin (.sort s)
       else if (s.attributes.all sortAttrOK) then .read else .refused .sortAttribute
   | .hookedSort s => if isKBuiltin s.attributes then classifyKBuiltin (.hookedSort s)
@@ -3673,11 +3708,11 @@ and where none applies the interpretation's value (`Semantics.fnRest`), as for a
 symbol that is no macro). -/
 def hookFnSym (S : Scan) (h : Kore.HookedSymbol) : Bool :=
   let n := h.symbol.ident.ident.name
-  (match attrStr? h.attributes "hook" with
+  (match keyStr? h.attributes .hook with
    | some hk => (regHookOf hk).isNone
    | none => false) &&
   !S.colls.any (fun (_, _, u, el, cc) => n == u || n == el || n == cc) &&
-  S.eqs.any fun e => e.fn == n && !e.dom && !hasAttr e.attrs "symbol-overload"
+  S.eqs.any fun e => e.fn == n && !e.dom && !hasKey e.attrs .symbolOverload
 
 /-- The library sorts of `hookSigs` that the builtin texts declare with a `hook` attribute
 (`hooked-sort SortInt{} … hook{}("INT.Int")`, and so `BOOL.Bool`, `LIST.List`, `MAP.Map`, `SET.Set`,
@@ -3844,6 +3879,8 @@ def collSigOf (N : Names) (hooked : List Kore.HookedSymbol) :
 
 def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let src ← need (source? m.attributes) .moduleSource
+  -- the module's attributes, as `attrVerdict` rules them at class `module`
+  if let some (r, d) := attrFault? .module .outsideE2 m.attributes then fail r d
   let rconfig ← configOf S.syms
   -- the builtin modules with a sentence in the text, in the library's order
   let mods ← S.builtin.mapM fun (s, l) =>
@@ -4067,26 +4104,26 @@ def symProdBody (E : Env) (eqs : List RawEqn) (ov : List (String × List (Clause
   let N := E.N
   let argNames ← s.sorts.mapM sortNameE
   let resName ← sortNameE s.sort
-  let kywd := attrStr? s.attributes "symbol'Kywd'"
+  let kywd := keyStr? s.attributes .symbol
   let label := s.symbol.ident.ident.name
   let sig : CtorSig := ⟨← N.symE label, ← argNames.mapM N.srtE, ← N.srtE resName⟩
   -- a constructor declared without a source (a freezer, a cell collection's fragment or optional
   -- cell) has no location
-  if (source? s.attributes).isNone && hasAttr s.attributes "constructor" then pure (Prod.ctor sig ⟨kywd, none, none⟩)
+  if (source? s.attributes).isNone && hasKey s.attributes .constructor then pure (Prod.ctor sig ⟨kywd, none, none⟩)
   else do
     -- a function declared without a source has none either (`noLoc`)
     let l ← if (source? s.attributes).isNone then pure ((loc? s.attributes).getD noLoc)
       else need (loc? s.attributes) .location
-    if hasAttr s.attributes "constructor" then pure (Prod.ctor sig ⟨kywd, some l, srcOver E.src s.attributes⟩)
+    if hasKey s.attributes .constructor then pure (Prod.ctor sig ⟨kywd, some l, srcOver E.src s.attributes⟩)
     else do
       let cl := match ov.lookup label with
         | some C => Except.ok C
         | none => fnClauses N E.src eqs label
       -- `functional` is K's earlier name of `total`: a function with exactly one value at every argument
       let (f, fp) ← fnFrom N E.src (srcOver E.src s.attributes) eqs cl label kywd argNames resName l
-        (hasAttr s.attributes "total" || hasAttr s.attributes "functional")
+        (hasKey s.attributes .total || hasKey s.attributes .functional)
       -- a hooked symbol read as a function keeps its hook, which its declaration is written with
-      pure (Prod.fn f (if E.hookFns.contains label then { fp with hook := attrStr? s.attributes "hook" } else fp))
+      pure (Prod.fn f (if E.hookFns.contains label then { fp with hook := keyStr? s.attributes .hook } else fp))
 
 /-- The production of a user symbol, with the clauses of the functions `ov` names given: `ov` is
 a table of labels and clause lists, each proved equal to its `fnClauses` (`symProdT_eq`), so that
@@ -4614,7 +4651,8 @@ def Fault.toRefusal (off : Nat) (m : Kore.Module) (f : Fault) : Refusal :=
 /-- The detail of a refusal `classify` gives the sentence `s` of the user module `m`: for an open
 generator (`openGenerator`), the law axioms `m` states of the symbol (kompile writes none for `comm`);
 for a set variable on an equation's left side (`setVariable`, `lhsSetVar?`), the variable, the
-function and why; "" for the other reasons. -/
+function and why; for an attribute of a declaration or a claim (`attrFault?`), the attribute and
+why; "" for the other reasons. -/
 def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : String :=
   match r, s with
   | .openGenerator, .symbol x =>
@@ -4625,6 +4663,11 @@ def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : Stri
     s!"{n}: neither function nor constructor; law axioms: {if laws.isEmpty then "none" else ", ".intercalate laws}"
   | .sortAttribute, .sort x =>
     s!"{x.sort.ident.name}: {", ".intercalate ((x.attributes.filter (!sortAttrOK ·)).map (·.head.ident.name))}"
+  | _, .symbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+      s!"{x.symbol.ident.ident.name}: {d}").getD ""
+  | _, .hookedSymbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+      s!"{x.symbol.ident.ident.name}: {d}").getD ""
+  | _, .claim c => ((attrFault? .claim .outsideE2 c.attributes).map (·.2)).getD ""
   | .userHookedSort, .hookedSort x => s!"{x.sort.ident.name}: hook {(attrStr? x.attributes "hook").getD "(none)"}"
   | .existentialAxiom, .axiom a => match existentialAxiom? a with
     | some (f, b) => s!"{f}: {f}(…) = {b}, {b} bound by \\exists at the top of the axiom"

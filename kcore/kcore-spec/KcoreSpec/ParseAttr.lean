@@ -295,9 +295,10 @@ def AttrClassE2.name : AttrClassE2 → String
 equation's (`equationAttribute`), a sort declaration's (`sortAttribute`), `assoc` or `comm` on a
 symbol that is no function (`openGenerator`: a generator under a law), and, at a symbol
 declaration, a simplification axiom, a claim or the module, a key that no kompiled text carries
-there (`attrOutsideE2`). `AttrRefusalE2.reason` (Parse.lean) is the map. -/
+there (`attrOutsideE2`), and a name that is no key on a symbol declaration (`symbolAttrUnkeyed`; no
+verdict gives it). `AttrRefusalE2.reason` (Parse.lean) is the map. -/
 inductive AttrRefusalE2 where
-  | ruleAttribute | equationAttribute | sortAttribute | openGenerator | outsideE2
+  | ruleAttribute | equationAttribute | sortAttribute | openGenerator | outsideE2 | symbolAttribute
   deriving Repr, DecidableEq, Inhabited
 
 /-- What the reader does with an attribute: reads it; reads the sentence with the key saying
@@ -336,7 +337,7 @@ def declarationKey : String :=
   "the key states a property of a symbol or sort declaration (a collection's concatenation, a sort's domain values, a symbol's overload), where the reader reads it; no text gives it a meaning on this sentence, so that reading the sentence with the key dropped states no more than the text cannot be shown"
 
 /-- The verdict on key `k` at a sentence of class `c`: what the E2 row of `k` at `c` decides, else
-the row of `k` at class `any`, else refused. Every class and key is an arm. Three exceptions, where
+the row of `k` at class `any`, else refused. Every class and key is an arm. Four exceptions, where
 a row's verdict would not be the reader's:
 - at a rewrite axiom, `format`, `colors` and `symbol` are inert, which no row admits there: the
   production's attributes that kompile copies onto the heating and cooling rules it generates;
@@ -344,6 +345,9 @@ a row's verdict would not be the reader's:
   and `hasDomainValues`, are refused, where the rows at class `any` read them: the reader reads them
   at a declaration (and `symbol-overload` at an equation), and no text gives them a meaning at the
   sentence;
+- at a symbol declaration, `anywhere` is read, which no row admits there: kompile writes it on the
+  declaration of an overloaded production's symbol (86 declarations of the corpus and the fixtures'
+  texts), and the reader reads it (an overloading symbol, `Parse.isOpenGenerator`);
 - at an equation, `anywhere` is refused as its row decides, with a why of its own: the row's is the
   frontend's refusal under the haskell backend, while kompile writes the key on an equation under
   another backend. -/
@@ -351,10 +355,11 @@ def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   -- symbol
   | .symbol, .alias => .inert (ruled "ALIAS(alias)@symbol")
   | .symbol, .aliasRec => .inert (ruled "ALIAS_REC(alias-rec)@symbol")
-  | .symbol, .anywhere | .symbol, .circularity | .symbol, .cool | .symbol, .depends
+  | .symbol, .circularity | .symbol, .cool | .symbol, .depends
   | .symbol, .nonExecutable | .symbol, .owise | .symbol, .preservesDefinedness
   | .symbol, .simplification | .symbol, .smtLemma | .symbol, .syntactic | .symbol, .trusted =>
     .refused .outsideE2 unwritten
+  | .symbol, .anywhere => .read
   | .symbol, .assoc => .refused .openGenerator (ruled "ASSOC(assoc)@symbol")
   | .symbol, .binder => .inert (ruled "BINDER(binder)@symbol")
   | .symbol, .bracket => .refused .outsideE2 (erased "BRACKET(bracket)@symbol")

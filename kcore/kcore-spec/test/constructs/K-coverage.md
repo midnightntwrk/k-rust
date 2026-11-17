@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
 | E3 | 67 | 26 | 0 | 1 | 0 | 40 | 0 | 0 |
-| E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
+| E4 | 9 | 4 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
 | E6 | 6 | 4 | 0 | 0 | 0 | 2 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 161 | 74 | 1 | 7 | 1 | 78 | 0 | 0 |
+| all | 162 | 74 | 1 | 7 | 1 | 79 | 0 | 0 |
 
 Refused rows by class:
 
@@ -62,13 +62,13 @@ Refused nested entries by class:
 | E1 | 1 | 0 | 0 | 1 | 0 |
 | E2 | 2 | 0 | 0 | 1 | 1 |
 | E3 | 40 | 6 | 2 | 32 | 0 |
-| E4 | 4 | 2 | 2 | 0 | 0 |
+| E4 | 5 | 2 | 3 | 0 | 0 |
 | E5 | 11 | 6 | 0 | 3 | 2 |
 | E6 | 2 | 1 | 1 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 78 | 23 | 9 | 40 | 6 |
+| all | 79 | 23 | 10 | 40 | 6 |
 
 ## Entries of class R-c (68)
 
@@ -273,7 +273,7 @@ Not core:
 | `AVOID(avoid)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | yes | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `BAG(bag)@frontend` | refused | R-b | Rule S2: kompile 7.1.337 with default options and --backend haskell writes no definition.kore for the text (each row's no\_sentence quotes the message). | none (reader only) |  | e2-cells-bag | no | no | FX/e2-anywhere, e2-anywhere-eq, e2-anywhere-simp, e2-cells-bag, e2-rule-nonexec, e2-simp-owise, e2-simp-priority, e2-simp-on-rule, e2-syntactic-rule, e2-syntactic-eq: kompile.txt, exit 113. |
 | `BINDER(binder)@symbol` | inert |  | The text holds \`binder{}()\` on a constructor's declaration and nothing else for it: lam has the injectivity and no-junk axioms of any constructor (FX/e2-binder/kore.txt lines 14, 122, 140), so the text states no identification of terms up to bound names. What binder means is said only to the SUBSTIT… | none (reader only) |  | e2-binder | no | no | FX/e2-binder/kore.txt line 14; account.txt. |
-| `BRACKET(bracket)@symbol` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | yes | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
+| `BRACKET(bracket)@symbol` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | yes | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color).; the key on a symbol declaration of a hand-written text: fixtures/hw-symbol-attr-bracket/account.txt \`1 refused attrOutsideE2 [user]\` (Parse.attrFault? at class symbol… |
 | `CELL(cell)@symbol` | supported |  |  |  |  | e2-cells | no | no | K-coverage.md A.3 cell (symbols) |
 | `CELL_COLLECTION(cellCollection)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
 | `CELL_NAME(cellName)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
@@ -703,6 +703,7 @@ Not core:
 | `grammar:<sentence-sort>::="sort" <sort-identifier> "{" <sort-variables> "}" "[" <attributes> "]"` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.1 sort S{} |
 | `grammar:<sentence-hooked-sort>::="hooked-sort" <sort-identifier> "{" <sort-variables> "}" "[" <attributes> "]"` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.1 hooked-sort |
 | `grammar:<sentence-symbol>::="symbol" <symbol> "(" <sorts> ")" ":" <sort> "[" <attributes> "]"` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.1 symbol |
+| cases[0]: an attribute whose name is no key of E2's rows (Parse.AttrKeyE2), which no kompiled text writes on a symbol of the user… | refused | R-b |  |  | none (R-b): shape at E4 grammar:&lt;attribute>::=&lt;application-pattern> | hw-symbol-attr-unkeyed |  |  | fixtures/hw-symbol-attr-unkeyed/account.txt: \`1 refused symbolAttrUnkeyed [user]\` (foo{}() on Lbla; Parse.attrFault? at class symbol) |
 | `grammar:<sentence-hooked-symbol>::="hooked-symbol" <symbol> "(" <sorts> ")" ":" <sort> "[" <attributes> "]"` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.1 hooked-symbol |
 | `grammar:<sentence-alias>::="alias" <alias> "(" <sorts> ")" ":" <sort> "where" <application-pattern> ":=" <pattern> "[" <attributes> "]"` | refused | R-b |  |  |  |  | yes | yes | K-coverage.md A.1 alias: aliasDeclaration |
 | `grammar:<sentence-axiom>::="axiom" "{" <sort-variables> "}" <pattern> "[" <attributes> "]"` | supported |  |  |  |  |  | yes | yes | K-coverage.md A.1 axiom: read / inert / refused by shape |
