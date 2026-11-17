@@ -5,13 +5,13 @@
   package root: `lake env lean test/TieKkOwise.lean`.
 
   - `owAt`: the positions of the seven among Γ's function equations (`fnItems`, the order of
-    `TieKkFns.fnText`) with their sentences: 30 `cmp` 502, 108 `hookOp` 563, 132 `isElem` 627,
-    165 `match` 708, 171 `matchCol` 723, 184 `mkInj` 738, 224 `tag` 816. `ow_keys`: the clause at
+    `TieKkFns.fnText`) with their sentences: 31 `cmp` 503, 109 `hookOp` 564, 133 `isElem` 628,
+    166 `match` 709, 172 `matchCol` 724, 185 `mkInj` 739, 225 `tag` 817. `ow_keys`: the clause at
     each position has priority 200 and the sentence is its function's equation of that priority.
   - `ow_same`: at each, Γ's item and the sentence's translation agree up to the order of the
     operands of their sorted disjunctions and the names of their variables (`TieAlpha.acEqB`), one
     kernel decision per position. The exclusion of each lists the other equations' conditions as a
-    chain of disjunctions, in another order on the two sides (at 184 in the same order); the bound
+    chain of disjunctions, in another order on the two sides (at 185 in the same order); the bound
     variables have other indices (the text's `_Gen` names against Γ's `VarV` names, each its own
     key of the variable table), and so do some free ones.
   - `ow_entailed` (E): Γ entails each of the seven sentences, for every H;
@@ -38,8 +38,8 @@ noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.a
 
 /-- The seven `[owise]` equations: the position of each among Γ's items, and its sentence. -/
 noncomputable def owAt : List (Nat × AxiomDecl) :=
-  [(30, U.ax502), (108, U.ax563), (132, U.ax627), (165, U.ax708), (171, U.ax723), (184, U.ax738),
-   (224, U.ax816)]
+  [(31, U.ax503), (109, U.ax564), (133, U.ax628), (166, U.ax709), (172, U.ax724), (185, U.ax739),
+   (225, U.ax817)]
 
 /-- Each of the seven is the `[owise]` equation of the function at its position: the clause there
 has priority 200, and the sentence is the first equation of the user module with that head symbol
@@ -55,25 +55,25 @@ noncomputable def owSame (p : Nat × AxiomDecl) : Bool :=
   | some g => TieAlpha.acEqB g (trS p.2).pat
   | none => false
 
-theorem ow_30 : owSame (30, U.ax502) = true := by decide +kernel
-theorem ow_108 : owSame (108, U.ax563) = true := by decide +kernel
-theorem ow_132 : owSame (132, U.ax627) = true := by decide +kernel
-theorem ow_165 : owSame (165, U.ax708) = true := by decide +kernel
-theorem ow_171 : owSame (171, U.ax723) = true := by decide +kernel
-theorem ow_184 : owSame (184, U.ax738) = true := by decide +kernel
-theorem ow_224 : owSame (224, U.ax816) = true := by decide +kernel
+theorem ow_31 : owSame (31, U.ax503) = true := by decide +kernel
+theorem ow_109 : owSame (109, U.ax564) = true := by decide +kernel
+theorem ow_133 : owSame (133, U.ax628) = true := by decide +kernel
+theorem ow_166 : owSame (166, U.ax709) = true := by decide +kernel
+theorem ow_172 : owSame (172, U.ax724) = true := by decide +kernel
+theorem ow_185 : owSame (185, U.ax739) = true := by decide +kernel
+theorem ow_225 : owSame (225, U.ax817) = true := by decide +kernel
 
 theorem ow_same : ∀ p ∈ owAt, owSame p = true := by
   intro p hp
   simp only [owAt, List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact ow_30
-  · exact ow_108
-  · exact ow_132
-  · exact ow_165
-  · exact ow_171
-  · exact ow_184
-  · exact ow_224
+  · exact ow_31
+  · exact ow_109
+  · exact ow_133
+  · exact ow_166
+  · exact ow_172
+  · exact ow_185
+  · exact ow_225
 
 /-- At each of the seven the item and the sentence are satisfied by the same interpretations. -/
 theorem ow_iff {p : Nat × AxiomDecl} (hp : p ∈ owAt) : ∃ g, (TiePair.gammaPats c)[p.1]? = some g ∧

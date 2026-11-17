@@ -358,12 +358,15 @@ module KORE
   // A < B in the reflexive-transitive closure of the stated subsorts
   syntax Bool ::= leq(Int, Int, Subs) [function]
   rule [leq-refl]: leq(A, B, _) => true requires A ==Int B
-  rule [leq-up]: leq(A, B, S) => above(A, B, S, S) requires A =/=Int B
-  syntax Bool ::= above(Int, Int, Subs, Subs) [function]
-  rule [above-nil]: above(_, _, .Subs, _) => false
-  rule [above-hit]: above(A, B, sub(X, Y, Rest), All) => leq(Y, B, All) orBool above(A, B, Rest, All)
+  rule [leq-up]: leq(A, B, S) => above(A, B, S, S, S) requires A =/=Int B
+  // above(A, B, T, All, F): an entry of T starts at A and reaches B by at most as many entries as F has
+  syntax Bool ::= above(Int, Int, Subs, Subs, Subs) [function]
+  rule [above-nil]: above(_, _, .Subs, _, _) => false
+  rule [above-dry]: above(_, _, sub(_, _, _), _, .Subs) => false
+  rule [above-hit]: above(A, B, sub(X, Y, Rest), All, sub(P, Q, F))
+    => (Y ==Int B orBool above(Y, B, All, All, F)) orBool above(A, B, Rest, All, sub(P, Q, F))
     requires X ==Int A
-  rule [above-miss]: above(A, B, sub(X, _, Rest), All) => above(A, B, Rest, All)
+  rule [above-miss]: above(A, B, sub(X, _, Rest), All, sub(P, Q, F)) => above(A, B, Rest, All, sub(P, Q, F))
     requires X =/=Int A
 
   syntax Term ::= inst(Term, Bind) [function]
