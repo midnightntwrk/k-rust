@@ -183,6 +183,7 @@ theorem fnSolves' : FnSolves (cR rs) := by
   subst hfn
   simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
   subst hcl'
+  refine Iff.trans ?_ (Clause.gives_iff_noExs rfl rfl hdec.1.1 v).symm
   obtain ⟨⟨hσ, hm, _, _⟩, _⟩ := hdec
   cases hm with
   | cons h1 h2 =>

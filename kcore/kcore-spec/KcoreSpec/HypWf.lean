@@ -243,11 +243,13 @@ theorem hypModel_ofCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov 
 
 /-- **`FnHyp` gives `FnDet` and `FnSolves`**: the agreement of the equations and the match
 independence of the clauses give coherence, so one result (`fnDet_of_coherent`); with termination
-every `requires` and right-hand side read has a result, so where a clause decides the function's
-values are its right-hand side's (`fnSolves_of_total`). `FnHyp`'s totality conjunct is not read. -/
+every `requires` and right-hand side read has a result, and match independence holds a result of
+each clause with existential variables where it decides, so where a clause decides the function's
+values are its right side's (`fnSolves_of_total`). `FnHyp`'s totality conjunct is not read. -/
 theorem fnModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : FnDet c ∧ FnSolves c :=
   have hd := fnDet_of_coherent (CoherentAll_of (hyp_of_fnHyp h hf))
-  ⟨hd, fnSolves_of_total (hypSound_of_core h) hd hf.1⟩
+  ⟨hd, fnSolves_of_total (hypSound_of_core h) hd hf.1 fun fn hfn cl hcl hne vs σ hdec =>
+    (hf.2.2.2.1 fn hfn cl hcl).2 hne fn.label fn vs σ (lookupFn_of_core h hfn) hcl hdec⟩
 
 /-- **Under `FnHyp`, values that satisfy a clause's conditions witness it**: `FnHyp`'s agreement and
 match-independence conjuncts give `FnDet` (`fnDet_of_agree`), with no other fact on the
