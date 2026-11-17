@@ -1558,12 +1558,71 @@ determinism where `Inv` holds. -/
   Goal := ∀ x y y' : Config c, Inv x → Step c x y → Step c x y' → y = y'
   glue := joins_glue (matchCtx_of hmr) hT hidx
 
-/-- A rule that applies at x under τ is not blocked at x. -/
+/-- A predicate has at most one truth value where a term has at most one result. -/
+theorem holds_det (hd : ∀ (σ : Subst) (t : Term) (r r' : Option GroundTerm), EvalTerm c σ t r → EvalTerm c σ t r' → r = r')
+    {n : Nat} {σ : Subst} {p : Cond} {b b' : Bool} (h : Holds c n σ p b) (h' : Holds c n σ p b') : b = b' := by
+  induction p generalizing n σ b b' with
+  | top => cases h; cases h'; rfl
+  | bot => cases h; cases h'; rfl
+  | not p ih => cases h with | not h => cases h' with | not g => rw [ih h g]
+  | and p q ih1 ih2 => cases h with | and h1 h2 => cases h' with | and g1 g2 => rw [ih1 h1 g1, ih2 h2 g2]
+  | or p q ih1 ih2 => cases h with | or h1 h2 => cases h' with | or g1 g2 => rw [ih1 h1 g1, ih2 h2 g2]
+  | implies p q ih1 ih2 =>
+    cases h with | implies h1 h2 => cases h' with | implies g1 g2 => rw [ih1 h1 g1, ih2 h2 g2]
+  | ceil s t => cases h with | ceil he => cases h' with | ceil ge => rw [hd _ _ _ _ he ge]
+  | equals s t u =>
+    cases h with | equals he1 he2 => cases h' with | equals g1 g2 => rw [hd _ _ _ _ he1 g1, hd _ _ _ _ he2 g2]
+  | mem s t u =>
+    cases h with | mem he1 he2 => cases h' with | mem g1 g2 => rw [hd _ _ _ _ he1 g1, hd _ _ _ _ he2 g2]
+  | exMatch ys s pt t body ih =>
+    cases h with
+    | exNone he =>
+      cases h' with
+      | exNone _ => rfl
+      | exSome g' ge _ _ => cases hd _ _ _ _ he ge
+    | exSome g he hb hr =>
+      cases h' with
+      | exNone ge => cases hd _ _ _ _ he ge
+      | exSome g' ge hb' hr' =>
+        cases hd _ _ _ _ he ge
+        have hg : ∀ σ', Extends c _ _ _ σ' → PatVal c σ' _ _ → g σ' = g' σ' :=
+          fun σ' hx hp => ih (hb σ' hx hp) (hb' σ' hx hp)
+        apply Bool.eq_iff_iff.mpr
+        rw [hr, hr']
+        constructor
+        · rintro ⟨σ', hx, hp, hgt⟩; exact ⟨σ', hx, hp, by rw [← hg σ' hx hp]; exact hgt⟩
+        · rintro ⟨σ', hx, hp, hgt⟩; exact ⟨σ', hx, hp, by rw [hg σ' hx hp]; exact hgt⟩
+  | ex s body ih =>
+    cases h with
+    | ex g hb hr =>
+      cases h' with
+      | ex g' hb' hr' =>
+        have hg : ∀ σ', Extends c _ _ _ σ' → g σ' = g' σ' := fun σ' hx => ih (hb σ' hx) (hb' σ' hx)
+        apply Bool.eq_iff_iff.mpr
+        rw [hr, hr']
+        constructor
+        · rintro ⟨σ', hx, hgt⟩; exact ⟨σ', hx, by rw [← hg σ' hx]; exact hgt⟩
+        · rintro ⟨σ', hx, hgt⟩; exact ⟨σ', hx, by rw [hg σ' hx]; exact hgt⟩
+  | all s body ih =>
+    cases h with
+    | all g hb hr =>
+      cases h' with
+      | all g' hb' hr' =>
+        have hg : ∀ σ', Extends c _ _ _ σ' → g σ' = g' σ' := fun σ' hx => ih (hb σ' hx) (hb' σ' hx)
+        apply Bool.eq_iff_iff.mpr
+        rw [hr, hr']
+        constructor
+        · intro ha σ' hx; rw [← hg σ' hx]; exact ha σ' hx
+        · intro ha σ' hx; rw [hg σ' hx]; exact ha σ' hx
+
+/-- A rule that applies at x under τ, its premise predicate holding there, is not blocked at x. -/
 theorem not_notApplies (hmi : CoherentAll c) {r : Rule} {x : GroundTerm} {τ : Subst}
-    (hpre : r.pre = .top) (hτ : c.WellSorted r.vars τ) (hm : PatVal c τ r.lhs x)
-    (hq : ∀ t, r.req = some t → EvalTerm c τ t (some (bool true))) (hna : NotApplies c r x) : False := by
-  obtain ⟨_, _, ht, he, hv⟩ := (hna _ (hτ.at _) hm).req_of_top hpre
-  exact hv (evalTerm_det hmi he (hq _ ht))
+    (hτ : c.WellSorted r.vars τ) (hm : PatVal c τ r.lhs x)
+    (hq : ∀ t, r.req = some t → EvalTerm c τ t (some (bool true)))
+    (hpre : Holds c r.vars.length τ r.pre true) (hna : NotApplies c r x) : False := by
+  cases hna _ (hτ.at _) hm with
+  | intro ht he hv => exact hv (evalTerm_det hmi he (hq _ ht))
+  | pre h => exact absurd (holds_det (fun _ _ _ _ a b => evalTerm_det hmi a b) hpre h) (by decide)
 
 /-- Two rules with one left-hand side, one right-hand side and the same variables, the first's match
 fixing its right-hand side (`uniqOK`), rewrite x to one value. -/
@@ -1596,8 +1655,8 @@ theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matc
   intro r r' hr hr' x y y' _ hb hb'
   have hmem := List.mem_of_getElem? hr
   have hmem' := List.mem_of_getElem? hr'
-  obtain ⟨σ, hσ, hm, hq, -, he, -, -, hp⟩ := hb
-  obtain ⟨σ', hσ', hm', hq', -, he', -, -, hp'⟩ := hb'
+  obtain ⟨σ, hσ, hm, hq, hpr, he, -, -, hp⟩ := hb
+  obtain ⟨σ', hσ', hm', hq', hpr', he', -, -, hp'⟩ := hb'
   unfold detCond at h
   rw [hr, hr'] at h
   simp only at h
@@ -1609,8 +1668,8 @@ theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matc
   · simp only [pairCond, Bool.or_eq_true, Bool.and_eq_true, bne_iff_ne, ne_eq] at h
     rcases h with (((hne | hap) | hap) | ⟨hsame, hu⟩)
     · rcases Nat.lt_or_gt_of_ne hne with hlt | hlt
-      · exact (not_notApplies hmi (Semantics.ok_rule hok hmem).2.1 hσ hm hq (hp' _ hmem hlt)).elim
-      · exact (not_notApplies hmi (Semantics.ok_rule hok hmem').2.1 hσ' hm' hq' (hp _ hmem' hlt)).elim
+      · exact (not_notApplies hmi hσ hm hq hpr (hp' _ hmem hlt)).elim
+      · exact (not_notApplies hmi hσ' hm' hq' hpr' (hp _ hmem' hlt)).elim
     · exact (apart_sound hok hsr hmr hmo hmem hmem' hap hσ hm hq hσ' hm' hq').elim
     · exact (apart_sound hok hsr hmr hmo hmem' hmem hap hσ' hm' hq' hσ hm hq).elim
     · simp only [sameRule, Bool.and_eq_true, beq_iff_eq] at hsame
