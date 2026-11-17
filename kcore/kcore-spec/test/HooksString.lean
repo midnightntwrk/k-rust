@@ -1,6 +1,6 @@
 /-
-  The supported hook rows of STRING (21) of test/constructs/rows.toml (`hook:STRING.*` with status
-  `supported`): the sort row `STRING.String` and the twenty operations of `rows`. Each has its three
+  The supported hook rows of STRING (23) of test/constructs/rows.toml (`hook:STRING.*` with status
+  `supported`): the sort row `STRING.String` and the twenty-two operations of `rows`. Each has its three
   statements (DONE-0 C2, evidence of a `supported` hook): one in-domain value; for each region the
   builtin prose leaves unstated, that Γ over all interpretations entails neither ⊥ nor a value at a
   point of it; and that the hook's silent predicate in `silentTable` is that region, or why the prose
@@ -30,7 +30,7 @@
   | `STRING.int2string` | DOM 1820-1823; `total` 1835 |
   | `STRING.replaceFirst` | DOM 1842-1845; `total` 1854; equations 1901-1905 |
 
-  The ten rows with an unstated region, each a key of `silentTable` whose predicate is true at every
+  The twelve rows with an unstated region, each a key of `silentTable` whose predicate is true at every
   argument list (`keys_silent`), so that its silent points are the argument lists where `hook` gives
   no value: the region of the `*_none` theorem, at every argument list of literals (every argument
   list of the signature is one, `str_only` and `shape_int`, under `shapesOK`).
@@ -45,6 +45,8 @@
   | `STRING.string2int` | DOM 1820-1822 "a nonempty sequence of digits optionally prefixed by a sign"; 1834, no `total` | a string off that syntax |
   | `STRING.string2base` | DOM 1825-1829 radix 2 … 36 and its digits; 1837, no `total` | radix < 2, radix > 36, a string off the radix's syntax |
   | `STRING.replace` | DOM 1845; 1908-1910 "undefined when Count < 0. This allows different backends to implement their own behavior"; 1853, no `total` | count < 0 |
+  | `STRING.countAllOccurrences` | DOM 1848-1849 "count the number of times a string occurs within another string"; equations 1896-1899; `total` 1855 | the empty needle (finding 4) |
+  | `STRING.replaceAll` | DOM 1847 "`replaceAll` replaces every occurrence"; equation 1917; `total` 1852 | the empty needle (finding 4) |
 
   Statements:
   - **(1)** `vals`: points with the value derived from the cited sentence; `hook` gives it
@@ -54,7 +56,7 @@
     `ne_at`, `le_at`, `gt_at`, `ge_at`); `replaceFirst` against its equation 1901-1902 (`rule1901`).
   - **(2)** `pts`: one point of each part of each region; Γ over all interpretations entails neither
     ⊥ nor a value there (`pts_undetermined`).
-  - **(3)** `keys_silent` with the ten `*_none` theorems; `plain_no_key`, `plain_covered`.
+  - **(3)** `keys_silent` with the twelve `*_none` theorems; `plain_no_key`, `plain_covered`.
 
   The sort row `STRING.String` (DOM 1681, 1707-1708): every string of the carrier is a value
   (`str_value`), two strings are two values (`str_inj`), nothing else is one (`str_only`); a sort has
@@ -88,6 +90,14 @@
      index is no position of the string, which the sentence does not describe: unstated.
      `silentTable` takes (B) (`pts_undetermined` at index 4 of `"abc"`). A negative index is
      unstated in both.
+  4. `countAllOccurrences` and `replaceAll` at the empty needle. DOM 1898-1899 at the empty needle
+     reads `c = 1 +Int c` (`findString(S, "", 0)` is 0, and the rest after the occurrence is S), and
+     1855 declares the symbol `total`: with Int the integers no value meets both. The prose (1848-1849)
+     does not say how often the empty string occurs. `silentTable` reads the two equations as stating
+     the count at a non-empty needle only (`hook` has it, `vals`), and the empty needle as a point
+     where a value exists (`total`) and none is given: unstated (`pts_undetermined` at `("a", "")`).
+     Under the letter of the text no interpretation is admitted at all. `replaceAll` follows the
+     count through 1917.
   Readings, marked: a position is 0 … length (the empty string occurs at the length); the length and
   the positions count code points (the points of `vals` are below 128); `rfindString(S, N, I)` is the
   last occurrence at or before I (the point of `vals` has the same value if read as at or after I);
@@ -265,6 +275,23 @@ theorem rfindChar_none (t n : String) (i : Int) : hook stringRfindChar [sv t, sv
     · simp [h0, h]; all_goals omega
     · simp [h0, h]; all_goals omega
 
+theorem countAll_none (t n : String) : hook stringCountAll [sv t, sv n] = some none ↔ n.toList = [] := by
+  rw [hook_at (h := fun vs => match vs with
+     | [a, b] => (asStr a).bind fun x => (asStr b).bind fun y => (KStr.countAll x y).map fun k => int k
+     | _ => none) rfl]
+  simp only [asStr_sv, Option.bind_some, Option.some.injEq, Option.map_eq_none_iff, KStr.countAll]
+  by_cases h : n.toList = [] <;> simp [h]
+
+theorem replaceAll_none (t n r : String) :
+    hook stringReplaceAll [sv t, sv n, sv r] = some none ↔ n.toList = [] := by
+  rw [hook_at (h := fun vs => match vs with
+     | [a, b, r] => (asStr a).bind fun x => (asStr b).bind fun y => (asStr r).bind fun z =>
+         (KStr.replaceAll x y z).map strV
+     | _ => none) rfl]
+  simp only [asStr_sv, Option.bind_some, Option.some.injEq, Option.map_eq_none_iff, KStr.replaceAll,
+    KStr.countAll]
+  by_cases h : n.toList = [] <;> simp [h]
+
 theorem replace_none (t n r : String) (k : Int) :
     hook stringReplace [sv t, sv n, sv r, int k] = some none ↔ k < 0 := by
   rw [hook_at (h := fun vs => match vs with
@@ -373,11 +400,11 @@ theorem string2Base_none (t : String) (b : Int) : hook string2Base [sv t, int b]
 
 /-! ## The rows -/
 
-/-- The twenty supported operation rows: the symbol and its `hook` attribute in the prose's
+/-- The twenty-two supported operation rows: the symbol and its `hook` attribute in the prose's
 productions (DOM 1725 `STRING.concat`, 1733 `length`, 1742 `chr`, 1743 `ord`, 1758 `substr`, 1768
 `find`, 1769 `rfind`, 1779 `findChar`, 1780 `rfindChar`, 1834 `string2int`, 1835 `int2string`, 1837
 `string2base`, 1853 `replace`, 1854 `replaceFirst`, 1865 `eq`, 1866 `ne`, 1869 `lt`, 1870 `le`, 1871
-`gt`, 1872 `ge`). The twenty-first row is the sort (`STRING.String`, DOM 1707). -/
+`gt`, 1872 `ge`, 1855 `countAllOccurrences`, 1852 `replaceAll`). The twenty-third row is the sort (`STRING.String`, DOM 1707). -/
 def rows : List (Sym × String) :=
   [(stringConcat, "STRING.concat"), (stringLength, "STRING.length"), (stringChr, "STRING.chr"),
    (stringOrd, "STRING.ord"), (stringSubstr, "STRING.substr"), (stringFind, "STRING.find"),
@@ -385,17 +412,18 @@ def rows : List (Sym × String) :=
    (string2Int, "STRING.string2int"), (int2String, "STRING.int2string"), (string2Base, "STRING.string2base"),
    (stringReplace, "STRING.replace"), (stringReplaceFirst, "STRING.replaceFirst"),
    (stringEq, "STRING.eq"), (stringNe, "STRING.ne"), (stringLt, "STRING.lt"), (stringLe, "STRING.le"),
-   (stringGt, "STRING.gt"), (stringGe, "STRING.ge")]
+   (stringGt, "STRING.gt"), (stringGe, "STRING.ge"),
+   (stringCountAll, "STRING.countAllOccurrences"), (stringReplaceAll, "STRING.replaceAll")]
 
 /-- The ten rows with no unstated region. -/
 def plain : List Sym :=
   [stringConcat, stringLength, int2String, stringReplaceFirst, stringEq, stringNe, stringLt, stringLe,
    stringGt, stringGe]
 
-/-- The ten rows with an unstated region. -/
+/-- The twelve rows with an unstated region. -/
 def keys : List Sym :=
   [stringChr, stringOrd, stringSubstr, stringFind, stringRfind, stringFindChar, stringRfindChar,
-   string2Int, string2Base, stringReplace]
+   string2Int, string2Base, stringReplace, stringCountAll, stringReplaceAll]
 
 /-- The rows are the registry's entries with a `STRING.` hook, and `plain` and `keys` part them. -/
 theorem rows_registry :
@@ -425,12 +453,12 @@ theorem plain_covered (c : Semantics) (H : HookParams) (hs : (c.withHooks H).sha
   rw [hname] at hv
   exact ⟨v, Semantics.hookRes_of_value hv⟩
 
-/-- **Each of the ten keys is a key of `silentTable` whose predicate is true at every argument
+/-- **Each of the twelve keys is a key of `silentTable` whose predicate is true at every argument
 list**: its silent points are the argument lists where `hook` gives no value. -/
 theorem keys_silent : ∀ f ∈ keys, ∀ vs : List GroundTerm, silent f vs = true := by
   intro f hf vs
   simp only [keys, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /-- The plain rows at every argument list of literals, by their sentence: the concatenation (DOM
 1721), the length (1730), equality (1860), `=/=String` as `notBool (S1 ==String S2)` (1867),
@@ -550,6 +578,10 @@ structure Pt where
   and `FF` the same ("Both uppercase and lowercase letters are supported"); in radix 2, `101` is 5.
 - `replace` (1845): the first 2 occurrences of `a` in `"aaa"` by `b`: `"bba"`; 0 occurrences:
   `"aaa"` (1915-1916). `replaceFirst` (1844-1845): `"baa"`; no occurrence of `x`: `"aaa"` (1904-1905).
+- `countAllOccurrences` (1848-1849, 1896-1899): `"aa"` occurs in `"aaa"` at 0, and after it `"a"`
+  holds none: 1; `"a"` occurs in `"aa"` at 0 and, after it, in `"a"`: 2; `"x"` does not occur in
+  `"abc"`: 0. `replaceAll` (1847, 1917): `replace` at the count 2 of `"X"` in `"aXbX"`, both
+  occurrences by `"yy"`: `"ayybyy"`.
 - `==String`, `=/=String` (1860, 1867): `"a"` and `"a"` are equal, `"a"` and `"b"` are not.
 - `<String` (1862, lexicographic): `"a"` before `"b"`; `"ab"` before `"b"` (the first characters
   decide); `"a"` before `"ab"` (a proper prefix); not `"b"` before `"a"`. `<=String` (1887), `>String`
@@ -571,6 +603,9 @@ def vals : List Pt :=
    ⟨stringReplace, [s "aaa", s "a", s "b", int 0], s "aaa"⟩,
    ⟨stringReplaceFirst, [s "aaa", s "a", s "b"], s "baa"⟩,
    ⟨stringReplaceFirst, [s "aaa", s "x", s "b"], s "aaa"⟩,
+   ⟨stringCountAll, [s "aaa", s "aa"], int 1⟩, ⟨stringCountAll, [s "aa", s "a"], int 2⟩,
+   ⟨stringCountAll, [s "abc", s "x"], int 0⟩,
+   ⟨stringReplaceAll, [s "aXbX", s "X", s "yy"], s "ayybyy"⟩,
    ⟨stringEq, [s "a", s "a"], bool true⟩, ⟨stringEq, [s "a", s "b"], bool false⟩,
    ⟨stringNe, [s "a", s "a"], bool false⟩, ⟨stringNe, [s "a", s "b"], bool true⟩,
    ⟨stringLt, [s "a", s "b"], bool true⟩, ⟨stringLt, [s "ab", s "b"], bool true⟩,
@@ -654,7 +689,8 @@ theorem beyond_latin1 : ∀ p ∈ beyond, ∀ H : HookParams,
 `substrString("abc", …)` at start < 0, end < start, end > length and an empty range strictly inside;
 the four searches in `"abc"` at index -1 and at index 4; `String2Int` at a letter, at the empty
 string and at a sign alone; `String2Base` at radix 1 and 37, at a digit off radix 16 and at the
-empty string; `replace` at count -1. The value `v` has the result sort. -/
+empty string; `replace` at count -1; `countAllOccurrences` and `replaceAll` at the empty needle. The
+value `v` has the result sort. -/
 def pts : List Pt :=
   [⟨stringOrd, [s ""], int 0⟩, ⟨stringOrd, [s "ab"], int 0⟩,
    ⟨stringChr, [int (-1)], s ""⟩, ⟨stringChr, [int 0x110000], s ""⟩, ⟨stringChr, [int 55296], s ""⟩,
@@ -667,7 +703,8 @@ def pts : List Pt :=
    ⟨string2Int, [s "x"], int 0⟩, ⟨string2Int, [s ""], int 0⟩, ⟨string2Int, [s "-"], int 0⟩,
    ⟨string2Base, [s "10", int 1], int 0⟩, ⟨string2Base, [s "10", int 37], int 0⟩,
    ⟨string2Base, [s "g", int 16], int 0⟩, ⟨string2Base, [s "", int 16], int 0⟩,
-   ⟨stringReplace, [s "a", s "a", s "b", int (-1)], s ""⟩]
+   ⟨stringReplace, [s "a", s "a", s "b", int (-1)], s ""⟩,
+   ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
 
 /-- Every key has a point, and every point is of a key. -/
 theorem pts_keys : (keys.all (fun f => pts.any (·.f == f)) && pts.all (fun p => keys.contains p.f)) = true := by
@@ -698,6 +735,8 @@ theorem pts_undetermined : ∀ p ∈ pts,
 #print axioms ord_none
 #print axioms chr_none
 #print axioms substr_none
+#print axioms countAll_none
+#print axioms replaceAll_none
 #print axioms find_none
 #print axioms rfind_none
 #print axioms findChar_none

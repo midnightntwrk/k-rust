@@ -228,9 +228,11 @@ inductive RefusalReason where
   side, or of a `requires A #Or B` (`orSplit`, `requiresOrSplit`), and by nothing else of the rule
   read from another disjunct. The axiom holds for every element of the variable's sort, so where
   the sort has none it states nothing, while the rule without the variable would step; `Γ` entails
-  neither an element of such a sort nor its emptiness. Where the sort has an exhibited value, `Γ`
-  entails an element of it (`Faithful.inhabited_of_value`) and the rule is read. The detail names
-  the variable, its sort and this reason. -/
+  neither an element of such a sort nor its emptiness. The text does entail an element: it is a
+  theory of sorted matching logic, whose models give every sort a nonempty carrier
+  (introduction-to-matching-logic.tex:705-707), and `Γ` does not state that. Where the sort has
+  an exhibited value, `Γ` entails an element of it (`Faithful.inhabited_of_value`) and the rule is
+  read. The detail names the variable, its sort and this reason. -/
   | unheldVariable
   /-- An equation whose right side holds, under applications, a connective of several elements or
   none at a point: `\or` (neither side `\bottom`) or `\exists` where the function is not `total`,
@@ -411,19 +413,28 @@ inductive UnreadReason where
   /-- The `[idem]` axiom of a set's concatenation, `\equals(_Set_(K, K), K)` (the library's `Set`,
   a cell set's). KCore reads `_Set_` as the union of two sets with no member in common, undefined
   where they share one, as `_Map_` is undefined where two maps share a key: K's own sources state
-  that reading (domains.md calls the sets nilpotent, a concatenation with a common element
-  `#False`; `|Set` is defined as `S1 (S2 -Set S1)`, a concatenation of disjoint sets; the `#Ceil`
+  that reading (domains.md:704-709 calls the sets nilpotent, a concatenation with a common element
+  `#False`, and names `|Set` for an element that may be present; `|Set` is defined as `S1 (S2 -Set S1)`, a concatenation of disjoint sets; the `#Ceil`
   lemma of SET-KORE-SYMBOLIC says `S SetItem(E)` is defined exactly when E is not in S). The
   idempotence axiom contradicts them (it makes `_Set_(K, K)` defined and equal to K for every
   set) and is the one statement of the text that does not hold of the reading; under it
   `SetItem(X) REST` would also match a set S with REST = S, a match that removes nothing. The
-  collection axioms of `Γ` are KCore's own (`ΓColls`), not read from the text, so this axiom is
-  part of no reading. -/
+  two sentences cannot both hold of a set with an element, and the reading is a choice between
+  them. The collection axioms of `Γ` (`ΓColls`) state what K's text says of the sorts: for Set,
+  a collection of unique items whose concatenation on a common element is `#False`
+  (domains.md:704-705); for Map, an associative, commutative map with one value per key whose
+  concatenation on a common key is `#False` (domains.md:205-207, 223-229). They are written from
+  those sentences, not read from the text's axioms, so this axiom is part of no reading. -/
   | setIdempotence
   /-- The distinctness `¬(f(X̄) ∧ g(Ȳ))` of two symbols of one sort whose overload closures meet
   (`Semantics.ovlClosure`: one overloads the other, or both overload a third): wherever an overload
   applies to both the two are equal, so the axiom holds only where the overloaded symbol's argument
-  sorts have no element. The kernel states that distinctness at uncovered arguments only
+  sorts have no element. Two sentences of the text are in conflict here: this no-confusion axiom
+  and the overload axiom `g(inj(x̄)) = inj(h(x̄))`, which identifies the two applications at the
+  smaller symbol's arguments, as user_manual.md:387-390 says in words (a term of the one production
+  is a restriction of one of the other). Where those argument sorts have elements the two have no
+  common model, and the reading is a choice between them: the overload axiom is kept, and of this
+  axiom what remains beside it, the distinctness at uncovered arguments only
   (`KoreAML.Cons.distUncItem`). Stated by the text and not read (`Parse.overloadConfusions`). -/
   | overloadConfusion
   /-- The sort predicate `isX` of a library sort X to which the registry gives no predicate
@@ -4245,7 +4256,7 @@ def unheldRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) : Option (Refusal
         | some s => (exhibit? c s).isSome
         | none => false
       if ok then none else some (.unheldVariable,
-        s!"{x.var.ident.name}:{((sortName? x.sort).getD "?")}: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness")
+        s!"{x.var.ident.name}:{((sortName? x.sort).getD "?")}: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state)")
     | _ => none
   | _ => none
 

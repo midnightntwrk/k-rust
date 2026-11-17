@@ -12,7 +12,8 @@
   - Non-vacuity: `HookParams.totals` meets `silentTotal` in every semantics (`silentTotal_totals`,
     kernel); `HookParams.none` does not (`none_not_silentTotal`).
   - Both directions at one point per key, in the semantics of `f2-examples/strbytes.kompile.kore`:
-    `substrString("abc", 2, 1)`, `Int2Bytes(-1, 0, BE)`, and `isNaN`, `isInfinite`, `--Float`,
+    `substrString("abc", 2, 1)`, `Int2Bytes(-1, 0, BE)`, `countAllOccurrences("a", "")`,
+    `replaceAll("a", "", "b")`, and `isNaN`, `isInfinite`, `--Float`,
     `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat` at `1.0p1x2`: under `HookParams.none` Γ
     states the application ⊥ (the text's `functional` sentence fails there), under
     `HookParams.totals` it states a value (`both_ways`), and the result has a value
@@ -20,9 +21,14 @@
     have their shapes (`bytes2Int_value`).
   - The interpretations the text admits (`Semantics.libAdmitted`, LibAdmitted.lean), in the same
     semantics: `HookParams.lib` meets every condition (`lib_admitted`); each of `isInfiniteEq`,
-    `neFloatEq`, `rfindCharEq` fails at one point under an interpretation that gives the silent
-    points values the sentence does not hold with (`HookParams.totals` at `1.0p1x2`; `ne0`, `=/=Float`
-    and `==Float` both `false`, at `1.0p1x2` twice; `rc5`, `rfindChar` 5, at `("ab", "a", 5)`);
+    `neFloatEq`, `rfindCharEq`, `findCharEq`, `sqrtFloatEq` fails at one point under an
+    interpretation that gives values the sentence does not hold with (`HookParams.totals` at
+    `1.0p1x2`; `ne0`, `=/=Float` and `==Float` both `false`, at `1.0p1x2` twice; `rc5`, `rfindChar` 5,
+    at `("ab", "a", 5)`; `fc5`, `findChar` 5 and `findString` 7, at `("abc", "a", 7)`; `root3`,
+    `rootFloat` 3.0, at binary64 4.0, where `hook` gives `sqrtFloat` 2.0; `HookParams.totals`,
+    `replaceAll` `""` and `countAllOccurrences` 0, at `("a", "", "b")`, where `replace("a", "", "b", 0)`
+    is `"a"`: `totals_not_replaceAllEq`); `rootFloat`'s number
+    is a parameter of FLOAT with the signature `paramVal_libRootFloat` reads (`rootFloat_param`);
     `precisionFloat` and `exponentBitsFloat` at `1.0p1x2` and binary32 `1.0` (`fmt_values`).
     `coreOK` gives `floatShapeOK` (`floatShapeOK_of_coreOK`), so `HookParams.lib` is admitted in
     every semantics meeting `coreOK` (`libAdmitted_lib_of_coreOK`).
@@ -109,7 +115,8 @@ def pts : List Pt :=
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
    ⟨floatIsNaN, [t12], bool false⟩, ⟨floatIsInfinite, [t12], bool false⟩,
    ⟨floatNeg, [t12], t12⟩, ⟨floatAbs, [t12], t12⟩, ⟨floatFloor, [t12], t12⟩,
-   ⟨floatCeil, [t12], t12⟩, ⟨floatTrunc, [t12], t12⟩]
+   ⟨floatCeil, [t12], t12⟩, ⟨floatTrunc, [t12], t12⟩,
+   ⟨stringCountAll, [s "a", s ""], int 0⟩, ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩]
 
 /-- Every key but `Bytes2Int` has a point. -/
 theorem pts_cover : totalSilentKeys.all (fun f => f == bytes2Int || pts.any (·.f == f)) = true := by
@@ -217,6 +224,53 @@ theorem rc5_not_rfindCharEq : ¬ (c.withHooks rc5).rfindCharEq := by
   revert this
   decide +kernel
 
+/-- `findChar` 5 and `findString` 7 at their silent points. -/
+def fc5 : HookParams :=
+  ⟨fun f _ => if f == stringFindChar then some (int 5) else if f == stringFind then some (int 7) else Option.none⟩
+
+/-- `findChar`'s condition fails under `fc5` at `("abc", "a", 7)`, an index off the string: the left
+side is 5; on the right `findString("abc", "a", 7)` is 7 and `findChar("abc", "", 7)` is `hook`'s -1,
+so the right side is 7. -/
+theorem fc5_not_findCharEq : ¬ (c.withHooks fc5).findCharEq := by
+  intro h
+  have := h (s "abc") (s "a") (int 7) (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel)
+    (by decide +kernel) (by decide +kernel)
+  revert this
+  decide +kernel
+
+/-- binary64 4.0, 3.0, 2.0. -/
+def f64 (b : Nat) : GroundTerm := .dv Srt.float (.float 53 11 b)
+
+/-- `rootFloat` 3.0 at every argument. -/
+def root3 : HookParams :=
+  ⟨fun f _ => if f == libRootFloat then some (f64 0x4008000000000000) else Option.none⟩
+
+/-- `sqrtFloat`'s condition fails under `root3` at 4.0: `hook` gives `sqrtFloat(4.0)` the value 2.0,
+no silent point, and the interpretation gives `rootFloat(4.0, 2)` the value 3.0. -/
+theorem root3_not_sqrtFloatEq : ¬ (c.withHooks root3).sqrtFloatEq := by
+  intro h
+  have := h (f64 0x4010000000000000) (by rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel)
+  revert this
+  decide +kernel
+
+theorem sqrt4 : hook floatSqrt [f64 0x4010000000000000] = some (some (f64 0x4000000000000000)) := by
+  decide +kernel
+
+/-- `rootFloat`'s number is a parameter of a library module, with a Float and an Int argument and
+a Float result. -/
+theorem rootFloat_param :
+    library.any (fun m => m.params.contains ⟨libRootFloat, [Srt.float, Srt.int], Srt.float⟩) = true := by
+  decide +kernel
+
+/-- `replaceAll`'s condition fails under `HookParams.totals` at `("a", "", "b")`: `replaceAll` is `""`
+there, the count 0, and `replace("a", "", "b", 0)` is `hook`'s `"a"`. -/
+theorem totals_not_replaceAllEq : ¬ (c.withHooks HookParams.totals).replaceAllEq := by
+  intro h
+  have := h (s "a") (s "") (s "b") (by rw [Semantics.sortsOf_withHooks _ _ noRaw]; decide +kernel)
+    (by decide +kernel)
+  revert this
+  decide +kernel
+
 /-- `precisionFloat` and `exponentBitsFloat` at `1.0p1x2` (1, 2) and at binary32 `1.0` (24, 8). -/
 theorem fmt_values :
     hook floatPrecision [t12] = some (some (int 1)) ∧ hook floatExponentBits [t12] = some (some (int 2)) ∧
@@ -231,6 +285,15 @@ theorem fmt_values :
 #print axioms totals_not_isInfiniteEq
 #print axioms ne0_not_neFloatEq
 #print axioms rc5_not_rfindCharEq
+#print axioms fc5_not_findCharEq
+#print axioms root3_not_sqrtFloatEq
+#print axioms sqrt4
+#print axioms totals_not_replaceAllEq
+#print axioms replaceAllEq_lib
+#print axioms rootFloat_param
+#print axioms findCharEq_lib
+#print axioms sqrtFloatEq_lib
+#print axioms libAdmitted_lawHooks
 #print axioms fmt_values
 #print axioms fmt_total
 #print axioms shape_float

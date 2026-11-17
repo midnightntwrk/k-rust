@@ -677,7 +677,7 @@ theorem stringHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} 
     (hk : lookupSig hookSigs f = some k) (hws : c.sortsOf ws = some k.args)
     (hev : g ws = some v) : c.sortOf v = some k.result := by
   simp only [stringHooks, List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hmem
-  rcases hmem with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  rcases hmem with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
   · rw [show lookupSig hookSigs stringConcat = some ⟨stringConcat, [Srt.string, Srt.string], Srt.string⟩ by decide] at hk
     cases hk
     dsimp only at hws hev ⊢
@@ -796,6 +796,26 @@ theorem stringHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} 
       obtain ⟨tc, rfl, rfl⟩ := asStr_some hz
       exact strV_sorted (ts := [ta, tc]) (List.mem_cons_self ..) (fun t ht => by rcases List.mem_cons.mp ht with rfl | ht; exact hws.1; rw [List.mem_singleton.mp ht]; exact hws.2.2.1)
         fun ch hc => (KStr.replaceFirst_mem hc).elim (fun h => ⟨ta, List.mem_cons_self .., h⟩) (fun h => ⟨tc, List.mem_cons_of_mem _ (List.mem_singleton_self _), h⟩)
+    · cases hev
+  · rw [show lookupSig hookSigs stringCountAll = some ⟨stringCountAll, [Srt.string, Srt.string], Srt.int⟩ by decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [Option.bind_eq_some_iff, Option.map_eq_some_iff] at hev
+      repeat' obtain ⟨_, _, hev⟩ := hev
+      exact sortOf_int _
+    · cases hev
+  · rw [show lookupSig hookSigs stringReplaceAll = some ⟨stringReplaceAll, [Srt.string, Srt.string, Srt.string], Srt.string⟩ by decide] at hk
+    cases hk
+    dsimp only at hws hev ⊢
+    split at hev
+    · simp only [sortsOf_eq_cons] at hws
+      simp only [Option.bind_eq_some_iff, Option.map_eq_some_iff] at hev
+      obtain ⟨x, hx, y, -, z, hz, r, hr, rfl⟩ := hev
+      obtain ⟨ta, rfl, rfl⟩ := asStr_some hx
+      obtain ⟨tc, rfl, rfl⟩ := asStr_some hz
+      exact strV_sorted (ts := [ta, tc]) (List.mem_cons_self ..) (fun t ht => by rcases List.mem_cons.mp ht with rfl | ht; exact hws.1; rw [List.mem_singleton.mp ht]; exact hws.2.2.1)
+        fun ch hc => (KStr.replaceAll_mem hr hc).elim (fun h => ⟨ta, List.mem_cons_self .., h⟩) (fun h => ⟨tc, List.mem_cons_of_mem _ (List.mem_singleton_self _), h⟩)
     · cases hev
   · rw [show lookupSig hookSigs stringEq = some ⟨stringEq, [Srt.string, Srt.string], Srt.bool⟩ by decide] at hk
     cases hk
