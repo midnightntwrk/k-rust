@@ -136,7 +136,8 @@ evidence = "test/WitRestApart.lean"
 [[conjunct]]
 key = "idsOK.1"
 text = "c.ownSorts == List.range' KCore.nRegSorts c.sortNames.length"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: the cells with the two own sorts listed out of order in userSorts meet every other leaf of coreOK and FnHyp; an own sort listed twice repeats its predicate and fails predsApart too); Γ has a model (argued): Γ reads userSorts as a set of sorts, so Γ is that of the same sorts in order, which coreOK accepts (kernel-checked); not examined: a sort name with no user sort, an own sort numbered beyond the names"
+evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.2"
@@ -147,12 +148,14 @@ note = "one overloading symbol listed twice: ownSyms lists it twice; the module 
 [[conjunct]]
 key = "idsOK.3"
 text = "decide (c.sortNames.length ≤ c.symNames.length)"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: one own sort and no symbol names meets every other leaf of coreOK and FnHyp, idsOK.2 by the truncated subtraction); Γ has a model (argued): it differs from the semantics naming the predicate LblisS (which coreOK accepts, kernel-checked) by the name of one symbol, named like no other in either, and renaming maps models onto models; not examined: instances beyond one sort without names (own constructors then fail idsOK.2)"
+evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.4"
 text = "KCore.nodup (List.filter (fun s => decide (s < KCore.nRegSorts)) c.userSorts)"
-witness = "none"
+witness = "none: no witness exists: implied by predsApart and idsOK.5, for every semantics (kernel-checked: ids4_of_predsApart): every registry sort of userSorts is a generated configuration sort, each with a predicate, and their predicates are labels of allFns, which predsApart makes distinct; predsApart.1 is itself implied by idsOK (predsApart_of_idsOK), so the two cannot both be dropped from coreOK"
+evidence = "test/WitRestIdsA.lean"
 
 [[conjunct]]
 key = "idsOK.5"
