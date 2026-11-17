@@ -923,24 +923,28 @@ theorem totals_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.O
 kernel_rfl Semantics.totalObligations_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).totalObligations = c.totalObligations
 
-/-- `totals_of_order` for every interpretation of the parameters. -/
+/-- `totals_of_order` for every interpretation of the parameters, of a semantics without an open
+generator (`hr`). -/
 theorem totals_of_order_withHooks (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (H : HookParams)
     (hterm : ∀ g, Terminates (c.withHooks H) g)
     (hnamed : ∀ g ∈ c.totalObligations, Total (c.withHooks H) g)
-    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
+    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
   totals_of_order ((Semantics.okAll_withHooks c H).trans hok) ((Semantics.srReady_withHooks c H).trans hsr)
     (Semantics.ovlCase_withHooks hov H) hterm (by rw [Semantics.totalObligations_withHooks]; exact hnamed)
-    (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_sortedOK (Semantics.sortedOK_of_okAll hok)))
+    (Semantics.rightHeld_withHooks hrh H hr)
 
-/-- `totals_of_nil` for every interpretation of the parameters. -/
+/-- `totals_of_nil` for every interpretation of the parameters, of a semantics without an open
+generator (`hr`). -/
 theorem totals_of_nil_withHooks (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (H : HookParams)
     (hterm : ∀ g, Terminates (c.withHooks H) g) (h : c.totalObligations = [])
-    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
+    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
-  totals_of_order_withHooks hok hsr hov H hterm (fun g hg => by rw [h] at hg; exact absurd hg List.not_mem_nil) hrh
+  totals_of_order_withHooks hok hsr hov H hterm (fun g hg => by rw [h] at hg; exact absurd hg List.not_mem_nil) hrh hr
 
 /-! ## For a semantics: from `coreOK` and `CoreObligations` -/
 

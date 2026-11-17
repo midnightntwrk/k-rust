@@ -394,12 +394,12 @@ theorem sound (d : Definition) (hwf : wf d = true) (hob : Obligations d)
   sound_core d.sem d.cert (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `sound` for every interpretation of the parameters, under the obligations stated for that
-interpretation. -/
+interpretation, of a definition without an open generator (`hr`, decided on the data). -/
 theorem sound_withHooks (d : Definition) (hwf : wf d = true) (H : HookParams)
     (hob : Obligations { d with sem := d.sem.withHooks H })
-    (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Sound { d with sem := d.sem.withHooks H } :=
-  sound _ ((Definition.wf_withHooks d H).trans hwf) hob (Semantics.rightHeld_withHooks hrh H
-    (Semantics.params_raw_of_core (Definition.coreOK_of_wf hwf)))
+    (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) : Sound { d with sem := d.sem.withHooks H } :=
+  sound _ ((Definition.wf_withHooks d H).trans hwf) hob (Semantics.rightHeld_withHooks hrh H hr)
 
 /-- **Completeness of a well-formed definition** whose named obligations hold: `complete_core`,
 `wf` giving `coreOK` (`Definition.coreOK_of_wf`). -/
@@ -408,13 +408,13 @@ theorem complete (d : Definition) (ref : OutFn) (hwf : wf d = true) (hob : Oblig
   complete_core d.sem d.cert ref (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `complete` for every interpretation of the parameters, under the obligations stated for that
-interpretation. -/
+interpretation, of a definition without an open generator (`hr`, decided on the data). -/
 theorem complete_withHooks (d : Definition) (ref : OutFn) (hwf : wf d = true) (H : HookParams)
     (hob : Obligations { d with sem := d.sem.withHooks H })
-    (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
+    (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) :
     Complete { d with sem := d.sem.withHooks H } ref :=
-  complete _ ref ((Definition.wf_withHooks d H).trans hwf) hob (Semantics.rightHeld_withHooks hrh H
-    (Semantics.params_raw_of_core (Definition.coreOK_of_wf hwf)))
+  complete _ ref ((Definition.wf_withHooks d H).trans hwf) hob (Semantics.rightHeld_withHooks hrh H hr)
 
 /-- **Exactness of a well-formed definition** whose named obligations hold: `exact_hyp`, the
 obligations giving `FnHyp` (`fnHyp_of_core`). -/

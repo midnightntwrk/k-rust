@@ -70,7 +70,8 @@ theorem Semantics.sortsOf_withHooks :
         (sortsOfT_tables c ts (Semantics.rawFreeList_of_noRaw hr ts)))
 
 /-- The hypothesis on H, read for `c.withHooks H` (whose interpretation is H), where no parameter is
-an open generator: H's answers are arbitrary values, whose sort is then the same under H. -/
+an open generator: H's answers are arbitrary values, whose sort is then the same under H. Without
+`hr` the statement is false (test/WithHooksRaw.lean, `paramsTotal_withHooks_needs_hr`). -/
 theorem ParamsTotal.withHooks {c : Semantics} {tp : List Sym} {H : HookParams} (h : ParamsTotal c tp H)
     (hr : ∀ k ∈ c.params, k.raw = false) :
     ParamsTotal (c.withHooks H) tp (c.withHooks H).hooks := by

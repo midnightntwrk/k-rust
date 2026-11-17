@@ -120,23 +120,30 @@ kernel_rfl Semantics.coreOK_withHooks :
 
 /-- `fnHyp_of_fnObligations` for an interpretation H of the parameters total on `tp`: `coreOK`
 decided once on the data, `RightHeld` of the data (`Semantics.rightHeld_withHooks`), the named
-facts stated for the interpretation (the lists are the data's). -/
+facts stated for the interpretation (the lists are the data's). For a semantics without an open
+generator (`hr`, decided on the data): `RightHeld` and `ParamsTotal` of the data are carried to the
+interpretation only there. -/
 theorem fnHyp_withHooks (h : c.coreOK = true) (hrh : c.RightHeld) (H : HookParams) (hH : ParamsTotal c tp H)
-    (hob : FnObligations (c.withHooks H) ord tp) : FnHyp (c.withHooks H) :=
-  fnHyp_of_fnObligations ((Semantics.coreOK_withHooks c H).trans h) (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_core h))
-    (hH.withHooks (Semantics.params_raw_of_core h)) hob
+    (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : FnHyp (c.withHooks H) :=
+  fnHyp_of_fnObligations ((Semantics.coreOK_withHooks c H).trans h) (Semantics.rightHeld_withHooks hrh H hr)
+    (hH.withHooks hr) hob
 
-/-- `sound_fn` for an interpretation of the parameters total on `tp`. -/
+/-- `sound_fn` for an interpretation of the parameters total on `tp`, of a semantics without an
+open generator (`hr`). -/
 theorem sound_fn_withHooks (c : Semantics) (ord tp : List Sym) (h : c.coreOK = true) (hrh : c.RightHeld)
-    (H : HookParams) (hH : ParamsTotal c tp H) (hob : FnObligations (c.withHooks H) ord tp) :
+    (H : HookParams) (hH : ParamsTotal c tp H) (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     SoundC (c.withHooks H) :=
-  sound_hyp _ ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooks h hrh H hH hob)
+  sound_hyp _ ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooks h hrh H hH hob (hr := hr))
 
-/-- `complete_fn` for an interpretation of the parameters total on `tp`. -/
+/-- `complete_fn` for an interpretation of the parameters total on `tp`, of a semantics without an
+open generator (`hr`). -/
 theorem complete_fn_withHooks (c : Semantics) (ord tp : List Sym) (ref : OutFn)
     (h : c.coreOK = true) (hrh : c.RightHeld) (H : HookParams) (hH : ParamsTotal c tp H)
-    (hob : FnObligations (c.withHooks H) ord tp) : CompleteC (c.withHooks H) ref :=
-  complete_hyp _ ref ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooks h hrh H hH hob)
+    (hob : FnObligations (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) : CompleteC (c.withHooks H) ref :=
+  complete_hyp _ ref ((Semantics.coreOK_withHooks c H).trans h) (fnHyp_withHooks h hrh H hH hob (hr := hr))
 
 /-! ## The owed conditions, rule by rule and clause by clause
 
@@ -238,10 +245,11 @@ theorem consistent_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK 
   consistent_of c h (fnModel_of_fnFacts h hrh hob).1 (fnModel_of_fnFacts h hrh hob).2 hob.2.2.2.2
 
 /-- `consistent_of_fnFacts` for an interpretation H of the parameters: `coreOK` and `RightHeld` of
-the data. -/
+the data, of a semantics without an open generator (`hr`). -/
 theorem consistent_of_fnFacts_withHooks {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
-    (hrh : c.RightHeld) (H : HookParams) (hob : FnFacts (c.withHooks H) ord tp) :
+    (hrh : c.RightHeld) (H : HookParams) (hob : FnFacts (c.withHooks H) ord tp)
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     Consistent (c.withHooks H) :=
-  consistent_of_fnFacts ((Semantics.coreOK_withHooks c H).trans h) (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_core h)) hob
+  consistent_of_fnFacts ((Semantics.coreOK_withHooks c H).trans h) (Semantics.rightHeld_withHooks hrh H hr) hob
 
 end KCore

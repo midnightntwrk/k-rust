@@ -738,7 +738,7 @@ theorem consistent{sfx}{bind} : Consistent {S} :=
 /-- The statements at a step and at a configuration of a definition that is not `plain`, for every
 interpretation H (binders `bind`, starting with `(H : HookParams)`, and `hob` a term of the named
 facts `FnFacts (defn.sem.withHooks H) …` under them): `Consistent` from the named facts
-(`KCore.consistent_of_fnFacts_withHooks`, no owed condition read), `KCore.sound_at` and
+(`KCore.consistent_of_fnFacts`, no owed condition read), `KCore.sound_at` and
 `KCore.complete_at` themselves, over a rule's instances (`famEx`) and `Γc`, and, where `run` (the
 core is `execReady`), `CExec.run_exact`, each concluding `Consistent … ∧ …`. Each statement takes
 the hypotheses of the pinned theorem it instantiates and no more: where rules are owed (`owesR`),
@@ -752,8 +752,8 @@ def headlineAtOpen (bind hob given : String) (named run owesR owesC : Bool) : St
   let sfxP := if named || owesC then "_of" else ""
   let S := "(defn.sem.withHooks H)"
   let hc := "(coreOK_withHooks_defn H)"
-  let rh := "(Semantics.rightHeld_withHooks rightHeld_defn H (Semantics.params_raw_of_core coreOK_defn))"
-  let cons := s!"consistent_of_fnFacts_withHooks coreOK_defn rightHeld_defn H {hob}"
+  let rh := "(rightHeld_withHooks_defn H)"
+  let cons := s!"consistent_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
   let hwB := if owesR then s!"
     (hw : ∀ r' ∈ {S}.rules, r'.prio < r.prio → r'.needsWitness {S} = true →
       (∃ σ', PatVal {S} σ' r'.lhs x.val) → r'.CondDecided {S})" else ""
@@ -787,7 +787,7 @@ theorem coreOK_withHooks_defn (H : HookParams) : {S}.coreOK = true :=
   (Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn
 
 /-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
-`KCore.consistent_of_fnFacts_withHooks`) under every interpretation H, {given} (the facts still
+`KCore.consistent_of_fnFacts`) under every interpretation H, {given} (the facts still
 owed are `namedFacts`); no owed condition is read. `Γ` holds no axiom `∃y. f(x̄) = y` of a
 function, so no `[total]` declaration is read here (the theory with them:
 `KCore.Faithful.has_model_total`). -/
@@ -958,8 +958,10 @@ are `KCore.FnObligations`."
   let hobAD0 := if plain then hobA0 else s!"({hobA0}.obligations {if owes then "how" else "openDecided_defn"})"
   let S := "(defn.sem.withHooks H)"
   let sidesPart := s!"
-/-- `RightHeld` of the definition (`KCore.Semantics.rightValued`), decided. -/
-theorem rightHeld_defn : defn.sem.RightHeld := Semantics.rightHeld_of_valued (by decide +kernel)
+/-- `RightHeld` of the definition under every interpretation H (`KCore.Semantics.rightValued`, decided on
+the data). -/
+theorem rightHeld_withHooks_defn (H : HookParams) : (defn.sem.withHooks H).RightHeld :=
+  Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H
 " ++ (if owesR then "" else s!"
 /-- No rule's condition is owed (`owed_rules`): the rule side of `KCore.OpenDecided` under every
 interpretation H. -/

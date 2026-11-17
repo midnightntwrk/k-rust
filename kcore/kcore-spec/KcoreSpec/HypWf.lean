@@ -297,11 +297,12 @@ theorem hypModel_of (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligatio
     h.ctors, h.fns⟩
 
 /-- `hypModel_of` for every interpretation of the parameters, under the obligations stated for
-that interpretation. -/
+that interpretation, of a definition without an open generator (`hr`). -/
 theorem hypModel_of_withHooks (hwf : wf d = true) (hrh : d.sem.RightHeld) (H : HookParams)
-    (hob : Obligations { d with sem := d.sem.withHooks H }) : HypModel (d.sem.withHooks H) :=
+    (hob : Obligations { d with sem := d.sem.withHooks H })
+    (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) : HypModel (d.sem.withHooks H) :=
   hypModel_of (d := { d with sem := d.sem.withHooks H }) ((Definition.wf_withHooks d H).trans hwf)
-    (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_core (Definition.coreOK_of_wf hwf))) hob
+    (Semantics.rightHeld_withHooks hrh H hr) hob
 
 kernel_rfl Semantics.lazyObligations_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).lazyObligations = c.lazyObligations

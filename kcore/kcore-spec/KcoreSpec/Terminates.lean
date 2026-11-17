@@ -642,26 +642,30 @@ theorem certObligations_withHooks (z : Certificates) (H : HookParams) :
   rfl
 
 /-- `terminates_of_order` for every interpretation of the parameters: the conditions decided once
-on the data, the named functions' termination under `H`. -/
+on the data, the named functions' termination under `H`. For a semantics without an open generator
+(`hr`). -/
 theorem terminates_of_order_withHooks (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (z : Certificates) (H : HookParams)
     (hnamed : ∀ g ∈ c.orderObligations ++ z.obligations c, Terminates (c.withHooks H) g)
-    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
+    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f, Terminates (c.withHooks H) f :=
   terminates_of_order ((Semantics.okAll_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) (Semantics.ovlCase_withHooks hov H) z
     (by rw [orderObligations_withHooks, certObligations_withHooks]; exact hnamed)
-    (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_sortedOK (Semantics.sortedOK_of_okAll hok)))
+    (Semantics.rightHeld_withHooks hrh H hr)
 
-/-- `terminates_of_nil` for every interpretation of the parameters. -/
+/-- `terminates_of_nil` for every interpretation of the parameters, of a semantics without an open
+generator (`hr`). -/
 theorem terminates_of_nil_withHooks (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (z : Certificates) (h : c.orderObligations ++ z.obligations c = []) (H : HookParams)
-    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
+    (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
+    (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f, Terminates (c.withHooks H) f :=
   terminates_of_nil ((Semantics.okAll_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) (Semantics.ovlCase_withHooks hov H) z
     (by rw [orderObligations_withHooks, certObligations_withHooks]; exact h)
-    (Semantics.rightHeld_withHooks hrh H (Semantics.params_raw_of_sortedOK (Semantics.sortedOK_of_okAll hok)))
+    (Semantics.rightHeld_withHooks hrh H hr)
 
 /-- What subject reduction reads of the overloading symbols, from `coreOK`. -/
 theorem Semantics.ovlCase_of_core {c : Semantics} (h : c.coreOK = true) : c.OvlCase := by
