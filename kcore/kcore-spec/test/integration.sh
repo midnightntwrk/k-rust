@@ -10,8 +10,10 @@
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
-#               committed one, `../core-cone.txt` or $KCORE_CONE: that it was computed from test/roots.toml,
-#               declaration names, line count and each declaration's own line count (test/cone.py); never rewritten
+#               committed one, kcore/core-cone.txt at the main revision the tree is on (or $KCORE_CONE with
+#               $KCORE_CONE_REV), its texts read at the revision it was computed at (test/cone-row.sh): that it
+#               was computed from test/roots.toml, declaration names, line count, each declaration's own line
+#               count and each declaration's text (test/cone.py); never rewritten
 # scoreboard (red allowed; each compares with its expected values, so a lane that changes them
 # updates one file):
 #   regen       every example package regenerated natively from its own NAME/definition.kore,
@@ -74,11 +76,7 @@ check() {
 # pool: run `check` in the background, at most J at once
 pool() { while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done; check "$@" & }
 lean1() { LEAN_PATH=$LP cap 2400 "$TC/bin/lean" -j1 "$1"; }
-cone() {
-  local ref=${KCORE_CONE:-../core-cone.txt}
-  [ -f "$ref" ] || { echo "no committed cone at $ref"; return 1; }
-  lean1 test/ConeV.lean && python3 -I test/cone.py "$ref" .lake/cone-v.txt --roots test/roots.toml
-}
+cone() { lean1 test/ConeV.lean && test/cone-row.sh .lake/cone-v.txt; }
 agreeKoreInK() {
   [ -d .lake/kore-in-k ] || { echo "texts not built"; return 77; }
   test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected
