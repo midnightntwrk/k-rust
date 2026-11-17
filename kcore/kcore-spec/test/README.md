@@ -1326,3 +1326,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   function equation as written (`fns_entailed`); the expectations are from the sentences as
   written (`PreW H`, which has a model, `preW_model`): NoteAndEns `f_1` (`f(1) = 1`) and `f_0`
   (`f(0)` has no value), NoteOrBot `f_3`. About 3 minutes and 8 GiB each.
+- `test/NoteBotEns.lean`: the tie (C14) of the reading note `bottomAsEnsures` on its construct
+  fixture's kompiled text (`f2-examples/mleqbot`), for every H, in the same form. Sentence 201
+  (right side `\and{Int}(\bottom{Int}(), \top{Int}())`) is Γ's item (right side X with the `ensures`
+  false) under `TieRhs.rhsMap TieRhs.botTop` (`w_text`); the two hold together in a model of
+  definedness, `ΓSig` and `ΓDomains` (`w_iff`: the values `false` and `true` of Bool are two
+  elements, `TieRhs.ensFalse_empty`), so Γ entails every function equation as written
+  (`fns_entailed`) and the sentence with the two families entails the item (`w1`). Expectations
+  from the sentences as written: `f_neg1` (`f(-1)` has no value), `f_2` (`f(2) = 2`, the `[owise]`
+  sentence). About 4 minutes.
