@@ -748,6 +748,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   translation of KORE patterns in one context: `tr_app_exists` at
   `inj{Bool,KItem}(\exists{Bool}(B:Bool, B))`, `tr_and_exists`, and `tr_or_exists`,
   `tr_var_and_mem`, `tr_mem_and` at variables of a sort variable read as Bool.
+- `test/ValueSortsNoValue.lean`: `Semantics.valueSorts` against the values of a sort on
+  definitions with `coreOK`. `valueSorts_no_value`: a definition with `coreOK` (`cIO`: Int and
+  IOError below KItem, no constructor of the library), IOError in `valueSorts`, and no value of
+  the sort IOError, so membership in `valueSorts` does not give a value on `coreOK` alone (it
+  starts from the library's sorts below KItem, of which `coreOK` asks no literal, collection or
+  constructor). `cLoop`: `syntax S ::= s(S)` with `coreOK`, S outside `valueSorts` and the one
+  sort of `valueless`.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
