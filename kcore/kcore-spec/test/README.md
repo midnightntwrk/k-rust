@@ -1305,3 +1305,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`not_agree_req`, `not_agree_tot`: at 5 the clauses give 5 and 0) and `agreeObligationsI` names
   both functions (`named`); with the first clause of priority 40 it holds (`agree_req_prio`,
   `agree_tot_prio`). A few seconds.
+- `test/NoteAndEns.lean`, `NoteOrBot.lean`: the tie (C14) of the reading notes `andAsEnsures` and
+  `orBottom` on their construct fixtures' kompiled texts (`f2-examples/mleqand`, `mleqorb`), for
+  every H, in the form of the C3 files. The equation's sentence is Γ's item with its right side
+  written as kompile writes it (`w_text`: `TieRhs.rhsMap` with `TieRhs.andTop`, `TieRhs.orBotIn`;
+  KcoreSpec/TieRhs.lean) and holds in the same models of definedness (`w_iff`), so Γ entails every
+  function equation as written (`fns_entailed`); the expectations are from the sentences as
+  written (`PreW H`, which has a model, `preW_model`): NoteAndEns `f_1` (`f(1) = 1`) and `f_0`
+  (`f(0)` has no value), NoteOrBot `f_3`. About 3 minutes and 8 GiB each.
