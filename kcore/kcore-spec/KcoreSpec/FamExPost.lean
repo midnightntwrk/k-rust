@@ -60,7 +60,7 @@ theorem not_isTop_of_hasBinder {p : Cond} (h : hasBinder p = true) : p.isTop = f
 theorem readsConfined_of_post {r : Rule} (hr : r ∈ c.rules) (hb : hasBinder r.post = true) :
     c.readsConfined = true := by
   simp only [Semantics.readsConfined, Bool.or_eq_true, List.any_eq_true]
-  exact Or.inl ⟨r, hr, by simp [not_isTop_of_hasBinder hb]⟩
+  exact Or.inl ⟨r, hr, by simp [hb]⟩
 
 variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 

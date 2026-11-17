@@ -44,17 +44,11 @@ open HoldsShape (hasBinder Reads reads_of_agrees)
 section
 variable {c : Semantics}
 
-/-- A rule of the definition whose `pre` has a binder makes the definition read a confined sort
-(its `pre` is not `\top`). -/
+/-- A rule of the definition whose `pre` has a binder makes the definition read a confined sort. -/
 theorem readsConfined_of_pre {r : Rule} (hr : r ∈ c.rules) (hb : hasBinder r.pre = true) :
     c.readsConfined = true := by
-  have hT : r.pre.isTop = false :=
-    Bool.eq_false_iff.mpr fun h => by rw [Cond.eq_top_of_isTop h] at hb; simp [hasBinder] at hb
-  unfold Semantics.readsConfined
-  rw [Bool.or_eq_true]
-  left
-  rw [List.any_eq_true]
-  exact ⟨r, hr, by rw [hT]; simp⟩
+  simp only [Semantics.readsConfined, Bool.or_eq_true, List.any_eq_true]
+  exact Or.inl ⟨r, hr, by simp [hb]⟩
 
 end
 

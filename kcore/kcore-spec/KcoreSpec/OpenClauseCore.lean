@@ -26,11 +26,11 @@ theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) 
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr => ?_, fun fn hfn => ?_⟩
   · obtain ⟨hpre, hpost⟩ := htop _ hr
-    simp [Rule.opens_of_binds (hb r hr), hpre, hpost, Cond.isTop]
+    simp [Rule.opens_of_binds (hb r hr), hpre, hpost, Cond.hasBinder]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'
     obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_clause hok hfn hcl'
-    simp [hcl fn hfn cl hcl', hpre, hpost, Cond.isTop]
+    simp [hcl fn hfn cl hcl', hpre, hpost, Cond.hasBinder]
 
 /-- **The theory of such a semantics is `Γ`.** -/
 theorem Γc_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) :

@@ -79,12 +79,12 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun fn hfn' => ?_⟩
   · obtain ⟨hpre, hpost, hb⟩ := rule_plain_of_execReady hready hr'
-    simp [Rule.opens_of_binds hb, hpre, hpost, Cond.isTop]
+    simp [Rule.opens_of_binds hb, hpre, hpost, Cond.hasBinder]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl
     obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_clause hok hfn' hcl
     have hb := (hfn fn (by simp [Semantics.allFns, hfn']) cl hcl).2
-    simp [Clause.opens_of_binds hb, hpre, hpost, Cond.isTop]
+    simp [Clause.opens_of_binds hb, hpre, hpost, Cond.hasBinder]
 
 /-- **A run at a fuel where nothing ran out is exact in matching logic**: with the step's closure,
 every successor of x is one `successorsN c n x` lists, and each one it lists is a successor of x in
