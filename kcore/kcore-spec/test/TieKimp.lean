@@ -25,7 +25,9 @@
   decision of either exceeds 12 GiB on this text.
 
   Layer 2 in files of their own, on the same literals: the 79 rewrite rules (test/TieKimpRules.lean:
-  W1, W2 and the converse for `ruleItems`).
+  W1, W2 and the converse for `ruleItems`); the constructor and no-junk sentences
+  (test/TieKimpCons.lean: `cons_entailed`, `nojunk_entailed`); the declarations
+  (test/TieKimpDecls.lean: `decls_entailed`).
 -/
 import KcoreSpec
 

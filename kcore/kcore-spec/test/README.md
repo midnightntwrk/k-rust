@@ -1224,6 +1224,19 @@ table above, on the tree before String and Bytes). Not investigated here.
   through the registry up to its own name. 7.2 GiB (the largest range), 189 s.
 - `test/TieKimpWf.lean`: `wf defn = true` on kimp's literal, conjunct by conjunct (`wf_of_parts`,
   `ok_of_T` on the tables, `faithOK_of_parts`, `itesApart_of_codes`). 3.3 GiB, 36 s.
+- `test/TieKimpCons.lean`: kimp's constructor sentences (rows 8, 11 to 14). Γ entails, for every H,
+  each of the 565 sentences of the classes constructor functional, subsort, injectivity and
+  distinctness (`cons_entailed`; `cons_account`, `cons_kinds`): each is read at a sort and
+  generators that `consPairs` names, from Γ's items at the places in `consItemsK c` it names
+  (`consAt_entailed`; the places are hints the kernel checks: a search through the 1304 items
+  exceeds the cap at some tens of sentences), decided by six ranges joined by `tieAll_range`. Γ
+  entails each of the 16 no-junk sentences (`nojunk_entailed`): four are logical truths, ten Γ's
+  items pattern for pattern (`nojunk_items`), Expr's and KItem's Γ's items with their generators
+  in another order (`nojunk_order`, `noJunkItem_of_subset`). 4.7 GiB, 112 s.
+- `test/TieKimpDecls.lean`: kimp's declarations (row 19): the item of each of the 155 declarations
+  without sort parameters of a sort or a symbol Γ has is an item of `sigItems c` at a place
+  `declPos` names (`decls_in_sig`, four ranges), so Γ entails it for every H (`decls_entailed`);
+  `decl_counts` accounts for the text's 21 sort and 187 symbol declarations. 6.1 GiB, 127 s.
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
