@@ -277,6 +277,7 @@ import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
 import KcoreSpec.ConsOwnValues
 import KcoreSpec.ConsTransfer
+import KcoreSpec.ConsTransferR
 import KcoreSpec.ConsTransferInst
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt

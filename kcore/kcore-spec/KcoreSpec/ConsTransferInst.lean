@@ -4,9 +4,11 @@
     least fixed point): it is of the class (`ownSorted_collNoJunk`), so the extension satisfies it
     where the model does (`transfer_collNoJunk`);
   - the translation of a sentence `axiom{R} \equals{S, R}(l, r)` (`transfer_trAxiom_equals`), and
-    among those the idempotence sentence of an open generator (`transfer_idem`).
+    among those the idempotence sentence of an open generator (`transfer_idem`);
+  - a function equation, with its sort variable, its premise `X0 ∈ A` and its guards
+    (`transfer_fnEq`): the equation of the clause `f(A) = A` at a sort outside `D`.
 -/
-import KcoreSpec.ConsTransfer
+import KcoreSpec.ConsTransferR
 
 set_option autoImplicit false
 
@@ -169,6 +171,67 @@ theorem transfer_idem (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (k : ParamSig)
     exact (OwnSorted.appE (.appE (.symC hf) (OwnSorted.toOld (.evar hm))) (OwnSorted.toOld (.evar hm))).toOld
   · rw [hfr, hK]
     exact OwnSorted.toOld (.evar (List.mem_map.mpr ⟨_, List.mem_cons_self .., rfl⟩))
+
+/-- The pattern of the equation of the clause `f(A) = A`, `A` a variable of the sort `s`:
+`\implies{R}(\and{R}(\top{R}(), \and{R}(\in{s,R}(X0, A), \top{R}())), \equals{s,R}(f(X0), \and{s}(A, \top{s}())))`. -/
+def fnEqIdPat (f s : String) : Kore.Pattern :=
+  .implies KoreAML.R
+    (.and KoreAML.R [.top KoreAML.R, .and KoreAML.R
+      [.in (KoreAML.srt s) KoreAML.R (KoreAML.ev "X0" (KoreAML.srt s)) (KoreAML.ev "VarA" (KoreAML.srt s)), .top KoreAML.R]])
+    (.equals (KoreAML.srt s) KoreAML.R (KoreAML.ap f [KoreAML.ev "X0" (KoreAML.srt s)])
+      (.and (KoreAML.srt s) [KoreAML.ev "VarA" (KoreAML.srt s), .top (KoreAML.srt s)]))
+
+/-- **The extension satisfies a function equation where the model does**: the equation of the
+clause `f(A) = A`, for `f` and the sort `s` outside `D`, in a model in which some sort has an
+element. Its sort variable ranges over the detached sort names in the extension. -/
+theorem transfer_fnEq (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m)
+    (f s : String) (hn : ¬ D (.sort ("Sort" ++ s))) (hf : ¬ D (.symbol f))
+    (hSs : ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ s)) a ↔ a = σ)
+    (h : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] }⟩).pat) :
+    extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [KoreAML.Rv], pattern := fnEqIdPat f s, attributes := [] }⟩).pat := by
+  let S := KoreAML.srt s
+  have hO : ∀ N, N = "Sort" ++ s → ¬ D (.sort N) ∧ ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort N) a ↔ a = σ :=
+    fun N hN => hN ▸ ⟨hn, hSs⟩
+  have hO' : ∀ N, N = "Sort" ++ s → ¬ D (.sort N) := fun N hN => (hO N hN).1
+  have hfr : KoreAML.freeOf [] (fnEqIdPat f s) =
+      [.evar "X0" S, .evar "VarA" S, .evar "X0" S, .evar "VarA" S] := rfl
+  refine transfer_trAxiom_R hD hI hc hO hne 0 "kernel" rfl ?_ ?_ h
+  · rw [hfr]
+    intro key hk
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+    rcases hk with rfl | rfl | rfl | rfl
+    · exact ⟨"X0", s, rfl, rfl⟩
+    · exact ⟨"VarA", s, rfl, rfl⟩
+    · exact ⟨"X0", s, rfl, rfl⟩
+    · exact ⟨"VarA", s, rfl, rfl⟩
+  · rw [hfr]
+    generalize KoreAML.tableOf [KoreAML.Rv] (fnEqIdPat f s) = t
+    have htr : KoreAML.tr ⟨t, []⟩ (fnEqIdPat f s) =
+        KoreAML.sImp (.evar (t.ev (.sortVar "R")))
+          (KoreAML.sAnd (KoreAML.sTop (.evar (t.ev (.sortVar "R"))))
+            (KoreAML.sAnd (KoreAML.sIn (KoreAML.sym (.sort ("Sort" ++ s))) (.evar (t.ev (.sortVar "R")))
+              (.evar (t.ev (.evar "X0" S))) (.evar (t.ev (.evar "VarA" S))))
+              (KoreAML.sTop (.evar (t.ev (.sortVar "R"))))))
+          (KoreAML.sEquals (KoreAML.sym (.sort ("Sort" ++ s))) (.evar (t.ev (.sortVar "R")))
+            (KoreAML.sym (.symbol f) ⬝ .evar (t.ev (.evar "X0" S)))
+            (KoreAML.sAnd (.evar (t.ev (.evar "VarA" S))) (KoreAML.sTop (KoreAML.sym (.sort ("Sort" ++ s)))))) := rfl
+    rw [htr]
+    have hmem : ∀ x, x = "X0" ∨ x = "VarA" → (t.ev (.evar x S), "Sort" ++ s) ∈
+        ((([KoreAML.VarKey.evar "X0" S, .evar "VarA" S, .evar "X0" S, .evar "VarA" S].filter
+          fun b => b != KoreAML.VarKey.sortVar "R").eraseDups).map fun key => (t.ev key, keySortName key)) :=
+      fun x hx => List.mem_map.mpr ⟨.evar x S, List.mem_eraseDups.mpr (List.mem_filter.mpr
+        ⟨by rcases hx with rfl | rfl <;> simp, by simp⟩), rfl⟩
+    have hv : ∀ x, x = "X0" ∨ x = "VarA" → OwnSorted D
+        (((([KoreAML.VarKey.evar "X0" S, .evar "VarA" S, .evar "X0" S, .evar "VarA" S].filter
+          fun b => b != KoreAML.VarKey.sortVar "R").eraseDups).map fun key => (t.ev key, keySortName key)).map (·.1))
+        [] .ex (.evar (t.ev (.evar x S))) :=
+      fun x hx => .evar (List.mem_map.mpr ⟨_, hmem x hx, rfl⟩)
+    exact .sImp (.and .top (.and (.sIn rfl (hmem "X0" (.inl rfl)) (hv "VarA" (.inr rfl)).toOld) .top))
+      (.sEquals hO' rfl (OwnSorted.appE (.symC hf) (hv "X0" (.inl rfl)).toOld).toOld
+        (OwnSorted.toOld (.sAnd (hv "VarA" (.inr rfl))
+          (OwnSorted.toOld (.sEx (V' := []) (.sortC hn) nil_sub (.inl rfl) (.evar (List.mem_cons_self ..)))))))
 
 end
 
