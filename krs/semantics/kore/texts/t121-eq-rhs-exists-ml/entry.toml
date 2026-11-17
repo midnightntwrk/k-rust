@@ -1,0 +1,65 @@
+id = "t121-eq-rhs-exists-ml"
+kind = "text"
+subject = "A function equation whose right side is #Exists B. (B #And {B #Equals notBool X}): what it states of f."
+retro = ["M1"]
+origin = "kcore-spec fixture e3-eq-exists-bool-ml"
+
+[text]
+files = ["t121-eq-rhs-exists-ml.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The equation states f(X) = notBool X for every Bool X: the existential right side denotes exactly the value notBool X."
+reason = '''
+(1) #Exists, #And and #Equals are the connectives of ML-SYNTAX (kast.md:144, 148, 154), and the equation is written with \exists, \and and \equals (kore.txt:35-38).
+(2) At a valuation, \exists B. phi denotes the union over every value b of B of what phi denotes there (introduction-to-matching-logic.tex:737-741). \and denotes the intersection (:734-736), and the equality is the whole carrier where its two sides denote the same set and empty otherwise (:880-885).
+(3) notBool exchanges true and false (domains.md:1139-1140), so notBool x denotes one value. At b = notBool x the body denotes {b}; at the other value of Bool the equality is empty and so is the body. The union is {notBool x}.
+(4) So f(x) = notBool x at every x of Bool. The binder's variable is a variable of the right side only; the argument X is quantified outside it.'''
+
+[ruling.kore]
+statement = 'The equation is written \implies(X0 in X, \equals(f(X0), \and(\exists B. \and(B, \equals(B, notBool X)), \top))) (kore.txt:25-39); it states what the ruling states.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:35-39"
+quote = '''\equals{SortBool{},R} ( Lblf{}(X0:SortBool{}), \and{SortBool{}} ( \exists{SortBool{}}(VarB:SortBool{},\and{SortBool{}}(VarB:SortBool{},\equals{SortBool{}, SortBool{}}(VarB:SortBool{},LblnotBool'Unds'{}(VarX:SortBool{})))), \top{SortBool{}}())))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:154 (K 7.1.337)"
+quote = 'syntax {Sort1, Sort2} Sort2 ::= "#Exists" Sort1 "." Sort2 [symbol(#Exists), mlOp, mlBinder, group(mlQuantifier, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1139-1140 (K 7.1.337)"
+quote = "rule notBool false => true"
+
+[[observe]]
+file = "kore.txt"
+contains = '\exists{SortBool{}}(VarB:SortBool{},'
+
+[[note]]
+implementation = "kompile"
+text = "The same equation written with a ? variable, f(X) => ?B ensures ?B ==Bool notBool X, is refused by kompile 7.1.337, exit 113 (kcore-spec fixture e3-eq-exists-bool), although by user_manual.md:2443-2446 a ? variable of an equation is quantified at the top of the whole rule."
