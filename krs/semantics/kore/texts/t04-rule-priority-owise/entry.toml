@@ -1,0 +1,47 @@
+id = "t04-rule-priority-owise"
+kind = "text"
+subject = "The priority of a rewrite rule: priority(N) gives N, owise gives 200, no attribute gives 50; a rule is tried only after every rule of a smaller number has been shown not to apply."
+
+rests_on = ["kk:t01-rule-applies"]
+
+[text]
+files = ["t04-rule-priority-owise.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "Each rule has a priority number: N for priority(N), 200 for owise, and 50 without either. A rule is tried only where every rule of a smaller number has been shown not to apply. In the text the four rules have the numbers 200, 50, 40 and 250, and are tried in the order 40, 50, 200, 250: a(7) steps to d(7) alone; a(3) to c(3) alone; a(0) to b(0) alone; no configuration of the form a(n) steps to e(n)."
+reason = """
+(1) Each rule is assigned a numerical priority, and rules are tried in increasing order of it (user_manual.md:1727-1730); the priority attribute gives the number (user_manual.md:1732-1733); owise sets it to 200 (user_manual.md:1739-1741); a rule with no attribute indicating its priority has 50 (user_manual.md:1748-1749). A rule of a larger number is tried only after a rule of a smaller one "has been shown not to apply" (user_manual.md:1722-1724); rules of a number above 200 apply after the owise rules have been tried (user_manual.md:1745-1746).
+(2) A rule applies where its left side matches and its requires evaluates to true (kk:t01-rule-applies). At a(7) the rule of priority 40 applies (7 >Int 5): a(7) steps to d(7) and no other rule is tried. At a(3) it does not apply (3 >Int 5 is false) and the rule of 50 does (3 >Int 0): a(3) steps to c(3). At a(0) neither applies, the owise rule of 200 does: a(0) steps to b(0). The owise rule applies at every a(n), so the rule of 250 is never tried at one."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1727-1730 (K 7.1.337)"
+quote = "In practice, each rule in your semantics is implicitly or explicitly assigned a numerical priority. Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1732-1733 (K 7.1.337)"
+quote = "You can specify the priority of a rule with the `priority` attribute."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1745-1746 (K 7.1.337)"
+quote = "Rules with priority higher than `200` apply **after** all rules with the `owise` attribute have been tried."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
