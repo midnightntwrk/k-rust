@@ -1,0 +1,63 @@
+id = "t05-rule-ensures-result"
+kind = "text"
+subject = "A rule's ensures is part of its result: where the ensures is false the rule has applied, gives no successor, and a rule of a larger priority number is not tried."
+retro = ["R3"]
+
+[text]
+files = ["t05-rule-ensures-result.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "Where the ensures is false the manual gives a configuration with no successor by the rule; the axiom kompile writes has the ensures as a conjunct of its right side (kore.txt:104-106), and read as a rewrite axiom it is false in every model where that instance of its left side has an element, so as written the text has no model holding a(0) in the k cell, rather than one where a(0) has no successor."
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The transition of a rule r ensures E ends in r #And E: where E is true under the match the result is r's, and where E is not true the result has no value. A false ensures does not stop the rule from applying: the rule has applied, gives no successor there, and the rules of a larger priority number are not tried. In the text a(1) steps to b(1) alone; a(0) has no successor (the first rule applies with an empty result, and the rule of priority 60 is not tried)."
+reason = """
+(1) The ensures clause is a post-condition, added to the path condition if the rule applies; it may make the entire term undefined, and the rule is applied in that case all the same (user_manual.md:1159-1163). The transition the rule represents ends in a state RHS #And ENS, built and checked for satisfiability after the match and the requires (user_manual.md:1166-1173). So where ENS is false under the match, RHS #And ENS has no value and the rule gives no successor; where it is true, the result is RHS's.
+(2) A rule that is applied has not been shown not to apply, and only a rule shown not to apply lets a rule of a larger priority number be tried (user_manual.md:1722-1724; numbers by user_manual.md:1727-1730, 1748-1749). So at a(0) the first rule, of priority 50, applies with an empty result, and the second, of priority 60, is not tried: a(0) has no successor. At a(1) the ensures 1 >Int 0 is true: a(1) steps to b(1), and the second rule is not tried.
+(3) The manual adds that concrete tools are free to ignore the ensures clause (user_manual.md:1163-1164). That sentence permits a tool to compute RHS without the conjunct, a superset of the transition of (1); it does not change the transition the rule represents, which (1) states.
+(4) The written sentence states more than (1): [ruling.kore], and frontend_difference."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1159-1164 (K 7.1.337)"
+quote = "Finally is the *ensures clause*, represented here as `ENS`. The ensures clause is to be interpreted as a post-condition, and will be automatically added to the path condition if the rule applies. It *may* cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case. Note that concrete backends (eg. the LLVM backend) are free to ignore the ensures clause."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1166-1173 (K 7.1.337)"
+quote = "Overall, the transition represented by such a rule is from a state `LHS #And REQ` ending in a state `RHS #And ENS`. ... Build the new term `alpha(RHS #And ENS)`, and check if it's satisfiable."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1727-1730 (K 7.1.337)"
+quote = "Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "a rule with no attributes indicating its priority is assigned the priority 50."
+
+[ruling.kore]
+statement = "The first rule is one rewrite axiom whose right side is the configuration pattern of b(I) and the conjunct \\equals(I >Int 0, true) at sort Bool (kore.txt:99-107). Where I >Int 0 is false (I = 0), the equality denotes the empty set and so does the right side; the axiom then holds only where its left side has no element. So the written sentences have no model in which a(0) in the k cell is an element, while the manual's transition of (1) gives a(0) no successor. Where I >Int 0 is true the right side is b(I)'s pattern. The axioms name no other rule; priority 60 of the second is an attribute (kore.txt:116)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:104-106"
+quote = '''\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-'Int'Unds'{}(VarI:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true"))))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:882-883 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$'''
