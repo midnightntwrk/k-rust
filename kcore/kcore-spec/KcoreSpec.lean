@@ -267,6 +267,7 @@ import KcoreSpec.LibEvFn
 import KcoreSpec.LibEvFnLib
 import KcoreSpec.LibEvFnBoolInt
 import KcoreSpec.LibEvFnKNe
+import KcoreSpec.LibEvFnOwise
 import KcoreSpec.TieCmd
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.ConsExtModel
