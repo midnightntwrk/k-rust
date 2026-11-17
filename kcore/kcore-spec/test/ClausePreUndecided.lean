@@ -198,7 +198,7 @@ mutual
       | cons h1 hs =>
         cases hs; cases h1
         rw [hl] at hvs; simp [allSome] at hvs
-    | _, _, _, .ovl _ ho _, ht, _, _, _ => by
+    | _, _, _, .ovl _ ho _ _, ht, _, _, _ => by
       cases ht; rw [kinds.2.2.2] at ho; cases ho
   termination_by structural _ _ _ h => h
 end
