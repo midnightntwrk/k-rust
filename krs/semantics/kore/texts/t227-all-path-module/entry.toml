@@ -1,0 +1,28 @@
+id = "t227-all-path-module"
+kind = "text"
+subject = "A module carrying all-path with one rewrite rule, a() => b(): what the manual says of it, and whether kompile delivers a KORE text."
+retro = ["R7"]
+origin = "kcore-spec fixture e2-all-path"
+
+[text]
+files = ["t227-all-path-module.k"]
+kompile = "rejects"
+frontend = "differs"
+frontend_difference = "The manual gives the module's rules the default claim type all-path (user_manual.md:2323-2326); kompile 7.1.337 writes a definition and then refuses it at its own output, which does not parse (kompile.txt: unexpected token at 635:3, one parenthesis short), so it delivers no text. The sentences with the parenthesis restored are kk:t224-all-path-alias."
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 writes a definition for the K text and rejects it, its own output not parsing (exit 113). The manual says all-path on a module gives its rules the default claim type all-path; what the written sentences, repaired, state is kk:t224-all-path-alias's ruling: the rule's axiom is the plain rewrite a() to b()."
+reason = """
+(1) all-path and one-path clarify what kind of reachability claim a rule is, and on a module give a default claim type to its rules (user_manual.md:2317-2326).
+(2) kompile refuses the text (kompile.txt): the definition it writes does not parse at one point, a parenthesis missing, so there is no text to read from this release. kk:t224-all-path-alias reads the same output with the parenthesis restored."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2317-2326 (K 7.1.337)"
+quote = "In addition of being able to annotate a rule with one of them (if annotating with more at the same time, only one of them would be chosen), one can also annotate whole modules, to give a default claim type for all rules in that module."
+
+[[observe]]
+file = "kompile.txt"
+contains = "unexpected token TokenLeftBracket"
