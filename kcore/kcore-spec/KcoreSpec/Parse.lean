@@ -1897,7 +1897,7 @@ set variable `@S` there (`f(@S, @S)`), the value at every set's elements (refuse
 the patterns', which no clause read from the memberships states (not read as an equation). -/
 def lhsArgsOK_lhs (ls : List Kore.Pattern) (args : Kore.Pattern) : Bool :=
   match memberVars_lhs eqnFuel args with
-  | some xs => xs.eraseDups.length == xs.length && decide (ls = xs.map fun x => .var (.evar x))
+  | some xs => decide xs.Nodup && decide (ls = xs.map fun x => .var (.evar x))
   | none => false
 
 def rawEqn? (a : Kore.Axiom) : Option RawEqn :=
@@ -3454,7 +3454,7 @@ def openIdemAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
 
 /-- The axiom `a` is the law sentence `ax` with the attribute `key`. -/
 def lawSentenceIs (key : String) (ax : Kore.Axiom) (a : Kore.Axiom) : Bool :=
-  hasAttr a.attributes key && { a with attributes := [] } == ax
+  hasAttr a.attributes key && decide ({ a with attributes := [] } = ax)
 
 /-- The sentences `ss` hold the law sentence `ax` with the attribute `key`. -/
 def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :=
@@ -4485,11 +4485,26 @@ def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × Rul
          colls := E.colls, ovls := E.ovls }
   pure core
 
+/-- The character `c` as it is written inside a string literal: `\n`, `\t`, `\\` and `\"` escaped,
+another character below 32 and DEL as `\x` and two hexadecimal digits, any other as itself. -/
+def charLit_skel (c : Char) : String :=
+  if c = '\n' then "\\n"
+  else if c = '\t' then "\\t"
+  else if c = '\\' then "\\\\"
+  else if c = '\"' then "\\\""
+  else if c.toNat ≤ 31 ∨ c = '\x7f' then "\\x" ++ hexDigitRepr (c.toNat / 16) ++ hexDigitRepr (c.toNat % 16)
+  else String.singleton c
+
+/-- The string `s` as a string literal: in double quotes, each character as `charLit_skel` writes
+it (the text `String.quote` gives, by functions the kernel unfolds). -/
+def strLit_skel (s : String) : String :=
+  "\"" ++ String.join (s.toList.map charLit_skel) ++ "\""
+
 /-- A pattern's symbols, variables as `_` and domain values as their text, `fuel` levels deep. -/
 def eqnSkel : Nat → Kore.Pattern → String
   | 0, _ => "…"
   | _, .var (.evar _) => "_"
-  | _, .dv _ v => v.quote
+  | _, .dv _ v => strLit_skel v
   | n + 1, .app h _ ps => h.ident.name ++ (if ps.isEmpty then "" else "(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")")
   | n + 1, .and _ ps => "\\and(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")"
   | n + 1, .equals _ _ p q => "\\equals(" ++ eqnSkel n p ++ ", " ++ eqnSkel n q ++ ")"
