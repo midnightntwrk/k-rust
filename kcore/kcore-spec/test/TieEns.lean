@@ -30,13 +30,18 @@
     (`cons_entailed`), each from the constructor items `consItemsK` holds for its generators
     (`cons_checked`).
   - Set idempotence (61): Γ with it has no model, for every H (`idem_refuted`).
+  - Set-variable lemmas (126 to 130, 266: the definedness lemmas of `/Int`, `%Int`, `modInt`,
+    `<<Int`, `>>Int` and kompile's `#Ceil(@K0 |-> @K1 @Rest)`): Γ with any of them has no model, for
+    every H, and each holds at sets of at most one value (test/LibEvCeilEns.lean, `sN_refuted`,
+    `sN_one`).
   - Library sample, 166 (`I -Int 0 = I`, a `simplification`): holds at every value of `I` in every
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
   - Sentences applying a symbol Γ does not have (`absent_syms` for four of them): the cell
     initializers and the counter's getter, the 14 projections, seven hooked symbols' `functional`
     sentences, two library sentences (157 and 189) over symbols without a hook here: no direction.
-    The library's six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is
-    `X <<Int 0 = X`) apply symbols Γ interprets and are of the class library.
+    The six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is `X <<Int 0 = X`)
+    apply symbols Γ interprets: 171, 172, 178, 179 are of the class library, 128 and 129 of the
+    class set-variable lemma.
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
   translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
@@ -711,6 +716,7 @@ partition the 263 sentences; what holds of a class is its own theorem, stated ov
 - collection law: associativity and the two units of `_List_`, `_Map_`, `_Set_`;
 - library: an equation or a lemma of the builtin library over symbols Γ has;
 - set idempotence: 61, refuted;
+- set-variable lemma: 126 to 130 and 266, refuted at sets of values;
 - no direction: a sentence that applies a symbol Γ does not have. -/
 def classes : List (String × List Nat) :=
   [("function equation", [211, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232,
@@ -726,11 +732,12 @@ def classes : List (String × List Nat) :=
    ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
       56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 77, 81, 83, 99, 100, 101, 102, 105, 106, 107, 110, 111, 112]),
    ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
-   ("library", [126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+   ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
       148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
       174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
-      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264, 266]),
+      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 244, 245, 246, 247, 248, 249, 264]),
    ("set idempotence", [61]),
+   ("set-variable lemma", [126, 127, 128, 129, 130, 266]),
    ("no direction", [36, 40, 42, 73, 75, 82, 113, 114, 157, 189, 208, 210, 212, 213,
       214, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
 
@@ -748,7 +755,8 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
      ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
-     ("hooked functional", 48), ("collection law", 9), ("library", 88), ("set idempotence", 1), ("no direction", 30)] := by
+     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1),
+     ("set-variable lemma", 6), ("no direction", 30)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -756,12 +764,14 @@ theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decid
 
 /-- The class lists agree with the lists the class theorems are stated over: the function
 equations are `fnText`'s, the rule is 155, the no-junk sentences are the three trivial ones and
-the eight over generators, the refuted one is 61. -/
+the eight over generators, the refuted ones are 61 and the six set-variable lemmas. -/
 theorem account_lists : (classOf "function equation").isPerm (fnText.map (·.index)) = true ∧
     classOf "rewrite rule" = [U.ax155.index] ∧
     classOf "no junk" = [U.ax115, U.ax116, U.ax117, U.ax118, U.ax119, U.ax120, U.ax121, U.ax122, U.ax123, U.ax124,
       U.ax125].map (·.index) ∧
-    classOf "set idempotence" = [U.ax61.index] := by decide +kernel
+    classOf "set idempotence" = [U.ax61.index] ∧
+    classOf "set-variable lemma" = [U.ax126, U.ax127, U.ax128, U.ax129, U.ax130, U.ax266].map (·.index) := by
+  decide +kernel
 
 /-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
 aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/

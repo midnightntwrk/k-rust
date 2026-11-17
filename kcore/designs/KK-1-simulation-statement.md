@@ -267,7 +267,7 @@ Decision rule: generated if 2 costs at most twice 1 per function and nothing in 
 
 ## 4. `kore.k` fixes first: Opus briefs (three units, one agent, in this order)
 
-Common to all three. Place: a workspace of `krs/semantics/kore`. Judge: `tools/check.py` against the `kcore` entry of `expected.json` (OD-12), backends as labelled columns. After each unit: `kink-flow run --full` once (about 40 s, 12 GiB scope), `kill-matrix.json` and `kink.lock` regenerated, README's reading and numbers updated. Reasons in comments and commit messages come from K's text and from what `Step`/`Eval` state; a backend's answer is evidence. No Lean change. Stop and report if a case inside the fragment differs from the `kcore` oracle after the change.
+Common to all three. Place: a workspace of `krs/semantics/kore`. Judge: `tools/check.py` against the `kcore` row of each entry's `evidence.json` (`implementations`, OD-12), backends as labelled columns. After each unit: `kink-flow run --full` once (about 40 s, 12 GiB scope), `kill-matrix.json` and `kink.lock` regenerated, README's reading and numbers updated. Reasons in comments and commit messages come from K's text and from what `Step`/`Eval` state; a backend's answer is evidence. No Lean change. Stop and report if a case inside the fragment differs from the `kcore` oracle after the change.
 
 **Unit A: a function no equation applies to has no value (D1).**
 - `result-none`: `result(_, _, none) => bot`. Header lines 15-17 and README lines 17, 21, 38 reworded: an application no equation applies to is undefined; a `total` function is read the same and such a definition is outside what the cases assert (c42 stays `no-oracle` for totality, per KT-1).

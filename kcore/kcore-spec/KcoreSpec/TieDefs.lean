@@ -281,13 +281,15 @@ sentences under these names, in this order.
 - library: an equation or a lemma of the builtin library over symbols `Γ` has;
 - set idempotence: `_Set_(K, K) = K`, against which `Γ` states the concatenation of two sets with
   a common member undefined;
+- set-variable lemma: a library lemma over set variables that `Γ` refutes at a valuation sending
+  each free set variable to a set of values (`SetVarsAtValues`);
 - no direction: a sentence that applies a symbol `Γ` does not have. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
    ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
    ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
-   ("set idempotence", .refuted), ("no direction", .none)]
+   ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/
 
