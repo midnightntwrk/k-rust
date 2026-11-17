@@ -23,13 +23,16 @@ set_option maxRecDepth 1000000
 
 open KCore
 
-/-- The functions' clauses as `fnOK` checks them, from `fnsOK` alone (`Exec.clauseCtx_of` reads it
-from `ok`). -/
-theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) : Exec.ClauseCtx c := by
+/-- The functions' clauses as `fnOK` checks them, from `fnsOK` and their predicates being `\top`
+(`Exec.clauseCtx_of` reads both from `ok`). -/
+theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true)
+    (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top) : Exec.ClauseCtx c := by
   intro fn hfn'
   rcases List.mem_append.mp hfn' with hfn | hfn
   rotate_left
-  · exact ⟨[], fun k hk => (nomatch hk), sortPreds_ctx hfn⟩
+  · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl =>
+      let ⟨h1, h2, h3, h4, h5, h6⟩ := sortPreds_ctx hfn cl hcl
+      ⟨h1, h2, h3, h4, h5, h6, hpre fn hfn' cl hcl⟩⟩
   have hok := (List.all_eq_true.mp hfns) fn hfn
   simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨hcls, _⟩ := hok
@@ -38,7 +41,7 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) : Exec.ClauseCt
     exact ⟨g, List.mem_append_left _ hg, rfl⟩
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
-    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2⟩
+    exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, hpre fn hfn' cl hcl⟩
 
 /-- **A step by the rule `r`** under the substitution `sub vs`: its left side read symbol by symbol
 is the configuration x, it has no `requires`, its right side evaluates to y, and no rule of a
@@ -122,7 +125,7 @@ theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +ker
 theorem fnsOK : c.fnsOK = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Semantics.ovlCase_of (by decide +kernel))
-theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK
+theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (Semantics.sortedOK_preTop sortedOK)
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 
 /-- Every rule has priority 50: none waits on another. -/

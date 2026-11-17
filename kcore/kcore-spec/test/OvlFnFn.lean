@@ -159,7 +159,7 @@ theorem hookRes_sub : (sem cls).hookRes intSub [.dv Srt.int (.int 0), v3] = some
 /-- `negInt(3)` is `-3`, by its clause. -/
 theorem eval_negInt3 (hl : Lookups cls) : Eval (sem cls) negInt [v3] (some vm3) :=
   .clause (cl := negIntCl) (σ := [(0, v3)]) hl.1 (by simp [negIntFn])
-    (ws1 cls (sort_v3 cls)) (.cons (.var rfl) .nil) (fun t ht => by cases ht)
+    (ws1 cls (sort_v3 cls)) (.cons (.var rfl) .nil) (fun t ht => by cases ht) .top
     (fun cl' h _ hlt => by
       simp only [negIntFn, List.mem_singleton] at h
       subst h; exact absurd hlt (Nat.lt_irrefl _))
@@ -185,7 +185,7 @@ theorem match_ovl3 : PatVals (sem cls) [(0, v3)] ovlCl.pats [i3] := by
 /-- **At `inj 3`, `inj -3`, by the `aside` clause** of priority 0: no clause is below it. -/
 theorem eval_ovl3 (hl : Lookups cls) (hmem : ovlCl ∈ cls) : Eval (sem cls) negExp [i3] (some im3) :=
   .clause (cl := ovlCl) (σ := [(0, v3)]) hl.2 hmem (ws1 cls (sort_v3 cls))
-    (match_ovl3 cls) (fun t ht => by cases ht) (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
+    (match_ovl3 cls) (fun t ht => by cases ht) .top (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
     (rhs_ovl3 cls hl) (fun t ht => by cases ht)
 
 /-- The pattern of `e` denotes `e` only. -/
@@ -231,7 +231,7 @@ theorem eval_inj3 : Eval c negExp [i3] (some im3) := eval_ovl3 _ lookups_c (by s
 /-- **`negExp(e)` evaluates to `e`**, by the user clause: the only clause below it is `aside`. -/
 theorem eval_e : Eval c negExp [ve] (some ve) :=
   .clause (cl := userCl) (σ := [(0, ve)]) lookups_c.2 (by simp [negFn]) (ws1 _ (sort_ve _))
-    (.cons (.as (.ctor (isCtor_e _) .nil) rfl) .nil) (fun t ht => by cases ht)
+    (.cons (.as (.ctor (isCtor_e _) .nil) rfl) .nil) (fun t ht => by cases ht) .top
     (fun cl' h ha hlt => by
       simp only [negFn, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl
@@ -266,10 +266,10 @@ theorem agree_c : ClausesAgree c (negFn [ovlCl, userCl]) := fnHyp_c.2.2.1 _ (by 
 /-! ## A competitor of priority 0 beside the `aside` clause -/
 
 theorem appliesC_ovl : ovlCl.AppliesAt cC [(0, v3)] [i3] :=
-  ⟨ws1 _ (sort_v3 _), match_ovl3 _, fun t ht => by cases ht⟩
+  ⟨ws1 _ (sort_v3 _), match_ovl3 _, (fun t ht => by cases ht), .top⟩
 
 theorem appliesC_cl0 : cl0.AppliesAt cC [(0, i3)] [i3] :=
-  ⟨ws1 _ (by decide +kernel), .cons (.var rfl) .nil, fun t ht => by cases ht⟩
+  ⟨ws1 _ (by decide +kernel), .cons (.var rfl) .nil, (fun t ht => by cases ht), .top⟩
 
 theorem pairC : (ovlCl, cl0) ∈ pairs (negFn [ovlCl, userCl, cl0]).clauses := by simp [negFn, pairs]
 
@@ -293,7 +293,7 @@ theorem compete_reads : ovlCl.prio = cl0.prio ∧
 /-- `negExp(inj 3)` is `e` by the competitor (nothing is below priority 0). -/
 theorem evalC_cl0 : Eval cC negExp [i3] (some ve) :=
   .clause (cl := cl0) (σ := [(0, i3)]) lookups_cC.2 (by simp [negFn]) appliesC_cl0.1
-    appliesC_cl0.2.1 (fun t ht => by cases ht) (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
+    appliesC_cl0.2.1 (fun t ht => by cases ht) .top (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
     (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht)
 
 /-- Two results at `inj 3`: not `FnDet`. -/
@@ -349,7 +349,7 @@ theorem eval_ovl_inj3_O : Eval cO negExp [i3] (some im3) := eval_ovl3 _ lookups_
 overload clause is `aside`. -/
 theorem eval_owise_inj3 : Eval cO negExp [i3] (some ve) :=
   .clause (cl := owiseCl) (σ := [(0, i3)]) lookups_cO.2 (by simp [negFn]) (ws1 _ (by decide +kernel))
-    (.cons (.var rfl) .nil) (fun t ht => by cases ht)
+    (.cons (.var rfl) .nil) (fun t ht => by cases ht) .top
     (fun cl' h ha hlt => by
       simp only [negFn, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl | rfl

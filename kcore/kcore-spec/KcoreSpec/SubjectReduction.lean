@@ -1592,7 +1592,7 @@ mutual
       (hvs : c.sortsOf vs = some fn.args) {v : GroundTerm} (hr : r = some v) :
       c.sortOf v = some fn.result :=
     match h with
-    | .clause (cl := cl) hfn' hmem hσ _ _ _ hrhs _ => by
+    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ hrhs _ => by
       rw [hfn] at hfn'
       cases hfn'
       obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1

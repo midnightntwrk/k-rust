@@ -85,7 +85,7 @@ theorem rhs_eval : EvalTerm c [] rhsT (some (.ctor kconfigValue [.ctor dotk []])
 
 /-- The function is `#KConfigValue(.K)` at its one argument list: its clause applies. -/
 theorem eval_f : Eval c fl [] (some (.ctor kconfigValue [.ctor dotk []])) :=
-  .clause lookup_f (List.mem_singleton_self _) (fun _ _ h => by simp [cl] at h) .nil (fun _ h => by cases h)
+  .clause lookup_f (List.mem_singleton_self _) (fun _ _ h => by simp [cl] at h) .nil (fun _ h => by cases h) .top
     (fun _ h _ hlt => by rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (Nat.lt_irrefl _)) rhs_eval
     (fun _ h => by simp [cl] at h)
 

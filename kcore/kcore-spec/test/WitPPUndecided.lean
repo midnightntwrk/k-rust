@@ -76,7 +76,8 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] →
       ∀ w, σ.lookup 0 = some w → (cR rs).sortOf w = some Srt.int → False)
     (motive_5 := fun _ _ _ _ => True)
-    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihrhs _ => fun hf w hvs hw => by
+    (motive_6 := fun _ _ _ _ _ => True)
+    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -91,9 +92,10 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
         match i, hi with
         | 0, hi => simp only [cl, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨w, rfl, hw⟩
         | _ + 1, hi => simp [cl] at hi
-      obtain ⟨ht, _, _⟩ := h [(0, w)] hσ (.cons (.var rfl) .nil)
-      simp [cl] at ht)
-    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ ht _ _ _ _ _ => fun hf w hvs _ => by
+      cases h [(0, w)] hσ (.cons (.var rfl) .nil) with
+      | intro ht _ _ => simp [cl] at ht
+      | pre hp => exact absurd (Holds.top_eq hp) (by simp))
+    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf w hvs _ => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -101,6 +103,7 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
       simp [cl] at ht)
     (fun _ _ => trivial)
     (fun _ _ _ _ => trivial)
+    (fun _ _ => trivial)
     (fun h => by cases h)
     (fun h => by cases h)
     (fun _ _ h => by cases h)
@@ -125,6 +128,19 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (fun _ ho _ _ h => by cases h; exact absurd ho (by rw [isOvlF]; decide))
     trivial
     (fun _ _ _ _ => trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     hv rfl w rfl hw
 
 /-- `f(t)` has no result where `t` has the one result `w`, an Int. -/
@@ -197,7 +213,7 @@ theorem fnSolves : FnSolves c₀ := by
   subst hfn
   simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
   subst hcl'
-  obtain ⟨⟨hσ, hm, _⟩, _⟩ := hdec
+  obtain ⟨⟨hσ, hm, _, _⟩, _⟩ := hdec
   cases hm with
   | cons h1 h2 =>
     cases h2

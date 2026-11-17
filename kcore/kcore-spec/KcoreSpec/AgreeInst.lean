@@ -719,8 +719,8 @@ theorem instAgree_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Cla
           ((∀ t, cl.req = some t → HDet c σ t) ∨ ∀ t, cl'.req = some t → HDet c σ' t) → False := by
         intro vs σ σ' ha ha' hF
         have hθ := inst ha ha'
-        obtain ⟨_, _, hreq⟩ := ha
-        obtain ⟨_, _, hreq'⟩ := ha'
+        obtain ⟨_, _, hreq, _⟩ := ha
+        obtain ⟨_, _, hreq', _⟩ := ha'
         have hqt : EvalTerm c σ' (substT θ q) (some (bool true)) :=
           (substT_eval hθ q hb _).mp (hreq q hq)
         have hF' : HDet c σ' (substT θ q) ∨ ∀ t, cl'.req = some t → HDet c σ' t :=

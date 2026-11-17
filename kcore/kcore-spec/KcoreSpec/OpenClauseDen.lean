@@ -86,7 +86,7 @@ mutual
   theorem eval_den4Cl : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -99,7 +99,7 @@ mutual
         (fun t ht tbl e' hag m' => evalTerm_den4Cl (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
         (fun cl' hcl'' hna'' hlt => lowCl hI hnn hsc hph hcls hneg hmem hcl hcl'' hlt (hprio cl' hcl'' hna'' hlt)
           (fails_den4Cl (hprio cl' hcl'' hna'' hlt) hmem hcl'')) e m
-    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq hprio ht he hw,
+    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio ht he hw,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -129,6 +129,9 @@ mutual
       ∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
+    | _, cl, .pre h, fn, hfn, hcl, vars, hlen, hagl, hσ, tbl, e, hag => by
+      obtain ⟨L, hL, -, hpre, -⟩ := hcls fn hfn cl hcl
+      rw [hpre] at h; exact absurd h.top_eq (by simp)
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, vars, hlen, hagl, hσ, tbl, e, hag => by
       obtain ⟨L, hL, -, -, -, -, hreqs, -⟩ := hcls fn hfn cl hcl
       have htS : sortOfTerm (c.rhsCtx L) vars t = some Srt.bool := by

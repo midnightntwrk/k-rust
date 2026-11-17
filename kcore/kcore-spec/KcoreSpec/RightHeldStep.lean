@@ -33,7 +33,8 @@ theorem sortPred_totalCl (hsc : SortCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) 
   have hlk : c.lookupFn fn.label = some fn := by
     rw [Semantics.lookupFn_eq]; exact find?_label hsc.nodupFns (List.mem_append_right _ hfn)
   have hsh := sortPreds_shape hfn
-  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl _ _ _ t ht => by rw [(hsh cl hcl).1] at ht; cases ht)
+  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
+      Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hsh cl hcl; rw [h]; exact ⟨_, .dv⟩)
     (fun cl hcl _ _ t ht => by rw [sortPreds_ens hfn cl hcl] at ht; cases ht)
 

@@ -95,7 +95,10 @@ theorem fnTerminates3 : FnTerminates c3 := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hfn' | hfn'
   · refine eval_result (lookup3 hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
-      (fun cl hcl _ _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht) (fun cl hcl _ _ => ?_)
+      (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
+        Clause.holds_preTop
+          (Semantics.sortedOK_preTop shape.2.2.2.2.1 fn (List.mem_append_left _ hfn) cl hcl) σ⟩)
+      (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
     have h4 := (textFns fn hfn' cl hcl).2.2.2
     cases hr : cl.rhs with
@@ -105,7 +108,7 @@ theorem fnTerminates3 : FnTerminates c3 := by
     subst hfn'
     rw [sortsOf_nil3 hvs]
     exact ⟨_, Eval.clause (cl := clOne) (σ := []) (lookup3 hfn) (List.Mem.tail _ (List.Mem.head _))
-      (fun i s h => by simp [clOne] at h) .nil (fun t h => by cases h)
+      (fun i s h => by simp [clOne] at h) .nil (fun t h => by cases h) .top
       (fun cl' h _ hlt => by
         simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at h
         rcases h with rfl | rfl <;> simp [clYE, clOne] at hlt)

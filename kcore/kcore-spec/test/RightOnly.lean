@@ -148,12 +148,12 @@ example : ∃ σ', clQ.AppliesAt cV σ' [.dv Srt.bool (.bool true)] ∧
     exact ⟨_, rfl, by decide +kernel⟩
   obtain ⟨σ', ha, hag⟩ := Clause.appliesAt_extendRH
     (rightHeld_cV.heldAt (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))) (List.Mem.head _)) hσ
-    (.cons (.var rfl) .nil) (fun t ht => by cases ht; exact .var)
+    (.cons (.var rfl) .nil) (fun t ht => by cases ht; exact .var) .top
   exact ⟨σ', ha, hag 0 (by simp [clQ, Clause.leftVars, varOccsList, varOccs])⟩
 
 /-- `clQ` applies at `[false]` under no substitution: its pattern gives B `false`, its `requires`
 reads B. -/
-theorem clQ_not_applies : ¬ ∃ σ, clQ.AppliesAt cV σ [.dv Srt.bool (.bool false)] := fun ⟨σ, _, hm, hq⟩ => by
+theorem clQ_not_applies : ¬ ∃ σ, clQ.AppliesAt cV σ [.dv Srt.bool (.bool false)] := fun ⟨σ, _, hm, hq, _⟩ => by
   have h1 := hq (.var 0) rfl
   cases hm with
   | cons hp _ =>
@@ -166,7 +166,7 @@ theorem clQ_not_applies : ¬ ∃ σ, clQ.AppliesAt cV σ [.dv Srt.bool (.bool fa
 `[false]`. -/
 theorem clQ_fails : Fails cV [.dv Srt.bool (.bool false)] clQ :=
   Clause.fails_of_not_appliesRH (rightHeld_cV.heldAt (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)))
-    (List.Mem.head _)) (fun _ _ _ t ht => by cases ht; exact ⟨_, .var⟩) clQ_not_applies
+    (List.Mem.head _)) (fun _ _ _ => ⟨(fun t ht => by cases ht; exact ⟨_, .var⟩), true, .top⟩) clQ_not_applies
 
 /-- **`eval_resultRH` at `q`**: `q(false)` has a result in `cV`, `clQ` failing. -/
 example : ∃ r, Eval cV qL [.dv Srt.bool (.bool false)] r :=
@@ -174,9 +174,9 @@ example : ∃ r, Eval cV qL [.dv Srt.bool (.bool false)] r :=
     (fun cl hcl => by
       rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
       exact rightHeld_cV.heldAt (List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _))) (List.Mem.head _))
-    (fun cl hcl _ _ _ t ht => by
+    (fun cl hcl _ _ _ => by
       rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
-      cases ht; exact ⟨_, .var⟩)
+      exact ⟨(fun t ht => by cases ht; exact ⟨_, .var⟩), true, .top⟩)
     (fun cl hcl σ ha => by
       rw [show fQ.clauses = [clQ] from rfl, List.mem_singleton] at hcl; subst hcl
       exact absurd ⟨σ, ha⟩ clQ_not_applies)
@@ -188,7 +188,7 @@ example : ∃ r, Eval cV qL [.dv Srt.bool (.bool false)] r :=
 with no entry, so it applies at `[]` under an extension of it. -/
 example : ∃ σ', clU.AppliesAt cV σ' [] :=
   (Clause.appliesAt_extendRH (rightHeld_cV.heldAt (List.Mem.head _) (List.Mem.head _)) (σ := [])
-    (fun i hi => by rw [right_only.1] at hi; cases hi) .nil (fun t h => by cases h)).imp fun _ h => h.1
+    (fun i hi => by rw [right_only.1] at hi; cases hi) .nil (fun t h => by cases h) .top).imp fun _ h => h.1
 
 /-! ## The values of U and Empty -/
 
@@ -280,15 +280,17 @@ theorem u_only {v : GroundTerm} (h : c.sortOf v = some U) : v = .ctor uL [] := b
 
 /-! ## C1: a matched clause of the smallest priority with a variable of a sort without a value -/
 
-/-- A clause without a `requires` that some σ over its patterns and conditions matches does not fail. -/
+/-- A clause without a `requires`, of the precondition `.top`, that some σ over its patterns and
+conditions matches does not fail. -/
 theorem not_fails {c : Semantics} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
-    (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs) (hreq : cl.req = none) :
-    ¬ Fails c vs cl := by
+    (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs) (hreq : cl.req = none)
+    (hpre : cl.pre = .top) : ¬ Fails c vs cl := by
   intro h
   cases h with
   | intro h =>
     cases h σ hσ hm with
     | intro ht _ _ => rw [hreq] at ht; cases ht
+    | pre h => rw [hpre] at h; exact absurd (Holds.top_eq h) (by simp)
 
 /-- No σ is well sorted on the variables of a clause that has one of a sort without a value. -/
 theorem not_wellSorted {c : Semantics} {cl : Clause} {i : Nat} {s : Srt} (hi : cl.vars[i]? = some s)
@@ -298,19 +300,19 @@ theorem not_wellSorted {c : Semantics} {cl : Clause} {i : Nat} {s : Srt} (hi : c
   exact hno v hv
 
 /-- **C1.** A clause that is not `aside`, of a smaller priority than its function's other clauses,
-without a `requires`, with a variable of a sort without a value, matched at `vs` by a σ well sorted
+without a `requires`, of the precondition `.top`, with a variable of a sort without a value, matched at `vs` by a σ well sorted
 on its patterns and conditions: `Eval` has no result at `vs`. -/
 theorem no_result {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
     {i : Nat} {s : Srt}
     (hfn : c.lookupFn f = some fn) (hcl : cl ∈ fn.clauses) (hna : cl.aside = false)
     (hlow : ∀ cl' ∈ fn.clauses, cl' ≠ cl → cl.prio < cl'.prio)
     (hi : cl.vars[i]? = some s) (hno : ∀ v, c.sortOf v ≠ some s)
-    (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs) (hreq : cl.req = none) :
-    ¬ ∃ r, Eval c f vs r := by
-  have hnf := not_fails hσ hm hreq
+    (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs) (hreq : cl.req = none)
+    (hpre : cl.pre = .top) : ¬ ∃ r, Eval c f vs r := by
+  have hnf := not_fails hσ hm hreq hpre
   rintro ⟨r, h⟩
   cases h with
-  | @clause _ fn' _ cl' σ' _ hfn' hmem hσ' hmatch hreq' hprio hrhs hens =>
+  | @clause _ fn' _ cl' σ' _ hfn' hmem hσ' hmatch hreq' _ hprio hrhs hens =>
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     by_cases hc : cl' = cl
@@ -320,7 +322,7 @@ theorem no_result {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     exact hnf (hnone cl hcl)
-  | @ensFails _ fn' _ cl' σ' t w hfn' hmem hσ' hmatch hreq' hprio ht he hw =>
+  | @ensFails _ fn' _ cl' σ' t w hfn' hmem hσ' hmatch hreq' _ hprio ht he hw =>
     have hE : fn' = fn := Option.some.inj (hfn'.symm.trans hfn)
     subst hE
     by_cases hc : cl' = cl
@@ -333,7 +335,7 @@ theorem hfnE : c.lookupFn fEL = some fE := rfl
 theorem fE_none : ¬ ∃ r, Eval c fEL [] r :=
   no_result (σ := []) (i := 0) hfnE (List.Mem.head _) rfl
     (fun cl' h hne => by simp only [fE, List.mem_singleton] at h; exact absurd h hne)
-    rfl no_E (fun i hi => by rw [right_only.2.2.1] at hi; cases hi) .nil rfl
+    rfl no_E (fun i hi => by rw [right_only.2.2.1] at hi; cases hi) .nil rfl rfl
 
 /-! ## `clE` beside `fEA() = a` at one priority: `Eval` gives `a`, and `FnHyp` holds -/
 
@@ -369,14 +371,14 @@ theorem peer_decides {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} 
     (hfn : c.lookupFn f = some fn) (hmem : cl' ∈ fn.clauses) (ha : cl'.AppliesAt c σ vs)
     (hprio : ∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'')
     (hens : cl'.ens = none) (hrhs : EvalTerm c σ cl'.rhs r) : Eval c f vs r :=
-  Eval.clause hfn hmem ha.1 ha.2.1 ha.2.2 hprio hrhs (fun t ht => by rw [hens] at ht; cases ht)
+  Eval.clause hfn hmem ha.1 ha.2.1 ha.2.2.1 ha.2.2.2 hprio hrhs (fun t ht => by rw [hens] at ht; cases ht)
 
 theorem eval_aTerm : EvalTerm cEA [] clA.rhs (some (.ctor aL [])) :=
   EvalTerm.ctor (rs := []) (by decide +kernel) .nil
 
 /-- **`fEA()` is `a`**: `clA` decides, no clause being of a smaller priority. -/
 theorem fEA_a : Eval cEA fEAL [] (some (.ctor aL [])) :=
-  peer_decides hfnEA (List.Mem.tail _ (List.Mem.head _)) ⟨ws_nil, .nil, fun t h => by cases h⟩
+  peer_decides hfnEA (List.Mem.tail _ (List.Mem.head _)) ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
     (fun cl' h _ hlt => by
       simp only [fEA, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl <;> simp [clE, clA] at hlt)
@@ -442,7 +444,7 @@ theorem ws_u : c.WellSorted clU.vars σu := fun i s hs => by
 
 /-- **`fU()` is `h(u)`.** -/
 theorem fU_hu : Eval c fUL [] (some (.ctor hL [.ctor uL []])) :=
-  peer_decides (σ := σu) hfnU (List.Mem.head _) ⟨ws_u, .nil, fun t h => by cases h⟩
+  peer_decides (σ := σu) hfnU (List.Mem.head _) ⟨ws_u, .nil, (fun t h => by cases h), .top⟩
     (fun cl' h _ hlt => by simp only [fU, List.mem_singleton] at h; subst h; simp at hlt)
     rfl (EvalTerm.ctor (rs := [some (.ctor uL [])]) (by decide +kernel) (.cons .var .nil))
 
@@ -509,7 +511,7 @@ theorem eval_k (n : Int) :
 and `k(1)`. -/
 theorem not_matchIndependent_I : ¬ MatchIndependent c clI := fun h => by
   have ha : ∀ n : Int, clI.AppliesAt c [(0, .dv Srt.int (.int n))] [] :=
-    fun n => ⟨ws_int n, .nil, fun t h => by cases h⟩
+    fun n => ⟨ws_int n, .nil, (fun t h => by cases h), .top⟩
   have hdec : ∀ n : Int, clI.Decides c fI [(0, .dv Srt.int (.int n))] [] := fun n =>
     ⟨ha n, fun cl' h _ hlt => by simp only [fI, List.mem_singleton] at h; subst h; simp at hlt⟩
   rcases h [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ => hdet_k σ0) (fun t h => by cases h)

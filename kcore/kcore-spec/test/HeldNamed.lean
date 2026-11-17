@@ -103,7 +103,7 @@ theorem heldS : ∀ f ∈ cS.heldObligations, HeldOwed cS f := by
 
 /-- `clS` applies under no substitution: its `requires` is `false`. -/
 theorem clS_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clS.AppliesAt cS σ vs := fun h => by
-  have := h.2.2 _ rfl
+  have := h.2.2.1 _ rfl
   cases this
 
 /-- `f`'s equations agree: `clS` applies nowhere. -/

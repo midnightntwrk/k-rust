@@ -536,9 +536,9 @@ theorem EvalTerm.call_iff {f : Sym} {ts : List Term} {r : Option GroundTerm}
 /-! ## Introduction forms -/
 
 /-- The `i`-th clause of `f` gives `f`'s result at `vs`: its patterns denote `vs` under a
-well-sorted σ, its `requires` evaluates to `true`, the clauses of a smaller priority fail, its
-right-hand side has the result `r` under σ, and its `ensures` evaluates to `true` (by default
-shown for a clause without one). -/
+well-sorted σ, its `requires` evaluates to `true`, its predicate is true (by default shown for
+the predicate `\top`), the clauses of a smaller priority fail, its right-hand side has the result
+`r` under σ, and its `ensures` evaluates to `true` (by default shown for a clause without one). -/
 theorem Eval.of_clause {f : Sym} {fn : Fn} {i : Nat} {cl : Clause} {vs : List GroundTerm}
     {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hi : fn.clauses[i]? = some cl)
@@ -547,8 +547,9 @@ theorem Eval.of_clause {f : Sym} {fn : Fn} {i : Nat} {cl : Clause} {vs : List Gr
     (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
     (hrhs : EvalTerm c σ cl.rhs r)
     (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
-      exact fun _ h => nomatch h) : Eval c f vs r :=
-  .clause hfn (List.mem_of_getElem? hi) hσ hmatch hreq (fun cl' h _ hlt => hpre cl' h hlt) hrhs hens
+      exact fun _ h => nomatch h)
+    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top) : Eval c f vs r :=
+  .clause hfn (List.mem_of_getElem? hi) hσ hmatch hreq hholds (fun cl' h _ hlt => hpre cl' h hlt) hrhs hens
 
 /-- `Eval.of_clause` with the clause as a package's data lemma states it,
 `(c.lookupFn f).bind (·.clauses[i]?) = some cl`; the clauses of a smaller priority are read the
@@ -562,16 +563,17 @@ theorem Eval.of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List GroundT
     (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
     (hrhs : EvalTerm c σ cl.rhs r)
     (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
-      exact fun _ h => nomatch h) : Eval c f vs r := by
+      exact fun _ h => nomatch h)
+    (hholds : Holds c cl.vars.length σ cl.pre true := by exact .top) : Eval c f vs r := by
   cases hfn : c.lookupFn f with
   | none => rw [hfn] at hcl; cases hcl
   | some fn =>
     rw [hfn] at hcl hpre
-    refine Eval.of_clause hfn hcl (fun cl' hm hlt => ?_) hσ hmatch hreq hrhs hens
+    refine Eval.of_clause hfn hcl (fun cl' hm hlt => ?_) hσ hmatch hreq hrhs hens hholds
     obtain ⟨j, hj, hjc⟩ := List.getElem_of_mem hm
     exact hpre j cl' (by rw [Option.bind_some, List.getElem?_eq_getElem hj, hjc]) hlt
 
-/-- A clause without a `requires` or an `ensures` that matches, every other clause of a priority at
+/-- A clause without a `requires`, a predicate or an `ensures` that matches, every other clause of a priority at
 most its own matching under no well-sorted σ, the clause not `aside` (so every clause of a larger
 priority reads it), gives `f`'s only result: every result of `f` at `vs`
 is its right-hand side's under some σ that matches. (Without functionality of `EvalTerm`, a `requires`
@@ -583,14 +585,16 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
     (hpre : ∀ j, j ≠ i → ∀ cl', (c.lookupFn f).bind (·.clauses[j]?) = some cl' → cl'.prio ≤ cl.prio →
       ∀ σ', c.WellSorted cl'.vars σ' → ¬ PatVals c σ' cl'.pats vs)
     (hnoreq : cl.req = none) (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (h : Eval c f vs r) (hnoens : cl.ens = none := by rfl) (hna : cl.aside = false := by rfl) :
+    (h : Eval c f vs r) (hnoens : cl.ens = none := by rfl) (hna : cl.aside = false := by rfl)
+    (hnopre : cl.pre = .top := by rfl) :
     ∃ σ', c.WellSorted cl.vars σ' ∧ PatVals c σ' cl.pats vs ∧ EvalTerm c σ' cl.rhs r := by
   -- the clause applies at `vs`, so it does not fail there
   have hnf : ¬ Fails c vs cl := fun ⟨hf⟩ => by
-    obtain ⟨ht, _, _⟩ := hf σ (hσ.at _) hmatch
-    rw [hnoreq] at ht; cases ht
+    cases hf σ (hσ.at _) hmatch with
+    | intro ht _ _ => rw [hnoreq] at ht; cases ht
+    | pre hp => rw [hnopre] at hp; exact absurd hp.top_eq (by simp)
   cases h with
-  | @clause _ fn _ cl' σ' _ hfn hmem hσ' hmatch' _ hprio' hrhs _ =>
+  | @clause _ fn _ cl' σ' _ hfn hmem hσ' hmatch' _ _ hprio' hrhs _ =>
     rw [hfn] at hcl hpre
     simp only [Option.bind_some] at hcl hpre
     by_cases he : cl' = cl
@@ -606,7 +610,7 @@ theorem Eval.inv_of_clause_bind {f : Sym} {i : Nat} {cl : Clause} {vs : List Gro
   | rest hfn hnone =>
     rw [hfn] at hcl
     exact absurd (hnone cl (List.mem_of_getElem? hcl)) hnf
-  | @ensFails _ fn _ cl' σ' _ _ hfn hmem hσ' hmatch' _ hprio' ht _ _ =>
+  | @ensFails _ fn _ cl' σ' _ _ hfn hmem hσ' hmatch' _ _ hprio' ht _ _ =>
     rw [hfn] at hcl hpre
     simp only [Option.bind_some] at hcl hpre
     by_cases he : cl' = cl

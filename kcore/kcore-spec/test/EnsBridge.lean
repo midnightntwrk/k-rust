@@ -608,6 +608,16 @@ theorem patVals_rules_back {ps : List Term} {vs : List GroundTerm} (h : PatVals 
     PatVals c σ ps vs :=
   patVals_rules (c := withRules c rs) c.rules h
 
+theorem patVal_rules_back {p : Term} {v : GroundTerm} (h : PatVal (withRules c rs) σ p v) :
+    PatVal c σ p v :=
+  patVal_rules (c := withRules c rs) c.rules h
+
+omit σ in
+/-- The extensions of a substitution with the rules `rs` are those of `c`. -/
+theorem extends_rules {n : Nat} {ys : List Srt} {σ σ' : Subst} :
+    Extends (withRules c rs) n ys σ σ' ↔ Extends c n ys σ σ' := by
+  unfold Extends; rw [sortOf_withRules]
+
 theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r) :
     EvalTerm (withRules c rs) σ t r :=
   EvalTerm.rec (c := c) (motive_1 := fun f vs r _ => Eval (withRules c rs) f vs r)
@@ -615,16 +625,17 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (motive_3 := fun σ cl _ => ReqFails (withRules c rs) σ cl)
     (motive_4 := fun σ t r _ => EvalTerm (withRules c rs) σ t r)
     (motive_5 := fun σ ts rs' _ => EvalTerms (withRules c rs) σ ts rs')
-    (motive_6 := fun _ _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch _ _ _ _ ihreq ihprio ihrhs ihens =>
-      .clause hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihprio ihrhs ihens)
+    (motive_6 := fun n σ p b _ => Holds (withRules c rs) n σ p b)
+    (fun hfn hmem hσ hmatch _ _ _ _ _ ihreq ihpre ihprio ihrhs ihens =>
+      .clause hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio ihrhs ihens)
     (fun hfn _ ihnone => by
       have := Eval.rest (c := withRules c rs) hfn ihnone
       rwa [fnRest_withRules] at this)
-    (fun hfn hmem hσ hmatch _ _ ht _ hw ihreq ihprio ihe =>
-      .ensFails hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihprio ht ihe hw)
+    (fun hfn hmem hσ hmatch _ _ _ ht _ hw ihreq ihpre ihprio ihe =>
+      .ensFails hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio ht ihe hw)
     (fun _ ih => .intro fun σ hσ hp => ih σ (by unfold Semantics.WellSortedAt at hσ ⊢; rwa [sortOf_withRules] at hσ) (patVals_rules_back rs hp))
     (fun ht _ hr ihe => .intro ht ihe hr)
+    (fun _ ih => .pre ih)
     .var .dv (fun _ ih => .inj ih) (fun hk _ ih => .ctor hk ih)
     (fun hk hhk _ hh hund ih => .hook hk hhk ih (by rw [hookRes_withRules]; exact hh) hund)
     (fun hk hhk hp _ hr ih => .param hk hhk hp ih (by rw [paramVal_withRules]; exact hr))
@@ -634,19 +645,21 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
       have := EvalTerm.ovl (c := withRules c rs) hk ho ih
       rwa [norm_withRules] at this)
     .nil (fun _ _ ih1 ih2 => .cons ih1 ih2)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
-    (by intros; trivial)
+    .top .bot (fun _ ih => .not ih) (fun _ _ ih ih' => .and ih ih') (fun _ _ ih ih' => .or ih ih')
+    (fun _ _ ih ih' => .implies ih ih') (fun _ ih => .ceil ih) (fun _ _ ih ih' => .equals ih ih')
+    (fun _ _ ih ih' => .mem ih ih') (fun _ ih => .exNone ih)
+    (fun g _ _ hr ih ihb =>
+      .exSome g ih (fun σ' he hp => ihb σ' ((extends_rules rs).mp he) (patVal_rules_back rs hp))
+        (hr.trans ⟨fun ⟨σ', he, hp, hg⟩ => ⟨σ', (extends_rules rs).mpr he, patVal_rules rs hp, hg⟩,
+          fun ⟨σ', he, hp, hg⟩ => ⟨σ', (extends_rules rs).mp he, patVal_rules_back rs hp, hg⟩⟩))
+    (fun g _ hr ihb =>
+      .ex g (fun σ' he => ihb σ' ((extends_rules rs).mp he))
+        (hr.trans ⟨fun ⟨σ', he, hg⟩ => ⟨σ', (extends_rules rs).mpr he, hg⟩,
+          fun ⟨σ', he, hg⟩ => ⟨σ', (extends_rules rs).mp he, hg⟩⟩))
+    (fun g _ hr ihb =>
+      .all g (fun σ' he => ihb σ' ((extends_rules rs).mp he))
+        (hr.trans ⟨fun H σ' he => H σ' ((extends_rules rs).mp he),
+          fun H σ' he => H σ' ((extends_rules rs).mpr he)⟩))
     h
 
 theorem evalTerm_rules_back {t : Term} {r : Option GroundTerm} (h : EvalTerm (withRules c rs) σ t r) :
@@ -1037,7 +1050,7 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
     EvalTerm.rec (motive_1 := fun f vs _ _ => f ≠ F ∨ vs ≠ [int 0]) (motive_2 := fun _ _ _ => True)
       (motive_3 := fun _ _ _ => True) (motive_4 := fun _ t _ _ => t ≠ fApp) (motive_5 := fun _ _ _ _ => True)
       (motive_6 := fun _ _ _ _ _ => True)
-      (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ _ _ _ ihrhs _ => by
+      (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ _ _ _ _ _ ihrhs _ => by
         refine Or.inl fun hf => ?_
         subst hf
         rw [hfn] at hfn'; cases hfn'
@@ -1053,20 +1066,21 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
         subst hf hv
         rw [hfn] at hfn'; cases hfn'
         obtain ⟨hf⟩ := hnone _ (List.mem_singleton.mpr rfl)
-        obtain ⟨ht, -, -⟩ := hf [(0, int 0)]
+        cases hf [(0, int 0)]
           (fun i _ s h => by
             match i, h with
             | 0, h => cases h; exact ⟨_, rfl, by decide +kernel⟩)
-          (.cons (.var rfl) .nil)
-        cases ht)
-      (fun {f fn vs cl _ _ _} hfn' hmem _ _ _ _ ht _ _ _ _ _ => by
+          (.cons (.var rfl) .nil) with
+        | intro ht _ _ => cases ht
+        | pre hp => exact absurd (Holds.top_eq hp) (by simp))
+      (fun {f fn vs cl _ _ _} hfn' hmem _ _ _ _ _ ht _ _ _ _ _ _ => by
         refine Or.inl fun hf => ?_
         subst hf
         rw [hfn] at hfn'; cases hfn'
         simp only [fnF, List.mem_singleton] at hmem
         subst hmem
         cases ht)
-      (fun _ _ => trivial) (fun _ _ _ _ => trivial)
+      (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
       (fun h => by simp [fApp] at h) (fun h => by simp [fApp] at h) (fun _ _ h => by simp [fApp] at h)
       (fun {_ f _ _} hk' _ _ h => by
         simp only [fApp, Term.app.injEq] at h; rw [h.1, hk] at hk'; cases hk')

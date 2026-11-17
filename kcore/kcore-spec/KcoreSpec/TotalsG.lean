@@ -655,20 +655,20 @@ held variables are read of the function evaluated alone, where no clause applies
 theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c f vs r) :
     TotM1N c tp f vs r :=
   Eval.rec (motive_1 := fun f vs r _ => TotM1N c tp f vs r)
-    (motive_2 := fun vs cl _ => ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
+    (motive_2 := fun vs cl _ => cl.pre = .top → ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
       TotReq c c.totalLabels tp σ cl)
-    (motive_3 := fun σ cl _ => c.WellSorted cl.vars σ → TotReq c c.totalLabels tp σ cl)
+    (motive_3 := fun σ cl _ => cl.pre = .top → c.WellSorted cl.vars σ → TotReq c c.totalLabels tp σ cl)
     (motive_4 := fun σ t r _ => TotM4 c c.totalLabels tp σ t r)
     (motive_5 := fun σ ts rs _ => TotM5 c c.totalLabels tp σ ts rs)
     (motive_6 := fun _ _ _ _ _ => True)
     -- a clause decides
-    (fun {f fn₀ vs cl σ r} hfn hmem hσ hmatch hreq hprio hrhs hens _ _ ihrhs _ => by
+    (fun {f fn₀ vs cl σ r} hfn hmem hσ hmatch hreq hpre hprio hrhs hens _ _ _ ihrhs _ => by
       intro fn hlook hT hvs
       have e : fn = fn₀ := Option.some.inj (hlook.symm.trans hfn)
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact ⟨v, Eval.functional hco (Eval.clause hfn hmem hσ hmatch hreq hprio hrhs hens) hv⟩
+        exact ⟨v, Eval.functional hco (Eval.clause hfn hmem hσ hmatch hreq hpre hprio hrhs hens) hv⟩
       · obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn (List.mem_append_left _ hfn')
         simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         refine ihrhs L hL cl.vars hσ _ (hrs cl hmem) (reqLits cl.req) (fun l hl => ?_) (hokG.1.2 cl hmem)
@@ -690,6 +690,8 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
         replace hokG := hokG.1
         have hcls : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args := fun cl hcl =>
           clauseSorted_of_sortedOK hok hfn' hcl
+        have htops : ∀ cl ∈ fn.clauses, cl.pre = .top :=
+          Semantics.sortedOK_preTop hok fn (List.mem_append_left _ hfn')
         have htyped : ∀ r ∈ c.coverRowsG (c.fns.map Fn.sig) c.totalLabels tp fn,
             ∃ vars, RowTyped c vars fn.args r := by
           intro r hr
@@ -705,7 +707,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
           have hσL : c.WellSortedAt cl.vars cl.leftVars σ := fun i hi =>
             hσ i (by simpa [Clause.leftVars, hcv] using hi)
           obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld (hb cl hcl) hσL
-          obtain ⟨t, ht, _⟩ := ihnone cl hcl σ' hws
+          obtain ⟨t, ht, _⟩ := ihnone cl hcl (htops cl hcl) σ' hws
             (PatVals.congr_varsRH hpv fun j hj => hag j (List.mem_append_left _ hj))
           rw [hreq] at ht; cases ht
         · obtain ⟨hcl, hcl'⟩ := mem_pairs hp
@@ -713,8 +715,8 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
           obtain ⟨⟨⟨⟨⟨hvv, hpp⟩, hnd⟩, hbd⟩, hnc⟩, hq⟩ := hg
           have hpp := Term.beqList_sound hpp
           obtain ⟨σ, hσ, hpv⟩ := matches_of_row (hcls cl hcl) hbd (nodup_of_eq_true hnd) hvs hm
-          obtain ⟨t, ht, hft⟩ := ihnone cl hcl σ hσ hpv
-          obtain ⟨t', ht', hft'⟩ := ihnone cl' hcl' σ (hvv ▸ hσ) (hpp ▸ hpv)
+          obtain ⟨t, ht, hft⟩ := ihnone cl hcl (htops cl hcl) σ hσ hpv
+          obtain ⟨t', ht', hft'⟩ := ihnone cl' hcl' (htops cl' hcl') σ (hvv ▸ hσ) (hpp ▸ hpv)
           rw [ht, ht'] at hq
           simp only [Bool.and_eq_true] at hq
           obtain ⟨⟨hg1, hg2⟩, hex⟩ := hq
@@ -730,22 +732,22 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
               cases hu; exact (EvalTerm.functional_hdet hco e1).2)
             (fun u hu => by cases hu; exact e1) (fun u hu => by cases hu; exact e2))
     -- a clause decides and its `ensures` is not `true`: no function `totalOKG` accepts has one
-    (fun {f fn₀ vs cl σ t w} hfn hmem hσ hmatch hreq hprio ht he hw _ _ _ => by
+    (fun {f fn₀ vs cl σ t w} hfn hmem hσ hmatch hreq hpre hprio ht he hw _ _ _ _ => by
       intro fn hlook hT hvs
       have e : fn = fn₀ := Option.some.inj (hlook.symm.trans hfn)
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact absurd (Eval.functional hco (Eval.ensFails hfn hmem hσ hmatch hreq hprio ht he hw) hv) (by simp)
+        exact absurd (Eval.functional hco (Eval.ensFails hfn hmem hσ hmatch hreq hpre hprio ht he hw) hv) (by simp)
       · simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         have := hokG.2 cl hmem
         rw [ht] at this
         cases this)
     -- `Fails`
-    (fun _ ih => fun σ hσ hm => ih σ (hσ.at _) hm hσ)
+    (fun _ ih => fun htop σ hσ hm => ih σ (hσ.at _) hm htop hσ)
     -- `ReqFails`
     (fun {σ cl t r} ht he hr ihe => by
-      intro hσ
+      intro _ hσ
       refine ⟨t, ht, fun L hL hsort htt => ?_⟩
       obtain ⟨v, rfl⟩ := ihe L hL cl.vars hσ _ hsort [] (by simp) htt
       have hsv := EvalTerm.sorted hc.sort he hL hσ hsort rfl
@@ -753,6 +755,11 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       cases b
       · exact he
       · exact absurd rfl hr)
+    -- `ReqFails` by the predicate: none is false, the predicate being `\top`
+    (fun {σ cl} h _ => by
+      intro htop
+      rw [htop] at h
+      exact absurd h.top_eq (by simp))
     -- variables
     (fun {σ i} => by
       intro L hL vars hσ s ht _ _ _
