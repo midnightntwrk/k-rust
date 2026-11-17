@@ -8,8 +8,8 @@
   their variables only, with one order of occurrence, so under their own tables (`tableOf`) they
   translate to one KoreAML pattern: the tie of a sentence whose rule holds a binder is this
   equation, on patterns that hold no names. No print-back check (the emitted text against the
-  text's, `KoreAML.Reordered`) is stated for such a sentence: `Emit.rulePattern` writes neither
-  predicate of a rule, and the binder's emitted name is not the text's.
+  text's, `KoreAML.Reordered`) is stated for such a sentence: `Emit.rulePattern` writes a rule's
+  predicates with `Cond.kore`, whose binder's name is not the text's.
 
   - `pre`: over four variables, `∃ y:Exp. y ∈ b ∧ ¬ (y ∈ G)`, G the fourth variable.
   - `text`: the predicate as a text spells it, the binder `VarY`, the free variable `VarG`.
