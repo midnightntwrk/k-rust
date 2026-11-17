@@ -49,8 +49,8 @@ evidence = "test/WitRestFaithA.lean, test/OvlIteName.lean"
 [[conjunct]]
 key = "faithCoreOK.2"
 text = "KCore.Faithful.genWf c"
-witness = "none: OPEN, a no-model candidate found, argued, not kernel-checked: a library constructor #KConfigValue : → Int (Int a library sort with a generator, so a constructor sort) meets every other leaf of coreOK and FnHyp with genWf false (kernel-checked, LibInt), and Γ then has a no-junk item for Int (kernel-checked), which with the function item makes Int one element while the literals 0 and 1 are distinct elements of Int: no model (argued); its witness module, a library addition, is owed; also not implied by the others through its first part (a constructor k : → Int, CtorInt), where Γ has a model (argued: consItemsK states items per constructor sort only, so of k() Γ states its arity alone, met by the value model of the semantics without k, coreOK kernel-checked, with k() read as nothing); not examined: a subsort into a collection sort, a raw parameter of a sort that is no constructor sort"
-evidence = "test/WitRestFaithA.lean"
+witness = "KcoreSpec.ModelLibIntWitness"
+note = "a library constructor #KConfigValue : → Int makes Int a constructor sort (genWf's third part); the module shows every other conjunct of coreOK and FnHyp, and no model; genWf's first part alone (a constructor k : → Int, test/WitRestFaithA.lean CtorInt) leaves Γ a model (argued)"
 
 [[conjunct]]
 key = "faithCoreOK.3"

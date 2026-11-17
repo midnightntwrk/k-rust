@@ -18,11 +18,8 @@
   - `collSortsOK`: `CollInt.c` has a list collection of the sort Int, its unit, element and
     concatenation parameters implemented by the library list's.
 
-  A NO-MODEL CANDIDATE, argued, not kernel-checked: `Γ` of `LibInt.c` has no model. The no-junk
-  item for Int says every element of Int is `#KConfigValue()`, which the function item makes one
-  element; the literals 0 and 1 lie in Int (`dvArityAll`) and are distinct elements (Int is in
-  `distinctSorts`). A witness module (`KcoreSpec/Model*Witness.lean`, collected by
-  test/Witnesses.lean) would be a library addition, outside this ticket's edits: it is owed.
+  `Γ` of `LibInt.c` has no model: kernel-checked in KcoreSpec/ModelLibIntWitness.lean (the same
+  semantics), the witness module of the row faithCoreOK.2.
 
   Argued, not kernel-checked: `Γ` of each other semantics has a model.
   - `CtorIte.c`, `FnIte.c`: as for `overloadsOK`'s conjunct on overloading symbols
