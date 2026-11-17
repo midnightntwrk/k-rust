@@ -1,0 +1,20 @@
+command: kompile --backend haskell c3-unbound-rhs-nokey.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.9
+output:
+  [Error] Compiler: Found variable X on right hand side of rule, not bound on
+  left hand side. Did you mean "?X"?
+  	Source(FIXTURE/c3-unbound-rhs-nokey.k)
+  	Location(4,21,4,22)
+  	4 |	  rule <k> a() => b(X) ... </k>
+  	  .	                    ^
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/c3-unbound-rhs-nokey.k)
+  	Location(4,21,4,22)
+  	4 |	  rule <k> a() => b(X) ... </k>
+  	  .	                    ^
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-UNBOUND-RHS-NOKEY-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-UNBOUND-RHS-NOKEY as default.

@@ -1,10 +1,11 @@
 command: kompile --backend haskell e2-open-genless.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.2
+seconds: 2.5
 definition.kore bytes: 138167
 definition.kore sha256: 22f6b6b2e9b819031fe53445c75b230693a729d23e0c04536aa0eff97aaa21d7
 stripped sha256: 781b25bdf7fd3dbbf47e5d9f650d91767bce3d0ec359fa911f6b9e9327e54b6c
 main module: 327 sentences, 59 not in base's, in kore.txt
+differs_from c3-unbound-req-nokey: different after stripping
 output:
   [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
   with underscore if this is intentional.

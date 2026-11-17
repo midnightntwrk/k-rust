@@ -1,0 +1,2 @@
+# the text of e2-unbound without [unboundVariables(X)]: X on the right side only, no key (C3.nc-unbound; findings/C3-noncore-rulings.md section 5). Predicted rejected by kompile
+expect = "error"

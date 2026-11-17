@@ -1,0 +1,17 @@
+command: kompile --backend haskell c3-unbound-req-nokey.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 138236
+definition.kore sha256: a07a87e7d73a218af3d28e22b3534b763f7a8bff9442db4d959c14bb9980f2f7
+stripped sha256: 6172847b0e324dbbe60b0e4780431e838ead3b72fe7e0b3b8c541fa17adfdcdf
+main module: 327 sentences, 59 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/c3-unbound-req-nokey.k)
+  	Location(9,46,9,47)
+  	9 |	  rule <k> a() => b() ... </k> requires isMk(X:S)
+  	  .	                                             ^
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-UNBOUND-REQ-NOKEY-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-UNBOUND-REQ-NOKEY as default.

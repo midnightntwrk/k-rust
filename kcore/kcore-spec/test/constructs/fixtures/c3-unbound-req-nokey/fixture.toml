@@ -1,0 +1,1 @@
+# the text of e2-open-genless without [unboundVariables(X)] on its first rule: X in the requires only, no key (C3.nc-unbound; findings/C3-noncore-rulings.md section 5). Predicted rejected by kompile; observed: kompile exit 0 (a warning that X is defined but not used), so this text is the companion of e2-open-genless (its fixture.toml: differs_from c3-unbound-req-nokey)
