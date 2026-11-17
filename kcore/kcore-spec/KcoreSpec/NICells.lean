@@ -811,7 +811,7 @@ theorem cellsCond_sound_on {H : HPaths} (Inv : Config c → Prop) :
   simp only [cellsCond, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true',
     decide_eq_false_iff_not, Nat.not_lt] at hc
   obtain ⟨⟨⟨hap, hrhs⟩, hens⟩, hlow⟩ := hc
-  obtain ⟨σ, hσ, hm, hreq, hev, hen, hprio⟩ := hb
+  obtain ⟨σ, hσ, hm, hreq, -, hev, hen, -, hprio⟩ := hb
   obtain ⟨hσ₂, hm₂, hrq, hsr⟩ := match_other hap hσ hm hR
   have hoff := match_other_off hap hm hR
   obtain ⟨r₂, hev₂, hrel⟩ := rhs_transfer hsr H r.rhs hrhs hev
@@ -820,8 +820,8 @@ theorem cellsCond_sound_on {H : HPaths} (Inv : Config c → Prop) :
   · cases h1
     have hs₂ : c.sortOf y₂ = some topCellSort := by
       rw [← hy.sortOf_eq (appOK_parts hap).2.2.2.2.1 (appOK_parts hap).2.2.2.2.2]; exact y₁.property
-    refine Or.inr ⟨⟨y₂, hs₂⟩, step_of_stepBy mem (appOK_plain hap).1 (appOK_plain hap).2.1 ⟨_, hσ₂, hm₂, fun t ht => ?_, hev₂, fun t ht => ?_,
-      fun r' hr' hlt => ?_⟩, hy⟩
+    refine Or.inr ⟨⟨y₂, hs₂⟩, step_of_stepBy mem (appOK_plain hap).1 (appOK_plain hap).2.1 ⟨_, hσ₂, hm₂, fun t ht => ?_,
+      (appOK_plain hap).1 ▸ .top, hev₂, fun t ht => ?_, (appOK_plain hap).2.1 ▸ .top, fun r' hr' hlt => ?_⟩, hy⟩
     · exact EvalTerm.congr (hreq t ht) fun j hj => (hrq t ht j hj).symm
     · unfold ensOK at hens
       rw [ht] at hens

@@ -279,6 +279,11 @@ theorem step_of_stepBy {r : Rule} (mem : r ∈ c.rules) (hpre : r.pre = .top) (h
     {x y : Config c} (h : StepBy c r x.val y.val) : Step c x y :=
   Det.step_of_stepBy mem hpre hpost h
 
+/-- A step by a rule of the definition is a step (`StepBy` carries `pre` and `post`). -/
+theorem step_of_stepBy_pp {r : Rule} (mem : r ∈ c.rules) {x y : Config c} (h : StepBy c r x.val y.val) :
+    Step c x y :=
+  Det.step_of_stepBy_pp mem h
+
 /-- The unwinding condition from the rules': one per rule. -/
 theorem unwinds_of_rules {R : Config c → Config c → Prop} (h : ∀ r ∈ c.rules, RuleUnwinds c R r) :
     Unwinds c R := by

@@ -1445,20 +1445,33 @@ The decider (`detCond`): at (i, i), the rule's match fixes its right-hand side (
 fixes the right-hand side (`pairCond`). An index it does not confirm is an obligation: an overlap
 (i, j), or a rule (i, i) whose match is not shown to fix its right-hand side. -/
 
-/-- Rule r rewrites x to y: `Step`'s premises for that rule. -/
+/-- Rule r rewrites x to y: `Step`'s premises for that rule, its premise predicate `pre` and its
+right-side predicate `post` holding among them, in `Step.rule`'s order. -/
 def StepBy (c : Semantics) (r : Rule) (x y : GroundTerm) : Prop :=
   ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x ∧ (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧
-    EvalTerm c σ r.rhs (some y) ∧ (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+    Holds c r.vars.length σ r.pre true ∧ EvalTerm c σ r.rhs (some y) ∧
+    (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.post true ∧
     ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x
 
 theorem stepBy_of_step {x y : Config c} (h : Step c x y) : ∃ r ∈ c.rules, StepBy c r x.val y.val := by
   cases h with
-  | rule r mem σ hσ hm hreq _ he hens _ hp => exact ⟨r, mem, σ, hσ, hm, hreq, he, hens, hp⟩
+  | rule r mem σ hσ hm hreq hpr he hens hpo hp => exact ⟨r, mem, σ, hσ, hm, hreq, hpr, he, hens, hpo, hp⟩
 
+/-- A step by a rule of the definition is a step; `pre` and `post` are read from `StepBy`. -/
+theorem step_of_stepBy_pp {r : Rule} (mem : r ∈ c.rules) {x y : Config c} (h : StepBy c r x.val y.val) :
+    Step c x y := by
+  obtain ⟨σ, hσ, hm, hreq, hpr, he, hens, hpo, hp⟩ := h
+  exact .rule r mem σ hσ hm hreq hpr he hens hpo hp
+
+/-- `step_of_stepBy_pp` at a rule whose predicates are `\top` (the hypotheses on them are no longer
+read). -/
 theorem step_of_stepBy {r : Rule} (mem : r ∈ c.rules) (hpre : r.pre = .top) (hpost : r.post = .top)
-    {x y : Config c} (h : StepBy c r x.val y.val) : Step c x y := by
-  obtain ⟨σ, hσ, hm, hreq, he, hens, hp⟩ := h
-  exact Step.rule_top r mem σ hpre hpost hσ hm hreq he hens hp
+    {x y : Config c} (h : StepBy c r x.val y.val) : Step c x y :=
+  step_of_stepBy_pp mem h
+
+/-- **`Step` is a step by one of the definition's rules.** -/
+theorem step_iff_stepBy {x y : Config c} : Step c x y ↔ ∃ r ∈ c.rules, StepBy c r x.val y.val :=
+  ⟨stepBy_of_step, fun ⟨_, mem, h⟩ => step_of_stepBy_pp mem h⟩
 
 theorem StepBy.applies {r : Rule} {x y : GroundTerm} (h : StepBy c r x y) : Applies c r x :=
   let ⟨σ, hσ, hm, hq, _⟩ := h; ⟨σ, hσ, hm, hq⟩
@@ -1583,8 +1596,8 @@ theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matc
   intro r r' hr hr' x y y' _ hb hb'
   have hmem := List.mem_of_getElem? hr
   have hmem' := List.mem_of_getElem? hr'
-  obtain ⟨σ, hσ, hm, hq, he, -, hp⟩ := hb
-  obtain ⟨σ', hσ', hm', hq', he', -, hp'⟩ := hb'
+  obtain ⟨σ, hσ, hm, hq, -, he, -, -, hp⟩ := hb
+  obtain ⟨σ', hσ', hm', hq', -, he', -, -, hp'⟩ := hb'
   unfold detCond at h
   rw [hr, hr'] at h
   simp only at h
