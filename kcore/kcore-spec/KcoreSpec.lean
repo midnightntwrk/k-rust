@@ -294,6 +294,7 @@ import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
+import KcoreSpec.GenEqsModel
 import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
