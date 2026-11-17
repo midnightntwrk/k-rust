@@ -434,6 +434,20 @@ shows, and, for each catch-all (`CATCHALL`: a reason given by an arm that takes 
 arms of its function did not match), the entries citing it with their fixture and reason sentence:
 the list DONE-0 C4 asks the gate to read.
 
+`KcoreSpec/ParseAttr.lean` is DONE-0 C4 part 2's enumeration: `Parse.AttrKeyE2`, one constructor per
+attribute name of E2's rows of a class other than `frontend` (the keys a KORE sentence may carry),
+found from kompile's spelling by `AttrKeyE2.ofName?`, and `Parse.attrVerdict`, a match over every
+class (`AttrClassE2`) and key with no default arm: read, inert with why, or refused with why and a
+reason (`AttrRefusalE2`, whose `RefusalReason` is `AttrRefusalE2.reason` in Parse.lean), as the
+key's row at the class decides, else its row at class `any`, else refused (K admits the key at no
+sentence of the class); an erased row's key is refused, since only a KORE text written by hand
+carries it. The readers of Parse.lean do not call it. `test/AttrVerdict.lean` writes the rows out
+(class, key, status) and the kernel checks each verdict against its status; `constructs.sh`
+elaborates it and runs `test/constructs/attrkeys.py` on what it prints: the rows written there are
+exactly the table's with their statuses, the keys exactly the rows' names, and every attribute name
+at the head of an attribute in a fixture's `kore.txt` that is no key is printed (`subsort`, which
+kompile writes on a subsort axiom and K's attribute table does not list).
+
 `test/constructs/K-coverage.md` is the coverage document of DONE-0 C11, generated, not written by
 hand: `python3 -I test/constructs/coverage.py` writes it from `rows.toml` and `../core-manifest.toml`
 alone (the rows by status per list, the refused rows and nested entries by class R-a, R-b, R-c and
