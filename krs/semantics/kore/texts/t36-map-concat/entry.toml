@@ -1,0 +1,46 @@
+id = "t36-map-concat"
+kind = "text"
+subject = "The value of _Map_: the union of two maps with disjoint keys, independent of the order of its arguments, and no value where the maps have a key in common."
+retro = ["A4"]
+rests_on = ["kk:t31-int-division"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:240 (K 7.1.337)", quote = "syntax Map ::= Map Map [left, function, hook(MAP.concat), symbol(_Map_), assoc, comm, unit(.Map), element(_|->_), index(0), format(%1%n%2)]" }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = "MAP.concat"
+statement = "M N is the map holding the pairs of M and the pairs of N where M and N have no key in common; it does not depend on the order of M and N, and .Map is its unit. Where M and N have a key in common, M N has no value, whether or not the two values at that key are equal."
+points = [
+  { at = "(1 |-> 2) (3 |-> 4)", value = "the map with the pairs 1 |-> 2 and 3 |-> 4" },
+  { at = "(3 |-> 4) (1 |-> 2)", value = "the same map" },
+  { at = "(1 |-> 2) .Map", value = "1 |-> 2" },
+  { at = "(1 |-> 2) (1 |-> 3)", value = "no value" },
+  { at = "(1 |-> 2) (1 |-> 2)", value = "no value" },
+]
+reason = """
+(1) domains.md:227-229: the concatenation constructs a new map consisting of the key and value pairs of two maps, and the result is #False if the maps have keys in common: no value (kk:t31-int-division on #False). The sentence names keys in common, not pairs, so equal values at the common key change nothing.
+(2) domains.md:318-321 repeats it: map concatenation is a partial function only defined on maps with disjoint keys.
+(3) A map is given by its pairs (domains.md:223-225, and domains.md:205-206: the maps are commutative), so the map of the pairs of M and N is the map of the pairs of N and M. The map with zero elements, .Map (domains.md:245), adds no pair."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:318-321 (K 7.1.337)"
+quote = "This function is total, which is distinct from map concatenation, a partial function only defined on maps with disjoint keys."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:223-225 (K 7.1.337)"
+quote = "The `Map` sort represents a generalized associative array. Each key can be paired with an arbitrary value, and can be used to reference its associated value. Multiple bindings for the same key are not allowed."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:205-206 (K 7.1.337)"
+quote = "Provided here is the syntax of an implementation of immutable, associative, commutative maps from `KItem` to `KItem`."

@@ -1,0 +1,47 @@
+id = "t39-cell-collection-map"
+kind = "text"
+subject = "A cell collection declared multiplicity=\"*\" type=\"Map\": what its instances are, how a rule that names an instance's key cell finds it, and what two instances with one key are."
+retro = ["S6"]
+rests_on = ["kk:t36-map-concat"]
+
+[text]
+files = ["t39-cell-collection-map.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The <acct> cells under <accts> are a collection of any number of instances, read as a map whose key is the content of an instance's first sub-cell <id> and whose value is the whole instance. A rule that names <id> I matches the instance whose key is I, the other instances being the rest of the collection; so in a configuration with the instances of keys 1 and 2, get(2) steps to r of the <bal> of the instance of key 2. What two instances with one key are is not said by the manual; it is ruled at the level of the kompiled sentences."
+reason = """
+(1) multiplicity="*" says that the cell may appear any number of times in a configuration (user_manual.md:1036-1038).
+(2) type="Map" says that the first sub-cell is the cell-key, that matching on the cells is a map lookup where the rule mentions the cell-key, and that the entire instance, the key cell and the surrounding cell included, is the cell-value (user_manual.md:1094-1103). So the collection is a map from the key cell's content to the instance, and the rule's <acct> <id> I </id> ... </acct> is the pair of key I, the other instances its frame.
+(3) The manual gives no sentence about two instances with one key."""
+
+[ruling.kore]
+statement = "The kompiled text declares the collection's sort SortAcctCellMap with the sort hook MAP.Map, and its concatenation _AcctCellMap_ with the hook MAP.concat, its element AcctCellMapItem(IdCell, AcctCell) with MAP.element and its unit with MAP.unit (kore.txt:12, 44, 48, 24). Read as domains.md describes those hooks at a sort that carries the matching sort hook (the reading of a hook name at its sort, owner decision 2026-11-18 on retro row H9), the collection is a map from IdCell to AcctCell, and two instances of one key are a concatenation of two maps with a key in common, which has no value (kk:t36-map-concat): a configuration term holding them denotes nothing."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:12"
+quote = '''hooked-sort SortAcctCellMap{} [concat{}(Lbl'Unds'AcctCellMap'Unds'{}()), element{}(LblAcctCellMapItem{}()), hook{}("MAP.Map"), unit{}(Lbl'Stop'AcctCellMap{}())]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:48"
+quote = '''hooked-symbol Lbl'Unds'AcctCellMap'Unds'{}(SortAcctCellMap{}, SortAcctCellMap{}) : SortAcctCellMap{} [element{}(LblAcctCellMapItem{}()), function{}(), hook{}("MAP.concat"), unit{}(Lbl'Stop'AcctCellMap{}())]'''
+
+[[ruling.kore.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1036-1038 (K 7.1.337)"
+quote = "Declaring `multiplicity=\"*\"` indicates that the cell may appear any number of times in a runtime configuration."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1094-1103 (K 7.1.337)"
+quote = "Declaring `type=\"Map\"` indicates that the first sub-cell will be used as a cell-key. This means that matching on those cells will be done as a map-lookup operation if the cell-key is mentioned in the rule (for performance). ... Additionally, any number of sub-cells are allowed, and the _entire_ instance of the cell collection is considered part of the cell-value, including the cell-key (`<map-key>` in this case) and the surrounding collection cell (`<map>` in this case)."

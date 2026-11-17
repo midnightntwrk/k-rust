@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t30-hooks-strict.k": "3c11164bc620c3a893c7487dd8a1e5c1e483837848615c3d66830da855d40c7a"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t30-hooks-strict.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "53cab2cfa1578c2c3c258c5ca711b3dd2fcf89b926c7baa9a5f483e8aae6734a",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
