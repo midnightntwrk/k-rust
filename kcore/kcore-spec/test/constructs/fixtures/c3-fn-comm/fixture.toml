@@ -1,0 +1,2 @@
+# pair comm x function (TRIAGE-B c3.pair 13; findings/C3-noncore-rulings.md section 6.2): the text of c3-fn-law-base with comm on the production alone (not on its equation, as e2-comm-eq has it). Predicted: kompile exit 0, the declaration gains comm and no axiom carries it, differs_from c3-fn-law-base with text +1 -1; observed: the kompiled texts equal after stripping (the declaration carries no comm), so same_as c3-fn-law-base
+same_as = "c3-fn-law-base"

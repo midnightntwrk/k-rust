@@ -1,0 +1,2 @@
+# pair unit x function (TRIAGE-B c3.pair 13; findings/C3-noncore-rulings.md section 6.2): this text against c3-fn-assoc-zero, the same text without unit(zero). Predicted: the text gains the unit axioms; parse ok, coreOK true, the account refuses lawAxiom; Semantics +0 -0
+differs_from = "c3-fn-assoc-zero"

@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-fn-law-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 202683
+definition.kore sha256: 117ade4fb004f83c9b00a0413e41c5aa95e68ec95dc3ea15251d11a3265e6619
+stripped sha256: 3ecb83c45677a69a1a3ab63e48fa8c1ae992b82d8596a60da8321a454ba0fe08
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-FN-LAW-BASE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-FN-LAW-BASE as default.

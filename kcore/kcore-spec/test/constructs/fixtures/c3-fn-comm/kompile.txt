@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-fn-comm.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.3
+definition.kore bytes: 202659
+definition.kore sha256: 1cf6bf2e37b67ed1ea3a1eb0297d73429d1ead0fa7d1f9961ffa6eecd6a98f1d
+stripped sha256: 3ecb83c45677a69a1a3ab63e48fa8c1ae992b82d8596a60da8321a454ba0fe08
+main module: 392 sentences, 35 not in base's, in kore.txt
+same_as c3-fn-law-base: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-FN-COMM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-FN-COMM as default.
