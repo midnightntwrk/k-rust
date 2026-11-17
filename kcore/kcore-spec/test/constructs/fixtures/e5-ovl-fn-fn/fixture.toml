@@ -8,8 +8,7 @@
 # - negExp's declaration (//@ 111) carries anywhere{}() beside function{}(); negInt's (//@ 112) does not.
 # - rule neg(I:Int) => 0 -Int I is negInt's equation (//@ 386), not negExp's: the parser picks the
 #   smaller symbol; negExp's only user equation is neg(e) => e (//@ 385, written e #as _Gen0).
-# - account.txt: the axiom is read today (overloadEqn?, Parse.lean) as a clause of negExp: no
-#   competitors and only the symbol-overload attribute, so priority 50 (eqnPrio) and not aside
-#   (nonExec); CN-4b section 5 reads it with prio 0 and aside (F9.OVF-reader).
+# - account.txt: the axiom is read (overloadEqn?, Parse.lean) as a clause of negExp, aside
+#   (nonExec) and of priority 0 (eqnPrio), listed among the aside clauses; wf and coreOK.
 # Variants: e5-ovl-fn-fn-owise (with rule neg(_:Exp) => e [owise]), e5-ovl-fn-fn-ctor (the smaller
 # symbol a constructor, of a user sort), e5-ovl-fn-fn-ctor-int (the same of Int: rejected).

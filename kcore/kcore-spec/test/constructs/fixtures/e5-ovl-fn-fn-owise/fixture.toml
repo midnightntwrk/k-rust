@@ -6,5 +6,7 @@
 #   the pattern of neg(e) => e: the premise lists the rules of the function only and does not
 #   negate the overload axiom. So at inj 3 the [owise] sentence states negExp(inj 3) = e and the
 #   overload sentence states negExp(inj 3) = inj(negInt(3)) = inj(-3): the text has no model.
-# - account.txt: today the reader refuses the [owise] equation with exclusionShape (its excluded
-#   pattern is written e #as _Gen1).
+# - account.txt: read; the overload axiom is an aside clause of negExp of priority 0, the [owise]
+#   equation's one disjunct is matched to neg(e) => e (written e #as _Gen1), and negExp is listed
+#   among the functions whose equations' agreement no decider confirms (ClausesAgree owed; false
+#   at inj 3, as above).
