@@ -23,7 +23,8 @@
     by Γ, for every H (`nojunk_trivial_entailed`): they are logical truths.
   - No junk of Cmd and the cells (116 to 120, 122, 123): each translation is one of Γ's constructor
     items (`nojunk_items`, E by equality). KItem's (125) is Γ's item with its disjuncts in the text's
-    order (`nojunk_kitem_order`): `Semantics.gens` lists the same generators in another order.
+    order (`nojunk_kitem_order`): `Semantics.gens` lists the same generators in another order, and
+    Γ entails the sentence, for every H (`nojunk_kitem_entailed`).
   - Set idempotence (61): Γ with it has no model, for every H (`idem_refuted`).
   - Library sample, 166 (`I -Int 0 = I`, a `simplification`): holds at every value of `I` in every
     model of Γ, for every H (`lib166`, direction Ev, from `ΓDomains`' graph of `-Int`).
@@ -301,6 +302,17 @@ theorem nojunk_kitem_members :
   decide +kernel
 theorem nojunk_kitem_not_gens_order :
     (c.gens Srt.kitem).map (Gen.toK c) ≠ (gensInOrder c defn.pres Srt.kitem).map (Gen.toK c) := by decide +kernel
+
+/-- **E for 125**: Γ entails KItem's no-junk sentence, for every H. Γ's item is the sentence over
+the same generators in another order, and a no-junk item entails the one over any list that holds
+its generators (`noJunkItem_of_subset`). -/
+theorem nojunk_kitem_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax125).pat := by
+  intro M _ I hI
+  rw [nojunk_kitem_order]
+  refine noJunkItem_of_subset (defOK hI) (gs := (c.gens Srt.kitem).map (Gen.toK c))
+    (fun g hg => (List.isPerm_iff.mp nojunk_kitem_members).mem_iff.mpr hg) ?_
+  exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := Srt.kitem)
+    (show Srt.kitem ∈ consSorts c by decide +kernel) (show (c.gens Srt.kitem).isEmpty = false by decide +kernel), rfl⟩)
 
 /-! ## Set idempotence (61): refuted -/
 
@@ -892,3 +904,4 @@ open KCore.TieEns in
 #print axioms KCore.TieEns.strItem_registry
 #print axioms KCore.TieEns.account
 #print axioms KCore.TieEns.account_absent
+#print axioms KCore.TieEns.nojunk_kitem_entailed

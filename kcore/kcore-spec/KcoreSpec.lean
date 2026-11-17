@@ -239,3 +239,4 @@ import KcoreSpec.ClausePlainEx
 import KcoreSpec.ExistsHoist
 import KcoreSpec.TieDefs
 import KcoreSpec.RegistryOwn
+import KcoreSpec.TieLemmas
