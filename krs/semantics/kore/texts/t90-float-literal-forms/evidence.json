@@ -1,0 +1,14 @@
+{
+  "inputs": {
+    "answer": "c6c14db691e82aa6e271504f29613ff905c31af862086c7252837dc5afc3a42e",
+    "t90-float-literal-forms.k": "f46be33ac20bb698820b3436383dce01dc05291b32140ba616dcffbbb1ab8ffa"
+  },
+  "kompile": {
+    "release": "K v7.1.337",
+    "command": "kompile --backend haskell t90-float-literal-forms.k -o out",
+    "exit": 0,
+    "kore.txt": "2efaf603522ed2a3fc8e976d2e8f1121e07f4efbec6d1d4ddac71e32987a9af4",
+    "message": null
+  },
+  "implementations": {}
+}
