@@ -136,15 +136,35 @@ mutual
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by
-      rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
-    | .ovl (f := f) (rs := rs) hk ho hts _ => by
+    | .ovlFn (f := f) (vs := ws) (kg := kg) _ ho hts hws hlo hcov hf => by
+      -- the covering function's value, of its result sort, lifted to the symbol's
+      obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hc hL hk' ho
+      rw [hlo] at hlo'
+      cases hlo'
+      obtain ⟨r1, hr1, rfl⟩ := Option.map_eq_some_iff.mp hr
+      have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      obtain ⟨o2, hlo2, hkg, hb, hcv⟩ := OvlLaws.fnCover_some_parts hcov
+      rw [hlo] at hlo2
+      cases hlo2
+      obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
+      have ha : fn.args = kg.args := by rw [hsig]
+      have hres' : fn.result = kg.result := by rw [hsig]
+      obtain ⟨hlen, -, hres, -⟩ := OvlLaws.over_ovlF HH.fnFacts hlo hkg
+      obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+      have hvs := EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws
+      have hs1 := Eval.sorted hc hf hfn (by rw [ha]; exact OvlLaws.sortsOf_stripAll hlen hvs hlies) hr1
+      rw [hres'] at hs1
+      exact OvlLaws.sortOf_lift HH hs1 hres
+    | .ovl (f := f) (rs := rs) hk ho hts hnf => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
       have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
-      exact OvlLaws.sortOf_norm ⟨H.1, hc.trans, H.2⟩ hlo
-        (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws)
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      exact OvlLaws.sortOf_norm_ovlF HH HH.fnFacts hlo
+        (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws) (hnf ws hws)
   termination_by structural h
   theorem EvalTerms.sorted_at (hc : SortCtx c) {σ : Subst} {ts : List Term}
       {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs) {L : List CtorSig}

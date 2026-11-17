@@ -682,6 +682,52 @@ theorem norm_head_ovlF {k : CtorSig} (hk : KnownSig c k) {vs : List GroundTerm}
 
 end
 
+/-! ## Symbols with no function among their overloads -/
+
+/-- No function's signature is among the overloads of `f` (true of a symbol that is no overloading
+symbol). -/
+def NoFnOver (c : Semantics) (f : Sym) : Prop :=
+  ∀ o, c.lookupOvl f = some o → ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = false
+
+/-- A symbol that is not function-overloaded has no function among its overloads. -/
+theorem noFnOver_of_not_fnOvl {f : Sym} (h : f ∉ c.fnOvlSyms) : NoFnOver c f := fun o ho kg hkg => by
+  cases hb : c.ovlByFn kg with
+  | false => rfl
+  | true => exact absurd ((lookupOvl_spec ho).1 ▸ fnOvlSyms_of_byFn (mem_of_lookupOvl ho) hkg hb) h
+
+/-- A symbol that is no overloading symbol has no function among its overloads. -/
+theorem noFnOver_of_none {f : Sym} (h : c.lookupOvl f = none) : NoFnOver c f := fun o ho => by
+  rw [h] at ho; cases ho
+
+/-- No function overload covers anything at a symbol with no function among its overloads. -/
+theorem NoFnOver.fnCover_none {f : Sym} (h : NoFnOver c f) (vs : List GroundTerm) : c.fnCover f vs = none := by
+  rw [c.fnCover_eq_none_iff]
+  intro o ho kg hkg hb
+  rw [h o ho kg hkg] at hb
+  cases hb
+
+/-- A symbol that `f` overloads has no function among its overloads where `f` has none: an
+overloading symbol lists the functions that the overloading symbols it overloads list. -/
+theorem NoFnOver.over (F : OvlFnFacts c) {f : Sym} (h : NoFnOver c f) {o : OvlSig} (ho : c.lookupOvl f = some o)
+    {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : NoFnOver c kg.name := fun o' ho' kg' hkg' => by
+  cases hb : c.ovlByFn kg' with
+  | false => rfl
+  | true => rw [h o ho kg' (F.closed o (mem_of_lookupOvl ho) kg hkg o' ho' kg' hkg' hb)] at hb; cases hb
+
 end OvlLaws
+
+/-- A function-overloaded symbol (`fnOvlSyms`, which reads the functions' labels) has a function's
+signature among its overloads (`ovlByFn`). -/
+theorem OvlOK.fnOver {c : Semantics} [h : OvlOK c] :
+    ∀ o ∈ c.ovls, o.sig.name ∈ c.fnOvlSyms → ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true :=
+  fun o _ hm => by rw [h.noFn] at hm; cases hm
+
+/-- No overload of a symbol is a function's, where no overloading symbol overloads a function. -/
+theorem OvlOK.noFnOver {c : Semantics} [h : OvlOK c] (f : Sym) : OvlLaws.NoFnOver c f :=
+  OvlLaws.noFnOver_of_not_fnOvl (by rw [h.noFn]; exact List.not_mem_nil)
+
+/-- No function overload covers anything, where no overloading symbol overloads a function. -/
+theorem OvlOK.fnCover_none {c : Semantics} [OvlOK c] (f : Sym) (vs : List GroundTerm) : c.fnCover f vs = none :=
+  (OvlOK.noFnOver f).fnCover_none vs
 
 end KCore

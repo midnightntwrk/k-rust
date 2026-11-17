@@ -1214,11 +1214,11 @@ theorem injApp_empty {e : Valuation M} {A B : String} {φ : KoreAML.P} (h : ∀ 
   exact h b hb
 
 /-- In the model `I`, an overloading symbol applied to the elements of values of its argument sorts
-is the element of their normal form (`norm`). Every model of `Γ` has it (`normDen_of`,
-FaithfulNeg.lean). -/
+that no function overload covers is the element of their normal form (`norm`). Every model of `Γ`
+has it (`normDen_of`, FaithfulNeg.lean). -/
 def NormDen [Inhabited M] (c : Semantics) (I : Interpretation KoreAML.Sym M) : Prop :=
   ∀ {f : Sym} {o : OvlSig} {ws : List GroundTerm}, c.lookupOvl f = some o → c.sortsOf ws = some o.sig.args →
-    ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
+    c.fnCover f ws = none → ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
       (den c (c.norm f ws)).interpret I e m
 
 section
@@ -1380,7 +1380,7 @@ mutual
       exact ih.2 hvs' _ m
     | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
       rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
-    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts _, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
+    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       obtain ⟨-, hcalls⟩ := heads_app hcall
@@ -1394,7 +1394,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := hnd hlo hws e m
+        have := hnd hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this

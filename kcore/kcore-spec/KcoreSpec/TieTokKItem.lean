@@ -49,7 +49,7 @@ theorem noJunk_omitted_refuted {c : Semantics} (hcore : c.coreOK = true) (hr : �
   have hno' : (c.withHooks H).fnOvlSyms = [] := hno
   have hbmem' : Gen.inj b ∈ ((c.withHooks H).gens N).filter (!(c.withHooks H).isOpenGen ·) := hbmem
   have hamem' : Gen.inj a ∈ ((c.withHooks H).gens N).filter (!(c.withHooks H).isOpenGen ·) := ha
-  obtain ⟨y1, -, hy1⟩ := fun_at hD (sat_cons hI (Or.inl ⟨_, funItem_mem hno' hN' hbmem', rfl⟩)) (xs := [y]) rfl
+  obtain ⟨y1, -, hy1⟩ := fun_at hD (sat_cons hI (Or.inl ⟨_, funItem_mem hN' hbmem' rfl, rfl⟩)) (xs := [y]) rfl
     (single_sorts hy)
   have hy1 : ∀ m, GS I (c.sortName N) (Gen.toK c (.inj b)) [y] m ↔ m = y1 := hy1
   have hset_b : ∀ m, GS I (c.sortName N) (Gen.toK c (.inj b)) [y] m ↔
@@ -63,11 +63,11 @@ theorem noJunk_omitted_refuted {c : Semantics} (hcore : c.coreOK = true) (hr : �
       GS I (c.sortName N) (Gen.toK c (.inj b)) [y] m := fun m => by rw [hset_a, hset_b]
   have hne : Gen.inj a ≠ Gen.inj b := fun h => hba (by cases h; rfl)
   rcases mem_pairs_of hne hamem' hbmem' with hp | hp
-  · rcases injPair_mem hno' hN' hp hle with ⟨-, hit⟩ | ⟨hl, -⟩
+  · rcases injPair_mem hN' hp hle with ⟨-, hit⟩ | ⟨hl, -⟩
     · exact dist_at hD (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [_]) (ys := [y]) rfl rfl
         (single_sorts hxw) (single_sorts hy) hseq
     · exact hl hlb1
-  · rcases injPair_mem hno' hN' hp (by rw [Bool.or_comm]; exact hle) with ⟨-, hit⟩ | ⟨hl, -⟩
+  · rcases injPair_mem hN' hp (by rw [Bool.or_comm]; exact hle) with ⟨-, hit⟩ | ⟨hl, -⟩
     · exact dist_at hD (sat_cons hI (Or.inl ⟨_, hit, rfl⟩)) (xs := [y]) (ys := [_]) rfl rfl
         (single_sorts hy) (single_sorts hxw) (fun m => (hseq m).symm)
     · exact hl hlb2

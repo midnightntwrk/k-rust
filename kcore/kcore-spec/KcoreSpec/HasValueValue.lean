@@ -70,8 +70,9 @@ theorem witnessed_value {c : Semantics} (h : c.coreOK = true) {s : Srt} (hs : s 
       simp only [Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true, beq_iff_eq, List.all_eq_true] at ha2
       rcases ha2.2 with ⟨k, hk, rfl, hargs⟩ | ⟨p, hp, rfl, hp1⟩
       · obtain ⟨ws, hws⟩ := values_of_each k.args fun b hb => okv b (hargs b hb)
-        exact ⟨_, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k (knownSig_of_mem hn (List.mem_append_left _ hk))
-          (OvlLaws.ovlRank_le (c := c) k.name) ws hws⟩
+        exact ⟨_, OvlLaws.sortOf_norm_known_ovlF (hO.hyp htr) (hO.hyp htr).fnFacts _ k
+          (knownSig_of_mem hn (List.mem_append_left _ hk)) (OvlLaws.ovlRank_le (c := c) k.name) ws hws
+          (c.fnCover_of_lookupOvl_none (OvlLaws.lookupOvl_none_of_ctor (hO.hyp htr) hk) ws)⟩
       · obtain ⟨w, hw⟩ := okv p.1 hp1
         have hab : (p.1, p.2) ∈ c.subsorts := hp
         cases hni : w.isInj with

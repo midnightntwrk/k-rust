@@ -262,8 +262,9 @@ mutual
         obtain ⟨vs', hvs', hv'⟩ := PatVal.ovl_inv hfo.2 h'
         obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp hs
         obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup hfo.2 hk'
-        have he := OvlLaws.norm_inj hmc.ovlHyp hlo (patVals_sortedAllO hmc hσ hvs hargs)
-          (patVals_sortedAllO hmc hσ' hvs' hargs) (hv.trans hv'.symm)
+        have he := OvlLaws.norm_inj_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hlo (patVals_sortedAllO hmc hσ hvs hargs)
+          (patVals_sortedAllO hmc hσ' hvs' hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
+          (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _) (hv.trans hv'.symm)
         subst he
         exact uniqLList_sound hmc hσ hσ' ps hu hvs hvs' hargs hD
       · exact uniq_sound hmc hσ hσ' (.app f ps) hu h h' hs hD
