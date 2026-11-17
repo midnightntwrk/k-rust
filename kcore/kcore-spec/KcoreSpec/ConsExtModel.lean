@@ -1,20 +1,29 @@
 /-
   The extension of a model of the theory without the registry family (`Γown c D`,
-  RegistryOwn.lean) by the elements the family speaks of: the carrier `M ⊕ Added`, the
+  RegistryOwn.lean) by the elements the family speaks of: the carrier `M ⊕ Added M`, the
   interpretation `extModel` and the embedding `Sum.inl`, with the three embedding clauses of
   `RegistryConservative` (`ext_embeds`).
+
+  The extension is free: application of old elements gives the old elements it gave and no added
+  one, an old element applied to an added one gives nothing, and every fact about an added element
+  goes through an added element of the symbol that states it. So nothing is asked of the smaller
+  model: an element of it may lie in several symbols at once (in `⌈_⌉` and in a constructor, say),
+  and no application of such an element changes.
 
   The added elements are: a detached sort constant; for each literal, an element of its `dv`
   symbol (a literal's `dv` symbol may be empty in the smaller model, and a value of a detached
   sort is that symbol applied to the sort's name); a value of a detached sort; a detached hooked
-  symbol applied to fewer values than it has arguments.
+  symbol applied to fewer values than it has arguments; an element of `⌈_⌉`, whose application to
+  any element holds of every element; an element of `⊤_`, whose application to a detached sort's
+  name holds of the sort's values; an element of `Sort` whose inhabitants (under the added element
+  of `⊤_`) are the detached sort names; an element of the definedness symbols `⌈_⌉{s,s'}` with its
+  applications to one and to two sorts, which give `⌈x⌉{s,s'}` at a detached sort `s` or `s'`.
 
   `extModel` keeps every symbol outside `D` on the old elements (a detached symbol holds of an old
-  element only as a hooked symbol without arguments whose result is that element) and application between old
-  elements, gives a detached sort's name its one new element and the sort its values, and gives
-  a detached hooked symbol its graph (`hook`, and at a silent point `Semantics.fallback`) at the
-  arguments that are elements of values. An old element is the element of a value of a sort outside
-  `D` where that value's pattern denotes exactly it in the smaller model.
+  element only as a hooked symbol without arguments whose result is that element), and gives a
+  detached hooked symbol its graph (`hook`, and at a silent point `Semantics.fallback`) at the
+  arguments that are elements of values of its argument sorts. An old element is the element of a
+  value of a sort outside `D` where that value's pattern denotes exactly it in the smaller model.
 
   That `extModel` satisfies the theory is not proved here.
 -/
@@ -26,8 +35,8 @@ namespace KCore.Cons
 
 open ML Faithful
 
-/-- The elements added to a model of the smaller theory. -/
-inductive Added where
+/-- The elements added to a model of the smaller theory, with carrier `M`. -/
+inductive Added (M : Type) where
   /-- the detached sort constant `n` (a KORE sort name, `SortX`) -/
   | srt (n : String)
   /-- an element of the symbol `dv l` -/
@@ -36,9 +45,21 @@ inductive Added where
   | val (v : GroundTerm)
   /-- a detached hooked symbol applied to the values `vs`, fewer than its arguments -/
   | hk (f : Sym) (vs : List GroundTerm)
+  /-- an element of `⌈_⌉` -/
+  | dfn
+  /-- an element of `⊤_` -/
+  | inh
+  /-- an element of `Sort`: the sort of the detached sort names -/
+  | sorts
+  /-- an element of the definedness symbols `⌈_⌉{s,s'}` -/
+  | ceil
+  /-- `ceil` applied to the sort `s`: an old element, or a detached sort's name -/
+  | ceil1 (s : M ⊕ String)
+  /-- `ceil` applied to the sorts `s` and `s'`, one of them a detached sort's name -/
+  | ceil2 (s s' : M ⊕ String)
 
 /-- The extended carrier. -/
-abbrev Ext (M : Type) : Type := M ⊕ Added
+abbrev Ext (M : Type) : Type := M ⊕ Added M
 
 section
 variable (c : Semantics) (D : KoreAML.Sym → Prop) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M)
@@ -69,6 +90,13 @@ arguments are missing, the result's element once all are given. -/
 def PartOf (k : CtorSig) (vs : List GroundTerm) (x : Ext M) : Prop :=
   if vs.length < k.args.length then x = .inr (.hk k.name vs) else ResOf c D I k vs x
 
+/-- The inhabitants, in the extension, of the sort `t`: of an old element, its old inhabitants; of
+a detached sort's name, the sort's values. -/
+def InhX (t : M ⊕ String) (x : Ext M) : Prop :=
+  match t with
+  | .inl σ => ∃ m, x = .inl m ∧ KoreAML.Inh I σ m
+  | .inr n => ∃ s v, n = "Sort" ++ c.sortName s ∧ DSort c D s ∧ c.sortOf v = some s ∧ x = .inr (.val v)
+
 /-- **The extended interpretation.** -/
 def extModel : Interpretation KoreAML.Sym (Ext M) where
   evalSymb σ x := match x with
@@ -77,26 +105,36 @@ def extModel : Interpretation KoreAML.Sym (Ext M) where
         ∃ k, DHook c D k ∧ σ = .symbol (c.symName k.name) ∧ PartOf c D I k [] (.inl m)
     | .inr (.srt n) => D (.sort n) ∧ σ = .sort n
     | .inr (.lit l) => σ = .dv l
+    | .inr .dfn => σ = .defined
+    | .inr .inh => σ = .inh
+    | .inr .sorts => σ = .sortSort
+    | .inr .ceil => σ = .ceil
+    | .inr (.ceil1 _) => False
+    | .inr (.ceil2 _ _) => False
     | .inr n => ∃ k, DHook c D k ∧ σ = .symbol (c.symName k.name) ∧ PartOf c D I k [] (.inr n)
   evalApp a b x := match a, b with
     | .inl a, .inl b =>
       (match x with
         | .inl m => I.evalApp a b m
-        | .inr n =>
-          -- definedness of an old element holds of every element; a detached sort's name is a sort
-          I.evalSymb .defined a ∨
-          (I.evalSymb .inh a ∧ I.evalSymb .sortSort b ∧ ∃ nm, D (.sort nm) ∧ n = .srt nm))
-    | .inl a, .inr n =>
-      -- definedness of a new element holds of every element; a detached sort's inhabitants are
-      -- its values
-      I.evalSymb .defined a ∨
-      (I.evalSymb .inh a ∧ ∃ s v, n = .srt ("Sort" ++ c.sortName s) ∧ DSort c D s ∧ c.sortOf v = some s ∧
-        x = .inr (.val v))
+        | .inr _ => False)
+    -- definedness of any element holds of every element
+    | .inr .dfn, _ => True
+    -- the detached sort names are sorts; a detached sort's inhabitants are its values
+    | .inr .inh, .inr .sorts => ∃ nm, D (.sort nm) ∧ x = .inr (.srt nm)
+    | .inr .inh, .inr (.srt n) => InhX c D I (.inr n) x
     | .inr (.lit l), .inr (.srt n) =>
       ∃ s lit, n = "Sort" ++ c.sortName s ∧ lit.text = l ∧ DSort c D s ∧ c.sortOf (.dv s lit) = some s ∧
         x = .inr (.val (.dv s lit))
+    -- a detached hooked symbol takes the element of a value of its next argument sort
     | .inr (.hk f vs), b =>
-      ∃ k w, DHook c D k ∧ k.name = f ∧ ElemOf c D I w b ∧ PartOf c D I k (vs ++ [w]) x
+      ∃ k w s, DHook c D k ∧ k.name = f ∧ k.args[vs.length]? = some s ∧ c.sortOf w = some s ∧
+        ElemOf c D I w b ∧ PartOf c D I k (vs ++ [w]) x
+    -- `⌈x⌉{s,s'}` where `s` or `s'` is a detached sort's name: the sort `s'`, for `x` in `s`
+    | .inr .ceil, .inl σ => x = .inr (.ceil1 (.inl σ))
+    | .inr .ceil, .inr (.srt n) => x = .inr (.ceil1 (.inr n))
+    | .inr (.ceil1 (.inr n)), .inl σ' => x = .inr (.ceil2 (.inr n) (.inl σ'))
+    | .inr (.ceil1 s), .inr (.srt n') => x = .inr (.ceil2 s (.inr n'))
+    | .inr (.ceil2 s s'), y => InhX c D I s y ∧ InhX c D I s' x
     | _, _ => False
 
 /-- **The embedding clauses of `RegistryConservative`**: `Sum.inl` is injective; a symbol outside
@@ -122,6 +160,12 @@ theorem ext_sortName {n : String} (hn : D (.sort n)) (x : Ext M) :
     | .inr (.lit _), h => cases h
     | .inr (.val _), ⟨_, _, h, _⟩ => cases h
     | .inr (.hk _ _), ⟨_, _, h, _⟩ => cases h
+    | .inr .dfn, h => cases h
+    | .inr .inh, h => cases h
+    | .inr .sorts, h => cases h
+    | .inr .ceil, h => cases h
+    | .inr (.ceil1 _), h => cases h
+    | .inr (.ceil2 _ _), h => cases h
   · rintro rfl
     exact ⟨hn, rfl⟩
 
@@ -134,6 +178,9 @@ theorem ext_dv_app {s : Srt} (hs : DSort c D s) {lit : Lit} (hv : c.sortOf (.dv 
     (.inr (.val (.dv s lit)) : Ext M) ∈
       (extModel c D I).evalApp (.inr (.lit lit.text)) (.inr (.srt ("Sort" ++ c.sortName s))) :=
   ⟨s, lit, rfl, rfl, hs, hv, rfl⟩
+
+/-- The extension interprets `⌈_⌉` as definedness. -/
+theorem ext_defOK : KoreAML.DefOK (extModel c D I) := fun _ _ => ⟨.inr .dfn, rfl, trivial⟩
 
 end
 
