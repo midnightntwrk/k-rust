@@ -3,8 +3,8 @@
   (`libAdmitted_lawHooks`).
 
   `lawHooks c H` differs from H only at the `raw` parameters. The conditions of `libAdmitted` read
-  the interpretation only through `fallback` at interpreted symbols (registry symbols, `hookSigs`),
-  and the sorts only at the argument and result sorts of those symbols: Int, Bool, Float, String,
+  the interpretation only through `fallback` at interpreted symbols (registry symbols, `hookSigs`)
+  and at `rootFloat`, a registry symbol too (`sqrtFloatEq`), and the sorts only at the argument and result sorts of those symbols: Int, Bool, Float, String,
   Bytes, Endianness and Signedness (`lawLibSorts`). So the conditions carry over from H to
   `lawHooks c H` where
   - no `raw` parameter bears a registry symbol's number (`nRegSyms ≤ k.sig.name`): then
@@ -126,7 +126,7 @@ no value of a sort the library's sentences read applies a `raw` parameter. -/
 theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRegSyms ≤ k.sig.name)
     (hl : c.lawLibRawFree) (H : HookParams) (ha : (c.withHooks H).libAdmitted) :
     (c.withHooks (lawHooks c H)).libAdmitted := by
-  obtain ⟨h1, h2, h3, h4⟩ := ha
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := ha
   have e : ∀ f, (lookupSig hookSigs f).all (fun k => lawLibSorts.contains k.result) = true →
       ∀ vs, (c.withHooks (lawHooks c H)).hv f vs = (c.withHooks H).hv f vs :=
     fun f hr vs => lawLib_hv hreg hl H hr vs
@@ -147,7 +147,18 @@ theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRe
   have eLen := e stringLength (by decide +kernel)
   have eRf := e stringRfind (by decide +kernel)
   have eMax := e intMax (by decide +kernel)
-  refine ⟨?_, ?_, ?_, ?_⟩
+  have eFc := e stringFindChar (by decide +kernel)
+  have eFd := e stringFind (by decide +kernel)
+  have eIEq := e intEq (by decide +kernel)
+  have eMin := e intMin (by decide +kernel)
+  have eSq := e floatSqrt (by decide +kernel)
+  have eIte : ∀ vs, (c.withHooks (lawHooks c H)).hv kIte vs = (c.withHooks H).hv kIte vs := fun vs => by
+    unfold Semantics.hv
+    rw [Semantics.hookRes_of_notKey silentKey_kIte, Semantics.hookRes_of_notKey silentKey_kIte]
+  have eRa := e stringReplaceAll (by decide +kernel)
+  have eCa := e stringCountAll (by decide +kernel)
+  have eRp := e stringReplace (by decide +kernel)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro k hk hkey vs hvs hh hs
     have hvs' := lawLib_sortsOf hl (lawHooks c H) H (lawLib_totalSilentKeys_sorts k hk hkey) hvs
     rw [lawLib_fallback hreg hl H (by
@@ -166,6 +177,26 @@ theorem libAdmitted_lawHooks_of (hreg : ∀ k ∈ c.params, k.raw = true → nRe
     rw [eSNe] at hne
     simp only [eRc, eSub, eLen, eRf, eMax]
     exact h4 s1 s2 i hs' hne hh
+  · intro s1 s2 i hs hne hh
+    have hs' := lawLib_sortsOf hl (lawHooks c H) H (by decide) hs
+    rw [eSNe] at hne
+    simp only [eFc, eSub, eLen, eFd, eIEq, eMin, eIte]
+    exact h5 s1 s2 i hs' hne hh
+  · intro F hF
+    have hF' := (lawLib_sortOf hl (lawHooks c H) H (by decide)).mp hF
+    have hp : ∀ w, ((c.withHooks (lawHooks c H)).sortOf w == some Srt.float) =
+        ((c.withHooks H).sortOf w == some Srt.float) := fun w =>
+      Bool.eq_iff_iff.mpr (by simp only [beq_iff_eq]; exact lawLib_sortOf hl _ _ (by decide))
+    have hr : (c.withHooks (lawHooks c H)).rootAt2 F = (c.withHooks H).rootAt2 F := by
+      show ((lawHooks c H).app libRootFloat [F, int 2]).filter _ = (H.app libRootFloat [F, int 2]).filter _
+      rw [lawLib_app_reg hreg H (by decide) [F, int 2]]
+      simp only [hp]
+    rw [hr, eSq]
+    exact h6 F hF'
+  · intro s n r hs hh
+    have hs' := lawLib_sortsOf hl (lawHooks c H) H (by decide) hs
+    simp only [eRa, eCa, eRp]
+    exact h7 s n r hs' hh
 
 /-- Where no parameter is raw, no value applies one. -/
 theorem lawLibRawFree_of_noRaw (hr : ∀ k ∈ c.params, k.raw = false) : c.lawLibRawFree :=

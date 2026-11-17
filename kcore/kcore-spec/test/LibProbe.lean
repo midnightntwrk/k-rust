@@ -47,7 +47,11 @@
   (`Reads`, `readsOK`): a sentence that reads the interpretation at a probed point is a `functional`
   sentence of a symbol of `totalSilentKeys` or at a line of `libSentences`, reads it only where its
   left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
-  and the probe evaluates reads it; and that under `HookParams.lib` only the control fails.
+  and the probe evaluates reads it; and that under `HookParams.lib` only the control fails. One
+  sentence is excepted from both (`unmet`): `countAllOccurrences`' second equation at the empty
+  needle, which no interpretation meets. Two lines of `libSentences` are outside what the probe
+  evaluates: `findChar`'s equation (1891), which it does not probe, and `sqrtFloat`'s (1671), which
+  applies `rootFloat`, no symbol of Γ in these texts.
 -/
 import KcoreSpec
 
@@ -610,11 +614,18 @@ def expected : Summary :=
   [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 23, 23, 0, 0, 0), (18, 64, 57, 57, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
+/-- The sentences reading the interpretation that are no condition of `Semantics.libAdmitted`,
+because no interpretation meets them: the second equation of `countAllOccurrences` (domains.md
+1898), whose instance at the empty needle is `c = 1 +Int c` of the count c. It fails under
+`HookParams.lib` as under every interpretation that gives the count a value there. -/
+def unmet : List String := ["17 domains.md:1898"]
+
 /-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
-condition and reads it only where its left side is silent, every named sentence the text holds reads
-it, and under `HookParams.lib` only the control (set idempotence) fails. -/
+condition, `unmet` aside, and reads it only where its left side is silent, every named sentence the
+text holds reads it, and under `HookParams.lib` only the control (set idempotence) and `unmet` fail. -/
 def readsOK (r : Reads) : Bool :=
-  r.unnamed.isEmpty && r.unread.isEmpty && r.off.isEmpty && r.libFails.all (·.startsWith "16 ")
+  r.unnamed.all unmet.contains && r.unread.isEmpty && r.off.isEmpty &&
+    r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
 def libModes : List Mode := [.lib, .hash]
@@ -631,14 +642,18 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's eight failures are the `functional` sentences of
+readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
 `substrString`, `Int2Bytes` (at a negative length), `isNaN`, `--Float`, `absFloat`, `floorFloat`,
-`ceilFloat`, `truncFloat`, under `HookParams.none` only. Row 17's three: `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
+`ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
+`HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898) at the empty
+needle, under every reading that gives the count a value there (`unmet`); `replaceAll`'s (1917) at
+the empty needle under the readings that give `replaceAll` and `replace` at the count different
+values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
 values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so the right
 side has none); `=/=Float`'s (1648) and `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
 which give the silent points of two symbols values that do not agree with the equation. -/
 def expectedFlt : Summary :=
-  [(9, 93, 71, 63, 0, 8, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 40, 36, 0, 3, 1), (18, 67, 60, 60, 0, 0, 0),
+  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 37, 0, 5, 1), (18, 67, 60, 60, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -653,7 +668,7 @@ of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid wit
 leaving out the 213 sentences of builtin modules outside the library's text (`outOfLibrary`:
 ARRAY, RANGEMAP, RAT, FFI, …). The sentences reading the interpretation are those of silentflt. -/
 def expectedAll : Summary :=
-  [(9, 102, 71, 63, 0, 8, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 40, 36, 0, 3, 1), (18, 114, 107, 107, 0, 0, 0),
+  [(9, 102, 73, 63, 0, 10, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 43, 37, 0, 5, 1), (18, 114, 107, 107, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do

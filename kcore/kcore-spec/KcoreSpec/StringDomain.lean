@@ -93,6 +93,26 @@ def replaceN (n r : List Char) : Nat → List Char → List Char
 def replace (s n r : List Char) (k : Int) : Option (List Char) :=
   if 0 ≤ k then some (replaceN n r k.toNat s) else none
 
+/-- The occurrences of `n` in `s` counted left to right, the search going on behind each one (none
+overlapping), at most `fuel` of them. -/
+def countFrom (n : List Char) : Nat → List Char → Nat
+  | 0, _ => 0
+  | fuel + 1, s => match firstAt s n with
+    | some p => 1 + countFrom n fuel (s.drop (p + n.length))
+    | none => 0
+
+/-- `countAllOccurrences(S, N)` at a non-empty N: 0 where N does not occur in S, and otherwise one
+more than the count in what follows the first occurrence (domains.md STRING-COMMON's two equations,
+1896-1899). Behind an occurrence of a non-empty N the rest is shorter than S, so S has at most
+`length` of them. None at the empty N, where the second equation makes the count its own successor. -/
+def countAll (s n : List Char) : Option Nat :=
+  if n.isEmpty then none else some (countFrom n s.length s)
+
+/-- `replaceAll(S, N, R)` at a non-empty N: `replace` at the count of N's occurrences in S
+(domains.md STRING-COMMON's equation, 1917); none at the empty N. -/
+def replaceAll (s n r : List Char) : Option (List Char) :=
+  (countAll s n).map fun k => replaceN n r k s
+
 /-- The lexicographic order of code-point sequences: `<String`. -/
 def lexLt : List Char → List Char → Bool
   | [], [] => false
@@ -182,6 +202,12 @@ theorem replace_mem {s n r x : List Char} {k : Int} {ch : Char} (h : replace s n
   split at h
   · cases h; exact replaceN_mem n r _ s hc
   · cases h
+
+theorem replaceAll_mem {s n r x : List Char} {ch : Char} (h : replaceAll s n r = some x) (hc : ch ∈ x) :
+    ch ∈ s ∨ ch ∈ r := by
+  unfold replaceAll at h
+  obtain ⟨k, -, rfl⟩ := Option.map_eq_some_iff.mp h
+  exact replaceN_mem n r k s hc
 
 /-- `chrChar(I)`: the string of the code point I; none unless I is a Unicode scalar value
 (0 … 0x10FFFF, no surrogate 0xD800 … 0xDFFF), the code points a KORE string holds. -/

@@ -202,11 +202,12 @@ theorem total_of_restTotal_nil {c : Semantics} {H : HookParams} (h : RestTotal c
 /-- The interpreted symbols with silent points that the builtin text declares `total`: at a silent
 point of one, the text states that a value of the result sort exists and not which. domains.md
 (K 7.1.337): `substrString` 1758, `Bytes2Int` 2082, `Int2Bytes` 2083, `isNaN` 1544, `isInfinite`
-1545, `--Float` 1562, `absFloat` 1608, `floorFloat` 1610, `ceilFloat` 1611, `truncFloat` 1612
+1545, `--Float` 1562, `absFloat` 1608, `floorFloat` 1610, `ceilFloat` 1611, `truncFloat` 1612,
+`replaceAll` 1852, `countAllOccurrences` 1855
 (checked against the builtin text by test/SilentTotal.lean). -/
 def totalSilentKeys : List Sym :=
   [stringSubstr, bytes2Int, int2Bytes, floatIsNaN, floatIsInfinite, floatNeg, floatAbs,
-   floatFloor, floatCeil, floatTrunc]
+   floatFloor, floatCeil, floatTrunc, stringCountAll, stringReplaceAll]
 
 theorem totalSilentKeys_silent : ∀ f ∈ totalSilentKeys, silentKey f = true := by decide +kernel
 
@@ -216,7 +217,7 @@ theorem totalSilentKeys_hook : ∀ f ∈ totalSilentKeys, (hook f []).isSome = t
 theorem totalSilentKeys_everywhere : ∀ f ∈ totalSilentKeys, ∀ vs, silent f vs = true := by
   intro f hf vs
   simp only [totalSilentKeys, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /-- `totalSilent`'s symbols are among them. -/
 theorem totalSilent_sub : ∀ f ∈ totalSilent, f ∈ totalSilentKeys := by decide

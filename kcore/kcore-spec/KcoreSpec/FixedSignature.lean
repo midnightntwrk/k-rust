@@ -195,8 +195,10 @@ library symbols with fixed numbers (BuiltinNames.lean). -/
 @[match_pattern, reducible] def string2Bool : Sym := 273
 @[match_pattern, reducible] def string2Int : Sym := 277
 @[match_pattern, reducible] def string2Base : Sym := 280
+@[match_pattern, reducible] def stringReplaceAll : Sym := 281
 @[match_pattern, reducible] def stringReplace : Sym := 282
 @[match_pattern, reducible] def stringReplaceFirst : Sym := 283
+@[match_pattern, reducible] def stringCountAll : Sym := 284
 @[match_pattern, reducible] def stringEq : Sym := 285
 @[match_pattern, reducible] def stringNe : Sym := 286
 @[match_pattern, reducible] def stringLt : Sym := 287
@@ -589,7 +591,9 @@ def hookSigs : List CtorSig :=
    ⟨string2Bool, [Srt.string], Srt.bool⟩, ⟨string2Int, [Srt.string], Srt.int⟩,
    ⟨string2Base, [Srt.string, Srt.int], Srt.int⟩,
    ⟨stringReplace, [Srt.string, Srt.string, Srt.string, Srt.int], Srt.string⟩,
-   ⟨stringReplaceFirst, [Srt.string, Srt.string, Srt.string], Srt.string⟩] ++
+   ⟨stringReplaceFirst, [Srt.string, Srt.string, Srt.string], Srt.string⟩,
+   ⟨stringCountAll, [Srt.string, Srt.string], Srt.int⟩,
+   ⟨stringReplaceAll, [Srt.string, Srt.string, Srt.string], Srt.string⟩] ++
   ([stringEq, stringNe, stringLt, stringLe, stringGt, stringGe].map fun f => ⟨f, [Srt.string, Srt.string], Srt.bool⟩) ++
   [⟨stringChr, [Srt.int], Srt.string⟩, ⟨int2String, [Srt.int], Srt.string⟩, ⟨bool2String, [Srt.bool], Srt.string⟩] ++
   [⟨bytes2Int, [Srt.bytes, Srt.endianness, Srt.signedness], Srt.int⟩,
@@ -626,12 +630,13 @@ def floatResInt : List Sym := [floatPrecision, floatExponentBits]
 /-- STRING's and BYTES' interpreted symbols that are partial: undefined off valid indices or digits,
 at a negative count or length, at a byte outside 0–255, at an integer that is no code point.
 `substrString` and `Int2Bytes`, declared `total` by the library's text, are among them
-(findings/KN-4-string-bytes.md §1.4, §3). `Bytes2Int` is not: it is undefined only at an Endianness
+(findings/KN-4-string-bytes.md §1.4, §3), and so are `countAllOccurrences` and `replaceAll`, declared
+`total` and without a `hook` value at the empty needle. `Bytes2Int` is not: it is undefined only at an Endianness
 or Signedness value that is no constructor of BYTES, and the deciders count on its totality where
 those sorts have only BYTES' constructors (`enumShapesOK`). -/
 def stringPartial : List Sym :=
   [stringOrd, stringSubstr, stringFind, stringRfind, stringFindChar, stringRfindChar, string2Bool, string2Int,
-   string2Base, stringReplace, stringChr]
+   string2Base, stringReplace, stringChr, stringCountAll, stringReplaceAll]
 def bytesPartial : List Sym :=
   [bytesUpdate, bytesGet, bytesSubstr, bytesReplaceAt, bytesMemset, bytesPadRight, bytesPadLeft, int2Bytes]
 
@@ -747,6 +752,8 @@ def regHookNames : List (Sym × String) :=
    (string2Base, "STRING.string2base"),
    (stringReplace, "STRING.replace"),
    (stringReplaceFirst, "STRING.replaceFirst"),
+   (stringCountAll, "STRING.countAllOccurrences"),
+   (stringReplaceAll, "STRING.replaceAll"),
    (stringEq, "STRING.eq"),
    (stringNe, "STRING.ne"),
    (stringLt, "STRING.lt"),

@@ -12,10 +12,11 @@
     (the low bytes in two's complement, none at a negative length).
   - STRING-COMMON's and BYTES-SYMBOLIC-CEIL's hand-written axioms about the interpreted symbols,
     checked on all words over {a, b} up to a length (`replaceFirst`'s, `replace`'s and `findChar`'s
-    equations, `padRightBytes`' definedness); and the two places where the library's text and the
-    interpretation part: `substrString`'s functional axiom (`substrString("abc", 2, 1)` has no
-    value) and `countAllOccurrences`' recursive equation at the empty needle (whose premise holds
-    at `("a", "")` and makes the count its own successor; `countAllOccurrences` stays a parameter).
+    equations, `countAllOccurrences`' and `replaceAll`'s at a non-empty needle, `padRightBytes`'
+    definedness); and the two places where the library's text and the interpretation part:
+    `substrString`'s functional axiom (`substrString("abc", 2, 1)` has no value) and
+    `countAllOccurrences`' recursive equation at the empty needle (whose premise holds at
+    `("a", "")` and makes the count its own successor; `hook` gives no value there, a silent point).
   - `f2-examples/strbytes.kompile.kore` (STRING and BYTES imported): the verdict, no parameter
     symbol, `shapesOK`, `coreOK`, and the step of `go("hello", b"ab")` to `done("el!", 4)`.
   - String and Bytes literals are values of their sorts in a definition importing neither module
@@ -226,6 +227,36 @@ example : (words 3).all (fun x => (words 2).all fun cs => (List.range (x.length 
     | [] => KStr.findChar x cs i == some (-1)
     | ch :: rest => KStr.findChar x cs i == ((KStr.find x [ch] i).bind fun a => (KStr.findChar x rest i).map fun d =>
         if a == -1 then d else if d == -1 then a else min a d)) = true := by decide +kernel
+
+/-- `countAllOccurrences` and `replaceAll` at a non-empty needle: the occurrences found left to
+right, the search going on behind each (`"aaa"` holds `"aa"` once); at the empty needle `hook` gives
+no value and the point is silent. -/
+example : hook stringCountAll [s "aaa", s "aa"] = some (some (int 1)) ∧
+    hook stringCountAll [s "aa", s "a"] = some (some (int 2)) ∧
+    hook stringCountAll [s "abc", s "x"] = some (some (int 0)) ∧
+    hook stringCountAll [s "", s "x"] = some (some (int 0)) ∧
+    hook stringReplaceAll [s "aXbX", s "X", s "yy"] = some (some (s "ayybyy")) ∧
+    hook stringReplaceAll [s "aaa", s "aa", s "b"] = some (some (s "ba")) ∧
+    hook stringReplaceAll [s "abc", s "x", s "y"] = some (some (s "abc")) ∧
+    hook stringCountAll [s "a", s ""] = some none ∧ silent stringCountAll [s "a", s ""] = true ∧
+    hook stringReplaceAll [s "a", s "", s "b"] = some none ∧
+    silent stringReplaceAll [s "a", s "", s "b"] = true := by decide +kernel
+
+/-- STRING-COMMON's equations of `countAllOccurrences` (domains.md 1896-1899), the empty needle
+excepted: 0 where `findString(S, T, 0) <Int 0`, and otherwise `1 +Int countAllOccurrences(
+substrString(S, findString(S, T, 0) +Int lengthString(T), lengthString(S)), T)`. -/
+example : (words 4).all (fun x => (words 2).all fun t => t.isEmpty ||
+    match KStr.find x t 0 with
+    | some p => if p < 0 then KStr.countAll x t == some 0
+        else ((KStr.substrString x (p + t.length) x.length).bind fun z =>
+          (KStr.countAll z t).map fun k => 1 + k) == KStr.countAll x t
+    | none => false) = true := by decide +kernel
+
+/-- STRING-COMMON's equation of `replaceAll` (domains.md 1917), the empty needle excepted:
+`replace(S, T, R, countAllOccurrences(S, T))`. -/
+example : (words 4).all (fun x => (words 2).all fun t => t.isEmpty || [[], ['c'], ['a', 'a']].all fun r =>
+    KStr.replaceAll x t r == (KStr.countAll x t).bind fun k => KStr.replace x t r k) = true := by
+  decide +kernel
 
 /-- BYTES-SYMBOLIC-CEIL: `padRightBytes(_, LEN, VAL)` is defined exactly when `0 <=Int LEN`, `0 <=Int VAL`
 and `VAL <Int 256`; `padLeftBytes` likewise. -/

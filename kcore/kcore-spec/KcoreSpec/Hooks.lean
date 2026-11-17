@@ -9,7 +9,7 @@
   `isInfinite`, precision, exponent width, `maxValueFloat`, `minValueFloat`; STRING's operations on
   Strings (StringDomain.lean): `+String`, `lengthString`, `ordChar`, `substrString`, `findString`,
   `rfindString`, `findChar`, `rfindChar`, `String2Bool`, `String2Int`, `String2Base`, `replace`,
-  `replaceFirst`, the six comparisons, `chrChar`, `Int2String`, `Bool2String`; BYTES' operations on
+  `replaceFirst`, `countAllOccurrences` and `replaceAll` (at a non-empty needle), the six comparisons, `chrChar`, `Int2String`, `Bool2String`; BYTES' operations on
   Bytes: `Bytes2Int`, `B[I]`, `B[I <- V]`, `substrBytes`, `replaceAtBytes`, `memsetBytes`,
   `padRightBytes`, `padLeftBytes`, `reverseBytes`, `lengthBytes`, `+Bytes`, `.Bytes`, `Int2Bytes`
   (String and Bytes literals are values in every definition, `dvOK`); RANGEMAP's operations on
@@ -19,8 +19,7 @@
   is a parameter (Builtins.lean): `Set:choice` (an unspecified element), RANGEMAP's
   `keys_list`, `values` and `choice`, `L[I <- V]`, `makeList`,
   `updateList`, `fillList`, the K-IO hooks; STRING's and BYTES' where K's documentation leaves the
-  value open (`Float2String`, `String2Float`, `FloatFormat`, `Base2String`, `replaceAll` and
-  `countAllOccurrences` at the empty needle, `Bytes2String`, `String2Bytes`, `Bytes2Hex`,
+  value open (`Float2String`, `String2Float`, `FloatFormat`, `Base2String`, `Bytes2String`, `String2Bytes`, `Bytes2Hex`,
   `decodeBytes`, `encodeBytes`, `Int2Bytes` without a length, the deprecated `categoryChar`,
   `directionalityChar`, `newUUID`); and FLOAT's where K's documentation
   leaves the value open (`Float2Int` at NaN and ∞, `signFloat` at NaN, `exponentFloat`, `minFloat`
@@ -398,6 +397,13 @@ def stringHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (stringReplaceFirst, fun vs => match vs with
      | [a, b, r] => (asStr a).bind fun x => (asStr b).bind fun y => (asStr r).map fun z => strV (KStr.replaceFirst x y z)
      | _ => none),
+   (stringCountAll, fun vs => match vs with
+     | [a, b] => (asStr a).bind fun x => (asStr b).bind fun y => (KStr.countAll x y).map fun k => int k
+     | _ => none),
+   (stringReplaceAll, fun vs => match vs with
+     | [a, b, r] => (asStr a).bind fun x => (asStr b).bind fun y => (asStr r).bind fun z =>
+         (KStr.replaceAll x y z).map strV
+     | _ => none),
    (stringEq, fun vs => str2 vs fun x y => x == y), (stringNe, fun vs => str2 vs fun x y => x != y),
    (stringLt, fun vs => str2 vs KStr.lexLt), (stringLe, fun vs => str2 vs fun x y => !KStr.lexLt y x),
    (stringGt, fun vs => str2 vs fun x y => KStr.lexLt y x), (stringGe, fun vs => str2 vs fun x y => !KStr.lexLt x y),
@@ -447,7 +453,10 @@ def bytesHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
          (KBytes.ofInt l v be).map bytesV
      | _ => none)]
 
-/-- `ite(C, A, B)`: A if C is true, B if C is false. -/
+/-- `ite(C, A, B)`: A if C is true, B if C is false, at every sort of A and B: domains.md:2314-2317
+describes the polymorphic conditional so ("If the first argument evaluates to `true`, the second
+argument is returned. Otherwise, the third argument is returned"), of every instance; the text's two
+equations are stated at the instance of sort K only (2357-2358) and agree with it. -/
 def iteHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(kIte, fun vs => match vs with
      | [c, x, y] => (asBool c).map fun b => if b then x else y | _ => none)]
@@ -642,6 +651,13 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
 - `replace` at a negative count: "undefined … This allows different backends to implement their own
   behavior" (1908-1910).
 - `String2Bool`: two equations, at `"true"` and `"false"` (1792-1794), and no `total`.
+- `countAllOccurrences`, `replaceAll` at the empty needle: both are declared `total` (1852, 1855), so
+  a value exists. The prose speaks of "the number of times a string occurs within another string"
+  (1848-1849) and does not say how often the empty string occurs; the second equation of
+  `countAllOccurrences` (1898-1899) reads at the empty needle `c = 1 +Int c`, which no Int meets, so
+  that instance is a sentence of the text no interpretation satisfies and is not stated; at a
+  non-empty needle the two equations give the count, and `hook` has it. `replaceAll` is `replace` at
+  that count (1917), also at the empty needle.
 - `replaceAtBytes` at a negative index whose end `index + N` is within the bytes: the `#False` of
   2146-2147 speaks of `index + N` only, and "the `N` elements starting at `index`" names no element.
 - `memsetBytes`: "This will throw an exception" (2158-2164), of a run, where the text writes `#False`
@@ -677,6 +693,7 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (stringFindChar, fun _ => true), (stringRfindChar, fun _ => true),
    (string2Int, fun _ => true), (string2Base, fun _ => true), (stringReplace, fun _ => true),
    (string2Bool, fun _ => true),
+   (stringCountAll, fun _ => true), (stringReplaceAll, fun _ => true),
    (bytesReplaceAt, fun vs => match vs with
      | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
          decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))

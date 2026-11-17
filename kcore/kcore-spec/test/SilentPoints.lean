@@ -246,6 +246,8 @@ def pts : List Pt :=
    ⟨string2Base, [s "10", int 1], int 0⟩,
    ⟨stringReplace, [s "a", s "a", s "b", int (-1)], s ""⟩,
    ⟨string2Bool, [s "x"], bool true⟩,
+   ⟨stringCountAll, [s "a", s ""], int 0⟩,
+   ⟨stringReplaceAll, [s "a", s "", s "b"], s ""⟩,
    ⟨bytesReplaceAt, [b "abc", int (-1), b "xy"], b ""⟩,
    ⟨bytesMemset, [b "abc", int 0, int 1, int 200], b ""⟩,
    ⟨int2Bytes, [int (-1), int 0, be], b ""⟩,
