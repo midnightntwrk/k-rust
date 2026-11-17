@@ -2784,6 +2784,11 @@ def account (koreFile : String) : IO UInt32 := do
     let lu := Parse.lawUnmatched k d
     IO.println s!"law axioms of no collection's concatenation: {lu.length}"
     for r in lu.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when the text has an open generator
+    let of := Parse.openFunctionalSentences k d
+    unless of.isEmpty do
+      IO.println s!"functional axioms of open generators, stated at values under OpenTotal (no item of Γ; OpenTotal owed): {of.length}"
+      for (i, f) in of do IO.println s!"      sentence {i} ({f}): stated at values, under OpenTotal"
     -- printed only when the text writes a law for a function
     let fl := Parse.fnLawSentences k d
     unless fl.isEmpty do
@@ -2888,6 +2893,14 @@ def account (koreFile : String) : IO UInt32 := do
               IO.println s!"      function {decodeK (d.sem.symName f.label)}, clause {j}: Var{cp.names.getD i ""}:{d.sem.sortName s}{note}"
       -- the functions whose equations' agreement no decider confirms, as `genFnHyp` computes the
       -- package's `agree_named`: `agreeObligationsI`
+      -- the open generators, whose laws and values every statement takes as hypotheses at each
+      -- interpretation H (the package's `hop`, `_hot`)
+      let og := d.sem.params.filter (·.raw)
+      unless og.isEmpty do
+        let lawsOf := fun (k : ParamSig) =>
+          let ls := (if k.assoc then ["assoc"] else []) ++ (if k.idem then ["idem"] else [])
+          if ls.isEmpty then "" else s!" ({", ".intercalate ls})"
+        IO.println s!"open generators, whose laws and values at every argument list are owed at each interpretation H (OpenLaws and OpenTotal of defn.sem.withHooks H, hypotheses of every statement; not a condition of wf or coreOK): {og.length}: {", ".intercalate (og.map fun k => decodeK (d.sem.symName k.sig.name) ++ lawsOf k)}"
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
       -- printed only when some clause holds an existential variable

@@ -164,8 +164,10 @@ as `S`, named as `E`) accounts for:
   with its equation or, without one, a parameter), or a function's of `d` that `d` reads total: one of
   its own declared `total` (`Fn.total`, whose totality is decided or an obligation) or one of the
   registry's; or a parameter's: the registry's, or one of `d`'s own declared `total`
-  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`), an
-  open generator's not among them (`Definition.totalParams` leaves it out);
+  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`); or an
+  open generator's, stated at values under `OpenTotal` (`Definition.totalParams` leaves it out:
+  the sentence reads the sort at the interpretation's values, and `Γ` holds no functionality item
+  for it), which the account lists (`openFunctionalSentences`);
 - a `subsort` axiom is one of `d`'s subsorts or one of the library's below a sort of `d` (its
   place, `eventOf`), one of the library's (`Lib.subsorts`) or of the cells' (`cellSubsorts`), or
   a sort of `d` below KItem, as every sort is in KCore;
@@ -191,8 +193,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
   let ownParams := withPres (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)) d.pres.params
   let paramNotTotal := fun (f : String) => ownParams.any fun (k, kp) => c.symName k.sig.name == f && !kp.total
-  -- an open generator's `functional` axiom reads the sort at the interpretation's values
-  -- (`OpenTotal`), which `Definition.totalParams` leaves out: no parameter's declared total
+  -- an open generator's `functional` axiom reads the sort at the interpretation's values: it is
+  -- stated at values under `OpenTotal`, not a parameter's declared total (`Definition.totalParams`
+  -- leaves it out)
   let openGen := fun (f : String) => c.params.any fun k => k.raw && c.symName k.sig.name == f
   -- the overloading symbol f overloads g (`Semantics.ovls`)
   let ovlPair := fun (as : List Kore.AppPattern) => match overloadSyms? as with
@@ -225,7 +228,8 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
-        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f && !openGen f) ||
+        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f) ||
+        openGen f ||
         ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
         isProj f
       | some (.inr (x, y)) =>
@@ -606,6 +610,23 @@ def fnLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String 
   | none => []
   | some m => (fnLawAxioms d.sem m.sentences).map fun (i, a) =>
     (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
+
+/-- The `functional` axioms of the open generators of `d` (`ParamSig.raw`): the sentence's index and
+the symbol. Each is stated at values under `OpenTotal` (the interpretation gives the generator a
+value at every argument list of its sorts), owed: `Γ` holds no functionality item for an open
+generator, and `ΓDomains` states its application to values to be the interpretation's value, or
+nothing where the interpretation gives none. -/
+def openFunctionalSentences (k : Kore.Definition) (d : Definition) : List (Nat × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    m.sentences.zipIdx.filterMap fun (s, i) =>
+      if isRead s then match scanEvent s with
+        | some (.inl f) => if c.params.any (fun k => k.raw && c.symName k.sig.name == f) then some (off + i, f) else none
+        | _ => none
+      else none
 
 /-! ## The library's modules in a K installation's text
 
