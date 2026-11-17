@@ -1,0 +1,3 @@
+# pair priority x [owise] on one equation, n other than 200, beside a sibling the exclusion names (TRIAGE-B c3.pair 4; findings/C3-noncore-rulings.md section 1): f(X) => X requires X >Int 0 beside f(_) => 0 [owise, priority(40)]; predicted refused owisePriority at the [owise] equation (R-a, C3-open-pairs-decision section 2 (i)); differs_from c3-eq-req-owise: the text without priority(40)
+differs_from = "c3-eq-req-owise"
+# account: refused owisePriority at account sentence 349, the [owise] equation (c3-eq-owise-prio40-sib.k:6), as predicted

@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C3-EQ-OWISE-PRIO40-SIB: 389 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  3 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 owisePriority
+      sentence 349 (Lblf): owisePriority
+        [user] (no label) at c3-eq-owise-prio40-sib.k:6: axiom{R} \implies{R}(\and{R}(\not{R}(\or{R}(\exists{R}(Var'Unds'Gen2:SortInt{}, \and{R}(\equals{SortBool{}, R}(Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen2:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen2:SortInt{}), \top{R}()))), \bottom{R}())), \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}()) …
+finish: sentence 349 (Lblf): owisePriority
+(exit 0)

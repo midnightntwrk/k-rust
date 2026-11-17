@@ -1,0 +1,3 @@
+# pair priority x [owise], a sibling of priority exactly 200 (TRIAGE-B c3.pair 5; findings/C3-noncore-rulings.md section 2): f(X) => X [priority(200)] beside f(_) => 0 [owise]; the boundary of the sibling refusal (200 or more); predicted refused owisePriority at the priority(200) equation (R-a, C3-open-pairs-decision section 2 (ii)); differs_from c3-eq-only-owise: the text without priority(200)
+differs_from = "c3-eq-only-owise"
+# account: refused owisePriority at account sentence 348, the priority(200) equation (c3-eq-owise-sib-prio200.k:5), as predicted
