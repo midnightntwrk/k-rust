@@ -949,3 +949,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   through `tr_occurrence_order`), and the theorem at them (`tie`); `Fresh.tables`: the rule's sentence
   and the sentence without the cut number the right side's variables alike. Not covered: a right-side
   variable first met after Z.
+- `test/PredReader.lean`: `Parse.connRuleOf` (KcoreSpec/ReadRuleConn.lean, not called by `ruleBody`) on
+  kompiled texts through `parseWith`. rhs-connective: mlror (`go => a() #Or b()`) read as `go => ?Z`,
+  `post := or (mem Z a) (mem Z b)`, and the text with the `\or` replaced by `\not{Exp}(a)`, `\top{Exp}()`
+  and `c(\or(a, \not(b)))`. lhs-not: mlnot read as `c(Z) => G`, `pre := not (and (mem Z a) (mem Z G))`,
+  and beside a rule of a larger priority `openRequires` at Exp. Each prints `ruleSorted`, `rulePlainPP`,
+  `openRefusal` and the definition's `rulesPlain`, which still asks `\top` predicates. mlor: a text the
+  landed reader reads has the same rules. Kernel: `cut_right`, `cut_left`.

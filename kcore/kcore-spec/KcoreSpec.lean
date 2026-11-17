@@ -226,6 +226,7 @@ import KcoreSpec.ExactPP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OccurrenceOrder
 import KcoreSpec.RuleAndIn
+import KcoreSpec.RuleConnIn
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
 import KcoreSpec.RangeMapLaws
@@ -235,6 +236,7 @@ import KcoreSpec.LawHooks
 import KcoreSpec.OpenValues
 import KcoreSpec.LawHooksLib
 import KcoreSpec.ReadFns
+import KcoreSpec.ReadRuleConn
 import KcoreSpec.InjValue
 import KcoreSpec.ClausePlainEx
 import KcoreSpec.ExistsHoist
