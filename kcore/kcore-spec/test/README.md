@@ -855,13 +855,13 @@ logs in `.lake/release/`; exit status 1 when a step is not `ok`. Steps, in order
 | examples | `examples/run.sh --build-only`: every example package as committed, built in the kernel with its user's modules: peano with its tie and User.Statements to User.Course; prio, kink-imp, kimp, imp-sec, imp-sec-leaky, ph, kryp, vault, vault-leaky, colls-list, lazy, fprio, colls, ref-peano, ref-fprio with theirs; kimp-ni's seven NI modules; ref-kimp with User.SumSpec (K's claim `sum-spec`) and User.SumN |
 | axioms-peano | `#print axioms` of `Peano.tied`, `sound_hyp`, `complete_hyp`, `sound`, `complete`, `coreOK_defn` |
 | axioms-sumspec | of `RefKimp.SumSpec.sum_spec`, `sum_spec_entailed`, `RefKimp.SumN.sum_N`, `RefKimp.sound_hyp`, `complete_hyp` |
+| axioms-refkimp | of ref-kimp's row statements `RefKimp.coreOK_defn`, `consistent`, `sound_at`, `complete_at`, `run_exact`, `totals` (every `[total]` function is `Total`) |
 | axioms-ni | of the ten noninterference results over kimp, imp-sec, imp-sec-leaky, vault, vault-leaky (`NI.leaky_not_ni`, `NI.checkers_differ`, `NI.kimpNI_of_unwinding`, `Kimp.noninterference`, `NI.Keyed.not_noninterference`, `NI.Keyed.var_not_unwinds`, `Vault.noninterference`, `VaultLeaky.noninterference`, `VaultLeaky.not_noninterference`, `VaultLeaky.leak_not_unwinds`) |
-| kevm | kompile's KEVM text (`KEVM_KORE`, default the main checkout's `target/benchmarks/work/kevm/reference-definition/definition.kore`, not committed): `examples/kevm.sh` (`kcore gen --core`, every module built, under `.lake/kevm`) and the axioms of its `coreOK_defn`, `sound_hyp`, `complete_hyp`, `fnHyp_defn`, `sound_defn`, `complete_defn` |
-| mir | the same on kompile's mir text, corpus entry `54c47612b6f3b8ba` (`.lake/corpus/defs`, extracted by the integration run's corpus row) |
 | sorry | no `sorry` in the code (comments and strings removed) of `KcoreSpec`, `KcoreGen.lean`, `examples` |
 
 An axioms step fails when a declaration is not printed or a printed line names an axiom other than
-`propext`, `Classical.choice`, `Quot.sound`.
+`propext`, `Classical.choice`, `Quot.sound`. No step builds a KEVM or mir package (`examples/kevm.sh`
+still builds one by hand); the first run below predates this and had a `kevm` and a `mir` step.
 
 The first release run, on this line after the trimming (2026-11-14, 64 GiB available, other lanes
 building; `KCORE_CONE=../findings/work/review-cone/core-hyp.txt`), exit status 0, 1,854 s (31 min):
