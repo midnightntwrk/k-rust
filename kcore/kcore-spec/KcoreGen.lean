@@ -504,6 +504,15 @@ theorem wf_defn : wf defn = true := {if exec then "wf_of_parts" else "wf_of_part
 
 end {ns}
 ")
+  -- with an open generator the `…_withHooks` forms do not apply (they ask that no parameter be
+  -- raw): the base statements at the definition under H, `RightHeld` there from `rightValued`
+  let raw := c.params.any (·.raw)
+  let rhW := "(Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H)"
+  let wfW := "((Definition.wf_withHooks defn H).trans wf_defn)"
+  let soundW := if raw then s!"KCore.sound \{ defn with sem := defn.sem.withHooks H } {wfW} hob {rhW}"
+    else "KCore.sound_withHooks defn wf_defn H hob"
+  let completeW := if raw then s!"KCore.complete \{ defn with sem := defn.sem.withHooks H } ref {wfW} hob {rhW}"
+    else "KCore.complete_withHooks defn ref wf_defn H hob"
   let soundStmt := if noObl then s!"
 /-- **Soundness** (`KCore.Sound`): the theory of the definition's semantics with the step's closure
 has a model, and at every step x has, in every model, a successor among the instances of the
@@ -537,7 +546,7 @@ theorem sound (hob : Obligations defn) : Sound defn := KCore.sound defn wf_defn 
 /-- Soundness for every interpretation of the parameters, under the named obligations stated for it. -/
 theorem sound_withHooks (H : HookParams) (hob : Obligations \{ defn with sem := defn.sem.withHooks H }) :
     Sound \{ defn with sem := defn.sem.withHooks H } :=
-  KCore.sound_withHooks defn wf_defn H hob
+  {soundW}
 
 /-- **Completeness** (`KCore.Complete`): for an outcome function `ref` that lists the outcomes at
 each configuration (`KCore.OutIs`), with the step's closure every successor of a configuration is in
@@ -551,7 +560,7 @@ it. -/
 theorem complete_withHooks (ref : OutFn) (H : HookParams)
     (hob : Obligations \{ defn with sem := defn.sem.withHooks H }) :
     Complete \{ defn with sem := defn.sem.withHooks H } ref :=
-  KCore.complete_withHooks defn ref wf_defn H hob"
+  {completeW}"
   let hypStmt := s!"
 
 /-- The decidable conditions soundness and completeness assume of the definition's semantics
@@ -840,7 +849,14 @@ empty: an equation holds a variable outside its patterns and conditions, of a so
 exhibited value, so `rightValued` is false), `NS.FnHyp.Held` states the list (`held_named`) and
 `fnHyp_defn`, `sound_defn`, `complete_defn` and the statements at a step take the facts owed of
 those functions (`Held`: `KCore.HeldOwed` of each) through the forms `…N` of FnObligations.lean;
-with none held-named the emitted text is as before. `force` (`--as-not-plain`): every binder is written, as if facts and
+with none held-named the emitted text is as before. Where a parameter is an open generator
+(`raw`), every statement takes, after H, `OpenLaws` and `OpenTotal` of `defn.sem.withHooks H`
+(`hop`, `_hot`), never discharged by fixing H; `Obl H` is the named facts given the laws;
+`HooksTotal` reads the sorts under H; `fnHyp_defn`, `sound_defn` and `complete_defn` are the base
+lemmas at `defn.sem.withHooks H` (the `…_withHooks` forms ask that no parameter be raw); and the
+module ends with `lawHooks`: the laws, the values and the library's sentences there
+(`openLaws_lawHooks_defn`, `openTotal_lawHooks_defn`, `libAdmitted_lawHooks_defn`,
+`lawHooks_lib_defn`) and each statement's instance (`…_lawHooks`). `force` (`--as-not-plain`): every binder is written, as if facts and
 conditions were owed. -/
 def genFnHyp (o : Out) (ns : String) (d : Definition) (facts plain : Bool) (force : Bool := false) : IO Out := do
   let mut o := o
@@ -920,7 +936,7 @@ end {ns}
   let owesC := !plain && (force || !owedC.isEmpty)
   let owes := owesR || owesC
   let none := if plain then termL.isEmpty && totL.isEmpty && agrL.isEmpty && matL.isEmpty
-    else !force && termL.isEmpty && totL.isEmpty && agrL.isEmpty && matL.isEmpty && !raw
+    else !force && termL.isEmpty && totL.isEmpty && agrL.isEmpty && matL.isEmpty
   -- each owed rule's label and its open condition variables of an unconfined sort; each owed
   -- clause's function
   let ruleVs := fun (i : Nat) =>
@@ -942,7 +958,8 @@ end {ns}
     (if plain then [] else
       owedR.map (fun i => s!"condition decided (closed over {ruleVs i}, unconfined): rule {i}{ruleLbl i}") ++
       owedC.map (fun (i, j) => s!"condition decided (a witness at which the `requires` has no other result, or a refutation): clause {j} of {fnName i}") ++
-      (if raw then ["the open generators' laws (`KCore.OpenLaws`)"] else []))
+      (if raw then ["the open generators' laws (`KCore.OpenLaws`)",
+        "the open generators' values at every argument list of their sorts (`KCore.OpenTotal`)"] else []))
   let strs := if entries.isEmpty then "[]" else
     "[\n  " ++ ",\n  ".intercalate (entries.map fun e => (repr e).pretty) ++ "]"
   let factsDef := s!"/-- The named facts, one per line: the class, the function (its KORE name decoded) and its source
@@ -951,8 +968,12 @@ location (the declaring file and line). Data for the reader; the statements are 
 def namedFacts : List String := {strs}
 "
   -- with no fact named, `FnHyp` and soundness and completeness hold outright (`obl_nil`)
+  -- with an open generator (`raw`) every statement is for the interpretations H that satisfy the
+  -- generators' laws and give each a value at every argument list of its sorts: two binders after
+  -- H, never discharged by fixing H; the named facts `Obl H` are then stated given the laws
+  let rawB := if raw then " (hop : OpenLaws (defn.sem.withHooks H)) (_hot : OpenTotal (defn.sem.withHooks H))" else ""
   let hobB := if none then "" else " (hob : Obl H)"
-  let hobA := if none then "(obl_nil H)" else "hob"
+  let hobA := if raw then (if none then "(obl_nil H hop)" else "(hob hop)") else if none then "(obl_nil H)" else "hob"
   let hobB0 := if none then "" else " (hob : Obl)"
   let hobA0 := if none then "obl_nil" else "hob"
   -- the laws the text writes for its functions (`defn.laws`): every statement is about the
@@ -963,15 +984,16 @@ def namedFacts : List String := {strs}
   let laws0 := if laws then " (_hl : FnLaws defn.sem defn.laws)" else ""
   let lawsA := if laws then " _hl" else ""
   let lawsD := if laws then ", under the laws the text writes for its functions at values (`KCore.FnLaws`, `defn.laws`)" else ""
-  let given := (if none then "no fact being named (`obl_nil`)" else "given the named facts") ++ lawsD
+  let rawD := if raw then ", for an interpretation that satisfies the open generators' laws (`hop`) and gives each a value at every argument list of its sorts (`_hot`)" else ""
+  let given := (if none then "no fact being named (`obl_nil`)" else "given the named facts") ++ lawsD ++ rawD
   -- not plain: the named facts are `FnFacts`; `OpenDecided` is proved (nothing owed) or `Owed`
   let oblK := if plain then "FnObligations" else "FnFacts"
   let rawArg := if plain then "" else "\n    (show defn.sem.params.all (fun k => !k.raw) = true by decide +kernel)"
   let oblDoc := if plain then "" else " `OpenDecided` is not among them: with it (`KCore.FnFacts.obligations`) they
 are `KCore.FnObligations`."
   let givenD := if plain || !owes then given
-    else if none then "given the owed conditions (`Owed`)" ++ lawsD
-    else "given the named facts and the owed conditions (`Owed`)" ++ lawsD
+    else if none then "given the owed conditions (`Owed`)" ++ lawsD ++ rawD
+    else "given the named facts and the owed conditions (`Owed`)" ++ lawsD ++ rawD
   -- the held-named functions: the statements take the facts owed of them in place of `RightHeld`
   let nN := if held then "N" else ""
   let rh0 := if held then "hheld" else "(Semantics.rightHeld_of_valued (by decide +kernel))"
@@ -1010,7 +1032,17 @@ theorem clausesDecided_defn (H : HookParams) :
 witnessed at values, or refuted by the theory). The text may hold this or not; where it does not,
 the statements that take it say nothing of the text. -/"
   let body := if hasParams then
-    let nilPart := if none then s!"
+    let nilPart := if !none then "" else if raw then s!"
+
+/-- No fact is named: under every interpretation that satisfies the open generators' laws,
+`{oblK}` holds (`KCore.FnFacts.of_nil_laws`). -/
+theorem obl_nil (H : HookParams) : Obl H := fun hop =>
+  FnFacts.of_nil_laws
+    (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named)
+    ((Semantics.totalObligationsRP_withHooks _ H _ _).trans total_named)
+    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)
+    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named) hop
+" else s!"
 
 /-- No fact is named: `{oblK}` holds for every interpretation. -/
 theorem obl_nil (H : HookParams) : Obl H :=
@@ -1019,7 +1051,7 @@ theorem obl_nil (H : HookParams) : Obl H :=
     ((Semantics.totalObligationsRP_withHooks _ H _ _).trans total_named)
     ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)
     ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named){rawArg}
-" else ""
+"
     let owedPart := if plain then "" else sidesPart ++ (if owes then s!"
 {owedDoc}
 abbrev Owed (H : HookParams) : Prop := OpenDecided {S}
@@ -1032,32 +1064,50 @@ theorem openDecided_defn (H : HookParams) : OpenDecided (defn.sem.withHooks H) :
 {heldDoc}
 abbrev Held (H : HookParams) : Prop := ∀ f ∈ defn.sem.heldObligations, HeldOwed (defn.sem.withHooks H) f
 " else ""
+    -- with an open generator the sorts are the interpretation's (an open generator's application
+    -- is a value only where H leaves it raw), so the statements are the base lemmas at
+    -- `defn.sem.withHooks H`, with `ParamsTotal` read there
+    let htSem := if raw then "(defn.sem.withHooks H)" else "defn.sem"
+    let htDoc := if raw then " The sorts are those under H: with an open generator a value's sort
+depends on the interpretation." else ""
+    let oblTy := if raw then s!"OpenLaws (defn.sem.withHooks H) → {oblK} (defn.sem.withHooks H) callOrder defn.totalParams"
+      else s!"{oblK} (defn.sem.withHooks H) callOrder defn.totalParams"
+    let oblRawDoc := if raw then " They are stated for an H that satisfies the open generators' laws
+(`KCore.OpenLaws`, the last conjunct of `KCore.FnFacts`), which each statement takes as `hop`." else ""
+    let cwH := "((Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn)"
+    let rhR := if held then "hheld" else "(rightHeld_withHooks_defn H)"
+    let fnHypPf := if raw then s!"fnHyp_of_fnObligations{nN} {cwH} {rhR} hH {hobAD}"
+      else s!"fnHyp_withHooks{nN} coreOK_defn {rhH} hH {hobAD}"
+    let soundPf := if raw then s!"sound_fn{nN} (defn.sem.withHooks H) callOrder defn.totalParams {cwH} {rhR} hH {hobAD}"
+      else s!"sound_fn_withHooks{nN} defn.sem callOrder defn.totalParams coreOK_defn {rhH} hH {hobAD}"
+    let completePf := if raw then s!"complete_fn{nN} (defn.sem.withHooks H) callOrder defn.totalParams ref {cwH} {rhR} hH {hobAD}"
+      else s!"complete_fn_withHooks{nN} defn.sem callOrder defn.totalParams ref coreOK_defn {rhH} hH {hobAD}"
     s!"/-- **The interpretations the statements are about**: H gives each parameter symbol the text
 declares total, and no registry hook implements, a value of its result sort at every argument list
 of its sorts (`KCore.ParamsTotal`; the parameters are `totalParams_eq`'s). A parameter the text does
-not declare total may be undefined anywhere. -/
-abbrev HooksTotal (H : HookParams) : Prop := ParamsTotal defn.sem defn.totalParams H
+not declare total may be undefined anywhere.{htDoc} -/
+abbrev HooksTotal (H : HookParams) : Prop := ParamsTotal {htSem} defn.totalParams H
 
 /-- **The facts the deciders leave of `FnHyp`** under the interpretation H ({termL.length} functions'
 termination, {totL.length} `[total]` functions' totality, {agrL.length} functions' agreement,
 {matL.length} clauses' match independence; the lists are `term_named`, `total_named`,
-`agree_named`, `match_named`, the same for every H).{oblDoc} -/
-abbrev Obl (H : HookParams) : Prop := {oblK} (defn.sem.withHooks H) callOrder defn.totalParams
+`agree_named`, `match_named`, the same for every H).{oblDoc}{oblRawDoc} -/
+abbrev Obl (H : HookParams) : Prop := {oblTy}
 {nilPart}{owedPart}{heldPart}
 /-- `FnHyp` of the definition's semantics under H, {givenD}. -/
-theorem fnHyp_defn (H : HookParams) (hH : HooksTotal H){hobBD} : FnHyp (defn.sem.withHooks H) :=
-  fnHyp_withHooks{nN} coreOK_defn {rhH} hH {hobAD}
+theorem fnHyp_defn (H : HookParams){rawB} (hH : HooksTotal H){hobBD} : FnHyp (defn.sem.withHooks H) :=
+  {fnHypPf}
 
 /-- **Soundness of the semantics** (`KCore.SoundC`) under every interpretation total where the text
 declares the parameters total, {givenD}. -/
-theorem sound_defn (H : HookParams) (hH : HooksTotal H){hobBD} : SoundC (defn.sem.withHooks H) :=
-  sound_fn_withHooks{nN} defn.sem callOrder defn.totalParams coreOK_defn {rhH} hH {hobAD}
+theorem sound_defn (H : HookParams){rawB} (hH : HooksTotal H){hobBD} : SoundC (defn.sem.withHooks H) :=
+  {soundPf}
 
 /-- **Completeness of the semantics** (`KCore.CompleteC`) under every interpretation total where
 the text declares the parameters total, {givenD}. -/
-theorem complete_defn (ref : OutFn) (H : HookParams) (hH : HooksTotal H){hobBD} :
+theorem complete_defn (ref : OutFn) (H : HookParams){rawB} (hH : HooksTotal H){hobBD} :
     CompleteC (defn.sem.withHooks H) ref :=
-  complete_fn_withHooks{nN} defn.sem callOrder defn.totalParams ref coreOK_defn {rhH} hH {hobAD}"
+  {completePf}"
   else
     let nilPart := if none then s!"
 /-- No fact is named: `{oblK}` holds. -/
@@ -1142,10 +1192,57 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
     else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}", s!"fnHyp_withHooks_defn H{hobArg}{heldA}{lawsA}")
   let runExact := facts && CExec.execReady c
   let atSrc := if plain then headlineAt bindH fnHypH givenH (!none || held) runExact plain else
-    let bindN := if hasParams then s!" (H : HookParams){hobB}{heldBH}{lawsH}"
+    let bindN := if hasParams then s!" (H : HookParams){rawB}{hobB}{heldBH}{lawsH}"
       else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}"
-    let hobT := if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
+    let hobT := if raw then hobA else if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
     headlineAtOpen bindN hobT givenH (!none || held) runExact owesR owesC held
+  -- with an open generator: `lawHooks defn.sem H` satisfies the laws and gives the generators
+  -- values, for every H, and is admitted by the library's sentences where H is; beside each
+  -- statement, its instance there with both obligations discharged
+  let lawPart := if !raw then "" else
+    let named := !none || held
+    let sfxC := if named then "_of" else ""
+    let sfxS := if named || owesR || owesC then "_of" else ""
+    let sfxP := if named || owesC then "_of" else ""
+    let inst := fun (nm pre : String) => s!"
+/-- `{nm}` at `lawHooks defn.sem H`, the two obligations discharged. -/
+def {nm}_lawHooks{pre} (H : HookParams) :=
+  @{nm}{if pre.isEmpty then "" else " ref"} (lawHooks defn.sem H) (openLaws_lawHooks_defn H) (openTotal_lawHooks_defn H)
+"
+    s!"
+/-! ## The interpretation `lawHooks`
+
+`lawHooks defn.sem H` is H everywhere but at the open generators, where it is the free application
+of their laws. It shows that the interpretations the statements are about exist; it is not the
+meaning of a generator, and no statement above is stated only there. -/
+
+/-- The open generators' laws hold under `lawHooks defn.sem H`, for every H
+(`KCore.openLaws_lawHooks`). -/
+theorem openLaws_lawHooks_defn (H : HookParams) : OpenLaws (defn.sem.withHooks (lawHooks defn.sem H)) :=
+  openLaws_lawHooks defn.sem coreOK_defn H
+
+/-- Each open generator has a value at every argument list of its sorts under `lawHooks defn.sem H`,
+for every H (`KCore.openTotal_lawHooks`). -/
+theorem openTotal_lawHooks_defn (H : HookParams) : OpenTotal (defn.sem.withHooks (lawHooks defn.sem H)) :=
+  openTotal_lawHooks defn.sem coreOK_defn H
+
+/-- `lawHooks defn.sem H` is admitted by the library's sentences wherever H is
+(`KCore.libAdmitted_lawHooks`). -/
+theorem libAdmitted_lawHooks_defn (H : HookParams) (ha : (defn.sem.withHooks H).libAdmitted) :
+    (defn.sem.withHooks (lawHooks defn.sem H)).libAdmitted :=
+  libAdmitted_lawHooks defn.sem coreOK_defn H ha
+
+/-- `lawHooks defn.sem HookParams.lib` satisfies the laws, the generators' `functional` sentences and
+the library's sentences together. -/
+theorem lawHooks_lib_defn :
+    OpenLaws (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)) ∧
+    OpenTotal (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)) ∧
+    (defn.sem.withHooks (lawHooks defn.sem HookParams.lib)).libAdmitted :=
+  ⟨openLaws_lawHooks_defn HookParams.lib, openTotal_lawHooks_defn HookParams.lib,
+    libAdmitted_lawHooks_defn HookParams.lib (libAdmitted_lib_of_coreOK coreOK_defn)⟩
+" ++ inst "fnHyp_defn" "" ++ inst "sound_defn" "" ++ inst "complete_defn" " (ref : OutFn)" ++
+      inst s!"consistent{sfxC}" "" ++ inst s!"sound_at{sfxS}" "" ++ inst s!"complete_at{sfxP}" "" ++
+      (if runExact then inst s!"run_exact{sfxC}" "" else "")
   -- not plain: the owed rules' and clauses' positions, decided
   if !plain then
     let lstR := if owedR.isEmpty then "([] : List Nat)" else
@@ -1166,7 +1263,7 @@ import {ns}.FnHyp.Total
 import {ns}.FnHyp.Agree
 import {ns}.FnHyp.Match
 " ++ (if held then s!"import {ns}.FnHyp.Held\n" else "") ++ (if plain then "" else s!"import {ns}.FnHyp.Owed\n") ++ (if runExact then s!"import {ns}.Facts\n" else "") ++ "import KcoreSpec.StepCompleteAt
-" ++ hdr "What the deciders leave of `FnHyp` (`KCore.FnObligations` at the rank `callOrder`; its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), soundness and completeness of the definition's semantics from those facts, and, under the same facts, consistency with the statements at a step and at a configuration." ++ s!"
+" ++ (if raw then "import KcoreSpec.LawHooksLib\n" else "") ++ hdr "What the deciders leave of `FnHyp` (`KCore.FnObligations` at the rank `callOrder`; its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), soundness and completeness of the definition's semantics from those facts, and, under the same facts, consistency with the statements at a step and at a configuration." ++ s!"
 namespace {ns}
 open KCore
 open KCore.Faithful (Γ Γstep)
@@ -1174,7 +1271,7 @@ open KCore.Faithful (Γ Γstep)
 {factsDef}
 {body}
 {atSrc}
-
+{lawPart}
 end {ns}
 ")
   return o
@@ -2174,17 +2271,31 @@ end {ns}
   -- Facts: termination, with and without the tie
   let termNamed := c.orderObligations ++ d.cert.obligations c
   let okAllT := if exec then "(Semantics.okAll_of_ok ok)" else "okAll"
+  -- with an open generator the `…_withHooks` forms do not apply (they ask that no parameter be
+  -- raw): the base lemmas at `c.withHooks H`, the data's facts carried by their equations, and
+  -- `RightHeld` there from `rightValued`
+  let rawF := c.params.any (·.raw)
+  let okW := s!"((Semantics.okAll_withHooks c H).trans {okAllT})"
+  let srW := "((Semantics.srReady_withHooks c H).trans srReady)"
+  let ovW := "(Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)"
+  let rhW := "(Semantics.rightHeld_withHooks_of_valued (by decide +kernel) H)"
+  let termNilPf := if rawF then s!"terminates_of_nil {okW} {srW} {ovW} defn.cert
+    (by rw [orderObligations_withHooks, certObligations_withHooks]; exact named_terminates) {rhW}"
+    else s!"terminates_of_nil_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert named_terminates H"
+  let termOrdPf := if rawF then s!"terminates_of_order {okW} {srW} {ovW} defn.cert
+    (by rw [orderObligations_withHooks, certObligations_withHooks, named_terminates]; exact hnamed) {rhW}"
+    else s!"terminates_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert H (by rw [named_terminates]; exact hnamed)"
   let termHooks := if !hasParams then "" else if termNamed.isEmpty then s!"
 
 /-- Every function terminates, for every interpretation of the parameters. -/
 theorem terminates_withHooks (H : HookParams) : ∀ f, Terminates (c.withHooks H) f :=
-  terminates_of_nil_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert named_terminates H" else s!"
+  {termNilPf}" else s!"
 
 /-- Every function terminates, for every interpretation of the parameters, given the named ones'
 termination under it. -/
 theorem terminates_withHooks (H : HookParams)
     (hnamed : ∀ g ∈ ({termNamed} : List Sym), Terminates (c.withHooks H) g) : ∀ f, Terminates (c.withHooks H) f :=
-  terminates_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) defn.cert H (by rw [named_terminates]; exact hnamed)"
+  {termOrdPf}"
   let termMain := if termNamed.isEmpty then s!"
 /-- **Every function terminates** (`KCore.Terminates`: a result at every argument list of its
 argument sorts), the sort predicates among them: no function is named. -/
@@ -2210,19 +2321,25 @@ of its argument sorts), the sort predicates among them, given the named ones' to
 theorem totals{termHyp} (htot : ∀ g ∈ ({totNamed} : List Sym), Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   totals_of_order {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) {termArg} (by rw [named_totals]; exact htot)"
+  let totNilPf := if rawF then s!"totals_of_nil {okW} {srW} {ovW} {termArgH}
+    ((Semantics.totalObligations_withHooks c H).trans named_totals) {rhW}"
+    else s!"totals_of_nil_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) H {termArgH} named_totals"
+  let totOrdPf := if rawF then s!"totals_of_order {okW} {srW} {ovW} {termArgH}
+    (by rw [Semantics.totalObligations_withHooks, named_totals]; exact htot) {rhW}"
+    else s!"totals_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) H {termArgH} (by rw [named_totals]; exact htot)"
   let totHooks := if !hasParams then "" else if totNamed.isEmpty then s!"
 
 /-- Every function declared `[total]` is total, for every interpretation of the parameters. -/
 theorem totals_withHooks (H : HookParams){termHypH} :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
-  totals_of_nil_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) H {termArgH} named_totals" else s!"
+  {totNilPf}" else s!"
 
 /-- Every function declared `[total]` is total, for every interpretation of the parameters, given
 the named ones' totality under it. -/
 theorem totals_withHooks (H : HookParams){termHypH}
     (htot : ∀ g ∈ ({totNamed} : List Sym), Total (c.withHooks H) g) :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
-  totals_of_order_withHooks {okAllT} srReady (Semantics.ovlCase_of (by decide +kernel)) H {termArgH} (by rw [named_totals]; exact htot)"
+  {totOrdPf}"
   o ← o.write s!"{ns}.Facts.Terminates" (s!"import {ns}.Facts\nimport KcoreSpec.Terminates\nimport KcoreSpec.Totals\n" ++ hdr s!"Termination and totality of the functions: {termNamed.length} named for termination (calling a later function, or a self call the certificate does not show to decrease), {totNamed.length} `[total]` functions named for totality (not confirmed by `totalOK`)." ++ s!"
 namespace {ns}
 open KCore
