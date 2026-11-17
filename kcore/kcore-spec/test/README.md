@@ -1338,6 +1338,17 @@ table above, on the tree before String and Bytes). Not investigated here.
   the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
   guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
   and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
+- `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
+  `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
+  simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,
+  `KcoreSpec/InertEvUser.lean` `EqnU.entailed`), from `f`'s value at every integer (`eval_all`);
+  `simp_class` (the reader's class), `simp_text` (the sentence's pattern).
+- `test/C3AnywhereCtor.lean`: the tie (C14) of the overload form of `anywhere` rule x constructor on
+  c3-anywhere-ctor, for every H: layer 1, the function and constructor sentences, the rule
+  (`rules_tie`, W1, W2 with the guard), `consistent`, `pre_model`; the no-confusion sentence of the
+  overloading symbol and the symbol it overloads (axiom 111) refuted by Γ (`nc_refuted`,
+  `Faithful.tieDist_refuted`, `Faithful.norm_gs`); the step and its only successor
+  (`x5_step` from `PreS`, `x5_succs` from `Pre` with the step's closure) through `CExec.run_exact`.
 - `test/InertEvFixtures.lean`: the fixture sentences of the inert classes `collectionLaw`,
   `parametricFunctional` and `vacuousLeft`, each entailed by `Γ (c.withHooks H)` for every H from the
   library's statement of its class (`KcoreSpec/InertEv.lean`; the guards `inertListLaw_everyH`,
