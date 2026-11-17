@@ -29,8 +29,13 @@
     true at -1, and the other sentence as written gives 0.
   The expectations at a point where both equations' own premises hold check that the reader and
   the cone implement the manual's order (the equation of the smaller number first); they are not
-  derived from the sentences as written, which with value distinctness have no model on this text
-  (they give `f(5) = 5` and `f(5) = 0`): not proved here, a limit.
+  derived from the sentences as written, which have no model on this text, for every H: at 5 they
+  give `f(5) = 5` (with the graph of `>Int` at (5, 0)) and `f(5) = 0`, and 5 and 0 are distinct
+  elements of Int. `no_model_written`: `Pre H` with sentence 201 as written in place of Γ's item has
+  no model; `written_refuted`: Γ with sentence 201 has none. The proof goes through Γ, a
+  consequence of the premise set (`TiePair.gamma_from`): Γ's value `f(5) = 5`, and from `ΓDomains`
+  that the values 5 and 0 each denote one element of Int and denote distinct ones. `clauses_eq`: `f`'s clauses are the literals that
+  test/C3EqPrioFlat.lean reads at one priority, where `ClausesAgree` is false.
 -/
 import KcoreSpec
 
@@ -261,6 +266,95 @@ theorem f_neg1 (H : HookParams) : Pre H ⊧ (fAt H (-1) ≡ den (cH H) (int (0))
   TiePair.value (shapeH H) (coreOKH H) (hokH H) (eval_of (k := 10) (by decide +kernel) H) (hfnH H) (hvsH H (-1))
 
 
+/-! ## The text side: the sentences as written have no model
+
+At 5 the equation of priority 40 as written gives 5 (its `requires` true by the graph of `>Int` at
+(5, 0)) and sentence 201 as written gives 0; 5 and 0 are distinct elements of Int. So the premise
+set with sentence 201 as written in place of Γ's item has no model; neither does Γ with it. -/
+
+/-- The clauses of `f`: `f(X) = X requires X >Int 0` of priority 40 and `f(_) = 0` of the default
+priority (test/C3EqPrioFlat.lean has the same two at one priority). -/
+def clA : Clause := ⟨[Srt.int], [.var 0], some (.app intGt [.var 0, .dv Srt.int (.int 0)]), .var 0, none, 40, false, [], .top, .top⟩
+def clB : Clause := ⟨[Srt.int], [.var 0], none, .dv Srt.int (.int 0), none, 50, false, [], .top, .top⟩
+
+kernel_rfl clauses_eq : fn.clauses = [clA, clB]
+
+/-- **Sentence 201's translation is `clB`'s equation with no premise but its own** (`clauseAxiom`,
+up to the indices of its variables; kernel). -/
+theorem written_clB : TiePair.sameB (trAxiom [] [] ⟨0, "kernel", clauseAxiom c fn clB⟩).pat (trS U.ax201).pat = true := by
+  decide +kernel
+
+theorem clauseAxiom_withHooks (H : HookParams) : clauseAxiom (cH H) fn clB = clauseAxiom c fn clB := rfl
+theorem int_sort (H : HookParams) (n : Int) : (cH H).sortOf (int n) = some Srt.int := rfl
+theorem clB_plain : plainPats c clB.pats = true := by decide +kernel
+theorem clB_sorts : sortsOfTerms c.patCtxAll clB.vars clB.pats = some fn.args := by decide +kernel
+theorem int_apart : apartSort c Srt.int = true := by decide +kernel
+theorem clB_binds : ∀ i < clB.vars.length, i ∈ varOccsList clB.pats := fun i hi => by
+  have : i = 0 := by simpa [clB] using hi
+  subst this; decide
+
+/-- **Γ with sentence 201 as written has no model, for every H**: at 5, Γ gives `f(5) = 5`
+(`Eval`'s value, through the graph of `>Int` at (5, 0)), the sentence gives `f(5) = 0`, and the
+values 5 and 0 of Int denote distinct elements (`ΓDomains`). -/
+theorem written_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax201).pat) := by
+  intro M _ I hI hax
+  obtain ⟨hsok, hsr', hnn, hg, -, -, -, -, hno⟩ := hypSound_of_core (coreOKH H)
+  haveI : OvlOK (cH H) := hno
+  have htr := (sortCtx_of_all hsok hsr' (OvlOK.ovlCase hno)).trans
+  have hD := defOK hI
+  have hax' : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", clauseAxiom (cH H) fn clB⟩).pat := by
+    rw [clauseAxiom_withHooks]; exact (TiePair.sameB_iff written_clB).mp hax
+  have h5 : Γ (cH H) ⊧ (TiePair.app (cH H) f [int 5] ≡ den (cH H) (int 5)) :=
+    TiePair.eval_some_sound (cH H) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+      (eval_of (k := 10) (by decide +kernel) H) (hfnH H) (hvsH H 5)
+  have heq1 := (KoreAML.interp_equal hD).mp (h5 hI KoreAML.val0 default)
+  have hws : (cH H).WellSorted clB.vars [(0, int 5)] := by
+    intro i s hi
+    match i, hi with
+    | 0, hi => simp only [clB, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi
+               exact ⟨int 5, rfl, int_sort H 5⟩
+    | _ + 1, hi => simp [clB] at hi
+  have heq2 := PrioTextWitness.clause_eq_ax hI hnn htr (hfnH H) (cl := clB) hax' (ws := [int 5]) (hvsH H 5)
+    (σ' := [(0, int 5)]) hws (.cons (.var rfl) .nil) clB_plain clB_sorts clB_binds
+    (fun _ h => by simp [clB] at h) (fun _ h => by simp [clB, varOccs] at h) (fun _ h => by simp [clB] at h)
+    (r := some (int 0)) (fun v hv => by cases hv; exact int_sort H 0) (fun _ _ _ _ h => by cases h)
+    (fun tbl e _ => right_iff hI hnn (lookupFn_spec (hfnH H)).1 (fun v hv => by cases hv; exact int_sort H 0)
+      (fun m => by
+        show (KoreAML.tr ⟨tbl, []⟩ (GroundTerm.kore (cH H) (int 0))).interpret I e m ↔ (den (cH H) (int 0)).interpret I e m
+        rfl)
+      (fun t ht => by simp [clB] at ht))
+  have he : elemOf (cH H) I (int 5) = elemOf (cH H) I (int 0) := by
+    have h1 := (elemOf_spec hI (int_sort H 5) KoreAML.val0).1
+    have h2 := (elemOf_spec hI (int_sort H 0) KoreAML.val0).1
+    exact (h2 _).mp ((heq2 KoreAML.val0 _).mp ((heq1 _).mpr ((h1 _).mpr rfl)))
+  exact absurd (values_apart hI hg htr int_apart (int_sort H 5) (int_sort H 0) he) (by decide)
+
+/-- The premise set's equations with sentence 201 as written in place of Γ's item. -/
+noncomputable def writtenPats : List P := fnText.map (trS · |>.pat)
+
+/-- **The premise set with sentence 201 as written has no model, for every H** (`Pre` with
+`writtenPats`: every equation of `f` as written, Γ's rule items, the families). -/
+theorem no_model_written (H : HookParams) :
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP TiePair.Pre (cH H) writtenPats) := by
+  intro M hM I hI
+  have h201 : I ⊧ᴵ (trS U.ax201).pat :=
+    hI _ (Or.inl (Or.inl (Or.inl (by
+      unfold writtenPats; exact List.mem_map.mpr ⟨U.ax201, List.mem_of_getElem? fnText_W, rfl⟩))))
+  have hT : I ⊧ᴵP Pre H := fun φ hφ => by
+    rcases hφ with ((hφ | ⟨x, rfl⟩) | hφ) | hφ
+    · rcases List.mem_or_eq_of_mem_set hφ with hφ | rfl
+      · exact hI _ (Or.inl (Or.inl (Or.inl hφ)))
+      · exact w1 (fun ψ hψ => by
+          rcases hψ with hψ | ⟨x, rfl⟩
+          · rw [List.mem_singleton.mp hψ]; exact h201
+          · exact hI _ (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))
+    · exact hI _ (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩)))
+    · exact hI _ (Or.inl (Or.inr hφ))
+    · exact hI _ (Or.inr hφ)
+  exact written_refuted H M hM I (fun φ hφ => TiePair.gamma_from (shapeH H) φ hφ hT) h201
+
+
 end KCore.C3EqReqPrioComp
 
 #print axioms KCore.C3EqReqPrioComp.wf_defn
@@ -276,3 +370,6 @@ end KCore.C3EqReqPrioComp
 #print axioms KCore.C3EqReqPrioComp.w_text
 #print axioms KCore.C3EqReqPrioComp.f_5
 #print axioms KCore.C3EqReqPrioComp.f_neg1
+#print axioms KCore.C3EqReqPrioComp.clauses_eq
+#print axioms KCore.C3EqReqPrioComp.written_refuted
+#print axioms KCore.C3EqReqPrioComp.no_model_written
