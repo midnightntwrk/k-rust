@@ -9,6 +9,7 @@
   confined sort (`openDecided_of_readsConfined`).
 -/
 import KcoreSpec.Faithful
+import KcoreSpec.OpenValues
 
 set_option autoImplicit false
 
@@ -109,6 +110,40 @@ theorem Semantics.params_raw_of_core {c : Semantics} (h : c.coreOK = true) : ∀
 /-- `OpenLaws` of a semantics `sortedOK` accepts: it has no open generator. -/
 theorem openLaws_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : OpenLaws c :=
   openLaws_of_plain (Semantics.params_raw_of_sortedOK h)
+
+/-- **`OpenTotal` where the interpretation answers nothing**: each open generator's application to
+values of its argument sorts is then its raw application, a value of its result sort
+(`paramVal_raw_keep`). From, for each raw parameter, the parameter its name finds (`lookupParam`),
+the open generator it is (`lookupOpen`), of its signature, with no registry hook, and its name no
+constructor's and no overloading symbol's. -/
+theorem openTotal_of_noAnswer {c : Semantics} (hn : ∀ f vs, c.hooks.app f vs = none)
+    (h : ∀ k ∈ c.params, k.raw = true → ∃ kp, c.lookupParam k.sig.name = some kp ∧
+      c.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
+      lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none) : OpenTotal c := by
+  intro k hk hr vs hvs
+  obtain ⟨kp, hlp, hko, hsig, hi, hc, ho⟩ := h k hk hr
+  rw [← hsig] at hvs
+  rw [paramVal_raw_keep hlp hi hko hc ho (hn _ _) hvs]
+  rfl
+
+/-- What `coreOK` gives of each raw parameter for `openTotal_of_noAnswer`: the parameter and the
+open generator its name finds, of its signature, with no registry hook, its name no constructor's
+and no overloading symbol's. Under `coreOK` no parameter is raw (`paramsPlain`), so this is where
+`openTotal_none` takes that fact; once `paramsPlain` admits raw parameters it is to be re-proved
+from its `raw` branch (no hook, no registry number) and `genWf`'s flat conjunct
+(`genWf_flat_name`), with a fact that the parameter `lookupParam` finds is the raw one
+(`NamesApartK` gives equal signatures only), as `HypModelCore.open_param` needs. -/
+theorem Semantics.raw_open_core {c : Semantics} (h : c.coreOK = true) :
+    ∀ k ∈ c.params, k.raw = true → ∃ kp, c.lookupParam k.sig.name = some kp ∧
+      c.lookupOpen k.sig.name = some kp ∧ kp.sig = k.sig ∧ kp.impl = none ∧
+      lookupSig c.ctorSigs k.sig.name = none ∧ c.lookupOvl k.sig.name = none :=
+  fun k hk hr => absurd hr (by simp [Semantics.params_raw_of_core h k hk])
+
+/-- **`OpenTotal` at `HookParams.none`** (CN-4 §3.4 V1): where the interpretation answers nothing,
+every open generator has a value, its raw application, at every argument list of its sorts. -/
+theorem openTotal_none (c : Semantics) (h : c.coreOK = true) : OpenTotal (c.withHooks HookParams.none) :=
+  -- the parameters, the lookups and the constructors do not read the interpretation
+  openTotal_of_noAnswer (c := c.withHooks HookParams.none) (fun _ _ => rfl) (fun k hk hr => Semantics.raw_open_core (c := c) h k hk hr)
 
 /-- `OpenLaws` of a semantics `coreOK` accepts. -/
 theorem openLaws_of_core {c : Semantics} (h : c.coreOK = true) : OpenLaws c :=

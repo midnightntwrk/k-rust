@@ -446,4 +446,17 @@ theorem openGeneratorPattern_decided :
     OpenMixed.c.ruleSorted ruleCZ = true ∧ OpenMixed.c.ruleSorted ruleCAnd = true := by
   decide +kernel
 
+/-! ## `OpenTotal` at `HookParams.none` (V2.OpenTotal-none)
+
+At CommCtor, where `and` and `or` are open generators, `openTotal_of_noAnswer` holds with its
+hypotheses met (not vacuously): each raw parameter is the one its name finds, an open generator,
+with no hook, its name no constructor's and no overloading symbol's. -/
+theorem commCtor_openTotal_none : OpenTotal (CommCtor.c.withHooks HookParams.none) :=
+  openTotal_of_noAnswer (fun _ _ => rfl) fun k hk _ => by
+    have hk' : k = CommCtor.andP ∨ k = CommCtor.orP := by
+      simpa [CommCtor.c, Semantics.withHooks] using hk
+    rcases hk' with rfl | rfl
+    · exact ⟨CommCtor.andP, by decide +kernel, by decide +kernel, rfl, rfl, by decide +kernel, by decide +kernel⟩
+    · exact ⟨CommCtor.orP, by decide +kernel, by decide +kernel, rfl, rfl, by decide +kernel, by decide +kernel⟩
+
 end KCore.OpenGenSems
