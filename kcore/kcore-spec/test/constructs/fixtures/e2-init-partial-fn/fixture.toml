@@ -1,0 +1,19 @@
+observed = """
+A configuration leaf whose initial value applies a user function not declared total, at an
+argument none of its equations matches (f has the one equation f(1) = 1, the leaf is f(0)), and no
+configuration variable. kompile declares the leaf's initializer functional and total and writes
+its functional axiom, so the text states that f(0) has exactly one value:
+  kore.txt:18   symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), ...]   (no functional, no total)
+  kore.txt:20   symbol LblinitXCell{}() : SortXCell{} [function{}(), functional{}(), total{}()]
+  kore.txt:106  axiom{R} \\exists{R} (Val:SortXCell{}, \\equals{SortXCell{}, R} (Val:SortXCell{}, LblinitXCell{}())) [functional{}()]
+  kore.txt:221  the initializer's right side, Lbl'-LT-'x'-GT-'{}(Lblf{}(\\dv{SortInt{}}("0")))
+  kore.txt:141-156  f's one equation, its argument \\and(\\dv{SortInt{}}("1"), _Gen0)
+"""
+expectation = """
+From the axioms at 106 and 221: initXCell() has one element, and it is <x>(f(0)); application is
+pointwise, so f(0) has an element. No equation of f gives f(0) a value, and f is declared function
+only, so the text's equations do not give it one: the functional axiom states what f's sentences
+leave open. A model of the text interprets f(0) as some integer; under a reading in which f has no
+value where no equation applies, the axiom has no model. The account reads the text with nothing
+refused (account.txt).
+"""

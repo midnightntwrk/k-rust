@@ -1,0 +1,12 @@
+command: kompile --backend llvm e3-klabel.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 5.2
+output:
+  [Error] Internal: Cannot yet translate #klabel to kore
+  	Source(FIXTURE/e3-klabel.k)
+  	Location(5,23,5,37)
+  	5 |	  rule <k> bar() => h(#klabel(`bar`)) ... </k>
+  	  .	                      ^~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-KLABEL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-KLABEL as default.

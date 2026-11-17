@@ -1,0 +1,13 @@
+command: kompile --backend llvm e2-fn-unit.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 5.9
+output:
+  [Error] Internal: Unimplemented case when removing unit applications: unit
+  attribute but no assoc
+  	Source(FIXTURE/e2-fn-unit.k)
+  	Location(4,18,4,72)
+  	4 |	  syntax Int ::= pu(Int, Int) [function, total, unit(zero), symbol(pu)]
+  	  .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FN-UNIT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-FN-UNIT as default.

@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-rule-rhs-undef-prio.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.9
+definition.kore bytes: 209089
+definition.kore sha256: fea4a93de9a85fe1f3018c98fc9b8f5dfa82f938f7af07f8aed73e7aa2ce5528
+stripped sha256: ec650b4c50a5577ba3b610ea0751f3f57fdfcb119934ad3fb0e4ace109984926
+main module: 411 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-RHS-UNDEF-PRIO-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-RULE-RHS-UNDEF-PRIO as default.

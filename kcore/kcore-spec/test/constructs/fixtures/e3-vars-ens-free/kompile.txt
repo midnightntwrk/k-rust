@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-ens-free.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.5
+definition.kore bytes: 206030
+definition.kore sha256: 2ef48a0bf3c12eb64551d3d920032ccb6e801427c727c59782b07c04a46c1287
+stripped sha256: 1e360152b8492f4492fb8803451a56d0736fad60106c3c1dbfed9e929e520817
+main module: 401 sentences, 45 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?Z' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-ens-free.k)
+  	Location(5,36,5,38)
+  	5 |	  rule <k> c() => c() </k> ensures ?Z ==Int 0
+  	  .	                                   ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-ENS-FREE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-VARS-ENS-FREE as default.

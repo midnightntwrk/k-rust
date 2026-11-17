@@ -1,0 +1,15 @@
+command: kompile --backend llvm e2-all-path.k -o out  (cwd: the fixture directory)
+exit: 1
+seconds: 5.5
+output:
+  [Error] Internal: Uncaught exception thrown of type ParseError.
+  Please rerun your program with the --debug flag to generate a stack trace, and
+  file a bug report at https://github.com/runtimeverification/k/issues
+  (ParseError: ERROR: Line 345: Column 3: Expected ')', but '['
+    [UNIQUE'Unds'ID{}("ff681fe95988f70ca5f66e94e59b36f3adb5a4af2e643ffdb25fa2a4eacfe568"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,31)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-all-path.k)")]
+    ^)
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ALL-PATH-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ALL-PATH as default.

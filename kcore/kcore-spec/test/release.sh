@@ -6,9 +6,10 @@
 #   examples     every example package as committed, built in the kernel with its user's modules
 #                (examples/run.sh --build-only): peano with its tie, the one worked example of a
 #                definition read from its KORE text that `emit` gives back; ref-kimp with User.SumSpec
-#                (K's claim sum-spec) and User.SumN; kimp-ni's noninterference modules
+#                (K's claim sum-spec), User.SumN, User.SumSpecStmt and User.RunInstance (run_exact at
+#                one configuration); kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
-#                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N; ref-kimp's row
+#                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance; ref-kimp's row
 #                statements coreOK_defn, consistent, sound_at, complete_at, run_exact and totals (every
 #                [total] function is Total); the noninterference results over kimp, imp-sec,
 #                imp-sec-leaky, vault, vault-leaky
@@ -90,8 +91,8 @@ step examples examples/run.sh --build-only
 if grep -q '|ok|' "$R/examples.res"; then
   step axioms-peano axioms axioms-peano peano 'Peano.Tie Peano.Sound' \
     'Peano.tied Peano.sound_hyp Peano.complete_hyp Peano.sound Peano.complete Peano.coreOK_defn'
-  step axioms-sumspec axioms axioms-sumspec ref-kimp 'RefKimp.Sound User.SumSpec User.SumN' \
-    'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp'
+  step axioms-sumspec axioms axioms-sumspec ref-kimp 'RefKimp.Sound User.SumSpec User.SumN User.RunInstance' \
+    'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp RefKimp.RunInstance.run_instance'
   step axioms-refkimp axioms axioms-refkimp ref-kimp 'RefKimp.Sound RefKimp.FnHyp RefKimp.Facts.Terminates' \
     'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals'
   step axioms-ni axioms axioms-ni 'kimp imp-sec imp-sec-leaky kink-imp vault vault-leaky kimp-ni' \

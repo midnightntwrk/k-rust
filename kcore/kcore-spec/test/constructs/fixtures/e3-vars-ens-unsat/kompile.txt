@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-vars-ens-unsat.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.1
+definition.kore bytes: 206939
+definition.kore sha256: 3503ec904c0984fac56467e41ba6feb245a203178c9c03f380fae2b625fad93f
+stripped sha256: 9b7084fc1813c5ee8ba6f5c435c9b952cdb3b0b7ff2494fd153fb9922c07cdff
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-ENS-UNSAT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-VARS-ENS-UNSAT as default.

@@ -13,10 +13,10 @@
      by the map hooks) and `f(.S) = 0`, declared `[total]`. The pattern `.S` denotes the empty
      collection only, so at a non-empty one no clause applies: the equations leave f's value open
      there, and under the interpretation that gives nothing (`HookParams.none`, the core's) f has
-     none (`gapCov_not_total`). S is not enumerable (its values are collections, which no generator
+     none (`AtNone.gapCov_not_total`). S is not enumerable (its values are collections, which no generator
      builds), so only variable rows cover it: `totalOK` refuses f, and f is in `totalObligations`.
   3. `gapLin`: `f(X, X) = 0`, declared `[total]`. At two different arguments no clause applies: f's
-     value is open there, none under `HookParams.none` (`gapLin_not_total`). Read as two independent variables the row `X, X` would
+     value is open there, none under `HookParams.none` (`AtNone.gapLin_not_total`). Read as two independent variables the row `X, X` would
      cover its sorts (`gapLin_row`); a covering row's variables occur once (`coverRows`), so
      `totalOK` refuses f, and f is in `totalObligations`.
   4. `gapSelf`: `f(X) = f(X)`, declared `[total]`: no derivation at any argument
@@ -24,11 +24,11 @@
      call does not decrease, so `totalOK` refuses f (and the certificate names it).
   5. `gapDv`: a user sort that is Int, with a constructor `z`, and `f(z) = 0`, declared `[total]`.
      At an Int literal no clause applies: f's value is open there, none under `HookParams.none`
-     (`gapDv_not_total`). A sort holding domain values is not
+     (`AtNone.gapDv_not_total`). A sort holding domain values is not
      enumerable: only variable rows cover it, and `totalOK` refuses f.
   6. `gapParam`: a parameter symbol P (no interpretation) and a function of the same number, and
      `f(X) = P(X)`, declared `[total]` after it. The application of P has the parameter's value,
-     undefined (`gapParam_not_total`). `totalTerm` admits a call of a function of `tot` only where
+     the interpretation's: none under `HookParams.none` (`AtNone.gapParam_not_total`). `totalTerm` admits a call of a function of `tot` only where
      its number is no parameter symbol's: `totalOK` refuses f.
   7. `gapHook`: a function numbered as the interpreted `_/Int_`, and `f(X) = X /Int 0`, declared
      `[total]` after it. The application is the hook's, undefined (`gapHook_not_total`).
@@ -284,6 +284,9 @@ theorem gapCov_sorted : gapCov.sortsOf [mS] = some [S] := by decide +kernel
 
 theorem gapCov_unit : gapCov.collVal uS [] = some (.map S []) := rfl
 
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
 /-- **f, declared total and confirmed by `totalOK`, has no value at a non-empty collection under
 `HookParams.none`**: its one clause's pattern `.S` denotes the empty one only, so its value there is
 its rest, which that interpretation does not give; under another interpretation it may have one. -/
@@ -305,6 +308,8 @@ theorem gapCov_not_total : ¬ Total gapCov G := by
         cases hs
         rw [gapCov_unit] at hv
         cases hv
+
+end AtNone
 
 /-! ## 3. A clause that repeats a variable -/
 
@@ -340,6 +345,9 @@ theorem gapLin_named : gapLin.orderObligations = [] ∧ (Parse.certOf gapLin).ob
 theorem gapLin_sorted : gapLin.sortsOf [.dv Srt.int (.int 0), .dv Srt.int (.int 1)] =
     some [Srt.int, Srt.int] := by decide +kernel
 
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
 /-- **f, declared total and confirmed by `totalOK`, has no value at two different Ints under
 `HookParams.none`**: its one clause matches only equal arguments, so its value there is its rest. -/
 theorem gapLin_not_total : ¬ Total gapLin L := by
@@ -361,6 +369,8 @@ theorem gapLin_not_total : ¬ Total gapLin L := by
           | var hl2 =>
             rw [hl1] at hl2
             simp at hl2
+
+end AtNone
 
 /-! ## 4. A self call that does not decrease -/
 
@@ -497,6 +507,9 @@ theorem gapDv_totalOK : gapDv.userSorts.contains Srt.int = true ∧ (gapDv.collO
     gapDv.enumerable Srt.int = false ∧ gapDv.totalOK fDv = false ∧ gapDv.totalObligations = [F5] := by
   decide +kernel
 
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
 /-- **f has no value at the Int 1 under `HookParams.none`**: its one pattern denotes the constructor
 term `z`, so its value there is its rest. -/
 theorem gapDv_not_total : ¬ Total gapDv F5 := by
@@ -514,6 +527,8 @@ theorem gapDv_not_total : ¬ Total gapDv F5 := by
       | hook hp _ _ => exact absurd hp (by decide)
       | coll hc _ _ _ => exact absurd hc (by decide +kernel)
       | ovl hc _ _ _ => exact absurd hc (by decide +kernel)
+
+end AtNone
 
 /-! ## 6. A function numbered as a parameter symbol -/
 
@@ -545,8 +560,11 @@ theorem gapParam_totalOK : gapParam.totalBefore fPar = [P6] ∧
     gapParam.totalObligations = [F6] := by
   decide +kernel
 
-/-- **f is undefined at 1**: `P(1)` has the parameter's value, which the interpretation does not
-give. -/
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
+/-- **f has no value at 1 under `HookParams.none`**: `P(1)` has the parameter's value, which that
+interpretation does not give; under another interpretation it may have one. -/
 theorem gapParam_not_total : ¬ Total gapParam F6 := by
   intro h
   obtain ⟨v, hv⟩ := h fPar rfl [i1] (by decide +kernel)
@@ -576,6 +594,8 @@ theorem gapParam_not_total : ¬ Total gapParam F6 := by
             rw [hr] at hrv; cases hrv
         | call _ _ _ _ _ hp => exact absurd hp (by decide +kernel)
         | callUndef => cases hrv
+
+end AtNone
 
 /-! ## 7. A function numbered as an interpreted symbol -/
 
@@ -643,12 +663,12 @@ theorem gapHook_not_total : ¬ Total gapHook F7 := by
 
 #print axioms gapDec_not_terminates
 #print axioms gapDec_matchIndependent
-#print axioms gapCov_not_total
+#print axioms AtNone.gapCov_not_total
 #print axioms gapCov_matchIndependent
-#print axioms gapLin_not_total
+#print axioms AtNone.gapLin_not_total
 #print axioms gapSelf_not_total
-#print axioms gapDv_not_total
-#print axioms gapParam_not_total
+#print axioms AtNone.gapDv_not_total
+#print axioms AtNone.gapParam_not_total
 #print axioms gapHook_not_total
 
 end KCore.TerminationGaps

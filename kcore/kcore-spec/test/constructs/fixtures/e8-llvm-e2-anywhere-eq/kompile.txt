@@ -1,0 +1,11 @@
+command: kompile --backend llvm e2-anywhere-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 10.6
+definition.kore bytes: 143696
+definition.kore sha256: dd8fffc973f9fb9849a274f49bd3d5e44f02d59bc69f823b4ac1e22df60dcc0d
+stripped sha256: 8da6853844f8ffaf837abeebf50a70008aa918b31c5d14db34e89b6da38bc17a
+main module: 339 sentences, 33 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-EQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE-EQ as default.

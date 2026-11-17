@@ -7,6 +7,7 @@ syn30/syn100 and the ties of every example package but peano are retired (sectio
 |---|---|---|---|
 | The headline statements restated in full (`SoundC`, `CompleteC`, `ExactC`, `OutIs`, `OutFn`, `Outcome.pat`, `famEx`, `famOpen`, `Unblocked`, `StepDecided`, `FnHyp`, `OpenDecided`, `OpenLaws`, the conditions' `needsWitness`, `Witnessed`, `condK`, `Refuted`, `CondDecided`, `Γc`, `Γcl`, `Semantics.plain`, `SoundC₀`, `CompleteC₀`, `Consistent`, `StepIs`, `StepFn`, `Semantics.coreOK` and the old texts by `rfl` against their bodies, `StepBy` by its fields; `sound_hyp`, `complete_hyp`, `exact_hyp`, `sound_at`, `complete_at`, `consistent_of`, `has_model_choice`, `famEx_values`, `famOpen_values` and the lemmas that relate the plain texts by their proof terms at the written types) and the axioms of every theorem pinned, exactly `propext`, `Classical.choice`, `Quot.sound` (`#guard_msgs`) | `test/Pins.lean` | `lake env lean test/Pins.lean` | 1 s |
 | The statements a generated package states (`coreOK_defn`, `sound_hyp`, `complete_hyp`, `fnHyp_defn`, `sound_defn`, `complete_defn`) and their axioms, on peano generated with `--core` | `test/PinsPeano.lean`, `test/pins-peano.sh` | `test/pins-peano.sh` | 43 s |
+| Row imp's statements (`consistent`, `sound_at`, `complete_at`, `run_exact`: for every H, each concluding `Consistent`, no hypothesis on the functions) and their axioms, on kimp's text as kompile wrote it, generated with `--wf` | `test/PinsKimp.lean`, `test/pins-kimp.sh` | `test/pins-kimp.sh` | 190 s |
 | The generator's text for a definition that is not `plain` (no `plain_defn`, `obl_nil` or `obligations_nil`; `OpenDecided` and `OpenLaws` owed; `sound_at_of`, `complete_at_of` the general `KCore.sound_at`, `KCore.complete_at`; `sound`, `complete` taking `hob : Obligations defn`), built, on peano generated with `--core --as-not-plain` and prio with `--wf --as-not-plain` | `test/not-plain.sh` | `test/not-plain.sh` | 92 s |
 | Run certificates whose step is by a rule sharing its sentence's `UNIQUE_ID` with another (`requiresOrSplit`: f2-examples/mlreqorsplit at `go(-6)`; `orSplit`: f2-examples/mlvalue at `q(1)`; hand-built, test/certs): `kcore gen` gives the step the second rule's number and the kernel checks the run; where both rules of the id step (f2-examples/mlreqor at `go(5)`) the step is by the first, since each is a reading of the one sentence the id names, and the kernel checks it; a certificate no rule of the id justifies is refused with the step and the rules; the rules of an id are found by the id in the generated package (`kcore rule-ids` on its definition.kore), not by number; peano and prio, the example packages with certificates, regenerate identically | `test/cert-shared-uid.sh`, `test/certs/`, `kcore rule-ids` (KcoreGen.lean) | `test/cert-shared-uid.sh` | 30 s |
 | Everything below as one table, required rows and scoreboard (section "The integration run") | `test/integration.sh` | `test/integration.sh` | under 3 min |
@@ -127,6 +128,21 @@ expands where `outOfFuel` holds (`runMode`); so with `CExec` a run's reached con
 exactly those `Step` reaches within the mode's bound, given `CoherentAll`. For `Exec` only soundness
 is proved at the fixed fuel (a successor could be missed). The input must evaluate to a value of the
 top cell's sort (the theorems are about `Config c`).
+
+Whether a run read the interpretation of the parameters (DONE-0 C7 check 2, D-RN-1). The data
+`parse` gives carries the interpretation `HookParams.none`, and the evaluation reads it at three
+places only: a parameter applied to defined arguments, an interpreted symbol at a silent point where
+the hook gives no value, a function every clause of which fails (its rest). Each case is also
+judged with `Executable.atNone`, the executable step whose evaluation has no result at those places
+(as `Cert.evalTC` for `Exec`'s; KcoreGen.lean, the section "The run without the interpretation"),
+which a run treats as out of fuel. Where the two judgements differ, or a parameter is raw (its
+applications' sorts are the interpretation's), the run read the interpretation: its verdict holds at
+`HookParams.none` only and is named `agree-at-none` or `differ-at-none`, outside the counts of
+`agree` and `differ` (the summary counts it apart; exit 1 only on `differ`); the JSON field
+`interpretation` is `read` or `not read` for every `agree` or `differ`, and the reason says what the
+run without the interpretation gives. A case run anyway (`not-runnable`) carries the flagged verdict
+in its reason (`anyway:agree-at-none`). That `atNoneEvalT`'s results are `evalT`'s is not proved: a
+difference where nothing read the interpretation would flag a case wrongly, never pass one.
 
 - `test/agree-cases.py` builds `test/agree.jsonl` from the reference cache only (its docstring says
   how): kore-exec entries (input: the pattern, a K-rust fixture; needs `KRUST_CHECKOUT` when the
@@ -657,7 +673,36 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor).
+  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
+  H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
+  `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
+  `rest_undetermined` says that where every clause of a function fails `Γ` over all H entails
+  neither ⊥ nor a value (`RestOpen.F0_undetermined`: a function with no clause). Every `UnreadReason`
+  has its entry: `setIdempotence` is guarded by G7 with `idem_refuted` (test/TieEns.lean) and
+  `setIdem_reached` (were `_Set_` a key of `silentTable`, its value at a common member would be
+  the interpretation's); the five others name the reader test that fixes their verdict. The nine
+  reader devices (`orSplit`, `topAsVariable`, `existsAsVariable`, `andAsEnsures`, `bottomAsEnsures`,
+  `orBottom`, `predicateAtBool`, `andAtBool`, `requiresOrSplit`) each have a guard on the kompiled
+  text of a construct fixture, stated for every H about `c.withHooks H` (namespaces `DevOr` to
+  `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
+  without the device, where the result differs (at a named H where that reading makes the point
+  one where every clause fails, under every H where no function is at the point). `reflectionAsOwn`
+  (`DevRefl`), `keyFunctionAsRequires` (`DevKey`), `equationPriority` (`DevPrio`, on
+  `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
+  interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
+  the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
+- `test/MacroUnused.lean`: the reader on `f2-examples/mlmacro.kompile.kore` (the construct fixture
+  e2-macro): the four macro and alias symbols the text declares and does not apply are not read
+  (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
+  unaccounted, `f`'s clause applying none of them.
+- `test/H12Witnesses.lean`: a constructor whose result sort has other values is outside `coreOK`,
+  by `Faithful.genWf`: hand-built semantics over one frame, in the kernel. A library constructor
+  into Int or Map fails `genWf`'s third conjunct (the sort enters `consSorts` and is a literal or
+  collection sort), an own constructor into them its first (the sort is no constructor sort); into
+  an own carrier sort and into an own Map collection sort both routes fail the first; each beside
+  its control without the constructor, `coreOK = true`. A library constructor into MInt keeps
+  `coreOK`; into RangeMap, a collection sort of the kernel, it fails the third conjunct.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and

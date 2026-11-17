@@ -1,1 +1,12 @@
 expect = "error"
+left_lines = [628, 635]
+observed = """
+The text kompile leaves (out/definition.kore) before kore-exec rejects it at 635:3 ('unexpected
+token TokenLeftBracket'): kore.txt holds its lines 628 to 635, the rewrite axiom of the module's
+one rule. The axiom opens \\rewrites{SortGeneratedTopCell{}} ( at 628 and closes only its two
+arguments, \\and(lhs, \\top) at 631 and weakAlwaysFinally{SortGeneratedTopCell{}}(\\and(rhs, \\top))
+at 634, so its attribute list at 635 follows an unclosed parenthesis: the sentence is outside the
+grammar of kore-syntax.md (an axiom's pattern is one application, closed before its attributes).
+Under --backend llvm the same text is rejected at the same place (e8-llvm-e2-all-path: 'Expected
+')', but '['' at its line 345, column 3).
+"""

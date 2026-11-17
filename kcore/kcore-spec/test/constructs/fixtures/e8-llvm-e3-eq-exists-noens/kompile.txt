@@ -1,0 +1,19 @@
+command: kompile --backend llvm e3-eq-exists-noens.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 4.5
+output:
+  [Error] Compiler: Found existential variable not supported by concrete backend.
+  	Source(FIXTURE/e3-eq-exists-noens.k)
+  	Location(4,16,4,18)
+  	4 |	  rule f(_) => ?B
+  	  .	               ^~
+  [Warning] Compiler: Variable '?B' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-eq-exists-noens.k)
+  	Location(4,16,4,18)
+  	4 |	  rule f(_) => ?B
+  	  .	               ^~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-NOENS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-NOENS as default.

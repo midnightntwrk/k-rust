@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-init-partial-fn.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.8
+definition.kore bytes: 210033
+definition.kore sha256: b920a56ddd7fa90f7fac162f1f97baad6f5d630f53c311a5cbe77ca47a6139e6
+stripped sha256: 0993d90770c185c5e9480e2dc01e06bff10574a9eed4e73e3e668a3b3a00f91d
+main module: 417 sentences, 85 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-INIT-PARTIAL-FN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-INIT-PARTIAL-FN as default.

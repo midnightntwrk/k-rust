@@ -1,0 +1,3 @@
+# multiplicity="*" without type (TRIAGE-B c3.pair 19; findings/C3-noncore-rulings.md section 9): e2-cells-bag's text with <bt multiplicity="*"> 0 </bt>. Predicted: exit 113 with the Bag message (a cell of multiplicity * without type is a Bag cell)
+main = "c.k"
+expect = "error"

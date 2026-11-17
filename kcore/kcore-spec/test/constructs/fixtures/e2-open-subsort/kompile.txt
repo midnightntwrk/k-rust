@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-open-subsort.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.9
+definition.kore bytes: 204831
+definition.kore sha256: 66b8ad7f2461a32a4ada65082c69995d4f1fe86799f5db5801d066af601d8441
+stripped sha256: c6a2ed2b91883469768af881448e0ca03f1a6e6d870d6036cefd76fcf527527f
+main module: 401 sentences, 45 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-SUBSORT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-SUBSORT as default.

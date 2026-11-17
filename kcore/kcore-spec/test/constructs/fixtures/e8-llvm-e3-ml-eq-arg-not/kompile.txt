@@ -1,0 +1,12 @@
+command: kompile --backend llvm e3-ml-eq-arg-not.k -o out  (cwd: the fixture directory)
+exit: 1
+seconds: 8.0
+output:
+  [Error] Internal: Uncaught exception thrown of type MatchError.
+  Please rerun your program with the --debug flag to generate a stack trace, and
+  file a bug report at https://github.com/runtimeverification/k/issues
+  (MatchError: Not(SortInt{},DomainValue(SortInt{},0)) (of class
+  com.runtimeverification.k.kore.implementation$ConcreteClasses$Not))
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-ARG-NOT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-EQ-ARG-NOT as default.

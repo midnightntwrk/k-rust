@@ -1,0 +1,15 @@
+observed = """
+$PGM written in a cell q beside a k cell holding .K. The initializer of q applies project:Pgm to
+the $PGM lookup in Init; the initializer of k takes no Init:
+  kore.txt:20   symbol LblinitQCell{}(SortMap{}) : SortQCell{} [function{}()]
+  kore.txt:201  LblinitQCell{}(X0:SortMap{}),
+  kore.txt:203  Lbl'-LT-'q'-GT-'{}(Lblproject'Coln'Pgm{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\\dv{SortKConfigVar{}}("$PGM"))),dotk{}()))),
+  kore.txt:18   symbol LblinitKCell{}() : SortKCell{} [function{}(), functional{}(), total{}()]
+  kore.txt:183  LblinitKCell{}(),
+  kore.txt:185  Lbl'-LT-'k'-GT-'{}(dotk{}()),
+  kore.txt:172  the top initializer, Lbl'-LT-'generatedTop'-GT-'{}(LblinitKCell{}(),LblinitQCell{}(VarInit:SortMap{}),LblinitGeneratedCounterCell{}())
+"""
+expectation = """
+$PGM's sort is Pgm, the sort of the projection the initializer of the cell holding it applies,
+though that cell is not k. The account reads the text (account.txt: refused by the account 0).
+"""

@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-simp-comm.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 8.4
+definition.kore bytes: 204418
+definition.kore sha256: 2274c4a665909a9311a1d95c0cc9b7a05ab6beb36c9980d52b041550c69efc93
+stripped sha256: 058d9a3b13d1c3a6410562db2b84d1ade4d18b561fcfafba0d509105c80af2f0
+main module: 394 sentences, 37 not in base's, in kore.txt
+differs_from c3-simp-comm-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-COMM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-SIMP-COMM as default.

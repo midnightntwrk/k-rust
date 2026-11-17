@@ -1,0 +1,18 @@
+command: kompile --backend haskell c3-simp-comm-nosym.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 12.7
+definition.kore bytes: 203590
+definition.kore sha256: 5be118904b4128b7b7ef9746973c306c7d457bc22844b55662232bb76c97b778
+stripped sha256: 1ef11f6db94c0f931f99bcd804321db7f2a72c4312afd87ad20a5cfc5965f3f5
+main module: 393 sentences, 36 not in base's, in kore.txt
+same_as c3-simp-comm-base: equal after stripping
+output:
+  [Error] Compiler: Used 'comm' attribute on simplification rule but g is not
+  comm.
+  	Source(FIXTURE/c3-simp-comm-nosym.k)
+  	Location(5,8,5,15)
+  	5 |	  rule g(X, 0) => X [simplification, comm]
+  	  .	       ^~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-COMM-NOSYM-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SIMP-COMM-NOSYM as default.

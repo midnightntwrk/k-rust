@@ -162,6 +162,7 @@ import KcoreSpec.LibAdmitted
 import KcoreSpec.Confined
 import KcoreSpec.RangeMapHooks
 import KcoreSpec.RhsValues
+import KcoreSpec.OccsUnder
 import KcoreSpec.OpenStep
 import KcoreSpec.OpenSuccessor
 import KcoreSpec.OpenCompete
@@ -236,4 +237,8 @@ import KcoreSpec.ReadFns
 import KcoreSpec.InjValue
 import KcoreSpec.ClausePlainEx
 import KcoreSpec.ExistsHoist
+import KcoreSpec.HeldValues
+import KcoreSpec.TieDefs
+import KcoreSpec.RegistryOwn
+import KcoreSpec.TieLemmas
 import KcoreSpec.HoldsModelFixed

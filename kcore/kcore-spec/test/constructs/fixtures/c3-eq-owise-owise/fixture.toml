@@ -1,0 +1,2 @@
+# pair [owise] x [owise] (TRIAGE-B c3.pair 3): two [owise] equations of one function, f(1) => 1 [owise] and f(_) => 1 [owise], beside f(0) => 0; differs_from c3-eq-owise-owise-one, the text with f(1) => 1 a plain equation. TRIAGE-B's decision: read as unordered clauses of priority 200, each where no plain equation applies, so both hold where both match (at 1, with one right side here)
+differs_from = "c3-eq-owise-owise-one"

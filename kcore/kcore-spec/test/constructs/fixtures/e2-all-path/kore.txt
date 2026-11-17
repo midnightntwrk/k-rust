@@ -1,0 +1,16 @@
+//@ line 628
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+//@ line 629
+      \and{SortGeneratedTopCell{}} (
+//@ line 630
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+//@ line 631
+        \top{SortGeneratedTopCell{}}()),
+//@ line 632
+      weakAlwaysFinally{SortGeneratedTopCell{}} (
+//@ line 633
+      \and{SortGeneratedTopCell{}} (
+//@ line 634
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+//@ line 635
+  [UNIQUE'Unds'ID{}("ff681fe95988f70ca5f66e94e59b36f3adb5a4af2e643ffdb25fa2a4eacfe568"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-all-path.k)")]

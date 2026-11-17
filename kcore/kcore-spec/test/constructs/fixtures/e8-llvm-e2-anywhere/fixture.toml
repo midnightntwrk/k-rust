@@ -1,0 +1,11 @@
+main = "e2-anywhere.k"
+text_from = "e2-anywhere"
+args = ["--backend", "llvm", "e2-anywhere.k", "-o", "out"]
+observed = """
+Under --backend llvm kompile accepts e2-anywhere's text (rejected under --backend haskell: 'anywhere
+is not supported by the haskell backend'). The anywhere rule a(X) => b(X) is written as an
+equation of a, \\implies(\\and(\\top, X0 in VarX), \\equals(Lbla{}(X0), \\and(Lblb{}(VarX), \\top)))
+with the attribute anywhere{}() (kore.txt:86-102); the symbol a is declared
+[anywhere{}(), functional{}(), injective{}()], without constructor{}() (kore.txt:6), and stays a
+disjunct of Exp's no-junk axiom (kore.txt:82).
+"""

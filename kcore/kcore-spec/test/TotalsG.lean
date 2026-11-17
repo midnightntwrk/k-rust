@@ -18,7 +18,7 @@
   seven (`tg_R`); `totalObligationsRP` names B, C and N (`tg_RP`). Under every interpretation, every
   function terminating and evaluation functional, A, D, E and S are total given B, C and N
   (`tg_total`); B's value at 0 is open (no clause applies), none under the core's interpretation
-  `HookParams.none` (`tg_B_not_total`), so it must stay named.
+  `HookParams.none` (`AtNone.tg_B_not_total`), so it must stay named.
 
   Termination of S by an Int counter bounded below (`ctrOK`, DecreasingL.lean): its self call's
   argument is `X -Int 1` where its `requires` puts X above 0. `decreasingOKL` does not show it
@@ -132,6 +132,9 @@ theorem tg_terminates (H : HookParams) (hU : Terminates (tg.withHooks H) U)
 
 theorem tg_B_lookup : tg.lookupFn B = some fnB := by rfl
 
+-- At the interpretation that gives nothing (`HookParams.none`): no statement for every interpretation.
+namespace AtNone
+
 /-- **B has no value at 0 under `HookParams.none`**: its one clause's `requires` `0 >Int 0` is false, so
 its value there is its rest, which that interpretation does not give. -/
 theorem tg_B_not_total : ¬ Total tg B := by
@@ -166,8 +169,10 @@ theorem tg_B_not_total : ¬ Total tg B := by
         subst hX; subst hY
         simp at hb
 
+end AtNone
+
 end KCore.TotalsGTest
 
 #print axioms KCore.TotalsGTest.tg_total
 #print axioms KCore.TotalsGTest.tg_terminates
-#print axioms KCore.TotalsGTest.tg_B_not_total
+#print axioms KCore.TotalsGTest.AtNone.tg_B_not_total

@@ -7,6 +7,8 @@
 #   kcore       the native executable (`lake build kcore`)
 #   pins        test/Pins.lean: the headline statements restated, their axioms
 #   pins-peano  test/pins-peano.sh: the statements a generated package states, on peano
+#   pins-kimp   test/pins-kimp.sh: row imp's statements (consistent, sound_at, complete_at, run_exact)
+#               on kimp's text generated with --wf
 #   axioms      test/Axioms.lean: every declaration of the library within propext, Classical.choice, Quot.sound
 #   witnesses   test/Witnesses.lean: the witness modules' theorems, and their axioms
 #   cone        the review cone (v) (test/ConeV.lean, computed from the root list test/roots.toml) against the
@@ -139,11 +141,12 @@ check agree-kore-in-k scoreboard agreeKoreInK
 check imp-kompile scoreboard test/imp-kompile.sh
 
 # Lean checks, the longest first
-order="$order pins pins-peano axioms witnesses cone member not-plain pred-sorted user cs2"
+order="$order pins pins-peano pins-kimp axioms witnesses cone member not-plain pred-sorted user cs2"
 while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done
 { check user scoreboard userModules; check cs2 scoreboard cs2; } &
 pool pred-sorted scoreboard predSorted
 pool pins-peano required test/pins-peano.sh
+pool pins-kimp required test/pins-kimp.sh
 pool member scoreboard test/member.sh
 pool not-plain scoreboard test/not-plain.sh
 pool pins required lean1 test/Pins.lean

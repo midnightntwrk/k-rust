@@ -1,0 +1,4 @@
+expect = "error"
+main = "e2-fn-unit.k"
+text_from = "e2-fn-unit"
+args = ["--backend", "llvm", "e2-fn-unit.k", "-o", "out"]

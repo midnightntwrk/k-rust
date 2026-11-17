@@ -1,0 +1,19 @@
+observed = """
+c() => d(?Z:Int) ensures ?Z *Int 2 ==Int 1. The right side and the ensures are under one binder:
+  kore.txt:89-97  \\rewrites(\\and(<k>(c() ~> .), \\top),
+                  \\exists{SortGeneratedTopCell{}} (Var'Ques'Z:SortInt{}, \\and(<k>(d(?Z) ~> .),
+                  \\equals{SortBool{},SortGeneratedTopCell{}}(Lbl'UndsEqlsEqls'Int'Unds'{}(Lbl'UndsStar'Int'Unds'{}(Var'Ques'Z:SortInt{},\\dv{SortInt{}}("2")),\\dv{SortInt{}}("1")), \\dv{SortBool{}}("true")))))
+The account: parse ok, wf true, coreOK true; the rule is read with the premise ceil(rhs and ens).
+"""
+expectation = """
+From the sentence, with x the configuration <k> c() </k> (counter 0) and r the text's rewrite rule:
+- r is admitted: Z is held by the constructor d (arm A), so c.rulePlainEx r = true and coreOK.
+- No step: for no Int value i is (i *Int 2 ==Int 1) = true (the Int hooks at values: i * 2 is
+  even), so the right side and ensures have no instance at a value of Z, and
+  for all y, not (Step c x y).
+- Read with the premise ceil(exists Z. rhs and ens), the axiom holds in the value model: the
+  premise is false there.
+- Read as written (lhs -> next(exists Z. rhs and ens)), the axiom holds in a model only if Int has
+  an element z, no value's, with z *Int 2 ==Int 1 true: at values the right side is empty while x
+  has an instance.
+"""

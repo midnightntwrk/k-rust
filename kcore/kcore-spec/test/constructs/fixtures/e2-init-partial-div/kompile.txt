@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-init-partial-div.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.6
+output:
+  [Error] Compiler: Division by zero.
+    while executing phase "constant expression folding"
+  	Source(FIXTURE/e2-init-partial-div.k)
+  	Location(4,39,4,47)
+  	4 |	  configuration <k> $PGM:Pgm </k> <x> 1 /Int 0 </x>
+  	  .	                                      ^~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-INIT-PARTIAL-DIV-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-INIT-PARTIAL-DIV as default.

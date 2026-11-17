@@ -1,0 +1,17 @@
+observed = """
+keys(RangeMap) applied in a rule's right side, at a literal map; kompile leaves it unevaluated:
+  kore.txt:146  res(Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap{}(Lbl'Unds'RangeMap'Unds'{}(
+                _r|->_(RangeMap:Range(inj{Int,KItem}(0), inj{Int,KItem}(3)), a()),
+                _r|->_(RangeMap:Range(inj{Int,KItem}(5), inj{Int,KItem}(7)), b()))))
+  kore.txt:118  keys' functional axiom (domains.md declares it total)
+  kore.txt:24   the subsort axiom of Range into KItem
+The account reads the text (coreOK true).
+"""
+expectation = """
+domains.md 620-625: keys(M) is the Set of all the ranges of M; a Set holds KItems, so each range
+as its injection into KItem. Here M has the two ranges [0, 3) and [5, 7):
+keys(M) = SetItem(inj{Range,KItem}([0, 3))) SetItem(inj{Range,KItem}([5, 7))), and <k> go </k>
+steps to <k> res of that Set </k> alone. As a Lean value: rmKeysHook [M's value] =
+some (.set Srt.set [inj Range KItem [0, 3), inj Range KItem [5, 7)]) (the members in the Set's
+order), and the step for every H whose rmKeys entry is that function.
+"""
