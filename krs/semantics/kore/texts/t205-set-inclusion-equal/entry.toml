@@ -1,0 +1,44 @@
+id = "t205-set-inclusion-equal"
+kind = "text"
+subject = "<=Set at two equal sets: what the SET module states of S <=Set S."
+retro = ["H6"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:786 (K 7.1.337)", quote = 'syntax Bool ::= Set "<=Set" Set [function, total, hook(SET.inclusion)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) <=Set is declared function and total (domains.md:786): it has exactly one Bool value at every two sets (user_manual.md:546-551), at equal sets too.
+(2) The one sentence: "You can determine whether a Set is a strict subset of another Set" (domains.md:782-783). At two different sets S and T, S is a strict subset of T exactly where every element of S is one of T, so there the sentence fixes the value: SetItem(1) <=Set SetItem(1) SetItem(2) is true, SetItem(1) SetItem(2) <=Set SetItem(1) false.
+What the text does not determine:
+(3) S <=Set S. The heading is Set inclusion and the symbol is <=, under which a set is included in itself: true. The sentence says strict subset, under which no set is a strict subset of itself: false; but it speaks of a set and another set, which may leave equal sets out of it. No sentence settles which of the two words governs at equal sets; total says only that there is one value."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:780-783 (K 7.1.337)"
+quote = "### Set inclusion You can determine whether a `Set` is a strict subset of another `Set` in O(N) time (where N is the size of the first set)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:786 (K 7.1.337)"
+quote = 'syntax Bool ::= Set "<=Set" Set [function, total, hook(SET.inclusion)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "It can be added to a production with the `function` attribute to indicate to the symbolic reasoning engine that a given symbol is a *total function*, that is it has *exactly* one return value for every possible input."
+
+[[reading]]
+name = "inclusion"
+statement = "The heading and the symbol govern: <=Set is set inclusion."
+answer = "SetItem(1) <=Set SetItem(1) is true, and S <=Set S is true at every set S."
+consequence = "A rule whose requires is S <=Set S applies."
+
+[[reading]]
+name = "strict"
+statement = "The sentence governs at equal sets too: <=Set is strict inclusion."
+answer = "SetItem(1) <=Set SetItem(1) is false, and S <=Set S is false at every set S."
+consequence = "A rule whose requires is S <=Set S does not apply."
