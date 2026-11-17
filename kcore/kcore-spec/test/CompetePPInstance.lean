@@ -58,13 +58,35 @@ def cM : Semantics := { base with rules := [kcMem, r200] }
 def cfgK (x n : Int) : GroundTerm :=
   .ctor topLabel [.ctor kIds.label [.ctor kseq [.inj Srt.int Srt.kitem (int x), .ctor dotk []]], .ctor counterLabel [int n]]
 
-/-- What the two lemmas ask of the core and of the rule, decided. -/
+open Faithful.Model in
+/-- `coreOK` from its conjuncts, each a decision of its own: the names apart by their sorted codes
+(`namesApartFast`), `itesApart` on the names' codes (`itesApart_of_codes`). -/
+theorem coreOK_partsCPP {c : Semantics} {I : List Nat}
+    (hI : iteIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
+    (hite : itesApartC c I ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
+    (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
+    (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartFast c = true)
+    (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h11 : kindsApart c = true)
+    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true) (hha : c.hooksApart = true)
+    (hpa : c.predsApart = true) (hids : c.idsOK = true) (hov : c.overloadsOK = true) :
+    c.coreOK = true := by
+  have hfa := Semantics.faithCoreOK_of_parts h1 h2 h3 h4 h5 h6 h7 h8
+    (itesApart_of_codes rfl rfl hI hite) h11 h12 h13
+  simp only [Semantics.coreOK, hs, hfa, hha, hpa, hids, hov, Bool.and_self]
+
+theorem coreM : cM.coreOK = true :=
+  coreOK_partsCPP (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+
+/-- What the two lemmas ask of the core and of the rule, decided (`coreOK` by `coreM`). -/
 theorem facts : cM.coreOK = true ∧ cM.ruleSorted kcMem = true ∧ cM.rulePlainPP kcMem = true ∧
     cM.rules.any (fun r'' => kcMem.prio < r''.prio) = true ∧
     (kcMem.opens.any fun i => (kcMem.vars[i]?.map cM.confined).getD false) = false ∧
-    kcMem.pre.hasBinder = false ∧ kcMem.needsWitness cM = false ∧ cM.fns = [] ∧ cM.allFns = [] ∧
-    CExec.execReady cM = true ∧ kcMem.pre.isTop = false := by
-  decide +kernel
+    kcMem.pre.hasBinder = false ∧ kcMem.needsWitness cM = false ∧ cM.fns = [] ∧
+    CExec.execReady cM = true ∧ kcMem.pre.isTop = false :=
+  ⟨coreM, by decide +kernel⟩
 
 theorem mem : kcMem ∈ cM.rules := List.mem_cons_self ..
 
@@ -79,24 +101,21 @@ theorem listed : (∀ σb ∈ CExec.ruleMatches cM 20 kcMem (cfgK 5 0), σb.2 = 
     CExec.outOfFuel cM 20 (cfgK 1 0) = false := by
   decide +kernel
 
-/-- No function, so one result at most. -/
-theorem fnDet : FnDet cM := fun f _ _ _ h _ => by
-  have hl : cM.lookupFn f = none := by rw [Semantics.lookupFn_eq, facts.2.2.2.2.2.2.2.2.1]; rfl
-  cases h with
-  | clause hfn .. => rw [hl] at hfn; cases hfn
-  | rest hfn _ => rw [hl] at hfn; cases hfn
-  | ensFails hfn .. => rw [hl] at hfn; cases hfn
+/-- No user function, and the sort predicates' clauses agree: one result at most. -/
+theorem fnDet : FnDet cM :=
+  fnDet_of_agree (fun _ h => by rw [facts.2.2.2.2.2.2.2.1] at h; cases h)
+    (fun _ h => by rw [facts.2.2.2.2.2.2.2.1] at h; cases h)
 
 /-- **The rule does not apply at `<k> 5 ~> . </k> 0`**: its `pre` is false under every match. -/
 theorem notApplies_B : NotApplies cM kcMem (cfgK 5 0) :=
-  CExec.notApplies_of_ruleMatches (x := ⟨cfgK 5 0, sortB⟩) facts.2.2.2.2.2.2.2.2.2.1 mem listed.1
+  CExec.notApplies_of_ruleMatches (x := ⟨cfgK 5 0, sortB⟩) facts.2.2.2.2.2.2.2.2.1 mem listed.1
 
 /-- **It applies at `<k> 1 ~> . </k> 0`.** -/
 theorem applies_A : ¬ NotApplies cM kcMem (cfgK 1 0) := by
   obtain ⟨⟨σ, b⟩, hm, hb⟩ := listed.2.2.1
   simp only at hb
   subst hb
-  exact CExec.not_notApplies_of_ruleMatches (x := ⟨cfgK 1 0, sortA⟩) facts.2.2.2.2.2.2.2.2.2.1 fnDet mem hm
+  exact CExec.not_notApplies_of_ruleMatches (x := ⟨cfgK 1 0, sortA⟩) facts.2.2.2.2.2.2.2.2.1 fnDet mem hm
 
 /-- The variable table: the keys of the rule's variables and the variables of `pre`'s pattern. -/
 def tbl : KoreAML.VarTable :=
@@ -117,7 +136,7 @@ theorem hcw : ∀ fn ∈ cM.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cM = tru
 theorem decided (x : Config cM) (hf : CExec.outOfFuel cM 20 x.val = false) :
     ∀ σ, cM.WellSortedAt kcMem.vars kcMem.leftVars σ → PatVal cM σ kcMem.lhs x.val →
       (∀ t, kcMem.req = some t → ∃ v, EvalTerm cM σ t v) ∧ ∃ b, Holds cM kcMem.vars.length σ kcMem.pre b :=
-  (CExec.stepDecided_of_fuel facts.2.2.2.2.2.2.2.2.2.1 fnDet hf kcMem mem
+  (CExec.stepDecided_of_fuel facts.2.2.2.2.2.2.2.2.1 fnDet hf kcMem mem
     (fun r' hr' hlt => by
       simp only [cM, List.mem_cons, List.not_mem_nil, or_false] at hr'
       rcases hr' with rfl | rfl <;> exact absurd hlt (by decide))).1
@@ -155,7 +174,9 @@ end CompetePPInstanceTest
 
 end KCore
 
+#print axioms KCore.CompetePPInstanceTest.coreM
 #print axioms KCore.CompetePPInstanceTest.facts
+#print axioms KCore.CompetePPInstanceTest.fnDet
 #print axioms KCore.CompetePPInstanceTest.notApplies_B
 #print axioms KCore.CompetePPInstanceTest.applies_A
 #print axioms KCore.CompetePPInstanceTest.not_applies_B
