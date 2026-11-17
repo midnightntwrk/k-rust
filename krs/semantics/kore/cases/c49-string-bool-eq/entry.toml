@@ -1,10 +1,32 @@
 id = "c49-string-bool-eq"
 kind = "case"
 subject = "==String, <String and ==Bool on String domain values, and a String literal in a left side."
+rests_on = ["kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t33-string-bool-compare"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(false, true, false, true, false, true)", "c(\"ac\")"]
+reason = """
+(1) The two rules for a have priority 50 and no requires (user_manual.md:1748-1749). At a("ab", "ac") the first matches with X = "ab", Y = "ac"; the second's left side holds the literal "ab" at the first argument, which is the first argument, so it matches with Y = "ac". a("ab", "ac") has two successors (kk:t02-step-successors).
+(2) The first rule's right side (kk:t33-string-bool-compare): "ab" ==String "ac" is false, the two being different sequences of characters; "ab" <String "ac" is true and "ac" <String "ab" false, b coming before c at the first position at which they differ (domains.md:1860-1862); (false) ==Bool (false) is true and (true) ==Bool (false) false (domains.md:1112); "ab" ==String "ab" is true. It denotes b(false, true, false, true, false, true) (kk:t10-fn-innermost).
+(3) The second rule's right side is c("ac").
+(4) No rule's left side matches b(...) or c(...); both are final (kk:t06-final-configuration). The final configurations are those two."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1860-1862 (K 7.1.337)"
+quote = "You can compare whether two strings are equal or unequal, or whether one string is less than, less than or equal to, greater than, or greater than or equal to another according to the natural lexicographic ordering of strings."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1112 (K 7.1.337)"
+quote = "* Check equality of two boolean values."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."

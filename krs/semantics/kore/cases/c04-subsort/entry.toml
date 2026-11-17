@@ -1,10 +1,32 @@
 id = "c04-subsort"
 kind = "case"
 subject = "Subsorts Int < Num < Val < Exp and Bool < Val: a variable of sort Val matches an Int injected into Exp only through the closure of the stated subsorts; injections built by functions' results compose."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t16-match-inj"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["pair(-5, 1)"]
+reason = """
+(1) The declarations make Int a subsort of Num, Num of Val and Val of Exp. A term of a smaller sort at a position of a larger one is its injection, and the injection of an Int into Exp is its injection through Num and Val (kk:t16-match-inj; prelude.kore:50-51). id(E) = E at every Exp and v(I) = I at every Int, I injected into Val (kk:t11-eq-applies).
+(2) wrap(neg(5)): the rule for wrap applies (kk:t01-rule-applies) and gives kind(id(neg(5))), which denotes kind(neg(5)) (kk:t10-fn-innermost). There the pattern V:Val matches only an element of Val injected into Exp, and neg(5) is built by neg, a production of Exp, not an injection of an element of Val or of a sort below it (kk:t16-match-inj): the first rule for kind does not match. The second, kind(neg(I:Int)), matches with I = 5: kind(neg(5)) steps to wrap(0 -Int 5), that is wrap(-5) with -5 injected into Exp (domains.md:1238).
+(3) wrap(-5) steps to kind(id(-5)), that is kind(-5). The pattern V:Val matches -5 injected into Exp, which is the injection into Exp of -5 injected into Val (kk:t16-match-inj), with V = -5 at Val; kind(neg(I:Int)) does not match -5, an Int and not a neg term. kind(-5) steps to pair(-5, v(1)), which denotes pair(-5, 1) (kk:t10-fn-innermost).
+(4) Each configuration before pair(-5, 1) has the one successor given (kk:t02-step-successors). No rule's left side matches pair(-5, 1), which is final (kk:t06-final-configuration). The final configurations are pair(-5, 1) alone."""
+
+[[ruling.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50-51 (K 7.1.337)"
+quote = "symbol inj{From, To}(From) : To [sortInjection{}()] axiom {S1, S2, S3, R} \\equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1)) [simplification{}()]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

@@ -1,10 +1,25 @@
 id = "c16-bool-pattern"
 kind = "case"
 subject = "A Bool domain value in a left side matches only itself."
+rests_on = ["kk:t01-rule-applies", "kk:t06-final-configuration"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["b(false)"]
+reason = """
+(1) The boolean values are true and false (domains.md:1084), two values, declared as the two tokens of Bool (domains.md:1093-1094). The one rule's left side b(true) matches b(B) exactly where B is true.
+(2) The initial configuration is b(false). false is not true, so the rule's left side does not match it and no rule applies (kk:t01-rule-applies): b(false) is a configuration to which no rule can be applied, which is final (kk:t06-final-configuration). The final configurations are b(false) alone: yes would need the rule to apply at b(false)."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1084 (K 7.1.337)"
+quote = "The boolean values are `true` and `false`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1093-1094 (K 7.1.337)"
+quote = 'syntax Bool ::= "true" [token] syntax Bool ::= "false" [token]'
