@@ -26,6 +26,24 @@
     in a condition (`pre`) with a variable the left side binds: `openRequires` at Exp.
   A text the landed reader reads is read by it (`mlor`, e7-guardors: the same rules).
   Kernel: `cut_right`, `cut_left` (the cut of a pattern), `parseWith_ruleOf`.
+
+  ## rhs-and
+  `Parse.andRuleOf` (`ruleBody` does not call it) reads a right side's conjunction of terms at a
+  position under applications with the position cut (`Parse.andCut`). `showAnd` prints the rules
+  `parseWith andRuleOf` builds, as `showDef` does, with whether the rule has an `ensures`.
+  - `mlandt` (e3-ml-rule-rhs-and-term, `go(X) => f(X) #And g(X)` at Int): no conjunct is a
+    variable, so the fresh form: `go(X) => ?Z` with `post := and (mem Z f(X)) (mem Z g(X))`.
+  - `mlandc` (e3-ml-rule-rhs-and-ctor, `c(X) => X #And a()`), `mlandv` (e3-ml-rule-rhs-and-var,
+    `c(X) => a() #And X`), `mlorand` (e3-ml-rule-lhs-or-rhs-and, `c(X) #Or d(X) => X #And a()`,
+    two rules): the variable form, `c(X) => X` with `post := mem X a()`, no new variable.
+  - hand-written on `mlandt`'s text: V1 `go(X) => f(f(X) #And g(X))`, the conjunction under the
+    function f: the fresh form, refused `openRight` on the cut variable (held under no
+    constructor). V2 `done => go(X) #And go(g(X))`, X not bound by the left side: the fresh form,
+    refused `openRight` on X. V3 `done => X #And g(X)`: the variable form, `rulePlainPP` true.
+  Each rule so read has no `ensures` (the text's rule has none) and `ruleSorted` true;
+  `rulesPlain`, which asks `\top` predicates of every rule, is false of each definition, and so
+  is `coreOK`.
+  Kernel: `and_fresh`, `and_var` (the cut of a pattern in each form).
 -/
 import KcoreSpec
 
@@ -158,6 +176,100 @@ mlnot larger: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars 
         showRule c' "mlnot larger" r p.names
       | [] => pure ()
 
+/-! ## rhs-and -/
+
+def showAnd (n : String) (k : Kore.Definition) : IO Unit := do
+  match Parse.parseWith Parse.andRuleOf k with
+  | .error r => IO.println s!"{n}: andRuleOf: refused {repr r.reason} {r.detail}"
+  | .ok d =>
+    for ((r, p), i) in (d.sem.rules.zip d.pres.rules).zipIdx do
+      if !(r.pre.isTop && r.post.isTop) || !r.exs.isEmpty then
+        showRule d.sem s!"{n} rule {i}" r p.names
+        IO.println s!"  ensures {r.ens.isSome}"
+    IO.println s!"{n}: andRuleOf: wf failing {(d.report.filter (!·.2)).map (·.1)}; rulesPlain {d.sem.rulesPlain}; coreOK {d.sem.coreOK}"
+
+mutual
+  /-- p with each occurrence of `old` replaced by `new`. -/
+  def repl (old new : Kore.Pattern) : Kore.Pattern → Kore.Pattern
+    | .app h ss ps => if decide (Kore.Pattern.app h ss ps = old) then new else .app h ss (replList old new ps)
+    | .and s ps => if decide (Kore.Pattern.and s ps = old) then new else .and s (replList old new ps)
+    | p => if decide (p = old) then new else p
+  def replList (old new : Kore.Pattern) : List Kore.Pattern → List Kore.Pattern
+    | [] => []
+    | p :: ps => repl old new p :: replList old new ps
+end
+
+/-- The text with each rewrite axiom's two sides changed by `edL` and `edR`. -/
+def editRule (edL edR : Kore.Pattern → Kore.Pattern) (k : Kore.Definition) : Kore.Definition :=
+  { k with modules := k.modules.map fun m => { m with sentences := m.sentences.map fun s => match s with
+      | .axiom a => (match a.pattern with
+        | .rewrites s l r => .axiom { a with pattern := .rewrites s (edL l) (edR r) }
+        | _ => .axiom a)
+      | s => s } }
+
+def intS : Kore.KSort := KoreAML.srt "Int"
+def kitemS : Kore.KSort := KoreAML.srt "KItem"
+def xI : Kore.Pattern := .var (.evar (KoreAML.evar "VarX" intS))
+def fX : Kore.Pattern := KoreAML.ap "Lblf" [xI]
+def gX : Kore.Pattern := KoreAML.ap "Lblg" [xI]
+def goX : Kore.Pattern := KoreAML.ap "Lblgo" [xI]
+def injI (p : Kore.Pattern) : Kore.Pattern := .app ⟨⟨"inj"⟩⟩ [intS, kitemS] [p]
+def injE (p : Kore.Pattern) : Kore.Pattern := .app ⟨⟨"inj"⟩⟩ [expS, kitemS] [p]
+
+/--
+info: ## rhs-and
+mlandt rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [Int, K, GeneratedCounterCell, Int] exs [3] opens [3]
+  pre KCore.Cond.top
+  post KCore.Cond.and
+  (KCore.Cond.mem 3 (KCore.Term.var 3) (KCore.Term.app 388 [KCore.Term.var 0]))
+  (KCore.Cond.mem 3 (KCore.Term.var 3) (KCore.Term.app 389 [KCore.Term.var 0]))
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlandt: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandc rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.top
+  post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlandc: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandv rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.top
+  post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlandv: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlorand rule 0: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.top
+  post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlorand rule 1: names [X, 'Unds'DotVar1, 'Unds'DotVar0] vars [Exp, K, GeneratedCounterCell] exs [] opens []
+  pre KCore.Cond.top
+  post KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.app 385 [])
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlorand: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+mlandt V1: andRuleOf: refused KCore.Parse.RefusalReason.openRight Var'Hash'Cut0:Int: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's
+mlandt V2: andRuleOf: refused KCore.Parse.RefusalReason.openRight VarX:Int: in the right side or the ensures under no constructor, not bound by the left side, of a sort the text leaves unconfined: the successor is a value through an element that is no value's
+mlandt V3 rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, X] vars [K, GeneratedCounterCell, Int] exs [] opens [2]
+  pre KCore.Cond.top
+  post KCore.Cond.mem 3 (KCore.Term.var 2) (KCore.Term.app 389 [KCore.Term.var 2])
+  ruleSorted true; rulePlainPP true; openRefusal none
+  ensures false
+mlandt V3: andRuleOf: wf failing [rules plain (rulesPlain): \top predicates, open and existential variables held, open condition variables confined or closed conditions apart]; rulesPlain false; coreOK false
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO Unit from do
+  IO.println "## rhs-and"
+  for n in ["mlandt", "mlandc", "mlandv", "mlorand"] do
+    if let some k ← load n then showAnd n k
+  if let some k ← load "mlandt" then
+    let lhsDone := repl goX (KoreAML.ap "Lbldone" [])
+    showAnd "mlandt V1" (editRule id (repl (.and intS [fX, gX]) (KoreAML.ap "Lblf" [.and intS [fX, gX]])) k)
+    showAnd "mlandt V2" (editRule lhsDone
+      (repl (injI (.and intS [fX, gX])) (injE (.and expS [goX, KoreAML.ap "Lblgo" [gX]]))) k)
+    showAnd "mlandt V3" (editRule lhsDone (repl (.and intS [fX, gX]) (.and intS [xI, gX])) k)
+
 /-! ## Kernel-checked: the cut -/
 
 def Z0 : Kore.EVar := KoreAML.evar "Var'Hash'Cut0" expS
@@ -172,5 +284,16 @@ theorem cut_left : Parse.connCut true [] 0 (KoreAML.ap "Lbld" [.not expS aP, .or
   decide +kernel
 
 example (k : Kore.Definition) : Parse.parseWith Parse.ruleOf k = Parse.parse k := Parse.parseWith_ruleOf k
+
+def ZI : Kore.EVar := KoreAML.evar "Var'Hash'Cut0" intS
+
+/-- A conjunction of two terms, neither a variable: a fresh variable at its place, in both. -/
+theorem and_fresh : Parse.andCut [] 0 (injI (.and intS [fX, gX])) =
+    (injI (.var (.evar ZI)), 1, [⟨ZI, intS, true, [fX, gX]⟩]) := by decide +kernel
+
+/-- A conjunction with a variable among its conjuncts: the variable at its place, in the others;
+no number is used. -/
+theorem and_var : Parse.andCut [] 0 (injI (.and intS [gX, xI])) =
+    (injI xI, 0, [⟨KoreAML.evar "VarX" intS, intS, false, [gX]⟩]) := by decide +kernel
 
 end PredReader
