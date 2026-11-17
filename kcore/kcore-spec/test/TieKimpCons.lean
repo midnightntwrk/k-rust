@@ -47,8 +47,10 @@ instance ovlOKH (H : HookParams) : OvlOK (cH H) := OvlOK.of_nil ovls_nil subsort
 
 `tieConsB` finds the sort and the generators by search, and each of `tieFunB`, `tieInjB`, `tieDistB`
 finds Γ's items by a search through `consItemsK c`; on this text (13 constructor sorts, KItem with 44
-generators, 1304 items) the kernel's search exceeds the memory cap at some tens of sentences. Here
-the reading names them, and the kernel checks the named ones. -/
+generators, 1304 items) one kernel decision of `tieConsB` over 20 of KItem's distinctness sentences
+peaks at 10.3 GiB, against 2.4 GiB with the places named. Here the reading names them, and the
+kernel checks the named ones. The places follow `consItemsK c`'s order: a change of that order
+asks for new places (each `consAtB` is then false where a place no longer holds the item). -/
 
 /-- A reading of a constructor sentence: its kind (`0` the `functional` or `subsort` sentence of a
 generator, `1` the no-confusion sentence of one, `2` of two), the place of its sort in
