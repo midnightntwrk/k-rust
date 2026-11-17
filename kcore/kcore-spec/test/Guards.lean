@@ -422,7 +422,7 @@ theorem projInt_none_off (H : HookParams) (K : GroundTerm) (hK : c.sortOf K = so
     Eval (c.withHooks H) projInt [K] none := by
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   refine Eval.ensFails (cl := domCl) (σ := [(0, K)]) hfnH (by rw [fn_clauses]; simp) ?_ ?_
-    (fun t ht => nomatch ht) .top ?_ rfl .dv (by decide)
+    (fun t ht => nomatch ht) .top ?_ rfl rfl .dv (by decide)
   · intro i s hs
     cases i with
     | zero => cases hs; exact ⟨K, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact hK⟩
@@ -458,7 +458,7 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   generalize hr : (some v : Option GroundTerm) = r at hE
   cases hE with
-  | clause hf hmem _ hmatch _ _ _ hrhs hens =>
+  | clause hf hmem _ hmatch _ _ _ _ hrhs hens _ =>
     rw [hfnH] at hf; cases hf
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -481,6 +481,12 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
       | intro ht => cases ht
       | pre h => exact absurd (Holds.top_eq h) (by simp)
   | ensFails => cases hr
+  | clauseEx hf hmem _ _ _ _ _ hne =>
+    rw [hfnH] at hf; cases hf
+    rw [fn_clauses] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd rfl hne
+  | exNone => cases hr
 
 end ProjK
 

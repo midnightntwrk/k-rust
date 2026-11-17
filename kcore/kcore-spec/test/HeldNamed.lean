@@ -132,7 +132,7 @@ theorem oblS : FnObligations cS ordS [] := by
     subst e
     have e : cl = clS := by simpa [fS] using hcl.symm
     subst e
-    exact fun vs σ _ ha => absurd ha (clS_not_applies σ vs)
+    exact (matchIndependent_iff_noExs rfl).mpr fun vs σ _ ha => absurd ha (clS_not_applies σ vs)
 
 /-- **`FnHyp cS` from the held-named form**: `coreOK`, the owed fact of `f` (its variables are
 held) and the deciders. -/

@@ -174,8 +174,8 @@ theorem noE (v : GroundTerm) (h : c5.sortOf v = some 33) : False := by
 theorem isC_false {v : GroundTerm} (hv : c5.sortOf v = some 32) :
     Eval c5 390 [v] (some (.dv Srt.bool (.bool false))) := by
   refine Eval.clause (cl := ic2) (σ := [(0, v)]) hfnC (List.mem_cons_of_mem _ (List.mem_singleton_self _))
-    (fun j s hs => ?_) (.cons (.var rfl) .nil) (fun t ht => by cases ht) .top (fun cl' hcl' _ hlt => ?_) .dv
-    (fun t ht => by cases ht)
+    (fun j s hs => ?_) (.cons (.var rfl) .nil) (fun t ht => by cases ht) .top (fun cl' hcl' _ hlt => ?_) rfl .dv
+    (fun t ht => by cases ht) .top
   · cases j with
     | zero => cases (show some (32 : Srt) = some s from hs); exact ⟨v, rfl, hv⟩
     | succ j => cases (show (none : Option Srt) = some s from hs)
@@ -210,7 +210,8 @@ theorem low50 {cl' : Clause} (hcl' : cl' ∈ g5.clauses) (hlt : cl'.prio < 50) :
 theorem E00 : Eval c5 389 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 0))) :=
   Eval.clause (cl := cl1) (σ := []) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => by cases (show (none : Option Srt) = some s from hs)) (.cons .dv .nil)
-    (fun t ht => by cases ht) .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) .dv (fun t ht => by cases ht)
+    (fun t ht => by cases ht) .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) rfl .dv (fun t ht => by cases ht)
+    .top
 
 /-- `g(1) => 1 requires isC(H) orBool g(0) ==Int 1` fails at `[1]`: at each value of S its
 `requires` evaluates to `false`, reading `g(0)` as 0. -/
@@ -229,8 +230,8 @@ theorem E10 : Eval c5 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) :
   refine Eval.clause (cl := clO) (σ := [(0, .dv Srt.int (.int 1))]) hfn5 (by rw [g5_clauses]; simp)
     (fun j s hs => ?_) (by rw [clO_pats]; exact .cons (.var rfl) .nil)
     (fun t ht => by rw [clO_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _)
-    (fun cl' hcl' _ hlt => ?_) (by rw [clO_rhs]; exact .dv)
-    (fun t ht => by rw [clO_ens] at ht; cases ht)
+    (fun cl' hcl' _ hlt => ?_) (by rfl) (by rw [clO_rhs]; exact .dv)
+    (fun t ht => by rw [clO_ens] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
   · rw [clO_facts.2] at hs
     cases j with
     | zero => cases hs; exact ⟨_, rfl, sortOf_int 1⟩
@@ -255,7 +256,7 @@ theorem E01 : Eval c5 389 [.dv Srt.int (.int 0)] (some (.dv Srt.int (.int 1))) :
       cases ht
       exact .hook (by decide +kernel) (by decide +kernel) (.cons (ev_g E10) (.cons .dv .nil))
         (fun vs hvs => by cases hvs; rfl) (fun h => by cases h))
-    .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) .dv (fun t ht => by cases ht)
+    .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) rfl .dv (fun t ht => by cases ht) .top
 
 theorem a_S : c5.sortOf (.ctor 386 []) = some 32 := by decide +kernel
 
@@ -284,7 +285,7 @@ theorem E11 : Eval c5 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 1))) :
       | zero => cases (show some (32 : Srt) = some s from hs); exact ⟨_, rfl, a_S⟩
       | succ j => cases (show (none : Option Srt) = some s from hs))
     (.cons .dv .nil) (fun t ht => by cases ht; exact reqC_true)
-    .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) .dv (fun t ht => by cases ht)
+    .top (fun cl' hcl' _ hlt => (low50 hcl' hlt).elim) rfl .dv (fun t ht => by cases ht) .top
 
 /-- With `WitnessedSome`, every `needsWitness` clause of `c5` would be decided. -/
 theorem hc5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c5 = true → WitnessedSome c5 cl ∨ cl.Refuted c5 := by

@@ -510,7 +510,7 @@ theorem factsOW : cOW.rightValued = true ∧ cOW.rankObligations [] ++ cOW.decOb
 
 /-- **`clW` is match independent**: its right side is the literal `1` under every match. -/
 theorem miW : MatchIndependent cOW clW :=
-  Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+  (matchIndependent_iff_noExs rfl).mpr <| Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
     change EvalTerm _ _ (.dv Srt.int (.int 1)) _ at h h'
     cases h; cases h'; rfl
 

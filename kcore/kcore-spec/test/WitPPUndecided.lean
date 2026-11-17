@@ -77,8 +77,8 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] →
       ∀ w, σ.lookup 0 = some w → (cR rs).sortOf w = some Srt.int → False)
     (motive_5 := fun _ _ _ _ => True)
-    (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf w hvs hw => by
+    (motive_6 := fun _ _ _ _ _ => True) (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -96,12 +96,24 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
       cases h [(0, w)] hσ (.cons (.var rfl) .nil) with
       | intro ht _ _ => simp [cl] at ht
       | pre hp => exact absurd (Holds.top_eq hp) (by simp))
-    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf w hvs _ => by
+    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf w hvs _ => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
       subst hmem
       simp [cl] at ht)
+    (fun {_ _ _ cl' _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf w hvs _ => by
+      subst hf; subst hvs
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      subst hmem
+      exact hne rfl)
+    (fun {_ _ _ cl' _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf w hvs _ => by
+      subst hf; subst hvs
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      subst hmem
+      exact hne rfl)
     (fun _ _ => trivial)
     (fun _ _ _ _ => trivial)
     (fun _ _ => trivial)
@@ -143,6 +155,7 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial)
     hv rfl w rfl hw
 
 /-- `f(t)` has no result where `t` has the one result `w`, an Int. -/
