@@ -3,6 +3,7 @@ kind = "text"
 subject = "The attribute strict on productions of one, two and two arguments (neg, pair, +, twice), with KResult ::= Int | Val: the heating and cooling rules it stands for."
 retro = ["S2"]
 origin = "kcore-spec fixture c3-strict-base"
+rests_on = ["kk:t02-step-successors"]
 
 [text]
 files = ["t161-strict-base.k"]
@@ -16,7 +17,7 @@ statement = "strict on a production stands for one heating and one cooling rule 
 reason = '''
 (1) The strictness attributes define evaluation strategies by injecting heating and cooling rules for the subterms, and need KResult to say what a result is (user_manual.md:1773-1776); for a strict production the manual writes the rules out (user_manual.md:1785-1797).
 (2) The variable named HOLE is the term heated or cooled, and the compiler generates isKResult(HOLE) and notBool isKResult(HOLE) side conditions so that the rules do not loop (user_manual.md:1812-1817).
-(3) The text holds those rules: the heating rule of plus's first argument requires notBool isKResult(HOLE) (kore.txt:304-312), and its cooling rule requires isKResult of the item before the freezer (kore.txt:238-246). Each is a \rewrites axiom like any rule. A rewrite axiom \rewrites(L, R) is L -> next R: at every valuation every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980).'''
+(3) The text holds those rules: the heating rule of plus's first argument requires notBool isKResult(HOLE) (kore.txt:304-312), and its cooling rule requires isKResult of the item before the freezer (kore.txt:238-246). Each is a \rewrites axiom like any rule. A rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)).'''
 
 [ruling.kore]
 statement = 'The heating rule of plus at its first argument is \rewrites(<k>(plus(HOLE, K1) ~> R) with notBool isKResult(HOLE ~> .K) = true, <k>(HOLE ~> #freezerplus0_(K1 ~> .K) ~> R)) (kore.txt:304-312); the cooling rule is the reverse with isKResult(_Gen0 ~> .K) = true, _Gen0 the item HOLE stands for (kore.txt:238-246).'

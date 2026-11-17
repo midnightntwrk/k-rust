@@ -17,7 +17,8 @@ stops at an entry that has none. For each entry it writes, into the entry's dire
                  ruling_canonical: the finals of the ruling and of each reading in the canonical
                  text of tools/korek.py; implementations: each implementation's result
   kompile.txt    kompile's command, release, exit code and messages, with the entry's and the
-                 build's directories and the store paths of the K installation replaced by names
+                 build's directories and the store paths of the K installation replaced by names,
+                 and the process numbers kore-exec prints replaced by PID
   kore.txt       where kompile accepted the text: the sentences of the main module that come from
                  no builtin file of K and that an empty module's main module does not hold (the
                  sentences the text adds to an empty module), in their order, each after a line
@@ -230,6 +231,12 @@ def unpath(text, names):
     return re.sub(r'/nix/store/[a-z0-9]{32}-[^/\s"]*', 'NIXSTORE', text)
 
 
+def unpid(text):
+    """text with the process numbers kore-exec prints in its messages replaced by PID, so that a
+    rebuild of the same text writes the same file."""
+    return re.sub(r'(kore-exec: )\[\d+\]', r'\1[PID]', text)
+
+
 def sha(path):
     with open(path, 'rb') as f:
         return hashlib.sha256(f.read()).hexdigest()
@@ -379,7 +386,7 @@ def kompile_entry(runner, entry, directory, b):
         write_json(record, rec)
         write_json(stamp, key)
     kompiled = out if rec['exit'] == 0 and os.path.exists(os.path.join(out, 'definition.kore')) else None
-    return shown, rec['exit'], rec['output'], kompiled
+    return shown, rec['exit'], unpid(rec['output']), kompiled
 
 
 # ------------------------------------------------------------------ ruling_canonical

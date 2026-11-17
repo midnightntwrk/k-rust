@@ -3,6 +3,7 @@ kind = "text"
 subject = "A rewrite rule whose requires is X >Int 0 #And X <Int 5: what the matching-logic conjunction of two Bool terms states as a condition."
 retro = ["M4"]
 origin = "kcore-spec fixture e3-ml-req-and"
+rests_on = ["kk:t02-step-successors"]
 
 [text]
 files = ["t123-req-and.k"]
@@ -16,7 +17,7 @@ reason = '''
 (1) The requires is written \equals(\and{SortBool}(X >Int 0, X <Int 5), true), conjoined to the left side (kore.txt:96-100).
 (2) \and denotes the intersection of what its two sides denote (introduction-to-matching-logic.tex:734-736); the equality is the whole carrier where its two sides denote the same set and empty otherwise (:880-885).
 (3) >Int and <Int compare two integers (domains.md:1324-1325): at each integer x each comparison denotes one value, true or false. The intersection is {true} where both are true and empty where they differ or are both false; the equality with true holds exactly where both are true.
-(4) A rewrite axiom \rewrites(L, R) is L -> next R, and a model satisfies it when, at every valuation, every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980). The left side is empty at the other x, so there the axiom states nothing.
+(4) A rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)). The left side is empty at the other x, so there the axiom states nothing.
 (5) Where a conjunct denotes two values or none, the intersection is not the Bool conjunction of the two: {true, false} meets {true} in {true}. No conjunct of this text is of that kind.'''
 
 [ruling.kore]
@@ -46,8 +47,3 @@ quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}
 source = "domains"
 locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
 quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
-
-[[ruling.basis]]
-source = "matching-logic"
-locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
-quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
