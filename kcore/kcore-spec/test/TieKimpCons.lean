@@ -50,7 +50,8 @@ finds Γ's items by a search through `consItemsK c`; on this text (13 constructo
 generators, 1304 items) one kernel decision of `tieConsB` over 20 of KItem's distinctness sentences
 peaks at 10.3 GiB, against 2.4 GiB with the places named. Here the reading names them, and the
 kernel checks the named ones. The places follow `consItemsK c`'s order: a change of that order
-asks for new places (each `consAtB` is then false where a place no longer holds the item). -/
+asks for new places (each `consAtB` is then false where a place no longer holds the item), which
+test/TieKimpHints.lean prints. -/
 
 /-- A reading of a constructor sentence: its kind (`0` the `functional` or `subsort` sentence of a
 generator, `1` the no-confusion sentence of one, `2` of two), the place of its sort in
