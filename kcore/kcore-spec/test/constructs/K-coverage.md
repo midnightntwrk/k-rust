@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
-| E2 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
+| E2 | 4 | 0 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E3 | 68 | 27 | 0 | 1 | 0 | 40 | 0 | 0 |
 | E4 | 9 | 4 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 31 | 11 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 163 | 75 | 1 | 7 | 1 | 79 | 0 | 0 |
+| all | 165 | 75 | 1 | 7 | 1 | 81 | 0 | 0 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
-| E2 | 2 | 0 | 0 | 1 | 1 |
+| E2 | 4 | 2 | 0 | 1 | 1 |
 | E3 | 40 | 6 | 2 | 32 | 0 |
 | E4 | 5 | 2 | 3 | 0 | 0 |
 | E5 | 11 | 6 | 0 | 3 | 2 |
@@ -68,7 +68,7 @@ Refused nested entries by class:
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 79 | 23 | 10 | 40 | 6 |
+| all | 81 | 25 | 10 | 40 | 6 |
 
 ## Entries of class R-c (68)
 
@@ -281,6 +281,8 @@ Not core:
 | `COLOR(color)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `COLORS(colors)@symbol` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `COMM(comm)@symbol` | refused | R-c | For a production that is no function, comm makes kompile drop \`constructor\` and \`injective\` and write no axiom at all: genCommAxiom is commented out (ModuleToKORE.java:306-308). The text says \`and\` is total and is one of Exp's generators, nothing of commutativity, injectivity or distinctness. Same a… | as ASSOC@symbol | P2.d2-kompiled | e2-comm-ctor | no | no | FX/e2-comm-ctor/kore.txt line 6: \`symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), …]\`; no axiom carries comm. |
+| cases[0]: comm on a production of a sort that also has a constructor with arguments (syntax Exp ::= "x" \| s(Exp) \| Exp "&" Exp [co… | refused | R-a | The text says and is total into Exp and one of Exp's generators, and states no injectivity of it and no distinctness of its image from s's or x's. Exp is recursive, so unconfined: the text has a model in which an application of and to values is s's image of an element no term denotes (findings/V2-d1… |  | none (R-a): the text writes no sentence that keeps the generator's applications out of a constructor's image at an element no term denotes, and Exp is recursive, so unconfined | e2-open-ctor-arg |  |  | fixtures/e2-open-ctor-arg: kompile.txt exit 0; kore.txt line 6 Lbland declared functional, without constructor and injective; line 18 its functional axiom; line 30 Exp's no-junk axiom listing Lbland, Lbls and Lblx; no no-confusion axiom names Lbland; account.txt \`sentence 62 (Lbland): openGenerator… |
+| cases[1]: comm on a production of a sort that has a subsort (syntax N ::= Int \| N "&" N [comm]) | refused | R-a | The text says and is total into N and one of N's generators beside the injection from Int, and states nothing that separates its image from the injection's. Int is unconfined: the text has a model in which an application of and to values is the injection of an element of Int that no literal denotes… |  | none (R-a): the text writes no sentence that keeps the generator's applications out of the injection's image at an element no term denotes, and Int is unconfined | e2-open-subsort |  |  | fixtures/e2-open-subsort: kompile.txt exit 0; kore.txt line 6 Lbland declared functional, without constructor and injective; line 62 its functional axiom; line 80 N's no-junk axiom listing Lbland and inj{SortInt{}, SortN{}}; account.txt \`sentence 94 (Lbland): openGenerator (Lbland: its result sort N… |
 | `COMM(comm)@rule` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-rule | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@equation` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-eq | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@simplification` | inert |  | kompile consumes the key: it writes the simplification again with the comm symbol's arguments swapped on the left side and removes comm from both (ResolveComm.java:28-51). The sentences are simplification axioms: InertReason.simplification, whose standing is node SIMP's. | none |  | e2-simplification | no | no | FX/e2-simplification: the row's sentence; no simplification axiom of the fixture carries comm. |

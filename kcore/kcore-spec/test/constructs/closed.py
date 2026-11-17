@@ -107,6 +107,7 @@ PINNED = [
     ("RefusalReason.builtinModule", "R2-release.C4"),
     ("RefusalReason.builtinIncomplete", "R2-release.C4"),
     ("RefusalReason.macroSymbol", "R2-release.C4"),
+    ("RefusalReason.inertMismatch", "R2-release.C4"),
     ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
     ("RefusalReason.injShape", "R2-release.C4"),
     ("RefusalReason.iteShape", "R2-release.C4"),
