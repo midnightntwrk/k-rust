@@ -585,3 +585,259 @@ end KCore.Guards
 #print axioms KCore.Guards.fnRest_nil_eq_paramVal
 #print axioms KCore.Guards.setIdem_bot
 #print axioms KCore.Guards.ruleRightDefined_weaker
+
+/-! ## The table of readings (DONE-0 C6)
+
+One entry for every constructor of `Parse.ReadingNote`, `Parse.InertReason` and
+`Parse.UnreadReason`: its guard theorem, its "point is reached" companion (an H, or a semantics, at
+which the reading without its guard differs), the invariants it cites, or the reader test that
+guards it where no value is at stake; otherwise `pending`, with the ticket that owes the entry and
+what exists so far. Each table is a `match` with no wildcard arm, so a constructor added to
+`Parse.lean` without an entry fails this file ("missing cases"); `test/guards.sh` checks that no
+wildcard arm is between the `table:begin` and `table:end` lines, checks each pointer into another
+test file, and prints the pending entries.
+
+A pointer to a declaration of this file or of the library is a name literal (``n``), resolved when
+the file is elaborated: a guard renamed or deleted fails the file. The other test files are not
+modules this file can import, so a pointer into one is the file and a text it holds (a theorem's
+name, or the `#guard_msgs` of its verdict test), checked by `test/guards.sh`.
+
+The four readings REVIEW-RN finding 7 found without a note each have a `ReadingNote` constructor
+now (`unnoted` below lists them), so they are entries of the first table.
+-/
+
+namespace KCore.Guards.Table
+
+open Lean KCore.Parse
+
+/-- Where a guard, a companion or a reader test is. -/
+inductive GuardRef where
+  /-- A declaration of this file or of the library, by a name literal. -/
+  | decl (n : Name)
+  /-- Another test file (relative to the package root) and a text it holds. -/
+  | test (file needle : String)
+
+/-- How far an entry is. -/
+inductive GuardStatus where
+  /-- The guard, its companion and its invariant are named. -/
+  | guarded
+  /-- No value is at stake: the reading decides which sentences are part of the definition, and the
+  reader test that fixes its verdict is named. -/
+  | readerTest
+  /-- Not yet: the ticket that owes the entry. -/
+  | pending (ticket : String)
+
+structure GuardEntry where
+  status : GuardStatus
+  guard : List GuardRef := []
+  companion : List GuardRef := []
+  invariant : List Name := []
+  note : String
+
+def GuardRef.show : GuardRef → String
+  | .decl n => n.toString
+  | .test f n => s!"{f}#{n}"
+
+def GuardStatus.show : GuardStatus → String
+  | .guarded => "guarded"
+  | .readerTest => "reader-test"
+  | .pending t => s!"pending {t}"
+
+def GuardEntry.line (ctor : String) (e : GuardEntry) : String :=
+  let refs := fun (rs : List GuardRef) => ";".intercalate (rs.map GuardRef.show)
+  s!"GUARD|{ctor}|{e.status.show}|{refs e.guard}|{refs e.companion}|{";".intercalate (e.invariant.map toString)}|{e.note}"
+
+-- table:begin
+def readingNote : ReadingNote → GuardEntry
+  | .reflectionAsOwn =>
+    { status := .pending "GUARD.notes-other",
+      guard := [.decl ``KCore.Guards.fnRest_nil_eq_paramVal],
+      companion := [.test "test/Configuration.lean" "stuck_go"],
+      invariant := [``KCore.Semantics.paramVal],
+      note := "G6 gives a reflection symbol, a parameter, the interpretation's value; the companion that Γ over all H fixes neither ⊥ nor a value (param_undetermined, REVIEW-RN section 3) is not written" }
+  | .streamRule =>
+    { status := .readerTest,
+      guard := [.test "test/StreamIO.lean" "#guard_msgs"],
+      note := "the sentence is a rule of the definition read as written, its hooks parameter symbols (REVIEW-RN RN7): no value-level claim" }
+  | .ruleRightDefined =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.ruleRightDefined_weaker],
+      companion := [.decl ``KCore.Faithful.UndefRhsWitness.not_model_text,
+        .decl ``KCore.Faithful.UndefRhsWitness.gamma_of_text],
+      invariant := [``KCore.Faithful.prioRuleK],
+      note := "G8 is stated for every semantics, hence at every c.withHooks H, without naming withHooks; the companion is a semantics whose text reading has no model while Γ's does" }
+  | .projectionDomainAsClause =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.ProjK.projInt_none_off, .decl ``KCore.Guards.ProjK.projInt_off_gamma,
+        .decl ``KCore.Guards.ProjK.dotk_off],
+      companion := [.decl ``KCore.Guards.Proj.projInt_dotk_open],
+      invariant := [``KCore.Semantics.coreOK, ``KCore.Eval.ensFails, ``KCore.Semantics.fnRest],
+      note := "G3 on krust's projapp text, every H; the companion is K 7.1.337's starinit text, which states no domain axiom, where H0 gives project:Int(.K) a value" }
+  | .orSplit =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "orSplit"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .topAsVariable =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "topAsVariable"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .existsAsVariable =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "existsAsVariable"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .andAsEnsures =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "andAsEnsures"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .andTermsWeaker =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/Connectives.lean" "andTermsWeaker"],
+      note := "a CE reader device (CE.note-rule-and-weaker); reader tests at the parsed semantics only; the entailment of the read rule by the text's sentence (its docstring) is stated by no theorem, no statement over c.withHooks H, no companion" }
+  | .bottomAsEnsures =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "bottomAsEnsures"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .orBottom =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "orBottom"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .predicateAtBool =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "predicateAtBool"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .andAtBool =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "andAtBool", .test "test/AndBoolSingle.lean" "#guard_msgs"],
+      companion := [.test "test/AndBoolNotStrict.lean" "not_strict"],
+      note := "reader tests at the parsed semantics only; no statement for every H; the companion is an interpretation where the strict conjunction under an [owise] negation is not the text's intersection" }
+  | .requiresOrSplit =>
+    { status := .pending "GUARD.notes-devices",
+      guard := [.test "test/Connectives.lean" "requiresOrSplit"],
+      note := "reader tests at the parsed semantics only; no statement for every H" }
+  | .setVarInDropped =>
+    { status := .pending "GUARD.final",
+      guard := [.decl ``KCore.setvar_in_drop, .test "test/SetVarOwise.lean" "f_one"],
+      note := "setvar_in_drop is the entailment on the translated sentence, f_one an evaluation at the parsed semantics; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor" }
+  | .keyFunctionAsRequires =>
+    { status := .pending "GUARD.notes-other",
+      guard := [.test "test/KeyFunction.lean" "#guard_msgs"],
+      note := "reader verdicts only; the bridge between the text's rule and the read one (REVIEW-RN RN12) is not written" }
+  | .equationPriority =>
+    { status := .pending "GUARD.notes-other",
+      guard := [.decl ``KCore.Faithful.PrioTextWitness.gamma_of_text],
+      companion := [.decl ``KCore.Faithful.PrioTextWitness.not_model_text],
+      invariant := [``KCore.Faithful.prioEquation],
+      note := "text entails Γ and the companion at one hand-built semantics; the statement for every semantics (as G8 for rules) is not written" }
+  | .owiseAsPriority =>
+    { status := .pending "GUARD.notes-other",
+      guard := [.test "test/OwisePriority.lean" "#guard_msgs", .test "test/OwiseSeveral.lean" "f_prios"],
+      note := "reader verdicts and evaluations at the parsed semantics only; that the text premise and Γ's are one is the reader's check (fnFrom, fnPairs, excludes), stated by no theorem" }
+  | .owiseDisjunctNarrower =>
+    { status := .pending "GUARD.final",
+      guard := [.decl ``KCore.owise_disjunct_narrower],
+      companion := [.decl ``KCore.owise_diag_svin],
+      note := "both are stated on translated sentences, not over c.withHooks H; no GUARD ticket names this constructor" }
+
+def inertReason : InertReason → GuardEntry
+  | .import =>
+    { status := .pending "GUARD.inert",
+      note := "C1's class-use reason (the imported modules' sentences are in the user module) is not written as an entry" }
+  | .claim =>
+    { status := .pending "GUARD.inert",
+      note := "C1's class-use reason (a claim is a statement to prove, not an axiom) is not written as an entry" }
+  | .simplification =>
+    { status := .pending "GUARD.inert",
+      guard := [.decl ``KCore.Guards.ProjK.inverse_holds, .test "test/TieEns.lean" "lib166"],
+      note := "two lemmas at values, for every H, on two texts (G4; ens's sentence 166); not one per fixture of the class" }
+  | .distinctCtors =>
+    { status := .pending "GUARD.inert",
+      note := "no entailment of a fixture sentence of the class is stated" }
+  | .injectivity =>
+    { status := .pending "GUARD.inert",
+      note := "no entailment of a fixture sentence of the class is stated" }
+  | .noJunk =>
+    { status := .pending "GUARD.inert",
+      guard := [.test "test/TieEns.lean" "nojunk_trivial_entailed", .test "test/TieEns.lean" "nojunk_items"],
+      note := "ens's no-junk sentences entailed for every H (115, 121, 124) or equal to Γ's items (116 to 123); left to GUARD.inert to accept as the class's entry" }
+  | .collectionLaw =>
+    { status := .pending "GUARD.inert",
+      guard := [.test "test/LibProbe.lean" "collectionLaw"],
+      note := "the entailment at values is not stated" }
+  | .parametricFunctional =>
+    { status := .pending "GUARD.inert",
+      guard := [.test "test/LibProbe.lean" "parametricFunctional"],
+      note := "no entailment of a fixture sentence of the class is stated" }
+  | .vacuousLeft =>
+    { status := .pending "GUARD.inert",
+      guard := [.test "test/Connectives.lean" "vacuousLeft"],
+      note := "a logical truth (⊥ → •R); its entailment is not stated" }
+
+def unreadReason : UnreadReason → GuardEntry
+  | .cellCollectionInjection =>
+    { status := .readerTest,
+      guard := [.test "test/CellCollection.lean" "#guard_msgs"],
+      note := "which sentences are part of the reading; a read sentence applying the injection is refused (REVIEW-RN RN9)" }
+  | .macroUnused =>
+    { status := .pending "GUARD.unread",
+      note := "no reader test of a text declaring a macro or alias symbol it does not apply is found under test/" }
+  | .parametricUnused =>
+    { status := .readerTest,
+      guard := [.test "test/ParametricUnused.lean" "#guard_msgs"],
+      note := "the declaration is read only through the instances a sentence applies (REVIEW-RN RN9)" }
+  | .setIdempotence =>
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.setIdem_bot],
+      companion := [.test "test/TieEns.lean" "idem_refuted"],
+      invariant := [``KCore.silentKey_fixed],
+      note := "G7: _Set_ at a common member is no silent point and has no value, so Γ states ⊥ at every H; idem_refuted: Γ with the idempotence axiom has no model, for every H" }
+  | .overloadConfusion =>
+    { status := .readerTest,
+      guard := [.test "test/Overloads.lean" "overloadConfusion"],
+      note := "the kernel states the distinctness at uncovered arguments only (KoreAML.Cons.distUncItem); the account lists the axioms not read" }
+  | .noSortPredicate =>
+    { status := .readerTest,
+      guard := [.test "test/RangeMap.lean" "isNoPredName"],
+      note := "the theory has no symbol isX for a sort the registry gives no predicate; GUARD.unread counts five UnreadReason constructors, this is the sixth" }
+-- table:end
+
+def readingNotes : List ReadingNote :=
+  [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
+   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
+   .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
+   .owiseDisjunctNarrower]
+
+def inertReasons : List InertReason :=
+  [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,
+   .parametricFunctional, .vacuousLeft]
+
+def unreadReasons : List UnreadReason :=
+  [.cellCollectionInjection, .macroUnused, .parametricUnused, .setIdempotence, .overloadConfusion,
+   .noSortPredicate]
+
+/-- REVIEW-RN finding 7's readings without a note, and the constructor each has now. -/
+def unnoted : List (String × ReadingNote) :=
+  [("the rule axiom's premise ⌈rhs ∧ ens⌉", .ruleRightDefined),
+   ("a key function read as a requires", .keyFunctionAsRequires),
+   ("the priority form of a function's equations", .equationPriority),
+   ("[owise] as priority 200", .owiseAsPriority)]
+
+example : readingNotes.Nodup ∧ inertReasons.Nodup ∧ unreadReasons.Nodup := by decide
+
+-- The three lists hold every constructor (with `Nodup`, each once), so the printed table is the
+-- whole of each `match`.
+run_cmd do
+  let env ← getEnv
+  for (ind, n) in [(``ReadingNote, readingNotes.length), (``InertReason, inertReasons.length),
+      (``UnreadReason, unreadReasons.length)] do
+    let some (.inductInfo i) := env.find? ind | throwError "guards: no inductive {ind}"
+    unless i.ctors.length == n do
+      throwError "guards: {ind} has {i.ctors.length} constructors, its list {n}"
+
+#eval show IO Unit from do
+  let short := fun (s : String) => (s.splitOn "Parse.").getLast!
+  for r in readingNotes do IO.println ((readingNote r).line (short (reprStr r)))
+  for r in inertReasons do IO.println ((inertReason r).line (short (reprStr r)))
+  for r in unreadReasons do IO.println ((unreadReason r).line (short (reprStr r)))
+  for (w, r) in unnoted do IO.println s!"GUARD-UNNOTED|{w}|{short (reprStr r)}"
+
+end KCore.Guards.Table
