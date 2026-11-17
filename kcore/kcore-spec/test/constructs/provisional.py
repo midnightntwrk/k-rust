@@ -8,7 +8,9 @@ them. Fails on:
   "no construct depends on it" nor a non-empty list of references "<list> <row key>[, case <name>]"
   to entries of ROWS.toml whose status is refused or parameter (for a case, the `cases` entry of the
   row whose `case` is <name>, its own status, or the row's when it has none);
-- an entry with `leaves` and no `relabelled`.
+- an entry with `leaves` and no `relabelled`;
+- an entry whose `rows` (the rows.toml entries it names, of any status) is not a list of references
+  "<list> <row key>[, case <name>]" to entries of ROWS.toml.
 The sentence is checked here for its presence only; whether it is true is the gate's to judge.
 
 Usage (from kcore-spec): python3 -I test/constructs/provisional.py [MANIFEST [ROWS.toml]]
@@ -68,6 +70,12 @@ for where, e in entries(m, ""):
     n = name(where, e)
     if e.get("status") == "provisional":
         bad.append(f"{n}: status provisional")
+    if "rows" in e:
+        rs = e["rows"]
+        if not isinstance(rs, list) or not rs:
+            bad.append(f"{n}: rows is not a list of rows.toml keys")
+        else:
+            bad += [f"{n}: rows {why}" for why in (status_of(r)[1] for r in rs) if why]
     if "relabelled" not in e:
         if "leaves" in e:
             bad.append(f"{n}: leaves without relabelled")
