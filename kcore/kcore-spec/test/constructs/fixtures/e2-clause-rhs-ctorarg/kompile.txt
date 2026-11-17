@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-clause-rhs-ctorarg.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 209530
+definition.kore sha256: ff35d4d6c88a5be5d8368d572600ff1cc413743b5a3d3eb80a2ed1bd567bec0f
+stripped sha256: 7ddbdd029efa0308a740222116ab35afaedd9b377431dd4214fd2b511cab2f4f
+main module: 415 sentences, 59 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-rhs-ctorarg.k)
+  	Location(6,17,6,18)
+  	6 |	  rule f() => h(Y:W) [unboundVariables(Y)]
+  	  .	                ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-RHS-CTORARG-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E2-CLAUSE-RHS-CTORARG as default.

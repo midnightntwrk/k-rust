@@ -901,6 +901,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   result, at a sort without a value): `fnHyp3N` of `test/OpenClausePins.lean`, with each form a
   package's statements instantiate; the owed fact refuted: `not_heldOwedE` of
   `test/OpenClauseConsistent.lean`.
+- `test/ClauseRhsEmpty.lean`: an equation with a right-side variable of a sort without a value, on
+  kompile's texts (`f2-examples/rhsemptypeer.kompile.kore`, `rhsemptyowise.kompile.kore`; the
+  construct fixtures e2-clause-rhs-empty-peer and e2-clause-rhs-empty-owise). `Peer`: `f() =>
+  g(Y:Empty)` beside `f() => a`; the reader's semantics is `coreOK` with `f` held-named, agreement
+  and the Empty clause's match independence named; no value has sort Empty (`noValue`, from the
+  decided facts of the sort), so that clause applies nowhere; the owed facts are proved (`f`
+  terminates, `f()` being `a`: the second of `HeldOwed`'s facts; `ClausesAgree`;
+  `MatchIndependent`), `FnHyp` follows from `fnHyp_of_fnObligationsN`, `f()` is `a` and nothing
+  else, and the pinned `sound_hyp` and `exact_hyp` are instantiated. `Owise`: `f(0) =>
+  g(Y:Empty)` beside `f(_) => a [owise]`: `f(1)` is `a` (the clause of priority 50 fails by its
+  pattern, Y outside it), and `f(0)` has no result (that clause neither applies nor fails).
 - `test/InjValue.lean`: injections at values in a model of Γ (`KCore.CE.inj_value`,
   `inj_no_element`, `inj_value_unique`, KcoreSpec/InjValue.lean) at a definition with a model:
   `base2` (Int and Bool below KItem, no function, no rule) has `coreOK` and `FnHyp`, so Γ has a
