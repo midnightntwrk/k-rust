@@ -485,38 +485,37 @@ theorem commCtor_openTotal_none : OpenTotal (CommCtor.c.withHooks HookParams.non
 
 At CommCtor (`and` with no law, `or` associative) and IdemCtor (`or` idempotent),
 `openLaws_of_lawShape` holds with its hypotheses met (not vacuously): every raw parameter has
-`LawShape`, none has both laws; so `OpenLaws` holds at `lawHooks c H` for every H. -/
+`LawShape`; so `OpenLaws` holds at `lawHooks c H` for every H. -/
 theorem commCtor_lawShape : ∀ k ∈ CommCtor.c.params, k.raw = true → LawShape CommCtor.c k := by decide +kernel
 theorem idemCtor_lawShape : ∀ k ∈ IdemCtor.c.params, k.raw = true → LawShape IdemCtor.c k := by decide +kernel
 
 theorem commCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (CommCtor.c.withHooks (lawHooks CommCtor.c H)) :=
-  openLaws_of_lawShape (by decide +kernel) commCtor_lawShape H
+  openLaws_of_lawShape commCtor_lawShape H
 theorem idemCtor_openLaws_lawHooks (H : HookParams) : OpenLaws (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
-  openLaws_of_lawShape (by decide +kernel) idemCtor_lawShape H
+  openLaws_of_lawShape idemCtor_lawShape H
 
 /-! ## `lawHooks` gives the open generators values (V2.d3-openTotal)
 
 At CommCtor (the no-law and the associative branch) and IdemCtor (the idempotent branch). -/
 theorem commCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (CommCtor.c.withHooks (lawHooks CommCtor.c H)) :=
-  openTotal_of_lawShape (by decide +kernel) commCtor_lawShape H
+  openTotal_of_lawShape commCtor_lawShape H
 theorem idemCtor_openTotal_lawHooks (H : HookParams) : OpenTotal (IdemCtor.c.withHooks (lawHooks IdemCtor.c H)) :=
-  openTotal_of_lawShape (by decide +kernel) idemCtor_lawShape H
+  openTotal_of_lawShape idemCtor_lawShape H
 
 /-! ## The three together at `lawHooks c HookParams.lib` (V2.d3-example)
 
-CN-4 §4.7 item 2's example, at its statement: in a semantics meeting `coreOK` and `floatShapeOK`
-where no parameter is raw, associative and idempotent at once, `lawHooks c HookParams.lib`
+CN-4 §4.7 item 2's example, at its statement less the hypothesis `hl` (CN-4b §12): in a semantics
+meeting `coreOK` and `floatShapeOK`, `lawHooks c HookParams.lib`
 satisfies the laws (`openLaws_lawHooks`), gives every open generator a value at every argument
 list of its sorts (`openTotal_lawHooks`) and is admitted by the library's sentences
 (`libAdmitted_lawHooks` from `libAdmitted_lib`). `coreOK` admits open generators of
 `paramsPlain`'s raw shape (V2.d1-flip); the instances below state the same three at CommCtor
 and IdemCtor, which have open generators, from the `_of` forms whose hypotheses they meet
 (`commCtor_lawShape`, `idemCtor_lawShape`, `comm_reg`, `comm_lawLibRawFree`, `idemCtor_reg`). -/
-theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) (hf : c.floatShapeOK = true)
-    (hl : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = false) :
+theorem lawHooks_lib (c : Semantics) (h : c.coreOK = true) (hf : c.floatShapeOK = true) :
     OpenLaws (c.withHooks (lawHooks c HookParams.lib)) ∧ OpenTotal (c.withHooks (lawHooks c HookParams.lib)) ∧
     (c.withHooks (lawHooks c HookParams.lib)).libAdmitted :=
-  ⟨openLaws_lawHooks c h hl HookParams.lib, openTotal_lawHooks c h hl HookParams.lib,
+  ⟨openLaws_lawHooks c h HookParams.lib, openTotal_lawHooks c h HookParams.lib,
     libAdmitted_lawHooks c h HookParams.lib (libAdmitted_lib c hf)⟩
 
 theorem commCtor_lawHooks_lib :

@@ -1,7 +1,8 @@
 /-
   A hand-built semantics for e2-band-ctor, an open generator with `assoc` and `idem` (CN-4b §7,
-  BAND). No expectation is stated here; the file checks only that its numbering is the one `idsOK`
-  asks and that `lookupOpen` finds the open generator and no constructor. Run from the package
+  BAND). The file checks that its numbering is the one `idsOK` asks, that `lookupOpen` finds the
+  open generator and no constructor, and that `OpenLaws` and `OpenTotal` hold at `lawHooks`
+  (V13.band-lemmas); the fixture's expectations are V13.band-test's. Run from the package
   root: `lake env lean -j1 test/BandSem.lean`. Kernel-checked.
 
   Text (lane P's fixture `test/constructs/fixtures/e2-band-ctor`, K 7.1.337):
@@ -65,5 +66,41 @@ theorem genWf_apart : Faithful.genWf c = true ∧
     (c.withHooks HookParams.none).sortOf (.ctor xS []) = some exp ∧
     GroundTerm.cmp (.ctor orS [.ctor xS [], .ctor yS []]) (.ctor xS []) != .eq := by
   decide +kernel
+
+/-! ## The laws at `lawHooks` (V13.band-lemmas)
+
+`or` has both laws and `LawShape`, so `openLaws_of_lawShape` and `openTotal_of_lawShape` hold here
+through their branch for a generator with both laws (not vacuously): at `lawHooks c H`, for every
+H, the interpretation satisfies associativity and idempotence at the values of Exp and gives `or` a
+value at every two of them. `coreOK` is not read (`paramsPlain` refuses both laws until
+V13.band-flip). -/
+theorem lawShape : ∀ k ∈ c.params, k.raw = true → LawShape c k := by decide +kernel
+theorem both_laws : ∀ k ∈ c.params, (k.raw && k.assoc && k.idem) = true := by decide +kernel
+theorem openLaws_lawHooks (H : HookParams) : OpenLaws (c.withHooks (lawHooks c H)) :=
+  openLaws_of_lawShape lawShape H
+theorem openTotal_lawHooks (H : HookParams) : OpenTotal (c.withHooks (lawHooks c H)) :=
+  openTotal_of_lawShape lawShape H
+
+/-- The instances read: `or` is associative at every three values of Exp, idempotent at every one,
+and has a value at every two, under `lawHooks c H`. -/
+theorem or_laws (H : HookParams) :
+    OpenAssoc (c.withHooks (lawHooks c H)) orS exp ∧ OpenIdem (c.withHooks (lawHooks c H)) orS exp ∧
+    ∀ vs, (c.withHooks (lawHooks c H)).sortsOf vs = some [exp, exp] →
+      ((c.withHooks (lawHooks c H)).paramVal orS vs).isSome = true :=
+  have hk : orP ∈ (c.withHooks (lawHooks c H)).params := List.mem_singleton_self _
+  ⟨(openLaws_lawHooks H orP hk rfl).1 rfl, (openLaws_lawHooks H orP hk rfl).2 rfl,
+    openTotal_lawHooks H orP hk rfl⟩
+
+/-- At `lawHooks`: `(x | y) | (x | y)` is `x | y`, the case that merging equal neighbours fails;
+`x | y` is a value of Exp. -/
+theorem or_compound :
+    (c.withHooks (lawHooks c HookParams.none)).paramVal orS
+      [.ctor orS [.ctor xS [], .ctor yS []], .ctor orS [.ctor xS [], .ctor yS []]] =
+      some (.ctor orS [.ctor xS [], .ctor yS []]) :=
+  (or_laws HookParams.none).2.1 _ (by decide +kernel)
+
+#print axioms openLaws_lawHooks
+#print axioms openTotal_lawHooks
+#print axioms or_compound
 
 end KCore.BandSem

@@ -10,6 +10,8 @@
   - `nf (nf w) = nf w` (`nf_nf`): a form is its own form;
   - `x ∈ nf w ↔ x ∈ w` (`nf_mem`), `nf [a] = [a]` (`nf_single`), `nf w ≠ []` for `w ≠ []`
     (`nf_ne_nil`).
+  - a form is without repetition, and a word without repetition is its own form (`nf_nodup`,
+    `nf_of_nodup`).
   It adds no commutativity: `nf [1, 2] ≠ nf [2, 1]`. It is not the free band's normal form either:
   `aba` and `ab` have one form. No KCore declaration is read here.
 -/
@@ -136,6 +138,38 @@ theorem nf_ne_nil {w : List α} (h : w ≠ []) : nf w ≠ [] := by
   cases w with
   | nil => exact absurd rfl h
   | cons a l => simp [nf, go]
+
+/-- The letters kept are without repetition. -/
+theorem go_nodup (s : List α) : ∀ l : List α, (go s l).Nodup := by
+  intro l
+  induction l generalizing s with
+  | nil => exact List.nodup_nil
+  | cons a l ih =>
+    by_cases ha : a ∈ s
+    · simp only [go, ha, ↓reduceIte]; exact ih s
+    · simp only [go, ha, ↓reduceIte]
+      exact List.nodup_cons.mpr ⟨fun h => (go_mem.mp h).2 (List.mem_cons_self ..), ih (a :: s)⟩
+
+/-- A word without repetition and with no letter of `seen` is kept whole. -/
+theorem go_of_nodup {s : List α} : ∀ {l : List α}, l.Nodup → (∀ x ∈ l, x ∉ s) → go s l = l := by
+  intro l
+  induction l generalizing s with
+  | nil => intro _ _; rfl
+  | cons a l ih =>
+    intro hn hs
+    obtain ⟨hal, hn'⟩ := List.nodup_cons.mp hn
+    simp only [go, hs a (List.mem_cons_self ..), ↓reduceIte]
+    congr 1
+    exact ih hn' fun x hx hxs => by
+      rcases List.mem_cons.mp hxs with rfl | h
+      · exact hal hx
+      · exact hs x (List.mem_cons_of_mem _ hx) h
+
+/-- A form is without repetition. -/
+theorem nf_nodup (w : List α) : (nf w).Nodup := go_nodup [] w
+
+/-- A word without repetition is its own form. -/
+theorem nf_of_nodup {w : List α} (h : w.Nodup) : nf w = w := go_of_nodup h (fun _ _ h' => by cases h')
 
 /-! ## Instances -/
 
