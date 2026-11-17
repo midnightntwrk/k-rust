@@ -41,6 +41,9 @@
   - `eqAnd`, `#Exists B. (B #And notBool X)`, two term conjuncts, one of them B: see and-terms.
   - `eqPlain`, `f(X) => notBool X #And {X #Equals true}`, no binder: `exs = []`, the predicate in
     `post`.
+  - `eqPredAnd`, a conjunction of two terms in a predicate's operand (`{(notBool X #And B) #Equals
+    X}`): refused `patternConnective` (`ceRead_refused`); `cutAnd` does not reach an operand, and
+    `term` would read it as the left-side pattern `notBool X #as B`.
   Kernel-checked (`kernel_rfl`, `decide +kernel`): `ceRead` on the equation of
   `e3-eq-exists-partial-ml` written by hand (`Hand.eqB`; `tie` checks that it is the scanned
   text's), on `eqTwoB`, and the refusals' reasons.
@@ -314,6 +317,8 @@ def eqNoTerm : RawEqn := eqn (ex "VarB" (eqP B (notB X)))
 def eqInner : RawEqn := eqn (ex "VarB" (.and bool [B, ex "VarC" (eqP C B)]))
 def eqAnd : RawEqn := eqn (ex "VarB" (.and bool [B, notB X]))
 def eqPlain : RawEqn := eqn (.and bool [notB X, eqP X (.dv bool "true")])
+/-- `#Exists B. (B #And {(notBool X #And B) #Equals X})`: a conjunction in a predicate's operand. -/
+def eqPredAnd : RawEqn := eqn (ex "VarB" (.and bool [B, eqP (.and bool [notB X, B]) X]))
 
 end Hand
 
@@ -386,7 +391,7 @@ theorem ceRead_refused :
     let reason := fun (e : RawEqn) => match ceRead N1 e with | .error f => some f.reason | .ok _ => none
     reason eqUnheld = some .existentialRhs ∧ reason eqArg = some .existentialRhs ∧
     reason eqTwice = some .existentialRhs ∧ reason eqNoTerm = some .manyValuedRightSide ∧
-    reason eqInner = some .manyValuedRightSide := by
+    reason eqInner = some .manyValuedRightSide ∧ reason eqPredAnd = some .patternConnective := by
   decide +kernel
 
 end Hand

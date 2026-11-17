@@ -50,6 +50,9 @@
   - `eqEns`, with `ensures X`: each instance's `pre` holds the predicate, then the `ensures`.
   - `eqFloor`, a predicate `condOf` does not read (`\floor`): refused `patternConnective`.
   - `eqTwo`, two conjuncts that are no predicates: `none`.
+  - `eqUnderAnd`, `#Exists B. notBool(B #And X)`, and `eqPredAnd`, a conjunction of two terms in a
+    predicate's operand: refused `patternConnective` (`exRead_noAs`): `term` would read
+    `\and(p, X)` as the left-side pattern `p #as X`.
   Kernel-checked: `exRead` on the fixture's equation written by hand (`HandEx.eqB`, tied to the
   text), `none` and the refusals' reasons; `condOf` on the fixture's predicate.
 -/
@@ -497,6 +500,10 @@ def eqEns : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB X)])) no
 def eqFloor : RawEqn := eqn (exB (.and bool [B, .floor bool bool B]))
 /-- Two conjuncts that are no predicates: not the shape. -/
 def eqTwo : RawEqn := eqn (exB (.and bool [B, notB X]))
+/-- `#Exists B. notBool(B #And X)`: a conjunction of two terms under an application. -/
+def eqUnderAnd : RawEqn := eqn (exB (notB (.and bool [B, X])))
+/-- `#Exists B. (B #And {(notBool X #And B) #Equals X})`: a conjunction in a predicate's operand. -/
+def eqPredAnd : RawEqn := eqn (exB (.and bool [B, .equals bool bool (.and bool [notB X, B]) X]))
 
 end HandEx
 
@@ -571,6 +578,13 @@ theorem exRead_refused :
     (match exRead N1 eqFloor with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true := by
   decide +kernel
 
+/-- A conjunction of two terms under an application of an alternative, or in a predicate's
+operand, is refused: it is not read as the left-side pattern `p #as X`. -/
+theorem exRead_noAs :
+    (match exRead N1 eqUnderAnd with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true ∧
+    (match exRead N1 eqPredAnd with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true := by
+  decide +kernel
+
 /-- `condOf` on the fixture's predicate, in the kernel. -/
 theorem condOf_eq : condOf N1 [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩] (.equals bool bool B (notB X)) =
     .ok (.equals Srt.bool (.var 1) notX, [⟨"X", "Bool"⟩, ⟨"B", "Bool"⟩]) := by
@@ -584,6 +598,8 @@ end HandEx
 #guard_msgs in #print axioms HandEx.exRead_none
 /-- info: 'RhsReader.HandEx.exRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandEx.exRead_refused
+/-- info: 'RhsReader.HandEx.exRead_noAs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_noAs
 /-- info: 'RhsReader.HandEx.condOf_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandEx.condOf_eq
 

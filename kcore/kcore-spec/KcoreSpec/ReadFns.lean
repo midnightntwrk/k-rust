@@ -2,7 +2,7 @@
   Reading functions over `RawEqn` for an equation's right side that holds a matching-logic
   connective, beside the landed reader (Parse.lean). `clauseBody` calls none of them: a text is
   read as before, and no account changes. Each is structurally recursive and reduces in the kernel
-  (test/RhsReader.lean checks an instance of each by `kernel_rfl`).
+  (test/RhsReader.lean and test/ExClauseReader.lean check an instance of each by `kernel_rfl`).
 
   - `frRead`: `\or` on the right side of an equation of a function whose `functional` sentence the
     text holds, as n+1 clauses with a premise predicate (`Clause.pre`).
@@ -188,6 +188,12 @@ def bodyParts (p : Kore.Pattern) : List Kore.Pattern × List Kore.Pattern :=
   let ps := andParts p
   (ps.filter (!isPred ·), ps.filter fun q => isPred q && (match q with | .top _ => false | _ => true))
 
+/-- A term of a right side or of a predicate's operand, read where it holds no conjunction under
+applications (`patternConnective` otherwise): `term` reads `\and(p, X)` as the left-side pattern
+`p #as X`, which a right side does not have; there the conjunction is the elements both hold. -/
+def termNoAnd (N : Names) (vs : List Var) (p : Kore.Pattern) : Rd (Term × List Var) :=
+  if hasAnd p then fail .patternConnective "\\and" else term N vs p
+
 /-- The disjunction of the conditions, `\bottom` for none. -/
 def disjC : List Cond → Cond
   | [] => .bot
@@ -197,20 +203,21 @@ def disjC : List Cond → Cond
 mutual
   /-- A predicate pattern as a condition: `\equals`, `\in` and `\ceil` of terms, at the sort of
   their operands, `\top`, `\bottom` and their connectives `\not`, `\implies`, `\and`, `\or`. Any
-  other pattern, a binder among them, is refused `patternConnective`. -/
+  other pattern, a binder among them, is refused `patternConnective`, and so is an operand that
+  holds a conjunction under applications (`termNoAnd`). -/
   def condOf (N : Names) (vs : List Var) : Kore.Pattern → Rd (Cond × List Var)
     | .top _ => pure (.top, vs)
     | .bottom _ => pure (.bot, vs)
     | .equals s _ p q => do
-      let (t, vs) ← term N vs p
-      let (u, vs) ← term N vs q
+      let (t, vs) ← termNoAnd N vs p
+      let (u, vs) ← termNoAnd N vs q
       pure (.equals (← N.sortE s) t u, vs)
     | .in s _ p q => do
-      let (t, vs) ← term N vs p
-      let (u, vs) ← term N vs q
+      let (t, vs) ← termNoAnd N vs p
+      let (u, vs) ← termNoAnd N vs q
       pure (.mem (← N.sortE s) t u, vs)
     | .ceil s _ p => do
-      let (t, vs) ← term N vs p
+      let (t, vs) ← termNoAnd N vs p
       pure (.ceil (← N.sortE s) t, vs)
     | .not _ p => do
       let (c, vs) ← condOf N vs p
@@ -283,7 +290,7 @@ def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
   | vs, [] => pure ([], vs)
   | vs, x :: rest => do
     if let some c := manyValued? x.2 then fail .manyValuedRightSide c
-    let (a, vs) ← term N vs x.2
+    let (a, vs) ← termNoAnd N vs x.2
     let (cs, vs) ← condOfList N vs (substValList B (boolDv x.1) ps)
     let (xs, vs) ← exAlts N B ps vs rest
     pure ((a, cs) :: xs, vs)
@@ -297,7 +304,8 @@ equation's `ensures`.
 sentence: the reading is not this function's.
 Refused `manyValuedRightSide`: more than 8 alternatives; an alternative, a predicate or the
 `ensures` holds a variable the arguments do not bind; an alternative holds `\top`, `\not` or
-`\or` under no application. Refused `patternConnective`: a predicate `condOf` does not read.
+`\or` under no application. Refused `patternConnective`: a predicate `condOf` does not read; a
+conjunction under applications of an alternative.
 That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is decided on the
 built definition, not here. -/
 def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
