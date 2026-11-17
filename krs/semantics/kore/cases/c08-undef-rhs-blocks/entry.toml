@@ -71,7 +71,4 @@ quote = "The meaning of particular attributes is implementation-defined."
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on X /Int 0 ([hook_INT_tdiv]: Division by zero). INT.tdiv is undefined \
-on a zero divisor, so the rule's result is \\bottom: the rule applies with an undefined result, \
-has no successor and blocks the rule of larger priority; there is no final configuration."""
+reason = "The llvm backend aborts on 10 /Int 0 in the first rule's right side ([hook_INT_tdiv]: Division by zero): an error, which is no reading's answer."

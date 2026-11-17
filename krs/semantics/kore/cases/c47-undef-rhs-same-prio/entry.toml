@@ -59,8 +59,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on X /Int 0 in the right side of one of two rules of one priority \
-([hook_INT_tdiv]: Division by zero). That rule applies with an undefined result, which is no \
-successor; the other rule of the same priority applies with c(1), which is the one final \
-configuration."""
+reason = "The llvm backend aborts on X /Int 0 in the right side of the first rule ([hook_INT_tdiv]: Division by zero) and reports no final configuration; the ruling has c(1)."

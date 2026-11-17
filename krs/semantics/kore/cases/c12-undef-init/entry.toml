@@ -27,6 +27,4 @@ quote = "In Matching Mu Logic, terms evaluate to sets of values. This is useful 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in the initial term. The initial configuration \
-is \\bottom, which has no final configuration."""
+reason = "The llvm backend aborts on the division by zero in the initial term ([hook_INT_tdiv]: Division by zero) instead of reporting that there is no final configuration."

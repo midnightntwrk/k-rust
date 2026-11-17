@@ -61,10 +61,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
-false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
-where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
-not final (the K manual, "Rule Structure": the ensures may make the term undefined, and the \
-backend applies the rule anyway). The haskell backend's result is \
-kore.k's, b(1) alone."""
+reason = "The llvm backend does not evaluate the ensures (the manual lets a concrete backend ignore it, user_manual.md:1163-1164): it steps a(0) to b(0), a final configuration the ruling does not have."

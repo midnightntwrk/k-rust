@@ -72,10 +72,4 @@ quote = "The meaning of particular attributes is implementation-defined."
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-As for c43, the llvm backend does not evaluate the ensures and steps a(0) to b(0). The rule \
-whose ensures is false has applied with an empty result, so the rule of larger priority number \
-that would give c(0) does not apply; K's text does not state this beyond the manual's owise \
-wording (a rule of larger priority applies when the others have been tried and failed), so it \
-is kore.k's reading, recorded against both backends; the \
-haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""
+reason = "The llvm backend does not evaluate the ensures (the manual lets a concrete backend ignore it, user_manual.md:1163-1164): it steps a(0) to b(0), a final configuration the ruling does not have."
