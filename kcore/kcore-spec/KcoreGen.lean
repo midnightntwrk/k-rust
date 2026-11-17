@@ -44,7 +44,8 @@
     rules, the diagonal included (a rule whose match is not shown to fix its right-hand side is an
     obligation (i, i)); `deterministic_except` lists them in its conclusion instead. With
     determinism's obligations, noninterference is stated relative to an invariant, and each of them
-    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates. Every kind and
+    where it holds is a premise. `NAME/Certs/*.lean`: krust's runs as certificates (none where a
+    parameter is an open generator, as the root module's header says). Every kind and
     certificate is stated for every interpretation H of the parameters (`c.withHooks H`), from
     conditions decided once on the data, which do not read the interpretation;
   - with `--tie`, `NAME/Tie/*.lean`: the tie by blocks, each module one decision of bounded size.
@@ -2361,8 +2362,14 @@ theorem named_totals : defn.sem.totalObligations = {totNamed} := by decide +kern
 
 end {ns}
 ")
-  -- Certificates: krust's runs, each checked by the kernel against `Step`
-  for (nm, path) in certs do
+  -- Certificates: krust's runs, each checked by the kernel against `Step`. With an open generator
+  -- (a `raw` parameter) none: `checkRun_sound` and `stuckCheck_sound` take `∀ k ∈ c.params,
+  -- k.raw = false`, false there (a raw application's sort is read from the interpretation, which
+  -- the checks do not evaluate)
+  let rawCerts := c.params.any (·.raw)
+  if rawCerts && !certs.isEmpty then
+    IO.eprintln s!"{koreFile}: a parameter is an open generator: no run certificate and no stuckness theorem ({certs.length} runs not written)"
+  for (nm, path) in (if rawCerts then [] else certs) do
     match ← readCert c d.pres path with
     | .error e => IO.eprintln e; return 1
     | .ok (start, steps, stuck) =>
@@ -2641,7 +2648,7 @@ end {ns}
   o ← o.write ns (String.join ((if exec then [s!"{ns}.Surface"] ++ kindMods.toList else [s!"{ns}.Names", s!"{ns}.Facts"]).map (s!"import {·}\n")) ++
     s!"import {ns}.Syntax\n" ++
     s!"import {ns}.Facts.Terminates\n" ++
-    hdr s!"The package of `{koreFile}`.")
+    hdr s!"The package of `{koreFile}`.{if c.params.any (·.raw) then " It states no run certificate and no stuckness theorem: a parameter is an open generator, whose application's sort is read from the interpretation, and the certificates' soundness (`KCore.Cert.checkRun_sound`, `KCore.Cert.stuckCheck_sound`) holds where no parameter is." else ""}")
   writeLakefile out ns
   IO.FS.writeFile (out / "modules.txt") ("\n".intercalate o.mods.toList ++ "\n")
   if tie then IO.FS.writeFile (out / "tie.txt") ("\n".intercalate tieMods.toList ++ "\n")
