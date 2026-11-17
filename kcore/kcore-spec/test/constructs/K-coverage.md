@@ -174,7 +174,7 @@ Exceptions inside the layers:
 | `evaluation` | KcoreSpec/Hooks.lean (the Bool, Int and Float operations, HookParams) | stable |
 | `evaluation` | strictness of Bool hooks | stable |
 | `theory` | ΓDomains | stable |
-| `well-formedness` | inside overloadsOK: an overloading symbol is not named like ite at a sort | provisional |
+| `well-formedness` | inside overloadsOK: an overloading symbol is not named like ite at a sort | stable |
 | `well-formedness` | inside faithCoreOK: the first half of itesApart (every symbol named like ite is named at a numbered sort) | provisional |
 
 Not core:
