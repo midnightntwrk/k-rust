@@ -396,7 +396,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
     (hph : patHooksApart c = true)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
@@ -415,7 +415,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
-  rw [competingEquation_top hpre] at hmem
+  rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -562,7 +562,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
       rw [fnEquationsK, show fF.clauses = [cl1, cl2] from rfl, List.map_cons, h]
       exact List.mem_cons_self ..
     have hv := premise_vars (c := c) hpats1 hbinds1 hreqv1
-    rw [clauseEquation_top (cl := cl1) rfl] at hmem
+    rw [clauseEquation_top (cl := cl1) rfl rfl] at hmem
     have h1 := fun e m => eqn_at hI hnn lookupF (prem := clausePrem c fF cl1) (eqn_item_mem hfnm hmem) hws
       (hσ1 cl1 rfl) hv.1 hv.2.1 hv.2.2 (fun _ h => by simp [cl1, varOccs] at h) (fun _ h => by simp [cl1] at h)
       (r := some one)
@@ -596,7 +596,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
             cases hpv with | cons h1 _ => cases h1 with | var hl => exact hl
           rw [QP_closed.interp e0 e, ← req_den hl hag, hall a ha]
           exact (den_closed c _).interp e e0 a⟩)
-    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl
+    have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl rfl
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; rfl) hws
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; exact ⟨hpats1, hbinds1, hreqv1, hex⟩)
       (hσ1 cl2 rfl) (.cons (.var rfl) .nil) hpats2 hbinds2 (fun _ h => by cases h)

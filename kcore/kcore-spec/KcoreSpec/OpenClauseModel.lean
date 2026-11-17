@@ -105,7 +105,7 @@ theorem coDefined_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true
     (ht : FnTerminates c) : CoDefined c := by
   intro fn hfn vs cl σ cl' σ' _ hcl' _ hdec' _
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
-  obtain ⟨L, hL, -, -, -, -, -, hrhs, hens⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
+  obtain ⟨L, hL, -, -, -, -, -, hrhs, hens, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
   obtain ⟨r, hr⟩ := Model.evalTerm_totalCl hsc hov ht hL hdec'.1.1 hrhs
   cases he : cl'.ens with
   | none => exact ⟨r, .inl ⟨fun t ht => (by rw [he] at ht; cases ht), hr⟩⟩

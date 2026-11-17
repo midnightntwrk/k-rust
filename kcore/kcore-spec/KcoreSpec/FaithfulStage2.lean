@@ -599,7 +599,7 @@ clause with no clause of a smaller priority). -/
 theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause}
-    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hplain : plainPats c cl.pats = true) (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
@@ -617,7 +617,7 @@ theorem plain_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbe
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_vars (c := c) hpats hbinds hreqv
-  rw [clauseEquation_top hpre] at hmem
+  rw [clauseEquation_top hpre hexs] at hmem
   exact eqn_at hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1 hv.2.1 hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
       premise_holds hI hnn htr hfnm hws hσ' hmatch hplain hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
@@ -629,7 +629,7 @@ negation of their exclusions holds and the equation fires as an ordinary one. -/
 theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {others : List Clause} {cl : Clause}
-    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top)
+    (hmem : competingEquation c fn others cl ∈ fnEquationsK c fn) (hpre : cl.pre = .top) (hexs : cl.exs = [])
     (hpres : ∀ cl' ∈ others, cl'.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hothers : ∀ cl' ∈ others, sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
@@ -648,7 +648,7 @@ theorem compete_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
-  rw [competingEquation_top hpre] at hmem
+  rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_vars (c := c) hpats hbinds hreqv
@@ -764,9 +764,10 @@ mutual
       have hrhsv := varOccs_lt _ hrhss
       have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
       by_cases hlow : lowerClauses fn' cl = []
-      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) hws hσ' hmatch hplain hpats
+      · exact plain_eq hI hnn hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats
           hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
       · refine compete_eq hI hnn hst.1 hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+          (clause_exsNil hok hmem hcl)
           (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_)
           hσ' hmatch hplain hpats hbinds hreqv hrhsv hensv hr ihreq ihrhs e m
         obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'

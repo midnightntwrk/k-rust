@@ -674,12 +674,12 @@ def clauseAxiom (c : Semantics) (fn : Fn) (cl : Clause) : Kore.Axiom :=
   { sortVars := [KoreAML.Rv], pattern := .implies KoreAML.R (clausePrem c fn cl) (clauseConcl c fn cl), attributes := [] }
 
 theorem clause_item_mem {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
-    (hlow : lowerClauses fn cl = []) (hpre : cl.pre = .top) :
+    (hlow : lowerClauses fn cl = []) (hpre : cl.pre = .top) (hexs : cl.exs = []) :
     KoreAML.trAxiom [] [] ⟨0, "kernel", clauseAxiom c fn cl⟩ ∈ fnItems c := by
   unfold fnItems
   refine List.mem_flatMap.mpr ⟨fn, hfn, ?_⟩
   unfold kernelItems
-  refine List.mem_filterMap.mpr ⟨clauseEquation c fn cl, ?_, by rw [clauseEquation_top hpre]; rfl⟩
+  refine List.mem_filterMap.mpr ⟨clauseEquation c fn cl, ?_, by rw [clauseEquation_top hpre hexs]; rfl⟩
   unfold fnEquationsK
   exact List.mem_map.mpr ⟨cl, hcl, by simp [prioEquation, hlow]⟩
 
@@ -745,7 +745,8 @@ right-hand side are taken as hypotheses (`ihreq`, `ihrhs`), at every valuation t
 theorem clause_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {cl : Clause} (hcl : cl ∈ fn.clauses)
-    (hlow : lowerClauses fn cl = []) (hpre : cl.pre = .top) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
+    (hlow : lowerClauses fn cl = []) (hpre : cl.pre = .top) (hexs : cl.exs = [])
+    {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hplain : plainPats c cl.pats = true) (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats)
@@ -890,7 +891,7 @@ theorem clause_eq [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumb
       ((KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
         (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret I e' a ↔
         (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e' a) := fun m0 hm0 => by
-    have hax := sat_fns hI (Or.inl ⟨_, clause_item_mem hfnm hcl hlow hpre, rfl⟩)
+    have hax := sat_fns hI (Or.inl ⟨_, clause_item_mem hfnm hcl hlow hpre hexs, rfl⟩)
     have hP := (KoreAML.trAxiom_at hD hax e' hg m0).mpr (by
       show (KoreAML.inhOf (KoreAML.trSort tbl KoreAML.R)).interpret I e' m0
       rw [KoreAML.interp_inhOf_of hRv]; exact hm0)
@@ -1099,6 +1100,15 @@ theorem clause_preTop (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFns
     exact Cond.eq_top_of_isTop (hok.1.2 fn hu cl hcl).1.1.2
   · exact Semantics.sortPreds_pre hp cl hcl
 
+/-- A clause of a function of a semantics `sortedOK` accepts has no existential variable: the
+user's by `clausesPlain`, the generated sort predicates' by their text. -/
+theorem clause_exsNil (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : cl.exs = [] := by
+  rcases List.mem_append.mp hfn with hu | hp
+  · simp only [Semantics.sortedOK, Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hok
+    exact List.isEmpty_iff.mp (hok.1.2 fn hu cl hcl).1.1.1
+  · exact Semantics.sortPreds_exs hp cl hcl
+
 /-- `clause_ctxE` without the `ensures`. -/
 theorem clause_ctx (hok : c.sortedOK = true)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
@@ -1230,7 +1240,7 @@ mutual
       obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxE hok hbc hmem hcl
       obtain ⟨hplain, hcalls⟩ := hst.2.2 fn' hmem cl hcl
       have hr : ∀ v, _ = some v → c.sortOf v = some fn'.result := fun v hv => EvalTerm.sorted hsc hrhs hL hσ' hrhss hv
-      exact clause_eq hI hnn hsc.trans hfn hcl hol (clause_preTop hok hmem hcl) hws hσ' hmatch hplain hpats hbinds
+      exact clause_eq hI hnn hsc.trans hfn hcl hol (clause_preTop hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hplain hpats hbinds
         (fun t ht => varOccs_lt t (hreqs t ht)) (varOccs_lt _ hrhss) (fun t ht => varOccs_lt t (henss t ht)) hr
         (fun tbl e' hag t ht m' => evalTerm_den (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht)
           (fun g hg => hcalls g (List.mem_append_left _ (List.mem_append_right _ (by rw [ht]; exact hg)))) m')

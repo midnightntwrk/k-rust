@@ -420,7 +420,8 @@ theorem plain_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNu
     (hmem : clauseEquation c fn cl ∈ fnEquationsK c fn) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
-    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
+    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hexs : cl.exs = [])
+    (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
       varOccs cl.rhs ++ (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post)
     (hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     (hrhsv : ∀ i ∈ varOccs cl.rhs, i < cl.vars.length)
@@ -435,7 +436,7 @@ theorem plain_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNu
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
   have hfnm := (lookupFn_spec hfn).1
   have hv := premise_varsCl (c := c) hpats hreqv
-  rw [clauseEquation_top hpre] at hmem
+  rw [clauseEquation_top hpre hexs] at hmem
   exact eqn_atCl hI hnn hfn (prem := clausePrem c fn cl) (eqn_item_mem hfnm hmem) hws hσ' hv.1
     (clause_keys_inAx hpats hreqv hpre hpost hocc (fun _ h => h)) hv.2.2 hrhsv hensv hr
     (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
@@ -455,7 +456,8 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
       ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
-    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
+    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hexs : cl.exs = [])
+    (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
       varOccs cl.rhs ++ (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post)
     (hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     (hrhsv : ∀ i ∈ varOccs cl.rhs, i < cl.vars.length)
@@ -468,7 +470,7 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
-  rw [competingEquation_top hpre] at hmem
+  rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
   have hv := premise_varsCl (c := c) hpats hreqv
@@ -528,7 +530,8 @@ theorem clause_den4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c
     (hfn : c.lookupFn f = some fn) (hcl : cl ∈ fn.clauses)
     (hws : c.sortsOf ws = some fn.args) (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
-    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
+    (hpre : cl.pre = .top) (hpost : cl.post = .top) (hexs : cl.exs = [])
+    (hocc : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++
       varOccs cl.rhs ++ (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post)
     (hreqs : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hrhss : sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result)
@@ -551,9 +554,9 @@ theorem clause_den4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c
   have ihreq' := fun tbl e' hag t ht m' => ihreq t ht tbl e' hag m'
   by_cases hlow' : lowerClauses fn cl = []
   · exact plain_eq4Cl hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow') hws hσ' hmatch hpats
-      hpre hpost hocc hreqv hrhsv hensv hr ihreq' ihright e m
+      hpre hpost hexs hocc hreqv hrhsv hensv hr ihreq' ihright e m
   · refine compete_eq4Cl hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow') hws (fun cl' hcl' => ?_) hσ' hmatch
-      hpats hpre hpost hocc hreqv hrhsv hensv hr ihreq' ihright e m
+      hpats hpre hpost hexs hocc hreqv hrhsv hensv hr ihreq' ihright e m
     obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
     exact hlow cl' hcl'' hna'' hlt
 
