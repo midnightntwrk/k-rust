@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-clause-rhs-empty-peer.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 210556
+definition.kore sha256: 6c51a3dab04ca50b13b8577a659df95b628a61d009fc77e15cc009dfa422c907
+stripped sha256: a57cad281e9520c6346a04b088e417d83d9bb59b5a985a312b58a890be0eb56b
+main module: 415 sentences, 59 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-rhs-empty-peer.k)
+  	Location(7,17,7,18)
+  	7 |	  rule f() => g(Y:Empty) [unboundVariables(Y)]
+  	  .	                ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-RHS-EMPTY-PEER-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E2-CLAUSE-RHS-EMPTY-PEER as default.

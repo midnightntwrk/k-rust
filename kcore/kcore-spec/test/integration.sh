@@ -44,6 +44,9 @@
 #   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
 #               option set the rows are stated for, and the text has the recorded SHA-256 (nothing
 #               is kompiled)
+#   imp-tie     test/imp-tie.sh: the record of ref-kimp's tie per class (test/imp-tie.toml) has the
+#               account's classes and counts, tieClasses' directions, and names stated theorems
+#               (nothing is run as Lean)
 #   kk-kompile  test/kk-kompile.sh: the same of the command recorded for ref-kk's text, kore.k's
 #               kompiled KORE, and kore.k has the recorded SHA-256 (nothing is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
@@ -58,7 +61,8 @@
 #               ref-peano it reads; `skipped` when the k2lean directory ($K2LEAN) is absent
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
-#               PrintNames, a command-line tool), each with `#axioms_here` appended (axioms-tests)
+#               PrintNames, a command-line tool, nor TieKimpHints, a generator), each with
+#               `#axioms_here` appended (axioms-tests)
 #
 # The native checks run first, then the Lean checks, JOBS at once: JOBS is the available memory
 # (`free -g` at start) over 12 GiB, between 1 and 8, or $INTEGRATION_JOBS. Every Lean and `kcore`
@@ -183,13 +187,14 @@ fi
 LP=$(lake env printenv LEAN_PATH)
 
 # native checks
-order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile kk-kompile"
+order="$order regen roundtrip corpus agree agree-kore-in-k imp-kompile imp-tie kk-kompile"
 check regen scoreboard test/regen.sh -j "$J"
 check roundtrip scoreboard test/roundtrip.sh
 check corpus scoreboard python3 -I test/corpus.py -j "$J" --expected test/corpus.expected
 check agree scoreboard test/agree.sh
 check agree-kore-in-k scoreboard agreeKoreInK
 check imp-kompile scoreboard test/imp-kompile.sh
+check imp-tie scoreboard test/imp-tie.sh
 check kk-kompile scoreboard test/kk-kompile.sh
 
 # Lean checks, the longest first
@@ -208,7 +213,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted) continue;;
+    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"

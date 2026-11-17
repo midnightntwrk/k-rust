@@ -21,7 +21,7 @@ reason = """
 
 [[ruling.basis]]
 source = "manual"
-locator = "k-distribution/include/kframework/builtin/kast.md:181-183 (K 7.1.337)"
+locator = "k-distribution/include/kframework/builtin/kast.md:182-184 (K 7.1.337)"
 quote = "Set variables. These are denoted by variables that begin with a `@`. These variables refer to a set of values and are generally used when writing simplification rules in the Haskell Backend."
 
 [[ruling.basis]]
@@ -41,12 +41,12 @@ quote = "The simplification attribute identifies rules outside the main semantic
 
 [[ruling.basis]]
 source = "manual"
-locator = "docs/user_manual.md:1442-1443 (K 7.1.337)"
+locator = "docs/user_manual.md:1441-1442 (K 7.1.337)"
 quote = "The frontend and Haskell backend **do not check** that supplied simplification rules are sound, this is the developer's responsibility."
 
 [[ruling.basis]]
 source = "domains"
-locator = "k-distribution/include/kframework/builtin/domains.md:1357-1361 (K 7.1.337)"
+locator = "k-distribution/include/kframework/builtin/domains.md:1358-1362 (K 7.1.337)"
 quote = "The remainder of this section consists of an implementation in K of some of the operators above, as well as lemmas used  by the Java and Haskell backend to simplify expressions of sort `Int`. They do not affect the semantics of integers, merely describing additional rules that the backend can use to simplify terms."
 
 [[ruling.basis]]
@@ -71,7 +71,7 @@ quote = "rule {notBool @B #Equals true} => {@B #Equals false} [simplification]"
 
 [[ruling.basis]]
 source = "builtin-module"
-locator = "k-distribution/include/kframework/builtin/domains.md:1139-1140 (K 7.1.337)"
+locator = "k-distribution/include/kframework/builtin/domains.md:1138-1139 (K 7.1.337)"
 quote = "rule notBool true => false rule notBool false => true"
 
 [[ruling.basis]]
@@ -86,7 +86,7 @@ quote = "syntax Bool ::= KItem \"in_keys\" \"(\" Map \")\"       [function, tota
 
 [[ruling.basis]]
 source = "domains"
-locator = "k-distribution/include/kframework/builtin/domains.md:353 (K 7.1.337)"
+locator = "k-distribution/include/kframework/builtin/domains.md:354 (K 7.1.337)"
 quote = "You can check whether a key is present in a map in O(1) time."
 
 [ruling.kore]
