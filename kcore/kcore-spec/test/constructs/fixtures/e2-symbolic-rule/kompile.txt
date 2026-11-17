@@ -1,10 +1,11 @@
 command: kompile --backend haskell e2-symbolic-rule.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.1
+seconds: 8.5
 definition.kore bytes: 84803
 definition.kore sha256: b3a8d02d6035f8f34fe623534a6a09a0fd1005804a2a2ef3835c775304b6ec3e
 stripped sha256: e6f1425627b07c2ccab1d85f7abe676fd1f00092ec20ea1e0f59cded68f30d23
 main module: 244 sentences, 19 not in base's, in kore.txt
+differs_from c3-attr-rule-base: different after stripping
 output:
   [Warning] Compiler: Could not find main syntax module with name
   E2-SYMBOLIC-RULE-SYNTAX in definition.  Use --syntax-module to specify one.

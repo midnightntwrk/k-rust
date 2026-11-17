@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-plain.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.3
+definition.kore bytes: 202304
+definition.kore sha256: 67020f34a46dcb44f5371968573f1001f3118817832b696b05abcc906f698516
+stripped sha256: 5427f4bfb91d45c99e46382bbfaaa228b3873cb8eaf3a76d624feb6925e94d15
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-PLAIN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-PLAIN as default.

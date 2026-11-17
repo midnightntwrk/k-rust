@@ -1,10 +1,12 @@
 command: kompile --backend haskell e2-module-att.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.3
+seconds: 3.7
 definition.kore bytes: 203525
 definition.kore sha256: 25e969b65f999444746ded43da6b7c13d42cfd446e702ba58c6fdf8ec966bf87
 stripped sha256: 3f6cfc41b5557155fdda1d81caa1aad2edd8ea38948ce0a3ad1c6c24a5e529d6
 main module: 393 sentences, 36 not in base's, in kore.txt
+same_as c3-module-att-noconc: equal after stripping
+differs_from c3-module-att-plain: different after stripping
 output:
   [Warning] Compiler: Could not find main syntax module with name
   E2-MODULE-ATT-SYNTAX in definition.  Use --syntax-module to specify one. Using

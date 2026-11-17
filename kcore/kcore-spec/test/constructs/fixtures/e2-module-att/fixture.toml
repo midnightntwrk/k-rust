@@ -1,0 +1,3 @@
+# differs_from c3-module-att-plain, the text without the three module attribute lists, and same_as c3-module-att-noconc, the text without the module E2-CONC [concrete] (TRIAGE-B c3.pair 22; findings/C3-noncore-rulings.md section 12). Predicted: against -plain the texts differ in f's sentences alone (its declaration and equation are there only); equal to -noconc after stripping
+differs_from = "c3-module-att-plain"
+same_as = "c3-module-att-noconc"

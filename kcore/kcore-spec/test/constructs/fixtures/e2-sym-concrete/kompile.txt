@@ -1,10 +1,11 @@
 command: kompile --backend haskell e2-sym-concrete.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.4
+seconds: 4.6
 definition.kore bytes: 203568
 definition.kore sha256: c5da9f9f34f5a3f53e6b2299d2eacf1c0b3be2076eda013731ee1d228e840e90
 stripped sha256: b3be1442e20de7840227b0d4050f2ad4af4768edb002ba00460b40a8c5d69427
 main module: 393 sentences, 36 not in base's, in kore.txt
+differs_from c3-sym-attr-base: different after stripping
 output:
   [Warning] Compiler: Could not find main syntax module with name
   E2-SYM-CONCRETE-SYNTAX in definition.  Use --syntax-module to specify one.

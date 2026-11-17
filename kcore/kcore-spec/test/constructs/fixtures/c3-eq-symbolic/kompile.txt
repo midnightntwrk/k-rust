@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-symbolic.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.7
+definition.kore bytes: 202346
+definition.kore sha256: d5fb828cf4a23b5128e725cd7a0f85bf520eda1e3ae1bbc5c62ded95afedf0d2
+stripped sha256: 8436a47926ca4d5e61cbfa17a55102d62aa3bf45d46c8ee3694e6f9b3b0e6e50
+main module: 391 sentences, 34 not in base's, in kore.txt
+differs_from c3-eq-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-SYMBOLIC-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-SYMBOLIC as default.

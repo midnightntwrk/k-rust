@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-attr-rule-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 10.4
+definition.kore bytes: 84786
+definition.kore sha256: 79143f267486b4138073c978474054a0d157f5dd8a62c551299fcdccc5cc289f
+stripped sha256: f7a9ac6a32033b08bb1652789bb050baa5b0dc34887d6dab140b58b313bf1ec1
+main module: 244 sentences, 19 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-ATTR-RULE-BASE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-ATTR-RULE-BASE as default.

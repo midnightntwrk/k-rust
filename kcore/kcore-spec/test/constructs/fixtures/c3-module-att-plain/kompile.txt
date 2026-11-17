@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-module-att-plain.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.7
+definition.kore bytes: 204794
+definition.kore sha256: d7b5b7ec293919b1cb5ed9479c9f6de0cad522adc0df553229496ddc7511e462
+stripped sha256: 8e8a56651650e6b6a178a92a719aac8e57508aa7ba7b11a64902e286d4c0841e
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MODULE-ATT-PLAIN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-MODULE-ATT-PLAIN as default.
