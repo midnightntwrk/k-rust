@@ -3,7 +3,11 @@
   premise negates, so it blocks no clause). Run from the package root:
   `lake env lean test/AsideClauses.lean`.
 
-  - `E5`: `f2-examples/owisene.kompile.kore` (`owisene.k`, the text of fixture e5-owise-nonexec):
+  - `E5`: `f2-examples/owisene.kompile.kore` (`owisene.k`, a text neighbouring fixture
+    e5-owise-nonexec's and not that text: sort `Exp`, a `<k>` cell and one rule
+    `go(X, Y) => done(choose(X, Y))`, where the fixture has sort `Foo` and no rule; the three
+    equations of `choose` are the fixture's up to the sort's name, so no fact below is about the
+    fixture's own sentences):
     `choose(a, Y) = Y`, `choose(b, Y) = Y` [non-executable], `choose(X, _) = X` [owise]. The
     `[owise]` premise negates the first equation only. Read with the second clause `aside`
     (`aside_b`); the `[owise]` clause's smaller clauses are the first alone (`lower_owise`). At
