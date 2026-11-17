@@ -1,0 +1,63 @@
+id = "t147-float-defined-ops"
+kind = "text"
+subject = "sqrtFloat, isInfinite and =/=Float, which have no hook: each is what one equation of FLOAT states over hooked symbols."
+retro = ["FL8"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1671 (K 7.1.337)", quote = "rule sqrtFloat(F:Float) => rootFloat(F, 2)" }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "sqrtFloat(F) is rootFloat(F, 2) at every Float F: it has a value exactly where rootFloat(F, 2) has one, and that value (sqrtFloat(4.0) = 2.0, the exact root). isInfinite(F) is F >Float maxValueFloat(p, e) orBool F <Float --Float maxValueFloat(p, e) at F's precision p and exponent width e: true at the two infinities, false at every other value, NaN included. X =/=Float Y is notBool (X ==Float Y): NaN =/=Float NaN is true. None of the three has a meaning beside its equation."
+reason = '''
+(1) The three are declared with function and no hook (domains.md:1545, 1624, 1646), so no hook gives them a value.
+(2) The module implements some of its operators in K (1667-1668): sqrtFloat(F) => rootFloat(F, 2) (1671), isInfinite(F) => F >Float maxValueFloat(...) orBool F <Float --Float maxValueFloat(...) (1673), F1 =/=Float F2 => notBool (F1 ==Float F2) (1648). Each is an equation over every Float, with no premise.
+(3) rootFloat computes the Nth integer root (1577); at 4.0 and 2 the root is 2, a datum of binary64. At an inexact root the value follows the readings of kk:t140-float-ieee-references; this entry rules the equation, not those values.
+(4) The comparisons in isInfinite's equation are those of kk:t144-float-comparisons: false at a NaN, and +Infinity above, -Infinity below the largest finite value. So the right side is true exactly at the two infinities, which is what 'infinite' names (1541).'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1544-1545 (K 7.1.337)"
+quote = "syntax Bool ::= isNaN(Float) [function, total, smt-hook(fp.isNaN), hook(FLOAT.isNaN)] | isInfinite(Float) [function, total]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1624 (K 7.1.337)"
+quote = "| sqrtFloat(Float) [function]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1646 (K 7.1.337)"
+quote = '| Float "=/=Float" Float [function, comm, smt-hook((not (fp.eq #1 #2)))]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1667-1668 (K 7.1.337)"
+quote = "The remainder of this section consists of an implementation in K of some of the operators above."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1671 (K 7.1.337)"
+quote = "rule sqrtFloat(F:Float) => rootFloat(F, 2)"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1673 (K 7.1.337)"
+quote = "rule isInfinite(F:Float) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1648 (K 7.1.337)"
+quote = "rule F1:Float =/=Float F2:Float => notBool (F1 ==Float F2)"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1577 (K 7.1.337)"
+quote = "* Compute the Nth integer root `rootFloat` of a float."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1541 (K 7.1.337)"
+quote = "You can check whether a `Float` value is infinite or Not-a-Number."

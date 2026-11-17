@@ -1,0 +1,40 @@
+id = "t144-float-comparisons"
+kind = "text"
+subject = "The Float comparisons at two formats, at NaN, at the zeros and at the infinities."
+retro = ["FL5", "FL6"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1641-1648 (K 7.1.337)", quote = 'syntax Bool ::= Float "<=Float" Float [function, smt-hook(fp.leq), hook(FLOAT.le)] | Float "<Float" Float [function, smt-hook(fp.lt), hook(FLOAT.lt)] | Float ">=Float" Float [function, smt-hook(fp.geq), hook(FLOAT.ge)] | Float ">Float" Float [function, smt-hook(fg.gt), hook(FLOAT.gt)] | Float "==Float" Float [function, comm, smt-hook(fp.eq), hook(FLOAT.eq), symbol(_==Float_)] | Float "=/=Float" Float [function, comm, smt-hook((not (fp.eq #1 #2)))] rule F1:Float =/=Float F2:Float => notBool (F1 ==Float F2)' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = "FLOAT.lt, FLOAT.le, FLOAT.gt, FLOAT.ge, FLOAT.eq"
+points = ["1.0f <Float 1.5 = true", "NaN ==Float NaN = false", "NaN <Float 1.0 = false", "1.0 <Float NaN = false", "0.0 ==Float -0.0 = true", "-0.0 <Float 0.0 = false", "-0.0 <=Float 0.0 = true", "Infinity >Float 1.0 = true", "NaN =/=Float NaN = true"]
+statement = "Each comparison is stated at every pair of Float data, of one format or of two: it is the relation the sentence names between the two values, a Bool. NaN stands in no relation, equality included; the two zeros are equal; +Infinity is above, -Infinity below, every other value. The points list gives instances."
+reason = '''
+(1) The sentence computes whether a float is less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another float (domains.md:1631-1632). Its result is a Bool, and no sentence restricts the two floats to one format; so 1.0f <Float 1.5 is the comparison of 1 with 3/2.
+(2) NaN compares unequal to all values, itself included, and 0.0 ==Float -0.0 is true (1636-1638). A NaN is Not-a-Number (1541): it is no number, and the orders are relations between numbers, so each of <, <=, >, >= is false at a NaN. -0.0 and 0.0 are equal, so <= holds of them and < does not.
+(3) =/=Float is notBool of ==Float (1648).
+(4) A value is infinite (1541) when it is above every finite value or below every one: the module's own equation for isInfinite says so through >Float and <Float against the largest finite value (1673).'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1631-1638 (K 7.1.337)"
+quote = "Compute whether a float is less than or equasl to, less than, greater than or equal to, greater than, equal, or unequal to another float. Note that `X ==Float Y` and `X ==K Y` might yield different values. The latter should be used in cases where you want to compare whether two values of sort `Float` contain the same term. The former should be used when you want to implement the `==` operator of a programming language. In particular, `NaN =/=Float NaN` is true, because `NaN` compares unequal to all values, including itself, in IEEE 754 arithmetic. `0.0 ==Float -0.0` is also true."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1541 (K 7.1.337)"
+quote = "You can check whether a `Float` value is infinite or Not-a-Number."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1641-1648 (K 7.1.337)"
+quote = 'syntax Bool ::= Float "<=Float" Float [function, smt-hook(fp.leq), hook(FLOAT.le)] | Float "<Float" Float [function, smt-hook(fp.lt), hook(FLOAT.lt)] | Float ">=Float" Float [function, smt-hook(fp.geq), hook(FLOAT.ge)] | Float ">Float" Float [function, smt-hook(fg.gt), hook(FLOAT.gt)] | Float "==Float" Float [function, comm, smt-hook(fp.eq), hook(FLOAT.eq), symbol(_==Float_)] | Float "=/=Float" Float [function, comm, smt-hook((not (fp.eq #1 #2)))] rule F1:Float =/=Float F2:Float => notBool (F1 ==Float F2)'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1673 (K 7.1.337)"
+quote = "rule isInfinite(F:Float) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))"

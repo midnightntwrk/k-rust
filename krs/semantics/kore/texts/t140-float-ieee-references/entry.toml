@@ -1,0 +1,52 @@
+id = "t140-float-ieee-references"
+kind = "text"
+subject = "Which mentions of IEEE 754 in the FLOAT section of domains.md state a value, and what an smt-hook attribute states."
+retro = ["FL1"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1461-1467 (K 7.1.337)", quote = "IEEE 754 Floating-point Numbers ------------------------------- Provided here is the syntax of an implementation of arbitrary-precision floating-point arithmetic in K based on a generalization of the IEEE 754 standard. This type is hooked to an implementation of floats provided by the backend." }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated, under both readings. The section names IEEE 754 four times. Three of the mentions have a subject of their own and state something of it: the representation of a format (a literal is rounded to a value of a type represented like an IEEE754 type; f is binary32 and p24x8, d and no suffix binary64 and p53x11, domains.md:1478-1490), and the comparison at NaN and at the zeros (NaN compares unequal to all values, itself included, in IEEE 754 arithmetic; 0.0 ==Float -0.0 is true, 1636-1638). The fourth, the section's opening (1461, 1464-1467), calls the type an implementation of arbitrary-precision floating-point arithmetic based on a generalization of the IEEE 754 standard, and names no operation and no value.
+An smt-hook attribute is an attribute (kore-syntax.md:223-228); what its words spell (roundNearestTiesToEven on *Float, /Float, %Float, +Float, -Float, 1565-1570) names a rounding mode, and the operation names in it (fp.div, fp.lt) name the operations of another document, which no sentence of domains.md quotes.
+Where the readings part: whether the opening's naming of the standard brings in the standard's definition of each operation. The two readings are the two answers to the owner question on how far the naming of IEEE 754 reaches; it is not answered.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1461-1467 (K 7.1.337)"
+quote = "IEEE 754 Floating-point Numbers ------------------------------- Provided here is the syntax of an implementation of arbitrary-precision floating-point arithmetic in K based on a generalization of the IEEE 754 standard. This type is hooked to an implementation of floats provided by the backend."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1478-1490 (K 7.1.337)"
+quote = "The value of a floating-point literal is computed as follows: First the mantissa is read as a rational number. Then it is multiplied by 10 to the power of the exponent, which is interpreted as an integer, and defaults to zero if it is not present. Finally, it is rounded to the nearest possible value in a floating-point type represented like an IEEE754 floating-point type, with the number of bits of precision and exponent specified by the suffix. A suffix of `f` or `f` represents the IEEE `binary32` format. A suffix of `d` or `D`, or no suffix, represents the IEEE `binary64` format. A suffix of `pNxM` (either upper or lowercase) specifies exactly `N` bits of precision and `M` bits of exponent. The number of bits of precision is assumed to include any optional `1` that precedes the IEEE 754 mantissa. In other words, `p24x8` is equal to the IEEE `binary32` format, and `p53x11` is equal to the IEEE `binary64` format."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1631-1638 (K 7.1.337)"
+quote = "Compute whether a float is less than or equasl to, less than, greater than or equal to, greater than, equal, or unequal to another float. Note that `X ==Float Y` and `X ==K Y` might yield different values. The latter should be used in cases where you want to compare whether two values of sort `Float` contain the same term. The former should be used when you want to implement the `==` operator of a programming language. In particular, `NaN =/=Float NaN` is true, because `NaN` compares unequal to all values, including itself, in IEEE 754 arithmetic. `0.0 ==Float -0.0` is also true."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1562-1570 (K 7.1.337)"
+quote = 'syntax Float ::= "--Float" Float [function, total, smt-hook(fp.neg), hook(FLOAT.neg)] > Float "^Float" Float [function, left, hook(FLOAT.pow)] > left: Float "*Float" Float [function, left, smt-hook((fp.mul roundNearestTiesToEven #1 #2)), hook(FLOAT.mul)] | Float "/Float" Float [function, left, smt-hook((fp.div roundNearestTiesToEven #1 #2)), hook(FLOAT.div)] | Float "%Float" Float [function, left, smt-hook((fp.rem roundNearestTiesToEven #1 #2)), hook(FLOAT.rem)] > left: Float "+Float" Float [function, left, smt-hook((fp.add roundNearestTiesToEven #1 #2)), hook(FLOAT.add)] | Float "-Float" Float [function, left, smt-hook((fp.sub roundNearestTiesToEven #1 #2)), hook(FLOAT.sub)]'
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined."
+
+[[reading]]
+name = "scoped"
+statement = "The section's generic naming of IEEE 754 (domains.md:1461, 1464-1467) states no value: an operation's value is stated only by its own sentence, by the representation the literal sentence names (1478-1490), by the equality sentence (1631-1638), and by what an smt-hook attribute's own words spell."
+answer = "1.0 /Float 0.0, 0.1 +Float 0.2, sqrtFloat(2.0): no sentence states their value. 0.0 ==Float -0.0 is true and NaN ==Float NaN false, by the equality sentence."
+consequence = "Every value of an operation that its own sentence does not give is unstated; a consumer that computes the IEEE 754 result there adds a statement."
+
+[[reading]]
+name = "incorporated"
+statement = "The section's naming of IEEE 754 incorporates the standard's definition of each operation, generalized to every format pNxM."
+answer = "1.0 /Float 0.0 is the standard's value, +Infinity; each operation's value at every datum is the standard's, read at the format's precision and exponent width."
+consequence = "Each operation's value is owed by reference to the standard; none of these values is checked here against the standard's text, which no file of K holds."
