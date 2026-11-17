@@ -190,11 +190,11 @@ inductive RefusalReason where
   says is interpreted, by a domain the reader does not give it (`syntax MyInt [hook(INT.Int)]`).
   The detail names the sort and the hook. -/
   | userHookedSort
-  /-- A rewrite axiom's attribute that is neither read (its id, label, priority, place, `owise`)
-  nor of no meaning for the rule's semantics (`ruleAttrIgnored`): one that changes where or how the
-  rule applies, or has no stated meaning for a rule (`ruleAttrRefused`, else any other key); or
-  `owise` beside `priority{}("n")` with n other than 200, two priorities of the rule
-  (`ruleOwisePrioFault?`). The detail names the attribute, or both keys, and why. -/
+  /-- A rewrite axiom's attribute that `attrVerdict` refuses at class `rule` (`ruleAttrFault?`): one
+  that changes where or how the rule applies, or of no meaning any text states for a rule, or a name
+  that is no key of the construct table's E2 rows; or `owise` beside `priority{}("n")` with n other
+  than 200, two priorities of the rule (`ruleOwisePrioFault?`). The detail names the attribute, or
+  both keys, and why. -/
   | ruleAttribute
   /-- A quantifier or a `\floor` of a term over a sort the text may leave unconfined (no sentence
   of the text states which elements it has), in a condition: its truth at given values differs
@@ -263,9 +263,10 @@ inductive RefusalReason where
   read as a symbol of its own it would carry a registry symbol's name, which the numbered symbols'
   names being apart excludes. The detail is the name. -/
   | registrySymbolName
-  /-- A function equation's attribute the reader refuses by name (`eqnAttrRefused`): one whose
-  meaning for the equation no text states, so that reading the equation without it states no more
-  than the text cannot be shown. The detail names the attribute, the position and why. -/
+  /-- A function equation's attribute that `attrVerdict` refuses at class `equation`
+  (`eqnAttrFault?`): one whose meaning for the equation no text states, so that reading the equation
+  without it states no more than the text cannot be shown, or a name that is no key of the construct
+  table's E2 rows. The detail names the attribute and why. -/
   | equationAttribute
   /-- An equation of the form the reader reads as a function's (`rawEqn?`) whose left side is
   headed by a constructor (`eqnHeadFault?`): `a(X) = b(X)`, `a(X) = a(0)`, `a(X) = f(X)`. The
@@ -2232,27 +2233,22 @@ def svinNames (e : RawEqn) (X : Kore.SVar) : String × String :=
     !held.contains ("Var" ++ cand j 0) && !held.contains ("Var" ++ cand j 1)).getD held.length
   (cand j 0, cand j 1)
 
-/-- The attributes of a function equation read with the key inert, with why (each as the construct
-table decides it, `inert`). An equation `l = r` entails `C[l] = C[r]` for every context C, so a key
-saying the equation applies in every context states nothing the equation does not; the equation is
-read as written. Beside `simplification` the axiom itself is inert (`InertReason.simplification`)
-and the same holds of the key. The account lists each equation carrying one
-(`eqnAttrsInert`). -/
-def eqnAttrInert : List (String × String) :=
-  [("anywhere", "an equation l = r entails C[l] = C[r] for every context C, so applying it anywhere is what the equation already states")]
+/-- The verdict on an attribute whose head is spelled `n` at a sentence of class `c`: its key's
+(`attrVerdict`), and for a name that spells no key of `AttrKeyE2`, refused with `r`. -/
+def attrVerdictOf (c : AttrClassE2) (r : AttrRefusalE2) (n : String) : AttrVerdict :=
+  match AttrKeyE2.ofName? n with
+  | some k => attrVerdict c k
+  | none => .refused r "the name is no attribute key of E2's rows (K 7.1.337 admits no key so spelled at this sentence): no text gives it a meaning here, so that reading the sentence with it dropped states no more than the text cannot be shown"
 
-/-- The attributes of a function equation the reader refuses by name (`equationAttribute`), with
-why (each as the construct table decides it, `refused`). Every other key of an equation is read
-(its id, label, priority, place, `owise`, `non-executable`) or not looked at. -/
-def eqnAttrRefused : List (String × String) :=
-  [("syntactic", "no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown")]
-
-/-- The first attribute of a function equation the reader refuses (`eqnAttrRefused`), with its
-position and why. -/
+/-- The first attribute of a function equation that `attrVerdict` refuses at class `equation`
+(`equationAttribute`), with its name and why. An inert key is one whose verdict is that the
+equation states what it states with it or without it; the others are read. -/
 def eqnAttrFault? (as : List Kore.AppPattern) : Option String :=
   as.findSome? fun ap =>
     let n := ap.head.ident.name
-    (eqnAttrRefused.lookup n).map fun w => s!"{n} on a function equation: {w}"
+    match attrVerdictOf .equation .equationAttribute n with
+    | .refused _ w => some s!"{n} on a function equation: {w}"
+    | _ => none
 
 /-- An equation's argument patterns as terms: through `setVarInDropped` the first two are two
 variables (`svinShape`, `svinNames`). Beside an `[owise]` equation the disjunct paired with it is
@@ -2411,50 +2407,17 @@ def ruleEns? (a : Kore.Axiom) : Option (Option Kore.Pattern) :=
   | .rewrites _ _ (.and _ [_, en]) => req? en
   | _ => none
 
-/-- The attributes of a rewrite axiom the reader reads: its unique id, label, priority, place, and
-`owise` (priority 200; beside `priority{}("n")` with n other than 200 refused,
-`ruleOwisePrioFault?`). -/
-def ruleAttrsRead : List String :=
-  ["UNIQUE'Unds'ID", "label", "priority", "org'Stop'kframework'Stop'attributes'Stop'Location",
-   "org'Stop'kframework'Stop'attributes'Stop'Source", "owise"]
-
-/-- The attributes of a rewrite axiom that say nothing of where or how the rule applies, with why
-(each as the construct table decides it, `inert`): the text states the rewrite axiom, and these mark
-it, name it, print it, or say which terms a prover applies it to, which is no statement of `Γ`; `Step`
-has the rule's steps. Kept in the presentation when written with no argument or a string
-(`inertRuleAttrs`, `inertArgAttrs`). -/
-def ruleAttrIgnored : List (String × String) :=
-  [("cool", "marks a cooling rule of a strictness declaration; the axiom states the rule"),
-   ("cool-like", "marks a rule as cooling-like for strictness; the axiom states the rule"),
-   ("preserves-definedness", "no K text gives it a meaning (kore-syntax.md:223-229; the user manual has no occurrence); kompile writes it on the axiom and no sentence beside it (e2-rule/kore.txt:193-199); the axiom states the rule"),
-   ("format", "a printing form"),
-   ("colors", "a printing form"),
-   ("symbol'Kywd'", "a name"),
-   ("concrete", "which terms a prover applies the rule to (concrete values of the named variables): no statement of the theory; the axiom states the rule"),
-   ("symbolic", "which terms a prover applies the rule to (symbolic values of the named variables): no statement of the theory; the axiom states the rule"),
-   ("comm", "K gives comm on a rule no meaning (it is a production's attribute); the axiom states the rule")]
-
-/-- The attributes of a rewrite axiom the reader refuses by name, with why (each as the construct
-table decides it, `refused`). The axiom `\rewrites(l ∧ req, r ∧ ens)` states one rewrite of its
-left side at the top cell; each of these keys either gives the rule a meaning the axiom does not
-state (`anywhere`), or leaves open which of two readings with different steps is the rule's
-(`non-executable`, `simplification`), or has no meaning any text states (`syntactic`), so neither reading the axiom
-with the key dropped nor reading the key states no more than the text. Any other key is refused as
-well. -/
-def ruleAttrRefused : List (String × String) :=
-  [("non-executable", "the key may leave the axiom a rule like any other, or leave it out of what a rule of a larger priority number excludes (as it does for an equation, Clause.aside); the two give different steps where the rule overlaps such a rule, and no sentence of the text chooses between them (a priority is an attribute)"),
-   ("anywhere", "the key's meaning is the rule applied in every context of the configuration, an equation's closure under contexts, which the axiom, one rewrite at the top cell, does not state; reading the axiom with the key dropped would assert its step without that meaning"),
-   ("simplification", "the axiom states a step, which classing it a lemma (inert) would drop, while the key says the axiom is a lemma and no rule of the definition, which reading it as a rule would drop"),
-   ("syntactic", "no text gives the key a meaning, so that reading the axiom with the key dropped states no more than the text cannot be shown"),
-   ("smt-lemma", "kompile writes no definition for an smt-lemma rule")]
-
-/-- The first attribute of a rewrite axiom neither read nor ignored (`ruleAttribute`), with its
-position and why. -/
+/-- The first attribute of a rewrite axiom that `attrVerdict` refuses at class `rule`
+(`ruleAttribute`), with its name and why. The keys read are its unique id, label, priority, place
+and `owise` (priority 200; beside `priority{}("n")` with n other than 200 refused,
+`ruleOwisePrioFault?`); the inert ones say nothing of where or how the rule applies, and are kept
+in the presentation (`inertRuleAttrs`, `inertArgAttrs`, with no argument or a string). -/
 def ruleAttrFault? (as : List Kore.AppPattern) : Option String :=
   as.findSome? fun ap =>
     let n := ap.head.ident.name
-    if ruleAttrsRead.contains n || (ruleAttrIgnored.lookup n).isSome then none
-    else some s!"{n} on a \\rewrites axiom: {(ruleAttrRefused.lookup n).getD "an attribute of no stated meaning for a rule"}"
+    match attrVerdictOf .rule .ruleAttribute n with
+    | .refused _ w => some s!"{n} on a \\rewrites axiom: {w}"
+    | _ => none
 
 /-- A rewrite axiom carrying `owise{}()` beside `priority{}("n")` with n other than 200
 (`ruleAttribute`), with why. Each key is a mark of the rule's priority: `owise` sets it to 200,
@@ -3520,7 +3483,7 @@ def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   else if isKBuiltin a.attributes then classifyKBuiltin s
   else if isCellCollAxiom a then .unread .cellCollectionInjection
   -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
-  -- refuses it by name (`ruleAttrRefused`) instead of the step being dropped as an inert lemma
+  -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
   else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
   -- an equation applying its function to a set variable on the left side (`lhsSetVar?`)
   else if (lhsSetVar? a).isSome then .refused .setVariable

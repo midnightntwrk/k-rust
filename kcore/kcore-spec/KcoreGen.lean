@@ -2841,11 +2841,6 @@ def account (koreFile : String) : IO UInt32 := do
       for (i, f, j) in on.take 10 do
         IO.println s!"      sentence {i} ({f}): its disjunct for sentence {j}, read with its set variable's memberships dropped, holds one element variable at both arguments"
       IO.println "      if the two right sides differ at two distinct arguments, the text has no model (kompile 7.1.337 writes the exclusion of a set-variable equation at equal arguments)"
-    -- printed only when some equation carries such a key
-    let ia := Parse.eqnAttrsInert k
-    unless ia.isEmpty do
-      IO.println s!"equation attributes classified inert (eqnAttrInert): {ia.length}"
-      for (i, n, w) in ia.take 10 do IO.println s!"      sentence {i}: {n}: {w}"
     let lu := Parse.libraryUnstated k d
     IO.println s!"sentences the library's data induces that the text does not hold: {lu.length}"
     for r in lu.take 40 do IO.println s!"      {clip 300 r.detail}"

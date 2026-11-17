@@ -150,7 +150,60 @@ example : AttrKeyE2.ofName? "subsort" = none := by decide +kernel
 
 -- a key at a class with no row: the row at class `any`, else refused
 example : attrVerdict .rule .uniqueId = .read := rfl
-example : attrVerdict .rule .format = .refused .ruleAttribute unwritten := rfl
+example : attrVerdict .rule .format = .inert printedForm := rfl
+example : attrVerdict .rule .uniqueId = .read ∧ attrVerdict .equation .symbolOverload = .read := ⟨rfl, rfl⟩
+
+/-! The verdicts the readers of a rewrite axiom and of a function equation apply (`ruleAttrFault?`,
+`eqnAttrFault?`): every refusal at class `rule` is `ruleAttribute` and at class `equation`
+`equationAttribute`; the keys read at a rule are those `Parse.ruleBody` reads (its id, label,
+priority, place, `owise`), and the inert ones the presentation keeps (`inertRuleAttrs` and
+`inertArgAttrs` of DefinitionWf, written out). -/
+
+def verdictKeys (c : AttrClassE2) (p : AttrVerdict → Bool) : List String :=
+  (AttrKeyE2.all.filter fun k => p (attrVerdict c k)).map (·.kore)
+
+def isRefusedBy (r : AttrRefusalE2) : AttrVerdict → Bool
+  | .refused r' _ => r' == r
+  | _ => false
+
+def isRead : AttrVerdict → Bool
+  | .read => true
+  | _ => false
+
+def isInert : AttrVerdict → Bool
+  | .inert _ => true
+  | _ => false
+
+def isRefused : AttrVerdict → Bool
+  | .refused _ _ => true
+  | _ => false
+
+theorem rule_refusals : AttrKeyE2.all.all (fun k => !isRefused (attrVerdict .rule k) || isRefusedBy .ruleAttribute (attrVerdict .rule k)) = true := by decide +kernel
+theorem equation_refusals : AttrKeyE2.all.all (fun k => !isRefused (attrVerdict .equation k) || isRefusedBy .equationAttribute (attrVerdict .equation k)) = true := by decide +kernel
+
+theorem rule_read : verdictKeys .rule isRead =
+    ["label", "org'Stop'kframework'Stop'attributes'Stop'Location", "org'Stop'kframework'Stop'attributes'Stop'Source",
+     "owise", "priority", "UNIQUE'Unds'ID"] := by decide +kernel
+theorem rule_inert : verdictKeys .rule isInert =
+    ["colors", "comm", "concrete", "cool", "cool-like", "format", "preserves-definedness", "symbol'Kywd'", "symbolic"] := by
+  decide +kernel
+theorem equation_read : verdictKeys .equation isRead =
+    ["cool", "label", "non-executable", "org'Stop'kframework'Stop'attributes'Stop'Location",
+     "org'Stop'kframework'Stop'attributes'Stop'Source", "owise", "priority", "symbol-overload", "UNIQUE'Unds'ID"] := by
+  decide +kernel
+theorem equation_inert : verdictKeys .equation isInert =
+    ["comm", "concrete", "cool-like", "preserves-definedness", "simplification", "smt-lemma", "symbolic"] := by
+  decide +kernel
+
+-- the readers: an attribute is refused with its name and why, a name that is no key as well
+example : ruleAttrFault? [KoreAML.attr "format"] = none ∧ ruleAttrFault? [KoreAML.attr "symbol'Kywd'"] = none ∧
+    ruleAttrFault? [KoreAML.attr "cool-like"] = none := by decide +kernel
+example : (ruleAttrFault? [KoreAML.attr "owise", KoreAML.attr "concat"]).isSome ∧
+    (ruleAttrFault? [KoreAML.attr "heat"]).isSome ∧ (ruleAttrFault? [KoreAML.attr "anywhere"]).isSome := by decide +kernel
+example : eqnAttrFault? [KoreAML.attr "concrete", KoreAML.attr "preserves-definedness"] = none ∧
+    (eqnAttrFault? [KoreAML.attr "anywhere"]).isSome ∧ (eqnAttrFault? [KoreAML.attr "syntactic"]).isSome ∧
+    (eqnAttrFault? [KoreAML.attr "functional"]).isSome ∧ (eqnAttrFault? [KoreAML.attr "heat"]).isSome := by
+  decide +kernel
 example : attrVerdict .symbol .bracket = .refused .outsideE2 (erased "BRACKET(bracket)@symbol") := rfl
 
 #eval do

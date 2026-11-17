@@ -362,24 +362,6 @@ def owiseNarrowed (k : Kore.Definition) (d : Definition) : List (Nat × String �
             ds.any (fun d => ((svinExcl? e d).map (·.1)).getD false)
         then some (off + i, o.fn, off + j) else none
 
-/-- The user module's equations classified read, and its `[simplification]` axioms, that carry a
-key of `eqnAttrInert`: each with its place, the key and why it is inert, beside `simplification`
-the axiom's own class said as well. -/
-def eqnAttrsInert (k : Kore.Definition) : List (Nat × String × String) :=
-  match k.modules.getLast? with
-  | none => []
-  | some m =>
-    let off := preludeLength k
-    m.sentences.zipIdx.flatMap fun (s, i) => match s with
-      | .axiom a =>
-        let simp := hasAttr a.attributes "simplification"
-        if !(simp || (isRead s && (rawEqn? a).isSome)) then [] else
-        a.attributes.filterMap fun ap =>
-          let n := ap.head.ident.name
-          (eqnAttrInert.lookup n).map fun w =>
-            (off + i, n, if simp then s!"beside simplification (the axiom is inert): {w}" else w)
-      | _ => []
-
 /-! ## A function symbol in a left side
 
 A rule's left side and a clause's argument patterns are patterns, which the matcher reads as

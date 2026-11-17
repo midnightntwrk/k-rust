@@ -75,7 +75,6 @@ CATCHALL = [
     ("ruleShape", None, "ruleBodyOther's arms"),
     ("requiresShape", None, "`need (req? r)`"),
     ("unaccounted", None, "Account.unconsumedWhy's other arms"),
-    ("ruleAttribute", "an attribute of no stated meaning for a rule", "ruleAttrFault?'s `getD`"),
 ]
 
 # Account lines whose refusals are printed without their reason: (line start, the reason, its
@@ -127,7 +126,6 @@ PINNED = [
     ("RefusalReason.openLaw", "P3.rows"),
     ("RefusalReason.unheldVariable", "R2-release.C4"),
     ("RefusalReason.openRight", "R2-release.C4"),
-    ("RefusalReason.equationAttribute", "R2-release.rdr-attr-rules"),
     ("RefusalReason.constructorEquation", "R2-release.C4"),
     ("RefusalReason.existentialAxiom", "R2-release.C4"),
     ("RefusalReason.ctorResultSort", "R2-release.C4"),
