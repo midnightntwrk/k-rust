@@ -90,7 +90,4 @@ quote = '''$\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend evaluates #if true #then 1 #else 10 /Int 0 #fi lazily and steps to b(1). The \
-hook KEQUAL.ite is a function of its three arguments; an undefined argument makes the \
-application undefined, so the rule's result is undefined and there is no final configuration."""
+reason = "The llvm backend evaluates #if true #then 1 #else 10 /Int 0 #fi to 1 without the third argument and steps a(0) to b(1), which no reading reaches: #if has no value where an argument has none."

@@ -16,7 +16,7 @@
   }
  },
  "inputs": {
-  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "answer": "38e5e85ad6b03fd65b218b0c75a285cbb63950d094d1d1146f34e709abd8d51e",
   "def.k": "ab9892f31656c4c0b803e1d11629437cffa0ba39720e5122587846b0e9f32298",
   "pgm": "4725d3c16e0671d09894398eec37e72fb1e4a267eabc79b4e6991fe59a170b32"
  },
@@ -27,5 +27,10 @@
   "message": null,
   "release": "K v7.1.337"
  },
- "ruling_canonical": {}
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortId,SortKItem}(#token(\"z\",SortId))",
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool(true,false,true,false,false,false))"
+  ]
+ }
 }
