@@ -9,7 +9,8 @@
   sort is that symbol applied to the sort's name); a value of a detached sort; a detached hooked
   symbol applied to fewer values than it has arguments.
 
-  `extModel` keeps every symbol outside `D` on the old elements and application between old
+  `extModel` keeps every symbol outside `D` on the old elements (a detached symbol holds of an old
+  element only as a hooked symbol without arguments whose result is that element) and application between old
   elements, gives a detached sort's name its one new element and the sort its values, and gives
   a detached hooked symbol its graph (`hook`, and at a silent point `Semantics.fallback`) at the
   arguments that are elements of values. An old element is the element of a value of a sort outside
@@ -71,7 +72,9 @@ def PartOf (k : CtorSig) (vs : List GroundTerm) (x : Ext M) : Prop :=
 /-- **The extended interpretation.** -/
 def extModel : Interpretation KoreAML.Sym (Ext M) where
   evalSymb σ x := match x with
-    | .inl m => ¬ D σ ∧ I.evalSymb σ m
+    | .inl m => (¬ D σ ∧ I.evalSymb σ m) ∨
+        -- a detached hooked symbol without arguments whose result is a value of a sort outside `D`
+        ∃ k, DHook c D k ∧ σ = .symbol (c.symName k.name) ∧ PartOf c D I k [] (.inl m)
     | .inr (.srt n) => D (.sort n) ∧ σ = .sort n
     | .inr (.lit l) => σ = .dv l
     | .inr n => ∃ k, DHook c D k ∧ σ = .symbol (c.symName k.name) ∧ PartOf c D I k [] (.inr n)
@@ -103,11 +106,9 @@ theorem ext_embeds :
     Function.Injective (Sum.inl : M → Ext M) ∧
     (∀ σ, ¬ D σ → ∀ m, (Sum.inl m : Ext M) ∈ (extModel c D I).evalSymb σ ↔ m ∈ I.evalSymb σ) ∧
     (∀ a b m, (Sum.inl m : Ext M) ∈ (extModel c D I).evalApp (.inl a) (.inl b) ↔ m ∈ I.evalApp a b) :=
-  ⟨fun _ _ h => Sum.inl.inj h, fun _ hσ _ => ⟨fun h => h.2, fun h => ⟨hσ, h⟩⟩, fun _ _ _ => Iff.rfl⟩
-
-/-- A detached symbol holds of no old element in the extension. -/
-theorem ext_detached_new {σ : KoreAML.Sym} (hσ : D σ) (m : M) :
-    (Sum.inl m : Ext M) ∉ (extModel c D I).evalSymb σ := fun h => h.1 hσ
+  ⟨fun _ _ h => Sum.inl.inj h,
+   fun _ hσ _ => ⟨fun h => h.elim (·.2) (fun ⟨_, hk, he, _⟩ => absurd (he ▸ hk.2) hσ), fun h => .inl ⟨hσ, h⟩⟩,
+   fun _ _ _ => Iff.rfl⟩
 
 /-- A detached sort constant is one element of the extension, the added one. -/
 theorem ext_sortName {n : String} (hn : D (.sort n)) (x : Ext M) :
@@ -115,7 +116,8 @@ theorem ext_sortName {n : String} (hn : D (.sort n)) (x : Ext M) :
   constructor
   · intro h
     match x, h with
-    | .inl _, h => exact absurd hn h.1
+    | .inl _, .inl h => exact absurd hn h.1
+    | .inl _, .inr ⟨_, _, h, _⟩ => cases h
     | .inr (.srt n'), h => have := h.2; cases this; rfl
     | .inr (.lit _), h => cases h
     | .inr (.val _), ⟨_, _, h, _⟩ => cases h
