@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 2 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
-| E3 | 59 | 26 | 0 | 1 | 0 | 32 | 0 | 0 |
+| E3 | 67 | 26 | 0 | 1 | 0 | 40 | 0 | 0 |
 | E4 | 8 | 4 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E5 | 46 | 29 | 1 | 5 | 0 | 11 | 0 | 0 |
 | E6 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 30 | 10 | 0 | 1 | 1 | 18 | 0 | 0 |
-| all | 147 | 69 | 1 | 7 | 1 | 69 | 0 | 0 |
+| all | 155 | 69 | 1 | 7 | 1 | 77 | 0 | 0 |
 
 Refused rows by class:
 
@@ -61,16 +61,16 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
 | E2 | 2 | 0 | 0 | 1 | 1 |
-| E3 | 32 | 6 | 2 | 24 | 0 |
+| E3 | 40 | 6 | 2 | 32 | 0 |
 | E4 | 4 | 2 | 2 | 0 | 0 |
 | E5 | 11 | 6 | 0 | 3 | 2 |
 | E6 | 1 | 1 | 0 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 18 | 8 | 4 | 3 | 3 |
-| all | 69 | 23 | 8 | 32 | 6 |
+| all | 77 | 23 | 8 | 40 | 6 |
 
-## Entries of class R-c (60)
+## Entries of class R-c (68)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -98,9 +98,13 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[4] | refused |  |  | no unit |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[5] | refused |  |  | no unit | L-5, L-6 |
 | E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[7] | refused |  |  | CE.reader-wire |  |
+| E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[8] | refused |  |  | RDR.ceil-and-arm |  |
+| E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[9] | refused |  | Term (Core.lean:58): Cond.equals' operands are terms, and a term has no connective | CE |  |
+| E3 | `ML-SYNTAX:Sort::=Sort "#And" Sort` | cases[10] | refused |  | KCore.Cond.bound (the .ex arm: a binder inside a condition is admitted only at a confined sort) | CE.bound-fixed |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[5] | refused |  |  | no unit | R-5 |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[6] | refused |  |  | no unit |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[9] | refused |  |  | CE.reader-hoist |  |
+| E3 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | cases[10] | refused |  |  | F2.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 R3 (e2: L-8 as L-7 and L-1) |
 | E3 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | cases[0] | refused |  |  | no unit | L-8 |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e1: L-3, a variable of the rule, reader only); R2 (A3: R-5 as \`?Z\`); 4.5 d4 (\`Cond.ex\` over a confined sort) |
@@ -113,6 +117,10 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[11] | refused |  |  | CE |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[12] | refused |  |  | CE.reader-wire |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[13] | refused |  |  | CE.reader-wire |  |
+| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[16] | refused |  |  | RDR.eq-binders |  |
+| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[17] | refused |  |  | RDR.eq-binders |  |
+| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[18] | refused |  |  | RDR.eq-binders |  |
+| E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
 | E3 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#set-@` | row | refused |  | Term.var with the substitutions Eval and Step use, which give a variable one value; a set variable stands for a set of values | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
 | E4 | `grammar:<set-variable-identifier>::=['@'] <identifier>` | row | refused | a variable whose value is a set of values | KCore.Term, KCore.EvalTerm (Subst maps a variable to one GroundTerm) | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
 | E4 | `grammar:<variable-pattern>::=<set-variable>` | row | refused | a variable whose value is a set of values | KCore.Term, KCore.EvalTerm (Subst maps a variable to one GroundTerm) | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
@@ -479,6 +487,9 @@ Not core:
 | cases[5]: a rule's left side, t #And a predicate or two terms | refused | R-c |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-and, -lhs-ceil-ctor, -lhs-equals |
 | cases[6]: a rule's left side, t #As X (kompile's \\and(t, X)) | supported |  |  |  |  |  |  |  | fixtures/e3-cells |
 | cases[7]: inside an \\exists on an equation's right side, two or more term conjuncts | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-and-terms |  |  | fixtures/e3-eq-exists-ml-and-terms: kore.txt //@ 336, 371; account.txt \`manyValuedRightSide (\\exists)\` at both; the #Exists row's case 'two or more term conjuncts in a binder's body' |
+| cases[8]: an equation's right side, t #And u of two terms in the operand of a #Ceil that is a conjunct of the right side (X #And #… | refused | R-c |  |  | RDR.ceil-and-arm | e3-ml-eq-rhs-ceil-and |  |  | fixtures/e3-ml-eq-rhs-ceil-and (h(X) => X #And #Ceil(f(X) #And g(X))): kompile.txt exit 0; kore.txt //@ 341, \\and{SortInt{}}(VarX:SortInt{},\\ceil{SortInt{}, SortInt{}}(\\and{SortInt{}}(Lblf{}(VarX:SortInt{}),Lblg{}(VarX:SortInt{})))); account.txt \`sentence 354 (Lblh): patternConnective (\\and)\` |
+| cases[9]: an equation's right side, t #And u of two terms in an operand of #Equals ({(t #And u) #Equals v}) | refused | R-c | \\equals(t ∧ u, v) is the equality of two sets; ∃Z. (Z = v ∧ Z ∈ t ∧ Z ∈ u) is not it (where both sides are empty the predicate holds and the cut form does not), so the cut of a term position gives no reading and the refusal stays (findings/RDR-wire-open-points.md section 6 (ii)) | Term (Core.lean:58): Cond.equals' operands are terms, and a term has no connective | CE | e3-ml-eq-rhs-equals-and |  |  | fixtures/e3-ml-eq-rhs-equals-and (h(X) => X #And {(f(X) #And g(X)) #Equals X}): kompile.txt exit 0; kore.txt //@ 341, \\equals{SortInt{}, SortInt{}}(\\and{SortInt{}}(Lblf{}(VarX:SortInt{}),Lblg{}(VarX:SortInt{})),VarX:SortInt{}); account.txt \`sentence 354 (Lblh): patternConnective (\\and)\`; Parse.condO… |
+| cases[10]: an equation's right side, t #And u of two terms in the operand of a #Ceil under #Not (X #And #Not(#Ceil(t #And u))) | refused | R-c | under \\not, \\or or \\implies the binder of ⌈C[t ∧ u]⌉ = ∃Z. (⌈C[Z]⌉ ∧ Z ∈ t ∧ Z ∈ u) stays inside the predicate (Cond.ex), which Cond.bound admits only at a confined sort; the refusal stays (findings/RDR-wire-open-points.md section 6 (ii)) | KCore.Cond.bound (the .ex arm: a binder inside a condition is admitted only at a confined sort) | CE.bound-fixed | e3-ml-eq-rhs-not-ceil-and |  |  | fixtures/e3-ml-eq-rhs-not-ceil-and (h(X) => X #And #Not(#Ceil(f(X) #And g(X)))): kompile.txt exit 0; kore.txt //@ 341, \\not{SortInt{}}(\\ceil{SortInt{}, SortInt{}}(\\and{SortInt{}}(Lblf{}(VarX:SortInt{}),Lblg{}(VarX:SortInt{})))); account.txt \`sentence 354 (Lblh): patternConnective (\\and)\` |
 | `ML-SYNTAX:Sort::=Sort "#Or" Sort` | supported |  | on a rule's left side: application in matching logic is pointwise, so c(a ∨ b) is c(a) ∨ c(b), and (φ₁ ∨ φ₂) → •ψ is the conjunction of φ₁ → •ψ and φ₂ → •ψ. The sentence is two rules of the same priority, requires, right side and ensures; no kernel declaration is needed. The reader is to read it so,… | none (reader only) |  | e3-ml | no | no | fixtures/e7-guardors, e3-ml-rule-lhs-or, e3-ml-rule-lhs-or-rhs-and: account \`1 read orSplit [user]\`, \`parse: ok; wf true\`; test/Connectives.lean (MlOr, MlOrAnd); fixtures/e3-ml-eq-rhs-or-bottom: \`1 read orBottom [user]\`; fixtures/e3-ml-rule-rhs-or: account \`patternConnective (\\or)\`; fixtures/e3-ml-r… |
 | cases[0]: a rule's left side, under applications and conjunctions, every free variable held by each disjunct | supported |  |  |  |  |  |  |  | fixtures/e7-guardors, e3-ml-rule-lhs-or, e3-ml-rule-lhs-or-rhs-and |
 | cases[1]: a rule's left side, a free variable some disjunct does not hold and nothing else of the rule holds, of a sort with an ex… | supported |  |  |  |  |  |  |  | fixtures/e3-ml-lhs-value-sort (e(\_:Val) #Or d(), p(\_:Int) #Or q(\_:Int)) |
@@ -490,6 +501,7 @@ Not core:
 | cases[7]: a requires | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-or, e3-ml-req-or-undef (kompile writes \\and{SortBool{}}(\\or(A, B), \_Gen0)); test/Connectives.lean MlReqOr: where A is true and B has no value the rule with A steps |
 | cases[8]: a requires, a variable one disjunct holds and nothing else of the rule | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-or-unheld (go(X) => done requires X >Int 0 #Or Y:Int >Int 2): account.txt \`1 read requiresOrSplit [user]\`, \`stage refusals (of sentences classified read): 0\`, \`rule 1: CondDecided open, over VarY:Int\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; the rule of the… |
 | cases[9]: an equation's right side, an \\exists in an alternative | refused | R-c |  |  | CE.reader-hoist | e3-eq-exists-ml-in-or |  |  | fixtures/e3-eq-exists-ml-in-or, e3-eq-exists-ml-in-or-int: kompile.txt exit 0, the binder inside the \\or's second alternative (kore.txt //@ 233, 234; //@ 335); account.txt \`manyValuedRightSide (\\or)\` |
+| cases[10]: an equation's right side, an alternative that is \\bottom without being the literal (g(#Bottom) #Or t) | refused | R-c |  |  | F2.reader-wire | e3-ml-eq-rhs-or-empty |  |  | fixtures/e3-ml-eq-rhs-or-empty (h(X) => g(#Bottom) #Or X): kompile.txt exit 0; kore.txt //@ 341, \\or{SortInt{}}(Lblg{}(\\bottom{SortInt{}}()),VarX:SortInt{}); account.txt \`sentence 354 (Lblh): manyValuedRightSide (\\or)\`; test/RhsReader.lean (dropEmptyAlts\_hand, frRead\_oneLeft) |
 | `ML-SYNTAX:Sort::=Sort "#Implies" Sort` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | fixtures/e3-ml: account \`8 inert simplification [user]\`; Parse.term: \`\\implies\` refused patternConnective |
 | cases[0]: a rule's left side | refused | R-c |  |  |  |  |  |  | Parse.term (no fixture outside [simplification]) |
 | cases[1]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | Parse.isPred |
@@ -510,6 +522,10 @@ Not core:
 | cases[13]: a variable under one injection equated with a term, {inj{a,b}(Z) #Equals t} (5.3) | refused | R-c |  |  | CE.reader-wire | e3-eq-exists-ml-supersort |  |  | fixtures/e3-eq-exists-ml-supersort (h(K) => #Exists Z:Int. (Z #And {Z #Equals K}), K:KItem): kompile.txt exit 0; kore.txt //@ 339, \\exists Z:Int. \\and(Z, \\equals{SortKItem,SortInt}(inj{SortInt,SortKItem}(Z), K)): kompile puts the injection in the equation that fixes Z; (//@ 336, f at KItem, puts inj… |
 | cases[14]: a rule's right side (?X) | supported |  | a binder whose name the left side or the requires holds is read renamed apart and one that binds nothing is read dropped (row #existential-?: hw-ex-shadow, hw-ex-unused-int); a right side under binders that is no \\and(rhs, ens) is refused ruleShape (hw-ex-body); still refused: openRight for an exist… |  |  |  |  |  | at INT-A1 58c87766 (lane R R2.reader-exists 41e16682, R2.flip 90988178): fixtures/e3-vars/account.txt stage refusals 0, wf true, coreOK true; test/ExReader.lean |
 | cases[15]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | Parse.isPred |
+| cases[16]: an equation's right side, one variable (name and sort) bound by two binders, #Exists B. #Exists B. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-twice-ml |  |  | fixtures/e3-eq-exists-twice-ml (p(X) => #Exists B:Bool. #Exists B:Bool. (B #And {B #Equals notBool X})): kompile.txt exit 0; kore.txt //@ 265, \\exists{SortBool{}}(VarB:SortBool{},\\exists{SortBool{}}(VarB:SortBool{}, …)); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ceRead… |
+| cases[17]: an equation's right side, a binder whose name the arguments, the requires or the ensures hold, f(X) => #Exists X. φ | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-argname-ml |  |  | fixtures/e3-eq-exists-argname-ml (p(X) => #Exists X:Bool. X): kompile.txt exit 0; kore.txt //@ 265, Lblp{}(X0:SortBool{}) with the premise \\in(X0, VarX) and the right side \\exists{SortBool{}}(VarX:SortBool{},VarX:SortBool{}); account.txt \`sentence 278 (Lblp): manyValuedRightSide (\\exists)\`; Parse.ce… |
+| cases[18]: an equation's right side, a binder whose variable (name and sort) the body does not hold, an argument variable having it… | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (q(X) => #Exists Z:Bool. X): kompile.txt exit 0; kore.txt //@ 389, \\exists{SortBool{}}(VarZ:SortBool{},VarX:SortBool{}); account.txt \`sentence 402 (Lblq): manyValuedRightSide (\\exists)\`; Parse.ceRead refuses it unheldVariable (test/ExClauseReader.lean eqUnheld) |
+| cases[19]: the same where no argument variable has the binder's sort (p(X:Bool) => #Exists Z:Int. X) | refused | R-c |  |  | RDR.eq-binders | e3-eq-exists-unheld-ml |  |  | fixtures/e3-eq-exists-unheld-ml (p(X) => #Exists Z:Int. X): kompile.txt exit 0; kore.txt //@ 374, \\exists{SortBool{}}(VarZ:SortInt{},VarX:SortBool{}); account.txt \`sentence 387 (Lblp): manyValuedRightSide (\\exists)\` |
 | `ML-SYNTAX:Sort2::="#Forall" Sort1 "." Sort2` | refused | R-a | a quantifier or a \\floor of a term over a sort other than Bool: its truth at given values depends on which elements the sort has, which the reader does not decide while reading a sentence (Semantics.confined is decided on the read definition); refused openExtent with the sort (CN-3 section 5). Of pr… | none (refused on principle, openExtent) |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-forall, e3-ml-rule-rhs-forall: account \`openExtent (Int)\`; fixtures/e3-ml-rule-lhs-forall-exp: account \`openExtent (Exp)\`; fixtures/e3-ml-req-forall: account \`1 read predicateAtBool [user]\`; fixtures/e3-ml: account \`8 inert simplification [user]\` |
 | cases[0]: \\forall of a term over a sort other than Bool (left or right side) | refused | R-a |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-forall, -rhs-forall, -lhs-forall-exp |
 | cases[1]: a requires or ensures of predicates | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-forall |
