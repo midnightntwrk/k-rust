@@ -13,6 +13,6 @@ user module E2-REGISTRY-SYMBOL-NAME: 256 sentences
 stage refusals (of sentences classified read): 1
   1 registrySymbolName
       sentence 52 (Lbl'UndsPlus'Int'Unds'): registrySymbolName (Lbl'UndsPlus'Int'Unds')
-        [user] (no label) at e2-registry-symbol-name.k:4: symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,36,4,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-registry-symbol-name.k)"),  …
+        [user] (no label) at e2-registry-symbol-name.k:4: symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,36,4,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-registry-symbol-name.k)"), symbol'Kywd'{}("_+Int_")]
 finish: sentence 52 (Lbl'UndsPlus'Int'Unds'): registrySymbolName (Lbl'UndsPlus'Int'Unds')
 (exit 0)

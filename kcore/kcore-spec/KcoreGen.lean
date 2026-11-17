@@ -2493,9 +2493,40 @@ def origin (s : Kore.Sentence) : String :=
     if (KoreAML.Parse.dropPrefix? "krust-builtin://" src).isSome ||
        (src.splitOn "/include/kframework/builtin/").length > 1 then "builtin" else "user"
 
-/-- The first `n` characters of `s`. -/
+/-- The segments of `cs` (in order, together `cs`): the text outside every `Source(PATH)`'s PATH
+(`true`) and each PATH, up to its `)` (`false`). `acc` is the current segment, reversed; `inPath`
+whether it is a PATH. -/
+def srcSegs : List Char → Bool → List Char → List (List Char × Bool)
+  | [], inPath, acc => [(acc.reverse, !inPath)]
+  | c :: cs, false, acc =>
+    let acc' := c :: acc
+    if acc'.take 7 == "Source(".toList.reverse then (acc'.reverse, true) :: srcSegs cs true []
+    else srcSegs cs false acc'
+  | c :: cs, true, acc =>
+    if c == ')' then (acc.reverse, false) :: srcSegs cs false [c]
+    else srcSegs cs true (c :: acc)
+
+/-- The segments taken while `n` characters of the counted ones (`true`) remain, a PATH whole, and
+whether a counted character was left out. -/
+def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
+  | _, [] => ([], false)
+  | n, (cs, false) :: rest =>
+    let r := clipSegs n rest
+    (cs ++ r.1, r.2)
+  | n, (cs, true) :: rest =>
+    if cs.length ≤ n then
+      let r := clipSegs (n - cs.length) rest
+      (cs ++ r.1, r.2)
+    else (cs.take n, true)
+
+/-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
+(FIX-core.account-trunc-path): where a line is cut does not depend on the directory a text was
+kompiled in or on K's installation path, so the line is the same for two texts that differ only in
+their Source paths once each path is replaced by its path-free name (kfix.py's `norm`: FIXTURE/,
+BUILTIN/). Without a `Source(` in `s`, the first `n` characters, as before. -/
 def clip (n : Nat) (s : String) : String :=
-  if s.length ≤ n then s else String.ofList (s.toList.take n) ++ " …"
+  let r := clipSegs n (srcSegs s.toList false [])
+  if r.2 then String.ofList r.1 ++ " …" else s
 
 /-- `kcore account KORE`: the reader's account of a text, with no package written: the prelude's
 agreement, the user module's sentences by class and origin with one example of each refused

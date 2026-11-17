@@ -10,7 +10,7 @@ user module E3-SETVAR-NONLINEAR: 245 sentences
   3 inert distinctCtors [generated]
   10 inert noJunk [generated]
   1 refused setVariable [user]
-      e.g. axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortExp{}, R}(Lblf{}(@VarS:SortExp{}, @VarS:SortExp{}), \and{SortExp{}}(Lblr{}(), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("f33f3c23d8ecfddae876776b916711889fc0efbebe2058e124cb12a13f63f68b"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/c …
+      e.g. axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()), \equals{SortExp{}, R}(Lblf{}(@VarS:SortExp{}, @VarS:SortExp{}), \and{SortExp{}}(Lblr{}(), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("f33f3c23d8ecfddae876776b916711889fc0efbebe2058e124cb12a13f63f68b"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e3-setvar-nonlinear/e3-setvar-nonlinear.k)")]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0

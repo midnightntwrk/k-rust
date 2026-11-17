@@ -513,15 +513,22 @@ def account_of(name, c):
     kore = cache_get(h) if h else None
     if kore is None:
         return None
-    src = os.path.join(WORK, name, "account")
-    raw = kore.replace("BUILTIN/", builtin_dir() + "/").replace("FIXTURE/", src + "/").replace("FIXTURE", src)
-    if norm(raw, src) != kore:
-        raise SystemExit(f"kfix: {name}: the cached text's paths cannot be restored")
+    return account_at(kore, os.path.join(WORK, name, "account"), builtin_dir())
+
+
+def account_at(kore, src, bd):
+    """`kcore account` of a text as kompile.txt hashes it (FIXTURE/, BUILTIN/) with its paths restored
+    as the directory src and the builtin directory bd (any path ending in include/kframework/builtin),
+    written to src/out/definition.kore and read from src as `run` does; the output with src and bd
+    replaced back (norm, then bd)."""
+    raw = kore.replace("BUILTIN/", bd + "/").replace("FIXTURE/", src + "/").replace("FIXTURE", src)
+    if norm(raw, src).replace(bd + "/", "BUILTIN/") != kore:
+        raise SystemExit(f"kfix: {src}: the cached text's paths cannot be restored")
     os.makedirs(os.path.join(src, "out"), exist_ok=True)
     open(os.path.join(src, "out/definition.kore"), "w").write(raw)
     a = subprocess.run([*WRAP, "timeout", "300", KCORE, "account", "out/definition.kore"], cwd=src,
-                       capture_output=True, text=True, env=env)
-    return norm(a.stdout + a.stderr, src) + f"(exit {a.returncode})\n"
+                       capture_output=True, text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
+    return norm(a.stdout + a.stderr, src).replace(bd + "/", "BUILTIN/") + f"(exit {a.returncode})\n"
 
 
 def accounts(names, write):
