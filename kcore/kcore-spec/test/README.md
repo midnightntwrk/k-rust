@@ -667,6 +667,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   e2-macro): the four macro and alias symbols the text declares and does not apply are not read
   (`unread macroUnused`), no other sentence is classified so, and the text is read with nothing
   unaccounted, `f`'s clause applying none of them.
+- `test/H12Witnesses.lean`: a constructor whose result sort has other values is outside `coreOK`,
+  by `Faithful.genWf`: hand-built semantics over one frame, in the kernel. A library constructor
+  into Int or Map fails `genWf`'s third conjunct (the sort enters `consSorts` and is a literal or
+  collection sort), an own constructor into them its first (the sort is no constructor sort); into
+  an own carrier sort and into an own Map collection sort both routes fail the first; each beside
+  its control without the constructor, `coreOK = true`. A library constructor into MInt keeps
+  `coreOK`; into RangeMap, a collection sort of the kernel, it fails the third conjunct.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
   kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
   and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
