@@ -10,17 +10,20 @@
 [[conjunct]]
 key = "sortedOK.1"
 text = "c.subsortsOK"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (a subsort listed twice meets every other leaf of coreOK and FnHyp); its reflexive and cyclic subsorts are refused by genWf as well; with a repeated pair Γ is the definition's without the repetition up to repeated items and a repeated disjunct of one no-junk axiom (kernel-checked for the constructor, signature, function and collection items), which coreOK accepts, so Γ has a model (argued for the graphs of ΓDomains and ΓFallback); a subsort from or to a sort outside the definition's: from an unnumbered sort it fails sortsNumbered, to Int genWf, and from Int, Bool, K or KItem to a user sort or from it to K or KItem it fails subsortsOK alone with no contradiction found (the free term algebra of the constructors and injections meets the cons items, argued)"
+evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.2"
 text = "f.clauses.all (c.clauseSorted f (List.map KCore.Fn.sig c.fns))"
-witness = "none"
+witness = "none: not found in the no-model form; the conjunct is not implied by the others (f() => true, g() => false at a constructor sort meets every other leaf of coreOK and FnHyp); Γ has a model (argued): the equation is f() = true ∧ ⊤_N relativized to the result sort N, so in a model where true is no element of N, f() and g() read as nothing meet it and the arity item; Eval gives f() = true, which Γ does not entail, so the conjunct is asked for soundness, not for a model (not kernel-checked)"
+evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.3"
 text = "c.rules.all c.ruleSorted"
-witness = "none"
+witness = "none: not found; the conjunct is not implied by the others (a rule <k> .K </k> => 1, its right-hand side an Int, meets every other leaf of coreOK and FnHyp); Γ has a model (argued): Step makes no step by the rule, and its axiom's premise ⌈1 ∧ ⊤_C⌉ is empty in the value model of the semantics without the rule, which coreOK accepts"
+evidence = "test/WitRestSorted.lean"
 
 [[conjunct]]
 key = "sortedOK.4"
