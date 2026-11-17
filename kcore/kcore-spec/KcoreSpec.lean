@@ -112,6 +112,7 @@ import KcoreSpec.NamesApart
 import KcoreSpec.NatMap
 import KcoreSpec.OrderLaws
 import KcoreSpec.OvlLaws
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.Params
 import KcoreSpec.Parse
 import KcoreSpec.Prelude
