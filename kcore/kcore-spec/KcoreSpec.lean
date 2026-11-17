@@ -198,6 +198,7 @@ import KcoreSpec.ExFamOpen
 import KcoreSpec.HoldsModel
 import KcoreSpec.TrueV
 import KcoreSpec.AppliesPP
+import KcoreSpec.SatRulePP
 import KcoreSpec.PredPlain
 import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs

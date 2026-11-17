@@ -229,4 +229,44 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop) {tbl : Kor
 
 end TrueValue
 
+/-! ## A rule's axiom in the value model (`KCore.Faithful.Model.sat_rule_pp`, `satRulesGoal_pp`)
+
+  At `rNot` (a pre) and `rOr` (an existential variable and a post), among the definition's rules:
+  the axiom holds in the value model at T wherever T holds the rule's `StepVAt` instances (for
+  `rOr`, some instance differing at its existential variable), with no hypothesis that a predicate
+  has a truth value. -/
+
+section SatRule
+open Faithful Faithful.Model
+
+theorem rules_pp : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true := fun r hr =>
+  ⟨(Semantics.ruleFactsEx_of_core coreOK r hr).1,
+    Semantics.rulePlainPP_of_ex (Semantics.ruleFactsEx_of_core coreOK r hr).2⟩
+
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
+    (hall : ∀ σ x y, StepVAt c rNot σ x y → T x y) :
+    stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [], pattern := prioRuleK c rNot, attributes := [] }⟩).pat :=
+  sat_rule_pp h rules_pp rNot_pp.1 rNot_pp.2.1 T (fun σ x y hst _ => hall σ x y hst)
+    (fun _ _ _ _ hex => absurd rfl hex)
+
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
+    (hsome : ∀ σ x y, StepVAt c rOr σ x y → ∃ y' σ',
+      (∀ i, ¬ i ∈ rOr.exs → σ'.lookup i = σ.lookup i) ∧ StepVAt c rOr σ' x y' ∧ T x y') :
+    stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel",
+      { sortVars := [], pattern := prioRuleK c rOr, attributes := [] }⟩).pat :=
+  sat_rule_pp h rules_pp rOr_pp.1 rOr_pp.2.1 T
+    (fun _ _ _ _ hex => absurd (rOr_pp.2.2.2.1.symm.trans hex) (List.cons_ne_nil _ _))
+    (fun σ x y hst _ => hsome σ x y hst)
+
+/-- The definition's rules at T, through `StepVBy`. -/
+example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
+    (hall : ∀ r σ x y, StepVBy c r σ x y → r.exs = [] → T x y)
+    (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
+      (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
+    stdI_T c T ⊧ᴵP ΓRules c :=
+  satRulesGoal_pp h rules_pp T hall hsome
+
+end SatRule
+
 end PredRules
