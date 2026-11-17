@@ -8,6 +8,9 @@
 # test/constructs/fixtures/ whose committed kore.txt holds the sentences the row names. Exit 1 on any
 # difference. Then test/constructs/units.py: every refused row and every class R-c row names in `unit`
 # a ticket or unit of progress/ (KCORE_PROGRESS), or "none (CLASS)" (rows-header.toml). Then
+# test/constructs/closed.py: every constructor of the reader's four reason inductives is named by an
+# entry or pinned with the ticket that owes it, and every `reasons` name is such a constructor
+# (DONE-0 C4 part 1); it prints the entries per catch-all. Then
 # test/constructs/modifiers.py check: the pair table [C3] (DONE-0 C3). Then
 # test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
@@ -56,6 +59,7 @@ PY
 rc=$?
 python3 -I test/constructs/kfix.py check || rc=1
 python3 -I test/constructs/units.py || rc=1
+python3 -I test/constructs/closed.py || rc=1
 python3 -I test/constructs/modifiers.py check || rc=1
 python3 -I test/constructs/provisional.py || rc=1
 python3 -I test/constructs/coverage.py check || rc=1

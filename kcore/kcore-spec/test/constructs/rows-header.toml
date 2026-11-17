@@ -42,6 +42,15 @@
 #             Parse.ReadingNote to a fixture directory whose account.txt prints the note (a read
 #             class, a per-sentence reading, or a count above 0); kfix.py check fails unless each
 #             is so and every constructor is named once at least.
+#   reasons   on a row or a nested table (cases, also_refused, split) of any list: a list of
+#             "RefusalReason.x", "InertReason.x", "UnreadReason.x" or "ReadingNote.x", constructors
+#             of the four inductives of KcoreSpec/Parse.lean: what the reader answers on the
+#             entry's construct. For an entry with no fixture of its own (the rows of E4, E5, E6);
+#             an entry with a fixture names what its account.txt prints. test/constructs/closed.py
+#             fails on a name that is no constructor, on a refused entry of E4, E5 or E6 with
+#             neither a fixture nor reasons, and on a name that no account.txt of the fixtures the
+#             entry's evidence names (`fixtures/NAME`, `FX/NAME`, `fixture NAME` in evidence,
+#             reader_today, refused_by, place or note) prints, outside its pinned allowance.
 # First written by test/constructs/seed-rows.py (its docstring states how each status was carried).
 # Then test/constructs/apply-triage.py applies findings/TRIAGE-*.toml, copying each decision's fields
 # as written (names made one vocabulary; its docstring gives the renaming). Fields it adds:

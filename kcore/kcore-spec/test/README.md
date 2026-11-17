@@ -417,6 +417,23 @@ except for the failures its allowance (`ALLOWANCE` in units.py) names as owed by
 each kind of failure with its ticket and an exact pinned count, printed on every run, failing when
 the count differs from the pin or the ticket is missing or done (GUARD.units-standing).
 
+`test/constructs/closed.py` (run by `constructs.sh` after `units.py`, and alone in about a second)
+is DONE-0 C4 part 1 on the committed evidence: the reader's reasons against the table. An entry (a
+row, or a table nested in its `cases`, `also_refused` or `split`) names the constructors of
+`RefusalReason`, `InertReason`, `UnreadReason` and `ReadingNote` (read from `KcoreSpec/Parse.lean`)
+that the `account.txt` of its `fixture` and `also_fixtures` print, those of its `reasons`
+(`rows-header.toml`: what the reader answers on a construct that has no fixture of its own) and the
+keys of its `notes`. It fails on a name an account prints as a refusal or a class that is no
+constructor, on a `reasons` item that is none, on a refused entry of E4, E5 or E6 with neither a
+fixture nor `reasons`, on a `reasons` name that the fixtures the entry's evidence names do not print
+(outside the allowance `UNSHOWN`, pinned at an exact count with the ticket that owes the fixtures),
+and on a constructor no entry names that `PINNED` does not give a ticket (a pin fails once an entry
+names its constructor, or its ticket is missing or done). It prints the constructors named per
+inductive, each constructor no entry names with its ticket, the `reasons` names no committed account
+shows, and, for each catch-all (`CATCHALL`: a reason given by an arm that takes whatever the earlier
+arms of its function did not match), the entries citing it with their fixture and reason sentence:
+the list DONE-0 C4 asks the gate to read.
+
 `test/constructs/K-coverage.md` is the coverage document of DONE-0 C11, generated, not written by
 hand: `python3 -I test/constructs/coverage.py` writes it from `rows.toml` and `../core-manifest.toml`
 alone (the rows by status per list, the refused rows and nested entries by class R-a, R-b, R-c and
