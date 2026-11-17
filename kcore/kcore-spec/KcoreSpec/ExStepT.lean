@@ -132,7 +132,7 @@ theorem closureDisjunct_T (h : HypModelCore c)
     (e1 : Valuation Elem) (he1 : e1.evalEvar y = .val yv) :
     (KoreAML.closureDisjunct [] off y (prioRuleK c r)).2.interpret (stdI_T c T) e1 (.val x) := by
   have hn := h.namesK
-  obtain ⟨hσ, hmatch, hreq, heval, hens, hprio⟩ := hst
+  obtain ⟨hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hst
   have hnum := rule_vars_numEx h hs hp
   obtain ⟨L, hPL, hLv, hLf, hLread⟩ := rule_premise_T h hrules hs hp
   let P := prioRuleK c r

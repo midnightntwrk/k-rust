@@ -242,10 +242,13 @@ open Faithful Faithful.Model
 /-- `stepMAt_of_notApplies_ex` and `notApplies_of_stepMAt_ex` at a rule. -/
 theorem excl_own (h : FnHyp c) {r : Rule} {σ : Subst} {x y : GroundTerm} :
     (c.WellSorted r.vars σ → PatVal c σ r.lhs x → (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) →
+      Holds c r.vars.length σ r.pre true →
       EvalTerm c σ r.rhs (some y) → (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) →
+      Holds c r.vars.length σ r.post true →
       (∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x) → StepMAt c r σ x y) ∧
     (StepMAt c r σ x y → ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x) :=
-  ⟨fun hσ hm hq he hn hp => stepMAt_of_notApplies_ex (fnModel_of_fnHyp coreOK h).1 hrulesC hσ hm hq he hn hp,
+  ⟨fun hσ hm hq hpr he hn hpo hp =>
+    stepMAt_of_notApplies_ex (fnModel_of_fnHyp coreOK h).1 hrulesC hσ hm hq hpr he hn hpo hp,
    notApplies_of_stepMAt_ex (stepDecided_pp (hypSound_of_core coreOK) h.1
      (fun r' hr' => (hrulesC r' hr').1) x)⟩
 
@@ -260,12 +263,14 @@ example (h : FnHyp c) (σ : Subst) (x y : GroundTerm) (hσ : c.WellSorted exTwo.
     (hm : PatVal c σ exTwo.lhs x) (he : EvalTerm c σ exTwo.rhs (some y))
     (hn : ∀ t, exTwo.ens = some t → EvalTerm c σ t (some (bool true)))
     (hp : ∀ r' ∈ c.rules, r'.prio < exTwo.prio → NotApplies c r' x) : StepMAt c exTwo σ x y :=
-  (excl_own h).1 hσ hm (fun t ht => by simp [exTwo, mkEx] at ht) he hn hp
+  (excl_own h).1 hσ hm (fun t ht => by simp [exTwo, mkEx] at ht) ((Semantics.rulePlainEx_top exTwo_ex.2.1).1 ▸ .top)
+    he hn ((Semantics.rulePlainEx_top exTwo_ex.2.1).2 ▸ .top) hp
 
 example (h : FnHyp c) (σ : Subst) (x y : GroundTerm) (hσ : c.WellSorted exA.vars σ)
     (hm : PatVal c σ exA.lhs x) (he : EvalTerm c σ exA.rhs (some y))
     (hp : ∀ r' ∈ c.rules, r'.prio < exA.prio → NotApplies c r' x) : StepMAt c exA σ x y :=
-  (excl_own h).1 hσ hm (fun t ht => by simp [exA, mkEx] at ht) he (fun t ht => by simp [exA, mkEx] at ht) hp
+  (excl_own h).1 hσ hm (fun t ht => by simp [exA, mkEx] at ht) ((Semantics.rulePlainEx_top exA_ex.2.1).1 ▸ .top)
+    he (fun t ht => by simp [exA, mkEx] at ht) ((Semantics.rulePlainEx_top exA_ex.2.1).2 ▸ .top) hp
 
 /-! ## At configurations the value model's transition is T -/
 

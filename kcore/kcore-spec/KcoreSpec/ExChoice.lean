@@ -37,10 +37,12 @@ term has at most one result (`FnDet`). -/
 theorem stepMAt_of_notApplies_ex {c : Semantics} (hfd : FnDet c)
     (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true)
     {r : Rule} {σ : Subst} {x y : GroundTerm} (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x)
-    (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) (heval : EvalTerm c σ r.rhs (some y))
+    (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c r.vars.length σ r.pre true) (heval : EvalTerm c σ r.rhs (some y))
     (hens : ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true)))
+    (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x) : StepMAt c r σ x y :=
-  ⟨hσ, hm, hreq, heval, hens, fun r' hr' hlt =>
+  ⟨hσ, hm, hreq, hpre, heval, hens, hpost, fun r' hr' hlt =>
     not_ruleApplies_ofChoice hfd (Semantics.rulePlainEx_top (hrules r' hr').2).1 (hprio r' hr' hlt)⟩
 
 /-- **`StepM`'s exclusion of competitors gives `Step`'s**, for a rule not asked to be one of the
@@ -48,15 +50,15 @@ definition's, where the competitors' conditions have results at their matches (`
 theorem notApplies_of_stepMAt_ex {c : Semantics} {r : Rule} {σ : Subst} {x y : GroundTerm}
     (hd : StepDecided c x) (hst : StepMAt c r σ x y) :
     ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x := fun r' hr' hlt =>
-  notApplies_ofChoice (hd r' hr' fun r'' hr'' hlt' => hst.2.2.2.2.2 r'' hr'' (Nat.lt_trans hlt' hlt)).1
-    (hst.2.2.2.2.2 r' hr' hlt)
+  notApplies_ofChoice (hd r' hr' fun r'' hr'' hlt' => hst.2.2.2.2.2.2.2 r'' hr'' (Nat.lt_trans hlt' hlt)).1
+    (hst.2.2.2.2.2.2.2 r' hr' hlt)
 
 /-- **A `StepBy` step is a `StepMBy` step**, for rules with `ruleSorted` and `rulePlainEx`, where a
 term has at most one result. -/
 theorem stepMBy_of_stepBy_ex {c : Semantics} (hfd : FnDet c)
     (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true)
     {r : Rule} {σ : Subst} {x y : Config c} (hb : StepBy c r σ x y) : StepMBy c r σ x.val y.val :=
-  ⟨hb.mem, stepMAt_of_notApplies_ex hfd hrules hb.hσ hb.hmatch hb.hreq hb.heval hb.hens hb.hprio⟩
+  ⟨hb.mem, stepMAt_of_notApplies_ex hfd hrules hb.hσ hb.hmatch hb.hreq hb.hpre hb.heval hb.hens hb.hpost hb.hprio⟩
 
 /-- **A `StepMBy` step between configurations is a `StepBy` step**, for a semantics that `coreOK`
 accepts whose functions terminate, whose rules have `ruleSorted` and `rulePlainEx`. -/
@@ -64,9 +66,8 @@ theorem stepBy_of_stepMBy_ex {c : Semantics} (h : c.coreOK = true) (hft : FnTerm
     (hrules : ∀ r' ∈ c.rules, c.ruleSorted r' = true ∧ c.rulePlainEx r' = true)
     {r : Rule} {σ : Subst} {x y : Config c} (hb : StepMBy c r σ x.val y.val) : StepBy c r σ x y := by
   obtain ⟨hr, hst⟩ := hb
-  obtain ⟨hpre, hpost⟩ := Semantics.rulePlainEx_top (hrules r hr).2
   have hd := stepDecided_pp (hypSound_of_core h) hft (fun r' hr' => (hrules r' hr').1) x.val
-  exact ⟨hr, hst.1, hst.2.1, hst.2.2.1, hpre ▸ .top, hst.2.2.2.1, hst.2.2.2.2.1, hpost ▸ .top,
+  exact ⟨hr, hst.1, hst.2.1, hst.2.2.1, hst.2.2.2.1, hst.2.2.2.2.1, hst.2.2.2.2.2.1, hst.2.2.2.2.2.2.1,
     notApplies_of_stepMAt_ex hd hst⟩
 
 /-! ## The value model at T -/
@@ -174,7 +175,7 @@ theorem has_model_choice_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     exact hall ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepMBy_ex (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hf.1 hrules hb) hex
   · intro r σ x y hb _
     by_cases hx : c.sortOf x = some topCellSort
-    · have hy := rhs_sorted_open hm (hrules r hb.1).1 hb.2.1 hb.2.2.2.2.1
+    · have hy := rhs_sorted_open hm (hrules r hb.1).1 hb.2.1 hb.2.2.2.2.2.1
       obtain ⟨y', σ', hag, hb', hT⟩ :=
         hsome ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepMBy_ex (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hf.1 hrules hb)
       exact ⟨y'.val, σ', hag, stepMBy_of_stepBy_ex hfd hrules hb', fun _ _ => hT⟩

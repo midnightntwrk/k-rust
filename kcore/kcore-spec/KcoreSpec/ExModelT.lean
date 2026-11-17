@@ -41,12 +41,13 @@ namespace Model
 open ML
 
 /-- `StepM`'s premises for the rule r under σ: σ well sorted, the left side matching x, the
-`requires` and `ensures` true, the right side evaluating to y, and no rule of the definition of a
-smaller priority applying at x. The rule is not asked to be one of the definition's. -/
+`requires`, `pre`, `ensures` and `post` true, the right side evaluating to y, and no rule of the
+definition of a smaller priority applying at x. The rule is not asked to be one of the definition's. -/
 def StepMAt (c : Semantics) (r : Rule) (σ : Subst) (x y : GroundTerm) : Prop :=
   c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x ∧
-    (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ EvalTerm c σ r.rhs (some y) ∧
-    (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+    (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.pre true ∧
+    EvalTerm c σ r.rhs (some y) ∧
+    (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.post true ∧
     ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x
 
 /-- `StepM`'s premises for a rule of the definition. -/
@@ -614,13 +615,14 @@ theorem sat_rule_T (h : HypModelCore c)
           ∃ v, σ'.lookup i = some v ∧ m = .val v := fun i hi hx' m => by
       rw [hag i hi hx']; exact hvar₀ i hi hx' m
     obtain ⟨hmatch, hreq, hprio, -⟩ := (hLread T tbl e σ' x hvarsL hx hσ'n hvar').mp hL
-    have hst : StepMAt c r σ' x y := ⟨hσ', hmatch, hreq, hy, hens, hprio⟩
+    have hst : StepMAt c r σ' x y := ⟨hσ', hmatch, hreq, (Semantics.rulePlainEx_top hp).1 ▸ .top, hy, hens,
+      (Semantics.rulePlainEx_top hp).2 ▸ .top, hprio⟩
     obtain ⟨y', σ'', hag', hst', hT⟩ : ∃ y' σ'', (∀ i, ¬ i ∈ r.exs → σ''.lookup i = σ'.lookup i) ∧
         StepMAt c r σ'' x y' ∧ T x y' := by
       by_cases hex : r.exs = []
       · exact ⟨y, σ', fun _ _ => rfl, hst, hall σ' x y hst hex⟩
       · exact hsome σ' x y hst hex
-    obtain ⟨hσ'', -, -, hy', hens', -⟩ := hst'
+    obtain ⟨hσ'', -, -, -, hy', hens', -, -⟩ := hst'
     rw [AtT.sNext_iff]
     refine ⟨y', ?_, hx, rhs_sorted_open h hs hσ'' hy', hT⟩
     exact (ruleRight_read_T h hs hp htk hσ₀ hvar₀ _).mpr

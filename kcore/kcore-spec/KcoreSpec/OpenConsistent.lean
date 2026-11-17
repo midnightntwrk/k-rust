@@ -131,7 +131,7 @@ theorem satStepGoal_open (h : HypModelCore c)
   | app _ _ => exact hst.elim
   | val yv =>
   obtain ⟨hx, hyv, hstep⟩ := hst
-  obtain ⟨r, hr, σ, hσ, hmatch, hreq, heval, hens, hprio⟩ := hstep
+  obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep
   obtain ⟨hs, hp⟩ := hrules r hr
   obtain ⟨-, -, -, hensS, hrhss⟩ := ruleSorted_partsOpen hs hp
   have hnum := rule_vars_numOpen h hs hp

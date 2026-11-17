@@ -106,7 +106,8 @@ theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {tbl : Kor
   have hys := rhs_sorted_coreCl h.hyp.1 h.hyp.2.1 h.ovlCase hr hσ hy
   have hensS := rule_ctx_ensCl h.hyp.1 hr
   rw [sNext_iff]
-  refine ⟨y, ?_, hx, hys, r, hr, σ, hσ, hmatch, hreq, hy, hens, hprio⟩
+  have hpq := Semantics.sortedOKCl_ruleTop h.hyp.1 hr
+  refine ⟨y, ?_, hx, hys, r, hr, σ, hσ, hmatch, hreq, hpq.1 ▸ .top, hy, hens, hpq.2 ▸ .top, hprio⟩
   rw [tr_and2, KoreAML.interp_sAnd]
   refine ⟨(hrhs _).mpr ⟨y, hy, rfl⟩, ?_⟩
   cases hq : r.ens with

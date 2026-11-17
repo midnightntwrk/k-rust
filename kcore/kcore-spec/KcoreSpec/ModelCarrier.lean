@@ -205,13 +205,15 @@ def symAt (n : String) (args : List Elem) : Set Elem :=
       | _, _ => fun _ => False
 
 /-- The model's step: a rule whose left-hand side denotes `x` under a well-sorted σ, whose
-`requires` and `ensures` evaluate to `true` and whose right-hand side to `y`, where no rule of a
+`requires` and `ensures` evaluate to `true`, whose predicates `pre` and `post` hold (`Holds … true`)
+and whose right-hand side evaluates to `y`, where no rule of a
 smaller priority applies (`RuleApplies`). It is `Step` where each smaller priority's `requires` has
 a result at its matches (`NotApplies` and `¬ RuleApplies` agree there). -/
 def StepM (x y : GroundTerm) : Prop :=
   ∃ r ∈ c.rules, ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x ∧
-    (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ EvalTerm c σ r.rhs (some y) ∧
-    (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+    (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.pre true ∧
+    EvalTerm c σ r.rhs (some y) ∧
+    (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.post true ∧
     ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x
 
 /-- `x` has `y` as a successor under the transition `T`: both are configurations and `T` relates

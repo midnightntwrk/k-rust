@@ -63,7 +63,7 @@ theorem step_iff_stdIChoice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
   constructor
   · intro hs hsat
     obtain ⟨r, σ, hb⟩ := step_iff_by.mp hs
-    have hM : StepM c x.val y.val := ⟨r, hb.mem, σ, hb.hσ, hb.hmatch, hb.hreq, hb.heval, hb.hens,
+    have hM : StepM c x.val y.val := ⟨r, hb.mem, σ, hb.hσ, hb.hmatch, hb.hreq, hb.hpre, hb.heval, hb.hens, hb.hpost,
       fun r' hr' hlt => not_ruleApplies_ofChoice hfd (Semantics.rulePlainOpen_top (hrules r' hr').2).2.1
         (hb.hprio r' hr' hlt)⟩
     have h1 := hsat KoreAML.val0 (.val x.val)
@@ -83,9 +83,8 @@ theorem step_iff_stdIChoice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     obtain ⟨y', hy', hst⟩ := (sNext_iff _ e x.val).mp h2
     have hyy : Elem.val y' = .val y.val := (den_val hm y.val y.property e _).mp hy'
     cases hyy
-    obtain ⟨-, -, r, hr, σ, hσ, hpv, hreq, hev, hens, hno⟩ := hst
-    obtain ⟨-, hpre, hpost⟩ := Semantics.rulePlainOpen_top (hrules r hr).2
-    exact .rule r hr σ hσ hpv hreq (hpre ▸ .top) hev hens (hpost ▸ .top) fun r' hr' hlt =>
+    obtain ⟨-, -, r, hr, σ, hσ, hpv, hreq, hpre, hev, hens, hpost, hno⟩ := hst
+    exact .rule r hr σ hσ hpv hreq hpre hev hens hpost fun r' hr' hlt =>
       notApplies_ofChoice (hd r' hr' fun r'' hr'' hlt' => hno r'' hr'' (Nat.lt_trans hlt' hlt)).1 (hno r' hr' hlt)
 
 /-- **The choice among instances is free, for a definition whose rules' left sides need not bind
