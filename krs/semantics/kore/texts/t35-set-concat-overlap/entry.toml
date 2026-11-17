@@ -1,0 +1,48 @@
+id = "t35-set-concat-overlap"
+kind = "text"
+subject = "_Set_ on two sets with an element in common: domains.md calls the sets nilpotent and the concatenation #False, while the declaration carries idem, an attribute the manual says indicates an idempotent production."
+retro = ["A3"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:721 (K 7.1.337)", quote = "syntax Set ::= Set Set [left, function, hook(SET.concat), symbol(_Set_), assoc, comm, unit(.Set), idem, element(SetItem), format(%1%n%2)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+(1) Both readings agree on two sets with no element in common: their concatenation is the set of the items of both (a mathematical set, domains.md:705), and .Set is its unit.
+(2) domains.md:705-709: the sets are nilpotent, the concatenation of two sets containing elements in common is #False (no value, as #False is read in kk:t31-int-division), and an element that may already be present is to be added with |Set instead.
+(3) The declaration carries idem (domains.md:721), and the manual says that the attribute indicates that a production is idempotent and that K generates the axioms of the concept (user_manual.md:958-963): S S = S for every set S.
+(4) At S = SetItem(1), (2) says SetItem(1) SetItem(1) has no value and (3) says it is SetItem(1). The two sentences of the text cannot both hold at a set with an element, and no sentence says which gives way. So the text does not settle the point. The prose states nilpotence three ways (the word, the #False, the advice to use |Set) and marks the other behaviour as what concrete execution may silently allow; that is a reason to prefer one reading, not a sentence that settles it."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:705-709 (K 7.1.337)"
+quote = "The `Set` sort represents a mathematical set (A collection of unique items). The sets are nilpotent, i.e., the concatenation of two sets containing elements in common is `#False` (note however, this may be silently allowed during concrete execution). If you intend to add an element to a set that might already be present in the set, use the `|Set` operator instead."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:958-963 (K 7.1.337)"
+quote = "These attributes are used to indicate whether a collection or a production is associative, commutative, idempotent, and/or has a unit. In general, you should not need to apply these attributes to productions yourself, however, they do have certain special meaning to K. K will generate axioms related to each of these concepts into your definition for you automatically."
+
+[[reading]]
+name = "nilpotent"
+statement = "domains.md:705-709 holds: the concatenation of two sets with an element in common has no value; the idem attribute is not read."
+answer = "SetItem(1) SetItem(1) has no value; SetItem(1) SetItem(2) is the set of 1 and 2; .Set .Set is .Set."
+consequence = "A set pattern SetItem(X) S matches a set only at splits where S does not hold X, and a rule whose right side concatenates two sets with a common element gives no successor."
+
+[[reading]]
+name = "idempotent"
+statement = "The idem attribute holds: S S = S; the prose's #False is not read at a set concatenated with itself."
+answer = "SetItem(1) SetItem(1) is SetItem(1). The concatenation of two different sets with an element in common (SetItem(1) SetItem(2) with SetItem(1)) is stated by neither sentence under this reading alone."
+consequence = "A set pattern SetItem(X) S also matches a set at a split where S holds X."
+
+[[reading]]
+name = "as-written"
+statement = "Both sentences hold."
+answer = "No model has a set with an element: the text as written has no model in which SetItem(1) denotes an element."
+consequence = "Nothing can be concluded about a configuration that holds a non-empty set."
+
+[[note]]
+implementation = "kcore"
+text = "KCore reads nilpotent, by the owner's decision ([goal].direction: Set concatenation is nilpotent), and leaves the idem axiom of the kompiled text unread. The Kore-in-K case c28-set-overlap is this point on a definition."

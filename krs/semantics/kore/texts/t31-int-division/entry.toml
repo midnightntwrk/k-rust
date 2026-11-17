@@ -1,0 +1,59 @@
+id = "t31-int-division"
+kind = "text"
+subject = "The values of /Int and %Int (t-division) and of divInt and modInt (Euclidean division), with the signs of their operands, and at a zero divisor."
+retro = ["H3"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1256-1258 (K 7.1.337)", quote = '''| Int "/Int" Int [function, symbol(_/Int_), left, ... hook(INT.tdiv)]''' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["INT.tdiv", "INT.tmod", "INT.ediv", "INT.emod"]
+statement = "For integers A and B with B not 0: A /Int B is the quotient of A by B rounded towards zero, and A %Int B is A -Int B *Int (A /Int B), so its sign is the sign of A; A divInt B and A modInt B are the quotient and the remainder of Euclidean division, the remainder in 0 to |B| - 1. At B = 0 none of the four has a value."
+points = [
+  { at = "-7 /Int 2, -7 %Int 2", value = "-3, -1" },
+  { at = "7 /Int -2, 7 %Int -2", value = "-3, 1" },
+  { at = "-7 /Int -2, -7 %Int -2", value = "3, -1" },
+  { at = "-7 divInt 2, -7 modInt 2", value = "-4, 1" },
+  { at = "7 divInt -2, 7 modInt -2", value = "-3, 1" },
+  { at = "-7 divInt -2, -7 modInt -2", value = "4, 1" },
+  { at = "A /Int 0, A %Int 0, A divInt 0, A modInt 0, any integer A", value = "no value" },
+]
+reason = """
+(1) domains.md:1233-1234: /Int and %Int compute the quotient and the modulus by t-division, which rounds towards zero. The quotient of -7 by 2 is -3.5, rounded towards zero -3; the modulus of t-division is what makes A = B * (A /Int B) + (A %Int B) hold, so -7 %Int 2 is -7 - 2 * (-3) = -1, 7 %Int -2 is 7 - (-2)(-3) = 1, and -7 %Int -2 is -7 - (-2)(3) = -1.
+(2) domains.md:1235-1237: divInt and modInt compute quotient and modulus by Euclidean division, in which the remainder is always non-negative. With A = B * q + r and 0 <= r < |B|: -7 = 2 * (-4) + 1, 7 = (-2)(-3) + 1, -7 = (-2)(4) + 1.
+(3) Both sentences end: division by zero is #False. #False is no symbol of KAST, which names the empty pattern #Bottom (kast.md:120); domains.md writes it of a result that does not exist, beside an exception of concrete execution (domains.md:227-229), and the manual calls the same notion undefined, #Bottom, the bottom symbol of matching logic (user_manual.md:1375-1377). So none of the four has a value at a zero divisor.
+(4) The declarations (domains.md:1256-1264) give the four symbols function and no total, which agrees with (3).
+(5) The equation I1 divInt I2 => (I1 -Int (I1 modInt I2)) /Int I2 requires I2 =/=Int 0 (domains.md:1442-1443) is true of the values of (1) and (2) where the divisor is not 0 and has no instance at 0."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "* Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1235-1237 (K 7.1.337)"
+quote = "* Compute the quotient `divInt` or modulus `modInt` of two integers using Euclidean division, in which the remainder is always non-negative. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1256-1264 (K 7.1.337)"
+quote = '''| Int "/Int" Int [function, symbol(_/Int_), left, ... hook(INT.tdiv)] | Int "%Int" Int [function, symbol(_%Int_), left, ... hook(INT.tmod)] ... | Int "divInt" Int [function, symbol(_divInt_), left, smt-hook(div), hook(INT.ediv)] | Int "modInt" Int [function, symbol(_modInt_), left, smt-hook(mod), hook(INT.emod)]'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:120 (K 7.1.337)"
+quote = "* `#Bottom` - `\\bottom`"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1375-1377 (K 7.1.337)"
+quote = "will be undefined (i.e., theoretically defined as `#Bottom`, the bottom symbol in matching logic) otherwise."

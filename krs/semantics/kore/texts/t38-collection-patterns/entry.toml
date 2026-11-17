@@ -1,0 +1,39 @@
+id = "t38-collection-patterns"
+kind = "text"
+subject = "A rule whose left side holds a Map pattern of one element and a frame, or a List pattern of a first element and a frame: at which substitutions it matches, and the successors it gives."
+rests_on = ["kk:t34-collection-values", "kk:t36-map-concat"]
+
+[text]
+files = ["t38-collection-patterns.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A collection pattern of element patterns and one frame variable matches a collection at every substitution under which it denotes that collection. For a Map that is every split of the map into one pair for each element pattern and the rest for the frame; for a List the element patterns take the items at their positions and the frame the items between. A rule gives a successor for each such substitution. So a((1 |-> 2) (3 |-> 4)) has the successors k(1) and k(3), and b(ListItem(1) ListItem(2)) has the successor v(1) and not v(2)."
+reason = """
+(1) Patterns of sort Map and List may stand on the left side of a rule, and are destructured into pattern matching operations (user_manual.md:2212-2216); the allowed forms are 0 or more elements around 0 or 1 variables of sort List, and 0 or more elements in any order with 0 or 1 variables of sort Map (user_manual.md:2221-2223, 2238-2240).
+(2) A rule is the axiom left implies next of right: at every valuation, every element the left side denotes has a successor among the elements the right side denotes (introduction-to-matching-logic.tex:1965-1969). The left side denotes the configuration exactly at the valuations under which its pattern denotes the configuration's collection.
+(3) Map. (K |-> V) M denotes the map (1 |-> 2) (3 |-> 4) exactly where M is the rest of the map after the pair at K, M having no key K: the concatenation is the union on disjoint keys and has no value otherwise (kk:t36-map-concat), and the map is given by its pairs, not their order (kk:t34-collection-values). So K = 1 with M = 3 |-> 4, and K = 3 with M = 1 |-> 2, are the two valuations, and by (2) the configuration has a successor k(1) and a successor k(3).
+(4) List. ListItem(X) L denotes ListItem(1) ListItem(2) exactly at X = 1, L = ListItem(2): a list is a sequence in which the order counts, and _List_ is the concatenation of sequences (kk:t34-collection-values). So the one successor by the rule is v(1).
+(5) The axiom states what successors exist, not that there are no others; the configurations here have no other rule, so the successors listed are those of the definition."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2212-2216 (K 7.1.337)"
+quote = "It is allowed to write patterns on the left hand side of rules which refer to complex terms of sort Map, List, and Set, despite these patterns ostensibly breaking the rule that terms which are functions should not appear on the left hand side of rules. Such terms are destructured into pattern matching operations."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2221-2223 (K 7.1.337)"
+quote = "// 0 or more elements followed by 0 or 1 variables of sort List followed by // 0 or more elements ListItem(E1) ListItem(E2) L:List ListItem(E3) ListItem(E4)"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2238-2240 (K 7.1.337)"
+quote = "// 0 or more elements in any order plus by 0 or 1 variables of sort Map // in any order K1 |-> E1 K2 |-> E2 M::Map K3 |-> E3 K4 |-> E4"
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1969 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule'''

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t38-collection-patterns.k": "a4fc24f59733482f51ca52bc7b1af7ab692b533695af22b9cb4e62d627e94561"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t38-collection-patterns.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "d086fc8a863c80b59dc1b8f1a513b7186cb9ebcc868b640d563c87028f5d21fa",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
