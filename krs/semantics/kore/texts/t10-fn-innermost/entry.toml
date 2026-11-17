@@ -1,0 +1,62 @@
+id = "t10-fn-innermost"
+kind = "text"
+subject = "A function applied to the application of another: dbl(pred(N)), and the constructor p applied to pred(N). What an application denotes when its argument has one value, and when its argument denotes nothing."
+rests_on = ["kk:t128-eq-rhs-bottom"]
+
+[text]
+files = ["t10-fn-innermost.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "An application whose arguments each have one value denotes the application at those values: dbl(pred(3)) denotes what dbl(2) does, the integer 4, so an argument may be evaluated first and replaced by its value (innermost evaluation gives the application's value). An application one of whose arguments denotes nothing denotes nothing: pred(0) denotes nothing, and so do dbl(pred(0)) and p(pred(0)). p applied to a value is a value: p(pred(3)) is p(2)."
+reason = '''
+(1) An application denotes the interpretation of its symbol applied to what its arguments denote (introduction-to-matching-logic.tex:727-730), the interpretation being used for its extension to argument sets (:714-716). Where an argument denotes one element v, the application denotes what the symbol gives at v: pred(3) denotes {2} by its first equation (3 >Int 0 is true and 3 -Int 1 is 2, domains.md:1238, 1324-1325), so dbl(pred(3)) denotes dbl_M(2), and dbl's equation gives 2 +Int 2, that is 4. The order in which the two applications are read does not change the set.
+(2) pred(0) denotes nothing (its second equation, read as kk:t128-eq-rhs-bottom reads an equation whose right side is #Bottom). The text names the extension of an interpretation to argument sets and does not write it out (:714-716). The step taken here, which is not a quoted sentence: the extension is the union of the interpretation over the elements of the argument sets, the only extension that agrees with the interpretation on single elements and is built from them; at an argument set that is empty that union is empty. So dbl(pred(0)) and p(pred(0)) denote nothing.
+(3) The function attribute bounds each application of dbl and pred to at most one value (user_manual.md:540-544), so "the value" of (1) is well defined wherever there is one.
+(4) That p applied to a value is one element is a sentence of the kompiled text, ruled in [ruling.kore].'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727-730 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$ \item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$ for all'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "* Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "p is declared a constructor and the text holds its functional axiom: for every integer K0 there is one element equal to p(K0) (kore.txt:74). So p(2) is one element of Exp. dbl and pred carry function{}() and no functional axiom (kore.txt:4, 10); each equation is an implication from its premise to an equality of the application at the matched argument X0 (kore.txt:85-99, 157-173, 177-193), so the axioms speak of dbl and pred at elements, and an application to a pattern denotes the extension of (1)."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:74"
+quote = '''axiom{R} \exists{R} (Val:SortExp{}, \equals{SortExp{}, R} (Val:SortExp{}, Lblp{}(K0:SortInt{}))) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:169-173"
+quote = '''\equals{SortInt{},R} ( Lblpred{}(X0:SortInt{}), \and{SortInt{}} ( \bottom{SortInt{}}(), \top{SortInt{}}())))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''For example, if $f$ is a unary symbol, then the pattern equation ``$\forall x\,.\,\exists y\,.\,f(x) = y$'' (the convention for free variables allows us to drop the universal quantifier) states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t11-eq-applies.k": "1f35fc0ffa1ae70c0f40f0953155e5fff8646db9fa6804da8e432b96c1b38085"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t11-eq-applies.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "96ca10114ea30856d5fcdbfee928f56cdfb39977c6fafa5bb85b1da2413322ee",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}
