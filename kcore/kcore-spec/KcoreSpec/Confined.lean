@@ -327,9 +327,13 @@ include hI htr
 
 /-- **A generator applied to values' elements builds a value's element**: a constructor or an
 overloading symbol the element of the normal form of the application (`norm_gs`), an injection
-the element of the injected value (through Cons-Coh where the argument is itself an injection).
-Where no parameter is raw (`hraw`): no generator is an open generator. -/
-theorem gen_value (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params, k.raw = false)
+the element of the injected value (through Cons-Coh where the argument is itself an injection),
+an open generator the element of its parameter graph's value (`ΓDomains`), none where the graph
+has no value. `ΓDomains` writes that graph at the head `symApp` applies and the no-junk sentence at
+the generator's own head; the two are one symbol where the generator's name is named like no `ite`
+(`hite`). -/
+theorem gen_value (hn : Model.NamesApartK c)
+    (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
     {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm}
     (hws : c.sortsOf ws = some g.argSorts) {m : M}
     (hm : GS I (c.sortName N) (Gen.toK c g) (ws.map (elemOf c I)) m) :
@@ -342,11 +346,31 @@ theorem gen_value (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params, k.raw =
     have hr := OvlLaws.ovlRank_le (c := c) k.name
     refine ⟨c.norm k.name ws, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k hks hr ws hws, ?_⟩
     exact ((norm_gs hI htr _ k hks hr ws hws m).mp hm).symm
-  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, -, -⟩
+  rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, hres, rfl⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl
   rotate_left
-  · exact absurd hkr (by simp [hraw k hk])
+  · -- an open generator k: its application is the parameter graph's value, or nothing
+    subst hres
+    have hd : (den c (.ctor k.sig.name ws)).interpret I KoreAML.val0 m :=
+      (den_sig_gs hI (k := k.sig) rfl hws KoreAML.val0 m).mpr hm
+    have hsa : KoreAML.den (symApp c k.sig.name (GroundTerm.koreList c ws)) = den c (.ctor k.sig.name ws) := by
+      unfold symApp; rw [hite k hk hkr]; rfl
+    have hax := sat_dom hI (Or.inr (Or.inl ⟨k, ws, hk, hws, rfl⟩))
+    have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax KoreAML.val0 default) m
+    rw [hsa] at hgr
+    have h2 := hgr.mp hd
+    cases hp : c.paramVal k.sig.name ws with
+    | none => rw [hp] at h2; simp [Pattern.interpret] at h2
+    | some v =>
+      rw [hp] at h2
+      obtain ⟨k', hk', hv⟩ := c.paramVal_sorted hp
+      rw [Semantics.lookupParam_eq] at hk'
+      have hk'm := List.mem_of_find?_eq_some hk'
+      have hk'n : k'.sig.name = k.sig.name := by simpa using List.find?_some hk'
+      have he : k'.sig = k.sig := hn.1 _ (kernel_param hk'm) _ (kernel_param hk) (by rw [hk'n])
+      rw [he] at hv
+      exact ⟨v, hv, (((elemOf_spec hI hv KoreAML.val0).1 m).mp h2).symm⟩
   · -- an injection from a subsort a
     obtain ⟨w, rfl, hw⟩ : ∃ w, ws = [w] ∧ c.sortOf w = some a := by
       cases ws with
@@ -384,8 +408,9 @@ that reads a confined sort: at depth 0 Bool, by `boolClosed`; deeper, a construc
 no-junk sentence makes each element a generator applied to elements of its argument sorts
 (`noJunk_elim`); those are values' elements by the depth below, and the generator applied to
 values' elements is a value's element (`gen_value`). From the subsorts' transitivity, `OvlOK` and
-`NamesApartK`. -/
-theorem confinedAt_valueCl (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params, k.raw = false)
+`NamesApartK`, and that no open generator is named like `ite` (`hite`, which `gen_value` reads). -/
+theorem confinedAt_valueCl (hn : Model.NamesApartK c)
+    (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
     (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
     ∀ (k : Nat) (s : Srt), c.confinedAt k s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := by
@@ -423,7 +448,7 @@ theorem confinedAt_valueCl (hn : Model.NamesApartK c) (hraw : ∀ k ∈ c.params
     rw [List.length_map] at hlen
     obtain ⟨ws, hws, rfl⟩ := values_of_elems (c := c) (I := I) g.argSorts xs hlen.symm (fun j y b hy hb =>
       ih b ((hgs g hg).1 b (List.mem_of_getElem? hb)) y (all2_map_get (R := fun s y => InS I s y) hxs hy hb))
-    exact gen_value hIΓ htr hn hraw hg hws hm
+    exact gen_value hIΓ htr hn hite hg hws hm
 
 
 omit hI hO htr in
@@ -435,7 +460,7 @@ theorem confinedAt_value (h : c.coreOK = true) (hr : c.readsConfined = true) (hI
   haveI : OvlOK c := hno
   exact confinedAt_valueCl (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans
     (Model.namesApartK_spec (faithCoreOK_parts (Semantics.coreOK_parts h).2.1).2.2.2.2.2.1)
-    (Semantics.params_raw_of_core h) hr hI
+    (fun k hk hkr => absurd hkr (by simp [Semantics.params_raw_of_core h k hk])) hr hI
 
 end
 
