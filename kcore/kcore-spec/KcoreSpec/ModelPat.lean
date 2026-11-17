@@ -20,7 +20,7 @@
 -/
 import KcoreSpec.ModelRead
 import KcoreSpec.Terminates
-import KcoreSpec.ModelCons
+import KcoreSpec.ModelConsFn
 
 set_option autoImplicit false
 
@@ -62,8 +62,9 @@ variable {c : Semantics}
 
 /-- The patterns the reading covers: variables in `P`, literals of their sorts, injections between
 numbered sorts, `p as X` for `X` in `P`, and applications of a symbol with a signature that is a
-constructor, a map pattern symbol or a collection pattern symbol, to as many arguments as it
-takes. -/
+constructor, a map pattern symbol, a collection pattern symbol or an overloading symbol, to as many
+arguments as it takes; the symbol is no function-overloaded symbol (`fnOvlSyms`: a pattern of one
+denotes its normal forms, the model the function's values at covered arguments). -/
 inductive PatOK (c : Semantics) (P : Nat → Prop) : Term → Prop where
   | var {i : Nat} (h : P i) : PatOK c P (.var i)
   | dv {s : Srt} {lit : Lit} (h : dvOK c.lib s lit = true) : PatOK c P (.dv s lit)
@@ -73,6 +74,7 @@ inductive PatOK (c : Semantics) (P : Nat → Prop) : Term → Prop where
   | app {f : Sym} {ts : List Term} {k : CtorSig} (hk : k ∈ kernelSyms c) (hkn : k.name = f)
       (hl : ts.length = k.args.length)
       (hkind : c.isCtor f = true ∨ patternHooks.contains f = true ∨ c.isCollPat f = true ∨ c.isOvl f = true)
+      (hnf : f ∉ c.fnOvlSyms)
       (h : ∀ t ∈ ts, PatOK c P t) : PatOK c P (.app f ts)
 
 theorem patVal_var_inv {σ : Subst} {i : Nat} {v : GroundTerm} (h : PatVal c σ (.var i) v) :
@@ -256,7 +258,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
     · rintro ⟨v, hv, rfl⟩
       obtain ⟨h1, h2⟩ := patVal_as_inv hv
       exact ⟨⟨v, h1, rfl⟩, ⟨v, h2, rfl⟩⟩
-  | @app f ts k hk hkn hl hkind _ ih =>
+  | @app f ts k hk hkn hl hkind hnf _ ih =>
     intro m
     subst hkn
     rw [kore_app_tr, interp_appList]
@@ -296,7 +298,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       by_cases ho : c.isOvl k.name = true
       · have hp' := (c.isOvl_parts ho).2.2.1
         simp only [hp', ho, Bool.false_eq_true, ↓reduceIte] at hr
-        rw [ovlRes_none (OvlLaws.fnCover_none_of_ok h.ovlOK _ _)] at hr
+        rw [ovlRes_none (OvlLaws.fnCover_none_of_not_fnOvl hnf _)] at hr
         subst hr
         exact ⟨_, .ovl hc' ho hws rfl, rfl⟩
       have hcp : c.isCollPat k.name = true := by
@@ -349,7 +351,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
           exact key _ hts ((result_param hc hh' (collPat_param hcp hh') _).mpr ⟨v, rfl, hv'⟩)
       | ovl _ ho hts hnv =>
         subst hf
-        exact key _ hts ((result_ovl ho (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) _).mpr (by rw [hnv]))
+        exact key _ hts ((result_ovl ho (OvlLaws.fnCover_none_of_not_fnOvl hnf _) _).mpr (by rw [hnv]))
 
 end AtT
 
@@ -388,7 +390,8 @@ mutual
       have hh := List.all_eq_true.mp h.patHeads k hkm
       simp only [downHead, Bool.or_eq_true] at hh
       rw [hkn] at hh
-      refine .app (patHead_kernel hkm) hkn (sortsOfTerms_length hargs) ?_ (patOKs_of_sorted h hargs)
+      refine .app (patHead_kernel hkm) hkn (sortsOfTerms_length hargs) ?_
+        (by rw [(h.sound.2.2.2.2.2.2.2.2 : OvlOK c).noFn]; exact List.not_mem_nil) (patOKs_of_sorted h hargs)
       rcases hh with h1 | (h1 | h1) | h1
       · exact Or.inl h1
       · exact Or.inr (Or.inl h1)
@@ -485,7 +488,7 @@ theorem sortPred_total (hs : HypSoundCore c) {fn : Fn} (hfn : fn ∈ c.sortPreds
     ∃ r, Eval c fn.label vs r := by
   have hlk := lookupFn_of_sound hs (List.mem_append_right _ hfn)
   have hsh := sortPreds_shape hfn
-  exact eval_result hlk (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
+  exact eval_result hlk (fun cl hcl => ⟨Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩) (Semantics.sortPreds_binds hfn) (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hsh cl hcl).1] at ht; cases ht), true,
       Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hsh cl hcl; rw [h]; exact ⟨_, .dv⟩)
     (fun cl hcl _ _ t ht => by rw [sortPreds_ens hfn cl hcl] at ht; cases ht)
@@ -653,6 +656,7 @@ theorem coDefined_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : CoDefin
 at arguments of its sorts. -/
 theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c) : FnSolves c :=
   fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
+    (fun fn hfn => Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn))
     (prioDecided_of_total hs ht) (coDefined_of_total hs ht)
 
 /-! ## `⌈req = true⌉` -/

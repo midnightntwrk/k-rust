@@ -443,7 +443,7 @@ theorem hc_witDet : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c =
 
 /-- The text is `coreOK`, and no rule needs a witness. -/
 theorem core_witDet : c.coreOK = true ∧ c.rules.all (fun r => !r.needsWitness c) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- **`sound_at` at e2-cool-eq with no hypothesis left**: the clause side from `hc_witDet`, the rule
 side vacuous. -/

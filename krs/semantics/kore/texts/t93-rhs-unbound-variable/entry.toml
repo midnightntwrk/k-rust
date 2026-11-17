@@ -7,4 +7,29 @@ files = ["t93-rhs-unbound-variable.k"]
 kompile = "rejects"
 
 [ruling]
-status = "pending"
+status = "settled"
+form = "rejected"
+statement = "The text is no K definition: the rule a(X) => b(Y) holds in its right side the regular variable Y, which its left side does not bind, and carries no unboundVariables attribute naming Y. There is no sentence of the rule, and no reading of Y as an existential variable."
+reason = """
+(1) K rules are not allowed to contain regular variables, that is variables neither fresh nor existential, in the right side, the requires or the ensures that the left side does not bind (user_manual.md:1508-1510). The only exception the manual gives is a variable named in the rule's unboundVariables attribute (user_manual.md:1514-1516), which this rule does not carry.
+(2) Y is regular: an existential variable is written ?Y (user_manual.md:2438-2441), and Y is written without the ?. It occurs in the right side b(Y) and not in the left side a(X).
+(3) So the rule is one the manual does not allow, and the text gives no sentence for it: there is no definition to read, and in particular nothing that reads Y as existentially quantified over the right side, which is the meaning the manual gives ?Y alone."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1508-1510 (K 7.1.337)"
+quote = "Normally, K rules are not allowed to contain regular (i.e., not fresh, not existential) variables in the RHS / `requires` / `ensures` clauses which are not bound in the LHS."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1514-1516 (K 7.1.337)"
+quote = "To allow for such cases, but still be useful and perform the unboundness checks in regular cases, the `unboundVariables` attributes allows the user to specify a comma-separated list of names of variables which can be unbound in the rule."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2438-2441 (K 7.1.337)"
+quote = "K uses question mark variables of the form `?X` to refer to existential variables, and uses `ensures` to specify logical constraints on those variables. These variables are only allowed to appear in the RHS of a K rule."
+
+[[observe]]
+file = "kompile.txt"
+contains = "Found variable Y on right hand side of rule, not bound on"

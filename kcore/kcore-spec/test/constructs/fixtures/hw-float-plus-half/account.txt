@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-float-plus-half/hw-float-plus-half.kore: 5 modules; prelude agrees
+user module E6-FLOAT-LITERALS: 498 sentences
+  1 inert import [generated]
+  209 read [generated]
+  228 read [builtin]
+  30 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 literal
+      sentence 395 (Lbl'-LT-'generatedTop'-GT-'): literal (+.5)
+        [user] (no label) at e6-float-literals.k:16: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(\dv{SortInt{}}("8"))), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKIt …
+finish: sentence 395 (Lbl'-LT-'generatedTop'-GT-'): literal (+.5)
+(exit 0)

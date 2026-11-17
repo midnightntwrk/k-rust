@@ -1,10 +1,36 @@
 id = "c17-init-function"
 kind = "case"
 subject = "The initial term applies a function: it is evaluated before the first step."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["yes"]
+reason = """
+(1) inc's one equation states inc(X) = X +Int 1 at every integer (kk:t11-eq-applies): inc(1) = 2 (domains.md:1238). The initial term a(inc(1)) therefore denotes a(2), its argument having the one value 2 (kk:t10-fn-innermost): the initial configuration holds a(2).
+(2) The rule a(2) => yes has priority 50 and the [owise] rule a(_) => no has 200 (user_manual.md:1739-1741, 1748-1749). At a(2) the first matches with no requires and applies (kk:t01-rule-applies), so the [owise] rule is not tried (kk:t04-rule-priority-owise; user_manual.md:1722-1724): a(2) has the one successor yes (kk:t02-step-successors).
+(3) No rule's left side matches yes, which is final (kk:t06-final-configuration). The final configurations are yes alone: no would need the [owise] rule to apply at a(2), which (2) excludes, and a(inc(1)) is not matched as a term other than a(2), since it denotes a(2)."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."

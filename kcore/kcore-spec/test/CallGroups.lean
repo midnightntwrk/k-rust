@@ -21,6 +21,7 @@
   Every function terminates given P's termination (`cg_terminates`).
 -/
 import KcoreSpec.FnObligations
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -74,7 +75,7 @@ def cg : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem cg_sorted : cg.sortedOK = true ∧ cg.srReady = true := by decide +kernel
+theorem cg_sorted : cg.sortedOK = true ∧ cg.srReady = true := by decide_cheap
 
 def ord : List Sym := [Ev, Od, P, Q, A, B]
 

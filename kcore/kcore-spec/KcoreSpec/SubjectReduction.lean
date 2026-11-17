@@ -27,7 +27,7 @@
 import KcoreSpec.SetLaws
 import KcoreSpec.Step
 import KcoreSpec.Tie
-import KcoreSpec.OvlLaws
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.RangeMapSorted
 
 set_option autoImplicit false
@@ -493,7 +493,8 @@ theorem fl1_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : fl1 op vs =
     c.sortOf v = some Srt.float := by
   unfold fl1 at h
   split at h
-  · obtain ⟨⟨p, e, sp, u⟩, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+  · obtain ⟨⟨p, e, sp, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted (asFloat_spec ha) _
   · cases h
 
@@ -505,7 +506,9 @@ theorem fl2_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : fl2 op vs =
     obtain ⟨⟨p', e', sp', u'⟩, -, h⟩ := Option.bind_eq_some_iff.mp h
     dsimp only at h
     by_cases hpe : p = p' ∧ e = e'
-    · rw [if_pos hpe, Option.some.injEq] at h; subst h; exact floatV_sorted (asFloat_spec ha) _
+    · rw [if_pos hpe] at h
+      obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact floatV_sorted (asFloat_spec ha) _
     · rw [if_neg hpe] at h; cases h
   · cases h
 
@@ -516,7 +519,8 @@ theorem flTo_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : flTo op vs
   · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨sp, hs, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨sp, hs, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted hs _
   · cases h
 
@@ -527,7 +531,8 @@ theorem flOfInt_sorted {vs : List GroundTerm} {v : GroundTerm} (h : flOfInt vs =
   · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨sp, hs, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨sp, hs, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted hs _
   · cases h
 
@@ -544,6 +549,13 @@ theorem flAt_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : flAt op vs
 theorem flTest_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTest t vs = some v) :
     c.sortOf v = some Srt.bool := by
   unfold flTest at h
+  split at h
+  · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
+  · cases h
+
+theorem flTestM_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTestM t vs = some v) :
+    c.sortOf v = some Srt.bool := by
+  unfold flTestM at h
   split at h
   · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
   · cases h
@@ -596,7 +608,7 @@ theorem floatHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {
          obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
          exact floatV_sorted (asFloat_spec ha) _
        · cases hev)
-    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flCmp_sorted hev)
+    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flTestM_sorted hev | exact flCmp_sorted hev)
     | (rw [hI (by decide)]; exact flFmt_sorted hev)
 
 /-! ## The interpreted String and Bytes symbols return values of their declared result sort
@@ -1582,6 +1594,8 @@ theorem Eval.lookupFn_ne {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
   | .clause hfn' .. => by rw [hfn']; simp
   | .rest hfn' _ => by rw [hfn']; simp
   | .ensFails hfn' .. => by rw [hfn']; simp
+  | .clauseEx hfn' .. => by rw [hfn']; simp
+  | .exNone hfn' .. => by rw [hfn']; simp
 
 /-- A symbol of no overloading symbol's name is found among the functions a right-hand side may call
 as it is found in the right-hand sides' context past the parameters. -/
@@ -1600,7 +1614,7 @@ theorem lookupOvl_none_of (hc : SortCtx c) {f : Sym} (h : c.isOvl f = false) : c
   | some o =>
     rcases hc.ovl with hno | H
     · simp [Semantics.lookupOvl, hno] at ho
-    · rw [(OvlLaws.ovl_facts ⟨H.1, hc.trans, H.2⟩ ho).2.1] at h; cases h
+    · rw [(OvlLaws.ovl_facts_ovlF (OvlLaws.OvlHyp.fnFacts ⟨H.1, hc.trans, H.2⟩) ho).2.2.1] at h; cases h
 
 /-- A function a well-sorted right-hand side calls has the signature it is found under among the
 functions it may call: no overloading symbol shares its name. -/
@@ -1616,7 +1630,7 @@ theorem rhs_lookup_fn (hc : SortCtx c) {L : List CtorSig} {f : Sym} {k : CtorSig
     obtain ⟨o, ho, -⟩ := Option.map_eq_some_iff.mp hk'
     rcases hc.ovl with hno | H
     · simp [Semantics.lookupOvl, hno] at ho
-    · have := (OvlLaws.ovl_facts ⟨H.1, hc.trans, H.2⟩ ho).2.1
+    · have := (OvlLaws.ovl_facts_ovlF (OvlLaws.OvlHyp.fnFacts ⟨H.1, hc.trans, H.2⟩) ho).2.2.1
       rw [Semantics.isOvl, hfn] at this
       simp at this
 
@@ -1627,11 +1641,17 @@ mutual
       (hvs : c.sortsOf vs = some fn.args) {v : GroundTerm} (hr : r = some v) :
       c.sortOf v = some fn.result :=
     match h with
-    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ hrhs _ => by
+    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ _ hrhs _ _ => by
       rw [hfn] at hfn'
       cases hfn'
       obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1
       exact EvalTerm.sorted hc hrhs hL hσ (hcl cl hmem) hr
+    | .clauseEx (cl := cl) hfn' hmem hσ _ _ _ _ _ hrhs _ _ _ => by
+      rw [hfn] at hfn'
+      cases hfn'
+      obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1
+      exact EvalTerm.sorted hc hrhs hL hσ (hcl cl hmem) hr
+    | .exNone .. => by cases hr
     | .rest (fn := fn') hfn' _ => by
       rw [hfn] at hfn'
       cases hfn'
@@ -1705,19 +1725,42 @@ mutual
         | .clause hfn' .. => ⟨_, hfn'⟩
         | .rest hfn' _ => ⟨_, hfn'⟩
         | .ensFails hfn' .. => ⟨_, hfn'⟩
+        | .clauseEx hfn' .. => ⟨_, hfn'⟩
+        | .exNone hfn' .. => ⟨_, hfn'⟩
       obtain ⟨hkL, hkn⟩ := lookupSig_spec (rhs_lookup_fn hc hfn0.choose_spec hk')
       obtain ⟨fn, hfn, rfl⟩ := headsOK_preds hL k hkL
       have hlook : c.lookupFn f = some fn := by
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted hc hts hL hσ hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovl (f := f) (rs := rs) hk ho hts _ => by
+    | .ovl (f := f) (rs := rs) hk ho hts hnf => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
       have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
-      exact OvlLaws.sortOf_norm ⟨H.1, hc.trans, H.2⟩ hlo (EvalTerms.sorted hc hts hL hσ hargs hws)
-    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      exact OvlLaws.sortOf_norm_ovlF HH HH.fnFacts hlo (EvalTerms.sorted hc hts hL hσ hargs hws) (hnf ws hws)
+    | .ovlFn (f := f) (vs := ws) (kg := kg) _ ho hts hws hlo hcov hf => by
+      -- the covering function's value, of its result sort, lifted to the symbol's
+      obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hc hL hk' ho
+      rw [hlo] at hlo'
+      cases hlo'
+      obtain ⟨r1, hr1, rfl⟩ := Option.map_eq_some_iff.mp hr
+      have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      obtain ⟨o2, hlo2, hkg, hb, hcv⟩ := OvlLaws.fnCover_some_parts hcov
+      rw [hlo] at hlo2
+      cases hlo2
+      obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
+      have ha : fn.args = kg.args := by rw [hsig]
+      have hres' : fn.result = kg.result := by rw [hsig]
+      obtain ⟨hlen, -, hres, -⟩ := OvlLaws.over_ovlF HH.fnFacts hlo hkg
+      obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+      have hvs := EvalTerms.sorted hc hts hL hσ hargs hws
+      have hs1 := Eval.sorted hc hf hfn (by rw [ha]; exact OvlLaws.sortsOf_stripAll hlen hvs hlies) hr1
+      rw [hres'] at hs1
+      exact OvlLaws.sortOf_lift HH hs1 hres
   termination_by structural h
   theorem EvalTerms.sorted (hc : SortCtx c) {σ : Subst} {ts : List Term}
       {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs) {L : List CtorSig}
@@ -1842,8 +1885,11 @@ theorem sortCtx_of_all {c : Semantics} (hok : c.sortedOK = true) (hr : c.srReady
       simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
       exact this.1.1.2
 
+theorem sortCtx_of_okM {c : Semantics} (hok : c.okM = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
+  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hr hov
+
 theorem sortCtx_of {c : Semantics} (hok : c.ok = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
-  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_ok hok)) hr hov
+  sortCtx_of_okM (Semantics.okM_of_ok hok) hr hov
 
 /-- Subject reduction: in a core that `sortedOK` and `srReady` accept, a rule's right-hand side
 evaluated under a well-sorted σ is, when defined, a configuration. Of the rule it reads the
@@ -1866,11 +1912,17 @@ theorem rhs_sorted_all {c : Semantics} (hok : c.okAll = true) (hsr : c.srReady =
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
   rhs_sorted_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ he
 
+/-- `rhs_sorted_all` in a core that `okM` accepts. -/
+theorem rhs_sorted_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
+    (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
+    (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
+  rhs_sorted_all (Semantics.okAll_of_okM hok) hsr hov hr hσ he
+
 /-- `rhs_sorted_all` in a core that `ok` accepts. -/
 theorem rhs_sorted {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
-  rhs_sorted_all (Semantics.okAll_of_ok hok) hsr hov hr hσ he
+  rhs_sorted_okM (Semantics.okM_of_ok hok) hsr hov hr hσ he
 
 /-- So no rule application is lost to sorts: a match, a true `requires`, the predicate `pre`
 holding, a defined right-hand side, a true `ensures`, the predicate `post` holding and no rule of a
@@ -1917,11 +1969,18 @@ theorem Eval.sorted_of_all {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     c.sortOf v = some fn.result :=
   Eval.sorted (sortCtx_of_all hok hsr hov) h hfn hvs rfl
 
+/-- `Eval.sorted_of_all` in a core that `okM` accepts. -/
+theorem Eval.sorted_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true) (hov : c.OvlCase) {f : Sym}
+    {vs : List GroundTerm} {v : GroundTerm} (h : Eval c f vs (some v)) {fn : Fn}
+    (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
+    c.sortOf v = some fn.result :=
+  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hsr hov h hfn hvs
+
 /-- `Eval.sorted_of_all` in a core that `ok` accepts. -/
 theorem Eval.sorted_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {f : Sym}
     {vs : List GroundTerm} {v : GroundTerm} (h : Eval c f vs (some v)) {fn : Fn}
     (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     c.sortOf v = some fn.result :=
-  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_ok hok)) hsr hov h hfn hvs
+  Eval.sorted_of_okM (Semantics.okM_of_ok hok) hsr hov h hfn hvs
 
 end KCore

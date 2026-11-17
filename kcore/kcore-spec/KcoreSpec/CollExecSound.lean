@@ -9,8 +9,10 @@
     computes for a well-sorted term under a well-sorted σ is its `EvalTerm` result. A clause the
     evaluation skips must fail (`Fails`) for every well-sorted σ matching it, which the candidates
     reach only if the matcher is complete: that is the hypothesis `ClauseComplete c`.
-  - `successorsN_sound`, `successorsN_step`, `successors_step`: every successor the executable step
-    lists is a `Step`. `NotApplies` for the rules of a smaller priority reads `RuleComplete c`.
+  - `predVal_sound`: a value `predVal` computes for a well-sorted predicate is its `Holds` value.
+  - `successorsN_sound_preds`, `successorsN_sound`, `successorsN_step`, `successors_step`: every
+    successor the executable step lists is a `Step`. `NotApplies` for the rules of a smaller
+    priority reads `RuleComplete c`.
 
   The hypotheses read of the core are `sortedOK`, `srReady` and `OvlCase` (all three from
   `execReady`, the last through `matchReadyO`: the sorts of overloading symbols' normal forms), and
@@ -145,10 +147,21 @@ sort, over the function signatures of some list L. -/
 def CClauseCtx (c : Semantics) : Prop :=
   ∀ fn ∈ c.allFns, ∃ L, HeadsOK c L ∧ ∀ cl ∈ fn.clauses,
     reqOK (c.rhsCtx L) cl.vars cl.req = true ∧ sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
-      reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧ cl.pre = .top
+      reqOK (c.rhsCtx L) cl.vars cl.ens = true ∧ cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top
+
+/-- A clause of a function under `CClauseCtx` has no existential variable and the right side's
+predicate `\top`. -/
+theorem CClauseCtx.plainCl (hcc : CClauseCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : cl.exs = [] ∧ cl.post = .top :=
+  let ⟨_, _, h⟩ := hcc fn hfn
+  (h cl hcl).2.2.2.2
+
+theorem CClauseCtx.fnsNoExs (hcc : CClauseCtx c) : c.FnsNoExs :=
+  fun _ hfn _ hcl => (hcc.plainCl (List.mem_append_left _ hfn) hcl).1
 
 theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   have htop := Semantics.sortedOK_preTop hok
+  have hpl := Semantics.sortedOK_plainCl hok
   replace hok := Semantics.sortedOK_sorted hok
   simp only [Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨⟨_, hfns⟩, _⟩ := hok
@@ -157,10 +170,10 @@ theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   · refine ⟨c.fns.map Fn.sig, Exec.headsOK_fns, fun cl hcl => ?_⟩
     have := hfns fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
-    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl⟩
+    exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl, hpl fn hfn' cl hcl⟩
   · exact ⟨[], fun k hk => (nomatch hk), fun cl h =>
       ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2,
-        htop fn hfn' cl h⟩⟩
+        htop fn hfn' cl h, hpl fn hfn' cl h⟩⟩
 
 /-! ## The clauses' candidates, as `firstClause` computes them -/
 
@@ -363,7 +376,7 @@ mutual
         obtain ⟨⟨cl', σ, b⟩, hmem, hres⟩ := List.exists_of_findSome?_eq_some hfind
         obtain ⟨hcl', hσm, rfl⟩ := mem_candidates.mp hmem
         obtain ⟨hcf, hpr⟩ := hin cl' hcl'
-        obtain ⟨hreq, hrhs, hensOK, htop⟩ := hclk cl' hcf
+        obtain ⟨hreq, hrhs, hensOK, htop, hexs, hpostT⟩ := hclk cl' hcf
         obtain ⟨hσw, hpv⟩ := cmatch_sound hσm
         unfold candResult at hres
         simp only at hres
@@ -381,7 +394,8 @@ mutual
           unfold candBody at hres
           split at hres
           · rename_i he
-            refine .clause hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+            refine .clause hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE hexs (evalT_sound n hres hL hσw hrhs) (fun t ht => ?_)
+              (Clause.holds_postTop hpostT σ)
             unfold clauseEns at he
             rw [ht] at he hensOK
             obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
@@ -395,7 +409,7 @@ mutual
             · rename_i t ht
               rw [ht] at hensOK
               obtain ⟨r₀, h₀, he'⟩ := Option.map_eq_some_iff.mp he
-              exact .ensFails hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
+              exact .ensFails hfn hcf hσw hpv hreqE (Clause.holds_preTop htop σ) hprioE hexs ht (evalT_sound n h₀ hL hσw (reqOK_some hensOK))
                 (fun h => by rw [isTrue_iff.mpr h] at he'; cases he')
           · cases hres
         · cases hres
@@ -414,36 +428,104 @@ mutual
         · cases h
 end
 
+/-- **The predicates' evaluation is sound**: a value `predVal` computes under a well-sorted σ for a
+predicate whose terms are well sorted (`condOK`) is the predicate's `Holds` value under every τ
+that agrees with σ on the variables. -/
+theorem predVal_sound {vars : List Srt} {σ τ : Subst} (hσ : c.WellSorted vars σ)
+    (hag : ∀ i < vars.length, σ.lookup i = τ.lookup i) {n k : Nat} :
+    ∀ {p : Cond} {b : Bool}, c.condOK vars p = true → predVal c n σ p = some b → Holds c k τ p b
+  | .top, b, _, h => by
+    simp only [predVal, Option.some.injEq] at h; subst h; exact .top
+  | .equals s t u, b, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases he : CExec.evalT c n σ t with
+    | none => simp [predVal, he] at h
+    | some r =>
+      cases he' : CExec.evalT c n σ u with
+      | none => simp [predVal, he, he'] at h
+      | some r' =>
+        simp only [predVal, he, he', Option.some.injEq] at h
+        subst h
+        exact .equals
+          (EvalTerm.congr (evalT_sound hsc hcc hcm n he Exec.headsOK_fns hσ ht)
+            fun i hi => hag i (sortOfTerm_vars ht i hi))
+          (EvalTerm.congr (evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ hu)
+            fun i hi => hag i (sortOfTerm_vars hu i hi))
+  | .mem s t u, b, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hc
+    obtain ⟨⟨ht, hu⟩, -⟩ := hc
+    cases he : CExec.evalT c n σ t with
+    | none => simp [predVal, he] at h
+    | some r =>
+      cases he' : CExec.evalT c n σ u with
+      | none => simp [predVal, he, he'] at h
+      | some r' =>
+        simp only [predVal, he, he', Option.some.injEq] at h
+        subst h
+        exact .mem
+          (EvalTerm.congr (evalT_sound hsc hcc hcm n he Exec.headsOK_fns hσ ht)
+            fun i hi => hag i (sortOfTerm_vars ht i hi))
+          (EvalTerm.congr (evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ hu)
+            fun i hi => hag i (sortOfTerm_vars hu i hi))
+  | .and p q, b, hc, h => by
+    simp only [Semantics.condOK, Bool.and_eq_true] at hc
+    cases hp : predVal c n σ p with
+    | none => simp [predVal, hp] at h
+    | some b₁ =>
+      cases hq : predVal c n σ q with
+      | none => simp [predVal, hp, hq] at h
+      | some b₂ =>
+        simp only [predVal, hp, hq, Option.some.injEq] at h
+        subst h
+        exact .and (predVal_sound hσ hag hc.1 hp) (predVal_sound hσ hag hc.2 hq)
+  | .bot, _, _, h | .not _, _, _, h | .or _ _, _, _, h | .implies _ _, _, _, h | .ceil _ _, _, _, h
+  | .exMatch _ _ _ _ _, _, _, h | .ex _ _, _, _, h | .all _ _, _, _, h => by simp [predVal] at h
+
 end
 
 /-! ## Soundness of the step -/
 
-/-- The `requires` value the executable step attaches to a rule's match. -/
-def reqVal (c : Semantics) (n : Nat) (r : Rule) (σ : Subst) : Option Bool :=
-  match r.req with
-  | none => some true
-  | some t => (CExec.evalT c n σ t).map isTrue
+theorem appVal_true : ∀ {q p : Option Bool}, appVal q p = some true ↔ q = some true ∧ p = some true
+  | none, none | none, some false | none, some true | some false, none | some false, some false
+  | some false, some true | some true, none | some true, some false | some true, some true => by decide
+
+theorem appVal_false : ∀ {q p : Option Bool}, appVal q p = some false ↔ q = some false ∨ p = some false
+  | none, none | none, some false | none, some true | some false, none | some false, some false
+  | some false, some true | some true, none | some true, some false | some true, some true => by decide
+
+theorem appVal_ne_none : ∀ {q p : Option Bool}, q ≠ none → p ≠ none → appVal q p ≠ none
+  | none, none | none, some false | none, some true | some false, none | some false, some false
+  | some false, some true | some true, none | some true, some false | some true, some true => by decide
+
+/-- An `Option Bool` that is neither `none` nor `some true` is `some false`. -/
+theorem eq_false_of_ne {b : Option Bool} (h1 : b ≠ none) (h2 : b ≠ some true) : b = some false := by
+  match b, h1, h2 with
+  | some false, _, _ => rfl
+  | none, h, _ => exact absurd rfl h
+  | some true, _, h => exact absurd rfl h
 
 theorem ruleMatches_mem {n : Nat} {r : Rule} {x : GroundTerm} {σ : Subst} {b : Option Bool} :
-    (σ, b) ∈ ruleMatches c n r x ↔ σ ∈ cmatch c r.vars [r.lhs] [x] ∧ b = reqVal c n r σ := by
+    (σ, b) ∈ ruleMatches c n r x ↔ σ ∈ cmatch c r.vars [r.lhs] [x] ∧ b = matchVal c n r σ := by
   unfold ruleMatches
   rw [List.mem_map]
   constructor
   · rintro ⟨σ', hσ', he⟩
     simp only [Prod.mk.injEq] at he
     obtain ⟨rfl, rfl⟩ := he
-    exact ⟨hσ', by unfold reqVal; cases r.req <;> rfl⟩
+    exact ⟨hσ', rfl⟩
   · rintro ⟨hσ, rfl⟩
-    exact ⟨σ, hσ, by unfold reqVal; cases r.req <;> rfl⟩
+    exact ⟨σ, hσ, rfl⟩
 
-/-- What a listed successor comes from: a rule r, a match of r whose `requires` is `true`, whose
-right-hand side evaluates to it, a configuration, and whose `ensures` is `true`; every rule of a
-smaller priority has only `requires` values `some false` at the same fuel. -/
+/-- What a listed successor comes from: a rule r, a match of r whose `requires` and `pre` are
+`true`, whose right-hand side evaluates to it, a configuration, and whose `ensures` and `post` are
+`true`; every rule of a smaller priority has only match values `some false` at the same fuel. -/
 theorem successorsN_mem_ens {n : Nat} {x y : GroundTerm} (hy : y ∈ successorsN c n x) :
     ∃ r ∈ c.rules,
       (∀ r' ∈ c.rules, r'.prio < r.prio → ∀ σb ∈ ruleMatches c n r' x, σb.2 = some false) ∧
       ∃ σ, (σ, some true) ∈ ruleMatches c n r x ∧ CExec.evalT c n σ r.rhs = some (some y) ∧
-        c.sortOf y = some topCellSort ∧ ensVal c n r σ = some true := by
+        c.sortOf y = some topCellSort ∧ ensVal c n r σ = some true ∧
+        predVal c n σ r.post = some true := by
   unfold successorsN at hy
   dsimp only at hy
   split at hy
@@ -487,7 +569,7 @@ theorem successorsN_mem_ens {n : Nat} {x y : GroundTerm} (hy : y ∈ successorsN
             split at hk
             · rename_i hc
               simp only [Bool.and_eq_true, beq_iff_eq] at hc
-              cases hk; exact ⟨rfl, hc.1, hc.2⟩
+              cases hk; exact ⟨rfl, hc.1.1, hc.1.2, hc.2⟩
             · cases hk
       · have : (b == some true) = false := by simpa using hb
         simp [this] at hk
@@ -500,7 +582,7 @@ theorem successorsN_mem {n : Nat} {x y : GroundTerm} (hy : y ∈ successorsN c n
       (∀ r' ∈ c.rules, r'.prio < r.prio → ∀ σb ∈ ruleMatches c n r' x, σb.2 = some false) ∧
       ∃ σ, (σ, some true) ∈ ruleMatches c n r x ∧ CExec.evalT c n σ r.rhs = some (some y) ∧
         c.sortOf y = some topCellSort :=
-  let ⟨r, hr, hlow, σ, hσ, he, hs, _⟩ := successorsN_mem_ens hy
+  let ⟨r, hr, hlow, σ, hσ, he, hs, _, _⟩ := successorsN_mem_ens hy
   ⟨r, hr, hlow, σ, hσ, he, hs⟩
 
 /-- What `sortedOK` checks of a rule's `requires` and right-hand side. -/
@@ -528,34 +610,90 @@ theorem patVal_of_patVals {σ : Subst} {p : Term} {v : GroundTerm} (h : PatVals 
   cases h with
   | cons h _ => exact h
 
+/-- What `sortedOK` checks of a rule's predicates. -/
+theorem ruleSorted_preds_of {r : Rule} (hok : c.sortedOK = true) (hr : r ∈ c.rules) :
+    c.condOK r.vars r.pre = true ∧ c.condOK r.vars r.post = true := by
+  have hrule : c.ruleSorted r = true := by
+    replace hok := Semantics.sortedOK_sorted hok
+    simp only [Bool.and_eq_true, List.all_eq_true] at hok
+    exact hok.2 r hr
+  simp only [Semantics.ruleSorted, Bool.and_eq_true] at hrule
+  exact ⟨hrule.1.1.1.1.1.2, hrule.1.1.1.2⟩
+
+section
+variable (hsc : SortCtx c) (hcc : CClauseCtx c) (hcm : ClauseComplete c)
+include hsc hcc hcm
+
+/-- A match whose value is `some false` makes the rule's condition fail under every τ that agrees
+with it on the variables: its `requires` evaluates to something other than `true`, or its `pre`
+is false (`predVal_sound`). -/
+theorem ruleReqFails_of_matchVal (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) {n : Nat}
+    {σ τ : Subst} (hσ : c.WellSorted r.vars σ) (hag : ∀ i < r.vars.length, σ.lookup i = τ.lookup i)
+    (h : matchVal c n r σ = some false) : RuleReqFails c τ r := by
+  rcases appVal_false.mp h with hq | hp
+  · unfold reqVal at hq
+    obtain ⟨hreq', -⟩ := ruleSorted_of hok hr
+    cases ht : r.req with
+    | none => simp [ht] at hq
+    | some t =>
+      rw [ht] at hq hreq'
+      cases he' : CExec.evalT c n σ t with
+      | none => simp [he'] at hq
+      | some v =>
+        simp only [he', Option.map_some, Option.some.injEq] at hq
+        have hts := reqOK_some hreq'
+        have hev := evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ hts
+        refine RuleReqFails.intro ht (EvalTerm.congr hev (fun i hi => hag i (sortOfTerm_vars hts i hi))) ?_
+        intro hv
+        rw [hv] at hq
+        exact absurd (isTrue_iff.mpr rfl) (by rw [hq]; simp)
+  · exact .pre (predVal_sound hsc hcc hcm hσ hag (ruleSorted_preds_of hok hr).1 hp)
+
+/-- A match whose value is `some true` has a `requires` that evaluates to `true` and a `pre` that
+holds. -/
+theorem req_pre_of_matchVal (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) {n : Nat}
+    {σ : Subst} (hσ : c.WellSorted r.vars σ) (h : matchVal c n r σ = some true) :
+    (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.pre true := by
+  obtain ⟨hq, hp⟩ := appVal_true.mp h
+  refine ⟨fun t ht => ?_, predVal_sound hsc hcc hcm hσ (fun _ _ => rfl) (ruleSorted_preds_of hok hr).1 hp⟩
+  obtain ⟨hreq, -⟩ := ruleSorted_of hok hr
+  rw [ht] at hreq
+  unfold reqVal at hq
+  rw [ht] at hq
+  cases he' : CExec.evalT c n σ t with
+  | none => simp [he'] at hq
+  | some v =>
+    simp only [he', Option.map_some, Option.some.injEq] at hq
+    rw [isTrue_iff.mp hq] at he'
+    exact evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ (reqOK_some hreq)
+
+end
+
 /-- **Every successor the executable step lists, at any fuel, is a step's**: it comes from a rule,
-a well-sorted match, a `requires` evaluating to `true` and the right-hand side's result, and no rule
-of a smaller priority applies. -/
-theorem successorsN_sound (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+a well-sorted match, a `requires` evaluating to `true`, a `pre` that holds, the right-hand side's
+result, an `ensures` evaluating to `true` and a `post` that holds, and no rule of a smaller
+priority applies. -/
+theorem successorsN_sound_preds (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) :
     ∃ r ∈ c.rules, ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x.val ∧
       (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧
+      Holds c r.vars.length σ r.pre true ∧
       EvalTerm c σ r.rhs (some y) ∧
-      (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ c.sortOf y = some topCellSort ∧
+      (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+      Holds c r.vars.length σ r.post true ∧ c.sortOf y = some topCellSort ∧
       (∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) := by
   have hsc := sortCtx_of_all hok hsr hov
   have hcc := cclauseCtx_of hok
-  obtain ⟨r, hr, hlow, σ, hσm, he, hs, hen⟩ := successorsN_mem_ens hy
+  obtain ⟨r, hr, hlow, σ, hσm, he, hs, hen, hpo⟩ := successorsN_mem_ens hy
   obtain ⟨hσm, hb⟩ := ruleMatches_mem.mp hσm
   obtain ⟨hσ, hpvs⟩ := cmatch_sound hσm
-  obtain ⟨hreq, hrhs⟩ := ruleSorted_of hok hr
-  refine ⟨r, hr, σ, hσ, patVal_of_patVals hpvs, fun t ht => ?_,
-    evalT_sound hsc hcc hcm n he Exec.headsOK_fns hσ hrhs, fun t ht => ?_, hs, fun r' hr' hlt τ hτ hpv => ?_⟩
-  · rw [ht] at hreq
-    unfold reqVal at hb
-    rw [ht] at hb
-    cases he' : CExec.evalT c n σ t with
-    | none => simp [he'] at hb
-    | some v =>
-      simp only [he', Option.map_some, Option.some.injEq] at hb
-      rw [isTrue_iff.mp hb.symm] at he'
-      exact evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ (reqOK_some hreq)
+  obtain ⟨-, hrhs⟩ := ruleSorted_of hok hr
+  obtain ⟨hreq, hpre⟩ := req_pre_of_matchVal hsc hcc hcm hok hr hσ hb.symm
+  refine ⟨r, hr, σ, hσ, patVal_of_patVals hpvs, hreq, hpre,
+    evalT_sound hsc hcc hcm n he Exec.headsOK_fns hσ hrhs, fun t ht => ?_,
+    predVal_sound hsc hcc hcm hσ (fun _ _ => rfl) (ruleSorted_preds_of hok hr).2 hpo, hs,
+    fun r' hr' hlt τ hτ hpv => ?_⟩
   · have hens := ruleSorted_ens_of hok hr
     rw [ht] at hens
     unfold ensVal at hen
@@ -568,31 +706,30 @@ theorem successorsN_sound (hok : c.sortedOK = true) (hsr : c.srReady = true) (ho
       exact evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ (reqOK_some hens)
   · obtain ⟨σ₀, hσ₀m, hag⟩ := hrc r' hr' x.val τ x.property hτ hpv
     have hσ₀ := (cmatch_sound hσ₀m).1
-    have hf := hlow r' hr' hlt (σ₀, reqVal c n r' σ₀) (ruleMatches_mem.mpr ⟨hσ₀m, rfl⟩)
-    simp only at hf
-    unfold reqVal at hf
-    obtain ⟨hreq', -⟩ := ruleSorted_of hok hr'
-    cases ht : r'.req with
-    | none => simp [ht] at hf
-    | some t =>
-      rw [ht] at hf hreq'
-      cases he' : CExec.evalT c n σ₀ t with
-      | none => simp [he'] at hf
-      | some v =>
-        simp only [he', Option.map_some, Option.some.injEq] at hf
-        have hts := reqOK_some hreq'
-        have hev := evalT_sound hsc hcc hcm n he' Exec.headsOK_fns hσ₀ hts
-        refine RuleReqFails.intro ht (EvalTerm.congr hev (fun i hi => hag i (sortOfTerm_vars hts i hi))) ?_
-        intro hv
-        rw [hv] at hf
-        exact absurd (isTrue_iff.mpr rfl) (by rw [hf]; simp)
+    exact ruleReqFails_of_matchVal hsc hcc hcm hok hr' hσ₀ hag
+      (hlow r' hr' hlt (σ₀, matchVal c n r' σ₀) (ruleMatches_mem.mpr ⟨hσ₀m, rfl⟩))
+
+/-- **Every successor the executable step lists, at any fuel, is a step's**: it comes from a rule,
+a well-sorted match, a `requires` evaluating to `true` and the right-hand side's result, and no rule
+of a smaller priority applies. -/
+theorem successorsN_sound (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+    (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
+    (hy : y ∈ successorsN c n x.val) :
+    ∃ r ∈ c.rules, ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x.val ∧
+      (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧
+      EvalTerm c σ r.rhs (some y) ∧
+      (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ c.sortOf y = some topCellSort ∧
+      (∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :=
+  let ⟨r, hr, σ, hσ, hpv, hreq, _, hrhs, hens, _, hs, hprio⟩ := successorsN_sound_preds hok hsr hov hcm hrc hy
+  ⟨r, hr, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩
 
 /-- Every successor the executable step lists, at any fuel, is a configuration `Step` reaches. -/
-theorem successorsN_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem successorsN_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
-  obtain ⟨r, hr, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩ := successorsN_sound hok hsr hov hcm hrc hy
-  exact ⟨hs, Step.rule_top r hr σ (htop _ hr).1 (htop _ hr).2 hσ hpv hreq hrhs hens hprio⟩
+  obtain ⟨r, hr, σ, hσ, hpv, hreq, hpre, hrhs, hens, hpost, hs, hprio⟩ :=
+    successorsN_sound_preds hok hsr hov hcm hrc hy
+  exact ⟨hs, .rule r hr σ hσ hpv hreq hpre hrhs hens hpost hprio⟩
 
 /-- `successors` keeps successors of `successorsN` only. -/
 theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),
@@ -610,13 +747,13 @@ theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),
 
 /-- **The executable step is sound**: every successor `CExec.successors` lists is a `Step`
 successor, given the matcher's completeness for the clauses and the rules. -/
-theorem successors_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem successors_step (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {x : Config c} {y : GroundTerm}
     (hy : y ∈ successors c x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   unfold successors at hy
   rcases mem_of_mem_dedup _ [] hy with h | h
   · nomatch h
-  · exact successorsN_step hok hsr hov htop hcm hrc h
+  · exact successorsN_step hok hsr hov hcm hrc h
 
 /-- `successors_step` from the readiness check. -/
 theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete c)
@@ -624,12 +761,6 @@ theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete
     ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
-  unfold successors at hy
-  rcases mem_of_mem_dedup _ [] hy with h | h
-  · nomatch h
-  obtain ⟨r, hmem, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩ :=
-    successorsN_sound hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc h
-  obtain ⟨hpre, hpost, -⟩ := rule_plain_of_execReady hr hmem
-  exact ⟨hs, Step.rule_top r hmem σ hpre hpost hσ hpv hreq hrhs hens hprio⟩
+  exact successors_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc hy
 
 end KCore.CExec

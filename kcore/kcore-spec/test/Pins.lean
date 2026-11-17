@@ -105,6 +105,33 @@ example (c : Semantics) : FnHyp c =
       (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) ∧
       OpenDecided c ∧ OpenLaws c) := rfl
 
+example (c : Semantics) (cl : Clause) : MatchIndependent c cl =
+    (Coherent c cl cl ∧
+      (cl.exs ≠ [] → ∀ f fn vs σ, c.lookupFn f = some fn → cl ∈ fn.clauses →
+        cl.Decides c fn σ vs → ∃ r, cl.Res c σ r)) := rfl
+
+example : ∀ {c : Semantics} {cl : Clause}, cl.exs = [] → (MatchIndependent c cl ↔ Coherent c cl cl) :=
+  @matchIndependent_iff_noExs
+
+example (c : Semantics) (cl cl' : Clause) : CoherentPlain c cl cl' =
+    (∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
+      (∀ t, cl.req = some t → HDet c σ t) →
+      ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs) →
+      (∀ t, cl.ens = some t → HDet c σ t) →
+      (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
+        cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
+      (cl.rhs = cl'.rhs ∧ cl.ens = cl'.ens ∧ (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∧
+        ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) ∨
+      ∀ r r',
+        ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧ EvalTerm c σ cl.rhs r ∨
+          ∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ r = none) →
+        ((∀ t, cl'.ens = some t → EvalTerm c σ' t (some (bool true))) ∧ EvalTerm c σ' cl'.rhs r' ∨
+          ∃ t w, cl'.ens = some t ∧ EvalTerm c σ' t w ∧ w ≠ some (bool true) ∧ r' = none) →
+        r = r') := rfl
+
+example : ∀ {c : Semantics} {cl cl' : Clause}, cl.exs = [] → cl'.exs = [] → cl.post = .top → cl'.post = .top →
+    (Coherent c cl cl' ↔ CoherentPlain c cl cl') := @coherent_iff_noExs
+
 example (c : Semantics) : OpenDecided c =
     ((∀ r ∈ c.rules, r.needsWitness c = true → r.CondDecided c) ∧
       (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)) := rfl
@@ -309,7 +336,7 @@ section AttrsAgreePins
 open AttrsAgree
 
 example (k : Kore.Definition) (d : Definition) : attrsAgree k d =
-    (ctors k d.sem && fns k d.sem && hooks k d.sem && colls k d.sem && prios k d.sem) := rfl
+    (ctors k d.sem && fns k d.sem && hooks k d.sem && colls k d.sem && prios k d) := rfl
 
 example (as : List Kore.AppPattern) (a : String) : strArg as a =
     ((as.find? (·.head.ident.name == a)).bind fun p => match p.args with
@@ -387,9 +414,18 @@ example (k : Kore.Definition) (c : Semantics) : colls k c =
      declared.all (fun x => c.allColls.any fun cs => own cs == x) &&
        c.colls.all fun cs => declared.contains (own cs)) := rfl
 
-example (k : Kore.Definition) (c : Semantics) : prios k c =
-    (let axs := k.axiomDecls.map (·.ax)
-     ((axs.filter (isRewrite ·.pattern)).map (prioOf ·.attributes) == c.rules.map (·.prio)) &&
+example (as : List Kore.AppPattern) : uidOf as = strArg as "UNIQUE'Unds'ID" := rfl
+
+example (k : Kore.Definition) (u : String) : rewritePrioOf k u =
+    ((k.axiomDecls.map (·.ax)).find? fun a => isRewrite a.pattern && uidOf a.attributes == some u).map
+      (prioOf ·.attributes) := rfl
+
+example (k : Kore.Definition) (d : Definition) : prios k d =
+    (let c := d.sem
+     let axs := k.axiomDecls.map (·.ax)
+     d.pres.rules.length == c.rules.length &&
+     ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
+     ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
        let n := c.symName f.label
        ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
@@ -702,6 +738,9 @@ example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n
 
 /-- info: 'KCore.Coherent.of_fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Coherent.of_fnDet
+
+/-- info: 'KCore.coherent_iff_noExs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.coherent_iff_noExs
 
 /-- info: 'KCore.sound_hyp₀' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.sound_hyp₀

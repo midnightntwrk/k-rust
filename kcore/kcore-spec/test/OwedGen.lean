@@ -52,7 +52,7 @@ theorem names_ok : c.sortName sExp = "Exp" ∧ c.symName isKResult = "LblisKResu
     c.symName kCell = "Lbl'-LT-'k'-GT-'" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r6 : Rule := c.rules[6]'(by decide +kernel)
 noncomputable def r7 : Rule := c.rules[7]'(by decide +kernel)
@@ -203,7 +203,7 @@ theorem names_ok : c.sortName sS = "S" ∧ c.sortName sE = "Empty" ∧ c.sortNam
     c.symName isMk = "LblisMk" := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
 

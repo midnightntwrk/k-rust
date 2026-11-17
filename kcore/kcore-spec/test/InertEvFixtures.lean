@@ -41,7 +41,7 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 /-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 theorem shapesOKH (H : HookParams) : (cH H).shapesOK = true := (by decide +kernel : c.shapesOK = true)
 
@@ -82,7 +82,7 @@ user_axioms U from "f2-examples/lazy.kore" module "LAZY"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem shapesOK : c.shapesOK = true := by decide +kernel
 
 /-- The definition's parameter implemented by `kIte`. -/

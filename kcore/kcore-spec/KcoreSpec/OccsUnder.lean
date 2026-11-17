@@ -330,10 +330,10 @@ theorem ovl_backR (hsc : SortCtx c) {L : List CtorSig} (hL : HeadsOK c L) {f : S
   obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk ho
   obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
   have H := (inferInstance : OvlOK c).hyp htr
-  obtain ⟨-, -, -, hks, -⟩ := OvlLaws.ovl_facts H hlo
+  obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
   refine ⟨hit, fun {w} hw {bs} hbl hbs hm => ?_⟩
   obtain ⟨a, ha, hm⟩ := hm
-  obtain ⟨ws, hws, hb, -⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) hw hbl hbs
+  obtain ⟨ws, hws, hb, -⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) (OvlOK.noFnOver _) hw hbl hbs
     ⟨a, by rw [← hn] at ha; exact ha, hm⟩
   exact ⟨ws, hws, hb⟩
 

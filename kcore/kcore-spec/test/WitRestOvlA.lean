@@ -86,9 +86,9 @@ def c0 : Semantics :=
 def fInt : CtorSig := ⟨nRegSyms + 4, [Srt.int], Srt.int⟩
 def c : Semantics := { c0 with ovls := [⟨fInt, []⟩] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 theorem fnHyp : FnHyp c :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
@@ -99,9 +99,9 @@ set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov5 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_ov4 : ov4 c = false := by decide +kernel
 

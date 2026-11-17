@@ -421,10 +421,10 @@ theorem model_with_eqns_choice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp
       ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
   have hm := hypModel_of_fnHyp h hf
   have hfd := (fnModel_of_fnHyp h hf).1
-  have hrules := Semantics.ruleFactsPP_of_core h
+  have hrules := Semantics.ruleFactsHeld_of_core h
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
   have hI : stdI_T c (liftT_ex c T) ⊧ᴵP (Γc c ∪ Γstep c) := by
-    refine stdI_T_model_pp c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
+    refine stdI_T_model_held c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
     · intro x y hx hy hT
       obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))
       exact ⟨r, σ, stepVBy_of_stepBy hfd hb⟩

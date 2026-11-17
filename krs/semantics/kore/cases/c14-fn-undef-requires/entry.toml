@@ -1,17 +1,41 @@
 id = "c14-fn-undef-requires"
 kind = "case"
 subject = "An equation whose requires is undefined (a division by zero) does not apply: the [owise] equation gives the value."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t30-hooks-strict", "kk:t31-int-division"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["res(2)"]
+reason = """
+(1) The first equation of f, f(X) => 1 requires 10 /Int X >Int 0, has priority 50; the [owise] equation f(_) => 2 has 200 and applies only where the first has been shown not to apply (user_manual.md:1711-1713, 1739-1741; kk:t12-eq-priority-owise).
+(2) At 0 the first equation's argument pattern X matches, and its requires is 10 /Int 0 >Int 0. Division by zero has no value (domains.md:1233-1234; kk:t31-int-division), and >Int applied to an argument that denotes nothing denotes nothing (kk:t30-hooks-strict): the requires does not evaluate to true. An equation states its right side only at the arguments where its requires evaluates to true (kk:t11-eq-applies; user_manual.md:1154-1157), so the first equation does not apply at 0 and the [owise] equation does: f(0) = 2.
+(3) The one rule matches go(0) and applies (kk:t01-rule-applies); its right side res(f(0)) denotes res(2) (kk:t10-fn-innermost). go(0) has that one successor (kk:t02-step-successors), and no rule's left side matches res(2), which is final (kk:t06-final-configuration). The final configurations are res(2) alone: res(1) would need the first equation to apply at 0, which (2) excludes."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts on the division by zero in an equation's requires. That requires is not \
-true, so the equation does not apply and the [owise] equation gives the value."""
+reason = "The llvm backend aborts on 10 /Int 0 in the requires of f's first equation ([hook_INT_tdiv]: Division by zero): an error; the ruling has res(2)."

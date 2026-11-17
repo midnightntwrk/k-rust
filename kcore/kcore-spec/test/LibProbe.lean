@@ -63,7 +63,9 @@
   evaluates: `findChar`'s equation (1891), which it does not probe, and `sqrtFloat`'s (1671), which
   applies `rootFloat`, no symbol of Γ in these texts. `checkAll` excepts one more sentence from the
   first condition only (`unlisted`): RANGEMAP's associativity, a condition on the interpretation that
-  `Semantics.libAdmitted` does not state.
+  `Semantics.libAdmitted` does not state. `checkFlt` and `checkAll` except one line of
+  `libSentences` from the third (`quiet`): `=/=Float`'s equation (1648), whose silent points are at
+  no format of the Float grid.
 -/
 import KcoreSpec
 
@@ -800,12 +802,19 @@ not (`m = [0, 2) |-> 0`, `n = [1, 3) |-> 1`, `p = [3, 5) |-> 2` under `pick 0`: 
 `m (n p)` the empty map), `HookParams.none` and `HookParams.lib` do (no value on either side). -/
 def unlisted : List String := ["15 Lbl'Unds'RangeMap'Unds'"]
 
+/-- The sentences at a line of `libSentences` that read the interpretation at no point of the
+grid: `=/=Float`'s equation (domains.md 1648). Its sides apply `==Float` and `=/=Float`, which have
+their values wherever both operands have a datum (`asDatum`: a format with a model, or precision 1
+and at least 2 exponent bits); so its silent points are at the formats of one exponent bit, and
+the Float grid (`floats`: binary32 and `p1x2`) holds none. -/
+def quiet : List String := ["17 domains.md:1648"]
+
 /-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
-condition, `unmet` and `extra` aside, and reads it only where its left side is silent, every named
-sentence the text holds reads it, and under `HookParams.lib` only the control (set idempotence) and
-`unmet` fail. -/
-def readsOK (r : Reads) (extra : List String := []) : Bool :=
-  r.unnamed.all (fun n => unmet.contains n || extra.contains n) && r.unread.isEmpty && r.off.isEmpty &&
+condition, `unmet` and `extra` aside, and reads it only where its left side is silent, the named
+sentences the text holds that read it nowhere are exactly `unreadOK`, and under `HookParams.lib`
+only the control (set idempotence) and `unmet` fail. -/
+def readsOK (r : Reads) (extra : List String := []) (unreadOK : List String := []) : Bool :=
+  r.unnamed.all (fun n => unmet.contains n || extra.contains n) && r.unread == unreadOK && r.off.isEmpty &&
     r.libFails.all fun n => n.startsWith "16 " || unmet.contains n
 
 /-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
@@ -824,18 +833,21 @@ points and no value elsewhere (each meets `Semantics.silentTotal`). -/
 def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
 
 /-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
-readings, the Int grid without 2^64 + 1. Row 9's ten failures are the `functional` sentences of
-`substrString`, `Int2Bytes` (at a negative length), `isNaN`, `--Float`, `absFloat`, `floorFloat`,
+readings, the Int grid without 2^64 + 1. Row 9's nine failures are the `functional` sentences of
+`substrString`, `Int2Bytes` (at a negative length), `--Float`, `absFloat`, `floorFloat`,
 `ceilFloat`, `truncFloat`, `countAllOccurrences` and `replaceAll` (at the empty needle), under
-`HookParams.none` only. Row 17's five: `countAllOccurrences`' second equation (1898) at the empty
+`HookParams.none` only (`isNaN` has its values at the `p1x2` data, `asDatum`). Row 17's four:
+`countAllOccurrences`' second equation (1898) at the empty
 needle, under every reading that gives the count a value there (`unmet`); `replaceAll`'s (1917) at
 the empty needle under the readings that give `replaceAll` and `replace` at the count different
 values; `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
 values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so the right
-side has none); `=/=Float`'s (1648) and `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
-which give the silent points of two symbols values that do not agree with the equation. -/
+side has none); `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
+which give the silent points of two symbols values that do not agree with the equation.
+`=/=Float`'s (1648) reads the interpretation nowhere: `==Float` and `=/=Float` have their values at
+the `p1x2` data (`asDatum`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 37, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 38, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -843,7 +855,7 @@ def checkFlt : IO Unit := do
   let (s, r, t) ← run path (modes := fltModes) (small := true)
   if s != expectedFlt then throw (IO.userError s!"{path}: counts {s}, expected {expectedFlt}")
   if t != expectedFltTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedFltTwo}")
-  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !readsOK r (unreadOK := quiet) then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 /-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
@@ -855,7 +867,7 @@ interpretation; RANGEMAP's other sentences over Γ's symbols with a variable of 
 `functional` sentences of `lookupOrDefault`, `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size`
 and `updateRangeMap`, and the two unit laws) hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 43, 37, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 43, 38, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
@@ -865,7 +877,7 @@ def checkAll : IO Unit := do
   if t != expectedAllTwo then throw (IO.userError s!"{path}: at two-element sets {reprStr t}, expected {reprStr expectedAllTwo}")
   if !unlisted.all r.unnamed.contains then
     throw (IO.userError s!"{path}: sentences reading the interpretation without a named condition: {r.unnamed}, expected {unlisted} among them")
-  if !readsOK r unlisted then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  if !readsOK r unlisted quiet then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
   IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
 
 end KCore.LibProbe

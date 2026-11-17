@@ -67,18 +67,23 @@ noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.p
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/
 theorem shape : c3.ctorSigs.all (·.result != 33) = true ∧ c3.valued 33 = false ∧ clYE.leftVars = [] ∧
     c3.rightValued = false ∧ c3.sortedOK = true ∧ c3.coreOK = true := by
-  decide +kernel
+  decide_cheap
+
+/-- No clause of a function of `c3` has an existential variable or a right side's predicate other
+than `\top`. -/
+theorem plain3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top :=
+  fun fn hfn => Semantics.sortedOK_plainCl shape.2.2.2.2.1 fn (List.mem_append_left _ hfn)
 
 /-- What the lemmas ask of `c3`, decided, and no clause of `c3` needs a witness. -/
 theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] ∧
     c3.subsorts.all (fun p => p.1 != p.2) = true ∧ c3.faithCoreOK = true ∧ Faithful.patHooksApart c3 = true ∧
     c3.overloadsOK = true ∧ (∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c3 = false) := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c3`. -/
 example : c3.faithCoreOK = true ∧ c3.hooksApart = true ∧ c3.predsApart = true ∧ c3.idsOK = true ∧
     c3.overloadsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl3 : OvlOK c3 := OvlOK.of_nil decided.2.2.1 decided.2.2.2.1
 
@@ -118,14 +123,15 @@ theorem evalF : Eval c3 391 [] (some (.dv Srt.int (.int 1))) :=
     (fun cl' h _ hlt => by
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl <;> simp [clYE, clOne] at hlt)
-    .dv (fun t h => by cases h)
+    rfl .dv (fun t h => by cases h) .top
 
 /-- `g(1)` is `0`: its one clause applies. -/
 theorem evalG : Eval c3 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
   have hfn : c3.lookupFn 389 = some gF := gF_shape.1 ▸ lookup3 gF_mem
   refine Eval.clause (σ := [(0, .dv Srt.int (.int 1))]) hfn clG_mem (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) ?_
-    (fun t ht => by rw [clG_ens] at ht; cases ht)
+    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_)
+    (plain3 gF gF_mem _ clG_mem).1 ?_
+    (fun t ht => by rw [clG_ens] at ht; cases ht) (Clause.holds_postTop (plain3 gF gF_mem _ clG_mem).2 _)
   · rw [gF_shape.2.2] at hs
     cases i with
     | zero => cases hs; exact ⟨_, rfl, by decide +kernel⟩
@@ -254,7 +260,7 @@ fails); `f()` is `1` by `clOne`. -/
 theorem fnTerminates3 : FnTerminates c3 := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hfn' | hfn'
-  · refine eval_result (lookup3 hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
+  · refine eval_result (lookup3 hfn) (plain3 fn hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop (textPre fn hfn' cl hcl) σ⟩) (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
@@ -332,10 +338,10 @@ theorem clYE_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesAt
   exact no_E v hv
 
 /-- A clause without `ensures` whose right side is a literal is coherent with itself. -/
-theorem coherent_dv {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l) :
-    Coherent c3 cl cl :=
-  Coherent.of_rhs hn hn fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
-    rw [hr] at h h'; cases h; cases h'; rfl
+theorem coherent_dv {cl : Clause} (hx : cl.exs = []) (hn : cl.ens = none) {s : Srt} {l : Lit}
+    (hr : cl.rhs = .dv s l) : MatchIndependent c3 cl :=
+  (matchIndependent_iff_noExs hx).mpr <| Coherent.of_rhs hn hn (fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+    rw [hr] at h h'; cases h; cases h'; rfl) hx hx
 
 /-- **The equations of `c3`'s functions agree**: the text's clauses of one function are of
 different priorities; `clYE` and `clOne` are of one priority, and `clYE` applies nowhere. -/
@@ -358,14 +364,14 @@ theorem matchInd3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hu | hf
   · have h4 := (textFns fn hu cl hcl).2.2.2
     cases hr : cl.rhs with
-    | dv s l => exact coherent_dv (textFns fn hu cl hcl).2.2.1 hr
+    | dv s l => exact coherent_dv (plain3 fn hfn cl hcl).1 (textFns fn hu cl hcl).2.2.1 hr
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
     subst hf
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl
     rcases hcl with rfl | rfl
-    · exact fun vs σ _ ha => absurd ha (clYE_not_applies σ vs)
-    · exact coherent_dv rfl rfl
+    · exact (matchIndependent_iff_noExs rfl).mpr fun vs σ _ ha => absurd ha (clYE_not_applies σ vs)
+    · exact coherent_dv rfl rfl rfl
 
 /-- **`fnModel_ofCl` at `c3`**: `c3`'s functions have one result at each argument list and its
 evaluation solves the equations, nothing assumed. -/
@@ -396,14 +402,20 @@ theorem totals3 : ∀ fn ∈ c3.fns, fn.total = true → ∀ vs, c3.sortsOf vs =
   have hfl := lookup3 hfn
   suffices key : ∃ v, r = some v by obtain ⟨v, rfl⟩ := key; exact ⟨v, hr⟩
   cases hr with
-  | clause hfn' hmem _ _ _ _ _ hrhs _ =>
+  | clauseEx hfn' hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hfl] at hfn'; cases hfn'
+    exact absurd (plain3 fn hfn _ hmem).1 hne
+  | exNone hfn' hmem hne _ _ _ _ _ _ _ =>
+    rw [hfl] at hfn'; cases hfn'
+    exact absurd (plain3 fn hfn _ hmem).1 hne
+  | clause hfn' hmem _ _ _ _ _ _ hrhs _ _ =>
     rw [hfl] at hfn'; cases hfn'
     have h4 := (textFns fn hu _ hmem).2.2.2
     revert hrhs h4
     cases _ : Clause.rhs _ with
     | dv s l => intro hrhs _; cases hrhs; exact ⟨_, rfl⟩
     | _ => intro _ h4; cases h4
-  | ensFails hfn' hmem _ _ _ _ _ hte _ _ =>
+  | ensFails hfn' hmem _ _ _ _ _ _ hte _ _ =>
     rw [hfl] at hfn'; cases hfn'
     rw [(textFns fn hu _ hmem).2.2.1] at hte; cases hte
   | rest hfn' hnone =>
@@ -452,7 +464,7 @@ example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHypCl decided.1 decided.2.1 o
 
 /-- **`fnDet_of_agree` at `c3`**: one result for every function from the agreement of the equations
 and the match independence of the clauses, nothing else of `c3` read. -/
-example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3
+example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
 
 /-- `_(1) => 1 requires H ==Int 0`, H:Int open (a clause, not one of `c3`'s). -/
 def clR : Clause :=
@@ -462,7 +474,7 @@ def clR : Clause :=
 /-- **`Clause.witnessedDet_of_fnHyp` at `clR`**: H := 0 makes its `requires` `true`, and with
 `FnHyp c3` that is its only result, so `clR` is `Witnessed` in `c3`. -/
 example : clR.Witnessed c3 :=
-  Clause.witnessedDet_of_fnHyp fnHyp3
+  Clause.witnessedDet_of_fnHyp fnHyp3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
     ⟨[(0, .dv Srt.int (.int 0))], (fun j _ s hs => by
       cases j with
       | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
@@ -508,7 +520,8 @@ theorem succ_go {r : Rule} {σ : Subst} {y : Config c3} (hs : StepBy c3 r σ Go 
     simp [varOccs, varOccsList] at hi
     subst hi
     rw [h0]; rfl
-  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3) hs.heval hev
+  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3)
+    (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1) hs.heval hev
   exact Option.some.inj this
 
 /-- **`complete_atCl` at `<k> go </k>`**: with the step's closure, in every model of `Γc c3`, every
@@ -702,7 +715,7 @@ theorem shapeW : c3W.coreOK = true ∧ clW0.needsWitness c3W = true ∧ clW0.con
     c.fns.all (fun fn => fn.clauses.all fun cl => !cl.needsWitness c3W) = true ∧
     [clYE, clOne].all (fun cl => !cl.needsWitness c3W) = true ∧
     c3W.rules.all (fun r => !r.needsWitness c3W) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- **`clW0` is `Witnessed`** at H := 0: `0 ==Int 0` is `true`, and by inversion of the hook nothing else. -/
 theorem witW0 : clW0.Witnessed c3W := by
@@ -794,7 +807,7 @@ noncomputable def c5 : Semantics := { c with fns := c.fns ++ [fF5], params := c.
 
 theorem shape5 : clYE.leftVars = [] ∧ clYE.vars = [33] ∧ c5.coreOK = true ∧ c5.rightValued = false ∧
     c5.ctorSigs.all (·.result != 33) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `clYE` is among `clOne5`'s `lowerClauses`: not `aside`, of a smaller priority. -/
 theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
@@ -803,7 +816,7 @@ theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
 theorem decided5 : c5.sortedOKCl = true ∧ c5.srReady = true ∧ c5.ovls = [] ∧
     c5.subsorts.all (fun p => p.1 != p.2) = true ∧ c5.faithCoreOK = true ∧ Faithful.patHooksApart c5 = true ∧
     c5.idsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl5 : OvlOK c5 := OvlOK.of_nil decided5.2.2.1 decided5.2.2.2.1
 
@@ -873,10 +886,15 @@ theorem clYE_not_applies5 (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesA
   obtain ⟨v, -, hv⟩ := h 0 33 rfl
   exact no_E5 v hv
 
-theorem coherent_dv5 {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l) :
-    Coherent c5 cl cl :=
-  Coherent.of_rhs hn hn fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
-    rw [hr] at h h'; cases h; cases h'; rfl
+theorem coherent_dv5 {cl : Clause} (hx : cl.exs = []) (hn : cl.ens = none) {s : Srt} {l : Lit}
+    (hr : cl.rhs = .dv s l) : MatchIndependent c5 cl :=
+  (matchIndependent_iff_noExs hx).mpr <| Coherent.of_rhs hn hn (fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+    rw [hr] at h h'; cases h; cases h'; rfl) hx hx
+
+/-- No clause of a function of `c5` has an existential variable or a right side's predicate other
+than `\top`. -/
+theorem plain5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top :=
+  fun fn hfn => Semantics.sortedOK_plainCl (Semantics.coreOK_parts shape5.2.2.1).1 fn (List.mem_append_left _ hfn)
 
 theorem agree5 : ∀ fn ∈ c5.fns, ClausesAgree c5 fn := by
   intro fn hfn
@@ -895,14 +913,14 @@ theorem matchInd5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF5] from hfn) with hu | hf
   · have h4 := (textFns fn hu cl hcl).2.2.2
     cases hr : cl.rhs with
-    | dv s l => exact coherent_dv5 (textFns fn hu cl hcl).2.2.1 hr
+    | dv s l => exact coherent_dv5 (plain5 fn hfn cl hcl).1 (textFns fn hu cl hcl).2.2.1 hr
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
     subst hf
     simp only [fF5, List.mem_cons, List.not_mem_nil, or_false] at hcl
     rcases hcl with rfl | rfl
-    · exact fun vs σ _ ha => absurd ha (clYE_not_applies5 σ vs)
-    · exact coherent_dv5 rfl rfl
+    · exact (matchIndependent_iff_noExs rfl).mpr fun vs σ _ ha => absurd ha (clYE_not_applies5 σ vs)
+    · exact coherent_dv5 rfl rfl rfl
 
 theorem reqNone5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.req = none := by decide +kernel
 
@@ -911,12 +929,12 @@ theorem preTop5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
   fun fn hfn cl hcl =>
     Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
 
-theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5
+theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5 (Semantics.fnsNoExs_of_coreOK shape5.2.2.1)
 
 /-- **Evaluation solves `c5`'s equations**: a clause instance that decides is one of the text's or
 `clOne5`, whose right sides are literals; `clYE` decides nowhere. -/
 theorem fnSolves5 : FnSolves c5 := by
-  refine fnSolves_of_parts_lookup (fun _ hfn => lookup5 hfn) fnDet5 ?_ ?_
+  refine fnSolves_of_parts_lookup (fun _ hfn => lookup5 hfn) fnDet5 plain5 ?_ ?_
   · intro fn hfn _ _ _ _ _ cl' hcl' _ _ σ' _ _
     exact ⟨(fun t ht => by rw [reqNone5 fn hfn cl' hcl'] at ht; cases ht), true,
       Clause.holds_preTop (preTop5 fn hfn cl' hcl') σ'⟩

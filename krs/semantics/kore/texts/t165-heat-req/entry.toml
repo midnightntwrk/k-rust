@@ -3,6 +3,7 @@ kind = "text"
 subject = "A rule written by the author with [heat] and a requires, and no variable named HOLE: a(X) => b(X) requires X >Int 0 [heat]."
 retro = ["S4"]
 origin = "kcore-spec fixture c3-rule-heat-req"
+rests_on = ["kk:t02-step-successors"]
 
 [text]
 files = ["t165-heat-req.k"]
@@ -12,11 +13,11 @@ frontend = "manual-silent"
 [ruling]
 status = "settled"
 form = "means"
-statement = "The written rule states that a(x) steps to b(x) at every x > 0, as the rule without the attribute does. kompile conjoins notBool isKResult(HOLE) to the requires with HOLE a variable of sort K that no side of the rule holds; since some element of K is no result (a(0) is none), the conjunct excludes no instance of the rule."
+statement = "kompile conjoins notBool isKResult(HOLE) to the requires, with HOLE a variable of sort K that no side of the rule holds. The written rule states that a(x) steps to b(x) at every x > 0 at each valuation of HOLE where isKResult(HOLE) is false, and states nothing at a valuation where it is true. So in a model where isKResult is false at some element of K, as where the sequence of the one item a(0) is an element distinct from every sequence of one Int, the rule states what the rule without the attribute states, a(x) => b(x) at every x > 0; in a model where isKResult is true at every element of K, it states nothing."
 reason = '''
 (1) The manual says that in heating and cooling rules the variable named HOLE is the term heated or cooled, and that the compiler generates the isKResult(HOLE) and notBool isKResult(HOLE) side conditions (user_manual.md:1812-1817); a user may write such rules directly (user_manual.md:1807-1810). It says nothing of a heat rule with no variable named HOLE.
-(2) The written condition is X >Int 0 andBool notBool isKResult(HOLE) = true, HOLE a variable of sort K free in the axiom (kore.txt:103-111). An axiom holds at every valuation of its variables (introduction-to-matching-logic.tex:767-768). At a valuation where isKResult(HOLE) is true the left side is empty and the axiom states nothing; at one where it is false the condition is X >Int 0. KResult holds Int only, and a(0) is a Cmd, so the text's isKResult equations give isKResult(a(0)) = false: such a valuation exists.
-(3) So the axiom states a(x) => b(x) where x > 0, by (2), and nothing more. A rewrite axiom \rewrites(L, R) is L -> next R: at every valuation every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980).'''
+(2) The written condition is X >Int 0 andBool notBool isKResult(HOLE) = true, HOLE a variable of sort K free in the axiom (kore.txt:103-111). An axiom holds at every valuation of its variables (introduction-to-matching-logic.tex:767-768). At a valuation where isKResult(HOLE) is true the left side is empty and the axiom states nothing; at one where it is false the condition is X >Int 0. KResult holds Int only (t165-heat-req.k:4), and the text's equations give isKResult(k) = true where k is a sequence of one injected KResult and false at every other element of K (kore.txt:185-237). So a valuation of the second kind exists exactly where some element of K is not a sequence of one injected Int, as the sequence of the one item a(0) is where it is distinct from those; the text's sentences on K, its sequences and its injections are not read here, and the statement is conditional on that.
+(3) So at a valuation of the second kind the axiom states a(x) => b(x) where x > 0, by (2), and nothing more: a rewrite axiom states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)).'''
 
 [ruling.kore]
 statement = 'The rule is one \rewrites axiom whose condition is \equals(X >Int 0 andBool notBool isKResult(HOLE), true) with HOLE:SortK free (kore.txt:103-111).'
@@ -40,11 +41,6 @@ quote = "cooling rules and should be handled in the manner just described. Nothi
 source = "matching-logic"
 locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
 quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
-
-[[ruling.basis]]
-source = "matching-logic"
-locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
-quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
 
 [[observe]]
 file = "kore.txt"

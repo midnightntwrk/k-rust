@@ -1,0 +1,41 @@
+id = "t173-string2base-sign"
+kind = "text"
+subject = 'String2Base of a string with a sign, here String2Base("-10", 2), and String2Base at a radix outside 2 to 36.'
+retro = ["ST4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1837 (K 7.1.337)", quote = "syntax Int ::= String2Base ( String , base: Int ) [function, hook(STRING.string2base)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. The radix can be anywhere between 2 and 36, with the digits 0 to N-1 for a radix up to 10 and the first N-10 letters beyond, of either case (domains.md:1825-1829). String2Int reads the syntax of INT, a nonempty sequence of digits optionally prefixed by a sign (1820-1822). String2Base is not total (1837). At a radix outside 2 to 36 nothing is stated.
+Where the readings part. The radix sentence names the digits and does not mention a sign; the sentence before it gives String2Int a sign. Whether String2Base reads a sign is not said.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1825-1829 (K 7.1.337)"
+quote = "You can also convert between a `String` and an `Int` in a particular radix. This radix can be anywhere between 2 and 36. For a radix 2 <= N <= 10, the digits 0 to N-1 will be used. For a radix 11 <= N <= 36, the digits 0 to 9 and the first N-10 letters of the Latin alphabet will be used. Both uppercase and lowercase letters are supported by `String2Base`. Whether the letters"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1820-1822 (K 7.1.337)"
+quote = "You can convert between a `String` and an `Int`. The String will be represented in the syntax of the `INT` module (i.e., a nonempty sequence of digits optionally prefixed by a sign). When converting from an `Int` to a `String`,"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1837 (K 7.1.337)"
+quote = "syntax Int ::= String2Base ( String , base: Int ) [function, hook(STRING.string2base)]"
+
+[[reading]]
+name = "signed"
+statement = "String2Base reads an optional sign before the digits, as String2Int does."
+answer = 'String2Base("-10", 2) = -2'
+consequence = "Base2String and String2Base are inverse on negative numbers too."
+
+[[reading]]
+name = "digits-only"
+statement = "String2Base reads the digits of the radix only; a sign is no digit."
+answer = 'String2Base("-10", 2) has no stated value'
+consequence = "A consumer may compute String2Base only on strings of digits."

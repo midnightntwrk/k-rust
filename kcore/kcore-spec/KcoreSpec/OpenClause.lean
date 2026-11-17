@@ -311,7 +311,7 @@ well sorted, whose `requires` is a Bool, and whose open condition variables are 
 or whose conditions are closed; where its conditions are decided when `needsWitness` holds
 and the definition reads a confined sort where an open condition variable is of one. Where the
 predicate is not `\top`, it is read in the model (`PreRead`) and terms have at most one result
-(`CoherentAll`). -/
+(`CoherentAll`, no clause with an existential variable). -/
 theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hsc : SortCtx c)
     [OvlOK c] (hph : patHooksApart c = true) (hcso : collSortsOK c = true) (hcs : collsOK c = true)
     (hph' : patHeadsOK c = true)
@@ -320,7 +320,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     {fn : Fn} {cl : Clause} {L : List CtorSig}
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hpreOK : c.condOK cl.vars cl.pre = true)
-    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ CoherentAll c)
+    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ CoherentAll c ∧ c.FnsNoExs)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hconj : (!cl.reqOpen || cl.reqClosed ||
       cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true)
@@ -590,7 +590,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
                 (by rw [Clause.leftSortsB_getD hj' (List.mem_append_right _ hc)]; exact hws') (by
                   show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars j))
                   rw [setV_on hkeysC hj' hc, hw', Option.getD_some])]
-          exact absurd (Holds.functional (hpR hne).2 hT hpf) (by decide)
+          exact absurd (Holds.functional (hpR hne).2.1 (hpR hne).2.2 hT hpf) (by decide)
   · -- refuted: but the conditions hold at the binders
     exact Clause.not_refuted_at hI hpreOK (fun i hi hc => hinL i hi (List.mem_append_right _ hc)) hreqlt hRv' hσR
       (fun t ht => by rw [ht] at hreqE; exact hreqE)

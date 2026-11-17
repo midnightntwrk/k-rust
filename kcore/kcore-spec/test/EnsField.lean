@@ -53,8 +53,8 @@ def base : Semantics :=
 def c : Semantics := { base with rules := [r50, r200] }
 def c1 : Semantics := { base with rules := [r50t] }
 
-theorem coreOK : c.coreOK = true := by decide +kernel
-theorem coreOK1 : c1.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOK1 : c1.coreOK = true := by decide_cheap
 
 /-- An `ensures` that is not `\top` is a Bool, as `ruleSorted` asks. -/
 theorem sorted_ens : c.rules.all c.ruleSorted = true := by decide +kernel

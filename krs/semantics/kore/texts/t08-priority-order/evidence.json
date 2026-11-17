@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t08-priority-order.k": "61e3cb9b2135d10ba564db7ea1ee04af9b4ffa11299f651d514cae2be316d65a"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t08-priority-order.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "505106b14e3561e7330a7b0b08a2128f929230ccb2bb1f3388e142852e7c2c2d",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

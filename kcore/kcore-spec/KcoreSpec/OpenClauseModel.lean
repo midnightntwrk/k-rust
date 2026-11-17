@@ -32,8 +32,9 @@ theorem matchIndependentAll_ofCl (hmi : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses,
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with hu | hp
   · exact hmi fn hu cl hcl
-  · intro vs σ σ' _ _ _ _ _ _
-    refine Or.inl ⟨rfl, rfl, fun i hi => absurd hi ?_, fun t ht => ?_⟩
+  · refine ⟨fun vs σ σ' _ _ _ _ _ _ => ?_, fun hne => absurd (Semantics.sortPreds_exs hp cl hcl) hne⟩
+    refine Or.inl ⟨Semantics.sortPreds_exs hp cl hcl, Semantics.sortPreds_exs hp cl hcl, rfl, rfl,
+      fun i hi => absurd hi ?_, fun t ht => ?_⟩
     · obtain ⟨s', lit, hr⟩ := sortPreds_rhs hp cl hcl
       rw [hr, varOccs]
       exact List.not_mem_nil
@@ -124,7 +125,10 @@ theorem fnSolves_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true)
   fnSolves_of_parts_lookup (fun _ hfn => by
       rw [Semantics.lookupFn_eq]
       exact find?_label (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)).nodupFns (List.mem_append_left _ hfn))
-    hd (prioDecided_of_totalCl hok hsr hov ht) (coDefined_of_totalCl hok hsr hov ht)
+    hd (fun fn hfn cl hcl =>
+      let p := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl hcl).2
+      ⟨p.1, p.2.2.1⟩)
+    (prioDecided_of_totalCl hok hsr hov ht) (coDefined_of_totalCl hok hsr hov ht)
 
 /-- **One result, and evaluation solves the equations**, for a semantics whose clauses are asked
 CN-4's bodies, from the termination of its functions, the agreement of their equations and the
@@ -132,7 +136,8 @@ match independence of their clauses. -/
 theorem fnModel_ofCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
     (ht : FnTerminates c) (hag : ∀ fn ∈ c.fns, ClausesAgree c fn)
     (hmi : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) : FnDet c ∧ FnSolves c :=
-  have hd := fnDet_of_coherent (coherentAll_ofCl hag hmi)
+  have hd := fnDet_of_coherent (coherentAll_ofCl hag hmi) fun fn hfn cl hcl =>
+    (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl hcl).2).1
   ⟨hd, fnSolves_of_totalCl hok hsr hov hd ht⟩
 
 end Faithful

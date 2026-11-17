@@ -82,20 +82,20 @@ def c0 : Semantics :=
 /-- `KCellOpt` listed before `KCell`. -/
 def c : Semantics := { c0 with userSorts := [Srt.top, Srt.topFrag, nRegSorts + 1, nRegSorts, Srt.counter, Srt.counterOpt] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
 
 instance : OvlOK c := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧ ids5 c = true ∧
     ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_ids1 : ids1 c = false := by decide +kernel
 
@@ -126,26 +126,27 @@ def c : Semantics :=
 /-- The same, the predicate of `S` named `LblisS`. -/
 def c0 : Semantics := { c with symNames := ["LblisS"] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
 
 instance : OvlOK c := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids4 c = true ∧ ids5 c = true ∧
     ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, fnHyp⟩
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, fnHyp⟩
 
 theorem not_ids3 : ids3 c = false := by decide +kernel
 
 /-- The predicate of `S` is named `""` in `c`, `LblisS` in `c0`; no other symbol is named either. -/
 theorem pred_names : c.symName nRegSyms = "" ∧ c0.symName nRegSyms = "LblisS" ∧ predOf S = some nRegSyms ∧
-    namesApartK c = true ∧ namesApartK c0 = true := by decide +kernel
+    namesApartK c = true ∧ namesApartK c0 = true :=
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩
 
 end Short
 

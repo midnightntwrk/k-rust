@@ -17,25 +17,37 @@ open KCore
 
 variable {c : Semantics}
 
-theorem ruleOK_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
+/-- What `okM` checks of a rule's left side, `requires` and right-hand side. -/
+theorem ruleOKM_of {r : Rule} (hok : c.okM = true) (hr : r ∈ c.rules) :
     sortOfTerm c.patCtx r.vars r.lhs = some topCellSort ∧ noMapIn r.lhs = true ∧
       binds r.vars.length (varOccs r.lhs) = true ∧
       reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req = true ∧
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs = some topCellSort := by
-  have hrule : c.ruleOK r = true := by
-    simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at hok
-    exact hok.2 r hr
-  simp only [Semantics.ruleOK, Bool.and_eq_true, beq_iff_eq] at hrule
-  exact ⟨hrule.1.1.1.1.1.1.1.1, hrule.1.1.1.1.1.1.1.2, hrule.1.1.1.1.1.1.2, hrule.1.1.1.1.1.2, hrule.1.1.1.2⟩
+  have hrule : c.ruleOKM r = true := by
+    simp only [Semantics.okM, Bool.and_eq_true, List.all_eq_true] at hok
+    exact hok.1.2 r hr
+  simp only [Semantics.ruleOKM, Bool.and_eq_true, beq_iff_eq] at hrule
+  exact ⟨hrule.1.1.1.1.1.1, hrule.1.1.1.1.1.2, hrule.1.1.1.1.2, hrule.1.1.1.2, hrule.1.2⟩
+
+theorem ruleOK_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
+    sortOfTerm c.patCtx r.vars r.lhs = some topCellSort ∧ noMapIn r.lhs = true ∧
+      binds r.vars.length (varOccs r.lhs) = true ∧
+      reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req = true ∧
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs = some topCellSort :=
+  ruleOKM_of (Semantics.okM_of_ok hok) hr
 
 /-- What `ok` checks of a rule's `ensures`: a Bool. -/
-theorem ruleOK_ens_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
+theorem ruleOKM_ens_of {r : Rule} (hok : c.okM = true) (hr : r ∈ c.rules) :
     reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens = true := by
-  have hrule : c.ruleOK r = true := by
-    simp only [Semantics.ok, Bool.and_eq_true, List.all_eq_true] at hok
-    exact hok.2 r hr
-  simp only [Semantics.ruleOK, Bool.and_eq_true, beq_iff_eq] at hrule
-  exact hrule.1.1.1.1.2
+  have hrule : c.ruleOKM r = true := by
+    simp only [Semantics.okM, Bool.and_eq_true, List.all_eq_true] at hok
+    exact hok.1.2 r hr
+  simp only [Semantics.ruleOKM, Bool.and_eq_true, beq_iff_eq] at hrule
+  exact hrule.1.1.2
+
+theorem ruleOK_ens_of {r : Rule} (hok : c.ok = true) (hr : r ∈ c.rules) :
+    reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.ens = true :=
+  ruleOKM_ens_of (Semantics.okM_of_ok hok) hr
 
 theorem headsOK_fns : HeadsOK c (c.fns.map Fn.sig) :=
   fun k hk => by obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk; exact ⟨g, List.mem_append_left _ hg, rfl⟩

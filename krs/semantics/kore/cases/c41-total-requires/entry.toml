@@ -1,10 +1,42 @@
 id = "c41-total-requires"
 kind = "case"
 subject = "A function declared total used in a requires: its equation gives its value, and the rule applies where that value is true; the [owise] rule applies where it is false."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t06-final-configuration", "kk:t11-eq-applies"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["yes(3)", "no(12)"]
+reason = """
+(1) small's one equation states small(I) = I <Int 10 at every integer (kk:t11-eq-applies): small(3) = true and small(12) = false (domains.md:1324-1325). Its total attribute agrees: the equation gives one value at each argument (user_manual.md:546-551).
+(2) The two rules for two have priority 50 (user_manual.md:1748-1749), and both match two(3, 12) with no requires, so both apply: two(3, 12) has the successors go(3) and go(12) (kk:t02-step-successors).
+(3) The rule go(I) => yes(I) requires small(I) has 50 and the [owise] rule has 200 (user_manual.md:1739-1741). At go(3) the requires small(3) is true, so the first applies and the [owise] rule is not tried (kk:t01-rule-applies, kk:t04-rule-priority-owise): go(3) steps to yes(3) alone. At go(12) small(12) is false, so the first rule does not apply (user_manual.md:1154-1157) and the [owise] rule does: go(12) steps to no(12) alone.
+(4) No rule's left side matches yes(3) or no(12); both are final (kk:t06-final-configuration). The final configurations are yes(3) and no(12): no(3) and yes(12) would each need the other value of small, which (1) excludes."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-551 (K 7.1.337)"
+quote = "It can be added to a production with the `function` attribute to indicate to the symbolic reasoning engine that a given symbol is a *total function*, that is it has *exactly* one return value for every possible input."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1154-1157 (K 7.1.337)"
+quote = "If the requires clause does not evaluate to `true`, then the rule does not apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1741 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."

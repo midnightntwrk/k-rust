@@ -175,6 +175,18 @@ theorem Semantics.preTop_of_plain {c : Semantics} (hp : c.plain = true) {f : Sym
   rw [Semantics.lookupFn_eq] at hfn
   exact Semantics.preTop_of_plain_mem hp (List.mem_of_find?_eq_some hfn)
 
+/-- Each clause of a function of a plain definition has the predicates `\top` and no existential
+variable: the user's by `plain`, the generated sort predicates' by their text. -/
+theorem Semantics.plainCl_of_plain {c : Semantics} (hp : c.plain = true) {f : Sym} {fn : Fn}
+    (hfn : c.lookupFn f = some fn) : ∀ cl ∈ fn.clauses, cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top := by
+  intro cl hcl
+  refine ⟨Semantics.preTop_of_plain hp hfn cl hcl, ?_⟩
+  rw [Semantics.lookupFn_eq] at hfn
+  rcases List.mem_append.mp (List.mem_of_find?_eq_some hfn) with hu | hs
+  · simp only [Semantics.plain, Bool.and_eq_true, List.all_eq_true] at hp
+    exact ⟨List.isEmpty_iff.mp (hp.1.1.1.2 fn hu cl hcl).1.1.1.2, Cond.eq_top_of_isTop (hp.1.1.1.2 fn hu cl hcl).1.2⟩
+  · exact ⟨Semantics.sortPreds_exs hs cl hcl, Semantics.sortPreds_post hs cl hcl⟩
+
 /-- A plain definition has no function-overloaded symbol: no overloading symbol of it overloads a
 function. -/
 theorem Semantics.fnOvlSyms_of_plain {c : Semantics} (hp : c.plain = true) : c.fnOvlSyms = [] := by
@@ -194,34 +206,40 @@ theorem Semantics.fnCover_of_plain {c : Semantics} (hp : c.plain = true) (f : Sy
 mutual
   theorem Eval.to_old {c : Semantics}
       (hA : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.aside = false)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm},
       Eval c f vs r → Eval₀ c f vs r
-    | _, _, _, .clause hfn hmem hσ hmatch hreq _ hprio hrhs hens =>
+    | _, _, _, .clause hfn hmem hσ hmatch hreq _ hprio _ hrhs hens _ =>
         .clause hfn hmem hσ hmatch (fun t ht => EvalTerm.to_old hA hT hN (hreq t ht))
-          (fun cl' h1 h2 => Fails.to_old hA hT hN (hT hfn cl' h1) (hprio cl' h1 (hA hfn cl' h1) h2))
+          (fun cl' h1 h2 => Fails.to_old hA hT hN (hT hfn cl' h1).1 (hprio cl' h1 (hA hfn cl' h1) h2))
           (EvalTerm.to_old hA hT hN hrhs) (fun t ht => EvalTerm.to_old hA hT hN (hens t ht))
-    | _, _, _, .rest hfn hnone => .rest hfn (fun cl h => Fails.to_old hA hT hN (hT hfn cl h) (hnone cl h))
-    | _, _, _, .ensFails hfn hmem hσ hmatch hreq _ hprio ht he hw =>
+    | _, _, _, .rest hfn hnone => .rest hfn (fun cl h => Fails.to_old hA hT hN (hT hfn cl h).1 (hnone cl h))
+    | _, _, _, .ensFails hfn hmem hσ hmatch hreq _ hprio _ ht he hw =>
         .ensFails hfn hmem hσ hmatch (fun t ht => EvalTerm.to_old hA hT hN (hreq t ht))
-          (fun cl' h1 h2 => Fails.to_old hA hT hN (hT hfn cl' h1) (hprio cl' h1 (hA hfn cl' h1) h2))
+          (fun cl' h1 h2 => Fails.to_old hA hT hN (hT hfn cl' h1).1 (hprio cl' h1 (hA hfn cl' h1) h2))
           ht (EvalTerm.to_old hA hT hN he) hw
+    | _, _, _, .clauseEx hfn hmem _ _ _ _ _ hne _ _ _ _ => absurd (hT hfn _ hmem).2.1 hne
+    | _, _, _, .exNone hfn hmem hne _ _ _ _ _ _ _ => absurd (hT hfn _ hmem).2.1 hne
   theorem Fails.to_old {c : Semantics}
       (hA : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.aside = false)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {vs : List GroundTerm} {cl : Clause}, cl.pre = .top →
       Fails c vs cl → Fails₀ c vs cl
     | _, _, htop, .intro h => .intro fun σ hσ hp => ReqFails.to_old hA hT hN htop (h σ (hσ.at _) hp)
   theorem ReqFails.to_old {c : Semantics}
       (hA : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.aside = false)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {cl : Clause}, cl.pre = .top →
       ReqFails c σ cl → ReqFails₀ c σ cl
     | _, _, _, .intro ht he hr => .intro ht (EvalTerm.to_old hA hT hN he) hr
     | _, _, htop, .pre h => by rw [htop] at h; exact absurd h.top_eq (by simp)
   theorem EvalTerm.to_old {c : Semantics}
       (hA : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.aside = false)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm},
       EvalTerm c σ t r → EvalTerm₀ c σ t r
     | _, _, _, .var => .var
@@ -236,7 +254,8 @@ mutual
     | _, _, _, .ovlFn (f := f) (vs := vs) _ _ _ _ _ hcov _ => absurd hcov (by rw [hN f vs]; simp)
   theorem EvalTerms.to_old {c : Semantics}
       (hA : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.aside = false)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)},
       EvalTerms c σ ts rs → EvalTerms₀ c σ ts rs
     | _, _, _, .nil => .nil
@@ -247,34 +266,41 @@ end
 mutual
   theorem Eval₀.to_new {c : Semantics}
       (hB : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm},
       Eval₀ c f vs r → Eval c f vs r
     | _, _, _, .clause hfn hmem hσ hmatch hreq hprio hrhs hens =>
         .clause hfn hmem hσ hmatch (fun t ht => EvalTerm₀.to_new hB hT hN (hreq t ht))
-          (by rw [hT hfn _ hmem]; exact .top)
+          (by rw [(hT hfn _ hmem).1]; exact .top)
           (fun cl' h1 _ h2 => Fails₀.to_new hB hT hN (hB hfn cl' h1) (hprio cl' h1 h2))
+          (hT hfn _ hmem).2.1
           (EvalTerm₀.to_new hB hT hN hrhs) (fun t ht => EvalTerm₀.to_new hB hT hN (hens t ht))
+          (by rw [(hT hfn _ hmem).2.2]; exact .top)
     | _, _, _, .rest hfn hnone => .rest hfn (fun cl h => Fails₀.to_new hB hT hN (hB hfn cl h) (hnone cl h))
     | _, _, _, .ensFails hfn hmem hσ hmatch hreq hprio ht he hw =>
         .ensFails hfn hmem hσ hmatch (fun t ht => EvalTerm₀.to_new hB hT hN (hreq t ht))
-          (by rw [hT hfn _ hmem]; exact .top)
+          (by rw [(hT hfn _ hmem).1]; exact .top)
           (fun cl' h1 _ h2 => Fails₀.to_new hB hT hN (hB hfn cl' h1) (hprio cl' h1 h2))
+          (hT hfn _ hmem).2.1
           ht (EvalTerm₀.to_new hB hT hN he) hw
   theorem Fails₀.to_new {c : Semantics}
       (hB : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {vs : List GroundTerm} {cl : Clause}, binds cl.vars.length (varOccsList cl.pats) = true →
       Fails₀ c vs cl → Fails c vs cl
     | _, _, hb, .intro h => .intro fun σ hσ hp => ReqFails₀.to_new hB hT hN (h σ (Clause.wellSorted_of_at hb hσ) hp)
   theorem ReqFails₀.to_new {c : Semantics}
       (hB : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {cl : Clause}, ReqFails₀ c σ cl → ReqFails c σ cl
     | _, _, .intro ht he hr => .intro ht (EvalTerm₀.to_new hB hT hN he) hr
   theorem EvalTerm₀.to_new {c : Semantics}
       (hB : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm},
       EvalTerm₀ c σ t r → EvalTerm c σ t r
     | _, _, _, .var => .var
@@ -288,7 +314,8 @@ mutual
     | _, _, _, .ovl (f := f) h ho hts => .ovl h ho (EvalTerms₀.to_new hB hT hN hts) (fun vs _ => hN f vs)
   theorem EvalTerms₀.to_new {c : Semantics}
       (hB : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true)
-      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, cl.pre = .top)
+      (hT : ∀ {f : Sym} {fn : Fn}, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses,
+        cl.pre = .top ∧ cl.exs = [] ∧ cl.post = .top)
       (hN : ∀ f vs, c.fnCover f vs = none) : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)},
       EvalTerms₀ c σ ts rs → EvalTerms c σ ts rs
     | _, _, _, .nil => .nil
@@ -299,13 +326,13 @@ end
 /-- **Evaluation is the old evaluation** where the definition is plain. -/
 theorem eval_plain {c : Semantics} (hp : c.plain = true) (f : Sym) (vs : List GroundTerm)
     (r : Option GroundTerm) : Eval c f vs r ↔ Eval₀ c f vs r :=
-  ⟨Eval.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp),
-    Eval₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp)⟩
+  ⟨Eval.to_old (Semantics.aside_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp),
+    Eval₀.to_new (Semantics.binds_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp)⟩
 
 theorem evalTerm_plain {c : Semantics} (hp : c.plain = true) (σ : Subst) (t : Term)
     (r : Option GroundTerm) : EvalTerm c σ t r ↔ EvalTerm₀ c σ t r :=
-  ⟨EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp),
-    EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp)⟩
+  ⟨EvalTerm.to_old (Semantics.aside_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp),
+    EvalTerm₀.to_new (Semantics.binds_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp)⟩
 
 /-- A clause whose patterns bind every variable fails where it failed before, where the definition is
 plain. -/
@@ -313,7 +340,7 @@ theorem fails_plain {c : Semantics} (hp : c.plain = true) (vs : List GroundTerm)
     (h : (cl.pre.isTop && binds cl.vars.length (varOccsList cl.pats)) = true) :
     Fails c vs cl ↔ Fails₀ c vs cl := by
   simp only [Bool.and_eq_true] at h
-  exact ⟨Fails.to_old (Semantics.aside_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp) (Cond.eq_top_of_isTop h.1),
-    Fails₀.to_new (Semantics.binds_of_plain hp) (Semantics.preTop_of_plain hp) (Semantics.fnCover_of_plain hp) h.2⟩
+  exact ⟨Fails.to_old (Semantics.aside_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp) (Cond.eq_top_of_isTop h.1),
+    Fails₀.to_new (Semantics.binds_of_plain hp) (Semantics.plainCl_of_plain hp) (Semantics.fnCover_of_plain hp) h.2⟩
 
 end KCore

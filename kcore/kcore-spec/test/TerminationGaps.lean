@@ -36,6 +36,7 @@
      symbol's: `totalOK` refuses f.
 -/
 import KcoreSpec.Totals
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -74,7 +75,7 @@ def gapDec : Semantics where
 
 def certDec : Certificates := ⟨[some 0]⟩
 
-theorem gapDec_okAll : gapDec.okAll = true := by decide +kernel
+theorem gapDec_okAll : gapDec.okAll = true := by decide_cheap
 theorem gapDec_srReady : gapDec.srReady = true := by decide +kernel
 /-- The certificate's check refuses the decreasing argument: f is named. -/
 theorem gapDec_cert : certDec.ok gapDec = false ∧ certDec.obligations gapDec = [F] := by decide +kernel
@@ -143,8 +144,9 @@ theorem match_dec {σ : Subst} {v : GroundTerm} (hσ : gapDec.WellSorted [Srt.ma
 
 /-- The clause is match independent: every match binds its one variable to the argument. -/
 theorem gapDec_matchIndependent : MatchIndependent gapDec clDec := by
+  refine ⟨?_, fun hne => absurd rfl hne⟩
   intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
-  refine .inl ⟨rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
+  refine .inl ⟨rfl, rfl, rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
   intro i hi
   have hi0 : i = 0 := by simpa [clDec, varOccs, varOccsList] using hi
   subst hi0
@@ -178,7 +180,8 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] → σ.lookup 0 = some m0 → False)
     (motive_5 := fun _ _ _ _ => True)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ _ _ _} hfn hmem hσ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ _ _ _} hfn hmem hσ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [gapDec_lookup] at hfn; cases hfn
       change _ ∈ [clDec] at hmem
@@ -192,12 +195,24 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
         cases h [(0, m0)] (fun i _ => wellSorted_m0 i) match_m0 with
         | intro ht _ _ => cases ht
         | pre h => exact absurd (Holds.top_eq h) (by simp))
-    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
+    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [gapDec_lookup] at hfn; cases hfn
       change _ ∈ [clDec] at hmem
       obtain rfl := List.mem_singleton.mp hmem
       cases ht)
+    (fun {_ _ _ _ _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [gapDec_lookup] at hfn; cases hfn
+      change _ ∈ [clDec] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
+    (fun {_ _ _ _ _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [gapDec_lookup] at hfn; cases hfn
+      change _ ∈ [clDec] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
     (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
     (fun h _ => by cases h) (fun h _ => by cases h) (fun _ _ => fun h _ => by cases h)
     (fun hk _ _ => fun h _ => by
@@ -235,6 +250,8 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     hr rfl rfl
 
 /-! ## 2. Coverage over a collection sort of the definition -/
@@ -265,7 +282,7 @@ def gapCov : Semantics where
     { sig := ⟨cS, [S, S], S⟩, impl := some mapConcat }]
   colls := [collS]
 
-theorem gapCov_okAll : gapCov.okAll = true := by decide +kernel
+theorem gapCov_okAll : gapCov.okAll = true := by decide_cheap
 theorem gapCov_srReady : gapCov.srReady = true := by decide +kernel
 theorem gapCov_collOK : gapCov.collOK collS = true := by decide +kernel
 /-- `totalOK` refuses f: G is in `totalObligations`. -/
@@ -277,8 +294,8 @@ theorem gapCov_match : gapCov.matchObligations = [(G, 0)] := by decide +kernel
 
 /-- The clause's obligation holds: it has no variable. -/
 theorem gapCov_matchIndependent : MatchIndependent gapCov clCov :=
-  fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
-    fun t ht => (by simp [clCov] at ht)⟩
+  ⟨fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
+    fun t ht => (by simp [clCov] at ht)⟩, fun hne => absurd rfl hne⟩
 
 def mS : GroundTerm := .map S [(.dv Srt.int (.int 1), .dv Srt.int (.int 1))]
 
@@ -297,6 +314,11 @@ theorem gapCov_not_total : ¬ Total gapCov G := by
   obtain ⟨v, hv⟩ := h fCov rfl [mS] gapCov_sorted
   have hlook : gapCov.lookupFn G = some fCov := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clCov] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clCov] at hmem
@@ -332,7 +354,7 @@ def gapLin : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapLin_okAll : gapLin.okAll = true := by decide +kernel
+theorem gapLin_okAll : gapLin.okAll = true := by decide_cheap
 theorem gapLin_srReady : gapLin.srReady = true := by decide +kernel
 /-- Read as independent variables, the row `X, X` covers. -/
 theorem gapLin_row : gapLin.covers (Semantics.coverFuel fLin) fLin.args [clLin.pats] = true := by
@@ -357,6 +379,11 @@ theorem gapLin_not_total : ¬ Total gapLin L := by
   obtain ⟨v, hv⟩ := h fLin rfl _ gapLin_sorted
   have hlook : gapLin.lookupFn L = some fLin := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clLin] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clLin] at hmem
@@ -393,7 +420,7 @@ def gapSelf : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapSelf_okAll : gapSelf.okAll = true ∧ gapSelf.srReady = true := by decide +kernel
+theorem gapSelf_okAll : gapSelf.okAll = true ∧ gapSelf.srReady = true := by decide_cheap
 /-- The row covers and the right-hand side is total over f itself; the self call does not
 decrease: `totalOK` refuses f, and the certificate names it. -/
 theorem gapSelf_totalOK :
@@ -417,7 +444,8 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
     (motive_4 := fun σ t _ _ => t = .app S4 [.var 0] → σ.lookup 0 = some i1 → False)
     (motive_5 := fun _ _ _ _ => True)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
+    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clSelf] at hmem
@@ -440,12 +468,24 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
         cases h [(0, i1)] (fun i _ => hσ i) (.cons (.var rfl) .nil) with
         | intro ht _ _ => cases ht
         | pre h => exact absurd (Holds.top_eq h) (by simp))
-    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
+    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clSelf] at hmem
       obtain rfl := List.mem_singleton.mp hmem
       cases ht)
+    (fun {_ _ _ _ _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [hlook] at hfn; cases hfn
+      change _ ∈ [clSelf] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
+    (fun {_ _ _ _ _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf hvs => by
+      subst hf; subst hvs
+      rw [hlook] at hfn; cases hfn
+      change _ ∈ [clSelf] at hmem
+      obtain rfl := List.mem_singleton.mp hmem
+      exact absurd rfl hne)
     (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
     (fun h _ => by cases h) (fun h _ => by cases h) (fun _ _ => fun h _ => by cases h)
     (fun hk _ _ => fun h _ => by cases h; rw [hct] at hk; cases hk)
@@ -482,6 +522,8 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
+    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     hv rfl rfl
 
 /-! ## 5. A user sort holding domain values -/
@@ -504,7 +546,7 @@ def gapDv : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapDv_okAll : gapDv.okAll = true ∧ gapDv.srReady = true := by decide +kernel
+theorem gapDv_okAll : gapDv.okAll = true ∧ gapDv.srReady = true := by decide_cheap
 /-- Int is a user sort, no collection sort, and holds the Int literals: it is not enumerable, and
 `totalOK` refuses f. -/
 theorem gapDv_totalOK : gapDv.userSorts.contains Srt.int = true ∧ (gapDv.collOf Srt.int).isNone = true ∧
@@ -521,6 +563,11 @@ theorem gapDv_not_total : ¬ Total gapDv F5 := by
   obtain ⟨v, hv⟩ := h fDv rfl [i1] (by decide +kernel)
   have hlook : gapDv.lookupFn F5 = some fDv := rfl
   cases hv with
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clDv] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
   | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clDv] at hmem
@@ -557,7 +604,7 @@ def gapParam : Semantics where
   rules := []
   params := [{ sig := ⟨P6, [Srt.int], Srt.int⟩ }]
 
-theorem gapParam_okAll : gapParam.okAll = true ∧ gapParam.srReady = true := by decide +kernel
+theorem gapParam_okAll : gapParam.okAll = true ∧ gapParam.srReady = true := by decide_cheap
 /-- P is among the total functions before f and is a parameter symbol: `totalOK` refuses f. -/
 theorem gapParam_totalOK : gapParam.totalBefore fPar = [P6] ∧
     gapParam.params.any (·.sig.name == P6) = true ∧ gapParam.totalOK fPar = false ∧
@@ -575,7 +622,12 @@ theorem gapParam_not_total : ¬ Total gapParam F6 := by
   have hlook : gapParam.lookupFn F6 = some fPar := rfl
   have hpv : gapParam.paramVal P6 [i1] = none := rfl
   cases hv with
-  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ hrhs =>
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clPar] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
+  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ _ hrhs =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clPar] at hmem
     obtain rfl := List.mem_singleton.mp hmem
@@ -624,7 +676,7 @@ def gapHook : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapHook_okAll : gapHook.okAll = true ∧ gapHook.srReady = true := by decide +kernel
+theorem gapHook_okAll : gapHook.okAll = true ∧ gapHook.srReady = true := by decide_cheap
 /-- `_/Int_` is among the total functions before f and is an interpreted symbol: `totalOK`
 refuses f. -/
 theorem gapHook_totalOK : gapHook.totalBefore fHook = [intTDiv] ∧
@@ -639,7 +691,12 @@ theorem gapHook_not_total : ¬ Total gapHook F7 := by
   have hlook : gapHook.lookupFn F7 = some fHook := rfl
   have hdiv : hook intTDiv [i1, .dv Srt.int (.int 0)] = some none := rfl
   cases hv with
-  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ hrhs =>
+  | @clauseEx _ _ _ _ _ _ hfn hmem _ _ _ _ _ hne _ _ _ _ =>
+    rw [hlook] at hfn; cases hfn
+    change _ ∈ [clHook] at hmem
+    obtain rfl := List.mem_singleton.mp hmem
+    exact absurd rfl hne
+  | @clause _ _ _ _ _ _ hfn hmem _ hmatch _ _ _ _ hrhs =>
     rw [hlook] at hfn; cases hfn
     change _ ∈ [clHook] at hmem
     obtain rfl := List.mem_singleton.mp hmem

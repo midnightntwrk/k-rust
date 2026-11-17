@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t19-token-sort-pred.k": "072947e11410080577de4bf5b881e66acb77e256a761104e4e1521be2e45d634"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t19-token-sort-pred.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "7a0c168a01b372cca1dbe863057da29d7ded9c53115aed97c06f1c53d48f4085",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -1,13 +1,14 @@
 /-
   KCore. The evaluations a step reads, for a rule whose left side need not bind every variable.
 
-  - `Semantics.rulePlainOpen`: what `rulesPlain` asks of one rule, with `\top` predicates and no
-    existential variable: each open variable held by the right side under constructors, of a
-    confined sort, or held by closed conditions no variable of which the right side, the `ensures`
-    or `post` holds, and a rule that competes with a larger one has open condition variables of
-    confined sorts or closed conditions. `rulesPlain` asks `Semantics.rulePlainPP` of each rule
-    (`Semantics.rulesPlain_iff_pp`, PredPlain.lean), which is `rulePlainOpen` less `r.exs = []` and
-    the `\top` predicates.
+  - `Semantics.rulePlainOpen`: a rule with `\top` predicates and no existential variable, each
+    open variable held by the right side under constructors and injections, of a confined sort, or
+    held by closed conditions no variable of which the right side, the `ensures` or `post` holds,
+    and a rule that competes with a larger one has open condition variables of confined sorts or
+    closed conditions. `rulesPlain` asks `Semantics.rulePlainHO1` of each rule
+    (`Semantics.rulesPlain_iff_held`, PredPlain.lean), which is `rulePlainOpen` less `r.exs = []`
+    and the `\top` predicates, with the first arm reading also the variables the right side holds
+    under the symbols `Semantics.holds` names.
   - A term has a result, and a defined result has the term's sort, under a σ that gives the
     variables the term holds values of their sorts (`evalTerm_total_at`, `EvalTerm.sorted_at`):
     other variables are not read.
@@ -17,8 +18,8 @@
     (`WellSortedAt r.vars r.leftVars`), the variables of the `requires` being among those; its right
     side and `ensures` under a σ that gives every variable one (`WellSorted r.vars`); its predicates
     are `\top`. No variable is asked to be bound by the left side.
-  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainPP`
-    (`Semantics.ruleFactsPP_of_sortedOK`, `Semantics.ruleFactsPP_of_core`, PredPlain.lean); under
+  - `sortedOK` and `coreOK` give each rule `ruleSorted` and `rulePlainHO1`
+    (`Semantics.ruleFactsHO1_of_sortedOK`, `Semantics.ruleFactsHO1_of_core`, PredPlain.lean); under
     `coreOK` and `FnHyp` every configuration is `StepDecided` (`stepDecided_of_fnHyp`,
     HoldsDecided.lean, which reads `ruleSorted` only).
 -/
@@ -30,7 +31,8 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `rulesPlain` asks of the rule r, with `\top` predicates and no existential variable. -/
+/-- What `rulesPlain` asks of the rule r with the first arm reading constructors and injections
+only (`ctorOccs`), with `\top` predicates and no existential variable. -/
 def Semantics.rulePlainOpen (c : Semantics) (r : Rule) : Bool :=
   r.exs.isEmpty && r.pre.isTop && r.post.isTop &&
   (let conf := fun i => (r.vars[i]?.map c.confined).getD false
@@ -130,21 +132,43 @@ mutual
         | .clause hfn' .. => ⟨_, hfn'⟩
         | .rest hfn' _ => ⟨_, hfn'⟩
         | .ensFails hfn' .. => ⟨_, hfn'⟩
+        | .clauseEx hfn' .. => ⟨_, hfn'⟩
+        | .exNone hfn' .. => ⟨_, hfn'⟩
       obtain ⟨hkL, hkn⟩ := lookupSig_spec (rhs_lookup_fn hc hfn0.choose_spec hk')
       obtain ⟨fn, hfn, rfl⟩ := headsOK_preds hL k hkL
       have hlook : c.lookupFn f = some fn := by
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by
-      rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
-    | .ovl (f := f) (rs := rs) hk ho hts _ => by
+    | .ovlFn (f := f) (vs := ws) (kg := kg) _ ho hts hws hlo hcov hf => by
+      -- the covering function's value, of its result sort, lifted to the symbol's
+      obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hc hL hk' ho
+      rw [hlo] at hlo'
+      cases hlo'
+      obtain ⟨r1, hr1, rfl⟩ := Option.map_eq_some_iff.mp hr
+      have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      obtain ⟨o2, hlo2, hkg, hb, hcv⟩ := OvlLaws.fnCover_some_parts hcov
+      rw [hlo] at hlo2
+      cases hlo2
+      obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
+      have ha : fn.args = kg.args := by rw [hsig]
+      have hres' : fn.result = kg.result := by rw [hsig]
+      obtain ⟨hlen, -, hres, -⟩ := OvlLaws.over_ovlF HH.fnFacts hlo hkg
+      obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+      have hvs := EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws
+      have hs1 := Eval.sorted hc hf hfn (by rw [ha]; exact OvlLaws.sortsOf_stripAll hlen hvs hlies) hr1
+      rw [hres'] at hs1
+      exact OvlLaws.sortOf_lift HH hs1 hres
+    | .ovl (f := f) (rs := rs) hk ho hts hnf => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
       have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
-      exact OvlLaws.sortOf_norm ⟨H.1, hc.trans, H.2⟩ hlo
-        (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws)
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      exact OvlLaws.sortOf_norm_ovlF HH HH.fnFacts hlo
+        (EvalTerms.sorted_at hc hts hL (by rw [varOccs] at hσ; exact hσ) hargs hws) (hnf ws hws)
   termination_by structural h
   theorem EvalTerms.sorted_at (hc : SortCtx c) {σ : Subst} {ts : List Term}
       {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs) {L : List CtorSig}

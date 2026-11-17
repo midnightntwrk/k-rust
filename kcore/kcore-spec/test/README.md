@@ -453,7 +453,13 @@ class (`AttrClassE2`) and key with no default arm: read, inert with why, or refu
 reason (`AttrRefusalE2`, whose `RefusalReason` is `AttrRefusalE2.reason` in Parse.lean), as the
 key's row at the class decides, else its row at class `any`, else refused (K admits the key at no
 sentence of the class); an erased row's key is refused, since only a KORE text written by hand
-carries it. The readers of Parse.lean do not call it. `test/AttrVerdict.lean` writes the rows out
+carries it. Where a row's verdict would not be the reader's, the arm says so (`attrVerdict`'s doc:
+the production's printing attributes and name inert on a rewrite axiom, which kompile copies onto
+heating and cooling rules; `anywhere` read on a symbol declaration; a declaration's key refused on a
+rewrite axiom and an equation). The readers call it through `Parse.attrVerdictOf` (a name that is no
+key refused with the class's reason): `ruleAttrFault?` (class rule), `eqnAttrFault?` (equation),
+`attrFault?` in `classify` (symbol and hooked-symbol declarations, a claim) and in `envOf` (the
+module), and `sortAttrOK` (a sort declaration). `test/AttrVerdict.lean` writes the rows out
 (class, key, status) and the kernel checks each verdict against its status; `constructs.sh`
 elaborates it and runs `test/constructs/attrkeys.py` on what it prints: the rows written there are
 exactly the table's with their statuses, the keys exactly the rows' names, and every attribute name
@@ -1078,19 +1084,23 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HooksFloat.lean`: the 23 supported hook rows of FLOAT (the sort and twenty-two operations)
   against domains.md's prose, cited by line. Each expected value is derived by hand and marked by
   its source: the prose's sentence, an `smt-hook` attribute (the only rounding direction the text
-  gives an operation), or IEEE 754, which the prose names without a clause (recalled without the
-  standard's text, to confirm); the encodings of the data are written by hand and the reader takes the
-  prose's literals to them. `hook` gives each value, the result and Γ's statement under every
-  interpretation (`strbytes`); `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` give a
-  value of the precision and exponent bits asked for. `precisionFloat` and `exponentBitsFloat` are
-  no key of `silentTable` and have their value at every Float; the twenty others are keys true
-  everywhere, with the region where `hook` gives no value at every argument list of literals
-  (`*_none`): two formats (the five arithmetic operations), a precision or exponent bits below 2,
-  an operand of a format with a field of 1. At a point of each, Γ over all interpretations entails
-  neither ⊥ nor a value. The header's findings: at the formats with a field of 1 the prose names
-  the format, so the silent region is not shown to be unstated (two readings); no rounding
-  direction for `roundFloat` and `Int2Float`; special data and the sign of a zero only by the
-  named standard; comparisons of two formats have a value where the arithmetic is silent.
+  gives an operation), or the representation the prose names (IEEE 754's encoding of a format's
+  data, recalled without the standard's text, to confirm); the prose's general reference to IEEE
+  754 is taken to state no value. The reader takes the prose's literals to the encodings written by
+  hand and refuses those whose datum the prose does not state (a tie, above the largest finite
+  datum, nonzero rounding to zero). `hook` gives each value, the result and Γ's statement under
+  every interpretation (`strbytes`); `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat`
+  give a value of the precision and exponent bits asked for. `precisionFloat` and
+  `exponentBitsFloat` are no key of `silentTable` and have their value at every Float; the twenty
+  others are keys true everywhere, with the region where `hook` gives no value at every argument
+  list of literals (`*_none` and the region lemmas): two formats (the five arithmetic operations), a
+  precision or exponent bits below 2, an operand of a format with a field of 1, and at a format
+  with a model what the prose does not describe (a NaN or infinite operand, a zero divisor, a zero
+  result of unstated sign, a result above the largest finite datum, a `%Float` quotient tie, an
+  inexact `roundFloat` or `Int2Float`). At a point of each, Γ over all interpretations entails
+  neither ⊥ nor a value. The header's findings: at the formats with a field of 1 the prose states
+  values that `hook` does not compute; comparisons of two formats are stated where the arithmetic
+  is not.
 
 - `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
   field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
@@ -1513,8 +1523,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   the values `a()` and `b()` in Exp). Function equations `shape`, `fns_entailed`; `cons_entailed`;
   `account`; `consistent`. Expectations from `Pre H` (`pre_model`): the steps `or_a`, `or_b`,
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
-  `attrsAgree` is false (`attrs_prios`: one rewrite axiom, two rules); its other four parts hold.
-  About 4 minutes each.
+  `attrsAgree` holds (`defs_attrsAgree`): each of the two rules holds the priority of the one axiom
+  it is read from. About 4 minutes each.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`

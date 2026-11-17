@@ -4,14 +4,15 @@
   (`consistent_ofCl`): `consistent_of`'s conclusion, with no hypothesis on the sorts of the
   variables a clause's patterns and conditions do not hold.
 
-  The model is the value model (`stdI_modelOpenCl`): `Γ` by the goals over `HypModelCore`, which
+  The model is the value model at its own step (`stdI_V_model_core`): `Γ` by the goals over `HypModelCore`, which
   reads `sortedOKCl` (`hypModel_ofCl`); a clause's equation in particular by `satFnsGoal`
   (ModelFnsCl.lean), whose valuations give each variable of the clause an element of its sort,
   which in the value model is a value of it. The closure axiom `boolClosed` holds where Bool holds
-  only its literals (`boolClosed_modelCl`). Of `coreOK` the proof reads the conjuncts other than
+  only its literals (`boolClosed_modelClT`). The rules' predicates are not read. Of `coreOK` the proof reads the conjuncts other than
   `sortedOK`, and `srReady`, `OvlOK` and `patHooksApart`, which `coreOK` gives through `sortedOK`.
 -/
 import KcoreSpec.Sound
+import KcoreSpec.ModelHas
 import KcoreSpec.HypWf
 
 set_option autoImplicit false
@@ -60,21 +61,26 @@ theorem boolValuesCl {c : Semantics} (hl : c.litSort Srt.bool = true)
 
 /-- **The value model satisfies the closure axiom** where Bool holds only literals:
 `boolClosed_model`, which reads `coreOK` only through `boolValues`. -/
-theorem boolClosed_modelCl {c : Semantics} (h : HypModelCore c)
-    (hl : c.litSort Srt.bool = true) : stdI c ⊧ᴵ boolClosed c := by
+theorem boolClosed_modelClT {c : Semantics} {T : GroundTerm → GroundTerm → Prop} (h : HypModelCore c)
+    (hl : c.litSort Srt.bool = true) : stdI_T c T ⊧ᴵ boolClosed c := by
   intro e m
   unfold boolClosed
-  rw [KoreAML.interp_included defOK_std]
+  rw [KoreAML.interp_included AtT.defOK_std]
   intro a ha
-  have ha' := (inhOf_sort h.namesK (bool_numbered (c := c)) e a).mp ha
+  have ha' := (AtT.inhOf_sort h.namesK (bool_numbered (c := c)) e a).mp ha
   obtain ⟨v, rfl, hv⟩ := inSort_val ha'
   obtain ⟨b, rfl⟩ := boolValuesCl hl hv
-  have hs := den_val h (.dv Srt.bool (.bool b)) hv e
+  have hs := AtT.den_val (T := T) h (.dv Srt.bool (.bool b)) hv e
   simp only [Pattern.interpret]
   intro hn
   cases b with
   | true => exact absurd ((hs _).mpr rfl) hn
   | false => exact (hs _).mpr rfl
+
+/-- The closure axiom in the value model at `StepM`: `boolClosed_modelClT`. -/
+theorem boolClosed_modelCl {c : Semantics} (h : HypModelCore c)
+    (hl : c.litSort Srt.bool = true) : stdI c ⊧ᴵ boolClosed c :=
+  boolClosed_modelClT (T := StepM c) h hl
 
 /-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
 `HypModelCore` (whose clauses are asked `sortedOKCl`) and rules with `ruleSorted` and
@@ -120,12 +126,17 @@ theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hl : OpenLaws c)
 `consistent_of`'s conclusion for a semantics with `sortedOKCl` in place of `sortedOK`, `srReady`,
 `OvlOK`, `faithCoreOK`, `patHooksApart` and `idsOK`, whose functions have at most one result
 (`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose interpretation satisfies the
-open generators' laws (`OpenLaws`): the value model. Nothing is asked
+open generators' laws (`OpenLaws`): the value model at its own step. Nothing is asked
 of the sorts of the variables a clause's patterns and conditions do not hold. -/
-theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hov : OvlOK c]
+theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (_htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c) : Consistent c := by
   have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
-  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm hl (hm.ruleFactsEx_of_top htop)⟩
+  refine ⟨Elem, inferInstance, stdI_T c (StepV c), fun φ hφ => ?_⟩
+  rcases hφ with (hφ | hφ) | hφ
+  · exact stdI_V_model_core hm hl φ (Or.inl hφ)
+  · obtain ⟨-, hlit, rfl⟩ := hφ
+    exact boolClosed_modelClT hm hlit
+  · exact stdI_V_model_core hm hl φ (Or.inr hφ)
 
 end KCore

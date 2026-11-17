@@ -1,0 +1,6 @@
+# Hand-written KORE: the kompiled text of fixture e6-float-literals (K 7.1.337, sha256
+# d0d2cc5799297eec8d192c013fb909aa9d7f819c943c37ce8d30de4a29f19b7b), BUILTIN/ and FIXTURE/ restored as
+# paths, and one domain value changed: rule go(8)'s right side holds \dv{SortFloat{}}("+.5") in place of
+# ".5". A string of no FLOAT-SYNTAX production (a sign before a mantissa with no integer part), which
+# kompile refuses in a K text (kk entry t90-float-literal-forms, kompile.txt). Expected: refused literal (+.5).
+kore = "test/constructs/fixtures/hw-float-plus-half/hw-float-plus-half.kore"

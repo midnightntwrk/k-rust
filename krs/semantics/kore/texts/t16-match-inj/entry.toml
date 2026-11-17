@@ -1,0 +1,56 @@
+id = "t16-match-inj"
+kind = "text"
+subject = "Matching through injections and subsorts: A < B < C, f(_:A) => 1, f(b(_)) => 2 and g(_:B) => 3, with f and g taking a C. Which arguments a pattern of a smaller sort matches."
+rests_on = ["kk:t11-eq-applies"]
+
+[text]
+files = ["t16-match-inj.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "A pattern X:A written where a C is expected matches the elements of A injected into C, and a pattern X:B matches the elements of B injected into C, among them the elements of A injected through B: f(a(0)) = 1, f(b(0)) = 2, g(a(0)) = 3 and g(b(0)) = 3. In general inj{A,S}(P) matches inj{D,S}(V) where D = A and P matches V, or where D is below A and P matches inj{D,A}(V)."
+reason = '''
+(1) The subsort declarations of the K text make A a subsort of B and B of C; the kompiled text states each as an injection (ruled in [ruling.kore]), and a term of a smaller sort at a position of a larger one is its injection. The arguments a(0) and b(0) of f and g are inj{A,C}(a(0)) and inj{B,C}(b(0)).
+(2) An equation applies at the arguments its pattern denotes (kk:t11-eq-applies). f's first pattern denotes inj{A,C}(x) for x in A, so it applies at a(0): f(a(0)) = 1. Its second denotes inj{B,C}(b(n)), so it applies at b(0): f(b(0)) = 2. Were inj{B,C}(b(0)) also an inj{A,C}(x), both equations would state f there, 1 and 2, and no model holds two values of f at one element; so in every model of the text f(b(0)) is 2 alone.
+(3) g's pattern denotes inj{B,C}(y) for y in B. The injection of an A into C is the injection through B of its injection into B (the prelude's sentence, [ruling.kore]), so inj{A,C}(a(0)) is inj{B,C}(inj{A,B}(a(0))), with inj{A,B}(a(0)) an element of B: g applies at a(0) and g(a(0)) = 3. g(b(0)) = 3 directly.'''
+
+[[ruling.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50-51 (K 7.1.337)"
+quote = '''symbol inj{From, To}(From) : To [sortInjection{}()] axiom {S1, S2, S3, R} \equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1)) [simplification{}()]'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:898-902 (K 7.1.337)"
+quote = 'Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'
+
+[ruling.kore]
+statement = '''Each subsort is an axiom that the injection of every element of the smaller sort is one element of the larger (kore.txt:34 for A < B, 36 for B < C). f's first axiom has the premise X0 \in inj{A,C}(_Gen0:A) (kore.txt:119-134), its second X0 \in inj{B,C}(b(_Gen0)) (kore.txt:137-152), g's X0 \in inj{B,C}(_Gen0:B) (kore.txt:155-170). The prelude's axiom equates inj{B,C}(inj{A,B}(T)) with inj{A,C}(T) for every T (prelude.kore:51; its simplification attribute is a hint, kore-syntax.md:223-228, and the axiom is a sentence of the theory). So the premise of g's axiom holds at inj{A,C}(a(0)) with _Gen0 the element inj{A,B}(a(0)). The text writes no axiom that injections of different sorts, or an injection and a constructor, are distinct; the case (2) of the reason needs none.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:34"
+quote = '''axiom{R} \exists{R} (Val:SortB{}, \equals{SortB{}, R} (Val:SortB{}, inj{SortA{}, SortB{}} (From:SortA{}))) [subsort{SortA{}, SortB{}}()] // subsort'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:36"
+quote = '''axiom{R} \exists{R} (Val:SortC{}, \equals{SortC{}, R} (Val:SortC{}, inj{SortB{}, SortC{}} (From:SortB{}))) [subsort{SortB{}, SortC{}}()] // subsort'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:123-126"
+quote = '''\in{SortC{}, R} ( X0:SortC{}, inj{SortA{}, SortC{}}(Var'Unds'Gen0:SortA{}) ),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:159-162"
+quote = '''\in{SortC{}, R} ( X0:SortC{}, inj{SortB{}, SortC{}}(Var'Unds'Gen0:SortB{}) ),'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. ... All semantic information contained in attributes should correspond to axioms declared explicitly. ... The meaning of particular attributes is implementation-defined."

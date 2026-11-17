@@ -59,9 +59,13 @@ theorem Step.candidate (hmc : Exec.MatchCtx c)
 
 /-- In a core that `ok` accepts, every rule's left-hand side is well sorted in the matcher's
 context. -/
+theorem lhs_sorted_of_okM (hok : c.okM = true) :
+    ∀ r ∈ c.rules, ∃ s, sortOfTerm c.patCtx r.vars r.lhs = some s :=
+  fun _ hr => ⟨_, (Exec.ruleOKM_of hok hr).1⟩
+
 theorem lhs_sorted_of_ok (hok : c.ok = true) :
     ∀ r ∈ c.rules, ∃ s, sortOfTerm c.patCtx r.vars r.lhs = some s :=
-  fun _ hr => ⟨_, (Exec.ruleOK_of hok hr).1⟩
+  lhs_sorted_of_okM (Semantics.okM_of_ok hok)
 
 /-- `Fires.mem_candidates` in a core that `ok` and `matchReady` accept, with the candidates
 given as `is`: the two side conditions on `t` are decided (`decide +kernel`) once `is` is

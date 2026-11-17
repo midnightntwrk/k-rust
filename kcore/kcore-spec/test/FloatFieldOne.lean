@@ -5,7 +5,9 @@
   K's `domains.md` (FLOAT-SYNTAX) names a format `pNxM` for all positive integers N and M: "exactly N
   bits of precision and M bits of exponent". KCore computes on the formats of Lean core's
   `Float.Model.Format`, whose precision and exponent width are at least 2 (`KFloat.spec?`); a format
-  with a field of 1 has values (`KFloat.thinOK`) on which nothing is computed. At such a format:
+  with a field of 1 has values (`KFloat.thinOK`); at precision 1 and at least 2 exponent bits the
+  comparisons, `isNaN` and `isInfinite` read their data (Hooks.lean `asDatum`), and nothing else is
+  computed. At such a format:
   - the four operations that take a format as two Ints (`roundFloat`, `Int2Float`, `maxValueFloat`,
     `minValueFloat`) give no value there (`hook … = some none`), and those points are silent
     (`silentTable`): the text names the format, and KCore computes none of its data; so are the
@@ -66,12 +68,13 @@ example : Parse.floatLit? "1.0p1x8" = none ∧ Parse.floatLit? "NaNp53x1" = none
     KFloat.text 8 1 (2 ^ 7) = "Infinityp8x1" ∧ KFloat.text 8 1 512 = "NaNp8x1" := by
   decide +kernel
 
-/-- **A value of format `p1x8` has precision 1 and exponent width 8**, and the operations that
-compute on Floats give no value at it, at silent points (`silentTable`). -/
+/-- **A value of format `p1x8` has precision 1 and exponent width 8**, is compared by its datum
+(`1.0p1x8 <Float 0.0` is false), and the operations that compute a Float give no value at it, at
+silent points (`silentTable`). -/
 theorem precision_one : hook floatPrecision [t18] = some (some (int 1)) ∧
     hook floatExponentBits [t18] = some (some (int 8)) ∧
     hook floatNeg [t18] = some none ∧ silent floatNeg [t18] = true ∧
-    hook floatLt [t18, f64 0] = some none ∧ silent floatLt [t18, f64 0] = true ∧
+    hook floatLt [t18, f64 0] = some (some (bool false)) ∧
     hook floatAdd [t18, t18] = some none ∧ silent floatAdd [t18, t18] = true := by
   decide +kernel
 
@@ -209,9 +212,7 @@ set_option maxHeartbeats 1000000 in
 open Faithful.Model in
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (Semantics.faithCoreOK_of_parts (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
+    (by decide_cheap)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem fns_nil : c.fns = [] := by decide +kernel

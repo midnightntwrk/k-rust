@@ -55,7 +55,7 @@ theorem int_not_kT {c : Semantics} (hns : (Srt.bool, Srt.int) ∉ c.subsorts) {z
   | set s es => simp [injNormal] at he
   | list s es => simp [injNormal] at he
 
-theorem base2_core : base2.coreOK = true := by decide +kernel
+theorem base2_core : base2.coreOK = true := by decide_cheap
 
 theorem base2_fnHyp : FnHyp base2 :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,

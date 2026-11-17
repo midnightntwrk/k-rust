@@ -22,6 +22,7 @@ namespace KCore
 
 kernel_rfl Semantics.ok_withHooks : ∀ (c : Semantics) (H : HookParams), (c.withHooks H).ok = c.ok
 kernel_rfl Semantics.okAll_withHooks : ∀ (c : Semantics) (H : HookParams), (c.withHooks H).okAll = c.okAll
+kernel_rfl Semantics.okM_withHooks : ∀ (c : Semantics) (H : HookParams), (c.withHooks H).okM = c.okM
 kernel_rfl Semantics.srReady_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).srReady = c.srReady
 kernel_rfl Semantics.matchReady_withHooks :

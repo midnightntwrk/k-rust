@@ -1,0 +1,46 @@
+id = "t180-int2bytes-length"
+kind = "text"
+subject = "Int2Bytes(length, I, E) at length 0, at a positive length, and at a negative length: here Int2Bytes(0, 5, BE), Int2Bytes(2, -1, BE), Int2Bytes(-1, 5, BE)."
+retro = ["BY4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:2083 (K 7.1.337)", quote = "syntax Bytes ::= Int2Bytes(length: Int, Int, Endianness) [function, total, hook(BYTES.int2bytes)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated, under both readings. The length of the result in bytes is the one specified; a longer length pads with 0 bits for a positive number and 1 bits for a negative one, a shorter one truncates the most significant bits, in the specified byte order (domains.md:2065-2072): that is the length low-order bytes of I in two's complement, so Int2Bytes(2, -1, BE) = b"\xff\xff" and Int2Bytes(1, 256, BE) = b"\x00". At length 0 the result has length zero, which is .Bytes (2030), whatever I is: Int2Bytes(0, 5, BE) = .Bytes. Int2Bytes is total (2083; user_manual.md:546-548).
+Where the readings part: a negative length. No Bytes has a negative length and no sentence describes the result; the symbol is total, so a value exists and is not given.'''
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2065-2072 (K 7.1.337)"
+quote = "You can also convert from an `Int` to a `Bytes`. This comes in two variants. In the first, the `length` of the resulting `Bytes` in bytes is explicitly specified. If the `length` is greater than the highest set bit in the magnitude of the integer, the result is padded with 0 bits if the number is positive and 1 bits if the number is negative. If the `length` is less than the highest bit set in the magnitude of the integer, the most-significant bits of the integer will be truncated. The endianness of the resulting `Bytes` object is as specified."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2030 (K 7.1.337)"
+quote = "The byte array of length zero is represented by `.Bytes`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2083 (K 7.1.337)"
+quote = "syntax Bytes ::= Int2Bytes(length: Int, Int, Endianness) [function, total, hook(BYTES.int2bytes)]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-548 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to"
+
+[[reading]]
+name = "empty"
+statement = "At a negative length the value is .Bytes."
+answer = "Int2Bytes(-1, 5, BE) = .Bytes"
+consequence = "A consumer that gives .Bytes there takes one model of the text."
+
+[[reading]]
+name = "other-bytes"
+statement = "At a negative length the value is some other Bytes."
+answer = "Int2Bytes(-1, 5, BE) is a Bytes other than .Bytes, not named"
+consequence = "No sentence excludes it."

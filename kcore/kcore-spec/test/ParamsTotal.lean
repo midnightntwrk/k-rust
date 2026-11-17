@@ -13,6 +13,7 @@
 -/
 import KcoreSpec.FnObligations
 import KcoreSpec.Cert
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -47,7 +48,7 @@ def pt : Semantics where
   rules := []
   params := [{ sig := ⟨P, [Srt.int], Srt.int⟩ }, { sig := ⟨Q, [Srt.int], Srt.int⟩ }]
 
-theorem pt_sorted : pt.sortedOK = true ∧ pt.srReady = true := by decide +kernel
+theorem pt_sorted : pt.sortedOK = true ∧ pt.srReady = true := by decide_cheap
 
 /-- `pt`'s two parameters are not raw. -/
 example : ∀ k ∈ pt.params, k.raw = false := by decide +kernel

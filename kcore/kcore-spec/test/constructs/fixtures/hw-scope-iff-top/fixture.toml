@@ -1,4 +1,4 @@
 # Hand-written KORE: the kompiled text of fixture e7-implicitk (K 7.1.337, sha256 57a5326aebb814892205df71b4535220eeff615f60d1ef51d86b19dd6e861e3d), the Source of its
 # own sentences written as its fixture's path, and one sentence changed: the rewrite axiom of `rule a() => b()` with \iff{SortGeneratedTopCell{}} at its top in place of \rewrites, its two sides unchanged.
-# A form no text kompile 7.1.337 delivers holds (findings/KPROV-scope.md). Expected: axiomShape.
+# A form no text kompile 7.1.337 delivers holds (findings/KPROV-scope.md). Expected: unkompiledForm (an \iff at the axiom's top).
 kore = "test/constructs/fixtures/hw-scope-iff-top/hw-scope-iff-top.kore"

@@ -22,7 +22,7 @@ theorem attrs_ctors : AttrsAgree.ctors kore defn.sem = true := by decide +kernel
 theorem attrs_fns : AttrsAgree.fns kore defn.sem = true := by decide +kernel
 theorem attrs_hooks : AttrsAgree.hooks kore defn.sem = true := by decide +kernel
 theorem attrs_colls : AttrsAgree.colls kore defn.sem = true := by decide +kernel
-theorem attrs_prios : AttrsAgree.prios kore defn.sem = true := by decide +kernel
+theorem attrs_prios : AttrsAgree.prios kore defn = true := by decide +kernel
 
 /-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
 hooks, collection symbols, priorities. -/

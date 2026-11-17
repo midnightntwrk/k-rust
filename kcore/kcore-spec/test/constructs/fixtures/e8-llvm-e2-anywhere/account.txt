@@ -9,31 +9,9 @@ user module E2-ANYWHERE: 349 sentences
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   10 inert noJunk [generated]
-stage refusals (of sentences classified read): 0
-read and not accounted for: 0
-inert constructor axioms not induced by the constructors: 1
-    1 noJunk of Lbla
-      sentence 266 (Lbla): inertMismatch (noJunk)
-        axiom{} \or{SortExp{}}(\exists{SortExp{}}(X0:SortInt{}, Lbla{}(X0:SortInt{})), \exists{SortExp{}}(X0:SortInt{}, Lblb{}(X0:SortInt{})), \bottom{SortExp{}}()) [constructor{}()]
-cell collection injections not of a collection of the definition: 0
-law axioms of no collection's concatenation: 0
-rules with an `ensures`: 0
-rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
-rules and clauses applying a function symbol in their left side: 0
-equation attributes classified inert (eqnAttrInert): 1
-      sentence 306: anywhere: an equation l = r entails C[l] = C[r] for every context C, so applying it anywhere is what the equation already states
-sentences the library's data induces that the text does not hold: 0
-library sentences of the modules held that the text does not hold: 0
-sentences every definition holds (kernelText) that the text does not: 4
-      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{})))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain")]
-      axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
-      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
-      axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
-sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
-functions declared [total] whose totality no decider confirms (the package's total_named, Semantics.totalObligationsRP at kcore gen's call order; not a condition of wf: the text's functional axiom for each is in no part of Γ and is owed as Total): 0: 
-functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): 0: 
-functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
-parse: ok; wf true; failing: []
-coreOK: true; failing: []
-refused by the account: 1
+stage refusals (of sentences classified read): 1
+  1 equationAttribute
+      sentence 306 (Lbla): equationAttribute (anywhere on a function equation: K gives anywhere its meaning on a rule, the rewrite applied in every context (the frontend refuses the key on a function's rule under the haskell backend, row E2 ANYWHERE(anywhere)@equation); on a function equation no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown)
+        [user] (no label) at e2-anywhere.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lbla{}(X0:SortInt{}), \and{SortExp{}}(Lblb{}(VarX:SortInt{}), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("66f142ef37194c7f8f2fc8f12575c4f1a11cf58b8bedbad970e393ebd7ad4f34"), anywhere{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,20)"), org'Stop' …
+finish: sentence 306 (Lbla): equationAttribute (anywhere on a function equation: K gives anywhere its meaning on a rule, the rewrite applied in every context (the frontend refuses the key on a function's rule under the haskell backend, row E2 ANYWHERE(anywhere)@equation); on a function equation no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown)
 (exit 0)

@@ -108,9 +108,9 @@ theorem ovlHeld_back (h : c.coreOK = true) {f : Sym}
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   obtain ⟨-, hn, -, -, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
   have H := (inferInstance : OvlOK c).hyp hsc.trans
-  obtain ⟨-, -, -, hks, -⟩ := OvlLaws.ovl_facts H hlo
+  obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
   obtain ⟨a, ha, hm⟩ := hm
-  obtain ⟨ws, hws, hb, -⟩ := ovl_back hIΓ hsc.trans hg _ o.sig hks (OvlLaws.ovlRank_le _) hw hbl hbs
+  obtain ⟨ws, hws, hb, -⟩ := ovl_back hIΓ hsc.trans hg _ o.sig hks (OvlLaws.ovlRank_le _) (OvlOK.noFnOver _) hw hbl hbs
     ⟨a, by rw [← hn] at ha; exact ha, hm⟩
   exact ⟨ws, hws, hb⟩
 

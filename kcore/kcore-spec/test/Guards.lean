@@ -234,7 +234,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn half = some (c.fns[0]'(by decide +kernel)) := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem half_neg4_none (H : HookParams) : Eval (c.withHooks H) half [int (-4)] none :=
   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H
@@ -266,7 +266,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn half = some (c.fns[0]'(by decide +kernel)) := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem half_neg4_none (H : HookParams) : Eval (c.withHooks H) half [int (-4)] none :=
   eval_everyH hok hsr hmr noRaw hfn (by decide +kernel) (n := 10) (by decide +kernel) H
@@ -379,7 +379,7 @@ def domCl : Clause := ⟨[Srt.k], [.var 0], none, .app projInt [.var 0], some (.
 theorem fn_clauses : fn.clauses = [eqnCl, domCl] := rfl
 
 private theorem hfn : c.lookupFn projInt = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 kernel_rfl isCtor_withHooks : ∀ (c : Semantics) (H : HookParams), (c.withHooks H).isCtor = c.isCtor
 
@@ -618,7 +618,7 @@ theorem rest_undetermined (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k �
 
 namespace RestOpen
 
-theorem nc_coreOK : nc.coreOK = true := by decide +kernel
+theorem nc_coreOK : nc.coreOK = true := by decide_cheap
 theorem nc_noRaw : ∀ k ∈ nc.params, k.raw = false := by decide +kernel
 
 /-- `F` has no clause, so `FnHyp` holds under every interpretation: `F`'s result everywhere is its
@@ -1284,7 +1284,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- **`andAsEnsures`, for every interpretation**: `f(1)` is 1, and `f(0)` has no value: the right
 side `X ∧ ⌈X >Int 0 = true⌉` is empty at 0, so `Γ` entails `f(0) = ⊥`. -/
@@ -1332,7 +1332,7 @@ private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some fn := rfl
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- **`bottomAsEnsures`, for every interpretation**: `f(2)` is 2 (the `[owise]` equation), and
 `f(-1)` has no value: the first equation applies there, its right side is empty, and it blocks the

@@ -1,0 +1,45 @@
+id = "t32-keq-ite"
+kind = "text"
+subject = "The values of ==K, =/=K and #if #then #else #fi at arguments with values: what equality ==K is, and what the conditional returns."
+retro = ["H2"]
+rests_on = ["kk:t30-hooks-strict", "kk:t36-map-concat"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:2325-2326 (K 7.1.337)", quote = '''K "==K" K [function, total, comm, smt-hook(=), hook(KEQUAL.eq), symbol(_==K_), group(equalEqualK)] | K "=/=K" K [function, total, comm, smt-hook(distinct), hook(KEQUAL.ne), symbol(_=/=K_), group(notEqualEqualK)]''' }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["KEQUAL.eq", "KEQUAL.ne", "KEQUAL.ite"]
+statement = "At arguments A and B that each denote one element, A ==K B is true where they denote the same element and false where they denote different ones, and A =/=K B is notBool (A ==K B). Two terms that denote one element are equal to ==K however they are written: (1 |-> 2) (3 |-> 4) ==K (3 |-> 4) (1 |-> 2) is true. #if C #then X #else Y #fi is X where C is true and Y where C is false. Each of the three has no value where an argument has none (kk:t30-hooks-strict)."
+points = [
+  { at = "1 ==K 1", value = "true" },
+  { at = "1 ==K 2", value = "false" },
+  { at = "1 =/=K 2", value = "true" },
+  { at = "(1 |-> 2) (3 |-> 4) ==K (3 |-> 4) (1 |-> 2)", value = "true" },
+  { at = "#if true #then 1 #else 2 #fi", value = "1" },
+  { at = "#if false #then 1 #else 2 #fi", value = "2" },
+  { at = "1 ==K 1 /Int 0, #if true #then 1 #else 1 /Int 0 #fi", value = "no value" },
+]
+reason = """
+(1) domains.md:2312-2313: ==K is the equality between two terms; it returns true if they are equal and false if they are not. The declaration makes it a total function (domains.md:2325).
+(2) In a model a symbol is interpreted at elements of its argument sorts (introduction-to-matching-logic.tex:704-710): the interpretation of ==K receives the elements its arguments denote, not the way they are written. So the only equality ==K can compute at two arguments is the equality of the elements they denote. (1 |-> 2) (3 |-> 4) and (3 |-> 4) (1 |-> 2) denote one map, the map with the two pairs (kk:t36-map-concat), so ==K of them is true.
+(3) =/=K is the function of the equation K1 =/=K K2 => notBool (K1 ==K K2) (domains.md:2355).
+(4) domains.md:2314-2316: if the first argument of #if evaluates to true, the second argument is returned, otherwise the third. Its two equations (domains.md:2357-2358) say the same, the first under requires C, the second under requires notBool C.
+(5) At an argument with no value each of the three has no value (kk:t30-hooks-strict), whatever domains.md says of the order in which #if evaluates its arguments (domains.md:2316-2317)."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:2312-2317 (K 7.1.337)"
+quote = "* `==K` - the equality between two terms. Returns `true` if they are equal and `false` if they are not equal. * `#if #then #else #fi` - polymorphic conditional function. If the first argument evaluates to `true`, the second argument is returned. Otherwise, the third argument is returned."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:2355-2358 (K 7.1.337)"
+quote = "rule K1:K =/=K K2:K => notBool (K1 ==K K2) ... rule #if C:Bool #then B1::K #else _ #fi => B1 requires C rule #if C:Bool #then _ #else B2::K #fi => B2 requires notBool C"
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-710 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''

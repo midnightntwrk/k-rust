@@ -18,14 +18,15 @@ open KCore.Exec
 
 variable {c : Semantics}
 
-/-- A clause that `clauseFixed` accepts is match independent: its patterns, well sorted in a
+/-- A clause without existential variables that `clauseFixed` accepts is match independent: its patterns, well sorted in a
 left-hand side's context (`patCtxAll`), fix all of its variables, and its right-hand side's and
 its `ensures`' are among them. -/
 theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
     (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hens : reqOK x cl.vars cl.ens = true)
-    (hfx : c.clauseFixed cl = true) :
+    (hfx : c.clauseFixed cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
+  refine ⟨?_, fun hne => absurd hx hne⟩
   intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
   unfold Semantics.clauseFixed at hfx
   split at hfx
@@ -33,7 +34,7 @@ theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} 
     simp only [List.all_eq_true, List.contains_iff_mem, List.mem_range] at hfx
     have hag : ∀ i, i < cl.vars.length → σ.lookup i = σ'.lookup i := fun i hi =>
       Det.uniqList_sound hmc hσ hσ' cl.pats hD hm hm' hpt (fun _ h => by cases h) i (hfx i hi)
-    refine .inl ⟨rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
+    refine .inl ⟨hx, hx, rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
     rw [ht] at hens
     exact hag i (sortOfTerm_vars (reqOK_some hens) i hi)
   · cases hfx
@@ -81,9 +82,9 @@ theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
   obtain ⟨L, _, hclk⟩ := clauseCtx_of hok fn hmem
-  obtain ⟨hpt, _, _, _, hrt, hens, _⟩ := hclk cl hcl
+  obtain ⟨hpt, _, _, _, hrt, hens, _, hx, _⟩ := hclk cl hcl
   cases hfx : c.clauseFixed cl with
-  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt) hrt hens hfx
+  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt) hrt hens hfx hx
   | false =>
     rcases List.mem_append.mp hmem with hf | hp
     · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl

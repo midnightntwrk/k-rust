@@ -294,9 +294,11 @@ mutual
       obtain ⟨o, hlo, rfl⟩ := patAll_lookup_ovl ho hk'
       have ih := patVals_den4 hs hargs
       subst hv
-      refine ⟨OvlLaws.sortOf_norm (OvlOK.hyp inferInstance htr) hlo ih.1, fun m => ?_⟩
+      have hnf := OvlOK.fnCover_none (c := c) f ws
+      refine ⟨OvlLaws.sortOf_norm_ovlF (OvlOK.hyp inferInstance htr) (OvlOK.hyp inferInstance htr).fnFacts hlo ih.1 hnf,
+        fun m => ?_⟩
       rw [kore_app, tr_symApp, ih.2 _ _ (fun _ => Iff.rfl) m]
-      have := normDen_of hI htr hlo ih.1 e m
+      have := normDen_of hI htr hlo ih.1 hnf e m
       unfold KoreAML.den at this
       rw [tr_symApp] at this
       exact this
@@ -641,7 +643,7 @@ mutual
   theorem eval_den4 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio _ hrhs hens _,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -653,7 +655,7 @@ mutual
           (fun t ht m' => evalTerm_den4 (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
         (fun t ht tbl e' hag m' => evalTerm_den4 (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
         (fun cl' hcl'' hna'' hlt => fails_den4 (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
-    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio ht he hw,
+    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio _ ht he hw,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -669,6 +671,12 @@ mutual
       obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
       have h := rest_den hI hmem hws hnone e m
       rwa [hlab] at h
+    | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+    | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
   theorem fails_den4 : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →
@@ -801,7 +809,7 @@ mutual
       exact ih.2 hvs' _ m
     | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _ => by
       rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
-    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts _, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
+    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       have ih := evalTerms_den4 hts hL hσ hvs hag hargs
@@ -814,7 +822,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := normDen_of hI hsc.trans hlo hws e m
+        have := normDen_of hI hsc.trans hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this

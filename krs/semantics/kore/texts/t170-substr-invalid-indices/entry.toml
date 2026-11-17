@@ -1,0 +1,46 @@
+id = "t170-substr-invalid-indices"
+kind = "text"
+subject = 'substrString off its valid indices, here substrString("abc", 2, 1) and substrString("abc", 0, 5): the symbol is total and the prose says it is only defined on valid indices.'
+retro = ["ST1"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1758 (K 7.1.337)", quote = "syntax String ::= substrString ( String , startIndex: Int , endIndex: Int ) [function, total, hook(STRING.substr)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = '''
+What is stated. substrString is declared total (domains.md:1758): it has at least one value for every list of arguments (user_manual.md:546-548). The prose says the range is [startIndex..endIndex) and that the function is only defined on valid indices, startIndex < endIndex and endIndex at most the length (domains.md:1751-1755). (2, 1) and (0, 5) on "abc" are not valid. A value the prose does not describe is not stated: the prose says that a function invoked on an input it is not defined on has undefined behaviour (domains.md:14-16), which names no value and no absence of one.
+So at those points a value exists and no sentence says which: every string is a candidate. The two readings below are two candidates, not a choice between sentences.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1758 (K 7.1.337)"
+quote = "syntax String ::= substrString ( String , startIndex: Int , endIndex: Int ) [function, total, hook(STRING.substr)]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:546-548 (K 7.1.337)"
+quote = "The `total` attribute indicates that a symbol cannot be equal to matching logic bottom; in other words, it has *at least* one value for every possible set of arguments. It can be added to a production with the `function` attribute to"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1751-1755 (K 7.1.337)"
+quote = "1. the range generated includes the character at `startIndex` but excludes the character at `endIndex`, i.e., the range is `[startIndex..endIndex)`. 2. this function is only defined on valid indices (i.e., it is defined when `startIndex < endIndex` and `endIndex` is less than or equal to the string length)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:14-16 (K 7.1.337)"
+quote = "Note that some functions in the K prelude functions are not total, that is, they are not defined on all possible input values. When you invoke such a function on an undefined input, the behavior is undefined. In particular, when"
+
+[[reading]]
+name = "empty-string"
+statement = "The value off the valid indices is the empty string."
+answer = 'substrString("abc", 2, 1) = ""'
+consequence = 'A consumer that gives "" there takes one model of the text.'
+
+[[reading]]
+name = "another-string"
+statement = "The value off the valid indices is some other string."
+answer = 'substrString("abc", 2, 1) is a string other than "", not named'
+consequence = 'No sentence excludes it; a consumer may not assume "".'
