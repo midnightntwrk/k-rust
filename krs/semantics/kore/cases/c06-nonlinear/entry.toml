@@ -1,10 +1,37 @@
 id = "c06-nonlinear"
 kind = "case"
 subject = "A variable seen twice in a left side: the equation and the rule apply only to equal values."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t04-rule-priority-owise", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t12-eq-priority-owise", "kk:t17-nonlinear"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["same"]
+reason = """
+(1) X occurs twice in the left side of eq(X, X) => 1 and of the rule two(X, X) => same, and stands for one value at both places: each applies exactly where its two arguments are equal (kk:t17-nonlinear). The [owise] equation gives eq(A, B) = 0 where A and B differ (kk:t12-eq-priority-owise).
+(2) The rule two(X, X) => same has priority 50 and the other rule for two has 60 (user_manual.md:1748-1749): the second is tried at a configuration only where the first has been shown not to apply (kk:t04-rule-priority-owise; user_manual.md:1722-1724).
+(3) two(3, 0): 3 and 0 differ, so the rule of 50 does not match, and the rule of 60 applies with X = 3, Y = 0; its right side denotes two(3, 0 +Int 1 +Int eq(0, 1) +Int eq(0, 2)), and eq(0, 1) = eq(0, 2) = 0 by (1), so it is two(3, 1) (domains.md:1238; kk:t10-fn-innermost). two(3, 1): again only the rule of 60 applies, giving two(3, 1 +Int 1 +Int eq(1, 1) +Int eq(1, 2)) = two(3, 1 + 1 + 1 + 0) = two(3, 3). two(3, 3): the rule of 50 applies, so two(3, 3) steps to same alone and the rule of 60 is not tried (kk:t02-step-successors). Each of these configurations has the one successor given, so the run is one path.
+(4) No rule's left side matches same, so it is final (kk:t06-final-configuration); no configuration of the path before it is final, each having a successor (kk:t01-rule-applies). The final configurations are same alone: two(3, 4) would need the rule of 60 to apply at two(3, 3), which (2) excludes."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1724 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
