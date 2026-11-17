@@ -235,3 +235,4 @@ import KcoreSpec.LawHooksLib
 import KcoreSpec.ReadFns
 import KcoreSpec.InjValue
 import KcoreSpec.ClausePlainEx
+import KcoreSpec.ExistsHoist

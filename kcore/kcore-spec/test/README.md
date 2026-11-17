@@ -741,6 +741,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   model, and in every model an element of Int whose injection into KItem is the element of
   `inj{Int,KItem}(3)` is the element of 3, and no element of Int has the element of
   `inj{Bool,KItem}(true)` as its injection (`inj_value_instance`).
+- `test/ExistsHoist.lean`: the hoisting laws of KcoreSpec/ExistsHoist.lean at the value model of
+  `f2-examples/ovlsub.kompile.kore`, every hypothesis discharged: `app_exists` (a sorted `\exists`
+  out of an application context), `and_exists`, `or_exists` (the bound sort has an element) with
+  `or_exists_only_if` at the sort `⊥` (the two sides differ at `true`), `var_and_mem`; and at the
+  translation of KORE patterns in one context: `tr_app_exists` at
+  `inj{Bool,KItem}(\exists{Bool}(B:Bool, B))`, `tr_and_exists`, and `tr_or_exists`,
+  `tr_var_and_mem`, `tr_mem_and` at variables of a sort variable read as Bool.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
