@@ -204,7 +204,7 @@ theorem eval_pl {op : Sym} (hr : Ready (fnPl op)) (hk : (mkSem (fnPl op)).isCtor
     (hv : hook op [int a, int b] = some (some v)) :
     Eval ((mkSem (fnPl op)).withHooks H) F [int a, int b] (some v) :=
   .clause (cl := clPl op) (σ := σ2 a b) (hr.lookH H) (List.mem_singleton_self _) (ws2 a b)
-    (.cons (.var rfl) (.cons (.var rfl) .nil)) (fun _ h => nomatch h)
+    (.cons (.var rfl) (.cons (.var rfl) .nil)) (fun _ h => nomatch h) .top
     (fun cl' hcl' _ hlt => by
       change cl' ∈ [clPl op] at hcl'
       rw [List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))

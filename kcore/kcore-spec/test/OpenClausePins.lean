@@ -114,7 +114,7 @@ theorem fF_mem : fF ∈ c3.fns := List.mem_append_right _ (List.mem_singleton_se
 /-- `f()` is `1`: `clOne` applies, `clYE` is of the same priority. -/
 theorem evalF : Eval c3 391 [] (some (.dv Srt.int (.int 1))) :=
   Eval.clause (cl := clOne) (σ := []) (lookup3 fF_mem) (List.Mem.tail _ (List.Mem.head _))
-    (fun i s h => by simp [clOne] at h) .nil (fun t h => by cases h)
+    (fun i s h => by simp [clOne] at h) .nil (fun t h => by cases h) .top
     (fun cl' h _ hlt => by
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl <;> simp [clYE, clOne] at hlt)
@@ -124,7 +124,7 @@ theorem evalF : Eval c3 391 [] (some (.dv Srt.int (.int 1))) :=
 theorem evalG : Eval c3 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0))) := by
   have hfn : c3.lookupFn 389 = some gF := gF_shape.1 ▸ lookup3 gF_mem
   refine Eval.clause (σ := [(0, .dv Srt.int (.int 1))]) hfn clG_mem (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clG_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) ?_
+    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) ?_
     (fun t ht => by rw [clG_ens] at ht; cases ht)
   · rw [gF_shape.2.2] at hs
     cases i with
@@ -235,6 +235,11 @@ theorem textFns : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length 
     cl.req = none ∧ cl.ens = none ∧ (match cl.rhs with | .dv _ _ => true | _ => false) = true := by
   decide +kernel
 
+/-- Each clause of the text's functions has the precondition `.top`. -/
+theorem textPre : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
+  fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
+
 theorem textPairs : ∀ fn ∈ c.fns,
     (pairs fn.clauses).all (fun p => p.1.prio != p.2.prio && !p.1.aside && !p.2.aside) = true := by
   decide +kernel
@@ -250,7 +255,8 @@ theorem fnTerminates3 : FnTerminates c3 := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hfn' | hfn'
   · refine eval_result (lookup3 hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
-      (fun cl hcl _ _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht) (fun cl hcl _ _ => ?_)
+      (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
+        Clause.holds_preTop (textPre fn hfn' cl hcl) σ⟩) (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
     have h4 := (textFns fn hfn' cl hcl).2.2.2
     cases hr : cl.rhs with
@@ -390,14 +396,14 @@ theorem totals3 : ∀ fn ∈ c3.fns, fn.total = true → ∀ vs, c3.sortsOf vs =
   have hfl := lookup3 hfn
   suffices key : ∃ v, r = some v by obtain ⟨v, rfl⟩ := key; exact ⟨v, hr⟩
   cases hr with
-  | clause hfn' hmem _ _ _ _ hrhs _ =>
+  | clause hfn' hmem _ _ _ _ _ hrhs _ =>
     rw [hfl] at hfn'; cases hfn'
     have h4 := (textFns fn hu _ hmem).2.2.2
     revert hrhs h4
     cases _ : Clause.rhs _ with
     | dv s l => intro hrhs _; cases hrhs; exact ⟨_, rfl⟩
     | _ => intro _ h4; cases h4
-  | ensFails hfn' hmem _ _ _ _ hte _ _ =>
+  | ensFails hfn' hmem _ _ _ _ _ hte _ _ =>
     rw [hfl] at hfn'; cases hfn'
     rw [(textFns fn hu _ hmem).2.2.1] at hte; cases hte
   | rest hfn' hnone =>
@@ -428,6 +434,7 @@ theorem totals3 : ∀ fn ∈ c3.fns, fn.total = true → ∀ vs, c3.sortsOf vs =
         | succ i => simp at hs
       cases h [(0, v)] hσ (by rw [hpats]; exact .cons (.var rfl) .nil) with
       | intro hq _ _ => rw [hreq] at hq; cases hq
+      | pre h => rw [textPre fn hu cl hcl] at h; exact absurd (Holds.top_eq h) (by simp)
 
 /-- **`FnHyp` holds at `c3`**, though `rightValued` fails there (`clYE`): no decider derives it,
 the conjuncts are shown by hand. -/
@@ -898,14 +905,20 @@ theorem matchInd5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
 
 theorem reqNone5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.req = none := by decide +kernel
 
+/-- Each clause of `c5` has the precondition `.top`. -/
+theorem preTop5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
+  fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
+
 theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5
 
 /-- **Evaluation solves `c5`'s equations**: a clause instance that decides is one of the text's or
 `clOne5`, whose right sides are literals; `clYE` decides nowhere. -/
 theorem fnSolves5 : FnSolves c5 := by
   refine fnSolves_of_parts_lookup (fun _ hfn => lookup5 hfn) fnDet5 ?_ ?_
-  · intro fn hfn _ _ _ _ _ cl' hcl' _ _ _ _ _ t ht
-    rw [reqNone5 fn hfn cl' hcl'] at ht; cases ht
+  · intro fn hfn _ _ _ _ _ cl' hcl' _ _ σ' _ _
+    exact ⟨(fun t ht => by rw [reqNone5 fn hfn cl' hcl'] at ht; cases ht), true,
+      Clause.holds_preTop (preTop5 fn hfn cl' hcl') σ'⟩
   · intro fn hfn vs cl σ cl' σ' hcl hcl' hdec hdec' _
     rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF5] from hfn) with hu | hf
     · have h4 := (textFns fn hu cl' hcl').2.2.2

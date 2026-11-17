@@ -45,6 +45,11 @@ theorem textFns : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length 
     cl.req = none ∧ cl.ens = none ∧ (match cl.rhs with | .dv _ _ => true | _ => false) = true := by
   decide +kernel
 
+/-- Each clause of the text's functions has the precondition `.top`. -/
+theorem textPre : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
+  fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
+
 /-- Two clauses of one of the text's functions are of different priorities, neither `aside`. -/
 theorem textPairs : ∀ fn ∈ c.fns,
     (pairs fn.clauses).all (fun p => p.1.prio != p.2.prio && !p.1.aside && !p.2.aside) = true := by
@@ -183,14 +188,20 @@ theorem matchIndE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
 /-- No clause of `cE` has a `requires`. -/
 theorem reqNoneE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, cl.req = none := by decide +kernel
 
+/-- Each clause of `cE` has the precondition `.top`. -/
+theorem preTopE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
+  fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
+
 theorem fnDetE : FnDet cE := Faithful.fnDet_of_agree agreeE matchIndE
 
 /-- **Evaluation solves `cE`'s equations**: a clause that decides is one of the text's, whose right
 side is a literal; `clE` decides nowhere. -/
 theorem fnSolvesE : FnSolves cE := by
   refine fnSolves_of_parts_lookup (fun _ hfn => lookupE hfn) fnDetE ?_ ?_
-  · intro fn hfn _ _ _ _ _ cl' hcl' _ _ _ _ _ t ht
-    rw [reqNoneE fn hfn cl' hcl'] at ht; cases ht
+  · intro fn hfn _ _ _ _ _ cl' hcl' _ _ σ' _ _
+    exact ⟨(fun t ht => by rw [reqNoneE fn hfn cl' hcl'] at ht; cases ht), true,
+      Clause.holds_preTop (preTopE fn hfn cl' hcl') σ'⟩
   · intro fn hfn vs cl σ cl' σ' hcl hcl' hdec _ _
     rcases List.mem_append.mp (show fn ∈ c.fns ++ [fE] from hfn) with hu | hf
     · have h4 := (textFns fn hu cl' hcl').2.2.2
@@ -212,22 +223,23 @@ theorem no_evalE (r : Option GroundTerm) : ¬ Eval cE 391 [] r := by
   have hfn : cE.lookupFn 391 = some fE := lookupE (List.mem_append_right _ (List.mem_singleton_self _))
   intro h
   cases h with
-  | clause hfn' hmem hσ hmatch hreq _ _ _ =>
+  | clause hfn' hmem hσ hmatch hreq hpre _ _ _ =>
     rw [hfn] at hfn'; cases hfn'
     simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hmem
     subst hmem
-    exact clE_not_applies _ _ ⟨hσ, hmatch, hreq⟩
+    exact clE_not_applies _ _ ⟨hσ, hmatch, hreq, hpre⟩
   | rest hfn' hnone =>
     rw [hfn] at hfn'; cases hfn'
     cases hnone clE (List.mem_singleton_self _) with
     | intro h =>
       cases h [] (fun i hi => by simp [shapeE.2.2.1] at hi) .nil with
       | intro hq _ _ => cases hq
-  | ensFails hfn' hmem hσ hmatch hreq _ _ _ _ =>
+      | pre h => exact absurd (Holds.top_eq h) (by simp)
+  | ensFails hfn' hmem hσ hmatch hreq hpre _ _ _ _ =>
     rw [hfn] at hfn'; cases hfn'
     simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hmem
     subst hmem
-    exact clE_not_applies _ _ ⟨hσ, hmatch, hreq⟩
+    exact clE_not_applies _ _ ⟨hσ, hmatch, hreq, hpre⟩
 
 /-- **`FnHyp cE` is false**: `f` is `[total]` and has no result at `[]`. So `consistent_of`
 (through `sound_hyp`'s `FnHyp`) says nothing of `cE`, though `coreOK` holds there. -/
@@ -313,7 +325,7 @@ theorem gF_clause {cl : Clause} (h : cl ∈ gF.clauses) : cl = clG := by
 /-- `g(v)` is `0` at an Int `v`: its one clause applies. -/
 theorem evalG {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) : Eval cI 389 [v] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (σ := [(0, v)]) lookupG clG_mem (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clG_req] at ht; cases ht) (fun cl' hcl' _ hlt => ?_) ?_
+    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) ?_
     (fun t ht => by rw [clG_ens] at ht; cases ht)
   · rw [gF_shape.2.2] at hs
     cases i with
@@ -328,7 +340,7 @@ with no `requires` and a variable as pattern, does not fail. -/
 theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval cI 389 [v] r) :
     r = some (.dv Srt.int (.int 0)) := by
   cases h with
-  | clause hfn' hmem _ _ _ _ hrhs _ =>
+  | clause hfn' hmem _ _ _ _ _ hrhs _ =>
     rw [lookupG] at hfn'; cases hfn'
     rw [gF_clause hmem, clG_rhs] at hrhs
     cases hrhs; rfl
@@ -344,7 +356,8 @@ theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option Gro
         | succ i => simp at hs
       cases h [(0, v)] hσ (by rw [clG_pats]; exact .cons (.var rfl) .nil) with
       | intro hq _ _ => rw [clG_req] at hq; cases hq
-  | ensFails hfn' hmem _ _ _ _ ht _ _ =>
+      | pre h => rw [show clG.pre = .top by rfl] at h; exact absurd (Holds.top_eq h) (by simp)
+  | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
     rw [lookupG] at hfn'; cases hfn'
     rw [gF_clause hmem, clG_ens] at ht; cases ht
 
@@ -378,7 +391,7 @@ theorem evalTerm_gY {σ : Subst} (hσ : cI.WellSorted clI.vars σ) {r : Option G
 /-- `f()` is `0`: `clI` applies under Y := 0. -/
 theorem evalF : Eval cI 391 [] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (cl := clI) (σ := [(0, .dv Srt.int (.int 0))]) (lookupI fI_mem) (List.mem_singleton_self _)
-    (fun i s hs => ?_) .nil (fun t h => by cases h) (fun cl' h _ hlt => ?_) ?_ (fun t h => by cases h)
+    (fun i s hs => ?_) .nil (fun t h => by cases h) .top (fun cl' h _ hlt => ?_) ?_ (fun t h => by cases h)
   · cases i with
     | zero => cases hs; exact ⟨_, rfl, by decide +kernel⟩
     | succ i => simp [clI] at hs
@@ -396,7 +409,8 @@ theorem fnTerminatesI : FnTerminates cI := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fI] from hfn) with hfn' | hfn'
   · refine eval_result (lookupI hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
-      (fun cl hcl _ _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht) (fun cl hcl _ _ => ?_)
+      (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
+        Clause.holds_preTop (textPre fn hfn' cl hcl) σ⟩) (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
     have h4 := (textFns fn hfn' cl hcl).2.2.2
     cases hr : cl.rhs with

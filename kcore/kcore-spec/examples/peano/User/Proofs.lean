@@ -23,7 +23,7 @@ theorem pred_succ : pred_succ.statement := fun N hN =>
       cases i with
       | zero => cases h; exact ⟨N, rfl, hN⟩
       | succ i => cases h)
-    (.cons (.ctor rfl (.cons (.var rfl) .nil)) .nil) (fun _ h => nomatch h)
+    (.cons (.ctor rfl (.cons (.var rfl) .nil)) .nil) (fun _ h => nomatch h) .top
     (fun cl hcl _ hlt => absurd hlt (pred_prios cl hcl)) .var (fun _ h => nomatch h)
 
 theorem pred_owise : pred_owise.statement := fun N hS hN =>
@@ -32,7 +32,7 @@ theorem pred_owise : pred_owise.statement := fun N hS hN =>
       cases i with
       | zero => cases h; exact ⟨N, rfl, hS⟩
       | succ i => cases h)
-    (.cons (.var rfl) .nil) (fun _ h => nomatch h)
+    (.cons (.var rfl) .nil) (fun _ h => nomatch h) .top
     (fun cl hcl _ hlt => by
       rcases List.mem_cons.mp hcl with rfl | hcl
       · refine .intro fun σ _ hm => ?_

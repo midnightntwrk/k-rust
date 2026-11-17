@@ -74,7 +74,7 @@ theorem cF_lookup (H : HookParams) : (cF.withHooks H).lookupFn F = some fnF := b
 /-- Where the equation decides, the value is the equation's, under every interpretation. -/
 theorem fn_at_0 (H : HookParams) : Eval (cF.withHooks H) F [int 0] (some (int 1)) :=
   .clause (cl := clF) (σ := []) (cF_lookup H) (List.mem_singleton_self _)
-    (fun i s hi => by simp [clF] at hi) (.cons .dv .nil) (fun t ht => by cases ht)
+    (fun i s hi => by simp [clF] at hi) (.cons .dv .nil) (fun t ht => by cases ht) .top
     (fun cl' hcl' _ hlt => by
       rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (Nat.lt_irrefl _))
     .dv (fun t ht => by cases ht)
@@ -83,7 +83,7 @@ theorem fn_at_0 (H : HookParams) : Eval (cF.withHooks H) F [int 0] (some (int 1)
 theorem fn_at_0_only (H : HookParams) (r : Option GroundTerm)
     (h : Eval (cF.withHooks H) F [int 0] r) : r = some (int 1) := by
   cases h with
-  | clause hfn hmem _ _ _ _ hrhs _ =>
+  | clause hfn hmem _ _ _ _ _ hrhs _ =>
     rw [cF_lookup] at hfn; cases hfn
     rw [List.mem_singleton.mp hmem] at hrhs
     generalize hr : clF.rhs = t at hrhs
@@ -95,7 +95,8 @@ theorem fn_at_0_only (H : HookParams) (r : Option GroundTerm)
     | intro hf =>
       cases hf [] (fun i _ s hi => by simp [clF] at hi) (.cons .dv .nil) with
       | intro ht _ _ => cases ht
-  | ensFails hfn hmem _ _ _ _ ht _ _ =>
+      | pre h => exact absurd (Holds.top_eq h) (by simp)
+  | ensFails hfn hmem _ _ _ _ _ ht _ _ =>
     rw [cF_lookup] at hfn; cases hfn
     rw [List.mem_singleton.mp hmem] at ht; cases ht
 

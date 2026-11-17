@@ -68,7 +68,7 @@ theorem loop_none {res : Option GroundTerm} : ¬ Eval c L [i0] res := by
     (motive_4 := fun σ t _ _ => t = .app L [.var 0] → σ.lookup 0 = some i0 → False)
     (motive_5 := fun _ _ _ _ => True)
     (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
+    (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clLoop] at hmem
@@ -89,14 +89,15 @@ theorem loop_none {res : Option GroundTerm} : ¬ Eval c L [i0] res := by
             exact ⟨i0, rfl, by decide +kernel⟩
           | succ i => simp at hi
         cases h [(0, i0)] (fun i _ => hσ i) (.cons (.var rfl) .nil) with
-        | intro ht _ _ => cases ht)
-    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ ht _ _ _ _ _ => fun hf hvs => by
+        | intro ht _ _ => cases ht
+        | pre hp => exact absurd (Holds.top_eq hp) (by simp))
+    (fun {_ _ _ _ _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
       change _ ∈ [clLoop] at hmem
       obtain rfl := List.mem_singleton.mp hmem
       cases ht)
-    (fun _ _ => trivial) (fun _ _ _ _ => trivial)
+    (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
     (fun h _ => by cases h) (fun h _ => by cases h) (fun _ _ => fun h _ => by cases h)
     (fun hk _ _ => fun h _ => by cases h; rw [hct] at hk; cases hk)
     (fun _ hhk _ _ _ _ => fun h _ => by cases h; exact absurd hhk (by decide +kernel))

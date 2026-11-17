@@ -138,10 +138,11 @@ theorem eval_noValue_of_ens_fails {c : Semantics} {f : Sym} {fn : Fn} {vs : List
     {σ : Subst} {e : Term} {r : Option GroundTerm} (hco : CoherentAll c)
     (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hσ : c.WellSorted cl.vars σ)
     (hmatch : PatVals c σ cl.pats vs) (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true)
     (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
     (he : cl.ens = some e) (hev : EvalTerm c σ e r) (hr : r ≠ some (bool true)) :
     ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
-  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hprio he hev hr)
+  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio he hev hr)
 
 /-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` on the
 data (`coreOK` does not read the interpretation). -/
@@ -358,7 +359,7 @@ theorem projInt_none_off (H : HookParams) (K : GroundTerm) (hK : c.sortOf K = so
     Eval (c.withHooks H) projInt [K] none := by
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   refine Eval.ensFails (cl := domCl) (σ := [(0, K)]) hfnH (by rw [fn_clauses]; simp) ?_ ?_
-    (fun t ht => nomatch ht) ?_ rfl .dv (by decide)
+    (fun t ht => nomatch ht) .top ?_ rfl .dv (by decide)
   · intro i s hs
     cases i with
     | zero => cases hs; exact ⟨K, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact hK⟩
@@ -394,7 +395,7 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   generalize hr : (some v : Option GroundTerm) = r at hE
   cases hE with
-  | clause hf hmem _ hmatch _ _ hrhs hens =>
+  | clause hf hmem _ hmatch _ _ _ hrhs hens =>
     rw [hfnH] at hf; cases hf
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -415,6 +416,7 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
           | succ i => simp [domCl] at hs)
         (.cons (.var rfl) .nil) with
       | intro ht => cases ht
+      | pre h => exact absurd (Holds.top_eq h) (by simp)
   | ensFails => cases hr
 
 end ProjK

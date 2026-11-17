@@ -196,7 +196,8 @@ example (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTe
     (cl.AppliesAt c σ vs ∧
       ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
         ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats vs →
-          ¬ ∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) := rfl
+          ¬ ((∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) ∧
+             Holds c cl'.vars.length σ' cl'.pre true)) := rfl
 
 /-- `StepIs`: `ref` lists exactly the configurations `Step` reaches in one step. -/
 example (c : Semantics) (ref : StepFn) : StepIs c ref =

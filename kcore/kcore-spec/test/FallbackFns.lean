@@ -120,6 +120,7 @@ theorem half_not_fails (H : HookParams) : ∀ cl ∈ fn.clauses, ¬ Fails (c.wit
       | succ i => cases hi
     cases h [(0, int (-4))] (hσ.at _) (.cons (.var rfl) .nil) with
     | intro ht _ _ => cases ht
+    | pre h => exact absurd (Holds.top_eq h) (by simp)
 
 /-- So `half(-4)` has no value under every interpretation: the clause decides and its `ensures`
 `-4 >=Int 0` is false. -/
@@ -189,10 +190,10 @@ theorem nc_noValue : ¬ ∃ v, Eval nc F [int 0] (some v) := by
   rintro ⟨v, h⟩
   generalize hr : some v = r at h
   cases h with
-  | clause hfn hmem _ _ _ _ _ _ =>
+  | clause hfn hmem _ _ _ _ _ _ _ =>
     rw [nc_lookup] at hfn; cases hfn
     simp [fnF] at hmem
-  | ensFails hfn hmem _ _ _ _ _ _ _ =>
+  | ensFails hfn hmem _ _ _ _ _ _ _ _ =>
     rw [nc_lookup] at hfn; cases hfn
     simp [fnF] at hmem
   | rest hfn _ =>
@@ -266,7 +267,7 @@ theorem et_noValue (H : HookParams) : ¬ ∃ v, Eval (et.withHooks H) G [int 0] 
   have hl : (et.withHooks H).lookupFn G = some fnG := by rw [Semantics.lookupFn_withHooks]; rfl
   generalize hr : some v = r at h
   cases h with
-  | clause hfn hmem _ _ _ _ _ hens =>
+  | clause hfn hmem _ _ _ _ _ _ hens =>
     rw [hl] at hfn; cases hfn
     simp only [fnG, List.mem_singleton] at hmem
     subst hmem
@@ -282,6 +283,7 @@ theorem et_noValue (H : HookParams) : ¬ ∃ v, Eval (et.withHooks H) G [int 0] 
     | intro hf =>
       cases hf [(0, int 0)] (hσ.at _) (.cons (.var rfl) .nil) with
       | intro ht _ _ => cases ht
+      | pre h => exact absurd (Holds.top_eq h) (by simp)
   | ensFails => cases hr
 
 /-- So `FnHyp` fails under every interpretation: `G` is declared total, and no interpretation of

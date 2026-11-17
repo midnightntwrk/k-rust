@@ -139,13 +139,13 @@ def c : Semantics :=
 theorem lookup_f : c.lookupFn fL = some fF := rfl
 theorem lookup_g : c.lookupFn gL = some fG := rfl
 
-/-- A clause without variables, patterns, `requires` or `ensures` whose right-hand side is a domain
+/-- A clause without variables, patterns, `requires` or `ensures`, of the precondition `.top`, whose right-hand side is a domain
 value gives that value. -/
 theorem eval_const {f : Sym} {fn : Fn} {cl : Clause} {s : Srt} {l : Lit} (hfn : c.lookupFn f = some fn)
     (hcl : fn.clauses = [cl]) (hv : cl.vars = []) (hp : cl.pats = []) (hq : cl.req = none)
-    (hr : cl.rhs = .dv s l) (he : cl.ens = none) : Eval c f [] (some (.dv s l)) :=
+    (hr : cl.rhs = .dv s l) (he : cl.ens = none) (hpre : cl.pre = .top) : Eval c f [] (some (.dv s l)) :=
   .clause (σ := []) hfn (by rw [hcl]; exact List.mem_singleton_self _) (fun i s' h => by rw [hv] at h; simp at h)
-    (by rw [hp]; exact .nil) (fun _ h => by rw [hq] at h; cases h)
+    (by rw [hp]; exact .nil) (fun _ h => by rw [hq] at h; cases h) (Clause.holds_preTop hpre _)
     (fun cl' h _ hlt => by rw [hcl] at h; obtain rfl := List.mem_singleton.mp h; exact absurd hlt (Nat.lt_irrefl _))
     (by rw [hr]; exact .dv) (fun _ h => by rw [he] at h; cases h)
 
@@ -158,10 +158,10 @@ theorem fnHyp : FnHyp c := by
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain fun _ h => absurd h List.not_mem_nil⟩
   · rcases List.mem_cons.mp hfn with rfl | hfn
     · obtain rfl := sortsOf_nil_eq hvs
-      exact ⟨_, eval_const lookup_f rfl rfl rfl rfl rfl rfl⟩
+      exact ⟨_, eval_const lookup_f rfl rfl rfl rfl rfl rfl rfl⟩
     · obtain rfl := List.mem_singleton.mp hfn
       obtain rfl := sortsOf_nil_eq hvs
-      exact ⟨_, eval_const lookup_g rfl rfl rfl rfl rfl rfl⟩
+      exact ⟨_, eval_const lookup_g rfl rfl rfl rfl rfl rfl rfl⟩
   · rcases List.mem_cons.mp hfn with rfl | hfn
     · cases ht
     · obtain rfl := List.mem_singleton.mp hfn; cases ht
@@ -188,7 +188,7 @@ theorem not_clauseSorted : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (
   decide +kernel
 
 /-- `Eval` gives `f() = true`, a value outside `N`. -/
-theorem eval_f : Eval c fL [] (some (.dv Srt.bool (.bool true))) := eval_const lookup_f rfl rfl rfl rfl rfl rfl
+theorem eval_f : Eval c fL [] (some (.dv Srt.bool (.bool true))) := eval_const lookup_f rfl rfl rfl rfl rfl rfl rfl
 theorem true_sort : c.sortOf (.dv Srt.bool (.bool true)) = some Srt.bool := by decide +kernel
 
 end Ill
