@@ -324,3 +324,4 @@ import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
 import KcoreSpec.TieRuleGuard
+import KcoreSpec.ModelFnsPre
