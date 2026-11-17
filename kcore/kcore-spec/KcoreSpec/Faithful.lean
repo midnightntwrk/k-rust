@@ -906,11 +906,14 @@ def LawAt (c : Semantics) (l : LawEq) : Prop :=
 /-- The interpretation satisfies, at values, the laws the text writes. -/
 def FnLaws (c : Semantics) (ls : List LawEq) : Prop := ∀ l ∈ ls, LawAt c l
 
-/-- Both sides of the law have one sort in the context of right sides, and each of its variables
-occurs in one of them. -/
+/-- Both sides of the law have one sort in the context of right sides, that sort is one of the
+definition's, and each of the law's variables occurs in a side. A sort that is none of the
+definition's has no name of its own (`sortName` gives every such sort one name), so a sentence
+over it would speak of whichever sort of the definition bears that name. -/
 def lawSorted (c : Semantics) (l : LawEq) : Bool :=
   let x := c.rhsCtx (c.fns.map Fn.sig)
-  (sortOfTerm x l.vars l.lhs).isSome && sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
+  (sortOfTerm x l.vars l.lhs).any (· < nRegSorts + c.sortNames.length) &&
+    sortOfTerm x l.vars l.lhs == sortOfTerm x l.vars l.rhs &&
     binds l.vars.length (varOccs l.lhs ++ varOccs l.rhs)
 
 /-- The law's sentence, `axiom{R} \equals{S,R}(lhs, rhs)` (S the sort of its left side; its

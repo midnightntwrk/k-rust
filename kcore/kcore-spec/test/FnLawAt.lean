@@ -4,7 +4,8 @@
   its variables `K1, K2, K3` (or `K`) numbered 0, 1, 2 (or 0); `assocLaw` is the `[assoc]` axiom of
   test/constructs/fixtures/e2-fn-assoc*, `idemLaw` the `[idem]` axiom of e2-fn-idem, each at the one
   function `F : Int × Int → Int`. Each law is `lawSorted` at its semantics (`*_lawSorted`), so no
-  statement below holds by a law the context cannot sort.
+  statement below holds by a law the context cannot sort, and `coreOK` accepts each semantics
+  (`*_coreOK`).
 
   - `pl` (e2-fn-assoc): `pl(A, B) => A +Int B`, declared total. The clause applies at every pair
     of Ints, so no rest is read: `LawAt` holds under every interpretation (`pl_lawAt`, and
@@ -22,6 +23,23 @@
     it holds at `Hfst`, which answers the first argument (`mx_lawAt_fst`): the interpretations the
     law admits are those with `mx(a, a) = a` where the clause fails.
 
+  Where the law holds at values the theory with the law's sentence has a model
+  (`consistent_with_laws`, LawConsistent.lean), at these semantics: `pl` under every interpretation
+  (`pl_consistent_with_laws`), `pk` under `Hadd` (`pk_consistent_with_laws_add`), `mx` under `Hfst`
+  (`mx_consistent_with_laws_fst`). The hypotheses are `coreOK` by the kernel, `FnDet`, `FnSolves`
+  and `OpenLaws` from `FnFacts.of_nil` (no function is named, no parameter is open), `FnLaws` by
+  the statements above and `lawSorted` by the kernel.
+
+  A law over a sort that is none of the definition's is not sorted (`unnumbered`): `wn` has a sort
+  `nRegSorts + 2` whose name is the empty string and which has two constructors, `coreOK` accepts
+  it, and the sort 9999, none of its sorts, has the same name (`wn_sortName`). `badLaw` is
+  `x = y` at two variables of the sort 9999: both sides have the sort 9999 in the context of right
+  sides and each variable occurs (`badLaw_sides`), and its sentence is the sentence of `x = y` at
+  the sort `nRegSorts + 2` (`badLaw_pattern`). `lawSorted` refuses it (`badLaw_not_lawSorted`)
+  and accepts the law at the sort `nRegSorts + 2` (`realLaw_lawSorted`), which `LawAt` refutes at
+  the two constructors (`realLaw_not_lawAt`). Not shown here: that `LawAt` holds of `badLaw`, and
+  that the theory refutes the sentence.
+
   Run from the package root: `lake env lean test/FnLawAt.lean`.
 -/
 import KcoreSpec
@@ -38,18 +56,19 @@ open KCore ML Faithful
 def cellSorts : List Srt := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
 def cellCtors : List CtorSig :=
   [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
-   ⟨nRegSyms + 50, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 51, [], nRegSorts + 1⟩,
+   ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
    ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
 def cellSubsorts : List (Srt × Srt) := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
 
 /-- The one function of each semantics below. -/
-def F : Sym := nRegSyms + 100
+def F : Sym := nRegSyms + 4
 
-/-- The semantics whose one function is `fn`, with no rule. -/
+/-- The semantics whose one function is `fn`, with no rule: the two cell sorts and the symbols
+(the cell sorts' predicates, the two cell constructors, `F`) named, so that `coreOK` accepts it. -/
 def mkSem (fn : Fn) : Semantics where
   lib := { sortsBelowKItem := [Srt.map, Srt.list, Srt.int, Srt.bool] }
-  sortNames := []
-  symNames := []
+  sortNames := ["KCell", "KCellOpt"]
+  symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "LblF"]
   userSorts := cellSorts
   ctors := cellCtors
   fns := [fn]
@@ -406,6 +425,148 @@ theorem mx_lawAt_fst : LawAt (mx.withHooks Hfst) idemLaw := by
   exact ⟨fun h => EvalTerm.functional (ready_mx.coherent _) hl h ▸ hr,
     fun h => EvalTerm.functional (ready_mx.coherent _) hr h ▸ hl⟩
 
+/-! ## The theory with the law's sentence has a model -/
+
+theorem pl_coreOK : pl.coreOK = true := by decide +kernel
+theorem plBad_coreOK : plBad.coreOK = true := by decide +kernel
+theorem pk_coreOK : pk.coreOK = true := by decide +kernel
+theorem mx_coreOK : mx.coreOK = true := by decide +kernel
+
+/-- The hypotheses of `consistent_with_laws` that do not read the law, for a semantics `mkSem fn`
+that `coreOK` accepts and none of whose functions is named by an obligation list, under every
+interpretation. -/
+theorem mkSem_model {fn : Fn} (hc : (mkSem fn).coreOK = true) (hv : (mkSem fn).rightValued = true)
+    (h1 : (mkSem fn).rankObligations [] ++ (mkSem fn).decObligationsL = [])
+    (h2 : (mkSem fn).totalObligationsRP [] [] = []) (h3 : (mkSem fn).agreeObligationsI = [])
+    (h4 : (mkSem fn).matchObligationsL = []) (H : HookParams) :
+    ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
+      FnSolves ((mkSem fn).withHooks H) ∧ OpenLaws ((mkSem fn).withHooks H) := by
+  have hcH : ((mkSem fn).withHooks H).coreOK = true := (Semantics.coreOK_withHooks _ H).trans hc
+  have hob : FnFacts ((mkSem fn).withHooks H) [] [] :=
+    FnFacts.of_nil
+      (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
+      ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)
+      ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
+      ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4)
+      (List.all_eq_true.mpr fun k hk => by rw [mkSem_rawFree fn k hk]; rfl)
+  have hm := fnModel_of_fnFacts hcH (Semantics.rightHeld_withHooks_of_valued hv H) hob
+  exact ⟨hcH, hm.1, hm.2, hob.2.2.2.2⟩
+
+/-- `consistent_with_laws` at one law of `mkSem fn` under H. -/
+theorem mkSem_consistent_with_laws {fn : Fn} {H : HookParams} {l : LawEq}
+    (hm : ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
+      FnSolves ((mkSem fn).withHooks H) ∧ OpenLaws ((mkSem fn).withHooks H))
+    (hl : LawAt ((mkSem fn).withHooks H) l) (hs : lawSorted (mkSem fn) l = true) :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc ((mkSem fn).withHooks H) ∪ Γstep ((mkSem fn).withHooks H))) ∧
+        ∀ l' ∈ [l], I ⊧ᴵ lawPattern ((mkSem fn).withHooks H) l' :=
+  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2
+    (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact hl)
+    (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact (lawSorted_withHooks _ H _).trans hs)
+
+/-- **The theory of `pl` with its associativity sentence has a model, under every
+interpretation.** -/
+theorem pl_consistent_with_laws (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc (pl.withHooks H) ∪ Γstep (pl.withHooks H))) ∧
+        ∀ l ∈ [assocLaw], I ⊧ᴵ lawPattern (pl.withHooks H) l :=
+  mkSem_consistent_with_laws
+    (mkSem_model pl_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+      (by decide +kernel) H)
+    (pl_lawAt H) pl_lawSorted
+
+/-- **The theory of `pk` with its associativity sentence has a model under `Hadd`**, where the
+law is a condition on the interpretation. -/
+theorem pk_consistent_with_laws_add :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc (pk.withHooks Hadd) ∪ Γstep (pk.withHooks Hadd))) ∧
+        ∀ l ∈ [assocLaw], I ⊧ᴵ lawPattern (pk.withHooks Hadd) l :=
+  mkSem_consistent_with_laws
+    (mkSem_model pk_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+      (by decide +kernel) Hadd)
+    pk_lawAt_add pk_lawSorted
+
+/-- **The theory of `mx` with its idempotence sentence has a model under `Hfst`**, which gives
+`mx(a, a)` the value the law states where the clause fails. -/
+theorem mx_consistent_with_laws_fst :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Γc (mx.withHooks Hfst) ∪ Γstep (mx.withHooks Hfst))) ∧
+        ∀ l ∈ [idemLaw], I ⊧ᴵ lawPattern (mx.withHooks Hfst) l :=
+  mkSem_consistent_with_laws
+    (mkSem_model mx_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+      (by decide +kernel) Hfst)
+    mx_lawAt_fst mx_lawSorted
+
+/-! ## A law over a sort that is none of the definition's -/
+
+/-- The first constructor of `wn`'s sort. -/
+def wnA : Sym := nRegSyms + 5
+/-- The second constructor of `wn`'s sort. -/
+def wnB : Sym := nRegSyms + 6
+
+/-- The cell sorts and constructors with one more sort, `nRegSorts + 2`, named by the empty string,
+and its two nullary constructors; no function, rule or parameter. -/
+def wn : Semantics where
+  lib := {}
+  sortNames := ["KCell", "KCellOpt", ""]
+  symNames := ["LblisKCell", "LblisKCellOpt", "Lblis", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblx", "Lbly"]
+  userSorts := cellSorts ++ [nRegSorts + 2]
+  ctors :=
+    [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+     ⟨nRegSyms + 3, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 4, [], nRegSorts + 1⟩,
+     ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩,
+     ⟨wnA, [], nRegSorts + 2⟩, ⟨wnB, [], nRegSorts + 2⟩]
+  fns := []
+  userSubsorts := cellSubsorts
+  pgmSort := Srt.k
+  rules := []
+
+/-- `x = y` at two variables of the sort 9999, which is none of `wn`'s. -/
+def badLaw : LawEq := ⟨[9999, 9999], .var 0, .var 1⟩
+/-- `x = y` at two variables of `wn`'s sort `nRegSorts + 2`. -/
+def realLaw : LawEq := ⟨[nRegSorts + 2, nRegSorts + 2], .var 0, .var 1⟩
+
+theorem wn_coreOK : wn.coreOK = true := by decide +kernel
+
+/-- The sort 9999 is none of `wn`'s, and has the name of `wn`'s sort `nRegSorts + 2`. -/
+theorem wn_sortName : ¬ 9999 < nRegSorts + wn.sortNames.length ∧
+    wn.sortName 9999 = wn.sortName (nRegSorts + 2) := by decide +kernel
+
+/-- Both sides of `badLaw` have the sort 9999 in the context of right sides, and each of its
+variables occurs in a side. -/
+theorem badLaw_sides :
+    sortOfTerm (wn.rhsCtx (wn.fns.map Fn.sig)) badLaw.vars badLaw.lhs = some 9999 ∧
+    sortOfTerm (wn.rhsCtx (wn.fns.map Fn.sig)) badLaw.vars badLaw.rhs = some 9999 ∧
+    binds badLaw.vars.length (varOccs badLaw.lhs ++ varOccs badLaw.rhs) = true := by decide +kernel
+
+/-- `badLaw`'s sentence is `realLaw`'s: the variables' guards and the equation's sort are written
+by name. -/
+theorem badLaw_pattern : lawPattern wn badLaw = lawPattern wn realLaw := by decide +kernel
+
+/-- **`lawSorted` refuses the law over the sort that is none of the definition's.** -/
+theorem badLaw_not_lawSorted : lawSorted wn badLaw = false := by decide +kernel
+
+/-- The same equation at the definition's sort is sorted. -/
+theorem realLaw_lawSorted : lawSorted wn realLaw = true := by decide +kernel
+
+/-- **`LawAt` refutes it there**, under every interpretation: at the two constructors the left
+side is the first and the right side the second. -/
+theorem realLaw_not_lawAt (H : HookParams) : ¬ LawAt (wn.withHooks H) realLaw := by
+  intro h
+  have hw : (wn.withHooks H).WellSorted realLaw.vars [(0, .ctor wnA []), (1, .ctor wnB [])] := by
+    intro i s hi
+    match i, hi with
+    | 0, hi =>
+      cases hi
+      exact ⟨_, rfl, by rw [Semantics.sortOf_withHooks wn H (fun k hk => nomatch hk)]; decide +kernel⟩
+    | 1, hi =>
+      cases hi
+      exact ⟨_, rfl, by rw [Semantics.sortOf_withHooks wn H (fun k hk => nomatch hk)]; decide +kernel⟩
+    | n + 2, hi => simp [realLaw] at hi
+  have hl : EvalTerm (wn.withHooks H) [(0, .ctor wnA []), (1, .ctor wnB [])] realLaw.lhs (some (.ctor wnA [])) :=
+    evVar rfl
+  cases (h _ hw _).mp hl
+
 /-! ## Axioms -/
 
 /-- info: 'KCore.FnLawAtTest.pl_lawAt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -436,5 +597,22 @@ theorem mx_lawAt_fst : LawAt (mx.withHooks Hfst) idemLaw := by
 #guard_msgs in #print axioms pk_lawSorted
 /-- info: 'KCore.FnLawAtTest.mx_lawSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms mx_lawSorted
+
+/-- info: 'KCore.FnLawAtTest.pl_consistent_with_laws' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms pl_consistent_with_laws
+/-- info: 'KCore.FnLawAtTest.pk_consistent_with_laws_add' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms pk_consistent_with_laws_add
+/-- info: 'KCore.FnLawAtTest.mx_consistent_with_laws_fst' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms mx_consistent_with_laws_fst
+/-- info: 'KCore.FnLawAtTest.wn_coreOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms wn_coreOK
+/-- info: 'KCore.FnLawAtTest.badLaw_pattern' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms badLaw_pattern
+/-- info: 'KCore.FnLawAtTest.badLaw_not_lawSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms badLaw_not_lawSorted
+/-- info: 'KCore.FnLawAtTest.realLaw_not_lawAt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms realLaw_not_lawAt
+/-- info: 'KCore.consistent_with_laws' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.consistent_with_laws
 
 end KCore.FnLawAtTest

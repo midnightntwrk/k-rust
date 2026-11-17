@@ -1119,3 +1119,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
+  hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
+  `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
+  sentence has a model (`consistent_with_laws`): `pl` under every interpretation, `pk` under
+  addition, `mx` under the first argument. `lawSorted` refuses a law over a sort that is none of
+  the definition's (`badLaw_not_lawSorted`), whose sentence is the sentence of the same equation at
+  the definition's sort of that name (`badLaw_pattern`), which `LawAt` refutes
+  (`realLaw_not_lawAt`).
