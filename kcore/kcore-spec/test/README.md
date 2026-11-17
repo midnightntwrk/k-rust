@@ -1148,6 +1148,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
+  (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
+  of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
+  equations (838 to 876): each of Γ's 39 items is its text sentence's translation, pattern for
+  pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
+  entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
+  (`fns_from_text`). 7.6 GiB, 73 s.
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`

@@ -11,11 +11,20 @@
     apply a symbol Γ lacks, so every sentence outside it applies Γ's symbols only.
   - `attrs_agree`: the attributes the translation does not read agree with `defn`.
 
-  Not here, because one kernel decision of each exceeds 12 GiB on this text: `wf defn = true`
-  (the generated package checks it by parts, `RefKimp.Wf`) and `sig_origin` (each item of Γ's
-  signature is a declaration's item or a `surplusItem`), which holds by native evaluation only.
+  Layer 2, the function equations (39 sentences, 838 to 876: `isK`'s equation and, for each
+  of the other 19 sort predicates, its plain equation and its `[owise]` one).
+  - `fn_shape`: each of the 39 items of `fnItems` is the translation of one text sentence, pattern
+    for pattern, in the order `fnText` lists them (one kernel decision); `fnText_mem`, `fns_account`:
+    `fnText`'s sentences are the user module's at the indices of the account's function-equation
+    class.
+  - `fns_entailed` (E): Γ entails each of the 39 sentences, for every H. `fns_from_text` (the
+    converse): the j-th item of `fnItems` is a consequence of `fnText[j]`, for every H.
 
-  The class theorems of layer 2 (what holds of each class's sentences) are not stated here.
+  In files of their own, on the same literals: `sig_origin` (test/TieKimpSig.lean, by ranges of the
+  signature's items) and `wf defn = true` (test/TieKimpWf.lean, conjunct by conjunct). One kernel
+  decision of either exceeds 12 GiB on this text.
+
+  The other class theorems of layer 2 are not stated here.
 -/
 import KcoreSpec
 
@@ -31,12 +40,18 @@ definition_of defn from "examples/ref-kimp/RefKimp/definition.kore"
 user_axioms U from "examples/ref-kimp/RefKimp/definition.kore" module "IMP"
 
 noncomputable abbrev c : Semantics := defn.sem
+noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 
 /-- The axioms of the user module, in text order. -/
 noncomputable def userAxioms : List AxiomDecl := kore.axiomDecls.filter (·.module == "IMP")
 
 theorem userAxioms_eq : userAxioms = U.all := by kernel_rfl
 theorem userAxioms_length : U.all.length = 901 := by decide +kernel
+
+/-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
+noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
+
+theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map trS := rfl
 
 /-! ## The account -/
 
@@ -147,6 +162,65 @@ theorem absent_closed :
 hooks, collection symbols, priorities. -/
 theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
 
+/-! ## Function equations (39 sentences) -/
+
+kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.withHooks H) = fnItems c
+
+/-- The axioms of Γ's equations, in `fnItems`'s order. -/
+noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=
+  c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
+    | .axiom a => some a
+    | _ => none
+
+theorem fnItems_eq : fnItems c = (fnAxioms c).map fun a => trAxiom [] [] ⟨0, "kernel", a⟩ := by kernel_rfl
+
+/-- The text sentences of Γ's 39 equations, in `fnItems`'s order (`isK`'s 856 first; of each
+other sort predicate the plain equation, then its `[owise]` one). -/
+noncomputable def fnText : List AxiomDecl :=
+  [U.ax856, U.ax864, U.ax863, U.ax862, U.ax861, U.ax870, U.ax869, U.ax872, U.ax871, U.ax868, U.ax867,
+   U.ax839, U.ax838, U.ax855, U.ax854, U.ax853, U.ax852, U.ax849, U.ax848, U.ax851, U.ax850, U.ax858,
+   U.ax857, U.ax860, U.ax859, U.ax841, U.ax840, U.ax843, U.ax842, U.ax847, U.ax846, U.ax845, U.ax844,
+   U.ax866, U.ax865, U.ax874, U.ax873, U.ax876, U.ax875]
+
+/-- **Γ's equations are the text's sentences' translations, pattern for pattern**: the j-th item
+of `fnItems` and the translation of `fnText[j]` (one kernel decision). -/
+theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
+  rw [fnItems_eq, List.map_map]
+  exact (by decide +kernel :
+    ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
+
+/-- Each member of `fnText` is the sentence of the user module with its index. -/
+theorem fnText_mem : fnText = (fnText.map (·.index)).filterMap (fun i => userAxioms.find? (·.index == i)) := by
+  rw [userAxioms_eq]; kernel_rfl
+
+/-- **`fnText` is the account's function-equation class**: the same indices, each once. -/
+theorem fns_account : (classOf "function equation").isPerm (fnText.map (·.index)) = true := by decide +kernel
+
+/-- **E for the 39 equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
+  intro ad had M _ I hI
+  have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
+    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
+  obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
+  exact hI _ (Or.inl (Or.inl (Or.inr (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))))
+
+/-- **The converse for `fnItems`**: each item is a text sentence's translation, the j-th's
+`fnText[j]`. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
+  intro j it hj
+  rw [fnItems_withHooks] at hj
+  have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
+  rw [fn_shape, List.getElem?_map] at h1
+  cases hf : fnText[j]? with
+  | none => rw [hf] at h1; cases h1
+  | some ad =>
+    rw [hf] at h1
+    refine ⟨ad, rfl, fun {M} _ {I} hI => ?_⟩
+    have he : (trS ad).pat = it.pat := Option.some.inj h1
+    exact hI _ (Or.inl ⟨trS ad, List.mem_singleton_self _, he⟩)
+
 end KCore.TieKimp
 
 #print axioms KCore.TieKimp.userAxioms_eq
@@ -155,3 +229,8 @@ end KCore.TieKimp
 #print axioms KCore.TieKimp.account_absent
 #print axioms KCore.TieKimp.absent_closed
 #print axioms KCore.TieKimp.attrs_agree
+#print axioms KCore.TieKimp.fn_shape
+#print axioms KCore.TieKimp.fnText_mem
+#print axioms KCore.TieKimp.fns_account
+#print axioms KCore.TieKimp.fns_entailed
+#print axioms KCore.TieKimp.fns_from_text
