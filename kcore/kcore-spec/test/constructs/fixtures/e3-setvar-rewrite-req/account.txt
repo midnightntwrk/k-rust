@@ -12,7 +12,7 @@ user module E3-SETVAR-REWRITE-REQ: 304 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 setVariable
-      sentence 241 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS)
+      sentence 241 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS: in the requires: its truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every subset of the sort)
         [user] (no label) at e3-setvar-rewrite-req.k:6: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(@VarS:SortExp{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(Lblp{}(@VarS:SortExp{}), \dv{SortBool{}}("true"))), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTo …
-finish: sentence 241 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS)
+finish: sentence 241 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS: in the requires: its truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every subset of the sort)
 (exit 0)

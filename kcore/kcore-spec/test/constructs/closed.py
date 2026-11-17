@@ -138,7 +138,6 @@ PINNED = [
     ("RefusalReason.pgmSort", "R2-release.C4"),
     ("RefusalReason.builtinModule", "R2-release.C4"),
     ("RefusalReason.builtinIncomplete", "R2-release.C4"),
-    ("RefusalReason.macroSymbol", "R2-release.C4"),
     ("RefusalReason.inertMismatch", "R2-release.C4"),
     ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
     ("RefusalReason.injShape", "R2-release.C4"),
@@ -155,14 +154,11 @@ PINNED = [
     ("RefusalReason.existentialEquation", "R2-release.C4"),
     ("RefusalReason.openGeneratorPattern", "P2.rows"),
     ("RefusalReason.openLaw", "P3.rows"),
-    ("RefusalReason.unheldVariable", "R2-release.C4"),
-    ("RefusalReason.openRight", "R2-release.C4"),
     ("RefusalReason.constructorEquation", "R2-release.C4"),
     ("RefusalReason.existentialAxiom", "R2-release.C4"),
     ("RefusalReason.ctorResultSort", "R2-release.C4"),
     ("RefusalReason.hookEqualityUnstated", "R2-release.C4"),
     ("InertReason.claim", "R2-release.C4"),
-    ("InertReason.vacuousLeft", "R2-release.C4"),
     ("UnreadReason.noSortPredicate", "R2-release.C4"),
 ]
 
