@@ -13,8 +13,8 @@
     variables of the clause, distinct, held by neither the patterns nor the conditions; `post`
     well sorted);
   - `Clause.fixedExs` and whether each existential variable's sort is confined;
-  - `clauseCE`, a stand-in written here from ticket CE.clause-conjunct's text for
-    `Semantics.clausePlainEx`, which is on no tree yet: `(!exs.isEmpty || post.isTop) &&
+  - `clauseCE`, written here: `Semantics.clausePlainEx` (which the section or prints beside it)
+    and the landed conjunct on open condition variables: `(!exs.isEmpty || post.isTop) &&
     exs.all (confined or among fixedExs c.confined (fun _ => false)) && (the landed conjunct on
     open condition variables)`. The landed `clausesPlain` asks `exs = []` and `post = \top`, so it
     is false of these clauses.
@@ -62,7 +62,8 @@
     the application into `post`.
   - `eqNested`, `h(X) => f(X) #And (g(X) #And X)`: one cut, three memberships.
   - `eqInner`, `h(X) => f(X) #And g(X #And f(X))`: two cuts, the inner one first in `exs`.
-  - `eqOr`, `h(X) => f(X) #And (g(X) #Or X)`: refused `manyValuedRightSide` (`\or`).
+  - `eqOr`, `h(X) => f(X) #And (g(X) #Or X)`, a conjunct that is a disjunction: one cut, `post
+    (Z ∈ f(X)) ∧ ((Z ∈ g(X)) ∨ (Z ∈ X))`, no variable for the disjunction (section or).
   A conjunct that applies a function whose equation has a `requires` is read as any application
   (the reading function does not look at g's equations); what the clause gives where g has no
   value is a fact of `Eval`, the fixture tests' after the wiring.
@@ -108,6 +109,56 @@
   Kernel-checked: `cutAnd` and `ceRead` on the equation of k written by hand (`HandTerms.eqK`,
   tied to the text), and `ceRead` on `eqOther`.
 
+  ## or: a disjunction of terms at a term position (`Parse.orCut`)
+
+  `C[t₁ ∨ … ∨ tₙ]` under applications is `∃Z. C[Z] ∧ (Z ∈ t₁ ∨ … ∨ Z ∈ tₙ)`: one fresh variable
+  `#Or0` of the disjunction's sort in `exs`, the disjunction of its memberships in `post`. Each
+  clause is printed with `Semantics.clausePlainEx` in the definition built from the patched text.
+  - `e3-ml-eq-rhs-or`, `h(X) => f(X) #Or g(X)`, h without its `functional` sentence: one clause
+    over `[X:Int, #Or0:Int]`, `exs [1]`, `rhs #Or0`, `post (#Or0 ∈ f(X)) ∨ (#Or0 ∈ g(X))`;
+    `fixedExs [1]` (each alternative fixes it by a term over X), so `clausePlainEx` is true at the
+    unconfined Int.
+  - `e3-ml-eq-rhs-or-many`, `k(_) => 1 #Or … #Or 9`: one clause, one variable, nine memberships
+    (the text nests the disjunctions, and the memberships nest as they do);
+    `clausePlainEx` true.
+  `Parse.clauseBody` does not call `ceRead`, so today the reader refuses both texts
+  `manyValuedRightSide` (`today`; their accounts are unchanged). Once `clauseBody` calls it where
+  `frRead` does not read the equation (h has no `functional` sentence; k has nine alternatives),
+  each text is read as the clause printed here, `clausesPlain` permitting.
+  Hand-written (`HandOr`, over `HandAnd.N2`):
+  - `eqUnder`, `h(X) => f(g(X) #Or X)`, under an application: `rhs f(#Or0)`.
+  - `eqNested`, `h(X) => (f(X) #Or g(X)) #Or X`: one variable, three memberships.
+  - `HandAnd.eqOr`: above.
+  - `eqBoth`, `h(X) => f((f(X) #Or X) #And g(g(X) #Or X))`, a conjunction with a disjunction as a
+    conjunct and one under an application of the other conjunct: `exs` is the conjunction's
+    variable then the disjunction's, distinct.
+  - `eqPredOr`, `h(X) => f(X) #And ({…} #Or {…})`, a disjunction of predicates: no cut, the
+    predicate in `post` (`condOf`).
+  - `eqInner`, `h(X) => f(g(X) #Or X) #Or X`, a disjunction under an application of an
+    alternative: refused `manyValuedRightSide` (`\or`). An alternative is no position under
+    applications of the right side: `C[g(a ∨ b) ∨ t]` is `C[t]` where a and b have no element,
+    and a variable Z' cut beside the outer disjunction, `post (Z' ∈ a ∨ Z' ∈ b) ∧ (Z ∈ g(Z') ∨
+    Z ∈ t)`, leaves no element there; the reader does not tell which inner disjunctions have an
+    element.
+  - `eqAndAlt`, `h(X) => (f(X) #And g(X) #And {…}) #Or X`, an alternative that is a conjunction:
+    no variable for it, `post ((Z ∈ f(X)) ∧ (Z ∈ g(X)) ∧ {…}) ∨ (Z ∈ X)` (the one element Z is in
+    a conjunction where it is in each conjunct; a predicate conjunct is itself).
+  - `eqAndUnder`, `h(X) => f(f(X) #And g(X)) #Or X`, a conjunction under an application of an
+    alternative: refused `patternConnective` (`\and`), for the reason of `eqInner`.
+  - `eqPredAlt`, `eqTopAlt`, `eqNotAlt`, an alternative that is a predicate, `\top` under an
+    application of an alternative and `\not` as an alternative: refused `manyValuedRightSide`.
+  - `eqOrCeil`, `h(X) => f(f(X) #And g(g(X) #Or X)) #And #Ceil(f(X) #And g(X))`, a disjunction
+    and a conjunction at term positions and a conjunction in a `\ceil`: `exs` is the body's
+    conjunction's variable, the disjunction's, then the `\ceil`'s, and `post` the `\ceil`, then
+    the memberships in that order.
+  - `eqCeilOr`, `h(X) => X #And #Ceil(f(X) #And (g(X) #Or X))`, a disjunction that is a conjunct
+    of a conjunction in a `\ceil`: read as in a conjunction at a term position,
+    `(Z ∈ g(X)) ∨ (Z ∈ X)`. `eqCeilOrUnder`, `h(X) => X #And #Ceil(f(X) #And g(g(X) #Or X))`, a
+    disjunction under an application in a `\ceil`'s conjunct: no variable is cut there, refused
+    `patternConnective` (`\or`).
+  Kernel-checked: `orCut` on the fixture's right side, `ceRead` on the fixture's equation written
+  by hand (`HandOr.eqH`, tied to the text) and on `eqBoth`, and the refusals' reasons.
+
   ## hoist: `\exists` moved to the top of a right side (`Parse.hoistExists`)
 
   Hand-written (`HandHoist`, over `HandAnd.N2`), each right side compared with the expected one
@@ -117,15 +168,16 @@
   - `eqConj`, `h(X) => f(X) #And #Exists Z. (…)`: the binder in a conjunct; likewise.
   - `eqAlt`, `h(X) => X #Or #Exists Z. (…)`: the binder in an alternative moves where the test
     accepts Int, and the equation is refused `existentialEquation` where it accepts no sort.
-    `ceRead` then refuses the `\or` (`manyValuedRightSide`): it reads no `\or`.
+    `ceRead` then reads the `\or` by `orCut` (section or): `exs` Z then `#Or0`, `post (#Or0 ∈ X)
+    ∨ ((#Or0 ∈ Z) ∧ {Z = g(X)})`.
   - `eqTwo`, two binders named Z in two arguments: the second is `Z'`.
   - `eqArg`, a binder named as the argument X: renamed `X'` with the occurrences it binds.
   - `eqShadow`, a binder inside a binder of the same name: the inner one is renamed.
   - `eqNot`, `eqPredConj`: a binder under `\not` and one in a predicate conjunct stay.
   On fixtures, with `Semantics.valued` on the built definition as the test (`valuedSort`):
   `e3-eq-exists-ml-in-or-int` and `e3-eq-exists-ml-in-or` (the binder leaves the alternative;
-  `ceRead` refuses the `\or`), `e3-eq-exists-ml-under-app` and `e3-eq-exists-ml-and-right` (one
-  clause each).
+  `ceRead` reads the `\or` as `eqAlt`'s), `e3-eq-exists-ml-under-app` and
+  `e3-eq-exists-ml-and-right` (one clause each).
   Kernel-checked (`decide +kernel`): each hand-written case (`HandHoist.hoist_steps`).
 -/
 import KcoreSpec
@@ -233,8 +285,9 @@ def showFields (sym : Sym → String) (srt : Srt → String) (i : Nat) (cl : Cla
 
 /-- `ceRead` on the equations of the functions `fns` of fixture `n` (each as `edit` gives it: a
 hand-written right side in the text's equation): a refusal, or the clause, put in the definition
-built from the patched text. -/
-def run (n : String) (fns : List String) (edit : RawEqn → RawEqn := id) : IO Unit := do
+built from the patched text; with `plainEx`, `Semantics.clausePlainEx` of the clause there as
+well. -/
+def run (n : String) (fns : List String) (edit : RawEqn → RawEqn := id) (plainEx : Bool := false) : IO Unit := do
   let k ← load n
   let some m := k.modules.getLast? | IO.println s!"{n}: no module"
   let S := scan m.sentences
@@ -259,10 +312,17 @@ def run (n : String) (fns : List String) (edit : RawEqn → RawEqn := id) : IO U
         IO.println s!"{n} {fnName}: functional sentence {eqnFnl E.N ⟨fnName, [], none, none, .top (KoreAML.srt "K"), [], none, false⟩}; clauses {cls.length}"
         for ((cl, vs), i) in cls.zipIdx do
           showFields c.symName c.sortName i cl vs
-          IO.println s!"      clauseSorted {c.clauseSorted f' (c.fns.map Fn.sig) cl}; condOK post {c.condOK cl.vars cl.post}; sortedCE {sortedCE c cl}; fixedExs {cl.fixedExs c.confined (fun _ => false)}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; clauseCE {clauseCE c cl}"
+          IO.println <| s!"      clauseSorted {c.clauseSorted f' (c.fns.map Fn.sig) cl}; condOK post {c.condOK cl.vars cl.post}; sortedCE {sortedCE c cl}; fixedExs {cl.fixedExs c.confined (fun _ => false)}; confined {cl.exs.map fun i => (cl.vars[i]?.map c.confined).getD false}; clauseCE {clauseCE c cl}" ++
+            (if plainEx then s!"; clausePlainEx {c.clausePlainEx cl}" else "")
         let rest := c.subsortsOK && c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) &&
           c.rules.all c.ruleSorted && c.rulesPlain && c.paramsPlain
         IO.println s!"  sortedOK but clausesPlain {rest}; clausesPlain {c.clausesPlain}; every clause clauseCE {c.fns.all fun f => f.clauses.all (clauseCE c)}; readsConfined {c.readsConfined}"
+
+/-- What the reader does with the text of fixture `n` as it is. -/
+def today (n : String) : IO Unit := do
+  match Parse.parse (← load n) with
+  | .error r => IO.println s!"{n}: today refused {repr r.reason} ({r.detail})"
+  | .ok _ => IO.println s!"{n}: today read"
 
 /-- `ceRead` on a hand-written equation, a symbol and a sort the registry does not name printed
 by number. -/
@@ -522,7 +582,10 @@ eqInner:
   [0] vars [X:Int, 'Hash'Cut0:Int, 'Hash'Cut1:Int] pats [X] req none prio 50 aside false
       pre ⊤
       rhs 'Hash'Cut1 ens none exs [1, 2] post (('Hash'Cut0 ∈[Int] X) ∧ (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut1 ∈[Int] sym0(X)) ∧ ('Hash'Cut1 ∈[Int] sym1('Hash'Cut0)))))
-eqOr: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+eqOr:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1(X)) ∨ ('Hash'Cut0 ∈[Int] X)))
 -/
 #guard_msgs in
 open HandAnd in
@@ -787,7 +850,174 @@ open KoreAML (ev ap srt evar) in
   run "e3-eq-exists-bool-ml" ["Lblf"]
     (fun e => { e with rhs := .exist bool (evar "VarB" bool) (notB (.and bool [notB (ev "VarB" bool), ev "VarX" bool])) })
 
-/-! Opaque constants `ceRead` and `cutAnd` reach (test/OpaqueAudit.lean's walk):
+/-! ## or -/
+
+/--
+info: e3-ml-eq-rhs-or Lblh: functional sentence false; clauses 1
+  [0] vars [X:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈[Int] Lblf(X)) ∨ ('Hash'Or0 ∈[Int] Lblg(X)))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-ml-eq-rhs-or-many Lblk: functional sentence true; clauses 1
+  [0] vars ['Unds'Gen0:Int, 'Hash'Or0:Int] pats ['Unds'Gen0] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post ((((((((('Hash'Or0 ∈[Int] 1) ∨ ('Hash'Or0 ∈[Int] 2)) ∨ ('Hash'Or0 ∈[Int] 3)) ∨ ('Hash'Or0 ∈[Int] 4)) ∨ ('Hash'Or0 ∈[Int] 5)) ∨ ('Hash'Or0 ∈[Int] 6)) ∨ ('Hash'Or0 ∈[Int] 7)) ∨ ('Hash'Or0 ∈[Int] 8)) ∨ ('Hash'Or0 ∈[Int] 9))
+      clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
+e3-ml-eq-rhs-or: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+e3-ml-eq-rhs-or-many: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  run "e3-ml-eq-rhs-or" ["Lblh"] (plainEx := true)
+  run "e3-ml-eq-rhs-or-many" ["Lblk"] (plainEx := true)
+  today "e3-ml-eq-rhs-or"
+  today "e3-ml-eq-rhs-or-many"
+
+namespace HandOr
+
+open HandAnd (N2 int X f g F G x eqn gt0)
+
+/-- `h(X) => f(X) #Or g(X)`: the equation of `e3-ml-eq-rhs-or` (`tie`). -/
+def eqH : RawEqn := eqn (.or int [f X, g X])
+def eqUnder : RawEqn := eqn (f (.or int [g X, X]))
+def eqNested : RawEqn := eqn (.or int [.or int [f X, g X], X])
+def eqBoth : RawEqn := eqn (f (.and int [.or int [f X, X], g (.or int [g X, X])]))
+def eqPredOr : RawEqn := eqn (.and int [f X, .or int [gt0, .not int gt0]])
+def eqInner : RawEqn := eqn (.or int [f (.or int [g X, X]), X])
+def eqAndAlt : RawEqn := eqn (.or int [.and int [f X, .and int [g X, gt0]], X])
+def eqAndUnder : RawEqn := eqn (.or int [f (.and int [f X, g X]), X])
+def eqPredAlt : RawEqn := eqn (.or int [gt0, X])
+def eqTopAlt : RawEqn := eqn (.or int [f (.top int), X])
+def eqNotAlt : RawEqn := eqn (.or int [.not int (f X), X])
+def eqOrCeil : RawEqn :=
+  eqn (.and int [f (.and int [f X, g (.or int [g X, X])]), .ceil int int (.and int [f X, g X])])
+def eqCeilOr : RawEqn := eqn (.and int [X, .ceil int int (.and int [f X, .or int [g X, X]])])
+def eqCeilOrUnder : RawEqn := eqn (.and int [X, .ceil int int (.and int [f X, g (.or int [g X, X])])])
+
+end HandOr
+
+/--
+info: e3-ml-eq-rhs-or Lblh: the hand-written equation is the text's: true
+-/
+#guard_msgs in
+#eval tie "e3-ml-eq-rhs-or" "Lblh" HandOr.eqH
+
+/--
+info: eqH:
+  [0] vars [X:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post (('Hash'Or0 ∈[Int] sym0(X)) ∨ ('Hash'Or0 ∈[Int] sym1(X)))
+eqUnder:
+  [0] vars [X:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0('Hash'Or0) ens none exs [1] post (('Hash'Or0 ∈[Int] sym1(X)) ∨ ('Hash'Or0 ∈[Int] X))
+eqNested:
+  [0] vars [X:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post ((('Hash'Or0 ∈[Int] sym0(X)) ∨ ('Hash'Or0 ∈[Int] sym1(X))) ∨ ('Hash'Or0 ∈[Int] X))
+eqOr:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Cut0 ens none exs [1] post (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1(X)) ∨ ('Hash'Cut0 ∈[Int] X)))
+eqBoth:
+  [0] vars [X:Int, 'Hash'Cut0:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0('Hash'Cut0) ens none exs [1, 2] post ((('Hash'Cut0 ∈[Int] sym0(X)) ∨ ('Hash'Cut0 ∈[Int] X)) ∧ (('Hash'Cut0 ∈[Int] sym1('Hash'Or0)) ∧ (('Hash'Or0 ∈[Int] sym1(X)) ∨ ('Hash'Or0 ∈[Int] X))))
+eqPredOr:
+  [0] vars [X:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0(X) ens none exs [] post ((Lbl'Unds-GT-'Int'Unds'(X, 0) =[Bool] true) ∨ ¬(Lbl'Unds-GT-'Int'Unds'(X, 0) =[Bool] true))
+eqInner: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+eqAndAlt:
+  [0] vars [X:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1] post ((('Hash'Or0 ∈[Int] sym0(X)) ∧ (('Hash'Or0 ∈[Int] sym1(X)) ∧ (Lbl'Unds-GT-'Int'Unds'(X, 0) =[Bool] true))) ∨ ('Hash'Or0 ∈[Int] X))
+eqAndUnder: refused KCore.Parse.RefusalReason.patternConnective (\and)
+eqPredAlt: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
+eqTopAlt: refused KCore.Parse.RefusalReason.manyValuedRightSide (\top)
+eqNotAlt: refused KCore.Parse.RefusalReason.manyValuedRightSide (\not)
+eqOrCeil:
+  [0] vars [X:Int, 'Hash'Cut0:Int, 'Hash'Or0:Int, 'Hash'Cut1:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs sym0('Hash'Cut0) ens none exs [1, 2, 3] post (⌈'Hash'Cut1⌉:Int ∧ (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1('Hash'Or0)) ∧ ((('Hash'Or0 ∈[Int] sym1(X)) ∨ ('Hash'Or0 ∈[Int] X)) ∧ (('Hash'Cut1 ∈[Int] sym0(X)) ∧ ('Hash'Cut1 ∈[Int] sym1(X)))))))
+eqCeilOr:
+  [0] vars [X:Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs X ens none exs [1] post (⌈'Hash'Cut0⌉:Int ∧ (('Hash'Cut0 ∈[Int] sym0(X)) ∧ (('Hash'Cut0 ∈[Int] sym1(X)) ∨ ('Hash'Cut0 ∈[Int] X))))
+eqCeilOrUnder: refused KCore.Parse.RefusalReason.patternConnective (\or)
+-/
+#guard_msgs in
+open HandOr HandAnd in
+#eval show IO Unit from do
+  showHand "eqH" (ceRead N2 HandOr.eqH)
+  showHand "eqUnder" (ceRead N2 HandOr.eqUnder)
+  showHand "eqNested" (ceRead N2 HandOr.eqNested)
+  showHand "eqOr" (ceRead N2 eqOr)
+  showHand "eqBoth" (ceRead N2 eqBoth)
+  showHand "eqPredOr" (ceRead N2 eqPredOr)
+  showHand "eqInner" (ceRead N2 HandOr.eqInner)
+  showHand "eqAndAlt" (ceRead N2 eqAndAlt)
+  showHand "eqAndUnder" (ceRead N2 eqAndUnder)
+  showHand "eqPredAlt" (ceRead N2 eqPredAlt)
+  showHand "eqTopAlt" (ceRead N2 eqTopAlt)
+  showHand "eqNotAlt" (ceRead N2 eqNotAlt)
+  showHand "eqOrCeil" (ceRead N2 eqOrCeil)
+  showHand "eqCeilOr" (ceRead N2 eqCeilOr)
+  showHand "eqCeilOrUnder" (ceRead N2 eqCeilOrUnder)
+
+namespace HandOr
+
+open HandAnd (N2 int X f g F G x)
+
+/-- `orCut` on the fixture's right side, in the kernel: the fresh variable `Var'Hash'Or0` of the
+disjunction's sort in the position, the next number, the one cut, its conjunct the disjunction. -/
+theorem orCut_eqH : orCut ["VarX"] 0 eqH.rhs =
+    (KoreAML.ev "Var'Hash'Or0" HandAnd.int, 1,
+      [(KoreAML.evar "Var'Hash'Or0" HandAnd.int, HandAnd.int, [.or HandAnd.int [f X, g X]])]) := by
+  kernel_rfl
+
+/-- **`ceRead` on the fixture's equation, in the kernel**: one clause over `[X:Int, #Or0:Int]`,
+the fresh variable existential and in the position, the disjunction of its memberships in `post`. -/
+theorem ceRead_eqH : ceRead N2 eqH = .ok
+    ({ vars := [Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .var 1, ens := none, prio := 50,
+       aside := false, exs := [1],
+       post := .or (.mem Srt.int (.var 1) (.app F [x])) (.mem Srt.int (.var 1) (.app G [x])) },
+     [⟨"X", "Int"⟩, ⟨"'Hash'Or0", "Int"⟩]) := by
+  kernel_rfl
+
+/-- A conjunction and two disjunctions: the conjunction's variable, then the variable of the
+disjunction under an application; the disjunction that is a conjunct has none. -/
+theorem ceRead_eqBoth : ceRead N2 eqBoth = .ok
+    ({ vars := [Srt.int, Srt.int, Srt.int], pats := [.var 0], req := none, rhs := .app F [.var 1], ens := none,
+       prio := 50, aside := false, exs := [1, 2],
+       post := .and (.or (.mem Srt.int (.var 1) (.app F [x])) (.mem Srt.int (.var 1) x))
+         (.and (.mem Srt.int (.var 1) (.app G [.var 2]))
+           (.or (.mem Srt.int (.var 2) (.app G [x])) (.mem Srt.int (.var 2) x))) },
+     [⟨"X", "Int"⟩, ⟨"'Hash'Cut0", "Int"⟩, ⟨"'Hash'Or0", "Int"⟩]) := by
+  kernel_rfl
+
+/-- The refusals' reasons. -/
+theorem ceRead_refused :
+    let reason := fun (e : RawEqn) => match ceRead N2 e with | .error f => some f.reason | .ok _ => none
+    reason eqInner = some .manyValuedRightSide ∧ reason eqAndUnder = some .patternConnective ∧
+    reason eqPredAlt = some .manyValuedRightSide ∧
+    reason eqTopAlt = some .manyValuedRightSide ∧ reason eqNotAlt = some .manyValuedRightSide := by
+  decide +kernel
+
+end HandOr
+
+/-- info: 'ExClauseReader.HandOr.orCut_eqH' depends on axioms: [propext] -/
+#guard_msgs in #print axioms HandOr.orCut_eqH
+/-- info: 'ExClauseReader.HandOr.ceRead_eqH' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandOr.ceRead_eqH
+/-- info: 'ExClauseReader.HandOr.ceRead_eqBoth' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandOr.ceRead_eqBoth
+/-- info: 'ExClauseReader.HandOr.ceRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandOr.ceRead_refused
+
+/-! Opaque constants `ceRead`, `cutAnd` and `orCut` reach (test/OpaqueAudit.lean's walk):
 `String.Internal.append`, through the details of refusals only. -/
 
 open Lean in
@@ -812,10 +1042,11 @@ def opaqueReach (roots : List Name) : MetaM (List Name) := do
 /--
 info: KCore.Parse.ceRead: [String.Internal.append]
 KCore.Parse.cutAnd: []
+KCore.Parse.orCut: []
 -/
 #guard_msgs in
 #eval show Lean.MetaM Unit from do
-  for root in [``ceRead, ``cutAnd] do IO.println s!"{root}: {← opaqueReach [root]}"
+  for root in [``ceRead, ``cutAnd, ``orCut] do IO.println s!"{root}: {← opaqueReach [root]}"
 
 /-! ## hoist: `\exists` moved to the top of a right side (`Parse.hoistExists`) -/
 
@@ -886,7 +1117,10 @@ eqConj:
   [0] vars [X:Int, Z:Int] pats [X] req none prio 50 aside false
       pre ⊤
       rhs Z ens none exs [1] post ((Z =[Int] sym1(X)) ∧ (Z ∈[Int] sym0(X)))
-eqAlt: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+eqAlt:
+  [0] vars [X:Int, Z:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1, 2] post (('Hash'Or0 ∈[Int] X) ∨ (('Hash'Or0 ∈[Int] Z) ∧ (Z =[Int] sym0(X))))
 eqTwo:
   [0] vars [X:Int, Z:Int, Z':Int, 'Hash'Cut0:Int] pats [X] req none prio 50 aside false
       pre ⊤
@@ -951,10 +1185,16 @@ def runHoist (n fn rs : String) (others : List String := []) : IO Unit := do
 /--
 info: e3-eq-exists-ml-in-or-int Lblf: binders at the top []; an \exists below true
   hoistExists: binders at the top [VarB]; an \exists below false
-  ceRead: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+  ceRead:
+  [0] vars [X:Int, B:Int, 'Hash'Or0:Int] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1, 2] post (('Hash'Or0 ∈[Int] X) ∨ (('Hash'Or0 ∈[Int] B) ∧ (B =[Int] Lbl'UndsPlus'Int'Unds'(X, 1))))
 e3-eq-exists-ml-in-or Lblf: binders at the top []; an \exists below true
   hoistExists: binders at the top [VarB]; an \exists below false
-  ceRead: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+  ceRead:
+  [0] vars [X:Bool, B:Bool, 'Hash'Or0:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs 'Hash'Or0 ens none exs [1, 2] post (('Hash'Or0 ∈[Bool] X) ∨ (('Hash'Or0 ∈[Bool] B) ∧ (B =[Bool] LblnotBool'Unds'(X))))
 e3-eq-exists-ml-under-app Lblf: binders at the top []; an \exists below true
   hoistExists: binders at the top [VarB]; an \exists below false
   ceRead:
