@@ -68,42 +68,39 @@ theorem extends_mix {c : Semantics} {n : Nat} {ys : List Srt} {σ σ' τ : Subst
 
 /-! ## The congruence -/
 
-/-- **A condition's truth value reads the substitution at the condition's variables only.** -/
-theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b : Bool}
-    (h : Holds c n σ₁ p b) : ∀ {σ₂ : Subst}, (∀ j ∈ varOccsCond n p, σ₁.lookup j = σ₂.lookup j) →
-    Holds c n σ₂ p b := by
-  induction h with
-  | top => intro _ _; exact .top
-  | bot => intro _ _; exact .bot
-  | not _ ih => intro _ ha; exact .not (ih fun j hj => ha j (by simpa [varOccsCond] using hj))
-  | and _ _ ih ih' =>
-    intro _ ha
-    exact .and (ih fun j hj => ha j (by simp [varOccsCond, hj]))
-      (ih' fun j hj => ha j (by simp [varOccsCond, hj]))
-  | or _ _ ih ih' =>
-    intro _ ha
-    exact .or (ih fun j hj => ha j (by simp [varOccsCond, hj]))
-      (ih' fun j hj => ha j (by simp [varOccsCond, hj]))
-  | implies _ _ ih ih' =>
-    intro _ ha
-    exact .implies (ih fun j hj => ha j (by simp [varOccsCond, hj]))
-      (ih' fun j hj => ha j (by simp [varOccsCond, hj]))
-  | ceil he =>
-    intro _ ha
-    exact .ceil (Exec.EvalTerm.congr he fun j hj => ha j (by simpa [varOccsCond] using hj))
-  | equals he he' =>
-    intro _ ha
-    exact .equals (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+/-- `Holds.congr_NI` with the second substitution explicit, by structural recursion on the
+derivation: in a binder case the body's derivations `hb σ₁' …` are arguments of the constructor, so
+the recursive calls on them are structural. The second substitution is explicit because a match
+alternative of the statement with `∀ {σ₂}` after the derivation has it introduced and nameless. -/
+theorem Holds.congr_NI_aux {c : Semantics} : ∀ {n : Nat} {σ₁ : Subst} {p : Cond} {b : Bool},
+    Holds c n σ₁ p b → ∀ (σ₂ : Subst), (∀ j ∈ varOccsCond n p, σ₁.lookup j = σ₂.lookup j) →
+    Holds c n σ₂ p b
+  | _, _, _, _, .top => fun _ _ => .top
+  | _, _, _, _, .bot => fun _ _ => .bot
+  | _, _, _, _, .not h => fun _ ha => .not (Holds.congr_NI_aux h _ fun j hj => ha j (by simpa [varOccsCond] using hj))
+  | _, _, _, _, .and h h' => fun _ ha =>
+    .and (Holds.congr_NI_aux h _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (Holds.congr_NI_aux h' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | _, _, _, _, .or h h' => fun _ ha =>
+    .or (Holds.congr_NI_aux h _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (Holds.congr_NI_aux h' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | _, _, _, _, .implies h h' => fun _ ha =>
+    .implies (Holds.congr_NI_aux h _ fun j hj => ha j (by simp [varOccsCond, hj]))
+      (Holds.congr_NI_aux h' _ fun j hj => ha j (by simp [varOccsCond, hj]))
+  | _, _, _, _, .ceil he => fun _ ha =>
+    .ceil (Exec.EvalTerm.congr he fun j hj => ha j (by simpa [varOccsCond] using hj))
+  | _, _, _, _, .equals he he' => fun _ ha =>
+    .equals (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
       (Exec.EvalTerm.congr he' fun j hj => ha j (by simp [varOccsCond, hj]))
-  | mem he he' =>
-    intro _ ha
-    exact .mem (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+  | _, _, _, _, .mem he he' => fun _ ha =>
+    .mem (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
       (Exec.EvalTerm.congr he' fun j hj => ha j (by simp [varOccsCond, hj]))
-  | exNone he =>
-    intro _ ha
-    exact .exNone (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
-  | @exSome n σ₁ ys s p t body v b g he hb hr ih =>
-    intro σ₂ ha
+  | _, _, _, _, .exNone he => fun _ ha =>
+    .exNone (Exec.EvalTerm.congr he fun j hj => ha j (by simp [varOccsCond, hj]))
+  | _, _, _, _, @Holds.exSome _ n σ₁ ys s p t body v b g he hb hr => fun σ₂ ha => by
+    have ih : ∀ σ₁' (_ : Extends c n ys σ₁ σ₁') (_ : PatVal c σ₁' p v) {σ₂' : Subst},
+        (∀ j ∈ varOccsCond (n + ys.length) body, σ₁'.lookup j = σ₂'.lookup j) →
+        Holds c (n + ys.length) σ₂' body (g σ₁') := fun σ₁' hx hm => Holds.congr_NI_aux (hb σ₁' hx hm) _
     -- the extensions paired: an extension of σ₁, one of σ₂, agreeing at p's and the body's variables
     let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n ys σ₁ σ₁' ∧
       ∀ j ∈ varOccs p ++ varOccsCond (n + ys.length) body, σ₁'.lookup j = σ₂'.lookup j
@@ -155,8 +152,10 @@ theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b :
         simp only [g₂, decide_eq_true_eq] at hg
         obtain ⟨σ₁', hr', hm, hg⟩ := hg
         exact ⟨σ₁', hr'.1, hm, hg⟩
-  | @ex n σ₁ s body b g hb hr ih =>
-    intro σ₂ ha
+  | _, _, _, _, @Holds.ex _ n σ₁ s body b g hb hr => fun σ₂ ha => by
+    have ih : ∀ σ₁' (_ : Extends c n [s] σ₁ σ₁') {σ₂' : Subst},
+        (∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j) →
+        Holds c (n + 1) σ₂' body (g σ₁') := fun σ₁' hx => Holds.congr_NI_aux (hb σ₁' hx) _
     let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n [s] σ₁ σ₁' ∧
       ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j
     have hagr : ∀ σ₁' σ₂', Extends c n [s] σ₁ σ₁' → Extends c n [s] σ₂ σ₂' →
@@ -201,8 +200,10 @@ theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b :
         simp only [g₂, decide_eq_true_eq] at hg
         obtain ⟨σ₁', hr', hg⟩ := hg
         exact ⟨σ₁', hr'.1, hg⟩
-  | @all n σ₁ s body b g hb hr ih =>
-    intro σ₂ ha
+  | _, _, _, _, @Holds.all _ n σ₁ s body b g hb hr => fun σ₂ ha => by
+    have ih : ∀ σ₁' (_ : Extends c n [s] σ₁ σ₁') {σ₂' : Subst},
+        (∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j) →
+        Holds c (n + 1) σ₂' body (g σ₁') := fun σ₁' hx => Holds.congr_NI_aux (hb σ₁' hx) _
     let R : Subst → Subst → Prop := fun σ₁' σ₂' => Extends c n [s] σ₁ σ₁' ∧
       ∀ j ∈ varOccsCond (n + 1) body, σ₁'.lookup j = σ₂'.lookup j
     have hagr : ∀ σ₁' σ₂', Extends c n [s] σ₁ σ₁' → Extends c n [s] σ₂ σ₂' →
@@ -248,5 +249,11 @@ theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b :
         have := hall _ (extends_mix h1)
         simp only [g₂, decide_eq_true_eq] at this
         exact this σ₁' (hR₂ σ₁' h1)
+
+/-- **A condition's truth value reads the substitution at the condition's variables only.** -/
+theorem Holds.congr_NI {c : Semantics} {n : Nat} {σ₁ : Subst} {p : Cond} {b : Bool}
+    (h : Holds c n σ₁ p b) : ∀ {σ₂ : Subst}, (∀ j ∈ varOccsCond n p, σ₁.lookup j = σ₂.lookup j) →
+    Holds c n σ₂ p b :=
+  fun ha => Holds.congr_NI_aux h _ ha
 
 end KCore
