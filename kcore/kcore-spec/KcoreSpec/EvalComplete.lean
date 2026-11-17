@@ -252,7 +252,7 @@ mutual
         | some r'' =>
           have hE' : Eval c f vs r'' := firstClause_sound hsc hcc hmc (n + 2)
             (by rw [firstClause_cons, hf]) hfn hvs hcls hpre
-          simp only [Eval.functional hco hcc.fnsNoExs hE' hE]
+          simp only [Eval.functional hco hE' hE]
       · split at h
         · rename_i hnone hall
           have hfalse : ∀ x ∈ (cl :: rest).takeWhile (·.prio == cl.prio), ∀ σ ∈ clauseMatches c x vs,
@@ -440,7 +440,7 @@ theorem evalF_of_some {f : Sym} {fn : Fn} {vs : List GroundTerm} {r : Option Gro
   have hev : evalF c (M + 1) f vs = some r' := by
     simp only [evalF, hfn, Option.bind_eq_bind, Option.bind_some, hr']
   have hE' := evalF_sound hsc hcc hmc (M + 1) hev hfn hvs
-  exact ⟨M + 1, by rw [hev, Eval.functional hco hcc.fnsNoExs hE' hE]⟩
+  exact ⟨M + 1, by rw [hev, Eval.functional hco hE' hE]⟩
 
 theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
     {r : Option GroundTerm} (hfn' : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)

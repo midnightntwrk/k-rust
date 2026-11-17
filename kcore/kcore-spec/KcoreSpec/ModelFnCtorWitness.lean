@@ -108,7 +108,7 @@ theorem hyp : Hyp c := by
   · rw [List.mem_singleton.mp hg] at hcl'
     rw [List.mem_singleton.mp hcl']
     refine (matchIndependent_iff_noExs rfl).mpr ?_
-    intro vs σ σ' _ _ _ _ _ _
+    intro vs σ σ' _ _ _ _ _ _ _
     exact Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl, rhsT, varOccs, varOccsList] at hi),
       fun t ht => (by simp [cl] at ht)⟩
 
