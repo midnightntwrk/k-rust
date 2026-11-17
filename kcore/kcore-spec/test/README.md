@@ -746,8 +746,8 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
 - `test/HooksFloat.lean`: the 23 supported hook rows of FLOAT (the sort and twenty-two operations)
   against domains.md's prose, cited by line. Each expected value is derived by hand and marked by
   its source: the prose's sentence, an `smt-hook` attribute (the only rounding direction the text
-  gives an operation), or IEEE 754, which the prose names without a clause (clauses written from
-  memory, to confirm); the encodings of the data are written by hand and the reader takes the
+  gives an operation), or IEEE 754, which the prose names without a clause (recalled without the
+  standard's text, to confirm); the encodings of the data are written by hand and the reader takes the
   prose's literals to them. `hook` gives each value, the result and Γ's statement under every
   interpretation (`strbytes`); `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` give a
   value of the precision and exponent bits asked for. `precisionFloat` and `exponentBitsFloat` are

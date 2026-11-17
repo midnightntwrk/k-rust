@@ -16,9 +16,9 @@
   - **[S]** IEEE 754, which the prose names without a clause: the section's title (DOM 1461), "based
     on a generalization of the IEEE 754 standard" (1464-1466), "represented like an IEEE754
     floating-point type" (1482), "in IEEE 754 arithmetic" (1638). What is marked [S] follows from
-    the named standard and not from a sentence of the prose. The clause numbers are IEEE 754-2008's,
-    written from memory: this file was made without a copy of the standard, so each [S] is a reading
-    to confirm against it.
+    the named standard and not from a sentence of the prose. This file was made without a copy of
+    the standard: each [S] names the standard's operation or rule as recalled, without a clause, and
+    is a reading to confirm against it.
   FLOAT's prose writes no `#False` and no `#Bottom`: no row has a point where it states that there
   is no value. "Unstated" is DOM 14-16.
 
@@ -100,30 +100,30 @@
      1579) and `Int2Float` ("convert an integer to a floating-point number", 1653) at a value the
      format does not hold have no direction in the text. `hook` rounds every one to nearest, ties to
      even, and no such point is silent (`beyond`). Reading (A): [S] the named standard's default
-     rounding (roundTiesToEven, 4.3.1, 4.3.3) applies: stated. (B) unstated, and `silentTable` is too
+     rounding (roundTiesToEven) applies: stated. (B) unstated, and `silentTable` is too
      narrow there. `vals` holds no inexact point of `roundFloat` or `Int2Float`.
   3. Special data. The prose's sentences for `floorFloat`, `ceilFloat`, `truncFloat` ("the next lowest
      floating-point value which is an integer", 1583-1588) describe no value at an infinity or a NaN
      and no sign for a zero result; `/Float` and `%Float` at a zero divisor, and every operation at a
-     NaN or an infinity, are not mentioned. Each is [S] only (roundToIntegral 5.3.1, 5.9; the sign
-     6.3; invalid operation and division by zero 7.2, 7.3; NaN propagation 6.2). `hook` gives the [S]
+     NaN or an infinity, are not mentioned. Each is [S] only (roundToIntegral; the sign of a
+     zero; invalid operation and division by zero; NaN propagation). `hook` gives the [S]
      value and none is silent. The three rounding rows are declared `total`; the arithmetic ones and
      the comparisons are not, though the prose names no input without a value.
   4. Comparisons of two formats. The prose compares "a float … to another float" (1631-1632) and
      says nothing of two formats; `hook` compares the exact values, with a value at every pair of
      model formats, not silent (`beyond`: `1.0 ==Float 1.0f` is true), where the arithmetic of two
      formats is silent. Reading (A): a comparison's result is a Bool, the values of the two data are
-     given, and [S] 5.6.1, 5.11 compare operands of different formats: stated. (B) unstated, as for
+     given, and [S] the standard's comparisons take operands of different formats: stated. (B) unstated, as for
      the arithmetic.
   5. `%Float`: "computed based on rounding the quotient of the two floats to the nearest integer"
-     (1557-1558) gives no rule for a quotient halfway between two integers; [A] 1567 and [S] 5.3.1
+     (1557-1558) gives no rule for a quotient halfway between two integers; [A] 1567 and [S]
      (remainder) take the even one. `vals` has one point of each kind, marked.
-  6. A NaN's sign. [S] negate and abs act on the sign of a NaN (5.5.1); K's syntax writes one NaN
+  6. A NaN's sign. [S] negate and abs act on the sign of a NaN; K's syntax writes one NaN
      per format (1497) and KCore's carrier has one, so `--Float NaN` is `NaN`. No supported row
      reads a NaN's sign (`signFloat` is a parameter row).
   Readings, marked: "the next lowest / next highest floating-point value which is an integer" is
   the integer itself at an integer (so `floorFloat(2.0f)` is `2.0f`; no point of `vals` is at an
-  integer); "the smallest positive finite value" (1603-1604) counts subnormal data ([S] 3.3, 3.4).
+  integer); "the smallest positive finite value" (1603-1604) counts subnormal data ([S]).
   The prose's typos, read as meant: "A suffix of `f` or `f`" (1484) is `f` or `F` (the syntax, 1495);
   `smt-hook(fg.gt)` (1644).
 -/
@@ -617,8 +617,8 @@ theorem floatShape : c.floatShapeOK = true := floatShapeOK_of_coreOK coreOK
 
 /-! ## The data of the points, each encoding derived by hand
 
-[S] The encoding of a datum of `p24x8`, IEEE 754 binary32 (DOM 1488-1489; the interchange encoding,
-3.4): from the top, 1 sign bit, 8 bits of the exponent plus 127, 23 bits of the significand after
+[S] The encoding of a datum of `p24x8`, IEEE 754 binary32 (DOM 1488-1489; the interchange
+encoding): from the top, 1 sign bit, 8 bits of the exponent plus 127, 23 bits of the significand after
 its leading 1. `±1.f × 2^x` is the sign, then `x + 127`, then `f`. A zero is all zero bits after the
 sign; an infinity has the exponent field all ones and the significand field zero; the smallest
 positive datum 2^-149 is the significand field 1 alone; the largest finite one has the exponent
@@ -704,23 +704,23 @@ structure Pt where
 - `+Float`: [P] 1 + 2 = 3 (1559). [A] 1569, a tie: 1 + 2^-24 is halfway between 1 and 1 + 2^-23, the
   next datum of binary32, and the one with the even significand is 1; (1 + 2^-23) + 2^-24 is halfway
   between 1 + 2^-23 (significand field 1, odd) and 1 + 2^-22 (2, even): the latter.
-- `*Float` [P]: 2 × 3 = 6 (1556). `/Float`: [P] 3 / 2 = 1.5; [S] 7.3, 1 / 0 = +∞; [S] 7.2, 0 / 0 is a
-  NaN.
+- `*Float` [P]: 2 × 3 = 6 (1556). `/Float`: [P] 3 / 2 = 1.5; [S] division by zero, 1 / 0 = +∞; [S] invalid
+  operation, 0 / 0 is a NaN.
 - `%Float`: [P] (1557-1558) 5 / 3 = 1.66…, the nearest integer is 2, and 5 - 3 × 2 = -1. [A] 1567 and
-  [S] 5.3.1: 5 / 2 = 2.5 is halfway between 2 and 3, the even one is 2, and 5 - 2 × 2 = 1 (finding 5).
-- `absFloat`: [P] (1578) of `-1.0f` it is `1.0f`; [S] 5.5.1, of `-0.0f` it is `0.0f`.
+  [S] remainder: 5 / 2 = 2.5 is halfway between 2 and 3, the even one is 2, and 5 - 2 × 2 = 1 (finding 5).
+- `absFloat`: [P] (1578) of `-1.0f` it is `1.0f`; [S] abs, of `-0.0f` it is `0.0f`.
 - `floorFloat` [P] (1583-1584): the next lowest integer from 2.5 is 2, from -2.5 it is -3.
   `ceilFloat` [P] (1585-1586): 3 and -2. `truncFloat` [P] (1587-1588, "in the direction of zero"): 2
-  and -2. [S] 6.3, a zero result has the operand's sign: `floorFloat(0.5f)` is `0.0f`,
+  and -2. [S] a zero result has the operand's sign: `floorFloat(0.5f)` is `0.0f`,
   `ceilFloat(-0.5f)` is `-0.0f` (finding 3).
 - `roundFloat` [P] (1579-1580): 1.5 of `p53x11` to precision 24 and exponent bits 8 is `1.5f`, which
   `p24x8` holds exactly.
 - `Int2Float` [P] (1653-1654): 3 at 24, 8 is `3.0f`; -2 at 53, 11 is `-2.0`.
 - `maxValueFloat`, `minValueFloat` (1601-1604): [P] the largest finite and the smallest positive
-  datum of the format; [S] 3.3, 3.4, which data those are in binary32 (`max32`, `min32`).
+  datum of the format; [S] which data those are in binary32 (`max32`, `min32`).
 - The comparisons. [P] "`0.0 ==Float -0.0` is also true" (1638); "`NaN` compares unequal to all
   values, including itself" (1637), so `NaN ==Float NaN` is false; 1 < 2, not 2 < 1; 1 ≤ 1, not 2 ≤ 1;
-  2 > 1, not 1 > 1; 1 ≥ 1, not 1 ≥ 2 (1631-1632). [S] 5.11: a NaN is unordered with every datum, so
+  2 > 1, not 1 > 1; 1 ≥ 1, not 1 ≥ 2 (1631-1632). [S] comparison: a NaN is unordered with every datum, so
   `NaN <Float 1.0f` and `NaN >=Float 1.0f` are false; `-0.0 <=Float 0.0` is true and
   `-0.0 <Float 0.0` false (the zeros are equal). -/
 def vals : List Pt :=

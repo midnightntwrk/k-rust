@@ -6,9 +6,11 @@
   **Values.** A K Float carries its format: a precision p (significand bits, the implicit leading
   bit included) and an exponent width e. Its value is an IEEE 754 datum of that format: ±0,
   subnormal and normal numbers, ±∞, and NaN. K's syntax gives a NaN neither a sign nor a payload,
-  so a format has one NaN. KCore represents the datum by its interchange encoding, the
-  1 + e + (p − 1) bits of sign, biased exponent and trailing significand, NaN by the one canonical
-  NaN pattern of Lean's model (`packedNaN`). `ok p e b` says that `b` is such an encoding (`spec?`,
+  so a format has one NaN (domains.md 1497). KCore represents the datum by its interchange encoding,
+  the 1 + e + (p − 1) bits of sign, biased exponent and trailing significand. Which encoding stands
+  for the format's NaN is KCore's choice of a name for that one datum, not a property of a model
+  of floats: here the exponent field of all ones with the top significand bit (`packedNaN`); no
+  statement depends on which. `ok p e b` says that `b` is such an encoding (`spec?`,
   `validBits`): equal data are then equal literals (±0 distinct, the format part of the literal).
   Lean's model covers p ≥ 2 and e ≥ 2. A format K names with a field of 1 (`p1xM`, `pNx1`, N and
   M positive) has values too (`thinOK`): its encodings in the same p + e bits that are no NaN
@@ -16,14 +18,14 @@
   one). No operation computes on them; they are values an interpretation can give.
 
   **Operations.** Every operation rounds the exact result to the nearest value of the format,
-  ties to the even significand (IEEE 754 §4.3.1, roundTiesToEven; K's FLOAT has no other
+  ties to the even significand (IEEE 754's roundTiesToEven; K's FLOAT has no other
   rounding). The arithmetic is Lean core's (`UnpackedFloat.add`, `sub`, `mul`, `div`, `sqrt`,
   `round`, `ofInt`, `ofScientific`, `neg`, `abs`), computed on the unpacked datum
-  (`unpack`, `pack`). This file adds what core does not have, each a transcription of its IEEE
-  clause over Nat and Int: `roundToIntegral` toward −∞, +∞ or 0 (§5.3.1), `remainder` (§5.3.1),
-  `cmpExact`, the comparison of two data of any formats by their exact values (§5.11: ±0 equal,
-  NaN unordered), `convertFormat` (§5.4.2), and the format's largest finite and smallest positive
-  values.
+  (`unpack`, `pack`). This file adds what core does not have, each written over Nat and Int
+  after the IEEE 754 operation it is named for (the standard's clauses were not at hand and are
+  not confirmed): `roundToIntegral` toward −∞, +∞ or 0, `remainder`, `cmpExact`, the comparison of
+  two data of any formats by their exact values (±0 equal, NaN unordered), `convertFormat`, and
+  the format's largest finite and smallest positive values.
 
   **Text.** `text p e b` is a literal K reads back to the same datum: the exact decimal value of
   the datum with the suffix `pPxE` (`m·2^q` as the integer `m·2^q` followed by `.0` when q ≥ 0, as
@@ -130,7 +132,7 @@ inductive Dir where
   | zero
   deriving Repr, DecidableEq
 
-/-- roundToIntegral (IEEE 754 §5.3.1) toward −∞ (`down`), +∞ (`up`) or 0: the integral value of
+/-- roundToIntegral (the IEEE 754 operation of that name, clause not confirmed) toward −∞ (`down`), +∞ (`up`) or 0: the integral value of
 the format nearest the datum in that direction. NaN, ±∞ and ±0 are their own result, and a zero
 result keeps the datum's sign. A datum `±m·2^q` with `q ≥ 0` is integral; otherwise its magnitude's
 integer part is `m / 2^(−q)`, raised by one when the direction points away from zero and a fraction
@@ -161,7 +163,8 @@ def cmpScaled (a qa b qb : Int) : Ordering :=
   let q := min qa qb
   compare (a * 2 ^ (qa - q).toNat) (b * 2 ^ (qb - q).toNat)
 
-/-- The comparison of two data of any formats by their exact values (IEEE 754 §5.11): NaN is
+/-- The comparison of two data of any formats by their exact values (IEEE 754's comparison, clause not
+confirmed): NaN is
 unordered with everything, ±0 are equal, −∞ is below and +∞ above every other datum. -/
 def cmpExact : UnpackedFloat → UnpackedFloat → Option Ordering
   | .notANumber, _ => none
@@ -181,7 +184,7 @@ def divNearestEven (x y : Nat) : Nat :=
   let r := x % y
   if 2 * r > y then n + 1 else if 2 * r = y then n + n % 2 else n
 
-/-- remainder (IEEE 754 §5.3.1): `x − y·n` for `n` the integer nearest `x / y`, ties to even; exact,
+/-- remainder (the IEEE 754 operation of that name, clause not confirmed): `x − y·n` for `n` the integer nearest `x / y`, ties to even; exact,
 so representable in the format. NaN when either is NaN, when `x` is infinite or `y` is zero; `x`
 itself when `y` is infinite or `x` is zero; a zero result has the sign of `x`. For finite data both
 are scaled to the smaller exponent `q`: `x = ±X·2^q`, `y = ±Y·2^q`, and the result is
@@ -200,7 +203,7 @@ def remainder (s : Format) : UnpackedFloat → UnpackedFloat → UnpackedFloat
     let n := divNearestEven X Y
     normalize s (sx.apply ((X : Int) - (n * Y : Nat))) q sx
 
-/-- convertFormat (IEEE 754 §5.4.2) to the format `s`: a finite datum rounded to it; NaN, ±∞ and
+/-- convertFormat (the IEEE 754 operation of that name, clause not confirmed) to the format `s`: a finite datum rounded to it; NaN, ±∞ and
 ±0 kept. -/
 def convertFormat (s : Format) : UnpackedFloat → UnpackedFloat
   | .finite sg m q _ => round s sg m q
@@ -214,9 +217,10 @@ def maxValue (s : Format) : UnpackedFloat :=
 def minValue (s : Format) : UnpackedFloat := round s .positive 1 s.minExponent
 
 /-- `sqrtFloat` (domains.md FLOAT, 1671: `rule sqrtFloat(F:Float) => rootFloat(F, 2)`, and described
-as the square root): IEEE 754 squareRoot (§5.4.1, Lean core's `sqrt`) at every datum but −0, none at
-−0. The two operations the text names, rootn(x, 2) (§9.2.1) and squareRoot, agree at every datum
-but −0, where squareRoot gives −0 and rootn(−0, 2) gives +0. -/
+as the square root): IEEE 754 squareRoot (Lean core's `sqrt`) at every datum but −0, none at −0. The two
+operations the text names, rootn(x, 2) and squareRoot, agree at every datum but −0, where squareRoot
+gives −0 and rootn(−0, 2) gives +0 (as recalled: the standard's clauses were not at hand and are not
+confirmed). -/
 def sqrt? (s : Format) : UnpackedFloat → Option UnpackedFloat
   | .zero .negative => none
   | u => some (UnpackedFloat.sqrt s u)
