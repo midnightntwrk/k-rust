@@ -1213,7 +1213,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   `<k> c(z) </k>` steps to `<k> g </k>` exactly where not (z = a and g = a) (`step_iff`, from
   `StepBy` and the inversion of `Holds`, not through the executable step); beside a rule `c(Z) => b` with
   `pre := not (mem Z a)` (the shape of e3-ml-rule-lhs-not-other's `c(#Not(a())) => b()`) at priority 200, `rulesPlain` and `coreOK` fail and the reader's
-  message is `openRequires` at Exp (`larger_refused`). About 2 minutes.
+  message is `openRequires` at Exp (`larger_refused`). e3-ml-rule-rhs-or (mlror, `go => ?Z` with
+  `post := or (mem Z a) (mem Z b)`): `coreOK`; `go` steps to `a` and to `b` and to nothing else;
+  the values in `famEx` in every model of `Γc` are exactly those two (`famEx_values_iff`); by
+  `has_model_choice`, neither `den go ⇒ •den a` nor `den go ⇒ •den b` is entailed (`not_entailed_Γc`).
+  About 3 minutes.
 - `test/SetVarRewrite.lean`: `KCore.setvar_rewrite_singleton` at the rewrite axiom of e3-setvar-rewrite
   (`c(@S, @S) => d(@S)`): the axiom's translation is `sRewrites` of two `SvCtx` at the set variable
   (`tr_ax`, by `rfl`), with two and one occurrences, no side pattern holding it (`sides`), and the

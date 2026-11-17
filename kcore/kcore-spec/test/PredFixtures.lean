@@ -19,6 +19,20 @@
   a)`, of priority 200 appended: `cLarger`), G is an open variable of a condition with the variable Z the left side binds, of the
   sort Exp the text leaves unconfined, in a rule that competes with a larger one: `rulesPlain` and
   `coreOK` fail (`larger_refused`) and the reader's message is `openRequires` at Exp.
+
+  ## e3-ml-rule-rhs-or
+  `f2-examples/mlror.kompile.kore` (`test/constructs/fixtures/e3-ml-rule-rhs-or/kore.txt:63-68`):
+  `go => a() #Or b()`, kompiled with `inj{Exp,KItem}(\or{Exp}(a(), b()))` on the right side. Read as
+  `go => ?Z` with `post := or (mem Z a) (mem Z b)`, Z (variable 2) existential, under constructors
+  (arm A); `coreOK` holds and the text declares no function (`fnHyp`). `<k> go </k>` steps to
+  `<k> a </k>` and to `<k> b </k>` (`step_a`, `step_b`), and every step by the rule is to one of the
+  two (`step_inv`). `famEx` is `C[a] ∨ C[b]` at values (`famEx_values_iff`): the values whose
+  element is in the family in every model of `Γc` are exactly `<k> a </k>` and `<k> b </k>`
+  (`sound_at` one way, `famEx_values` and `step_inv` the other; that `famEx` holds no element off
+  the two in a model is not stated). Neither instance is entailed as the successor: by
+  `has_model_choice` at `Step` less the step to b (and symmetrically), a model of `Γc` with the
+  step's closure in which `den go ⇒ ¬•den b` holds, so `den go ⇒ •den b` is not entailed
+  (`not_entailed_b`, `not_entailed_a`, and by `Γc` alone `not_entailed_Γc`).
 -/
 import KcoreSpec
 
@@ -184,9 +198,9 @@ the k cell's symbol `kCell`. -/
 def cfgOf (kCell : Sym) (s : Srt) (st : GroundTerm) : GroundTerm :=
   .ctor topLabel [.ctor kCell [.ctor kseq [.inj s Srt.kitem st, .ctor dotk []]], .ctor counterLabel [int 0]]
 
-/-- The configuration pattern `<generatedTop>(<k>(kseq(inj{s,KItem}(p), V1)), V2)`. -/
-def cfgPat (kCell : Sym) (s : Srt) (p : Term) : Term :=
-  .app topLabel [.app kCell [.app kseq [.inj s Srt.kitem p, .var 1]], .var 2]
+/-- The configuration pattern `<generatedTop>(<k>(kseq(inj{s,KItem}(p), Vk)), Vc)`. -/
+def cfgPat (kCell : Sym) (s : Srt) (p : Term) (k c : Nat) : Term :=
+  .app topLabel [.app kCell [.app kseq [.inj s Srt.kitem p, .var k]], .var c]
 
 theorem sortOf_ctor_congr {c : Semantics} {f : Sym} {ts ts0 : List GroundTerm}
     (hl : (lookupSig c.ctorSigs f).isSome = true)
@@ -211,6 +225,29 @@ theorem sortOf_cfgOf_congr {c : Semantics} {kCell : Sym} {s : Srt} {st st0 : Gro
     c.sortOf (cfgOf kCell s st) = c.sortOf (cfgOf kCell s st0) :=
   sortOf_ctor_congr hl.1 (sortsOf_head_congr (sortOf_ctor_congr hl.2.1 (sortsOf_head_congr
     (sortOf_ctor_congr hl.2.2 (sortsOf_head_congr (sortOf_inj_congr h hi))))))
+
+/-- A model of `Γc` with the step's closure in which `den x ⇒ ¬•den y` holds: then the theory does
+not entail `den x ⇒ •den y` (x's element is in `den x`). -/
+theorem not_entailed_of_model {c : Semantics} {x y : Config c} {M : Type} [Inhabited M]
+    {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP (Γc c ∪ Γstep c))
+    (h : I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :
+    ¬ ((Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val))) := by
+  intro hE
+  have h1 := hE hI
+  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
+  let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
+  have hm := ((elemOf_spec hIΓ x.property e).1 (elemOf c I x.val)).mpr rfl
+  have a1 := h1 e (elemOf c I x.val)
+  have a2 := h e (elemOf c I x.val)
+  rw [interpret_impl] at a1 a2
+  exact (interpret_neg.mp (a2 hm)) (a1 hm)
+
+/-- `famEx` reads σ off the existential variables only. -/
+theorem famEx_congr_off (c : Semantics) (r : Rule) {σ σ' : Subst}
+    (h : ∀ i, i ∉ r.exs → σ'.lookup i = σ.lookup i) : famEx c r σ' = famEx c r σ := by
+  unfold famEx
+  dsimp only
+  rw [fixK_congrOpen c r fun i hi => h i (by simpa using (List.mem_filter.mp hi).2)]
 
 /-! ## e3-ml-rule-lhs-not -/
 
@@ -245,8 +282,8 @@ theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
   rfl
 
 theorem r0_vars : r0.vars = [exp, Srt.k, 19, exp] := by decide +kernel
-theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symC [.var 0]) := rfl
-theorem r0_rhs : r0.rhs = cfgPat kCell exp (.var 3) := rfl
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symC [.var 0]) 1 2 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.var 3) 1 2 := rfl
 /-- `pre := not (and (mem Z a) (mem Z G))`, Z the variable 0, G the variable 3. -/
 theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [] ∧ r0.post = .top ∧
     r0.pre = .not (.and (.mem exp (.var 0) (.app symA [])) (.mem exp (.var 0) (.var 3))) :=
@@ -435,8 +472,8 @@ def symB : Sym := 386
 /-- `c(Z) => b` with `pre := not (mem Z a)` at the priority 200: the shape of
 e3-ml-rule-lhs-not-other's `c(#Not(a())) => b()`, written by hand. -/
 def rOther : Rule :=
-  { vars := [exp, Srt.k, 19], lhs := cfgPat kCell exp (.app symC [.var 0]), req := none,
-    rhs := cfgPat kCell exp (.app symB []), ens := none, prio := 200,
+  { vars := [exp, Srt.k, 19], lhs := cfgPat kCell exp (.app symC [.var 0]) 1 2, req := none,
+    rhs := cfgPat kCell exp (.app symB []) 1 2, ens := none, prio := 200,
     pre := .not (.mem exp (.var 0) (.app symA [])) }
 
 /-- The definition's semantics with `rOther` appended. -/
@@ -475,5 +512,270 @@ info: (some (openRequires, Var'Unds'Gen5:Exp: in a condition with a variable the
 #guard_msgs in #print axioms larger_refused
 
 end LhsNot
+
+/-! ## e3-ml-rule-rhs-or -/
+
+namespace RhsOr
+
+definition_read defn from "f2-examples/mlror.kompile.kore" by conn
+
+noncomputable abbrev c : Semantics := defn.sem
+
+def exp : Srt := 32
+def kCell : Sym := 383
+def symA : Sym := 385
+def symB : Sym := 386
+def symGo : Sym := 389
+
+theorem names_ok : c.sortName exp = "Exp" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧ c.symName symGo = "Lblgo" := by
+  decide +kernel
+
+/-- **Admitted**: the definition with the rule `go => ?Z` has `coreOK`. -/
+theorem coreOK : c.coreOK = true := by decide +kernel
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem r0_mem : r0 ∈ c.rules := List.getElem_mem _
+
+/-- The text has the one rule. -/
+theorem rule_eq {r : Rule} (hr : r ∈ c.rules) : r = r0 := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hr
+  have h1 : c.rules.length = 1 := by decide +kernel
+  have : i = 0 := by omega
+  subst this
+  rfl
+
+theorem r0_vars : r0.vars = [Srt.k, 19, exp] := by decide +kernel
+theorem r0_lhs : r0.lhs = cfgPat kCell exp (.app symGo []) 0 1 := rfl
+theorem r0_rhs : r0.rhs = cfgPat kCell exp (.var 2) 0 1 := rfl
+/-- `go => ?Z` with `post := or (mem Z a) (mem Z b)`, Z the variable 2. -/
+theorem r0_shape : r0.req = none ∧ r0.ens = none ∧ r0.exs = [2] ∧ r0.pre = .top ∧
+    r0.post = .or (.mem exp (.var 2) (.app symA [])) (.mem exp (.var 2) (.app symB [])) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem syms_ok : c.isCtor topLabel = true ∧ c.isCtor kCell = true ∧ c.isCtor kseq = true ∧
+    c.isCtor symA = true ∧ c.isCtor symB = true ∧ c.isCtor symGo = true ∧ c.isCtor dotk = true := by
+  decide +kernel
+
+theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.contains kCell = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains symGo = false := by
+  decide +kernel
+
+/-- The text declares no function and no open generator, and no rule needs a witness. -/
+theorem fns_nil : c.fns = [] := by decide +kernel
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem noWitness : ∀ r ∈ c.rules, r.needsWitness c = false := by decide +kernel
+theorem lhs_vars : ∀ j ∈ varOccs r0.lhs, j < 2 := by decide +kernel
+
+theorem fnHyp : FnHyp c :=
+  have hn : ∀ fn, fn ∈ c.fns → False := fun fn hfn => by rw [fns_nil] at hfn; cases hfn
+  ⟨fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim,
+    fun fn hfn => (hn fn hfn).elim,
+    openDecided_of_plain noWitness (fun fn hfn => (hn fn hfn).elim),
+    openLaws_of_plain noRaw⟩
+
+theorem fnDet : FnDet c := (fnModel_of_fnHyp coreOK fnHyp).1
+
+/-! ### The configurations -/
+
+def dotkT : GroundTerm := .ctor dotk []
+def ctr : GroundTerm := .ctor counterLabel [int 0]
+def cfg (st : GroundTerm) : GroundTerm := cfgOf kCell exp st
+def a : GroundTerm := .ctor symA []
+def b : GroundTerm := .ctor symB []
+
+/-- `<k> go </k>`. -/
+def Go : Config c := ⟨cfg (.ctor symGo []), by decide +kernel⟩
+/-- `<k> a </k>`, `<k> b </k>`. -/
+def A : Config c := ⟨cfg a, by decide +kernel⟩
+def B : Config c := ⟨cfg b, by decide +kernel⟩
+
+theorem A_ne_B : A ≠ B := fun h => absurd (congrArg Subtype.val h) (by decide +kernel)
+
+/-! ### `Step` from `go` to `a` and to `b` -/
+
+/-- `post` where σ gives Z the value v. -/
+theorem post_at {τ : Subst} {v : GroundTerm} (h2 : τ.lookup 2 = some v) {bv : Bool} :
+    Holds c r0.vars.length τ r0.post bv ↔ bv = (decide (v = a) || decide (v = b)) := by
+  rw [r0_shape.2.2.2.2]
+  constructor
+  · intro h
+    obtain ⟨b₁, b₂, h₁, h₂, rfl⟩ := holds_or_inv h
+    obtain ⟨r₁, r₁', e₁, e₁', rfl⟩ := holds_mem_inv h₁
+    obtain ⟨r₂, r₂', e₂, e₂', rfl⟩ := holds_mem_inv h₂
+    rw [EvalTerm.var_inv e₁, evalTerm_const syms_ok.2.2.2.1 e₁', EvalTerm.var_inv e₂,
+      evalTerm_const syms_ok.2.2.2.2.1 e₂', h2]
+    simp only [Option.isSome_some, Bool.true_and, sameResult_some]; rfl
+  · intro hb
+    have h : Holds c r0.vars.length τ (.or (.mem exp (.var 2) (.app symA [])) (.mem exp (.var 2) (.app symB [])))
+        (((τ.lookup 2).isSome && sameResult (τ.lookup 2) (some a)) ||
+          ((τ.lookup 2).isSome && sameResult (τ.lookup 2) (some b))) :=
+      .or (.mem .var (.ctor syms_ok.2.2.2.1 .nil)) (.mem .var (.ctor syms_ok.2.2.2.2.1 .nil))
+    rw [h2] at h
+    simp only [Option.isSome_some, Bool.true_and, sameResult_some] at h
+    rw [hb]; exact h
+
+/-- The right side under σ that gives V0, V1 and Z the values `.`, the counter and v. -/
+theorem rhs_eval {τ : Subst} {v : GroundTerm} (h0 : τ.lookup 0 = some dotkT) (h1 : τ.lookup 1 = some ctr)
+    (h2 : τ.lookup 2 = some v) (hv : v.isInj = false) : EvalTerm c τ r0.rhs (some (cfg v)) := by
+  rw [r0_rhs]
+  have he : EvalTerm c τ (.inj exp Srt.kitem (.var 2)) ((τ.lookup 2).map (injNormal exp Srt.kitem)) := .inj .var
+  rw [h2, Option.map_some, injNormal_of_not_inj hv] at he
+  have e0 : EvalTerm c τ (.var 0) (some dotkT) := h0 ▸ .var
+  have e1 : EvalTerm c τ (.var 1) (some ctr) := h1 ▸ .var
+  exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+    (.cons he (.cons e0 .nil))) .nil)) (.cons e1 .nil))
+
+theorem prio_none {r' : Rule} (hr' : r' ∈ c.rules) (hlt : r'.prio < r0.prio) : False := by
+  rw [rule_eq hr'] at hlt
+  exact Nat.lt_irrefl _ hlt
+
+/-- A step by the rule at any σ that gives V0, V1 the values of `<k> go </k>` and Z a or b. -/
+theorem stepBy_at {τ : Subst} {v : GroundTerm} (h0 : τ.lookup 0 = some dotkT) (h1 : τ.lookup 1 = some ctr)
+    (h2 : τ.lookup 2 = some v) (hv : v = a ∨ v = b) (y : Config c) (hy : y.val = cfg v) :
+    StepBy c r0 τ Go y where
+  mem := r0_mem
+  hσ := fun j s hs => by
+    rw [r0_vars] at hs
+    match j, hs with
+    | 0, hs => cases hs; exact ⟨_, h0, by decide +kernel⟩
+    | 1, hs => cases hs; exact ⟨_, h1, by decide +kernel⟩
+    | 2, hs => cases hs; exact ⟨_, h2, by rcases hv with rfl | rfl <;> decide +kernel⟩
+  hmatch := by
+    rw [r0_lhs]
+    have hi : injNormal exp Srt.kitem (.ctor symGo []) = .inj exp Srt.kitem (.ctor symGo []) := rfl
+    exact .ctor syms_ok.1 (.cons (.ctor syms_ok.2.1 (.cons (.ctor syms_ok.2.2.1
+      (.cons (hi ▸ .inj (.ctor syms_ok.2.2.2.2.2.1 .nil)) (.cons (.var h0) .nil))) .nil))
+      (.cons (.var h1) .nil))
+  hreq := fun t ht => by rw [r0_shape.1] at ht; cases ht
+  hpre := by rw [r0_shape.2.2.2.1]; exact .top
+  heval := by
+    rw [hy]
+    exact rhs_eval h0 h1 h2 (by rcases hv with rfl | rfl <;> rfl)
+  hens := fun t ht => by rw [r0_shape.2.1] at ht; cases ht
+  hpost := (post_at h2).mpr (by rcases hv with rfl | rfl <;> decide +kernel)
+  hprio := fun r' hr' hlt => (prio_none hr' hlt).elim
+
+def σ (v : GroundTerm) : Subst := [(0, dotkT), (1, ctr), (2, v)]
+
+/-- **`go` steps to `a` and to `b`.** -/
+theorem stepBy_a : StepBy c r0 (σ a) Go A := stepBy_at rfl rfl rfl (.inl rfl) A rfl
+theorem stepBy_b : StepBy c r0 (σ b) Go B := stepBy_at rfl rfl rfl (.inr rfl) B rfl
+theorem step_a : Step c Go A := step_iff_by.mpr ⟨r0, σ a, stepBy_a⟩
+theorem step_b : Step c Go B := step_iff_by.mpr ⟨r0, σ b, stepBy_b⟩
+
+/-- A match at `<k> go </k>` gives V0 and V1 the values `.` and the counter. -/
+theorem lookups {τ : Subst} (hm : PatVal c τ r0.lhs Go.val) :
+    τ.lookup 0 = some dotkT ∧ τ.lookup 1 = some ctr := by
+  rw [r0_lhs] at hm
+  have ⟨h1, hc⟩ := patVal_ctor2 hooks_ok.1 syms_ok.1 hm
+  have h2 := patVal_ctor1 hooks_ok.2.1 syms_ok.2.1 h1
+  have h3 := (patVal_ctor2 hooks_ok.2.2.1 syms_ok.2.2.1 h2).2
+  exact ⟨PatVal.var_inv h3, PatVal.var_inv hc⟩
+
+/-- **Every step by the rule from `go` is to `a` or to `b`**, and Z has that value. -/
+theorem step_inv {τ : Subst} {x y : Config c} (hs : StepBy c r0 τ x y) (hx : x = Go) :
+    ∃ v, τ.lookup 2 = some v ∧ (v = a ∨ v = b) ∧ (y = A ∨ y = B) := by
+  subst hx
+  obtain ⟨h0, h1⟩ := lookups hs.hmatch
+  obtain ⟨v, h2, -⟩ := hs.hσ 2 exp (by rw [r0_vars]; rfl)
+  have hp := (post_at h2).mp hs.hpost
+  have hv : v = a ∨ v = b := by
+    by_cases ha : v = a
+    · exact .inl ha
+    · by_cases hb : v = b
+      · exact .inr hb
+      · simp [ha, hb] at hp
+  refine ⟨v, h2, hv, ?_⟩
+  have he := EvalTerm.functional_of_fnDet fnDet hs.heval (rhs_eval h0 h1 h2 (by rcases hv with rfl | rfl <;> rfl))
+  rcases hv with rfl | rfl
+  · exact .inl (Subtype.ext (Option.some.inj he))
+  · exact .inr (Subtype.ext (Option.some.inj he))
+
+/-! ### `famEx` is `<k> a </k> ∨ <k> b </k>` at values -/
+
+/-- The family of the application at `go` is the same pattern under `σ a` and `σ b`: they differ
+at Z only, an existential variable. -/
+theorem famEx_ab : famEx c r0 (σ b) = famEx c r0 (σ a) :=
+  famEx_congr_off c r0 fun i hi => by
+    rw [r0_shape.2.2.1] at hi
+    match i, hi with
+    | 0, _ => rfl
+    | 1, _ => rfl
+    | 2, hi => exact absurd (List.mem_singleton_self 2) hi
+    | _ + 3, _ => rfl
+
+/-- **The values of `famEx` at `go` are `<k> a </k>` and `<k> b </k>`**: in every model of `Γc` the
+element of each is in the family (`sound_at`), and a value whose element is in it in every model
+is a step by the rule (`famEx_values`), so one of the two. -/
+theorem famEx_values_iff (y : Config c) :
+    (Γc c ⊧ (den c y.val ⇒ famEx c r0 (σ a))) ↔ (y = A ∨ y = B) := by
+  constructor
+  · intro hy
+    obtain ⟨τ, -, hs⟩ := famEx_values c coreOK fnHyp Go y r0 (σ a) ⟨A, stepBy_a⟩ hy
+    obtain ⟨_, _, _, h⟩ := step_inv hs rfl
+    exact h
+  · have hw : ∀ r' ∈ c.rules, r'.prio < r0.prio → r'.needsWitness c = true →
+        (∃ σ', PatVal c σ' r'.lhs Go.val) → r'.CondDecided c := fun r' hr' hlt => (prio_none hr' hlt).elim
+    have hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c :=
+      fun fn hfn => by rw [fns_nil] at hfn; cases hfn
+    rintro (rfl | rfl)
+    · exact (sound_at c coreOK Go A r0 (σ a) stepBy_a hw hc).2
+    · exact famEx_ab ▸ (sound_at c coreOK Go B r0 (σ b) stepBy_b hw hc).2
+
+/-! ### Neither instance is entailed -/
+
+/-- The steps of `Step`, less the one from `go` to `excl`. -/
+def T (excl : Config c) (x y : Config c) : Prop := Step c x y ∧ (x = Go → y ≠ excl)
+
+/-- `has_model_choice` at `T excl`, where `keep` is the other instance: a model of `Γc` with the
+step's closure whose transition at values is `T excl`. -/
+theorem model_without {excl keep : Config c} {vk : GroundTerm} (hk : keep.val = cfg vk) (hvk : vk = a ∨ vk = b)
+    (hne : keep ≠ excl) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
+      ∀ x y : Config c, T excl x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
+  has_model_choice c coreOK fnHyp (T excl) (fun _ _ h => h.1)
+    (fun x y r τ hs hex => by rw [rule_eq hs.mem, r0_shape.2.2.1] at hex; cases hex)
+    (fun x y r τ hs => by
+      have hr := rule_eq hs.mem
+      subst hr
+      by_cases hx : x = Go
+      · subst hx
+        obtain ⟨h0, h1⟩ := lookups hs.hmatch
+        have h0' : List.lookup 0 ((2, vk) :: τ) = some dotkT := by simp [List.lookup, h0]
+        have h1' : List.lookup 1 ((2, vk) :: τ) = some ctr := by simp [List.lookup, h1]
+        have h2' : List.lookup 2 ((2, vk) :: τ) = some vk := by simp [List.lookup]
+        refine ⟨keep, (2, vk) :: τ, fun i hi => ?_, stepBy_at h0' h1' h2' hvk keep hk,
+          step_iff_by.mpr ⟨r0, _, stepBy_at h0' h1' h2' hvk keep hk⟩, fun _ => hne⟩
+        rw [r0_shape.2.2.1] at hi
+        have hne2 : (i == 2) = false := beq_false_of_ne (by simpa using hi)
+        show List.lookup i ((2, vk) :: τ) = List.lookup i τ
+        rw [List.lookup_cons, hne2]
+      · exact ⟨y, τ, fun _ _ => rfl, hs, step_iff_by.mpr ⟨_, _, hs⟩, fun h => absurd h hx⟩)
+
+/-- **`den go ⇒ •den b` is not entailed**: in the model at `T B` the configuration `go` steps to
+`a` only. -/
+theorem not_entailed_b : ¬ ((Γc c ∪ Γstep c) ⊧ (den c Go.val ⇒ KoreAML.sNext (den c B.val))) := by
+  obtain ⟨M, i, I, hI, hT⟩ := model_without (excl := B) (keep := A) (vk := a) rfl (.inl rfl) A_ne_B
+  exact not_entailed_of_model hI (Classical.not_not.mp fun hn => ((hT Go B).mpr hn).2 rfl rfl)
+
+/-- **`den go ⇒ •den a` is not entailed**, symmetrically. -/
+theorem not_entailed_a : ¬ ((Γc c ∪ Γstep c) ⊧ (den c Go.val ⇒ KoreAML.sNext (den c A.val))) := by
+  obtain ⟨M, i, I, hI, hT⟩ := model_without (excl := A) (keep := B) (vk := b) rfl (.inr rfl) A_ne_B.symm
+  exact not_entailed_of_model hI (Classical.not_not.mp fun hn => ((hT Go A).mpr hn).2 rfl rfl)
+
+/-- Neither is entailed by `Γc` alone, a part of the theory above. -/
+theorem not_entailed_Γc : ¬ (Γc c ⊧ (den c Go.val ⇒ KoreAML.sNext (den c A.val))) ∧
+    ¬ (Γc c ⊧ (den c Go.val ⇒ KoreAML.sNext (den c B.val))) :=
+  ⟨fun h => not_entailed_a fun hI => h fun φ hφ => hI φ (Or.inl hφ),
+   fun h => not_entailed_b fun hI => h fun φ hφ => hI φ (Or.inl hφ)⟩
+
+/-- info: 'PredFixtures.RhsOr.famEx_values_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms famEx_values_iff
+/-- info: 'PredFixtures.RhsOr.not_entailed_Γc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms not_entailed_Γc
+
+end RhsOr
 
 end PredFixtures
