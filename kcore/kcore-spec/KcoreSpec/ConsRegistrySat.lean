@@ -10,8 +10,7 @@
   its fallback values; and a value is one element of its sort, distinct values distinct ones.
   `sat_registry_of` collects the kinds, given the no-junk items of the detached library collections.
 
-  `ValElems` holds at the decided form of `Detached` (`valElems_of_decided`) for a definition
-  without an open generator or where `_==K_` is none of the names: a value of a sort outside `D` by its pattern, which names no detached
+  `ValElems` holds at the decided form of `Detached` (`valElems_of_decided`): a value of a sort outside `D` by its pattern, which names no detached
   name, and a literal of a detached sort because at one sort a literal's text determines it and two
   numbered sorts have distinct names (`ext_den_dvDet`), given what the values of a detached sort
   other than its literals denote (`hrest`).
@@ -551,12 +550,9 @@ theorem inh_own_rs {v : GroundTerm} {s : Srt} {m : M} (hv : c.sortOf v = some s)
   exact (hT.1 m).mpr hinh
 
 open Faithful.Model (HypModelCore) in
-/-- **`ValElems` at the decided form of `Detached`**, for a definition without an open generator or where
-`_==K_` is none of the names,
-given what the values of a detached sort other than its literals denote. -/
+/-- **`ValElems` at the decided form of `Detached`**, given what the values of a detached sort other than its literals denote. -/
 theorem valElems_of_decided (hm : HypModelCore c) (hg : Faithful.genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
     (hrest : ∀ {v : GroundTerm} {s : Srt}, c.sortOf v = some s → DSort c (DetachedB.names c ss ks) s →
       (∀ lit, v ≠ .dv s lit) → ∀ (e : Valuation (Ext M)) (x : Ext M),
         (den c v).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔ x = .inr (.val v)) :
@@ -570,7 +566,7 @@ theorem valElems_of_decided (hm : HypModelCore c) (hg : Faithful.genWf c = true)
         exact ext_den_dvDet hm hv hs e x
       · exact hrest hv hs (fun lit h => hl ⟨lit, h⟩) e x
     · exact den_own_rs hd hI hv hs e x
-  inj := fun hv hw h1 h2 => elemOf_inj hd hI hg htr hra hv hw h1 h2
+  inj := fun hv hw h1 h2 => elemOf_inj hd hI hg htr hv hw h1 h2
   inh := fun {v s x} hv hx e => by
     rcases hx with ⟨s', hv', hs', rfl⟩ | ⟨s', m, hv', hs', rfl, hm⟩ <;> rw [hv] at hv' <;> cases hv'
     · exact inh_det_rs hv hs' e
@@ -610,13 +606,11 @@ open DetachedB
 variable {ss : List Srt} {ks : List Sym}
 
 open Faithful.Model (HypModelCore) in
-/-- **The extension satisfies the registry family at the decided form of `Detached`**, for a
-definition without an open generator or where `_==K_` is none of the names, given what the values of a detached sort other than its
+/-- **The extension satisfies the registry family at the decided form of `Detached`**, given what the values of a detached sort other than its
 literals denote and the no-junk items of the library collections whose sort is detached. -/
 theorem sat_registry_decided (hd : detachedB c ss ks = true) (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks))
     (hm : HypModelCore c) (hg : Faithful.genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
     (hrest : ∀ {v : GroundTerm} {s : Srt}, c.sortOf v = some s → DSort c (DetachedB.names c ss ks) s →
       (∀ lit, v ≠ .dv s lit) → ∀ (e : Valuation (Ext M)) (x : Ext M),
         (den c v).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔ x = .inr (.val v))
@@ -627,7 +621,7 @@ theorem sat_registry_decided (hd : detachedB c ss ks = true) (hI : I ⊧ᴵP Γo
   have hB : builtinColls.all (fun k => sOK c ss ks k.sort || (collAxioms c k).isEmpty) = true := by
     simp only [detachedB, Bool.and_eq_true] at hd
     exact hd.1.1.1.2
-  refine sat_registry_of hm (valElems_of_decided hd hI hm hg htr hra hrest) (fun k hk hs => ?_) hnj h
+  refine sat_registry_of hm (valElems_of_decided hd hI hm hg htr hrest) (fun k hk hs => ?_) hnj h
   rcases Bool.or_eq_true _ _ ▸ List.all_eq_true.mp hB k hk with h1 | h2
   · simp only [sOK, isName_iff.mpr hs, Bool.not_true, Bool.false_eq_true] at h1
   · exact List.isEmpty_iff.mp h2
@@ -912,8 +906,7 @@ variable {c : Semantics} {ss : List Srt} {ks : List Sym} {M : Type} [Inhabited M
   (hd : detachedB c ss ks = true) (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) (hm : HypModelCore c)
   (hg : Faithful.genWf c = true) [OvlOK c]
   (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-  (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
-include hd hI hm hg htr hra
+include hd hI hm hg htr
 
 /-- A range map of one entry whose key and value denote exactly their elements denotes, in the
 extension, exactly its added element: `r|->`'s value at them is that map. -/
@@ -937,7 +930,7 @@ theorem den_rm1_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
   unfold KoreAML.den
   rw [Faithful.Model.tr_ap]
   refine (ext_hookAppP_rs (k := ⟨rmElem, [Srt.range, Srt.kitem], Srt.rangeMap⟩) hm.namesK
-    (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hra hv hw h1 h2) hk (vs := [a, b])
+    (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hv hw h1 h2) hk (vs := [a, b])
     (rmS_sortsOf_cons.mpr ⟨ha, rmS_sortsOf_cons.mpr ⟨hb, sortsOf_nil⟩⟩) (.cons hxa (.cons hxb .nil)) e
     (.cons (fun m => (hda e m).trans ⟨fun h => elemOf_fun_rs h hxa, fun h => h ▸ hxa⟩)
       (.cons (fun m => (hdb e m).trans ⟨fun h => elemOf_fun_rs h hxb, fun h => h ▸ hxb⟩) .nil)) x).trans ?_
@@ -965,15 +958,15 @@ theorem den_rm_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
     unfold KoreAML.den
     rw [Faithful.Model.tr_ap]
     refine (ext_hookAppP_rs (k := ⟨rmUnit, [], Srt.rangeMap⟩) hm.namesK
-      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hra hv hw h1 h2) hk (vs := []) sortsOf_nil .nil e .nil x).trans ?_
+      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hv hw h1 h2) hk (vs := []) sortsOf_nil .nil e .nil x).trans ?_
     exact (resOf_val_rs rmM_unit x).trans (elemOf_det_rs hsing hs)
   | [(a, b)], hr, hes, e, x => by
     obtain ⟨ha, hb, hda, hdb⟩ := hes (a, b) (List.mem_singleton.mpr rfl)
-    exact den_rm1_rs hd hI hm hg htr hra hco hs (rangesOK_head hr) ha hb hda hdb e x
+    exact den_rm1_rs hd hI hm hg htr hco hs (rangesOK_head hr) ha hb hda hdb e x
   | (a, b) :: p2 :: es, hr, hes, e, x => by
     obtain ⟨ha, hb, hda, hdb⟩ := hes (a, b) (List.mem_cons_self ..)
     have hr' := rmM_tail hr
-    have h1 := den_rm1_rs hd hI hm hg htr hra hco hs (rangesOK_head hr) ha hb hda hdb e
+    have h1 := den_rm1_rs hd hI hm hg htr hco hs (rangesOK_head hr) ha hb hda hdb e
     have h2 := den_rm_rs hco hs (p2 :: es) hr' (fun p hp => hes p (List.mem_cons_of_mem _ hp)) e
     rw [den_map_rs hco] at h1 h2
     have hk := dhook_of_result_rs hd rmSigs_mem_rs.2.2 hs
@@ -991,7 +984,7 @@ theorem den_rm_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
     unfold KoreAML.den
     rw [Faithful.Model.tr_ap]
     refine (ext_hookAppP_rs (k := ⟨rmConcat, [Srt.rangeMap, Srt.rangeMap], Srt.rangeMap⟩) hm.namesK
-      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hra hv hw h1 h2) hk
+      (fun hv hw h1 h2 => elemOf_inj hd hI hg htr hv hw h1 h2) hk
       (vs := [.map Srt.rangeMap [(a, b)], .map Srt.rangeMap (p2 :: es)])
       (rmS_sortsOf_cons.mpr ⟨hs1, rmS_sortsOf_cons.mpr ⟨hs2, sortsOf_nil⟩⟩)
       (.cons ((elemOf_det_rs hs1 hs).mpr rfl) (.cons ((elemOf_det_rs hs2 hs).mpr rfl) .nil)) e
@@ -999,7 +992,7 @@ theorem den_rm_rs (hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap))
     exact (resOf_val_rs (rmM_concat hr) x).trans (elemOf_det_rs hs3 hs)
 
 /-- **Every value denotes, in the extension, exactly its element**, at the decided form of
-`Detached`, for a definition without an open generator or where `_==K_` is none of the names: a value of a sort without a detached name
+`Detached`: a value of a sort without a detached name
 by its pattern, a literal of a detached sort by its text, and a value of a detached sort that is
 no literal is a range map (`detVal_shape_rs`), whose entries denote their elements. -/
 theorem den_val_rs : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s → ∀ (e : Valuation (Ext M)) (x : Ext M),
@@ -1011,7 +1004,7 @@ theorem den_val_rs : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s → ∀
       · exact ext_den_dvDet hm hv hs e x
       · have _hsz : sizeOf es < sizeOf v := by rw [hvm]; simp only [GroundTerm.map.sizeOf_spec]; omega
         subst hvm
-        refine den_rm_rs hd hI hm hg htr hra hco hs es hr (fun ⟨a, b⟩ hp => ⟨(hes _ hp).1, (hes _ hp).2, ?_, ?_⟩) e x
+        refine den_rm_rs hd hI hm hg htr hco hs es hr (fun ⟨a, b⟩ hp => ⟨(hes _ hp).1, (hes _ hp).2, ?_, ?_⟩) e x
         · have _hlt := List.sizeOf_lt_of_mem hp
           have _hab : sizeOf (a, b) = 1 + sizeOf a + sizeOf b := rfl
           exact fun e' x' => den_val_rs a (hes _ hp).1 e' x'
@@ -1022,18 +1015,17 @@ theorem den_val_rs : ∀ (v : GroundTerm) {s : Srt}, c.sortOf v = some s → ∀
   termination_by v => v
   decreasing_by all_goals (simp_wf; omega)
 
-/-- **`ValElems` at the decided form of `Detached`**, for a definition without an open generator
-or where `_==K_` is none of the names. -/
+/-- **`ValElems` at the decided form of `Detached`**. -/
 theorem valElems_decided : ValElems c (DetachedB.names c ss ks) I :=
-  valElems_of_decided hd hI hm hg htr hra fun {v _} hv hs _ e x =>
-    (den_val_rs hd hI hm hg htr hra v hv e x).trans (elemOf_det_rs hv hs)
+  valElems_of_decided hd hI hm hg htr fun {v _} hv hs _ e x =>
+    (den_val_rs hd hI hm hg htr v hv e x).trans (elemOf_det_rs hv hs)
 
 /-- **RangeMap's no-junk item holds in the extension** where RangeMap is detached: an inhabitant
 of the sort is the added element of a range map value, which is built from `.RangeMap` by
 `_RangeMap_` of a one-entry map `r|-> v`, entry by entry. -/
 theorem noJunk_rm_rs (hs : DSort c (DetachedB.names c ss ks) Srt.rangeMap) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵ collNoJunk c (builtinColl .rangeMap) := by
-  have hV := valElems_decided hd hI hm hg htr hra
+  have hV := valElems_decided hd hI hm hg htr
   have hn := hm.namesK
   have hco : c.collOf Srt.rangeMap = some (builtinColl .rangeMap) := hm.collOf_self rmM_mem
   have hkU := dhook_of_result_rs hd rmSigs_mem_rs.1 hs
@@ -1126,16 +1118,15 @@ theorem noJunk_decided_rs : ∀ k ∈ builtinColls, k.sort < nRegSorts →
   · simp [collAxioms, mapCollAxioms] at hax
   · simp [collAxioms, setCollAxioms] at hax
   · simp [collAxioms, listCollAxioms] at hax
-  · exact noJunk_rm_rs hd hI hm hg htr hra hs
+  · exact noJunk_rm_rs hd hI hm hg htr hs
 
-/-- **The extension satisfies the registry family** at the decided form of `Detached`, for a
-definition without an open generator or where `_==K_` is none of the names: every value denotes exactly its element (`den_val_rs`) and
+/-- **The extension satisfies the registry family** at the decided form of `Detached`: every value denotes exactly its element (`den_val_rs`) and
 RangeMap's no-junk item holds where it is detached (`noJunk_decided_rs`). -/
 theorem sat_registry {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ :=
-  sat_registry_decided hd hI hm hg htr hra
-    (fun {v _} hv hs _ e x => (den_val_rs hd hI hm hg htr hra v hv e x).trans (elemOf_det_rs hv hs))
-    (noJunk_decided_rs hd hI hm hg htr hra) h
+  sat_registry_decided hd hI hm hg htr
+    (fun {v _} hv hs _ e x => (den_val_rs hd hI hm hg htr v hv e x).trans (elemOf_det_rs hv hs))
+    (noJunk_decided_rs hd hI hm hg htr) h
 
 end
 

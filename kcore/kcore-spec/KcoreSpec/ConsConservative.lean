@@ -1,8 +1,7 @@
 /-
   Removing the registry family at detached names changes nothing a model of the smaller theory
   holds of its own symbols (`registry_conservative`), and no step at values (`exact_own`), at the
-  decided form of `Detached` (`detachedB`, DetachedB.lean) and for a definition without a raw
-  parameter symbol or names that do not hold `_==K_`.
+  decided form of `Detached` (`detachedB`, DetachedB.lean).
 
   The model is the extension of a model of `Γown` (`extModel`, ConsExtModel.lean), with `Sum.inl`
   as the embedding (`ext_embeds`). A premise that names nothing detached holds in it because it
@@ -140,11 +139,11 @@ theorem Cons.clauseFacts_cv {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c)
 open Cons in
 /-- **The extension of a model of the theory without the detached names is a model of the whole
 theory**, at the decided form of `Detached`, for a definition `coreOK` accepts whose functions meet
-`FnHyp` and that has no raw parameter symbol, or names that do not hold `_==K_`. The three facts
+`FnHyp`. The three facts
 of the clauses the functions' equations are transferred by are hypotheses (`clauseFacts_cv` gives
 them). -/
 theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
+    (hd : detachedB c ss ks = true)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
     (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [])
@@ -199,24 +198,22 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
     · exact hfr (.inr (.inr (.inl hφ)))
   · have hname : ∃ σ ∈ psyms φ, DetachedB.names c ss ks σ :=
       Classical.byContradiction fun hno' => hcl fun σ hσ hn => hno' ⟨σ, hσ, hn⟩
-    exact sat_registry hd hI hm hg hm.trans hra (hdet.2.2 φ hφ hname)
+    exact sat_registry hd hI hm hg hm.trans (hdet.2.2 φ hφ hname)
 
 open Cons in
 /-- **The registry family at detached names is conservative**, at the decided form of `Detached`:
 a model of the theory without the premises that name a sort of `ss` or a hook of `ks` embeds into
 a model of the whole theory, its extension, in which a symbol outside those names and application
 hold of old elements what they held. For a definition `coreOK` accepts whose functions meet
-`FnHyp`, and that has no raw parameter symbol or whose detached names do not hold `_==K_`: two
-values of an open generator's sort are told apart by no constructor item, and by the graph of
-`_==K_` where the theory without the detached names keeps it. -/
+`FnHyp`. -/
 theorem registry_conservative (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
-    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
+    (hf : FnHyp c) (hd : detachedB c ss ks = true) :
     RegistryConservative c (DetachedB.names c ss ks) := by
   intro M _ I hI
   have hemb := ext_embeds c (DetachedB.names c ss ks) I
   have hc := clauseFacts_cv h hf
   exact ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I, Sum.inl, hemb.1,
-    ext_model_cv h hf hd hra hc.1 hc.2.1 hc.2.2 hI, hemb.2.1, hemb.2.2⟩
+    ext_model_cv h hf hd hc.1 hc.2.1 hc.2.2 hI, hemb.2.1, hemb.2.2⟩
 
 open Cons in
 /-- **No step at values rests on the registry family at detached names**, at the decided form of
@@ -226,7 +223,7 @@ values that some model of the theory without the detached names has. Right to le
 detached (the sort of configurations is not detached, `top_ok_cv`), so the sentence that there is
 no step, if the extension satisfied it, would hold in the model (`transfer_back`). -/
 theorem exact_own (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
-    (hf : FnHyp c) (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
+    (hf : FnHyp c) (hd : detachedB c ss ks = true) :
     ExactOwn c (DetachedB.names c ss ks) := by
   intro x y
   refine ⟨exact_own_mp c _ h hf, ?_⟩
@@ -245,7 +242,7 @@ theorem exact_own (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK 
       (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val)) :=
     .impEO (hden x) (OwnSorted.toOld (.neg_ex (.appE (.sym trivial hnext) (hden y).toOld)))
   refine (exact_hyp c h hf x y).mpr ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I,
-    ext_model_cv h hf hd hra hc.1 hc.2.1 hc.2.2 hI, fun hall => hn ?_⟩
+    ext_model_cv h hf hd hc.1 hc.2.1 hc.2.2 hI, fun hall => hn ?_⟩
   exact transfer_back (gs := []) hD (defOK_own_sg hD hI) nil_sub hb hall
 
 open Classical in
@@ -274,8 +271,8 @@ theorem Detached.eq_names_cv {c : Semantics} {D : KoreAML.Sym → Prop} (hd : De
 names are `D`. With `Detached.eq_names_cv`, what separates this from the statements at every
 detached `D` is whether the decided check holds of such lists whenever `D` is detached. -/
 theorem registry_conservative_names_cv (c : Semantics) (D : KoreAML.Sym → Prop) (ss : List Srt) (ks : List Sym)
-    (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) : RegistryConservative c D ∧ ExactOwn c D :=
-  hD ▸ ⟨registry_conservative c ss ks h hf hd hra, exact_own c ss ks h hf hd hra⟩
+    (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true) :
+    RegistryConservative c D ∧ ExactOwn c D :=
+  hD ▸ ⟨registry_conservative c ss ks h hf hd, exact_own c ss ks h hf hd⟩
 
 end KCore

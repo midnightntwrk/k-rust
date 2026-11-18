@@ -9,24 +9,24 @@ import KcoreSpec.ConsConservative
 open KCore KCore.Cons ML Faithful
 
 example (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
+    (hd : detachedB c ss ks = true) :
     RegistryConservative c (DetachedB.names c ss ks) :=
-  registry_conservative c ss ks h hf hd hra
+  registry_conservative c ss ks h hf hd
 
 example (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) :
+    (hd : detachedB c ss ks = true) :
     ExactOwn c (DetachedB.names c ss ks) :=
-  exact_own c ss ks h hf hd hra
+  exact_own c ss ks h hf hd
 
 /-- The extension itself is the model. -/
 example {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true)
+    (hd : detachedB c ss ks = true)
     (hpre : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top)
     (hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length)
     (hexs : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) {M : Type} [Inhabited M]
     {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks)) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵP (Γc c ∪ Γstep c) :=
-  ext_model_cv h hf hd hra hpre hvars hexs hI
+  ext_model_cv h hf hd hpre hvars hexs hI
 
 /-- The three facts of the clauses that `ext_model_cv` takes, from `coreOK` and `FnHyp`. -/
 example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
@@ -36,13 +36,12 @@ example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
   clauseFacts_cv h hf
 
 /-- Detaching nothing: the decided check holds of the empty lists where the theory's lists pass
-it, and the statement is then `exact_hyp`'s. `_==K_` is none of no names, so nothing is asked of
-the parameters. -/
+it, and the statement is then `exact_hyp`'s. -/
 example (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (hd : detachedB c [] [] = true)
     (x y : Config c) :
     Step c x y ↔ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
       (I ⊧ᴵP Γown c (DetachedB.names c [] [])) ∧ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  exact_own c [] [] h hf hd (.inr rfl) x y
+  exact_own c [] [] h hf hd x y
 
 /-- A detached set of names is the names of two lists, and the two statements hold at it where
 the decided check holds of such lists. -/
@@ -52,15 +51,9 @@ example {c : Semantics} {D : KoreAML.Sym → Prop} (hd : Detached c D) :
   hd.eq_names_cv
 
 example (c : Semantics) (D : KoreAML.Sym → Prop) (ss : List Srt) (ks : List Sym)
-    (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) : RegistryConservative c D ∧ ExactOwn c D :=
-  registry_conservative_names_cv c D ss ks h hf hD hd hra
-
-/-- With an open generator, where `_==K_` is not detached. -/
-example (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true) (hf : FnHyp c)
-    (hd : detachedB c ss ks = true) (hk : DetachedB.kOK c ss ks kEq = true) :
-    RegistryConservative c (DetachedB.names c ss ks) ∧ ExactOwn c (DetachedB.names c ss ks) :=
-  ⟨registry_conservative c ss ks h hf hd (.inr hk), exact_own c ss ks h hf hd (.inr hk)⟩
+    (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true) :
+    RegistryConservative c D ∧ ExactOwn c D :=
+  registry_conservative_names_cv c D ss ks h hf hD hd
 
 /-- info: 'KCore.registry_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms registry_conservative

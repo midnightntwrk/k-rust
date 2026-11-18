@@ -39,18 +39,18 @@ example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks 
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks))
     (hm : Model.HypModelCore c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
+    {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ :=
-  sat_registry hd hI hm hg htr hra h
+  sat_registry hd hI hm hg htr h
 
 example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks = true)
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks))
     (hm : Model.HypModelCore c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hra : (∀ p ∈ c.params, p.raw = false) ∨ DetachedB.kOK c ss ks kEq = true) {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
     (e : Valuation (Ext M)) (x : Ext M) :
     (den c v).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔ ElemOf c (DetachedB.names c ss ks) I v x :=
-  den_val_rs hd hI hm hg htr hra v hv e x
+  den_val_rs hd hI hm hg htr v hv e x
 
 example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks = true)
     {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
