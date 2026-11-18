@@ -1,0 +1,11 @@
+command: kompile --backend haskell e1-param-two-sort.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 208553
+definition.kore sha256: 27cb390cd18ff5c5b3b261c66aed0b74f72a7b0e9b34a5eefae160cacb5deaca
+stripped sha256: 08b2025ace7530da97a4e3af2d1283090b72d6a1e1bbb3ff2846fb380b84bf3c
+main module: 408 sentences, 52 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-PARAM-TWO-SORT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E1-PARAM-TWO-SORT as default.

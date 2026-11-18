@@ -59,6 +59,7 @@ differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
+differs f2-examples/e1-param-two-sort.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
 differs f2-examples/e1-starinit.kompile.kore
@@ -110,6 +111,7 @@ differs f2-examples/e6-param-int.kompile.kore
 differs f2-examples/e6-param-io.kompile.kore
 differs f2-examples/e6-param-json.kompile.kore
 differs f2-examples/e6-param-kreflection.kompile.kore
+differs f2-examples/e6-param-kvar.kompile.kore
 differs f2-examples/e6-param-map.kompile.kore
 differs f2-examples/e6-param-rangemap.kompile.kore
 differs f2-examples/e6-param-set.kompile.kore
