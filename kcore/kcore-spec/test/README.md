@@ -1032,6 +1032,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   from the two witnesses and `sound_fn` (`Cool.owed`, `Cool.sound`, `Cool.fnHyp`); at
   e2-open-genless `Consistent` by `consistent_of_fnFacts`, the rule 0 not `Witnessed`, and `Owed`
   exactly where the theory refutes its condition (`Genless.owed_iff_refuted`).
+- `test/OwedGenlessFalse.lean`: at e2-open-genless, the rule 0's owed `CondDecided` is false
+  (`Genless.owed_false`, `Genless.not_owed`): not `Witnessed`, and not `Refuted` in the model of
+  `KCore.EmptyInh` in which Empty holds an element e, where `isMk(mk(e))` is true. Over all H the
+  theory with the step's closure entails neither that `<k> b() </k>` is a successor of
+  `<k> a() </k>` nor that it is not (`Genless.succ_undetermined`: soundness at `EmptyInh.plus` and
+  the value model of c).
 - `test/NonExecOwiseTie.lean`, `test/nonexec-owise-gen.sh`: the tie on the two texts of a
   `non-executable` equation beside an `[owise]` one, their own kompiled texts
   (`f2-examples/owisenx.kompile.kore`, `owisenxagree.kompile.kore`), for every H. e5-owise-nonexec:
