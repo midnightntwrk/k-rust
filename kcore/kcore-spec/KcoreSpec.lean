@@ -190,6 +190,7 @@ import KcoreSpec.OpenClauseEval
 import KcoreSpec.ModelFnsCl
 import KcoreSpec.OpenClauseCore
 import KcoreSpec.OpenClauseDen
+import KcoreSpec.Exhibit
 import KcoreSpec.RightHeld
 import KcoreSpec.RightHeldHooks
 import KcoreSpec.RightHeldExtend

@@ -4578,84 +4578,11 @@ def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Refus
 /-! ### Exhibited values
 
 A rule read without a variable of the axiom it comes from (`splitRule`, `unheldBinders`) needs an
-element of the variable's sort. The reader exhibits a value: a ground term built from literals,
-empty collections, constructors and injections, checked to apply no open generator
-(`rawFree_of_exhibit`), of which the built semantics gives the sort (`sortOf_of_exhibit`). Its sort
-then reads no interpretation of the parameters, and `Γ` entails an element of the sort in every
-model at every interpretation (`Faithful.inhabited_of_exhibit_withHooks`). At a sort whose only
-values apply an open generator no value is exhibited: at an interpretation that answers the
-generator outside the sort, the sort has no value. A sort without one found is refused (`unheldVariable`): the
-search may miss a value, and a refusal states nothing. -/
-
-/-- The value of each sort first in `l`. -/
-def firstPerSort (l : List (Srt × GroundTerm)) : List (Srt × GroundTerm) :=
-  l.foldl (fun acc (s, v) => if acc.any (·.1 == s) then acc else acc ++ [(s, v)]) []
-
-/-- Literals (`0`, `false`, the empty token) of Int, Bool, String, KConfigVar, Bytes and the
-library's token, byte and carrier sorts, and the empty collections of the collection sorts, each
-with the sort the semantics gives it. -/
-def exhibitSeeds (c : Semantics) : List (Srt × GroundTerm) :=
-  let litSorts := [Srt.int, Srt.bool, Srt.string, Srt.kconfigVar, Srt.bytes] ++ c.lib.tokenSorts ++
-    c.lib.byteSorts ++ c.lib.carriers.map (·.1)
-  let lits := litSorts.flatMap fun s =>
-    [(s, GroundTerm.dv s (.int 0)), (s, .dv s (.bool false)), (s, .dv s (.tok ""))]
-  let colls := c.colls.flatMap fun k =>
-    [(k.sort, GroundTerm.map k.sort []), (k.sort, .set k.sort []), (k.sort, .list k.sort [])]
-  firstPerSort ((lits ++ colls).filter fun (s, v) => c.sortOf v == some s)
-
-/-- One round: a constructor applied to the values `acc` holds of its argument sorts, and an
-injection of a value `acc` holds, at each sort `acc` has no value of. -/
-def exhibitRound (c : Semantics) (acc : List (Srt × GroundTerm)) : List (Srt × GroundTerm) :=
-  let has := fun (s : Srt) => acc.any (·.1 == s)
-  let ctors := c.ctorSigs.filterMap fun k => if has k.result then none else do
-    let args ← k.args.mapM fun a => acc.lookup a
-    let v := GroundTerm.ctor k.name args
-    if c.sortOf v == some k.result then some (k.result, v) else none
-  let injs := c.subsorts.filterMap fun (a, b) => if has b then none else do
-    let w ← acc.lookup a
-    let v := match w with
-      | .inj a' _ w' => GroundTerm.inj a' b w'
-      | _ => GroundTerm.inj a b w
-    if c.sortOf v == some b then some (b, v) else none
-  firstPerSort (ctors ++ injs)
-
-/-- `n` rounds from `acc`, or fewer where a round adds nothing. -/
-def exhibitN (c : Semantics) : Nat → List (Srt × GroundTerm) → List (Srt × GroundTerm)
-  | 0, acc => acc
-  | n + 1, acc => match exhibitRound c acc with
-    | [] => acc
-    | new => exhibitN c n (acc ++ new)
-
-/-- A value of the sort `s` the reader exhibits (`exhibitSeeds`, then rounds of `exhibitRound`,
-each adding a sort, as many as there are constructors and subsort pairs), checked: one the
-semantics gives the sort `s` and that applies no open generator (`Semantics.rawFree`), so that it
-is a value of `s` at every interpretation of the parameters (`Faithful.sortOf_withHooks_of_exhibit`). -/
-def exhibit? (c : Semantics) (s : Srt) : Option GroundTerm :=
-  ((exhibitN c (c.ctorSigs.length + c.subsorts.length) (exhibitSeeds c)).lookup s).filter
-    fun v => c.sortOf v == some s && c.rawFree v
-
-theorem exhibit_parts {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.sortOf v = some s ∧ c.rawFree v = true := by
-  unfold exhibit? at h
-  generalize List.lookup s _ = o at h
-  cases o with
-  | none => simp at h
-  | some w =>
-    simp only [Option.filter] at h
-    split at h
-    · rename_i hw; cases h
-      rw [Bool.and_eq_true] at hw
-      exact ⟨beq_iff_eq.mp hw.1, hw.2⟩
-    · cases h
-
-theorem sortOf_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.sortOf v = some s :=
-  (exhibit_parts h).1
-
-/-- An exhibited value applies no open generator. -/
-theorem rawFree_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.rawFree v = true :=
-  (exhibit_parts h).2
+element of the variable's sort. The reader asks the search of Exhibit.lean for a value (`exhibit?`):
+one applying no open generator, of which the built semantics gives the sort at every interpretation
+of the parameters, where `Γ` entails an element of the sort in every model
+(`Faithful.inhabited_of_exhibit_withHooks`). A sort without one found is refused
+(`unheldVariable`): the search may miss a value, and a refusal states nothing. -/
 
 /-- Why a rule read from a rewrite axiom without some of its variables (`unheldBinders` of its left
 side, `splitRule`) is not read: a variable whose sort has no value the reader exhibits

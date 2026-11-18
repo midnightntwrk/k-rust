@@ -11,7 +11,9 @@
   `cV` holds `fU`, `fI` and `q(B:Bool) = h(Y:U) requires B` (`fQ`, `clQ`) only, `cX` the function
   `p(X:Int) = X` (`clX`), whose pattern binds its variable.
 
-  `Semantics.valued` and `valued_value` at U, T, Int and Bool, not at Empty; `rightHeld_of_valued`
+  `Semantics.valued` and `valued_value` at U, T, Int and Bool, not at Empty; at KItem, String and,
+  in `cW` (`c` with the sort W and the constructor `w : Int → W`), at W, a sort whose constructors
+  all take arguments, by the values the search exhibits (`Parse.exhibit?`); `rightHeld_of_valued`
   at `cV` (each right-only variable of a sort `valued` accepts) and `rightValued` false at `c`
   (Empty); `rightHeld_of_binds` at `cX`; `RightHeld` and `rightValued` under `withHooks`;
   `extendHeld` at `clI` and `Clause.appliesAt_extendRH` at `clU`, in `cV`; `clQ` fails at `[false]`
@@ -102,6 +104,27 @@ example : (∃ v, c.sortOf v = some U) ∧ (∃ v, c.sortOf v = some T) ∧ (∃
     (∃ v, c.sortOf v = some Srt.bool) :=
   ⟨Semantics.valued_value valued_sorts.1, Semantics.valued_value valued_sorts.2.1,
    Semantics.valued_value valued_sorts.2.2.1, Semantics.valued_value valued_sorts.2.2.2.1⟩
+
+/-- `c` with the sort W, whose one constructor `w : Int → W` takes an argument. -/
+def W : Srt := nRegSorts + 3
+def wL : Sym := nRegSyms + 11
+def cW : Semantics :=
+  { c with sortNames := c.sortNames ++ ["W"], symNames := c.symNames ++ ["Lblw"],
+           userSorts := c.userSorts ++ [W], ctors := c.ctors ++ [⟨wL, [Srt.int], W⟩] }
+
+/-- **The search widens `valued`**: KItem, String and W are `valued`, by the values the search
+exhibits (`0` injected into KItem, the empty String, `w(0)`), which are neither Int, Bool nor a
+constructor without arguments; Empty is still not `valued`. -/
+theorem valued_exhibit : c.valued Srt.kitem = true ∧ c.valued Srt.string = true ∧ cW.valued W = true ∧
+    cW.valued E = false ∧
+    Parse.exhibit? c Srt.kitem = some (.inj Srt.int Srt.kitem (.dv Srt.int (.int 0))) ∧
+    Parse.exhibit? c Srt.string = some (.dv Srt.string (.tok "")) ∧
+    Parse.exhibit? cW W = some (.ctor wL [.dv Srt.int (.int 0)]) := by decide +kernel
+
+/-- `valued_value` at each: a value of KItem, of String, of W. -/
+example : (∃ v, c.sortOf v = some Srt.kitem) ∧ (∃ v, c.sortOf v = some Srt.string) ∧ (∃ v, cW.sortOf v = some W) :=
+  ⟨Semantics.valued_value valued_exhibit.1, Semantics.valued_value valued_exhibit.2.1,
+   Semantics.valued_value valued_exhibit.2.2.1⟩
 
 /-- The value `valued_value` exhibits at U is `u`. -/
 example : c.sortOf (.ctor uL []) = some U := by decide +kernel
