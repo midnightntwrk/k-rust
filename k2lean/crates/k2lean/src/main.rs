@@ -24,6 +24,8 @@ mod index;
 mod init;
 mod invariants;
 mod ir;
+#[allow(dead_code)] // read by the tests until `kcore-claims` uses it
+mod kcore_terms;
 mod lower;
 mod measure;
 mod model;
