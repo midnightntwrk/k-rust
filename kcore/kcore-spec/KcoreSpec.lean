@@ -342,3 +342,4 @@ import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.KKEnc
+import KcoreSpec.KKEncDef
