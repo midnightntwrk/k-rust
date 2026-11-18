@@ -135,8 +135,8 @@ theorem eqn1_fails {c' : Semantics} (h : c'.coreOK = true) (hok : c'.ok = true) 
         cases hw
         rw [heX']
         exact (hva m).symm
-    have hDL := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag E.lhs htl).1 mL
-    have hDR := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag E.rhs htr).1 mL
+    have hDL := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) E.lhs htl).1 mL
+    have hDR := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) E.rhs htr).1 mL
     rw [hL] at hDL
     rw [hR] at hDR
     have hRHS := (hEQ.2 mL hinhL).mp (hDL.mpr ((hLa _).mpr rfl))
