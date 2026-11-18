@@ -1071,7 +1071,24 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`f2-examples/freshcfg.kompile.kore`): `initIdCell(Init, #Configuration) = <id>(0)` and
   `initGeneratedTopCell` at two arguments, and the instance of a `functional` axiom of `initIdCell`
   (which the text does not hold; `initFunctionalOK` takes one) at all values of a sort
-  (`GenEqs.init_arm_functional`).
+  (`GenEqs.init_arm_functional`). That axiom and the `functional` symbols `[initIdCell]` it is taken
+  at are supplied by hand: no kompiled text here or in kfix's cache declares an initializer of
+  positive arity `functional` or `total` (the texts' `functional` initializers are the constants).
+  The equations are the user module's axioms read with empty `Names` and source, not the account's
+  scan and names; `test/GenEqsInitNested.lean` instances the arm through those.
+- `test/GenEqsInitNested.lean`: the nested cell tree of `f2-examples/cellsplain.kompile.kore`
+  (`<t> <k> $PGM:Exp </k> <one> 0 </one> <ec> 0 </ec> </t>`) through `GenEqs.init_arm_at` and
+  `GenEqs.init_arm_functional`, read as the account reads the text: the user module's scan
+  `S = scan m.sentences` and names `E` (`envOf m S = .ok E`), computed by `parse_stages` and checked
+  by the kernel (`scan_eq` in eight `ScanIs` blocks, `env_eq`); the arm at `E.N`, `E.src`, `S.eqs`
+  and the text's `functional` symbols `functionalSyms S.events`. No right side or `G` is written by
+  hand. One model of the theory whose steps are the semantics' (`GenEqs.model_of_arm`) holds the
+  constants' equations and the text's `functional` axioms of `initOneCell` and `initEcCell`, the
+  equations of `initKCell`, `initTCell` and `initGeneratedTopCell` at `$PGM ↦ a()` (the initial
+  configuration their value, the getter at it) and at the empty map (no value,
+  `initGeneratedTopCell(.Map) = ⊥`). Against `GenEqsInits.Cells.eqns`, whose right sides are written
+  by hand: each equation is the text's (`TextEqn`: its right side translated, and `G`'s value), and
+  the getter is stated at the initial configuration's value rather than at `initGeneratedTopCell(w1)`.
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
