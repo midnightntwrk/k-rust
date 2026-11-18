@@ -380,3 +380,8 @@ import KcoreSpec.ClauseExDenCEx
 import KcoreSpec.StepExTermSSx
 import KcoreSpec.StepExRuleSSx
 import KcoreSpec.StepSuccessorExCEx
+import KcoreSpec.TermSoundCEx
+import KcoreSpec.FamExCEx
+import KcoreSpec.CompleteCEx
+import KcoreSpec.SoundCEx
+import KcoreSpec.SoundCE
