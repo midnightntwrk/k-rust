@@ -98,9 +98,9 @@ theorem hdet (t : Term) (h : flat.plainTerm t = true) : HDet flat σ5 t :=
   fun _ hu => plain_fun (plain_subterms h hu)
 
 theorem appA : clA.AppliesAt flat σ5 [v5] :=
-  ⟨ws5 clA rfl, pv5 clA rfl, (fun t ht => by cases ht; exact gt5), .top⟩
-theorem appT : clT.AppliesAt flat σ5 [v5] := ⟨ws5 clT rfl, pv5 clT rfl, (fun _ ht => by cases ht), .top⟩
-theorem appB : clB.AppliesAt flat σ5 [v5] := ⟨ws5 clB rfl, pv5 clB rfl, (fun _ ht => by cases ht), .top⟩
+  ⟨(ws5 clA rfl).at _, pv5 clA rfl, (fun t ht => by cases ht; exact gt5), .top⟩
+theorem appT : clT.AppliesAt flat σ5 [v5] := ⟨(ws5 clT rfl).at _, pv5 clT rfl, (fun _ ht => by cases ht), .top⟩
+theorem appB : clB.AppliesAt flat σ5 [v5] := ⟨(ws5 clB rfl).at _, pv5 clB rfl, (fun _ ht => by cases ht), .top⟩
 
 /-- **Without the attribute, `ClausesAgree` of c3-eq-req-prio-comp's function is false**: at 5 both
 clauses decide, `f(X) = X requires X >Int 0` with 5 and `f(_) = 0` with 0. -/

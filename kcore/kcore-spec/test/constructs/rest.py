@@ -48,13 +48,18 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       derived      a `derived` table of form (a) (the in-domain value; FIX-core.rows-evidence names
                    the hook's three statements there)
   supported E6 (other keys)
-      tie, theorems (the theorem that ties the row's sentence on a tied text)
+      tie, theorems (the theorem that ties the row's sentence on a tied text); or the row's
+                   `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
+                   theorem declared in FILE, a tie file as above; on a module row "every ... row
+                   of MODULE (n) is tied"; an item "uncovered: ..." or "refuted: ..." (Γ refutes the
+                   sentence or entails it only partly) is missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
   inert
-      class        `inert_class` or a `reasons` item InertReason.X: a constructor of InertReason;
+      class        `inert_class` or a `reasons` item InertReason.X: a constructor of InertReason
+                   (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
                    where the entry has a fixture, its account prints `N inert X` with N above 0
-      tie, theorems (C14's statement for the class: Γ c ⊧ tr s)
+      tie, theorems (C14's statement for the class: Γ c ⊧ tr s); for an E6 row, its e6_tie as above
   inert of class use (`inert_class = "use"`)
       reason       a reason sentence (`reason`): C1's class use
   erased
@@ -215,14 +220,17 @@ class Fixtures:
         return self._acc[name]
 
     def fresh_equal(self, name):
-        """True / False: the account against a fresh one; None: not run (no --fresh, or the
-        kompiled text is not in kfix.py's cache)."""
+        """True / False: the account against a fresh one; otherwise why it was not compared: "not
+        run" (no --fresh) or "not in the cache" (kfix.py's cache lacks the kompiled text)."""
         if not self.fresh:
-            return None
+            return "not run"
         if name not in self._fresh:
-            import kfix
-            got = kfix.account_of(name, kfix.conf(name))
-            self._fresh[name] = None if got is None else got == self.read(name, "account.txt")
+            try:
+                import kfix
+                got = kfix.account_of(name, kfix.conf(name))
+                self._fresh[name] = "not in the cache" if got is None else got == self.read(name, "account.txt")
+            except (Exception, SystemExit) as err:  # no K installation, no kcore binary, ...
+                self._fresh[name] = f"not compared: {str(err)[:80]}"
         return self._fresh[name]
 
 
@@ -247,10 +255,19 @@ def constructors():
 # ----------------------------------------------------------------------------- Lean declarations
 
 def integration_skips():
-    """The test/X.lean files test/integration.sh does not build (its `case ... continue` list)."""
+    """The test/X.lean files test/integration.sh does not build: those of its `case ... continue`
+    list that neither it (outside that list) nor a test/*.sh script it runs names as test/X.lean
+    (Pins, Axioms, ... have rows of their own; TieKimpAtValues and its siblings are built by
+    test/imp-tie-atvalues.sh)."""
     src = open(os.path.join(K, "test/integration.sh")).read()
     m = re.search(r"case \$\(basename \"\$f\" \.lean\) in\n\s*([^)]*)\) continue;;", src)
-    return set(m[1].split("|")) if m else set()
+    skip = set(m[1].split("|")) if m else set()
+    built = set(re.findall(r"\btest/(\w+)\.lean\b", src.replace(m[0], "") if m else src))
+    for sh in sorted(set(re.findall(r"\btest/([\w-]+\.sh)\b", src))):
+        p = os.path.join(K, "test", sh)
+        if os.path.isfile(p) and sh != "integration.sh":
+            built |= set(re.findall(r"\btest/(\w+)\.lean\b", open(p).read()))
+    return skip - built
 
 
 SKIPS = None
@@ -334,12 +351,14 @@ def evidence(fx, l, key, e, row):
         elif clean_needed:
             item(a[2], "account refuses nothing", f"account refuses nothing ({x}'s refuses "
                  + (", ".join(sorted(a[1])) or "something: parse, stage or account line") + ")")
-        fr = fx.fresh_equal(x) if a is not None else None
         if a is not None:
-            item(fr is True, "fresh account", "fresh account (" + ("not run" if fr is None else "differs") + ")")
+            fr = fx.fresh_equal(x)
+            item(fr is True, "fresh account", "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         return x
 
     def ties():
+        if l == "E6" and e.get("e6_tie") is not None:
+            return e6_ties()
         ts = e.get("tie")
         ts = ts if isinstance(ts, list) else [ts] if ts else []
         if not ts:
@@ -357,6 +376,31 @@ def evidence(fx, l, key, e, row):
             bad = [n for n, fs in thms if not declared(n, fs)]
             item(not bad, f"theorems ({len(thms)})", f"theorems ({', '.join(bad[:2])} not declared)")
         return ok
+
+    def e6_ties():
+        """An E6 library row's `e6_tie` (test/constructs/e6map.py): "THEOREM (FILE; TEXT axiom N)" items,
+        "every ... row of MODULE (n) is tied" on a module row, or "uncovered: ..."."""
+        v = e.get("e6_tie")
+        v = v if isinstance(v, list) else [v]
+        unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
+        if unc or not v:
+            miss.append("theorems (e6_tie: " + (unc[0][:80] if unc else "empty") + ")"); return False
+        ref = [x for x in v if isinstance(x, str) and x.startswith("refuted")]
+        if ref:
+            miss.append("theorems (e6_tie: " + ref[0].split(";")[0] + ": Γ refutes the sentence or entails it"
+                        " only partly, no tie; a finding for DONE-0 2.6)"); return False
+        if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied$", x) for x in v):
+            have.append("tie: every row of the module tied (e6_tie)"); return True
+        thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
+        if not all(thms):
+            miss.append(f"theorems (e6_tie item of no known form: {next(x for x, m in zip(v, thms) if not m)!r:.80})")
+            return False
+        files = sorted({m[2] for m in thms})
+        why = [w for w in map(tie_file_ok, files) if w]
+        item(not why, "tie " + ", ".join(files) + " (e6_tie)", "tie (e6_tie: " + "; ".join(why) + ")")
+        bad = [m[1] for m in thms if not declared(m[1], [m[2]])]
+        item(not bad, f"theorems ({len(thms)}, e6_tie)", f"theorems (e6_tie: {', '.join(bad[:2])} not declared)")
+        return not why
 
     def derived(forms):
         ds = [d for d in (e.get("derived") or []) if isinstance(d, dict)]
@@ -391,6 +435,8 @@ def evidence(fx, l, key, e, row):
         cls = [c for c in [e.get("inert_class")] + [x.split(".", 1)[1] for x in (e.get("reasons") or [])
                if isinstance(x, str) and x.startswith("InertReason.")] if isinstance(c, str)]
         cls = [c for c in cls if c in fx.ctors["InertReason"]]
+        if not cls and l == "E6" and key.startswith("lemma:"):
+            cls = ["simplification"]        # E6's key: the sentence is a [simplification] axiom
         if not cls:
             miss.append("class (InertReason)")
         else:
@@ -434,7 +480,7 @@ def evidence(fx, l, key, e, row):
                 if hit:
                     fr = fx.fresh_equal(hit[0])
                     item(fr is True, "fresh account",
-                         "fresh account (" + ("not run" if fr is None else "differs") + ")")
+                         "fresh account (" + ("differs" if fr is False else str(fr)) + ")")
         reason_sentence(["reason", "reader_reason", "refused_by"])
     elif f == "independent":
         ds = e.get("declarations")
@@ -586,7 +632,7 @@ def self_test():
             ("E2", "A", {"status": "supported", "fixture": "bad", "tie": [tie], "derived": [thm]}, False),
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} g"], "tie": [tie],
                          "derived": [thm]}, False),
-            ("E2", "A", {"status": "supported", "fixture": "ok", "tie": ["test/Pins.lean"], "derived": [thm]}, False),
+            ("E2", "A", {"status": "supported", "fixture": "ok", "tie": ["test/PrintNames.lean"], "derived": [thm]}, False),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.setVariable"],
                          "reason": "r"}, True),
             ("E2", "A", {"status": "refused", "fixture": "bad", "reasons": ["RefusalReason.ruleShape"],
@@ -607,6 +653,16 @@ def self_test():
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
             ("E6", "hook:X", {"status": "supported"}, False),
             ("E6", "symbol:X", {"status": "supported", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
+            ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, True),
+            ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.nope (test/C3EqReqEns.lean; t axiom 3)"]}, False),
+            ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.X.y (test/PrintNames.lean; t axiom 3)"]}, False),
+            ("E6", "axiom:X", {"status": "supported", "e6_tie": ["uncovered: INT; no tied text holds the sentence"]}, False),
+            ("E6", "lemma:X", {"status": "inert", "e6_tie": ["refuted: M; no theorem entails the sentence"]}, False),
+            ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied"]}, True),
+            ("E6", "lemma:X", {"status": "inert",
+                               "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, True),
+            ("E6", "axiom:X", {"status": "inert",
+                               "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, False),
             ("E2", "A", {"status": "pending-fixture"}, False),
             ("E2", "A", {"status": "not-handled"}, False),
             ("C3", "A x B", {"status": "independent", "declarations": ["a", "b"]}, True),

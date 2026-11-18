@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-open-rec-held.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.3
+definition.kore bytes: 86061
+definition.kore sha256: 87d2f187cf528e7222cc179e253cfc6dabed62ea192a4c9a50e686b31734fa59
+stripped sha256: 0b031c4ab80dc29f9ba2868e36170c76bcb57f7a4db6ace59d1b21f6b3ad64ac
+main module: 249 sentences, 24 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-REC-HELD-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-REC-HELD as default.
