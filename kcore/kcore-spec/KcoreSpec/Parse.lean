@@ -124,11 +124,10 @@ inductive RefusalReason where
   /-- `inj` not applied to two sorts and one argument. -/
   | injShape
   /-- `Lblite` applied to one sort X in a text that declares its own sort-parametric function
-  `Lblite` at one sort, where the instance `Lblite{X}` is not a parameter of the definition: the
-  text states an equation of it, which would make it a function named like `ite` at X
-  (`Faithful.NamesNumbered` excludes one), or X is no sort the definition has, so no instance is
-  declared. The application is that function's instance (the text declares no other
-  `Lblite`), not K's `ite`. The detail is the instance's name. -/
+  `Lblite` at one sort, where the instance `Lblite{X}` is neither a parameter nor a function of
+  the definition: X is no sort the definition has, so no instance is declared. The application is
+  that function's instance (the text declares no other `Lblite`), not K's `ite`. The detail is the
+  instance's name. -/
   | iteShape
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
@@ -5865,11 +5864,12 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let extra := (heads.flatten).eraseDups.filter fun n => (N₀.sym? n).isNone
   -- a text that declares its own sort-parametric function `Lblite` at one sort: each application
   -- of `Lblite` at a sort is that function's instance (the text declares no other `Lblite`), read
-  -- as its own parameter where `instSyms` has it without an equation; one it has with an equation
-  -- would be a function named like `ite` at a sort (`Faithful.NamesNumbered`), and one at a sort
-  -- the definition does not have has no declaration, so either is refused, not read as K's `ite`
+  -- as its own parameter where `instSyms` has it without an equation (`clauseless`) and as a
+  -- function of the definition where it has it with one (`fnNames`, so not in `extra`); one at a
+  -- sort the definition does not have has no declaration and no number, and is refused, not read
+  -- as K's `ite`
   let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
-  match (if ownIte then (heads.flatten).find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+  match (if ownIte then extra.find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
   | some n => fail .iteShape n
   | none => pure ()
   let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n

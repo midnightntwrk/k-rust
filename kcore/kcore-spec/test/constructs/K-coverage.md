@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 85 | 36 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
 | E5 | 62 | 36 | 1 | 2 | 0 | 23 | 0 | 0 |
-| E6 | 32 | 7 | 2 | 0 | 0 | 23 | 0 | 0 |
+| E6 | 32 | 8 | 2 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 35 | 15 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 344 | 130 | 4 | 11 | 1 | 198 | 0 | 0 |
+| all | 344 | 131 | 4 | 11 | 1 | 197 | 0 | 0 |
 
 Refused rows by class:
 
@@ -64,17 +64,17 @@ Refused nested entries by class:
 | E3 | 47 | 14 | 2 | 29 | 2 |
 | E4 | 30 | 14 | 10 | 0 | 6 |
 | E5 | 23 | 10 | 1 | 2 | 10 |
-| E6 | 23 | 4 | 1 | 2 | 16 |
+| E6 | 22 | 4 | 1 | 1 | 16 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 1 | 4 |
-| all | 198 | 54 | 18 | 36 | 90 |
+| all | 197 | 54 | 18 | 35 | 90 |
 
-Supported entries (rows and nested): 961; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 947 have no owed fact.
+Supported entries (rows and nested): 962; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 948 have no owed fact.
 
 E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 183 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 276 uncovered.
 
-## Entries of class R-c (48)
+## Entries of class R-c (47)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -124,7 +124,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.EvalTerm, KCore.Semantics.overloadsOK, KCore.Semantics.ovlOver (OVP.kernel; it also edits KCore.Semantics.fnOvlSyms, which is no cone line) | OVP.kernel |  |
 | E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a variable held by memHeld through the cut where the covering sorts are confined, designs/CN-4b-rc-units.md section 3.3) | CE.flip |  |
 | E6 | `hook:LIST.update:LblList'Coln'set` | cases[1] | refused |  | none (reader only): the cut puts the application in Rule.pre; R-c until the unit lands | RDR.cut-hooked-lhs |  |
-| E6 | `hook:KEQUAL.ite:Lblite` | cases[2] | refused |  | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application | RDR.ite-own-fn-eqn |  |
 | C3 | `hook x equation` | row | refused |  | none (reader only): owed at values, rows-header.toml owed-sentence item 3 | RDR.hook-eq-owed |  |
 | C3 | `hook x equation` | cases[0] | refused |  | none (reader only): owed at values, rows-header.toml owed-sentence item 3 | RDR.hook-eq-owed |  |
 | C3 | `strict x hybrid` | row | refused |  | KCore.Semantics.sortPreds, KCore.Semantics.ownSyms, KCore.Semantics.idsOK (V.pred-read-cone) | FIX-core.pred-read-reader |  |
@@ -1496,7 +1495,7 @@ Not core:
 | `hook:KEQUAL.ite:Lblite` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: KEQUAL.ite; test/IteHookForms.lean iteParam\_eval (for every semantics and H, a parameter implemented by kIte applied to values b, x, y has the value x where b is true and y where it is false, when that value has its sort), OwnHook.ite\_value (at Foo on fixture rdr-it… |
 | cases[0]: a function of the text labelled ite at two sort parameters (syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]) | parameter |  | the text declares \`symbol Lblite{SortS1, SortS2}(SortS1) : SortS2 [function{}()]\` (kore.txt; no hook) and applies \`Lblite{SortFoo{}, SortFoo{}}(VarX:SortFoo{})\` in f's equation. K's ite has one sort parameter (\`Lblite{SortSort}(SortBool, SortSort, SortSort)\`), and this definition, which imports BOOL… | KCore.iteSort? (Emit): a name Lblite{…} holding a comma has no sort; KCore.itesApart unchanged |  | rdr-ite-two |  |  | fixtures/rdr-ite-two/kompile.txt: exit 0; fixtures/rdr-ite-two/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
 | cases[1]: a function of the text labelled ite at one sort parameter, in a definition that does not import K-EQUAL (syntax {S} S ::… | parameter |  | the text declares \`symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}()]\` (kore.txt; no hook, no equation) and applies \`Lblite{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\` in f's equation. In KORE that application is an instance of the one symbol Lblite the text decl… | none (reader only): Parse.envOf reads the text's own one-sort Lblite's instances as its parameters and gives impl kIte to no name it numbers so |  | rdr-ite-own |  |  | fixtures/rdr-ite-own/kompile.txt: exit 0; fixtures/rdr-ite-own/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; fixtures/rdr-ite-own/params.txt: \`param Lblite{Foo} args=[Bool, Foo, Foo] result=Foo impl=none\`; test/Ite… |
-| cases[2]: a function of the text labelled ite at one sort parameter with an equation of its instance at a sort of the definition (… | refused | R-c | the text states the equation \`Lblite{SortFoo{}}(X0:SortBool{},X1:SortFoo{},X2:SortFoo{}) = VarX\` (kore.txt), so read, the instance Lblite{Foo} would be a function of the definition named Lblite{Foo}, which KCore.iteSort? reads at Foo. Faithful.NamesNumbered (namesNumbered, a coreOK conjunct) exclude… | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application | RDR.ite-own-fn-eqn | rdr-ite-own-eq |  |  | fixtures/rdr-ite-own-eq/kompile.txt: exit 0; its account as reader\_today |
+| cases[2]: a function of the text labelled ite at one sort parameter with an equation of its instance at a sort of the definition (… | supported |  | the text declares \`symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}()]\` (kore.txt; no hook) and states the equation \`Lblite{SortFoo{}}(X0:SortBool{},X1:SortFoo{},X2:SortFoo{}) = VarX\` under its premise, and applies \`Lblite{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}()… | KCore.Faithful.eqnSentence with KoreAML.equationAt: a function's equation written at the head symApp applies; KCore.Faithful.namesNumbered: its name conjunct ranges over constructors and overloaded symbols, not functions |  | rdr-ite-own-eq |  |  | fixtures/rdr-ite-own-eq/kompile.txt: exit 0; fixtures/rdr-ite-own-eq/account.txt: \`stage refusals (of sentences classified read): 0\`, \`read and not accounted for: 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; fixtures/rdr-ite-own-eq/params.txt: no parameter (\`(exit 0)\` alone… |
 | cases[3]: a function of the text labelled ite at one sort parameter, hooked to KEQUAL.ite (syntax {S} S ::= pick(Bool, S, S) [func… | supported |  | kompile keeps the hook: the text declares \`hooked-symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite")]\` (kore.txt) and applies \`Lblite{SortFoo{}}(…)\` in f's equation. A hooked symbol's meaning is its hook's, and the registry's kIte is the operation KEQUAL.ite (… | none (reader only) |  | rdr-ite-own-hook |  |  | fixtures/rdr-ite-own-hook/kompile.txt: exit 0; fixtures/rdr-ite-own-hook/account.txt: \`stage refusals (of sentences classified read): 0\`, \`read and not accounted for: 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; fixtures/rdr-ite-own-hook/params.txt: \`param Lblite{Foo} args=… |
 | cases[4]: a function of the text labelled ite at two sort parameters with an equation of its instance (syntax {S1, S2} S2 ::= cast… | supported |  | the text declares \`symbol Lblite{SortS1, SortS2}(SortS1) : SortS2 [function{}()]\` and states \`Lblite{SortFoo{}, SortFoo{}}(X0:SortFoo{}) = Lblb{}()\` (kore.txt). A generated package decides namesNumbered on the names' codes (Model.namesNumberedC, NameCodes.lean): the code of Lblite{Foo,Foo} begins wi… | none: Model.namesNumberedC and Model.namesNumbered\_of\_codes are no cone declarations |  | rdr-ite-two-eq |  |  | fixtures/rdr-ite-two-eq/kompile.txt: exit 0; fixtures/rdr-ite-two-eq/account.txt: \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; test/IteNamesCodes.lean TwoEq.fn\_named, TwoEq.namesNumbered; the package \`kcore gen --core\` writes of the text builds through NS.CoreOK and NS.Sound (g… |
 | cases[5]: a function of the text under another label than ite, at one sort parameter, hooked to KEQUAL.ite (syntax {S} S ::= pick(… | refused | R-a | The text declares a sort-parametric hooked symbol Lblpick whose hook KEQUAL.ite the registry interprets (kIte), under another name than the registry's ite, and applies its instance at Foo. Its hook gives each instance the meaning of K's ite at that sort, but the declaration's argument and result sor… |  | none (R-a): a sort-parametric hooked symbol (KCORE-SPEC.md Q11) | rdr-ite-pick-hook |  |  | fixtures/rdr-ite-pick-hook/kompile.txt: exit 0; kore.txt: the declaration \`hooked-symbol Lblpick{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite"), …]\` and f's equation applying \`Lblpick{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\`; account.txt \`stage refu… |
