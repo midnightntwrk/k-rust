@@ -177,7 +177,7 @@ def ruleOKT (r : Rule) : Bool :=
 
 /-- `ok`, read from the tables. -/
 def okT : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOKT T && c.fnsOKT T &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOKT T && c.fnsOKT T &&
     c.rules.all (c.ruleOKT T)
 
 end Semantics
@@ -242,7 +242,7 @@ end
 rules, joined by a generic lemma (ARCHITECTURE.md §3.8, `D/Facts`) -/
 
 def Semantics.okHeadT (T : Tables) (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOKT T && c.fnsOKT T
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOKT T && c.fnsOKT T
 
 /-- Rules lo, …, lo + len - 1 pass `ruleOKT`. -/
 def Semantics.ruleRowsT (T : Tables) (c : Semantics) (lo len : Nat) : Bool :=

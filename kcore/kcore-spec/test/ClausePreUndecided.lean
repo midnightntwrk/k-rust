@@ -15,9 +15,9 @@
   - `fnDet`: every function of `d` has at most one result;
   - `fnSolves`: `FnSolves d` (no clause of `h` decides anywhere; where `l`'s clause decides, both
     sides are without a value);
-  - `rest_ok`, `clause_ok`, `pre_ok`, `openLaws`: `d` meets every conjunct of `coreOK` but
-    `clausesPlain`, meets CN-4 §4.9's final text of `clausesPlain` (`clauseE3`), its predicates have
-    `condOK` and `Cond.bound`, and `OpenLaws d` holds;
+  - `coreOK_ok`, `pre_ok`, `openLaws`: `coreOK` accepts `d` (`clausesPlain` admits its predicates:
+    no clause's conditions need a witness), its predicates have `condOK` and `Cond.bound`, and
+    `OpenLaws d` holds;
   - `trueV`: the reading of `preU` that takes a term without a result as the empty set (`TrueV`) is
     true at every σ;
   - `sentences`: `Γ`'s sentences for the two clauses are `((⊤ ∧ X0 ∈ X) ∧ preU) → h(X0) = 1` and
@@ -29,8 +29,7 @@
   in which `h(x)` is the set of `Eval`'s values of `h` at x (none), satisfies neither sentence; and
   Int is one of `distinctSorts`, whose distinct values are distinct elements in a model of `Γ`
   (`values_apart`), so no interpretation satisfies both. A statement that gives a model of `Γ` from
-  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d` once
-  `clausesPlain` admits `preU`: with a predicate in the premise it needs that each clause's own
+  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d`: with a predicate in the premise it needs that each clause's own
   predicate has a truth value where its patterns match (as `holds_decided` gives where every
   function has a result, `FnTerminates`), which `PrioDecided` asks of the clauses of a smaller
   priority only. `consistent_of` asks it (`ClausePreDecided`), and `d` does not meet it
@@ -113,8 +112,11 @@ theorem clause_ok : d.fns.all (fun f => f.clauses.all (clauseE3 d)) = true := by
 /-- Each predicate is well sorted over its clause's variables and holds no binder. -/
 theorem pre_ok : d.fns.all (fun f => f.clauses.all fun cl =>
     d.condOK cl.vars cl.pre && Cond.bound d cl.vars.length cl.pre) = true := by decide +kernel
-/-- `clausesPlain` refuses `d` at the predicates only. -/
-theorem clausesPlain_now : d.clausesPlain = false := by decide +kernel
+/-- `clausesPlain` admits `d`: its clauses with a predicate need no witness. -/
+theorem clausesPlain_ok : d.clausesPlain = true := by decide +kernel
+/-- `coreOK` accepts `d`. -/
+theorem coreOK_ok : d.coreOK = true := by
+  rw [coreOK_eq, clausesPlain_ok, rest_ok.1, rest_ok.2]; rfl
 
 theorem openLaws : OpenLaws d := openLaws_of_plain (by decide +kernel)
 
@@ -237,9 +239,9 @@ theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : 
     (ha : cl.AppliesAt d σ vs) : False := by
   have hc : cl = hCl1 ∨ cl = hCl2 := by simpa [hFn] using hcl
   rcases hc with rfl | rfl
-  · obtain ⟨v, hl, hv⟩ := int_of ha.1
+  · obtain ⟨v, hl, hv⟩ := int_of ((wellSortedAt_univ rfl).mp ha.1)
     exact noPre hl hv ha.2.2.2
-  · obtain ⟨v, hl, hv⟩ := int_of ha.1
+  · obtain ⟨v, hl, hv⟩ := int_of ((wellSortedAt_univ rfl).mp ha.1)
     exact noPre hl hv ha.2.2.2
 
 /-- No clause of `h` has an existential variable. -/
@@ -253,14 +255,13 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
   cases h with
   | clause hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
   | clauseEx hfn hcl hσ hm hreq hpre _ _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
   | exNone hfn hcl hne _ _ _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    simp only [hFn, List.mem_cons, List.not_mem_nil, or_false] at hcl
-    rcases hcl with rfl | rfl <;> exact absurd rfl hne
+    exact absurd (hExs hcl) hne
   | rest hfn hnone =>
     rw [lookups.2] at hfn; cases hfn
     cases hnone hCl1 (by simp [hFn]) with
@@ -270,7 +271,7 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
       | pre hp => exact noPre (σ := sg v) rfl hv hp
   | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
 
 /-! ## `FnDet` and `FnSolves` -/
 
@@ -321,10 +322,10 @@ theorem fnSolves : FnSolves d := by
   rcases mem_fns hfn with rfl | rfl
   · have : cl = lCl := by simpa [lFn] using hcl
     subst this
-    obtain ⟨w, hl, hw⟩ := int_of hdec.1.1
+    obtain ⟨w, hl, hw⟩ := int_of ((wellSortedAt_univ rfl).mp hdec.1.1)
     obtain ⟨w', rfl, hl'⟩ := match0 hdec.1.2.1
     rw [hl] at hl'; cases hl'
-    refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := lCl) rfl rfl hdec.1.1 v).symm
+    refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := lCl) rfl rfl ((wellSortedAt_univ rfl).mp hdec.1.1) v).symm
     exact ⟨fun h => (noL h rfl w rfl hw).elim, fun h => (noLT h.1 rfl w hl hw).elim⟩
   · exact (not_applies hcl hdec.1).elim
 

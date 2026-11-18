@@ -1,0 +1,11 @@
+command: kompile --backend haskell c.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.3
+definition.kore bytes: 235004
+definition.kore sha256: 2d66fdbdf12419aac4ef73aec6899490e9cdc30b7e4fb6c9b19cec1c83f7c97d
+stripped sha256: cd16cdd3f323d4e9ddb601968989b8f96b14d4ca77129e890ef88e28f8657c82
+main module: 492 sentences, 148 not in base's, in kore.txt
+same_as e2-cells-plain: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name C-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using C as default.

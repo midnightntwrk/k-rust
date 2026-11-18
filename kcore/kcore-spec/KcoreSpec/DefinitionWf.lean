@@ -121,6 +121,69 @@ mutual
         | some b => rw [h1, h2] at h; rw [sortOfTerm_heads x H vs t h1, sortsOfTerms_heads x H vs ts h2]; exact h
 end
 
+section Terms
+variable {x : TermCtx} {vars : List Srt}
+
+theorem sortOfTerm_var {i : Nat} {s : Srt} :
+    sortOfTerm x vars (.var i) = some s ↔ vars[i]? = some s := by
+  simp [sortOfTerm]
+
+theorem sortOfTerm_dv {t s : Srt} {lit : Lit} :
+    sortOfTerm x vars (.dv t lit) = some s ↔ dvOK x.lib t lit = true ∧ s = t := by
+  simp only [sortOfTerm]
+  by_cases h : dvOK x.lib t lit = true <;> simp [h, eq_comm]
+
+theorem sortOfTerm_app {f : Sym} {ts : List Term} {s : Srt} :
+    sortOfTerm x vars (.app f ts) = some s ↔
+      ∃ k, lookupSig x.heads f = some k ∧ sortsOfTerms x vars ts = some k.args ∧ s = k.result := by
+  simp only [sortOfTerm]
+  cases hk : lookupSig x.heads f with
+  | none => simp
+  | some k =>
+    by_cases he : sortsOfTerms x vars ts = some k.args
+    · simp [he, eq_comm]
+    · simp [he]
+
+theorem sortOfTerm_inj {a b : Srt} {t : Term} {s : Srt} :
+    sortOfTerm x vars (.inj a b t) = some s ↔
+      (a, b) ∈ x.subs ∧ sortOfTerm x vars t = some a ∧ s = b := by
+  simp only [sortOfTerm]
+  constructor
+  · intro h
+    split at h
+    · rename_i hc
+      simp only [Bool.and_eq_true, List.contains_iff_mem, beq_iff_eq] at hc
+      exact ⟨hc.1, hc.2, (Option.some.inj h).symm⟩
+    · cases h
+  · rintro ⟨h1, h2, rfl⟩
+    simp [h1, h2]
+
+theorem sortsOfTerms_cons {t : Term} {ts : List Term} {ss : List Srt} :
+    sortsOfTerms x vars (t :: ts) = some ss ↔
+      ∃ s ss', sortOfTerm x vars t = some s ∧ sortsOfTerms x vars ts = some ss' ∧ ss = s :: ss' := by
+  simp only [sortsOfTerms]
+  cases h1 : sortOfTerm x vars t <;> cases h2 : sortsOfTerms x vars ts <;> simp [eq_comm]
+
+theorem sortsOfTerms_nil {ss : List Srt} : sortsOfTerms x vars [] = some ss ↔ ss = [] := by
+  simp only [sortsOfTerms, Option.some.injEq]; exact eq_comm
+
+theorem Exec.sortOfTerm_as {x : TermCtx} {vars : List Srt} {t : Term} {i : Nat} {s : Srt} :
+    sortOfTerm x vars (.as t i) = some s → vars[i]? = some s ∧ sortOfTerm x vars t = some s := by
+  simp only [sortOfTerm]
+  split
+  · rename_i v s' _ hv hs
+    intro h
+    split at h
+    · rename_i he
+      rw [beq_iff_eq] at he
+      cases h
+      subst he
+      exact ⟨hv, hs⟩
+    · cases h
+  · intro h; cases h
+
+end Terms
+
 mutual
   def varOccs : Term → List Nat
     | .var i => [i]
@@ -469,6 +532,7 @@ mutual
   def cellNames : Cell → List String
     | .leaf n _ _ => [n]
     | .node n cs _ => n :: cellNamesList cs
+    | .coll _ => []
     termination_by structural x => x
   def cellNamesList : List Cell → List String
     | [] => []
@@ -477,20 +541,35 @@ mutual
   def cellLeaves : Cell → List (String × Srt)
     | .leaf n s _ => [(n, s)]
     | .node _ cs _ => cellLeavesList cs
+    | .coll _ => []
     termination_by structural x => x
   def cellLeavesList : List Cell → List (String × Srt)
     | [] => []
     | x :: xs => cellLeaves x ++ cellLeavesList xs
     termination_by structural xs => xs
+  /-- The sorts of the cell collections among a cell's descendants. -/
+  def cellCollSortsR : Cell → List Srt
+    | .leaf _ _ _ => []
+    | .node _ cs _ => cellCollSortsListR cs
+    | .coll s => [s]
+    termination_by structural x => x
+  def cellCollSortsListR : List Cell → List Srt
+    | [] => []
+    | x :: xs => cellCollSortsR x ++ cellCollSortsListR xs
+    termination_by structural xs => xs
 end
 
 mutual
   /-- A user cell has the sorts and symbols of its kind: its `Opt` sort and `noXCell`, and for a
-  node its fragment sort and `<x>-fragment`, which a leaf has not; and so have its children. -/
+  node its fragment sort and `<x>-fragment`, which a leaf has not; and so have its children. A
+  cell collection, which has none of them, is a node's child beside a cell (`Presentation.cellsOK`
+  asks its sort to be a collection of the definition). -/
   def cellIdsShaped : Cell → Bool
     | .leaf _ _ i => i.opt.isSome && i.no.isSome && i.frag.isNone && i.fragLabel.isNone
     | .node _ cs i =>
-      i.opt.isSome && i.no.isSome && i.frag.isSome && i.fragLabel.isSome && cellIdsShapedList cs
+      i.opt.isSome && i.no.isSome && i.frag.isSome && i.fragLabel.isSome && cellIdsShapedList cs &&
+      cs.any (fun | .coll _ => false | _ => true)
+    | .coll _ => true
     termination_by structural x => x
   def cellIdsShapedList : List Cell → Bool
     | [] => true
@@ -586,6 +665,13 @@ def collPatSigs : List CtorSig :=
 /-- The well-formedness context of a rule's left-hand side: the matcher's (`patCtx`), then the
 collection pattern symbols and the overloading symbols. -/
 def patCtxAll : TermCtx := { c.patCtx with heads := c.patCtx.heads ++ (c.collPatSigs ++ c.ovlSigs) }
+
+/-- `patCtxAll` without the function-overloaded symbols (`fnOvlSyms`): the context of a pattern
+that applies none. An application of one denotes a function's value where a function overload
+covers its arguments, and a pattern denotes values. -/
+def patCtxNF : TermCtx :=
+  { c.patCtxAll with heads := c.patCtxAll.heads.filter fun k => !c.fnOvlSyms.contains k.name }
+
 /-- Right-hand sides and `requires`: constructors, hooks, the parameter symbols, the generated
 sort predicates, the functions given and the overloading symbols. -/
 def rhsCtx (fns : List CtorSig) : TermCtx :=
@@ -620,6 +706,40 @@ def clauseOK (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
 def coverFuel (f : Fn) : Nat := 1000 * (f.clauses.length + 1)
 
 end Semantics
+
+/-- A lookup among the signatures whose names `q` keeps: the lookup of a name `q` keeps. -/
+theorem lookupSig_filterKeepNF (q : Sym → Bool) (f : Sym) (l : List CtorSig) :
+    lookupSig (l.filter fun k => q k.name) f = if q f = true then lookupSig l f else none := by
+  rw [lookupSig_eq, lookupSig_eq]
+  induction l with
+  | nil => simp
+  | cons k l ih =>
+    by_cases hk : k.name = f
+    · subst hk
+      cases hq : q k.name <;> simp [List.filter, hq, ih]
+    · have hne : (k.name == f) = false := by simpa using hk
+      cases hq : q k.name <;> simp [List.filter, hq, ih, hne]
+
+/-- `as` is well sorted where the context admits it, the variable has the sort and the term has. -/
+theorem sortOfTerm_as_introNF {x : TermCtx} {vars : List Srt} {t : Term} {i : Nat} {s : Srt}
+    (hx : x.asOK = true) (hi : vars[i]? = some s) (ht : sortOfTerm x vars t = some s) :
+    sortOfTerm x vars (.as t i) = some s := by
+  simp only [sortOfTerm]; rw [hx, hi, ht]; simp
+
+theorem patCtxAll_asOK {c : Semantics} : c.patCtxAll.asOK = true := rfl
+
+theorem patCtxNF_asOK {c : Semantics} : c.patCtxNF.asOK = true := rfl
+
+/-- A signature of `patCtxNF` is `patCtxAll`'s, of a symbol that is not function-overloaded. -/
+theorem patCtxNF_lookup {c : Semantics} {f : Sym} {k : CtorSig} :
+    lookupSig c.patCtxNF.heads f = some k ↔ lookupSig c.patCtxAll.heads f = some k ∧ f ∉ c.fnOvlSyms := by
+  rw [show lookupSig c.patCtxNF.heads f = _ from
+    lookupSig_filterKeepNF (fun g => !c.fnOvlSyms.contains g) f c.patCtxAll.heads]
+  cases hq : c.fnOvlSyms.contains f with
+  | true => simp [List.contains_iff_mem.mp hq]
+  | false =>
+    have : f ∉ c.fnOvlSyms := fun hm => by rw [List.contains_iff_mem.mpr hm] at hq; cases hq
+    simp [this]
 
 mutual
   def callsOf (f : Sym) : Term → List (List Term)
@@ -1153,17 +1273,21 @@ def sortedNat : List Nat → Bool
   | _ => true
 
 /-- The configuration's cell tree: its cells named apart (from each other and the generated ones),
-alphanumerically, the leaf holding `$PGM` (`pgmCell`) a leaf of content K or `$PGM`'s sort (the
-two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
-(`cellIdsShaped`); and the sorts, constructors and subsorts it derives (`Presentation.cellSorts`,
+alphanumerically, the leaf holding `$PGM` (`pgmCell`, where one does) a leaf of content K or
+`$PGM`'s sort (the two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
+(`cellIdsShaped`), each cell collection among a node's children a collection of the core
+(`colls`, whose unit `emit` writes as its initial value); and the sorts, constructors and subsorts it derives (`Presentation.cellSorts`,
 `cellCtors`, `cellSubsorts`) are the first of the core's (`userSorts`, `ctors`, `userSubsorts`),
 which `emit` writes from the tree and the rest from the core. -/
 def Presentation.cellsOK (p : Presentation) (c : Semantics) : Bool :=
   let ns := Semantics.cellNamesList p.config
   nodup (ns ++ ["generatedTop", "generatedCounter"]) && ns.all Semantics.cellNameOK &&
-  (Semantics.cellLeavesList p.config).any (fun l => l.1 == p.pgmCell && (l.2 == Srt.k || l.2 == c.pgmSort)) &&
+  (match p.pgmCell with
+   | some n => (Semantics.cellLeavesList p.config).any (fun l => l.1 == n && (l.2 == Srt.k || l.2 == c.pgmSort))
+   | none => true) &&
   !p.config.isEmpty &&
   Semantics.cellIdsShapedList p.config &&
+  (Semantics.cellCollSortsListR p.config).all (fun s => c.colls.any (·.sort == s)) &&
   p.cellSorts.isPrefixOf c.userSorts && p.cellCtors.isPrefixOf c.ctors &&
   p.cellSubsorts.isPrefixOf c.userSubsorts
 

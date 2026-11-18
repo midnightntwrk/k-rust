@@ -230,12 +230,32 @@ theorem deterministicOn_of_overlaps {Inv : Config c → Prop} {ovl : List (Nat �
 
 /-- **Determinism where an invariant holds**, from the condition decided up to the listed overlaps
 (`Det.detOKExcept`), coherence of the clauses of one priority, and every listed overlap refuted
+where `Inv` holds; in a core `okM` accepts. -/
+theorem deterministicOn_of_except_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {T : Tables} (hT : T = tables c) {ix : Det.DetIndex}
+    {ovl : List (Nat × Nat)} (hd : Det.detOKExcept c T ix ovl = true) {Inv : Config c → Prop}
+    (hov : ∀ i j, (i, j) ∈ ovl → OverlapRefuted c Inv i j) : DeterministicOn c Inv :=
+  deterministicOn_of_overlaps (Det.deterministic_except_okM hok hsr hmr hmo hT hd) hov
+
+/-- **Determinism where an invariant holds, for every interpretation of the parameters**, from the
+condition decided once on the data up to the listed overlaps, coherence under each
+interpretation, and every listed overlap refuted under H where `Inv` holds; in a core `okM` accepts. -/
+theorem deterministicOn_of_except_all_okM (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hmo : ∀ H, CoherentAll (c.withHooks H)) {T : Tables}
+    (hT : T = tables c) {ix : Det.DetIndex} {ovl : List (Nat × Nat)}
+    (hd : Det.detOKExcept c T ix ovl = true) (H : HookParams) {Inv : Config (c.withHooks H) → Prop}
+    (hov : ∀ i j, (i, j) ∈ ovl → OverlapRefuted (c.withHooks H) Inv i j) :
+    DeterministicOn (c.withHooks H) Inv :=
+  deterministicOn_of_overlaps (Det.deterministic_except_all_okM hok hsr hmr hmo hT hd H) hov
+
+/-- **Determinism where an invariant holds**, from the condition decided up to the listed overlaps
+(`Det.detOKExcept`), coherence of the clauses of one priority, and every listed overlap refuted
 where `Inv` holds. -/
 theorem deterministicOn_of_except (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
     (hmo : CoherentAll c) {T : Tables} (hT : T = tables c) {ix : Det.DetIndex}
     {ovl : List (Nat × Nat)} (hd : Det.detOKExcept c T ix ovl = true) {Inv : Config c → Prop}
     (hov : ∀ i j, (i, j) ∈ ovl → OverlapRefuted c Inv i j) : DeterministicOn c Inv :=
-  deterministicOn_of_overlaps (Det.deterministic_except hok hsr hmr hmo hT hd) hov
+  deterministicOn_of_except_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd hov
 
 /-- **Determinism where an invariant holds, for every interpretation of the parameters**, from the
 condition decided once on the data up to the listed overlaps, coherence under each
@@ -246,7 +266,7 @@ theorem deterministicOn_of_except_all (hok : c.ok = true) (hsr : c.srReady = tru
     (hd : Det.detOKExcept c T ix ovl = true) (H : HookParams) {Inv : Config (c.withHooks H) → Prop}
     (hov : ∀ i j, (i, j) ∈ ovl → OverlapRefuted (c.withHooks H) Inv i j) :
     DeterministicOn (c.withHooks H) Inv :=
-  deterministicOn_of_overlaps (Det.deterministic_except_all hok hsr hmr hmo hT hd H) hov
+  deterministicOn_of_except_all_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd H hov
 
 /-! ## The condition by rule -/
 

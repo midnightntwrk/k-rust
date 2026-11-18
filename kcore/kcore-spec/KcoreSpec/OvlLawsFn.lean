@@ -749,4 +749,16 @@ theorem OvlOK.noFnOver {c : Semantics} [h : OvlOK c] (f : Sym) : OvlLaws.NoFnOve
 theorem OvlOK.fnCover_none {c : Semantics} [OvlOK c] (f : Sym) (vs : List GroundTerm) : c.fnCover f vs = none :=
   (OvlOK.noFnOver f).fnCover_none vs
 
+/-! ## Patterns that apply no function-overloaded symbol -/
+
+namespace NoFnOvlIn
+variable {c : Semantics}
+
+/-- No function overload covers an application of a symbol a pattern without function-overloaded
+symbols applies. -/
+theorem fnCover_none {f : Sym} {ps : List Term} (h : c.NoFnOvlIn (.app f ps)) (vs : List GroundTerm) :
+    c.fnCover f vs = none := OvlLaws.fnCover_none_of_not_fnOvl (app h).1 vs
+
+end NoFnOvlIn
+
 end KCore

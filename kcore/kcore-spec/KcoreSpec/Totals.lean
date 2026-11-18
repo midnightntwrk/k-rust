@@ -546,7 +546,7 @@ theorem applies_of_row {cl : Clause} {args : List Srt} {vs : List GroundTerm}
     (hnd : (varOccsList cl.pats).Nodup) (hvs : c.sortsOf vs = some args)
     (hm : RowMatches c cl.pats vs) : ∃ σ, cl.AppliesAt c σ vs := by
   obtain ⟨σ, hk, hpv, hse⟩ := rowMatches_subst hm hpt hvs hnd
-  refine ⟨σ, fun i s hi => ?_, hpv, (fun t ht => by rw [hreq] at ht; cases ht), Clause.holds_preTop hpre σ⟩
+  refine ⟨σ, fun i _ s hi => ?_, hpv, (fun t ht => by rw [hreq] at ht; cases ht), Clause.holds_preTop hpre σ⟩
   have hlt : i < cl.vars.length := by
     rcases Nat.lt_or_ge i cl.vars.length with h | h
     · exact h
@@ -715,11 +715,12 @@ theorem eval_defined {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : Li
     induction n with
     | zero => intro p hp; omega
     | succ n ih =>
-      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq, hp'⟩
+      intro p hp ⟨cl, hcl, hpr, σ, hσu, hm, hq, hp'⟩
+      have hσ : c.WellSorted cl.vars σ := (wellSortedAt_univ (hx cl hcl).1).mp hσu
       by_cases hlow : ∃ cl' ∈ fn.clauses, cl'.prio < p ∧ ∃ σ', cl'.AppliesAt c σ' vs
       · obtain ⟨cl', hcl', hlt, ha⟩ := hlow
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
-      · obtain ⟨v, hv⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+      · obtain ⟨v, hv⟩ := hrhs cl hcl σ ⟨hσu, hm, hq, hp'⟩
         exact ⟨v, Eval.clause hfn hcl hσ hm hq hp' (fun cl' hcl' _ hlt =>
           hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩) (hx cl hcl).1 hv
           (fun t ht => by rw [hnoens cl hcl] at ht; cases ht) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
@@ -785,7 +786,7 @@ theorem sortPreds_totalN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPreds) 
     (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(hshape cl hcl).1] at ht; cases ht), true,
       Clause.holds_preTop (Semantics.sortPreds_pre hfn cl hcl) σ⟩)
     (fun cl hcl _ _ => by obtain ⟨_, s, l, h⟩ := hshape cl hcl; rw [h]; exact ⟨_, EvalTerm.dv⟩)
-    ⟨cl₀, hcl₀, hr₀, [(0, w)], hσ, by rw [hp₀]; exact .cons (.var (lookup_cons_self _ _ _)) .nil,
+    ⟨cl₀, hcl₀, hr₀, [(0, w)], hσ.at _, by rw [hp₀]; exact .cons (.var (lookup_cons_self _ _ _)) .nil,
       (fun t ht => by rw [hr₀] at ht; cases ht), Clause.holds_preTop (Semantics.sortPreds_pre hfn cl₀ hcl₀) _⟩ (sortPreds_ens hfn)
 
 theorem sortPreds_total (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) : Total c fn.label :=
@@ -823,7 +824,7 @@ theorem total_of_partsN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hterm : ∀ 
     refine eval_defined hlook (hc.plain fn hfn) hb (fun cl hcl σ hσ _ => ⟨fun t ht => req_resultN hc hterm hfn hcl hσ ht, true,
         Clause.holds_preTop (hclk cl hcl).2 σ⟩)
       (fun cl hcl σ ha => ?_) ?_ hnoens
-    · refine evalTerm_defined hc.sort hs hL ha.1 cl.rhs (hrs cl hcl) (hrhs cl hcl)
+    · refine evalTerm_defined hc.sort hs hL ((wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp ha.1) cl.rhs (hrs cl hcl) (hrhs cl hcl)
         fun g ts hts hgt gfn hg vs' hts' hsrt => ?_
       by_cases hgl : g = fn.label
       · subst hgl
@@ -861,11 +862,11 @@ theorem total_of_parts (hc : EvalCtx c) (hs : c.shapesOK = true) (hterm : ∀ g,
 
 /-- **A function `totalOK` confirms is total**, in a core that `sortedOK` and `srReady` accept
 whose clauses' variables are held (`RightHeld`), every function terminating and the total functions before it total. -/
-theorem total_of_totalOK (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem total_of_totalOK (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld)
     (hterm : ∀ g, Terminates c g) {fn : Fn} (hfn : fn ∈ c.fns) (hT : c.totalOK fn = true)
     (htot : ∀ g ∈ c.totalBefore fn, Total c g) : Total c fn.label := by
-  have hc := evalCtx_of_all hok hsr hov hrh
+  have hc := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
   simp only [Semantics.totalOK, Bool.and_eq_true, Bool.or_eq_true, List.all_eq_true] at hT
   obtain ⟨⟨⟨⟨hs, hdec⟩, hcov⟩, hrhs⟩, hne⟩ := hT
   have hfok : ∀ cl ∈ fn.clauses, c.clauseSorted fn (c.fns.map Fn.sig) cl = true := by
@@ -877,7 +878,7 @@ theorem total_of_totalOK (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
   · have := hfok cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
     replace this := this.1
-    exact ⟨this.1.1.1.1.1, (Semantics.sortedOK_clause hok hfn hcl).1⟩
+    exact ⟨this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfn hcl⟩
   · simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
     rcases hg with (hg | ⟨p, hp, rfl⟩) | hg
     · exact htot g hg
@@ -905,11 +906,11 @@ whose clauses' variables are held (`RightHeld`), every function terminating, giv
 (`totalObligations`): by induction on the position in the declaration order, a function `totalOK`
 confirms is total where the total functions before it are (`total_of_totalOK`); the sort predicates
 are total. -/
-theorem totals_of_order_core (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem totals_of_order_core (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld) (hterm : ∀ g, Terminates c g)
     (hnamed : ∀ g ∈ c.totalObligations, Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f := by
-  have hc := evalCtx_of_all hok hsr hov hrh
+  have hc := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
   have pos : ∀ (n : Nat) (fn : Fn), c.fns[n]? = some fn → fn.total = true → Total c fn.label := by
     intro n
     induction n using Nat.strongRecOn with
@@ -922,7 +923,7 @@ theorem totals_of_order_core (hok : c.sortedOK = true) (hsr : c.srReady = true) 
         cases h : c.totalOK fn
         · exact absurd (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨hmem, by simp [htot, h]⟩, rfl⟩) hN
         · rfl
-      refine total_of_totalOK hok hsr hov hrh hterm hmem hT fun g hg => ?_
+      refine total_of_totalOK (hpreTop := hpreTop) hok hsr hov hrh hterm hmem hT fun g hg => ?_
       simp only [Semantics.totalBefore, List.mem_map, List.mem_filter] at hg
       obtain ⟨gfn, ⟨hgw, hgt⟩, rfl⟩ := hg
       obtain ⟨m, hm, hgm⟩ := mem_takeWhile_lt hn (by simp) hgw
@@ -940,12 +941,14 @@ theorem totals_of_order (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c
     (hterm : ∀ g, Terminates c g) (hnamed : ∀ g ∈ c.totalObligations, Total c g)
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
-  totals_of_order_core (Semantics.sortedOK_of_okAll hok) hsr hov hrh hterm hnamed
+  have hpreTop := Semantics.preTop_of_okAll hok
+  totals_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hrh hterm hnamed
 
 /-- With no `[total]` function named, every one is total. -/
 theorem totals_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hterm : ∀ g, Terminates c g) (h : c.totalObligations = []) (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   totals_of_order hok hsr hov hterm (fun g hg => by rw [h] at hg; exact absurd hg List.not_mem_nil) hrh
 
 kernel_rfl Semantics.totalObligations_withHooks :
@@ -960,6 +963,7 @@ theorem totals_of_order_withHooks (hok : c.okAll = true) (hsr : c.srReady = true
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   totals_of_order ((Semantics.okAll_withHooks c H).trans hok) ((Semantics.srReady_withHooks c H).trans hsr)
     (Semantics.ovlCase_withHooks hov H) hterm (by rw [Semantics.totalObligations_withHooks]; exact hnamed)
     (Semantics.rightHeld_withHooks hrh H hr)
@@ -972,6 +976,7 @@ theorem totals_of_nil_withHooks (hok : c.okAll = true) (hsr : c.srReady = true) 
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f fn, (c.withHooks H).lookupFn f = some fn → fn.total = true → Total (c.withHooks H) f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   totals_of_order_withHooks hok hsr hov H hterm (fun g hg => by rw [h] at hg; exact absurd hg List.not_mem_nil) hrh hr
 
 /-! ## For a semantics: from `coreOK` and `CoreObligations` -/
@@ -984,43 +989,43 @@ variable {t : Certificates}
 variables in its patterns or conditions or of a sort with a value) and `CoreObligations` (its first
 two conjuncts: the named functions terminate, the named `[total]` functions are total). Stated for
 every function `lookupFn` finds, the sort predicates among them. -/
-theorem CoreObligations.totals (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
+theorem CoreObligations.totals (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
-  exact totals_of_order_core hok (NamesApart.srReady_of hp hids hok
+  exact totals_of_order_core (hpreTop := hpreTop) hok (NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)) (Semantics.ovlCase_of_core h) hrh
-    (CoreObligations.terminates h hrh hob) hob.2.1
+    (CoreObligations.terminates (hpreTop := hpreTop) h hrh hob) hob.2.1
 
 /-- `TotalsDefined` (LazySound.lean), from `coreOK` and `CoreObligations`. -/
-theorem CoreObligations.totalsDefined (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
+theorem CoreObligations.totalsDefined (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
     c.TotalsDefined :=
-  fun f fn hfn ht vs hvs => CoreObligations.totals h hrh hob
+  fun f fn hfn ht vs hvs => CoreObligations.totals (hpreTop := hpreTop) h hrh hob
     f fn hfn ht fn hfn vs hvs
 
 /-- `definedArg_sound` from `coreOK` and `CoreObligations`. -/
-theorem CoreObligations.definedArg_sound (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t)
+theorem CoreObligations.definedArg_sound (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t)
     {vars : List Srt} {u : Term} (hd : c.definedArg vars u = true) {σ : Subst}
     (hσ : c.WellSorted vars σ) : ∃ v, EvalTerm c σ u (some v) := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
   exact c.definedArg_sound hok (NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)) (Semantics.ovlCase_of_core h)
-    (CoreObligations.totalsDefined h hrh hob) hd hσ
+    (CoreObligations.totalsDefined (hpreTop := hpreTop) h hrh hob) hd hσ
 
 /-- `LazyOcc.holds_of_definedArg` from `coreOK` and `CoreObligations`. -/
-theorem CoreObligations.holds_of_definedArg (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t)
+theorem CoreObligations.holds_of_definedArg (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t)
     {o : LazyOcc} (ho : o ∈ c.lazyOccs) (hd : c.definedArg o.vars o.skipped = true) : o.Holds c := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
   exact LazyOcc.holds_of_definedArg hok (NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)) (Semantics.ovlCase_of_core h)
-    (CoreObligations.totalsDefined h hrh hob) ho hd
+    (CoreObligations.totalsDefined (hpreTop := hpreTop) h hrh hob) ho hd
 
 /-- `lazyOccs_hold` from `coreOK` and `CoreObligations`: every occurrence meets its obligation. -/
-theorem CoreObligations.lazyOccs_hold (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
+theorem CoreObligations.lazyOccs_hold (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) :
     ∀ o ∈ c.lazyOccs, o.Holds c := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
   exact KCore.lazyOccs_hold hok (NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)) (Semantics.ovlCase_of_core h)
-    (CoreObligations.totalsDefined h hrh hob) hob.2.2.2.2.1
+    (CoreObligations.totalsDefined (hpreTop := hpreTop) h hrh hob) hob.2.2.2.2.1
 
 end Core
 
@@ -1031,28 +1036,33 @@ conjuncts: the named functions terminate, the named `[total]` functions are tota
 every function `lookupFn` finds, the sort predicates among them. -/
 theorem Obligations.totals {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) :
     ∀ f fn, d.sem.lookupFn f = some fn → fn.total = true → Total d.sem f :=
-  CoreObligations.totals (Definition.coreOK_of_wf hwf) hrh hob
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.totals (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `TotalsDefined` (LazySound.lean), from `wf` and `Obligations`. -/
 theorem Obligations.totalsDefined {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) :
     d.sem.TotalsDefined :=
-  CoreObligations.totalsDefined (Definition.coreOK_of_wf hwf) hrh hob
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.totalsDefined (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `definedArg_sound` from `wf` and `Obligations`. -/
 theorem Obligations.definedArg_sound {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d)
     {vars : List Srt} {t : Term} (hd : d.sem.definedArg vars t = true) {σ : Subst}
     (hσ : d.sem.WellSorted vars σ) : ∃ v, EvalTerm d.sem σ t (some v) :=
-  CoreObligations.definedArg_sound (Definition.coreOK_of_wf hwf) hrh hob hd hσ
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.definedArg_sound (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob hd hσ
 
 /-- `LazyOcc.holds_of_definedArg` from `wf` and `Obligations`. -/
 theorem Obligations.holds_of_definedArg {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d)
     {o : LazyOcc} (ho : o ∈ d.sem.lazyOccs) (hd : d.sem.definedArg o.vars o.skipped = true) :
     o.Holds d.sem :=
-  CoreObligations.holds_of_definedArg (Definition.coreOK_of_wf hwf) hrh hob ho hd
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.holds_of_definedArg (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob ho hd
 
 /-- `lazyOccs_hold` from `wf` and `Obligations`: every occurrence meets its obligation. -/
 theorem Obligations.lazyOccs_hold {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) :
     ∀ o ∈ d.sem.lazyOccs, o.Holds d.sem :=
-  CoreObligations.lazyOccs_hold (Definition.coreOK_of_wf hwf) hrh hob
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.lazyOccs_hold (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
 
 end KCore

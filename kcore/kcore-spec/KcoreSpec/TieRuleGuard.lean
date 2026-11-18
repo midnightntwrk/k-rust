@@ -146,7 +146,7 @@ theorem ruleGuard_of_stepBy_held {H : Sym → Bool} (h : c.coreOK = true)
   have hlx := ha (Term.kore c vs r.lhs) (List.mem_cons_self ..)
   have hxa : a = elemOf c I x.val :=
     ((elemOf_spec hIΓ x.property e').1 a).mp
-      (((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch hlhs).2 a).mp hlx)
+      (((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (Semantics.ruleSorted_lhs_nf c hs)).2 a).mp hlx)
   subst hxa
   rcases List.mem_append.mp hp with hp | hp
   · -- `pre` at x's element: it holds at σ (`holds_entails`)

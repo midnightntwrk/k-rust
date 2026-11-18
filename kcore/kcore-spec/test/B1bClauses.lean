@@ -46,7 +46,7 @@ def fClasses (path : String) : IO String := do
   | .ok k =>
     let ss := (k.modules.getLast?.map (·.sentences)).getD []
     return toString <| ss.filterMap fun s => match s with
-      | .axiom a => if ((Parse.canon a.pattern).splitOn "Lblf{}").length > 1 then some (Parse.classify s).name else none
+      | .axiom a => if ((Parse.canon a.pattern).splitOn "Lblf{}").length > 1 then some (Parse.classifyShape s).name else none
       | _ => none
 
 /--

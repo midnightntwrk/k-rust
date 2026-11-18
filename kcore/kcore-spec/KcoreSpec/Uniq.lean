@@ -12,6 +12,7 @@
 -/
 import KcoreSpec.MatchMap
 import KcoreSpec.HooksApart
+import KcoreSpec.PatCtxNF
 
 set_option autoImplicit false
 
@@ -433,11 +434,70 @@ theorem patCtxAll_collPat_lookup {f : Sym} {k : CtorSig} (hct : c.isCtor f = fal
       simp only [Option.map_some, Option.some_or, Option.some.injEq] at hk
       exact hk
 
+/-! ### Signatures in the context without function-overloaded symbols -/
+
+theorem patCtxNF_hook_lookup' (hph : ∀ f ∈ patternHooks, c.isCtor f = false) {f : Sym}
+    (hf : patternHooks.contains f = true)
+    {k : CtorSig} (hk : lookupSig c.patCtxNF.heads f = some k) : lookupSig hookSigs f = some k :=
+  patCtxAll_hook_lookup' hph hf (patCtxNF_lookup.mp hk).1
+
+theorem patCtxNF_hook_lookup (hc : MatchCtxO c) {f : Sym} (hf : patternHooks.contains f = true)
+    {k : CtorSig} (hk : lookupSig c.patCtxNF.heads f = some k) : lookupSig hookSigs f = some k :=
+  patCtxAll_hook_lookup hc hf (patCtxNF_lookup.mp hk).1
+
+theorem patCtxNF_ovl_lookup {f : Sym} (ho : c.isOvl f = true) {k : CtorSig}
+    (hk : lookupSig c.patCtxNF.heads f = some k) : ∃ o, c.lookupOvl f = some o ∧ k = o.sig :=
+  patCtxAll_ovl_lookup ho (patCtxNF_lookup.mp hk).1
+
+theorem patCtxNF_sig (hc : MatchCtxO c) {vars : List Srt} {f : Sym} {ps : List Term} {s : Srt}
+    (hf : patternHooks.contains f = true) (ht : sortOfTerm c.patCtxNF vars (.app f ps) = some s) :
+    ∃ k, lookupSig hookSigs f = some k ∧ sortsOfTerms c.patCtxNF vars ps = some k.args ∧ s = k.result := by
+  obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+  exact ⟨k, patCtxNF_hook_lookup hc hf hk', hargs, rfl⟩
+
+theorem patCtxNF_collPat_lookup {f : Sym} {k : CtorSig} (hct : c.isCtor f = false)
+    (hp : c.isCollPat f = true) (hk : lookupSig c.patCtxNF.heads f = some k) :
+    (isHook f = true ∧ lookupSig hookSigs f = some k) ∨
+      (isHook f = false ∧ ∃ kp, c.lookupParam f = some kp ∧ kp.sig = k) :=
+  patCtxAll_collPat_lookup hct hp (patCtxNF_lookup.mp hk).1
+
+/-- An overloading symbol that overloads no symbol is not function-overloaded. -/
+theorem not_fnOvl_of_plain (hmc : MatchCtxO c) {f : Sym} (hf : c.ovlPlain f = true) : f ∉ c.fnOvlSyms := by
+  intro hm
+  unfold Semantics.fnOvlSyms at hm
+  obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hm
+  obtain ⟨hom, hany⟩ := List.mem_filter.mp ho
+  have hlo := OvlLaws.lookupOvl_of_mem hmc.ovlHyp hom
+  simp only [Semantics.ovlPlain, hlo, Option.all_some, List.isEmpty_iff] at hf
+  rw [hf] at hany
+  simp at hany
+
 mutual
-  /-- A pattern well sorted in a left-hand side's context denotes values of its sort. -/
+  /-- A pattern none of whose applications is headed by an overloading symbol that overloads a
+  symbol applies no function-overloaded symbol. -/
+  theorem noFnOvlIn_of_ovlFree (hmc : MatchCtxO c) : ∀ (p : Term), c.ovlFree p = true → c.NoFnOvlIn p
+    | .var _, _ => by simp [Semantics.NoFnOvlIn, symOccs]
+    | .dv _ _, _ => by simp [Semantics.NoFnOvlIn, symOccs]
+    | .app f ps, h =>
+      NoFnOvlIn.mk_app (not_fnOvl_of_plain hmc (ovlFree_app h).1) (noFnOvlInL_of_ovlFree hmc ps (ovlFree_app h).2)
+    | .inj _ _ p, h => by
+      have := noFnOvlIn_of_ovlFree hmc p (by simpa only [Semantics.ovlFree] using h)
+      unfold Semantics.NoFnOvlIn; rw [symOccs]; exact this
+    | .as p _, h => by
+      have := noFnOvlIn_of_ovlFree hmc p (by simpa only [Semantics.ovlFree] using h)
+      unfold Semantics.NoFnOvlIn; rw [symOccs]; exact this
+  theorem noFnOvlInL_of_ovlFree (hmc : MatchCtxO c) : ∀ (ps : List Term), c.ovlFreeList ps = true → c.NoFnOvlInL ps
+    | [], _ => NoFnOvlIn.nil
+    | p :: ps, h => NoFnOvlIn.mk_cons (noFnOvlIn_of_ovlFree hmc p (ovlFreeList_cons h).1)
+        (noFnOvlInL_of_ovlFree hmc ps (ovlFreeList_cons h).2)
+end
+
+mutual
+  /-- A pattern well sorted in a left-hand side's context that applies no function-overloaded
+  symbol (`patCtxNF`) denotes values of its sort. -/
   theorem patVal_sortedAllO (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ {p : Term} {v : GroundTerm} {s : Srt},
-      PatVal c τ p v → sortOfTerm c.patCtxAll vars p = some s → c.sortOf v = some s
+      PatVal c τ p v → sortOfTerm c.patCtxNF vars p = some s → c.sortOf v = some s
     | _, _, s, .var h, ht => by
       obtain ⟨w, hw, hs⟩ := hτ _ s (sortOfTerm_var.mp ht)
       rw [h] at hw; cases hw; exact hs
@@ -450,17 +510,17 @@ mutual
       have h0 : lookupSig c.patCtxAll.heads f = some k₀ := by
         simp only [Semantics.patCtxAll, Semantics.patCtx]
         exact lookupSig_append_of_some (lookupSig_append_of_some hk₀)
-      have hkk : k = k₀ := Option.some.inj (hk'.symm.trans h0)
+      have hkk : k = k₀ := Option.some.inj ((patCtxNF_lookup.mp hk').1.symm.trans h0)
       subst hkk
       exact sortOf_ctor_intro ⟨k, hk₀, patVals_sortedAllO hc hτ hs hargs, rfl⟩
     | _, _, s, .hook hp hs hv, ht => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
-      exact hook_sorted (fun he => patternHooks_ne_rmKeys _ hp he |>.elim) (patCtxAll_hook_lookup' hc.patHooks hp hk')
+      exact hook_sorted (fun he => patternHooks_ne_rmKeys _ hp he |>.elim) (patCtxNF_hook_lookup' hc.patHooks hp hk')
         (patVals_sortedAllO hc hτ hs hargs) hv
     | _, _, s, .coll hct hp hs hv, ht => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       unfold Semantics.collVal at hv
-      rcases patCtxAll_collPat_lookup hct hp hk' with ⟨hh, hl⟩ | ⟨hh, kp, hkp, rfl⟩
+      rcases patCtxNF_collPat_lookup hct hp hk' with ⟨hh, hl⟩ | ⟨hh, kp, hkp, rfl⟩
       · rw [if_pos hh] at hv
         exact hook_sorted (fun he => isCollPat_hook_ne_rmKeys hp hh he |>.elim) hl (patVals_sortedAllO hc hτ hs hargs)
           (Option.join_eq_some_iff.mp hv)
@@ -475,13 +535,13 @@ mutual
     | _, _, s, .as h _, ht => patVal_sortedAllO hc hτ h (sortOfTerm_as ht).2
     | _, _, s, .ovl (f := f) _ ho hs hv, ht => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
-      obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup ho hk'
+      obtain ⟨o, hlo, rfl⟩ := patCtxNF_ovl_lookup ho hk'
       rw [← hv]
       exact OvlLaws.sortOf_norm_ovlF hc.ovlHyp hc.ovlHyp.fnFacts hlo (patVals_sortedAllO hc hτ hs hargs)
-        (OvlLaws.fnCover_none_of_ok hc.ovlHyp.ok _ _)
+        (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
   theorem patVals_sortedAllO (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ {ps : List Term} {vs : List GroundTerm} {ss : List Srt},
-      PatVals c τ ps vs → sortsOfTerms c.patCtxAll vars ps = some ss → c.sortsOf vs = some ss
+      PatVals c τ ps vs → sortsOfTerms c.patCtxNF vars ps = some ss → c.sortsOf vs = some ss
     | _, _, _, .nil, ht => by rw [sortsOfTerms_nil.mp ht]; exact sortsOf_nil
     | _, _, _, .cons h hs, ht => by
       obtain ⟨s, ss', h1, h2, rfl⟩ := sortsOfTerms_cons.mp ht
@@ -492,12 +552,12 @@ end
 (`patVal_sortedAllO`). -/
 theorem patVal_sortedAll (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
     (hτ : c.WellSorted vars τ) {p : Term} {v : GroundTerm} {s : Srt}
-    (h : PatVal c τ p v) (ht : sortOfTerm c.patCtxAll vars p = some s) : c.sortOf v = some s :=
+    (h : PatVal c τ p v) (ht : sortOfTerm c.patCtxNF vars p = some s) : c.sortOf v = some s :=
   patVal_sortedAllO hc hτ h ht
 
 theorem patVals_sortedAll (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
     (hτ : c.WellSorted vars τ) {ps : List Term} {vs : List GroundTerm} {ss : List Srt}
-    (h : PatVals c τ ps vs) (ht : sortsOfTerms c.patCtxAll vars ps = some ss) : c.sortsOf vs = some ss :=
+    (h : PatVals c τ ps vs) (ht : sortsOfTerms c.patCtxNF vars ps = some ss) : c.sortsOf vs = some ss :=
   patVals_sortedAllO hc hτ h ht
 
 theorem sortsOfTerms_two {x : TermCtx} {vars : List Srt} {p q : Term} {a b : Srt}
@@ -525,7 +585,7 @@ mutual
   theorem uniq_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (p : Term) {D D' : List Nat} {v : GroundTerm} {s : Srt}, uniq c D p = some D' →
-        PatVal c σ p v → PatVal c σ' p v → sortOfTerm c.patCtxAll vars p = some s →
+        PatVal c σ p v → PatVal c σ' p v → sortOfTerm c.patCtxNF vars p = some s →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | .var j, D, D', v, s, hu, h, h', _, hD => by
       simp only [uniq, Option.some.injEq] at hu
@@ -578,7 +638,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (ps : List Term) {D D' : List Nat} {vs : List GroundTerm} {ss : List Srt},
         uniqList c D ps = some D' → PatVals c σ ps vs → PatVals c σ' ps vs →
-        sortsOfTerms c.patCtxAll vars ps = some ss →
+        sortsOfTerms c.patCtxNF vars ps = some ss →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | [], D, D', vs, ss, hu, _, _, _, hD => by
       simp only [uniqList, Option.some.injEq] at hu
@@ -596,7 +656,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (ps : List Term) {D D' : List Nat} {v : GroundTerm} {s : Srt}, uniqConcat c D ps = some D' →
         PatVal c σ (.app mapConcat ps) v → PatVal c σ' (.app mapConcat ps) v →
-        sortOfTerm c.patCtxAll vars (.app mapConcat ps) = some s →
+        sortOfTerm c.patCtxNF vars (.app mapConcat ps) = some s →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | [.app e [k, vp], rest], D, D', v, s, hu, h, h', hs, hD => by
       simp only [uniqConcat] at hu
@@ -634,11 +694,11 @@ mutual
         cases he7; cases he8
         have hkk := PatVal.functional hmc hK hK' (fun i hi => hD i (hk i hi))
         subst hkk
-        obtain ⟨kc, hkc, hargs, -⟩ := patCtxAll_sig hmc (by decide) hs
+        obtain ⟨kc, hkc, hargs, -⟩ := patCtxNF_sig hmc (by decide) hs
         rw [sig_concat] at hkc
         cases hkc
         obtain ⟨hsE, hsR⟩ := sortsOfTerms_two hargs
-        obtain ⟨ke, hke, hargsE, -⟩ := patCtxAll_sig hmc (by decide) hsE
+        obtain ⟨ke, hke, hargsE, -⟩ := patCtxNF_sig hmc (by decide) hsE
         rw [sig_elem] at hke
         cases hke
         obtain ⟨-, hsV⟩ := sortsOfTerms_two hargsE

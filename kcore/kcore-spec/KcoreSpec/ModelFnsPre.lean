@@ -267,7 +267,7 @@ theorem exclusion_ofPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ cl.leftVars
   have hpatOK : ∀ p ∈ cl.pats, PatOK c P p := fun p hp =>
-    (patOKs_of_sorted h hpats p hp).monoOpen fun i hi =>
+    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge hpats) p hp).monoOpen fun i hi =>
       ⟨varOccsList_lt cl.pats hpats i (varOccsList_of_memOpen hp hi), List.mem_append_left _ (varOccsList_of_memOpen hp hi)⟩
   have hreqOK : ∀ t, cl.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>
@@ -380,7 +380,7 @@ theorem withPre_readPre (h : HypModelCore c) {fn : Fn} {cl : Clause} (F : EqnFac
     | true => rw [withPre_isTop hpt] at hprem; exact ⟨hprem, fun h' => Bool.noConfusion h'⟩
     | false => exact ⟨((HoldsShape.withPre_interp hpt).mp hprem).1, fun _ => ((HoldsShape.withPre_interp hpt).mp hprem).2⟩
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
-    (patOKs_of_sorted h F.pats) hlen hEq.args a).mp hsplit.1
+    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge F.pats)) hlen hEq.args a).mp hsplit.1
   refine ⟨hσ, hpv, hq, ?_⟩
   cases hpt : cl.pre.isTop with
   | true => exact Clause.holds_preTop (Cond.eq_top_of_isTop hpt) _
@@ -416,7 +416,7 @@ theorem sat_clauseEqPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     (clause_keys_freePre hlen F.occ fun _ hk => hk) (clause_keys_varsPre hlen F.occ fun _ hk => hk)
     fun tbl e ws a hEq hvT ha hprem => ?_
   obtain ⟨hσ, hpv, hq, hpre⟩ := withPre_readPre h F hdec hEq hvT ha hprem
-  exact hsolve _ ws hEq.args.sorts ⟨hσ, hpv, hq, hpre⟩
+  exact hsolve _ ws hEq.args.sorts ⟨hσ.at _, hpv, hq, hpre⟩
 
 /-- **The equation of a clause with a predicate under the negation of its competitors holds**:
 where they all fail with their predicates (`fails_of_not_exclPre`) and it applies, its applying
@@ -457,7 +457,7 @@ theorem sat_competingEqPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
   obtain ⟨-, hfails⟩ := fails_of_not_exclPre (T := T) h hfn hF hEq.R hEq.Xk hEq.Rs hEq.args
     (fun cl' hcl' i hi hil => hvN _ (varsOf_not_exclPre hcl' hi hil))
     (fun cl' hcl' hpt k hk => hvN _ (varsOf_not_excl_prePre hcl' hpt hk)) hnot
-  exact hsolve _ ws hEq.args.sorts ⟨hσ, hpv, hq, hpre⟩ fun cl' hcl' σ' hw hp' hqh =>
+  exact hsolve _ ws hEq.args.sorts ⟨hσ.at _, hpv, hq, hpre⟩ fun cl' hcl' σ' hw hp' hqh =>
     hfails cl' hcl' σ' ⟨hw, hp', hqh.1, hqh.2⟩
 
 end AtT
@@ -475,7 +475,7 @@ theorem clause_eqnFactsPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
     have hbd : Cond.bound c cl.vars.length cl.pre = true := by
       simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs; exact hs.1.2.1
     obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨hex, -, hpost, -⟩ := Semantics.clausePlainOpen_parts hpl
+    obtain ⟨hex, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hpl
     refine ⟨⟨hpats, ⟨c.fns.map Fn.sig, fun k hk => ?_, hreq⟩, hpreOK, hbd⟩, hex, fun i hi => ?_,
       ⟨c.fns.map Fn.sig, fun k hk => ?_, hrhs, hens⟩⟩
     · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk

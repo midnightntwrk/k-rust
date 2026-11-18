@@ -110,15 +110,12 @@ reason = "Gamma does not hold them: the functional sentences of the semantics' 2
 
 [[class]]
 name = "hooked functional"
-count = 48
+count = 47
 direction = "atValues"
 at_values = 47
 file = "test/TieKimpAtValues.lean"
 theorems = ["fun_entailed", "fun_checked", "fun_indices"]
 indices = ["fun_indices"]
-remainder = 1
-remainder_indices = [633]
-reason = "633, the functional sentence of ite, which the text states once over a sort variable (axiom{R, SortSort}): it is not the functional sentence of a signature of hookSigs, whose sorts are the registry's, and the library states none of it"
 
 [[class]]
 name = "collection law"
@@ -139,8 +136,8 @@ theorems = ["lib_entailed", "libSet_entailed", "pred_entailed", "ev_entailed", "
 indices = ["lib_indices"]
 note = "72 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 56 term and function equations, the shift simplifications 794, 795, 801, 802 among them); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
 remainder = 2
-remainder_indices = [877, 878]
-reason = "877, 878: ite{SortK}(C, B1, B2) at a condition C true or false, ite at the sort K, of which the library states no equation"
+remainder_indices = [831, 903]
+reason = "831 (bitRangeInt), 903 (signExtendBitRangeInt, bitRangeInt): over symbols Gamma interprets (the registry interprets bitRangeInt and signExtendBitRangeInt), not yet stated at values in test/TieKimpAtValues.lean"
 
 [[class]]
 name = "set idempotence"
@@ -163,16 +160,35 @@ indices = ["setvar_indices"]
 note = "each refuted at sets of values (sN_refuted) and entailed where its set variables hold at most one element (sN_one)"
 
 [[class]]
+name = "function law"
+count = 0
+direction = "hypothesis"
+note = "the text states no law of a function"
+
+[[class]]
+name = "open generator law"
+count = 0
+direction = "equal"
+note = "the text has no open generator"
+
+[[class]]
+name = "open generator functional"
+count = 0
+direction = "hypothesis"
+note = "the text has no open generator"
+
+[[class]]
 name = "no direction"
-count = 36
+count = 37
 direction = "none"
-no_direction = 36
+no_direction = 37
 file = "test/TieKimp.lean"
 theorems = ["account_absent", "absent_closed"]
 groups = [
   "functional of a hooked symbol Gamma does not have: 477 (&Int), 502 (-Map), 521 (<=Map), 592 (xorInt), 594 (|Int), 645 (updateMap), 654 (~Int)",
-  "library sentences over a hooked symbol Gamma does not have: 780 (&Int), 812 (dividesInt), 831 (bitRangeInt), 903 (signExtendBitRangeInt, bitRangeInt)",
+  "library sentences over a hooked symbol Gamma does not have: 780 (&Int), 812 (dividesInt)",
   "the counter cell's initialiser's functional: 611",
   "cell initialisers and the counter getter: 833 to 837 (834 and 837 also apply projections)",
   "projections: 883 to 901",
+  "instances of ite at a sort Gamma does not apply it at (Gamma's kIte is applied at no sort argument): 633 (functional of ite{Sort}), 877, 878 (the equations of ite{K})",
 ]

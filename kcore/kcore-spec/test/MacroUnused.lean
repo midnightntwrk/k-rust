@@ -24,7 +24,7 @@ def verdict (path : String) (names : List String) : IO String := do
   | .ok k =>
     let decl := ((k.modules.getLast?.map (·.sentences)).getD []).filterMap fun s => match s with
       | .symbol x => if names.contains x.symbol.ident.ident.name then
-          some (x.symbol.ident.ident.name, (Parse.classify s).name) else none
+          some (x.symbol.ident.ident.name, (Parse.classifyShape s).name) else none
       | _ => none
     let n := ((Parse.classCounts k).filter fun (c, _) => c == "unread macroUnused").map (·.2)
     return s!"{decl}; {n}; " ++ match Parse.parse k with

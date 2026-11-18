@@ -1,13 +1,14 @@
 /-
   An equation with `\or` on its right side, of a function declared `total`: the expectations of
   fixture `e3-ml-eq-rhs-or-total` (test/constructs/fixtures), derived from its sentence, written as
-  propositions on semantics built by hand (`expect…`, elaborated here, to be proved once
-  `Clause.pre` is read by `Eval` and `clausesPlain`). Run from the package root:
-  `lake env lean -j1 test/EqRhsOr.lean`. Kernel-checked (`decide +kernel`): only what does not
-  depend on a clause's `pre` being read: for `Fx` and `Pt`, every condition of `coreOK` but
-  `clausesPlain` (`sortedRest_ok`, `coreRest_ok`), CN-4 §4.9's final clause conjunct in its place
-  (`clauseE3_ok`), and that today `coreOK` fails at `clausesPlain` alone (`coreOK_now`); for `D`,
-  where Z stands.
+  propositions on semantics built by hand (`expect…`, elaborated here, to be proved; their
+  `coreOK` conjunct is `coreOK_now`). Run from the package root:
+  `lake env lean -j1 test/EqRhsOr.lean`. Kernel-checked (`decide +kernel`): for `Fx` and `Pt`, every
+  condition of `coreOK` but `clausesPlain` (`sortedRest_ok`, `coreRest_ok`), CN-4 §4.9's final
+  clause conjunct (`clauseE3_ok`), `clausesPlain` itself, which admits h's predicates since no
+  condition of h's clauses needs a witness (`clausesPlain_now`), so `coreOK` (`coreOK_now`), and
+  that `ok`, which asks every clause's predicate `\top`, refuses them (`clausesPreTop_now`,
+  `ok_now`); for `D`, where Z stands.
 
   The sentence (kore.txt `//@ 344`, `rule h(X) => f(X) #Or g(X)`, h `total`):
     X0 ∈ X → h(X0) = (f(X) ∨ g(X)) ∧ ⊤
@@ -40,12 +41,11 @@
   no reason naming the shape (`D.clauseE3_1`). `Parse.frRead` refuses the equation itself,
   `manyValuedRightSide`, naming Z as a variable of an alternative that the arguments do not bind
   (test/RhsReader.lean, `eqD`), so these clauses are hand-built only.
-  `c.clausesPlain` is false of the three clauses (`D.clausesPlain_now`), and today that says nothing
-  of Z's sort: the landed text asks `pre = \top` of every clause, and the second clause, which
-  holds no Z, fails it too (`D.pre_now`). What Z's sort contributes is the final conjunct's
-  verdict: false at Int, and true where Z is of Bool, which is confined (`DB`, the shape
-  `k(X) => (X andBool Z) #Or X`: `DB.clauseE3_ok`, with `DB.clausesPlain_now` false for the same
-  reason as at Int).
+  `c.clausesPlain` is false of the three clauses (`D.clausesPlain_now`), at Z's sort: no clause
+  has a condition that needs a witness (`D.needsWitness_none`), so their predicates, none of them
+  `\top` (`D.pre_now`), are admitted, and the first clause fails the final conjunct. Where Z is of
+  Bool, which is confined (`DB`, the shape `k(X) => (X andBool Z) #Or X`), the final conjunct
+  admits the three clauses (`DB.clauseE3_ok`) and so does `clausesPlain` (`DB.clausesPlain_now`).
 
   Reader expectations, to run on the fixtures with that reader: `e3-ml-eq-rhs-or-total` read as
   `Fx`'s clauses of h; `e3-ml-eq-rhs-or` (h not `total`) refused `manyValuedRightSide`.
@@ -159,11 +159,17 @@ theorem sortedRest_ok : sortedRest c = true := by decide +kernel
 theorem coreRest_ok : coreRest c = true := by decide +kernel
 /-- Every clause meets CN-4 §4.9's final clause conjunct. -/
 theorem clauseE3_ok : c.fns.all (fun f => f.clauses.all (clauseE3 c)) = true := by decide +kernel
-/-- Today `clausesPlain` keeps `pre` at `\top`, so h's clauses are outside `coreOK`. -/
-theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
-/-- So `coreOK` fails today, at `clausesPlain` only. -/
-theorem coreOK_now : c.coreOK = false := by
-  rw [coreOK_eq, sortedOK_eq, clausesPlain_now]; simp
+/-- `clausesPlain` admits h's clauses: no condition of theirs needs a witness. -/
+theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
+/-- So `coreOK` holds. -/
+theorem coreOK_now : c.coreOK = true := by
+  rw [coreOK_eq, sortedOK_eq, sortedRest_ok, clausesPlain_now, coreRest_ok]; rfl
+/-- h's clauses have predicates that are not `\top`, which `ok` refuses. -/
+theorem clausesPreTop_now : c.clausesPreTop = false := by decide +kernel
+theorem ok_now : c.ok = false := by
+  cases h : c.ok
+  · rfl
+  · exact absurd (Semantics.preTop_of_okAll (Semantics.okAll_of_ok h)) (by rw [clausesPreTop_now]; decide)
 
 /-- **Expected** (to run): `coreOK` holds; at 0 the one value 0; at every other x both x and -x
 and no other result; so not `FnDet`, not `FnHyp`; `Γc` has no model, as the text has none. -/
@@ -193,10 +199,14 @@ def c : Semantics := sem fFn gFn
 theorem sortedRest_ok : sortedRest c = true := by decide +kernel
 theorem coreRest_ok : coreRest c = true := by decide +kernel
 theorem clauseE3_ok : c.fns.all (fun f => f.clauses.all (clauseE3 c)) = true := by decide +kernel
-theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
-/-- So `coreOK` fails today, at `clausesPlain` only. -/
-theorem coreOK_now : c.coreOK = false := by
-  rw [coreOK_eq, sortedOK_eq, clausesPlain_now]; simp
+theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
+theorem coreOK_now : c.coreOK = true := by
+  rw [coreOK_eq, sortedOK_eq, sortedRest_ok, clausesPlain_now, coreRest_ok]; rfl
+theorem clausesPreTop_now : c.clausesPreTop = false := by decide +kernel
+theorem ok_now : c.ok = false := by
+  cases h : c.ok
+  · rfl
+  · exact absurd (Semantics.preTop_of_okAll (Semantics.okAll_of_ok h)) (by rw [clausesPreTop_now]; decide)
 
 /-- **Expected** (to run): `coreOK` holds. -/
 def expectCore : Prop := c.coreOK = true
@@ -263,8 +273,12 @@ naming the shape; the second, whose `pre` reads X only, passes. -/
 theorem clauseE3_1 : clauseE3 c cl1 = false ∧ clauseE3 c cl3 = false ∧ clauseE3 c cl2 = true := by
   decide +kernel
 
-/-- The landed `clausesPlain` refuses the definition, for a reason that is not Z's sort: each of
-the three clauses has a `pre` that is not `\top`, the second, which holds no Z, among them. -/
+/-- No clause has a condition that needs a witness, so `clausesPlain` admits their predicates. -/
+theorem needsWitness_none : cl1.needsWitness c = false ∧ cl2.needsWitness c = false ∧
+    cl3.needsWitness c = false := by decide +kernel
+
+/-- `clausesPlain` refuses the definition at Z's sort: the first clause fails the final
+conjunct (`clauseE3_1`). -/
 theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
 
 theorem pre_now : cl1.pre.isTop = false ∧ cl2.pre.isTop = false ∧ cl3.pre.isTop = false ∧
@@ -301,8 +315,9 @@ theorem openCondVars_Z : cl1.openCondVars = [1] ∧ cl3.openCondVars = [1] ∧ c
 theorem clauseE3_ok : clauseE3 c cl1 = true ∧ clauseE3 c cl2 = true ∧ clauseE3 c cl3 = true := by
   decide +kernel
 
-/-- The landed `clausesPlain` refuses this definition too, by `pre`. -/
-theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
+/-- `clausesPlain` admits the three clauses: their open condition variable Z is of a confined
+sort, and none needs a witness. -/
+theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
 
 end DB
 
@@ -324,6 +339,8 @@ end KCore
 #guard_msgs in #print axioms KCore.EqRhsOr.Fx.clausesPlain_now
 /-- info: 'KCore.EqRhsOr.Fx.coreOK_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.Fx.coreOK_now
+/-- info: 'KCore.EqRhsOr.Fx.ok_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Fx.ok_now
 /-- info: 'KCore.EqRhsOr.Pt.sortedRest_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.Pt.sortedRest_ok
 /-- info: 'KCore.EqRhsOr.Pt.coreRest_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -334,6 +351,8 @@ end KCore
 #guard_msgs in #print axioms KCore.EqRhsOr.Pt.clausesPlain_now
 /-- info: 'KCore.EqRhsOr.Pt.coreOK_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.Pt.coreOK_now
+/-- info: 'KCore.EqRhsOr.Pt.ok_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Pt.ok_now
 /-- info: 'KCore.EqRhsOr.D.openCondVars_Z' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.D.openCondVars_Z
 /-- info: 'KCore.EqRhsOr.D.clauseE3_1' depends on axioms: [propext, Classical.choice, Quot.sound] -/

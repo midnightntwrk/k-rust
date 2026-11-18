@@ -275,11 +275,11 @@ function, its clauses' variables are held (`Semantics.HeldFn`) or it terminates 
 function of the second kind stands as one named: the induction on the stage takes its termination
 as given, in an accepted interval too (`terminates_of_groupN`); one of the first kind is shown as
 in `terminates_of_rankL`, the extension of a match to every variable read of that function alone. -/
-theorem terminates_of_rankLH (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem terminates_of_rankLH (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (ord : List Sym) (hheld : ∀ fn ∈ c.fns, c.HeldFn fn ∨ Terminates c fn.label)
     (hnamed : ∀ g ∈ c.rankObligations ord ++ c.decObligationsL, Terminates c g) :
     ∀ f, Terminates c f := by
-  have hc := evalCtxN_of_all hok hsr hov
+  have hc := evalCtxN_of_all (hpreTop := hpreTop) hok hsr hov
   obtain ⟨labels, hl⟩ : ∃ l, l = c.fns.map (·.label) := ⟨_, rfl⟩
   obtain ⟨sp, hsp⟩ : ∃ s, s = fwdSpans ord labels (c.fns.filter fun f => !rankedCallees ord labels f) :=
     ⟨_, rfl⟩
@@ -381,21 +381,21 @@ the termination of those `rankObligations` and `decObligationsL` name. By induct
 lower stage; any other function not named calls only itself and functions ranked below it, of a
 lower stage, and its self calls decrease in weight (`terminates_of_decreasingL`) or at an Int counter
 (`terminates_of_ctr`). -/
-theorem terminates_of_rankL (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem terminates_of_rankL (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld)
     (ord : List Sym) (hnamed : ∀ g ∈ c.rankObligations ord ++ c.decObligationsL, Terminates c g) :
     ∀ f, Terminates c f :=
-  terminates_of_rankLH hok hsr hov ord (fun _ hfn => .inl (hrh.heldFn hfn)) hnamed
+  terminates_of_rankLH (hpreTop := hpreTop) hok hsr hov ord (fun _ hfn => .inl (hrh.heldFn hfn)) hnamed
 
 /-- **`terminates_of_rankL` with the held variables asked of the held-named functions only**
 (`Semantics.heldObligations`): of each, `HeldOwed` (its clauses' variables are held, or it has a
 result at every argument list); the others' are held on the data. -/
-theorem terminates_of_rankLN (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem terminates_of_rankLN (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (ord : List Sym) (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
     (hnamed : ∀ g ∈ c.rankObligations ord ++ c.decObligationsL, Terminates c g) :
     ∀ f, Terminates c f :=
-  terminates_of_rankLH hok hsr hov ord
-    (fun _ hfn => (heldOr_of_owed (evalCtxN_of_all hok hsr hov) hheld hfn).imp id And.left) hnamed
+  terminates_of_rankLH (hpreTop := hpreTop) hok hsr hov ord
+    (fun _ hfn => (heldOr_of_owed (evalCtxN_of_all (hpreTop := hpreTop) hok hsr hov) hheld hfn).imp id And.left) hnamed
 
 kernel_rfl Semantics.rankObligations_withHooks :
   ∀ (c : Semantics) (H : HookParams) (ord : List Sym), (c.withHooks H).rankObligations ord = c.rankObligations ord

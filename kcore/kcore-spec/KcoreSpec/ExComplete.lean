@@ -300,7 +300,7 @@ theorem successor_split_ex (h : c.coreOK = true)
   let σ := substOf c I tbl vs r.vars eR
   -- the left side binds the variables it holds at values
   obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hinR
-    (collPat_of_sorted hph' hlhs) hlhs x.property hlR
+    (collPat_of_sorted hph' hlhs) (Semantics.ruleSorted_lhs_nf c hs) x.property hlR
   -- no rule of a smaller priority applies at values: it would apply in the model
   have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
     fun r' hr' hlt' ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt'

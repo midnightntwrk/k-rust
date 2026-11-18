@@ -328,7 +328,8 @@ seven hooked symbols' `functional` sentences (36, 40, 42, 73, 75, 112, 113) and 
 sentences (156, 188) apply a symbol that is not among
 Γ's symbols (`kernelSyms`): Γ states nothing of it, so no direction holds for these sentences.
 `<<Int` and `>>Int` are symbols of Γ (interpreted hooks), so the sentences over them alone are
-not of this kind (`shift_syms`, `account_absent`). -/
+not of this kind (`shift_syms`, `account_absent`); nor are the equations of the two bit ranges
+(207, 263), also interpreted hooks. -/
 
 theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject'Coln'Int",
     "Lbl'UndsAnd-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
@@ -374,12 +375,15 @@ def classes : List (String × List Nat) :=
    ("library", [130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
       150, 151, 152, 153, 155, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171,
       172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 189, 190, 191, 192,
-      193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 208, 242, 243, 244, 245, 246,
-      247, 262]),
+      193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 242, 243, 244, 245, 246,
+      247, 262, 263]),
    ("set idempotence", [61]),
    ("set-variable lemma", [125, 126, 127, 128, 129, 264]),
-   ("no direction", [36, 40, 42, 73, 75, 83, 112, 113, 156, 188, 207, 209, 210, 211, 212, 248, 249, 250, 251, 252, 253,
-      254, 255, 256, 257, 258, 259, 260, 261, 263])]
+   ("function law", []),
+   ("open generator law", []),
+   ("open generator functional", []),
+   ("no direction", [36, 40, 42, 73, 75, 83, 112, 113, 156, 188, 209, 210, 211, 212, 248, 249, 250, 251, 252, 253,
+      254, 255, 256, 257, 258, 259, 260, 261])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -395,8 +399,8 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 29), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
      ("subsort", 15), ("injectivity", 5), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
-     ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence", 1),
-     ("set-variable lemma", 6), ("no direction", 30)] := by
+     ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1),
+     ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 28)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/

@@ -35,7 +35,7 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 theorem hok : c.ok = true := by decide +kernel
 theorem hokH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans hok
@@ -58,7 +58,7 @@ theorem hkf : lookupSig hookSigs f = none := by decide +kernel
 noncomputable abbrev simpAx : AxiomDecl := U.ax201
 
 /-- The reader's class of the sentence. -/
-theorem simp_class : Parse.classify (.axiom simpAx.ax) = .inert .simplification := by decide +kernel
+theorem simp_class : Parse.classifyShape (.axiom simpAx.ax) = .inert .simplification := by decide +kernel
 
 /-- `f(f(X)) => f(X)` as an equation over `f`. -/
 def E : LibEv.Eqn := ⟨[("VarX", Srt.int)], Srt.int, none, .app f [.app f [.var 0]], .app f [.var 0]⟩

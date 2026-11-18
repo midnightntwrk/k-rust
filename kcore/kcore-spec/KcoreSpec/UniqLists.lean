@@ -152,11 +152,11 @@ theorem sig_listConcat : lookupSig hookSigs listConcat = some ⟨listConcat, [Sr
 
 /-- The signature of `_List_` in a left-hand side's context, where no constructor bears its number:
 two lists, a list. -/
-theorem patCtxAll_listConcat {vars : List Srt} {ps : List Term} {s : Srt}
-    (hct : c.isCtor listConcat = false) (ht : sortOfTerm c.patCtxAll vars (.app listConcat ps) = some s) :
-    sortsOfTerms c.patCtxAll vars ps = some [Srt.list, Srt.list] := by
+theorem patCtxNF_listConcat {vars : List Srt} {ps : List Term} {s : Srt}
+    (hct : c.isCtor listConcat = false) (ht : sortOfTerm c.patCtxNF vars (.app listConcat ps) = some s) :
+    sortsOfTerms c.patCtxNF vars ps = some [Srt.list, Srt.list] := by
   obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
-  rcases patCtxAll_collPat_lookup hct (isCollPat_list (by decide)) hk' with ⟨-, hk⟩ | ⟨hh, -⟩
+  rcases patCtxNF_collPat_lookup hct (isCollPat_list (by decide)) hk' with ⟨-, hk⟩ | ⟨hh, -⟩
   · rw [sig_listConcat] at hk
     cases hk
     exact hargs
@@ -173,7 +173,7 @@ mutual
   theorem uniqL_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (p : Term) {D D' : List Nat} {v : GroundTerm} {s : Srt}, uniqL c D p = some D' →
-        PatVal c σ p v → PatVal c σ' p v → sortOfTerm c.patCtxAll vars p = some s →
+        PatVal c σ p v → PatVal c σ' p v → sortOfTerm c.patCtxNF vars p = some s →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | .var j, D, D', v, s, hu, h, h', _, hD => by
       simp only [uniqL, Option.some.injEq] at hu
@@ -261,10 +261,10 @@ mutual
         obtain ⟨vs, hvs, hv⟩ := PatVal.ovl_inv hfo.2 h
         obtain ⟨vs', hvs', hv'⟩ := PatVal.ovl_inv hfo.2 h'
         obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp hs
-        obtain ⟨o, hlo, rfl⟩ := patCtxAll_ovl_lookup hfo.2 hk'
+        obtain ⟨o, hlo, rfl⟩ := patCtxNF_ovl_lookup hfo.2 hk'
         have he := OvlLaws.norm_inj_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hlo (patVals_sortedAllO hmc hσ hvs hargs)
-          (patVals_sortedAllO hmc hσ' hvs' hargs) (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _)
-          (OvlLaws.fnCover_none_of_ok hmc.ovlHyp.ok _ _) (hv.trans hv'.symm)
+          (patVals_sortedAllO hmc hσ' hvs' hargs) (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
+          (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _) (hv.trans hv'.symm)
         subst he
         exact uniqLList_sound hmc hσ hσ' ps hu hvs hvs' hargs hD
       · exact uniq_sound hmc hσ hσ' (.app f ps) hu h h' hs hD
@@ -272,7 +272,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (ps : List Term) {D D' : List Nat} {vs : List GroundTerm} {ss : List Srt},
         uniqLList c D ps = some D' → PatVals c σ ps vs → PatVals c σ' ps vs →
-        sortsOfTerms c.patCtxAll vars ps = some ss →
+        sortsOfTerms c.patCtxNF vars ps = some ss →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | [], D, D', vs, ss, hu, _, _, _, hD => by
       simp only [uniqLList, Option.some.injEq] at hu
@@ -290,7 +290,7 @@ mutual
       (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
       ∀ (ps : List Term) {D D' : List Nat} {vs : List GroundTerm} {ss : List Srt},
         uniqLElem c D ps = some D' → PatVals c σ ps vs → PatVals c σ' ps vs →
-        sortsOfTerms c.patCtxAll vars ps = some ss →
+        sortsOfTerms c.patCtxNF vars ps = some ss →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | [p], D, D', vs, ss, hu, h, h', hs, hD => by
       simp only [uniqLElem] at hu
@@ -307,7 +307,7 @@ mutual
       ∀ (ps : List Term) {D D' : List Nat} {v : GroundTerm} {s : Srt}, c.isCtor listConcat = false →
         uniqLCat c D ps = some D' →
         PatVal c σ (.app listConcat ps) v → PatVal c σ' (.app listConcat ps) v →
-        sortOfTerm c.patCtxAll vars (.app listConcat ps) = some s →
+        sortOfTerm c.patCtxNF vars (.app listConcat ps) = some s →
         (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
     | [.app e [p], rest], D, D', v, s, hct, hu, h, h', hs, hD => by
       simp only [uniqLCat] at hu
@@ -335,7 +335,7 @@ mutual
         cases hw; cases hw'
         simp only [GroundTerm.list.injEq, List.cons_append, List.nil_append, List.cons.injEq] at he
         obtain ⟨-, rfl, rfl⟩ := he
-        obtain ⟨hsE, hsR⟩ := sortsOfTerms_two (patCtxAll_listConcat hct hs)
+        obtain ⟨hsE, hsR⟩ := sortsOfTerms_two (patCtxNF_listConcat hct hs)
         have ht := sortOf_list_tag (patVal_sortedAll hmc hσ hR hsR)
         have ht' := sortOf_list_tag (patVal_sortedAll hmc hσ' hR' hsR)
         subst ht ht'
@@ -383,13 +383,13 @@ returns are among those it was given. -/
 theorem uniqPass_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
     (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
     ∀ (ps : List Term) {D : List Nat},
-      (∀ p ∈ ps, (∃ v, PatVal c σ p v ∧ PatVal c σ' p v) ∧ ∃ s, sortOfTerm c.patCtxAll vars p = some s) →
+      (∀ p ∈ ps, (∃ v, PatVal c σ p v ∧ PatVal c σ' p v) ∧ ∃ s, sortOfTerm c.patCtxNF vars p = some s) →
       (∀ i ∈ D, σ.lookup i = σ'.lookup i) →
       (∀ i ∈ (uniqPass c D ps).1, σ.lookup i = σ'.lookup i) ∧ (∀ p ∈ (uniqPass c D ps).2, p ∈ ps)
   | [], D, _, hD => by simpa [uniqPass] using hD
   | p :: ps, D, hps, hD => by
     have hrest : ∀ q ∈ ps, (∃ v, PatVal c σ q v ∧ PatVal c σ' q v) ∧
-        ∃ s, sortOfTerm c.patCtxAll vars q = some s := fun q hq => hps q (List.mem_cons_of_mem _ hq)
+        ∃ s, sortOfTerm c.patCtxNF vars q = some s := fun q hq => hps q (List.mem_cons_of_mem _ hq)
     unfold uniqPass
     split
     · rename_i D' hu
@@ -405,7 +405,7 @@ theorem uniqPass_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
 theorem uniqArgs_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
     (hσ : c.WellSorted vars σ) (hσ' : c.WellSorted vars σ') :
     ∀ (n : Nat) (ps : List Term) {D D' : List Nat}, uniqArgs c n D ps = some D' →
-      (∀ p ∈ ps, (∃ v, PatVal c σ p v ∧ PatVal c σ' p v) ∧ ∃ s, sortOfTerm c.patCtxAll vars p = some s) →
+      (∀ p ∈ ps, (∃ v, PatVal c σ p v ∧ PatVal c σ' p v) ∧ ∃ s, sortOfTerm c.patCtxNF vars p = some s) →
       (∀ i ∈ D, σ.lookup i = σ'.lookup i) → ∀ i ∈ D', σ.lookup i = σ'.lookup i
   | _, [], D, D', hu, _, hD => by
     unfold uniqArgs at hu
@@ -420,7 +420,7 @@ theorem uniqArgs_sound (hmc : MatchCtxO c) {σ σ' : Subst} {vars : List Srt}
 left-hand side's context, fix all of its variables (`uniqArgs_sound`), and its right-hand side's
 and its `ensures`' are among them. -/
 theorem clauseFixedL_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hens : reqOK x cl.vars cl.ens = true)
     (hfx : c.clauseFixedL cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
@@ -431,7 +431,7 @@ theorem clauseFixedL_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt}
   · rename_i D hD
     simp only [List.all_eq_true, List.contains_iff_mem, List.mem_range] at hfx
     have hag : ∀ i, i < cl.vars.length → σ.lookup i = σ'.lookup i := fun i hi =>
-      uniqArgs_sound hmc hσ hσ' _ cl.pats hD
+      uniqArgs_sound hmc ((wellSortedAt_univ hx).mp hσ) ((wellSortedAt_univ hx).mp hσ') _ cl.pats hD
         (fun p hp => ⟨patVals_pairs hm hm' p hp, sortsOfTerms_each hpt p hp⟩) (fun _ h => by cases h) i (hfx i hi)
     refine .inl ⟨hx, hx, rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
     rw [ht] at hens
@@ -459,7 +459,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
     | some t => simpa [reqOK, he] using hens t he
   rcases List.mem_append.mp hmem with hf | hp
   · cases hfx : c.clauseFixedL cl with
-    | true => exact clauseFixedL_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixedL_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false =>
       obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
       refine hob (fn.label, i) ?_ fn (by rw [hlab]; exact hfn) _ (List.getElem?_eq_getElem hi)
@@ -468,7 +468,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx]
   · cases hfx : c.clauseFixed cl with
-    | true => exact clauseFixed_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixed_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false => exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
 
 kernel_rfl Semantics.matchObligationsL_withHooks :

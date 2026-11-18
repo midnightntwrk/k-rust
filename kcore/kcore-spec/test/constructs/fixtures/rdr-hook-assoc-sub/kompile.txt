@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-hook-assoc-sub.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.9
+definition.kore bytes: 201786
+definition.kore sha256: dc5d48cd98974a17af749b527df01b237333fdf40e0745427f95d6b2b3c21d78
+stripped sha256: c1606b2664540047bc2266a7e45c9c775e1fe68120d82e5c89b05430ebefdc6c
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-HOOK-ASSOC-SUB-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-HOOK-ASSOC-SUB as default.

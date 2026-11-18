@@ -82,7 +82,7 @@ theorem matchCtxO_of {c : Semantics} (h : c.matchReadyO = true) : MatchCtxO c :=
 
 /-- Without overloading symbols, `MatchCtx` gives `MatchCtxO`. -/
 theorem MatchCtx.o {c : Semantics} (h : MatchCtx c) : MatchCtxO c :=
-  ⟨h.trans, h.irrefl, h.patHooks, by simp [Semantics.overloadsOK, h.noOvl]⟩
+  ⟨h.trans, h.irrefl, h.patHooks, by simp [Semantics.overloadsOK, Semantics.ovlPatsOK, Semantics.fnOvlSyms, h.noOvl]⟩
 
 /-- A lemma over `MatchCtxO` applies where `MatchCtx` holds. -/
 instance {c : Semantics} : Coe (MatchCtx c) (MatchCtxO c) := ⟨MatchCtx.o⟩
@@ -120,21 +120,6 @@ theorem bindVar_complete {σ τ : Subst} {i : Nat} {v : GroundTerm} (hx : Ext σ
       | false => exact hw
 
 /-! ## Sorts of what patterns denote -/
-
-theorem sortOfTerm_as {x : TermCtx} {vars : List Srt} {t : Term} {i : Nat} {s : Srt} :
-    sortOfTerm x vars (.as t i) = some s → vars[i]? = some s ∧ sortOfTerm x vars t = some s := by
-  simp only [sortOfTerm]
-  split
-  · rename_i v s' _ hv hs
-    intro h
-    split at h
-    · rename_i he
-      rw [beq_iff_eq] at he
-      cases h
-      subst he
-      exact ⟨hv, hs⟩
-    · cases h
-  · intro h; cases h
 
 theorem patternHooks_lookup : ∀ f ∈ patternHooks,
     lookupSig (hookSigs.filter (patternHooks.contains ·.name)) f = lookupSig hookSigs f := by decide +kernel

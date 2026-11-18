@@ -38,7 +38,7 @@ def HypSoundCore (c : Semantics) : Prop :=
     collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧ OvlOK c
 
 theorem HypSound.core {c : Semantics} (h : HypSound c) : HypSoundCore c :=
-  ⟨Semantics.sortedOK_of_okAll h.1, h.2⟩
+  ⟨Semantics.sortedOK_of_okAll h.1 (Semantics.overloadsOK_pats h.2.2.2.2.2.2.2.2.ok), h.2⟩
 
 section
 variable {c : Semantics} (h : patHeadsOK c = true)
@@ -82,7 +82,7 @@ that satisfies `HypSoundCore`: in every model of `Γ c`, the configuration `x` h
 kernel says it fails (`exclusion_emptyC`, `applies_emptyC`): every pattern of a clause or a
 left-hand side is in the downward reading's scope (`collPat_of_sorted`), so no clause or rule needs
 to be read positively only. -/
-theorem step_sound_core (c : Semantics) (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := h
@@ -92,18 +92,19 @@ theorem step_sound_core (c : Semantics) (h : HypSoundCore c) (hb : ∀ r ∈ c.r
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
-  refine step_at4 hI hnn hsc hok hbc hph
+  refine step_at4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph
     (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hb htop (fun r hr _ => ?_) hstep e m hm
   obtain ⟨hlhs, -⟩ := rule_ctx hok hr
   exact fun hx _ hkeys e hfail =>
-    applies_emptyC hI hph hcs hcso hg hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (collPat_of_sorted hph' hlhs) (htop _ hr).1 hx hkeys e hfail
+    applies_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (Semantics.lhs_nf OvlOK.ok hr hlhs) (Exec.binds_all (hb _ hr)) (collPat_of_sorted hph' hlhs) (htop _ hr).1 hx hkeys e hfail
 
 /-- **An undefined result is a theorem of `Γ`**, for a semantics that satisfies `HypSoundCore`:
 where `f` has the result none at `vs`, `Γ` entails `f(vs) = ⊥` (`eval_den4`, its competitors' exclusions
 empty as in `step_sound_core`). -/
-theorem eval_none_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_none_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     (hE : Eval c f vs none) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ ⊥) := by
@@ -114,18 +115,20 @@ theorem eval_none_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   exact ⟨fun h => h.elim, fun h => by simp [Pattern.interpret] at h⟩
 
 /-- **Step soundness** under `HypSound`: `step_sound_core`. -/
 theorem step_sound (c : Semantics) (h : HypSound c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  step_sound_core c h.core hb htop hbc
+  have hpreTop := Semantics.preTop_of_okAll h.1
+  step_sound_core (hpreTop := hpreTop) c h.core hb htop hbc
 
 end Faithful
 

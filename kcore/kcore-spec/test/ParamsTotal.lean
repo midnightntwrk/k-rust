@@ -64,7 +64,7 @@ theorem pt_lookup : pt.lookupFn Fp = some fnFp := by rfl
 theorem pt_Fp_total (H : HookParams) (hH : ParamsTotal pt [P] H)
     (hterm : ∀ g, Terminates (pt.withHooks H) g) (hco : CoherentAll (pt.withHooks H))
     (hq : Total (pt.withHooks H) Fq) : Total (pt.withHooks H) Fp :=
-  totals_of_rankP (c := pt.withHooks H) pt_sorted.1 pt_sorted.2
+  totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := pt.withHooks H) pt_sorted.1 pt_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := pt) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) hterm hco [Fp, Fq] [P]
     (hH.withHooks (by decide +kernel))

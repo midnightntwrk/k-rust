@@ -226,7 +226,7 @@ theorem stepGo : StepBy c3 r3 σ3 Go Zero := by
 /-- **`famEx_closedCl` at `stepGo`**: in every model of `Γc c3`, the instances of the step are
 `<k> 0 </k>`, nothing assumed (no clause needs a witness). -/
 example : Faithful.Γc c3 ⊧ (Faithful.famEx c3 r3 σ3 ≡ den c3 Zero.val) :=
-  Faithful.famEx_closedCl c3 decided.1 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 decided.2.2.2.2.2.2.1
+  Faithful.famEx_closedCl (hpreTop := by decide +kernel) c3 decided.1 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 decided.2.2.2.2.2.2.1
     stepGo r3_shape.2.2.2.2 (Cond.eq_top_of_isTop (by decide +kernel)) (fun _ hfn _ hcl hw => (noWit hfn hcl hw).elim)
 
 /-- info: 'KCore.Faithful.famEx_closedCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -334,7 +334,7 @@ theorem no_E (v : GroundTerm) : c3.sortOf v ≠ some 33 := by
 /-- `clYE` applies under no substitution: Y is of Empty. -/
 theorem clYE_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesAt c3 σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 rfl
+  obtain ⟨v, -, hv⟩ := (wellSortedAt_univ rfl).mp h 0 33 rfl
   exact no_E v hv
 
 /-- A clause without `ensures` whose right side is a literal is coherent with itself. -/
@@ -376,7 +376,7 @@ theorem matchInd3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
 /-- **`fnModel_ofCl` at `c3`**: `c3`'s functions have one result at each argument list and its
 evaluation solves the equations, nothing assumed. -/
 theorem fnModel3 : FnDet c3 ∧ FnSolves c3 :=
-  Faithful.fnModel_ofCl decided.1 decided.2.1 ovl3 fnTerminates3 agree3 matchInd3
+  Faithful.fnModel_ofCl (hpreTop := by decide +kernel) decided.1 decided.2.1 ovl3 fnTerminates3 agree3 matchInd3
 
 /-- What `FnHyp` asks beyond: `isC`, the total function, has a value at each argument; no clause and
 no rule needs a witness; no parameter is an open generator. -/
@@ -457,7 +457,7 @@ theorem fnHyp3 : FnHyp c3 :=
     fun k hk hraw => (by have := List.all_eq_true.mp rest3.2.2 k hk; simp [hraw] at this)⟩
 
 /-- **`fnModel_of_fnHypCl` at `c3`.** -/
-example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHypCl decided.1 decided.2.1 ovl3 fnHyp3
+example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHypCl (hpreTop := by decide +kernel) decided.1 decided.2.1 ovl3 fnHyp3
 
 /-- info: 'KCore.fnModel_of_fnHypCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms fnModel_of_fnHypCl
@@ -529,7 +529,7 @@ successor of `<k> go </k>` is `<k> 0 </k>`, the evaluation at `go` decided by `s
 witness, no rule leaves a variable open). -/
 example : (Faithful.Γc c3 ∪ Faithful.Γstep c3) ⊧
     (den c3 Go.val ⇒ KoreAML.allNext (KoreAML.disjList ([Outcome.val Zero.val].map (Outcome.pat c3)))) :=
-  complete_atCl c3 decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 Go
+  complete_atCl (hpreTop := by decide +kernel) c3 decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1 Go
     (Faithful.stepDecided_of_coreCl decided.1 rulesBind3 (Semantics.rulesTop_of_isTop (by decide +kernel)) decided.2.1 ovl3 fnTerminates3 Go.val) _
     (fun y r σ _ hs => by rw [succ_go hs]; exact List.mem_singleton_self _)
     (fun r hr hop => by
@@ -690,7 +690,7 @@ example (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.wit
 /-- The two lemmas under the form, at `c3`: every function terminates, `f` among them, by the rank
 and the owed fact. -/
 example : ∀ f, Terminates c3 f :=
-  terminates_of_rankLN shape.2.2.2.2.1 decided.2.1 (Semantics.ovlCase_of_core core3) ord3 held3 obl3.1
+  terminates_of_rankLN (hpreTop := by decide +kernel) shape.2.2.2.2.1 decided.2.1 (Semantics.ovlCase_of_core core3) ord3 held3 obl3.1
 
 /--
 info: 'OpenClausePinsTest.fnHyp3N' depends on axioms: [propext, Classical.choice, Quot.sound]
@@ -883,7 +883,7 @@ theorem no_E5 (v : GroundTerm) : c5.sortOf v ≠ some 33 := by
 
 theorem clYE_not_applies5 (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesAt c5 σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 rfl
+  obtain ⟨v, -, hv⟩ := (wellSortedAt_univ rfl).mp h 0 33 rfl
   exact no_E5 v hv
 
 theorem coherent_dv5 {cl : Clause} (hx : cl.exs = []) (hn : cl.ens = none) {s : Srt} {l : Lit}
@@ -965,7 +965,7 @@ theorem hypModel5 : Faithful.Model.HypModelCore c5 :=
 its patterns and conditions**: in the value model, `clYE`'s exclusion holds exactly where its
 (empty) patterns match and its (absent) `requires` holds under a substitution well sorted on
 `leftVars`, which is empty; Y is not asked a value. -/
-example := @Faithful.Model.exclusion_iffCl c5 hypModel5 fF5
+example := @Faithful.Model.exclusion_iffCl c5 (by decide +kernel) hypModel5 fF5
   (List.mem_append_left _ (List.mem_append_right _ (List.mem_singleton_self _))) clYE (List.mem_cons_self ..)
 
 /-- info: 'KCore.Faithful.Model.exclusion_iffCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/

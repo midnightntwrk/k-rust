@@ -79,13 +79,14 @@ def c : Semantics :=
 /-! ## The conditions -/
 
 def ovlsButIte (c : Semantics) : Bool :=
-  c.ovls.zipIdx.all fun (o, i) =>
+  (c.ovls.zipIdx.all fun (o, i) =>
     c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o &&
     (Faithful.consSorts c).contains o.sig.result &&
     o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) &&
     (c.ovlOver o).length == o.over.length &&
     (c.ovlOver o).all (c.ovlPairOK o) &&
-    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2
+    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
+  c.ovlPatsOK
 
 def ovlsPlain (c : Semantics) : Bool :=
   c.ovls.zipIdx.all fun (o, _) => (iteSort? (c.symName o.sig.name)).isNone
@@ -95,15 +96,17 @@ theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovl
   rw [Bool.eq_iff_iff]
   simp only [Semantics.overloadsOK, ovlsButIte, ovlsPlain, List.all_eq_true, Bool.and_eq_true]
   constructor
-  · intro h
-    refine ⟨fun x hx => ?_, fun x hx => (h x hx).1.1.1.1.1.2⟩
+  · rintro ⟨h, hp⟩
+    refine ⟨⟨fun x hx => ?_, hp⟩, fun x hx => (h x hx).1.1.1.1.1.2⟩
     obtain ⟨⟨⟨⟨⟨⟨⟨a, b⟩, -⟩, d⟩, e⟩, f⟩, g⟩, k⟩ := h x hx
     exact ⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩
-  · rintro ⟨h1, h2⟩ x hx
+  · rintro ⟨⟨h1, hp⟩, h2⟩
+    refine ⟨fun x hx => ?_, hp⟩
     obtain ⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩ := h1 x hx
     exact ⟨⟨⟨⟨⟨⟨⟨a, b⟩, h2 x hx⟩, d⟩, e⟩, f⟩, g⟩, k⟩
 
 theorem sortedOK : c.sortedOK = true := by decide_cheap
+theorem clausesPreTopC : c.clausesPreTop = true := by decide +kernel
 theorem readsConfined : c.readsConfined = false := by decide +kernel
 
 theorem fnHyp : FnHyp c :=
@@ -396,7 +399,7 @@ theorem arity_sat : I ⊧ᴵ (symArityItem c fSig).pat := by
 set_option maxHeartbeats 1000000 in
 theorem sig_align : (sigItems c).map (fun it => if it.pat = (symArityItem c fSig).pat then (symArityItem c2 fSig).pat
     else ren it.pat) = (sigItems c2).map (·.pat) := by
-  decide_map_blocks 25 8
+  decide_map_blocks 25 20
 
 theorem satI_sig {φ : KoreAML.P} (h : ΓSig c φ) : I ⊧ᴵ φ := by
   rcases h with (⟨it, hit, rfl⟩ | ⟨x, rfl⟩) | ⟨lit, rfl⟩
@@ -455,7 +458,7 @@ theorem satI_colls {φ : KoreAML.P} (h : ΓColls c φ) : I ⊧ᴵ φ := by
 
 theorem hooks_dec : hookSigs.all (fun k => decide (k.name < nRegSyms) &&
     (iteSort? (regSymNames.getD k.name "")).isNone) = true := by
-  decide +kernel
+  decide_cheap 20
 
 theorem hook_names {k : CtorSig} (hk : k ∈ hookSigs) :
     iteSort? (c.symName k.name) = none ∧ iteSort? (c2.symName k.name) = none := by
@@ -555,7 +558,7 @@ theorem not_allFail {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm} (hs
   cases hf [(0, v)] hws hpv with
   | intro ht _ _ => rw [hreq] at ht; cases ht
   | pre h =>
-    rw [Semantics.sortedOK_preTop sortedOK fn hfn cl hcl] at h
+    rw [Semantics.allFns_preTop clausesPreTopC fn hfn cl hcl] at h
     cases h
 
 theorem satI_fallback {φ : KoreAML.P} (h : ΓFallback c φ) : I ⊧ᴵ φ := by

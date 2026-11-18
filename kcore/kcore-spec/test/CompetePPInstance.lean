@@ -58,27 +58,7 @@ def cM : Semantics := { base with rules := [kcMem, r200] }
 def cfgK (x n : Int) : GroundTerm :=
   .ctor topLabel [.ctor kIds.label [.ctor kseq [.inj Srt.int Srt.kitem (int x), .ctor dotk []]], .ctor counterLabel [int n]]
 
-open Faithful.Model in
-/-- `coreOK` from its conjuncts, each a decision of its own: the names apart by their sorted codes
-(`namesApartFast`), `itesApart` on the names' codes (`itesApart_of_codes`). -/
-theorem coreOK_partsCPP {c : Semantics} {I : List Nat}
-    (hI : iteIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
-    (hite : itesApartC c I ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
-    (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
-    (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartFast c = true)
-    (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h11 : kindsApart c = true)
-    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true) (hha : c.hooksApart = true)
-    (hpa : c.predsApart = true) (hids : c.idsOK = true) (hov : c.overloadsOK = true) :
-    c.coreOK = true := by
-  have hfa := Semantics.faithCoreOK_of_parts h1 h2 h3 h4 h5 h6 h7 h8
-    (itesApart_of_codes rfl rfl hI hite) h11 h12 h13
-  simp only [Semantics.coreOK, hs, hfa, hha, hpa, hids, hov, Bool.and_self]
-
-theorem coreM : cM.coreOK = true :=
-  coreOK_partsCPP (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+theorem coreM : cM.coreOK = true := by decide_cheap
 
 /-- What the two lemmas ask of the core and of the rule, decided (`coreOK` by `coreM`). -/
 theorem facts : cM.coreOK = true ∧ cM.ruleSorted kcMem = true ∧ cM.rulePlainPP kcMem = true ∧

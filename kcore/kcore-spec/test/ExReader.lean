@@ -11,9 +11,10 @@
   - `exvarstwo` (e3-vars-two): `c() => d(?Y:Int, ?Z:Int)`, written `\exists(?Y, \exists(?Z, …))`:
     read, `exs` `?Y` then `?Z`; with the binders swapped in the text (`swapped`), `?Z` then `?Y`.
   - `exvarsbool` (e3-vars-bool): `c() => d(?Z:Bool)`: read (arm A, and Bool is confined).
-  - `exvarslist` (e3-vars-list): `L => ListItem(?V:Int) L`: `openRight`, `?V` under the list's
-    symbols, which are no constructors, and Int unconfined.
-  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), so the three read
+  - `exvarslist` (e3-vars-list): `L => ListItem(?V:Int) L`: read, `?V` held under the list's
+    element and concatenation symbols (`heldOccs`, HO-1), which `rulePlainEx`'s constructor arm
+    does not read (`rulePlainEx false`).
+  `rulesPlain` asks `rulePlainHO1` of each rule (`Semantics.rulesPlain_iff_held`), so the four read
   texts are well formed and have `coreOK` (`Vars.rule2` for e3-vars, by the kernel).
 
   The binders are read by the sentence's scoping (C3.reader-exists-binders; section "Hand-written
@@ -76,7 +77,8 @@ exvarstwo rule 0: exs [2, 3] ['Ques'Y, 'Ques'Z]; rulePlainEx true; openRefusal n
 exvarstwo: wf failing []; rulesPlain true; coreOK true
 exvarsbool rule 0: exs [1] ['Ques'Z]; rulePlainEx true; openRefusal none true
 exvarsbool: wf failing []; rulesPlain true; coreOK true
-exvarslist: KCore.Parse.RefusalReason.openRight Var'Ques'V:Int: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's
+exvarslist rule 0: exs [3] ['Ques'V]; rulePlainEx false; openRefusal none true
+exvarslist: wf failing []; rulesPlain true; coreOK true
 -/
 #guard_msgs in
 #eval show IO Unit from do

@@ -151,11 +151,11 @@ theorem ws_disagree : ¬ ClausesAgree ws fnWs := by
       Fails ws [vNil, vM1] cl' := fun cl hc cl' h _ hlt => absurd hlt (by
     have : cl'.prio = 50 := by simp [fnWs, clW0, clW1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
-  rcases (h clW0 clW1 hp (.inl rfl)).1 [vNil, vM1] _ _ ⟨hws, hm0, (fun _ ht => by cases ht), .top⟩
-      ⟨hws, hm1, (fun t ht => by cases ht; exact hreq), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet)
+  rcases (h clW0 clW1 hp (.inl rfl)).1 [vNil, vM1] _ _ ⟨hws.at _, hm0, (fun _ ht => by cases ht), .top⟩
+      ⟨hws.at _, hm1, (fun t ht => by cases ht; exact hreq), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet)
       (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
-      ⟨Ws, fnWs, rfl, by simp [fnWs], by simp [fnWs], ⟨⟨hws, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
-        ⟨⟨hws, hm1, (fun t ht => by cases ht; exact hreq), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
+      ⟨Ws, fnWs, rfl, by simp [fnWs], by simp [fnWs], ⟨⟨hws.at _, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
+        ⟨⟨hws.at _, hm1, (fun t ht => by cases ht; exact hreq), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
   · simp [clW0, clW1] at hr
   · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, hr0⟩⟩)
       (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
@@ -237,9 +237,9 @@ theorem gm_disagree : ¬ ClausesAgree gm fnGm := by
     have : cl'.prio = 50 := by simp [fnGm, clG0, clG1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
   have ha0 : clG0.AppliesAt gm σ₀ [m12] :=
-    ⟨gm_ws _ _ (by decide +kernel) _ (by decide +kernel) (by decide +kernel), hm0, (fun _ ht => by cases ht), .top⟩
+    ⟨(gm_ws _ _ (by decide +kernel) _ (by decide +kernel) (by decide +kernel)).at _, hm0, (fun _ ht => by cases ht), .top⟩
   have ha1 : clG1.AppliesAt gm σ₁ [m12] :=
-    ⟨gm_ws _ _ (by decide +kernel) _ (by decide +kernel) (by decide +kernel), hm1, (fun _ ht => by cases ht), .top⟩
+    ⟨(gm_ws _ _ (by decide +kernel) _ (by decide +kernel) (by decide +kernel)).at _, hm1, (fun _ ht => by cases ht), .top⟩
   rcases (h clG0 clG1 hp (.inl rfl)).1 [m12] σ₀ σ₁ ha0 ha1 (fun _ ht => by cases ht) (fun _ _ => hdet)
       (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨Gm, fnGm, rfl, by simp [fnGm], by simp [fnGm], ⟨ha0, hlow _ rfl⟩, ⟨ha1, hlow _ rfl⟩⟩ with ⟨-, -, -, -, hv, -⟩ | hr
@@ -301,6 +301,7 @@ theorem pa_agree : ClausesAgree pa fnPa :=
       have := Semantics.sortedOK_sorted pa_sorted.1
       simp only [Bool.and_eq_true, List.all_eq_true] at this
       exact this.1.2 fnPa (by simp [pa, core]) cl h)
+    (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
     (by decide +kernel)).agree (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
 
 end KCore.AgreeInstTest

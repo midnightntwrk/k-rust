@@ -387,18 +387,18 @@ theorem witW : clW.Witnessed cOC := by
 sort and that `clW` is decided are proved, not assumed. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cOC) :
     Faithful.ExclEmptyCl cOC I gB clB ∧ Faithful.ExclEmptyCl cOC I gP clP ∧ Faithful.ExclEmptyCl cOC I gW clW :=
-  ⟨Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.1.1 coreOC.2.2.2.1.2
+  ⟨Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.1.1 coreOC.2.2.2.1.2 rfl
       (fun _ => coreOC.2.1) (fun h => by rw [coreOC.2.2.2.2.2.2.2.1] at h; cases h),
-   Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.2.1.1 coreOC.2.2.2.2.1.2
+   Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.2.1.1 coreOC.2.2.2.2.1.2 rfl
       (fun _ => coreOC.2.1) (fun h => by rw [coreOC.2.2.2.2.2.2.2.2.1] at h; cases h),
-   Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.2.2.1.1 coreOC.2.2.2.2.2.1.2
+   Faithful.exclEmptyCl_of coreOC.1 hI Faithful.fns_headsOK coreOC.2.2.2.2.2.1.1 coreOC.2.2.2.2.2.1.2 rfl
       (fun _ => coreOC.2.1) (fun _ => Or.inl witW)⟩
 
 /-- `exclEmptyCl_core` at `clW`, from `Fails` alone. -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cOC)
     {w : GroundTerm} (hw : cOC.sortsOf [w] = some [Srt.int]) (hf : Fails cOC [w] clW) : True := by
-  have := @Faithful.exclEmptyCl_core cOC M _ I coreOC.1 (by decide +kernel) hI gW clW _ Faithful.fns_headsOK coreOC.2.2.2.2.2.1.1
-    coreOC.2.2.2.2.2.1.2 (fun _ => coreOC.2.1) (fun _ => Or.inl witW) [w] hw hf
+  have := @Faithful.exclEmptyCl_core cOC M _ I (by decide +kernel) coreOC.1 (by decide +kernel) hI gW clW _ Faithful.fns_headsOK
+    coreOC.2.2.2.2.2.1.1 coreOC.2.2.2.2.2.1.2 rfl (fun _ => coreOC.2.1) (fun _ => Or.inl witW) [w] hw hf
   trivial
 
 /-- info: 'OpenRulesCore.C.witW' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -558,7 +558,7 @@ theorem not_hbcOW : ¬ ∀ fn ∈ cOW.fns, ∀ cl ∈ fn.clauses, binds cl.vars.
 /-- **`exclEmptyCl_of` at `clW`, a clause of `cOW`.** -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cOW) :
     Faithful.ExclEmptyCl cOW I gW clW :=
-  Faithful.exclEmptyCl_of shapeOW.1 hI Faithful.fns_headsOK (by decide +kernel) (by decide +kernel)
+  Faithful.exclEmptyCl_of shapeOW.1 hI Faithful.fns_headsOK (by decide +kernel) (by decide +kernel) rfl
     (fun _ => by decide +kernel) (fun _ => Or.inl witOW)
 
 /-- info: 'OpenRulesCore.C.fnHypOW' depends on axioms: [propext, Classical.choice, Quot.sound] -/

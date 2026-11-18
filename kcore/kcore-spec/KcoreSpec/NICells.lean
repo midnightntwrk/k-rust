@@ -87,6 +87,7 @@ mutual
   def cellPaths (n : String) : Cell → HPaths
     | .leaf m _ _ => if m == n then [[0]] else []
     | .node m cs _ => if m == n then [[]] else cellPathsL n 0 cs
+    | .coll _ => []
     termination_by structural x => x
   def cellPathsL (n : String) : Nat → List Cell → HPaths
     | _, [] => []

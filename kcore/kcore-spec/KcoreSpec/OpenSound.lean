@@ -203,8 +203,10 @@ theorem applies_matchOpen (h : c.coreOK = true) (hIΓ : I ⊧ᴵP Γ c) {r : Rul
   have hlx1 := (tr_kore_congr r.lhs (fun i hi => (hoff1 i (hltL i hi) (hlhsL i hi)).symm) _).mp hbody.1
   have hlhs' : sortOfTerm c.patCtxAll r.leftSorts r.lhs = some topCellSort := by
     rw [sortOfTerm_congr r.lhs fun i hi => Rule.leftSorts_getElem? (hltL i hi) (hlhsL i hi)]; exact hlhs
+  have hlhsN' : sortOfTerm c.patCtxNF r.leftSorts r.lhs = some topCellSort := by
+    rw [sortOfTerm_congr r.lhs fun i hi => Rule.leftSorts_getElem? (hltL i hi) (hlhsL i hi)]; exact Semantics.ruleSorted_lhs_nf c hs
   obtain ⟨hpv, -⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPat_of_sorted hph' hlhs')
-    hlhs' x.property hlx1
+    hlhsN' x.property hlx1
   exact ⟨_, hpv⟩
 
 /-- **A competitor that does not apply does not apply in a model of `Γc`**, the condition on its
@@ -390,7 +392,7 @@ theorem step_soundOpen (h : c.coreOK = true)
       (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs r.lhs)).interpret I e' (elemOf c I x.val) ∧
       (KoreAML.tr ⟨tbl, []⟩ (reqPat C (r.req.map (Term.kore c vs)))).interpret I e' (elemOf c I x.val) :=
     fun tbl e' hag =>
-      ⟨(patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch hlhs).2 _ |>.mpr
+      ⟨(patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (Semantics.ruleSorted_lhs_nf c hs)).2 _ |>.mpr
         ((elemOf_spec hIΓ x.property e').1 _ |>.mpr rfl),
        reqPat_holds hIΓ (fun t ht b => evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) (hreq t ht) fns_headsOK hσ
         (canonVars_length c r.vars) hag (hreqs t ht) b) (elemOf_top hIΓ x tbl e')⟩

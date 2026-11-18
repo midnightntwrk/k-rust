@@ -53,9 +53,9 @@ open KCore ML Faithful KoreAML
 
 /-! ## Facts over any semantics -/
 
-/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore`: where `f` has the
+/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` whose clauses' predicates are all top: where `f` has the
 value `v` at `vs`, `Γ` entails `f(vs) = v` (`eval_den4`). -/
-theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ den c v) := by
@@ -66,11 +66,12 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 /-- **Two values of one sort that one pattern equals in a model of Γ are one value**: distinct
@@ -322,7 +323,7 @@ theorem userCl_fails_i3 (H : HookParams) : Fails (cH H) [i3] clU := .intro fun �
     | as h' _ => exact absurd (patVal_e h') i3_ne_ve
 
 theorem appliesO (H : HookParams) : clO.AppliesAt (cH H) [(0, i3)] [i3] :=
-  ⟨by rw [vO]; exact ws1 (sort_i3H H),
+  ⟨by rw [vO]; exact (ws1 (sort_i3H H)).at _,
    by rw [ptO]; exact .cons (.var rfl) .nil,
    (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
 
@@ -340,7 +341,7 @@ theorem lowerO (H : HookParams) :
 /-- At `inj 3`: `e`, by the `[owise]` clause, for every H. -/
 theorem eval_owise (H : HookParams) : Eval (cH H) negExp [i3] (some ve) :=
   .clause (cl := clO) (σ := [(0, i3)]) (hfnH H) (by rw [fn_clauses]; simp)
-    (appliesO H).1 (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
+    ((wellSortedAt_univ exsO).mp (appliesO H).1) (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
     exsO (by rw [rO]; exact .ctor (isCtor_eH H) .nil) (fun t ht => by rw [eO] at ht; cases ht)
     (Clause.holds_postTop postO _)
 
@@ -373,7 +374,7 @@ theorem rhsV (H : HookParams) : ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTer
       rw [fn_clauses] at hmem
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
       rcases hmem with rfl | rfl | rfl
-      · exact ⟨_, ⟨hσ, hmatch, hreq, hpre⟩, hrhs⟩
+      · exact ⟨_, ⟨hσ.at _, hmatch, hreq, hpre⟩, hrhs⟩
       · rw [ptU] at hmatch
         cases hmatch with
         | cons h1 _ =>
@@ -439,7 +440,7 @@ theorem okH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).
 /-- `Γ` entails `negExp(inj 3) = v` for each result v, for every H. -/
 theorem entails_i3 (H : HookParams) (v : GroundTerm) (hE : Eval (cH H) negExp [i3] (some v)) :
     Γ (cH H) ⊧ (KoreAML.den (symApp (cH H) negExp (GroundTerm.koreList (cH H) [i3])) ≡ den (cH H) v) :=
-  eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_i3H H)
+  eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (okH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_i3H H)
 
 /-- **Γ has no model**, for every H: in a model, `negExp(inj 3)` denotes `inj -3` and `e` (the two
 `Eval` results), distinct values of Exp. -/

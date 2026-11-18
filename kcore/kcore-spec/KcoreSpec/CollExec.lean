@@ -543,14 +543,18 @@ theorem rule_atoms_of_execReady {c : Semantics} (hr : execReady c = true) {r : R
   obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.1.2 r hmem
   exact ⟨hpre, hpost, hb⟩
 
+/-- Every clause of a core `execReady` accepts has the predicate `\top` (`clausesPreTop`). -/
+theorem clausesPreTop_of_execReady {c : Semantics} (hr : execReady c = true) : c.clausesPreTop = true := by
+  simp only [execReady, Bool.and_eq_true] at hr
+  exact hr.2
+
 /-- Every clause of a function of a core `execReady` accepts has the predicate `\top`: the user's
 by `execReady`, a sort predicate's by its text. -/
 theorem preTop_of_execReady {c : Semantics} (hr : execReady c = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
-  simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
   intro fn hfn cl hcl
   rcases List.mem_append.mp hfn with hu | hp
-  · exact Cond.eq_top_of_isTop (hr.2 fn hu cl hcl)
+  · exact Semantics.clausesPreTop_spec (clausesPreTop_of_execReady hr) hu hcl
   · exact Semantics.sortPreds_pre hp cl hcl
 
 end KCore.CExec

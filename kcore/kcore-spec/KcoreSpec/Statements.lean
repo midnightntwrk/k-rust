@@ -253,10 +253,6 @@ def Rule.Witnessed (c : Semantics) (r : Rule) : Prop :=
   ∃ σ, c.WellSortedAt r.vars r.condVars σ ∧
     (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c r.vars.length σ r.pre true
 
-/-- The clause's conditions are closed over open variables of which one is not of a confined
-sort. -/
-def Clause.needsWitness (c : Semantics) (cl : Clause) : Bool :=
-  cl.reqOpen && cl.reqClosed && !cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false
 /-- Some values satisfy the clause's conditions, and at them its `requires` has no result but
 `true`: no evaluation makes the clause fail where its patterns match. -/
 def Clause.Witnessed (c : Semantics) (cl : Clause) : Prop :=
@@ -293,7 +289,7 @@ theorem Semantics.coreOK_ovls {c : Semantics} (h : c.coreOK = true) : c.overload
 theorem Semantics.coreOK_of_okAll {c : Semantics} (hok : c.okAll = true) (hfa : c.faithOK = true)
     (hha : c.hooksApart = true) (hpa : c.predsApart = true) (hids : c.idsOK = true)
     (hov : c.overloadsOK = true) : c.coreOK = true := by
-  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok, Semantics.faithCoreOK_of_faithOK hfa, hha,
+  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok (Semantics.overloadsOK_pats hov), Semantics.faithCoreOK_of_faithOK hfa, hha,
     hpa, hids, hov, Bool.and_self]
 
 /-- A well-formed definition's semantics meets `coreOK`: `wf` checks each of its conditions. -/

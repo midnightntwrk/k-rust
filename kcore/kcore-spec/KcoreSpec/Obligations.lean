@@ -79,6 +79,10 @@ theorem Semantics.plain_parts {c : Semantics} (h : c.plain = true) :
   exact ⟨fun r hr' => (hr r hr').2, fun fn hfn cl hcl => (hf fn hfn cl hcl).2,
     fun k hk' => by simpa using hk k hk'⟩
 
+/-- `clausesPreTop` does not read the interpretation of the parameters. -/
+theorem Semantics.clausesPreTop_withHooks (c : Semantics) (H : HookParams) :
+    (c.withHooks H).clausesPreTop = c.clausesPreTop := rfl
+
 /-- `plain` does not read the interpretation of the parameters. -/
 theorem Semantics.plain_withHooks (c : Semantics) (H : HookParams) : (c.withHooks H).plain = c.plain := rfl
 
@@ -89,13 +93,12 @@ theorem Semantics.plain_withHooks (c : Semantics) (H : HookParams) : (c.withHook
 values do not decide it otherwise (`rulesPlain`), and the occurrence of every variable of a clause
 in it (`clauseSorted`). -/
 
-/-- A clause of a semantics `sortedOK` accepts has `\top` predicates. -/
-theorem Semantics.sortedOK_clause {c : Semantics} (h : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.fns)
-    {cl : Clause} (hcl : cl ∈ fn.clauses) :
-    cl.pre = .top ∧ cl.post = .top := by
+/-- A clause of a semantics `sortedOK` accepts has a `\top` predicate on its right side. -/
+theorem Semantics.sortedOK_clausePost {c : Semantics} (h : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ fn.clauses) : cl.post = .top := by
   simp only [Semantics.sortedOK, Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨⟨-, hpre⟩, hpost⟩, -⟩ := h.1.2 fn hfn cl hcl
-  exact ⟨Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
+  obtain ⟨⟨-, hpost⟩, -⟩ := h.1.2 fn hfn cl hcl
+  exact Cond.eq_top_of_isTop hpost
 
 /-- What `paramsPlain` asks of an open generator (its `raw` branch): no registry hook,
 two arguments of its result sort where it has a law, a number outside the registry, no name

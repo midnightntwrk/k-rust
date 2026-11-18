@@ -200,7 +200,8 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
     induction n with
     | zero => intro p hp; omega
     | succ n ih =>
-      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq, hp'⟩
+      intro p hp ⟨cl, hcl, hpr, σ, hσu, hm, hq, hp'⟩
+      have hσ : c.WellSorted cl.vars σ := (wellSortedAt_univ (hx cl hcl).1).mp hσu
       by_cases hlow : ∃ cl' ∈ fn.clauses, cl'.prio < p ∧ ∃ σ', cl'.AppliesAt c σ' vs
       · obtain ⟨cl', hcl', hlt, ha⟩ := hlow
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
@@ -208,14 +209,14 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
           hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩
         cases he : cl.ens with
         | none =>
-          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσu, hm, hq, hp'⟩
           exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 hr
             (fun t ht => by rw [he] at ht; cases ht) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
         | some t =>
-          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσ, hm, hq, hp'⟩ t he
+          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσu, hm, hq, hp'⟩ t he
           by_cases hb : w = some (bool true)
           · subst hb
-            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσu, hm, hq, hp'⟩
             exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 hr
               (fun t' ht' => by rw [he] at ht'; cases ht'; exact hw) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
           · exact ⟨none, Eval.ensFails hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 he hw hb⟩
@@ -264,8 +265,8 @@ theorem EvalCtx.toN (hc : EvalCtx c) : EvalCtxN c := ⟨hc.sort, hc.reqs, hc.ens
 
 /-- `EvalCtxN` of a semantics `sortedOK` and `srReady` accept: nothing is asked of the clauses'
 variables. -/
-theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) : EvalCtxN c := by
-  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_, Semantics.sortedOK_preTop hok,
+theorem evalCtxN_of_all (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) : EvalCtxN c := by
+  refine ⟨sortCtx_of_all hok hsr hov, fun fn hfn' => ?_, fun fn hfn' => ?_, Semantics.allFns_preTop hpreTop,
     Semantics.sortedOK_plainCl hok⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · replace hok := Semantics.sortedOK_sorted hok
@@ -292,9 +293,9 @@ theorem evalCtxN_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov 
 
 /-- `EvalCtx` of a semantics `sortedOK` and `srReady` accept, whose clauses' variables are held
 (`RightHeld`; the sort predicates' patterns bind their one variable). -/
-theorem evalCtx_of_all (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem evalCtx_of_all (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld) : EvalCtx c := by
-  have hN := evalCtxN_of_all hok hsr hov
+  have hN := evalCtxN_of_all (hpreTop := hpreTop) hok hsr hov
   refine ⟨hN.sort, hN.reqs, hN.enss, hN.pres, hN.plain, fun fn hfn' => ?_⟩
   · rcases List.mem_append.mp hfn' with hfn | hfn
     · exact fun cl hcl => hrh.heldAt hfn hcl
@@ -342,12 +343,12 @@ theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb :
     simp only [reqOK, beq_iff_eq] at hq
     exact evalTerm_result hc.sort hL' hσ t hq (fun g hg => hovl g (heads_req_callees hcl' ht hg))
       (hcl cl hcl' σ hm t (Or.inr (Or.inl ht)))
-  · exact evalTerm_result hc.sort hL ha.1 cl.rhs (hrs cl hcl') (fun g hg => hovl g (heads_rhs_callees hcl' hg))
+  · exact evalTerm_result hc.sort hL ((wellSortedAt_univ (hc.plain fn hfn cl hcl').1).mp ha.1) cl.rhs (hrs cl hcl') (fun g hg => hovl g (heads_rhs_callees hcl' hg))
       (hcl cl hcl' σ ha.2.1 _ (Or.inl rfl))
   · have hq := hens cl hcl'
     rw [ht] at hq
     simp only [reqOK, beq_iff_eq] at hq
-    exact evalTerm_result hc.sort hL'' ha.1 t hq (fun g hg => hovl g (heads_ens_callees hcl' ht hg))
+    exact evalTerm_result hc.sort hL'' ((wellSortedAt_univ (hc.plain fn hfn cl hcl').1).mp ha.1) t hq (fun g hg => hovl g (heads_ens_callees hcl' ht hg))
       (hcl cl hcl' σ ha.2.1 t (Or.inr (Or.inr ht)))
 
 /-- A function has a result at an argument list of its argument sorts where each call in its
@@ -697,11 +698,11 @@ induction on the position in the declaration order: a function not named calls o
 functions before it, which terminate, and the sort predicates, which call nothing; its self calls
 decrease (`terminates_of_decreasing`). Stated for every function `lookupFn` finds, the sort
 predicates among them. -/
-theorem terminates_of_order_core (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem terminates_of_order_core (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld)
     (z : Certificates) (hnamed : ∀ g ∈ c.orderObligations ++ z.obligations c, Terminates c g) :
     ∀ f, Terminates c f := by
-  have hc := evalCtx_of_all hok hsr hov hrh
+  have hc := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
   have pos : ∀ (n : Nat) (fn : Fn), c.fns[n]? = some fn → Terminates c fn.label := by
     intro n
     induction n using Nat.strongRecOn with
@@ -744,11 +745,13 @@ theorem terminates_of_order_core (hok : c.sortedOK = true) (hsr : c.srReady = tr
 theorem terminates_of_order (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase) (z : Certificates)
     (hnamed : ∀ g ∈ c.orderObligations ++ z.obligations c, Terminates c g)
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : ∀ f, Terminates c f :=
-  terminates_of_order_core (Semantics.sortedOK_of_okAll hok) hsr hov hrh z hnamed
+  have hpreTop := Semantics.preTop_of_okAll hok
+  terminates_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hrh z hnamed
 
 /-- With no function named, every function terminates. -/
 theorem terminates_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase) (z : Certificates)
     (h : c.orderObligations ++ z.obligations c = []) (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : ∀ f, Terminates c f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   terminates_of_order hok hsr hov z (fun g hg => by rw [h] at hg; exact absurd hg List.not_mem_nil) hrh
 
 theorem orderObligations_withHooks (H : HookParams) :
@@ -770,6 +773,7 @@ theorem terminates_of_order_withHooks (hok : c.okAll = true) (hsr : c.srReady = 
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f, Terminates (c.withHooks H) f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   terminates_of_order ((Semantics.okAll_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) (Semantics.ovlCase_withHooks hov H) z
     (by rw [orderObligations_withHooks, certObligations_withHooks]; exact hnamed)
@@ -782,6 +786,7 @@ theorem terminates_of_nil_withHooks (hok : c.okAll = true) (hsr : c.srReady = tr
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel))
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) :
     ∀ f, Terminates (c.withHooks H) f :=
+  have hpreTop := Semantics.preTop_of_okAll hok
   terminates_of_nil ((Semantics.okAll_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) (Semantics.ovlCase_withHooks hov H) z
     (by rw [orderObligations_withHooks, certObligations_withHooks]; exact h)
@@ -800,10 +805,10 @@ theorem rangeKeysOK_of_core {c : Semantics} (h : c.coreOK = true) : c.rangeKeysO
 
 /-- **Every function of a semantics terminates**, under `coreOK` and `CoreObligations` (its first
 conjunct: the named functions terminate). -/
-theorem CoreObligations.terminates {c : Semantics} {t : Certificates} (h : c.coreOK = true)
+theorem CoreObligations.terminates {c : Semantics} (hpreTop : c.clausesPreTop = true) {t : Certificates} (h : c.coreOK = true)
     (hrh : c.RightHeld) (hob : CoreObligations c t) : ∀ f, Terminates c f := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
-  exact KCore.terminates_of_order_core hok (NamesApart.srReady_of hp hids hok
+  exact KCore.terminates_of_order_core (hpreTop := hpreTop) hok (NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)) (Semantics.ovlCase_of_core h) hrh
     t hob.1
 
@@ -811,6 +816,7 @@ theorem CoreObligations.terminates {c : Semantics} {t : Certificates} (h : c.cor
 conjunct: the named functions terminate). -/
 theorem Obligations.terminates {d : Definition} (hwf : wf d = true) (hrh : d.sem.RightHeld)
     (hob : Obligations d) : ∀ f, Terminates d.sem f :=
-  CoreObligations.terminates (Definition.coreOK_of_wf hwf) hrh hob
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  CoreObligations.terminates (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
 
 end KCore

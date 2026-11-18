@@ -15,9 +15,17 @@
   list, each its own decision, joined by `tieAllE_range`. The items of `sigItems c`: definedness
   (0), the sort constants of the 33 sorts (1 to 33; the registry sorts 8 to 16 and 21 to 29, at 9 to
   17 and 22 to 30, are surplus, `SortMInt` among them since the text declares it with a sort
-  parameter), the arities of the 10 constructors and 16 functions (34 to 59), of the 132 interpreted
-  hooked symbols (60 to 191; those the text does not declare are surplus), and `⌈_⌉`'s arity and
-  definition and next's arity (192 to 194).
+  parameter), the arities of the 10 constructors and 16 functions (34 to 59), of the 145 interpreted
+  hooked symbols (60 to 204; those the text does not declare are surplus), and `⌈_⌉`'s arity and
+  definition and next's arity (205 to 207).
+
+  The counts (`sig_sizes`, `decl_counts`) follow the registry's interpreted symbols (`hookSigs`):
+  among the 145 are INT's `>>Int`, `<<Int`, `log2Int`, `^%Int`, `bitRangeInt`,
+  `signExtendBitRangeInt`, `^Int` and LIST's `L[I <- V]`, `makeList`, `updateList`, `fillList`,
+  which the text declares (so their declarations are among the 93 of `plainSyms`), and STRING's
+  `countAllOccurrences` and `replaceAll`, which it does not (surplus items). No other statement of
+  this file reads a count: the ranges of `sig_origin` and `decls_in_sig` cover the lists whatever
+  their length, the last range running to the end.
 -/
 import KcoreSpec
 
@@ -108,8 +116,9 @@ noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == i
 
 /-- **The account of the declarations** (all modules of the text): of the 16 sort declarations, 15
 have no sort parameter (the other is `SortMInt{Width}`); of the 131 symbol declarations, 93 have no
-sort parameter and name a symbol Γ has, 5 have sort parameters, and 33 name a symbol Γ does not
-have (no direction, as the sentences that apply them). -/
+sort parameter and name a symbol Γ has (the eleven INT and LIST symbols the header names among
+them), 5 have sort parameters, and 33 name a symbol Γ does not have (no direction, as the sentences
+that apply them). -/
 theorem decl_counts :
     (kore.sortDecls.length, plainSorts.length, kore.symbolDecls.length, plainSyms.length,
       (kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length,

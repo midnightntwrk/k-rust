@@ -150,11 +150,11 @@ theorem fnHyp : FnHyp c :=
 
 /-- **The registry family at the names ens does not declare is conservative.** -/
 theorem ens_conservative : RegistryConservative c (DetachedB.names c ss ks) :=
-  registry_conservative c ss ks coreOK fnHyp registry_detached
+  registry_conservative (hpreTop := by decide +kernel) c ss ks coreOK fnHyp registry_detached
 
 /-- **No step of ens at values rests on the registry family** at the names it does not declare. -/
 theorem ens_exact_own : ExactOwn c (DetachedB.names c ss ks) :=
-  exact_own c ss ks coreOK fnHyp registry_detached
+  exact_own (hpreTop := by decide +kernel) c ss ks coreOK fnHyp registry_detached
 
 end KCore.TieEns
 

@@ -445,7 +445,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
   have hpats' : sortsOfTerms c.patCtxAll cl.leftSortsB cl.pats = some fn.args := by
     rw [sortsOfTerms_congr cl.pats (fun i hi => Clause.leftSortsB_getElem? (hpl i hi) (hpL i hi))]; exact hpats
   obtain ⟨hpv, hwitP⟩ := patVals_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPats_of_sorted hph' hpats')
-    hpats' hws hall
+    (OvlOK.nfs_bridge inferInstance hpats') hws hall
   -- the `requires`, at e1
   have hreq1 : ∀ t, cl.req = some t →
       (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (some (Term.kore c vs t)))).interpret I e1 m := fun t ht => by
@@ -591,17 +591,18 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
 
 /-- **A clause that fails has an empty exclusion in a model of `Γc`** (`exclEmptyCl_ofCl`), for a
 semantics `coreOK` accepts and a clause with `clauseSortedOpen` and `clausePlainOpen` over
-signatures of the semantics' functions, where its conditions are decided when `needsWitness` holds
+signatures of the semantics' functions whose premise's predicate is `\top`, where its conditions are decided when `needsWitness` holds
 and the definition reads a confined sort where an open condition variable is of one. -/
 theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {cl : Clause}
     {L : List CtorSig} (_hL : HeadsOK c L) (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true)
+    (hpre : cl.pre = .top)
     (hrc : cl.openCondVars.any (fun i => (cl.vars[i]?.map c.confined).getD false) = true → c.readsConfined = true)
     (hw : cl.needsWitness c = true → cl.CondDecided c) : ExclEmptyCl c I fn cl := by
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨-, hpre, -, hconj⟩ := Semantics.clausePlainOpen_parts hp
+  obtain ⟨-, -, hconj, -⟩ := Semantics.clausePlainOpen_partsP hp
   have hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x := fun hr s hs' x hx => by
     obtain ⟨v, hv, hden⟩ := confined_value h hr hI hs' KoreAML.val0 x ((inS_iff KoreAML.val0).mpr hx)
@@ -613,7 +614,7 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
 /-- **For a semantics `coreOK` accepts, a clause that fails fails in the model at the
 substitutions of values on its patterns and conditions** (`evalTerm_den4`), where its predicate is
 `\top`. -/
-theorem modelFailsCl_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl' ∈ fn.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
+theorem modelFailsCl_of_core (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl' ∈ fn.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
     (hIΓ : I ⊧ᴵP Γ c) {cl : Clause} {L : List CtorSig}
     (hL : HeadsOK c L) (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hpre : cl.pre = .top)
@@ -632,13 +633,14 @@ theorem modelFailsCl_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ 
       have htS : sortOfTerm (c.rhsCtx L) vars t = some Srt.bool := by
         rw [sortOfTerm_congr t fun i hi => hagl i (Clause.req_leftVars ht i hi)]; exact hreqS t ht
       exact ⟨t, r, ht, hr, fun v hv => EvalTerm.sorted hsc he hL hσ htS hv,
-        evalTerm_den4 hIΓ hnn hsc hok hbc hph (neg_of_core h hbc hIΓ) he hL hσ (by rw [canonVars_length, hlen]) hag htS⟩
+        evalTerm_den4 (hpreTop := hpreTop) hIΓ hnn hsc hok hbc hph (neg_of_core (hpreTop := hpreTop) h hbc hIΓ) he hL hσ (by rw [canonVars_length, hlen]) hag htS⟩
     | pre hpf => rw [hpre] at hpf; exact absurd hpf.top_eq (by simp)
 
 /-- `exclEmptyCl_of` for a semantics `coreOK` accepts, from `Fails` alone. -/
-theorem exclEmptyCl_core (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl' ∈ fn'.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
+theorem exclEmptyCl_core (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl' ∈ fn'.clauses, binds cl'.vars.length (varOccsList cl'.pats) = true)
     (hI : I ⊧ᴵP Γc c) {fn : Fn} {cl : Clause}
     {L : List CtorSig} (hL : HeadsOK c L) (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true)
+    (hpre : cl.pre = .top)
     (hrc : cl.openCondVars.any (fun i => (cl.vars[i]?.map c.confined).getD false) = true → c.readsConfined = true)
     (hw : cl.needsWitness c = true → cl.CondDecided c) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hf : Fails c ws cl) {tbl : VarTable} (hkeys : ∀ i < cl.vars.length, i ∈ cl.leftVars → canonKey c cl.vars i ∈ tbl)
@@ -648,10 +650,10 @@ theorem exclEmptyCl_core (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl'
       e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt (c.sortName s)))) = elemOf c I w)
     {σR : M} (hR : e.evalEvar (tbl.ev (.sortVar "R")) = σR) (hσR : IsSort I σR) (m : M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret I e m :=
-  exclEmptyCl_of h hI hL hs hp hrc hw hws hf
-    (modelFailsCl_of_core h hbc (fun φ hφ => hI φ (Or.inl hφ)) hL (Semantics.clauseSortedOpen_parts hs).2.2.1
-      (Semantics.clausePlainOpen_parts hp).2.1 hf)
-    hkeys (fun hpt => by rw [(Semantics.clausePlainOpen_parts hp).2.1] at hpt; simp [Cond.isTop] at hpt)
+  exclEmptyCl_of h hI hL hs hp hpre hrc hw hws hf
+    (modelFailsCl_of_core (hpreTop := hpreTop) h hbc (fun φ hφ => hI φ (Or.inl hφ)) hL (Semantics.clauseSortedOpen_parts hs).2.2.1
+      hpre hf)
+    hkeys (fun hpt => by rw [hpre] at hpt; simp [Cond.isTop] at hpt)
     hXkeys hRkey hX hR hσR m
 
 end

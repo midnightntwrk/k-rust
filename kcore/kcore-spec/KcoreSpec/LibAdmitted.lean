@@ -99,8 +99,10 @@ line in domains.md (K 7.1.337), and the condition each states on it: `=/=Float` 
 `isInfinite` (1673), `rfindChar` (1893), `findChar` (1891), `sqrtFloat` (1671), `replaceAll` (1917),
 and the `assoc` attribute of `_RangeMap_` (508), a collection law: where two of its three range
 maps have a key in common, `_RangeMap_` is at a silent point.
-One sentence that reads it is not listed, since no interpretation meets it: the instance of
-`countAllOccurrences`' second equation (1898) at the empty needle, `c = 1 +Int c`. test/LibProbe.lean checks the list against the sentences a
+One sentence that reads it is not listed: the instance of `countAllOccurrences`' second equation
+(1898) at the empty needle, `c = 1 +Int c` of the count `c`, which no interpretation that gives the
+count a value there meets (one meeting `silentTotal` gives it one, `countAllOccurrences` being of
+`totalSilentKeys`); where the count has no value both sides have none. test/LibProbe.lean checks the list against the sentences a
 text holds: a sentence that reads the interpretation at a probed point is one of these or a
 `functional` sentence of `totalSilentKeys`; on f2-examples/allbuiltins.kompile.kore, every module of
 the K 7.1.337 builtin files the library holds, the list is closed. The probe names a collection
@@ -664,7 +666,7 @@ theorem floatShapeOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.floatSh
     obtain ⟨o, ho', rfl⟩ := List.mem_map.mp hk
     obtain ⟨i, hi⟩ := List.mem_iff_getElem.mp ho'
     unfold Semantics.overloadsOK at ho
-    have := List.all_eq_true.mp ho (o, i) (by
+    have := List.all_eq_true.mp (Bool.and_eq_true_iff.mp ho).1 (o, i) (by
       rw [List.mem_iff_getElem]
       exact ⟨i, by simpa using hi.1, by simp [List.getElem_zipIdx, hi.2]⟩)
     simp only [Bool.and_eq_true] at this

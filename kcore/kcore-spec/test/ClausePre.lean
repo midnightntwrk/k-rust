@@ -3,9 +3,9 @@
   built by hand against the existing field `Clause.pre` (Core.lean, `structure Clause`). The
   statements are written as propositions (`expect…`): those on the sentences (`expectExclusion`,
   `expectSentence`, `expectSentence1`) are proved here since the sentences read `Clause.pre`
-  (e3.withPre: `exclusion_pre`, `sentence_pre`, `sentence1_pre`); the others are elaborated, not
-  proved, and are to run once `Eval` reads `Clause.pre` and `clausesPlain` admits it
-  (e3.clause-pre-eval, e3.admit; proved by e3.test-pre).
+  (`exclusion_pre`, `sentence_pre`, `sentence1_pre`), and `expectCore` is proved (`coreOK_ok`);
+  the statements on `Eval`'s results (`expectU`, `expectAt0`, `expectAt2`) are elaborated, not
+  proved.
   Run from the package root: `lake env lean -j1 test/ClausePre.lean`.
   Kernel-checked (`decide +kernel`): only what does not depend on a clause's `pre` being read.
 
@@ -30,17 +30,12 @@
   decides; at 2, `gCl1` meets `hpre` (`Holds.ceil` at `some 2`) and decides, and `gCl2` is blocked
   since `gCl1` does not fail.
 
-  Today (`Eval.clause` has no premise on `pre`, Evaluation.lean; `clausesPlain` asks
-  `cl.pre.isTop`, Tie.lean) the statements `expectCore` and `expectAt0` are false (by the texts
-  cited; of these only the `…_now` theorems are proved here): `clausesPlain` refuses `gCl1`
-  (`clausesPlain_now`, `coreOK_now`), and `gCl1` applies at 0 whatever its `pre`. The sentences
+  `clausesPlain` admits `gCl1` (a predicate in the premise, conditions that need no witness), so
+  `coreOK` holds (`clausesPlain_ok`, `coreOK_ok`: `expectCore`). The sentences
   carry the predicate (`withPre`, Emit.lean, in `exclusion`, `clauseEquation` and
   `competingEquation`): the second clause's sentence negates `∃X'. ((⊤ ∧ X0 ∈ X') ∧ ⌈u(X')⌉)`
   (`exclusion_pre`, `sentence_pre`), which is not the text without the predicate
-  (`exclusion_ne_plain`). `expectU` and `expectAt2` read no `pre` in today's `Eval`
-  (prediction, not proved here: their proofs name `Eval.clause` and `Eval.ensFails`, which
-  e3.clause-pre-eval gives one more argument). The theorems named `…_now` state
-  today's texts and are to be replaced by the proofs of the `expect…` when those tickets land.
+  (`exclusion_ne_plain`). `expectU`, `expectAt0` and `expectAt2` are stated and not proved here.
 -/
 import KcoreSpec
 
@@ -150,11 +145,11 @@ theorem sortedRest_ok : sortedRest c = true := by decide +kernel
 theorem coreRest_ok : coreRest c = true := by decide +kernel
 /-- Every clause meets CN-4 §4.9's final clause conjunct. -/
 theorem clauseE3_ok : c.fns.all (fun f => f.clauses.all (clauseE3 c)) = true := by decide +kernel
-/-- Today `clausesPlain` keeps `pre` at `\top`, so `gCl1` is outside `coreOK`. -/
-theorem clausesPlain_now : c.clausesPlain = false := by decide +kernel
-/-- So `coreOK` fails today, at `clausesPlain` only. -/
-theorem coreOK_now : c.coreOK = false := by
-  rw [coreOK_eq, sortedOK_eq, clausesPlain_now]; simp
+/-- `clausesPlain` admits `gCl1`: its predicate is not `\top` and its conditions need no witness. -/
+theorem clausesPlain_ok : c.clausesPlain = true := by decide +kernel
+/-- So `coreOK` holds. -/
+theorem coreOK_ok : c.coreOK = true := by
+  rw [coreOK_eq, sortedOK_eq, clausesPlain_ok, sortedRest_ok, coreRest_ok]; rfl
 
 /-! ## The second clause's sentence -/
 

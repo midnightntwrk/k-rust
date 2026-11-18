@@ -19,10 +19,10 @@ open KCore.Exec
 variable {c : Semantics}
 
 /-- A clause without existential variables that `clauseFixed` accepts is match independent: its patterns, well sorted in a
-left-hand side's context (`patCtxAll`), fix all of its variables, and its right-hand side's and
+left-hand side's context without function-overloaded symbols (`patCtxNF`), fix all of its variables, and its right-hand side's and
 its `ensures`' are among them. -/
 theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hens : reqOK x cl.vars cl.ens = true)
     (hfx : c.clauseFixed cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
@@ -33,7 +33,7 @@ theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} 
   · rename_i D hD
     simp only [List.all_eq_true, List.contains_iff_mem, List.mem_range] at hfx
     have hag : ∀ i, i < cl.vars.length → σ.lookup i = σ'.lookup i := fun i hi =>
-      Det.uniqList_sound hmc hσ hσ' cl.pats hD hm hm' hpt (fun _ h => by cases h) i (hfx i hi)
+      Det.uniqList_sound hmc ((wellSortedAt_univ hx).mp hσ) ((wellSortedAt_univ hx).mp hσ') cl.pats hD hm hm' hpt (fun _ h => by cases h) i (hfx i hi)
     refine .inl ⟨hx, hx, rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
     rw [ht] at hens
     exact hag i (sortOfTerm_vars (reqOK_some hens) i hi)
@@ -73,18 +73,20 @@ theorem clausesFixed_of_nil (h : c.matchObligations = []) : c.clausesFixed = tru
 theorem MatchObligations.of_fixed (h : c.clausesFixed = true) (hno : c.ovls = []) : MatchObligations c :=
   .of_nil (matchObligations_nil_of_fixed h hno)
 
-/-- **Every clause is match independent** in a core that `ok` and `matchReady` accept, given the
+/-- **Every clause is match independent** in a core that `okM` and `matchReady` accept, given the
 named obligations: a clause `clauseFixed` confirms by `clauseFixed_sound` (its patterns sorted as
-`ok` checks them), the others by their obligation. The sort predicates' clauses are fixed
+`okM` checks them), the others by their obligation. The sort predicates' clauses are fixed
 (`sortPreds_fixed`). -/
-theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
+theorem matchIndependentAll_of_okM (hok : c.okM = true) (hmr : c.matchReady = true)
     (hob : MatchObligations c) : MatchIndependentAll c := by
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
-  obtain ⟨L, _, hclk⟩ := clauseCtx_of hok fn hmem
+  obtain ⟨L, _, hclk⟩ := clauseCtx_of_okM hok fn hmem
   obtain ⟨hpt, _, _, _, hrt, hens, _, hx, _⟩ := hclk cl hcl
   cases hfx : c.clauseFixed cl with
-  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt) hrt hens hfx hx
+  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_nf_of_nil
+      (Semantics.fnOvlSyms_of_noOvl (matchCtx_of hmr).noOvl)
+      (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt)) hrt hens hfx hx
   | false =>
     rcases List.mem_append.mp hmem with hf | hp
     · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
@@ -94,5 +96,11 @@ theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx, (matchCtx_of hmr).noOvl]
     · exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
+
+/-- **Every clause is match independent** in a core that `ok` and `matchReady` accept, given the
+named obligations (`matchIndependentAll_of_okM`). -/
+theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
+    (hob : MatchObligations c) : MatchIndependentAll c :=
+  matchIndependentAll_of_okM (Semantics.okM_of_ok hok) hmr hob
 
 end KCore

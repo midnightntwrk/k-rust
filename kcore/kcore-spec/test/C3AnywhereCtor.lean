@@ -190,7 +190,7 @@ theorem nc_unique : (U.all.filter fun ad => decide (ad.ax.pattern = ncAx.ax.patt
 
 /-- The reader's class of the sentence, and no constructor item of Γ entails it in the form
 `tieConsB` decides. -/
-theorem nc_class : Parse.classify (.axiom ncAx.ax) = .inert .distinctCtors := by decide +kernel
+theorem nc_class : Parse.classifyShape (.axiom ncAx.ax) = .inert .distinctCtors := by decide +kernel
 theorem nc_not_cons : tieConsB c ncAx.ax = false := by decide +kernel
 
 def i5 : GroundTerm := .inj Srt.int exp (int 5)

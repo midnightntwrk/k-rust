@@ -99,7 +99,7 @@ theorem fnTerminates3 : FnTerminates c3 := by
       (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop
-          (Semantics.sortedOK_preTop shape.2.2.2.2.1 fn (List.mem_append_left _ hfn) cl hcl) σ⟩)
+          (Semantics.allFns_preTop (by decide +kernel : c3.clausesPreTop = true) fn (List.mem_append_left _ hfn) cl hcl) σ⟩)
       (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
     have h4 := (textFns fn hfn' cl hcl).2.2.2

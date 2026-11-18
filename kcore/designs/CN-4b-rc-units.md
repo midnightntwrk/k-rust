@@ -458,7 +458,7 @@ Exactness is not lost: a model of the text is a model of `Γc ∪ Γstep`, and t
 | Fixture (new, brief P) | Text | If kompile writes the axiom | If it rejects the attribute on a function |
 |---|---|---|---|
 | `e2-fn-assoc` | `syntax Int ::= pl(Int, Int) [function, total, assoc]`, `rule pl(A, B) => A +Int B` | sentence classed `fnLaw (assoc)`, "stated at values, under `FnLaws`"; `LawAt` holds at every H (no rest is read), owed and dischargeable from Int addition | R-b |
-| `e2-fn-assoc-bad` | the same with `A -Int B` | `¬ LawAt`, kernel-checked at (1, 2, 3); the account says the text has no model; no statement is made | |
+| `e2-fn-assoc-bad` | the same with `A -Int B` | `¬ LawAt`, kernel-checked at (1, 2, 3); ~~the account says the text has no model~~ (superseded by F9.FL-account-wording: the account prints the law's entry `FnLaws owed, open`; see section 12); no statement is made | |
 | `e2-fn-assoc-rest` | `syntax Int ::= pk(Int, Int) [function, assoc]`, no rule | `LawAt` is "H's value at `pk` is associative on Int": true at `HookParams.none` (both sides undefined) and at H := addition; false at H := subtraction | |
 | `e2-fn-idem`, `e2-fn-unit` | `[idem]`, `[unit(…)]` on a function | the same class, with the idempotence and unit sentences | |
 
@@ -596,6 +596,9 @@ Most likely to break elsewhere: every mutual induction over the `Eval` block (CE
 - V8 (§3.4): `paramsPlain`'s body: after V13 it has no `!(k.assoc && k.idem)` and gains the `unit` conjunct. V7's "with both laws the generator is refused `openLaw (assoc, idem)`": superseded by BAND.
 - §4.7: the hypothesis `hl` of `openTotal_lawHooks`, `openLaws_lawHooks` and the `example`: dropped in V13.
 - §4.9, the gate of e3 ("a clause `pre` is produced by F6 and F4 only; if both probes are rejected, e3 and F2 are not built"): CUT on a clause pattern is a third producer of `Clause.pre`, and CE needs the block e3 builds. The gate becomes: e3 is not built only if the probes of F6, F4, CE (`\or` and `?B` on a non-total function) and CUT on a clause pattern (`e5-ovl-fun-lhs` and `e2-open-mixed` with a function clause over the pattern) are **all** rejected. If e3 is not built, CE and the clause side of CUT and HO-2 are not built either, and their rows are R-b.
+
+**Sentences of this document superseded since.**
+- Section 6's table, row `e2-fn-assoc-bad`: "the account says the text has no model": superseded by F9.FL-account-wording. The account cannot decide `LawAt` (a statement over all values), so it never prints a law false or a text without a model; it prints the law's entry `FnLaws owed, open`, and `Bad.not_lawAt` (test/FnLawFixtures.lean) states the failure in Lean. The law sentence's tie direction is hypothesis: owed as `FnLaws`, never refused or claimed by the reader.
 
 ## 13. CN-4 §5: rows to replace and to add
 

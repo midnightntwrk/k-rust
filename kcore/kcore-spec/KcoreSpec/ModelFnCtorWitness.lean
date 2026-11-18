@@ -146,7 +146,7 @@ theorem f_plain : iteSort? (c.symName fl) = none := by decide +kernel
 /-- **`Γ c` has no model**, though `c` satisfies `Hyp`. -/
 theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
   intro M _ I hI
-  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll) srReady (OvlOK.ovlCase inferInstance)).trans
+  have htr := (sortCtx_of_all (Semantics.sortedOK_of_okAll okAll (Semantics.ovlPatsOK_of_ovlCase (OvlOK.ovlCase inferInstance))) srReady (OvlOK.ovlCase inferInstance)).trans
   -- the function's equation: `f()` is what `#KConfigValue(.K)` denotes
   have heq := clause_eq hI namesNumbered htr lookup_f (cl := cl) (List.mem_singleton_self _) rfl rfl rfl (ws := [])
     (by decide +kernel) (σ' := []) (fun _ _ h => by simp [cl] at h) .nil rfl (by decide +kernel)

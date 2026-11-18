@@ -226,9 +226,16 @@ witness = "KcoreSpec.ModelOvlIncohWitness"
 note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the overload equations give g(x) = f(x) = h(x), against Cons-Dist of g and h"
 
 [[conjunct]]
+key = "overloadsOK.9"
+text = "c.ovlPatsOK"
+witness = "none: no witness exists: implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart), for every semantics (kernel-checked: ov9_of_ov15): each symbol an overloading symbol overloads is a constructor or an overloading symbol, neither of which is a function's label, so no symbol is function-overloaded (fnOvlSyms is empty) and no pattern applies one; the implication holds while overloadsOK.5 admits no function among the overloaded symbols"
+evidence = "test/WitRestOvlB.lean"
+note = "sortedOK.3 gives the part on the rules' left sides for every semantics (kernel-checked: lhs_noFnOvl_of_sortedOK, test/SortedNF.lean): ruleSorted sorts a left side over patCtxNF, which holds no function-overloaded symbol. sortedOK does not yet give the parts on the clauses' patterns and the exMatch patterns, which clauseSorted and condOK sort over patCtxAll"
+
+[[conjunct]]
 key = "FnDet"
 text = "KCore.FnDet"
-witness = "none: derivable from coreOK and FnSolves at the current Eval block (test/FnSolvesDet.lean), reopened after CE.flip"
+witness = "none: derivable from coreOK and FnSolves at the current Eval block where every clause's predicate is top (clausesPreTop; test/FnSolvesDet.lean); open where coreOK admits another predicate; reopened after CE.flip"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]
@@ -239,6 +246,6 @@ witness = "KcoreSpec.ModelFnSolvesWitness"
 [[conjunct]]
 key = "ClausePreDecided"
 text = "KCore.ClausePreDecided"
-witness = "none: every clause of a semantics coreOK accepts has the predicate ⊤ (clausesPlain), where the hypothesis holds (clausePreDecided_of_isTop), so no semantics meets coreOK and not the hypothesis; with clausesPlain's conjunct on the predicate set aside, the semantics d of test/ClausePreUndecided.lean meets the other conjuncts of coreOK, FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation)"
+witness = "none: no witness module. The semantics d of test/ClausePreUndecided.lean meets coreOK (the predicate of its clause is not ⊤ and its conditions need no witness, which clausesPlain admits), FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header, not proved: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation). Where every clause's predicate is ⊤ the hypothesis holds (clausePreDecided_of_isTop)"
 evidence = "test/ClausePreUndecided.lean"
 

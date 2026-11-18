@@ -13,16 +13,17 @@
     priority 60, the first read with the `ensures` false (`bottomAsEnsures`): it applies at `go(1)`,
     gives no successor and blocks the second, so `go(1)` has no successor.
   - `f2-examples/mlandt` (e3-ml-rule-rhs-and-term): `go(X) => f(X) #And g(X)`, f the identity and
-    g negation, read as `f(X)` with the `ensures` `f(X) ==Int g(X)` (`andTermsWeaker`): `go(0)` steps
-    to `0`, `go(1)` has no successor.
+    g negation, read through the cut as `go(X) => ?Z` with `post := Z ∈ f(X) ∧ Z ∈ g(X)`
+    (`andTermsCut`; the steps in test/PredFixtures.lean, `RhsAnd.MlAndT`).
   - `f2-examples/mlceil` (e3-ml-req-ceil): `go(X) => done requires #Ceil(1 /Int X)` beside
     `go(_) => other` of priority 60, the first `requires` read as `false` (`predicateAtBool`: a
     predicate at Bool is `\top` or `\bottom`, neither `true`): the first never applies, and `go(1)`
     steps to `other`.
   - `f2-examples/mleqand` (e3-ml-eq-rhs-and-pred): `f(X) => X #And {(X >Int 0) #Equals true}`, the
     clause `f(X) = X ensures X >Int 0` (`andAsEnsures`): `f(1) = 1`, `f(0)` has no value.
-  - `f2-examples/mlandc` (e3-ml-rule-rhs-and-ctor): `c(X) => X #And a()`, the `ensures` `X ==K a()`
-    of one-item K sequences (`andTermsWeaker`, off Int): `c(a)` steps to `a`, `c(b)` has no successor.
+  - `f2-examples/mlandc` (e3-ml-rule-rhs-and-ctor): `c(X) => X #And a()`, read through the cut as
+    `c(X) => X` with `post := X ∈ a()` (`andTermsCut`; the steps in test/PredFixtures.lean,
+    `RhsAnd.MlAndC`).
   - `f2-examples/mleqbot` (e3-ml-eq-rhs-bottom): `f(X) => #Bottom requires X <Int 0` beside
     `f(X) => X [owise]`, the first the clause with the `ensures` false (`bottomAsEnsures`): `f(-1)`
     has no value (the `[owise]` clause does not apply), `f(2) = 2`.
@@ -44,7 +45,7 @@ def verdict (path : String) : IO String := do
   | .ok k =>
     let notes := (Parse.classCounts k).filter fun (n, _) =>
       ["read orSplit", "read topAsVariable", "read existsAsVariable", "read andAsEnsures",
-       "read andTermsWeaker", "read bottomAsEnsures", "read orBottom", "read predicateAtBool", "read andAtBool",
+       "read andTermsWeaker", "read andTermsCut", "read bottomAsEnsures", "read orBottom", "read predicateAtBool", "read andAtBool",
        "inert vacuousLeft"].contains n
     return s!"{notes}; " ++ match Parse.parse k with
       | .ok d => s!"read; unaccounted {(Parse.unconsumed k d).length}; uninduced {(Parse.uninduced k d).length}; coreOK {d.sem.coreOK}"
@@ -54,10 +55,10 @@ def verdict (path : String) : IO String := do
 info: [(read orSplit, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read existsAsVariable, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read bottomAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
-[(read andTermsWeaker, 1)]; read; unaccounted 0; uninduced 0; coreOK true
+[(read andTermsCut, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read predicateAtBool, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read andAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
-[(read andTermsWeaker, 1)]; read; unaccounted 0; uninduced 0; coreOK true
+[(read andTermsCut, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read bottomAsEnsures, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 [(read orBottom, 1)]; read; unaccounted 0; uninduced 0; coreOK true
 -/
@@ -243,33 +244,9 @@ theorem stuck_go1 : ∀ y, ¬ Step c Go1 y := by
 
 end MlBot
 
-namespace MlAndT
-
-definition_of defn from "f2-examples/mlandt.kompile.kore"
-noncomputable abbrev c : Semantics := defn.sem
-def go : Sym := 386
-def exp : Srt := 32
-theorem names_ok : c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def goCfg (i : Int) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem (.ctor go [.dv Srt.int (.int i)]))
-def Go0 : Config c := ⟨goCfg 0, by decide +kernel⟩
-def Go1 : Config c := ⟨goCfg 1, by decide +kernel⟩
-def Zero : Config c := ⟨cfgOf 383 (.inj Srt.int Srt.kitem (.dv Srt.int (.int 0))), by decide +kernel⟩
-/-- Where `f(X)` and `g(X)` have one value, the step to it. -/
-theorem step_go0 : Step c Go0 Zero :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
-/-- Where they differ, none. -/
-theorem stuck_go1 : ∀ y, ¬ Step c Go1 y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
-
-end MlAndT
+/-! `MlAndT` (mlandt): the rule is read through the cut (`andTermsCut`), `go(X) => ?Z` with
+`post := Z ∈ f(X) ∧ Z ∈ g(X)`; its steps are test/PredFixtures.lean's (`RhsAnd.MlAndT`: `go(0)`
+steps to `0` and to nothing else, `go(1)` has no successor), whose rule is this text's as parsed. -/
 
 namespace MlCeil
 
@@ -325,36 +302,9 @@ theorem f_0 : Eval c f [.dv Srt.int (.int 0)] none :=
 
 end MlEqAnd
 
-namespace MlAndC
-
-definition_of defn from "f2-examples/mlandc.kompile.kore"
-noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 385
-def b : Sym := 386
-def cc : Sym := 387
-def exp : Srt := 32
-theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
-    c.sortName exp = "Exp" := by decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
-def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
-def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
-def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
-/-- `X #And a()` at Exp: where X is `a`, the step to it. -/
-theorem step_ca : Step c CA A :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
-/-- Where X is another value, none (the `ensures` `X ==K a` is false). -/
-theorem stuck_cb : ∀ y, ¬ Step c CB y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
-
-end MlAndC
+/-! `MlAndC` (mlandc): the rule is read through the cut (`andTermsCut`), `c(X) => X` with
+`post := X ∈ a()`; its steps are test/PredFixtures.lean's (`RhsAnd.MlAndC`: `c(a)` steps to `a`,
+`c(b)` has no successor), whose rule is this text's as parsed. -/
 
 namespace MlEqBot
 
@@ -405,11 +355,12 @@ end MlEqOrB
 
 /-! ## Conjunctions with a variable, empty right sides, several notes, and the refused shapes
 
-- `f2-examples/mlandv` (e3-ml-rule-rhs-and-var): `c(X) => a() #And X`, the right side `a()` with the
-  `ensures` `a() ==K X` (`andTermsWeaker`; a right side binds nothing, so `a() ∧ X` is no `#as`):
-  `c(a)` steps to `a`, `c(b)` has no successor.
-- `f2-examples/mlreqv` (e3-ml-req-and-var): `go(B) => done requires true #And B`, the strict
-  conjunction of `true` and B (`andAtBool`): `go(true)` steps to `done`, `go(false)` has none.
+- `f2-examples/mlandv` (e3-ml-rule-rhs-and-var): `c(X) => a() #And X`, read through the cut as
+  `c(X) => X` with `post := X ∈ a()` (`andTermsCut`; a right side binds nothing, so `a() ∧ X` is no
+  `#as`): the steps in test/PredFixtures.lean (`RhsAnd.MlAndV`).
+- `f2-examples/mlreqv` (e3-ml-req-and-var): `go(B) => done requires true #And B`, read conjunct by
+  conjunct, the `requires` `true` and the conjunct `B = true` of `pre` (`andAtBool`): `go(true)`
+  steps to `done`, `go(false)` has none (the executable step, which evaluates `pre`).
 - `f2-examples/mlbotf` (e3-ml-rule-rhs-bottom-fn): `go(X) => pair(f(X), #Bottom)`, f partial: the
   right side read in the empty one's place is the left side (`bottomAsEnsures`), which applies no
   function.
@@ -420,8 +371,8 @@ end MlEqOrB
   String: no value the reader names, the right side is the call `f(X)` at the clause's arguments;
   read, `coreOK` (natively).
 - `f2-examples/mlorand` (e3-ml-rule-lhs-or-rhs-and): `c(X) #Or d(X) => X #And a()`, read through
-  `orSplit` and `andTermsWeaker`, both listed (`Parse.connReadings`): `c(a)` and `d(a)` step to `a`,
-  `c(b)` has no successor.
+  `orSplit` and `andTermsCut`, both listed (`Parse.connReadings`): the steps in
+  test/PredFixtures.lean (`RhsAnd.MlOrAnd`).
 - `f2-examples/mlempty` (e3-ml-lhs-empty-sort): `c(#Exists Y:Empty. a()) => b()` and
   `e(_:Empty) #Or d() => b()`, Empty without a value: each axiom holds for every element of Empty,
   so it states nothing where Empty has none, and a rule without the variable would step at `c(a)`
@@ -453,12 +404,12 @@ def verdictAll (path : String) : IO String := do
       | .error r => s!"{r.reason.name}{if r.detail.isEmpty then "" else " " ++ r.detail}"
 
 /--
-info: mlandv: [[andTermsWeaker]]; []; read; unaccounted 0; uninduced 0; coreOK true
+info: mlandv: [[andTermsCut]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlreqv: [[andAtBool]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlbotf: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mleqbotc: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mleqbotn: [[bottomAsEnsures]]; []; read; unaccounted 0; uninduced 0; coreOK true
-mlorand: [[orSplit, andTermsWeaker]]; []; read; unaccounted 0; uninduced 0; coreOK true
+mlorand: [[orSplit, andTermsCut]]; []; read; unaccounted 0; uninduced 0; coreOK true
 mlempty: [[orSplit], [existsAsVariable]]; []; unheldVariable Var'Unds'Gen0:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state)
 mlmixed: [[orSplit]]; []; unheldVariable Var'Unds'Gen1:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and Γ entails neither an element of the sort nor its emptiness (the text's sorted theory gives every sort an element, which Γ does not state)
 mlrequnheld: [[requiresOrSplit]]; []; read; unaccounted 0; uninduced 0; coreOK true
@@ -474,36 +425,8 @@ mlallexp: []; []; openExtent Exp
       "mlrequnheld", "mlvalue", "mlreqor", "mleqor", "mlsetv", "mlallexp"] do
     IO.println s!"{f}: {← verdictAll s!"f2-examples/{f}.kompile.kore"}"
 
-namespace MlAndV
-
-definition_of defn from "f2-examples/mlandv.kompile.kore"
-noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 385
-def b : Sym := 386
-def cc : Sym := 387
-def exp : Srt := 32
-theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
-    c.sortName exp = "Exp" := by decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
-def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
-def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
-def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
-/-- `a() #And X` at Exp: where X is `a`, the step to it. -/
-theorem step_ca : Step c CA A :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
-/-- Where X is another value, none (the `ensures` `a ==K X` is false). -/
-theorem stuck_cb : ∀ y, ¬ Step c CB y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
-
-end MlAndV
+/-! `MlAndV` (mlandv): read through the cut (`andTermsCut`), `c(X) => X` with `post := X ∈ a()`;
+its steps are test/PredFixtures.lean's (`RhsAnd.MlAndV`). -/
 
 namespace MlReqV
 
@@ -514,24 +437,24 @@ def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
   decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
+/-- The rule is read with the `requires` `true` and the conjunct `B = true` of `pre`. -/
+theorem rule_shape : c.rules.map (fun r => (r.req.map (Term.beq (.dv Srt.bool (.bool true))),
+    Cond.isTop r.pre, Cond.isTop r.post)) = [(some true, false, true)] := by decide +kernel
+theorem ready : CExec.execReady c = true := by decide +kernel
+theorem noFns : c.fns = [] := by decide +kernel
+theorem fnDet : FnDet c :=
+  Faithful.fnDet_of_agree (fun _ h => by rw [noFns] at h; cases h) (fun _ h => by rw [noFns] at h; cases h)
 def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def GoT : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool true)]), by decide +kernel⟩
 def GoF : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool false)]), by decide +kernel⟩
 def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
 /-- `requires true #And B`: at `true` the step. -/
-theorem step_got : Step c GoT Done :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
+theorem step_got : Step c GoT Done := by
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready ready (x := GoT) (n := 100) (y := Done.val) (by decide +kernel)
+  exact h
 /-- At `false` none. -/
-theorem stuck_gof : ∀ y, ¬ Step c GoF y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
+theorem stuck_gof : ∀ y, ¬ Step c GoF y :=
+  CExec.noStep_at ready fnDet (n := 100) (by decide +kernel) (by decide +kernel)
 
 end MlReqV
 
@@ -593,41 +516,9 @@ theorem clause_shape : fn.clauses.map (fun cl => Term.beq cl.rhs (.app f [.var 0
 
 end MlEqBotN
 
-namespace MlOrAnd
-
-definition_of defn from "f2-examples/mlorand.kompile.kore"
-noncomputable abbrev c : Semantics := defn.sem
-def a : Sym := 385
-def b : Sym := 386
-def cc : Sym := 387
-def d : Sym := 388
-def exp : Srt := 32
-theorem names_ok : c.symName a = "Lbla" ∧ c.symName b = "Lblb" ∧ c.symName cc = "Lblc" ∧
-    c.symName d = "Lbld" ∧ c.sortName exp = "Exp" := by decide +kernel
-/-- One rule per disjunct, each with the `ensures` of `X #And a()`. -/
-theorem two_rules : c.rules.map (fun r => (r.prio, r.ens.isSome)) = [(50, true), (50, true)] := by
-  decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
-def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
-def CA : Config c := ⟨cfg (.ctor cc [.ctor a []]), by decide +kernel⟩
-def DA : Config c := ⟨cfg (.ctor d [.ctor a []]), by decide +kernel⟩
-def CB : Config c := ⟨cfg (.ctor cc [.ctor b []]), by decide +kernel⟩
-def A : Config c := ⟨cfg (.ctor a []), by decide +kernel⟩
-theorem step_ca : Step c CA A :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
-theorem step_da : Step c DA A :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
-theorem stuck_cb : ∀ y, ¬ Step c CB y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
-
-end MlOrAnd
+/-! `MlOrAnd` (mlorand): two rules (`orSplit`), each read through the cut (`andTermsCut`); their
+steps are test/PredFixtures.lean's (`RhsAnd.MlOrAnd`: `c(a)` and `d(a)` step to `a`, `c(b)` has no
+successor). -/
 
 /-! ## Rules read without a variable of the axiom, at a sort with a value
 

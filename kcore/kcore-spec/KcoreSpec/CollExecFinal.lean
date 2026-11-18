@@ -45,11 +45,12 @@ variable {c : Semantics}
 /-- What `execReady` gives the step's proofs. -/
 theorem execReady_parts (hr : execReady c = true) :
     c.sortedOK = true ∧ SortCtx c ∧ CClauseCtx c ∧ ClauseComplete c ∧ RuleComplete c := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
-  exact ⟨hok, sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase, cclauseCtx_of hok,
+  exact ⟨hok, sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase, cclauseCtx_of (hpreTop := hpreTop) hok,
     clauseComplete_of_ready hr, ruleComplete_of_ready hr⟩
 
 /-! ## (N): no rule applies -/
@@ -90,6 +91,7 @@ whose `pre` value its `Holds` value (`predVal_sound`). -/
 theorem notApplies_of_ruleMatches (hr : execReady c = true) {n : Nat} {x : Config c} {r : Rule}
     (hmem : r ∈ c.rules) (h : ∀ σb ∈ ruleMatches c n r x.val, σb.2 = some false) :
     NotApplies c r x.val := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, hrc⟩ := execReady_parts hr
   intro τ hτ hpv
   obtain ⟨σ₀, hσ₀m, hag⟩ := hrc r hmem x.val τ x.property hτ hpv
@@ -102,6 +104,7 @@ fuel; no coherence is read. -/
 theorem noRule_of_ruleMatches (hr : execReady c = true) {n : Nat} {x : Config c}
     (h : ∀ r ∈ c.rules, ∀ σb ∈ ruleMatches c n r x.val, σb.2 = some false) :
     ∀ r ∈ c.rules, NotApplies c r x.val :=
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   fun r hm => notApplies_of_ruleMatches hr hm (h r hm)
 
 /-! ## (U): a rule applies -/
@@ -114,6 +117,7 @@ theorem applies_of_ruleMatches (hr : execReady c = true) {n : Nat} {x : Config c
     c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x.val ∧
       (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) ∧
       Holds c r.vars.length σ r.pre true := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, -⟩ := execReady_parts hr
   obtain ⟨hσm, hb⟩ := ruleMatches_mem.mp h
   obtain ⟨hσ, hpvs⟩ := cmatch_sound hσm
@@ -126,6 +130,7 @@ any fuel, does not satisfy `NotApplies`, given `FnDet` (a `requires` has one res
 theorem not_notApplies_of_ruleMatches (hr : execReady c = true) (hfd : FnDet c) {n : Nat}
     {x : Config c} {r : Rule} (hmem : r ∈ c.rules) {σ : Subst}
     (h : (σ, some true) ∈ ruleMatches c n r x.val) : ¬ NotApplies c r x.val := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hσ, hpv, hreq, hpre⟩ := applies_of_ruleMatches hr hmem h
   intro hna
   cases hna σ (hσ.at _) hpv with
@@ -142,6 +147,7 @@ theorem ruleMatches_of_applies (hr : execReady c = true) (hfd : FnDet c) {x : Co
     (hpv : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     (hpre : Holds c r.vars.length σ r.pre true) :
     ∃ N, ∀ m, N ≤ m → ∃ σ₀, (σ₀, some true) ∈ ruleMatches c m r x.val := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, hrc⟩ := execReady_parts hr
   have hnaF : c.AsideFree := asideFree_of_ready hr
   obtain ⟨hrq, -⟩ := ruleSorted_of hok hmem
@@ -171,6 +177,7 @@ theorem ruleMatches_of_applies (hr : execReady c = true) (hfd : FnDet c) {x : Co
 theorem ruleMatches_ne_true (hr : execReady c = true) (hfd : FnDet c) {n : Nat}
     {x : Config c} {r : Rule} (hmem : r ∈ c.rules) (h : NotApplies c r x.val) :
     ∀ σb ∈ ruleMatches c n r x.val, σb.2 ≠ some true := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   rintro ⟨σ, b⟩ hσb (hb : b = some true)
   subst hb
   exact not_notApplies_of_ruleMatches hr hfd hmem hσb h
@@ -183,6 +190,7 @@ Given `FnDet`. -/
 theorem ruleMatches_of_noRule (hr : execReady c = true) (hfd : FnDet c) {x : Config c}
     (h : ∀ r ∈ c.rules, NotApplies c r x.val) :
     ∃ N, ∀ m, N ≤ m → ∀ r ∈ c.rules, ∀ σb ∈ ruleMatches c m r x.val, σb.2 = some false := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, -⟩ := execReady_parts hr
   have hnaF : c.AsideFree := asideFree_of_ready hr
   let all := c.rules.flatMap fun r' => (cmatch c r'.vars [r'.lhs] [x.val]).map (r', ·)
@@ -234,6 +242,7 @@ every match `ruleMatches` lists of every rule has `requires` `some false` (`←`
 theorem noRule_iff (hr : execReady c = true) (hfd : FnDet c) (x : Config c) :
     (∀ r ∈ c.rules, NotApplies c r x.val) ↔
       ∃ n, ∀ r ∈ c.rules, ∀ σb ∈ ruleMatches c n r x.val, σb.2 = some false := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   constructor
   · intro h
     obtain ⟨N, hN⟩ := ruleMatches_of_noRule hr hfd h
@@ -247,6 +256,7 @@ theorem noRule_iff_at (hr : execReady c = true) (hfd : FnDet c) {n : Nat} (x : C
     (hf : ∀ r ∈ c.rules, ∀ σb ∈ ruleMatches c n r x.val, σb.2 ≠ none) :
     (∀ r ∈ c.rules, NotApplies c r x.val) ↔
       ∀ r ∈ c.rules, ∀ σb ∈ ruleMatches c n r x.val, σb.2 = some false := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   constructor
   · intro h r hm σb hσb
     have h1 := hf r hm σb hσb
@@ -287,6 +297,7 @@ theorem matchVal_true_of (hr : execReady c = true) (hfd : FnDet c) {n : Nat} {r 
     (hqne : reqVal c n r σ₀ ≠ none) (hpne : predVal c n σ₀ r.pre ≠ none)
     (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     (hpre : Holds c r.vars.length σ r.pre true) : matchVal c n r σ₀ = some true := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, -⟩ := execReady_parts hr
   have hpc := (ruleSorted_preds_of hok hmem).1
   have hp : predVal c n σ₀ r.pre = some true := by
@@ -321,6 +332,7 @@ theorem postVal_true_of (hr : execReady c = true) (hfd : FnDet c) {n : Nat} {r :
     (hmem : r ∈ c.rules) {σ₀ σ : Subst} (hσ₀ : c.WellSorted r.vars σ₀)
     (hag : ∀ i < r.vars.length, σ₀.lookup i = σ.lookup i) (hne : predVal c n σ₀ r.post ≠ none)
     (hpost : Holds c r.vars.length σ r.post true) : predVal c n σ₀ r.post = some true := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, -⟩ := execReady_parts hr
   cases hpv : predVal c n σ₀ r.post with
   | none => exact absurd hpv hne
@@ -334,6 +346,7 @@ the configurations `successorsN c n x` lists are exactly x's `Step` successors. 
 some fuel; this one is for the fuel the caller ran, with the condition it can check. -/
 theorem step_iff_at (hr : execReady c = true) (hfd : FnDet c) {n : Nat} {x y : Config c}
     (hf : outOfFuel c n x.val = false) : Step c x y ↔ y.val ∈ successorsN c n x.val := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, hrc⟩ := execReady_parts hr
   constructor
   · rintro ⟨r, hmem, σ, hσ, hmatch, hreq, hpre, heval, hens, hpost, hprio⟩
@@ -385,6 +398,7 @@ left-hand side agrees on the rule's variables with a listed match (`RuleComplete
 `true` and a `pre` that holds under the match are the listed match's values (one result). -/
 theorem stepDecided_of_fuel (hr : execReady c = true) (hfd : FnDet c) {n : Nat} {x : Config c}
     (hf : outOfFuel c n x.val = false) : StepDecided c x.val := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   obtain ⟨hok, hsc, hcc, hcm, hrc⟩ := execReady_parts hr
   intro r hmem _
   have hpc := ruleSorted_preds_of hok hmem
@@ -433,6 +447,7 @@ is false and `successorsN c n x` is empty, x has no `Step` successor. Given `FnD
 theorem noStep_at (hr : execReady c = true) (hfd : FnDet c) {n : Nat} {x : Config c}
     (hf : outOfFuel c n x.val = false) (he : successorsN c n x.val = []) (y : Config c) :
     ¬ Step c x y := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   intro hst
   have := (step_iff_at hr hfd hf).mp hst
   rw [he] at this

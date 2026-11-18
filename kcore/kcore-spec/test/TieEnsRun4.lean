@@ -399,9 +399,9 @@ end
 
 /-! ### `half(4) = 2` in Γ without the rule -/
 
-/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` (as in
+/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` whose clauses' predicates are all top (as in
 test/TieEns.lean). -/
-theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ den c v) := by
@@ -412,11 +412,12 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 def half : Sym := 387
@@ -451,7 +452,7 @@ theorem eval0 (H : HookParams) : Eval (c0H H) half [int 4] (some (int 2)) :=
 /-- `half(4) = 2`, a theorem of Γ without the rule, for every H. -/
 theorem half4 (H : HookParams) :
     Γ (c0H H) ⊧ (KoreAML.den (symApp (c0H H) half (GroundTerm.koreList (c0H H) [int 4])) ≡ den (c0H H) (int 2)) :=
-  eval_some_sound_core _ (hypSound_of_core (coreOK0H H)) (Semantics.ok_clauseBinds (hok0H H)) (eval0 H)
+  eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hok0H H))) (hypSound_of_core (coreOK0H H)) (Semantics.ok_clauseBinds (hok0H H)) (eval0 H)
     (hfn0H H) (hvs0H4 H)
 
 /-! ### The configurations and the instance of sentence 155 -/

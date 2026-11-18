@@ -168,7 +168,7 @@ theorem total_named : c.totalObligationsRP callOrder [] = [f] := by decide +kern
 /-- **One result at each argument list and evaluation solves the equations, for every H**, from
 the deciders for termination, agreement and match independence; `f`'s `[total]` is not read. -/
 theorem fnModelH (H : HookParams) : FnDet (cH H) ∧ FnSolves (cH H) :=
-  TiePair.fnModel_noTotal_withHooks (ord := callOrder) coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) noRaw
+  TiePair.fnModel_noTotal_withHooks (hpreTop := by decide +kernel) (ord := callOrder) coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) noRaw
     term_named agree_named match_named H
 
 theorem plainH (H : HookParams) : (cH H).plain = true :=

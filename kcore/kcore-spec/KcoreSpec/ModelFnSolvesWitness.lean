@@ -253,7 +253,7 @@ theorem not_fnSolves : ¬ FnSolves c := by
     | 0, hi => simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨i0, rfl, i0_int⟩
     | _ + 1, hi => simp [cl2] at hi
   have hdec : cl2.DecidesAt c fF σ [i0] := by
-    refine ⟨⟨hσ, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
+    refine ⟨⟨hσ.at _, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
     rcases hcl' with rfl | rfl
     · cases hm with
@@ -303,7 +303,7 @@ theorem premise_holdsB {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Na
   unfold premise
   rw [tr_and2, KoreAML.interp_sAnd]
   refine ⟨?_, argsConj_den4 hI hnn.1 hph htr hσ' (canonVars_length c cl.vars) hag hRv hσr2 hm0 hmatch fn.args 0
-    hpats (fun s hs => hnum s (List.mem_cons_of_mem _ hs)) ?_⟩
+    (OvlOK.nfs_bridge inferInstance hpats) (fun s hs => hnum s (List.mem_cons_of_mem _ hs)) ?_⟩
   · cases hq : cl.req with
     | none =>
       simp only [Option.map_none, reqPat]
@@ -475,7 +475,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       exact List.mem_append_left _ (List.mem_singleton_self _))
     unfold competingPremise
     rw [tr_and2, KoreAML.interp_sAnd]
-    refine ⟨?_, premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag)⟩
+    refine ⟨?_, premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq tbl e hag)⟩
     rw [KoreAML.tr, KoreAML.interp_sNot]
     refine ⟨?_, (KoreAML.interp_inhOf_of hRv).mpr hm0⟩
     rw [anyOf_eq]

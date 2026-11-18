@@ -44,7 +44,8 @@ theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true
   obtain ⟨hpt, -, L, -, -, hrt, hens⟩ := Faithful.clause_ctxOccE hok hmem hcl
   cases hfx : c.clauseFixed cl with
   | true =>
-    refine clauseFixed_sound (Exec.matchCtx_of hmr) hpt hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    refine clauseFixed_sound (Exec.matchCtx_of hmr)
+      (sortsOfTerms_nf_of_nil (Semantics.fnOvlSyms_of_noOvl (Exec.matchCtx_of hmr).noOvl) hpt) hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     cases he : cl.ens with
     | none => rfl
     | some t => simpa [reqOK, he] using hens t he
@@ -72,7 +73,7 @@ theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hsr 
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     exact (Det.fnExclusiveOK_sound (Exec.matchCtx_of hmr) (fun _ _ => Det.ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(Exec.matchCtx_of hmr).noOvl] using hx⟩, rfl⟩
@@ -180,17 +181,18 @@ named obligations (all of them named where there is an overloading symbol, which
 does not read) (`CoreObligations`' third and fourth conjuncts). Its last conjunct, the lazy
 occurrences, is not read; its two last, `OpenDecided` and `OpenLaws`, are `FnHyp`'s. Termination
 and totality read `hrh`: each clause variable the patterns and conditions do not hold is of a sort
-with a value. -/
-theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) : FnHyp c := by
+with a value; and `hpreTop`: every clause's predicate is `\top` (the certificates read no call of
+a predicate). -/
+theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : FnHyp c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
   have hmo : MatchObligations c := hob.2.2.2.1
   refine ⟨fun fn hfn vs hvs => ?_, fun fn hfn ht vs hvs => ?_, fun fn hfn => ?_, fun fn hfn cl hcl => ?_,
     hob.2.2.2.2.2.1, hob.2.2.2.2.2.2⟩
-  · exact CoreObligations.terminates h hrh hob fn.label fn
+  · exact CoreObligations.terminates (hpreTop := hpreTop) h hrh hob fn.label fn
       (lookupFn_of_core h hfn) vs hvs
-  · exact CoreObligations.totals h hrh hob fn.label fn (lookupFn_of_core h hfn) ht fn
+  · exact CoreObligations.totals (hpreTop := hpreTop) h hrh hob fn.label fn (lookupFn_of_core h hfn) ht fn
       (lookupFn_of_core h hfn) vs hvs
   · by_cases hno : c.ovls = []
     · exact clausesAgree_of_sortedOK hok hsr (NamesApart.matchReady_of hha hids hok hno) hob.2.2.1 fn hfn
@@ -213,8 +215,8 @@ theorem hyp_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypCore c := by
 
 /-- **What the statements assume, from `coreOK` and `CoreObligations`**: `hyp_of_fnHyp` with
 `fnHyp_of_core`. -/
-theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) : HypCore c :=
-  hyp_of_fnHyp h (fnHyp_of_core h hrh hob)
+theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypCore c :=
+  hyp_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 /-- **What the existence of a model reads, from `coreOK`, `FnDet` and `FnSolves`**: `sortedOK`,
 `srReady` and the names numbered with the two facts on the functions (`HypFnModel`),
@@ -274,8 +276,8 @@ theorem hypModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypModelCore c 
 
 /-- **What the existence of a model reads, from `coreOK` and `CoreObligations`**:
 `hypModel_of_fnHyp` with `fnHyp_of_core`. -/
-theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) : HypModelCore c :=
-  hypModel_of_fnHyp h (fnHyp_of_core h hrh hob)
+theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypModelCore c :=
+  hypModel_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 end Core
 
@@ -296,12 +298,14 @@ theorem lookupFn_of_wf (hwf : wf d = true) {fn : Fn} (hfn : fn ∈ d.sem.fns) :
 /-- **What the statements assume, from `wf` and `Obligations`**: `hyp_of_core`, `wf` giving
 `okAll`. -/
 theorem hyp_of (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) : Hyp d.sem :=
-  ⟨(NamesApart.wf_parts hwf).2.2.2, (hyp_of_core (Definition.coreOK_of_wf hwf) hrh hob).2⟩
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  ⟨(NamesApart.wf_parts hwf).2.2.2, (hyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob).2⟩
 
 /-- **What the existence of a model reads, from `wf` and `Obligations`**: `hypModel_of_core`, `wf`
 giving `coreOK`, and `hyp_of`, `hypSound_of`. -/
 theorem hypModel_of (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) : HypModel d.sem :=
-  have h := hypModel_of_core (Definition.coreOK_of_wf hwf) hrh hob
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have h := hypModel_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
   ⟨hyp_of hwf hrh hob, hypSound_of hwf, h.names, h.lits, h.ids, h.sorts, h.collCtors, h.ites, h.kinds,
     h.ctors, h.fns⟩
 
@@ -310,6 +314,7 @@ that interpretation, of a definition without an open generator (`hr`). -/
 theorem hypModel_of_withHooks (hwf : wf d = true) (hrh : d.sem.RightHeld) (H : HookParams)
     (hob : Obligations { d with sem := d.sem.withHooks H })
     (hr : ∀ k ∈ d.sem.params, k.raw = false := by decide +kernel) : HypModel (d.sem.withHooks H) :=
+  have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
   hypModel_of (d := { d with sem := d.sem.withHooks H }) ((Definition.wf_withHooks d H).trans hwf)
     (Semantics.rightHeld_withHooks hrh H hr) hob
 

@@ -119,7 +119,7 @@ COUNTED = [
 ]
 
 # `reasons` names that the fixtures their entry's evidence names do not print: (ticket, pinned count).
-UNSHOWN = ("R2-release.C4", 7)
+UNSHOWN = ("R2-release.C4", 3)
 
 # Constructors no entry names, each with the ticket that owes the entry: ("Inductive.x", ticket).
 # One holds only while its ticket is in PROGRESS and not done, and while no entry names it.
@@ -128,7 +128,6 @@ UNSHOWN = ("R2-release.C4", 7)
 PINNED = [
     # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
     ("RefusalReason.existentialEquation", "CE.reader-wire"),
-    ("RefusalReason.openGeneratorPattern", "P2.rows"),
     ("RefusalReason.openLaw", "P3.rows"),
     # printed by fixtures hw-h1-*, hw-h8 and hw-h12-ctor; the rows of those shapes are owed
     ("RefusalReason.constructorEquation", "KPROV.apply"),

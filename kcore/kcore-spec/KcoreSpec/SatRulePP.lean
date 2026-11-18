@@ -98,6 +98,7 @@ theorem ruleSorted_partsPP {r : Rule} (hs : c.ruleSorted r = true) :
   have hs' := hs
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, hnd⟩, hex⟩, hreq⟩, hokP⟩, hens⟩, hokQ⟩, hbdP⟩, hbdQ⟩, hrhs⟩ := hs'
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs, (NamesApart.nodupB_iff _).mp hnd,
     fun i hi => ?_, hokP, hokQ, hbdP, hbdQ⟩
   · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)
@@ -382,7 +383,7 @@ theorem rule_premise_pp (h : HypModelCore c)
       (List.mem_append_left _ (by rw [ht]; exact hi))⟩
   have hpreP : ∀ i ∈ varOccsCond r.vars.length r.pre, i < r.vars.length → P i := fun i hi hlt =>
     ⟨hlt, fun hx => (hexs i hx).2.2 (List.mem_append_right _ hi)⟩
-  have hpat : PatOK c P r.lhs := (patOK_of_sorted h hlhs).monoOpen hltL
+  have hpat : PatOK c P r.lhs := (patOK_of_sorted h (Semantics.ruleSorted_lhs_nf c hs)).monoOpen hltL
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqs t ht)).monoOpen (hreqP t ht)
   -- the keys of the parts

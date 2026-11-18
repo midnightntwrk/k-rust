@@ -72,7 +72,7 @@ functional, given Bad's totality. -/
 theorem mi_total (H : HookParams) (hterm : ∀ g, Terminates (mi.withHooks H) g)
     (hco : CoherentAll (mi.withHooks H)) (hB : Total (mi.withHooks H) Bad) :
     Total (mi.withHooks H) Init := by
-  have key := totals_of_rankP (c := mi.withHooks H) mi_sorted.1 mi_sorted.2
+  have key := totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := mi.withHooks H) mi_sorted.1 mi_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := mi) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) hterm hco [] [] ParamsTotal.nil
     (fun g hg => by

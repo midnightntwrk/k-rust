@@ -145,6 +145,45 @@ theorem fault_user :
 /-- An equation of another symbol is not these functions'. -/
 theorem other : ok [std] { std with fn := "Lblpair" } = none := by decide +kernel
 
+/-! ### An instance of `std` at a constructor pattern (`predInstOK`, `predInstAcc`) -/
+
+/-- `pairT`, `isFoo(kseq(inj{Foo,KItem}(pair(K0, K1)), dotk)) = true`: `std` with the constructor
+pattern `pair(K0, K1)` in V's place; `pairF` the same with `false`. -/
+def pairT : RawEqn := { pair with req := none, attrs := [uidAttr "pairT"] }
+def pairF : RawEqn := { pairT with rhs := ff, attrs := [uidAttr "pairF"] }
+
+def dPairT : Kore.Pattern :=
+  let g0 := ev "Var'Unds'Gen0" (srt "Foo")
+  let g1 := ev "Var'Unds'Gen1" (srt "Foo")
+  disjunct [evar "Var'Unds'Gen0" (srt "Foo"), evar "Var'Unds'Gen1" (srt "Foo")] (.top R) (item (ap "Lblpair" [g0, g1]))
+
+/-- `pairT` is an instance of `std` (and `std` of itself, V in V's place); `pairF`, which gives the
+other value, and `pair`, which has a `requires`, are not. -/
+theorem inst : predInstOK N "" c pairT = true ∧ predInstOK N "" c pairF = false ∧
+    predInstOK N "" c pair = false ∧ predInstOK N "" c std = true := by decide +kernel
+
+/-- The text with `pairT` and its `[owise]` equation excluding it and `std`, in either order of the
+disjuncts: no fault; `predProjOK?` still says neither is a clause of the predicate. -/
+theorem inst_text :
+    (predEqnFaults N "" [ow [dPairT, dStd], pairT, std] c).length = 0 ∧
+    (predEqnFaults N "" [ow [dStd, dPairT], std, pairT] c).length = 0 ∧
+    ok [ow [dPairT, dStd], pairT, std] pairT = some false ∧
+    ok [ow [dPairT, dStd], pairT, std] (ow [dPairT, dStd]) = some false := by decide +kernel
+
+/-- The text with `pairF` (a sentence contradicting the predicate's clause): both refused, as is an
+`[owise]` equation that excludes `pairT` in a text without it. -/
+theorem inst_false :
+    (predEqnFaults N "" [ow [dPairT, dStd], pairF, std] c).map (fun f => (f.reason, at? f)) =
+      [(.generatedEquation, (ow []).attrs), (.generatedEquation, pairF.attrs)] ∧
+    (predEqnFaults N "" [ow [dPairT, dStd], std] c).map (·.reason) = [.generatedEquation] := by
+  decide +kernel
+
+/-- **`Γ` entails `pairT`'s equation**, for the semantics `c` (`GenEqs.predInst_entailed`). -/
+theorem inst_entailed : ∃ fn ∈ c.sortPreds, c.symName fn.label = "LblisFoo" ∧ ∃ cl cp,
+    clause? N "" pairT none = .ok (cl, cp) ∧
+    ∀ it ∈ Faithful.kernelItems [Faithful.prioEquation c fn cl], Faithful.Γ c ⊧ it.pat :=
+  GenEqs.predInst_entailed (by decide +kernel) inst.1
+
 end Hand
 
 def cacheDir : IO String := do

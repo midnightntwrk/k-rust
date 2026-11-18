@@ -1,0 +1,121 @@
+//@ 0
+module E2-OPEN-REC-HELD
+//@ 11
+  sort SortB{} []
+//@ 48
+  symbol Lbland{}(SortB{}, SortB{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,34,2,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)"), symbol'Kywd'{}("and")]
+//@ 49
+  symbol Lblc{}(SortB{}, SortB{}, SortB{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,20,3,42)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)"), symbol'Kywd'{}("c")]
+//@ 50
+  symbol Lbld{}(SortB{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,45,3,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)"), symbol'Kywd'{}("d")]
+//@ 51
+  symbol Lble{}() : SortB{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,16,2,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)"), symbol'Kywd'{}("e")]
+//@ 58
+  symbol LblisB{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 78
+  symbol Lblproject'Coln'B{}(SortK{}) : SortB{} [function{}()]
+//@ 114
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortB{}, SortKItem{}} (From:SortB{}))) [subsort{SortB{}, SortKItem{}}()] // subsort
+//@ 152
+  axiom{R} \exists{R} (Val:SortB{}, \equals{SortB{}, R} (Val:SortB{}, Lbland{}(K0:SortB{}, K1:SortB{}))) [functional{}()] // functional
+//@ 153
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, Lblc{}(K0:SortB{}, K1:SortB{}, K2:SortB{}))) [functional{}()] // functional
+//@ 154
+  axiom{}\implies{SortKItem{}} (\and{SortKItem{}} (Lblc{}(X0:SortB{}, X1:SortB{}, X2:SortB{}), Lblc{}(Y0:SortB{}, Y1:SortB{}, Y2:SortB{})), Lblc{}(\and{SortB{}} (X0:SortB{}, Y0:SortB{}), \and{SortB{}} (X1:SortB{}, Y1:SortB{}), \and{SortB{}} (X2:SortB{}, Y2:SortB{}))) [constructor{}()] // no confusion same constructor
+//@ 155
+  axiom{}\not{SortKItem{}} (\and{SortKItem{}} (Lblc{}(X0:SortB{}, X1:SortB{}, X2:SortB{}), Lbld{}(Y0:SortB{}))) [constructor{}()] // no confusion different constructors
+//@ 156
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, Lbld{}(K0:SortB{}))) [functional{}()] // functional
+//@ 157
+  axiom{}\implies{SortKItem{}} (\and{SortKItem{}} (Lbld{}(X0:SortB{}), Lbld{}(Y0:SortB{})), Lbld{}(\and{SortB{}} (X0:SortB{}, Y0:SortB{}))) [constructor{}()] // no confusion same constructor
+//@ 158
+  axiom{R} \exists{R} (Val:SortB{}, \equals{SortB{}, R} (Val:SortB{}, Lble{}())) [functional{}()] // functional
+//@ 161
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisB{}(K0:SortK{}))) [functional{}()] // functional
+//@ 185
+  axiom{} \or{SortB{}} (\exists{SortB{}} (X0:SortB{}, \exists{SortB{}} (X1:SortB{}, Lbland{}(X0:SortB{}, X1:SortB{}))), Lble{}(), \bottom{SortB{}}()) [constructor{}()] // no junk
+//@ 195
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (X0:SortB{}, \exists{SortKItem{}} (X1:SortB{}, \exists{SortKItem{}} (X2:SortB{}, Lblc{}(X0:SortB{}, X1:SortB{}, X2:SortB{})))), \exists{SortKItem{}} (X0:SortB{}, Lbld{}(X0:SortB{})), \exists{SortKItem{}} (Val:SortB{}, inj{SortB{}, SortKItem{}} (Val:SortB{})), \exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 197
+// rule `<generatedTop>`(`<k>`(c(and(X,Y),X,Y)),_DotVar0)=>`<generatedTop>`(`<k>`(d(X)),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(7e5bbf29dba860cec72e7515d613c2a3c56618f1dac545a2f73c350c938dc2ea), org.kframework.attributes.Location(Location(4,8,4,39)), org.kframework.attributes.Source(Source(FIXTURE/e2-open-rec-held.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblc{}(Lbland{}(VarX:SortB{},VarY:SortB{}),VarX:SortB{},VarY:SortB{}),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbld{}(VarX:SortB{}),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("7e5bbf29dba860cec72e7515d613c2a3c56618f1dac545a2f73c350c938dc2ea"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)")]
+//@ 203
+// rule isB(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8b782430489ceac19cbab0d2516c40fe8ab7e0947a7adb7db547b0dfdb55a8d0), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortB{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortB{}, SortKItem{}}(Var'Unds'Gen1:SortB{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisB{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("8b782430489ceac19cbab0d2516c40fe8ab7e0947a7adb7db547b0dfdb55a8d0"), owise{}()]
+//@ 204
+// rule isB(inj{B,KItem}(B))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fc022f378c4e5888f4ba89f8662a2e4d7b71b2e882ecd15683cae3f892dad823)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortB{}, SortKItem{}}(VarB:SortB{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisB{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("fc022f378c4e5888f4ba89f8662a2e4d7b71b2e882ecd15683cae3f892dad823")]
+//@ 232
+// rule `project:B`(inj{B,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2029c3f650233362da2b1c651a2b874c81fad7e018459e4a5fc8bd9404de93b9), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortB{}, SortKItem{}}(VarK:SortB{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortB{},R} (
+      Lblproject'Coln'B{}(X0:SortK{}),
+     \and{SortB{}} (
+       VarK:SortB{},
+        \top{SortB{}}())))
+  [UNIQUE'Unds'ID{}("2029c3f650233362da2b1c651a2b874c81fad7e018459e4a5fc8bd9404de93b9")]
+//@ 248
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec-held.k)")]

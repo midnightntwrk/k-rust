@@ -123,7 +123,7 @@ include hI hnn hsc hok hph hneg
 
 /-- `lhs_req_hold4` for a semantics `sortedOKCl` accepts, each negated clause's exclusion empty
 where it fails (`ExclEmptyCl`). -/
-theorem lhs_req_hold4Cl {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem lhs_req_hold4Cl (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} {e : Valuation M} (hag : Agrees c I tbl (canonVars c r.vars) σ e) :
     (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r.vars) r.lhs)).interpret I e (elemOf c I x.val) ∧
@@ -141,7 +141,7 @@ theorem lhs_req_hold4Cl {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.We
   have haC : Inh I σC (elemOf c I x.val) := by
     have := hxs.2
     exact (KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσC1).mp this
-  refine ⟨(patVal_den4 hI hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch hlhs).2 _ |>.mpr
+  refine ⟨(patVal_den4 hI hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (Semantics.lhs_nf OvlOK.ok hr hlhs)).2 _ |>.mpr
     ((hxs.1 _).mpr rfl), ?_⟩
   cases hq : r.req with
   | none =>
@@ -152,7 +152,7 @@ theorem lhs_req_hold4Cl {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.We
     simp only [Option.map_some, reqPat]
     rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (by rw [trSort_srt]; exact hσB1) hSC hσB2 hσC2]
     refine ⟨haC, fun b _ => ?_⟩
-    rw [evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq) b,
+    rw [evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq) b,
       KoreAML.tr_dv]
     show (den c (bool true)).interpret I e b ↔ _
     unfold den KoreAML.den bool
@@ -161,7 +161,7 @@ theorem lhs_req_hold4Cl {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.We
 
 /-- `applies_holds` for a semantics `sortedOKCl` accepts, each negated clause's exclusion empty
 where it fails (`ExclEmptyCl`). -/
-theorem applies_holdsCl {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem applies_holdsCl (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl) (e : Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret I e (elemOf c I x.val) := by
@@ -169,7 +169,7 @@ theorem applies_holdsCl {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (h
   let vs := canonVars c r.vars
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
   have hag := overV_agrees hI hkeys hσ (e := e)
-  have h := lhs_req_hold4Cl hI hnn hsc hok hph hneg hr hσ hmatch hreq hag
+  have h := lhs_req_hold4Cl (hpreTop := hpreTop) hI hnn hsc hok hph hneg hr hσ hmatch hreq hag
   rw [applies_top _ hpre hb]
   show (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll (srtOf c topCellSort) (vs.map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))]))).interpret
@@ -264,7 +264,7 @@ bodies: with the step's closure axiom, in every model of `Γc c`, a successor of
 the element of `x` that lies in a pattern ψ is the element of a configuration y with `Step c x y`,
 where the evaluations the step at `x` reads have results (`StepDecided`). `step_successor_at` with
 `sortedOKCl` and the conjuncts of `HypSoundCore` other than `sortedOK`, from `faithCoreOK`. -/
-theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hno : OvlOK c]
+theorem step_successor_atCl (hpreTop : c.clausesPreTop = true) (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [hno : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     (x : Config c) (hd : StepDecided c x.val)
@@ -279,7 +279,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
   have hD := defOK hIΓ
   -- every negated clause's exclusion is empty where it fails, as for soundness
-  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok))
+  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok))
   have hnext := hs
   unfold KoreAML.sNext at hnext
   rw [KoreAML.interp_app] at hnext
@@ -374,12 +374,12 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
     rw [canonKey_eq c hi]
     exact this
   obtain ⟨hmatch, hwit⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) hlhs x.property hl
+    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
   obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) (fun i hi => hwit i (hbinds i hi))
   -- no rule of a smaller priority applies, in the sense of `RuleApplies`: the disjunct's negated
   -- competitors hold at the element of x
   have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
-    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holdsCl hIΓ hnn hsc hok hph hneg hr' (htop _ hr').1 (hb _ hr')
+    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holdsCl (hpreTop := hpreTop) hIΓ hnn hsc hok hph hneg hr' (htop _ hr').1 (hb _ hr')
       (Rule.wellSorted_of_at (hb _ hr') hσ')
       hpv' hreq' (fun i hi => hin_tbl _ (hLcomp r' hr' hlt i hi)) e2)
   -- so the rule is one `StepDecided` speaks of, at this match
@@ -396,7 +396,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
       obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
       exact reqFalse_empty hIΓ (S' := srtOf c topCellSort) (fun a => by unfold srtOf; rw [trSort_srt]; exact hσC1 a) hσC2
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hreqs t ht) hu)
-        (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
+        (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
         _ hreq
   have hrest := hdr.2 _ hσ hmatch hreqT ((htop _ hr).1 ▸ .top)
   -- the `ensures` evaluates to `true`
@@ -412,7 +412,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
       obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
       exact reqFalse_empty hIΓ (S' := srtOf c topCellSort) (fun a => by unfold srtOf; rw [trSort_srt]; exact hσC1 a) hσC2
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hensS t ht) hu)
-        (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht))
+        (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht))
         _ hE
   -- no rule of a smaller priority applies: each is one `StepDecided` speaks of (the rules of a
   -- smaller priority still do not apply), so its `requires` has a result, which is not `true`
@@ -433,7 +433,7 @@ theorem step_successor_atCl (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules,
       · exact RuleReqFails.intro ht hv hvt
   -- the right-hand side evaluates to a configuration whose element is `b`
   obtain ⟨v, hv⟩ := hrest.1
-  have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp
+  have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl hok) hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp
     hRm.1
   cases v with
   | none => exact hbR.elim
@@ -454,7 +454,7 @@ open Faithful
 /-- **Completeness at a configuration**, for a semantics whose clauses are asked CN-4's bodies:
 `complete_at`'s conclusion with `sortedOKCl` and the conjuncts of `coreOK` the proof reads in place
 of `coreOK` (`step_successor_atCl`). No hypothesis on the sorts of the variables the patterns and conditions do not hold. -/
-theorem complete_atCl (c : Semantics) (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [OvlOK c]
+theorem complete_atCl (c : Semantics) (hpreTop : c.clausesPreTop = true) (hok : c.sortedOKCl = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hsr : c.srReady = true) [OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : Faithful.patHooksApart c = true)
     (x : Config c) (hd : StepDecided c x.val) (os : List Outcome)
     (hval : ∀ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] → StepBy c r σ x y → .val y.val ∈ os)
@@ -471,7 +471,7 @@ theorem complete_atCl (c : Semantics) (hok : c.sortedOKCl = true) (hb : ∀ r �
   unfold KoreAML.allNext
   rw [ML.interpret_neg]
   intro hnext
-  obtain ⟨y, hy, hψ⟩ := step_successor_atCl hok hb htop hsr hfa hph hc x hd hI e _ hnext
+  obtain ⟨y, hy, hψ⟩ := step_successor_atCl (hpreTop := hpreTop) hok hb htop hsr hfa hph hc x hd hI e _ hnext
   rw [ML.interpret_neg] at hψ
   obtain ⟨r, σ, hs⟩ := step_iff_by.mp hy
   have hop : r.opens = [] := Rule.opens_of_binds (hb _ hs.mem)

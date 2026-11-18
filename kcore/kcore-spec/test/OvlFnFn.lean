@@ -270,10 +270,10 @@ theorem agree_c : ClausesAgree c (negFn [ovlCl, userCl]) := fnHyp_c.2.2.1 _ (by 
 /-! ## A competitor of priority 0 beside the `aside` clause -/
 
 theorem appliesC_ovl : ovlCl.AppliesAt cC [(0, v3)] [i3] :=
-  ⟨ws1 _ (sort_v3 _), match_ovl3 _, (fun t ht => by cases ht), .top⟩
+  ⟨(ws1 _ (sort_v3 _)).at _, match_ovl3 _, (fun t ht => by cases ht), .top⟩
 
 theorem appliesC_cl0 : cl0.AppliesAt cC [(0, i3)] [i3] :=
-  ⟨ws1 _ (by decide +kernel), .cons (.var rfl) .nil, (fun t ht => by cases ht), .top⟩
+  ⟨(ws1 _ (by decide +kernel)).at _, .cons (.var rfl) .nil, (fun t ht => by cases ht), .top⟩
 
 theorem pairC : (ovlCl, cl0) ∈ pairs (negFn [ovlCl, userCl, cl0]).clauses := by simp [negFn, pairs]
 
@@ -296,7 +296,8 @@ theorem compete_reads : ovlCl.prio = cl0.prio ∧
 
 /-- `negExp(inj 3)` is `e` by the competitor (nothing is below priority 0). -/
 theorem evalC_cl0 : Eval cC negExp [i3] (some ve) :=
-  .clause (cl := cl0) (σ := [(0, i3)]) lookups_cC.2 (by simp [negFn]) appliesC_cl0.1
+  .clause (cl := cl0) (σ := [(0, i3)]) lookups_cC.2 (by simp [negFn])
+    ((wellSortedAt_univ rfl).mp appliesC_cl0.1)
     appliesC_cl0.2.1 (fun t ht => by cases ht) .top (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
     rfl (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht) .top
 

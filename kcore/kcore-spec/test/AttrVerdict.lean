@@ -30,8 +30,8 @@ def StatusE2.is : StatusE2 → AttrVerdict → Bool
 
 /-- E2's rows of a class other than `frontend`. -/
 def rowsE2 : List (AttrClassE2 × AttrKeyE2 × StatusE2) := [
-  (.symbol, .alias, .inert),
-  (.symbol, .aliasRec, .inert),
+  (.symbol, .alias, .supported),
+  (.symbol, .aliasRec, .supported),
   (.rule, .anywhere, .refused),
   (.equation, .anywhere, .refused),
   (.simplification, .anywhere, .refused),
@@ -73,8 +73,8 @@ def rowsE2 : List (AttrClassE2 × AttrKeyE2 × StatusE2) := [
   (.equation, .label, .supported),
   (.simplification, .label, .supported),
   (.claim, .label, .inert),
-  (.symbol, .macroKey, .inert),
-  (.symbol, .macroRec, .inert),
+  (.symbol, .macroKey, .supported),
+  (.symbol, .macroRec, .supported),
   (.symbol, .memo, .inert),
   (.rule, .nonExecutable, .refused),
   (.equation, .nonExecutable, .supported),
@@ -246,9 +246,9 @@ example : sortAttrOK (KoreAML.attr "token") ∧ sortAttrOK (KoreAML.attr "hasDom
     !sortAttrOK (KoreAML.attr "concat") ∧ !sortAttrOK (KoreAML.attr "subsort") := by decide +kernel
 
 -- a claim: refused where the verdict at class claim refuses one of its attributes, inert otherwise
-example : classify (.claim ⟨[], .string "p", [KoreAML.attr "owise"]⟩) = .refused .attrOutsideE2 ∧
-    classify (.claim ⟨[], .string "p", [KoreAML.attr "trusted", KoreAML.attrStr "label" "c"]⟩) = .inert .claim ∧
-    classify (.claim ⟨[], .string "p", [KoreAML.attr "foo"]⟩) = .refused .attrOutsideE2 := by decide +kernel
+example : classifyShape (.claim ⟨[], .string "p", [KoreAML.attr "owise"]⟩) = .refused .attrOutsideE2 ∧
+    classifyShape (.claim ⟨[], .string "p", [KoreAML.attr "trusted", KoreAML.attrStr "label" "c"]⟩) = .inert .claim ∧
+    classifyShape (.claim ⟨[], .string "p", [KoreAML.attr "foo"]⟩) = .refused .attrOutsideE2 := by decide +kernel
 
 -- a symbol declaration (`symAttrFault?`): `assoc` and `comm` on a function's declaration are
 -- refused attrOutsideE2 (kompile writes neither there), on another symbol's openGenerator as the

@@ -95,10 +95,13 @@ def reqPat (S : Kore.KSort) : Option Kore.Pattern → Kore.Pattern
 def premise (args : List String) (req : Option Kore.Pattern) (pats : List Kore.Pattern) : Kore.Pattern :=
   .and R [reqPat R req, argsConj 0 (args.zip pats)]
 
-/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`. -/
+/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`.
+A name `Lblite{…}` holding a comma has none: it is an instance at several sorts of a sort-parametric
+symbol the text names `Lblite` (`Parse.instName`), and `ite` takes one sort. -/
 def iteSort? (n : String) : Option String :=
   match n.toList with
-  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest => some (String.ofList rest.dropLast)
+  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest =>
+    if rest.contains ',' then none else some (String.ofList rest.dropLast)
   | _ => none
 
 mutual
@@ -414,10 +417,11 @@ def uidsOf (c : Semantics) (p : Presentation) (X : Srt) : SortUids :=
 namespace Cell
 
 mutual
-  /-- A cell and its descendants. -/
+  /-- A cell and its descendants (not the cell collections among them, which are no cells). -/
   def all : Cell → List Cell
     | .leaf n s i => [.leaf n s i]
     | .node n cs i => .node n cs i :: allList cs
+    | .coll _ => []
     termination_by structural x => x
   def allList : List Cell → List Cell
     | [] => []
@@ -429,15 +433,18 @@ end
 (`pgmCell`), or a leaf whose initial value reads `Init`, as `<env> $ENV:Map </env>` does), so its
 initializer reads `Init`. -/
 def readsInit (p : Presentation) (x : Cell) : Bool := x.all.any fun
-  | .leaf n _ _ => n == p.pgmCell || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
+  | .leaf n _ _ => p.pgmCell == some n || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
   | _ => false
 
 /-- `initXCell`: not a function of the semantics, named from the cell's sort. -/
 def initLabel (c : Semantics) (x : Cell) : String := "Lblinit" ++ c.sortName x.sort
 
-/-- `initX(Init)` or `initX()`. -/
+/-- `initX(Init)` or `initX()`; for a cell collection, its unit `.XCellSet()` (no cell of a
+multiplicity `*` cell at the start). -/
 def initCall (c : Semantics) (p : Presentation) (x : Cell) : Kore.Pattern :=
-  ap (x.initLabel c) (if x.readsInit p then [ev "VarInit" (srt "Map")] else [])
+  match x with
+  | .coll s => ap (c.symName (((c.colls.find? (·.sort == s)).map (·.unit)).getD default)) []
+  | _ => ap (x.initLabel c) (if x.readsInit p then [ev "VarInit" (srt "Map")] else [])
 
 end Cell
 
@@ -464,7 +471,7 @@ def initTotal (c : Semantics) (p : Presentation) (x : Cell) : Bool :=
   !x.readsInit p && x.all.all fun
     | .leaf "generatedCounter" _ _ => true
     | .leaf n _ _ => ((p.cellValues.lookup n).map (Term.total c)).getD false
-    | .node .. => true
+    | _ => true
 
 /-- The generated cells (the top cell and the counter) carry no location; the user's carry the
 configuration's. -/
@@ -478,6 +485,7 @@ def cellSymbols (c : Semantics) (p : Presentation) (x : Cell) : List Kore.Senten
   let args := match x with
     | .leaf _ s _ => [s]
     | .node _ cs _ => cs.map Cell.sort
+    | .coll _ => []
   [symbolDecl (c.symName x.label) (args.map c.sortName) (c.sortName x.sort)
     ([attr "cell"] ++ ctorAttrs ++ (if gen then [] else [locAttr p.configLoc, srcAttr p.configSource]))] ++
   (match x with
@@ -485,7 +493,7 @@ def cellSymbols (c : Semantics) (p : Presentation) (x : Cell) : List Kore.Senten
       let cs := if x.name == "generatedTop" && !Cell.counterOpt p.config then cs.dropLast else cs
       (Cell.fragCtor cs i).toList.map fun k =>
         symbolDecl (c.symName k.name) (k.args.map c.sortName) (c.sortName k.result) ctorAttrs
-    | .leaf _ _ _ => []) ++
+    | _ => []) ++
   (if x.name == "generatedCounter" && !Cell.counterOpt p.config then []
    else x.noCtor.toList.map fun k => symbolDecl (c.symName k.name) [] (c.sortName k.result) ctorAttrs) ++
   [if x.readsInit p then symbolDecl (x.initLabel c) ["Map"] (c.sortName x.sort) [attr "function"]
@@ -502,7 +510,7 @@ def initAx (c : Semantics) (p : Presentation) (x : Cell) : Kore.Sentence :=
   let uid := uidAttr ((p.cellInits.lookup x.name).getD "")
   let body : Kore.Pattern := match x with
     | .leaf n s _ =>
-      if n == p.pgmCell then
+      if p.pgmCell == some n then
         let S := c.pgmSort
         let pgm := ap "LblMap'Coln'lookup" [ev "VarInit" (srt "Map"),
           injP "KConfigVar" "KItem" (.dv (srt "KConfigVar") "$PGM")]
@@ -514,6 +522,7 @@ def initAx (c : Semantics) (p : Presentation) (x : Cell) : Kore.Sentence :=
       else ap (c.symName x.label)
         [((p.cellValues.lookup n).map (Term.kore c [⟨"Init", "Map"⟩])).getD (.top (srt "K"))]
     | .node _ cs _ => ap (c.symName x.label) (cs.map (Cell.initCall c p))
+    | .coll _ => .top (srt "K")
   if x.readsInit p then
     equationAx (x.initLabel c) ["Map"] (c.sortName x.sort) (KoreAML.premise ["Map"] [ev "VarInit" (srt "Map")]) body
       (.top (srt (c.sortName x.sort))) [uid]
@@ -628,7 +637,7 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ [U.map (fun X => Kore.Sentence.sort { sort := ⟨⟨"Sort" ++ c.sortName X⟩⟩, sortVars := [], attributes := userSortAttrs c p X })]
   ++ (prods c p).map (prodSymbol c p)
   ++ [paramDecls c p, U.flatMap (fun X => (helperDecls c X).1),
-      (U.filter (!p.libProjs.contains ·)).map (fun X => (helperDecls c X).2)]
+      (U.filter fun X => !p.libProjs.contains X && (uidsOf c p X).proj != "").map (fun X => (helperDecls c X).2)]
   ++ prodAxiomBlocks c (prods c p)
   ++ [U.flatMap (predFunctionalAx c),
       U.map (fun X => subsortAx (c.sortName X) "KItem")]
@@ -637,7 +646,8 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ ((withPres c.fns p.fns).filter fun (f, _) => !p.generatedFns.contains f.label).flatMap
       (fun (f, fp) => (fnEquations c p f fp).map (fun s => [s]))
   ++ (ruleSentences c p).map (fun s => [s])
-  ++ U.map (fun X => if p.libProjs.contains X then [] else projEquations p.simpArg (c.sortName X) (uidsOf c p X).proj)
+  ++ U.map (fun X => let u := (uidsOf c p X).proj
+      if p.libProjs.contains X || u == "" then [] else projEquations p.simpArg (c.sortName X) u)
   ++ U.map (fun X => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse)
 
 def userModule (c : Semantics) (p : Presentation) : Kore.Module :=

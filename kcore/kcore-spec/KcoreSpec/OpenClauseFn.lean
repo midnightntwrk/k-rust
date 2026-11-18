@@ -25,12 +25,12 @@ open ML
 
 /-- **`sortedOKCl` gives `ClauseOpenFacts` of every clause of every function** (the user's and the
 sort predicates'). -/
-theorem clauseOpenFacts_of_sortedOKCl {c : Semantics} (hok : c.sortedOKCl = true) :
+theorem clauseOpenFacts_of_sortedOKCl {c : Semantics} (hpreTop : c.clausesPreTop = true) (hok : c.sortedOKCl = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ ClauseOpenFacts c fn L cl := by
   intro fn hfn cl hcl
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts hok).2.1 fn hu cl hcl
-    exact ⟨c.fns.map Fn.sig, fns_headsOK, clauseOpenFacts_of hs hpl⟩
+    exact ⟨c.fns.map Fn.sig, fns_headsOK, clauseOpenFacts_of (hpreTop := hpreTop) hs hpl (Semantics.clausesPreTop_spec hpreTop hu hcl)⟩
   · obtain ⟨hpats, -, hb, hreq, hrhs, hens⟩ := sortPreds_ctx hp cl hcl
     have hpp := sortPreds_topCl hp cl hcl
     refine ⟨[], fun k hk => absurd hk List.not_mem_nil,
