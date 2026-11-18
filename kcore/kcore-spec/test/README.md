@@ -1054,6 +1054,22 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
   `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
   configuration, the counter's initial value 1.
+- `test/GenEqsInitArm.lean`: instances of `KcoreSpec/GenEqsInitArm.lean`, the account's arm for the
+  cell tree's initializers (`Parse.initEqnOK`, `Parse.initFunctionalOK`) against the model of
+  `GenEqsInit.lean`, with nothing written by hand: the equations are `Parse.rawEqn?` of the user
+  module's axioms (`user_axioms`), the tree the presentation's, `G` read from the equations bottom up
+  (`GenEqs.armG`, `armRankB`, the sort projections and the getter by `armBase`), the names checked by
+  `armNameB` (a registry-numbered projection through `predProjAcc` and its decided `freeB`), the model
+  `GenEqs.model_of_arm`, and each initializer's text equation at values `GenEqs.init_arm_at` (its right
+  side read by `armAt` in the kernel as a value or as nothing). `SortLabel`
+  (`f2-examples/sortlabel.kompile.kore`, the default `<k> $PGM:K </k>`, whose `initKCell` applies the
+  registry's `project:KItem`): `initKCell`, `initGeneratedTopCell` at `$PGM ↦ foo()` and at the empty
+  map, the counter's constant, the getter at the initial configuration. `Vars`
+  (`f2-examples/e3-vars.kompile.kore`, `<n> $N:Int </n>`, the registry's `project:Int`). `Fresh`
+  (`f2-examples/freshcfg.kompile.kore`): `initIdCell(Init, #Configuration) = <id>(0)` and
+  `initGeneratedTopCell` at two arguments, and the instance of a `functional` axiom of `initIdCell`
+  (which the text does not hold; `initFunctionalOK` takes one) at all values of a sort
+  (`GenEqs.init_arm_functional`).
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
@@ -1786,11 +1802,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
   113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
   `rule113_at_values`): where B is `false` its left side holds nothing; where B is `true` it is in
-  Γ's (`ltext_sub`: Γ's `true ~> B ~> . ==K true ~> true ~> .` denotes `true` by the graph of `==K`,
-  and `⌈r⌉` holds, the right side denoting a value's element, `TieReqBool.substAt_iff`), and Γ's
-  item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`: `and_true`
-  (`go(true)` steps to `done`), `and_false` (`go(false)` has no successor, with `Γstep`). About 5
-  minutes.
+  Γ's (`ltext_sub`: Γ's `requires` `true = true` and its `pre` `B = true` hold, B's element being
+  `true`'s, and `⌈r⌉` holds, the right side denoting a value's element, `TieReqBool.substAt_iff`),
+  and Γ's item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`, by the
+  executable step under `execReady`: `and_true` (`go(true)` steps to `done`), `and_false`
+  (`go(false)` has no successor, with `Γstep`). About 5 minutes.
 - `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
   each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
   `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for

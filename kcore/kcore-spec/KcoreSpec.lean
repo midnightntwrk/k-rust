@@ -115,6 +115,7 @@ import KcoreSpec.NatMap
 import KcoreSpec.OrderLaws
 import KcoreSpec.OvlLaws
 import KcoreSpec.OvlLawsFn
+import KcoreSpec.PatCtxNF
 import KcoreSpec.Params
 import KcoreSpec.Parse
 import KcoreSpec.Prelude
@@ -244,6 +245,7 @@ import KcoreSpec.RangeMapKeys
 import KcoreSpec.LawHooks
 import KcoreSpec.OpenValues
 import KcoreSpec.LawHooksLib
+import KcoreSpec.LawHookAssoc
 import KcoreSpec.ReadFns
 import KcoreSpec.ReadRuleConn
 import KcoreSpec.InjValue
@@ -298,6 +300,8 @@ import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
 import KcoreSpec.HasValue
 import KcoreSpec.HasValueValue
+import KcoreSpec.TieHeadsAml
+import KcoreSpec.TieHeadsValues
 import KcoreSpec.KKStatements
 import KcoreSpec.LibEvFun
 import KcoreSpec.LibEvBool
@@ -351,6 +355,7 @@ import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
+import KcoreSpec.GenEqsInst
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
 import KcoreSpec.KKEncLemmas
@@ -359,3 +364,6 @@ import KcoreSpec.KKLitsVEval
 import KcoreSpec.LibEvCollSym
 import KcoreSpec.LibEvCollSymK
 import KcoreSpec.ModelEmptyInhabited
+import KcoreSpec.KKLitsVPatVal
+import KcoreSpec.GenEqsInitArm
+import KcoreSpec.ValueModelApp

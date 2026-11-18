@@ -534,9 +534,9 @@ argument = "undetermined's first conjunct: under constH v, Γ (c.withHooks (cons
 [kernel."step-req-ignored"]
 summary = "Step.rule loses hreq (and NotApplies reads no requires): a rule steps wherever its left side matches"
 breaks = "Step.rule's premise hreq: the rule axiom's left side is lhs ∧ (req = true), so the rule says nothing of a configuration at which its requires is not true"
-refutation = ["test/Guards.lean: KCore.Guards.DevAndBool.and_steps", "test/FallbackFns.lean: KCore.FallbackFnsTest.EnsReq.a_stuck"]
+refutation = ["test/FallbackFns.lean: KCore.FallbackFnsTest.EnsReq.a_stuck"]
 at = "every H; H7 (f(0) ↦ 7 as its rest, FallbackFnsTest.EnsReq.rest_H7)"
-argument = "on e3-ml-req-and-var's text (go(B) => done requires true ∧ B) the changed Step.rule steps go(false) to done, against and_steps' second conjunct for every H. On the ensreq text (a => b requires f(0) ==Int 7, f(0) without a value since its clause's ensures fails) it steps a to b, against a_stuck for every H, H7 among them."
+argument = "on the ensreq text (a => b requires f(0) ==Int 7, f(0) without a value since its clause's ensures fails) the changed Step.rule steps a to b, against a_stuck for every H, H7 among them."
 
 [kernel."step-ens-ignored"]
 summary = "Step.rule loses hens: a rule steps to its right side whatever its ensures"

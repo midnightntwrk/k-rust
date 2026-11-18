@@ -358,8 +358,9 @@ end MlEqOrB
 - `f2-examples/mlandv` (e3-ml-rule-rhs-and-var): `c(X) => a() #And X`, read through the cut as
   `c(X) => X` with `post := X ∈ a()` (`andTermsCut`; a right side binds nothing, so `a() ∧ X` is no
   `#as`): the steps in test/PredFixtures.lean (`RhsAnd.MlAndV`).
-- `f2-examples/mlreqv` (e3-ml-req-and-var): `go(B) => done requires true #And B`, the strict
-  conjunction of `true` and B (`andAtBool`): `go(true)` steps to `done`, `go(false)` has none.
+- `f2-examples/mlreqv` (e3-ml-req-and-var): `go(B) => done requires true #And B`, read conjunct by
+  conjunct, the `requires` `true` and the conjunct `B = true` of `pre` (`andAtBool`): `go(true)`
+  steps to `done`, `go(false)` has none (the executable step, which evaluates `pre`).
 - `f2-examples/mlbotf` (e3-ml-rule-rhs-bottom-fn): `go(X) => pair(f(X), #Bottom)`, f partial: the
   right side read in the empty one's place is the left side (`bottomAsEnsures`), which applies no
   function.
@@ -436,24 +437,24 @@ def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
   decide +kernel
-theorem ok : c.ok = true := by decide +kernel
-theorem srReady : c.srReady = true := by decide +kernel
-theorem matchReady : c.matchReady = true := by decide +kernel
-theorem coherent : CoherentAll c :=
-  Det.coherentAll_of_nil ok srReady matchReady (by decide +kernel) (by decide +kernel)
+/-- The rule is read with the `requires` `true` and the conjunct `B = true` of `pre`. -/
+theorem rule_shape : c.rules.map (fun r => (r.req.map (Term.beq (.dv Srt.bool (.bool true))),
+    Cond.isTop r.pre, Cond.isTop r.post)) = [(some true, false, true)] := by decide +kernel
+theorem ready : CExec.execReady c = true := by decide +kernel
+theorem noFns : c.fns = [] := by decide +kernel
+theorem fnDet : FnDet c :=
+  Faithful.fnDet_of_agree (fun _ h => by rw [noFns] at h; cases h) (fun _ h => by rw [noFns] at h; cases h)
 def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def GoT : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool true)]), by decide +kernel⟩
 def GoF : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool false)]), by decide +kernel⟩
 def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
 /-- `requires true #And B`: at `true` the step. -/
-theorem step_got : Step c GoT Done :=
-  (Exec.step_iff_of_ok c ok srReady matchReady coherent _ _).mpr ⟨100, by decide +kernel⟩
+theorem step_got : Step c GoT Done := by
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready ready (x := GoT) (n := 100) (y := Done.val) (by decide +kernel)
+  exact h
 /-- At `false` none. -/
-theorem stuck_gof : ∀ y, ¬ Step c GoF y := by
-  intro y h
-  obtain ⟨n, hn⟩ := (Exec.step_iff_of_ok c ok srReady matchReady coherent _ y).mp h
-  rw [Cert.successorsN_nil_of_stuckCheck ok srReady matchReady coherent (n := 100) (by decide +kernel) n] at hn
-  cases hn
+theorem stuck_gof : ∀ y, ¬ Step c GoF y :=
+  CExec.noStep_at ready fnDet (n := 100) (by decide +kernel) (by decide +kernel)
 
 end MlReqV
 

@@ -45,7 +45,10 @@ theorem Fires.mem_candidates (hmc : Exec.MatchCtx c)
   | true => rfl
   | false =>
     obtain ⟨s', hs'⟩ := hlhs r hr
-    exact (Det.overlap_sound_term hmc hf.1 hσ r.lhs (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hs') (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ ht) ho hf.2.1 hx).elim
+    exact (Det.overlap_sound_term hmc hf.1 hσ r.lhs (sortOfTerm_nf_of_nil (Semantics.fnOvlSyms_of_noOvl hmc.noOvl)
+        (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hs'))
+      (sortOfTerm_nf_of_nil (Semantics.fnOvlSyms_of_noOvl hmc.noOvl)
+        (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ ht)) ho hf.2.1 hx).elim
 
 /-- A step from an instance of `t` is by a candidate rule for `t`, which fires. -/
 theorem Step.candidate (hmc : Exec.MatchCtx c)

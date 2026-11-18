@@ -237,7 +237,7 @@ theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
   -- the patterns and the `requires` read the variables of the patterns and the conditions only
   let P : Nat → Prop := fun i => i < n ∧ i ∈ cl.leftVars
   have hpatOK : ∀ p ∈ cl.pats, PatOK c P p := fun p hp =>
-    (patOKs_of_sorted h hpats p hp).monoOpen fun i hi =>
+    (patOKs_of_sorted h (h.pats_nf hfn hcl hpats) p hp).monoOpen fun i hi =>
       ⟨varOccsList_lt cl.pats hpats i (varOccsList_of_memOpen hp hi), List.mem_append_left _ (varOccsList_of_memOpen hp hi)⟩
   have hreqOK : ∀ t, cl.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>
@@ -461,7 +461,7 @@ theorem sat_clauseEq {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClause
     fun tbl e ws a hEq _ ha hprem => ?_
   obtain ⟨hσ, hvar⟩ := substE_ok (T := T) hEq.vin
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
-    (patOKs_of_sorted h hpats) hlen hEq.args a).mp hprem
+    (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hprem
   refine eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
   have : cl' ∈ lowerClauses fn cl := by simp [lowerClauses, hcl', hna, hlt]
   rw [hlow] at this
@@ -574,7 +574,7 @@ theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
         unfold competingPremise
         exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl h hfn (hdl cl' hcl')) hi hil))) hnot
     obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
-      (patOKs_of_sorted h hpats) hlen hEq.args a).mp hp
+      (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hp
     exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
       hfails cl' (List.mem_filter.mpr ⟨hcl', by simp [hna, hlt]⟩) σ' ⟨hw, hp', hq'.1⟩⟩
 

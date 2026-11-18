@@ -45,10 +45,34 @@ theorem sum_spec_instance (H : HookParams) :
   obtain ⟨z, hz, hq⟩ := sum_spec_holds H 3 0 Tm.dotk 0 (by decide) (instCfg H) rfl l hl
   exact ⟨z, hz, hq.trans rfl⟩
 
+/- The axioms of the theorem are Lean's own, and no constant it reaches, through every definition
+and proof below it, is a hypothesis on the functions. -/
 open Lean in
 #eval show CoreM Unit from do
+  let env ← getEnv
+  let banned := [``KCore.FnHyp, ``RefKimp.fnHyp_defn, ``RefKimp.fnHyp_withHooks_defn]
+  for n in banned do
+    unless env.contains n do throwError "no constant {n}: the check would be vacuous"
   let axs ← collectAxioms ``sum_spec_instance
   unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
     throwError "sum_spec_instance: axioms {axs}"
+  let mut seen : NameSet := {}
+  let mut todo := [``sum_spec_instance]
+  while !todo.isEmpty do
+    let m := todo.head!
+    todo := todo.tail!
+    if seen.contains m then continue
+    seen := seen.insert m
+    if banned.contains m then throwError "sum_spec_instance reaches {m}"
+    if let some ci := env.find? m then
+      let body : Option Expr := match ci with
+        | .thmInfo t => some t.value
+        | .defnInfo d => some d.value
+        | .opaqueInfo o => some o.value
+        | _ => none
+      let cs := ci.type.getUsedConstants ++ (body.map (·.getUsedConstants)).getD #[]
+      todo := cs.toList ++ todo
+  unless seen.contains ``sum_spec_holds do
+    throwError "sum_spec_instance: the walk does not reach sum_spec_holds"
 
 end RefKimp.Claims

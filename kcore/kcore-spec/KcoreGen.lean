@@ -2860,6 +2860,11 @@ def account (koreFile : String) : IO UInt32 := do
     unless kr.isEmpty do
       IO.println s!"rules read with a map key applying a function as a membership conjunct of pre (keyFunctionAsMember): {kr.length}"
       for (i, fs) in kr.take 10 do IO.println s!"      sentence {i}: {fs}"
+    -- printed only when some rule is read so
+    let rc := Parse.rulesCondConjCnj d
+    unless rc.isEmpty do
+      IO.println s!"rules read with conjuncts B = true of pre or post, the conjuncts of a requires or of the right side's conditions after the first (andAtBool): {rc.length}"
+      for (i, np, nq) in rc.take 10 do IO.println s!"      rule {i}: {np} in pre, {nq} in post"
     -- printed only when some rule's `CondDecided` is owed
     let ow := Parse.owedCondDecided d.sem
     unless ow.isEmpty do

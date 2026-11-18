@@ -598,7 +598,7 @@ frame the items of its variable's collection. -/
 def Takes (c : Semantics) (τ : Subst) (vars : List Srt) (K : CollKind) :
     Part × List (List GroundTerm) → Prop
   | (.elem qs, its) => ∃ it, its = [it] ∧ PatVals c τ qs it ∧
-      ∃ ss, sortsOfTerms c.patCtxAll vars qs = some ss
+      ∃ ss, sortsOfTerms c.patCtxNF vars qs = some ss
   | (.frame j, its) => ∃ w s, τ.lookup j = some w ∧ content w = some (K, s, its)
   | (.other _, _) => False
 
@@ -608,7 +608,7 @@ theorem collDecomp (hc : MatchCtxO c) {τ : Subst} {vars : List Srt} (hτ : c.We
     (K : CollKind) : ∀ (N : Nat) (p : Term) {parts : List Part} {v : GroundTerm} {sp s : Srt}
     {items : List (List GroundTerm)},
     flatten c K N p = some parts → Part.hasOther parts = false → PatVal c τ p v →
-    sortOfTerm c.patCtxAll vars p = some sp → content v = some (K, s, items) →
+    sortOfTerm c.patCtxNF vars p = some sp → content v = some (K, s, items) →
     ∃ ch : List (Part × List (List GroundTerm)), ch.map (·.1) = parts ∧
       (∀ x ∈ ch, Takes c τ vars K x) ∧ Comb K items (ch.flatMap (·.2))
   | 0, _, _, _, _, _, _, h, _, _, _, _ => by simp [flatten] at h
@@ -774,7 +774,7 @@ theorem split_chunks {τ : Subst} {vars : List Srt} {K : CollKind} :
     ∀ (ch : List (Part × List (List GroundTerm))), (∀ x ∈ ch, Takes c τ vars K x) →
     ∃ (EP : List (List Term × List GroundTerm)) (Fr : List (Nat × List (List GroundTerm))),
       EP.map (·.1) = Part.elems (ch.map (·.1)) ∧
-      (∀ x ∈ EP, PatVals c τ x.1 x.2 ∧ ∃ ss, sortsOfTerms c.patCtxAll vars x.1 = some ss) ∧
+      (∀ x ∈ EP, PatVals c τ x.1 x.2 ∧ ∃ ss, sortsOfTerms c.patCtxNF vars x.1 = some ss) ∧
       Fr.map (·.1) = Part.frames (ch.map (·.1)) ∧
       (∀ x ∈ Fr, ∃ w s, τ.lookup x.1 = some w ∧ content w = some (K, s, x.2)) ∧
       (ch.flatMap (·.2)).Perm (EP.map (·.2) ++ Fr.flatMap (·.2))
@@ -842,7 +842,7 @@ theorem matchSeq_frame {vars : List Srt} (n : Nat) (σ : Subst) (j : Nat) (ps : 
 /-- What the candidates read of an element: its arguments denote the item, are well sorted, and are
 ready. -/
 def ElemOK (c : Semantics) (τ : Subst) (vars : List Srt) (x : List Term × List GroundTerm) : Prop :=
-  PatVals c τ x.1 x.2 ∧ (∃ ss, sortsOfTerms c.patCtxAll vars x.1 = some ss) ∧
+  PatVals c τ x.1 x.2 ∧ (∃ ss, sortsOfTerms c.patCtxNF vars x.1 = some ss) ∧
     ∀ q ∈ x.1, ∃ m, readyP c vars m q = true
 
 mutual
@@ -852,7 +852,7 @@ mutual
   theorem cmatchP_complete (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ (n m : Nat) {σ : Subst} {p : Term} {v : GroundTerm} {s : Srt},
       8 * termSize p ≤ n → readyP c vars m p = true → PatVal c τ p v →
-      sortOfTerm c.patCtxAll vars p = some s → Ext σ τ →
+      sortOfTerm c.patCtxNF vars p = some s → Ext σ τ →
       ∃ σ' ∈ cmatchP c vars n σ p v, Ext σ' τ ∧ Ext σ σ' ∧ Binds σ' (varOccs p)
     | 0, _, _, p, _, _, hn, _, _, _, _ => by have := termSize_pos p; omega
     | n + 1, _, σ, .var i, v, _, _, _, hp, _, hx => by
@@ -1030,10 +1030,10 @@ mutual
             | ovl _ _ hs hv => cases ht'; exact ⟨_, hs, hv⟩
             | _ => cases ht'
           obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
-          obtain ⟨o, hlo, rfl⟩ := Det.patCtxAll_ovl_lookup ho hk'
+          obtain ⟨o, hlo, rfl⟩ := Det.patCtxNF_ovl_lookup ho hk'
           have hoa : ovlArgs c f v = some vs := by
             rw [← hv]; exact ovlArgs_complete hc.ovlHyp hlo (Det.patVals_sortedAllO hc hτ hs hargs)
-              (OvlLaws.fnCover_none_of_ok hc.ovlHyp.ok _ _)
+              (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
           have hn' : 8 * termSizeList ps + 1 ≤ n := by simp [termSize] at hn; omega
           obtain ⟨σ', hm, hx', hx'', hb⟩ :=
             cmatchL_complete hc hτ n hn' (fun q hq => ⟨m', hr q hq⟩) hs hargs hx
@@ -1041,7 +1041,7 @@ mutual
   theorem cmatchL_complete (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ (n : Nat) {σ : Subst} {ps : List Term} {vs : List GroundTerm}
       {ss : List Srt}, 8 * termSizeList ps + 1 ≤ n → (∀ q ∈ ps, ∃ m, readyP c vars m q = true) →
-      PatVals c τ ps vs → sortsOfTerms c.patCtxAll vars ps = some ss → Ext σ τ →
+      PatVals c τ ps vs → sortsOfTerms c.patCtxNF vars ps = some ss → Ext σ τ →
       ∃ σ' ∈ cmatchL c vars n σ ps vs, Ext σ' τ ∧ Ext σ σ' ∧ Binds σ' (varOccsList ps)
     | 0, _, _, _, _, hn, _, _, _, _ => by omega
     | n + 1, σ, [], vs, _, _, _, hp, _, hx => by
@@ -1174,7 +1174,7 @@ lists. -/
 theorem cmatch_complete (hc : MatchCtxO c) {vars : List Srt} {τ : Subst} {ps : List Term}
     {vs : List GroundTerm} {ss : List Srt} (hτ : c.WellSorted vars τ) (hpv : PatVals c τ ps vs)
     (hr : readyL c vars ps = true) (hb : binds vars.length (varOccsList ps) = true)
-    (hss : sortsOfTerms c.patCtxAll vars ps = some ss) :
+    (hss : sortsOfTerms c.patCtxNF vars ps = some ss) :
     ∃ σ₀ ∈ cmatch c vars ps vs, ∀ i < vars.length, σ₀.lookup i = τ.lookup i := by
   unfold readyL at hr
   obtain ⟨σ', hm, hx', -, hb'⟩ := cmatchL_complete hc hτ (cfuel ps) (σ := [])

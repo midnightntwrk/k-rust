@@ -19,10 +19,10 @@ open KCore.Exec
 variable {c : Semantics}
 
 /-- A clause without existential variables that `clauseFixed` accepts is match independent: its patterns, well sorted in a
-left-hand side's context (`patCtxAll`), fix all of its variables, and its right-hand side's and
+left-hand side's context without function-overloaded symbols (`patCtxNF`), fix all of its variables, and its right-hand side's and
 its `ensures`' are among them. -/
 theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
-    (hpt : sortsOfTerms c.patCtxAll cl.vars cl.pats = some ss)
+    (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)
     (hrt : sortOfTerm x cl.vars cl.rhs = some s) (hens : reqOK x cl.vars cl.ens = true)
     (hfx : c.clauseFixed cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
@@ -84,7 +84,9 @@ theorem matchIndependentAll_of_okM (hok : c.okM = true) (hmr : c.matchReady = tr
   obtain ⟨L, _, hclk⟩ := clauseCtx_of_okM hok fn hmem
   obtain ⟨hpt, _, _, _, hrt, hens, _, hx, _⟩ := hclk cl hcl
   cases hfx : c.clauseFixed cl with
-  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt) hrt hens hfx hx
+  | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_nf_of_nil
+      (Semantics.fnOvlSyms_of_noOvl (matchCtx_of hmr).noOvl)
+      (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hpt)) hrt hens hfx hx
   | false =>
     rcases List.mem_append.mp hmem with hf | hp
     · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl

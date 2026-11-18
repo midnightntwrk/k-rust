@@ -78,7 +78,9 @@
     kompiled text of its construct fixture (namespaces `DevOr` to `DevOrBot`): the steps, or the
     values, the law of the note gives, stated for every H about `c.withHooks H`. The checks that
     decide them on the data read no interpretation (`Cert.checkStep_withHooks`,
-    `Cert.stuckCheck_sound`, `Cert.evalFC_withHooks`), which is what carries them to every H; a
+    `Cert.stuckCheck_sound`, `Cert.evalFC_withHooks`; for a rule with a `pre`, `DevAndBool`, the
+    executable step `CExec.successorsN`, equal under every H by `kernel_rfl`), which is what carries
+    them to every H; a
     function has no value under every H only where a clause decides and its `ensures` is not `true`
     (`Eval.ensFails`), so `Γ` entails ⊥ there. Each has its companion, the semantics of the same
     text read without the device (the sentence not read, or read by the law the note rejects),
@@ -1385,9 +1387,10 @@ theorem ceil_defined_steps (H : HookParams) : Step (c1.withHooks H) (cfgH noRaw1
 
 end DevCeil
 
-/-! ### `andAtBool`: `\and{SortBool{}}` of terms is their strict conjunction -/
+/-! ### `andAtBool`: `\and{SortBool{}}` of terms, on a rule conjunct by conjunct -/
 
--- `go(B) => done requires true #And B` (the construct fixture e3-ml-req-and-var).
+-- `go(B) => done requires true #And B` (the construct fixture e3-ml-req-and-var), read with the
+-- `requires` `true` and the conjunct `B = true` of `pre`.
 namespace DevAndBool
 
 definition_of defn from "f2-examples/mlreqv.kompile.kore"
@@ -1398,24 +1401,40 @@ def go : Sym := 386
 def exp : Srt := 32
 theorem names_ok : c.symName done = "Lbldone" ∧ c.symName go = "Lblgo" ∧ c.sortName exp = "Exp" := by
   decide +kernel
-private theorem hok : c.ok = true := by decide +kernel
-private theorem hsr : c.srReady = true := by decide +kernel
-private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hready : CExec.execReady c = true := by decide +kernel
+private theorem noFns : c.fns = [] := by decide +kernel
+/-- The semantics has no function of its own: `Eval` has one result at most, for every H. -/
+private theorem fnDetH (H : HookParams) : FnDet (c.withHooks H) :=
+  fnDet_of_agree (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
+    (fun _ h => by rw [show (c.withHooks H).fns = c.fns from rfl, noFns] at h; cases h)
 def cfg (e : GroundTerm) : GroundTerm := cfgOf 383 (.inj exp Srt.kitem e)
 def GoT : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool true)]), by decide +kernel⟩
 def GoF : Config c := ⟨cfg (.ctor go [.dv Srt.bool (.bool false)]), by decide +kernel⟩
 def Done : Config c := ⟨cfg (.ctor done []), by decide +kernel⟩
 
+-- The executable step at `go(true)` and at `go(false)` reads no interpretation of the parameters:
+-- the rule's `requires` and `pre` apply no function.
+kernel_rfl got_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 GoT.val = CExec.successorsN c 50 GoT.val
+kernel_rfl gof_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 GoF.val = CExec.successorsN c 50 GoF.val
+kernel_rfl gof_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (c.withHooks H) 50 GoF.val = CExec.outOfFuel c 50 GoF.val
+
 /-- **`andAtBool`, for every interpretation**: `go(true)` steps to `done` and `go(false)` has no
 successor: `{true} ∩ {B}` is `{true}` exactly where B is `true`. -/
 theorem and_steps (H : HookParams) :
-    Step (c.withHooks H) (cfgH noRaw GoT H) (cfgH noRaw Done H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw GoF H) y :=
-  ⟨step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H,
-   stuck_everyH hok hsr hmr noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel) (n := 50)
-    (by decide +kernel) H⟩
+    Step (c.withHooks H) (cfgH noRaw GoT H) (cfgH noRaw Done H) ∧ ∀ y, ¬ Step (c.withHooks H) (cfgH noRaw GoF H) y := by
+  have hr := (CExec.execReady_withHooks c H).trans hready
+  refine ⟨?_, CExec.noStep_at hr (fnDetH H) (n := 50) (x := cfgH noRaw GoF H)
+    ((gof_fuel_withHooks H).trans (by decide +kernel)) ((gof_withHooks H).trans (by decide +kernel))⟩
+  have hy : Done.val ∈ CExec.successorsN (c.withHooks H) 50 GoT.val := by
+    rw [got_withHooks]; decide +kernel
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready hr (x := cfgH noRaw GoT H) hy
+  exact h
 
-/-- The `requires` read as its first conjunct alone, `true`: no `requires`. -/
-noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with req := none } }
+/-- The `requires` read as its first conjunct alone, `true`: no `pre`. -/
+noncomputable def c1 : Semantics := { c with rules := c.rules.map fun r => { r with pre := .top } }
 theorem noRaw1 : ∀ k ∈ c1.params, k.raw = false := by decide +kernel
 private theorem hok1 : c1.ok = true := by decide +kernel
 private theorem hsr1 : c1.srReady = true := by decide +kernel
@@ -2080,8 +2099,8 @@ def readingNote : ReadingNote → GuardEntry
       guard := [.decl ``KCore.Guards.DevAndBool.and_steps, .test "test/Connectives.lean" "andAtBool",
         .test "test/AndBoolSingle.lean" "#guard_msgs"],
       companion := [.decl ``KCore.Guards.DevAndBool.and_first_steps, .test "test/AndBoolNotStrict.lean" "not_strict"],
-      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Cert.stuckCheck_sound],
-      note := "on e3-ml-req-and-var's text (go(B) => done requires true ∧ B), every H: go(true) steps to done and go(false) has no successor; the companions are the requires read as its first conjunct alone, where go(false) steps to done under every H, and an interpretation where the strict conjunction under an [owise] negation is not the text's intersection (not_strict), which is why an equation reads the note only at single-valued conjuncts" }
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.noStep_at, ``KCore.CExec.execReady_withHooks],
+      note := "on e3-ml-req-and-var's text (go(B) => done requires true ∧ B, read with the requires true and the conjunct B = true of pre), every H: go(true) steps to done and go(false) has no successor; the companions are the requires read as its first conjunct alone (no pre), where go(false) steps to done under every H, and an interpretation where an equation's strict conjunction under an [owise] negation is not the text's intersection (not_strict), which is why an equation reads the note only at single-valued conjuncts" }
   | .requiresOrSplit =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevReqOr.reqOr_steps, .test "test/Connectives.lean" "requiresOrSplit"],

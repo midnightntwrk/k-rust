@@ -46,7 +46,8 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   have hneg : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmpty c I fn cl :=
     fun fn hfn cl hcl _ => hex fn hfn cl hcl
@@ -144,7 +145,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
     rw [canonKey_eq c hi]
     exact this
   obtain ⟨hmatch, hwit⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) hlhs x.property hl
+    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
   obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) (fun i hi => hwit i (hbinds i hi))
   -- no rule of a smaller priority applies, in the sense of `RuleApplies`: the disjunct's negated
   -- competitors hold at the element of x
