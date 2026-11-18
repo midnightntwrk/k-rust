@@ -1778,6 +1778,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
   (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
   (`params_sb`). Axioms printed.
+- `test/LibEvStrBufEqs.lean`: STRING-BUFFER-IN-K's three equations (domains.md 1963-1965) of
+  `f2-examples/e6sb.kompile.kore`, which apply the reading's parameter symbols without
+  implementation: each is entailed at values for every H meeting its condition (`sbUnitEq`,
+  `sbConcatEq`, `sbToStrEq`; `ev179`, `ev195`, `ev185`), through `LibEv.FnEqn.entailedP`
+  (`KcoreSpec/LibEvParam.lean`, terms applying parameter symbols and injections); `Hsb`, reading the
+  three as the String operations, meets the three (`hsb_meets`, `ev_Hsb`); at `HookParams.none` the
+  left sides of 1964 and 1965 have no value where the right sides have one (`unit_none`,
+  `toStr_none`, statements about the sides' values). Axioms guarded.
 - `test/IteIntParam.lean`: on `f2-examples/e6ite.kompile.kore` (the fixture e6-ite-int), the
   reading's one parameter symbol is `ite{Int}`, implemented by `kIte` (`params_ite`); Γ holds it
   and applies it at the head `Lblite{SortInt{}}`, for every H (`ite_int_in_gamma`); the module's
