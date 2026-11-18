@@ -17,7 +17,7 @@
   }
  },
  "inputs": {
-  "answer": "f74399ca722a0c2b3c122ca90ca8bce0a853da7d56b7a015ad13fc4cafb54db5",
+  "answer": "ec465eb4263cf90bd7f96f931eecf6d010671555a237fce81669ab3440afc156",
   "def.k": "502a66db217d7493d1aca6a3cc15c7149b623fd429c754bb2acab18b0e2eb615",
   "pgm": "2ebb90266a325f99f337bb24d144825f3c9ef4381fc9351bbd6e7087de7203dd"
  },
@@ -29,16 +29,9 @@
   "release": "K v7.1.337"
  },
  "ruling_canonical": {
-  "readings": {
-   "idempotent": [
-    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(1,SortSet{inj{SortInt,SortKItem}(1)}))",
-    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)}))",
-    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1)}))"
-   ],
-   "nilpotent": [
-    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)}))",
-    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1)}))"
-   ]
-  }
+  "settled": [
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(2,SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2)}))",
+   "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set(3,SortSet{inj{SortInt,SortKItem}(1)}))"
+  ]
  }
 }
