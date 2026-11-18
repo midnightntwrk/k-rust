@@ -1,7 +1,9 @@
 /-
   The Holds lemma one constructor at a time (KcoreSpec/HoldsNode.lean), along an evaluation of a
   function's clauses (`holds_den4Cl`, KcoreSpec/OpenClauseDen.lean) and at the sort variable `R`
-  (KcoreSpec/ClausePreTie.lean): each lemma exists and rests on no axiom beyond Lean's. Run from the
+  (KcoreSpec/ClausePreTie.lean): each lemma exists and rests on no axiom beyond Lean's. A term's
+  evaluation is read at a σ well sorted on the term's variables only (`evalTerm_den4ClPreOcc`), and
+  a reading depends on σ at the variables read only (`TermAt.congr_occ`, `HoldsAt.congr_occ`). Run from the
   package root: `lake env lean -j1 test/HoldsNode.lean`.
 -/
 import KcoreSpec.ClausePreTie
@@ -30,3 +32,9 @@ open KCore KCore.HoldsShape
 #print axioms nodeFacts_of_core
 #print axioms holdsAt_atR
 #print axioms withPre_interp
+#print axioms KCore.Faithful.evalTerm_den4ClPreOcc
+#print axioms KCore.Faithful.evalTerms_den4ClPreOcc
+#print axioms KCore.Faithful.evalTerm_den4ClPre
+#print axioms KCore.Faithful.evalTerms_den4ClPre
+#print axioms TermAt.congr_occ
+#print axioms HoldsAt.congr_occ
