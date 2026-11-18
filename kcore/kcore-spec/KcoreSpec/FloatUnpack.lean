@@ -105,7 +105,7 @@ theorem datum_unpack (s : Format) (b : BitVec s.numBits) : Datum s (unpack s b) 
         Nat.pow_succ'
       refine ⟨by omega, by omega, by omega, by omega⟩
 
-/-- **(a)** A finite datum of the format: its significand is below `2^p` and its exponent at most
+/-- A finite datum of the format: its significand is below `2^p` and its exponent at most
 `2^e − 2 − B − (p − 1)`. -/
 theorem unpack_finite_bounds {s : Format} {b : BitVec s.numBits} {sg : Sign} {m : Nat} {q : Int}
     {h : 0 < m} (hu : unpack s b = .finite sg m q h) :
@@ -141,7 +141,7 @@ theorem fu_zero_ne_negOne (s : Format) : ¬ (0#s.exponentBits : BitVec s.exponen
   rw [BitVec.neg_one_eq_allOnes, BitVec.toNat_allOnes] at this
   simp at this; omega
 
-/-- **(c)** `unpack` after `pack` is the identity at a datum of the format. -/
+/-- `unpack` after `pack` is the identity at a datum of the format. -/
 theorem unpack_pack (s : Format) (u : UnpackedFloat) (hu : Datum s u) : unpack s (pack s u) = u := by
   have hE := fu_two_pow_exponentBits s
   have hB := fu_one_le_exponentBias s
@@ -286,14 +286,14 @@ theorem fu_maxValue_pos (s : Format) : 0 < 2 ^ s.mantissaBits - 1 := by
     Nat.pow_le_pow_right (by decide) (by rw [fu_mantissaBits]; omega)
   omega
 
-/-- **(b)** The format's largest finite value is the datum `(2^p − 1)·2^(B − (p − 1))`: `round`
+/-- The format's largest finite value is the datum `(2^p − 1)·2^(B − (p − 1))`: `round`
 leaves it unchanged. -/
 theorem maxValue_eq (s : Format) :
     maxValue s = .finite .positive (2 ^ s.mantissaBits - 1)
       ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) (fu_maxValue_pos s) :=
   round_of_target s .positive (fu_maxValue_pos s) (fu_target_maxValue s)
 
-/-- **(b)** `exact (maxValue s) = (2^p − 1, B − (p − 1))`. -/
+/-- `exact (maxValue s) = (2^p − 1, B − (p − 1))`. -/
 theorem exact_maxValue (s : Format) :
     exact (maxValue s) =
       some (((2 ^ s.mantissaBits - 1 : Nat) : Int), (s.exponentBias : Int) - s.mantissaBitsWithoutImplicit) := by
