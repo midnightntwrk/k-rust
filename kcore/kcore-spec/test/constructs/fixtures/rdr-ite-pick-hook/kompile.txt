@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-ite-pick-hook.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 126588
+definition.kore sha256: 3ef65b8acafae6b9cf5668f4cab671d0fdd236ce956c4dc39929442d57f8f819
+stripped sha256: 3a6c122bcc2228f599e3b1f6064e9247b55bce0cfc397a00ea9b66ed1c3d996c
+main module: 297 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-PICK-HOOK-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-ITE-PICK-HOOK as default.

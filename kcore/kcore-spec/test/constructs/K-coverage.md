@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
 | E5 | 59 | 37 | 1 | 2 | 0 | 19 | 0 | 0 |
-| E6 | 30 | 7 | 2 | 0 | 0 | 21 | 0 | 0 |
+| E6 | 31 | 7 | 2 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 334 | 126 | 4 | 11 | 1 | 192 | 0 | 0 |
+| all | 335 | 126 | 4 | 11 | 1 | 193 | 0 | 0 |
 
 Refused rows by class:
 
@@ -64,11 +64,11 @@ Refused nested entries by class:
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 30 | 14 | 10 | 0 | 6 |
 | E5 | 19 | 10 | 1 | 3 | 5 |
-| E6 | 21 | 2 | 1 | 2 | 16 |
+| E6 | 22 | 3 | 1 | 2 | 16 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 192 | 49 | 18 | 42 | 83 |
+| all | 193 | 50 | 18 | 42 | 83 |
 
 ## Entries of class R-c (54)
 
@@ -1488,6 +1488,7 @@ Not core:
 | cases[2]: a function of the text labelled ite at one sort parameter with an equation of its instance at a sort of the definition (… | refused | R-c | the text states the equation \`Lblite{SortFoo{}}(X0:SortBool{},X1:SortFoo{},X2:SortFoo{}) = VarX\` (kore.txt), so read, the instance Lblite{Foo} would be a function of the definition named Lblite{Foo}, which KCore.iteSort? reads at Foo. Faithful.NamesNumbered (namesNumbered, a coreOK conjunct) exclude… | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application |  | rdr-ite-own-eq |  |  | fixtures/rdr-ite-own-eq/kompile.txt: exit 0; its account as reader\_today |
 | cases[3]: a function of the text labelled ite at one sort parameter, hooked to KEQUAL.ite (syntax {S} S ::= pick(Bool, S, S) [func… | supported |  | kompile keeps the hook: the text declares \`hooked-symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite")]\` (kore.txt) and applies \`Lblite{SortFoo{}}(…)\` in f's equation. A hooked symbol's meaning is its hook's, and the registry's kIte is the operation KEQUAL.ite (… | none (reader only) |  | rdr-ite-own-hook |  |  | fixtures/rdr-ite-own-hook/kompile.txt: exit 0; fixtures/rdr-ite-own-hook/account.txt: \`stage refusals (of sentences classified read): 0\`, \`read and not accounted for: 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; fixtures/rdr-ite-own-hook/params.txt: \`param Lblite{Foo} args=… |
 | cases[4]: a function of the text labelled ite at two sort parameters with an equation of its instance (syntax {S1, S2} S2 ::= cast… | supported |  | the text declares \`symbol Lblite{SortS1, SortS2}(SortS1) : SortS2 [function{}()]\` and states \`Lblite{SortFoo{}, SortFoo{}}(X0:SortFoo{}) = Lblb{}()\` (kore.txt). A generated package decides namesNumbered on the names' codes (Model.namesNumberedC, NameCodes.lean): the code of Lblite{Foo,Foo} begins wi… | none: Model.namesNumberedC and Model.namesNumbered\_of\_codes are no cone declarations |  | rdr-ite-two-eq |  |  | fixtures/rdr-ite-two-eq/kompile.txt: exit 0; fixtures/rdr-ite-two-eq/account.txt: \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; test/IteNamesCodes.lean TwoEq.fn\_named, TwoEq.namesNumbered; the package \`kcore gen --core\` writes of the text builds through NS.CoreOK and NS.Sound (g… |
+| cases[5]: a function of the text under another label than ite, at one sort parameter, hooked to KEQUAL.ite (syntax {S} S ::= pick(… | refused | R-a | The text declares a sort-parametric hooked symbol Lblpick whose hook KEQUAL.ite the registry interprets (kIte), under another name than the registry's ite, and applies its instance at Foo. Its hook gives each instance the meaning of K's ite at that sort, but the declaration's argument and result sor… |  | none (R-a): a sort-parametric hooked symbol (KCORE-SPEC.md Q11) | rdr-ite-pick-hook |  |  | fixtures/rdr-ite-pick-hook/kompile.txt: exit 0; kore.txt: the declaration \`hooked-symbol Lblpick{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite"), …]\` and f's equation applying \`Lblpick{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\`; account.txt \`stage refu… |
 | `hook:MAP.keys:Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: MAP.keys |
 | `hook:RANGEMAP.keys:Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap` | supported |  | FIX-core.rangemap-silent: was refused R-c (E6 group rangemap: no carrier for RangeMap); the carrier (CollKind.rangeMap, rangeMapHooks) and the reader's module landed with c1 and c2, fixtures/e6-rangemap/account.txt reads the text with \`coreOK: true\` and \`refused by the account: 0\`, and test/HooksRan… |  | c1-D.table |  | no | no | FixedSignature.lean regHookNames: RANGEMAP.keys; test/HooksRangeMap.lean rmRows\_registry, vals\_hook |
 | `hook:MAP.keys_list:Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map` | parameter |  |  |  |  | e6-param-map | yes | yes | BuiltinData.lean modules: MAP; Builtins.libParams (no registry hook) |
