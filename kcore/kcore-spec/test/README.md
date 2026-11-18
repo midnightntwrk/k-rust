@@ -1039,6 +1039,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   texts against their fixtures (sha256, account) and generates both packages (`--core`) into
   `.lake/nonexec-owise`: `agree_named`, `namedFacts`, `Obl`, no `obl_nil`, every statement of a model
   or of the semantics taking `hob`, and builds them.
+- `test/GenEqsInits.lean`: instances of `KcoreSpec/GenEqsInit.lean`, the equations of the cell
+  tree's initializers and of the counter's getter on two kompiled texts. Nested cells
+  (`Cells`, `f2-examples/cellsplain.kompile.kore`, `<t> <k> $PGM:Exp </k> <one> 0 </one> <ec> 0 </ec> </t>`):
+  none of the initializers, `project:Exp` or the getter is a symbol the semantics numbers, and one
+  model of the theory whose steps are the semantics' (`GenEqs.model_with_inits_step`) holds the
+  constants' equations and `functional` axioms, each initializer's equation with the text's right side
+  at the map `$PGM ↦ a()` (the initial configuration its value) and at the empty map (both sides
+  without a value, `initGeneratedTopCell(.Map) = ⊥`), and the getter at the initial configuration.
+  Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
+  `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
+  configuration, the counter's initial value 1.
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`

@@ -332,6 +332,7 @@ import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
 import KcoreSpec.GenEqsWalk
+import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
