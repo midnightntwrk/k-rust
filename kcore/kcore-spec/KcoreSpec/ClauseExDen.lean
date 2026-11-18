@@ -757,7 +757,7 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some s →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r' m :=
     fun {σ' t r' s tbl e} hTA hw hag hkeys ht m =>
-      hTA hw (fun i hi => hi) (reads_of_agrees hw hag (P := fun i => i ∈ varOccs t)
+      hTA (fun i hi => hi) (reads_of_agrees hw hag (P := fun i => i ∈ varOccs t)
         fun i hi => ⟨varOccs_lt t ht i hi, hkeys i (varOccs_lt t ht i hi)⟩) ht m
   -- the keys of the right side's predicate are keys of the body
   have hkQ : ∀ {tbl : VarTable}, (∀ k ∈ KoreAML.varsOf (clauseRhsBody c fn cl), k ∈ tbl) →
@@ -815,7 +815,7 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
         (fun t ht m' => allOf (hensT t ht) hσ₀ hag hkeys (henss t ht) m') m).mpr hm, fun _ => ?_⟩
       have hrd := reads_of_agrees hσ₀ hag (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
         fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-      exact (hpost.holdsAt N G rfl hσ₀ hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
+      exact (hpost.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
   · -- an instance at elements that holds `m` is one at values, which gives `r` or nothing
     intro tbl e hag hkeys hkB e'' m hoff hin hmS hb''
     obtain ⟨hR, hQ⟩ := hbody.mp hb''
@@ -831,7 +831,7 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
           rw [Cond.eq_top_of_isTop hpt] at hi; simp [varOccsCond] at hi
         have hpT : HoldsAt c I cl.vars.length σ₀ cl.post true := by
           rw [Cond.eq_top_of_isTop hpt]; exact holdsAt_top N
-        exact (hpT rfl hσ₀ hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
+        exact (hpT rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
     have hwit := CE.exs_values_hr h hrc hIc N hs hb hp (σ := σ₀) (hσ₀.at _) ⟨σ₀, AgreeOff.refl _ _, hσ₀⟩
       (fun σ' ha hw => (hall0 σ' (hfreeF ▸ ha) hw).post)
       (tbl := tbl) (e := e'') (S := fn.result)
@@ -865,7 +865,7 @@ theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hI
         | false =>
           have hrd := reads_of_agrees hw' hag' (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
             fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-          exact absurd ((hf'.holdsAt N G rfl hw' hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
+          exact absurd ((hf'.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
             (by simp)
       | rhs hn hTn =>
         unfold clauseRight at hR

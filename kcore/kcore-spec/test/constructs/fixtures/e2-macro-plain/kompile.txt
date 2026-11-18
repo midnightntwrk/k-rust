@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-macro-plain.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.4
+definition.kore bytes: 86343
+definition.kore sha256: 8d13ecdd489a95c776a0b5fbe99b75e873d8bff8f9ee3e65b7f4ec277c5993ba
+stripped sha256: d40651b7deceab61e34e64df290d623c6934b9efcf447315eed984abb57d0658
+main module: 253 sentences, 28 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-MACRO-PLAIN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-MACRO-PLAIN as default.

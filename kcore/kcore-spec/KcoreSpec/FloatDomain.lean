@@ -341,15 +341,14 @@ def ofDecimal? (s s' : Format) (m : Nat) (x : Int) : Option UnpackedFloat :=
 not `total`, 1624): the datum of the format whose value is the square root of the operand's value,
 where the format holds that root exactly. At a positive finite datum `m·2^q`: the candidate is Lean
 core's square root rounded to the format (`UnpackedFloat.sqrt`), kept only where it is a positive
-finite `r·2^e` with `r²·2^(2e) = m·2^q`, so it is the root itself; and positive zero at positive
-zero (the root of 0 is 0, the zero that is not negative). `none` elsewhere: NaN (no number), a
-negative datum and −∞ (no real root), a root the format does not hold (the text names no rounding
-for `sqrtFloat`, and so no datum for an inexact root), +∞ (an infinite operand, of which the sentence
-names no value, as of floor, ceil and trunc), and −0, where `sqrtFloat`'s equation `rootFloat(F, 2)`
-(1671) and "square root" name two operations of IEEE 754 that are recalled to differ (squareRoot
-gives −0, rootn(−0, 2) +0; the standard's clauses were not at hand and are not confirmed). -/
+finite `r·2^e` with `r²·2^(2e) = m·2^q`, so it is the root itself. `none` elsewhere: NaN (no
+number), a negative datum and −∞ (no real root), a root the format does not hold (the text names no
+rounding for `sqrtFloat`, and so no datum for an inexact root), +∞ (an infinite operand, of which
+the sentence names no value, as of floor, ceil and trunc), and both zeros: the root of a zero is a
+zero, and the text gives the sign of a zero result only where an operation's own words give it
+(`--Float 0.0` and `0.0 -Float 0.0`, 1553-1554; `absFloat`, floor, ceil, trunc and `roundFloat` at a
+zero; `Int2Float` at 0), and gives none for `sqrtFloat` (1600, 1671), so which zero is unstated. -/
 def sqrt? (s : Format) : UnpackedFloat → Option UnpackedFloat
-  | .zero .positive => some (.zero .positive)
   | .finite .positive m q h =>
     match UnpackedFloat.sqrt s (.finite .positive m q h) with
     | .finite .positive r e h' =>

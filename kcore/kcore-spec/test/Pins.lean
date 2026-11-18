@@ -10,7 +10,8 @@
   `FnDet`, `FnSolves` and `ClausePreDecided`, hypotheses of `consistent_of` and of `CExec.run_exact`
   that no cone root reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
   to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
-  `SetVarsAtMostOne`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
+  `SetVarsAtMostOne`, `symbolsOf`, the heads `appHeadsOf`, `gammaHead`, `gammaHeads`,
+  `gammaHasHead`, `surplusItem`, `attrsAgree` with the
   checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
   the rows' statements: `kore.k`'s three (`KK.SuccsSound`, `KK.SuccsStuck`, `KK.SuccsComplete`, with
   `KK.SuccsAt`, `KK.d₀`, `KK.K₀`, `KK.Sig`, `KK.St` and `CoherentAll`), and the all-path claims the
@@ -343,6 +344,39 @@ example (s s' : Kore.KSort) (p q : Kore.Pattern) (ps : List Kore.Pattern) :
     symbolsOf (.in s s' p q) = symbolsOf p ++ symbolsOf q ∧
     symbolsOfList [] = [] ∧ symbolsOfList (p :: ps) = symbolsOf p ++ symbolsOfList ps :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+example (h : Kore.SymbolIdent) (ss : List Kore.KSort) (ps : List Kore.Pattern) :
+    appHeadsOf (.app h ss ps) = (h.ident.name, ss) :: appHeadsOfList ps ∧
+    appHeadsOf (.leftAssoc h ss ps) = (h.ident.name, ss) :: appHeadsOfList ps ∧
+    appHeadsOf (.rightAssoc h ss ps) = (h.ident.name, ss) :: appHeadsOfList ps := ⟨rfl, rfl, rfl⟩
+example (v : Kore.VarPattern) (str : String) (s s' : Kore.KSort) :
+    appHeadsOf (.var v) = [] ∧ appHeadsOf (.string str) = [] ∧ appHeadsOf (.top s) = [] ∧
+    appHeadsOf (.bottom s) = [] ∧ appHeadsOf (.dv s' str) = [] := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example (s s' : Kore.KSort) (x : Kore.EVar) (X : Kore.SVar) (p : Kore.Pattern) :
+    appHeadsOf (.not s p) = appHeadsOf p ∧ appHeadsOf (.next s p) = appHeadsOf p ∧
+    appHeadsOf (.exist s x p) = appHeadsOf p ∧ appHeadsOf (.forall s x p) = appHeadsOf p ∧
+    appHeadsOf (.mu X p) = appHeadsOf p ∧ appHeadsOf (.nu X p) = appHeadsOf p ∧
+    appHeadsOf (.ceil s s' p) = appHeadsOf p ∧ appHeadsOf (.floor s s' p) = appHeadsOf p :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+example (s s' : Kore.KSort) (p q : Kore.Pattern) (ps : List Kore.Pattern) :
+    appHeadsOf (.and s ps) = appHeadsOfList ps ∧ appHeadsOf (.or s ps) = appHeadsOfList ps ∧
+    appHeadsOf (.implies s p q) = appHeadsOf p ++ appHeadsOf q ∧
+    appHeadsOf (.iff s p q) = appHeadsOf p ++ appHeadsOf q ∧
+    appHeadsOf (.rewrites s p q) = appHeadsOf p ++ appHeadsOf q ∧
+    appHeadsOf (.equals s s' p q) = appHeadsOf p ++ appHeadsOf q ∧
+    appHeadsOf (.in s s' p q) = appHeadsOf p ++ appHeadsOf q ∧
+    appHeadsOfList [] = [] ∧ appHeadsOfList (p :: ps) = appHeadsOf p ++ appHeadsOfList ps :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+example (c : Semantics) (f : Sym) : gammaHead c f =
+    match iteSort? (c.symName f) with
+    | some X => ("Lblite", [KoreAML.srt X])
+    | none => (c.symName f, []) := rfl
+example (c : Semantics) : gammaHeads c =
+    (kernelSyms c).map (fun k => gammaHead c k.name) ++
+      c.subsorts.map fun (a, b) => ("inj", [KoreAML.srt (c.sortName a), KoreAML.srt (c.sortName b)]) := rfl
+example (c : Semantics) (h : String × List Kore.KSort) :
+    gammaHasHead c h = (gammaHeads c).any fun g => decide (g = h) := rfl
 
 example (s : Srt) : regSrtK s = KoreAML.srt (regSortNames.getD s "") := rfl
 
