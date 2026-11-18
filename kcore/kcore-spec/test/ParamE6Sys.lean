@@ -20,13 +20,9 @@
 
   `FnHyp` under every H: JSON's text has no function (`fnHyp_of_fnsNilPS`). The other five have
   K's `append` (a parameter giving a K is appended to the rest of the cell), declared total, which
-  the totality decider does not confirm: its cover check splits only the definition's own sorts,
-  and K is the registry's (FFI's text also has the function `#ffiCall` of six arguments, which owes
-  no fact). `fnHyp_appendPS` shows `append` total from facts decided on the text (`appendOKPS`):
-  the values of K are `kseq` and `dotk` terms (`kValue_invPS`), so one of `append`'s rows
-  `kseq(X, Y), Z` and `.K, Z` matches every argument list (`rows_appendPS`), its self call
-  decreases in the first argument, and its right sides are total over itself (`total_of_rowsPS`, by
-  induction on the decreasing argument's size); the other facts `FnHyp` asks are the deciders'.
+  the totality decider confirms (its clauses cover K × K, the cover check splitting K over `kseq`
+  and `dotk`); FFI's text also has the function `#ffiCall` of six arguments. The deciders name no
+  fact (`fnHyp_decidedPS`).
 
   The points are values of the argument sorts (`1`, `"a"`, `b"a"`, `1` as a KItem, the empty K,
   `ListItem(1)`, `#ffi_sint`) and the given values one of the result sort (an IOInt, an IOString,
@@ -185,261 +181,23 @@ def ffiTypeV (c : Semantics) : GroundTerm := .ctor (symPS c "Lbl'Hash'ffi'Unds's
 def jsonV (c : Semantics) : GroundTerm := .ctor (symPS c "LblJSONnull") []
 
 
-/-! ## `append` is total -/
+/-! ## `FnHyp` by the deciders -/
 
-/-- The values of sort K are built by `kseq` and `dotk` alone, as decided on the data. -/
-def kShapePS (c : Semantics) : Bool :=
-  (c.ctorSigs.all fun k => k.result != Srt.k || (k.name == kseq && k.args == [Srt.kitem, Srt.k]) ||
-      (k.name == dotk && k.args == [])) &&
-    c.ovls.isEmpty && (c.subsorts.all fun p => p.2 != Srt.k) && (c.collOf Srt.k).isNone &&
-    c.lib.carrier Srt.k == Srt.k && !(c.lib.tokenSorts.contains Srt.k || c.lib.byteSorts.contains Srt.k)
-
-/-- The values of sort K are `.K` and `KItem ~> K`: the only constructors of result K are `kseq`
-of `[KItem, K]` and `dotk` of no argument, no overloading symbol, no open generator, no subsort
-of K, no literal of K, no collection sort K. -/
-theorem kValue_invPS (c : Semantics) (hr : ∀ k ∈ c.params, k.raw = false)
-    (hk : kShapePS c = true) :
-    ∀ v, c.sortOf v = some Srt.k →
-      (∃ x w, v = .ctor kseq [x, w]) ∨ v = .ctor dotk [] := by
-  simp only [kShapePS, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, beq_iff_eq,
-    bne_iff_ne, ne_eq, Option.isNone_iff_eq_none, List.isEmpty_iff, Bool.not_eq_true',
-    Bool.or_eq_false_iff] at hk
-  obtain ⟨⟨⟨⟨⟨hctor, hovl⟩, hsub⟩, hcoll⟩, hcar⟩, htok, hbyte⟩ := hk
-  intro v hv
-  cases v with
-  | ctor f ts =>
-    obtain ⟨k, hl, hts, hres⟩ := (c.sortOf_ctor_of_none hovl hr).mp hv
-    rw [lookupSig_eq] at hl
-    have hmem := List.mem_of_find?_eq_some hl
-    have hname : k.name = f := by simpa using List.find?_some hl
-    have hlen := Faithful.sortsOf_length hts
-    rcases hctor k hmem with (h | ⟨h1, h2⟩) | ⟨h1, h2⟩
-    · exact absurd hres.symm h
-    · subst hname; rw [h1]; rw [h2] at hlen
-      match ts, hlen with
-      | [x, w], _ => exact Or.inl ⟨x, w, rfl⟩
-    · subst hname; rw [h1]; rw [h2] at hlen
-      match ts, hlen with
-      | [], _ => exact Or.inr rfl
-  | inj a b t =>
-    unfold Semantics.sortOf at hv
-    split at hv
-    · rename_i hc
-      injection hv with hb
-      subst hb
-      simp only [Bool.and_eq_true, List.contains_iff_mem] at hc
-      exact absurd rfl (hsub _ hc.1.1)
-    · cases hv
-  | dv s lit =>
-    unfold Semantics.sortOf at hv
-    split at hv
-    · rename_i hd
-      injection hv with hs
-      subst hs
-      cases lit with
-      | int i => simp [dvOK, hcar] at hd
-      | bool b => simp [dvOK, hcar] at hd
-      | float p e b => simp [dvOK, hcar] at hd
-      | tok t =>
-        have ht' : Srt.k ∉ c.lib.tokenSorts := fun h => by rw [List.contains_iff_mem.mpr h] at htok; cases htok
-        have hb' : Srt.k ∉ c.lib.byteSorts := fun h => by rw [List.contains_iff_mem.mpr h] at hbyte; cases hbyte
-        simp [dvOK, hcar, ht', hb'] at hd
-    · cases hv
-  | map s es =>
-    obtain ⟨k, vs, hc, -, -, -, hs⟩ := c.sortOf_map_inv hv
-    subst hs; rw [hcoll] at hc; cases hc
-  | set s es =>
-    obtain ⟨k, -, hc, -⟩ := KK.sortOf_set_inv_kkc hv
-    have hs : s = Srt.k := by
-      unfold Semantics.sortOf at hv; rw [hc] at hv
-      split at hv <;> (try split at hv) <;> (try cases hv) <;> rfl
-    subst hs; rw [hcoll] at hc; cases hc
-  | list s es =>
-    obtain ⟨k, -, hc, -⟩ := KK.sortOf_list_inv_kkc hv
-    have hs : s = Srt.k := by
-      unfold Semantics.sortOf at hv; rw [hc] at hv
-      split at hv <;> (try split at hv) <;> (try cases hv) <;> rfl
-    subst hs; rw [hcoll] at hc; cases hc
-
-/-- A function is total when some covering row matches each argument list of its sorts (in place
-of the decider `covers`), its right-hand sides are total over `tot`, whose functions but itself are
-total, its self calls decrease and it has no `ensures`: `total_of_totalOK`'s argument, by induction
-on the size of the decreasing argument. -/
-theorem total_of_rowsPS {c : Semantics} (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
-    (hsr : c.srReady = true) (hov : c.OvlCase) (hrh : c.RightHeld)
-    (hterm : ∀ g, Terminates c g) {fn : Fn} (hfnc : fn ∈ c.fns) (hs : c.shapesOK = true)
-    {dec : Option Nat} (hdec : decreasingOK c fn dec = true)
-    (hrows : ∀ vs, c.sortsOf vs = some fn.args → ∃ r ∈ Semantics.coverRows fn, RowMatches c r vs)
-    {tot : List Sym} (hrhs : ∀ cl ∈ fn.clauses, c.totalTerm tot cl.rhs = true)
-    (hnoens : ∀ cl ∈ fn.clauses, cl.ens = none)
-    (htot : ∀ g ∈ tot, g ≠ fn.label → Total c g) : Total c fn.label := by
-  have hcA := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
-  have hc := hcA.toN
-  have hfn : fn ∈ c.allFns := List.mem_append_left _ hfnc
-  have hb : c.HeldFn fn := hcA.binds fn hfn
-  have hclk : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args ∧ cl.pre = .top := by
-    intro cl hcl
-    have hfok : ∀ cl ∈ fn.clauses, c.clauseSorted fn (c.fns.map Fn.sig) cl = true := by
-      have hok' := Semantics.sortedOK_sorted hok
-      simp only [Bool.and_eq_true, List.all_eq_true] at hok'
-      exact hok'.1.2 fn hfnc
-    have := hfok cl hcl
-    simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
-    replace this := this.1
-    exact ⟨sortsOfTerms_all_of_nf this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfnc hcl⟩
-  have hlook := lookupFn_of_memN hc hfn
-  obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
-  intro fn' hfn' vs hvs
-  rw [hlook] at hfn'
-  cases hfn'
-  suffices h : ∀ m vs, c.sortsOf vs = some fn.args → decMeasure dec vs < m →
-      ∃ v, Eval c fn.label vs (some v) from h _ vs hvs (Nat.lt_succ_self _)
-  intro m
-  induction m with
-  | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
-  | succ m ih =>
-    intro vs hvs hlt
-    refine eval_defined hlook (hc.plain fn hfn) hb (fun cl hcl σ hσ _ => ⟨fun t ht => req_resultN hc hterm hfn hcl hσ ht, true,
-        Clause.holds_preTop (hclk cl hcl).2 σ⟩)
-      (fun cl hcl σ ha => ?_) ?_ hnoens
-    · refine evalTerm_defined hc.sort hs hL ((wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp ha.1) cl.rhs (hrs cl hcl) (hrhs cl hcl)
-        fun g ts hts hgt gfn hg vs' hts' hsrt => ?_
-      by_cases hgl : g = fn.label
-      · subst hgl
-        rw [hlook] at hg
-        cases hg
-        obtain ⟨i, j, p, rfl, hti, hpi, hsi⟩ := decreasingOK_clause hdec hcl (Or.inl rfl) hts
-        obtain ⟨v, hvi, hpv⟩ := patVals_get ha.2.1 hpi
-        obtain ⟨w, hw, hwv⟩ := strictlyIn_size p hpv hsi
-        have hvi' : vs'[i]? = some w := (evalTerms_var hts' hti (allSome_map_some vs')).trans hw
-        refine ih vs' hsrt ?_
-        have h1 : decMeasure (some i) vs' = w.size := by simp [decMeasure, hvi']
-        have h2 : decMeasure (some i) vs = v.size := by simp [decMeasure, hvi]
-        omega
-      · exact htot g (List.contains_iff_mem.mp hgt) hgl gfn hg vs' hsrt
-    · obtain ⟨r, hr, hm⟩ := hrows vs hvs
-      obtain ⟨cl, hcl, hreq, hnd, rfl⟩ := mem_coverRows hr
-      exact ⟨cl, hcl, hreq, applies_of_rowRH (hb cl hcl) (hclk cl hcl).1 hreq (hclk cl hcl).2 hnd hvs hm⟩
-
-/-- A covering row `kseq(X, Y), Z`. -/
-def rowKseqPS : List Term → Bool
-  | [.app f [.var _, .var _], .var _] => f == kseq
-  | _ => false
-
-/-- A covering row `.K, Z`. -/
-def rowDotkPS : List Term → Bool
-  | [.app f [], .var _] => f == dotk
-  | _ => false
-
-theorem rowKseq_eqPS : ∀ {r : List Term}, rowKseqPS r = true →
-    ∃ i j l, r = [.app kseq [.var i, .var j], .var l]
-  | [.app f [.var i, .var j], .var l], h => by
-    simp only [rowKseqPS, beq_iff_eq] at h; subst h; exact ⟨i, j, l, rfl⟩
-  | [], h | [_], h | _ :: _ :: _ :: _, h => by simp [rowKseqPS] at h
-  | [.var _, _], h | [.inj _ _ _, _], h | [.as _ _, _], h | [.dv _ _, _], h => by simp [rowKseqPS] at h
-  | [.app _ _, .app _ _], h | [.app _ _, .inj _ _ _], h | [.app _ _, .as _ _], h
-  | [.app _ _, .dv _ _], h => by simp [rowKseqPS] at h
-  | [.app _ [], .var _], h | [.app _ [_], .var _], h | [.app _ (_ :: _ :: _ :: _), .var _], h => by
-    simp [rowKseqPS] at h
-  | [.app _ [.app _ _, _], .var _], h | [.app _ [.inj _ _ _, _], .var _], h
-  | [.app _ [.as _ _, _], .var _], h | [.app _ [.dv _ _, _], .var _], h => by simp [rowKseqPS] at h
-  | [.app _ [.var _, .app _ _], .var _], h | [.app _ [.var _, .inj _ _ _], .var _], h
-  | [.app _ [.var _, .as _ _], .var _], h | [.app _ [.var _, .dv _ _], .var _], h => by
-    simp [rowKseqPS] at h
-
-theorem rowDotk_eqPS : ∀ {r : List Term}, rowDotkPS r = true → ∃ l, r = [.app dotk [], .var l]
-  | [.app f [], .var l], h => by
-    simp only [rowDotkPS, beq_iff_eq] at h; subst h; exact ⟨l, rfl⟩
-  | [], h | [_], h | _ :: _ :: _ :: _, h => by simp [rowDotkPS] at h
-  | [.var _, _], h | [.inj _ _ _, _], h | [.as _ _, _], h | [.dv _ _, _], h => by simp [rowDotkPS] at h
-  | [.app _ _, .app _ _], h | [.app _ _, .inj _ _ _], h | [.app _ _, .as _ _], h
-  | [.app _ _, .dv _ _], h => by simp [rowDotkPS] at h
-  | [.app _ (_ :: _), .var _], h => by simp [rowDotkPS] at h
-
-/-- Some covering row of a function of two K arguments matches each argument list of its sorts,
-where its rows hold `kseq(X, Y), Z` and `.K, Z` and the values of K are `kseq` and `dotk` terms. -/
-theorem rows_appendPS {c : Semantics} (hr : ∀ k ∈ c.params, k.raw = false) (hk : kShapePS c = true)
-    (hks : c.isCtor kseq = true) (hdk : c.isCtor dotk = true) {fn : Fn} (hargs : fn.args = [Srt.k, Srt.k])
-    (h1 : (Semantics.coverRows fn).any rowKseqPS = true) (h2 : (Semantics.coverRows fn).any rowDotkPS = true) :
-    ∀ vs, c.sortsOf vs = some fn.args → ∃ r ∈ Semantics.coverRows fn, RowMatches c r vs := by
-  intro vs hvs
-  rw [hargs] at hvs
-  have hlen := Faithful.sortsOf_length hvs
-  match vs, hlen with
-  | [v₁, v₂], _ =>
-    obtain ⟨s₁, ss, hv₁, -, he⟩ := sortsOf_cons.mp hvs
-    injection he with hs₁
-    rcases kValue_invPS c hr hk v₁ (hs₁ ▸ hv₁) with ⟨x, w, rfl⟩ | rfl
-    · obtain ⟨r, hr, hrk⟩ := List.any_eq_true.mp h1
-      obtain ⟨i, j, l, rfl⟩ := rowKseq_eqPS hrk
-      exact ⟨_, hr, .cons (.ctor hks (.cons .var (.cons .var .nil))) (.cons .var .nil)⟩
-    · obtain ⟨r, hr, hrk⟩ := List.any_eq_true.mp h2
-      obtain ⟨l, rfl⟩ := rowDotk_eqPS hrk
-      exact ⟨_, hr, .cons (.ctor hdk .nil) (.cons .var .nil)⟩
-
-kernel_rfl totalTerm_withHooksPS : ∀ (c : Semantics) (H : HookParams) (tot : List Sym) (t : Term),
-  (c.withHooks H).totalTerm tot t = c.totalTerm tot t
-
-/-- What `append`'s totality asks of the text, as one decided test: the function numbered `a` takes
-two K arguments, its covering rows hold `kseq(X, Y), Z` and `.K, Z`, its self calls decrease in
-the first argument, its right-hand sides are total over itself, it has no `ensures`, and the values
-of K are `kseq` and `dotk` terms. -/
-def appendOKPS (c : Semantics) (a : Sym) : Bool :=
-  match c.fns.find? (·.label == a) with
-  | some fn => fn.args == [Srt.k, Srt.k] && (Semantics.coverRows fn).any rowKseqPS &&
-      (Semantics.coverRows fn).any rowDotkPS && decreasingOK c fn (some 0) &&
-      fn.clauses.all (fun cl => c.totalTerm [a] cl.rhs) && fn.clauses.all (·.ens.isNone) &&
-      kShapePS c && c.isCtor kseq && c.isCtor dotk && c.shapesOK
-  | none => false
-
-/-- **`FnHyp` under every interpretation, with `append`'s totality shown here**: the deciders name
-no fact but the totality of `append` (`totalObligationsRP = [a]`), which `total_of_rowsPS` gives from
-`appendOKPS`, every function terminating by the deciders' rank. -/
-theorem fnHyp_appendPS (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
+/-- With no fact named by the deciders at the call order `ord` (termination, totality, agreement,
+match independence), `FnHyp` holds under every interpretation. -/
+theorem fnHyp_decidedPS (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
     (hrv : c.rightValued = true) (hpre : c.clausesPreTop = true) (hplain : c.plain = true)
-    {a : Sym} {ord : List Sym} (h1 : c.rankObligations ord ++ c.decObligationsL = [])
-    (h2 : c.totalObligationsRP ord [] = [a]) (h3 : c.agreeObligationsI = [])
-    (h4 : c.matchObligationsL = ([] : List (Nat × Nat))) (happ : appendOKPS c a = true)
-    (H : HookParams) : FnHyp (c.withHooks H) := by
-  have h1' : (c.withHooks H).rankObligations ord ++ (c.withHooks H).decObligationsL = [] := by
-    rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1
-  have h2' : (c.withHooks H).totalObligationsRP ord [] = [a] :=
-    (Semantics.totalObligationsRP_withHooks _ H _ _).trans h2
-  have hokH : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks c H).trans hok
-  have hpreH : (c.withHooks H).clausesPreTop = true := by
-    rw [Semantics.clausesPreTop_withHooks]; exact hpre
-  obtain ⟨hsorted, -, hha, hp, hids⟩ := Semantics.coreOK_parts hokH
-  have hsr := NamesApart.srReady_of hp hids hsorted
-    (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts hokH).2.1) (Semantics.coreOK_ovls hokH)
-  have hrh : (c.withHooks H).RightHeld := Semantics.rightHeld_withHooks_of_valued hrv H
-  have hterm : ∀ g, Terminates (c.withHooks H) g :=
-    terminates_of_rankLN (hpreTop := hpreH) hsorted hsr (Semantics.ovlCase_of_core hokH) ord
-      (fun f _ => hrh.heldOwed f) (fun f hf => by rw [h1'] at hf; exact absurd hf List.not_mem_nil)
-  have htotA : Total (c.withHooks H) a := by
-    unfold appendOKPS at happ
-    split at happ
-    · rename_i fn hfind
-      simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true, Option.isNone_iff_eq_none] at happ
-      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hargs, hk1⟩, hk2⟩, hdec⟩, hrhs⟩, hens⟩, hks⟩, hc1⟩, hc2⟩, hsh⟩ := happ
-      have hfn : fn ∈ (c.withHooks H).fns := List.mem_of_find?_eq_some hfind
-      have hlab : fn.label = a := by simpa using List.find?_some hfind
-      rw [← hlab]
-      exact total_of_rowsPS hpreH hsorted hsr (Semantics.ovlCase_of_core hokH) hrh hterm hfn hsh
-        (dec := some 0) (show decreasingOK (c.withHooks H) fn (some 0) = true from hdec)
-        (rows_appendPS (c := c.withHooks H) hr hks hc1 hc2 hargs hk1 hk2) (tot := [a]) (fun cl hcl => (totalTerm_withHooksPS c H [a] cl.rhs).trans (hrhs cl hcl)) hens
-        (fun g hg hne => by
-          rw [List.mem_singleton] at hg; exact absurd (hg.trans hlab.symm) hne)
-    · cases happ
-  have hob : FnObligations (c.withHooks H) ord [] := by
-    have h5 : (c.withHooks H).plain = true := (Semantics.plain_withHooks c H).trans hplain
-    refine ⟨fun f hf => by rw [h1'] at hf; exact absurd hf List.not_mem_nil,
-      fun f hf => by rw [h2', List.mem_singleton] at hf; subst hf; exact htotA,
-      fun f hf => by rw [(Det.Semantics.agreeObligationsI_withHooks _ H).trans h3] at hf; exact absurd hf List.not_mem_nil,
-      fun p hp => by rw [(Det.Semantics.matchObligationsL_withHooks _ H).trans h4] at hp; exact absurd hp List.not_mem_nil,
-      openDecided_of_plain (fun r hr => needsWitness_of_binds ((Semantics.plain_parts h5).1 r hr))
-        (fun fn hfn cl hcl => Clause.needsWitness_of_binds ((Semantics.plain_parts h5).2.1 fn hfn cl hcl)),
-      openLaws_of_plain (Semantics.plain_parts h5).2.2⟩
-  exact fnHyp_withHooks hok (Semantics.rightHeld_of_valued hrv) H ParamsTotal.nil hob hr hpre
+    {ord : List Sym} (h1 : c.rankObligations ord ++ c.decObligationsL = [])
+    (h2 : c.totalObligationsRP ord [] = []) (h3 : c.agreeObligationsI = [])
+    (h4 : c.matchObligationsL = ([] : List (Nat × Nat))) (H : HookParams) : FnHyp (c.withHooks H) :=
+  fnHyp_withHooks hok (Semantics.rightHeld_of_valued hrv) H ParamsTotal.nil
+    (FnObligations.of_nil
+      (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
+      ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)
+      ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
+      ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4)
+      ((Semantics.plain_withHooks c H).trans hplain)) hr hpre
+
 /-! ## e6-param-io: K-IO -/
 
 namespace IO6
@@ -452,12 +210,11 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-- The text's one function owing a fact is `append` (number 385), declared total, which
-`fnHyp_appendPS` shows total: `FnHyp` under every interpretation. -/
+/-- K's `append` (number 385) is total by the decider, and the deciders name no fact: `FnHyp`
+under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_appendPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (ord := []) (a := 385) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) H
+  fnHyp_decidedPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
 
 /-- **`Lbl'Hash'accept'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int` is not determined by the text**: over all H, Γ entails neither that it has
 no value at (1) nor that it is 1 (an IOInt). -/
@@ -662,12 +419,11 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-- The text's one function owing a fact is `append` (number 412), declared total, which
-`fnHyp_appendPS` shows total: `FnHyp` under every interpretation. -/
+/-- K's `append` (number 412) is total by the decider, and the deciders name no fact: `FnHyp`
+under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_appendPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (ord := []) (a := 412) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) H
+  fnHyp_decidedPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
 
 /-- **`Lbl'Hash'address'LParUndsRParUnds'FFI'Unds'Int'Unds'Bytes` is not determined by the text**: over all H, Γ entails neither that it has
 no value at (b"a") nor that it is 1. -/
@@ -755,12 +511,11 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-- The text's one function owing a fact is `append` (number 386), declared total, which
-`fnHyp_appendPS` shows total: `FnHyp` under every interpretation. -/
+/-- K's `append` (number 386) is total by the decider, and the deciders name no fact: `FnHyp`
+under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_appendPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (ord := []) (a := 386) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) H
+  fnHyp_decidedPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
 
 /-- **`Lbl'Hash'argv'LParRParUnds'K-REFLECTION'Unds'List` is not determined by the text**: over all H, Γ entails neither that it has
 no value (no argument) nor that it is ListItem(1). -/
@@ -839,12 +594,11 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-- The text's one function owing a fact is `append` (number 385), declared total, which
-`fnHyp_appendPS` shows total: `FnHyp` under every interpretation. -/
+/-- K's `append` (number 385) is total by the decider, and the deciders name no fact: `FnHyp`
+under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_appendPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (ord := []) (a := 385) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) H
+  fnHyp_decidedPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
 
 /-- **`LbltimerStart'LParRParUnds'TIMER'Unds'K` is not determined by the text**: over all H, Γ entails neither that it has
 no value (no argument) nor that it is the empty K. -/
@@ -878,12 +632,11 @@ theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
 
 theorem coreOK : c.coreOK = true := by decide_cheap
 
-/-- The text's one function owing a fact is `append` (number 386), declared total, which
-`fnHyp_appendPS` shows total: `FnHyp` under every interpretation. -/
+/-- K's `append` (number 386) is total by the decider, and the deciders name no fact: `FnHyp`
+under every interpretation. -/
 theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_appendPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (ord := []) (a := 386) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) H
+  fnHyp_decidedPS c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
 
 /-- **`Lbl'Hash'metaKVariables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K` is not determined by the text**: over all H, Γ entails neither that it has
 no value at (the empty K) nor that it is SetItem(1). -/
