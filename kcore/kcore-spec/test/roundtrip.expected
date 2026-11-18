@@ -59,6 +59,7 @@ differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
+differs f2-examples/e1-param-two-sort.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
 differs f2-examples/e1-starinit.kompile.kore

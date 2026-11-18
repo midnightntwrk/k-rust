@@ -1,5 +1,5 @@
 /-
-  The K-level parameter symbols on two construct fixtures' kompiled texts (each the text its
+  The K-level parameter symbols on three construct fixtures' kompiled texts (each the text its
   kompile.txt hashes, BUILTIN/ restored as K's builtin directory and FIXTURE/ as the fixture's
   directory relative to the tree):
 
@@ -8,11 +8,15 @@
     `Lblpick{SortK{}}` and `LblisZeroOf{SortK{}}`, while the rule `a(X) => b(isZeroOf(a(X), pick(true,
     X, 0)))` applies the instances `Lblpick{SortInt{}}` and `LblisZeroOf{SortExp{}}`, of which the
     text states no equation.
+  - `f2-examples/e1-param-two-sort.kompile.kore` (fixture e1-param-two-sort): `syntax {S, T} Bool ::=
+    same(S, T)`, a symbol with two sort parameters, whose rule becomes an equation of the instance
+    `Lblsame{SortK{}, SortK{}}`, while the rule `a(X) => b(same(X, a(X)))` applies the instance
+    `Lblsame{SortInt{}, SortExp{}}`, of which the text states no equation.
   - `f2-examples/e8-hook-namespaces.kompile.kore` (fixture e8-hook-namespaces, `--hook-namespaces
     FOO`): `hooked-symbol Lblfh{}(SortInt{}) : SortInt{}` with `hook{}("FOO.bar")`, a hook no
     registry entry names, and no equation (the text declares it and applies it nowhere).
 
-  The reader reads each of the three as a parameter symbol no hook implements (`impl = none`,
+  The reader reads each of the four as a parameter symbol no hook implements (`impl = none`,
   `raw = false`; `kcore sem-fields` of the text): its value at an argument list is the
   interpretation's (`paramVal`), and Γ holds its graph, ⊥ where the interpretation gives none.
 
@@ -22,8 +26,10 @@
   models: under `HookParams.none` the application is ⊥ in every model of Γ, under `constH v` it is
   `v` in every model, and both theories have models (`sound_hyp`; `FnHyp` holds under every H, each text's functions owing no
   fact: `fnHyp`). The points: `pick{Int}` at `(true, 0, 0)` with `0`, `isZeroOf{Exp}` at `(a(0), 0)`
-  with `true`, `fh` at `0` with `0`. Each value is the one the K prose would suggest, and none is
-  entailed: the text states no sentence of these instances' graphs.
+  with `true`, `same{Int, Exp}` at `(0, a(0))` with `true`, `fh` at `0` with `0`. For the three
+  instances the value is the one the K rule of the symbol gives at every sort; `fh` has no rule, and
+  `0` there is only a value of its result sort. None is entailed: the text states no sentence of
+  these symbols' graphs.
 
   Run from the package root: `lake env lean -j1 test/ParamKLevel.lean`.
 -/
@@ -112,6 +118,41 @@ theorem isZeroOfExp_undetermined :
 
 end E3Cases
 
+/-! ## e1-param-two-sort: `same{Int, Exp}`, an instance of a symbol with two sort parameters -/
+
+namespace E1TwoSort
+
+definition_of defn from "f2-examples/e1-param-two-sort.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+
+theorem coreOK : c.coreOK = true := by decide_cheap
+
+/-- The text's function (`same{K, K}`) owes no fact, so `FnHyp` holds under every interpretation. -/
+theorem fnHyp (H : HookParams) : FnHyp (c.withHooks H) :=
+  fnHyp_decided c coreOK noRaw (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (ord := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+
+/-- The constructor `a : Int → Exp`. -/
+noncomputable def aSym : Sym := ((c.ctors.find? fun ct => c.symName ct.name == "Lbla").map (·.name)).getD 0
+
+/-- `a(0)`, a value of sort Exp. -/
+noncomputable def a0 : GroundTerm := .ctor aSym [int 0]
+
+/-- **`same{Int, Exp}(0, a(0))` is not determined by the text**: over all H, Γ entails neither that
+it has no value nor that it is `true`. -/
+theorem sameIntExp_undetermined :
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) (paramNamed c "Lblsame{Int,Exp}").sig.name [int 0, a0] ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
+      (paramApp (c.withHooks H) (paramNamed c "Lblsame{Int,Exp}").sig.name [int 0, a0] ≡
+        den (c.withHooks H) (bool true))) :=
+  undetermined_of_paramOK c coreOK noRaw fnHyp (by decide +kernel)
+
+end E1TwoSort
+
 /-! ## e8-hook-namespaces: `fh`, hooked to `FOO.bar` -/
 
 namespace E8HookNs
@@ -172,5 +213,7 @@ end KCore.ParamKLevel
 #guard_msgs in #print axioms KCore.ParamKLevel.E3Cases.pickInt_undetermined
 /-- info: 'KCore.ParamKLevel.E3Cases.isZeroOfExp_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.ParamKLevel.E3Cases.isZeroOfExp_undetermined
+/-- info: 'KCore.ParamKLevel.E1TwoSort.sameIntExp_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.ParamKLevel.E1TwoSort.sameIntExp_undetermined
 /-- info: 'KCore.ParamKLevel.E8HookNs.fh_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.ParamKLevel.E8HookNs.fh_undetermined
