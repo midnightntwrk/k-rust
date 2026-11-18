@@ -818,7 +818,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  instance at a sort without a constructor). G1 for a clause with existential variables
+  (`eval_noValue_of_exs_none`, every semantics; on a hand-built clause for every H,
+  `G1Ex.g1x_noValue_everyH`, with `G1Ex.g1x_reached_everyH` where one instance gives a value).
+  REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
   G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
   H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
   `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
