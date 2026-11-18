@@ -316,6 +316,7 @@ import KcoreSpec.ExsValues
 import KcoreSpec.ClauseExDen
 import KcoreSpec.ClauseExModel
 import KcoreSpec.ModelFnsEx
+import KcoreSpec.ModelFnsExGoal
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -368,3 +369,4 @@ import KcoreSpec.ModelEmptyInhabited
 import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
+import KcoreSpec.ModelHasEx
