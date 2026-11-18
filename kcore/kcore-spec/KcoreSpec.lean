@@ -260,6 +260,7 @@ import KcoreSpec.TieTokKItem
 import KcoreSpec.TieRule
 import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues
+import KcoreSpec.MemHeldClause
 import KcoreSpec.StepValuesHeld
 import KcoreSpec.CompeteHeld
 import KcoreSpec.SatRuleHeld
