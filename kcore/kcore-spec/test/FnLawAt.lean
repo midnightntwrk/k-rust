@@ -433,12 +433,12 @@ theorem pk_coreOK : pk.coreOK = true := by decide_cheap
 theorem mx_coreOK : mx.coreOK = true := by decide_cheap
 
 /-- The hypotheses of `consistent_with_laws` that do not read the law, for a semantics `mkSem fn`
-that `coreOK` accepts and none of whose functions is named by an obligation list, under every
+that `coreOK` accepts, whose clauses' predicates are `\top`, and none of whose functions is named by an obligation list, under every
 interpretation. -/
 theorem mkSem_model {fn : Fn} (hc : (mkSem fn).coreOK = true) (hv : (mkSem fn).rightValued = true)
     (h1 : (mkSem fn).rankObligations [] ++ (mkSem fn).decObligationsL = [])
     (h2 : (mkSem fn).totalObligationsRP [] [] = []) (h3 : (mkSem fn).agreeObligationsI = [])
-    (h4 : (mkSem fn).matchObligationsL = []) (H : HookParams) :
+    (h4 : (mkSem fn).matchObligationsL = []) (hpreTop : (mkSem fn).clausesPreTop = true) (H : HookParams) :
     ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
       FnSolves ((mkSem fn).withHooks H) ∧ ClausePreDecided ((mkSem fn).withHooks H) ∧
       OpenLaws ((mkSem fn).withHooks H) := by
@@ -450,9 +450,10 @@ theorem mkSem_model {fn : Fn} (hc : (mkSem fn).coreOK = true) (hv : (mkSem fn).r
       ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
       ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4)
       (List.all_eq_true.mpr fun k hk => by rw [mkSem_rawFree fn k hk]; rfl)
-  have hm := fnModel_of_fnFacts hcH (Semantics.rightHeld_withHooks_of_valued hv H) hob
+  have hpH := (Semantics.clausesPreTop_withHooks _ H).trans hpreTop
+  have hm := fnModel_of_fnFacts hcH (Semantics.rightHeld_withHooks_of_valued hv H) hob hpH
   have hrh := Semantics.rightHeld_withHooks_of_valued hv H
-  exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob, hob.2.2.2.2⟩
+  exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob hpH, hob.2.2.2.2⟩
 
 /-- `consistent_with_laws` at one law of `mkSem fn` under H. -/
 theorem mkSem_consistent_with_laws {fn : Fn} {H : HookParams} {l : LawEq}
@@ -475,7 +476,7 @@ theorem pl_consistent_with_laws (H : HookParams) :
         ∀ l ∈ [assocLaw], I ⊧ᴵ lawPattern (pl.withHooks H) l :=
   mkSem_consistent_with_laws
     (mkSem_model pl_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) H)
+      (by decide +kernel) (by decide +kernel) H)
     (pl_lawAt H) pl_lawSorted
 
 /-- **The theory of `pk` with its associativity sentence has a model under `Hadd`**, where the
@@ -486,7 +487,7 @@ theorem pk_consistent_with_laws_add :
         ∀ l ∈ [assocLaw], I ⊧ᴵ lawPattern (pk.withHooks Hadd) l :=
   mkSem_consistent_with_laws
     (mkSem_model pk_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) Hadd)
+      (by decide +kernel) (by decide +kernel) Hadd)
     pk_lawAt_add pk_lawSorted
 
 /-- **The theory of `mx` with its idempotence sentence has a model under `Hfst`**, which gives
@@ -497,7 +498,7 @@ theorem mx_consistent_with_laws_fst :
         ∀ l ∈ [idemLaw], I ⊧ᴵ lawPattern (mx.withHooks Hfst) l :=
   mkSem_consistent_with_laws
     (mkSem_model mx_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) Hfst)
+      (by decide +kernel) (by decide +kernel) Hfst)
     mx_lawAt_fst mx_lawSorted
 
 /-! ## A law over a sort that is none of the definition's -/

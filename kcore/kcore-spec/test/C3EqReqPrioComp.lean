@@ -306,7 +306,7 @@ theorem written_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I :
   have hax' : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", clauseAxiom (cH H) fn clB⟩).pat := by
     rw [clauseAxiom_withHooks]; exact (TiePair.sameB_iff written_clB).mp hax
   have h5 : Γ (cH H) ⊧ (TiePair.app (cH H) f [int 5] ≡ den (cH H) (int 5)) :=
-    TiePair.eval_some_sound (hpreTop := by decide +kernel) (cH H) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+    TiePair.eval_some_sound (hpreTop := Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hokH H))) (cH H) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
       (eval_of (k := 10) (by decide +kernel) H) (hfnH H) (hvsH H 5)
   have heq1 := (KoreAML.interp_equal hD).mp (h5 hI KoreAML.val0 default)
   have hws : (cH H).WellSorted clB.vars [(0, int 5)] := by
