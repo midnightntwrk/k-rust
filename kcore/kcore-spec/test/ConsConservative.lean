@@ -28,12 +28,12 @@ example {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c.coreOK = true) (h
     extModel c (DetachedB.names c ss ks) I ⊧ᴵP (Γc c ∪ Γstep c) :=
   ext_model_cv h hf hd hpre hvars hexs hI
 
-/-- The three facts of the clauses that `ext_model_cv` takes, from `coreOK`, `FnHyp` and `clausesPreTop`. -/
-example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (hpreTop : c.clausesPreTop = true) :
+/-- The three facts of the clauses that `ext_model_cv` takes, from `coreOK`, `FnHyp`, `clausesPreTop` and `FnsNoExs`. -/
+example {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) :
     (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top) ∧
     (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length) ∧
     (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = []) :=
-  clauseFacts_cv (hpreTop := hpreTop) h hf
+  clauseFacts_cv (hpreTop := hpreTop) (hnoEx := hnoEx) h hf
 
 /-- Detaching nothing: the decided check holds of the empty lists where the theory's lists pass
 it, and the statement is then `exact_hyp`'s. -/

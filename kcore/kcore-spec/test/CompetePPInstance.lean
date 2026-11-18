@@ -1,7 +1,8 @@
 /-
-  A kernel instance of `Faithful.not_applies_of_notApplies_pp` and `Faithful.applies_iff_pp`: a
-  rule with a `pre` that has a rule of a larger priority beside it, in a core `coreOK` accepts. Run
-  from the package root: `lake env lean test/CompetePPInstance.lean`. Kernel-checked.
+  A kernel instance of `Faithful.not_applies_of_notApplies_heldCEx` and
+  `Faithful.notApplies_of_not_applies_ppCEx`: a rule with a `pre` that has a rule of a larger
+  priority beside it, in a core `coreOK` accepts. Run from the package root:
+  `lake env lean test/CompetePPInstance.lean`. Kernel-checked.
 
   The rule `kcMem`: `<k> X:Int ~> Rest </k> <generatedCounter> N </generatedCounter> => <k> Rest
   </k> <generatedCounter> N </generatedCounter>` with `pre := X ∈ N +Int 1` (X the key of
@@ -124,29 +125,31 @@ theorem decided (x : Config cM) (hf : CExec.outOfFuel cM 20 x.val = false) :
 section
 variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
 
-/-- **`not_applies_of_notApplies_pp` at `kcMem`, every hypothesis discharged**: in a model of
+/-- The left side of `kcMem` binds each of its variables, so the rule has `rulePlainHeldH` at the
+empty set of symbols. -/
+theorem heldM : cM.rulePlainHeldH (fun _ => false) kcMem = true :=
+  Semantics.rulePlainHeldH_of_opens_nil _ (by decide +kernel)
+
+/-- **`not_applies_of_notApplies_heldCEx` at `kcMem`, every hypothesis discharged**: in a model of
 `Γc cM`, `<k> 5 ~> . </k> 0`'s element is outside the rule's `applies` pattern. -/
 theorem not_applies_B (hI : I ⊧ᴵP Γc cM) (e : ML.Valuation M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 5 0)) :=
-  not_applies_of_notApplies_pp (x := ⟨cfgK 5 0, sortB⟩) facts.1 hI hcw facts.2.1 facts.2.2.1 facts.2.2.2.1
+  not_applies_of_notApplies_heldCEx (x := ⟨cfgK 5 0, sortB⟩) (Semantics.coreOKEx_of_coreOK facts.1) hI hcw
+    (fun _ _ _ hH => absurd hH (by decide)) facts.2.1 heldM facts.2.2.2.1
     (fun h => absurd h (by rw [facts.2.2.2.2.1]; decide))
     (fun h => absurd h (by rw [facts.2.2.2.2.2.1]; decide))
     (fun h => absurd h (by rw [facts.2.2.2.2.2.2.1]; decide))
     notApplies_B hkeys hkP e
 
-/-- **`applies_iff_pp` at `kcMem`, every hypothesis discharged**, at both configurations: outside
-the `applies` pattern at `<k> 5 ~> . </k> 0`, inside it at `<k> 1 ~> . </k> 0`. -/
+/-- **The two directions at `kcMem`, every hypothesis discharged**, at both configurations: outside
+the `applies` pattern at `<k> 5 ~> . </k> 0`, inside it at `<k> 1 ~> . </k> 0`
+(`notApplies_of_not_applies_ppCEx`). -/
 theorem applies_iff_AB (hI : I ⊧ᴵP Γc cM) (e : ML.Valuation M) :
     ¬ (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 5 0)) ∧
-    (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 1 0)) := by
-  have hiff := fun (x : Config cM) (hf : CExec.outOfFuel cM 20 x.val = false) =>
-    applies_iff_pp (x := x) facts.1 hI hcw facts.2.1 facts.2.2.1 facts.2.2.2.1
-      (fun h => absurd h (by rw [facts.2.2.2.2.1]; decide))
-      (fun h => absurd h (by rw [facts.2.2.2.2.2.1]; decide))
-      (fun h => absurd h (by rw [facts.2.2.2.2.2.2.1]; decide))
-      (decided x hf) hkeys hkP e
-  refine ⟨(hiff ⟨cfgK 5 0, sortB⟩ listed.2.1).mpr notApplies_B, ?_⟩
-  exact Classical.byContradiction fun h => applies_A ((hiff ⟨cfgK 1 0, sortA⟩ listed.2.2.2).mp h)
+    (KoreAML.tr ⟨tbl, []⟩ (applies cM kcMem (canonRulePres kcMem))).interpret I e (elemOf cM I (cfgK 1 0)) :=
+  ⟨not_applies_B hI e, Classical.byContradiction fun h => applies_A
+    (notApplies_of_not_applies_ppCEx (x := ⟨cfgK 1 0, sortA⟩) (Semantics.coreOKEx_of_coreOK facts.1) hI hcw facts.2.1
+      (fun h => absurd h (by rw [facts.2.2.2.2.2.1]; decide)) (decided ⟨cfgK 1 0, sortA⟩ listed.2.2.2) hkeys hkP e h)⟩
 
 end
 

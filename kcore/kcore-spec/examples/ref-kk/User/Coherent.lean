@@ -657,8 +657,8 @@ both decide. The deciders show it for every function but `cmpI`, `join` and `mat
 (`agree_named`), and for every clause's match independence (`match_named`); for those three, the
 pairs the deciders leave are pairs no argument list satisfies both of. -/
 theorem coherent : CoherentAll (defn.sem.withHooks HookParams.none) := by
-  have hag := clausesAgree_of_IO hsorted hsr hmc agree_obligations
-  have hmi := matchIndependentAll_of_L hsorted hmc fun p hp => by
+  have hag := clausesAgree_of_IO hsorted (Semantics.fnsNoExs_of_all (by decide +kernel)) hsr hmc agree_obligations
+  have hmi := matchIndependentAll_of_L hsorted (Semantics.fnsNoExs_of_all (by decide +kernel)) hmc fun p hp => by
     rw [Semantics.matchObligationsL_withHooks, match_named] at hp
     exact absurd hp List.not_mem_nil
   exact coherentAll_of_parts hmi fun f fn hfn => by

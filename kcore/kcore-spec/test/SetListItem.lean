@@ -88,7 +88,7 @@ evaluation functional, given Bad's totality. -/
 theorem sl_total (H : HookParams) (hterm : ∀ g, Terminates (sl.withHooks H) g)
     (hco : CoherentAll (sl.withHooks H)) (hB : Total (sl.withHooks H) Bad) :
     Total (sl.withHooks H) InitS ∧ Total (sl.withHooks H) InitL := by
-  have key := totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := sl.withHooks H) sl_sorted.1 sl_sorted.2
+  have key := totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (hnoEx := (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))) (c := sl.withHooks H) sl_sorted.1 sl_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := sl) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) hterm hco [] [] ParamsTotal.nil
     (fun g hg => by

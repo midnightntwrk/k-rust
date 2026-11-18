@@ -479,7 +479,7 @@ theorem not_refuted0 : ¬ r0.Refuted c := by
     List.mem_map.mpr ⟨i, List.mem_range.mpr hi, rfl⟩
   let e := overV cP I tbl r0.vars σw KoreAML.val0
   have hag := overV_agrees (e := KoreAML.val0) hΓP hkeys ws_w
-  have hts : HoldsShape.TermSound cP I := HoldsShape.termSound_of_core coreP hΓcP openDecidedP.2
+  have hts : HoldsShape.TermSound cP I := HoldsShape.termSoundEx (Semantics.coreOKEx_of_coreOK coreP) hΓcP openDecidedP.2
   have hq : ∀ t, r0.req = some t → ∀ b, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r0.vars) t)).interpret I e b ↔
       (den c (bool true)).interpret I e b := by
     intro t ht b
@@ -988,7 +988,7 @@ theorem not_refuted0 : ¬ r0.Refuted c := by
     List.mem_map.mpr ⟨i, List.mem_range.mpr hi, rfl⟩
   let e := overV cP I tbl r0.vars σw KoreAML.val0
   have hag := overV_agrees (e := KoreAML.val0) hΓP hkeys ws_w
-  have hts : HoldsShape.TermSound cP I := HoldsShape.termSound_of_core coreP hΓcP openDecidedP.2
+  have hts : HoldsShape.TermSound cP I := HoldsShape.termSoundEx (Semantics.coreOKEx_of_coreOK coreP) hΓcP openDecidedP.2
   have hq : ∀ t, r0.req = some t → ∀ b, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r0.vars) t)).interpret I e b ↔
       (den c (bool true)).interpret I e b := by
     intro t ht b

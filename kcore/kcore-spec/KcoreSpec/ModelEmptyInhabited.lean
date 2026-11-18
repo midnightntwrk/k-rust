@@ -167,7 +167,7 @@ theorem exclusion_plus (f : Fn) (cl : Clause) (cp : ClausePres) :
 
 theorem prioEquation_plus (f : Fn) (cl : Clause) : prioEquation (plus c E) f cl = prioEquation c f cl := by
   unfold prioEquation clauseEquation competingEquation
-  simp only [exclusion_plus, eqnSentence, withPre, clauseRhs, Cond.conj, termKore_plus_fun,
+  simp only [exclusion_plus, eqnSentence, symApp_plus, withPre, clauseRhs, Cond.conj, termKore_plus_fun,
     termKoreList_plus_fun, condKore_plus_fun, symName_plus]
   rfl
 

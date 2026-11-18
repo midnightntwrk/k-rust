@@ -19,7 +19,8 @@ The document holds, in this order:
              the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
              entry's status cell in its list reads "STATUS (no model)".
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
-             state of the CondDecided its account lists as owed) or an `owed_refuted`: the count
+             state of the CondDecided its account lists as owed, or a MatchIndependent proved on
+             the text of a fixture of the same shape) or an `owed_refuted`: the count
              of entries by their best fixture (rows-header.toml: proved where one of its states is
              proved, else open where one is, else false; an owed_refuted is false), and each false
              or open owed fact, one line per fixture: the entry's group, the state, and the
@@ -271,7 +272,8 @@ def generate(rows_path, manifest_path):
     o += ["", f"## Entries with an owed fact ({len(owed)}: proved {marks['proved']}, open {marks['open']},"
           f" false {marks['false']})", "",
           "An entry's `owed_state` names, per fixture, the state of the CondDecided its account lists "
-          "as owed: proved or refuted by the theorem named, or open with the reason; an "
+          "as owed: proved or refuted by the theorem named, or open with the reason (or, at a fixture "
+          "of the same shape whose account owes none, a MatchIndependent proved on its text); an "
           "`owed_refuted` of form (r) is a refuted owed fact of the entry's fixture. An entry is "
           "counted by its best fixture: proved where one of its fixtures' facts is proved, else open "
           "where one is open, else false. An entry with an `owed_state` and no proved fixture "

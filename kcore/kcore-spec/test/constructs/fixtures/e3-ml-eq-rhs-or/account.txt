@@ -12,7 +12,7 @@ user module E3-ML-EQ-RHS-OR: 392 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 manyValuedRightSide
-      sentence 354 (Lblh): manyValuedRightSide (\or)
+      sentence 354 (Lblh): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
         [user] (no label) at e3-ml-eq-rhs-or.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblh{}(X0:SortInt{}), \and{SortInt{}}(\or{SortInt{}}(Lblf{}(VarX:SortInt{}), Lblg{}(VarX:SortInt{})), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("b32af7c0f737610d5b9712e33723bdb1282cb5b655e4810cdf9540b1d2059131"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Locat …
-finish: sentence 354 (Lblh): manyValuedRightSide (\or)
+finish: sentence 354 (Lblh): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 (exit 0)

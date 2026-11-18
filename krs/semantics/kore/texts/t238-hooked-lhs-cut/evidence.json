@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t238-hooked-lhs-cut.k": "da311d6127c2e28c1498a14d14c063ba635f2ac9d892e6a22147b4414e5d5175"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t238-hooked-lhs-cut.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "9ccf24acd8a32bea67ded124815e04045aded2b104d8017bc66a13dab0eeb6d3",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

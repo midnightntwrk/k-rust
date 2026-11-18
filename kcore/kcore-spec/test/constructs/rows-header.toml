@@ -243,8 +243,13 @@
 #             of the entry (`fixture`, `also_fixtures`) whose account prints `CondDecided open`;
 #             other keys: a fixture whose account prints it and that the entry's text (evidence,
 #             reader_today, refused_by, place, note, reading, no_sentence, reason) names, a companion
-#             the entry's status rests on. A key whose account prints no `CondDecided open` fails,
-#             and so does a fixture printing it that no entry keys.
+#             the entry's status rests on; and a fixture the entry's text names whose account prints
+#             no `CondDecided open` and whose state is "proved: THEOREM (FILE)" with THEOREM stated
+#             as a MatchIndependent (the owed fact of a clause, `matchObligationsL`) and every text
+#             FILE reads that fixture's (its kompiled text: f2-examples/FIXTURE.kompile.kore, or a
+#             text whose declarations carry the Source of fixtures/FIXTURE's own .k file), a
+#             companion of the same shape whose owed fact is proved. Any other key whose account
+#             prints no `CondDecided open` fails, and so does a fixture printing it that no entry keys.
 #             The entry's status stays the reading's: the account refuses nothing for the fact
 #             (CondDecided is Witnessed or Refuted, which no terminating check decides in general),
 #             so a false owed fact is no refusal and no class. Where it is false, the headline

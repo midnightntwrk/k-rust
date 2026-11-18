@@ -159,9 +159,9 @@ theorem CClauseCtx.plainCl (hcc : CClauseCtx c) {fn : Fn} (hfn : fn ∈ c.allFns
 theorem CClauseCtx.fnsNoExs (hcc : CClauseCtx c) : c.FnsNoExs :=
   fun _ hfn _ hcl => (hcc.plainCl (List.mem_append_left _ hfn) hcl).1
 
-theorem cclauseCtx_of (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) : CClauseCtx c := by
+theorem cclauseCtx_of (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
+    (hpl : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) : CClauseCtx c := by
   have htop := Semantics.allFns_preTop hpreTop
-  have hpl := Semantics.sortedOK_plainCl hok
   replace hok := Semantics.sortedOK_sorted hok
   simp only [Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨⟨_, hfns⟩, _⟩ := hok
@@ -696,7 +696,8 @@ end
 a well-sorted match, a `requires` evaluating to `true`, a `pre` that holds, the right-hand side's
 result, an `ensures` evaluating to `true` and a `post` that holds, and no rule of a smaller
 priority applies. -/
-theorem successorsN_sound_preds (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successorsN_sound_preds (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
+    (hpl : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) :
     ∃ r ∈ c.rules, ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x.val ∧
@@ -707,7 +708,7 @@ theorem successorsN_sound_preds (hpreTop : c.clausesPreTop = true) (hok : c.sort
       Holds c r.vars.length σ r.post true ∧ c.sortOf y = some topCellSort ∧
       (∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) := by
   have hsc := sortCtx_of_all hok hsr hov
-  have hcc := cclauseCtx_of (hpreTop := hpreTop) hok
+  have hcc := cclauseCtx_of (hpreTop := hpreTop) hok hpl
   obtain ⟨r, hr, hlow, σ, hσm, he, hs, hen, hpo⟩ := successorsN_mem_ens hy
   obtain ⟨hσm, hb⟩ := ruleMatches_mem.mp hσm
   obtain ⟨hσ, hpvs⟩ := cmatch_sound hσm
@@ -735,7 +736,8 @@ theorem successorsN_sound_preds (hpreTop : c.clausesPreTop = true) (hok : c.sort
 /-- **Every successor the executable step lists, at any fuel, is a step's**: it comes from a rule,
 a well-sorted match, a `requires` evaluating to `true` and the right-hand side's result, and no rule
 of a smaller priority applies. -/
-theorem successorsN_sound (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successorsN_sound (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
+    (hpl : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) :
     ∃ r ∈ c.rules, ∃ σ, c.WellSorted r.vars σ ∧ PatVal c σ r.lhs x.val ∧
@@ -743,15 +745,16 @@ theorem successorsN_sound (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK =
       EvalTerm c σ r.rhs (some y) ∧
       (∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) ∧ c.sortOf y = some topCellSort ∧
       (∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :=
-  let ⟨r, hr, σ, hσ, hpv, hreq, _, hrhs, hens, _, hs, hprio⟩ := successorsN_sound_preds (hpreTop := hpreTop) hok hsr hov hcm hrc hy
+  let ⟨r, hr, σ, hσ, hpv, hreq, _, hrhs, hens, _, hs, hprio⟩ := successorsN_sound_preds (hpreTop := hpreTop) hok hpl hsr hov hcm hrc hy
   ⟨r, hr, σ, hσ, hpv, hreq, hrhs, hens, hs, hprio⟩
 
 /-- Every successor the executable step lists, at any fuel, is a configuration `Step` reaches. -/
-theorem successorsN_step (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successorsN_step (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
+    (hpl : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   obtain ⟨r, hr, σ, hσ, hpv, hreq, hpre, hrhs, hens, hpost, hs, hprio⟩ :=
-    successorsN_sound_preds (hpreTop := hpreTop) hok hsr hov hcm hrc hy
+    successorsN_sound_preds (hpreTop := hpreTop) hok hpl hsr hov hcm hrc hy
   exact ⟨hs, .rule r hr σ hσ hpv hreq hpre hrhs hens hpost hprio⟩
 
 /-- `successors` keeps successors of `successorsN` only. -/
@@ -770,13 +773,14 @@ theorem mem_of_mem_dedup {y : GroundTerm} : ∀ (l acc : List GroundTerm),
 
 /-- **The executable step is sound**: every successor `CExec.successors` lists is a `Step`
 successor, given the matcher's completeness for the clauses and the rules. -/
-theorem successors_step (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem successors_step (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true)
+    (hpl : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hcm : ClauseComplete c) (hrc : RuleComplete c) {x : Config c} {y : GroundTerm}
     (hy : y ∈ successors c x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   unfold successors at hy
   rcases mem_of_mem_dedup _ [] hy with h | h
   · nomatch h
-  · exact successorsN_step (hpreTop := hpreTop) hok hsr hov hcm hrc h
+  · exact successorsN_step (hpreTop := hpreTop) hok hpl hsr hov hcm hrc h
 
 /-- `successors_step` from the readiness check. -/
 theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete c)
@@ -786,6 +790,6 @@ theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
-  exact successors_step (hpreTop := hpreTop) hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc hy
+  exact successors_step (hpreTop := hpreTop) hr'.1.1.1.1.1 (plainCl_of_execReady hr) hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc hy
 
 end KCore.CExec

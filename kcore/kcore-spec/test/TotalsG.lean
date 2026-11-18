@@ -101,7 +101,7 @@ theorem tg_total (H : HookParams) (hterm : ∀ g, Terminates (tg.withHooks H) g)
     (hN : Total (tg.withHooks H) N) :
     Total (tg.withHooks H) A ∧ Total (tg.withHooks H) D ∧ Total (tg.withHooks H) E ∧
       Total (tg.withHooks H) S := by
-  have key := totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := tg.withHooks H) tg_sorted.1 tg_sorted.2
+  have key := totals_of_rankP (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (hnoEx := (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))) (c := tg.withHooks H) tg_sorted.1 tg_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := tg) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) hterm hco ord [] ParamsTotal.nil
     (fun g hg => by
@@ -122,7 +122,7 @@ theorem tg_rank : tg.rankObligations ord = [] := by decide +kernel
 /-- Every function terminates, given U's and V's termination: S by its counter. -/
 theorem tg_terminates (H : HookParams) (hU : Terminates (tg.withHooks H) U)
     (hV : Terminates (tg.withHooks H) V) : ∀ f, Terminates (tg.withHooks H) f :=
-  terminates_of_rankL (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := tg.withHooks H) tg_sorted.1 tg_sorted.2
+  terminates_of_rankL (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (hnoEx := (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))) (c := tg.withHooks H) tg_sorted.1 tg_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := tg) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) ord fun g hg => by
     rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, tg_rank, tg_dec] at hg

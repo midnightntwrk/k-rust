@@ -16,15 +16,12 @@
     model at its own step, where the functions have one result and evaluation solves the
     equations). No totality is read: `Γ` holds no functional axiom of a function (with them:
     `has_model_total`).
-  - Over the rules' facts `ruleSorted` and `rulePlainOpen`, given as a hypothesis: the theory has
-    a model (`consistent_open`) and `Step` is exact (`exact_open`). Over `ruleSorted` and
-    `rulePlainEx` a rule may have existential variables: `Step` is exact (`exact_ex`). Over
-    `ruleSorted` and `rulePlainHeldH` at the symbols `Semantics.holds` names, which `coreOK` gives
-    (`Semantics.ruleFactsHeld_of_core`), a rule may also have predicates and its right side may
-    hold an open variable under those symbols (`sound_at_held`, `complete_at_held`, `exact_held`,
-    `has_model_choice_held`, `famEx_values_held`, `consistent_held`; `famOpen_values_pp` reads
-    `ruleSorted` only), the set of symbols and its `HeldBack` in every model being
-    `Semantics.heldFacts_of_core`'s.
+  - Over `ruleSorted` and `rulePlainHeldH` at the symbols `Semantics.holds` names, which `coreOK`
+    gives (`Semantics.ruleFactsHeld_of_core`), a rule may have existential variables and
+    predicates and its right side may hold an open variable under those symbols
+    (`sound_at_heldCEx`, `complete_at_heldCEx`, `exact_heldCEx`, `has_model_choice_heldCEx`,
+    `famEx_values_heldCEx`; `famOpen_values_ppCEx` reads `ruleSorted` only), the set of symbols and
+    its `HeldBack` in every model being `Semantics.heldFacts_of_core`'s.
   - The statements under `coreOK` (`famEx_closed`, `sound_at`, `complete_at`, `consistent_of`,
     `sound_hyp`, `complete_hyp`, `exact_hyp`, `has_model_choice`, `famEx_values`, `famOpen_values`)
     are the statements under `coreOKEx`, which `coreOK` gives (`Semantics.coreOKEx_of_coreOK`):
@@ -48,18 +45,19 @@ import KcoreSpec.SoundDefs
 import KcoreSpec.OpenSound
 import KcoreSpec.OpenComplete
 import KcoreSpec.OpenChoice
-import KcoreSpec.OpenExact
-import KcoreSpec.OpenFamOpen
-import KcoreSpec.ExExact
-import KcoreSpec.ExFamOpen
+import KcoreSpec.OpenSplit
+import KcoreSpec.ExComplete
 import KcoreSpec.SoundPP
-import KcoreSpec.ExactPP
-import KcoreSpec.FamOpenValuesPP
+import KcoreSpec.CompletePP
+import KcoreSpec.ModelChoicePP
+import KcoreSpec.StepValuesPP
+import KcoreSpec.HoldsDecided
 import KcoreSpec.ClausePreFn
-import KcoreSpec.SoundHeld
-import KcoreSpec.CompleteHeld
-import KcoreSpec.ExactHeld
-import KcoreSpec.FamExValuesHeld
+import KcoreSpec.FamExValuesPP
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.HeldBackAll
+import KcoreSpec.CompetePP
+import KcoreSpec.StepValuesHeld
 import KcoreSpec.OvlHeldBack
 import KcoreSpec.SoundCE
 import KcoreSpec.FnModelCEx
@@ -107,44 +105,6 @@ theorem complete_at (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : S
   complete_at_ce c (Semantics.coreOKEx_of_coreOK h) x hd os hval hfam hc
 
 open Faithful.Model in
-/-- **The theory of a definition whose rules' left sides need not bind every variable is
-consistent**: for a semantics that `coreOK` accepts, whose functions have at most one result
-(`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose clauses' predicates have a
-truth value wherever their patterns match (`ClausePreDecided`), and whose rules have `ruleSorted`
-and `rulePlainOpen`, `Γc c` with the step's closure has a model: the value model
-(`stdI_modelOpen`). -/
-theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
-    (hp : ClausePreDecided c) (hl : OpenLaws c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hl hrules
-    (satFnsGoal_decided (hypModel_of_fn h hd hs) (Semantics.fnsNoExs_of_coreOK h) hp)⟩
-
-/-- **Exactness of a definition whose rules' left sides need not bind every variable**: `ExactC`,
-for a semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have
-`ruleSorted` and `rulePlainOpen`. Left to right in the value model (`has_model_choice_open` at
-`T := Step`), right to left in any model (`step_of_successorOpen`). -/
-theorem exact_open (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : ExactC c := by
-  intro x y
-  constructor
-  · intro hs
-    obtain ⟨M, hM, I, hI, hT⟩ := has_model_choice_open c h hf hrules (Step c) (fun _ _ hst => hst)
-      (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
-      (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
-    exact ⟨M, hM, I, hI, (hT x y).mp hs⟩
-  · rintro ⟨M, hM, I, hI, hn⟩
-    have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-    simp only [Interpretation.satisfies, Valuation.satifies] at hn
-    obtain ⟨e, hn⟩ := Classical.not_forall.mp hn
-    obtain ⟨m, hn⟩ := Classical.not_forall.mp hn
-    rw [interpret_impl] at hn
-    have h1 : (den c x.val).interpret I e m := Classical.byContradiction fun hc => hn fun h => absurd h hc
-    have h2 : (KoreAML.sNext (den c y.val)).interpret I e m :=
-      Classical.byContradiction fun hc => hn fun _ => interpret_neg.mpr hc
-    rw [((elemOf_spec hIΓ x.property e).1 m).mp h1] at h2
-    exact step_of_successorOpen c h hf hrules hI x y e h2
-
-open Faithful.Model in
 /-- **Consistency** of a semantics that `coreOK` accepts, whose functions have at most one result
 at each argument list (`FnDet`), whose evaluation solves the equations (`FnSolves`), whose clauses'
 predicates have a truth value wherever their patterns match (`ClausePreDecided`) and whose
@@ -171,31 +131,6 @@ theorem complete_hyp (c : Semantics) (ref : OutFn) (h : c.coreOK = true) (hf : F
     CompleteC c ref :=
   fun href x => complete_at c h x (stepDecided_of_fnHypCEx (Semantics.coreOKEx_of_coreOK h) hf x) (ref x.val)
     (fun y r σ hop hs => ((href x).1 y.val).mpr ⟨y.property, r, σ, hop, hs⟩) (href x).2.2 hf.2.2.2.2.1.2
-
-/-- **Exactness of a definition whose rules may have existential variables**: `ExactC`, for a
-semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have `ruleSorted` and
-`rulePlainEx`. Left to right in the value model (`has_model_choice_ex` at `T := Step`), right to
-left in any model (`step_of_successor_ex`). -/
-theorem exact_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) : ExactC c := by
-  intro x y
-  constructor
-  · intro hs
-    obtain ⟨M, hM, I, hI, hT⟩ := has_model_choice_ex c h hf hrules (Step c) (fun _ _ hst => hst)
-      (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
-      (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
-    exact ⟨M, hM, I, hI, (hT x y).mp hs⟩
-  · rintro ⟨M, hM, I, hI, hn⟩
-    have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-    simp only [Interpretation.satisfies, Valuation.satifies] at hn
-    obtain ⟨e, hn⟩ := Classical.not_forall.mp hn
-    obtain ⟨m, hn⟩ := Classical.not_forall.mp hn
-    rw [interpret_impl] at hn
-    have h1 : (den c x.val).interpret I e m := Classical.byContradiction fun hc => hn fun h => absurd h hc
-    have h2 : (KoreAML.sNext (den c y.val)).interpret I e m :=
-      Classical.byContradiction fun hc => hn fun _ => interpret_neg.mpr hc
-    rw [((elemOf_spec hIΓ x.property e).1 m).mp h1] at h2
-    exact step_of_successor_ex c h hf hrules hI x y e h2
 
 /-- **Exactness of a semantics** that `coreOK` accepts and whose functions meet `FnHyp`: left to
 right in the value model, right to left in any model (`exact_ce`). -/
@@ -337,17 +272,24 @@ theorem complete_hyp₀ (c : Semantics) (ref : StepFn) (h : c.coreOK = true) (hf
     (completeC_closed c ref hop).mp (complete_hyp c _ h hf) hs x
   rwa [hΓ] at this
 
+/-- No clause of a function of a plain definition binds a variable by `\exists`. -/
+theorem Semantics.fnsNoExs_of_plain {c : Semantics} (hp : c.plain = true) : c.FnsNoExs := by
+  simp only [Semantics.plain, Bool.and_eq_true, List.all_eq_true] at hp
+  exact fun fn hfn cl hcl => List.isEmpty_iff.mp (hp.1.1.1.2 fn hfn cl hcl).1.1.1.2
+
 /-- **The old theorems**, for a definition whose rules and clauses are plain. -/
 theorem sound₀ (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hp : d.sem.plain = true) (hc : d.sem.readsConfined = false) : SoundC₀ d.sem :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have hnoEx := Semantics.fnsNoExs_of_plain hp
   sound_hyp₀ d.sem (Definition.coreOK_of_wf hwf)
-    (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
+    (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
 theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : Obligations d)
     (hp : d.sem.plain = true) (hc : d.sem.readsConfined = false) : CompleteC₀ d.sem ref :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have hnoEx := Semantics.fnsNoExs_of_plain hp
   complete_hyp₀ d.sem ref (Definition.coreOK_of_wf hwf)
-    (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
+    (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
 
 /-! ## The statements under the named obligations -/
 
@@ -356,15 +298,15 @@ theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : O
 the termination certificate `t`, hold: `sound_hyp`, the obligations giving `FnHyp`
 (`fnHyp_of_core`). -/
 theorem sound_core (c : Semantics) (t : Certificates) (h : c.coreOK = true) (hrh : c.RightHeld)
-    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : SoundC c :=
-  sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : SoundC c :=
+  sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 /-- **Completeness of a semantics** that `coreOK` accepts, whose clauses' variables are held
 (`RightHeld`) and whose named obligations, with the termination certificate `t`, hold:
 `complete_hyp`, the obligations giving `FnHyp` (`fnHyp_of_core`). -/
 theorem complete_core (c : Semantics) (t : Certificates) (ref : OutFn) (h : c.coreOK = true)
-    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : CompleteC c ref :=
-  complete_hyp c ref h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : CompleteC c ref :=
+  complete_hyp c ref h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 /-! ## The statements for a definition -/
 
@@ -382,7 +324,8 @@ giving `coreOK` (`Definition.coreOK_of_wf`). -/
 theorem sound (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Sound d :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  sound_core (hpreTop := hpreTop) d.sem d.cert (Definition.coreOK_of_wf hwf) hrh hob
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  sound_core (hpreTop := hpreTop) (hnoEx := hnoEx) d.sem d.cert (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `sound` for every interpretation of the parameters, under the obligations stated for that
 interpretation, of a definition without an open generator (`hr`, decided on the data). -/
@@ -398,7 +341,8 @@ theorem sound_withHooks (d : Definition) (hwf : wf d = true) (H : HookParams)
 theorem complete (d : Definition) (ref : OutFn) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Complete d ref :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  complete_core (hpreTop := hpreTop) d.sem d.cert ref (Definition.coreOK_of_wf hwf) hrh hob
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  complete_core (hpreTop := hpreTop) (hnoEx := hnoEx) d.sem d.cert ref (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `complete` for every interpretation of the parameters, under the obligations stated for that
 interpretation, of a definition without an open generator (`hr`, decided on the data). -/
@@ -415,6 +359,7 @@ obligations giving `FnHyp` (`fnHyp_of_core`). -/
 theorem exact (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Exact d :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  exact_hyp d.sem (Definition.coreOK_of_wf hwf) (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob)
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  exact_hyp d.sem (Definition.coreOK_of_wf hwf) (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) hrh hob)
 
 end KCore

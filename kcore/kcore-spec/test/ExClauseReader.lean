@@ -865,8 +865,8 @@ e3-ml-eq-rhs-or-many Lblk: functional sentence true; clauses 1
       rhs 'Hash'Or0 ens none exs [1] post ((((((((('Hash'Or0 ∈[Int] 1) ∨ ('Hash'Or0 ∈[Int] 2)) ∨ ('Hash'Or0 ∈[Int] 3)) ∨ ('Hash'Or0 ∈[Int] 4)) ∨ ('Hash'Or0 ∈[Int] 5)) ∨ ('Hash'Or0 ∈[Int] 6)) ∨ ('Hash'Or0 ∈[Int] 7)) ∨ ('Hash'Or0 ∈[Int] 8)) ∨ ('Hash'Or0 ∈[Int] 9))
       clauseSorted true; condOK post true; sortedCE true; fixedExs [1]; confined [false]; clauseCE true; clausePlainEx true
   sortedOK but clausesPlain true; clausesPlain false; every clause clauseCE true; readsConfined true
-e3-ml-eq-rhs-or: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
-e3-ml-eq-rhs-or-many: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or)
+e3-ml-eq-rhs-or: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+e3-ml-eq-rhs-or-many: today refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: 9 alternatives, more than 8)
 -/
 #guard_msgs in
 #eval show IO Unit from do

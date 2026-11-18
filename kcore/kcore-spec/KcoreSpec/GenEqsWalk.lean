@@ -632,8 +632,11 @@ theorem kok_clauseRhs (H : HeadsOK c ok) (f : Fn) (cl : Clause) :
 
 theorem sok_eqnSentence (H : HeadsOK c ok) (f : Fn) {prem rhs ens : Kore.Pattern} (h1 : kok ok prem = true)
     (h2 : kok ok rhs = true) (h3 : kok ok ens = true) : sok ok (eqnSentence c f prem rhs ens) = true := by
-  simp only [eqnSentence, KoreAML.equationAx, KoreAML.axiomR, sok, kok, kokL, KoreAML.ap, H.1 f.label,
-    kokL_vars, h1, h2, h3, Bool.and_self]
+  have hs : kok ok (symApp c f.label (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName)))) = true := by
+    unfold symApp; split
+    · simp only [kok, H.2.2, kokL_vars, Bool.and_self]
+    · simp only [kok, H.1 f.label, kokL_vars, Bool.and_self]
+  simp only [eqnSentence, KoreAML.equationAt, KoreAML.axiomR, sok, kok, kokL, hs, h1, h2, h3, Bool.and_self]
 
 theorem sok_prioEquation (H : HeadsOK c ok) (f : Fn) (cl : Clause) : sok ok (prioEquation c f cl) = true := by
   have hr := kok_clauseRhs H f cl

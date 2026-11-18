@@ -600,10 +600,10 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
         (negConjApart_sound hmc hn1 hfx hc2.1.1.1.2 hn (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inr hd)).elim⟩
 
-/-- In a core that `sortedOK`, `srReady` and `matchReady` accept, each two equations of one
+/-- In a core that `sortedOK`, `srReady` and `matchReady` accept, whose clauses bind no variable by `\exists` (the deciders read none), each two equations of one
 priority of each function are coherent: by `fnExclusiveL_sound` where `fnExclusiveL` confirms it,
 and by the named obligation for the functions it does not (`agreeObligationsL`). -/
-theorem clausesAgree_of_L {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srReady = true)
+theorem clausesAgree_of_L {c : Semantics} (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hsr : c.srReady = true)
     (hmr : c.matchReady = true)
     (hob : ∀ f ∈ c.agreeObligationsL, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
     ∀ fn ∈ c.fns, ClausesAgree c fn := by
@@ -614,7 +614,7 @@ theorem clausesAgree_of_L {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srR
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     exact (fnExclusiveL_sound (Exec.matchCtx_of hmr) (fun _ _ => ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      (hf.1.2 fn hfn) (hnoEx fn hfn) hx).agree (hnoEx fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligationsL, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa using hx⟩, rfl⟩

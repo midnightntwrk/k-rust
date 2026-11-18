@@ -8,6 +8,7 @@
 import KcoreSpec.CondCross
 import KcoreSpec.CondPred
 import KcoreSpec.ClausePreCore
+import KcoreSpec.TermSoundCEx
 
 set_option autoImplicit false
 
@@ -22,7 +23,7 @@ namespace HoldsShape
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-/-- **The Holds lemma at `R` in every model of `Γc`**: `holds_entails`' reading of a condition, at
+/-- **The Holds lemma at `R` in every model of `Γc`**: `holds_entailsCEx`' reading of a condition, at
 the sort a valuation gives `R`. -/
 theorem holds_entails_atR (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
@@ -35,8 +36,8 @@ theorem holds_entails_atR (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hR : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret I e a ↔ a = σr) (hσr : KoreAML.IsSort I σr)
     (hh : Holds c vars.length σ p b) (a : M) (ha : KoreAML.Inh I σr a) :
     (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) KoreAML.R p)).interpret I e a ↔ b = true :=
-  holds_atR (atomFacts_of_core h hIc (termSound_of_core h hIc hc))
-    (termsInSort_of_core h fun φ hφ => hIc φ (Or.inl hφ)) (holds_entails h hIc hc p hrc)
+  holds_atR (atomFacts_of_core h hIc (termSoundEx (Semantics.coreOKEx_of_coreOK h) hIc hc))
+    (termsInSort_of_core h fun φ hφ => hIc φ (Or.inl hφ)) (holds_entailsCEx (Semantics.coreOKEx_of_coreOK h) hIc hc p hrc)
     hok hbd hP hr hk hRm hR hσr hh a ha
 
 end

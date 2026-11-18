@@ -690,7 +690,7 @@ example (H : HookParams) (hheld : ∀ f ∈ c3.heldObligations, HeldOwed (c3.wit
 /-- The two lemmas under the form, at `c3`: every function terminates, `f` among them, by the rank
 and the owed fact. -/
 example : ∀ f, Terminates c3 f :=
-  terminates_of_rankLN (hpreTop := by decide +kernel) shape.2.2.2.2.1 decided.2.1 (Semantics.ovlCase_of_core core3) ord3 held3 obl3.1
+  terminates_of_rankLN (hpreTop := by decide +kernel) (hnoEx := Semantics.fnsNoExs_of_all (by decide +kernel)) shape.2.2.2.2.1 decided.2.1 (Semantics.ovlCase_of_core core3) ord3 held3 obl3.1
 
 /--
 info: 'OpenClausePinsTest.fnHyp3N' depends on axioms: [propext, Classical.choice, Quot.sound]

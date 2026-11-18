@@ -34,10 +34,10 @@ open ML Faithful Faithful.Model
 
 /-! ## The deciders in a core that `okAll` accepts -/
 
-/-- **Every clause is match independent** in a core that `sortedOK` and `matchReady` accept, given
+/-- **Every clause is match independent** in a core that `sortedOK` and `matchReady` accept, whose clauses bind no variable by `\exists` (the deciders read none), given
 the named obligations: a clause `clauseFixed` confirms by `clauseFixed_sound`, the others by their
 obligation. -/
-theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hmr : c.matchReady = true)
+theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hmr : c.matchReady = true)
     (hob : MatchObligations c) : MatchIndependentAll c := by
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
@@ -45,7 +45,7 @@ theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true
   cases hfx : c.clauseFixed cl with
   | true =>
     refine clauseFixed_sound (Exec.matchCtx_of hmr)
-      (sortsOfTerms_nf_of_nil (Semantics.fnOvlSyms_of_noOvl (Exec.matchCtx_of hmr).noOvl) hpt) hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+      (sortsOfTerms_nf_of_nil (Semantics.fnOvlSyms_of_noOvl (Exec.matchCtx_of hmr).noOvl) hpt) hrt ?_ hfx (hnoEx.allFns fn hmem cl hcl)
     cases he : cl.ens with
     | none => rfl
     | some t => simpa [reqOK, he] using hens t he
@@ -59,10 +59,10 @@ theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true
       simp [List.getElem?_eq_getElem hi, hfx, (Exec.matchCtx_of hmr).noOvl]
     · exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
 
-/-- In a core that `sortedOK`, `srReady` and `matchReady` accept, each two equations of one
+/-- In a core that `sortedOK`, `srReady` and `matchReady` accept, whose clauses bind no variable by `\exists` (the deciders read none), each two equations of one
 priority of each function are coherent: by `fnExclusiveOK_sound` where `fnExclusiveOK` confirms it,
 and by the named obligation for the functions it does not (`agreeObligations`). -/
-theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srReady = true)
+theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hsr : c.srReady = true)
     (hmr : c.matchReady = true)
     (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
     ∀ fn ∈ c.fns, ClausesAgree c fn := by
@@ -73,7 +73,7 @@ theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hsr 
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     exact (Det.fnExclusiveOK_sound (Exec.matchCtx_of hmr) (fun _ _ => Det.ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      (hf.1.2 fn hfn) (hnoEx fn hfn) hx).agree (hnoEx fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(Exec.matchCtx_of hmr).noOvl] using hx⟩, rfl⟩
@@ -181,24 +181,26 @@ named obligations (all of them named where there is an overloading symbol, which
 does not read) (`CoreObligations`' third and fourth conjuncts). Its last conjunct, the lazy
 occurrences, is not read; its two last, `OpenDecided` and `OpenLaws`, are `FnHyp`'s. Termination
 and totality read `hrh`: each clause variable the patterns and conditions do not hold is of a sort
-with a value; and `hpreTop`: every clause's predicate is `\top` (the certificates read no call of
-a predicate). -/
-theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : FnHyp c := by
+with a value; `hpreTop`: every clause's predicate is `\top` (the certificates read no call of
+a predicate); and `hnoEx`: no clause binds a variable by `\exists` (the certificates and the
+deciders of agreement and match independence read no existential variable or right-side
+predicate). -/
+theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : FnHyp c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
   have hmo : MatchObligations c := hob.2.2.2.1
   refine ⟨fun fn hfn vs hvs => ?_, fun fn hfn ht vs hvs => ?_, fun fn hfn => ?_, fun fn hfn cl hcl => ?_,
     hob.2.2.2.2.2.1, hob.2.2.2.2.2.2⟩
-  · exact CoreObligations.terminates (hpreTop := hpreTop) h hrh hob fn.label fn
+  · exact CoreObligations.terminates (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob fn.label fn
       (lookupFn_of_core h hfn) vs hvs
-  · exact CoreObligations.totals (hpreTop := hpreTop) h hrh hob fn.label fn (lookupFn_of_core h hfn) ht fn
+  · exact CoreObligations.totals (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob fn.label fn (lookupFn_of_core h hfn) ht fn
       (lookupFn_of_core h hfn) vs hvs
   · by_cases hno : c.ovls = []
-    · exact clausesAgree_of_sortedOK hok hsr (NamesApart.matchReady_of hha hids hok hno) hob.2.2.1 fn hfn
+    · exact clausesAgree_of_sortedOK hok hnoEx hsr (NamesApart.matchReady_of hha hids hok hno) hob.2.2.1 fn hfn
     · exact hob.2.2.1 fn.label (agree_mem_of_ovl hno hfn) fn (lookupFn_of_core h hfn)
   · by_cases hno : c.ovls = []
-    · exact matchIndependentAll_of_sortedOK hok (NamesApart.matchReady_of hha hids hok hno) hmo fn.label fn
+    · exact matchIndependentAll_of_sortedOK hok hnoEx (NamesApart.matchReady_of hha hids hok hno) hmo fn.label fn
         (lookupFn_of_core h hfn) cl hcl
     · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
       exact hmo (fn.label, i) (match_mem_of_ovl hno hfn hi) fn (lookupFn_of_core h hfn) _
@@ -215,8 +217,8 @@ theorem hyp_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypCore c := by
 
 /-- **What the statements assume, from `coreOK` and `CoreObligations`**: `hyp_of_fnHyp` with
 `fnHyp_of_core`. -/
-theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypCore c :=
-  hyp_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : HypCore c :=
+  hyp_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 /-- **What the existence of a model reads, from `coreOK`, `FnDet` and `FnSolves`**: `sortedOK`,
 `srReady` and the names numbered with the two facts on the functions (`HypFnModel`),
@@ -226,7 +228,7 @@ follows from two of them (`collsNotCtors_of`). -/
 theorem hypModel_of_fn (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c := by
   obtain ⟨hok, hfa, -, hp, hids⟩ := Semantics.coreOK_parts h
   obtain ⟨hnn, -, -, hcs, -, hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
-  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok), NamesApart.srReady_of hp hids hok
+  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx (Semantics.sortedOKEx_of_sortedOK hok), NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h), namesNumbered_spec hnn, hd, hs⟩,
     HypSoundCore.model (hypSound_of_core h), hn, hl,
     hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', Semantics.coreOK_ovls h, ovlsOnce_of_ids hids⟩
@@ -263,11 +265,11 @@ theorem Clause.witnessedDet_of_fnHyp {c : Semantics} (hf : FnHyp c) {cl : Clause
   (Clause.witnessedDet_iff_of_fnDet (fnDet_of_agree hf.2.2.1 hf.2.2.2.1) cl).mpr hw
 
 /-- **`FnDet`, `PrioDecided` and `CoDefined` give `FnSolves`** in a semantics that `coreOK`
-accepts (`fnSolves_of_parts_lookup`, FnSolves.lean; the labels are apart, `lookupFn_of_core`). -/
-theorem fnSolves_of_parts (h : c.coreOK = true) (hd : FnDet c) (hp : PrioDecided c) (ha : CoDefined c) :
-    FnSolves c :=
+accepts and whose clauses bind no variable by `\exists` (`fnSolves_of_parts_lookup`, FnSolves.lean; the labels are apart, `lookupFn_of_core`). -/
+theorem fnSolves_of_parts (h : c.coreOK = true) (hnoEx : c.FnsNoExs) (hd : FnDet c) (hp : PrioDecided c)
+    (ha : CoDefined c) : FnSolves c :=
   fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_core h hfn) hd
-    (fun fn hfn => Semantics.sortedOK_plainCl (Semantics.coreOK_parts h).1 fn (List.mem_append_left _ hfn)) hp ha
+    (fun fn hfn => Semantics.sortedOK_plainCl_of_noExs (Semantics.coreOK_parts h).1 hnoEx fn (List.mem_append_left _ hfn)) hp ha
 
 /-- **What the existence of a model reads, from `coreOK` and `FnHyp`**: `hypModel_of_fn` with
 `fnModel_of_fnHyp`. -/
@@ -276,8 +278,8 @@ theorem hypModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypModelCore c 
 
 /-- **What the existence of a model reads, from `coreOK` and `CoreObligations`**:
 `hypModel_of_fnHyp` with `fnHyp_of_core`. -/
-theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypModelCore c :=
-  hypModel_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : HypModelCore c :=
+  hypModel_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 end Core
 
@@ -299,13 +301,15 @@ theorem lookupFn_of_wf (hwf : wf d = true) {fn : Fn} (hfn : fn ∈ d.sem.fns) :
 `okAll`. -/
 theorem hyp_of (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) : Hyp d.sem :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  ⟨(NamesApart.wf_parts hwf).2.2.2, (hyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob).2⟩
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  ⟨(NamesApart.wf_parts hwf).2.2.2, (hyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) hrh hob).2⟩
 
 /-- **What the existence of a model reads, from `wf` and `Obligations`**: `hypModel_of_core`, `wf`
 giving `coreOK`, and `hyp_of`, `hypSound_of`. -/
 theorem hypModel_of (hwf : wf d = true) (hrh : d.sem.RightHeld) (hob : Obligations d) : HypModel d.sem :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  have h := hypModel_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have h := hypModel_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) hrh hob
   ⟨hyp_of hwf hrh hob, hypSound_of hwf, h.names, h.lits, h.ids, h.sorts, h.collCtors, h.ites, h.kinds,
     h.ctors, h.fns⟩
 

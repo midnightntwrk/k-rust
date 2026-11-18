@@ -199,12 +199,12 @@ theorem mem_iteIdx {c : Semantics} {sym : List Nat} (hc : (allSymNames c).map st
 namespace Model
 
 /-- `namesNumbered` on codes: `I` lists the symbols that may be named like `ite` at a sort
-(`iteIdx`); a constructor or function among them is not so named (`iteSort?`, read on its name only
-there: a name `Lblite{…}` holding a comma has a code `iteCoded` accepts and no sort), and every sort
-of a function is numbered. -/
+(`iteIdx`); a constructor among them, or a symbol among them that an overloading symbol overloads,
+is not so named (`iteSort?`, read on its name only there: a name `Lblite{…}` holding a comma has a
+code `iteCoded` accepts and no sort), and every sort of a function is numbered. -/
 def namesNumberedC (c : Semantics) (I : List Nat) : Bool :=
   c.ctorSigs.all (fun k => !I.contains k.name || (iteSort? (c.symName k.name)).isNone) &&
-  c.allFns.all (fun fn => !I.contains fn.label || (iteSort? (c.symName fn.label)).isNone) &&
+  c.ovls.all (fun o => o.over.all fun g => !I.contains g || (iteSort? (c.symName g)).isNone) &&
   c.allFns.all fun fn => (fn.result :: fn.args).all fun s => decide (s < nRegSorts + c.sortNames.length)
 
 theorem namesNumbered_of_codes {c : Semantics} {sym I : List Nat} (hc : (allSymNames c).map strCode = sym)
@@ -213,17 +213,17 @@ theorem namesNumbered_of_codes {c : Semantics} {sym I : List Nat} (hc : (allSymN
   simp only [namesNumberedC, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true'] at h
   obtain ⟨⟨h1, h2⟩, h3⟩ := h
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none]
-  refine ⟨⟨fun k hk => ?_, fun fn hfn => ?_⟩, h3⟩
+  refine ⟨⟨fun k hk => ?_, fun o ho g hg => ?_⟩, h3⟩
   · cases hn : iteSort? (c.symName k.name) with
     | none => rfl
     | some X =>
       rcases h1 k hk with h | h
       · exact absurd (mem_iteIdx hc (by rw [hn]; exact Option.some_ne_none X)) (by simpa using h)
       · rw [hn] at h; cases h
-  · cases hn : iteSort? (c.symName fn.label) with
+  · cases hn : iteSort? (c.symName g) with
     | none => rfl
     | some X =>
-      rcases h2 fn hfn with h | h
+      rcases h2 o ho g hg with h | h
       · exact absurd (mem_iteIdx hc (by rw [hn]; exact Option.some_ne_none X)) (by simpa using h)
       · rw [hn] at h; cases h
 

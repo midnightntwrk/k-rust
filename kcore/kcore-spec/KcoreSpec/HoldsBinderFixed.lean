@@ -19,6 +19,7 @@
 import KcoreSpec.FixesValue
 import KcoreSpec.HoldsCongr
 import KcoreSpec.CondTwoTables
+import KcoreSpec.TermSoundCEx
 
 set_option autoImplicit false
 
@@ -241,13 +242,13 @@ theorem holds_den_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (F : AtomF
           exact ⟨(binderFacts_of_core h (hrc rfl) hIc).elemsValues hb.1, hb.2⟩)
         (holds_den_fixed h hIc F hval body fun _ => hrc rfl)
 
-/-- **The Holds lemma over `Cond.boundV` in every model of `Γc`**: `holds_entails` with
+/-- **The Holds lemma over `Cond.boundV` in every model of `Γc`**: `holds_entailsCEx` with
 `Cond.boundV c val` for `Cond.bound c`, `val` true only at sorts with a value. -/
 theorem holds_entails_fixed (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     {val : Srt → Bool} (hval : ∀ s, val s = true → ∃ v, c.sortOf v = some s)
     (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDenB (Cond.boundV c val) c I p :=
-  holds_den_fixed h hIc (atomFacts_of_core h hIc (termSound_of_core h hIc hc)) hval p hrc
+  holds_den_fixed h hIc (atomFacts_of_core h hIc (termSoundEx (Semantics.coreOKEx_of_coreOK h) hIc hc)) hval p hrc
 
 end HoldsBinderFixed
 

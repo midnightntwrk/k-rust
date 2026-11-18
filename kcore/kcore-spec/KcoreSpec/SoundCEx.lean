@@ -1,7 +1,7 @@
 /-
-  KCore. SoundPP.lean's and SoundHeld.lean's step lemmas (`famEx_mem_pp`, `step_sound_held` and
-  what they read) for a semantics `coreOKEx` accepts (`*CEx`): each is its `coreOK` counterpart's
-  statement with `coreOKEx` for `coreOK`, proved as it is, the evaluations of terms read by
+  KCore. Soundness at a step by a rule with a `pre` and a `post`, for a semantics `coreOKEx`
+  accepts: y is among the instances of the application (`famEx_mem_ppCEx`) and x has a successor
+  among them (`step_sound_heldCEx`), with what they read, the evaluations of terms read by
   `HoldsShape.termSoundEx`'s block (`evalTerm_den4ClQ`, `holds_entailsCEx`).
 -/
 import KcoreSpec.FamExCEx

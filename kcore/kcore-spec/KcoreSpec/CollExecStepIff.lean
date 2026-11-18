@@ -970,7 +970,7 @@ theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
   replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
   have hsc := sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
-  have hcc := cclauseCtx_of (hpreTop := hpreTop) hok
+  have hcc := cclauseCtx_of (hpreTop := hpreTop) hok (plainCl_of_execReady hr)
   have hcm := clauseComplete_of_ready hr
   have hrc := ruleComplete_of_ready hr
   have hna : c.AsideFree := asideFree_of_ready hr
