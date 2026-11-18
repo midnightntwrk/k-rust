@@ -551,4 +551,16 @@ theorem detached_of_decided (c : Semantics) (ss : List Srt) (ks : List Sym) (h :
         | none => rfl
         | some v => exact clean_val hV v _ (Semantics.fnRest_sorted hfr) (h'.2 _ (List.mem_cons_self ..))
 
+namespace GenEqs
+
+open DetachedB in
+/-- **No premise names the symbols `ks`, decided**: the item lists name none of them (`listsB` at
+no sort; the signature's items without the registry's exception, since no hook has such a name),
+the values and the symbols applied at values name none (`valuesB`, `graphsB`), and no interpreted
+hooked symbol has the name of one. -/
+def freeB (c : Semantics) (ks : List Sym) : Bool :=
+  listsB c [] ks && valuesB c [] ks && graphsB c [] ks && hookSigs.all (fun k => kOK c [] ks k.name)
+
+end GenEqs
+
 end KCore

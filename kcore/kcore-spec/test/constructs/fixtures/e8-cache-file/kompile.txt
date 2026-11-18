@@ -1,6 +1,10 @@
+pre: kompile --backend haskell --cache-file c.bin ref.k -o out  (cwd: the fixture directory)
+pre exit: 0
+pre output:
+  
 command: kompile --backend haskell --cache-file c.bin ref.k -o out  (cwd: the fixture directory)
 exit: 0
-seconds: 2.0
+seconds: 24.7
 definition.kore bytes: 233133
 definition.kore sha256: dfb418c16f2bab375dc113d739fed7f14b3f03444e6163698e56794d593d7f6a
 stripped sha256: cc47a774fb745e9bbb926fe66c99c9028904ba5fdaaf10c55dfaff67bce8c30b

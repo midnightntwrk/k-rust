@@ -1,0 +1,4 @@
+# pair simplification x ensures with a true lemma: the text of c3-simp-ens with ensures f(X) ==Int X,
+# which holds of f's equation at every integer, in place of X >=Int 0, which fails at -1;
+# differs_from c3-simp-prio, the same text with the bare simplification.
+differs_from = "c3-simp-prio"

@@ -183,14 +183,6 @@ theorem sortPredEqn_in_Γ {N : Parse.Names} {msrc : String} {eqs : List Parse.Ra
 /-! ## Symbols no premise of `Γ` applies -/
 
 open DetachedB in
-/-- **No premise names the symbols `ks`, decided**: the item lists name none of them (`listsB` at
-no sort; the signature's items without the registry's exception, since no hook has such a name),
-the values and the symbols applied at values name none (`valuesB`, `graphsB`), and no interpreted
-hooked symbol has the name of one. -/
-def freeB (c : Semantics) (ks : List Sym) : Bool :=
-  listsB c [] ks && valuesB c [] ks && graphsB c [] ks && hookSigs.all (fun k => kOK c [] ks k.name)
-
-open DetachedB in
 /-- **No premise of the theory applies a symbol of `ks`** where `freeB` holds: `Γc c ∪ Γstep c`'s
 premises name no symbol of `ks` (the proof of `detached_of_decided`'s third part, where with no
 sort and no hook among the names no premise is the registry's own). -/
