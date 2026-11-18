@@ -316,6 +316,37 @@
 #      with `Step`'s steps in which the text's sentences of those symbols hold together at values
 #      (DONE-0 C2's floor; field no_direction, a `derived` table of kind "in a model"). Where no such
 #      model exists the sentences contradict Γ or one another: the text is not tied.
+#   7, library parameters (findings/work/decision-lib-param-unapplied.md). Γ also lacks a parameter
+#      symbol of an imported module that no rule and no function clause of the reading applies. Such
+#      a symbol is a function or hooked symbol of the library that no registry hook interprets
+#      (`Builtins.libParams`); for the use test see `Parse.usedLibParams`. A library equation or
+#      lemma is not such a use. Its declaration, its `functional` axiom, and every sentence of the
+#      text that applies it are of the no-direction class and are not owed.
+#      They need what no sentence of the no-direction class may lack: for every H the text admits,
+#      every model of Γ (c.withHooks H) has a choice of the lacked symbols' meanings under which
+#      they all hold together. No item of Γ or of Step applies a lacked symbol (`gamma_lacks_head`),
+#      so the choice keeps the model and its steps, and Γ and the text have the same consequences
+#      over Γ's symbols. The choice is by shape:
+#      - freely, for a declaration alone or with its `functional` axiom;
+#      - by its defining equation (`dividesInt`);
+#      - by cases over exclusive conditions, with a value elsewhere where the symbol is `functional`
+#        and each right side defined under its condition (`Int2BytesNoLen`, with `~Int` chosen with
+#        it);
+#      - by the value of the symbol of Γ that an equation equates it with, where nothing else
+#        constrains it (`rootFloat` at (F, 2), `sqrtFloat`'s equation);
+#      - by any operation meeting its lemmas (`&Int`'s associativity).
+#      Where the lacked symbols' sentences would fix a value of a symbol of Γ, the statement that
+#      results from eliminating them is not under this item. It is owed in its own class (items 1
+#      and 3), or the text is not tied.
+#      Evidence of the class:
+#      - A supported construct row whose `sentence` it is carries `no_direction` and a `derived`
+#        table of kind "in a model", as for a generated symbol.
+#      - An E6 row of the library records the class in `e6_tie`. It counts toward its module being
+#        tied only where a theorem of kind "in a model" names the sentence.
+#      - The two rows' ties list the class with `account_absent` and `absent_closed`, as they do for
+#        the generated symbols.
+#      A library parameter that a rule or function applies is a parameter of Γ, and its library
+#      sentences are hypotheses on H. That case is not under this item.
 #   Its scope is the sentences the reader leaves out of Γ; item 7's are not owed. A sentence the
 #   reader reads into Γ (a function equation, a rule) is Γ's own; a text whose read sentences have no
 #   model is form (r) (findings/work/decision-nomodel-form.md), status supported. Not recorded:
@@ -327,4 +358,9 @@
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
 #             (test/TieEns*, TieKimp*, TieKk*, LibEv*) that entail the row's sentence, axiom N of the
 #             tied text TEXT; or "refuted: MODULE; ..." where they only refute it or hold it where its
-#             set variables hold one value at most; or "uncovered: MODULE; why".
+#             set variables hold one value at most; or "no direction: MODULE; THEOREM (FILE; TEXT
+#             axiom N|symbol declaration NAME); ..." where no theorem ties or refutes it and, on a
+#             tied text, it is of the tie's no-direction class (owed-sentence rule item 7; the
+#             theorems that state the class, e6map.py's form (e)): never tied, counted apart, and
+#             counted toward its module being tied only with a theorem of kind "in a model" naming
+#             it; or "uncovered: MODULE; why".

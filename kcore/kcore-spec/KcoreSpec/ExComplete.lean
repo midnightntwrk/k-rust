@@ -1,21 +1,16 @@
 /-
   KCore. Completeness at a configuration, for a definition whose rules may have existential
-  variables, in any model of `Γc` with the step's closure.
+  variables, in any model of `Γc` with the step's closure: the lemmas that read no clause.
 
   The step's closure gives a successor b of x a disjunct, the axiom of a rule r of the definition
   at a valuation of r's variables other than the existential ones, each in its sort
-  (`step_successor_axiomEx`): x's element is in the left side, in `⌈req = true⌉` and in no
-  competitor's `applies`; b is in r's right side `∃ē. (rhs ∧ ens)`. The binders ē of the right side
-  give a valuation that agrees with the first off ē and gives ē elements of their sorts; there the
-  left side binds the variables it holds at values, and b is in `rhs ∧ ens`. A competitor that
-  does not apply in the model does not apply at values, read with its existential variables as
-  ordinary ones (`ruleDropExs`: its `applies` and its `NotApplies` are the same). Then
-  (`successor_split_ex`):
-  - where r's left side binds every variable (`r.opens = []`, so r has no existential variable), b is
-    the element of the value r's right side evaluates to: a step of `Step`;
-  - otherwise b is in `famOpen c r σ` at the match σ: the variables of r other than ē take the
-    valuation's elements under `famOpen`'s outer binders, and ē theirs under `∃ē`.
-  `complete_at_ex`: every successor is in an outcome of any list holding those.
+  (`step_successor_axiomEx`, from `rule_partsEx`): x's element is in the left side, in
+  `⌈req = true⌉` and in no competitor's `applies`; b is in r's right side `∃ē. (rhs ∧ ens)`. A
+  competitor that does not apply is read with its existential variables as ordinary ones
+  (`ruleDropExs`, `notApplies_ofDropExs`: its `applies` and its `NotApplies` are the same).
+  `famOpenPatEx`, `famOpen_eqEx` and `famOpen_keysEx` are the pattern `famOpen` reads and its
+  table; `copyVEx_at` and `copyVEx_off` move a valuation to another table;
+  `stepDecided_of_rules_ex` is `StepDecided` from the rules' facts.
 -/
 import KcoreSpec.ExSound
 import KcoreSpec.OpenComplete
@@ -218,226 +213,6 @@ end
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
-/-- **The successor a rule's axiom gives, in two cases, for a rule that may have existential
-variables.** For a rule r with `ruleSorted` and `rulePlainEx` (not asked to be one of the
-definition's) in a definition whose rules have both, in a model of `Γc`, at a valuation of r's
-variables other than the existential ones in their sorts where x's element is in r's left side, in
-`⌈req = true⌉` and in no competitor's `applies`, and b is in r's right side `∃ē. (rhs ∧ ens)`, where
-the step at x is decided (`StepDecided`, and its conjuncts for r): there is an unblocked match σ of r
-at x, and
-- where r's left side binds every variable, b is the element of a configuration y with every premise
-  of `StepBy c r σ x y` but the rule's membership;
-- otherwise b is in `famOpen c r σ`. -/
-theorem successor_split_ex (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)
-    (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {r : Rule}
-    (hs : c.ruleSorted r = true) (hp : c.rulePlainEx r = true)
-    (hdr : (∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val) →
-      (∀ σ, c.WellSortedAt r.vars r.leftVars σ → PatVal c σ r.lhs x.val →
-        (∀ t, r.req = some t → ∃ v, EvalTerm c σ t v) ∧ ∃ b, Holds c r.vars.length σ r.pre b) ∧
-      (∀ σ, c.WellSorted r.vars σ → PatVal c σ r.lhs x.val →
-        (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) → Holds c r.vars.length σ r.pre true →
-          (∃ v, EvalTerm c σ r.rhs v) ∧ (∀ e, r.ens = some e → ∃ w, EvalTerm c σ e w) ∧
-          ∃ b, Holds c r.vars.length σ r.post b))
-    {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl)
-    (hkeysC : ∀ r' ∈ c.rules, r'.prio < r.prio → ∀ i < r'.vars.length, i ∈ r'.leftVars →
-      canonKey c r'.vars i ∈ tbl)
-    {e : Valuation M}
-    (hin : ∀ i < r.vars.length, i ∉ r.exs → InS I (c.sortName (r.vars.getD i 0))
-      (e.evalEvar (tbl.ev (keyAt (canonVars c r.vars) i))))
-    (hl : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r.vars) r.lhs)).interpret I e (elemOf c I x.val))
-    (hreqm : (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort)
-      (r.req.map (Term.kore c (canonVars c r.vars))))).interpret I e (elemOf c I x.val))
-    (hcomp : ∀ r' ∈ c.rules, r'.prio < r.prio →
-      ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret I e (elemOf c I x.val))
-    {b : M} (hy : (KoreAML.tr ⟨tbl, []⟩ (ruleRight c r)).interpret I e b) :
-    (r.opens = [] ∧ ∃ (y : Config c) (σ : Subst), (r ∈ c.rules → StepBy c r σ x y) ∧ b = elemOf c I y.val) ∨
-    (r.opens ≠ [] ∧ ∃ σ, Unblocked c r σ x.val ∧ ∀ e', (famOpen c r σ).interpret I e' b) := by
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  have hs0 := hypSound_of_core h
-  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := id hs0
-  haveI : OvlOK c := hno
-  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hD := defOK hIΓ
-  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI))
-  obtain ⟨hlhs, -, hreqs, hensS, hrhss, hexnd, hexs⟩ := Model.ruleSorted_partsEx hs hp
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.rulePlainEx_top hp
-  have hlt : ∀ i ∈ r.exs, i < r.vars.length := fun i hi => (hexs i hi).1
-  let vs := canonVars c r.vars
-  -- the left side's and the `requires`' variables are not existential
-  have hnxL : ∀ i ∈ varOccs r.lhs, i < r.vars.length ∧ i ∉ r.exs := fun i hi =>
-    ⟨varOccs_lt r.lhs hlhs i hi, fun hx => (hexs i hx).2.1 hi⟩
-  have hnxQ : ∀ t, r.req = some t → ∀ i ∈ varOccs t, i < r.vars.length ∧ i ∉ r.exs := fun t ht i hi =>
-    ⟨varOccs_lt t (hreqs t ht) i hi, fun hx => (hexs i hx).2.2 (List.mem_append_left _ (by rw [ht]; exact hi))⟩
-  -- inside `∃ē`: a valuation that agrees with e off ē and gives ē elements of their sorts
-  rw [Model.ruleRight_eqEx hpost₀ hlt] at hy
-  obtain ⟨eR, hoff, hguard, hbody⟩ := existsAll_elim hD (Model.ruleExBinders c r) e _
-    (binders_nodupEx hkeys hlt hexnd) (binders_sortEx hlt) hy
-  unfold Model.ruleRightBody at hbody
-  rw [tr_and2, KoreAML.interp_sAnd] at hbody
-  obtain ⟨hyR, hensR⟩ := hbody
-  have hoffE : ∀ i < r.vars.length, i ∉ r.exs →
-      eR.evalEvar (tbl.ev (canonKey c r.vars i)) = e.evalEvar (tbl.ev (canonKey c r.vars i)) := by
-    intro i hi hx
-    refine hoff _ fun b hb he => ?_
-    obtain ⟨j, hj, rfl⟩ := List.mem_map.mp hb
-    exact hx ((canonKey_inj hi (hlt j hj) (ev_inj (hkeys i hi) (hkeys j (hlt j hj)) he)) ▸ hj)
-  have hinR : ∀ i < r.vars.length,
-      InS I (c.sortName (r.vars.getD i 0)) (eR.evalEvar (tbl.ev (keyAt vs i))) := by
-    intro i hi
-    by_cases hx : i ∈ r.exs
-    · exact hguard _ (List.mem_map_of_mem (f := fun i => ((canonVars c r.vars).getD i default).kore) hx) _
-        (by rw [canonVars_getD c hi]; rfl)
-    · show InS I _ (eR.evalEvar (tbl.ev (canonKey c r.vars i)))
-      rw [hoffE i hi hx]; exact hin i hi hx
-  have hlR : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs r.lhs)).interpret I eR (elemOf c I x.val) :=
-    (tr_kore_congr r.lhs (fun i hi => (hoffE i (hnxL i hi).1 (hnxL i hi).2).symm) _).mp hl
-  have hreqR : (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort)
-      (r.req.map (Term.kore c vs)))).interpret I eR (elemOf c I x.val) :=
-    reqPat_transferSplit hIΓ (fun t ht i hi => (hoffE i (hnxQ t ht i hi).1 (hnxQ t ht i hi).2).symm) hreqm
-      (reqPat_inhSplit hIΓ hreqm tbl eR)
-  let σ := substOf c I tbl vs r.vars eR
-  -- the left side binds the variables it holds at values
-  obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hinR
-    (collPat_of_sorted hph' hlhs) (Semantics.ruleSorted_lhs_nf c hs) x.property hlR
-  -- no rule of a smaller priority applies at values: it would apply in the model
-  have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
-    fun r' hr' hlt' ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt'
-      (applies_of_values (r := ruleDropExs r') h hI hcw (ruleSorted_dropExs (hrules r' hr').1)
-        (rulePlainOpen_dropExs (hrules r' hr').2) hσ' hpv' hreq' (hkeysC r' hr' hlt') e)
-  -- so none applies, at values, where its `requires` has a result at each match
-  have hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val := by
-    intro r' hr' hlt'
-    have hun : ∀ r'' ∈ c.rules, r''.prio < r'.prio → ¬ RuleApplies c r'' x.val :=
-      fun r'' hr'' hlt'' => hnoapp r'' hr'' (Nat.lt_trans hlt'' hlt')
-    exact notApplies_ofDropExs (notApplies_of_not_applies (r := ruleDropExs r') h hI hcw
-      (ruleSorted_dropExs (hrules r' hr').1) (rulePlainOpen_dropExs (hrules r' hr').2) (hd r' hr' hun).1
-      (hkeysC r' hr' hlt') e (hcomp r' hr' hlt'))
-  by_cases hop : r.opens = []
-  · -- every variable is held by the left side: the step of `StepDecided`
-    left
-    refine ⟨hop, ?_⟩
-    have hbinds := Rule.lhs_of_opens_nilSplit hop
-    obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) (fun i hi => hwitL i (hbinds i hi))
-    have hdr' := hdr hnoapp
-    obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
-    have hSC : ∀ a, (KoreAML.trSort tbl (srtOf c topCellSort)).interpret I eR a ↔ a = σC := fun a => by
-      unfold srtOf; rw [trSort_srt]; exact hσC1 a
-    -- a condition the element satisfies evaluates to `true`, where it has a result
-    have htrue : ∀ (q : Option Term) (m : M), (∀ t, q = some t →
-        sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) →
-        (∀ t, q = some t → ∃ v, EvalTerm c σ t v) →
-        (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort) (q.map (Term.kore c vs)))).interpret I eR m →
-        ∀ t, q = some t → EvalTerm c σ t (some (bool true)) := by
-      intro q m hqs hqv hqm t ht
-      obtain ⟨v, hv⟩ := hqv t ht
-      by_cases hvt : v = some (bool true)
-      · rw [hvt] at hv; exact hv
-      · exfalso
-        rw [ht] at hqm
-        exact reqFalse_empty hIΓ hSC hσC2 hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hqs t ht) hu)
-          (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-            hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
-    have hreqT := htrue r.req _ hreqs (hdr'.1 σ (hσ.at _) hmatch).1 hreqR
-    have hrest := hdr'.2 σ hσ hmatch hreqT (hpre₀ ▸ .top)
-    have hensT := htrue r.ens _ hensS hrest.2.1 hensR
-    obtain ⟨v, hv⟩ := hrest.1
-    have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-      hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hyR
-    cases v with
-    | none => exact hbR.elim
-    | some yv =>
-      have hyv := EvalTerm.sorted hsc hv fns_headsOK hσ hrhss rfl
-      refine ⟨⟨yv, hyv⟩, σ, fun hmem => ⟨hmem, hσ, hmatch, hreqT, hpre₀ ▸ .top, hv, hensT, hpost₀ ▸ .top, hprio⟩, ?_⟩
-      exact ((elemOf_spec hIΓ hyv eR).1 b).mp (((den_closed c yv).interp eR eR b).mp hbR)
-  -- an open variable: the valuation, moved to `famOpen`'s variables, satisfies its body at b
-  right
-  refine ⟨hop, σ, ⟨fun i hi s hsi => ?_, hmatch, hprio⟩, fun e' => ?_⟩
-  · have hlti : i < r.vars.length := (List.getElem?_eq_some_iff.mp hsi).1
-    obtain ⟨h1, -⟩ := pick_spec (hwitL i hi)
-    refine ⟨_, substOf_lookup hlti, ?_⟩
-    rw [h1, List.getD_eq_getElem?_getD, hsi, Option.getD_some]
-  rw [famOpen_eqEx hpre₀ hpost₀ hlt]
-  unfold KoreAML.denB
-  have hkf := famOpen_keysEx (c := c) (r := r) (σ := σ)
-  generalize KoreAML.tableOf [] (famOpenPatEx c r σ) = tf at hkf ⊢
-  unfold famOpenPatEx
-  let outer := (List.range r.vars.length).filter fun i => !r.exs.contains i
-  have houter : ∀ i, i ∈ outer ↔ i < r.vars.length ∧ i ∉ r.exs := fun i => by simp [outer]
-  have hol : ∀ i ∈ outer, i < r.vars.length := fun i hi => ((houter i).mp hi).1
-  have hsortB : ∀ i < r.vars.length,
-      ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt (c.sortName (r.vars.getD i 0)) := fun i hi => by
-    rw [canonVars_getD c hi]; rfl
-  let e₁ := copyVEx c tbl tf r.vars outer eR e'
-  let e₂ := copyVSplit c tbl tf r.vars eR e₁
-  have hat₁ : ∀ i < r.vars.length, i ∉ r.exs →
-      e₁.evalEvar (tf.ev (keyAt vs i)) = eR.evalEvar (tbl.ev (keyAt vs i)) :=
-    fun i hi hx => copyVEx_at hkf hi ((houter i).mpr ⟨hi, hx⟩)
-  have hat₂ : ∀ i < r.vars.length, e₂.evalEvar (tf.ev (keyAt vs i)) = eR.evalEvar (tbl.ev (keyAt vs i)) :=
-    fun i hi => copyVSplit_at hkf hi
-  have hinC : (KoreAML.inhOf (KoreAML.trSort tf (srtOf c topCellSort))).interpret I e₁ b :=
-    reqPat_inhSplit hIΓ hensR tf e₁
-  have hne : ∀ (l : List Kore.Pattern) (p : Kore.Pattern), l ++ [p] ≠ [] := fun l p => by simp
-  refine existsAll_intro_at hD _ e' e₁ b (binders_nodupEx hkf hol (List.nodup_range.filter _)) (binders_sortEx hol)
-    (fun z hz => copyVEx_off fun i hi his he => hz _ (List.mem_map_of_mem his) he) rfl
-    (fun b' hb' n hn => ?_) ?_
-  · obtain ⟨i, hio, rfl⟩ := List.mem_map.mp hb'
-    have hi := hol i hio
-    rw [hsortB i hi] at hn
-    rw [← srt_inj hn]
-    show InS I _ (e₁.evalEvar (tf.ev (canonKey c r.vars i)))
-    rw [copyVEx_at hkf hi hio]
-    exact hinR i hi
-  rw [interp_and (hne _ _)]
-  intro p hp'
-  rcases List.mem_append.mp hp' with hp' | hp'
-  rcases List.mem_append.mp hp' with hp' | hp'
-  · -- the left side's variables, fixed to their values under σ
-    unfold fixK at hp'
-    obtain ⟨i, hiL, hpi⟩ := List.mem_filterMap.mp hp'
-    split at hpi
-    · rename_i v s g hv hsi hg'
-      cases hpi
-      have hi : i < r.vars.length := (List.getElem?_eq_some_iff.mp hsi).1
-      obtain ⟨hgs, hge⟩ := pick_spec (hwitL i hiL)
-      rw [substOf_lookup hi] at hg'
-      cases hg'
-      have hgs' : c.sortOf (pick c I (r.vars.getD i 0) (eR.evalEvar (tbl.ev (keyAt vs i)))) = some s := by
-        rw [hgs, List.getD_eq_getElem?_getD, hsi, Option.getD_some]
-      refine (fixEq_iff hIΓ (sortOf_numbered_of hs0 (sortsNumbered_of_core h) (Semantics.coreOK_ovls h) hgs') hgs'
-        b).mpr ⟨hinC, ?_⟩
-      have hvk : KoreAML.evarKey v.kore = canonKey c r.vars i := by
-        unfold canonKey
-        rw [List.getD_eq_getElem?_getD, hv, Option.getD_some]
-      rw [hvk]
-      exact (hat₁ i hi (hnxL i hiL).2).trans hge.symm
-    · cases hpi
-  · -- the `requires`, from x's element
-    rw [List.mem_singleton.mp hp']
-    exact reqPat_transferSplit hIΓ (fun t ht i hi => (hat₁ i (hnxQ t ht i hi).1 (hnxQ t ht i hi).2).symm) hreqR hinC
-  · -- inside `∃ē`, the existential variables at their elements under the binders
-    rw [List.mem_singleton.mp hp']
-    refine existsAll_intro_at hD _ e₁ e₂ b (binders_nodupEx hkf hlt hexnd) (binders_sortEx hlt) (fun z hz => ?_) rfl
-      (fun b' hb' n hn => ?_) ?_
-    · by_cases hk : ∃ i < r.vars.length, z = tf.ev (canonKey c r.vars i)
-      · obtain ⟨i, hi, rfl⟩ := hk
-        have hx : i ∉ r.exs := fun hx => hz _ (List.mem_map_of_mem hx) rfl
-        exact (hat₂ i hi).trans (hat₁ i hi hx).symm
-      · exact copyVSplit_off fun i hi he => hk ⟨i, hi, he⟩
-    · obtain ⟨i, hix, rfl⟩ := List.mem_map.mp hb'
-      have hi := hlt i hix
-      rw [hsortB i hi] at hn
-      rw [← srt_inj hn]
-      show InS I _ (e₂.evalEvar (tf.ev (keyAt vs i)))
-      rw [hat₂ i hi]
-      exact hinR i hi
-    · unfold Model.ruleRightBody
-      rw [tr_and2, KoreAML.interp_sAnd]
-      exact ⟨(tr_kore_congr r.rhs (fun i hi => (hat₂ i (varOccs_lt r.rhs hrhss i hi)).symm) b).mp hyR,
-        reqPat_transferSplit hIΓ (fun t ht i hi => (hat₂ i (varOccs_lt t (hensS t ht) i hi)).symm) hensR
-          (reqPat_inhSplit hIΓ hensR tf e₂)⟩
-
 open Classical in
 /-- **A successor of a configuration, at the axiom of a rule that may have existential variables**:
 with the step's closure, in every model of `Γc c`, for a definition whose rules have `ruleSorted` and
@@ -559,73 +334,11 @@ theorem step_successor_axiomEx
   exact ⟨r, hr, tbl, e2, hkeys, fun r' hr' hlt i hi hil => hin_tbl _ (hLcomp r' hr' hlt i hi hil), hin, hl, hreq,
     hcomp, hRm⟩
 
-/-- **A successor of a configuration, in two cases, for rules that may have existential
-variables**: with the step's closure, in every model of `Γc c`, for a definition whose rules have
-`ruleSorted` and `rulePlainEx`, where the evaluations the step at x reads have results
-(`StepDecided`), a successor of x's element that lies in a pattern ψ is the element of a
-configuration y with `StepBy c r σ x y` for a rule r whose left side binds every variable, or lies in
-`famOpen c r σ` for a rule r of the definition with an open variable and an unblocked match σ of r
-at x. -/
-theorem step_successor_ex (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)
-    (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP (Γc c ∪ Γstep c))
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (e : Valuation M) (ψ : KoreAML.P)
-    (hs : (KoreAML.sNext ψ).interpret I e (elemOf c I x.val)) :
-    ∃ b, ψ.interpret I e b ∧
-      ((∃ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] ∧ StepBy c r σ x y ∧ b = elemOf c I y.val) ∨
-       (∃ r ∈ c.rules, r.opens ≠ [] ∧ ∃ σ, Unblocked c r σ x.val ∧ (famOpen c r σ).interpret I e b)) := by
-  obtain ⟨b, hb, r, hr, tbl, e2, hkeys, hkeysC, hin, hl, hreq, hcomp, hy⟩ :=
-    step_successor_axiomEx hrules x hI e ψ hs
-  refine ⟨b, hb, ?_⟩
-  obtain ⟨hsr, hpr⟩ := hrules r hr
-  rcases successor_split_ex h hrules x hd (fun φ hφ => hI φ (Or.inl hφ)) hcw hsr hpr (hd r hr) hkeys hkeysC hin hl
-      hreq hcomp hy with
-    ⟨hop, y', σ, hst, hbe⟩ | ⟨hop, σ, hu, hfam⟩
-  · exact Or.inl ⟨y', r, σ, hop, hst hr, hbe⟩
-  · exact Or.inr ⟨r, hr, hop, σ, hu, hfam e⟩
-
 end
 
 end Faithful
 
 open ML Faithful
-
-/-- **Completeness at a configuration, for a definition whose rules may have existential
-variables**: `complete_at`'s conclusion, for a semantics that `coreOK` accepts whose rules have
-`ruleSorted` and `rulePlainEx`, where the evaluations the step at x reads have results
-(`StepDecided`): with the step's closure, every successor of x is in an outcome of `os`, any list
-holding the successors by the rules whose left side binds every variable and, for each unblocked
-match of another rule, a family at a substitution that agrees with it on the left side's variables.
-A rule with an existential variable has an open one (the existential variables are not the left
-side's), so its successors stand under `famOpen`. -/
-theorem complete_at_ex (c : Semantics) (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true)
-    (x : Config c) (hd : StepDecided c x.val) (os : List Outcome)
-    (hval : ∀ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] → StepBy c r σ x y → .val y.val ∈ os)
-    (hfam : ∀ r ∈ c.rules, r.opens ≠ [] → ∀ σ, Unblocked c r σ x.val →
-      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
-    (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) := by
-  intro M _ I hI e m
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  rw [interpret_impl]
-  intro hmx
-  have hmx' : m = elemOf c I x.val := ((elemOf_spec hIΓ x.property e).1 m).mp hmx
-  subst hmx'
-  unfold KoreAML.allNext
-  rw [interpret_neg]
-  intro hnext
-  obtain ⟨b, hb, hcase⟩ := step_successor_ex h hrules x hd hI hcw e _ hnext
-  rw [interpret_neg] at hb
-  rcases hcase with ⟨y, r, σ, hop, hs, rfl⟩ | ⟨r, hr, hop, σ, hu, hfo⟩
-  · exact hb (disjList_of_mem (List.mem_map_of_mem (hval y r σ hop hs))
-      (((elemOf_spec hIΓ y.property e).1 _).mpr rfl))
-  · obtain ⟨σ', hag, hmem⟩ := hfam r hr hop σ hu
-    refine hb (disjList_of_mem (List.mem_map_of_mem hmem) ?_)
-    show (famOpen c r σ').interpret I e b
-    rw [famOpen_congrOpen c r hag]
-    exact hfo
 
 /-- Every configuration is `StepDecided` where every function has a result at arguments of its
 sorts and every rule is well sorted with `rulePlainEx`. -/

@@ -209,13 +209,14 @@ open Cons in
 a model of the theory without the premises that name a sort of `ss` or a hook of `ks` embeds into
 a model of the whole theory, its extension, in which a symbol outside those names and application
 hold of old elements what they held. For a definition `coreOK` accepts whose functions meet
-`FnHyp`. -/
-theorem registry_conservative (c : Semantics) (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
+`FnHyp`; `coreOK` gives that no clause of a function has an existential variable
+(`Semantics.fnsNoExs_of_coreOK`), which the transfer of the functions' equations reads. -/
+theorem registry_conservative (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
     (hf : FnHyp c) (hd : detachedB c ss ks = true) :
     RegistryConservative c (DetachedB.names c ss ks) := by
   intro M _ I hI
   have hemb := ext_embeds c (DetachedB.names c ss ks) I
-  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := hnoEx) h hf
+  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := Semantics.fnsNoExs_of_coreOK h) h hf
   exact ⟨Ext M, ⟨.inl default⟩, extModel c (DetachedB.names c ss ks) I, Sum.inl, hemb.1,
     ext_model_cv h hf hd hc.1 hc.2.1 hc.2.2 hI, hemb.2.1, hemb.2.2⟩
 
@@ -226,14 +227,14 @@ values that some model of the theory without the detached names has. Right to le
 (`ext_model_cv`), and it has the step: the patterns of the two configurations name nothing
 detached (the sort of configurations is not detached, `top_ok_cv`), so the sentence that there is
 no step, if the extension satisfied it, would hold in the model (`transfer_back`). -/
-theorem exact_own (c : Semantics) (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
+theorem exact_own (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
     (hf : FnHyp c) (hd : detachedB c ss ks = true) :
     ExactOwn c (DetachedB.names c ss ks) := by
   intro x y
   refine ⟨exact_own_mp c _ h hf, ?_⟩
   rintro ⟨M, _, I, hI, hn⟩
   have hD : ∀ σ, DetachedB.names c ss ks σ → plainSym σ := names_plain_rs
-  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := hnoEx) h hf
+  have hc := clauseFacts_cv (hpreTop := hpreTop) (hnoEx := Semantics.fnsNoExs_of_coreOK h) h hf
   have hV : valuesB c ss ks = true := by
     simp only [detachedB, Bool.and_eq_true] at hd
     exact hd.1.2
@@ -274,9 +275,9 @@ theorem Detached.eq_names_cv {c : Semantics} {D : KoreAML.Sym → Prop} (hd : De
 /-- **The two statements at a set of names `D`**, where the decided check holds of some lists whose
 names are `D`. With `Detached.eq_names_cv`, what separates this from the statements at every
 detached `D` is whether the decided check holds of such lists whenever `D` is detached. -/
-theorem registry_conservative_names_cv (c : Semantics) (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (D : KoreAML.Sym → Prop) (ss : List Srt) (ks : List Sym)
+theorem registry_conservative_names_cv (c : Semantics) (hpreTop : c.clausesPreTop = true) (D : KoreAML.Sym → Prop) (ss : List Srt) (ks : List Sym)
     (h : c.coreOK = true) (hf : FnHyp c) (hD : D = DetachedB.names c ss ks) (hd : detachedB c ss ks = true) :
     RegistryConservative c D ∧ ExactOwn c D :=
-  hD ▸ ⟨registry_conservative (hpreTop := hpreTop) (hnoEx := hnoEx) c ss ks h hf hd, exact_own (hpreTop := hpreTop) (hnoEx := hnoEx) c ss ks h hf hd⟩
+  hD ▸ ⟨registry_conservative (hpreTop := hpreTop) c ss ks h hf hd, exact_own (hpreTop := hpreTop) c ss ks h hf hd⟩
 
 end KCore

@@ -180,11 +180,9 @@ import KcoreSpec.OpenModel
 import KcoreSpec.CondNumbered
 import KcoreSpec.OpenConsistent
 import KcoreSpec.OpenSplit
-import KcoreSpec.OpenFamOpen
 import KcoreSpec.OpenSound
 import KcoreSpec.OpenComplete
 import KcoreSpec.OpenChoice
-import KcoreSpec.OpenExact
 import KcoreSpec.ExPlain
 import KcoreSpec.Inhabited
 import KcoreSpec.SetIdemColl
@@ -203,16 +201,13 @@ import KcoreSpec.OpenClauseFn
 import KcoreSpec.OpenClauseFam
 import KcoreSpec.OpenClauseModel
 import KcoreSpec.OpenClauseComplete
-import KcoreSpec.OpenRuleStepCl
 import KcoreSpec.ExModelT
 import KcoreSpec.ExStepT
 import KcoreSpec.HoldsDecided
 import KcoreSpec.ExChoice
-import KcoreSpec.ExConsistent
 import KcoreSpec.ExFamValues
 import KcoreSpec.ExSound
 import KcoreSpec.ExComplete
-import KcoreSpec.ExFamOpen
 import KcoreSpec.HoldsModel
 import KcoreSpec.TrueV
 import KcoreSpec.AppliesPP
@@ -221,7 +216,6 @@ import KcoreSpec.ModelChoicePP
 import KcoreSpec.FamExPost
 import KcoreSpec.HoldsCongr
 import KcoreSpec.PredPlain
-import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs
 import KcoreSpec.HoldsAtoms
 import KcoreSpec.HoldsFacts
@@ -232,9 +226,7 @@ import KcoreSpec.CompetePP
 import KcoreSpec.CondPred
 import KcoreSpec.FamExValuesPP
 import KcoreSpec.CompletePP
-import KcoreSpec.FamOpenValuesPP
 import KcoreSpec.SoundPP
-import KcoreSpec.ExactPP
 import KcoreSpec.CutIdentity
 import KcoreSpec.OccurrenceOrder
 import KcoreSpec.RuleAndIn
@@ -265,14 +257,9 @@ import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues
 import KcoreSpec.MemHeldClause
 import KcoreSpec.StepValuesHeld
-import KcoreSpec.CompeteHeld
 import KcoreSpec.SatRuleHeld
 import KcoreSpec.ModelChoiceHeld
-import KcoreSpec.CompleteHeld
 import KcoreSpec.HeldBackAll
-import KcoreSpec.FamExValuesHeld
-import KcoreSpec.SoundHeld
-import KcoreSpec.ExactHeld
 import KcoreSpec.HoldsModelFixed
 import KcoreSpec.TieCons
 import KcoreSpec.TieRename
@@ -416,3 +403,4 @@ import KcoreSpec.KKMatchTsComplete
 import KcoreSpec.TieConsHd
 import KcoreSpec.FreeNames
 import KcoreSpec.LibEvFnBitRange
+import KcoreSpec.StepClosurePadIx

@@ -1,7 +1,8 @@
 /-
-  KCore. CompletePP.lean's `step_successor_pp` and `successor_split_pp` for a semantics `coreOKEx`
-  accepts (`*CEx`): each is its `coreOK` counterpart's statement with `coreOKEx` for `coreOK`,
-  proved as it is, through FamExCEx.lean's siblings.
+  KCore. The two cases of a successor in a model of `Γc` with the step's closure, for rules with a
+  `pre` and a `post`, of a semantics `coreOKEx` accepts (`successor_split_ppCEx`,
+  `step_successor_ppCEx`), from CompletePP.lean's `step_successor_axiomPP` and FamExCEx.lean's
+  lemmas.
 -/
 import KcoreSpec.FamExCEx
 

@@ -124,14 +124,12 @@ example (hD : KoreAML.DefOK I) {tbl tbl' : KoreAML.VarTable} {e e' : ML.Valuatio
 
 end TwoTables
 
-/-! ## A successor's values for a rule with predicates (`KCore.Faithful.rule_step_values_pp`)
+/-! ## The facts of the rules with predicates
 
-  At `rNot` (its open variable G by arm A, a `pre`), `rOr` (its existential Z by arm A, a `post`)
-  and `rC` (`b => b` with pre `Z ∈ 0`, Z:Int open and in `pre` only, the conditions closed: arm C,
-  `needsWitness`): in any model of `Γc c`, a valuation with x's element in the left side, the
-  conditions and `pre` and y's element in the right side, `ensures` and `post` gives a σ of values
-  with every premise of `StepBy` but membership and `hprio`, `Holds` of both predicates included.
-  No open variable of the three is of a confined sort, and no predicate holds a binder. -/
+  `rNot` (its open variable G by arm A, a `pre`), `rOr` (its existential Z by arm A, a `post`) and
+  `rC` (`b => b` with pre `Z ∈ 0`, Z:Int open and in `pre` only, the conditions closed: arm C,
+  `needsWitness`). No open variable of the three is of a confined sort, and no predicate holds a
+  binder (`stepValues_facts`). -/
 
 /-- `b => b` with pre `Z ∈ 0`, Z:Int open. -/
 noncomputable def rC : Rule :=
@@ -151,42 +149,6 @@ theorem stepValues_facts :
     rC.opens.any (fun i => (rC.vars[i]?.map c.confined).getD false) = false ∧
     HoldsShape.hasBinder rC.pre = false ∧ HoldsShape.hasBinder rC.post = false := by
   decide +kernel
-
-section StepValues
-open Faithful
-
-variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
-
-/-- Arm A with a `pre`: `rNot`. -/
-example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
-  rule_step_values_pp (r := rNot) (tbl := tbl) (e := e) coreOK hft hI hcw rNot_pp.1 rNot_pp.2.1
-    (fun h => absurd h (by rw [stepValues_facts.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.1]; decide))
-
-/-- An existential variable with a `post`: `rOr`. -/
-example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
-  rule_step_values_pp (r := rOr) (tbl := tbl) (e := e) coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.1]; decide))
-
-/-- Arm C, its conditions decided by hypothesis: `rC`. -/
-example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (hw : rC.needsWitness c = true → rC.CondDecided c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
-  rule_step_values_pp (r := rC) (tbl := tbl) (e := e) coreOK hft hI hcw rC_pp.1 rC_pp.2.1
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.2.2.2]; decide)) hw
-
-end StepValues
 
 /-! ## Numbered sorts of a condition (`KCore.Semantics.condOK`, `KCore.Faithful.Model.rule_vars_numCN`)
 
@@ -277,12 +239,10 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
 
 end SatRule
 
-/-! ## The closure, the model and the choice (`KCore.Faithful.Model.satStepGoal_pp`,
-  `KCore.consistent_pp`, `KCore.has_model_choice_pp`)
+/-! ## The closure, the model and the choice (`KCore.Faithful.Model.satStepGoal_pp`)
 
   At the definition (rules with a pre, a post and an existential variable): the closure holds at T
-  wherever T steps are `StepV` steps, the theory has a model under `FnDet` and `FnSolves` (`OpenLaws` decided: no open generator),
-  and the choice among instances is free under `FnHyp`. -/
+  wherever T steps are `StepV` steps, and no rule's `applies` pattern has a free variable. -/
 
 section ModelChoice
 open Faithful Faithful.Model
@@ -295,23 +255,13 @@ example (h : HypModelCore c) (T : GroundTerm → GroundTerm → Prop)
 example : ∀ r' ∈ c.rules, ∀ {k}, k ∈ KoreAML.freeOf [] (applies c r' (canonRulePres r')) → False :=
   fun r' hr' _ hk => freeOf_appliesPP (rules_pp r' hr').1 hk
 
-example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_pp c coreOK hd hs (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) rules_pp
-
-example (hf : FnHyp c) (T : Config c → Config c → Prop) (hsub : ∀ x y, T x y → Step c x y)
-    (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)
-    (hsome : ∀ x y r σ, StepBy c r σ x y → ∃ y' σ',
-       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
-    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
-      ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) :=
-  has_model_choice_pp c coreOK hf rules_pp T hsub hall hsome
-
 end ModelChoice
 
-/-! ## The instances of a step by a rule with a `post` (`KCore.famEx_closed_post`)
+/-! ## The instances of a step by a rule with a `post` (`KCore.famEx_closed_postCEx`)
 
   `rPost`: `Z => a(Z)` with post `Z ∈ b`, no existential variable. It is well sorted and its
-  `post` is not `\top`: `famEx_denPP` gives, in every model of `Γc`, that the instances of a step
-  by it at σ are its successor, from `Holds … post true` at σ; `famEx_closed_post` at the
+  `post` is not `\top`: `famEx_denPPCEx` gives, in every model of `Γc`, that the instances of a step
+  by it at σ are its successor, from `Holds … post true` at σ; `famEx_closed_postCEx` at the
   definition. -/
 
 section FamExPost
@@ -334,17 +284,17 @@ example (hI : I ⊧ᴵP Γc c)
     (heval : EvalTerm c σ rPost.rhs (some y.val)) (hpost : Holds c rPost.vars.length σ rPost.post true)
     (e : ML.Valuation M) (m : M) :
     (famEx c rPost σ).interpret I e m ↔ (den c y.val).interpret I e m :=
-  famEx_denPP coreOK rPost_facts.1 rPost_facts.2.1 (fun h => absurd h (by rw [rPost_facts.2.2.2]; decide))
+  famEx_denPPCEx (Semantics.coreOKEx_of_coreOK coreOK) rPost_facts.1 rPost_facts.2.1 (fun h => absurd h (by rw [rPost_facts.2.2.2]; decide))
     hσ heval (fun t ht => by cases ht) hpost hI hcw e m
 
 example {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hex : r.exs = [])
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     Γc c ⊧ (famEx c r σ ≡ den c y.val) :=
-  famEx_closed_post c coreOK hs hex hcw
+  famEx_closed_postCEx c (Semantics.coreOKEx_of_coreOK coreOK) hs hex hcw
 
 end FamExPost
 
-/-! ## A competitor with a `pre` in a model of `Γc` (`KCore.Faithful.applies_iff_pp`): `rNot` -/
+/-! ## A competitor with a `pre` in a model of `Γc`: `rNot` -/
 
 section Compete
 open Faithful
@@ -357,23 +307,7 @@ theorem compete_facts : rNot.needsWitness c = false ∧ HoldsShape.hasBinder rNo
     (rNot.opens.any fun i => (rNot.vars[i]?.map c.confined).getD false) = false := by
   decide +kernel
 
-/-- `applies_iff_pp` at `rNot`, a rule of a larger priority and the table hypothesis assumed. -/
-example (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (hlarger : c.rules.any (fun r'' => rNot.prio < r''.prio) = true) {x : Config c}
-    (hd : ∀ σ, c.WellSortedAt rNot.vars rNot.leftVars σ → PatVal c σ rNot.lhs x.val →
-      (∀ t, rNot.req = some t → ∃ v, EvalTerm c σ t v) ∧ ∃ b, Holds c rNot.vars.length σ rNot.pre b)
-    {tbl : KoreAML.VarTable} (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
-    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
-    (e : ML.Valuation M) :
-    ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) ↔
-      NotApplies c rNot x.val :=
-  applies_iff_pp coreOK hI hcw rNot_pp.1 rNot_pp.2.1 hlarger
-    (fun h => absurd h (by rw [compete_facts.2.2]; decide))
-    (fun h => absurd h (by rw [compete_facts.2.1]; decide))
-    (fun h => absurd h (by rw [compete_facts.1]; decide)) hd hkeys hkP e
-
-/-- `applies_of_values_pp` at `rNot`: no rule of a larger priority is read. -/
+/-- `applies_of_values_ppCEx` at `rNot`: no rule of a larger priority is read. -/
 example (hI : I ⊧ᴵP Γc c)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {x : Config c}
     {σ : Subst} (hσ : c.WellSortedAt rNot.vars rNot.leftVars σ) (hpv : PatVal c σ rNot.lhs x.val)
@@ -382,11 +316,10 @@ example (hI : I ⊧ᴵP Γc c)
     (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
     (e : ML.Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) :=
-  applies_of_values_pp coreOK hI hcw rNot_pp.1 (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hσ hpv
+  applies_of_values_ppCEx (Semantics.coreOKEx_of_coreOK coreOK) hI hcw rNot_pp.1 (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hσ hpv
     (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpre hkeys hkP e
 
 end Compete
-
 
 /-! ## A condition is a predicate (`KCore.Faithful.cond_pred_transfer_top`)
 
@@ -426,12 +359,10 @@ example (hI : I ⊧ᴵP Γ c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) (a a
 
 end CondPred
 
-/-! ## A value in the instances of an application (`KCore.Faithful.famEx_value_pp`, `KCore.famEx_values_pp`)
+/-! ## A value in the instances of an application
 
   At `rOr` (`b => ?Z` with post `or (mem Z b) (mem Z a(b))`, Z existential, a `post` that is not
-  `\top`): in any model of `Γc c`, y's element in `famEx c rOr σ` gives a σ' that is σ off Z, under
-  which the right side evaluates to y and `Holds … post true`. At the definition:
-  `famEx_values`'s statement from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+  `\top`): the facts of the rule that the values in `famEx c rOr σ` read (`famExValues_facts`). -/
 
 section FamExValues
 open Faithful
@@ -444,33 +375,14 @@ theorem famExValues_facts : (rOr.exs.any fun i => (rOr.vars[i]?.map c.confined).
     HoldsShape.hasBinder rOr.post = false ∧ rOr.post.isTop = false := by
   decide +kernel
 
-example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    {σ : Subst} (hσ : c.WellSorted rOr.vars σ) (y : Config c)
-    (e : ML.Valuation M) (hm : (famEx c rOr σ).interpret I e (elemOf c I y.val)) :
-    ∃ σ' : Subst, (∀ i, ¬ i ∈ rOr.exs → σ'.lookup i = σ.lookup i) ∧ c.WellSorted rOr.vars σ' ∧
-      EvalTerm c σ' rOr.rhs (some y.val) ∧ (∀ t, rOr.ens = some t → EvalTerm c σ' t (some (bool true))) ∧
-      Holds c rOr.vars.length σ' rOr.post true :=
-  famEx_value_pp coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
-    (fun h => absurd h (by rw [famExValues_facts.1]; decide))
-    (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ y e hm
-
-/-- The pinned type of `famEx_values` (`test/Pins.lean`), from the per-rule facts. -/
-example : ∀ (hf : FnHyp c) (x y : Config c)
-    (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
-    (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)),
-    ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
-  fun hf => famEx_values_pp c coreOK hf rules_pp
-
 end FamExValues
 
-/-! ## Completeness at a configuration (`KCore.Faithful.successor_split_pp`, `step_successor_axiomPP`, `KCore.complete_at_pp`)
+/-! ## Completeness at a configuration (`KCore.Faithful.successor_split_ppCEx`, `step_successor_axiomPP`)
 
   At `rNot` (a `pre` that is not `\top`, without a binder): the left part of its axiom
   (`rule_parts_pp`) and the two cases of a successor its axiom gives where the step is decided
-  (`successor_split_pp`, the hypotheses on the table, the valuation and the elements left as
-  arguments). At the definition: the rule a successor comes from, and `complete_at`'s statement
-  from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+  (`successor_split_ppCEx`, the hypotheses on the table, the valuation and the elements left as
+  arguments). At the definition: the rule a successor comes from. -/
 
 section CompletePP
 open Faithful
@@ -481,7 +393,7 @@ example := rule_parts_pp (c := c) (I := I) rNot_pp.1
 
 example (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP Γc c)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :=
-  successor_split_pp (r := rNot) coreOK (fun r hr => (rules_pp r hr).1) x hd hI hcw rNot_pp.1
+  successor_split_ppCEx (r := rNot) (Semantics.coreOKEx_of_coreOK coreOK) (fun r hr => (rules_pp r hr).1) x hd hI hcw rNot_pp.1
     (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
     (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
 
@@ -489,19 +401,9 @@ example (x : Config c) (hI : I ⊧ᴵP (Γc c ∪ Γstep c)) (e : ML.Valuation M
     (hs : (KoreAML.sNext ψ).interpret I e (elemOf c I x.val)) :=
   step_successor_axiomPP (fun r hr => (rules_pp r hr).1) x hI e ψ hs
 
-/-- The pinned type of `complete_at` (`test/Pins.lean`), from the per-rule facts. -/
-example : ∀ (x : Config c) (hd : StepDecided c x.val)
-    (os : List Outcome)
-    (hval : ∀ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] → StepBy c r σ x y → .val y.val ∈ os)
-    (hfam : ∀ r ∈ c.rules, r.opens ≠ [] → ∀ σ, Unblocked c r σ x.val →
-      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c),
-    (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
-  complete_at_pp c coreOK rules_pp
-
 end CompletePP
 
-/-! ## The outcomes of a match (`KCore.Faithful.famOpen_stepPP`, `KCore.famOpen_values_pp`)
+/-! ## The outcomes of a match (`KCore.Faithful.famOpen_stepPPCEx`, `KCore.famOpen_values_ppCEx`)
 
   `rOpenB`: `b => b` with pre `not (mem Z true)`, Z of Bool, open and in `pre` only. Bool is
   confined, so every open variable of the rule is of a confined sort, and its `pre` is not `\top`:
@@ -538,7 +440,7 @@ example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
       Holds c rOpenB.vars.length σ' rOpenB.pre true ∧ EvalTerm c σ' rOpenB.rhs (some y.val) ∧
       (∀ t, rOpenB.ens = some t → EvalTerm c σ' t (some (bool true))) ∧
       Holds c rOpenB.vars.length σ' rOpenB.post true ∧ (den c y.val).interpret I e m :=
-  famOpen_stepPP coreOK hft hI hcw rOpenB_facts.1 (List.all_eq_true.mp rOpenB_facts.2.2.2.2.2) (fun _ => hrc)
+  famOpen_stepPPCEx (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcw rOpenB_facts.1 (List.all_eq_true.mp rOpenB_facts.2.2.2.2.2) (fun _ => hrc)
     (fun h => absurd h (by rw [rOpenB_facts.2.2.2.1]; decide))
     (fun h => absurd h (by rw [rOpenB_facts.2.2.2.2.1]; decide)) hσ hmatch e m hm
 
@@ -550,17 +452,15 @@ example : ∀ (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys),
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  fun hf x r hr => famOpen_values_pp c coreOK hf x r hr (rules_pp r hr).1
+  fun hf x r hr => famOpen_values_ppCEx c (Semantics.coreOKEx_of_coreOK coreOK) hf x r hr (rules_pp r hr).1
 
 end FamOpenValues
 
-/-! ## Soundness at a step (`KCore.Faithful.applies_match_pp`, `not_applies_guarded_pp`, `step_sound_pp`, `KCore.sound_at_pp`)
+/-! ## Soundness at a step (`KCore.Faithful.applies_match_pp`, `famEx_mem_ppCEx`)
 
   At `rNot` (a `pre` that is not `\top`): x's element in its `applies` gives a match of its left
-  side at x, and where it does not apply at x, x's element is in no `applies` of it, its conditions
-  asked decided only at such a match (a rule of a larger priority assumed). At `rOr` (an existential
-  variable and a `post` that is not `\top`): the successor of a step is among its instances. At the
-  definition: `sound_at`'s statement from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+  side at x. At `rOr` (an existential variable and a `post` that is not `\top`): the successor of a
+  step is among its instances (`famEx_mem_ppCEx`). -/
 
 section SoundPP
 open Faithful
@@ -575,74 +475,12 @@ example (hI : I ⊧ᴵP Γ c) {x : Config c} {tbl : KoreAML.VarTable}
 
 example (hI : I ⊧ᴵP Γc c)
     (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (hlarger : c.rules.any (fun r'' => rNot.prio < r''.prio) = true) {x : Config c}
-    (hw : rNot.needsWitness c = true → (∃ σ', PatVal c σ' rNot.lhs x.val) → rNot.CondDecided c)
-    (hna : NotApplies c rNot x.val)
-    {tbl : KoreAML.VarTable} (hkeys : ∀ i < rNot.vars.length, i ∈ rNot.leftVars → canonKey c rNot.vars i ∈ tbl)
-    (hkP : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c rNot.vars) (srtOf c topCellSort) rNot.pre), k ∈ tbl)
-    (e : ML.Valuation M) :
-    ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c rNot (canonRulePres rNot))).interpret I e (elemOf c I x.val) :=
-  not_applies_guarded_pp coreOK hI hcw rNot_pp.1 rNot_pp.2.1 hlarger
-    (fun h => absurd h (by rw [compete_facts.2.2]; decide))
-    (fun h => absurd h (by rw [compete_facts.2.1]; decide)) hw hna hkeys hkP e
-
-example (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     {σ : Subst} (hσ : c.WellSorted rOr.vars σ) {y : Config c}
     (heval : EvalTerm c σ rOr.rhs (some y.val)) (hpost : Holds c rOr.vars.length σ rOr.post true)
     (e : ML.Valuation M) : (famEx c rOr σ).interpret I e (elemOf c I y.val) :=
-  famEx_mem_pp coreOK rOr_pp.1 (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ heval
+  famEx_mem_ppCEx (Semantics.coreOKEx_of_coreOK coreOK) rOr_pp.1 (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ heval
     (fun t ht => nomatch (show (none : Option Term) = some t from ht)) hpost hI hcw e
 
-/-- `step_sound_pp` at `rNot`, its axiom, the rules of a larger priority and the step's premises
-left as arguments. -/
-example (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :=
-  step_sound_pp (r := rNot) coreOK rules_pp hI hcw rNot_pp.1 rNot_pp.2.1
-    (fun h => absurd h (by rw [stepValues_facts.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.1]; decide))
-
-/-- The pinned type of `sound_at` (`test/Pins.lean`), from the per-rule facts. -/
-example : ∀ (x y : Config c) (r : Rule) (σ : Subst) (hs : StepBy c r σ x y)
-    (hw : ∀ r' ∈ c.rules, r'.prio < r.prio → r'.needsWitness c = true →
-      (∃ σ', PatVal c σ' r'.lhs x.val) → r'.CondDecided c)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c),
-    (Γc c ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :=
-  sound_at_pp c coreOK rules_pp
-
 end SoundPP
-
-/-! ## Exactness (`KCore.Faithful.stepVals_of_right_pp`, `KCore.step_of_successor_pp`, `KCore.exact_pp`)
-
-  At `rOr` (an existential variable and a `post` that is not `\top`): in any model of `Γc c`, where
-  x's element is in the left side, `⌈req = true⌉` and `pre`'s patterns at a valuation of the
-  variables other than Z, and y's element is in the right side `∃Z. (rhs ∧ ens ∧ post)`, a σ of
-  values with every premise of `StepBy` but membership and the competitors (the table, the
-  valuation and the elements left as arguments). At the definition: a successor in a model of the
-  theory with the step's closure is a step, and `exact_hyp`'s statement from the per-rule facts
-  `ruleSorted` and `rulePlainPP`. -/
-
-section ExactPP
-open Faithful
-
-variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
-
-example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (tbl : KoreAML.VarTable) (e : ML.Valuation M) :=
-  stepVals_of_right_pp (r := rOr) (tbl := tbl) (e := e) coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.1]; decide))
-    (fun h => absurd h (by rw [stepValues_facts.2.2.2.2.2.2.2.2.1]; decide))
-
-example (hf : FnHyp c) (hI : I ⊧ᴵP (Γc c ∪ Γstep c)) (x y : Config c) (e : ML.Valuation M)
-    (hs : (KoreAML.sNext (den c y.val)).interpret I e (elemOf c I x.val)) : Step c x y :=
-  step_of_successor_pp c coreOK hf rules_pp hI x y e hs
-
-/-- The pinned type of `exact_hyp` (`test/Pins.lean`) at the definition, from the per-rule facts. -/
-example : FnHyp c → ExactC c := fun hf => exact_pp c coreOK hf rules_pp
-
-end ExactPP
 
 end PredRules

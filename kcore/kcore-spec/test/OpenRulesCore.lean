@@ -11,13 +11,9 @@
     closed conditions) and `plain` (`a() => a()` at priority 200, larger than each). `cO` has `coreOK` and reads a confined sort
     (`readsConfined`), both decided. `ok2` and `ok4` are `Witnessed` at H := 0, and no other rule or clause of
     `cO` needs a witness, so the hypotheses `hw` and `hc` of the lemmas are proved at `cO`, not
-    assumed. Instantiated there: `rule_step_values` (each of `ok1`, `okB`, `ok2`), `rule_subst_AB`
-    (`okB`), `famOpen_stepOpen` (`okB`), `not_applies_of_notApplies` and `not_applies_guardedOpen`
-    (`ok1`, `okBc`, `ok2` against `plain`), `sat_rule_open` and `applies_iff_open` (each rule of
-    `cO`), `successor_split_rule` (`okB`), `step_successor_open`, and the `_open` theorems with the
-    rules' facts from `coreOK` (`sound_at_open`, `complete_at_open`, `consistent_open`,
-    `has_model_choice_open`, `exact_open`, `famOpen_values_open`); and the pinned theorems at `cO`
-    from `coreOK` alone: `sound_at`, `complete_at`, `consistent_of`, `exact_hyp`,
+    assumed. Instantiated there: `rule_step_valuesSSx` (each of `ok1`, `okB`, `ok2`), `rule_subst_AB`
+    (`okB`), `sat_rule_open` and `applies_iff_open` (each rule of `cO`); and the pinned theorems at
+    `cO` from `coreOK` alone: `sound_at`, `complete_at`, `consistent_of`, `exact_hyp`,
     `has_model_choice`, `famOpen_values` (at `okB`); `sound_at` also at a step by each of `ok1`,
     `okB`, `ok2`, `ok4`.
   - `cOC`: the reader's semantics for `f2-examples/opencl.kompile.kore` (as `test/OpenClauses.lean`)
@@ -178,7 +174,6 @@ theorem hcO : ∀ fn ∈ cO.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cO = tru
 
 theorem readsO : cO.readsConfined = true := coreO.2.1
 
-
 theorem m1 : ok1 ∈ cO.rules := List.mem_append_right _ (List.mem_cons_self ..)
 theorem mB : okB ∈ cO.rules := List.mem_append_right _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 theorem m2 : ok2 ∈ cO.rules :=
@@ -192,29 +187,13 @@ theorem m4 : ok4 ∈ cO.rules := List.mem_append_right _ (List.mem_cons_of_mem _
 rule, the definition and the witnesses proved. -/
 example (hft : FnTerminates cO) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
     (hI : I ⊧ᴵP Faithful.Γc cO) : True := by
-  have := @Faithful.rule_step_values cO M _ I coreO.1 hft hI hcO ok1 facts.1.1 facts.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO ok1 facts.1.1 facts.1.2.1
     (fun _ => readsO) (fun h => hwO ok1 m1 h)
-  have := @Faithful.rule_step_values cO M _ I coreO.1 hft hI hcO okB facts.2.1.1 facts.2.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO okB facts.2.1.1 facts.2.1.2.1
     (fun _ => readsO) (fun h => hwO okB mB h)
-  have := @Faithful.rule_step_values cO M _ I coreO.1 hft hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1
+  have := @Faithful.rule_step_valuesSSx cO M _ I (Semantics.coreOKEx_of_coreOK coreO.1) hft hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1
     (fun _ => readsO) (fun h => hwO ok2 m2 h)
   have := @Faithful.rule_subst_AB cO M _ I coreO.1 hI okB facts.2.1.1 facts.2.1.2.2.1 (fun _ => readsO)
-  have := @Faithful.famOpen_stepOpen cO M _ I coreO.1 hft hI hcO okB facts.2.1.1 facts.2.1.2.1
-    (fun i hi => List.all_eq_true.mp conf.2.1 i hi) (fun _ => readsO)
-  trivial
-
-/-- The competitor lemmas at `ok1`, `okBc` and `ok2`, each against `plain`. -/
-example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cO) : True := by
-  have := @Faithful.not_applies_of_notApplies cO M _ I coreO.1 hI hcO ok1 facts.1.1 facts.1.2.1 wit.1.1
-    (fun _ => readsO) (fun h => hwO ok1 m1 h)
-  have := @Faithful.not_applies_of_notApplies cO M _ I coreO.1 hI hcO okBc facts.2.2.2.1 facts.2.2.2.2 wit.1.2.2.2
-    (fun _ => readsO) (fun h => hwO okBc mBc h)
-  have := @Faithful.not_applies_of_notApplies cO M _ I coreO.1 hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1 wit.1.2.2.1
-    (fun _ => readsO) (fun h => hwO ok2 m2 h)
-  have := @Faithful.not_applies_guardedOpen cO M _ I coreO.1 hI hcO okBc facts.2.2.2.1 facts.2.2.2.2 wit.1.2.2.2
-    (fun _ => readsO)
-  have := @Faithful.not_applies_guardedOpen cO M _ I coreO.1 hI hcO ok2 facts.2.2.1.1 facts.2.2.1.2.1 wit.1.2.2.1
-    (fun _ => readsO)
   trivial
 
 /-- The value model at `cO`: each open rule's axiom holds in it (`sat_rule_open`), and its `applies`
@@ -235,35 +214,6 @@ theorem hopenO : ∀ r ∈ cO.rules, cO.ruleSorted r = true ∧ cO.rulePlainOpen
   have hex : ∀ r ∈ cO.rules, r.exs = [] := by decide +kernel
   have hfacts := Semantics.ruleFactsEx_of_coreAll coreO.1 (by decide +kernel)
   exact fun r hr => ⟨(hfacts r hr).1, Semantics.rulePlainOpen_iff_ex.mpr ⟨(hfacts r hr).2, hex r hr⟩⟩
-
-/-- `successor_split_rule` at `okB` and `step_successor_open`, the rules' facts `hopenO`. -/
-example (x : Config cO) (hd : StepDecided cO x.val) {M : Type} [Inhabited M]
-    {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc cO)
-    (hI2 : I ⊧ᴵP (Faithful.Γc cO ∪ Faithful.Γstep cO)) : True := by
-  have := @Faithful.successor_split_rule cO M _ I coreO.1 hopenO x hd hI hcO
-    okB facts.2.1.1 facts.2.1.2.1
-  have := Faithful.step_successor_open coreO.1 hopenO x hd hI2 hcO
-  trivial
-
-/-- The `_open` theorems at `cO`, the rules' facts `hopenO`, every witness hypothesis proved. -/
-example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy cO r σ x y)
-    (hd : StepDecided cO x.val) (os : List Outcome)
-    (hval : ∀ (y : Config cO) (r : Rule) (σ : Subst), r.opens = [] → StepBy cO r σ x y → .val y.val ∈ os)
-    (hfam : ∀ r ∈ cO.rules, r.opens ≠ [] → ∀ σ, Unblocked cO r σ x.val →
-      ∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ .fam r σ' ∈ os)
-    (σ' : Subst) (hu : Unblocked cO okB σ' x.val) (ys : List GroundTerm)
-    (hys : ∀ y : Config cO, (∃ σ'', (∀ i ∈ varOccs okB.lhs, σ''.lookup i = σ'.lookup i) ∧ StepBy cO okB σ'' x y) →
-      y.val ∈ ys) : True := by
-  have hr := hopenO
-  have := sound_at_open cO coreO.1 hr x y r σ hs (fun r' hr' _ hw _ => hwO r' hr' hw) hcO
-  have := @complete_at_open cO coreO.1 hr x hd os hval hfam hcO
-  have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
-    (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2 hr
-  have := has_model_choice_open cO coreO.1 hf hr (Step cO)
-  have := exact_open cO coreO.1 hf hr
-  have := @famOpen_values_open cO coreO.1 hf x okB mB facts.2.1.1 facts.2.1.2.1 σ' hu
-    (fun i hi => List.all_eq_true.mp conf.2.1 i hi) ys hys
-  trivial
 
 /-- **The pinned theorems at `cO`**, from `coreOK` alone: a definition with rules whose left sides
 leave a variable open. -/
