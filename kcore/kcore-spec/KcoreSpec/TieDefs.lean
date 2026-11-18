@@ -215,19 +215,23 @@ def eqnHeadIs (n : String) : Kore.Pattern → Bool
 
 /-- The text's equations of the symbol `n`: the axioms with `n` at the head of their left side
 (`eqnHeadIs`: a declared symbol, or one of its instances at sort arguments, where `n` names it as
-the semantics names an instance) that are no law sentence (`isLaw`). For a declared name the
-equations of all its instances are its equations; for an instance's name, only the equations at
-that instance's sort arguments. -/
+the semantics names an instance) that are no law sentence (`isLaw`) and no `simplification`
+sentence. A sentence carrying `simplification` is a lemma about the symbol at its head and no
+equation of it: the attribute alone tells the two apart, for a symbol with other equations and for
+one without. For a declared name the equations of all its instances are its equations; for an
+instance's name, only the equations at that instance's sort arguments. -/
 def eqnsOf (k : Kore.Definition) (n : String) : List Kore.Axiom :=
-  (k.axiomDecls.map (·.ax)).filter fun a => eqnHeadIs n a.pattern && !isLaw a
+  (k.axiomDecls.map (·.ax)).filter fun a =>
+    eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification"
 
 /-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
 that the theory has as a constructor, function, parameter or overloading symbol is a function of
 the semantics, or a function without equations: a symbol the theory has only as a parameter that
 no registry hook interprets (`impl = none`) and that is no open generator (`raw = false`), of
-which the text states no equation (`eqnsOf`; a law sentence is no equation). Such a parameter's
-value is the interpretation's, as is the value of a function where no clause applies, which with
-no clause is everywhere. Two kinds of symbol declared so are not compared here: one the theory does
+which the text states no equation (`eqnsOf`; a law sentence is no equation, and neither is a
+`simplification` sentence, a lemma that a tie's account holds as a parameter lemma, a hypothesis on
+the interpretation). Such a parameter's value is the interpretation's, as is the value of a
+function where no clause applies, which with no clause is everywhere. Two kinds of symbol declared so are not compared here: one the theory does
 not have (its sentences have no direction), and one the registry interprets (`hookSigs`), which
 `hooks` admits only where the registry holds it under no hook name (a library function such as
 `freshInt`, which the text defines by an equation and the theory states by its graph; the equation
@@ -245,12 +249,14 @@ def fns (k : Kore.Definition) (c : Semantics) : Bool :=
 (`regHookNames`): a function of the library's text with equations and no `hook` attribute. -/
 def libFn (g : CtorSig) : Bool := !regHookNames.any (·.1 == g.name)
 
-/-- A symbol declared with `hook{}("h")` that the theory has is an interpreted hooked symbol whose
-registry hook is `h`'s (`regHookOf`), or a parameter symbol whose `impl` is `h`'s registry hook.
-A symbol declared without a hook is an interpreted hooked symbol only where the registry holds it
-under no hook name (`libFn`) and the text declares it `function{}`; it is a parameter symbol only
-where no registry hook interprets the parameter (`impl = none`), the text states no equation of it
-(`eqnsOf`), and it is an open generator (`raw`) exactly where the text does not declare it
+/-- A symbol declared with `hook{}("h")` that the theory has as an interpreted hooked symbol is the
+one of `h`'s registry hook (`regHookOf`), and one it has as a parameter symbol has `impl` `h`'s
+registry hook. A symbol declared without a hook is an interpreted hooked symbol only where the
+registry holds it under no hook name (`libFn`) and the text declares it `function{}`; it is a
+parameter symbol only where no registry hook interprets the parameter (`impl = none`), the text
+states no equation of it (`eqnsOf`, which leaves out a `simplification` sentence: a lemma with the
+parameter at its head is a parameter lemma of a tie's account, a hypothesis on the
+interpretation), and it is an open generator (`raw`) exactly where the text does not declare it
 `function{}`: an open generator is a parameter declared without hook and without function, and a
 parameter declared `function{}` without hook is a function without equations. -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
@@ -289,9 +295,9 @@ whose id the rule's presentation holds (`RulePres.info`; the rules a reading mak
 `orSplit`'s, each hold that axiom's id), and every rewrite axiom of the text is read as some rule.
 For each function of the semantics, the priorities of the text's equations of the function
 (`eqnsOf`: with the function at the head of their left side, for an instance of a sort-parametric
-function at that instance's sort arguments, and no law sentence, which states a law and no
-priority), less the `simplification` ones, are its clauses' priorities, as lists up to
-order. The semantics need not hold a function's clauses in text order, so which equation has
+function at that instance's sort arguments, no law sentence, which states a law and no
+priority, and no `simplification` sentence, which is a lemma and no clause) are its clauses'
+priorities, as lists up to order. The semantics need not hold a function's clauses in text order, so which equation has
 which priority is not compared here. It is decided where a tie pairs each clause's item with its
 sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of
 one function with distinct `priority{}` numbers, where the text states the attribute only, by the
@@ -303,8 +309,7 @@ def prios (k : Kore.Definition) (d : Definition) : Bool :=
   ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
   ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
   c.allFns.all fun f =>
-    (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
-        (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
+    ((eqnsOf k (c.symName f.label)).map (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
 
 end AttrsAgree
 

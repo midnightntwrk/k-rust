@@ -465,7 +465,8 @@ example (s s' s'' : Kore.KSort) (prem rhs : Kore.Pattern) (h : Kore.SymbolIdent)
     eqnHeadIs n (.rewrites s prem rhs) = false ∧ eqnHeadIs n (.and s ps) = false := ⟨rfl, rfl, rfl, rfl⟩
 
 example (k : Kore.Definition) (n : String) : eqnsOf k n =
-    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHeadIs n a.pattern && !isLaw a) := rfl
+    (k.axiomDecls.map (·.ax)).filter (fun a =>
+      eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification") := rfl
 
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
     ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
@@ -515,8 +516,7 @@ example (k : Kore.Definition) (d : Definition) : prios k d =
      ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
      ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
-       (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
-           (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
+       ((eqnsOf k (c.symName f.label)).map (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
 
 end AttrsAgreePins
 
