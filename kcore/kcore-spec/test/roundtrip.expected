@@ -122,6 +122,7 @@ differs f2-examples/e6-param-unification.kompile.kore
 differs f2-examples/e6cfg.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
+differs f2-examples/e6rmrest.kompile.kore
 differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
 differs f2-examples/e7-guardors.kompile.kore
