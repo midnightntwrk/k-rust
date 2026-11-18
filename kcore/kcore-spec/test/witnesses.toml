@@ -228,7 +228,8 @@ note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the
 [[conjunct]]
 key = "overloadsOK.9"
 text = "(!c.fns.any fun x => x.label == g) || o.over.contains g"
-witness = "none: not kernel-checked in the no-model form; the conjunct is not implied by the others (kernel-checked: the chain plusBig over plusExp over the function plusInt, Int < Exp < Big, with plusBig not listing plusInt, meets every other leaf of coreOK, Admit.chain_false and Chain.others_false; listing it, coreOK holds); Γ has no model (argued): plusBig lists no function, so it is not function-overloaded and Γ states its injectivity at every argument, while the two overload equations give plusBig(inj inj 1, inj inj 2) = inj inj (1 +Int 2) = plusBig(inj inj 2, inj inj 1), against that injectivity and the injections' own; not examined: FnHyp of the chain, and the witness as a module"
+witness = "KcoreSpec.ModelOvlClosedWitness"
+note = "the chain plusBig over plusExp over the function plusInt, Int < Exp < Big, plusBig listing plusExp only and plusInt without a clause (test/OvlFun.lean's Chain.c false with the clause taken away, Admit.closed_witness_eq): plusBig lists no function, so it is not function-overloaded and Γ states its Cons-Fun at every argument, while the two overload equations and plusInt(0, 0) = ⊥ (ΓFallback) make plusBig(inj inj 0, inj inj 0) empty; listing plusInt as well, coreOK holds; with plusInt's clause (Chain.c false itself) every other leaf of coreOK holds as well (Admit.chain_false, Chain.others_false), and the argument there (plusBig injective at every argument, plusBig(inj inj 1, inj inj 2) = inj inj 3 = plusBig(inj inj 2, inj inj 1)) is not kernel-checked: the library reads a function's equation in a model of Γ only under OvlOK, which holds overloadsOK (eqn_at)"
 evidence = "test/OvlFun.lean"
 
 [[conjunct]]

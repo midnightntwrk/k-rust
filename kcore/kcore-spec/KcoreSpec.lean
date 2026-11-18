@@ -165,6 +165,7 @@ import KcoreSpec.ModelCollUnitWitness
 import KcoreSpec.ModelLitsWitness
 import KcoreSpec.ModelOvlLibCtorWitness
 import KcoreSpec.ModelOvlIncohWitness
+import KcoreSpec.ModelOvlClosedWitness
 import KcoreSpec.FaithfulCompleteAt
 import KcoreSpec.StepCompleteAt
 import KcoreSpec.LibAdmitted
