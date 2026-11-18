@@ -365,3 +365,4 @@ import KcoreSpec.LibEvCollSymK
 import KcoreSpec.ModelEmptyInhabited
 import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
+import KcoreSpec.ValueModelApp
