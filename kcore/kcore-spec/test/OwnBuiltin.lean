@@ -75,7 +75,7 @@ info: [(read, true), (read, true), (refused builtinText, false), (unread paramet
 #eval show IO Unit from do
   let ss := [sortDecl "SortArray" (placeAt "domains.md"), arrDecl, sortDecl "SortInt" (placeAt "domains.md"),
     mintDecl, sortDecl "SortArray" userPlace]
-  IO.println (ss.map fun s => ((Parse.classify s).name, Parse.isOwnBuiltin s))
+  IO.println (ss.map fun s => ((Parse.classifyShape s).name, Parse.isOwnBuiltin s))
 
 /-- Axioms of each kind, with the `Source` `src`, in a module of a KORE text. -/
 def axiomsText (src : String) : String :=
@@ -119,4 +119,4 @@ info: 9 sentences
   let u := axiomsOf "/src/u/a.k"
   IO.println s!"{b.length} sentences"
   for (x, y) in b.zip u do
-    IO.println ((Parse.classify x).name, (Parse.classify y).name, Parse.isOwnBuiltin x)
+    IO.println ((Parse.classifyShape x).name, (Parse.classifyShape y).name, Parse.isOwnBuiltin x)
