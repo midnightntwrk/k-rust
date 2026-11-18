@@ -3,11 +3,10 @@
   (KcoreSpec/ModelFnsExGoal.lean, KcoreSpec/ModelHasEx.lean).
 
   - The new statements exist at the types the proofs of consistency read.
-  - `HypModelCore` gives every clause of a function of the semantics no existential variable
-    (`exs_nil_of_hypModelCore`): the statements below hold of a semantics with such a clause only
-    once the sortedness `HypModelCore` holds admits one. Until then `hcls` and `ClausePostDecided`
-    follow from `HypModelCore` (`hcls_of_hypModelCore`, `postDecided_of_hypModelCore`), so
-    `consistent_of_modelEx` has the reach of `consistent_ofCl`.
+  - `hcls` follows from `HypModelCore` (`hcls_of_hypModelCore`), whose sortedness `sortedOKClEx`
+    admits a clause with existential variables. Where no clause has one (`FnsNoExs`) every
+    right-side predicate is `\top`, so `ClausePostDecided` holds (`postDecided_of_hypModelCore`)
+    and `consistent_of_modelEx` has the reach of `consistent_ofCl`.
   - The facts of a clause with existential variables that is not asked to be one of the semantics
     give its equation in the value model (`eqn_of_sortedEx`): `eqnFactsEx_of_sorted` supplies what
     `sat_clauseEqEx` reads.
@@ -41,30 +40,25 @@ example (c : Semantics) (hm : HypModelCore c)
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
   consistent_of_modelEx c hm hcls hp hq hl
 
-/-- Under `HypModelCore` no clause of a function of the semantics has an existential variable. -/
-theorem exs_nil_of_hypModelCore (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
-    (hcl : cl ∈ fn.clauses) : cl.exs = [] := clause_exsCl h hfn hcl
-
-/-- Under `HypModelCore` every clause has `hcls`' facts: `clauseExOK` of a clause with no
-existential variable and the predicate `\top` is `condOK` of `\top`. -/
+/-- Under `HypModelCore` every clause has `hcls`' facts: `sortedOKClEx` holds `clauseSortedOpen`
+and `clausePlainOpenEx` of each clause, which holds `clauseExOK` and `\top` as the right-side
+predicate of a clause with no existential variable. -/
 theorem hcls_of_hypModelCore (h : HypModelCore c) :
     ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
-      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := by
-  intro fn hfn cl hcl
-  obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hfn cl hcl
-  obtain ⟨hex, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hpl
-  refine ⟨hs, ?_, fun _ => hpost⟩
-  simp [Semantics.clauseExOK, hex, hpost, Semantics.condOK, nodup]
+      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := fun fn hfn cl hcl =>
+  have hp := (Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hfn cl hcl
+  ⟨hp.1, (Semantics.clausePlainOpenEx_parts hp.2).1, (Semantics.clausePlainOpenEx_parts hp.2).2.1⟩
 
-/-- Under `HypModelCore` every right-side predicate is `\top`, so it is decided. -/
-theorem postDecided_of_hypModelCore (h : HypModelCore c) : ClausePostDecided c :=
-  clausePostDecided_of_top fun fn hfn cl hcl => (hcls_of_hypModelCore h fn hfn cl hcl).2.2
-    (exs_nil_of_hypModelCore h (List.mem_append_left _ hfn) hcl)
+/-- Under `HypModelCore`, where no clause has an existential variable every right-side predicate
+is `\top`, so it is decided. -/
+theorem postDecided_of_hypModelCore (h : HypModelCore c) (hne : c.FnsNoExs) : ClausePostDecided c :=
+  clausePostDecided_of_top fun fn hfn cl hcl => (hcls_of_hypModelCore h fn hfn cl hcl).2.2 (hne fn hfn cl hcl)
 
-/-- `consistent_of_modelEx` gives what `HypModelCore`, `ClausePreDecided` and `OpenLaws` give
-today. -/
-example (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDecided c) (hl : OpenLaws c) : Consistent c :=
-  consistent_of_modelEx c hm (hcls_of_hypModelCore hm) hp (postDecided_of_hypModelCore hm) hl
+/-- `consistent_of_modelEx` gives `Consistent` from `HypModelCore`, `FnsNoExs`, `ClausePreDecided`
+and `OpenLaws`. -/
+example (c : Semantics) (hm : HypModelCore c) (hne : c.FnsNoExs) (hp : ClausePreDecided c) (hl : OpenLaws c) :
+    Consistent c :=
+  consistent_of_modelEx c hm (hcls_of_hypModelCore hm) hp (postDecided_of_hypModelCore hm hne) hl
 
 /-- **The equation of a clause with existential variables holds in the value model from the
 clause's facts**, the clause not being asked to be one of the semantics: `clauseSortedOpen`,
