@@ -407,3 +407,4 @@ import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
 import KcoreSpec.TieFRGamma
+import KcoreSpec.TieFRVars

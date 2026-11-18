@@ -26,7 +26,10 @@
     general lemmas of KcoreSpec/TieFRRead.lean derive (`readings_of_frT`, `inSort_of_terms`) and
     the last clause's right side empty from `noneEmpty_of_apart`, in a model with `NodeFacts c I`
     and `TermsInSort c I`. The literal facts they read are kernel decisions (`gamma_shapeG`,
-    `lit_facts`, `rt_facts`): `Γ`'s premises are `clauseQ` and `lastQ` over `Γ`'s table `tblG`.
+    `lit_facts`, `rt_facts`, `sorted_c`): `Γ`'s premises are `clauseQ` and `lastQ` over `Γ`'s table
+    `tblG`. That the alternatives lie in Int (`TieFRVars.inSort_of_read`) takes their sort from the
+    clause check of the definition (`sorted_c`, `sortedOK`) and their variable's sort from the
+    guards (`guardsHold`, in `rt_facts`).
     That the reader's alternatives `f(X)`, `g(X)`, with no condition, translate as the kept
     alternatives of `f(X) ∨ g(X)` (`altsTrOK`; `norm_facts` shows that normalisation) is the round
     trip of `Parse.term` (`tr_ofReader`, KcoreSpec/TieFRTermRT.lean), which takes of the text the
@@ -308,14 +311,11 @@ theorem gamma_shapeG : (Faithful.kernelItems (Faithful.fnEquationsK c hFn)).map 
      eqnPat ws r (clauseQ c tblG vsC Srt.int prem (gX, [])) IntP Fh (sAnd (altP c tblG vsC (gX, [])) (sTop IntP)),
      eqnPat ws r (lastQ c tblG vsC Srt.int prem xsC) IntP Fh BNG] := by decide +kernel
 
-/-- The facts of the literals the general lemmas read: the tables agree on R and on the
-variable, and the reader's normalisation of `pT`. -/
+/-- The facts of the literals the general lemmas read: the tables agree on R, and the reader's
+normalisation of `pT`. -/
 theorem lit_facts :
     tblG.ev (sortVarKey Rv) = r ∧ trSort tblG (srtOf c Srt.int) = IntP ∧
-    rhsT = sAnd (tr ctx pT) (tr ctx enT) ∧ Parse.orAlts pT = [fK, gK] ∧
-    tblG.ev (Faithful.canonKey c [Srt.int] 0) = xv ∧ c.sortName Srt.int = "Int" ∧
-    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [Srt.int] fX = some Srt.int ∧
-    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [Srt.int] gX = some Srt.int ∧ varOccs fX = [0] ∧ varOccs gX = [0] := by
+    rhsT = sAnd (tr ctx pT) (tr ctx enT) ∧ Parse.orAlts pT = [fK, gK] := by
   decide +kernel
 
 /-- The reader's normalisation of `pT`: nothing to drop or lift, the alternatives `f(X)` and
@@ -332,15 +332,24 @@ theorem read_facts :
 
 /-- What the round trip of `Parse.term` takes of the text (kernel): the sorts of the variables
 read, the tables aligned on them (`alignOK`), and the alternatives read as the terms of their
-patterns (`frRT`). -/
+patterns (`frRT`); and that the guards hold each variable read in its sort (`guardsHold`). -/
 theorem rt_facts : Parse.varSorts NT [⟨"X", "Int"⟩] = .ok [Srt.int] ∧
-    TermRT.alignOK c tblG tbl [Srt.int] [⟨"X", "Int"⟩] = true ∧ TieFRRT.frRT NT eqT = true :=
-  ⟨by kernel_rfl, by decide +kernel, by decide +kernel⟩
+    TermRT.alignOK c tblG tbl [Srt.int] [⟨"X", "Int"⟩] = true ∧ TieFRRT.frRT NT eqT = true ∧
+    TieFRVars.guardsHold ws tbl [⟨"X", "Int"⟩] = true :=
+  ⟨by kernel_rfl, by decide +kernel, by decide +kernel, by decide +kernel⟩
+
+/-- The semantics is well sorted (`sortedOK`, a part of `coreOK`; kernel). -/
+theorem sorted_c : c.sortedOK = true := by decide +kernel
+
+/-- The clause check holds of h's clauses. -/
+theorem sorted_h : ∀ cl ∈ Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC),
+    c.clauseSorted hFn (c.fns.map Fn.sig) cl = true := fun cl hcl =>
+  TieFRVars.clauseSorted_of_sortedOK sorted_c (by simp [c]) cl (by rw [hFn_clauses]; exact hcl)
 
 /-- The alternatives translate as the kept ones, with no condition (`altsTrOK`): from the reader,
 by the round trip of `Parse.term` (`altsTrOK_of_clauses`). -/
 theorem tr_ofReader : altsTrOK c tblG vsC tbl (frConds eqT.rhs) [] (keptAlts (frSide eqT.rhs)) xsC = true :=
-  TieFRRT.altsTrOK_of_clauses (c := c) rfl rfl frRead_eqT rt_facts.1 rt_facts.2.1 rt_facts.2.2 hFn_clauses
+  TieFRRT.altsTrOK_of_clauses (c := c) rfl rfl frRead_eqT rt_facts.1 rt_facts.2.1 rt_facts.2.2.1 hFn_clauses
 
 end General
 
@@ -353,38 +362,21 @@ theorem readingsG (F : HoldsShape.NodeFacts c I) (hTS : Faithful.TermsInSort c I
     ∃ σI, SortAt I IntP σI ∧ (∀ (e : Valuation M) a, (trSort tblG (srtOf c Srt.int)).interpret I e a ↔ a = σI) ∧
       Readings I ws r σI prem rhsT xsC (altP c tblG vsC) (altG I c tblG vsC)
         (clauseQ c tblG vsC Srt.int prem) (lastQ c tblG vsC Srt.int prem xsC) := by
-  obtain ⟨hr0, hS0, hrhs0, hor0, hk0, hn0, hty1, hty2, hv1, hv2⟩ := lit_facts
+  obtain ⟨hr0, hS0, hrhs0, hor0⟩ := lit_facts
   -- the text's alternatives translate as `Γ`'s: the round trip of `Parse.term`
   have hA1 : tr ⟨tbl, []⟩ fK = altP c tblG vsC (fX, []) :=
     TermRT.term_rt (c := c) rfl rfl rt_facts.2.1 read_facts.1 read_facts.2.2.1 (List.prefix_refl _)
   have hA2 : tr ⟨tbl, []⟩ gK = altP c tblG vsC (gX, []) :=
     TermRT.term_rt (c := c) rfl rfl rt_facts.2.1 read_facts.2.1 read_facts.2.2.2 (List.prefix_refl _)
-  obtain ⟨-, -, -, -, -, hr, -, hxv, hIntP, -⟩ := idx_facts
+  obtain ⟨-, -, -, -, -, hr, -, -, hIntP, -⟩ := idx_facts
   obtain ⟨σI, hσS, hσ⟩ := F.sort (s := Srt.int) (by decide)
   have hσ' : ∀ (e : Valuation M) a, (trSort tblG (srtOf c Srt.int)).interpret I e a ↔ a = σI := fun e a => hσ tblG e a
   have hSA : SortAt I IntP σI := ⟨fun e a => by rw [← hS0]; exact hσ' e a, hσS, by rw [hIntP]; rfl⟩
   have hD := F.defOK
   have hB : BoolDen I := boolDen_of F
   -- the alternatives lie in Int
-  have hin : ∀ e m, At I ws r e m → ∀ x ∈ xsC, ∀ a, (altP c tblG vsC x).interpret I e a → Inh I σI a := by
-    refine inSort_of_terms hTS (vars := [Srt.int]) (by decide) hσ' ?_ ?_
-    · intro x hx
-      simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
-      rcases hx with rfl | rfl
-      · exact hty1
-      · exact hty2
-    · intro e m hat x hx i hi
-      have hi0 : i = 0 := by
-        simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
-        rcases hx with rfl | rfl
-        · rw [hv1] at hi; simpa using hi
-        · rw [hv2] at hi; simpa using hi
-      subst hi0
-      have := hat.1 _ hxv
-      rw [interp_member hD] at this
-      rw [List.getD_cons_zero, hn0, hk0, ← Faithful.inS_iff e]
-      rw [hIntP] at this
-      exact this
+  have hin : ∀ e m, At I ws r e m → ∀ x ∈ xsC, ∀ a, (altP c tblG vsC x).interpret I e a → Inh I σI a :=
+    TieFRVars.inSort_of_read hD hTS rfl rt_facts.1 rt_facts.2.1 rt_facts.2.2.2 sorted_h (by decide) hσ'
   -- the right side, from the reader: its sorts from `frRead`, the rest from the model
   have hT : ∀ e m, At I ws r e m → TightSem I tbl e pT := by
     intro e m hat
