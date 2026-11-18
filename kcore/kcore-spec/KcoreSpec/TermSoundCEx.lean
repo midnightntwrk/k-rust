@@ -19,18 +19,6 @@ set_option linter.unusedSectionVars false
 
 namespace KCore
 
-/-- `sortedOKEx` gives `sortedOKClEx`: a sorted clause is sorted with its open variables
-(`clauseSortedOpen_of_sorted`), and `clausesPlainEx` asks of each clause what `clausePlainOpenEx`
-asks. -/
-theorem Semantics.sortedOKClEx_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx = true) : c.sortedOKClEx = true := by
-  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := Semantics.sortedOKEx_parts h
-  refine Semantics.sortedOKClEx_of_parts h1
-    (fun f hf cl hcl => ⟨Semantics.clauseSortedOpen_of_sorted (h2 f hf cl hcl), ?_⟩) h3 h4 h6
-  obtain ⟨hp, hs, hpre, hopen⟩ := Semantics.clausesPlainEx_spec h5 hf hcl
-  simp only [Semantics.clausePlainEx, Bool.and_eq_true] at hp
-  simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
-  exact ⟨⟨⟨hp.1, hs⟩, hpre⟩, hopen⟩
-
 namespace Faithful
 
 open ML

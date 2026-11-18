@@ -12,6 +12,7 @@
 import KcoreSpec.Obligations
 import KcoreSpec.FaithOK
 import KcoreSpec.SubjectReduction
+import KcoreSpec.CoreOKEx
 
 set_option autoImplicit false
 
@@ -159,12 +160,6 @@ theorem Semantics.sortedOKCl_exsNil {c : Semantics} (h : c.sortedOKCl = true) {r
 
 /-! ## A clause with existential variables -/
 
-/-- The existential variables of a clause are in scope, apart and in no pattern or condition of
-the left side, and its right-side predicate is sorted. -/
-def Semantics.clauseExOK (c : Semantics) (cl : Clause) : Bool :=
-  cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
-    c.condOK cl.vars cl.post
-
 /-- `clausePlainOpen` with "no variable bound by `\exists`, a `\top` predicate on the right side"
 asked only together: a clause without existential variables has a `\top` predicate on its right
 side, and a clause with existential variables has any. In both cases `clauseExOK`, a `\top`
@@ -247,6 +242,18 @@ theorem Semantics.sortedOKClEx_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl =
   obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.sortedOKCl_parts h
   exact Semantics.sortedOKClEx_of_parts h1
     (fun f hf cl hcl => ⟨(h2 f hf cl hcl).1, Semantics.clausePlainOpenEx_of_plainOpen (h2 f hf cl hcl).2⟩) h3 h4 h5
+
+/-- `sortedOKEx` gives `sortedOKClEx`: a sorted clause is sorted with its open variables
+(`clauseSortedOpen_of_sorted`), and `clausesPlainEx` asks of each clause what `clausePlainOpenEx`
+asks. -/
+theorem Semantics.sortedOKClEx_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx = true) : c.sortedOKClEx = true := by
+  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := Semantics.sortedOKEx_parts h
+  refine Semantics.sortedOKClEx_of_parts h1
+    (fun f hf cl hcl => ⟨Semantics.clauseSortedOpen_of_sorted (h2 f hf cl hcl), ?_⟩) h3 h4 h6
+  obtain ⟨hp, hs, hpre, hopen⟩ := Semantics.clausesPlainEx_spec h5 hf hcl
+  simp only [Semantics.clausePlainEx, Bool.and_eq_true] at hp
+  simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
+  exact ⟨⟨⟨hp.1, hs⟩, hpre⟩, hopen⟩
 
 /-- **Where no clause has an existential variable, `sortedOKClEx` is `sortedOKCl`.** -/
 theorem Semantics.sortedOKClEx_eq_of_noExs {c : Semantics}

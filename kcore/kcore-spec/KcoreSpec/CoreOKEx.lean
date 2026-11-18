@@ -11,7 +11,9 @@
   `coreOKEx` is `coreOK` with `sortedOKEx` in place of `sortedOK`; `coreOK` gives `coreOKEx`
   (`Semantics.coreOKEx_of_coreOK`).
 -/
-import KcoreSpec.ExsValues
+import KcoreSpec.Statements
+import KcoreSpec.Obligations
+import KcoreSpec.ClausePlainEx
 
 set_option autoImplicit false
 
