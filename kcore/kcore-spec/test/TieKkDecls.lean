@@ -38,8 +38,8 @@ theorem declCount_range {α : Type} {l : List α} {p : α → Bool} {a n k k' : 
     (l.drop a).countP p = k + k' := by
   rw [← List.take_append_drop n (l.drop a), List.countP_append, h, List.drop_drop, ht]
 
-/-- The first of Γ's symbols under the name `n`. -/
-noncomputable def symFind (n : String) : Option CtorSig := (kernelSyms c).find? fun k => c.symName k.name == n
+/-- The first of Γ's symbols under the name `n` (`symFindCD`). -/
+noncomputable def symFind (n : String) : Option CtorSig := symFindCD c n
 
 /-- Γ has a symbol under the name `n`. -/
 noncomputable def hasSym (n : String) : Bool := (symFind n).isSome
@@ -129,9 +129,7 @@ theorem decls_entailed (H : HookParams) :
     have h := List.all_eq_true.mp syms_in_sig sd hsd
     obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp hs
     simp only [symOK, hp, hk, List.isEmpty_nil, Bool.not_true, Bool.false_or] at h
-    have hmem : symArityItem c k ∈ sigItems c := by
-      unfold sigItems
-      exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_find?_eq_some hk)))
+    have hmem : symArityItem c k ∈ sigItems c := symArityItem_mem_of_findCD hk
     intro M _ I hI
     rw [← of_decide_eq_true h]
     exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hmem)
