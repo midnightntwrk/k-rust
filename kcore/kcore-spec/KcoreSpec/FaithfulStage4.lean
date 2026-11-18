@@ -1155,7 +1155,7 @@ graphs on values (`patVal_den4`). -/
 theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4a c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
-  have hy : HypCore c := hy.core
+  have hy : HypCore c := hy.core (Semantics.overloadsOK_pats OvlOK.ok)
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
   intro x y hstep M _ I hI e m hm

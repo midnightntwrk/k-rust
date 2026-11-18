@@ -98,6 +98,7 @@ theorem ruleSorted_partsPP {r : Rule} (hs : c.ruleSorted r = true) :
   have hs' := hs
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, hnd⟩, hex⟩, hreq⟩, hokP⟩, hens⟩, hokQ⟩, hbdP⟩, hbdQ⟩, hrhs⟩ := hs'
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs, (NamesApart.nodupB_iff _).mp hnd,
     fun i hi => ?_, hokP, hokQ, hbdP, hbdQ⟩
   · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)

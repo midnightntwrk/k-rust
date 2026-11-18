@@ -1517,6 +1517,7 @@ theorem rule_ctx (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
   have h := hok.2 r hr
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, -⟩, -⟩, -⟩, hreq⟩, -⟩, -⟩, -⟩, -⟩, -⟩, hrhs⟩ := h
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun t ht => ?_, hrhs⟩
   · rw [ht] at hreq
     simpa [reqOK] using hreq

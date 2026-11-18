@@ -488,7 +488,7 @@ functions a step reads may be partial: where one is undefined, `Γ` makes its ap
 theorem step_sound_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage3 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
-  have hy : HypCore c := hy.core
+  have hy : HypCore c := hy.core (Semantics.overloadsOK_pats OvlOK.ok)
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   intro x y hstep M _ I hI e m hm
   obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep

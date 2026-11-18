@@ -258,7 +258,7 @@ theorem not_model_text : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Ko
   intro M _ I hI
   have hΓ := gamma_of_text hI
   have hD := defOK hΓ
-  have hy : HypCore c := hyp.core
+  have hy : HypCore c := hyp.core (Semantics.overloadsOK_pats OvlOK.ok)
   have hnn : NamesNumbered c := namesNumbered
   have hs := stage1
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)

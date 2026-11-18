@@ -569,4 +569,183 @@ theorem Semantics.faithOK_of_parts {c : Semantics} (h1 : namesNumbered c = true)
   simp only [Semantics.faithOK, h1, h2, h3, h4, h5, namesApartK_of_fast h6, h7, h8, h9, h10, h11, h12,
     h13, Bool.and_self]
 
+/-! ## Patterns that apply no function-overloaded symbol -/
+
+/-- No symbol applied in `p` is function-overloaded: what `ovlPatsOK` holds of a rule's left side,
+a clause's patterns and the pattern of an `exMatch`. -/
+abbrev Semantics.NoFnOvlIn (c : Semantics) (p : Term) : Prop := (symOccs p).any c.fnOvlSyms.contains = false
+
+/-- `NoFnOvlIn` of each term of a list. -/
+abbrev Semantics.NoFnOvlInL (c : Semantics) (ps : List Term) : Prop :=
+  (symOccsList ps).any c.fnOvlSyms.contains = false
+
+namespace NoFnOvlIn
+variable {c : Semantics}
+
+theorem app {f : Sym} {ps : List Term} (h : c.NoFnOvlIn (.app f ps)) : f ∉ c.fnOvlSyms ∧ c.NoFnOvlInL ps := by
+  unfold Semantics.NoFnOvlIn at h
+  rw [symOccs, List.any_cons, Bool.or_eq_false_iff] at h
+  exact ⟨fun hm => (by rw [List.contains_iff_mem.mpr hm] at h; exact Bool.noConfusion h.1), h.2⟩
+
+theorem inj {a b : Srt} {p : Term} (h : c.NoFnOvlIn (.inj a b p)) : c.NoFnOvlIn p := by
+  unfold Semantics.NoFnOvlIn at h; rw [symOccs] at h; exact h
+
+theorem as {p : Term} {i : Nat} (h : c.NoFnOvlIn (.as p i)) : c.NoFnOvlIn p := by
+  unfold Semantics.NoFnOvlIn at h; rw [symOccs] at h; exact h
+
+theorem cons {p : Term} {ps : List Term} (h : c.NoFnOvlInL (p :: ps)) : c.NoFnOvlIn p ∧ c.NoFnOvlInL ps := by
+  unfold Semantics.NoFnOvlInL at h
+  rw [symOccsList, List.any_append, Bool.or_eq_false_iff] at h
+  exact h
+
+theorem nil : c.NoFnOvlInL [] := by
+  unfold Semantics.NoFnOvlInL; rw [symOccsList]; rfl
+
+theorem mk_cons {p : Term} {ps : List Term} (h : c.NoFnOvlIn p) (hs : c.NoFnOvlInL ps) : c.NoFnOvlInL (p :: ps) := by
+  unfold Semantics.NoFnOvlInL
+  rw [symOccsList, List.any_append, Bool.or_eq_false_iff]
+  exact ⟨h, hs⟩
+
+theorem mk_app {f : Sym} {ps : List Term} (hf : f ∉ c.fnOvlSyms) (hs : c.NoFnOvlInL ps) : c.NoFnOvlIn (.app f ps) := by
+  unfold Semantics.NoFnOvlIn
+  rw [symOccs, List.any_cons, Bool.or_eq_false_iff]
+  refine ⟨?_, hs⟩
+  cases hc : c.fnOvlSyms.contains f with
+  | false => rfl
+  | true => exact absurd (List.contains_iff_mem.mp hc) hf
+
+theorem mem : ∀ {ps : List Term}, c.NoFnOvlInL ps → ∀ p ∈ ps, c.NoFnOvlIn p
+  | _ :: _, h, p, hp => by
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact (cons h).1
+    · exact mem (cons h).2 p hp
+
+theorem of_each : ∀ {ps : List Term}, (∀ p ∈ ps, c.NoFnOvlIn p) → c.NoFnOvlInL ps
+  | [], _ => nil
+  | p :: ps, h => mk_cons (h p (List.mem_cons_self ..)) (of_each fun q hq => h q (List.mem_cons_of_mem _ hq))
+
+theorem append {ps qs : List Term} (h : c.NoFnOvlInL ps) (h' : c.NoFnOvlInL qs) : c.NoFnOvlInL (ps ++ qs) :=
+  of_each fun p hp => (List.mem_append.mp hp).elim (mem h p) (mem h' p)
+
+/-- No term applies a function-overloaded symbol where there is none. -/
+theorem of_nil (h : c.fnOvlSyms = []) (p : Term) : c.NoFnOvlIn p := by
+  unfold Semantics.NoFnOvlIn; rw [h]; simp
+
+theorem ofL_nil (h : c.fnOvlSyms = []) (ps : List Term) : c.NoFnOvlInL ps := by
+  unfold Semantics.NoFnOvlInL; rw [h]; simp
+
+end NoFnOvlIn
+
+namespace Semantics
+variable {c : Semantics}
+
+/-- `overloadsOK`'s condition on the patterns. -/
+theorem overloadsOK_pats (h : c.overloadsOK = true) : c.ovlPatsOK = true := by
+  unfold overloadsOK at h; exact (Bool.and_eq_true_iff.mp h).2
+
+/-- A rule's left side applies no function-overloaded symbol. -/
+theorem ovlPats_lhs (h : c.ovlPatsOK = true) {r : Rule} (hr : r ∈ c.rules) : c.NoFnOvlIn r.lhs := by
+  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
+  exact (h.1 r hr).1
+
+/-- The pattern of an `exMatch` of a rule's `pre` or `post` applies no function-overloaded symbol. -/
+theorem ovlPats_ruleCond (h : c.ovlPatsOK = true) {r : Rule} (hr : r ∈ c.rules) {p : Term}
+    (hp : p ∈ condPats r.pre ++ condPats r.post) : c.NoFnOvlIn p := by
+  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
+  exact (h.1 r hr).2 p hp
+
+/-- A clause's patterns apply no function-overloaded symbol. -/
+theorem ovlPats_pats (h : c.ovlPatsOK = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause} (hcl : cl ∈ f.clauses) :
+    c.NoFnOvlInL cl.pats := by
+  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
+  exact NoFnOvlIn.of_each (h.2 f hf cl hcl).1
+
+/-- The pattern of an `exMatch` of a clause's `pre` or `post` applies no function-overloaded
+symbol. -/
+theorem ovlPats_clauseCond (h : c.ovlPatsOK = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
+    (hcl : cl ∈ f.clauses) {p : Term} (hp : p ∈ condPats cl.pre ++ condPats cl.post) : c.NoFnOvlIn p := by
+  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
+  exact (h.2 f hf cl hcl).2 p hp
+
+end Semantics
+
+variable {c : Semantics}
+
+mutual
+  /-- A term well sorted over `patCtxNF` is well sorted over `patCtxAll` and applies no
+  function-overloaded symbol. -/
+  theorem sortOfTerm_of_nf {vars : List Srt} : ∀ (t : Term) {s : Srt},
+      sortOfTerm c.patCtxNF vars t = some s → sortOfTerm c.patCtxAll vars t = some s ∧ c.NoFnOvlIn t
+    | .var _, _, h => ⟨by simpa [sortOfTerm] using h, by simp [Semantics.NoFnOvlIn, symOccs]⟩
+    | .dv _ _, _, h => ⟨(sortOfTerm_dv (x := c.patCtxAll)).mpr ((sortOfTerm_dv (x := c.patCtxNF)).mp h),
+      by simp [Semantics.NoFnOvlIn, symOccs]⟩
+    | .app f ts, _, h => by
+      obtain ⟨k, hk, hargs, rfl⟩ := sortOfTerm_app.mp h
+      obtain ⟨hk', hf⟩ := patCtxNF_lookup.mp hk
+      obtain ⟨h1, h2⟩ := sortsOfTerms_of_nf ts hargs
+      exact ⟨sortOfTerm_app.mpr ⟨k, hk', h1, rfl⟩, NoFnOvlIn.mk_app hf h2⟩
+    | .inj a b t, _, h => by
+      obtain ⟨hab, ht, rfl⟩ := sortOfTerm_inj.mp h
+      obtain ⟨h1, h2⟩ := sortOfTerm_of_nf t ht
+      refine ⟨sortOfTerm_inj.mpr ⟨hab, h1, rfl⟩, ?_⟩
+      unfold Semantics.NoFnOvlIn; rw [symOccs]; exact h2
+    | .as t i, s, h => by
+      obtain ⟨hi, ht⟩ := Exec.sortOfTerm_as h
+      obtain ⟨h1, h2⟩ := sortOfTerm_of_nf t ht
+      refine ⟨sortOfTerm_as_introNF patCtxAll_asOK hi h1, ?_⟩
+      unfold Semantics.NoFnOvlIn; rw [symOccs]; exact h2
+  theorem sortsOfTerms_of_nf {vars : List Srt} : ∀ (ts : List Term) {ss : List Srt},
+      sortsOfTerms c.patCtxNF vars ts = some ss → sortsOfTerms c.patCtxAll vars ts = some ss ∧ c.NoFnOvlInL ts
+    | [], _, h => ⟨sortsOfTerms_nil.mpr (sortsOfTerms_nil.mp h), NoFnOvlIn.nil⟩
+    | t :: ts, _, h => by
+      obtain ⟨s, ss', h1, h2, rfl⟩ := sortsOfTerms_cons.mp h
+      obtain ⟨a1, a2⟩ := sortOfTerm_of_nf t h1
+      obtain ⟨b1, b2⟩ := sortsOfTerms_of_nf ts h2
+      exact ⟨sortsOfTerms_cons.mpr ⟨s, ss', a1, b1, rfl⟩, NoFnOvlIn.mk_cons a2 b2⟩
+end
+
+mutual
+  /-- A term well sorted over `patCtxAll` that applies no function-overloaded symbol is well sorted
+  over `patCtxNF`. -/
+  theorem sortOfTerm_to_nf {vars : List Srt} : ∀ (t : Term) {s : Srt},
+      sortOfTerm c.patCtxAll vars t = some s → c.NoFnOvlIn t → sortOfTerm c.patCtxNF vars t = some s
+    | .var _, _, h, _ => by simpa [sortOfTerm] using h
+    | .dv _ _, _, h, _ => (sortOfTerm_dv (x := c.patCtxNF)).mpr ((sortOfTerm_dv (x := c.patCtxAll)).mp h)
+    | .app f ts, _, h, hn => by
+      obtain ⟨k, hk, hargs, rfl⟩ := sortOfTerm_app.mp h
+      exact sortOfTerm_app.mpr ⟨k, patCtxNF_lookup.mpr ⟨hk, (NoFnOvlIn.app hn).1⟩, sortsOfTerms_to_nf ts hargs (NoFnOvlIn.app hn).2, rfl⟩
+    | .inj a b t, _, h, hn => by
+      obtain ⟨hab, ht, rfl⟩ := sortOfTerm_inj.mp h
+      exact sortOfTerm_inj.mpr ⟨hab, sortOfTerm_to_nf t ht (NoFnOvlIn.inj hn), rfl⟩
+    | .as t i, s, h, hn => by
+      obtain ⟨hi, ht⟩ := Exec.sortOfTerm_as h
+      exact sortOfTerm_as_introNF patCtxNF_asOK hi (sortOfTerm_to_nf t ht (NoFnOvlIn.as hn))
+  theorem sortsOfTerms_to_nf {vars : List Srt} : ∀ (ts : List Term) {ss : List Srt},
+      sortsOfTerms c.patCtxAll vars ts = some ss → c.NoFnOvlInL ts → sortsOfTerms c.patCtxNF vars ts = some ss
+    | [], _, h, _ => sortsOfTerms_nil.mpr (sortsOfTerms_nil.mp h)
+    | t :: ts, _, h, hn => by
+      obtain ⟨s, ss', h1, h2, rfl⟩ := sortsOfTerms_cons.mp h
+      exact sortsOfTerms_cons.mpr ⟨s, ss', sortOfTerm_to_nf t h1 (NoFnOvlIn.cons hn).1,
+        sortsOfTerms_to_nf ts h2 (NoFnOvlIn.cons hn).2, rfl⟩
+end
+
+/-- A term well sorted over `patCtxNF` is well sorted over `patCtxAll`. -/
+theorem sortOfTerm_all_of_nf {vars : List Srt} {t : Term} {s : Srt}
+    (h : sortOfTerm c.patCtxNF vars t = some s) : sortOfTerm c.patCtxAll vars t = some s :=
+  (sortOfTerm_of_nf t h).1
+
+theorem sortsOfTerms_all_of_nf {vars : List Srt} {ts : List Term} {ss : List Srt}
+    (h : sortsOfTerms c.patCtxNF vars ts = some ss) : sortsOfTerms c.patCtxAll vars ts = some ss :=
+  (sortsOfTerms_of_nf ts h).1
+
+/-- Without function-overloaded symbols no pattern applies one. -/
+theorem Semantics.ovlPatsOK_of_fnOvlSyms_nil (h : c.fnOvlSyms = []) : c.ovlPatsOK = true := by
+  simp [Semantics.ovlPatsOK, h]
+
+/-- A term is well sorted over `patCtxNF` exactly when it is over `patCtxAll` and applies no
+function-overloaded symbol. -/
+theorem sortOfTerm_nf_iff {vars : List Srt} {t : Term} {s : Srt} :
+    sortOfTerm c.patCtxNF vars t = some s ↔ sortOfTerm c.patCtxAll vars t = some s ∧ c.NoFnOvlIn t :=
+  ⟨sortOfTerm_of_nf t, fun h => sortOfTerm_to_nf t h.1 h.2⟩
+
 end KCore

@@ -38,7 +38,7 @@ def HypSoundCore (c : Semantics) : Prop :=
     collSortsOK c = true ∧ collsOK c = true ∧ patHeadsOK c = true ∧ OvlOK c
 
 theorem HypSound.core {c : Semantics} (h : HypSound c) : HypSoundCore c :=
-  ⟨Semantics.sortedOK_of_okAll h.1, h.2⟩
+  ⟨Semantics.sortedOK_of_okAll h.1 (Semantics.overloadsOK_pats h.2.2.2.2.2.2.2.2.ok), h.2⟩
 
 section
 variable {c : Semantics} (h : patHeadsOK c = true)
