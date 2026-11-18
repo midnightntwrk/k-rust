@@ -29,7 +29,7 @@ Nested entries by status:
 
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
-| E1 | 7 | 3 | 0 | 0 | 0 | 4 | 0 | 0 |
+| E1 | 8 | 3 | 0 | 0 | 0 | 5 | 0 | 0 |
 | E2 | 59 | 9 | 0 | 1 | 0 | 49 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 54 | 20 | 0 | 4 | 0 | 30 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 334 | 127 | 4 | 11 | 1 | 191 | 0 | 0 |
+| all | 335 | 127 | 4 | 11 | 1 | 192 | 0 | 0 |
 
 Refused rows by class:
 
@@ -59,7 +59,7 @@ Refused nested entries by class:
 
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
-| E1 | 4 | 0 | 0 | 1 | 3 |
+| E1 | 5 | 1 | 0 | 1 | 3 |
 | E2 | 49 | 3 | 0 | 1 | 45 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 30 | 14 | 10 | 0 | 6 |
@@ -68,7 +68,7 @@ Refused nested entries by class:
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 191 | 49 | 18 | 41 | 83 |
+| all | 192 | 50 | 18 | 41 | 83 |
 
 ## Entries of class R-c (53)
 
@@ -203,6 +203,7 @@ Not core:
 | row | status | class | reason | cone | unit | fixture | kimp | kk.k | evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | `Require:kw:requires` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | no | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
+| cases[0]: a required file of the user's at a path ending include/kframework/builtin/F, the directory of a K installation's builtin… | refused | R-a | The text records where a sentence comes from only in its Source, and the reader tells a K installation's builtin file by that path alone (Parse.isKBuiltin: a path ending /include/kframework/builtin/F); here the file is the user's, at such a path, so the rule's sentence is taken for a builtin file's.… |  | none (R-a): a sentence of a K installation's builtin file about a library name that is not the library's text at its place can only repeat, extend or contradict the meaning the registry gives the name, and the reader cannot tell which (RDR.builtin-own-reading option (b), findings/work/review-no-fabl… | e1-require-k-builtin-path |  |  | fixtures/e1-require-k-builtin-path (e1-require-k-builtin-path.k requires include/kframework/builtin/lemmas.k, a file of the fixture): kompile.txt exit 0; kore.txt sentence 295, the rule's axiom with Source(FIXTURE/include/kframework/builtin/lemmas.k); account.txt \`1 refused builtinText [builtin]\`, \`… |
 | `Require:node:Require` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | no | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
 | `Module:kw:module` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | yes | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
 | `Module:kw:endmodule` | supported |  | kompile writes the sentences of every required file's and imported module's into the main module; the KORE text states them there and names the module only in symbol names and in Source. The reader reads those sentences as the user module's and classifies the import sentence inert (InertReason.impor… | none (reader already reads it) |  | e1-module | yes | yes | fixtures/e1-module: kore.txt \`symbol Lblbar'LParRParUnds'LIB'Unds'Bar{}()\`; account.txt \`parse: ok; wf true\` |
@@ -799,7 +800,7 @@ Not core:
 | `grammar:<matching-logic-pattern>::="\next" "{" <sort> "}" "(" <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-next/account.txt: \`unkompiledForm (\\next)\` |
 | `grammar:<matching-logic-pattern>::="\rewrites" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | e1-sentences | yes | yes | K-coverage.md A.2 \\rewrites |
 | `grammar:<matching-logic-pattern>::="\dv" "{" <sort> "}" "(" <string-literal> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\dv |
-| `grammar:<matching-logic-pattern>::="\left-assoc" "{" "}" "(" <application-pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-left-assoc/account.txt: \`unkompiledForm (\\left-assoc)\`; the same axiom with the Source of a builtin file the library does not hold (Source(krust-bui… |
+| `grammar:<matching-logic-pattern>::="\left-assoc" "{" "}" "(" <application-pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  | hw-scope-left-assoc | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-left-assoc/account.txt: \`unkompiledForm (\\left-assoc)\`; the same axiom with the Source of a builtin file the library does not hold (Source(krust-bui… |
 | `grammar:<matching-logic-pattern>::="\right-assoc" "{" "}" "(" <application-pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-right-assoc/account.txt: \`unkompiledForm (\\right-assoc)\` |
 | `grammar:<attribute>::=<application-pattern>` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  | base |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
 | `grammar:<attributes>::=<[attribute]-sep-by-[","]>` | supported |  | Lexical and list productions and the node-forming productions with no meaning of their own (characters, identifiers, separators, \`&lt;sorts>\`, \`&lt;patterns>\`, \`&lt;attribute>\`, \`&lt;attributes>\`, \`&lt;symbol>\`, \`&lt;symbol-or-alias>\`, \`&lt;modules>\`, \`&lt;element-variable>\`, the three alternatives of \`&lt;pattern>\` that only… | none (reader only) |  | base |  |  | kore-lean KoreParser/Parser.lean reads the production into Kore.Pattern / Kore.Sentence (trusted base 2 of DONE-0 section 0); test/ConstructsE4.lean maps each tree constructor to a row |
