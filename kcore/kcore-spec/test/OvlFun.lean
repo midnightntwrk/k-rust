@@ -1,9 +1,9 @@
 /-
   Overloads by functions: semantics built by hand from the fixtures' kompiled sentences, the facts
   that hold of them now, and the expectations the function-overload construct meets, as
-  propositions (`expect`, `expectOvlfun`, `expectLhs` in each namespace), each proved here
-  (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`,
-  `Admit.coreOK_conf`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
+  propositions (`expect`, `expectOvlfun`, `expectLhs`, `expectCut` in each namespace), each proved
+  here (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`,
+  `Admit.coreOK_conf`, `Cap.expect_cut`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
 
   Each semantics has the configuration `<generatedTop>(<k>(K), C)`, its own sorts numbered from
   `nRegSorts` and its own symbols from `nRegSyms` (the sort predicates first, then constructors,
@@ -41,7 +41,27 @@
     in a left side. The left side is not sorted over `patCtxNF`, so `sortedOK` is false
     (`sorted_lhs`), and `ovlPatsOK` is false (`fnOvl_facts`); expected: `coreOK` false (`Admit.coreOK_lhs`). The
     fixture's kompiled text is not this semantics: its rule is read with a variable in place of the
-    application and the membership as its predicate.
+    application and the membership as its predicate, which is `cutSem`.
+  - `cutSem` (e5-ovl-fun-lhs as the reader reads it, test/OvlCutRule.lean): `ovlfun`'s signature
+    with the rule `run(V) => done(G)`, `pre := V ∈ capGas(G)`. G is held by the right side under
+    `done` (arm A, `rulePlainPP`, so `rulesPlain` admits it without `memHeld`), and no witness is
+    asked (V is bound, so the conditions are not closed). Expected (`Cap.expect_cut`): `coreOK`,
+    `FnHyp` (the totality of `capN`), `complete_hyp`'s conclusion `CompleteC`; `Step` from
+    `run(inj z)` to `done(inj z)` (G := `inj z`, covered: `capGas(inj z) = inj(capN(z))`), from
+    `run(capGas(inf))` to `done(inf)` (G := `inf`, uncovered), and no step from `run(inf)` (no value
+    of Gas has `capGas` of it equal to `inf`: `Cap.no_step_inf`).
+  - `keepRun` (e5-ovl-fun-keep-run): `cutSem` with `capN : N → Gas`, `capN(z) = inf`: `run(inf)`
+    steps to `done(inj z)`, the covered application being `inf` (`Cap.step_keepRun`).
+  - `Dbl` (e5-ovl-fun-lhs-int, CN-4b §3.2): `dblExp : Exp → Exp` over the total function
+    `dblInt : Int → Int`, `dblInt(I) = 2 *Int I`, Int < Exp, the cut rule `run(V) => done(0)`,
+    `pre := V ∈ dblExp(E)`, beside `run(_) => done(1)` `[owise]`. Int and Exp are not confined, so
+    `dblExp` is not `ovlHeld` and E is held by nothing, the cut included (`Dbl.not_held`: `memHeld`
+    is false at E): the cut rule fails `rulesPlain` at E under
+    `dblExp`, in both conjuncts (`Dbl.text_refused`; the reader's `openRequires` naming E and
+    `dblExp` is test/OvlCutRule.lean's), so `coreOK` is false (`Dbl.coreOK_text`), and without the
+    `[owise]` rule it still fails the arms (`Dbl.zeroAlone_refused`). Alone and with `=> done(E)`
+    (`done` taking Exp, built by hand: no fixture has this text) it is admitted by arm A, and
+    `coreOK` holds (`Dbl.alone_admitted`, `Dbl.coreOK_alone`).
   - `chain b` (REVIEW-CN4 finding B): `plusExp : Exp Exp → Exp` over the function `plusInt`,
     `plusBig : Big Big → Big` over `plusExp` (and `plusInt` where `b`), Int < Exp < Big. Without
     `plusInt` in `plusBig`'s list, `plusBig` is not function-overloaded (`fnOvlSyms`); with it,
@@ -1106,5 +1126,535 @@ theorem expect_keep : expect := ⟨Admit.coreOK_keep, fnHyp_keep, consistent_kee
 #guard_msgs in #print axioms expect_keep
 
 end Keep
+
+/-! ## e5-ovl-fun-lhs read through the cut -/
+
+/-- A membership holds where both sides evaluate to one value. -/
+theorem holds_mem_pto {c : Semantics} {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {v : GroundTerm}
+    (h : EvalTerm c σ t (some v)) (h' : EvalTerm c σ u (some v)) : Holds c n σ (.mem s t u) true := by
+  have := Holds.mem (n := n) (s := s) h h'
+  simpa [sameResult, cmp_eq_iff.mpr rfl] using this
+
+/-- What a membership's truth value is made of. -/
+theorem holds_mem_inv_pto {c : Semantics} {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {b : Bool}
+    (h : Holds c n σ (.mem s t u) b) :
+    ∃ r r', EvalTerm c σ t r ∧ EvalTerm c σ u r' ∧ b = (r.isSome && sameResult r r') := by
+  generalize hp : Cond.mem s t u = p at h
+  cases h with
+  | mem h h' => cases hp; exact ⟨_, _, h, h', rfl⟩
+  | _ => cases hp
+
+theorem sameResult_some_pto {v w : GroundTerm} (h : sameResult (some v) (some w) = true) : v = w :=
+  cmp_eq_iff.mp (by simpa [sameResult] using h)
+
+namespace Cap
+
+open Det
+
+/-- `<k> run(cap(G)) => done(G) </k>` as the reader reads e5-ovl-fun-lhs (test/OvlCutRule.lean
+prints it): `run(V) => done(G)` with `pre := V ∈ capGas(G)`, its variables G, the counter cell and
+V. -/
+def rCut : Rule :=
+  { vars := [gasS, Srt.counter, gasS], lhs := cfg kl pgmS (.app run [.var 2]) 1, req := none,
+    rhs := cfg kl pgmS (.app done [.var 0]) 1, ens := none, prio := 50,
+    pre := .mem gasS (.var 2) (.app capGas [.var 0]) }
+
+/-- e5-ovl-fun-lhs with its rule cut. -/
+def cutSem : Semantics := sem rCut
+
+/-- The cut rule's left side applies no function-overloaded symbol; G (the variable 0), which it
+does not bind, is held by the right side under the constructor `done`, so the arms admit it by
+arm A, under constructors only (`rulePlainPP`); Gas is not confined; V is bound and in `pre`, so
+the conditions are not closed and no witness is asked (`needsWitness`). -/
+theorem cut_facts : cutSem.ovlPatsOK = true ∧ rCut.opens = [0] ∧ (ctorOccs cutSem rCut.rhs).contains 0 = true ∧
+    cutSem.confined gasS = false ∧ rCut.reqClosed = false ∧ cutSem.rulePlainPP rCut = true ∧
+    cutSem.rulesPlain = true ∧ (∀ r ∈ cutSem.rules, r.needsWitness cutSem = false) ∧
+    (∀ fn ∈ cutSem.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cutSem = false) := by
+  decide +kernel
+
+theorem light_cut : light cutSem = true := by rw [light]; decide_cheap
+
+open Faithful.Model in
+theorem names_cut : namesApartFast cutSem = true := by decide +kernel
+
+open Faithful.Model in
+theorem ites_cut : itesApart cutSem = true := by decide_cheap
+
+theorem others_cut : others cutSem = true := others_of light_cut names_cut ites_cut
+
+/-- `overloadsOK` admits the cut rule: its left side no longer applies `capGas`. -/
+theorem ovls_cut : cutSem.overloadsOK = true := by decide +kernel
+
+theorem coreOK_cut : cutSem.coreOK = true := Admit.coreOK_of others_cut ovls_cut
+
+theorem noRaw_cut : ∀ k ∈ cutSem.params, k.raw = false := by decide +kernel
+theorem valued_cut : cutSem.rightValued = true := by decide +kernel
+theorem term_cut : cutSem.rankObligations [capN] ++ cutSem.decObligationsL = [] := by decide +kernel
+theorem total_cut : cutSem.totalObligationsRP [capN] [] = [capN] := by decide +kernel
+theorem agree_cut : cutSem.agreeObligationsI = [] := by decide +kernel
+theorem match_cut : cutSem.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+/-- `capN(z)` evaluates to `z` in `cutSem`, by its one clause (`eval_capN_z` at `ovlfun`; evaluation
+reads no rule, but `Eval` is stated per semantics). -/
+theorem eval_capN_z_cut : Eval cutSem capN [.ctor z []] (some (.ctor z [])) :=
+  .clause (fn := capNFn) (cl := capNCl) (σ := [(0, .ctor z [])])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by
+      cases i with
+      | zero => cases h; exact ⟨.ctor z [], rfl, by decide +kernel⟩
+      | succ i => simp [capNCl] at h)
+    (.cons (.as (.ctor (by decide +kernel) .nil) rfl) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNCl := by simpa [capNFn, capNCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    rfl .var (fun t ht => by cases ht) .top
+
+theorem total_capN_cut : Total cutSem capN := fun fn' hfn' vs hvs => by
+  have hfn : cutSem.lookupFn capN = some capNFn := by rw [Semantics.lookupFn_eq]; rfl
+  obtain rfl : fn' = capNFn := Option.some.inj (hfn'.symm.trans hfn)
+  obtain ⟨w, ws', rfl, hw, hws⟩ := sortsOf_inv_cons (show cutSem.sortsOf vs = some [nS] from hvs)
+  cases sortsOf_inv_nil hws
+  cases onlyConst_ftf (k0 := ⟨z, [], nS⟩) rfl (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (noLit_ftf (by decide +kernel)) (by decide +kernel) hw
+  exact ⟨_, eval_capN_z_cut⟩
+
+/-- **`FnHyp` of the cut semantics**: the one fact named is the totality of `capN`; the open
+variable G asks for no witness. -/
+theorem fnHyp_cut : FnHyp cutSem :=
+  fnHyp_of_fnObligations (ord := [capN]) (tp := []) coreOK_cut
+    (Semantics.rightHeld_of_valued valued_cut) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_cut] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_cut] at hf; rw [List.mem_singleton.mp hf]; exact total_capN_cut,
+     fun f hf => by rw [agree_cut] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_cut] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_plain cut_facts.2.2.2.2.2.2.2.1 cut_facts.2.2.2.2.2.2.2.2,
+     openLaws_of_plain noRaw_cut⟩
+
+/-- **`complete_hyp`'s conclusion holds of the cut semantics.** -/
+theorem complete_cut (ref : OutFn) : CompleteC cutSem ref := complete_hyp cutSem ref coreOK_cut fnHyp_cut
+
+theorem sound_cut : SoundC cutSem := sound_hyp cutSem coreOK_cut fnHyp_cut
+
+/-! ### The steps -/
+
+/-- The counter cell at 0. -/
+def cnt0 : GroundTerm := .ctor counterLabel [.dv Srt.int (.int 0)]
+/-- `<generatedTop>(<k>(kseq(inj{Pgm,KItem}(t), dotk)), cnt0)`. -/
+def cfgV (t : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kl [.ctor kseq [.inj pgmS Srt.kitem t, .ctor dotk []]], cnt0]
+def injZ : GroundTerm := .inj nS gasS (.ctor z [])
+/-- `capGas(inf)`, uncovered: a value of Gas. -/
+def capInf : GroundTerm := .ctor capGas [.ctor inf []]
+
+def runZ : Config cutSem := ⟨cfgV (.ctor run [injZ]), by decide +kernel⟩
+def doneZ : Config cutSem := ⟨cfgV (.ctor done [injZ]), by decide +kernel⟩
+def runCapInf : Config cutSem := ⟨cfgV (.ctor run [capInf]), by decide +kernel⟩
+def doneInf : Config cutSem := ⟨cfgV (.ctor done [.ctor inf []]), by decide +kernel⟩
+def runInf : Config cutSem := ⟨cfgV (.ctor run [.ctor inf []]), by decide +kernel⟩
+
+theorem syms_cut : cutSem.isCtor topLabel = true ∧ cutSem.isCtor kl = true ∧ cutSem.isCtor kseq = true ∧
+    cutSem.isCtor dotk = true ∧ cutSem.isCtor run = true ∧ cutSem.isCtor done = true ∧
+    cutSem.isCtor capGas = false ∧ cutSem.isOvl capGas = true ∧ isHook capGas = false ∧ cutSem.isParam capGas = false ∧
+    patternHooks.contains topLabel = false ∧ patternHooks.contains kl = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains run = false := by
+  decide +kernel
+
+theorem rCut_vars : rCut.vars = [gasS, Srt.counter, gasS] := rfl
+
+/-- σ gives each variable of the cut rule a value of its sort. -/
+theorem wellSorted_cut {g v : GroundTerm} (hg : cutSem.sortOf g = some gasS) (hv : cutSem.sortOf v = some gasS) :
+    cutSem.WellSorted rCut.vars [(0, g), (1, cnt0), (2, v)] := fun j s hs => by
+  rw [rCut_vars] at hs
+  match j, hs with
+  | 0, hs => cases hs; exact ⟨_, rfl, hg⟩
+  | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  | 2, hs => cases hs; exact ⟨_, rfl, hv⟩
+  | j + 3, hs => simp at hs
+
+/-- The cut rule's left side denotes `run(v)` where V is v. -/
+theorem lhs_match_cut {g v : GroundTerm} : PatVal cutSem [(0, g), (1, cnt0), (2, v)] rCut.lhs (cfgV (.ctor run [v])) :=
+  .ctor syms_cut.1 (.cons (.ctor syms_cut.2.1 (.cons (.ctor syms_cut.2.2.1
+    (.cons (.inj (.ctor syms_cut.2.2.2.2.1 (.cons (.var rfl) .nil))) (.cons (.ctor syms_cut.2.2.2.1 .nil) .nil))) .nil))
+    (.cons (.var rfl) .nil))
+
+/-- The cut rule's right side evaluates to `done(g)` where G is g. -/
+theorem eval_rhs_cut {g v : GroundTerm} :
+    EvalTerm cutSem [(0, g), (1, cnt0), (2, v)] rCut.rhs (some (cfgV (.ctor done [g]))) :=
+  .ctor syms_cut.1 (.cons (.ctor syms_cut.2.1 (.cons (.ctor syms_cut.2.2.1
+    (.cons (.inj (.ctor syms_cut.2.2.2.2.2.1 (.cons .var .nil))) (.cons (.ctor syms_cut.2.2.2.1 .nil) .nil))) .nil))
+    (.cons .var .nil))
+
+/-- The cut rule's step from `run(v)` to `done(g)` where `capGas(g)` evaluates to v. -/
+theorem stepBy_cut {g v : GroundTerm} (hg : cutSem.sortOf g = some gasS) (hv : cutSem.sortOf v = some gasS)
+    (hcap : EvalTerm cutSem [(0, g), (1, cnt0), (2, v)] (.app capGas [.var 0]) (some v))
+    (x y : Config cutSem) (hx : x.val = cfgV (.ctor run [v])) (hy : y.val = cfgV (.ctor done [g])) :
+    StepBy cutSem rCut [(0, g), (1, cnt0), (2, v)] x y where
+  mem := List.mem_singleton_self _
+  hσ := wellSorted_cut hg hv
+  hmatch := hx ▸ lhs_match_cut
+  hreq := fun t ht => by simp [rCut] at ht
+  hpre := holds_mem_pto (.var : EvalTerm cutSem _ (.var 2) _) hcap
+  heval := hy ▸ eval_rhs_cut
+  hens := fun t ht => by simp [rCut] at ht
+  hpost := .top
+  hprio := fun r' hr' hlt => by
+    rw [List.mem_singleton.mp hr'] at hlt
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-- `capGas(inj{N,Gas}(z))`, covered by `capN`, evaluates to `inj{N,Gas}(capN(z))`. -/
+theorem evalTerm_capG_z :
+    EvalTerm cutSem [(0, injZ), (1, cnt0), (2, injZ)] (.app capGas [.var 0]) (some injZ) :=
+  EvalTerm.ovlFn (rs := [some injZ]) (vs := [injZ]) (o := capGasO) (kg := capNSig) (r := some (.ctor z []))
+    syms_cut.2.2.2.2.2.2.1 syms_cut.2.2.2.2.2.2.2.1 (.cons .var .nil) rfl
+    (by decide +kernel) (by decide +kernel) eval_capN_z_cut
+
+/-- `capGas(inf)`, uncovered, evaluates to its raw application. -/
+theorem evalTerm_capG_inf :
+    EvalTerm cutSem [(0, .ctor inf []), (1, cnt0), (2, capInf)] (.app capGas [.var 0]) (some capInf) := by
+  have h := EvalTerm.ovl (c := cutSem) (σ := [(0, .ctor inf []), (1, cnt0), (2, capInf)])
+    syms_cut.2.2.2.2.2.2.1 syms_cut.2.2.2.2.2.2.2.1 (.cons (EvalTerm.var (i := 0)) .nil)
+    (fun vs hvs => by
+      have hvs' : some [GroundTerm.ctor inf []] = some vs := hvs
+      obtain rfl : vs = [.ctor inf []] := (Option.some.inj hvs').symm
+      decide +kernel)
+  have hn : cutSem.norm capGas [.ctor inf []] = capInf := by decide +kernel
+  rw [← hn]; exact h
+
+/-- **`run(inj{N,Gas}(z))` steps to `done(inj{N,Gas}(z))`**: G := `inj{N,Gas}(z)`, covered, and
+`capGas(inj{N,Gas}(z)) = inj{N,Gas}(capN(z)) = inj{N,Gas}(z)`. -/
+theorem step_z : Step cutSem runZ doneZ :=
+  step_iff_by.mpr ⟨rCut, _, stepBy_cut (by decide +kernel) (by decide +kernel) evalTerm_capG_z runZ doneZ rfl rfl⟩
+
+/-- **`run(capGas(inf))` steps to `done(inf)`**: G := `inf`, uncovered. -/
+theorem step_capInf : Step cutSem runCapInf doneInf :=
+  step_iff_by.mpr ⟨rCut, _, stepBy_cut (by decide +kernel) (by decide +kernel) evalTerm_capG_inf runCapInf doneInf
+    rfl rfl⟩
+
+/-! ### No step from `run(inf)` -/
+
+theorem lookupOvl_cut : cutSem.lookupOvl capGas = some capGasO := by decide +kernel
+theorem ovlOver_cut : cutSem.ovlOver capGasO = [capNSig] := by decide +kernel
+
+/-- `capGas`'s one overload is the function `capN`'s, so its normal form is its raw application. -/
+theorem norm_capGas_cut (vs : List GroundTerm) : cutSem.norm capGas vs = .ctor capGas vs := by
+  have hfn : cutSem.ovlByFn capNSig = true := by decide +kernel
+  show cutSem.normN 2 capGas vs = _
+  simp only [Semantics.normN, lookupOvl_cut, ovlOver_cut, List.find?_cons, List.find?_nil]
+  split
+  · rfl
+  · rename_i kg hkg
+    split at hkg
+    · cases hkg; simp [hfn]
+    · cases hkg
+
+/-- The function overload covering anything is `capN`'s. -/
+theorem fnCover_cut {vs : List GroundTerm} {kg : CtorSig} (h : cutSem.fnCover capGas vs = some kg) : kg = capNSig := by
+  unfold Semantics.fnCover at h
+  rw [lookupOvl_cut, Option.bind_some, ovlOver_cut] at h
+  exact List.mem_singleton.mp (List.mem_of_find?_eq_some h)
+
+/-- The cut rule's left side at `run(w)` gives V the value w. -/
+theorem lhs_inv_cut {σ : Subst} {w : GroundTerm} (h : PatVal cutSem σ rCut.lhs (cfgV (.ctor run [w]))) :
+    σ.lookup 2 = some w := by
+  have hl : rCut.lhs = .app topLabel [.app kl [.app kseq [.inj pgmS Srt.kitem (.app run [.var 2]), .app dotk []]],
+      .var 1] := rfl
+  rw [hl] at h
+  obtain ⟨-, vs, he, hs⟩ := PatVal.app_inv syms_cut.2.2.2.2.2.2.2.2.2.2.1 h syms_cut.1
+  simp only [cfgV, GroundTerm.ctor.injEq, true_and] at he
+  subst he
+  obtain ⟨a1, as1, he1, h1, -⟩ := PatVals.cons_inv hs
+  simp only [List.cons.injEq] at he1
+  obtain ⟨rfl, rfl⟩ := he1
+  obtain ⟨-, vs2, he2, hs2⟩ := PatVal.app_inv syms_cut.2.2.2.2.2.2.2.2.2.2.2.1 h1 syms_cut.2.1
+  simp only [GroundTerm.ctor.injEq, true_and] at he2
+  subst he2
+  obtain ⟨a2, as2, he3, h2, -⟩ := PatVals.cons_inv hs2
+  simp only [List.cons.injEq] at he3
+  obtain ⟨rfl, rfl⟩ := he3
+  obtain ⟨-, vs3, he4, hs3⟩ := PatVal.app_inv syms_cut.2.2.2.2.2.2.2.2.2.2.2.2.1 h2 syms_cut.2.2.1
+  simp only [GroundTerm.ctor.injEq, true_and] at he4
+  subst he4
+  obtain ⟨a3, as3, he5, h3, -⟩ := PatVals.cons_inv hs3
+  simp only [List.cons.injEq] at he5
+  obtain ⟨rfl, rfl⟩ := he5
+  obtain ⟨w', hw', he6⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs4, rfl, hs4⟩ := PatVal.app_inv syms_cut.2.2.2.2.2.2.2.2.2.2.2.2.2 hw' syms_cut.2.2.2.2.1
+  simp only [injNormal, GroundTerm.inj.injEq, GroundTerm.ctor.injEq, true_and] at he6
+  subst he6
+  obtain ⟨a4, as4, he7, h4, -⟩ := PatVals.cons_inv hs4
+  simp only [List.cons.injEq] at he7
+  obtain ⟨rfl, rfl⟩ := he7
+  exact PatVal.var_inv h4
+
+/-- `capGas(G)` at a value of G evaluates to its raw application or to an injection from N: never
+to `inf`. -/
+theorem capG_ne_inf {σ : Subst} {g : GroundTerm} {r' : Option GroundTerm}
+    (h : EvalTerm cutSem σ (.app capGas [.var 0]) r') (hg : σ.lookup 0 = some g)
+    (hb : true = ((some (GroundTerm.ctor inf [])).isSome && sameResult (some (.ctor inf [])) r')) : False := by
+  generalize ht : Term.app capGas [.var 0] = t at h
+  cases h with
+  | ctor hc _ => cases ht; rw [syms_cut.2.2.2.2.2.2.1] at hc; cases hc
+  | hook _ hhk _ _ _ => cases ht; rw [syms_cut.2.2.2.2.2.2.2.2.1] at hhk; cases hhk
+  | param _ _ hp _ _ => cases ht; rw [syms_cut.2.2.2.2.2.2.2.2.2.1] at hp; cases hp
+  | call _ _ _ _ hf _ =>
+    cases ht
+    have h' := hf.isOvl_false
+    rw [syms_cut.2.2.2.2.2.2.2.1] at h'
+    cases h'
+  | callUndef => cases ht; simp [sameResult] at hb
+  | ovl _ _ hts _ =>
+    cases ht
+    obtain ⟨r0, rs', rfl, h0, hn⟩ := EvalTerms.cons_inv hts
+    cases EvalTerms.nil_inv hn
+    rw [EvalTerm.var_inv h0, hg] at hb
+    have hb' : true = (true && sameResult (some (.ctor inf [])) (some (cutSem.norm capGas [g]))) := hb
+    rw [Bool.true_and, norm_capGas_cut] at hb'
+    have he := sameResult_some_pto hb'.symm
+    exact absurd (GroundTerm.ctor.inj he).1 (by decide)
+  | @ovlFn _ _ _ _ _ o kg r _ _ _ _ hlo hcov _ =>
+    cases ht
+    rw [lookupOvl_cut] at hlo
+    cases hlo
+    cases fnCover_cut hcov
+    cases r with
+    | none => simp [sameResult] at hb
+    | some w =>
+      have hb' : true = (true && sameResult (some (.ctor inf [])) (some (injNormal nS gasS w))) := hb
+      rw [Bool.true_and] at hb'
+      have he := sameResult_some_pto hb'.symm
+      cases w <;> simp [injNormal] at he
+  | _ => cases ht
+
+/-- **No step from `run(inf)`**: V is `inf`, and no value g of Gas has `capGas(g)` equal to `inf`
+(at `inj{N,Gas}(z)` it is `inj{N,Gas}(z)`, elsewhere the raw application). -/
+theorem no_step_inf (y : Config cutSem) : ¬ Step cutSem runInf y := by
+  intro h
+  obtain ⟨r, σ, hb⟩ := step_iff_by.mp h
+  obtain rfl : r = rCut := List.mem_singleton.mp hb.mem
+  have hV : σ.lookup 2 = some (.ctor inf []) := lhs_inv_cut hb.hmatch
+  obtain ⟨r1, r2, h1, h2, hb2⟩ := holds_mem_inv_pto (show Holds cutSem 3 σ (.mem gasS (.var 2) (.app capGas [.var 0])) true
+    from hb.hpre)
+  rw [EvalTerm.var_inv h1, hV] at hb2
+  obtain ⟨g, hg, -⟩ := hb.hσ 0 gasS rfl
+  exact capG_ne_inf h2 hg hb2
+
+/-- **What was expected of e5-ovl-fun-lhs read through the cut.** -/
+def expectCut : Prop :=
+  cutSem.coreOK = true ∧ cutSem.rulePlainPP rCut = true ∧ FnHyp cutSem ∧ (∀ ref, CompleteC cutSem ref) ∧
+    Step cutSem runZ doneZ ∧ Step cutSem runCapInf doneInf ∧ ∀ y, ¬ Step cutSem runInf y
+
+theorem expect_cut : expectCut :=
+  ⟨coreOK_cut, cut_facts.2.2.2.2.2.1, fnHyp_cut, complete_cut, step_z, step_capInf, no_step_inf⟩
+
+/-! ## e5-ovl-fun-keep-run: the overload that keeps the result sort, with the cut rule -/
+
+/-- `capN : N → Gas`, total, `capN(z) = inf` (e5-ovl-fun-keep-run), in this signature. -/
+def capNKeepFn : Fn :=
+  ⟨capN, [nS], gasS, [{ vars := [], pats := [.app z []], req := none, rhs := .app inf [], ens := none }], true⟩
+def capNKeepCl : Clause := { vars := [], pats := [.app z []], req := none, rhs := .app inf [], ens := none }
+def capNKeepSig : CtorSig := ⟨capN, [nS], gasS⟩
+
+/-- e5-ovl-fun-keep-run: the cut semantics with `capN` keeping the result sort. -/
+def keepRun : Semantics := { cutSem with fns := [capNKeepFn] }
+
+theorem syms_keepRun : keepRun.isCtor topLabel = true ∧ keepRun.isCtor kl = true ∧ keepRun.isCtor kseq = true ∧
+    keepRun.isCtor dotk = true ∧ keepRun.isCtor run = true ∧ keepRun.isCtor done = true ∧
+    keepRun.isCtor capGas = false ∧ keepRun.isOvl capGas = true := by
+  decide +kernel
+
+theorem rules_keepRun : keepRun.rules = [rCut] := rfl
+
+theorem eval_capN_keepRun : Eval keepRun capN [.ctor z []] (some (.ctor inf [])) :=
+  .clause (fn := capNKeepFn) (cl := capNKeepCl) (σ := [])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by simp [capNKeepCl] at h)
+    (.cons (.ctor (by decide +kernel) .nil) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNKeepCl := by simpa [capNKeepFn, capNKeepCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    rfl (.ctor (f := inf) (rs := []) (by decide +kernel) .nil) (fun t ht => by cases ht) .top
+
+def runInfK : Config keepRun := ⟨cfgV (.ctor run [.ctor inf []]), by decide +kernel⟩
+def doneZK : Config keepRun := ⟨cfgV (.ctor done [injZ]), by decide +kernel⟩
+
+/-- **`run(inf)` steps to `done(inj{N,Gas}(z))`**: G := `inj{N,Gas}(z)`, covered, and
+`capGas(inj{N,Gas}(z)) = capN(z) = inf`. -/
+theorem step_keepRun : Step keepRun runInfK doneZK := by
+  refine step_iff_by.mpr ⟨rCut, [(0, injZ), (1, cnt0), (2, .ctor inf [])], ?_⟩
+  exact
+  { mem := by rw [rules_keepRun]; exact List.mem_singleton_self _
+    hσ := fun j s hs => by
+      rw [rCut_vars] at hs
+      match j, hs with
+      | 0, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+      | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+      | 2, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+      | j + 3, hs => simp at hs
+    hmatch := .ctor syms_keepRun.1 (.cons (.ctor syms_keepRun.2.1 (.cons (.ctor syms_keepRun.2.2.1
+      (.cons (.inj (.ctor syms_keepRun.2.2.2.2.1 (.cons (.var rfl) .nil))) (.cons (.ctor syms_keepRun.2.2.2.1 .nil) .nil)))
+        .nil)) (.cons (.var rfl) .nil))
+    hreq := fun t ht => by simp [rCut] at ht
+    hpre := holds_mem_pto (.var : EvalTerm keepRun _ (.var 2) _)
+      (EvalTerm.ovlFn (rs := [some injZ]) (vs := [injZ]) (o := capGasO) (kg := capNKeepSig)
+        (r := some (.ctor inf [])) syms_keepRun.2.2.2.2.2.2.1 syms_keepRun.2.2.2.2.2.2.2 (.cons .var .nil) rfl
+        (by decide +kernel) (by decide +kernel) eval_capN_keepRun)
+    heval := .ctor syms_keepRun.1 (.cons (.ctor syms_keepRun.2.1 (.cons (.ctor syms_keepRun.2.2.1
+      (.cons (.inj (.ctor syms_keepRun.2.2.2.2.2.1 (.cons .var .nil))) (.cons (.ctor syms_keepRun.2.2.2.1 .nil) .nil)))
+        .nil)) (.cons .var .nil))
+    hens := fun t ht => by simp [rCut] at ht
+    hpost := .top
+    hprio := fun r' hr' hlt => by
+      rw [rules_keepRun] at hr'
+      rw [List.mem_singleton.mp hr'] at hlt
+      exact absurd hlt (Nat.lt_irrefl _) }
+
+end Cap
+
+/-! ## e5-ovl-fun-lhs-int: a cut whose function overload takes Int -/
+
+namespace Dbl
+
+def expS : Srt := nRegSorts
+def pgmS : Srt := nRegSorts + 1
+def kl : Sym := nRegSyms + 4
+def done : Sym := nRegSyms + 6
+def run : Sym := nRegSyms + 7
+def dblInt : Sym := nRegSyms + 8
+def dblExp : Sym := nRegSyms + 9
+
+/-- `dblInt : Int → Int`, total, `dblInt(I) = 2 *Int I`. -/
+def dblIntFn : Fn :=
+  ⟨dblInt, [Srt.int], Srt.int,
+    [{ vars := [Srt.int], pats := [.var 0], req := none, rhs := .app intMul [intT 2, .var 0], ens := none }], true⟩
+
+/-- `dblExp : Exp → Exp` over `dblInt`, Int < Exp, `run : Exp → Pgm`, `done : dArg → Pgm`, and the
+rules `rs`. -/
+def sem (dArg : Srt) (rs : List Rule) : Semantics :=
+  { lib := lib0
+    sortNames := ["Exp", "Pgm", "KCell", "KCellOpt"]
+    symNames := ["LblisExp", "LblisPgm", "LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell",
+      "Lbldone", "Lblrun", "LbldblInt", "LbldblExp"]
+    userSorts := [Srt.top, Srt.topFrag, expS, pgmS, pgmS + 1, pgmS + 2, Srt.counter, Srt.counterOpt]
+    ctors := cellCtors (pgmS + 1) kl ++ [⟨done, [dArg], pgmS⟩, ⟨run, [expS], pgmS⟩]
+    fns := [dblIntFn]
+    userSubsorts := (Srt.int, expS) :: cellSubsorts (pgmS + 1)
+    pgmSort := pgmS
+    rules := rs
+    ovls := [⟨⟨dblExp, [expS], expS⟩, [dblInt]⟩] }
+
+/-- `<k> run(dbl(_:Exp)) => done(0) </k>` read through the cut: `run(V) => done(0)`,
+`pre := V ∈ dblExp(E)`, E the variable 0 and V the variable 2. -/
+def rZero : Rule :=
+  { vars := [expS, Srt.counter, expS], lhs := cfg kl pgmS (.app run [.var 2]) 1, req := none,
+    rhs := cfg kl pgmS (.app done [intT 0]) 1, ens := none, prio := 50,
+    pre := .mem expS (.var 2) (.app dblExp [.var 0]) }
+/-- `<k> run(_:Exp) => done(1) </k> [owise]`. -/
+def rOwise : Rule :=
+  { vars := [expS, Srt.counter], lhs := cfg kl pgmS (.app run [.var 0]) 1, req := none,
+    rhs := cfg kl pgmS (.app done [intT 1]) 1, ens := none, prio := 200 }
+/-- The same cut with the right side `done(E)`. -/
+def rE : Rule := { rZero with rhs := cfg kl pgmS (.app done [.var 0]) 1 }
+
+/-- e5-ovl-fun-lhs-int's text, its first rule cut. -/
+def text : Semantics := sem Srt.int [rZero, rOwise]
+/-- The cut rule without the `[owise]` rule. -/
+def zeroAlone : Semantics := sem Srt.int [rZero]
+/-- The cut rule with `=> done(E)` (`done` taking Exp), without the `[owise]` rule. -/
+def alone : Semantics := sem expS [rE]
+
+/-- `dblExp`'s function overload takes Int, which is not confined, and so is Exp: `dblExp` is not
+`ovlHeld`, so the cut does not hold E (`memHeld`), and no symbol of `rZero`'s right side holds E. -/
+theorem not_held : text.fnOvlSyms = [dblExp] ∧ text.confined Srt.int = false ∧ text.confined expS = false ∧
+    text.ovlHeld dblExp = false ∧ text.holds dblExp = false ∧ memHeld text (varOccs rZero.lhs) rZero.pre 0 = false ∧
+    varOccs rZero.lhs = [2, 1] ∧ rZero.opens = [0] ∧ rZero.openCondVars = [0] ∧ rZero.reqClosed = false ∧
+    (heldOccs text rZero.rhs).contains 0 = false := by
+  decide +kernel
+
+/-- **e5-ovl-fun-lhs-int is refused, at E under `dblExp`**: `rZero` fails the arms (E is held by
+no constructor of the right side, its sort is not confined, and the conditions are not closed) and
+the competition conjunct (E is an open condition variable of an unconfined sort in a rule below
+the `[owise]` rule's priority); the `[owise]` rule passes. The cut rule is well sorted and its
+left side applies no function-overloaded symbol. The reader's refusal, `openRequires` naming E and
+`dblExp`, is test/OvlCutRule.lean's. -/
+theorem text_refused : text.rulesPlain = false ∧ text.rulePlainHO1 rZero = false ∧
+    text.rulePlainHO1 rOwise = true ∧
+    rZero.opens.all (fun i => (heldOccs text rZero.rhs).contains i ||
+      (rZero.vars[i]?.map text.confined).getD false ||
+      (rZero.condVars.contains i && rZero.reqClosed)) = false ∧
+    (!rZero.reqOpen || !text.rules.any (fun r' => rZero.prio < r'.prio) ||
+      rZero.openCondVars.all (fun i => (rZero.vars[i]?.map text.confined).getD false) || rZero.reqClosed) = false ∧
+    text.ruleSorted rZero = true ∧ text.ovlPatsOK = true := by
+  decide +kernel
+
+theorem coreOK_text : text.coreOK = false := by
+  cases h : text.coreOK
+  · rfl
+  · have hs := (Semantics.coreOK_parts h).1
+    have hp : text.rulesPlain = true := by
+      simp only [Semantics.sortedOK, Bool.and_eq_true] at hs
+      exact hs.1.1.2
+    rw [text_refused.1] at hp; cases hp
+
+/-- Without the `[owise]` rule, and right side `done(0)`, the arms still refuse E. -/
+theorem zeroAlone_refused : zeroAlone.rulesPlain = false ∧ zeroAlone.rulePlainHO1 rZero = false := by
+  decide +kernel
+
+/-- **Alone and with `=> done(E)`, the cut rule is admitted by arm A**: E is held by the right
+side under the constructor `done`, and no rule has a larger priority. -/
+theorem alone_admitted : alone.rulesPlain = true ∧ (ctorOccs alone rE.rhs).contains 0 = true ∧
+    alone.rulePlainPP rE = true ∧ alone.ruleSorted rE = true ∧ alone.ovlPatsOK = true := by
+  decide +kernel
+
+theorem light_alone : light alone = true := by rw [light]; decide_cheap
+
+open Faithful.Model in
+theorem names_alone : namesApartFast alone = true := by decide +kernel
+
+open Faithful.Model in
+theorem ites_alone : itesApart alone = true := by decide_cheap
+
+theorem others_alone : others alone = true := others_of light_alone names_alone ites_alone
+
+theorem ovls_alone : alone.overloadsOK = true := by decide +kernel
+
+/-- `coreOK` admits the cut rule alone with `=> done(E)`. -/
+theorem coreOK_alone : alone.coreOK = true := Admit.coreOK_of others_alone ovls_alone
+
+end Dbl
+
+/-- info: 'OvlFun.Cap.cut_facts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.cut_facts
+/-- info: 'OvlFun.Cap.coreOK_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.coreOK_cut
+/-- info: 'OvlFun.Cap.fnHyp_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.fnHyp_cut
+/-- info: 'OvlFun.Cap.complete_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.complete_cut
+/-- info: 'OvlFun.Cap.sound_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.sound_cut
+/-- info: 'OvlFun.Cap.step_z' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_z
+/-- info: 'OvlFun.Cap.step_capInf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_capInf
+/-- info: 'OvlFun.Cap.no_step_inf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.no_step_inf
+/-- info: 'OvlFun.Cap.expect_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.expect_cut
+/-- info: 'OvlFun.Cap.step_keepRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_keepRun
+/-- info: 'OvlFun.Dbl.not_held' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.not_held
+/-- info: 'OvlFun.Dbl.text_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.text_refused
+/-- info: 'OvlFun.Dbl.coreOK_text' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.coreOK_text
+/-- info: 'OvlFun.Dbl.zeroAlone_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.zeroAlone_refused
+/-- info: 'OvlFun.Dbl.alone_admitted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.alone_admitted
+/-- info: 'OvlFun.Dbl.coreOK_alone' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Dbl.coreOK_alone
 
 end OvlFun
