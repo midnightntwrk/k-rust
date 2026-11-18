@@ -6,7 +6,9 @@
 #   examples     every example package as committed, built in the kernel with its user's modules
 #                (examples/run.sh --build-only): peano with its tie, the one worked example of a
 #                definition read from its KORE text that `emit` gives back; ref-kimp with User.SumSpec
-#                (K's claim sum-spec), User.SumN, User.SumSpecStmt and User.RunInstance (run_exact at
+#                (K's claim sum-spec), User.SumN, User.SumSpecStmt, User.SumSpecGen (the statement
+#                `k2lean kcore-claims` writes; test/pins-kimp.sh, run by the integration step,
+#                regenerates and compares it) and User.RunInstance (run_exact at
 #                one configuration); kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance; ref-kimp's row
