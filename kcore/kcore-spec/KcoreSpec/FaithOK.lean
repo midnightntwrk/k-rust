@@ -335,6 +335,11 @@ def Semantics.confinedAt (c : Semantics) : Nat → Srt → Bool
 def Semantics.confined (c : Semantics) (s : Srt) : Bool :=
   c.confinedAt (Faithful.kernelSorts c).length s
 
+/-- The clause's conditions are closed over open variables of which one is not of a confined
+sort. -/
+def Clause.needsWitness (c : Semantics) (cl : Clause) : Bool :=
+  cl.reqOpen && cl.reqClosed && !cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false
+
 /-- HO-1: the unit, element and concatenation symbols of a map, list or set collection. -/
 def Semantics.holds (c : Semantics) (f : Sym) : Bool := patternHooks.contains f || c.isCollPat f
 

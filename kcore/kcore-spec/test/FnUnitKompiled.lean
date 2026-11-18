@@ -251,12 +251,12 @@ theorem fnLaws (H : HookParams) : FnLaws (cH H) defn.laws := by
   · exact unitL_lawAt H
 
 /-- The hypotheses of `consistent_with_laws` that do not read the laws, under every
-interpretation, for a semantics `coreOK` accepts whose obligation lists are empty and which has no
-open generator. -/
+interpretation, for a semantics `coreOK` accepts whose obligation lists are empty, whose clauses'
+predicates are `\top` and which has no open generator. -/
 theorem model_of_nilFU {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued = true)
     (h1 : c.rankObligations [] ++ c.decObligationsL = []) (h2 : c.totalObligationsRP [] [] = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
-    (h5 : c.params.all (fun k => !k.raw) = true) (H : HookParams) :
+    (h5 : c.params.all (fun k => !k.raw) = true) (hpreTop : c.clausesPreTop = true) (H : HookParams) :
     (c.withHooks H).coreOK = true ∧ FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) ∧
       ClausePreDecided (c.withHooks H) ∧ OpenLaws (c.withHooks H) := by
   have hcH : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks _ H).trans hc
@@ -267,8 +267,9 @@ theorem model_of_nilFU {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValue
       ((Det.Semantics.agreeObligationsI_withHooks _ H).trans h3)
       ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4) h5
   have hrh := Semantics.rightHeld_withHooks_of_valued hv H
-  have hm := fnModel_of_fnFacts hcH hrh hob
-  exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob, hob.2.2.2.2⟩
+  have hpH := (Semantics.clausesPreTop_withHooks _ H).trans hpreTop
+  have hm := fnModel_of_fnFacts hcH hrh hob hpH
+  exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob hpH, hob.2.2.2.2⟩
 
 /-- **The theory of the text with its laws' sentences has a model, under every interpretation**:
 `consistent_with_laws` at the reader's laws (`fnLaws`; each law `lawSorted`, `laws_sorted`). -/
@@ -276,7 +277,7 @@ theorem consistent (H : HookParams) :
     ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
       (I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H))) ∧ ∀ l ∈ defn.laws, I ⊧ᴵ lawPattern (cH H) l :=
   have hm := model_of_nilFU coreOK_text (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) H
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H
   consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1 hm.2.2.2.2 (fnLaws H)
     (fun l hl => by
       rw [laws_eq] at hl

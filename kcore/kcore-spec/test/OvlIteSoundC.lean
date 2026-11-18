@@ -106,6 +106,7 @@ theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovl
     exact ⟨⟨⟨⟨⟨⟨⟨a, b⟩, h2 x hx⟩, d⟩, e⟩, f⟩, g⟩, k⟩
 
 theorem sortedOK : c.sortedOK = true := by decide_cheap
+theorem clausesPreTopC : c.clausesPreTop = true := by decide +kernel
 theorem readsConfined : c.readsConfined = false := by decide +kernel
 
 theorem fnHyp : FnHyp c :=
@@ -557,7 +558,7 @@ theorem not_allFail {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm} (hs
   cases hf [(0, v)] hws hpv with
   | intro ht _ _ => rw [hreq] at ht; cases ht
   | pre h =>
-    rw [Semantics.sortedOK_preTop sortedOK fn hfn cl hcl] at h
+    rw [Semantics.allFns_preTop clausesPreTopC fn hfn cl hcl] at h
     cases h
 
 theorem satI_fallback {φ : KoreAML.P} (h : ΓFallback c φ) : I ⊧ᴵ φ := by

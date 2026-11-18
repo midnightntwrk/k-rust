@@ -108,7 +108,7 @@ theorem table_ok (H : HookParams) : InertEvUser.TableOK (cH H) fTable := by
 noncomputable abbrev ensAx : AxiomDecl := U.ax201
 
 /-- The reader's class of the sentence. -/
-theorem ens_class : Parse.classify (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
+theorem ens_class : Parse.classifyShape (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
 
 def vars : LibEv.Vars := [("VarX", Srt.int)]
 def tL : Term := .app f [.app f [.var 0]]
@@ -252,9 +252,9 @@ theorem ens_fails (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation 
         cases hv
         rw [vkey_wh H, heX']
         exact (h1a m).symm
-    have hL := (InertEvUser.den_valU (tbl := t) (e := e) (coreOKH H) (hokH H) (table_ok H) hI hσ hag tL
+    have hL := (InertEvUser.den_valU (tbl := t) (e := e) (coreOKH H) (hokH H) (table_ok H) hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hokH H))) tL
       ((typedL_wh H).trans typedL)).1 (elemOf (cH H) I (int (-1)))
-    have hG := (InertEvUser.den_valU (tbl := t) (e := e) (coreOKH H) (hokH H) (table_ok H) hI hσ hag tG
+    have hG := (InertEvUser.den_valU (tbl := t) (e := e) (coreOKH H) (hokH H) (table_ok H) hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hokH H))) tG
       ((typedG_wh H).trans typedG)).1 (elemOf (cH H) I (bool true))
     rw [valL] at hL
     rw [valG] at hG

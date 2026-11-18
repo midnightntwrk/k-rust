@@ -248,7 +248,7 @@ include hI hnn hsc hok hbc hph hneg
 /-- **A rule that applies, in a model**: a configuration that a rule's left-hand side matches
 under a well-sorted σ, with its `requires` evaluating to `true`, has its element in the rule's
 `applies` pattern `∃x̄. (lhs ∧ ⌈req = true⌉)`. -/
-theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem applies_holds (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl) (e : Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret I e (elemOf c I x.val) := by
@@ -256,7 +256,7 @@ theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb 
   let vs := canonVars c r.vars
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
   have hag := overV_agrees hI hkeys hσ (e := e)
-  have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
+  have h := lhs_req_hold4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
   rw [applies_top _ hpre hb]
   show (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll (srtOf c topCellSort) (vs.map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))]))).interpret
@@ -347,7 +347,7 @@ open Classical in
 /-- **Step completeness**: with the step's closure axiom, in every model of `Γ c`, every successor
 of the element of a configuration `x` is the element of a configuration that `ref`, a step function
 listing `Step`'s successors, gives for `x`. -/
-theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_complete (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hft : FnTerminates c) (ref : StepFn) (href : StepIs c ref) (x : Config c) :
     (Γ c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList ((ref x.val).map (den c)))) := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := id h
@@ -360,7 +360,7 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl)
+      exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
         (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   have hneg : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmpty c I fn cl :=
@@ -480,7 +480,7 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
       obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
       exact reqFalse_empty hIΓ (S' := srtOf c topCellSort) (fun a => by unfold srtOf; rw [trSort_srt]; exact hσC1 a) hσC2
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hreqs t ht) hu)
-        (evalTerm_den4 hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
+        (evalTerm_den4 (hpreTop := hpreTop) hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
         _ hreq
   -- the `ensures` evaluates to `true`
   have hensS := rule_ctx_ens hok hr
@@ -495,7 +495,7 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
       obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
       exact reqFalse_empty hIΓ (S' := srtOf c topCellSort) (fun a => by unfold srtOf; rw [trSort_srt]; exact hσC1 a) hσC2
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hensS t ht) hu)
-        (evalTerm_den4 hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht))
+        (evalTerm_den4 (hpreTop := hpreTop) hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht))
         _ hE
   -- no rule of a smaller priority applies
   have hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val := by
@@ -512,11 +512,11 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
       by_cases hvt : v = some (bool true)
       · rw [hvt] at hv; exact hv
       · exact absurd (RuleReqFails.intro ht hv hvt) hnf
-    exact hcomp r' hr' hlt (applies_holds hIΓ hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hb _ hr') hσ' hpv' hreq'
+    exact hcomp r' hr' hlt (applies_holds (hpreTop := hpreTop) hIΓ hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hb _ hr') hσ' hpv' hreq'
       (fun i hi => hin_tbl _ (hLcomp r' hr' hlt i hi)) e2)
   -- the right-hand side evaluates to a configuration whose element is `b`
   obtain ⟨v, hv⟩ := Model.evalTerm_total h hft fns_headsOK hσ hrhss
-  have hbR := (evalTerm_den4 hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp
+  have hbR := (evalTerm_den4 (hpreTop := hpreTop) hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp
     hRm.1
   cases v with
   | none => exact hbR.elim

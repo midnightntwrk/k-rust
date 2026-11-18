@@ -140,7 +140,7 @@ clauses are asked CN-4's bodies (`sortedOKCl`) with `srReady`, `OvlOK`, `faithCo
 `patHooksApart` and `overloadsOK`, and whose clauses' conditions are decided where `needsWitness`
 holds (`neg_of_coreCl`'s hypotheses). `famEx_den_exNil` with no fact on the clauses' variables beyond
 each occurring in its clause; a rule without existential variables. -/
-theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hno : OvlOK c]
+theorem famEx_denCl_exNil (hpreTop : c.clausesPreTop = true) (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hno : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hov : c.overloadsOK = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
     {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (hexs : r.exs = []) (hpost : r.post = .top) (e : Valuation M)
@@ -152,7 +152,7 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
   have hcls := clauseOpenFactsP_of_sortedOKCl hok
-  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok))
+  have hneg := neg_of_coreCl hIc hok hsr hfa hph hc (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok))
   obtain ⟨-, -, hrhss⟩ := rule_ctxCl hok hs.mem
   have hensS := rule_ctx_ensCl hok hs.mem
   rw [famEx_eqCl_exNil hok hs.mem hexs hpost]
@@ -170,7 +170,7 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
       (fun i hi => List.mem_range.mpr hi) (fun p hp => hb p (List.mem_append_left _ hp))
     have hRm := hb _ (List.mem_append_right _ (List.mem_singleton_self _))
     rw [tr_and2, KoreAML.interp_sAnd] at hRm
-    have := (evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+    have := (evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
       hrhss m).mp hRm.1
     exact ((den_closed c y.val).interp e' e m).mp this
   · intro hm
@@ -217,9 +217,9 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
           rw [hvk, overV_at hkeys hi, hg', Option.getD_some]
         · cases hpi
       · rw [List.mem_singleton.mp hp, tr_and2, KoreAML.interp_sAnd]
-        refine ⟨(evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+        refine ⟨(evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) hs.heval fns_headsOK hs.hσ (canonVars_length c r.vars) hag
           hrhss m).mpr (((den_closed c y.val).interp e _ m).mp hm), reqPat_holds hI (fun t ht b =>
-            evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl hok)) (hs.hens t ht) fns_headsOK hs.hσ (canonVars_length c r.vars) hag
+            evalTerm_den4ClPre hI hnn hsc hph hcls hneg (preRead_of_allTop (clauseOpenFacts_of_sortedOKCl (hpreTop := hpreTop) hok)) (hs.hens t ht) fns_headsOK hs.hσ (canonVars_length c r.vars) hag
               (hensS t ht) b) hinC⟩
 
 
@@ -227,14 +227,14 @@ theorem famEx_denCl_exNil (hIc : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (h
 clauses are asked CN-4's bodies: `famEx_closed`'s conclusion with `sortedOKCl` and the conjuncts of
 `coreOK` the proof reads in place of `coreOK` (`famEx_denCl_exNil`). No hypothesis on the sorts of
 the variables the patterns and conditions do not hold. -/
-theorem famEx_closedCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [OvlOK c]
+theorem famEx_closedCl (c : Semantics) (hpreTop : c.clausesPreTop = true) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hov : c.overloadsOK = true)
     {x y : Config c} {r : Rule} {σ : Subst} (hs : StepBy c r σ x y) (_hex : r.exs = []) (hpost : r.post = .top)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     Γc c ⊧ (famEx c r σ ≡ den c y.val) := by
   intro M _ I hI e m
   rw [KoreAML.interp_equal (defOK fun φ hφ => hI φ (Or.inl hφ))]
-  exact famEx_denCl_exNil hI hok hsr hfa hph hov hc hs _hex hpost e
+  exact famEx_denCl_exNil (hpreTop := hpreTop) hI hok hsr hfa hph hov hc hs _hex hpost e
 
 end
 

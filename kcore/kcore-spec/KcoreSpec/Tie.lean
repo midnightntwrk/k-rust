@@ -56,12 +56,22 @@ def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
   r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
-/-- Clauses bind no variable by `\exists` and have no predicate; and a clause's open condition
-variables are of confined sorts, or its conditions are closed (`OpenDecided`). -/
+/-- Clauses bind no variable by `\exists` and have no predicate on the right side; a clause with a
+predicate in its premise is not one whose conditions need a witness (`needsWitness`); and a clause's
+open condition variables are of confined sorts, or its conditions are closed (`OpenDecided`). -/
 def Semantics.clausesPlain (c : Semantics) : Bool := c.fns.all fun f => f.clauses.all fun cl =>
-  cl.exs.isEmpty && cl.pre.isTop && cl.post.isTop &&
+  cl.exs.isEmpty && (cl.pre.isTop || !cl.needsWitness c) && cl.post.isTop &&
   (!cl.reqOpen || cl.reqClosed ||
     cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+
+/-- Every clause's predicate is `\top`: what the checks outside `coreOK` ask of the clauses (`ok`,
+`okM`, `okAll`), and the statements whose proofs read no predicate of a clause. -/
+def Semantics.clausesPreTop (c : Semantics) : Bool :=
+  c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop
+
+theorem Semantics.clausesPreTop_spec {c : Semantics} (h : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : cl.pre = .top :=
+  Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h f hf) cl hcl)
 
 /-- Each sort hooked to a library carrier is an own sort of the definition, named once, neither a
 token, a byte nor a collection sort, and its carrier is Int, Bool, Float, String or Bytes. -/
@@ -86,10 +96,11 @@ def Semantics.paramsPlain (c : Semantics) : Bool :=
     else !k.assoc && !k.idem) && c.carriersOK
 
 /-- The core is well-formed: declarations over declared sorts, its rules, clauses and parameters
-plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), subsorts, functions and rules. No sort is
+plain (`rulesPlain`, `clausesPlain`, `paramsPlain`), every clause's predicate `\top`
+(`clausesPreTop`), subsorts, functions and rules. No sort is
 required to have a value (`Semantics.valueless`, which the account prints). -/
 def Semantics.ok (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOK
 
 namespace Semantics
@@ -249,23 +260,20 @@ theorem clauseSorted_of_all {f : Fn} {H : List CtorSig} {cl : Clause} (h : c.cla
   · exact Or.inl (Or.inl (Or.inr h1))
   · exact Or.inl (Or.inr h1)
 
-/-- A clause of a semantics whose clauses are plain (`clausesPlain`: `\top` predicates) has its
-binders where values and elements agree (`Cond.bound`): it has none. -/
-theorem clauseBound_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
-    (hcl : cl ∈ f.clauses) :
+/-- A clause whose predicates are `\top` has its binders where values and elements agree
+(`Cond.bound`): it has none; `clausesPlain` gives the right side's, `clausesPreTop` the premise's. -/
+theorem clauseBound_of_plain (hp : c.clausesPlain = true) (ht : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) :
     (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) = true := by
   simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-  obtain ⟨⟨⟨-, hpre⟩, hpost⟩, -⟩ := hp f hf cl hcl
-  rw [Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost]
+  obtain ⟨⟨-, hpost⟩, -⟩ := hp f hf cl hcl
+  rw [clausesPreTop_spec ht hf hcl, Cond.eq_top_of_isTop hpost]
   rfl
 
-/-- A clause of a semantics whose clauses are plain (`clausesPlain`: `\top` predicates) has a well
-sorted predicate in its premise (`condOK`): `\top`. -/
-theorem clausePreOK_of_plain (hp : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
+/-- A clause whose premise's predicate is `\top` (`clausesPreTop`) has it well sorted (`condOK`). -/
+theorem clausePreOK_of_plain (ht : c.clausesPreTop = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
     (hcl : cl ∈ f.clauses) : c.condOK cl.vars cl.pre = true := by
-  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-  obtain ⟨⟨⟨-, hpre⟩, -⟩, -⟩ := hp f hf cl hcl
-  rw [Cond.eq_top_of_isTop hpre]
+  rw [clausesPreTop_spec ht hf hcl]
   rfl
 
 /-- `ruleOKAll` and `rulePredsOK` give `ruleSorted` of a rule whose left side applies no
@@ -318,14 +326,19 @@ collection pattern symbols too (`ruleOKAll`: a list's `ListItem(P) L`, a cell ma
 predicates well sorted (`rulePredsOK`). `ok` is the narrower condition the executable matcher's
 theorems read; `okAll` is what the tie checks. -/
 def Semantics.okAll (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOKAll &&
     c.rules.all c.ruleOKAll && c.rules.all c.rulePredsOK
 
 /-- The rules, clauses and parameters of a core `okAll` accepts are plain. -/
 theorem Semantics.plain_of_okAll {c : Semantics} (h : c.okAll = true) :
     c.rulesPlain = true ∧ c.clausesPlain = true ∧ c.paramsPlain = true := by
   simp only [Semantics.okAll, Bool.and_eq_true] at h
-  exact ⟨h.1.1.1.1.2.1.1, h.1.1.1.1.2.1.2, h.1.1.1.1.2.2⟩
+  exact ⟨h.1.1.1.1.2.1.1, h.1.1.1.1.2.1.2.1, h.1.1.1.1.2.2⟩
+
+/-- Every clause of a core `okAll` accepts has the predicate `\top`. -/
+theorem Semantics.preTop_of_okAll {c : Semantics} (h : c.okAll = true) : c.clausesPreTop = true := by
+  simp only [Semantics.okAll, Bool.and_eq_true] at h
+  exact h.1.1.1.1.2.1.2.2
 
 theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true := by
   simp only [Semantics.ok, Semantics.okAll, Bool.and_eq_true, List.all_eq_true] at h ⊢
@@ -338,7 +351,7 @@ theorem Semantics.okAll_of_ok {c : Semantics} (h : c.ok = true) : c.okAll = true
 `ruleOKM` (`ruleOK` less its two `\top` predicates) and its predicates well sorted
 (`rulePredsOK`). -/
 def Semantics.okM (c : Semantics) : Bool :=
-  c.declsOK && (c.rulesPlain && c.clausesPlain && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
+  c.declsOK && (c.rulesPlain && (c.clausesPlain && c.clausesPreTop) && c.paramsPlain) && c.subsortsOK && c.fnsOK &&
     c.rules.all c.ruleOKM && c.rules.all c.rulePredsOK
 
 theorem Semantics.okM_of_ok {c : Semantics} (h : c.ok = true) : c.okM = true := by
@@ -365,6 +378,7 @@ theorem Semantics.okM_rule {c : Semantics} (h : c.okM = true) {r : Rule} (hr : r
 theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) (hov : c.ovlPatsOK = true) :
     c.sortedOK = true := by
   obtain ⟨hrp, hcp, hpp⟩ := Semantics.plain_of_okAll h
+  have hpt := Semantics.preTop_of_okAll h
   simp only [Semantics.okAll, Bool.and_eq_true] at h
   obtain ⟨⟨⟨⟨-, hs⟩, hf⟩, hr⟩, hq⟩ := h
   simp only [Semantics.fnsOKAll, List.all_eq_true] at hf
@@ -374,7 +388,7 @@ theorem Semantics.sortedOK_of_okAll {c : Semantics} (h : c.okAll = true) (hov : 
       (Semantics.ovlPats_lhs hov hr')⟩
   have := hf f hf'
   simp only [Semantics.fnOKAll, Bool.and_eq_true, List.all_eq_true] at this
-  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hf' hcl) (c.clausePreOK_of_plain hcp hf' hcl)
+  exact c.clauseSorted_of_all (this.1 cl hcl) (c.clauseBound_of_plain hcp hpt hf' hcl) (c.clausePreOK_of_plain hpt hf' hcl)
 
 /-- A rule of a semantics `ok` accepts has the plain shapes and a left side that binds every
 variable (`ruleOK`). -/

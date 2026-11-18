@@ -135,8 +135,8 @@ theorem eqn1_fails {c' : Semantics} (h : c'.coreOK = true) (hok : c'.ok = true) 
         cases hw
         rw [heX']
         exact (hva m).symm
-    have hDL := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag E.lhs htl).1 mL
-    have hDR := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag E.rhs htr).1 mL
+    have hDL := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) E.lhs htl).1 mL
+    have hDR := (InertEvUser.den_valU (tbl := t) (e := e) h hok hF hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) E.rhs htr).1 mL
     rw [hL] at hDL
     rw [hR] at hDR
     have hRHS := (hEQ.2 mL hinhL).mp (hDL.mpr ((hLa _).mpr rfl))
@@ -303,7 +303,7 @@ def E178 : LibEv.Eqn :=
   ⟨[("VarX", Srt.int)], Srt.bool, none, .app intGe [.app sl [.var 0], .dv Srt.int (.int 0)], .dv Srt.bool (.bool true)⟩
 
 /-- The reader's class of the two sentences. -/
-theorem simp_class : [U.ax170, U.ax178].map (fun ad => Parse.classify (.axiom ad.ax)) =
+theorem simp_class : [U.ax170, U.ax178].map (fun ad => Parse.classifyShape (.axiom ad.ax)) =
     [.inert .simplification, .inert .simplification] := by decide +kernel
 
 theorem text170 : U.ax170.ax.pattern = E170.pattern c ∧ U.ax170.ax.sortVars = [Rv] ∧

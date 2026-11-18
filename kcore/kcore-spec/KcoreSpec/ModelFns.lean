@@ -395,8 +395,8 @@ theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
   rcases List.mem_append.mp hfn with hu | hp
   · intro v
-    have hpl := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hu cl hcl).2
-    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hpl.1 hpl.2.2.1 ((wellSortedAt_univ hpl.1).mp hdec.1.1) v)
+    have hpl := Semantics.clausePlainOpen_partsP ((Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hu cl hcl).2
+    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hpl.1 hpl.2.1 ((wellSortedAt_univ hpl.1).mp hdec.1.1) v)
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
       (fun cl' hcl' => ⟨Semantics.sortPreds_exs hp cl' hcl', Semantics.sortPreds_post hp cl' hcl'⟩)

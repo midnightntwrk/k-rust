@@ -68,8 +68,8 @@ noncomputable abbrev neAx : AxiomDecl := U.ax201
 noncomputable abbrev slAx : AxiomDecl := U.ax256
 
 /-- The reader's class of each sentence. -/
-theorem ne_class : Parse.classify (.axiom neAx.ax) = .inert .simplification := by decide +kernel
-theorem sl_class : Parse.classify (.axiom slAx.ax) = .inert .simplification := by decide +kernel
+theorem ne_class : Parse.classifyShape (.axiom neAx.ax) = .inert .simplification := by decide +kernel
+theorem sl_class : Parse.classifyShape (.axiom slAx.ax) = .inert .simplification := by decide +kernel
 
 /-- Each carries its key. -/
 theorem ne_key : neAx.ax.attributes.any (fun ap => ap.head.ident.name == "non-executable") = true := by

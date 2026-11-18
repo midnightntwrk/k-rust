@@ -910,7 +910,7 @@ theorem refutes_sound {σ : Subst} {vs : List Srt} (hσ : c.WellSorted vs σ) {A
 /-! ## Two rules apart -/
 
 section
-variable (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+variable (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
   (hmo : CoherentAll c)
 
 mutual
@@ -943,10 +943,10 @@ theorem evalTs_pure (c : Semantics) (H : HookParams) : ∀ (n : Nat) (σ : Subst
 end
 
 include hok hsr hmr hmo in
-theorem groundRefutes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {A : Term} {b : Bool}
+theorem groundRefutes_sound_okM {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {A : Term} {b : Bool}
     (hr : groundRefutes c (tables c) vs (A, b) = true) (he : EvalTerm c σ A (some (bool b))) : False := by
-  have hsc := sortCtx_of hok hsr (Exec.ovlCase_of hmr)
-  have hcc := clauseCtx_of hok
+  have hsc := sortCtx_of_okM hok hsr (Exec.ovlCase_of hmr)
+  have hcc := clauseCtx_of_okM hok
   have hmc := matchCtx_of hmr
   have hmi := hmo
   simp only [groundRefutes, Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq] at hr
@@ -968,12 +968,12 @@ theorem groundRefutes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs 
   · cases hev
 
 include hok hsr hmr hmo in
-theorem clashes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {L : List (Term × Bool)}
+theorem clashes_sound_okM {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {L : List (Term × Bool)}
     (hL : ∀ A b, (A, b) ∈ L → EvalTerm c σ A (some (bool b))) (h : clashes c (tables c) vs L = true) : False := by
   simp only [clashes, Bool.or_eq_true, List.any_eq_true] at h
   rcases h with (⟨⟨A, b⟩, hm, hr⟩ | ⟨⟨A, b⟩, hm, hr⟩) | ⟨⟨A, b⟩, hm, ⟨A', b'⟩, hm', hc⟩
   · exact refutes_sound hσ hr (hL A b hm)
-  · exact groundRefutes_sound hok hsr hmr hmo hσ hr (hL A b hm)
+  · exact groundRefutes_sound_okM hok hsr hmr hmo hσ hr (hL A b hm)
   · simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, beq_iff_eq] at hc
     obtain ⟨⟨hb, he⟩, -⟩ := hc
     have he := Term.beq_sound he
@@ -983,19 +983,19 @@ theorem clashes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {L
 
 include hok hsr hmr hmo in
 /-- Two rules that `apart` separates never both apply to one configuration. -/
-theorem apart_sound {r r' : Rule} (hr : r ∈ c.rules) (hr' : r' ∈ c.rules) (hap : apart c (tables c) r r' = true)
+theorem apart_sound_okM {r r' : Rule} (hr : r ∈ c.rules) (hr' : r' ∈ c.rules) (hap : apart c (tables c) r r' = true)
     {x : GroundTerm} {σ σ' : Subst}
     (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x)
     (hq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     (hσ' : c.WellSorted r'.vars σ') (hm' : PatVal c σ' r'.lhs x)
     (hq' : ∀ t, r'.req = some t → EvalTerm c σ' t (some (bool true))) : False := by
   have hmc := matchCtx_of hmr
-  obtain ⟨hlt, -, -, -, -⟩ := ruleOK_of hok hr
-  obtain ⟨hlt', -, -, -, -⟩ := ruleOK_of hok hr'
+  obtain ⟨hlt, -, -, -, -⟩ := ruleOKM_of hok hr
+  obtain ⟨hlt', -, -, -, -⟩ := ruleOKM_of hok hr'
   obtain ⟨C, hC, hR⟩ := meet_sound hmc hσ hσ' r.lhs r'.lhs hm hm' hlt hlt'
   unfold apart at hap
   rw [hC] at hap
-  refine clashes_sound hok hsr hmr hmo hσ' (fun A b hAb => ?_) hap
+  refine clashes_sound_okM hok hsr hmr hmo hσ' (fun A b hAb => ?_) hap
   rcases List.mem_append.mp hAb with hAb | hAb
   · unfold litsL at hAb
     split at hAb
@@ -1013,6 +1013,29 @@ theorem apart_sound {r r' : Rule} (hr : r ∈ c.rules) (hr' : r' ∈ c.rules) (h
     · simp at hAb
 
 end
+
+
+/-- `groundRefutes_sound_okM` in a core that `ok` accepts. -/
+theorem groundRefutes_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {A : Term} {b : Bool}
+    (hr : groundRefutes c (tables c) vs (A, b) = true) (he : EvalTerm c σ A (some (bool b))) : False :=
+  groundRefutes_sound_okM (Semantics.okM_of_ok hok) hsr hmr hmo hσ hr he
+
+/-- `clashes_sound_okM` in a core that `ok` accepts. -/
+theorem clashes_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {L : List (Term × Bool)}
+    (hL : ∀ A b, (A, b) ∈ L → EvalTerm c σ A (some (bool b))) (h : clashes c (tables c) vs L = true) : False :=
+  clashes_sound_okM (Semantics.okM_of_ok hok) hsr hmr hmo hσ hL h
+
+/-- Two rules that `apart` separates never both apply to one configuration (`apart_sound_okM`). -/
+theorem apart_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {r r' : Rule} (hr : r ∈ c.rules) (hr' : r' ∈ c.rules)
+    (hap : apart c (tables c) r r' = true) {x : GroundTerm} {σ σ' : Subst}
+    (hσ : c.WellSorted r.vars σ) (hm : PatVal c σ r.lhs x)
+    (hq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
+    (hσ' : c.WellSorted r'.vars σ') (hm' : PatVal c σ' r'.lhs x)
+    (hq' : ∀ t, r'.req = some t → EvalTerm c σ' t (some (bool true))) : False :=
+  apart_sound_okM (Semantics.okM_of_ok hok) hsr hmr hmo hr hr' hap hσ hm hq hσ' hm' hq'
 
 /-! ## Head keys: a value's key at a path is among those its pattern allows -/
 
@@ -1661,7 +1684,7 @@ theorem not_notApplies (hmi : CoherentAll c) {r : Rule} {x : GroundTerm} {τ : S
 
 /-- Two rules with one left-hand side, one right-hand side and the same variables, the first's match
 fixing its right-hand side (`uniqOK`), rewrite x to one value. -/
-theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAll c)
+theorem eval_eq_of_uniq_okM (hok : c.okM = true) (hmc : MatchCtx c) (hmi : CoherentAll c)
     {r r₁ : Rule} (hr : r ∈ c.rules) (hu : uniqOK c r = true) (hv : r.vars = r₁.vars)
     (hl : r.lhs = r₁.lhs) (hrh : r.rhs = r₁.rhs) {x : GroundTerm} {τ τ' : Subst} {z z' : GroundTerm}
     (hτ : c.WellSorted r.vars τ) (hm : PatVal c τ r.lhs x) (he : EvalTerm c τ r.rhs (some z))
@@ -1673,7 +1696,7 @@ theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAl
   unfold uniqOK at hu
   split at hu
   · rename_i D hD
-    obtain ⟨hlt, -, -, -, -⟩ := ruleOK_of hok hr
+    obtain ⟨hlt, -, -, -, -⟩ := ruleOKM_of hok hr
     have hag := uniq_sound hmc hτ hτ' _ hD hm hm' (sortOfTerm_nf_of_nil (Semantics.fnOvlSyms_of_noOvl hmc.noOvl)
       (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hlt)) (fun _ h => by cases h)
     have he₂ := Exec.EvalTerm.congr he fun k hk => hag k (by
@@ -1681,8 +1704,17 @@ theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAl
     exact Option.some.inj (evalTerm_det hmi he₂ he')
   · cases hu
 
-/-- **The decider is sound**: where `detCond` holds at a pair, its two rules' steps join. -/
-theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+/-- `eval_eq_of_uniq_okM` in a core that `ok` accepts. -/
+theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAll c)
+    {r r₁ : Rule} (hr : r ∈ c.rules) (hu : uniqOK c r = true) (hv : r.vars = r₁.vars)
+    (hl : r.lhs = r₁.lhs) (hrh : r.rhs = r₁.rhs) {x : GroundTerm} {τ τ' : Subst} {z z' : GroundTerm}
+    (hτ : c.WellSorted r.vars τ) (hm : PatVal c τ r.lhs x) (he : EvalTerm c τ r.rhs (some z))
+    (hτ' : c.WellSorted r₁.vars τ') (hm' : PatVal c τ' r₁.lhs x) (he' : EvalTerm c τ' r₁.rhs (some z')) :
+    z = z' :=
+  eval_eq_of_uniq_okM (Semantics.okM_of_ok hok) hmc hmi hr hu hv hl hrh hτ hm he hτ' hm' he'
+
+/-- **The decider is sound**, in a core `okM` accepts: where `detCond` holds at a pair, its two rules' steps join. -/
+theorem detCond_sound_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
     (hmo : CoherentAll c) {T : Tables} (hT : T = tables c) {Inv : Config c → Prop} (p : Nat × Nat)
     (h : detCond c T p = true) : JoinsOn c Inv p.1 p.2 := by
   subst hT
@@ -1700,20 +1732,27 @@ theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matc
   · rename_i hij
     rw [beq_iff_eq.mp hij, hr'] at hr
     cases Option.some.inj hr
-    exact Subtype.ext (eval_eq_of_uniq hok hmc hmi hmem h rfl rfl rfl hσ hm he hσ' hm' he')
+    exact Subtype.ext (eval_eq_of_uniq_okM hok hmc hmi hmem h rfl rfl rfl hσ hm he hσ' hm' he')
   · simp only [pairCond, Bool.or_eq_true, Bool.and_eq_true, bne_iff_ne, ne_eq] at h
     rcases h with (((hne | hap) | hap) | ⟨hsame, hu⟩)
     · rcases Nat.lt_or_gt_of_ne hne with hlt | hlt
       · exact (not_notApplies hmi hσ hm hq hpr (hp' _ hmem hlt)).elim
       · exact (not_notApplies hmi hσ' hm' hq' hpr' (hp _ hmem' hlt)).elim
-    · exact (apart_sound hok hsr hmr hmo hmem hmem' hap hσ hm hq hσ' hm' hq').elim
-    · exact (apart_sound hok hsr hmr hmo hmem' hmem hap hσ' hm' hq' hσ hm hq).elim
+    · exact (apart_sound_okM hok hsr hmr hmo hmem hmem' hap hσ hm hq hσ' hm' hq').elim
+    · exact (apart_sound_okM hok hsr hmr hmo hmem' hmem hap hσ' hm' hq' hσ hm hq).elim
     · simp only [sameRule, Bool.and_eq_true, beq_iff_eq] at hsame
       rcases hsame with ⟨⟨hv, hl⟩, hrh⟩ | ⟨⟨hv, hl⟩, hrh⟩
-      · exact Subtype.ext (eval_eq_of_uniq hok hmc hmi hmem hu hv (Term.beq_sound hl) (Term.beq_sound hrh)
+      · exact Subtype.ext (eval_eq_of_uniq_okM hok hmc hmi hmem hu hv (Term.beq_sound hl) (Term.beq_sound hrh)
           hσ hm he hσ' hm' he')
-      · exact Subtype.ext (eval_eq_of_uniq hok hmc hmi hmem hu hv.symm (Term.beq_sound hl).symm
+      · exact Subtype.ext (eval_eq_of_uniq_okM hok hmc hmi hmem hu hv.symm (Term.beq_sound hl).symm
           (Term.beq_sound hrh).symm hσ hm he hσ' hm' he')
+
+/-- **The decider is sound**: where `detCond` holds at a pair, its two rules' steps join
+(`detCond_sound_okM`). -/
+theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {T : Tables} (hT : T = tables c) {Inv : Config c → Prop} (p : Nat × Nat)
+    (h : detCond c T p = true) : JoinsOn c Inv p.1 p.2 :=
+  detCond_sound_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT p h
 
 /-- **Determinism's decider** for `kind`. -/
 def decider (hok : c.ok = true) (hsr : c.srReady = true) (hmo : CoherentAll c) {T : Tables}
@@ -1721,6 +1760,13 @@ def decider (hok : c.ok = true) (hsr : c.srReady = true) (hmo : CoherentAll c) {
     {hidx : idxOK c T ix = true} : (kind c T ix Inv hmr hT hidx).Decider where
   cond := detCond c T
   sound p h := detCond_sound hok hsr hmr hmo hT p h
+
+/-- **Determinism's decider** for `kind`, in a core `okM` accepts. -/
+def decider_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmo : CoherentAll c) {T : Tables}
+    {ix : DetIndex} {Inv : Config c → Prop} {hmr : c.matchReady = true} {hT : T = tables c}
+    {hidx : idxOK c T ix = true} : (kind c T ix Inv hmr hT hidx).Decider where
+  cond := detCond c T
+  sound p h := detCond_sound_okM hok hsr hmr hmo hT p h
 
 /-- `detOKExcept` is the kind's decision with the listed overlaps, in either order, as the
 obligations: a row's uniqueness confirms its diagonal, and its candidates' `pairOK` confirms each of
@@ -1793,8 +1839,8 @@ theorem deterministic_except_of_on {ovl : List (Nat × Nat)}
 
 /-- **Where `detOKExcept c (tables c) ix ovl` holds, `Step` is deterministic up to the listed overlaps**: two
 steps from one configuration reach one configuration, or the two rules of a listed pair both apply
-there. By the determinism kind, with the listed pairs as its obligations. -/
-theorem deterministic_except (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+there. By the determinism kind, with the listed pairs as its obligations; in a core `okM` accepts. -/
+theorem deterministic_except_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
     (hmo : CoherentAll c) {T : Tables} (hT : T = tables c)
     {ix : DetIndex} {ovl : List (Nat × Nat)} (hd : detOKExcept c T ix ovl = true) {x y y' : Config c}
     (h : Step c x y) (h' : Step c x y') :
@@ -1803,12 +1849,30 @@ theorem deterministic_except (hok : c.ok = true) (hsr : c.srReady = true) (hmr :
   subst hT
   have hidx : idxOK c (tables c) ix = true := by simp only [detOKExcept, Bool.and_eq_true] at hd; exact hd.1
   refine deterministic_except_of_on (fun Inv ho => ?_) h h'
-  refine Kind.of_decided (kind c (tables c) ix Inv hmr rfl hidx) (decider hok hsr hmo) (ovl ++ ovl.map Prod.swap)
+  refine Kind.of_decided (kind c (tables c) ix Inv hmr rfl hidx) (decider_okM hok hsr hmo) (ovl ++ ovl.map Prod.swap)
     (decides_of_detOKExcept hd) fun p hp => ?_
   rcases List.mem_append.mp hp with hp | hp
   · exact ho p hp
   · obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hp
     exact (ho q hq).swap
+
+/-- **`Step` is deterministic where `detOK` holds** (with the core's `okM`, `srReady` and
+`matchReady`, and the named match obligations): two steps from one configuration reach one
+configuration. -/
+theorem deterministic_of_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {T : Tables} (hT : T = tables c)
+    {ix : DetIndex} (hd : detOK c T ix = true) {x y y' : Config c} (h : Step c x y) (h' : Step c x y') : y = y' :=
+  (deterministic_except_okM hok hsr hmr hmo hT hd h h').resolve_right fun ⟨_, _, hm, _⟩ => by rcases hm with hm | hm <;> cases hm
+
+/-- **Where `detOKExcept c (tables c) ix ovl` holds, `Step` is deterministic up to the listed overlaps**
+in a core `ok` accepts (`deterministic_except_okM`). -/
+theorem deterministic_except (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    (hmo : CoherentAll c) {T : Tables} (hT : T = tables c)
+    {ix : DetIndex} {ovl : List (Nat × Nat)} (hd : detOKExcept c T ix ovl = true) {x y y' : Config c}
+    (h : Step c x y) (h' : Step c x y') :
+    y = y' ∨ ∃ i j, ((i, j) ∈ ovl ∨ (j, i) ∈ ovl) ∧ ∃ (hi : i < c.rules.length) (hj : j < c.rules.length),
+      Applies c c.rules[i] x.val ∧ Applies c c.rules[j] x.val :=
+  deterministic_except_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd h h'
 
 /-- **`Step` is deterministic where `detOK` holds** (with the core's `ok`, `srReady` and
 `matchReady`, and the named match obligations): two steps from one configuration reach one
@@ -1816,7 +1880,7 @@ configuration. -/
 theorem deterministic_of (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
     (hmo : CoherentAll c) {T : Tables} (hT : T = tables c)
     {ix : DetIndex} (hd : detOK c T ix = true) {x y y' : Config c} (h : Step c x y) (h' : Step c x y') : y = y' :=
-  (deterministic_except hok hsr hmr hmo hT hd h h').resolve_right fun ⟨_, _, hm, _⟩ => by rcases hm with hm | hm <;> cases hm
+  deterministic_of_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd h h'
 
 /-! ## Blocks: the condition split over rows, for one kernel decision per block -/
 
@@ -1847,14 +1911,12 @@ theorem detOKExcept_of {T : Tables} {ix : DetIndex} {ovl : List (Nat × Nat)} (h
 
 /-! ## Witnesses -/
 
-section
-variable (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
-
-include hok hsr hmr in
-theorem applies_of {r : Rule} (hr : r ∈ c.rules) {x : Config c} {n : Nat}
+/-- A rule the executable matcher finds applying at x applies at x, in a core `okM` accepts. -/
+theorem applies_of_okM (hok : c.okM = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+    {r : Rule} (hr : r ∈ c.rules) {x : Config c} {n : Nat}
     (h : appliesN c n r x.val = true) : Applies c r x.val := by
-  have hsc := sortCtx_of hok hsr (Exec.ovlCase_of hmr)
-  have hcc := clauseCtx_of hok
+  have hsc := sortCtx_of_okM hok hsr (Exec.ovlCase_of hmr)
+  have hcc := clauseCtx_of_okM hok
   have hmc := matchCtx_of hmr
   obtain ⟨⟨σ, b⟩, hσm, hb⟩ := List.any_eq_true.mp h
   simp only [beq_iff_eq] at hb
@@ -1863,7 +1925,7 @@ theorem applies_of {r : Rule} (hr : r ∈ c.rules) {x : Config c} {n : Nat}
   obtain ⟨hm, hws⟩ := List.mem_filter.mp hσm
   have hσ := wellSorted_iff.mp hws
   obtain ⟨_, hpv⟩ := matchP_sound _ (canonV_of_sortOf x.property) hm
-  obtain ⟨_, _, _, hreq, _⟩ := ruleOK_of hok hr
+  obtain ⟨_, _, _, hreq, _⟩ := ruleOKM_of hok hr
   refine ⟨σ, hσ, hpv, fun t ht => ?_⟩
   rw [ht] at hreq
   unfold reqVal at hb
@@ -1874,6 +1936,14 @@ theorem applies_of {r : Rule} (hr : r ∈ c.rules) {x : Config c} {n : Nat}
     simp only [he', Option.map_some, Option.some.injEq] at hb
     rw [isTrue_iff.mp hb.symm] at he'
     exact evalT_sound hsc hcc hmc n he' headsOK_fns hσ (reqOK_some hreq)
+
+section
+variable (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matchReady = true)
+
+include hok hsr hmr in
+theorem applies_of {r : Rule} (hr : r ∈ c.rules) {x : Config c} {n : Nat}
+    (h : appliesN c n r x.val = true) : Applies c r x.val :=
+  applies_of_okM (Semantics.okM_of_ok hok) hsr hmr hr h
 
 include hok hsr hmr in
 /-- A successor the executable step lists is a step. -/

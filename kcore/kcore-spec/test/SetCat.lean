@@ -28,9 +28,11 @@ set_option maxRecDepth 1000000
 
 open KCore
 
-/-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top`, their
-having no existential variable and their right sides' predicate `.top` from `clausesPlain`. -/
-theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clausesPlain = true) :
+/-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top` from
+`clausesPreTop`, their having no existential variable and their right sides'
+predicate `.top` from `clausesPlain`. -/
+theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clausesPlain = true)
+    (hpreTop : c.clausesPreTop = true) :
     Exec.ClauseCtx c := by
   intro fn hfn'
   rcases List.mem_append.mp hfn' with hfn | hfn
@@ -49,7 +51,7 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clauses
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2,
-      Semantics.allFns_preTop hp fn hfn' cl hcl, Semantics.allFns_plainCl hp fn hfn' cl hcl⟩
+      Semantics.allFns_preTop hpreTop fn hfn' cl hcl, Semantics.allFns_plainCl hp fn hfn' cl hcl⟩
 
 /-- **A step by the rule `r`** under the substitution `sub vs` (as test/SetItem.lean). -/
 theorem step_of {c : Semantics} (hsc : SortCtx c) (hcc : Exec.ClauseCtx c) (hmc : Exec.MatchCtx c)
@@ -121,7 +123,7 @@ def idemClasses (path : String) : IO String := do
   | .ok k =>
     let ss := k.modules.flatMap (·.sentences)
     let cls := ss.filterMap fun s => match s with
-      | .axiom a => if KoreAML.Parse.hasAttr a.attributes "idem" then some (reprStr (Parse.classify s)) else none
+      | .axiom a => if KoreAML.Parse.hasAttr a.attributes "idem" then some (reprStr (Parse.classifyShape s)) else none
       | _ => none
     return toString cls
 
@@ -182,7 +184,7 @@ theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +ker
 theorem fnsOK : c.fnsOK = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Semantics.ovlCase_of (by decide +kernel))
-theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (by decide +kernel)
+theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (by decide +kernel) (by decide +kernel)
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 
 /-- No agreement or match obligation is named, so the clauses of one priority are coherent. -/

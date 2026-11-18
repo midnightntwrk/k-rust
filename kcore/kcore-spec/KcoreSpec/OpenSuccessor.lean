@@ -204,7 +204,7 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- Every clause's exclusion is empty where it fails, in a model of `Γ`. -/
-theorem neg_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hIΓ : I ⊧ᴵP Γ c) :
+theorem neg_of_core (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hIΓ : I ⊧ᴵP Γ c) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmpty c I fn cl := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
@@ -212,7 +212,7 @@ theorem neg_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn
   intro fn hfn cl hcl _
   obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
   exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-    exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl)
+    exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl)
         (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
       hRkey hX hR hσR hfail m
 

@@ -432,8 +432,8 @@ theorem fnTerminatesI : FnTerminates cI := by
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fI] from hfn) with hfn' | hfn'
   · refine eval_result (lookupI hfn)
       (fun cl hcl =>
-        let p := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2
-        ⟨p.1, p.2.2.1⟩)
+        let p := Semantics.clausePlainOpen_partsP ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2
+        ⟨p.1, p.2.1⟩)
       (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop (textPre fn hfn' cl hcl) σ⟩) (fun cl hcl _ _ => ?_)
@@ -473,7 +473,7 @@ theorem matchIndI : ∀ fn ∈ cI.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
     cases hr : cl.rhs with
     | dv s l =>
       have hx : cl.exs = [] :=
-        (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2).1
+        (Semantics.clausePlainOpen_partsP ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2).1
       exact (matchIndependent_iff_noExs hx).mpr (coherent_dvI (textFns fn hu cl hcl).2.2.1 hr hx)
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
@@ -485,7 +485,7 @@ theorem matchIndI : ∀ fn ∈ cI.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
         (evalTerm_gY ((wellSortedAt_univ rfl).mp ha.1) h).trans (evalTerm_gY ((wellSortedAt_univ rfl).mp ha'.1) h').symm
 
 theorem fnModelI : FnDet cI ∧ FnSolves cI :=
-  Faithful.fnModel_ofCl decidedI.1 decidedI.2.1 ovlI fnTerminatesI agreeI matchIndI
+  Faithful.fnModel_ofCl (hpreTop := by decide +kernel) decidedI.1 decidedI.2.1 ovlI fnTerminatesI agreeI matchIndI
 
 /-- **`consistent_ofCl` at `cI`**: the theory of `cI` with the step's closure has a model. -/
 theorem consistentI : Consistent cI :=

@@ -647,13 +647,151 @@ theorem evalTerm_total_atMP (h : HypSoundCore c) (hft : FnTerminates c) {L : Lis
   obtain ⟨r, hr⟩ := evalTerm_total h hft hL hτw ht'
   exact ⟨r, Exec.EvalTerm.congr hr fun i hi => hτa i (hvt i hi)⟩
 
+/-- σ that gives each variable of a list a value gives each variable of a part of it one. -/
+theorem _root_.KCore.Semantics.WellSortedAt.mono {c : Semantics} {vars : List Srt} {is is' : List Nat} {σ : Subst}
+    (h : c.WellSortedAt vars is σ) (hsub : ∀ i ∈ is', i ∈ is) : c.WellSortedAt vars is' σ :=
+  fun i hi => h i (hsub i hi)
+
+/-- An extension of a σ that gives the listed variables values gives the variables of a body under
+the binder values: those below n by σ, the bound ones by the extension. -/
+theorem _root_.KCore.Faithful.extends_wellSortedAt_hd {n : Nat} {vars ys : List Srt} {σ σ' : Subst} {is js : List Nat}
+    (hn : n = vars.length) (he : Extends c n ys σ σ') (hσ : c.WellSortedAt vars is σ)
+    (hjs : ∀ i ∈ js, i < n → i ∈ is) : c.WellSortedAt (vars ++ ys) js σ' := by
+  intro i hi s hs
+  by_cases hlt : i < n
+  · rw [List.getElem?_append_left (hn ▸ hlt)] at hs
+    obtain ⟨v, hv, hvs⟩ := hσ i (hjs i hi hlt) s hs
+    exact ⟨v, by rw [he.1 i hlt]; exact hv, hvs⟩
+  · have hge : vars.length ≤ i := hn ▸ Nat.le_of_not_lt hlt
+    rw [List.getElem?_append_right hge] at hs
+    obtain ⟨v, hv, hvs⟩ := he.2 (i - vars.length) s hs
+    refine ⟨v, ?_, hvs⟩
+    have : n + (i - vars.length) = i := by omega
+    rw [this] at hv; exact hv
+
+open Classical in
+/-- **A well-sorted condition has a truth value** at every σ that gives its free variables values
+of their sorts, where every function has a result at arguments of its sorts. -/
+theorem _root_.KCore.Faithful.holds_decided (h : HypSoundCore c) (hft : FnTerminates c) :
+    ∀ (p : Cond) {vars : List Srt} {σ : Subst}, c.condOK vars p = true →
+      c.WellSortedAt vars (varOccsCond vars.length p) σ → ∃ b, Holds c vars.length σ p b
+  | .top, _, _, _, _ => ⟨true, .top⟩
+  | .bot, _, _, _, _ => ⟨false, .bot⟩
+  | .not p, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨b, hb⟩ := holds_decided h hft p hok hσ
+    exact ⟨!b, .not hb⟩
+  | .and p q, vars, σ, hok, hσ => by
+    rw [Semantics.condOK, Bool.and_eq_true] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨b, hb⟩ := holds_decided h hft p hok.1 (hσ.mono fun i hi => List.mem_append_left _ hi)
+    obtain ⟨b', hb'⟩ := holds_decided h hft q hok.2 (hσ.mono fun i hi => List.mem_append_right _ hi)
+    exact ⟨b && b', .and hb hb'⟩
+  | .or p q, vars, σ, hok, hσ => by
+    rw [Semantics.condOK, Bool.and_eq_true] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨b, hb⟩ := holds_decided h hft p hok.1 (hσ.mono fun i hi => List.mem_append_left _ hi)
+    obtain ⟨b', hb'⟩ := holds_decided h hft q hok.2 (hσ.mono fun i hi => List.mem_append_right _ hi)
+    exact ⟨b || b', .or hb hb'⟩
+  | .implies p q, vars, σ, hok, hσ => by
+    rw [Semantics.condOK, Bool.and_eq_true] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨b, hb⟩ := holds_decided h hft p hok.1 (hσ.mono fun i hi => List.mem_append_left _ hi)
+    obtain ⟨b', hb'⟩ := holds_decided h hft q hok.2 (hσ.mono fun i hi => List.mem_append_right _ hi)
+    exact ⟨!b || b', .implies hb hb'⟩
+  | .ceil s t, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [beq_iff_eq] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨r, hr⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun _ hi => hi) hok
+    exact ⟨r.isSome, .ceil hr⟩
+  | .equals s t u, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨r, hr⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun i hi => List.mem_append_left _ hi) hok.1
+    obtain ⟨r', hr'⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun i hi => List.mem_append_right _ hi) hok.2
+    exact ⟨sameResult r r', .equals hr hr'⟩
+  | .mem s t u, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨r, hr⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun i hi => List.mem_append_left _ hi) hok.1
+    obtain ⟨r', hr'⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun i hi => List.mem_append_right _ hi) hok.2
+    exact ⟨r.isSome && sameResult r r', .mem hr hr'⟩
+  | .exMatch ys s p t body, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
+    rw [varOccsCond] at hσ
+    obtain ⟨r, hr⟩ := evalTerm_total_atMP h hft fns_headsOK hσ (fun i hi => List.mem_append_left _ hi) hok.1.2
+    cases r with
+    | none => exact ⟨false, .exNone hr⟩
+    | some v =>
+      let g : Subst → Bool := fun σ' => decide (Holds c (vars.length + ys.length) σ' body true)
+      have hb : ∀ σ', Extends c vars.length ys σ σ' → PatVal c σ' p v →
+          Holds c (vars.length + ys.length) σ' body (g σ') := by
+        intro σ' he _
+        have hσ' : c.WellSortedAt (vars ++ ys) (varOccsCond (vars ++ ys).length body) σ' :=
+          extends_wellSortedAt_hd rfl he hσ fun i hi hlt => List.mem_append_right _ (List.mem_filter.mpr
+            ⟨List.mem_append_right _ (by rw [List.length_append] at hi; exact hi), by simpa using hlt⟩)
+        obtain ⟨b, hb⟩ := holds_decided h hft body hok.2 hσ'
+        rw [List.length_append] at hb
+        by_cases hT : Holds c (vars.length + ys.length) σ' body true
+        · have : g σ' = true := decide_eq_true hT
+          rw [this]; exact hT
+        · have : g σ' = false := decide_eq_false hT
+          rw [this]
+          cases b with
+          | true => exact absurd hb hT
+          | false => exact hb
+      exact ⟨decide (∃ σ', Extends c vars.length ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true),
+        .exSome g hr hb decide_eq_true_iff⟩
+  | .ex s body, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok
+    rw [varOccsCond] at hσ
+    let g : Subst → Bool := fun σ' => decide (Holds c (vars.length + 1) σ' body true)
+    have hb : ∀ σ', Extends c vars.length [s] σ σ' → Holds c (vars.length + 1) σ' body (g σ') := by
+      intro σ' he
+      have hσ' : c.WellSortedAt (vars ++ [s]) (varOccsCond (vars ++ [s]).length body) σ' :=
+        extends_wellSortedAt_hd rfl he hσ fun i hi hlt => List.mem_filter.mpr
+          ⟨by rw [List.length_append] at hi; exact hi, by simpa using hlt⟩
+      obtain ⟨b, hb⟩ := holds_decided h hft body hok hσ'
+      rw [List.length_append] at hb
+      by_cases hT : Holds c (vars.length + 1) σ' body true
+      · have : g σ' = true := decide_eq_true hT
+        rw [this]; exact hT
+      · have : g σ' = false := decide_eq_false hT
+        rw [this]
+        cases b with
+        | true => exact absurd hb hT
+        | false => exact hb
+    exact ⟨decide (∃ σ', Extends c vars.length [s] σ σ' ∧ g σ' = true), .ex g hb decide_eq_true_iff⟩
+  | .all s body, vars, σ, hok, hσ => by
+    rw [Semantics.condOK] at hok
+    rw [varOccsCond] at hσ
+    let g : Subst → Bool := fun σ' => decide (Holds c (vars.length + 1) σ' body true)
+    have hb : ∀ σ', Extends c vars.length [s] σ σ' → Holds c (vars.length + 1) σ' body (g σ') := by
+      intro σ' he
+      have hσ' : c.WellSortedAt (vars ++ [s]) (varOccsCond (vars ++ [s]).length body) σ' :=
+        extends_wellSortedAt_hd rfl he hσ fun i hi hlt => List.mem_filter.mpr
+          ⟨by rw [List.length_append] at hi; exact hi, by simpa using hlt⟩
+      obtain ⟨b, hb⟩ := holds_decided h hft body hok hσ'
+      rw [List.length_append] at hb
+      by_cases hT : Holds c (vars.length + 1) σ' body true
+      · have : g σ' = true := decide_eq_true hT
+        rw [this]; exact hT
+      · have : g σ' = false := decide_eq_false hT
+        rw [this]
+        cases b with
+        | true => exact absurd hb hT
+        | false => exact hb
+    exact ⟨decide (∀ σ', Extends c vars.length [s] σ σ' → g σ' = true), .all g hb decide_eq_true_iff⟩
+
 /-- Where every function has a result at arguments of its sorts, each `requires` of a clause has a
 result at each match well sorted on its patterns and conditions (`PrioDecided`), which hold the
-`requires`' variables; the clause's predicate is `\top`, true there. -/
+`requires`' variables; and the clause's predicate, well sorted, has a truth value there
+(`holds_decided`). -/
 theorem prioDecided_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : PrioDecided c := by
   intro fn hfn vs cl σ _ _ cl' hcl' _ _ σ' hσ' _
-  refine ⟨fun t hq => ?_, true,
-    Clause.holds_preTop (Semantics.sortedOK_preTop hs.1 fn (List.mem_append_left _ hfn) cl' hcl') σ'⟩
+  refine ⟨fun t hq => ?_,
+    holds_decided hs ht cl'.pre (Semantics.sortedOK_clausePre hs.1 hfn hcl').1 (hσ'.mono Clause.pre_leftVarsRH)⟩
   obtain ⟨-, -, L, hL, hreqs, -⟩ := clause_ctxOccE hs.1 (List.mem_append_left _ hfn) hcl'
   exact evalTerm_total_atMP hs ht hL hσ' (Clause.req_leftVarsRH hq) (hreqs t hq)
 

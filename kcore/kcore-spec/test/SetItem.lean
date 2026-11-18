@@ -119,12 +119,13 @@ theorem coreOK : c.coreOK = true :=
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem sortedOK : c.sortedOK = true := by decide_cheap
+theorem clausesPreTopC : c.clausesPreTop = true := by decide +kernel
 theorem srReady : c.srReady = true := srReady_of_T T_eq (by decide +kernel)
 theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +kernel)
 theorem fnsOK : c.fnsOK = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Semantics.ovlCase_of (by decide +kernel))
-theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (Semantics.sortedOK_preTop sortedOK)
+theorem hcc : Exec.ClauseCtx c := clauseCtx_of_fns fnsOK (Semantics.allFns_preTop clausesPreTopC)
   (Semantics.sortedOK_plainCl sortedOK)
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 

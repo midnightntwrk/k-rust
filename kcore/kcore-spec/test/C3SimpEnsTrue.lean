@@ -99,7 +99,7 @@ theorem ensEqn_entailed {c : Semantics} (h : c.coreOK = true) (hok : c.ok = true
     obtain ⟨h1, h2⟩ := pick_spec (hval i hi)
     rw [(elemOf_spec hI h1 e).1 m', h2]
   have hDV := fun (u : Term) (s : Srt) (hu : srtU? c F E.vars u = some s) =>
-    den_valU (tbl := t) (e := e) h hok hF hI hσ hag u hu
+    den_valU (tbl := t) (e := e) h hok hF hI hσ hag (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) u hu
   -- the sorts
   obtain ⟨τ, hτsort, hτ⟩ := srt_den hI (hnum hsR)
   obtain ⟨τb, hτbsort, hτb⟩ := srt_den hI (hnum (show Srt.bool < nRegSorts by decide))
@@ -265,7 +265,7 @@ theorem table_ok (H : HookParams) : InertEvUser.TableOK (cH H) fTable := by
 noncomputable abbrev ensAx : AxiomDecl := U.ax201
 
 /-- The reader's class of the sentence. -/
-theorem ens_class : Parse.classify (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
+theorem ens_class : Parse.classifyShape (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
 
 def vars : LibEv.Vars := [("VarX", Srt.int)]
 /-- `f(f(X)) => f(X)` as an equation over `f`. -/

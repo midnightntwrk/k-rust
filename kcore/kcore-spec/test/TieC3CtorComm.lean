@@ -3,17 +3,16 @@
   (`test/constructs/fixtures/c3-ctor-comm`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py c3-ctor-comm` with the refusals for the open generator and the attributes lifted and `plus`'s sentences classed by hand; the open-generator, attribute, consistency and Exp no-junk sections by hand; run from the package root: `lake env lean -j1 test/TieC3CtorComm.lean`.
+  `test/constructs/tiegen.py c3-ctor-comm` with the refusal for the open generator lifted and `plus`'s sentences classed by hand; the open-generator, consistency and Exp no-junk sections by hand; run from the package root: `lake env lean -j1 test/TieC3CtorComm.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
   - The account: the class lists partition the 142 sentences of the user module C3-CTOR-COMM, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
-  - The attributes: `attrsAgree` is false (`not_attrs_agree`), by its hook check alone, which asks
-    that a symbol declared without `hook` be no parameter, and `plus` is one; the other four checks
-    hold (`attrs_agree_but_hooks`), and the hook check of the semantics less its open generators
-    holds (`hooks_but_raw`).
+  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the open
+    generator `plus` is a parameter declared without `hook` and without `function`, of which the
+    text states no equation.
   - `sig_origin_but_next`: each of the 208 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -37,12 +36,13 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem), `plus`'s as `OpenTotal` (`open_functional_not_item`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); open generator functional: owed as `OpenTotal`
+    (`open_functional_not_item`); no direction: `absent_closed`.
 
   Exp's no junk (86) is entailed (`nojunk_exp_entailed`): its item lists `.E`, `x` and `plus` in
   another order. `plus`'s functional sentence (77) is no item of
   Γ and is owed at values as `OpenTotal` (`open_functional_not_item`); the account holds it in
-  `function functional`, the one class of the direction `hypothesis`.
+  `open generator functional`, of the direction `hypothesis`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (13);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -109,12 +109,15 @@ def classes : List (String × List Nat) :=
    ("injectivity", [25, 27, 29, 31]),
    ("distinctness", [20]),
    ("no junk", [85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95]),
-   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 77]),
+   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73]),
    ("hooked functional", [21, 22, 23, 32, 33, 34, 35, 36, 37, 40, 44, 52, 53, 54, 55, 56, 58, 74, 78, 79, 80, 81, 82]),
    ("collection law", [41, 42, 43, 45, 46, 47, 48, 50, 51]),
    ("library", [96, 144]),
    ("set idempotence", [49]),
    ("set-variable lemma", [145]),
+   ("function law", []),
+   ("open generator law", []),
+   ("open generator functional", [77]),
    ("no direction", [38, 39, 57, 83, 97, 98, 99, 100, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
       142, 143])]
 
@@ -130,7 +133,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 16), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("no direction", 22)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 1), ("no direction", 22)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -153,7 +156,7 @@ theorem absent_closed :
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
   [(14, "subsort"), (19, "constructor functional"), (20, "distinctness"),
-   (60, "function functional"), (77, "function functional"), (84, "constructor functional"),
+   (60, "function functional"), (77, "open generator functional"), (84, "constructor functional"),
    (86, "no junk"), (95, "no junk"), (100, "no direction"), (103, "function equation"),
    (104, "function equation"), (131, "no direction"), (145, "set-variable lemma")]
 
@@ -168,19 +171,11 @@ theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2)
 
 /-! ## The attributes -/
 
-/-- **The attributes of the text do not agree with `defn` as `attrsAgree` reads them**: its check of
-the hooks (`AttrsAgree.hooks`) asks that a symbol declared without `hook` be no parameter of the
-semantics, and the open generator `plus` is a parameter (`raw`) declared without one. -/
-theorem not_attrs_agree : attrsAgree kore defn = false ∧ AttrsAgree.hooks kore c = false := by decide +kernel
-
-/-- **The four other checks of `attrsAgree` hold**: constructors, functions, collection symbols,
-priorities. -/
-theorem attrs_agree_but_hooks :
-    (AttrsAgree.ctors kore c && AttrsAgree.fns kore c && AttrsAgree.colls kore c && AttrsAgree.prios kore defn) = true := by
-  decide +kernel
-
-/-- **The hook check holds of the semantics less its open generators**. -/
-theorem hooks_but_raw : AttrsAgree.hooks kore { c with params := c.params.filter (!·.raw) } = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities. The open generator `plus` is a parameter (`raw`) that no
+registry hook interprets, declared without `hook` and without `function`, and the text states
+no equation of it (`AttrsAgree.eqnsOf`), which `AttrsAgree.hooks` admits. -/
+theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/
 
@@ -614,7 +609,8 @@ end Idem
 functionality of the generators that are no open generator only. The sentence is owed, at values,
 as `OpenTotal`, which `lawHooks c H` satisfies (`lawHooks_laws`). -/
 theorem open_functional_not_item : !(consItemsK c).any (·.pat == (trS U.ax77).pat) &&
-    !(fnItems c).any (·.pat == (trS U.ax77).pat) && (classOf "function functional").contains 77 = true := by
+    !(fnItems c).any (·.pat == (trS U.ax77).pat) &&
+    (classOf "open generator functional" == [77]) = true := by
   decide +kernel
 
 /-! ## The converse over Γ's content -/
@@ -689,9 +685,7 @@ end KCore.TieC3CtorComm
 #check @KCore.TieC3CtorComm.gamma_origin
 #check @KCore.TieC3CtorComm.gamma_from
 #check @KCore.TieC3CtorComm.names
-#check @KCore.TieC3CtorComm.not_attrs_agree
-#check @KCore.TieC3CtorComm.attrs_agree_but_hooks
-#check @KCore.TieC3CtorComm.hooks_but_raw
+#check @KCore.TieC3CtorComm.attrs_agree
 #check @KCore.TieC3CtorComm.facts
 #check @KCore.TieC3CtorComm.lawHooks_laws
 #check @KCore.TieC3CtorComm.consistent_lawHooks
@@ -730,9 +724,7 @@ end KCore.TieC3CtorComm
 #print axioms KCore.TieC3CtorComm.gamma_origin
 #print axioms KCore.TieC3CtorComm.gamma_from
 #print axioms KCore.TieC3CtorComm.names
-#print axioms KCore.TieC3CtorComm.not_attrs_agree
-#print axioms KCore.TieC3CtorComm.attrs_agree_but_hooks
-#print axioms KCore.TieC3CtorComm.hooks_but_raw
+#print axioms KCore.TieC3CtorComm.attrs_agree
 #print axioms KCore.TieC3CtorComm.facts
 #print axioms KCore.TieC3CtorComm.lawHooks_laws
 #print axioms KCore.TieC3CtorComm.consistent_lawHooks

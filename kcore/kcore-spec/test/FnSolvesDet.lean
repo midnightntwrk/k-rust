@@ -1,12 +1,14 @@
 /-
   WIT.fndet (DONE-0 C8 part 2): a witness for `FnDet` would be a semantics with `coreOK` and
-  `FnSolves`, without `FnDet`, whose `Γ` has no model. None exists at the evaluation block of this
-  head (kcore-symbolic 7ba0ebed): under `coreOK`, `FnSolves` gives `FnDet` (`fnDet_of_fnSolves`),
-  kernel-checked here. Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
+  `FnSolves`, without `FnDet`, whose `Γ` has no model. None exists among the semantics whose
+  clauses' predicates are all `\top` (`clausesPreTop`): there, under `coreOK`, `FnSolves` gives
+  `FnDet` (`fnDet_of_fnSolves`), kernel-checked here. `coreOK` also admits a clause whose predicate
+  is not `\top` where its conditions need no witness; whether `FnSolves` gives `FnDet` there is not
+  decided by this file. Run from the package root: `lake env lean -j1 test/FnSolvesDet.lean`.
 
   Scope. The proof reads the block as it is here: every term is strict (undefined where an argument
-  is), and `coreOK` leaves no clause an existential variable and makes every clause's `pre` and
-  `post` `\top` (`sortedOK_plainCl`, `sortedOK_preTop`). So `Eval.clauseEx` and `Eval.exNone` do
+  is), `coreOK` leaves no clause an existential variable and makes every clause's `post` `\top`
+  (`sortedOK_plainCl`), and `clausesPreTop` makes every clause's `pre` `\top` (`allFns_preTop`). So `Eval.clauseEx` and `Eval.exNone` do
   not occur, `FnSolves` is read as the value of the deciding clause's right-hand side where its
   `ensures` is `true` (`Clause.gives_iff_noExs`), the premise on `Clause.pre` (of `clause` and
   `ensFails`) holds and the failure `ReqFails.pre` does not occur. A core check that admits
@@ -259,7 +261,7 @@ theorem matchCtxO (h : c.coreOK = true) : Exec.MatchCtxO c := by
 
 section Fns
 
-variable (h : c.coreOK = true) (hs : FnSolves c)
+variable (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c)
 include h hs
 
 omit hs in
@@ -281,6 +283,7 @@ theorem sortsOf_of_match {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl 
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hcs
   exact Det.patVals_sortedAll (matchCtxO h) hσ hm ((ovlOK_of_core h).nfs_bridge hcs.1.1.1.1.1.1)
 
+include hpreTop in
 theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hσ : c.WellSorted cl.vars σ)
@@ -289,7 +292,7 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     (ihprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → V2 c vs cl')
     (ihrhs : V4 c σ cl.rhs r) : V1 c f vs r := fun r' h' hsm => by
   obtain ⟨hall, hlab⟩ := lookupFn_spec hfn
-  have hT := Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 fn hall
+  have hT := Semantics.allFns_preTop hpreTop fn hall
   rcases List.mem_append.mp hall with hu | hp
   · -- a user function: the clause decides as the model reads it, and `FnSolves` applies
     have hdec : cl.DecidesAt c fn σ vs :=
@@ -331,6 +334,7 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     | clauseEx hfn' hmem' _ _ _ _ _ hne' => exact absurd (exs_nil h hfn' hmem') hne'
     | exNone => cases hsm
 
+include hpreTop in
 theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {t : Term} {w : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hσ : c.WellSorted cl.vars σ)
@@ -343,7 +347,7 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   · have hdec : cl.DecidesAt c fn σ vs :=
       ⟨⟨hσ.at _, hmatch, hreq, hpre⟩, fun cl' h1 h2 h3 σ' hw' hp' hq =>
         ihprio cl' h1 h2 h3 σ' hw' hp' hq.1
-          (Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 fn hall cl' h1)⟩
+          (Semantics.allFns_preTop hpreTop fn hall cl' h1)⟩
     cases r' with
     | none => cases hsm
     | some v =>
@@ -355,6 +359,7 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   · rw [((sortPred_shape hp).1 cl hmem).2.1] at ht; cases ht
 
 omit hs in
+include hpreTop in
 theorem case_rest {f : Sym} {fn : Fn} {vs : List GroundTerm}
     (hfn : c.lookupFn f = some fn) (ihnone : ∀ cl ∈ fn.clauses, V2 c vs cl) : V1 c f vs (c.fnRest fn vs) :=
   fun r' h' hsm => by
@@ -362,13 +367,15 @@ theorem case_rest {f : Sym} {fn : Fn} {vs : List GroundTerm}
     | clause hfn' hmem' hσ' hmatch' hreq' _ _ _ =>
       rw [hfn] at hfn'; cases hfn'
       exact (ihnone _ hmem' _ (hσ'.at _) hmatch' hreq'
-        (Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 _ (lookupFn_spec hfn).1 _ hmem')).elim
+        (Semantics.allFns_preTop hpreTop _ (lookupFn_spec hfn).1 _ hmem')).elim
     | rest hfn' _ => rw [hfn] at hfn'; cases hfn'; rfl
     | ensFails => cases hsm
     | clauseEx hfn' hmem' _ _ _ _ _ hne' => exact absurd (exs_nil h hfn' hmem') hne'
     | exNone => cases hsm
 
-/-- **A value of a function is each of its results there**, under `coreOK` and `FnSolves`. -/
+include hpreTop in
+/-- **A value of a function is each of its results there**, under `coreOK`, `clausesPreTop` and
+`FnSolves`. -/
 theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he : Eval c f vs r) :
     V1 c f vs r :=
   Eval.rec (motive_1 := fun f vs r _ => V1 c f vs r) (motive_2 := fun vs cl _ => V2 c vs cl)
@@ -377,10 +384,10 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
     (motive_6 := fun _ _ _ _ _ => True)
     (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
     (fun hfn hmem hσ hmatch hreq hpre _ _ _ _ _ _ _ ihprio ihrhs _ _ =>
-      case_clause h hs hfn hmem hσ hmatch hreq hpre ihprio ihrhs)
-    (fun hfn _ ihnone => case_rest h hfn ihnone)
+      case_clause h hpreTop hs hfn hmem hσ hmatch hreq hpre ihprio ihrhs)
+    (fun hfn _ ihnone => case_rest h hpreTop hfn ihnone)
     (fun hfn hmem hσ hmatch hreq hpre _ _ ht _ hw _ _ ihprio ihe =>
-      case_ensFails h hs hfn hmem hσ hmatch hreq hpre ht hw ihprio ihe)
+      case_ensFails h hpreTop hs hfn hmem hσ hmatch hreq hpre ht hw ihprio ihe)
     (fun hfn hmem _ _ _ _ _ hne => by intros; exact absurd (exs_nil h hfn hmem) hne)
     (fun hfn hmem hne => by intros; exact absurd (exs_nil h hfn hmem) hne)
     (fun _ ih => fun σ hw hp hq hT => ih σ hw hp hq hT)
@@ -420,28 +427,29 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
 
 end Fns
 
-/-- **Under `coreOK`, `FnSolves` gives `FnDet`**: no semantics meets `coreOK` and `FnSolves` without
-`FnDet`, so `FnDet` has no witness (DONE-0 C8 part 2). -/
-theorem fnDet_of_fnSolves (h : c.coreOK = true) (hs : FnSolves c) : FnDet c := by
+/-- **Under `coreOK` and `clausesPreTop`, `FnSolves` gives `FnDet`**: no semantics whose clauses'
+predicates are all `\top` meets `coreOK` and `FnSolves` without `FnDet`. -/
+theorem fnDet_of_fnSolves (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) :
+    FnDet c := by
   intro f vs r r' h1 h2
   cases r' with
-  | some w => exact eval_value h hs h1 _ h2 rfl
+  | some w => exact eval_value h hpreTop hs h1 _ h2 rfl
   | none =>
     cases r with
     | none => rfl
-    | some w => exact (eval_value h hs h2 _ h1 rfl).symm
+    | some w => exact (eval_value h hpreTop hs h2 _ h1 rfl).symm
 
 /-! ## The statements that read `FnDet` beside `FnSolves` -/
 
 /-- `consistent_open` with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c)
+example (c : Semantics) (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  consistent_open c h (fnDet_of_fnSolves h hs) hs hp hl hrules
+  consistent_open c h (fnDet_of_fnSolves h hpreTop hs) hs hp hl hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
+example (c : Semantics) (h : c.coreOK = true) (hpreTop : c.clausesPreTop = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
     Consistent c :=
-  consistent_of c h (fnDet_of_fnSolves h hs) hs hp hl
+  consistent_of c h (fnDet_of_fnSolves h hpreTop hs) hs hp hl
 
 /-! ## An instance: a definition meeting both hypotheses -/
 
@@ -461,7 +469,7 @@ def c0 : Semantics :=
     rules := [] }
 
 theorem instance_c0 : FnDet c0 :=
-  fnDet_of_fnSolves (by decide +kernel) (fun _ h => absurd h List.not_mem_nil)
+  fnDet_of_fnSolves (by decide +kernel) rfl (fun _ h => absurd h List.not_mem_nil)
 
 end FnSolvesDet
 

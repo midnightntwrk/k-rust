@@ -543,7 +543,7 @@ theorem f1_is_a (H : HookParams) : Pre H ⊧ (TiePair.app (cH H) fS [one] ≡ de
   have hexcl : ExclEmptyCl (cH H) I fF cl0 :=
     exclEmptyCl_of (coreOKH H) hΓc (L := (cH H).allFns.map (·.sig)) (fun k hk => by
         obtain ⟨fn, hfn, rfl⟩ := List.mem_map.mp hk; exact ⟨fn, hfn, rfl⟩)
-      (by rw [cso_withHooks, allFns_withHooks]; exact hso) (by rw [cpo_withHooks]; exact hpo)
+      (by rw [cso_withHooks, allFns_withHooks]; exact hso) (by rw [cpo_withHooks]; exact hpo) cl0_pre
       (fun h => by rw [ocv_withHooks, hocv] at h; cases h)
       (fun h => by rw [nw_withHooks, hnw] at h; cases h)
   have hfails : Fails (cH H) [one] cl0 := .intro fun σ _ hm => by

@@ -609,7 +609,7 @@ include hI hnn hsc hok hbc hph hneg
 /-- A clause that decides, read in a model: from its right side's reading `ihright` (for the
 result `r`), `f` applied to the arguments' elements is what `r` denotes, through `plain_eq4` or
 `compete_eq4`. -/
-theorem clause_den4 {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ' : Subst}
+theorem clause_den4 (hpreTop : c.clausesPreTop = true) {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ' : Subst}
     {L : List CtorSig} {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hmem : fn ∈ c.allFns) (hcl : cl ∈ fn.clauses)
     (hws : c.sortsOf ws = some fn.args) (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
@@ -632,11 +632,11 @@ theorem clause_den4 {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ
   have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
   have ihreq' := fun tbl e' hag t ht m' => ihreq t ht tbl e' hag m'
   by_cases hlow : lowerClauses fn cl = []
-  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hpats
+  · exact plain_eq4 hI hnn hph hsc.trans hfn (clauseEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl) (clause_exsNil hok hmem hcl) hws hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
-  · refine compete_eq4 hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop hok hmem hcl)
+  · refine compete_eq4 hI hnn hph hsc.trans hfn (competingEquation_mem hcl hlow) (clause_preTop (hpreTop := hpreTop) hok hmem hcl)
       (clause_exsNil hok hmem hcl)
-      (fun cl' hcl' => clause_preTop hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_) hσ' hmatch hpats
+      (fun cl' hcl' => clause_preTop (hpreTop := hpreTop) hok hmem (mem_lowerClauses.mp hcl').1) hws (fun cl' hcl' => ?_) hσ' hmatch hpats
       hbinds hreqv hrhsv hensv hr ihreq' ihright e m
     obtain ⟨hcl'', hna'', hlt⟩ := mem_lowerClauses.mp hcl'
     obtain ⟨hp', hb', L', hL', hrq', -⟩ := clause_ctx hok hbc hmem hcl''
@@ -649,7 +649,7 @@ mutual
   equation (whose right-hand side may denote nothing), the clauses of a smaller priority it negates
   failing at the arguments; or, where every clause fails, through its rest's graph
   (`rest_den`). -/
-  theorem eval_den4 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
+  theorem eval_den4 (hpreTop : c.clausesPreTop = true) : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
     | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio _ hrhs hens _,
@@ -658,25 +658,25 @@ mutual
       have hmem := (lookupFn_spec hfn).1
       obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxE hok hbc hmem hcl
       have hr : ∀ v, _ = some v → c.sortOf v = some fn'.result := fun v hv => EvalTerm.sorted hsc hrhs hL hσ' hrhss hv
-      exact clause_den4 hI hnn hsc hok hbc hph hneg hfn hmem hcl hws hσ' hmatch
+      exact clause_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hfn hmem hcl hws hσ' hmatch
         (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hmem hcl hpats) hbinds hL hreqs hrhss
         henss hr (fun tbl e' hag => right_iff hI hnn hmem hr
-          (fun m' => evalTerm_den4 hrhs hL hσ' (canonVars_length c cl.vars) hag hrhss m')
-          (fun t ht m' => evalTerm_den4 (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
-        (fun t ht tbl e' hag m' => evalTerm_den4 (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
-        (fun cl' hcl'' hna'' hlt => fails_den4 (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
+          (fun m' => evalTerm_den4 (hpreTop := hpreTop) hrhs hL hσ' (canonVars_length c cl.vars) hag hrhss m')
+          (fun t ht m' => evalTerm_den4 (hpreTop := hpreTop) (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
+        (fun t ht tbl e' hag m' => evalTerm_den4 (hpreTop := hpreTop) (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
+        (fun cl' hcl'' hna'' hlt => fails_den4 (hpreTop := hpreTop) (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
     | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio _ ht he hw,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
       obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxE hok hbc hmem hcl
-      exact clause_den4 hI hnn hsc hok hbc hph hneg hfn hmem hcl hws hσ' hmatch
+      exact clause_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hfn hmem hcl hws hσ' hmatch
         (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hmem hcl hpats) hbinds hL hreqs hrhss
         henss (fun v hv => by cases hv) (fun tbl e' hag => right_empty hI hnn hmem ht hw
           (fun v hv => EvalTerm.sorted hsc he hL hσ' (henss t ht) hv)
-          (fun m' => evalTerm_den4 he hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
-        (fun t ht tbl e' hag m' => evalTerm_den4 (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
-        (fun cl' hcl'' hna'' hlt => fails_den4 (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
+          (fun m' => evalTerm_den4 (hpreTop := hpreTop) he hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
+        (fun t ht tbl e' hag m' => evalTerm_den4 (hpreTop := hpreTop) (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
+        (fun cl' hcl'' hna'' hlt => fails_den4 (hpreTop := hpreTop) (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
     | _, ws, _, .rest (fn := fn') hfn' hnone, fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
@@ -690,26 +690,26 @@ mutual
       exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
-  theorem fails_den4 : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →
+  theorem fails_den4 (hpreTop : c.clausesPreTop = true) : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →
       ∀ {fn : Fn}, fn ∈ c.allFns → cl ∈ fn.clauses → ModelFails c I cl ws
-    | _, _, .intro h, fn, hfn, hcl => fun σ hσ hpv tbl e hag => reqFails_den4 (h σ (hσ.at _) hpv) hfn hcl hσ tbl e hag
+    | _, _, .intro h, fn, hfn, hcl => fun σ hσ hpv tbl e hag => reqFails_den4 (hpreTop := hpreTop) (h σ (hσ.at _) hpv) hfn hcl hσ tbl e hag
   termination_by structural _ _ h => h
-  theorem reqFails_den4 : ∀ {σ : Subst} {cl : Clause}, ReqFails c σ cl →
+  theorem reqFails_den4 (hpreTop : c.clausesPreTop = true) : ∀ {σ : Subst} {cl : Clause}, ReqFails c σ cl →
       ∀ {fn : Fn}, fn ∈ c.allFns → cl ∈ fn.clauses → c.WellSorted cl.vars σ →
       ∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
     | _, cl, .pre h, fn, hfn, hcl, hσ, tbl, e, hag => by
-      rw [clause_preTop hok hfn hcl] at h; exact absurd h.top_eq (by simp)
+      rw [clause_preTop (hpreTop := hpreTop) hok hfn hcl] at h; exact absurd h.top_eq (by simp)
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, hσ, tbl, e, hag => by
       obtain ⟨-, -, L, hL, hreqs, -⟩ := clause_ctx hok hbc hfn hcl
       exact ⟨t, r, ht, hr, fun v hv => EvalTerm.sorted hsc he hL hσ (hreqs t ht) hv,
-        evalTerm_den4 he hL hσ (canonVars_length c cl.vars) hag (hreqs t ht)⟩
+        evalTerm_den4 (hpreTop := hpreTop) he hL hσ (canonVars_length c cl.vars) hag (hreqs t ht)⟩
   termination_by structural _ _ h => h
   /-- **L3, terms, fourth stage.** A well-sorted right-hand side or `requires`, at a valuation that
   agrees with a well-sorted σ, translates to what its result under σ denotes: the value's element,
   or nothing where it is undefined. -/
-  theorem evalTerm_den4 : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm c σ t r →
+  theorem evalTerm_den4 (hpreTop : c.clausesPreTop = true) : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm c σ t r →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {s : Srt},
       HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
       sortOfTerm (c.rhsCtx L) vars t = some s →
@@ -726,7 +726,7 @@ mutual
       rw [KoreAML.tr_dv, KoreAML.tr_dv]
     | _, _, _, .inj (a := a) (b := b) (t := t) (r := r) h', L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨hab, ht', -⟩ := sortOfTerm_inj.mp ht
-      have ih := evalTerm_den4 h' hL hσ hvs hag ht'
+      have ih := evalTerm_den4 (hpreTop := hpreTop) h' hL hσ hvs hag ht'
       rw [Term.kore, KoreAML.tr_injP]
       cases r with
       | none =>
@@ -748,7 +748,7 @@ mutual
     | _, _, _, .ctor (f := f) (ts := ts) (rs := rs) hk hts, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨k0, hk0⟩ := Option.isSome_iff_exists.mp hk
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       rw [kore_app_plain hnn.1 hk0]
       cases hall : allSome rs with
       | none =>
@@ -761,7 +761,7 @@ mutual
     | _, _, _, .hook (f := f) (rs := rs) (r := r) hk hhk hts hh hund, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨hks, hkn⟩ := rhs_lookup_hook hk hhk hk'
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
@@ -783,7 +783,7 @@ mutual
     | _, _, _, .param (f := f) (rs := rs) (r := r) hk hhk hp hts hr, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨kp, hkp, rfl, hkn⟩ := rhs_lookup_param hk hhk hp hk'
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
@@ -805,16 +805,16 @@ mutual
     | _, _, _, .call (f := f) (rs := rs) (vs := ws) hk hh hts hvs' hf hp, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨fn, hfnm, rfl, hlook⟩ := rhs_lookup_call hsc hL hk hh hp (Eval.lookupFn_ne hf) hk'
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
       rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
-      have := eval_den4 hf hlook hws e m
+      have := eval_den4 (hpreTop := hpreTop) hf hlook hws e m
       unfold KoreAML.den at this
       rw [tr_symApp] at this
       exact this
     | _, _, _, .callUndef (f := f) (rs := rs) hk hh hts hvs' hp, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
@@ -823,13 +823,13 @@ mutual
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       rw [hlo] at hlo'; cases hlo'
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
       obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ :=
         OvlLaws.fnCover_fn_ovlF ((inferInstance : OvlOK c).hyp hsc.trans).fnFacts hlo hws hcov
       have hname : kg.name = fn.label := by rw [hsig]
       have hres : kg.result = fn.result := by rw [hsig]
-      have hgd := eval_den4 hf hlook hus e
+      have hgd := eval_den4 (hpreTop := hpreTop) hf hlook hus e
       rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
       have := covDen_of hI hsc.trans hlo hws hcov (by rw [hname]; exact hnn.2.1 fn (List.mem_append_left _ hfn))
         (fun v hv => by rw [hres]; exact Eval.sorted hsc hf hlook hus hv) e hgd m
@@ -839,7 +839,7 @@ mutual
     | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
-      have ih := evalTerms_den4 hts hL hσ hvs hag hargs
+      have ih := evalTerms_den4 (hpreTop := hpreTop) hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
@@ -854,7 +854,7 @@ mutual
         rw [tr_symApp] at this
         exact this
   termination_by structural _ _ _ h => h
-  theorem evalTerms_den4 : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
+  theorem evalTerms_den4 (hpreTop : c.clausesPreTop = true) : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {ss : List Srt},
       HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
       sortsOfTerms (c.rhsCtx L) vars ts = some ss →
@@ -870,8 +870,8 @@ mutual
       exact hacc m
     | _, _, _, .cons (t := t) (ts := ts) (r := r) (rs := rs) h hs, L, vars, vs, tbl, e, ss, hL, hσ, hvs, hag, ht => by
       obtain ⟨s, ss', h1, h2, -⟩ := sortsOfTerms_cons.mp ht
-      have ih1 := evalTerm_den4 h hL hσ hvs hag h1
-      have ih2 := evalTerms_den4 hs hL hσ hvs hag h2
+      have ih1 := evalTerm_den4 (hpreTop := hpreTop) h hL hσ hvs hag h1
+      have ih2 := evalTerms_den4 (hpreTop := hpreTop) hs hL hσ hvs hag h2
       constructor
       · intro ws hws acc acc' hacc m
         simp only [allSome, Option.bind_eq_some_iff, Option.map_eq_some_iff] at hws
@@ -896,17 +896,17 @@ end
 
 /-- A rule that does not apply to a configuration (`NotApplies`) does not apply in the model, its
 `requires` read whether defined or not. -/
-theorem notApplies_model4 {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) {x : GroundTerm} (h : NotApplies c r x) :
+theorem notApplies_model4 (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) {x : GroundTerm} (h : NotApplies c r x) :
     ModelNotApplies c I r x := by
   intro σ hσ hpv tbl e hag
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
   obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top hpre
   · exact ⟨_, _, ht, hv, fun u hu => EvalTerm.sorted hsc he fns_headsOK hσ (hreqs _ ht) hu,
-      evalTerm_den4 hI hnn hsc hok hbc hph hneg he fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs _ ht)⟩
+      evalTerm_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg he fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs _ ht)⟩
 
 /-- **A rule's axiom, read in a model**, whatever its left-hand part `L` (`rule_at`, with the
 right-hand side read by `evalTerm_den4`). -/
-theorem rule_at4 {r : Rule} (hr : r ∈ c.rules) {L : Kore.Pattern}
+theorem rule_at4 (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) {L : Kore.Pattern}
     (hpat : prioRuleK c r = .rewrites (srtOf c topCellSort) L
       (.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
         reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]))
@@ -981,10 +981,10 @@ theorem rule_at4 {r : Rule} (hr : r ∈ c.rules) {L : Kore.Pattern}
   rw [KoreAML.interp_sImp] at hP'
   obtain ⟨-, himp⟩ := hP'
   have hrhsR : ∀ b, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs r.rhs)).interpret I e' b ↔ (den c y.val).interpret I e' b :=
-    fun b => evalTerm_den4 hI hnn hsc hok hbc hph hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b
+    fun b => evalTerm_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b
   have hensS := rule_ctx_ens hok hr
   have hrightR := right_den hI hrhsR (fun a' ha' => reqPat_holds hI (fun t ht b =>
-    evalTerm_den4 hI hnn hsc hok hbc hph hneg (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht) b) ha')
+    evalTerm_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag (hensS t ht) b) ha')
   have hL' := himp (by rw [← hxa]; exact hL tbl e' hvarsL hag hrightR)
   obtain ⟨n, b, hn, hb, happ⟩ := KoreAML.interp_app.mp hL'
   rw [tr_and2, KoreAML.interp_sAnd] at hb
@@ -997,7 +997,7 @@ theorem rule_at4 {r : Rule} (hr : r ∈ c.rules) {L : Kore.Pattern}
 
 /-- The left-hand side and the `requires` of a rule's axiom hold of the configuration it
 matches, at a valuation that agrees with the match. -/
-theorem lhs_req_hold4 {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem lhs_req_hold4 (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} {e : Valuation M} (hag : Agrees c I tbl (canonVars c r.vars) σ e) :
     (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r.vars) r.lhs)).interpret I e (elemOf c I x.val) ∧
@@ -1027,7 +1027,7 @@ theorem lhs_req_hold4 {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.Well
     simp only [Option.map_some, reqPat]
     rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (by rw [trSort_srt]; exact hσB1) hSC hσB2 hσC2]
     refine ⟨haC, fun b _ => ?_⟩
-    rw [evalTerm_den4 hI hnn hsc hok hbc hph hneg (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq) b,
+    rw [evalTerm_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq) b,
       KoreAML.tr_dv]
     show (den c (bool true)).interpret I e b ↔ _
     unfold den KoreAML.den bool
@@ -1039,7 +1039,7 @@ an empty exclusion where it fails (`hneg`), and every rule read negatively has a
 does not apply (`hnegr`), the configuration `x` has each of its `Step` successors `y` as a
 successor. Left-hand sides and clause patterns read positively may be collection patterns
 (`patVal_den4`). -/
-theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hnegr : ∀ r ∈ c.rules, RuleNeg c r → AppEmpty c I r) {x y : Config c} (hstep : Step c x y)
+theorem step_at4 (hpreTop : c.clausesPreTop = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hnegr : ∀ r ∈ c.rules, RuleNeg c r → AppEmpty c I r) {x y : Config c} (hstep : Step c x y)
     (e : Valuation M) (m : M) (hm : (den c x.val).interpret I e m) :
     (KoreAML.sNext (den c y.val)).interpret I e m := by
   obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep
@@ -1075,7 +1075,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
     have hpat : prioRuleK c r = .rewrites C L0
         (.and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]) := by
       rw [prioRuleK_top hex₀ hpre₀ hpost₀]; dsimp only; rw [if_pos hce]
-    refine rule_at4 hI hnn hsc hok hbc hph hneg hr hpat (fun i hi => ?_) (fun k hk => ?_) hσ heval hens
+    refine rule_at4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr hpat (fun i hi => ?_) (fun k hk => ?_) hσ heval hens
       (fun tbl e' _ hag hrhsR => ?_) e m hm
     · show _ ∈ KoreAML.varsOf (.and C _)
       rw [KoreAML.varsOf, KoreAML.varsOfList]
@@ -1083,7 +1083,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
     · change k ∈ KoreAML.freeOf [] (.and C _) at hk
       simp only [KoreAML.freeOf, KoreAML.freeOfList, List.append_nil, List.mem_append] at hk
       exact freeOf_rule_parts hok hr hk
-    · have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
+    · have h := lhs_req_hold4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
       show (KoreAML.tr ⟨tbl, []⟩ (.and C _)).interpret I e' _
       rw [tr_and3, KoreAML.interp_sAnd, KoreAML.interp_sAnd]
       exact ⟨h.1, h.2, ceil_rhs_at hI hrhsR (elemOf_top hI x tbl e')⟩
@@ -1097,7 +1097,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
       obtain ⟨r', hr', rfl⟩ := List.mem_map.mp hφ
       obtain ⟨hr'm, hp⟩ := List.mem_filter.mp hr'
       exact ⟨r', hr'm, by simpa using hp, rfl⟩
-    refine rule_at4 hI hnn hsc hok hbc hph hneg hr hpat (fun i hi => ?_) (fun k hk => ?_) hσ heval hens
+    refine rule_at4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr hpat (fun i hi => ?_) (fun k hk => ?_) hσ heval hens
       (fun tbl e' hkeys hag hrhsR => ?_) e m hm
     · show _ ∈ KoreAML.varsOf (.and C _)
       rw [KoreAML.varsOf, KoreAML.varsOfList]
@@ -1113,7 +1113,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
         obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hok hr'
         exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (htop _ hr').1 (hb _ hr') hk
       · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
-    · have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
+    · have h := lhs_req_hold4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
       show (KoreAML.tr ⟨tbl, []⟩ (.and C _)).interpret I e' _
       rw [tr_and4, KoreAML.interp_sAnd, KoreAML.interp_sAnd, KoreAML.interp_sAnd]
       refine ⟨h.1, h.2, ?_, ceil_rhs_at hI hrhsR (elemOf_top hI x tbl e')⟩
@@ -1123,7 +1123,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
         rw [trSort_srt]; rfl) comps (fun φ hφ => ?_), ?_⟩
       · obtain ⟨r', hr', hp, rfl⟩ := hcomp φ hφ
         refine hnegr r' hr' ⟨r, hr, hp⟩ x.property
-          (fun i hi => hkeys _ ?_) e' (notApplies_model4 hI hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hprio r' hr' hp))
+          (fun i hi => hkeys _ ?_) e' (notApplies_model4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hprio r' hr' hp))
         rw [KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOf]
         exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _
           (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (htop _ hr').1 (hb _ hr') hi))))))
@@ -1155,13 +1155,14 @@ graphs on values (`patVal_den4`). -/
 theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4a c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
+  have hpreTop := Semantics.preTop_of_okAll hy.1
   have hy : HypCore c := hy.core (Semantics.overloadsOK_pats OvlOK.ok)
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
   intro x y hstep M _ I hI e m hm
-  refine step_at4 hI hnn hsc hy.1 hbc hs.2.1 (fun fn hfn cl hcl hn => ?_) hb htop (fun r hr hn => ?_) hstep e m hm
+  refine step_at4 (hpreTop := hpreTop) hI hnn hsc hy.1 hbc hs.2.1 (fun fn hfn cl hcl hn => ?_) hb htop (fun r hr hn => ?_) hstep e m hm
   · obtain ⟨hp', hb', -⟩ := clause_ctx hy.1 hbc hfn hcl
-    exact exclEmpty_of_plain hI hs.1 hsc.trans hnn.1 (clause_preTop hy.1 hfn hcl) hp' hb' (hs.2.2.2 fn hfn cl hcl hn)
+    exact exclEmpty_of_plain hI hs.1 hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hy.1 hfn hcl) hp' hb' (hs.2.2.2 fn hfn cl hcl hn)
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
     exact appEmpty_of_plain hI hs.1 hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hs.2.2.1 r hr hn) (htop _ hr).1
 

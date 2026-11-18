@@ -86,16 +86,18 @@ theorem ruleComplete_of_ready (hr : execReady c = true) : RuleComplete c := by
 `execReady` holds. -/
 theorem successorsN_step_ready (hr : execReady c = true) {n : Nat} {x : Config c} {y : GroundTerm}
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
-  exact successorsN_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
+  exact successorsN_step (hpreTop := hpreTop) hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
     (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
 
 /-- **The executable step is sound** where `execReady` holds: every successor `CExec.successors`
 lists is a `Step` successor. -/
 theorem successors_step_ready (hr : execReady c = true) {x : Config c} {y : GroundTerm}
     (hy : y ∈ successors c x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ :=
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   successors_step_of_ready hr (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
 
 end KCore.CExec

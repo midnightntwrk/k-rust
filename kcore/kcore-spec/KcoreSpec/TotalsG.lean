@@ -698,7 +698,7 @@ include hok hc hs hco hH hall in
 /-- **Every evaluation of a function `totalOKG` accepts whose clauses' variables are held (or of a
 total one) at an argument list of its sorts gives a value**, by induction on the evaluation. The
 held variables are read of the function evaluated alone, where no clause applies. -/
-theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c f vs r) :
+theorem eval_value_of_GN (hpreTop : c.clausesPreTop = true) {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c f vs r) :
     TotM1N c tp f vs r :=
   Eval.rec (motive_1 := fun f vs r _ => TotM1N c tp f vs r)
     (motive_2 := fun vs cl _ => cl.pre = .top → ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs →
@@ -738,7 +738,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
         have hcls : ∀ cl ∈ fn.clauses, sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args := fun cl hcl =>
           clauseSorted_of_sortedOK hok hfn' hcl
         have htops : ∀ cl ∈ fn.clauses, cl.pre = .top :=
-          Semantics.sortedOK_preTop hok fn (List.mem_append_left _ hfn')
+          Semantics.allFns_preTop hpreTop fn (List.mem_append_left _ hfn')
         have htyped : ∀ r ∈ c.coverRowsG (c.fns.map Fn.sig) c.totalLabels tp fn,
             ∃ vars, RowTyped c vars fn.args r := by
           intro r hr
@@ -750,7 +750,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
         · -- the match on the patterns' variables extends to every variable (`RightHeld`)
           obtain ⟨σ, hσ, hpv⟩ := matches_of_rowRH (hcls cl hcl) hnd hvs hm
           have hcv : cl.condVars = [] := by
-            simp [Clause.condVars, hreq, (Semantics.sortedOK_clause hok hfn' hcl).1, varOccsCond]
+            simp [Clause.condVars, hreq, Semantics.clausesPreTop_spec hpreTop hfn' hcl, varOccsCond]
           have hσL : c.WellSortedAt cl.vars cl.leftVars σ := fun i hi =>
             hσ i (by simpa [Clause.leftVars, hcv] using hi)
           obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld (hb cl hcl) hσL
@@ -921,9 +921,9 @@ theorem tot_param {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
 include hok hc hs hco hH hall in
 /-- **Every evaluation of a function `totalOKG` accepts (or of a total one) at an argument list of
 its sorts gives a value**, by induction on the evaluation. -/
-theorem eval_value_of_G {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c f vs r) :
+theorem eval_value_of_G (hpreTop : c.clausesPreTop = true) {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (h : Eval c f vs r) :
     TotM1 c tp f vs r := fun fn hl hT hvs =>
-  eval_value_of_GN hok hc.toN hs hco hH
+  eval_value_of_GN (hpreTop := hpreTop) hok hc.toN hs hco hH
     (fun g hg gfn hl => (hall g hg gfn hl).imp id fun h => ⟨h.1, h.2, hc.binds gfn (List.mem_append_left _ h.1)⟩)
     h fn hl (hT.imp id fun h' => ⟨h'.1, h'.2, hc.binds fn (List.mem_append_left _ h'.1)⟩) hvs
 
@@ -933,12 +933,12 @@ end InductionAll
 its clauses' variables are held (`Semantics.HeldFn`) or it is total where declared `[total]`
 (`hheld`). A function of the second kind stands as one named; the induction on evaluation
 (`eval_value_of_GN`) reads the held variables of the functions of the first kind alone. -/
-theorem totals_of_rankPH (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem totals_of_rankPH (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hheld : ∀ fn ∈ c.fns, c.HeldFn fn ∨ (fn.total = true → Total c fn.label))
     (hterm : ∀ g, Terminates c g) (hco : CoherentAll c) (ord tp : List Sym) (hH : ParamsTotal c tp c.hooks)
     (hnamed : ∀ g ∈ c.totalObligationsRP ord tp, Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f := by
-  have hc := evalCtxN_of_all hok hsr hov
+  have hc := evalCtxN_of_all (hpreTop := hpreTop) hok hsr hov
   have named : ∀ fn ∈ c.fns, fn.total = true → c.totalOKG tp fn = false → Total c fn.label :=
     fun fn hfn ht hT => hnamed _ (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨hfn, by
       simp [ht, Semantics.totalOKP, hT]⟩, rfl⟩)
@@ -969,7 +969,7 @@ theorem totals_of_rankPH (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
     obtain ⟨r, hr⟩ := hterm fn.label fn' hfn' vs hvs
     rw [hfn] at hfn'
     cases hfn'
-    obtain ⟨v, rfl⟩ := eval_value_of_GN hok hc hs hco hH hall hr fn hfn (.inr ⟨hu, hT, hb⟩) hvs
+    obtain ⟨v, rfl⟩ := eval_value_of_GN (hpreTop := hpreTop) hok hc hs hco hH hall hr fn hfn (.inr ⟨hu, hT, hb⟩) hvs
     exact ⟨v, hr⟩
   · exact sortPreds_totalN hc hp
 
@@ -977,22 +977,22 @@ theorem totals_of_rankPH (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
 accept whose clauses' variables are held (`RightHeld`), every function terminating, evaluation functional and the interpretation total on the
 parameters `tp`, given those `totalObligationsRP` names: an evaluation exists (termination) and its
 result is a value (`eval_value_of_G`). -/
-theorem totals_of_rankP (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem totals_of_rankP (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld) (hterm : ∀ g, Terminates c g) (hco : CoherentAll c) (ord tp : List Sym) (hH : ParamsTotal c tp c.hooks)
     (hnamed : ∀ g ∈ c.totalObligationsRP ord tp, Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
-  totals_of_rankPH hok hsr hov (fun _ hfn => .inl (hrh.heldFn hfn)) hterm hco ord tp hH hnamed
+  totals_of_rankPH (hpreTop := hpreTop) hok hsr hov (fun _ hfn => .inl (hrh.heldFn hfn)) hterm hco ord tp hH hnamed
 
 /-- **`totals_of_rankP` with the held variables asked of the held-named functions only**
 (`Semantics.heldObligations`): of each, `HeldOwed` (its clauses' variables are held, or it has a
 result at every argument list, a value where it is `[total]`); the others' are held on the data. -/
-theorem totals_of_rankPN (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem totals_of_rankPN (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
     (hterm : ∀ g, Terminates c g) (hco : CoherentAll c) (ord tp : List Sym) (hH : ParamsTotal c tp c.hooks)
     (hnamed : ∀ g ∈ c.totalObligationsRP ord tp, Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
-  totals_of_rankPH hok hsr hov
-    (fun _ hfn => (heldOr_of_owed (evalCtxN_of_all hok hsr hov) hheld hfn).imp id And.right) hterm hco ord tp hH hnamed
+  totals_of_rankPH (hpreTop := hpreTop) hok hsr hov
+    (fun _ hfn => (heldOr_of_owed (evalCtxN_of_all (hpreTop := hpreTop) hok hsr hov) hheld hfn).imp id And.right) hterm hco ord tp hH hnamed
 
 kernel_rfl Semantics.totalObligationsRP_withHooks :
   ∀ (c : Semantics) (H : HookParams) (ord tp : List Sym),

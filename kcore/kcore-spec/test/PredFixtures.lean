@@ -37,7 +37,8 @@
   ## The conjunction of terms on a right side
   Four texts, each read by `Parse.andRuleOf` (`Parse.andCut`): the definition is the landed reader's
   (`definition_of`) with its rules replaced by the ones `parseWith andRuleOf` reads (its functions,
-  sorts and constructors are the landed reading's). Each has `coreOK`. The steps are proved from
+  sorts and constructors are the landed reading's), which are the landed reader's rules (`parsed`:
+  `Parse.ruleBody` reads them through the cut, `andTermsCut`). Each has `coreOK`. The steps are proved from
   `StepBy`, `Holds.mem` and the evaluation of the conjuncts, not through `Exec.step_iff_of_ok`
   (whose `c.ok` asks `\top` predicates of every rule).
   - e3-ml-rule-rhs-and-ctor (mlandc, `c(X) => X #And a()`), e3-ml-rule-rhs-and-var (mlandv,
@@ -972,6 +973,10 @@ namespace MlAndC
 definition_of defL from "f2-examples/mlandc.kompile.kore"
 definition_read defA from "f2-examples/mlandc.kompile.kore" by and
 
+/-- The reader reads the text's rules through the cut (`Parse.ruleBody`, `andTermsCut`): the
+landed definition's rules are those `Parse.andRuleOf` reads. -/
+theorem parsed : defL.sem.rules = defA.sem.rules := rfl
+
 /-- The definition the landed reader builds, with its rules replaced by those `Parse.andRuleOf`
 reads from the text. -/
 noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
@@ -1019,6 +1024,10 @@ namespace MlAndV
 definition_of defL from "f2-examples/mlandv.kompile.kore"
 definition_read defA from "f2-examples/mlandv.kompile.kore" by and
 
+/-- The reader reads the text's rules through the cut (`Parse.ruleBody`, `andTermsCut`): the
+landed definition's rules are those `Parse.andRuleOf` reads. -/
+theorem parsed : defL.sem.rules = defA.sem.rules := rfl
+
 noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
 
 theorem names_ok : c.sortName exp = "Exp" ∧ c.symName symA = "Lbla" ∧ c.symName symB = "Lblb" ∧
@@ -1062,6 +1071,10 @@ namespace MlOrAnd
 
 definition_of defL from "f2-examples/mlorand.kompile.kore"
 definition_read defA from "f2-examples/mlorand.kompile.kore" by and
+
+/-- The reader reads the text's rules through the cut (`Parse.ruleBody`, `andTermsCut`): the
+landed definition's rules are those `Parse.andRuleOf` reads. -/
+theorem parsed : defL.sem.rules = defA.sem.rules := rfl
 
 noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
 
@@ -1124,6 +1137,10 @@ namespace MlAndT
 definition_of defL from "f2-examples/mlandt.kompile.kore"
 definition_read defA from "f2-examples/mlandt.kompile.kore" by and
 
+/-- The reader reads the text's rules through the cut (`Parse.ruleBody`, `andTermsCut`): the
+landed definition's rules are those `Parse.andRuleOf` reads. -/
+theorem parsed : defL.sem.rules = defA.sem.rules := rfl
+
 noncomputable abbrev c : Semantics := { defL.sem with rules := defA.sem.rules }
 
 def symGo : Sym := 386
@@ -1165,15 +1182,19 @@ theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.conta
 
 /-! #### The evaluation of the conjuncts -/
 
-theorem okL : defL.sem.ok = true := by decide +kernel
+/-- The definition without its rule: the rule has a predicate and an existential variable, which
+`ok` and `okM` refuse; the clauses' context does not read the rules. -/
+noncomputable abbrev cNoRules : Semantics := { defL.sem with rules := [] }
+theorem okL : cNoRules.ok = true := by decide +kernel
 theorem sortedOK : c.sortedOK = true := by decide +kernel
 theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Exec.ovlCase_of matchReady)
-/-- The clauses are the landed definition's: its `ok` gives their context. -/
+/-- The clauses are the landed definition's: `ok` of the definition without its rule gives their
+context. -/
 theorem hcc : Exec.ClauseCtx c :=
-  have h : Exec.ClauseCtx defL.sem := Exec.clauseCtx_of okL
+  have h : Exec.ClauseCtx cNoRules := Exec.clauseCtx_of okL
   h
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 

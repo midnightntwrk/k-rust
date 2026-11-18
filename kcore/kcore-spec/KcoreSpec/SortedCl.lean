@@ -34,10 +34,11 @@ def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig
   c.condOK cl.vars cl.pre
 
 /-- What `clausesPlain` asks of one clause, with the conjunct on its open condition variables: no
-variable bound by `\exists`, `\top` predicates, and no open condition variable, or closed
-conditions, or each open condition variable of a confined sort. -/
+variable bound by `\exists`, a `\top` predicate on the right side, a `\top` predicate in the premise
+or conditions that need no witness, and no open condition variable, or closed conditions, or each
+open condition variable of a confined sort. -/
 def Semantics.clausePlainOpen (c : Semantics) (cl : Clause) : Bool :=
-  cl.exs.isEmpty && cl.pre.isTop && cl.post.isTop &&
+  cl.exs.isEmpty && (cl.pre.isTop || !cl.needsWitness c) && cl.post.isTop &&
   (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
 
 theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
@@ -56,22 +57,19 @@ theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List Ctor
   · rw [ht] at hreq; simpa [reqOK] using hreq
   · rw [ht] at hens; simpa [reqOK] using hens
 
-theorem Semantics.clausePlainOpen_parts {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
-    cl.exs = [] ∧ cl.pre = .top ∧ cl.post = .top ∧
-      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true := by
-  simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
-  exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost, hrest⟩
-
-/-- What `clausePlainOpen` gives of a clause without reading its predicate as `\top`: no existential
-variable, the right side's predicate `\top`, the conjunct on its open condition variables, and
-where its predicate is not `\top`, conditions that need no witness (`needsWitness`). -/
+/-- What `clausePlainOpen` gives of a clause: no existential variable, the right side's predicate
+`\top`, the conjunct on its open condition variables, and where its premise's predicate is not
+`\top`, conditions that need no witness (`needsWitness`). -/
 theorem Semantics.clausePlainOpen_partsP {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
     cl.exs = [] ∧ cl.post = .top ∧
       (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true ∧
       (cl.pre ≠ .top → cl.needsWitness c = false) := by
-  obtain ⟨hex, hpre, hpost, hrest⟩ := Semantics.clausePlainOpen_parts h
-  exact ⟨hex, hpost, hrest, fun hne => absurd hpre hne⟩
+  simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
+  refine ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpost, hrest, fun hne => ?_⟩
+  rcases Bool.or_eq_true_iff.mp hpre with ht | hn
+  · exact absurd (Cond.eq_top_of_isTop ht) hne
+  · simpa using hn
 
 /-- A clause with `clauseSortedOpen` has a well-sorted predicate in its premise. -/
 theorem Semantics.clauseSortedOpen_preOK {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
