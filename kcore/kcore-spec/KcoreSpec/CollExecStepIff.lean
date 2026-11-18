@@ -966,6 +966,7 @@ theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
   have hready := hr
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
+  replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
   have hsc := sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
   have hcc := cclauseCtx_of hok

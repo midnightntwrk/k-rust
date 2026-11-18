@@ -24,8 +24,8 @@
   Where the clause's predicate is not `\top` the exclusion's body carries it at `R` (`withPre`), and
   the clause fails also where `Holds` gives its predicate `false` (`ReqFails.pre`): the model's
   reading of that truth value (`HoldsAt`, `ModelFailsCl`'s second case) at `R` (`PreRead.atR`) makes
-  the predicate empty; a witness's predicate is `true` and has no other truth value where terms
-  have one result (`CoherentAll`); and the predicate at the binders moves to Bool (`PreRead.toBool`)
+  the predicate empty; a clause with a predicate other than `\top` is not one whose conditions need
+  a witness (`needsWitness`); and the predicate at the binders moves to Bool (`PreRead.toBool`)
   against `Refuted`.
 
   `ModelFailsCl` is a hypothesis of `exclEmptyCl_of`, as `ModelFails` is of `ExclEmpty`: the
@@ -310,8 +310,8 @@ of the semantics: for a clause whose patterns have the argument sorts, whose pre
 well sorted, whose `requires` is a Bool, and whose open condition variables are of confined sorts
 or whose conditions are closed; where its conditions are decided when `needsWitness` holds
 and the definition reads a confined sort where an open condition variable is of one. Where the
-predicate is not `\top`, it is read in the model (`PreRead`) and terms have at most one result
-(`CoherentAll`). -/
+predicate is not `\top`, it is read in the model (`PreRead`) and the clause's conditions are not
+closed over an open variable of a sort that is not confined (`needsWitness`). -/
 theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hsc : SortCtx c)
     [OvlOK c] (hph : patHooksApart c = true) (hcso : collSortsOK c = true) (hcs : collsOK c = true)
     (hph' : patHeadsOK c = true)
@@ -320,7 +320,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     {fn : Fn} {cl : Clause} {L : List CtorSig}
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hpreOK : c.condOK cl.vars cl.pre = true)
-    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ CoherentAll c)
+    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ cl.needsWitness c = false)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hconj : (!cl.reqOpen || cl.reqClosed ||
       cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true)
@@ -577,20 +577,10 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
             show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars i))
             rw [setV_on hkeysC hi' hc, hw', Option.getD_some])]
       | pre hpf =>
-        -- the predicate is `true` at the witness's values, which the valuation's substitution reads,
-        -- and has one truth value there
+        -- a clause with a predicate other than `\top` needs no witness
         by_cases hne : cl.pre = .top
         · rw [hne] at hpf; exact absurd hpf.top_eq (by simp)
-        · have hT : Holds c cl.vars.length (substOf c I tbl vs cl.leftSortsB e2) cl.pre true :=
-            hprew.congr_NI fun j hj => by
-              have hc : j ∈ cl.condVars := List.mem_append_right _ hj
-              have hj' := hprelt j hj
-              obtain ⟨w, hw', hws'⟩ := hσwv j hc hj'
-              rw [hw', substOf_var hIΓ hg hsc.trans hnn.1 hvsl hin2 (hget j hj')
-                (by rw [Clause.leftSortsB_getD hj' (List.mem_append_right _ hc)]; exact hws') (by
-                  show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars j))
-                  rw [setV_on hkeysC hj' hc, hw', Option.getD_some])]
-          exact absurd (Holds.functional (hpR hne).2 hT hpf) (by decide)
+        · exact absurd hnw (by rw [(hpR hne).2]; decide)
   · -- refuted: but the conditions hold at the binders
     exact Clause.not_refuted_at hI hpreOK (fun i hi hc => hinL i hi (List.mem_append_right _ hc)) hreqlt hRv' hσR
       (fun t ht => by rw [ht] at hreqE; exact hreqE)

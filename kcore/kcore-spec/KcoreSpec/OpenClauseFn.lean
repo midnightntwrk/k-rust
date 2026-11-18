@@ -41,6 +41,25 @@ theorem clauseOpenFacts_of_sortedOKCl {c : Semantics} (hok : c.sortedOKCl = true
     · rw [ht] at hreq; simpa [reqOK] using hreq
     · rw [ht] at hens; simpa [reqOK] using hens
 
+/-- **`sortedOKCl` gives `ClauseOpenFactsP` of every clause of every function**: the user's with a
+well-sorted predicate in the premise (`clauseSortedOpen`), the sort predicates' with `\top`. -/
+theorem clauseOpenFactsP_of_sortedOKCl {c : Semantics} (hok : c.sortedOKCl = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ ClauseOpenFactsP c fn L cl := by
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts hok).2.1 fn hu cl hcl
+    exact ⟨c.fns.map Fn.sig, fns_headsOK, clauseOpenFactsP_of hs hpl⟩
+  · obtain ⟨hpats, -, hb, hreq, hrhs, hens⟩ := sortPreds_ctx hp cl hcl
+    have hpp := sortPreds_topCl hp cl hcl
+    refine ⟨[], fun k hk => absurd hk List.not_mem_nil,
+      sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats,
+      by rw [hpp.1, Semantics.condOK], hpp.2,
+      fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_, Semantics.sortPreds_exs hp cl hcl⟩
+    · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
+      simp only [List.mem_append]; exact Or.inl (Or.inl (Or.inl (Or.inl (hb i hi))))
+    · rw [ht] at hreq; simpa [reqOK] using hreq
+    · rw [ht] at hens; simpa [reqOK] using hens
+
 /-- A user clause with an open condition variable of a confined sort makes the definition read a
 confined sort. -/
 theorem readsConfined_of_openCl {c : Semantics} {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl ∈ fn.clauses)
@@ -61,10 +80,12 @@ variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sy
 
 /-- **Each negated clause's exclusion is empty where it fails**, in a model of `Γc` of a semantics
 with `sortedOKCl`, `srReady`, `OvlOK`, `faithCoreOK` and `patHooksApart`, whose clauses' conditions
-are decided where `needsWitness` holds. -/
+are decided where `needsWitness` holds, and whose clauses' predicates other than `\top` are read in
+the model (`PreRead`). -/
 theorem neg_of_coreCl (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
+    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hpreR : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre ≠ .top → HoldsShape.PreRead c I cl) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c fn cl → ExclEmptyCl c I fn cl := by
   obtain ⟨hnn, hg, hcso, hcs, hph', hnk, -⟩ := faithCoreOK_parts hfa
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
@@ -75,9 +96,9 @@ theorem neg_of_coreCl (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : 
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKCl_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨-, hpre, -, hconj⟩ := Semantics.clausePlainOpen_parts hpl
+    obtain ⟨-, -, hconj, hnw⟩ := Semantics.clausePlainOpen_partsP hpl
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv hpats
-      (by rw [hpre, Semantics.condOK]) (fun hne => absurd hpre hne) hreqS hconj
+      (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
       (readsConfined_of_openCl hu hcl) (hc fn hu cl hcl)
   · obtain ⟨hpats, -, hb, hreq, -, -⟩ := sortPreds_ctx hp cl hcl
     have hoc := openCondVars_of_bindsCl hb
@@ -94,12 +115,13 @@ denotes, defined or not (`eval_den4Cl`, with `neg_of_coreCl`'s hypotheses). -/
 theorem eval_den4_coreCl (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    (hpreR : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre ≠ .top → HoldsShape.PreRead c I cl)
     {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm} (hev : Eval c f ws r) {fn : Fn}
     (hfn : c.lookupFn f = some fn) (hws : c.sortsOf ws = some fn.args) (e : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m :=
-  eval_den4Cl (fun φ hφ => hI φ (Or.inl hφ)) (namesNumbered_spec (faithCoreOK_parts hfa).1)
-    (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)) hph (clauseOpenFacts_of_sortedOKCl hok)
-    (neg_of_coreCl hI hok hsr hfa hph hc) hev hfn hws e m
+  eval_den4ClPre (fun φ hφ => hI φ (Or.inl hφ)) (namesNumbered_spec (faithCoreOK_parts hfa).1)
+    (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)) hph (clauseOpenFactsP_of_sortedOKCl hok)
+    (neg_of_coreCl hI hok hsr hfa hph hc hpreR) hpreR hev hfn hws e m
 
 end
 

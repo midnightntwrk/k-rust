@@ -523,22 +523,34 @@ def readyL (c : Semantics) (vars : List Srt) (ps : List Term) : Bool :=
 core: well sorted (`sortedOK`, under `okAll`), `srReady`, `matchReadyO` (`matchReady` with
 well-formed overloads, `overloadsOK`, in place of none), every clause's and rule's left-hand
 side ready, binding all of its variables, every rule's predicates `\top` or conjunctions of
-`\equals` and `\in` atoms (`predAtoms`, which `predVal` evaluates), and no clause `aside`
-(`asideFree`: the executable evaluation stops at the first clause that applies, `aside` or not). -/
+`\equals` and `\in` atoms (`predAtoms`, which `predVal` evaluates), no clause `aside`
+(`asideFree`: the executable evaluation stops at the first clause that applies, `aside` or not),
+and every clause's predicate `\top` (the executable evaluation reads a clause's `requires` only). -/
 def execReady (c : Semantics) : Bool :=
   c.sortedOK && c.srReady && c.matchReadyO &&
   c.allFns.all (fun fn => fn.clauses.all fun cl =>
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
     predAtoms r.pre && predAtoms r.post) &&
-  c.asideFree
+  c.asideFree &&
+  c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop)
 
 /-- A rule of a core `execReady` accepts has predicates `predVal` evaluates and a left side that
 binds every variable. -/
 theorem rule_atoms_of_execReady {c : Semantics} (hr : execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
     predAtoms r.pre = true ∧ predAtoms r.post = true ∧ binds r.vars.length (varOccs r.lhs) = true := by
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
-  obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.2 r hmem
+  obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.1.2 r hmem
   exact ⟨hpre, hpost, hb⟩
+
+/-- Every clause of a function of a core `execReady` accepts has the predicate `\top`: the user's
+by `execReady`, a sort predicate's by its text. -/
+theorem preTop_of_execReady {c : Semantics} (hr : execReady c = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
+  simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · exact Cond.eq_top_of_isTop (hr.2 fn hu cl hcl)
+  · exact Semantics.sortPreds_pre hp cl hcl
 
 end KCore.CExec

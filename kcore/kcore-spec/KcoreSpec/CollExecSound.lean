@@ -170,6 +170,7 @@ theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   · refine ⟨c.fns.map Fn.sig, Exec.headsOK_fns, fun cl hcl => ?_⟩
     have := hfns fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+    replace this := this.1
     exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl, hpl fn hfn' cl hcl⟩
   · exact ⟨[], fun k hk => (nomatch hk), fun cl h =>
       ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2,
@@ -783,6 +784,7 @@ theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete
     ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
+  replace hr' := hr'.1
   exact successors_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc hy
 
 end KCore.CExec
