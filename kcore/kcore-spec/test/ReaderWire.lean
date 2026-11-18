@@ -40,8 +40,22 @@
 
   The stages of a package (`Stages`), on `f2-examples/mleqort` (the kompiled text of
   `e3-ml-eq-rhs-or-total`), as `kcore gen` writes them for a function whose clauses are checked in
-  blocks: `Parse.clauseOf` on h's pair by the kernel (three clauses of one equation), `fnClauses`
-  from the block, and the productions with that table (`symProdT_eq`).
+  blocks: `Parse.clauseOf` on h's pair by the kernel (three clauses of one equation, those
+  `Parse.frClauses` gives for `f(X)`, `g(X)`: `cls2_frClauses`), `fnClauses` from the block, and the
+  productions with that table (`symProdT_eq`).
+
+  `coreOf`'s check of Bool on the built definition (`CoreOfBool`): `coreOf` refuses, with
+  `existentialEquation` naming Bool, an equation `exRead` reads (`exCases`) in a definition whose
+  `litSort Srt.bool` is false. `exRead` is entered only where the names hold `boolLits`
+  (`boolLitsOf`, the conjuncts of `litSort` at Bool that the text's declarations decide), and the
+  library's conjuncts are false at Bool (`library_lits`: no module of the library gives Bool a
+  subsort, constructor, token or byte sort, nor does a fixed constructor, `#KConfigValue` or a
+  builtin collection), so no text reaches the refusal: a value the text gives Bool (`subBoolD`, a
+  declared sort Foo below Bool) makes `boolLits` false and the equation is refused
+  `manyValuedRightSide` before. The check is run on the stages of `finish` with the names' bit
+  set (`finishWith`): on `e3-eq-exists-bool-ml` with `subBoolD`, refused `existentialEquation`
+  (Bool); on the text itself, read with `litSort Srt.bool` true; with the bit unset, `subBoolD`'s
+  text is refused `manyValuedRightSide`.
 -/
 import KcoreSpec
 
@@ -476,11 +490,86 @@ theorem cls2 : fnClauses stage.env.N stage.env.src scanAll.eqs "Lblh" = .ok stag
 /-- The one equation gives three clauses. -/
 theorem cls2_lengths : stage.cls2_0.map (·.length) = [3] := by decide +kernel
 
+/-- **They are `frClauses`', by the kernel**: the alternatives `f(X)`, `g(X)` with no condition, f
+and g the symbols `nRegSyms + 4` and `nRegSyms + 5` of the text (test/EqRhsOr.lean's `F`, `G`,
+whose `frClauses_h` gives these clauses as `hCl1`, `hCl2`, `hCl3`). -/
+theorem cls2_frClauses : stage.cls2_0.map (·.map (·.1)) =
+    [Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false
+      [(.app (nRegSyms + 4) [.var 0], []), (.app (nRegSyms + 5) [.var 0], [])]] := by
+  kernel_rfl
+
 /-- **The productions, h's clauses from the block.** -/
 theorem prodsIs0 : MapIs (symProd stage.env scanAll.eqs) (prodSyms scanAll stage.env) 0 3 stage.prods0 := by
   rw [← symProdT_eq (ov := [("Lblh", stage.cls2_0)]) (List.forall_mem_cons.2 ⟨cls2, (fun _ h => nomatch h)⟩)]
   unfold MapIs; kernel_rfl
 
 end Stages
+
+/-! ## `coreOf`'s check of Bool on the built definition -/
+
+namespace CoreOfBool
+
+/-- `subBool` with the sort Foo declared: the text gives Bool the elements of Foo. -/
+def subBoolD (k : Kore.Definition) : Kore.Definition :=
+  let sd : Kore.Sentence := .sort { sort := ⟨⟨"SortFoo"⟩⟩, sortVars := [], attributes := [] }
+  let ax : Kore.Axiom :=
+    { sortVars := [], pattern := .top (KoreAML.srt "K"),
+      attributes := [⟨⟨⟨"subsort"⟩⟩, [KoreAML.srt "Foo", KoreAML.srt "Bool"], []⟩] }
+  match k.modules.reverse with
+  | m :: rest => { k with modules := ({ m with sentences := m.sentences ++ [sd, .axiom ax] } :: rest).reverse }
+  | [] => k
+
+/-- `finish` with the names' `boolLits` set to `b` after `envOf`. -/
+def finishWith (b : Bool) (m : Kore.Module) (S : Scan) : Rd Definition := do
+  let E ← envOf m S
+  let E := { E with N := { E.N with boolLits := b } }
+  let symProds ← (prodSyms S E).mapM (symProd E S.eqs)
+  let rules ← S.rewrites.mapM (ruleOf E.N E.src)
+  assemble m S E symProds rules
+
+/-- The text of fixture `n`, changed by `edit`: the names' `boolLits`, then `finishWith b`, then
+`parse`, each refusal with its whole detail. -/
+def runWith (n : String) (edit : Kore.Definition → Kore.Definition) (b : Bool) : IO Unit := do
+  let k := edit (← load n)
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := scan m.sentences
+  match envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {f.reason.name}"
+  | .ok E => IO.println s!"{n}: boolLits {E.N.boolLits}; finish with boolLits {b}:"
+  match finishWith b m S with
+  | .error f => IO.println s!"  refused {f.reason.name} ({f.detail})"
+  | .ok d => IO.println s!"  read; coreOK {d.sem.coreOK}; litSort Bool {d.sem.litSort Srt.bool}"
+  match Parse.parse k with
+  | .error r => IO.println s!"  parse: refused {r.reason.name} ({r.detail})"
+  | .ok d => IO.println s!"  parse: read; litSort Bool {d.sem.litSort Srt.bool}"
+
+/--
+info: e3-eq-exists-bool-ml: boolLits false; finish with boolLits true:
+  refused existentialEquation (Bool: the text's declarations give the sort no value beside its literals (Names.boolLits), and the definition read has one (litSort): the equation, read by cases over a Bool variable (existsAsCases), would state more than the text)
+  parse: refused manyValuedRightSide (\exists)
+e3-eq-exists-bool-ml: boolLits false; finish with boolLits false:
+  refused manyValuedRightSide (\exists)
+  parse: refused manyValuedRightSide (\exists)
+e3-eq-exists-bool-ml: boolLits true; finish with boolLits true:
+  read; coreOK true; litSort Bool true
+  parse: read; litSort Bool true
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  runWith "e3-eq-exists-bool-ml" subBoolD true
+  runWith "e3-eq-exists-bool-ml" subBoolD false
+  runWith "e3-eq-exists-bool-ml" id true
+
+/-- **The library gives Bool no value beside its literals**: the conjuncts of `litSort` at Bool
+that read the library's data (its modules' subsorts, constructors, token and byte sorts; the fixed
+constructors, `#KConfigValue`'s and the builtin collections) hold of every definition. -/
+theorem library_lits :
+    (library.all (fun m => m.subsorts.all (·.2 != Srt.bool) && m.ctors.all (·.result != Srt.bool) &&
+      !m.tokenSorts.contains Srt.bool && !m.byteSorts.contains Srt.bool) &&
+     fixedCtors.all (·.result != Srt.bool) && kconfigCtor.result != Srt.bool &&
+     builtinColls.all (·.sort != Srt.bool)) = true := by
+  decide +kernel
+
+end CoreOfBool
 
 end ReaderWire

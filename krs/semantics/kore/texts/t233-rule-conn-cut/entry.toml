@@ -1,0 +1,128 @@
+id = "t233-rule-conn-cut"
+kind = "text"
+subject = "Matching-logic connectives at a term position of a rewrite rule's side, under symbol applications: #Top and #Or on a right side (go => #Top, go2 => a() #Or b()), #Not and #Implies under a constructor on a left side (c(#Not(a())) => done, e(a() #Implies b()) => done). What each rule states, and that a pattern P of sort S (a connective among them) at a position under applications C denotes what #Exists Z:S. C[Z] #And (Z in P) denotes."
+origin = "kcore-spec fixtures e3-ml-rule-rhs-top (its rule), e3-ml-rule-rhs-or and e3-ml-rule-lhs-not-other (their rules, renamed), and a rule with #Implies"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t120-rule-rhs-exists", "kk:t124-rule-lhs-top", "kk:t126-rule-lhs-not"]
+
+[text]
+files = ["t233-rule-conn-cut.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = """(1) The cut. A pattern P of sort S, a connective or any other, at an argument position under symbol applications C (a context of applications with one hole of sort S) denotes, at each valuation, the set of C[z] for the elements z that P denotes. That is what #Exists Z:S. (C[Z] #And (Z in P)) denotes, Z a variable the rule does not otherwise hold, where the membership Z in P holds exactly where Z's element is one of what P denotes. Membership of one element goes through the connectives: z is in #Top always; z is in #Not(P) exactly where z is not in P; z is in P #Or Q exactly where z is in P or in Q; z is in P #Implies Q exactly where z in P implies z in Q.
+(2) On a left side the rule applies at each instance C[z]: c(x) has the successor done for every element x of Exp other than a(), and e(x) has the successor done for every x other than a(), since a() #Implies b() denotes every element but a() (b() being an element other than a()). c(a()) and e(a()) are no instances; of them the two rules state nothing.
+(3) On a right side the configuration has a successor among the C[z], and the rule names none of them: go2 has a successor whose k cell holds a() or b() before the rest, and the rule states neither that a() is one nor that b() is. go has a successor whose k cell holds some element of the sort of #Top, followed by the rest of the cell; the K text leaves that sort to the parser, and the manual does not state which sort it is (see [ruling.kore])."""
+reason = '''
+(1) #Top, #Not, #And, #Or and #Implies are the matching-logic connectives of ML-SYNTAX, each at one sort parameter Sort (kast.md:138-140, 148-150). A pattern denotes a set: a symbol's interpretation is extended to sets of arguments (introduction-to-matching-logic.tex:714-716, 728-730; user_manual.md:2337-2341), and an application to a set of arguments is the union of the applications at its elements (kk:t10-fn-innermost, point (2)). So C[P] denotes the C[z] for z in what P denotes.
+(2) An existential denotes the union over every value of its variable (introduction-to-matching-logic.tex:737-741), and a membership Z in P is the whole carrier where Z's element is in what P denotes and empty otherwise (:897-902). So #Exists Z. (C[Z] #And (Z in P)), Z not free in C or P, denotes the union of C[z] over the z in what P denotes: the set of (1). A negation is the complement in the carrier of its sort and a conjunction the intersection (:732-736); top is the existential over a variable of the sort, disjunction and implication are derived from negation and conjunction (:679-684). So z is in #Top always, in #Not(P) where it is not in P, in P #Or Q where it is in either, in P #Implies Q (that is #Not(P) #Or Q) where z in P implies z in Q.
+(3) A rewrite rule states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)). On the left: c(#Not(a())) denotes c(x) for the x other than a() (kk:t126-rule-lhs-not, point (1), for the same left side); a() and b() are constructors of Exp and denote one element each, and a() #Implies b() denotes the complement of {a()} joined with {b()}, which is every element but a(). Each such configuration has the successor done; at c(a()) and e(a()) the left sides are empty and the rules state nothing (kk:t124-rule-lhs-top states the same of #Top on a left side).
+(4) On the right: a right side that denotes several configurations gives a successor among them and does not state that each is one (kk:t120-rule-rhs-exists, point (4), where the right side is an existential, the form of (2)). go2 => a() #Or b() denotes, by (1), the configurations holding a() and b(): go2 has a successor among them. The sort of #Top in go => #Top is the sort the parser gives the parameter Sort at that position; kast.md declares #Top at every sort, and the manual's account of sort inference is for variables (user_manual.md:1575), so the K text does not say which.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148-150 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)] > Sort "#Or" Sort [symbol(#Or), assoc, left, comm, unit(#Bottom), mlOp, group(mlOp), format(%i%1%d%n%2%n%i%3%d)] > Sort "#Implies" Sort [symbol(#Implies), mlOp, group(mlImplies, mlOp), format(%i%1%d%n%2%n%i%3%d)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2337-2341 (K 7.1.337)"
+quote = "In Matching Mu Logic, terms evaluate to sets of values. This is useful for both capturing partiality (as in `3/0`) and capturing non-determinism (as in `3 #Or 5`). Consequently, symbol interpretation is extended to have a collective interpretation over sets of input values."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1575 (K 7.1.337)"
+quote = "### Variable Sort Inference"
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = '''We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:728-730 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$ for all $\sigma\in\Sigma_{s_1...s_n,s}$ and appropriate $\varphi_1,...,\varphi_n$'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:897-902 (K 7.1.337)"
+quote = '''Membership is also a predicate. Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'''
+
+[ruling.kore]
+statement = '''The four axioms hold no variable the K text does not hold, and each states what (2) and (3) state, with the connective at the sort written there. c(\not{Exp}(a())) (kore.txt:93) and e(\implies{Exp}(a(), b())) (kore.txt:102) are left sides at sort Exp under c and e; \or{Exp}(a(), b()) (kore.txt:123) is a right side at sort Exp under inj{Exp,KItem} and kseq. #Top is written \top{SortK{}}() under append (kore.txt:114): the parser gave it the sort K, not Exp. append is the prelude's concatenation of K sequences, a function whose two equations give append(dotk, T) = T and append(kseq(I, KS), T) = kseq(I, append(KS, T)) (prelude.kore:10-45). So the right side denotes, at a valuation of the rest _DotVar1, the configurations whose k cell holds append(k, _DotVar1) for the elements k of K, and go has a successor among them: where k is a sequence of items built by kseq and dotk, the k cell holds that sequence, possibly empty and possibly of items of any sort below KItem, followed by the rest. By (1) each axiom is the same axiom as the one with Z in place of the connective and the membership Z in P conjoined, under an existential binder for Z on the right side, and with Z free on the left side, where a free variable is quantified over every value at which the axiom must hold (introduction-to-matching-logic.tex:767-768).'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:93"
+quote = '''Lblc{}(\not{SortExp{}}(Lbla{}()))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:102"
+quote = '''Lble{}(\implies{SortExp{}}(Lbla{}(),Lblb{}()))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:114"
+quote = '''Lbl'-LT-'k'-GT-'{}(append{}(\top{SortK{}}(),Var'Unds'DotVar1:SortK{}))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:123"
+quote = '''kseq{}(inj{SortExp{}, SortKItem{}}(\or{SortExp{}}(Lbla{}(),Lblb{}())),Var'Unds'DotVar1:SortK{})'''
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:10 (K 7.1.337)"
+quote = "symbol append{}(SortK{}, SortK{}) : SortK{} [function{}(), functional{}()]"
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:15-25 (K 7.1.337)"
+quote = '''\in{SortK{}, R}(X0:SortK{}, dotk{}()), \and{R}( \in{SortK{}, R}(X1:SortK{}, TAIL:SortK{}), \top{R}() )) ), \equals{SortK{}, R}( append{}(X0:SortK{}, X1:SortK{}), \and{SortK{}}( TAIL:SortK{},'''
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:33-42 (K 7.1.337)"
+quote = '''\in{SortK{}, R}(X0:SortK{}, kseq{}(K:SortKItem{}, KS:SortK{})), \and{R}( \in{SortK{}, R}(X1:SortK{}, TAIL:SortK{}), \top{R}() )) ), \equals{SortK{}, R}( append{}(X0:SortK{}, X1:SortK{}), \and{SortK{}}( kseq{}(K:SortKItem{}, append{}(KS:SortK{}, TAIL:SortK{})),'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''append{}(\top{SortK{}}(),Var'Unds'DotVar1:SortK{})'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lble{}(\implies{SortExp{}}(Lbla{}(),Lblb{}()))'''

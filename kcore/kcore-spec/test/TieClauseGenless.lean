@@ -365,7 +365,7 @@ theorem f0_is_1 {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hΓ
   haveI : OvlOK cP := hno
   have htr := (sortCtx_of_all hsok hsr' (OvlOK.ovlCase hno)).trans
   have hfnm := (lookupFn_spec lookupFP).1
-  have hts : HoldsShape.TermSound cP I := HoldsShape.termSound_of_core coreP hΓc
+  have hts : HoldsShape.TermSound cP I := HoldsShape.termSoundEx (Semantics.coreOKEx_of_coreOK coreP) hΓc
     (openClauses_of_owed (by rw [namedP.2.2.2.2.2.2.2]; intro p hp; cases hp))
   have hr1 : ∀ v, some i1 = some v → cP.sortOf v = some fG.result := fun v hv => by
     cases hv; exact sortOf_plus i1_sort

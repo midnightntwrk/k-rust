@@ -1,0 +1,91 @@
+id = "t234-lhs-and-pred"
+kind = "text"
+subject = "#And at a term position of a rewrite rule's left side: a term with a predicate (go(X) #And #Ceil(go(X)), go2(X) #And {X #Equals 1}), a variable with a term (c(X #And d(_, b())) => X), and two terms (e(d(X, _) #And d(_, b())) => X). Where each rule applies, and what it binds."
+origin = "kcore-spec fixtures e3-ml-rule-lhs-ceil-ctor, e3-ml-rule-lhs-equals and e3-ml-rule-lhs-and (their rules, renamed), and a rule with two terms"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t228-ctor-distinct", "kk:t233-rule-conn-cut"]
+
+[text]
+files = ["t234-lhs-and-pred.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = """(1) A term t with a predicate P (#Ceil, #Equals: patterns that denote the whole carrier or nothing) denotes, at a valuation, what t denotes where P holds and nothing where it does not. So the rule applies at the instances of t at the valuations where P holds: t with P a premise. go(i) has the successor done for every integer i, since go(i) denotes an element and #Ceil of it holds; go2(i) has the successor done at i = 1 and at no other i.
+(2) A variable X with a term p denotes, at a valuation, X's element where it is among what p denotes, and nothing otherwise. So the rule applies at the instances of p, with X the element matched: it is p #as X. c(d(u, b())) has the successor d(u, b()) for every element u of Exp; of c(x) for x of another form the rule states nothing.
+(3) Two terms p and q denote the elements both denote. d(X, _) and d(_, b()) denote one element exactly where both are d of the same arguments, so their conjunction denotes d(x, b()) with X bound to x: e(d(x, b())) has the successor x for every element x of Exp, and of e(y) for y of another form the rule states nothing.
+In each case the left side is the cut of kk:t233-rule-conn-cut with the membership of the matched element in the connective's other operand, which for a predicate P reduces to P itself."""
+reason = '''
+(1) #And is the conjunction of ML-SYNTAX at one sort parameter, #Ceil and #Equals its definedness and equality (kast.md:142-144, 148). A conjunction denotes the intersection of what its two sides denote (introduction-to-matching-logic.tex:732-736). #Ceil(t) is the whole carrier where t denotes something and empty where it denotes nothing (:840-845); an equality is the whole carrier where its two sides denote the same set and empty otherwise (:880-885). So t #And P is what t denotes where P holds and empty where it does not.
+(2) A rewrite rule states that at every valuation every element of its left side has a successor in its right side (kk:t02-step-successors, point (4)); where the left side is empty the rule states nothing. go and go2 are constructors of Exp: go(i) and go2(i) denote one element each at every integer i (kk:t10-fn-innermost, point (4); kk:t228-ctor-distinct). So #Ceil(go(i)) holds at every i and go(i) has the successor done; {X #Equals 1} holds exactly where X is 1, and go2(i) has the successor done at i = 1 alone.
+(3) X denotes the one element of its valuation (introduction-to-matching-logic.tex:727). So X #And d(_, b()) at a valuation is {x} where x is d(u, b()) for the valuation's u, and empty otherwise; over every valuation the left side denotes c(d(u, b())) for every u, with X bound to d(u, b()), and the right side X is that element.
+(4) d(x, u) and d(v, b()) denote one element exactly where x and v are the same element and u is b() (kk:t228-ctor-distinct: two terms built by constructors denote one element only where they are built by the same constructor from arguments that denote the same elements). So d(X, _) #And d(_, b()) at a valuation denotes d(x, b()) where the valuation sends the second wildcard to b() and the first to x, and nothing otherwise: over every valuation, e(d(x, b())) with X bound to x.
+(5) In each case the left side has the form C[p #And q] with C an application context, and is the cut C[Z] with Z in (p #And q) (kk:t233-rule-conn-cut, point (1)); Z in (t #And P), P a predicate, holds exactly where Z is in t and P holds.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:142-144 (K 7.1.337)"
+quote = 'syntax {Sort1, Sort2} Sort2 ::= "#Ceil" "(" Sort1 ")" [symbol(#Ceil), mlOp, group(mlUnary, mlOp)] | "#Floor" "(" Sort1 ")" [symbol(#Floor), mlOp, group(mlUnary, mlOp)] | "{" Sort1 "#Equals" Sort1 "}" [symbol(#Equals), mlOp, group(mlEquals, mlOp), comm, format(%1%i%n%2%d%n%3%i%n%4%d%n%5)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$ \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:840-845 (K 7.1.337)"
+quote = '''$\overline{\rho}(\lceil\varphi\rceil_{s_1}^{s_2})$ is either $\emptyset$ (i.e., $\overline{\rho}(\bot_{s_2})$) when $\overline{\rho}(\varphi) = \emptyset$ (i.e., $\varphi$ undefined in $\rho$), or is $M_{s_2}$ (i.e., $\overline{\rho}(\top_{s_2})$) when $\overline{\rho}(\varphi) \neq \emptyset$ (i.e., $\varphi$ defined).'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[ruling.kore]
+statement = '''The four left sides are written as the K text has them, with no variable on a right side that the K text does not hold: \and{KItem}(inj{Exp,KItem}(go(X)), \ceil{Exp,KItem}(go(X))) (kore.txt:175) and \and{KItem}(inj{Exp,KItem}(go2(X)), \equals{Int,KItem}(X, 1)) (kore.txt:184), the predicate at the sort KItem of the conjunction around the injected term; c(\and{Exp}(X, d(_Gen0, b()))) (kore.txt:193) with the right side X (kore.txt:196); and e(\and{Exp}(d(X, _Gen0), d(_Gen1, b()))) (kore.txt:202). The wildcards are the free variables _Gen0 and _Gen1, held by the left side only, so the axiom at every valuation of them states (2), (3) and (4). The injection inj{Exp,KItem} of go(X) denotes one element where go(X) does, so the predicate at sort KItem holds where it holds at Exp.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:175"
+quote = '''\and{SortKItem{}}(inj{SortExp{}, SortKItem{}}(Lblgo{}(VarX:SortInt{})),\ceil{SortExp{}, SortKItem{}}(Lblgo{}(VarX:SortInt{})))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:184"
+quote = '''\and{SortKItem{}}(inj{SortExp{}, SortKItem{}}(Lblgo2{}(VarX:SortInt{})),\equals{SortInt{}, SortKItem{}}(VarX:SortInt{},\dv{SortInt{}}("1")))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:193"
+quote = '''Lblc{}(\and{SortExp{}}(VarX:SortExp{},Lbld{}(Var'Unds'Gen0:SortExp{},Lblb{}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:196"
+quote = '''kseq{}(inj{SortExp{}, SortKItem{}}(VarX:SortExp{}),Var'Unds'DotVar1:SortK{})'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:202"
+quote = '''Lble{}(\and{SortExp{}}(Lbld{}(VarX:SortExp{},Var'Unds'Gen0:SortExp{}),Lbld{}(Var'Unds'Gen1:SortExp{},Lblb{}())))'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = 'Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lble{}(\and{SortExp{}}(Lbld{}(VarX:SortExp{},Var'Unds'Gen0:SortExp{}),Lbld{}(Var'Unds'Gen1:SortExp{},Lblb{}())))'''

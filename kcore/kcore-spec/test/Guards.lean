@@ -2285,6 +2285,12 @@ def readingNote : ReadingNote → GuardEntry
     { status := .pending "GUARD.final",
       guard := [.test "test/CondCut.lean" "andUnderAppCut", .test "test/CondCut.lean" "ReqAndApp"],
       note := "a conjunction of single-valued terms under an application of a condition read as its first conjunct with the memberships of the others (Parse.condAndCutT through Parse.condCuts); on e3-ml-req-and-under-app's text (go(X, Y) => done requires f(X #And Y) ==Int 0, f(X) => X -Int 1) at the parsed semantics: go(1, 1) steps to done and go(1, 2), go(2, 2), go(0, 0) have no successor (test/CondCut.lean ReqAndApp); no statement over c.withHooks H, no companion" }
+  | .connectiveCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/PredFixtures.lean" "step_iff", .test "test/PredFixtures.lean" "step_inv",
+        .test "test/PredReader.lean" "cut_right", .test "test/PredReader.lean" "cut_left",
+        .decl ``KoreAML.cut_sorted, .decl ``KoreAML.MemOf.or, .decl ``KoreAML.MemOf.not],
+      note := "a connective at a term position of a rule's side read through the cut (Parse.connRuleBody): on the right side an existential variable with its membership in post, on the left side a variable with its membership in pre; the steps at the parsed semantics are test/PredFixtures.lean's (LhsNot, RhsOr), the cut of a pattern under applications is KoreAML.cut_sorted and the membership through the connectives KoreAML.MemOf; no statement over c.withHooks H, no companion" }
 
 def inertReason : InertReason → GuardEntry
   | .import =>
@@ -2370,7 +2376,7 @@ def readingNotes : List ReadingNote :=
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem,
-   .notAsCondition, .andUnderAppCut]
+   .notAsCondition, .andUnderAppCut, .connectiveCut]
 
 def inertReasons : List InertReason :=
   [.import, .claim, .simplification, .distinctCtors, .injectivity, .noJunk, .collectionLaw,

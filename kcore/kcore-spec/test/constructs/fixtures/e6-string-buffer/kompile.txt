@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-string-buffer.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.8
+definition.kore bytes: 275601
+definition.kore sha256: aa4e066082b66f63606d79ee47a196583c229583cb06ee202c1d6bd138070763
+stripped sha256: fc61a95ca9c81c603ae080572683f6ec20a934bca4173182c9970ec3d92ec5f0
+main module: 499 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-STRING-BUFFER-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-STRING-BUFFER as default.

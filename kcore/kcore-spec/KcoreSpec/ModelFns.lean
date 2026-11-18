@@ -100,16 +100,16 @@ theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : 
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hX : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
       e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+    (KoreAML.tr ⟨tbl, []⟩ (symApp c fn.label
       (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret (stdI_T c T) e b ↔
       ∃ v, b = .val v ∧ Eval c fn.label ws (some v) := by
   obtain ⟨hc, hh, hp⟩ := h.fnApart hfn
   have hl : ws.length = fn.args.length := sortsOf_len hws
-  rw [tr_ap_tbl, interp_symList _ _ (ws.map Elem.val)
+  rw [tr_symApp, trArgs_appList, interp_appList_sing _ _ (ws.map Elem.val)
     (vars_numbered_read _ ws 0 (by simp [hl]) (fun n w s h1 h2 => by rw [Nat.zero_add]; exact hX n w s h1 h2)) b]
-  rw [show c.symName fn.label = c.symName fn.sig.name from rfl,
-    symE_vals h.namesK (fn_sig_mem hfn) (by rw [hl]; rfl) b]
-  exact result_fn (k := fn.sig) hc hh hp (c.isOvl_of_lookupFn (h.lookupFn hfn)) b
+  unfold symHead
+  exact (head_app (T := T) h (fn_sig_mem hfn) (tbl := tbl) (vs := []) (ts := []) (e := e) (ws := ws)
+    (by rw [hl]; rfl) b).trans (result_fn (k := fn.sig) hc hh hp (c.isOvl_of_lookupFn (h.lookupFn hfn)) b)
 
 end AtT
 
@@ -119,7 +119,7 @@ theorem call_read (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {tbl : 
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     (hX : ∀ (j : Nat) (w : GroundTerm) (s : String), ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
       e.evalEvar (tbl.ev (.evar ("X" ++ toString j) (KoreAML.srt s))) = .val w) (b : Elem) :
-    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap (c.symName fn.label)
+    (KoreAML.tr ⟨tbl, []⟩ (symApp c fn.label
       (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))).interpret (stdI c) e b ↔
       ∃ v, b = .val v ∧ Eval c fn.label ws (some v) :=
   AtT.call_read (c := c) (T := StepM c) (h := h) (fn := fn) (hfn := hfn) (tbl := tbl) (e := e) (ws := ws) (hws := hws) (hX := hX) (b := b)
@@ -527,7 +527,7 @@ theorem argsAt_of {tbl : KoreAML.VarTable} {e : Valuation Elem} {args : List Srt
 /-- The conclusion of a function's equations, `f(X̄) = rhs ∧ ens`, over the sort variable `R`. -/
 def fnConcl (c : Semantics) (fn : Fn) (rhs ens : Kore.Pattern) : Kore.Pattern :=
   .equals (KoreAML.srt (c.sortName fn.result)) KoreAML.R
-    (KoreAML.ap (c.symName fn.label) (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))
+    (symApp c fn.label (KoreAML.vars (KoreAML.numbered "X" 0 (fn.args.map c.sortName))))
     (.and (KoreAML.srt (c.sortName fn.result)) [rhs, ens])
 
 /-- The facts the guards of an equation give, at the table of the axiom. -/
@@ -542,6 +542,11 @@ structure EqnAt (c : Semantics) (fn : Fn) (vars : List Srt) (tbl : KoreAML.VarTa
   vin : ∀ i < vars.length, InSort c (vars.getD i 0) (e.evalEvar (tbl.ev (canonKey c vars i)))
 
 namespace AtT
+
+/-- A variable of the arguments is a variable of the application `symApp` writes. -/
+theorem mem_varsOf_symApp (f : Sym) (ps : List Kore.Pattern) {k : KoreAML.VarKey}
+    (h : k ∈ KoreAML.varsOfList ps) : k ∈ KoreAML.varsOf (symApp c f ps) := by
+  unfold symApp; split <;> (rw [KoreAML.varsOf]; exact List.mem_append_right _ h)
 
 /-- `EqnAt` (ModelFns.lean) in the value model at `T`. -/
 structure EqnAt (c : Semantics) (T : GroundTerm → GroundTerm → Prop) (fn : Fn) (vars : List Srt)
@@ -634,8 +639,7 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
     unfold fnConcl
     rw [KoreAML.freeOf]
     refine List.mem_append_left _ ?_
-    unfold KoreAML.ap
-    rw [KoreAML.freeOf]
+    rw [freeOf_symApp]
     have := X_mem_call _ 0 j s hj
     rwa [Nat.zero_add] at this
   have hXk : ∀ j s, (fn.args.map c.sortName)[j]? = some s →
@@ -646,9 +650,7 @@ theorem sat_eqnCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {vars :
     unfold fnConcl
     rw [KoreAML.varsOf]
     refine List.mem_append_left _ (List.mem_append_right _ ?_)
-    unfold KoreAML.ap
-    rw [KoreAML.varsOf]
-    refine List.mem_append_right _ ?_
+    refine mem_varsOf_symApp _ _ ?_
     have := X_mem_varsOf_call _ 0 j s hj
     rwa [Nat.zero_add] at this
   obtain ⟨ws, hws⟩ := argsAt_of (tbl := tbl) (e := e) (fun s hs => hfs s (List.mem_cons_of_mem _ hs)) (fun j hj => by

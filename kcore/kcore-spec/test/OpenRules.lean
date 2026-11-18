@@ -21,30 +21,26 @@
   - `rule_witnessed`, `rule_subst_AB` (a successor's valuation at values, arms A and B): `ok1`
     (arm A) and `okB` (`a() => a() ensures B`, B:Bool held by the `ensures` only: arm B, Bool
     confined) are well sorted, have `rulePlainOpen`, and each open variable passes arm A or B.
-  - `rule_step_values` (every arm) and `rule_step_C` (arm C): `ok2` (H by arm C only) and `ok4`
+  - `rule_step_valuesSSx` (every arm) and `rule_step_CSSx` (arm C): `ok2` (H by arm C only) and `ok4`
     (X by arm A, H by arm C only) are well sorted, have `rulePlainOpen`, an open variable failing
     arms A and B, `needsWitness`, and conditions whose variables the left side, the right side and
     the `ensures` do not hold; the lemma instantiated at `ok1`, `okB`, `ok2` and `ok4`.
-  - `not_applies_of_notApplies`, `notApplies_of_not_applies` (a competitor): in `c2`, the text's
-    semantics with `plain` (`a() => a()` at priority 200) added, which has `coreOK`, the competitors
-    `ok1` (no open condition variable), `okBc` (`a() => a() requires B`, B:Bool: open condition
-    variables of confined sorts) and `ok2` (closed conditions, `needsWitness`), each with a larger
-    rule; the lemmas instantiated at each.
+  - `notApplies_of_not_appliesSSx` (a competitor): in `c2`, the text's semantics with `plain`
+    (`a() => a()` at priority 200) added, which has `coreOK`, the competitors `ok1` (no open
+    condition variable), `okBc` (`a() => a() requires B`, B:Bool: open condition variables of
+    confined sorts) and `ok2` (closed conditions, `needsWitness`), each with a larger rule
+    (`competitors`); the lemma instantiated at `ok2`.
   - `applies_iff_open`, `rule_premise_open` (the value model, no arm read): at `ok1`, `okB`, `ok2`
     and `ok4` in the value model of the text's semantics; `rule_premise_open` also at `ok1hi`
     (`ok1` at priority 300 in `c2`, whose two rules are its competitors). `sat_rule_open` asks the
     rule to be one of the definition's: it is instantiated at the open rules of
     `test/OpenRulesCore.lean`'s `cO`.
   - `freeOf_prioOpen` (the axiom's free variables are the rule's): at `ok1`, `okB`, `ok2`, `ok4`.
-  - `consistent_open` (the value model of `Γc` with the step's closure, the rules' facts as a
-    hypothesis): at the text's semantics and `c2`, whose rules are closed; at a definition with
-    open rules in `test/OpenRulesCore.lean`.
   - `famOpen_congrOpen` (`famOpen` reads the match at the left side's variables only): at `ok1`,
-    whose open variable X the left side does not hold; `complete_at_open`: at the text's semantics
-    and `c2`, as `sound_at_open`.
+    whose open variable X the left side does not hold.
   - `not_ruleApplies_ofChoice`, `notApplies_ofChoice` (a competitor at values, either way): at
-    `ok4`; `step_iff_stdIChoice`, `has_model_choice_open` (the value model): at the text's semantics
-    and `c2`, as `sound_at_open`.
+    `ok4`; `step_iff_stdIChoice` (the value model): at the text's semantics and `c2`, whose rules
+    are closed.
   - `Parse.owedCondDecided` (the rules whose `CondDecided` the account lists as owed): none at the
     text's semantics; `ok2` once added to it.
   - `Semantics.rulePlainEx` (`rulePlainOpen` less `r.exs.isEmpty`): true at `exA` (`ok1` with X
@@ -54,9 +50,6 @@
   - `heldOccs` (HO-1's occurrence test: constructors, injections and the collection symbols
     `Semantics.holds` names): a variable under a map entry is held and not in `ctorOccs`; one under
     the hooked function `_==Int_` is in neither; `ctorOccs_subset_heldOccs` at `ok4`'s right side.
-  - `step_successor_axiomOpen` (a successor in a model, at a rule's axiom), `step_of_successorOpen`
-    (a successor in a model of y's element is a step), `exact_open`: at the text's semantics and
-    `c2`, as `sound_at_open`.
   - `rulePattern_noExs` (the emitted rule without existential variables): at `ok1`; at `exA` the
     emitted right side is an `\exists` over X's name.
 -/
@@ -157,7 +150,7 @@ example : c.ruleSorted okB = true ∧ c.rulePlainOpen okB = true ∧ okB.opens =
     okB.opens.all (okB.armAB c) = true ∧ (ctorOccs c okB.rhs).contains 2 = false ∧ c.confined Srt.bool = true := by
   decide +kernel
 
-/-! ## Arm C: `rule_step_C`, `rule_step_values` -/
+/-! ## Arm C: `rule_step_CSSx`, `rule_step_valuesSSx` -/
 
 theorem ok2_C : c.ruleSorted ok2 = true ∧ c.rulePlainOpen ok2 = true ∧ ok2.opens.all (ok2.armAB c) = false ∧
     ok2.needsWitness c = true ∧ ok2.condVars.all (fun j => !(varOccs ok2.lhs).contains j &&
@@ -181,19 +174,19 @@ theorem conf_open : ok1.opens.any (fun i => (ok1.vars[i]?.map c.confined).getD f
 reads a confined sort is asked only at `okB`, whose open variable is of a confined sort. -/
 example (hft : FnTerminates c) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c)
     (hrc : c.readsConfined = true) : True := by
-  have := @Faithful.rule_step_values c M _ I coreOK hft hI hcT ok1 ok1_open.1 ok1_open.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok1 ok1_open.1 ok1_open.2.1
     (fun h' => by rw [conf_open.1] at h'; cases h')
-  have := @Faithful.rule_step_values c M _ I coreOK hft hI hcT okB okB_open.1 okB_open.2 (fun _ => hrc)
-  have := @Faithful.rule_step_values c M _ I coreOK hft hI hcT ok2 ok2_C.1 ok2_C.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT okB okB_open.1 okB_open.2 (fun _ => hrc)
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok2 ok2_C.1 ok2_C.2.1
     (fun h' => by rw [conf_open.2.1] at h'; cases h')
-  have := @Faithful.rule_step_values c M _ I coreOK hft hI hcT ok4 ok4_C.1 ok4_C.2.1
+  have := @Faithful.rule_step_valuesSSx c M _ I (Semantics.coreOKEx_of_coreOK coreOK) hft hI hcT ok4 ok4_C.1 ok4_C.2.1
     (fun h' => by rw [conf_open.2.2.1] at h'; cases h')
   trivial
 
 /-- info: 'OpenRules.ok4_C' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms ok4_C
 
-/-! ## Competitors: `not_applies_of_notApplies`, `notApplies_of_not_applies` -/
+/-! ## Competitors: `notApplies_of_not_appliesSSx` -/
 
 /-- `a() => a()` at priority 200: a larger rule. -/
 noncomputable def plain : Rule := mk [sK, sC] (cfg (.var 1)) none none 200
@@ -227,17 +220,9 @@ theorem conf_open2 : ok1.opens.any (fun i => (ok1.vars[i]?.map c2.confined).getD
     okBc.opens.any (fun i => (okBc.vars[i]?.map c2.confined).getD false) = true := by
   decide +kernel
 
-/-- The lemmas at each competitor; that the definition reads a confined sort is asked only at
-`okBc`. -/
-example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c2)
-    (hrc : c2.readsConfined = true) : True := by
-  have := @Faithful.not_applies_of_notApplies c2 M _ I coreOK2 hI hcT2 ok1 competitors.1.1 competitors.1.2.1
-    competitors.1.2.2.1 (fun h' => by rw [conf_open2.1] at h'; cases h')
-  have := @Faithful.not_applies_of_notApplies c2 M _ I coreOK2 hI hcT2 okBc competitors.2.1.1 competitors.2.1.2.1
-    competitors.2.1.2.2.1 (fun _ => hrc)
-  have := @Faithful.not_applies_of_notApplies c2 M _ I coreOK2 hI hcT2 ok2 competitors.2.2.1 competitors.2.2.2.1
-    competitors.2.2.2.2.1 (fun h' => by rw [conf_open2.2.1] at h'; cases h')
-  have := @Faithful.notApplies_of_not_applies c2 M _ I coreOK2 hI hcT2 ok2
+/-- The lemma at the competitor `ok2`. -/
+example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c2) : True := by
+  have := @Faithful.notApplies_of_not_appliesSSx c2 M _ I (Semantics.coreOKEx_of_coreOK coreOK2) hI hcT2 ok2
     competitors.2.2.1 competitors.2.2.2.1
   trivial
 
@@ -283,23 +268,7 @@ example (hd : FnDet c2) (hs : FnSolves c2) : True := by
     ((hypModel_of_fn coreOK2 hd hs).ruleFactsEx_of_all (by decide +kernel))
   trivial
 
-/-! ## Consistency over `Γc`: `consistent_open` -/
-
-/-- `consistent_open` at the text's semantics and at `c2`, for every `FnDet` and `FnSolves`, the
-rules' facts from `HypModelCore` and their `rulePlainEx`, decided (`ruleSorted`, `rulePlainEx`) with no rule having an existential
-variable (decided). Neither has an open rule; `test/OpenRulesCore.lean` instantiates it at `cO`,
-which has. -/
-example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : Consistent c ∧ Consistent c2 := by
-  have hex : ∀ r ∈ c.rules, r.exs = [] := by decide +kernel
-  have hex2 : ∀ r ∈ c2.rules, r.exs = [] := by decide +kernel
-  have hf := (hypModel_of_fn coreOK hd hs).ruleFactsEx_of_all (by decide +kernel)
-  have hf2 := (hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx_of_all (by decide +kernel)
-  exact ⟨consistent_open c coreOK hd hs (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf r hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf r hr).2, hex r hr⟩⟩,
-    consistent_open c2 coreOK2 hd2 hs2 (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf2 r hr).1,
-      Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf2 r hr).2, hex2 r hr⟩⟩⟩
-
-/-! ## A successor in two cases: `successor_split_rule`, `step_successor_open` -/
+/-! ## The rules' facts at the text's semantics and at `c2` -/
 
 /-- The rules of the text's semantics and of `c2` have `ruleSorted` and `rulePlainOpen`. -/
 theorem rules_open : c.rules.all (fun r => c.ruleSorted r && c.rulePlainOpen r) = true ∧
@@ -311,94 +280,28 @@ theorem hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r 
 theorem hrules2 : ∀ r ∈ c2.rules, c2.ruleSorted r = true ∧ c2.rulePlainOpen r = true := fun r hr => by
   simpa using List.all_eq_true.mp rules_open.2 r hr
 
-/-- `successor_split_rule` at each of the four rules, in a model of `Γc` of the text's semantics, at
-a configuration where the step is decided: the rule's hypotheses are met (`ok1`, `ok2`, `ok4` with
-an open variable by arms A, C, A and C; `okB` by arm B), and each has an open variable, so the
-lemma's second case is the one these shapes reach. -/
-example (x : Config c) (hd : StepDecided c x.val) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
-    (hI : I ⊧ᴵP Faithful.Γc c) : True := by
-  have := @Faithful.successor_split_rule c M _ I coreOK hrules x hd hI hcT ok1 ok1_open.1 ok1_open.2.1
-  have := @Faithful.successor_split_rule c M _ I coreOK hrules x hd hI hcT okB okB_open.1 okB_open.2
-  have := @Faithful.successor_split_rule c M _ I coreOK hrules x hd hI hcT ok2 ok2_C.1 ok2_C.2.1
-  have := @Faithful.successor_split_rule c M _ I coreOK hrules x hd hI hcT ok4 ok4_C.1 ok4_C.2.1
-  trivial
-
 /-- Each of the four rules has an open variable. -/
 example : ok1.opens ≠ [] ∧ okB.opens ≠ [] ∧ ok2.opens ≠ [] ∧ ok4.opens ≠ [] := by decide +kernel
 
-/-- `step_successor_open` at the text's semantics and at `c2`, the rules' facts by `rules_open`.
-Neither has an open rule; `test/OpenRulesCore.lean` instantiates it at `cO`, which has. -/
-example (x : Config c) (hd : StepDecided c x.val) (x2 : Config c2) (hd2 : StepDecided c2 x2.val) {M : Type}
-    [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP (Faithful.Γc c ∪ Faithful.Γstep c))
-    (hI2 : I ⊧ᴵP (Faithful.Γc c2 ∪ Faithful.Γstep c2)) : True := by
-  have := Faithful.step_successor_open coreOK hrules x hd hI
-  have := Faithful.step_successor_open coreOK2 hrules2 x2 hd2 hI2
-  trivial
-
-/-! ## The outcomes of a match: `famOpen_stepOpen`, `famOpen_values_open` -/
+/-! ## The outcomes of a match -/
 
 /-- `okB`'s open variable is of a confined sort (Bool). -/
 theorem okB_conf : okB.opens.all (fun i => (okB.vars[i]?.map c.confined).getD false) = true := by
   decide +kernel
 
-/-- `famOpen_stepOpen` at `okB` (arm B), in a model of `Γc` of the text's semantics; that the
-definition reads a confined sort is asked, `okB`'s open variable being of a confined sort. -/
-example (hft : FnTerminates c) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
-    (hI : I ⊧ᴵP Faithful.Γc c) (hrc : c.readsConfined = true) : True := by
-  have := @Faithful.famOpen_stepOpen c M _ I coreOK hft hI hcT okB okB_open.1 okB_open.2
-    (fun i hi => List.all_eq_true.mp okB_conf i hi) (fun _ => hrc)
-  trivial
+/-! ## Soundness at a step: `applies_matchOpen` -/
 
-/-- `famOpen_values_open` at a rule of the text's semantics, the rule's facts by `rules_open`; its
-rules are closed, see `test/OpenRulesCore.lean` for a definition with open rules. -/
-example (hf : FnHyp c) (x : Config c) (r : Rule) (hr : r ∈ c.rules) : True := by
-  have := famOpen_values_open c coreOK hf x r hr (hrules r hr).1 (hrules r hr).2
-  trivial
-
-/-! ## Soundness at a step: `famEx_denOpen`, `applies_matchOpen`, `not_applies_guardedOpen`,
-`step_soundOpen`, `sound_at_open` -/
-
-/-- The per-rule lemmas at each of the four rules, in a model of `Γc` of the text's semantics: the
-instances of a step are its successor (`famEx_denOpen`), a rule whose `applies` holds matches
-(`applies_matchOpen`), and the rule's axiom gives the step's successor (`step_soundOpen`, the axiom
-and the competitors' larger rule as hypotheses). -/
+/-- At each of the four rules, in a model of `Γc` of the text's semantics: a rule whose `applies`
+holds matches (`applies_matchOpen`). -/
 example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c) : True := by
   have hIΓ : I ⊧ᴵP Faithful.Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  have := @Faithful.famEx_denOpen c M _ I coreOK ok1 ok1_open.1 ok1_open.2.1
-  have := @Faithful.famEx_denOpen c M _ I coreOK okB okB_open.1 okB_open.2
-  have := @Faithful.famEx_denOpen c M _ I coreOK ok2 ok2_C.1 ok2_C.2.1
-  have := @Faithful.famEx_denOpen c M _ I coreOK ok4 ok4_C.1 ok4_C.2.1
   have := @Faithful.applies_matchOpen c M _ I coreOK hIΓ ok1 ok1_open.1 ok1_open.2.1
   have := @Faithful.applies_matchOpen c M _ I coreOK hIΓ okB okB_open.1 okB_open.2
   have := @Faithful.applies_matchOpen c M _ I coreOK hIΓ ok2 ok2_C.1 ok2_C.2.1
   have := @Faithful.applies_matchOpen c M _ I coreOK hIΓ ok4 ok4_C.1 ok4_C.2.1
-  have := @Faithful.step_soundOpen c M _ I coreOK hrules hI hcT ok1 ok1_open.1 ok1_open.2.1
-  have := @Faithful.step_soundOpen c M _ I coreOK hrules hI hcT okB okB_open.1 okB_open.2
-  have := @Faithful.step_soundOpen c M _ I coreOK hrules hI hcT ok2 ok2_C.1 ok2_C.2.1
-  have := @Faithful.step_soundOpen c M _ I coreOK hrules hI hcT ok4 ok4_C.1 ok4_C.2.1
   trivial
 
-/-- `not_applies_guardedOpen` at each competitor of `c2`, one per disjunct of the competition
-conjunct, as `not_applies_of_notApplies` above. -/
-example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Faithful.Γc c2)
-    (hrc : c2.readsConfined = true) : True := by
-  have := @Faithful.not_applies_guardedOpen c2 M _ I coreOK2 hI hcT2 ok1 competitors.1.1 competitors.1.2.1
-    competitors.1.2.2.1 (fun h' => by rw [conf_open2.1] at h'; cases h')
-  have := @Faithful.not_applies_guardedOpen c2 M _ I coreOK2 hI hcT2 okBc competitors.2.1.1 competitors.2.1.2.1
-    competitors.2.1.2.2.1 (fun _ => hrc)
-  have := @Faithful.not_applies_guardedOpen c2 M _ I coreOK2 hI hcT2 ok2 competitors.2.2.1 competitors.2.2.2.1
-    competitors.2.2.2.2.1 (fun h' => by rw [conf_open2.2.1] at h'; cases h')
-  trivial
-
-/-- `sound_at_open` at the text's semantics and at `c2`, the rules' facts by `rules_open`; their
-rules are closed, see `test/OpenRulesCore.lean` for a definition with open rules. -/
-example (x y : Config c) (r : Rule) (σ : Subst) (hs : StepBy c r σ x y) (x2 y2 : Config c2) (r2 : Rule)
-    (σ2 : Subst) (hs2 : StepBy c2 r2 σ2 x2 y2) : True := by
-  have := sound_at_open c coreOK hrules x y r σ hs
-  have := sound_at_open c2 coreOK2 hrules2 x2 y2 r2 σ2 hs2
-  trivial
-
-/-! ## Completeness at a configuration: `famOpen_congrOpen`, `complete_at_open` -/
+/-! ## The outcomes of a match read its left side's variables: `famOpen_congrOpen` -/
 
 /-- `ok1`'s left side does not hold its open variable X (index 2): two matches that differ at X
 give one `famOpen`. -/
@@ -408,16 +311,8 @@ example (σ σ' : Subst) (h : ∀ i ∈ varOccs ok1.lhs, σ'.lookup i = σ.looku
     Faithful.famOpen c ok1 σ' = Faithful.famOpen c ok1 σ :=
   Faithful.famOpen_congrOpen c ok1 h
 
-/-- `complete_at_open` at the text's semantics and at `c2`, the rules' facts by `rules_open`;
-their rules are closed, see `test/OpenRulesCore.lean` for a definition with open rules. -/
-example (x : Config c) (hd : StepDecided c x.val) (x2 : Config c2) (hd2 : StepDecided c2 x2.val)
-    (os : List Outcome) : True := by
-  have := complete_at_open c coreOK hrules x hd os
-  have := complete_at_open c2 coreOK2 hrules2 x2 hd2 os
-  trivial
-
 /-! ## The choice among instances: `not_ruleApplies_ofChoice`, `notApplies_ofChoice`,
-`step_iff_stdIChoice`, `has_model_choice_open` -/
+`step_iff_stdIChoice` -/
 
 /-- `NotApplies` and `¬ RuleApplies` at `ok4` (arms A and C: open variables X and H, H in its
 `requires`), for every `FnHyp`: one from the other, the conditions' results by
@@ -426,27 +321,12 @@ example (hf : FnHyp c) (x : GroundTerm) : NotApplies c ok4 x ↔ ¬ RuleApplies 
   ⟨not_ruleApplies_ofChoice (fnModel_of_fnHyp coreOK hf).1 (Semantics.rulePlainOpen_top ok4_open.2.1).2.1,
    notApplies_ofChoice (Rule.decided_of_fnHyp coreOK hf ok4_open.1 ok4_open.2.1 x).1⟩
 
-/-- `step_iff_stdIChoice` and `has_model_choice_open` at the text's semantics and at `c2`, the rules'
+/-- `step_iff_stdIChoice` at the text's semantics and at `c2`, the rules'
 facts by `rules_open`; their rules are closed, see `test/OpenRulesCore.lean` for a definition with open rules. -/
 example (hf : FnHyp c) (hf2 : FnHyp c2) (x y : Config c) (x2 y2 : Config c2) : True := by
   have := step_iff_stdIChoice c coreOK hf hrules x y
   have := step_iff_stdIChoice c2 coreOK2 hf2 hrules2 x2 y2
-  have := has_model_choice_open c coreOK hf hrules
-  have := has_model_choice_open c2 coreOK2 hf2 hrules2
   trivial
-
-/-! ## Exactness: `step_successor_axiomOpen`, `step_of_successorOpen`, `exact_open` -/
-
-/-- `step_successor_axiomOpen`, `step_of_successorOpen` and `exact_open` at the text's semantics and
-at `c2`, the rules' facts by `rules_open`; their rules are closed, see `test/OpenRulesCore.lean` for a definition with open rules. -/
-example (hf : FnHyp c) (hf2 : FnHyp c2) {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
-    (hI : I ⊧ᴵP (Faithful.Γc c ∪ Faithful.Γstep c)) (hI2 : I ⊧ᴵP (Faithful.Γc c2 ∪ Faithful.Γstep c2))
-    (x y : Config c) (x2 y2 : Config c2) (e : ML.Valuation M) : ExactC c ∧ ExactC c2 := by
-  have := Faithful.step_successor_axiomOpen hrules x hI e
-  have := Faithful.step_successor_axiomOpen hrules2 x2 hI2 e
-  have := step_of_successorOpen c coreOK hf hrules hI x y e
-  have := step_of_successorOpen c2 coreOK2 hf2 hrules2 hI2 x2 y2 e
-  exact ⟨exact_open c coreOK hf hrules, exact_open c2 coreOK2 hf2 hrules2⟩
 
 /-! ## A rule's conjunct with existential variables: `Semantics.rulePlainEx` -/
 

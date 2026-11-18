@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t235-req-not-term.k": "321ddc13732bea636266f1ffd70d60fc85d8ef5784004d1a548b0e9f019e26c2"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t235-req-not-term.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "807c457d5a46978c1211905644482f12b67446d97a294f0df8b385265baa1fbb",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

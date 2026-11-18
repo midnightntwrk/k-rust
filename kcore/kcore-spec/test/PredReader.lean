@@ -2,29 +2,30 @@
   Reading functions that give a rule a predicate (`pre`, `post`), on kompiled texts. Run from the
   package root, after the library: `lake env lean -j1 test/PredReader.lean`.
 
-  `Parse.connRuleOf` (KcoreSpec/ReadRuleConn.lean; `ruleBody` does not call it) reads a rewrite
-  axiom that holds a connective at a term position under applications with the position cut.
-  `show1` prints, for a text, the landed reader's answer, then the definition `parseWith
-  connRuleOf` builds: each rule with a predicate (its names, sorts, `exs`, `opens`, `pre`, `post`,
-  `ruleSorted`, `rulePlainPP`, `openRefusal`), and the failing `wf` conjuncts with `rulesPlain`
-  and `coreOK` (`rulesPlain` asks `rulePlainPP` of every rule, so a rule with a predicate does not
-  fail it: each definition here has `wf`, `rulesPlain` and `coreOK`).
+  `Parse.parse` reads a rewrite axiom that holds a connective at a term position under
+  applications with the position cut (`Parse.connRuleBody`, `ReadingNote.connectiveCut`).
+  `showDef` prints, for a text, the definition `parse` builds: each rule with a predicate (its
+  names, sorts, `exs`, `opens`, `pre`, `post`, `ruleSorted`, `rulePlainPP`, `openRefusal`), and the
+  failing `wf` conjuncts with `rulesPlain` and `coreOK` (`rulesPlain` asks `rulePlainPP` of every
+  rule, so a rule with a predicate does not fail it: each definition here has `wf`, `rulesPlain`
+  and `coreOK`), or the refusal.
 
   ## rhs-connective
-  - `mlror` (e3-ml-rule-rhs-or, `go => a() #Or b()`): the landed reader refuses `\or`; read as
+  - `mlror` (e3-ml-rule-rhs-or, `go => a() #Or b()`): read as
     `go => ?Z` with `post := or (mem Z a) (mem Z b)`, Z:Exp in `exs`, under the constructors of the
     configuration (arm A): `rulePlainPP` true, `openRefusal` none.
   - hand-written on the same text, the right side's `\or{Exp}(a, b)` replaced: `\not{Exp}(a)`:
     `post := not (mem Z a)`; `\top{Exp}()`: no `post`, Z an existential variable of the rule;
     `c(\or{Exp}(a, \not{Exp}(b)))`: the cut under the constructor c, `post := or (mem Z a) (not
-    (mem Z b))`.
+    (mem Z b))`. With a `requires true andBool true` added, the rule read with the cut variable
+    has a conjunct of `pre` of its own (`andAtBool`), and the cut is not taken: refused
+    `patternConnective` (`\or`), the refusal without the cut.
   ## lhs-not
-  - `mlnot` (e3-ml-rule-lhs-not, kompiled to `c(\not{Exp}(\and{Exp}(a, _Gen5))) => _Gen5`): the
-    landed reader refuses `\not`; read as `c(Z) => G` with `pre := not (and (mem Z a) (mem Z G))`, Z
-    bound by the left side, G open and held by the right side under constructors (arm A):
-    `rulePlainPP` true, `openRefusal` none. `larger`: beside a rule of a larger priority, G is open
+  - `mlnot` (e3-ml-rule-lhs-not, kompiled to `c(\not{Exp}(\and{Exp}(a, _Gen5))) => _Gen5`): read
+    as `c(Z) => G` with `pre := not (and (mem Z a) (mem Z G))`, Z bound by the left side, G open
+    and held by the right side under constructors (arm A): `rulePlainPP` true, `openRefusal` none. `larger`: beside a rule of a larger priority, G is open
     in a condition (`pre`) with a variable the left side binds: `openRequires` at Exp.
-  A text the landed reader reads is read by it (`mlor`, e7-guardors: the same rules).
+  A text read without the cut is read so (`mlor`, e7-guardors: no rule with a predicate).
   Kernel: `cut_right`, `cut_left` (the cut of a pattern), `parseWith_ruleOf`.
 
   ## rhs-and
@@ -68,17 +69,22 @@ def showRule (c : Semantics) (tag : String) (r : Rule) (names : List String) : I
 
 def showDef (n : String) (k : Kore.Definition) : IO Unit := do
   match Parse.parse k with
-  | .ok d => IO.println s!"{n}: landed reader: read, {d.sem.rules.length} rules"
-  | .error r => IO.println s!"{n}: landed reader: {repr r.reason} {r.detail}"
-  match Parse.parseWith Parse.connRuleOf k with
-  | .error r => IO.println s!"{n}: connRuleOf: refused {repr r.reason} {r.detail}"
+  | .error r => IO.println s!"{n}: refused {repr r.reason} {r.detail}"
   | .ok d =>
-    let same := match Parse.parse k with
-      | .ok d' => s!"; rules as the landed reader's {d.sem.rules.length == d'.sem.rules.length && (d.sem.rules.zip d'.sem.rules).all fun (a, b) => a.pre.isTop && a.post.isTop && a.exs == b.exs && a.vars == b.vars}"
-      | .error _ => ""
     for ((r, p), i) in (d.sem.rules.zip d.pres.rules).zipIdx do
       if !(r.pre.isTop && r.post.isTop) || !r.exs.isEmpty then showRule d.sem s!"{n} rule {i}" r p.names
-    IO.println s!"{n}: connRuleOf: wf failing {(d.report.filter (!·.2)).map (·.1)}; rulesPlain {d.sem.rulesPlain}; coreOK {d.sem.coreOK}{same}"
+    IO.println s!"{n}: wf failing {(d.report.filter (!·.2)).map (·.1)}; rulesPlain {d.sem.rulesPlain}; coreOK {d.sem.coreOK}"
+
+/-- The text with each rewrite axiom's `requires` replaced by `true andBool true`. -/
+def editReq (k : Kore.Definition) : Kore.Definition :=
+  let boolS := KoreAML.srt "Bool"
+  let tt : Kore.Pattern := .dv boolS "true"
+  { k with modules := k.modules.map fun m => { m with sentences := m.sentences.map fun s => match s with
+      | .axiom a => (match a.pattern with
+        | .rewrites s (.and s' [l, _]) r =>
+          .axiom { a with pattern := .rewrites s (.and s' [l, .equals boolS s' (.and boolS [tt, tt]) tt]) r }
+        | _ => .axiom a)
+      | s => s } }
 
 /-- The text with the right argument of each rewrite axiom whose right side holds `old` changed
 by `ed`. -/
@@ -107,38 +113,33 @@ end
 
 /--
 info: ## rhs-connective
-mlror: landed reader: KCore.Parse.RefusalReason.patternConnective \or
 mlror rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
   post KCore.Cond.or
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 386 []))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror: connRuleOf: wf failing []; rulesPlain true; coreOK true
-mlror \not: landed reader: KCore.Parse.RefusalReason.patternConnective \not
+mlror: wf failing []; rulesPlain true; coreOK true
 mlror \not rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
   post KCore.Cond.not (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror \not: connRuleOf: wf failing []; rulesPlain true; coreOK true
-mlror \top: landed reader: KCore.Parse.RefusalReason.patternConnective \top
+mlror \not: wf failing []; rulesPlain true; coreOK true
 mlror \top rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
   post KCore.Cond.top
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror \top: connRuleOf: wf failing []; rulesPlain true; coreOK true
-mlror c(or-not): landed reader: KCore.Parse.RefusalReason.patternConnective \or
+mlror \top: wf failing []; rulesPlain true; coreOK true
 mlror c(or-not) rule 0: names ['Unds'DotVar1, 'Unds'DotVar0, 'Hash'Cut0] vars [K, GeneratedCounterCell, Exp] exs [2] opens [2]
   pre KCore.Cond.top
   post KCore.Cond.or
   (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 385 []))
   (KCore.Cond.not (KCore.Cond.mem 32 (KCore.Term.var 2) (KCore.Term.app 386 [])))
   ruleSorted true; rulePlainPP true; openRefusal none
-mlror c(or-not): connRuleOf: wf failing []; rulesPlain true; coreOK true
-mlor: landed reader: read, 2 rules
-mlor: connRuleOf: wf failing []; rulesPlain true; coreOK true; rules as the landed reader's true
+mlror c(or-not): wf failing []; rulesPlain true; coreOK true
+mlror requires: refused KCore.Parse.RefusalReason.patternConnective \or
+mlor: wf failing []; rulesPlain true; coreOK true
 ## lhs-not
-mlnot: landed reader: KCore.Parse.RefusalReason.patternConnective \not
 mlnot rule 0: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars [Exp, K, GeneratedCounterCell, Exp] exs [] opens [3]
   pre KCore.Cond.not
   (KCore.Cond.and
@@ -146,7 +147,7 @@ mlnot rule 0: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars 
     (KCore.Cond.mem 32 (KCore.Term.var 0) (KCore.Term.var 3)))
   post KCore.Cond.top
   ruleSorted true; rulePlainPP true; openRefusal none
-mlnot: connRuleOf: wf failing []; rulesPlain true; coreOK true
+mlnot: wf failing []; rulesPlain true; coreOK true
 mlnot larger: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars [Exp, K, GeneratedCounterCell, Exp] exs [] opens [3]
   pre KCore.Cond.not
   (KCore.Cond.and
@@ -163,11 +164,12 @@ mlnot larger: names ['Hash'Cut0, 'Unds'DotVar1, 'Unds'DotVar0, 'Unds'Gen5] vars 
     showDef "mlror \\not" (editRhs (replOr (.not expS aP)) k)
     showDef "mlror \\top" (editRhs (replOr (.top expS)) k)
     showDef "mlror c(or-not)" (editRhs (replOr (KoreAML.ap "Lblc" [.or expS [aP, .not expS bP]])) k)
+    showDef "mlror requires" (editReq k)
   if let some k ← load "mlor" then showDef "mlor" k
   IO.println "## lhs-not"
   if let some k ← load "mlnot" then
     showDef "mlnot" k
-    match Parse.parseWith Parse.connRuleOf k with
+    match Parse.parse k with
     | .error _ => pure ()
     | .ok d =>
       match d.sem.rules.zip d.pres.rules with

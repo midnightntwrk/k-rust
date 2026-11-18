@@ -4,10 +4,8 @@
   `preReadAll_of_core`: what the clause lemmas ask of the model for a clause's predicate
   (`PreRead`), for each clause of each function: a user clause's predicate is well sorted with
   binders that range where values and elements agree (`clauseSorted`), a binder in it makes the
-  definition read a confined sort, and a sort predicate's clause has the predicate `\top`. With it
-  the evaluation lemmas hold for clauses with a predicate in the premise (`eval_den4ClPre`,
-  `neg_of_coreCl`), so `EvalTerm` is sound (`termSound_of_core`) and the Holds lemma holds
-  (`holds_entails`) in every such model.
+  definition read a confined sort (`readsConfined_of_clausePre`), and a sort predicate's clause has
+  the predicate `\top`.
 -/
 import KcoreSpec.ClausePreTie
 import KcoreSpec.HoldsFactsCore
@@ -43,28 +41,6 @@ theorem preReadAll_of_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) :
       (fun hb => binderFacts_of_core h (readsConfined_of_clausePre hu hcl hb) hIc)
       (termsInSort_of_core h fun φ hφ => hIc φ (Or.inl hφ)) hok hbd
   · exact absurd (Semantics.sortPreds_pre hp cl hcl) hne
-
-/-- `TermSound` holds in every model of `Γc` of a semantics `coreOK` accepts, under the clause
-hypothesis of `sound_at`. -/
-theorem termSound_of_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
-    TermSound c I := by
-  have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
-  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
-  haveI : OvlOK c := hno
-  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hc (HoldsShape.preReadAll_of_core h hIc)
-  intro σ t r he vars vs tbl e s hσ hvs hag ht m
-  exact evalTerm_den4ClPre hI hnn hsc hph
-    (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hIc) he fns_headsOK hσ hvs hag ht m
-
-/-- **The Holds lemma in every model of `Γc`**: for a definition `coreOK` accepts, under the clause
-hypothesis of `sound_at`, and `readsConfined` where the condition holds a binder. -/
-theorem holds_entails (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDen' c I p :=
-  holds_den_binders' (atomFacts_of_core h hIc (termSound_of_core h hIc hc)) p
-    fun hb => binderFacts_of_core h (hrc hb) hIc
 
 end Core
 

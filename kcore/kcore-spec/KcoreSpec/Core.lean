@@ -332,9 +332,11 @@ def symBase : Nat := nRegSyms + c.sortNames.length
 
 /-- The definition's own symbols but the sort predicates, in their numbering (the imported
 modules' parameter symbols are the registry's): its constructors, functions, parameters and
-overloading symbols. -/
+overloading symbols. A function numbered below `symBase` is not listed: it is an own sort's
+predicate held in `c.fns` (`sortPreds`). -/
 def ownSyms : List Sym :=
-  (c.ctors.map (·.name)).filter (fun f => decide (nRegSyms ≤ f)) ++ c.fns.map (·.label) ++
+  (c.ctors.map (·.name)).filter (fun f => decide (nRegSyms ≤ f)) ++
+    (c.fns.map (·.label)).filter (fun f => decide (c.symBase ≤ f)) ++
     (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)).map (·.sig.name) ++ c.ovls.map (·.sig.name)
 
 /-- The declared subsorts between the user's and the library's sorts (the KORE's `[subsort]`
@@ -352,8 +354,10 @@ def subsorts : List (Srt × Srt) :=
 def le (a b : Srt) : Bool := a == b || c.subsorts.contains (a, b)
 
 /-- The generated sort predicates: `isK(K) = true`; `isKItem(kseq(I, dotk)) = true`, otherwise
-`false`; for each sort X below KItem with a predicate (`predOf`), `isX(kseq(inj{X,KItem}(V), dotk))
-= true`, otherwise `false`. "Otherwise" is a clause of priority 200 over a variable of sort K.
+`false`; for each sort X below KItem with a predicate (`predOf`) that labels no function of
+`c.fns`, `isX(kseq(inj{X,KItem}(V), dotk)) = true`, otherwise `false`. "Otherwise" is a clause of
+priority 200 over a variable of sort K. A predicate that labels a function of `c.fns` is that
+function.
 These are the equations kompile writes for every definition (Emit.lean writes those of
 `userSorts`; the fixed text holds the library's), read as functions. -/
 def sortPreds : List Fn :=
@@ -364,7 +368,7 @@ def sortPreds : List Fn :=
   [⟨isK, [Srt.k], Srt.bool, [{ vars := [Srt.k], pats := [.var 0], req := none, rhs := tt, ens := none }], true⟩,
    ⟨isKItem, [Srt.k], Srt.bool,
     [{ vars := [Srt.kitem], pats := [.app kseq [.var 0, dk]], req := none, rhs := tt, ens := none }, otherwise], true⟩] ++
-  c.sortsBelowKItem.filterMap fun X => (predOf X).map fun p =>
+  c.sortsBelowKItem.filterMap fun X => ((predOf X).filter fun p => !c.fns.any (·.label == p)).map fun p =>
     ⟨p, [Srt.k], Srt.bool,
       [{ vars := [X], pats := [.app kseq [.inj X Srt.kitem (.var 0), dk]], req := none, rhs := tt, ens := none },
         otherwise], true⟩

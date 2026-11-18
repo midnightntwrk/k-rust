@@ -1,25 +1,21 @@
 /-
   KCore. A successor of a configuration, in a model of `Γc` with the step's closure, for a
-  definition whose rules' left sides need not bind every variable.
+  definition whose rules' left sides need not bind every variable: the lemmas that read no clause.
 
   The step's closure gives the successor b of x a disjunct, the axiom of a rule r of the definition
   at a valuation of r's variables in their sorts: x's element is in the left side, in
-  `⌈req = true⌉` and in no competitor's `applies`; b is in the right side and in `⌈ens = true⌉`.
-  The left side binds the variables it holds at values (`patVal_backC`), and the competitors that
-  do not apply in the model do not apply at values (`applies_of_values`,
-  `notApplies_of_not_applies`, under `StepDecided`), so the valuation's substitution is an
-  unblocked match of r at x. Then (`successor_split_rule`):
-  - where r's left side binds every variable (`r.opens = []`), the valuation gives every variable a
-    value, and b is the element of the value r's right side evaluates to: a step of `Step`;
-  - otherwise b is in `famOpen c r σ` at that match σ: the valuation itself, moved to `famOpen`'s
-    variables, satisfies its body at b (`famOpen_of_split`).
-  `step_successor_axiomOpen` gives, for a successor in any pattern ψ, the rule and the valuation of
-  its axiom; `step_successor_open` is the two cases for it. Of the rules they read
-  `ruleSorted` and `rulePlainOpen`, given as a hypothesis; of the configuration, `StepDecided`.
+  `⌈req = true⌉` and in no competitor's `applies`; b is in the right side and in `⌈ens = true⌉`
+  (`step_successor_axiomOpen`, for a successor in any pattern ψ, from `rule_partsSplit` and
+  `freeOf_prioSplit`). `reqPat_inhSplit` and `reqPat_transferSplit` read `⌈t = true⌉` at another
+  element of the configuration sort; `copyVSplit_at` and `copyVSplit_off` move a valuation to
+  another table; `famOpen_eqSplit` is the pattern `famOpen` reads. Of the rules they read
+  `ruleSorted` and `rulePlainOpen`, given as a hypothesis.
 -/
 import KcoreSpec.OpenConsistent
 import KcoreSpec.FaithfulFamilies
-import KcoreSpec.OpenRuleStepCl
+import KcoreSpec.OpenCompete
+import KcoreSpec.OpenClauseFn
+import KcoreSpec.ClausePreCore
 
 set_option autoImplicit false
 
@@ -89,7 +85,6 @@ theorem reqPat_transferSplit (hI : I ⊧ᴵP Γ c) [OvlOK c] {vs : List KoreAML.
 
 end
 
-
 /-! ## A valuation moved to another table -/
 
 section
@@ -120,7 +115,6 @@ theorem copyVSplit_off {tbl tbl' : VarTable} {vars : List Srt} {src base : Valua
   rw [dif_neg (fun ⟨i, hi, he⟩ => hx i hi he)]
 
 end
-
 
 /-! ## The pattern `famOpen` reads, for a rule with `rulePlainOpen` -/
 
@@ -154,7 +148,6 @@ theorem Rule.lhs_of_opens_nilSplit {r : Rule} (h : r.opens = []) : ∀ i < r.var
   rw [h] at this; cases this
 
 end
-
 
 /-! ## The axiom of a rule with `rulePlainOpen`, in any model -/
 
@@ -276,174 +269,10 @@ theorem rule_partsSplit {M : Type} {I : Interpretation KoreAML.Sym M}
 
 end
 
-
 /-! ## The successor a disjunct of the step's closure gives -/
 
 section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
-
-/-- **The successor a rule's axiom gives, in two cases.** For a rule r with `ruleSorted` and
-`rulePlainOpen` (not asked to be one of the definition's) in a definition whose rules have both,
-in a model of `Γc`, at a valuation of r's variables in their sorts where x's element is in r's left
-side, in `⌈req = true⌉` and in no competitor's `applies`, and b is in r's right side and
-`⌈ens = true⌉`, where the step at x is decided (`StepDecided`, and its conjuncts for r): the
-valuation's substitution σ is an unblocked match of r at x, and
-- where r's left side binds every variable, b is the element of a configuration y with every premise
-  of `StepBy c r σ x y` but the rule's membership;
-- otherwise b is in `famOpen c r σ`. -/
-theorem successor_split_rule (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true)
-    (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) {r : Rule}
-    (hs : c.ruleSorted r = true) (hp : c.rulePlainOpen r = true)
-    (hdr : (∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val) →
-      (∀ σ, c.WellSortedAt r.vars r.leftVars σ → PatVal c σ r.lhs x.val →
-        (∀ t, r.req = some t → ∃ v, EvalTerm c σ t v) ∧ ∃ b, Holds c r.vars.length σ r.pre b) ∧
-      (∀ σ, c.WellSorted r.vars σ → PatVal c σ r.lhs x.val →
-        (∀ t, r.req = some t → EvalTerm c σ t (some (bool true))) → Holds c r.vars.length σ r.pre true →
-          (∃ v, EvalTerm c σ r.rhs v) ∧ (∀ e, r.ens = some e → ∃ w, EvalTerm c σ e w) ∧
-          ∃ b, Holds c r.vars.length σ r.post b))
-    {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl)
-    (hkeysC : ∀ r' ∈ c.rules, r'.prio < r.prio → ∀ i < r'.vars.length, i ∈ r'.leftVars →
-      canonKey c r'.vars i ∈ tbl)
-    {e : Valuation M}
-    (hin : ∀ i < r.vars.length, InS I (c.sortName (r.vars.getD i 0))
-      (e.evalEvar (tbl.ev (keyAt (canonVars c r.vars) i))))
-    (hl : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r.vars) r.lhs)).interpret I e (elemOf c I x.val))
-    (hreqm : (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort)
-      (r.req.map (Term.kore c (canonVars c r.vars))))).interpret I e (elemOf c I x.val))
-    (hcomp : ∀ r' ∈ c.rules, r'.prio < r.prio →
-      ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret I e (elemOf c I x.val))
-    {b : M} (hy : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c r.vars) r.rhs)).interpret I e b)
-    (hensm : (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort)
-      (r.ens.map (Term.kore c (canonVars c r.vars))))).interpret I e b) :
-    (r.opens = [] ∧ ∃ (y : Config c) (σ : Subst), (r ∈ c.rules → StepBy c r σ x y) ∧ b = elemOf c I y.val) ∨
-    (r.opens ≠ [] ∧ ∃ σ, Unblocked c r σ x.val ∧ ∀ e', (famOpen c r σ).interpret I e' b) := by
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  have hs0 := hypSound_of_core h
-  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := id hs0
-  haveI : OvlOK c := hno
-  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hD := defOK hIΓ
-  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI))
-  obtain ⟨hlhs, -, hensK, hrhss⟩ := Semantics.ruleSorted_parts c hs
-  obtain ⟨-, -, hreqs, hensS, -⟩ := Model.ruleSorted_partsOpen hs hp
-  obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
-  let vs := canonVars c r.vars
-  let σ := substOf c I tbl vs r.vars e
-  -- the left side binds the variables it holds at values
-  obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.ruleSorted_lhs_nf c hs) x.property hl
-  -- no rule of a smaller priority applies at values: it would apply in the model
-  have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
-    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt
-      (applies_of_values h hI hcw (hrules r' hr').1 (hrules r' hr').2 hσ' hpv' hreq' (hkeysC r' hr' hlt) e)
-  -- so none applies, at values, where its `requires` has a result at each match
-  have hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val := by
-    intro r' hr' hlt
-    have hun : ∀ r'' ∈ c.rules, r''.prio < r'.prio → ¬ RuleApplies c r'' x.val :=
-      fun r'' hr'' hlt' => hnoapp r'' hr'' (Nat.lt_trans hlt' hlt)
-    exact notApplies_of_not_applies h hI hcw (hrules r' hr').1 (hrules r' hr').2 (hd r' hr' hun).1
-      (hkeysC r' hr' hlt) e (hcomp r' hr' hlt)
-  by_cases hop : r.opens = []
-  · -- every variable is held by the left side: the step of `StepDecided`
-    left
-    refine ⟨hop, ?_⟩
-    have hbinds := Rule.lhs_of_opens_nilSplit hop
-    obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) (fun i hi => hwitL i (hbinds i hi))
-    have hdr' := hdr hnoapp
-    obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
-    have hSC : ∀ a, (KoreAML.trSort tbl (srtOf c topCellSort)).interpret I e a ↔ a = σC := fun a => by
-      unfold srtOf; rw [trSort_srt]; exact hσC1 a
-    -- a condition the element satisfies evaluates to `true`, where it has a result
-    have htrue : ∀ (q : Option Term) (m : M), (∀ t, q = some t →
-        sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) →
-        (∀ t, q = some t → ∃ v, EvalTerm c σ t v) →
-        (KoreAML.tr ⟨tbl, []⟩ (reqPat (srtOf c topCellSort) (q.map (Term.kore c vs)))).interpret I e m →
-        ∀ t, q = some t → EvalTerm c σ t (some (bool true)) := by
-      intro q m hqs hqv hqm t ht
-      obtain ⟨v, hv⟩ := hqv t ht
-      by_cases hvt : v = some (bool true)
-      · rw [hvt] at hv; exact hv
-      · exfalso
-        rw [ht] at hqm
-        exact reqFalse_empty hIΓ hSC hσC2 hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hqs t ht) hu)
-          (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag (hqs t ht)) _ hqm
-    have hreqT := htrue r.req _ hreqs (hdr'.1 σ (hσ.at _) hmatch).1 hreqm
-    have hrest := hdr'.2 σ hσ hmatch hreqT (hpre₀ ▸ .top)
-    have hensT := htrue r.ens _ hensS hrest.2.1 hensm
-    obtain ⟨v, hv⟩ := hrest.1
-    have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ (canonVars_length c r.vars) hag hrhss b).mp hy
-    cases v with
-    | none => exact hbR.elim
-    | some yv =>
-      have hyv := EvalTerm.sorted hsc hv fns_headsOK hσ hrhss rfl
-      refine ⟨⟨yv, hyv⟩, σ, fun hmem => ⟨hmem, hσ, hmatch, hreqT, hpre₀ ▸ .top, hv, hensT, hpost₀ ▸ .top, hprio⟩, ?_⟩
-      exact ((elemOf_spec hIΓ hyv e).1 b).mp (((den_closed c yv).interp e e b).mp hbR)
-  -- an open variable: the valuation, moved to `famOpen`'s variables, satisfies its body at b
-  right
-  refine ⟨hop, σ, ⟨fun i hi s hsi => ?_, hmatch, hprio⟩, fun e' => ?_⟩
-  · have hlt : i < r.vars.length := (List.getElem?_eq_some_iff.mp hsi).1
-    obtain ⟨h1, -⟩ := pick_spec (hwitL i hi)
-    refine ⟨_, substOf_lookup hlt, ?_⟩
-    rw [h1, List.getD_eq_getElem?_getD, hsi, Option.getD_some]
-  rw [famOpen_eqSplit hp]
-  unfold KoreAML.denB
-  generalize htbl : KoreAML.tableOf [] _ = tbl2
-  have hkeys2 : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl2 := fun i hi => by
-    rw [← htbl]; exact canonKey_mem_existsAll hi
-  obtain ⟨hnd, hsrt⟩ := canon_binders hkeys2
-  let e2 := copyVSplit c tbl tbl2 r.vars e e'
-  have hat : ∀ i < r.vars.length, e2.evalEvar (tbl2.ev (keyAt vs i)) = e.evalEvar (tbl.ev (keyAt vs i)) :=
-    fun i hi => copyVSplit_at hkeys2 hi
-  have hinC : (KoreAML.inhOf (KoreAML.trSort tbl2 (srtOf c topCellSort))).interpret I e2 b :=
-    reqPat_inhSplit hIΓ hensm tbl2 e2
-  have hne : ∀ (l : List Kore.Pattern) (p : Kore.Pattern), l ++ [p] ≠ [] := fun l p => by simp
-  refine existsAll_intro_at hD _ e' e2 b hnd hsrt (fun z hz => ?_) rfl (fun b' hb' n hn => ?_) ?_
-  · refine copyVSplit_off fun i hi he => hz _ ?_ he
-    have hlt : i < (canonVars c r.vars).length := by rw [canonVars_length]; exact hi
-    show ((canonVars c r.vars).getD i default).kore ∈ (canonVars c r.vars).map KoreAML.Var.kore
-    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt]
-    exact List.mem_map_of_mem (List.getElem_mem hlt)
-  · obtain ⟨i, hi, rfl⟩ := canonVars_kore_mem hb'
-    have hs' : ((canonVars c r.vars).getD i default).kore.sort = KoreAML.srt (c.sortName (r.vars.getD i 0)) := by
-      rw [canonVars_getD c hi]; rfl
-    rw [hs'] at hn
-    rw [← srt_inj hn]
-    show InS I _ (e2.evalEvar (tbl2.ev (canonKey c r.vars i)))
-    rw [copyVSplit_at hkeys2 hi]
-    exact hin i hi
-  · rw [interp_and (hne _ _)]
-    intro p hp'
-    rcases List.mem_append.mp hp' with hp' | hp'
-    rcases List.mem_append.mp hp' with hp' | hp'
-    · -- the left side's variables, fixed to their values under σ
-      unfold fixK at hp'
-      obtain ⟨i, hiL, hpi⟩ := List.mem_filterMap.mp hp'
-      split at hpi
-      · rename_i v s g hv hsi hg'
-        cases hpi
-        have hi : i < r.vars.length := (List.getElem?_eq_some_iff.mp hsi).1
-        obtain ⟨hgs, hge⟩ := pick_spec (hwitL i hiL)
-        rw [substOf_lookup hi] at hg'
-        cases hg'
-        have hgs' : c.sortOf (pick c I (r.vars.getD i 0) (e.evalEvar (tbl.ev (keyAt vs i)))) = some s := by
-          rw [hgs, List.getD_eq_getElem?_getD, hsi, Option.getD_some]
-        refine (fixEq_iff hIΓ (sortOf_numbered_of hs0 (sortsNumbered_of_core h) (Semantics.coreOK_ovls h) hgs') hgs'
-          b).mpr ⟨hinC, ?_⟩
-        have hvk : KoreAML.evarKey v.kore = canonKey c r.vars i := by
-          unfold canonKey
-          rw [List.getD_eq_getElem?_getD, hv, Option.getD_some]
-        rw [hvk, copyVSplit_at hkeys2 hi]
-        exact hge.symm
-      · cases hpi
-    · -- the `requires`, from x's element
-      rw [List.mem_singleton.mp hp']
-      exact reqPat_transferSplit hIΓ (fun t ht i hi => (hat i (varOccs_lt t (hreqs t ht) i hi)).symm) hreqm hinC
-    · -- the right side and the `ensures`, at b
-      rw [List.mem_singleton.mp hp', tr_and2, KoreAML.interp_sAnd]
-      exact ⟨(tr_kore_congr r.rhs (fun i hi => (hat i (varOccs_lt r.rhs hrhss i hi)).symm) b).mp hy,
-        reqPat_transferSplit hIΓ (fun t ht i hi => (hat i (varOccs_lt t (hensS t ht) i hi)).symm) hensm hinC⟩
 
 open Classical in
 /-- **A successor of a configuration, at the axiom of a rule**: with the step's closure, in every
@@ -568,31 +397,6 @@ theorem step_successor_axiomOpen
     exact this
   exact ⟨r, hr, tbl, e2, hkeys, fun r' hr' hlt i hi hil => hin_tbl _ (hLcomp r' hr' hlt i hi hil), hin, hl, hreq,
     hcomp, hRm.1, hRm.2⟩
-
-/-- **A successor of a configuration, in two cases**: with the step's closure, in every model of
-`Γc c`, for a definition whose rules have `ruleSorted` and `rulePlainOpen`, where the evaluations the
-step at x reads have results (`StepDecided`), a successor of x's element that lies in a pattern ψ is
-the element of a configuration y with `StepBy c r σ x y` for a rule r whose left side binds every
-variable, or lies in `famOpen c r σ` for a rule r of the definition with an open variable and an
-unblocked match σ of r at x. -/
-theorem step_successor_open (h : c.coreOK = true)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true)
-    (x : Config c) (hd : StepDecided c x.val) (hI : I ⊧ᴵP (Γc c ∪ Γstep c))
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (e : Valuation M) (ψ : KoreAML.P)
-    (hs : (KoreAML.sNext ψ).interpret I e (elemOf c I x.val)) :
-    ∃ b, ψ.interpret I e b ∧
-      ((∃ (y : Config c) (r : Rule) (σ : Subst), r.opens = [] ∧ StepBy c r σ x y ∧ b = elemOf c I y.val) ∨
-       (∃ r ∈ c.rules, r.opens ≠ [] ∧ ∃ σ, Unblocked c r σ x.val ∧ (famOpen c r σ).interpret I e b)) := by
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl (Or.inl hφ))
-  obtain ⟨b, hb, r, hr, tbl, e2, hkeys, hkeysC, hin, hl, hreq, hcomp, hy, hens⟩ :=
-    step_successor_axiomOpen hrules x hI e ψ hs
-  refine ⟨b, hb, ?_⟩
-  obtain ⟨hsr, hpr⟩ := hrules r hr
-  rcases successor_split_rule h hrules x hd (fun φ hφ => hI φ (Or.inl hφ)) hcw hsr hpr (hd r hr) hkeys hkeysC hin hl hreq hcomp hy hens with
-    ⟨hop, y', σ, hst, hbe⟩ | ⟨hop, σ, hu, hfam⟩
-  · exact Or.inl ⟨y', r, σ, hop, hst hr, hbe⟩
-  · exact Or.inr ⟨r, hr, hop, σ, hu, hfam e⟩
 
 end
 

@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-EQ-RHS-NOT: 390 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 349 (Lblf): manyValuedRightSide (\not)
+        [user] (no label) at e3-ml-eq-rhs-not.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(\not{SortInt{}}(Lblg{}(VarX:SortInt{})), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("eda5d6a15eff6de7b8719f8435d680380494ea237a1cb0d861a71c7a3634b959"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,26)"), org'St …
+finish: sentence 349 (Lblf): manyValuedRightSide (\not)
+(exit 0)

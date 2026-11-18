@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t237-hook-eq-owed.k": "590f959bed2b06d5974e3277eb4fb3c711840a578d7829f2273795361cc1bcd5"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t237-hook-eq-owed.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "7af35a07be4d7b372cc7dee162bda5e35d386b1b47d86d2b8c9ae48bb8d0c609",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

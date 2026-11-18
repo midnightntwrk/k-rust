@@ -3,13 +3,14 @@
 
   `HeldBackAll c H`: in every model of `Γc`, each symbol of H that is no constructor has `HeldBack`
   with the signature a right side's context gives it. It is what the statements over every model
-  (`sound_at_held`, `exact_held`, `famEx_values_held`) ask of H. Those statements do not name H:
+  (`sound_at_heldCEx`, `exact_heldCEx`, `famEx_values_heldCEx`) ask of H. Those statements do not name H:
   where the rules have `rulePlainHeldH` at the symbols `Semantics.holds` names, and those symbols
   have `HeldBackAll` if the definition reads a confined sort, some H has both
   (`heldFacts_of_rules`): a definition that reads no confined sort has no rule with a variable its
   left side leaves open, and its rules have `rulePlainHeldH` at no symbol.
 -/
-import KcoreSpec.CompeteHeld
+import KcoreSpec.CompetePP
+import KcoreSpec.StepValuesHeld
 
 set_option autoImplicit false
 

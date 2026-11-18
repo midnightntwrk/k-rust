@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t233-rule-conn-cut.k": "84d22b98eb2f03f72aa6e0da450621dab28c09c3295a66f690dfa383558c648c"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t233-rule-conn-cut.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "0f09a1055f0b0a3dcb6edbe6c194cd475dfea7fd68ccf6ca5f76341073392e2c",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t234-lhs-and-pred.k": "67bc02d15647203940292b6dbf2bb2e571933f1802cddcd1ccdce3dd9c5c56eb"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t234-lhs-and-pred.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "694bc6c412f47138a4fae63782940445ab83885dfc3528ccb30381ee002520a0",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

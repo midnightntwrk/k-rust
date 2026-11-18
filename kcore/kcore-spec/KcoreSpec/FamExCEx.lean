@@ -1,11 +1,16 @@
 /-
-  KCore. FamExPost.lean's `famEx_denPP` and the competitor and condition lemmas it and the
-  completeness lemmas read, for a semantics `coreOKEx` accepts (`*CEx`): each is its `coreOK`
-  counterpart's statement with `coreOKEx` for `coreOK`, proved as it is, the evaluations of terms
+  KCore. The instances of a step by a rule without existential variables are its successor
+  (`famEx_denPPCEx`), with the competitor and condition lemmas it and the completeness lemmas read,
+  for a semantics `coreOKEx` accepts, the evaluations of terms
   read by `HoldsShape.termSoundEx`'s block (`evalTerm_den4ClQ`, `holds_entailsCEx`).
 -/
 import KcoreSpec.TermSoundCEx
-import KcoreSpec.SoundHeld
+import KcoreSpec.SoundPP
+import KcoreSpec.FamExValuesPP
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.HeldBackAll
+import KcoreSpec.CompetePP
+import KcoreSpec.StepValuesHeld
 
 set_option autoImplicit false
 set_option linter.unusedSectionVars false

@@ -1,0 +1,8 @@
+command: kompile --backend haskell t233-rule-conn-cut.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 0
+kore.txt: 51 of the main module's 277 sentences: those that come from no builtin file of K and that the main module of an empty module does not hold
+messages:
+  [Warning] Compiler: Could not find main syntax module with name
+  T233-RULE-CONN-CUT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using T233-RULE-CONN-CUT as default.

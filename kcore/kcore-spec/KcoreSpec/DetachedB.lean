@@ -16,6 +16,7 @@
 import KcoreSpec.RegistryOwn
 import KcoreSpec.HypWf
 import KcoreSpec.ModelDen
+import KcoreSpec.StepClosurePadIx
 
 set_option autoImplicit false
 
