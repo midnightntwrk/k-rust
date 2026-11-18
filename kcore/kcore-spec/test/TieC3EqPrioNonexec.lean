@@ -3,7 +3,7 @@
   (`test/constructs/fixtures/c3-eq-prio-nonexec`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py c3-eq-prio-nonexec`, its last two sections by hand; run from the package root: `lake env lean -j1 test/TieC3EqPrioNonexec.lean`.
+  `test/constructs/tiegen.py c3-eq-prio-nonexec`; run from the package root: `lake env lean -j1 test/TieC3EqPrioNonexec.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -21,12 +21,12 @@
     H (`consistent`).
 
   Layer 2, by class (indices are the text's axiom numbers, `AxiomDecl.index`).
-  - Function equations (28) and the priority equation (201, `f(X) = X [non-executable,
-    priority(60)]`), in the order `fnText` lists them (`fns_account`): each of Γ's items but item 1
-    is the translation of one sentence (`shape`), so Γ entails it (`fns_entailed`); item 1 is the
-    clause of 201 under the negation of `f(0) = 0`, which sentence 201 entails (`w1`, W1) and is
-    without that premise (`w_text`); `fns_from_text` (the converse), `fn_prios` (the priorities the
-    sentences state are the clauses').
+  - Function equations (28) and the priority equation (201, of priority 60), in the order `fnText`
+    lists them (`fns_account`): each of Γ's items but item 1 is the translation of one sentence
+    (`shape`), so Γ entails it (`fns_entailed`); item 1 is the clause of 201 under the negation of
+    the clauses of a smaller priority that are not `aside`, which sentence 201 entails (`w1`, W1)
+    and is without that premise (`w_text`); `fns_from_text` (the converse), `fn_prios` (the
+    priorities the sentences state are the clauses').
   - Constructor sentences (24): entailed by Γ (`cons_entailed`).
   - No junk (3 of a sort without generators, `nojunk_trivial_entailed`; 6 equal to
     one of Γ's constructor items, `nojunk_items`; 1 KItem's with its disjuncts in the text's
@@ -622,11 +622,10 @@ theorem lib166_at_values (H : HookParams) : EntailsAtValues (cH H) U.ax157 (trS 
 /-! ## Function equations (28 sentences) and the priority equation (sentence 201)
 
 `fnItems`'s item 1 is the equation of the clause of priority 60, the `non-executable` one: Γ holds
-it under the negation of the clause of priority 50 that is not `aside`, `f(0) = 0`
-(`prioEquation`, `competingEquation`), a premise the sentence does not state. Sentence 201 entails
-it (`w1`, the direction of the class priority equation) and is the item without that premise
-(`w_text`); it is not the item (`w_differs`). Every other item is the translation of its function
-sentence (`shape`). -/
+it under the negation of the clauses of a smaller priority that are not `aside` (`prioEquation`,
+`competingEquation`), a premise the sentence does not state. Sentence 201 entails it (`w1`, the
+direction of the class priority equation) and is the item without that premise (`w_text`); it is not
+the item (`w_differs`). Every other item is the translation of its function sentence (`shape`). -/
 
 /-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority
 (`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/
