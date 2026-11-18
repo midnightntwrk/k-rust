@@ -232,7 +232,9 @@ theorem lookupFH_eq {H : HookParams} {fn : Fn} (h : (cH H).lookupFn 388 = some f
 /-- `f() => g(Y:Empty)` applies under no substitution, under every H: Y is of Empty. -/
 theorem clY_not_applies (H : HookParams) (σ : Subst) (vs : List GroundTerm) : ¬ clY.AppliesAt (cH H) σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 (by rw [clY_vars]; rfl)
+  have hu : clY.univ = [0] := by
+    unfold Clause.univ; rw [clY_vars, fF_shape.2.2.2.2.2.2.2.2.2.2.2.2]; rfl
+  obtain ⟨v, -, hv⟩ := h 0 (by rw [hu]; exact List.mem_singleton_self _) 33 (by rw [clY_vars]; rfl)
   exact no_E H v hv
 
 /-- **`f()` is `a`** under every H, by `f() => a`; the other clause is of the same priority. -/
