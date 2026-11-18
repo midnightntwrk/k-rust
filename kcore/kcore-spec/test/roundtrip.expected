@@ -54,6 +54,7 @@ differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
 differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
+differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
