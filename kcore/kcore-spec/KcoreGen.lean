@@ -1217,9 +1217,13 @@ def {nm}_lawHooks{pre} (H : HookParams) :=
     s!"
 /-! ## The interpretation `lawHooks`
 
-`lawHooks defn.sem H` is H everywhere but at the open generators, where it is the free application
-of their laws. It shows that the interpretations the statements are about exist; it is not the
-meaning of a generator, and no statement above is stated only there. -/
+`lawHooks defn.sem H` is H everywhere but at the open generators, where it applies their laws: at a
+generator with no law or one law it is the free interpretation of its laws; at one with both `assoc`
+and `idem` it keeps each flattened argument at its first occurrence (`Band.nf`), so that
+`f(x, f(y, x))` is `f(x, y)` there, which the two laws do not state. It shows that the
+interpretations the statements are about exist; it is not the meaning of a generator, and no
+statement above is stated only there. A fact that holds at `lawHooks` and that the text does not
+state holds at `lawHooks`, not for every H. -/
 
 /-- The open generators' laws hold under `lawHooks defn.sem H`, for every H
 (`KCore.openLaws_lawHooks`). -/
