@@ -19,6 +19,8 @@
   - An `\exists` as an operand (`exOpIll`, `exBodyIll`, `orIll`): of another sort than the
     connective's, or with a body of another sort than its own, refused by `clauseBody`,
     `ruleBodyRead` and `frRead`, where the readers drop it unread.
+  - A `\top` or `\bottom` as an operand (`topIll`, `botIll`, `orTopIll`): of another sort than the
+    connective's, refused by `clauseBody`, `ruleBodyRead` and `frRead`.
   Kernel-checked (`decide +kernel`): the reasons, `rhsSorted` on each side, and that a read
   clause's, `frRead`'s, `exRead`'s, `ceRead`'s or `ruleBodyAnd`'s right side is `rhsSorted`
   (`clauseBody_rhsSorted`, `frRead_rhsSorted`, `exRead_rhsSorted`, `ceRead_rhsSorted`,
@@ -254,6 +256,61 @@ theorem exOp_hand :
     reasonOf (frRead N0 (eqn "Lblh" orOk)) = none := by
   decide +kernel
 
+/-! ## A `\top` or `\bottom` as an operand
+
+`\top{s'}()` and `\bottom{s'}()` state their sort s' at their head (kore-syntax.md:330), so
+`rhsOpSort` checks it as it checks an `\and`'s. Where the conjunction holds `\bottom` (`hoist`
+marks it empty) or the alternative is empty (`dropEmptyAlts` leaves it out), the readers drop the
+operand without reading it, so the guard is what refuses its sort.
+- `topIll`, `\and{SortInt{}}(\bottom{SortInt{}}(), \top{SortBool{}}())`: an operand `\top` of sort
+  Bool. Refused by `clauseBody` and `ruleBodyRead`; its twin `topOk` at `\top{SortInt{}}` is read
+  by both (the empty clause and the empty rule).
+- `botIll`, `\and{SortInt{}}(f(X), \bottom{SortFoo{}}())`: an operand `\bottom` of sort Foo.
+- `orTopIll`, `\or{SortInt{}}(topIll, f(X), g(X))` (h's equation): the empty alternative, refused by
+  `frRead`; its twin `orTopOk` with `topOk` is read. -/
+
+def topIll : Kore.Pattern := .and (srt "Int") [.bottom (srt "Int"), .top (srt "Bool")]
+def topOk : Kore.Pattern := .and (srt "Int") [.bottom (srt "Int"), .top (srt "Int")]
+def botIll : Kore.Pattern := .and (srt "Int") [fX, .bottom (srt "Foo")]
+def botOk : Kore.Pattern := .and (srt "Int") [fX, .bottom (srt "Int")]
+def orTopIll : Kore.Pattern := .or (srt "Int") [topIll, fX, gX]
+def orTopOk : Kore.Pattern := .or (srt "Int") [topOk, fX, gX]
+
+/--
+info: clauseBody topIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+clauseBody topOk: read
+clauseBody botIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \bottom of sort SortFoo{})
+clauseBody botOk: read
+ruleBodyRead topIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+ruleBodyRead topOk: read
+frRead orTopIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+frRead orTopOk: read
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  showRd "clauseBody topIll" (clauseBody N0 "" (eqn "Lblf" topIll) none)
+  showRd "clauseBody topOk" (clauseBody N0 "" (eqn "Lblf" topOk) none)
+  showRd "clauseBody botIll" (clauseBody N0 "" (eqn "Lblf" botIll) none)
+  showRd "clauseBody botOk" (clauseBody N0 "" (eqn "Lblf" botOk) none)
+  showRd "ruleBodyRead topIll" (ruleBodyRead N0 "" (rule topIll))
+  showRd "ruleBodyRead topOk" (ruleBodyRead N0 "" (rule topOk))
+  showRd "frRead orTopIll" (frRead N0 (eqn "Lblh" orTopIll))
+  showRd "frRead orTopOk" (frRead N0 (eqn "Lblh" orTopOk))
+
+/-- `rhsSorted` on the `\top` and `\bottom` operands, the refusals and the twins' readings. -/
+theorem topOp_hand :
+    rhsSorted topIll = false ∧ rhsSorted topOk = true ∧ rhsSorted botIll = false ∧
+    rhsSorted botOk = true ∧ rhsSorted orTopIll = false ∧ rhsSorted orTopOk = true ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" topIll) none) = some .rhsOperandSort ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" topOk) none) = none ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" botIll) none) = some .rhsOperandSort ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" botOk) none) = none ∧
+    reasonOf (ruleBodyRead N0 "" (rule topIll)) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (rule topOk)) = none ∧
+    reasonOf (frRead N0 (eqn "Lblh" orTopIll)) = some .rhsOperandSort ∧
+    reasonOf (frRead N0 (eqn "Lblh" orTopOk)) = none := by
+  decide +kernel
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -266,5 +323,7 @@ end RhsSortCheck
 #guard_msgs in #print axioms RhsSortCheck.ex_hand
 /-- info: 'RhsSortCheck.exOp_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.exOp_hand
+/-- info: 'RhsSortCheck.topOp_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.topOp_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted

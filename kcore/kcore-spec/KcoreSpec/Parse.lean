@@ -397,9 +397,10 @@ inductive RefusalReason where
   | symbolAttrUnkeyed
   /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
   applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
-  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or` or `\exists` at another
-  sort, an `\exists{s}` whose body states another sort than s (its pattern argument is of the
-  sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result sort S2 is not s.
+  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or`, `\exists`, `\top` or
+  `\bottom` at another sort, an `\exists{s}` whose body states another sort than s (its pattern
+  argument is of the sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result
+  sort S2 is not s.
   In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
@@ -1738,14 +1739,17 @@ end
 
 mutual
   /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
-  `\and{s'}` or `\exists{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the
-  operands of such an `\or` and `\and` and the body of such an `\exists`. An application, a
-  variable, a domain value and the other connectives are not looked at. -/
+  `\and{s'}`, `\exists{s'}`, `\top{s'}` or `\bottom{s'}` or as the result sort of
+  `\equals{S1,s'}` (s' = s), and so are the operands of such an `\or` and `\and` and the body of
+  such an `\exists`. An application, a variable, a domain value and the other connectives are not
+  looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
     | .exist s' _ p => decide (s' = s) && rhsOpSort s p
     | .equals _ s' _ _ => decide (s' = s)
+    | .top s' => decide (s' = s)
+    | .bottom s' => decide (s' = s)
     | _ => true
     termination_by structural p => p
   def rhsOpSortList (s : Kore.KSort) : List Kore.Pattern → Bool
@@ -1777,6 +1781,8 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .and s _ => some ("\\and", s)
   | .equals _ s _ _ => some ("\\equals", s)
   | .exist s _ _ => some ("\\exists", s)
+  | .top s => some ("\\top", s)
+  | .bottom s => some ("\\bottom", s)
   | _ => none
 
 /-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
