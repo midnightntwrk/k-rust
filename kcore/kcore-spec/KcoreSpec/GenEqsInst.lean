@@ -147,7 +147,7 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
   rw [(hX0e a0).mp ha0] at hP
   obtain ⟨x, hx, hK⟩ := (predInst_kseqInj_iff X p _).mp hP
   have hxs : InS I (c.sortName X) x :=
-    patSortC hI hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c cl.vars) hvar hcp hsp x hx
+    patSortC hI hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c cl.vars) hvar hcp (OvlOK.nf_bridge hno hsp) x hx
   -- the valuation of the general clause's table: `R` and `X0` as here, its variable `x`
   have h00 : 0 < cl0.vars.length := by rw [h0v]; exact Nat.zero_lt_one
   let Vk := canonKey c cl0.vars 0
