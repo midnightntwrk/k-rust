@@ -2708,6 +2708,14 @@ def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
       (cs ++ r.1, r.2)
     else (cs.take n, true)
 
+/-- What the account says after a class line beyond the class: for a sentence of the user's text
+classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
+the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails. -/
+def classLineOwed (c o : String) : String :=
+  if c == "inert simplification" && o == "user" then
+    ": owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader"
+  else ""
+
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
 (FIX-core.account-trunc-path): where a line is cut does not depend on the directory a text was
 kompiled in or on K's installation path, so the line is the same for two texts that differ only in
@@ -2737,7 +2745,7 @@ def account (koreFile : String) : IO UInt32 := do
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do
     let these := cls.filter fun (c', o', _) => c' == c && o' == o
-    IO.println s!"  {these.length} {c} [{o}]"
+    IO.println s!"  {these.length} {c} [{o}]{classLineOwed c o}"
     if (c.splitOn "refused").length > 1 then
       for (_, _, s) in these.take 1 do IO.println s!"      e.g. {clip 400 (Kore.Printer.sentence s)}"
   -- printed only when some sentence is read so
