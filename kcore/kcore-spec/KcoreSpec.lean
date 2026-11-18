@@ -186,6 +186,7 @@ import KcoreSpec.OpenChoice
 import KcoreSpec.OpenExact
 import KcoreSpec.ExPlain
 import KcoreSpec.Inhabited
+import KcoreSpec.SetIdemColl
 import KcoreSpec.SortedCl
 import KcoreSpec.OpenClause
 import KcoreSpec.OpenClauseEval
@@ -385,3 +386,5 @@ import KcoreSpec.FamExCEx
 import KcoreSpec.CompleteCEx
 import KcoreSpec.SoundCEx
 import KcoreSpec.SoundCE
+import KcoreSpec.FnModelCEx
+import KcoreSpec.TieFR

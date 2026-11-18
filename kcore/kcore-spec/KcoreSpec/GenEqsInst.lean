@@ -62,7 +62,7 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
     (h0s : sortsOfTerms c.patCtxAll cl0.vars cl0.pats = some fn.args)
     (hp : cl.pats = [.app kseq [.inj X Srt.kitem p, .app dotk []]])
     (hq0 : cl0.req = none) (he0 : cl0.ens = none) (hr0 : cl0.rhs = .dv s lit)
-    (hcp : collPat c p = true) (hsp : sortOfTerm c.patCtxAll cl.vars p = some X)
+    (hcp : collPat c p = true) (hsp : sortOfTerm c.patCtxNF cl.vars p = some X)
     (hbind : ∀ i < cl.vars.length, i ∈ varOccs p)
     (hq : cl.req = none) (he : cl.ens = none) (hrhs : cl.rhs = cl0.rhs) :
     I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", clauseAxiom c fn cl⟩).pat := by
@@ -147,7 +147,7 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
   rw [(hX0e a0).mp ha0] at hP
   obtain ⟨x, hx, hK⟩ := (predInst_kseqInj_iff X p _).mp hP
   have hxs : InS I (c.sortName X) x :=
-    patSortC hI hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c cl.vars) hvar hcp (OvlOK.nf_bridge hno hsp) x hx
+    patSortC hI hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c cl.vars) hvar hcp hsp x hx
   -- the valuation of the general clause's table: `R` and `X0` as here, its variable `x`
   have h00 : 0 < cl0.vars.length := by rw [h0v]; exact Nat.zero_lt_one
   let Vk := canonKey c cl0.vars 0
@@ -314,6 +314,34 @@ theorem predInstOfClause_spec {cl0 cl : Clause} (h : Parse.predInstOfClause c cl
     · cases h
   · cases h
 
+/-- A constructor is no function-overloaded symbol: such a symbol is an overloading symbol. -/
+theorem not_fnOvl_of_isCtorPI (H : OvlLaws.OvlFnFacts c) {f : Sym} (hf : c.isCtor f = true) : f ∉ c.fnOvlSyms := by
+  intro hm
+  unfold Semantics.fnOvlSyms at hm
+  obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hm
+  have hc := (c.isOvl_parts (H.isOvl o (List.mem_filter.mp ho).1)).1
+  rw [hf] at hc
+  cases hc
+
+mutual
+  /-- A constructor pattern applies no function-overloaded symbol. -/
+  theorem predInstCtorPat_noFnOvl (H : OvlLaws.OvlFnFacts c) :
+      ∀ {t : Term}, Parse.predInstCtorPat c t = true → c.NoFnOvlIn t
+    | .var _, _ => by simp [Semantics.NoFnOvlIn, symOccs]
+    | .app g ts, h => by
+      rw [Parse.predInstCtorPat, Bool.and_eq_true] at h
+      exact NoFnOvlIn.mk_app (not_fnOvl_of_isCtorPI H h.1) (predInstCtorPatList_noFnOvl H h.2)
+    | .dv _ _, h | .inj _ _ _, h | .as _ _, h => by simp [Parse.predInstCtorPat] at h
+    termination_by structural t => t
+  theorem predInstCtorPatList_noFnOvl (H : OvlLaws.OvlFnFacts c) :
+      ∀ {ts : List Term}, Parse.predInstCtorPatList c ts = true → c.NoFnOvlInL ts
+    | [], _ => NoFnOvlIn.nil
+    | t :: ts, h => by
+      rw [Parse.predInstCtorPatList, Bool.and_eq_true] at h
+      exact NoFnOvlIn.mk_cons (predInstCtorPat_noFnOvl H h.1) (predInstCtorPatList_noFnOvl H h.2)
+    termination_by structural ts => ts
+end
+
 mutual
   theorem predInstCtorPat_coll : ∀ {t : Term}, Parse.predInstCtorPat c t = true → collPat c t = true
     | .var _, _ => by rw [collPat]
@@ -386,8 +414,11 @@ theorem predInst_entailed {N : Parse.Names} {msrc : String} {e : Parse.RawEqn}
       rw [predInst_prioEquation_axiom hlow0 hpr0 hx0]; exact List.mem_singleton_self _
     have hgen : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", clauseAxiom c fn cl0⟩).pat :=
       hI _ (show Γ c _ from Or.inl (Or.inl (Or.inr (sortPred_items hfn hcl0 _ hit0))))
+    have hH : OvlLaws.OvlFnFacts c := by
+      obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core hc
+      exact (hno.hyp (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)).trans).fnFacts
     exact predInst_core hc hI (List.mem_append_right _ hfn) hargs hgen h0v h0p hs hp hq0 he0 hr0
-      (predInstCtorPat_coll hcp) hsp hbind hq he hrhs
+      (predInstCtorPat_coll hcp) (sortOfTerm_to_nf p hsp (predInstCtorPat_noFnOvl hH hcp)) hbind hq he hrhs
   · cases hm
 
 end

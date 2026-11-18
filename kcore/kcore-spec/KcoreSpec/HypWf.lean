@@ -123,7 +123,7 @@ theorem ovlOK_of_core (h : c.coreOK = true) : OvlOK c := by
   obtain ⟨hok, hfa, -, -, hids⟩ := Semantics.coreOK_parts h
   obtain ⟨-, -, -, -, -, hn, -, hs, -, -, -, hfns⟩ := faithCoreOK_parts hfa
   refine ⟨Semantics.coreOK_ovls h, NamesApart.subsorts_irrefl_of hids hok, ?_,
-    fnOvlSyms_nil_of_apart (Semantics.coreOK_ovls h) hfns⟩
+    fnOver_of_apart (Semantics.coreOK_ovls h) hfns⟩
   intro o ho kg hkg A hA B hB he
   have hkgk : kg ∈ kernelSyms c := by
     obtain ⟨g, -, hg⟩ := List.mem_filterMap.mp hkg
