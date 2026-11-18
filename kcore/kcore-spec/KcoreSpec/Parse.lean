@@ -3053,14 +3053,15 @@ def initUidOf (eqs : List RawEqn) (f : String) : Rd String := do
   Rd.within (.attrs e.attrs) (need (attrStr? e.attrs "UNIQUE'Unds'ID") .sentenceInfo)
 
 /-- The unique id of the first equation of the projection `project:X`, or `""` when the text
-declares no projection of X: kompile declares none for a sort whose name begins with `#` (wasm's
-`syntax #Layout [token]`), and no sentence can then apply one. A projection declared without an
-equation is refused (`missingEquation`). -/
-def projUidOf (syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd String :=
+states no projection equation of X: kompile declares none for a sort whose name begins with `#`
+(wasm's `syntax #Layout [token]`), and no sentence can then apply one; and a symbol the text
+declares under the projection's label with no equation (`pe(K) [function, symbol(project:X)]`)
+is a function of which the text states its declaration only, a parameter symbol (`isGenFn`), and
+no projection equation is presented for X. -/
+def projUidOf (_syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd String :=
   match eqs.find? fun e => e.fn == KoreAML.projLabel X && e.competitors.isNone && !e.dom with
   | some e => Rd.within (.attrs e.attrs) (need (attrStr? e.attrs "UNIQUE'Unds'ID") .sentenceInfo)
-  | none => if syms.any (·.symbol.ident.ident.name == KoreAML.projLabel X) then
-      fail .missingEquation (KoreAML.projLabel X) else pure ""
+  | none => pure ""
 
 def sortUidOf (syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd SortUids := do
   pure ⟨← projUidOf syms eqs X, ← uidOf eqs (KoreAML.isLabel X) false,

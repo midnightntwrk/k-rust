@@ -628,7 +628,7 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ [U.map (fun X => Kore.Sentence.sort { sort := ⟨⟨"Sort" ++ c.sortName X⟩⟩, sortVars := [], attributes := userSortAttrs c p X })]
   ++ (prods c p).map (prodSymbol c p)
   ++ [paramDecls c p, U.flatMap (fun X => (helperDecls c X).1),
-      (U.filter (!p.libProjs.contains ·)).map (fun X => (helperDecls c X).2)]
+      (U.filter fun X => !p.libProjs.contains X && (uidsOf c p X).proj != "").map (fun X => (helperDecls c X).2)]
   ++ prodAxiomBlocks c (prods c p)
   ++ [U.flatMap (predFunctionalAx c),
       U.map (fun X => subsortAx (c.sortName X) "KItem")]
@@ -637,7 +637,8 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ ((withPres c.fns p.fns).filter fun (f, _) => !p.generatedFns.contains f.label).flatMap
       (fun (f, fp) => (fnEquations c p f fp).map (fun s => [s]))
   ++ (ruleSentences c p).map (fun s => [s])
-  ++ U.map (fun X => if p.libProjs.contains X then [] else projEquations p.simpArg (c.sortName X) (uidsOf c p X).proj)
+  ++ U.map (fun X => let u := (uidsOf c p X).proj
+      if p.libProjs.contains X || u == "" then [] else projEquations p.simpArg (c.sortName X) u)
   ++ U.map (fun X => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse)
 
 def userModule (c : Semantics) (p : Presentation) : Kore.Module :=
