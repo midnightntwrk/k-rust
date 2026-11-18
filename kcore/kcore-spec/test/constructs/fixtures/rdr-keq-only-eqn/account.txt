@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-KEQ-ONLY-EQN: 285 sentences
+  1 inert import [generated]
+  159 read [generated]
+  98 read [builtin]
+  1 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 read andAtBool [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 251: andAtBool
+stage refusals (of sentences classified read): 1
+  1 hookEqualityUnstated
+      sentence 251 (Lblf): hookEqualityUnstated (Lbl'UndsEqlsEqls'K'Unds': declared without ((K1 Lbl'UndsEqlsEqls'K'Unds' K2) = true) = (K1 = K2))
+        [user] (no label) at rdr-keq-only-eqn.k:7: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(\and{SortBool{}}(VarB:SortBool{}, \dv{SortBool{}}("true")), \dv{SortBool{}}("true")), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarB:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("e81f3233db0362a87ec3d5ebb1f08353cf13fed22557c599966c9845b47a …
+finish: sentence 251 (Lblf): hookEqualityUnstated (Lbl'UndsEqlsEqls'K'Unds': declared without ((K1 Lbl'UndsEqlsEqls'K'Unds' K2) = true) = (K1 = K2))
+(exit 0)

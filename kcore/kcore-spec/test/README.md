@@ -427,13 +427,15 @@ its account is unchanged too, and that row names no theorem module yet.
 The kernel mutants (`[kernel.*]` in the same file) are changes of `Eval` or `Step.rule`, by
 constructor and premise: the rest read as no value, an `ensures` that falls through or is not
 read, a clause's or a rule's priority not read, a parameter symbol or a silent point without a
-value, a rule's `requires` or `ensures` not read. None is built. Each names its refutation
+value, a rule's `requires`, `pre` or `ensures` not read. None is built. Each names its refutation
 instance, a kernel-checked statement about `c.withHooks H` at an H other than `HookParams.none`
 (or for every H) that the changed definition makes false, and the argument. `test/mutants.sh
 --kernel` lists them and checks that each named file holds each named theorem.
 `test/KernelMutants.lean` holds the instance for a rule's `ensures` (`ensrule`: `assume(true)`
 steps and `assume(false)` has no successor, for every H). The rule priority's instance
 (`EnsRulePrio.stuck_ft`, test/EnsuresRule.lean) is stated at the reader's interpretation only.
+The instance for a rule's `pre` is `Guards.DevAndBool.and_steps` (mlreqv: `go(false)` is blocked by
+the `pre` `B = true` alone, for every H).
 
 ## The construct lists: `test/constructs/`
 
