@@ -16,14 +16,14 @@ Rows by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
 | E2 | 182 | 49 | 0 | 49 | 68 | 16 | 0 | 0 |
-| E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
+| E3 | 98 | 65 | 2 | 9 | 5 | 17 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
 | E6 | 826 | 520 | 95 | 116 | 40 | 55 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 29 | 0 | 9 | 2 | 4 | 0 | 0 |
-| all | 1458 | 827 | 102 | 209 | 192 | 128 | 0 | 0 |
+| all | 1458 | 828 | 102 | 209 | 192 | 127 | 0 | 0 |
 
 Nested entries by status:
 
@@ -46,14 +46,14 @@ Refused rows by class:
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
 | E2 | 16 | 1 | 12 | 3 | 0 |
-| E3 | 18 | 8 | 2 | 8 | 0 |
+| E3 | 17 | 8 | 2 | 7 | 0 |
 | E4 | 26 | 4 | 18 | 4 | 0 |
 | E5 | 2 | 0 | 2 | 0 | 0 |
 | E6 | 55 | 55 | 0 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 7 | 0 | 7 | 0 | 0 |
 | C3 | 4 | 2 | 0 | 2 | 0 |
-| all | 128 | 70 | 41 | 17 | 0 |
+| all | 127 | 70 | 41 | 16 | 0 |
 
 Refused nested entries by class:
 
@@ -70,7 +70,7 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 2 | 3 |
 | all | 127 | 45 | 11 | 44 | 27 |
 
-## Entries of class R-c (61)
+## Entries of class R-c (60)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -85,7 +85,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[2] | refused |  |  | no unit | R-5 |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[3] | refused |  |  | no unit |  |
-| E3 | `ML-SYNTAX:Sort::="#Bottom"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e0, e1: L-4 inert vacuousLeft; R-3, FR-3 \`ens := false\`, reader only) |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 R3 (e2: L-7, \`pre := not (exMatch ..)\`; R-5 as \`?Z\` with \`post\`); e3 (\`Clause.pre\`) |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | cases[0] | refused |  |  | no unit | L-7 |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | cases[1] | refused |  |  | no unit |  |
@@ -463,7 +462,7 @@ Not core:
 | cases[1]: a requires or ensures \\equals{SortBool{},S}(\\top{SortBool{}}, true) | supported |  |  |  |  |  |  |  | Parse.isPred; fixtures/e3-ml-req-ceil, -req-forall (other predicates at Bool) |
 | cases[2]: a rule's right side | refused | R-c |  |  |  |  |  |  | fixtures/e3-ml-rule-rhs-top |
 | cases[3]: an equation's right side | refused | R-c |  |  |  |  |  |  | Parse.manyValued? (no fixture of #Top there) |
-| `ML-SYNTAX:Sort::="#Bottom"` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-bottom: account \`1 inert vacuousLeft [user]\`; fixtures/e3-ml-rule-rhs-bottom, e3-ml-rule-rhs-bottom-fn, e3-ml-eq-rhs-bottom, e3-ml-eq-rhs-bottom-ctor, e3-ml-eq-rhs-bottom-noval: account \`1 read bottomAsEnsures [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-eq-rhs-or-bottom: \`1… |
+| `ML-SYNTAX:Sort::="#Bottom"` | supported |  | #Bottom denotes no element. A rule's left side holding it denotes nothing, so the rule applies to no configuration and states nothing: inert (vacuousLeft). A right side holding it under applications and conjunctions denotes nothing, so the axiom states that the instance has no successor or result: r… | none (reader only: the shapes are read as an ensures false, the right side's other disjunct, or the literal false, or are inert) |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-bottom: account \`1 inert vacuousLeft [user]\`; fixtures/e3-ml-rule-rhs-bottom, e3-ml-rule-rhs-bottom-fn, e3-ml-eq-rhs-bottom, e3-ml-eq-rhs-bottom-ctor, e3-ml-eq-rhs-bottom-noval: account \`1 read bottomAsEnsures [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing… |
 | cases[0]: a rule's left side (empty) | inert |  |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-bottom |
 | cases[1]: a rule's or an equation's right side, under applications and conjunctions | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-rhs-bottom, -rhs-bottom-fn, e3-ml-eq-rhs-bottom, -bottom-ctor, -bottom-noval |
 | cases[2]: t #Or #Bottom on a right side | supported |  |  |  |  |  |  |  | fixtures/e3-ml-eq-rhs-or-bottom |
