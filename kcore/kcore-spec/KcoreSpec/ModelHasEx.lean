@@ -8,7 +8,7 @@
   The other items of the theory are read as `stdI_V_model_core` reads them, from `HypModelCore`.
 -/
 import KcoreSpec.ModelFnsExGoal
-import KcoreSpec.OpenClauseConsistent
+import KcoreSpec.BoolClosedCl
 
 set_option autoImplicit false
 
