@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-kvar.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 272888
+definition.kore sha256: 44518cc4c128014993b97bcee99d5533f73c820dbea6b4265e86aa81a6a6d9f6
+stripped sha256: 4b4f81d920a9a8fed90e3de48ab72a154cd8cf35d522498a4d9bb5d165fdb947
+main module: 492 sentences, 79 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-KVAR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-KVAR as default.

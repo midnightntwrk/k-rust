@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-USER-KVAR-HOOK: 398 sentences
+  1 inert import [generated]
+  184 read [generated]
+  184 read [builtin]
+  1 refused userHookedSort [user]
+      e.g. hooked-sort SortName{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-user-kvar-hook.k)"), token{}()]
+  1 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSort
+      sentence 98 (Lblgo): unknownSort (Name)
+        [user] (no label) at e6-user-kvar-hook.k:8: symbol Lblgo{}(SortName{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,20,8,41)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-user-kvar-hook.k)"), symbol'Kywd'{}("go")]
+finish: sentence 98 (Lblgo): unknownSort (Name)
+(exit 0)

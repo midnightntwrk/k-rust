@@ -204,9 +204,10 @@ inductive RefusalReason where
   meaning for the sort the reader does not read (`sortAttrOK`). The detail names it. -/
   | sortAttribute
   /-- A hooked sort of the user's text whose hook is no collection's (`MAP.Map`, `SET.Set`,
-  `LIST.List`) and that is no library sort's declaration (`placelessModule?`): a sort the hook
-  says is interpreted, by a domain the reader does not give it (`syntax MyInt [hook(INT.Int)]`).
-  The detail names the sort and the hook. -/
+  `LIST.List`) and that is no library sort's declaration (`placelessModule?`), no sort hooked to a
+  library carrier (`scanCarrier`) and no token sort a builtin file declares as the definition's own
+  (`ownTokenHookedSort?`): a sort the hook says is interpreted, by a domain the reader does not
+  give it. The detail names the sort and the hook. -/
   | userHookedSort
   /-- A rewrite axiom's attribute that `attrVerdict` refuses at class `rule` (`ruleAttrFault?`): one
   that changes where or how the rule applies, or of no meaning any text states for a rule, or a name
@@ -3826,9 +3827,43 @@ def isLabelAttr (a : Kore.AppPattern) : Bool := a.head.ident.name == "label"
 /-- A sort declaration's attributes but its `label`s (`isLabelAttr`). -/
 def sortAttrs (s : Kore.SentenceSort) : List Kore.AppPattern := s.attributes.filter (!isLabelAttr ·)
 
+/-- A hook that a sort's declaration has in the library's text (`builtinText`): a collection's
+(`MAP.Map`, …), a carrier's (`INT.Int`, …), `MINT.MInt`'s. Such a hook names the library domain
+that interprets the sort. -/
+def libSortHookOwnTok (h : String) : Bool :=
+  (builtinText false).modules.any fun m => m.sentences.any fun s => match s with
+    | .hookedSort x => attrStr? x.attributes "hook" == some h
+    | _ => false
+
+/-- A token sort that a builtin file declares, with a hook, as the definition's own
+(`isOwnBuiltin`): a hooked sort without sort parameters, declared with domain values and as a token
+sort (`hasDomainValues{}()`, `token{}()`), with no other attribute besides its place, its `label`s
+and a hook (`hook{}("…")`) that no library sort has (`libSortHookOwnTok`). No text the reader holds
+gives that hook a meaning, so it states nothing of the sort's values; the rest of the declaration
+says that they are the sort's literals, as a user's `syntax X [token]` does. Its name, `Sort`
+dropped (`KVAR-SYNTAX`'s `syntax KVar [token, hook(KVAR.KVar)]`). -/
+def ownTokenHookedSort? : Kore.Sentence → Option String
+  | .hookedSort s =>
+    if hasAttr s.attributes "token" && hasAttr s.attributes "hasDomainValues" && s.sortVars.isEmpty &&
+      (s.attributes.filter fun a => !isPlaceAttr a && !isLabelAttr a && a.head.ident.name != "hook").all
+        isTokenSortAttr &&
+      (match attrStr? s.attributes "hook" with
+        | some h => !libSortHookOwnTok h
+        | none => false) &&
+      isOwnBuiltin (.hookedSort s) then dropPrefix? "Sort" s.sort.ident.name else none
+  | _ => none
+
+/-- A sort declared with its place (`Source` and `Location`): a user's file's or a builtin file's
+read as the definition's own (`isOwnBuiltin`), with no attribute besides a token sort's
+(`isTokenSortAttr`) and its `label`s, or an own token sort with a hook (`ownTokenHookedSort?`):
+its name, its location and its source. -/
 def scanLocSort : Kore.Sentence → Option (String × KoreAML.Loc × String)
   | .sort s => if (isUserSource s.attributes || isOwnBuiltin (.sort s)) &&
       ((sortAttrs s).filter (!isPlaceAttr ·)).all isTokenSortAttr &&
+      (s.attributes.filter isPlaceAttr).length == 2 then do
+      pure (← dropPrefix? "Sort" s.sort.ident.name, ← loc? s.attributes, ← source? s.attributes)
+    else none
+  | .hookedSort s => if (ownTokenHookedSort? (.hookedSort s)).isSome &&
       (s.attributes.filter isPlaceAttr).length == 2 then do
       pure (← dropPrefix? "Sort" s.sort.ident.name, ← loc? s.attributes, ← source? s.attributes)
     else none
@@ -3864,11 +3899,13 @@ def scanPlainSort : Kore.Sentence → Option String
 /-- A token sort of the definition: a sort declared with domain values (`hasDomainValues`), from
 the user's file (`syntax X [token]`, with its place and `token{}()`; or a builtin file's, read as
 the definition's own: `isOwnBuiltin`) or without a place (a sort K infers from a token production,
-`syntax X ::= r"…" [token]`): its values are its literals. -/
+`syntax X ::= r"…" [token]`), or a builtin file's hooked sort read as such (`ownTokenHookedSort?`):
+its values are its literals. -/
 def scanTokenSort : Kore.Sentence → Option String
   | .sort s => if hasAttr s.attributes "hasDomainValues" &&
       (isUserSource s.attributes || (sortAttrs s).length == 1 || isOwnBuiltin (.sort s)) &&
       ((sortAttrs s).filter (!isPlaceAttr ·)).all isTokenSortAttr then dropPrefix? "Sort" s.sort.ident.name else none
+  | .hookedSort s => ownTokenHookedSort? (.hookedSort s)
   | _ => none
 
 /-- A constructor or function of the user's files (no cell), a freezer, a constructor of
@@ -4383,7 +4420,8 @@ def classify (N : Names) : Kore.Sentence → SentenceClass
       else if (s.attributes.all sortAttrOK) then .read else .refused .sortAttribute
   | .hookedSort s => if let some c := (if isKBuiltin s.attributes then classifyKBuiltin (.hookedSort s) else none) then c
       else if isBuiltinSource s.attributes || ((attrStr? s.attributes "hook").bind collKind?).isSome ||
-        (placelessModule? (.hookedSort s)).isSome || (scanCarrier (.hookedSort s)).isSome then .read
+        (placelessModule? (.hookedSort s)).isSome || (scanCarrier (.hookedSort s)).isSome ||
+        (ownTokenHookedSort? (.hookedSort s)).isSome then .read
       else .refused .userHookedSort
   | .axiom a => classifyAxiom N a
 

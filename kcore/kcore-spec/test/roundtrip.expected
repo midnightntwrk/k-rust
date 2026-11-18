@@ -1,4 +1,4 @@
-cannot f2-examples/allbuiltins.kompile.kore
+differs f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
