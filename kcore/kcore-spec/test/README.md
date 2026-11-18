@@ -1467,6 +1467,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
   (`KcoreSpec/LibEvLaw.lean`, through `LibEv.Law.entailed_reg`). Axioms guarded.
+- `test/ParamRangeMap.lean`: on `f2-examples/e6-param-rangemap.kompile.kore` (fixture
+  e6-param-rangemap), RANGEMAP's `choice`, `keys_list` and `values`, parameters no hook implements:
+  over all H, Γ entails neither that each has no value at `[0, 3) ↦ 7` nor that it is a given value
+  of its result sort (`choice_undetermined`, `keysList_undetermined`, `values_undetermined`, from the
+  schema `param_undeterminedPR`: ⊥ under `HookParams.none`, the value under the interpretation that
+  gives it, both theories with models).
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
