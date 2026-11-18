@@ -164,11 +164,23 @@ def tblG : VarTable := [.sortVar "R", .evar "X0" (srt "Int"), .evar "VarV0" (srt
 def BNG : P := sAnd (altP c tblG vsC (kfX, [bX]))
   (tr ⟨tblG, []⟩ (reqPat (srtOf c Srt.int) (some (Term.kore c vsC (Parse.boolT false)))))
 
-/-- `Γ`'s items for h, with the premises `clauseQ`, `lastQ` of the general lemmas. -/
+/-- `Γ`'s items for h, with the premises `clauseQ`, `lastQ` of the general lemmas: those of
+`TieFRGamma.gamma_shapeFG`, whose frame (no competitor, h's clauses being all of priority 50) has
+the table `tblG`, the text's guards, its premise and left side (kernel). -/
 theorem gamma_shapeG : (Faithful.kernelItems (Faithful.fnEquationsK c hFn)).map (·.pat) =
     [eqnPat ws r (clauseQ c tblG vsC Srt.int prem (kfX, [bX])) IntP Fh (sAnd (altP c tblG vsC (kfX, [bX])) (sTop IntP)),
      eqnPat ws r (clauseQ c tblG vsC Srt.int prem (kgX, [bX])) IntP Fh (sAnd (altP c tblG vsC (kgX, [bX])) (sTop IntP)),
-     eqnPat ws r (lastQ c tblG vsC Srt.int prem xsC) IntP Fh BNG] := by decide +kernel
+     eqnPat ws r (lastQ c tblG vsC Srt.int prem xsC) IntP Fh BNG] := by
+  have hf : TieFRGamma.lowerAtFG hFn 50 = [] ∧ TieFRGamma.tblFG c hFn [] [Srt.int] [.var 0] none = tblG ∧
+      TieFRGamma.wsFG c hFn [] [Srt.int] [.var 0] none = ws ∧ tblG.ev (sortVarKey Rv) = r ∧
+      tr ⟨tblG, []⟩ (TieFRGamma.premFG c hFn [Srt.int] [.var 0] none) = prem ∧
+      trSort tblG (srtOf c hFn.result) = IntP ∧ tr ⟨tblG, []⟩ (TieFRGamma.headFG c hFn) = Fh := by
+    decide +kernel
+  obtain ⟨hL, ht, hw, hr, hp, hS, hF⟩ := hf
+  have h := TieFRGamma.gamma_shapeFG c hFn (s := Srt.int) (vars := [Srt.int]) (pats := [.var 0]) (req := none)
+    (prio := 50) (aside := false) (xs := xsC) (by decide) rfl (by decide)
+  simp only [hL, ht, hw, hr, hp, hS, hF, TieFRGamma.withCompFG_nil] at h
+  exact h
 
 /-- The functional sentence: `∃v. v = h(K0)`, K0 the variable `k0`. -/
 def tblF : VarTable := tableOf ax217.sortVars ax217.pattern

@@ -401,3 +401,4 @@ import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
+import KcoreSpec.TieFRGamma
