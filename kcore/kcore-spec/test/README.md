@@ -1778,6 +1778,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
   (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
   (`params_sb`). Axioms printed.
+- `test/LibParamExpandFlt.lean`: the sentences of four library parameters Γ lacks on
+  `f2-examples/silentflt.kompile.kore` (`dividesInt`, `~Int`, `Int2BytesNoLen`, `rootFloat`), for
+  every H, in one model of `Γc ∪ Γstep` whose steps are `Step`'s (`expansion`, kind "in a model";
+  `KcoreSpec/TieLibParamExpand.lean`, `TieLibParam.model_lacked`, read through
+  `KcoreSpec/LibEvLacked.lean`): 274 (shape s3), 380 (s5), 228 to 232 with the `functional`
+  sentences 45 and 176 (s4), each at values as the text's translation writes it. The header says
+  why the form for every model of Γ is not stated. Axioms guarded.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
