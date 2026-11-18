@@ -3,12 +3,13 @@ user module E3-MAP-KEY-FN: 417 sentences
   1 inert import [generated]
   197 read [generated]
   183 read [builtin]
-  7 read [user]
+  6 read [user]
   6 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   11 inert noJunk [generated]
+  1 read keyFunctionAsMember [user]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0

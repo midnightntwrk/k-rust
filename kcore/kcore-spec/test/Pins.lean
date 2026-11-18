@@ -447,8 +447,25 @@ example (a : Kore.Axiom) : isLaw a =
     | .equals _ _ (.app _ _ _) _ => true
     | _ => false) := rfl
 
+example (s : Kore.KSort) : instSortName s =
+    match s with
+    | .ctor h [] =>
+      let l := h.ident.name.toList
+      if l.take 4 == ['S', 'o', 'r', 't'] then some (String.ofList (l.drop 4)) else none
+    | _ => none := rfl
+
+example (h : Kore.SymbolIdent) (ss : List Kore.KSort) : instHeadName h ss =
+    (ss.mapM instSortName).map (fun xs => h.ident.name ++ "{" ++ ",".intercalate xs ++ "}") := rfl
+
+example (s s' s'' : Kore.KSort) (prem rhs : Kore.Pattern) (h : Kore.SymbolIdent) (ss : List Kore.KSort)
+    (ps : List Kore.Pattern) (n : String) :
+    let m := h.ident.name == n || (match ss with | [] => false | _ => instHeadName h ss == some n)
+    eqnHeadIs n (.implies s prem (.equals s' s'' (.app h ss ps) rhs)) = m ∧
+    eqnHeadIs n (.equals s' s'' (.app h ss ps) rhs) = m ∧
+    eqnHeadIs n (.rewrites s prem rhs) = false ∧ eqnHeadIs n (.and s ps) = false := ⟨rfl, rfl, rfl, rfl⟩
+
 example (k : Kore.Definition) (n : String) : eqnsOf k n =
-    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHead a.pattern == some n && !isLaw a) := rfl
+    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHeadIs n a.pattern && !isLaw a) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
     ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl

@@ -20,14 +20,29 @@
   - `step_of_successor_exCEx`, `sound_at_ce`, `famEx_closed_ce` and `complete_at_ce` at `cCeV`, at the
     step by `r0` from the counter 1 to the counter 0 (`successor_cfg`, `sound_x1`, `famEx_x1`,
     `complete_x1`) and at every step.
+  - `HypModelCore`, `ClausePreDecided` and `ClausePostDecided` hold of `cCeV` (`cCeV_hypModelCore`,
+    `cCeV_preDecided`, `cCeV_postDecided`), from `coreOKEx` and `FnHyp`; so its theory with the step's
+    closure has a model (`cCeV_consistent`, by `consistent_ce`).
+  - `has_model_choice_exCEx` at `T := Step cCeV` (`cCeV_model_step`): a model of `Γc` with the step's
+    closure in which a configuration has exactly the configuration with the counter 0 as successor.
+    So the models `successor_cfg` speaks of exist (`cCeV_has_model`), and in one of them the
+    configuration with the counter 1 has the one with the counter 0 as successor and not itself
+    (`cCeV_model_x1`).
+  - `exact_ce` and `has_model_choice_ce` at `cCeV` (`cCeV_exact`, `cCeV_model_choice`), and
+    `has_model_choice_ce` at `T := Step cCeV` (`cCeV_model_step_ce`).
+  - `famEx_values_ce` and `famOpen_values_ce` at `cCeV` (`cCeV_famEx_values`,
+    `cCeV_famOpen_values`): an element of `famEx r0 σX` at a configuration is y0's (`famEx_values_x1`).
 -/
 import KcoreSpec.SoundCE
 import KcoreSpec.StepSuccessorExCEx
+import KcoreSpec.ExChoiceCEx
 import KcoreSpec.SubjectReduction
 import KcoreSpec.EvalLemmas
 import KcoreSpec.Invariant
 import KcoreSpec.Obligations
 import KcoreSpec.CoreDecide
+import KcoreSpec.ExactHeldCEx
+import KcoreSpec.FamValuesCE
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -783,6 +798,104 @@ theorem complete_x1 :
       (den cCeV x1.val ⇒ KoreAML.allNext (KoreAML.disjList ([Outcome.val y0.val].map (Outcome.pat cCeV)))) :=
   complete_cfg x1 _ _ rfl
 
+/-! ## The model -/
+
+theorem cCeV_hypModelCore : Faithful.Model.HypModelCore cCeV :=
+  Faithful.Model.hypModelCore_of_coreEx cCeV_coreOKEx (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).1
+    (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).2
+
+theorem cCeV_preDecided : ClausePreDecided cCeV := clausePreDecided_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp
+
+theorem cCeV_postDecided : ClausePostDecided cCeV := clausePostDecided_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp
+
+/-- **`consistent_ce` at `cCeV`**: the theory of the text with the rule `r0` has a model. -/
+theorem cCeV_consistent : Consistent cCeV :=
+  Faithful.Model.consistent_ce cCeV cCeV_hypModelCore cCeV_preDecided cCeV_postDecided cCeV_openLaws
+
+/-- **`has_model_choice_exCEx` at `cCeV`, at `T := Step cCeV`**: a model of `Γc` with the step's
+closure in which x has y as a successor exactly where y is x with the counter 0. -/
+theorem cCeV_model_step :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ∀ x y : Config cCeV, (∃ k n, x.val = cfgV k n ∧ y.val = cfgV k i0) ↔
+        ¬ (I ⊧ᴵ (den cCeV x.val ⇒ ∼ KoreAML.sNext (den cCeV y.val))) := by
+  obtain ⟨M, hM, I, hI, hT⟩ := has_model_choice_exCEx cCeV cCeV_coreOKEx cCeV_fnHyp cCeV_rules (Step cCeV)
+    (fun _ _ h => h) (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
+    (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+  exact ⟨M, hM, I, hI, fun x y => (step_iff x y).symm.trans (hT x y)⟩
+
+/-- The models `successor_cfg` speaks of exist. -/
+theorem cCeV_has_model :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV) := by
+  obtain ⟨M, hM, I, hI, -⟩ := cCeV_model_step
+  exact ⟨M, hM, I, hI⟩
+
+/-- In a model of `Γc` with the step's closure, the configuration with the counter 1 has the one with
+the counter 0 as a successor, and not itself. -/
+theorem cCeV_model_x1 :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ¬ (I ⊧ᴵ (den cCeV x1.val ⇒ ∼ KoreAML.sNext (den cCeV y0.val))) ∧
+      (I ⊧ᴵ (den cCeV x1.val ⇒ ∼ KoreAML.sNext (den cCeV x1.val))) := by
+  obtain ⟨M, hM, I, hI, hT⟩ := cCeV_model_step
+  refine ⟨M, hM, I, hI, (hT x1 y0).mp ⟨_, _, rfl, rfl⟩, Classical.byContradiction fun hn => ?_⟩
+  obtain ⟨k, n, -, hy⟩ := (hT x1 x1).mpr hn
+  have hc : cfgV (.ctor dotk []) (.dv Srt.int (.int 1)) = cfgV k i0 := hy
+  simp [cfgV, i0] at hc
+
+/-! ## `exact_ce`, `has_model_choice_ce`, `famEx_values_ce` and `famOpen_values_ce` at `cCeV` -/
+
+/-- **`exact_ce` at `cCeV`**. -/
+theorem cCeV_exact : ExactC cCeV := exact_ce cCeV cCeV_coreOKEx cCeV_fnHyp
+
+/-- **`has_model_choice_ce` at `cCeV`**. -/
+theorem cCeV_model_choice (T : Config cCeV → Config cCeV → Prop)
+    (hsub : ∀ x y, T x y → Step cCeV x y)
+    (hall : ∀ x y r σ, StepBy cCeV r σ x y → r.exs = [] → T x y)
+    (hsome : ∀ x y r σ, StepBy cCeV r σ x y → ∃ y' σ',
+       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy cCeV r σ' x y' ∧ T x y') :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ∀ x y : Config cCeV, T x y ↔ ¬ (I ⊧ᴵ (den cCeV x.val ⇒ ∼ KoreAML.sNext (den cCeV y.val))) :=
+  has_model_choice_ce cCeV cCeV_coreOKEx cCeV_fnHyp T hsub hall hsome
+
+/-- **`has_model_choice_ce` at `cCeV`, at `T := Step cCeV`**: `cCeV_model_step`'s statement. -/
+theorem cCeV_model_step_ce :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ∀ x y : Config cCeV, (∃ k n, x.val = cfgV k n ∧ y.val = cfgV k i0) ↔
+        ¬ (I ⊧ᴵ (den cCeV x.val ⇒ ∼ KoreAML.sNext (den cCeV y.val))) := by
+  obtain ⟨M, hM, I, hI, hT⟩ := cCeV_model_choice (Step cCeV)
+    (fun _ _ h => h) (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
+    (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+  exact ⟨M, hM, I, hI, fun x y => (step_iff x y).symm.trans (hT x y)⟩
+
+/-- **`famEx_values_ce` at `cCeV`**. -/
+theorem cCeV_famEx_values (x y : Config cCeV) (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy cCeV r σ x y₀)
+    (hy : Faithful.Γc cCeV ⊧ (den cCeV y.val ⇒ Faithful.famEx cCeV r σ)) :
+    ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy cCeV r σ' x y :=
+  famEx_values_ce cCeV cCeV_coreOKEx cCeV_fnHyp x y r σ hs hy
+
+/-- A configuration whose element is, in every model of `Γc`, in `famEx r0 σX` is y0. -/
+theorem famEx_values_x1 (y : Config cCeV)
+    (hy : Faithful.Γc cCeV ⊧ (den cCeV y.val ⇒ Faithful.famEx cCeV r0 σX)) : y = y0 := by
+  obtain ⟨σ', -, hb⟩ := cCeV_famEx_values x1 y r0 σX ⟨y0, stepX⟩ hy
+  obtain ⟨k, n, hx, hy'⟩ := (step_iff x1 y).mp (step_iff_by.mpr ⟨r0, σ', hb⟩)
+  have hk : cfgV (.ctor dotk []) (.dv Srt.int (.int 1)) = cfgV k n := hx
+  simp only [cfgV, GroundTerm.ctor.injEq, List.cons.injEq, and_true, true_and] at hk
+  apply Subtype.ext
+  show y.val = cfgV (.ctor dotk []) i0
+  rw [hy', ← hk.1]
+
+/-- **`famOpen_values_ce` at `cCeV`**, at its one rule. -/
+theorem cCeV_famOpen_values (x : Config cCeV) (σ : Subst) (hu : Unblocked cCeV r0 σ x.val)
+    (ys : List GroundTerm)
+    (hys : ∀ y : Config cCeV, (∃ σ', (∀ i ∈ varOccs r0.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy cCeV r0 σ' x y) →
+      y.val ∈ ys) :
+    Faithful.Γc cCeV ⊧ (Faithful.famOpen cCeV r0 σ ⇒ KoreAML.disjList (ys.map (den cCeV))) :=
+  famOpen_values_ce cCeV cCeV_coreOKEx cCeV_fnHyp x r0 (by simp [cCeV]) σ hu (by simp [r0_opens]) ys hys
+
 end KCore.CeValueTest
 
 #check @KCore.CeValueTest.cCeV
@@ -804,3 +917,18 @@ end KCore.CeValueTest
 #print axioms KCore.CeValueTest.famEx_x1
 #print axioms KCore.CeValueTest.complete_cfg
 #print axioms KCore.CeValueTest.complete_x1
+#check @KCore.has_model_choice_exCEx
+#check @KCore.stdI_T_modelCEx
+#print axioms KCore.has_model_choice_exCEx
+#print axioms KCore.CeValueTest.cCeV_hypModelCore
+#print axioms KCore.CeValueTest.cCeV_postDecided
+#print axioms KCore.CeValueTest.cCeV_consistent
+#print axioms KCore.CeValueTest.cCeV_model_step
+#print axioms KCore.CeValueTest.cCeV_has_model
+#print axioms KCore.CeValueTest.cCeV_model_x1
+#print axioms KCore.CeValueTest.cCeV_exact
+#print axioms KCore.CeValueTest.cCeV_model_choice
+#print axioms KCore.CeValueTest.cCeV_model_step_ce
+#print axioms KCore.CeValueTest.cCeV_famEx_values
+#print axioms KCore.CeValueTest.famEx_values_x1
+#print axioms KCore.CeValueTest.cCeV_famOpen_values

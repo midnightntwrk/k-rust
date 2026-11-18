@@ -600,28 +600,19 @@ def rangeMapInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
     ruleRs ++ clauseRs
 
 /-- The rules read with a map key of their left side as a fresh variable and its membership in the
-key a conjunct of `pre` (`Parse.keyCut`, `ReadingNote.keyFunctionAsMember`): each rule's place and
-the functions so read. -/
+key a conjunct of `pre` (`Parse.keyCut`, `ReadingNote.keyFunctionAsMember`): each rewrite axiom's
+place and the functions so read, by `keyCutFns`, which the class reads too. -/
 def keysAsMember (k : Kore.Definition) : List (Nat × List String) :=
   match k.modules.getLast? with
   | none => []
   | some m =>
-    match envOf m (scan m.sentences) with
-    | .error _ => []
-    | .ok E =>
-      let N := E.N
-      let off := preludeLength k
-      match N.keyFns with
-      | [] => []
-      | fs => m.sentences.zipIdx.filterMap fun (s, i) => match s with
-        | .axiom a => if !isRead s then none else match a.pattern with
-          | .rewrites _ (.and _ [l, _]) _ => match term N [] l with
-            | .ok (lhs, _) => match (keyCuts fs lhs 0).2.2 with
-              | [] => none
-              | cs => some (off + i, (cs.map fun (_, f, _, _) => N.syms.getD (f - nRegSyms) "").eraseDups)
-            | .error _ => none
-          | _ => none
-        | _ => none
+    let N := namesOf k
+    let off := preludeLength k
+    m.sentences.zipIdx.filterMap fun (s, i) => match s with
+      | .axiom a => if !isRead s then none else match keyCutFns N a with
+        | [] => none
+        | fs => some (off + i, fs.map fun f => N.syms.getD (f - nRegSyms) "")
+      | _ => none
 
 /-! ## The cell collections' injections are the definition's
 

@@ -1592,6 +1592,19 @@ table above, on the tree before String and Bytes). Not investigated here.
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/ParamE6Lib.lean`: on the kompiled texts of the fixtures e6-param-float, e6-param-string,
+  e6-param-map, e6-param-bytes, e6-param-set and e6-param-int (`f2-examples/e6-param-*.kompile.kore`),
+  every hooked function of FLOAT, STRING, MAP, BYTES, SET and INT the reader reads as a parameter no
+  hook implements (45): over all H, Γ entails neither that it has no value at a point nor that it is
+  a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undeterminedPL`).
+  `FnHyp` for every H: five texts have no function; INT's has K's `append`, declared total, which
+  the totality decider does not confirm (its cover check does not split K) and `fnHyp_appendPL`
+  shows total from the values of K being `kseq` and `dotk` terms. Axioms guarded.
+- `test/ParamE6Sys.lean`: the same on the fixtures e6-param-io, e6-param-ffi, e6-param-kreflection,
+  e6-param-timer, e6-param-unification and e6-param-json, every parameter of K-IO, FFI, K-REFLECTION,
+  TIMER, UNIFICATION and JSON (45; schema `param_undeterminedPS`). `FnHyp` for every H: JSON's text
+  has no function; the other five have K's `append`, shown total by `fnHyp_appendPS` as in
+  `test/ParamE6Lib.lean`. Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
@@ -1908,3 +1921,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   40 of `f2-examples/base.kompile.kore`: associativity, right unit, left unit), each left inert by the
   reader (`collectionLaw`) and entailed by Γ at values for every H (`list_laws_base`,
   `InertEv.listLaw_ev`).
+- `test/ClassNamesNotes.lean`: the two notes of a rule that the class reads from the names
+  (`Parse.classify` at `Parse.namesOf`), each against the rule read: on mlandt, mlandc, mlandv and
+  mlorand the notes hold `andTermsCut` exactly where a rule read (`ruleOf`) is not the one read
+  without the cut (`ruleBodyUncut`), all four taking it; on keyfn, its edit with the key's argument
+  bound only inside the key, keyfn-both and keyfn-partial the class is `read keyFunctionAsMember`
+  exactly where the rule read holds the fresh variable of a cut key (`keyCutFns`), and the account's
+  line (`keysAsMember`) lists those axioms.

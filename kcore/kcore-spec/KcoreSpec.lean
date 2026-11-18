@@ -375,6 +375,7 @@ import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
 import KcoreSpec.HypModelCoreEx
+import KcoreSpec.FamValuesCE
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseDenQ
@@ -386,5 +387,10 @@ import KcoreSpec.FamExCEx
 import KcoreSpec.CompleteCEx
 import KcoreSpec.SoundCEx
 import KcoreSpec.SoundCE
+import KcoreSpec.ExactHeldCEx
 import KcoreSpec.FnModelCEx
 import KcoreSpec.TieFR
+import KcoreSpec.GenEqsProjInj
+import KcoreSpec.ExChoiceCEx
+import KcoreSpec.GenEqsNodir
+import KcoreSpec.TieFRRead
