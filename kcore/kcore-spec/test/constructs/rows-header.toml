@@ -21,7 +21,7 @@
 #             It is the status's source, not yet DONE-0 C2's evidence (fixtures, theorems).
 #   kimp      the construct occurs in kimp (imp-semantics src/kimp/kdist/imp-semantics imp.k, calc.k,
 #             expr.k; for E4 and E6, its kompiled text f2-examples/ref-kimp.kore): true / false.
-#   kore      the same for krs/semantics/kore/kore.k (K sources for the K-level lists; for E4 and E6
+#   kore      the same for kcore-spec's kk/kk.k (K sources for the K-level lists; for E4 and E6
 #             its kompiled text, fixture kore-k, through extract.sh's uses-kore.E4 / uses-kore.E6).
 #             kimp / kore absent: not checked for that row. The checks are textual (seed-rows.py):
 #             a keyword, attribute or terminal found in the text, not a parse of it.
@@ -128,3 +128,19 @@
 #             indices of the sentences that determine it), theorem (full name) and file (relative to
 #             kcore-spec) for forms (a) and (c), derivation (a file) for form (b). The theorem's
 #             statement mentions H (a name of type HookParams) and no AtNone file or namespace holds it.
+# Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
+#   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
+#             files test/X.lean that test/integration.sh builds.
+#   tie_theorems  the theorems of those modules the entry rests on (C14's statement for its class,
+#             the tie of its sentence), full names, each declared in a file of `tie`; with the
+#             `theorem` of each `derived` table, the theorems the entry names.
+#   inert_class  for inert: the constructor of InertReason (KcoreSpec/Parse.lean) its sentence is
+#             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
+#   A parameter entry's param_undetermined instance is a `derived` table of form (c); a supported
+#   hook's in-domain value a `derived` table of form (a).
+# Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
+# checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
+#   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
+#             (test/TieEns*, TieKimp*, TieKk*, LibEv*) that entail the row's sentence, axiom N of the
+#             tied text TEXT; or "refuted: MODULE; ..." where they only refute it or hold it where its
+#             set variables hold one value at most; or "uncovered: MODULE; why".

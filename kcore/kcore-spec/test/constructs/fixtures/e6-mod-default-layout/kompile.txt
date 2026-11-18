@@ -1,0 +1,22 @@
+command: kompile --backend haskell e6-mod-default-layout.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.5
+output:
+  [Error] Compiler: Symbol _DEFAULT-LAYOUT_#Layout is not unique. Previously
+  defined as: syntax #Layout ::= r"/\\*([^*]|\\*+[^*/])*\\*+/"
+  	Source(BUILTIN/kast.md)
+  	Location(512,24,512,45)
+  	512 |	                     | r"(\\/\\/[^\\n\\r]*)"                         //
+  C-style single-line comments
+  	    .	                       ^~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Symbol _DEFAULT-LAYOUT_#Layout is not unique. Previously
+  defined as: syntax #Layout ::= r"//[^\\n\\r]*"
+  	Source(BUILTIN/kast.md)
+  	Location(513,24,513,43)
+  	513 |	                     | r"([\\ \\n\\r\\t])"                           //
+  Whitespace
+  	    .	                       ^~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-DEFAULT-LAYOUT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-DEFAULT-LAYOUT as default.

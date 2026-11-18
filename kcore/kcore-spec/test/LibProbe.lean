@@ -810,10 +810,11 @@ def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .
   return (sum, reads, two)
 
 /-- The counts both texts give: every sentence over Γ's symbols of rows 9, 15, 17, 18 holds in the
-three readings (`<=Set`'s `functional` sentence too: it has a value at every pair of sets); row 16
-(set idempotence) is the control. -/
+three readings (`<=Set`'s `functional` sentence too: it has a value at every pair of sets; the
+equations of `bitRangeInt` and `signExtendBitRangeInt`, domains.md 1438 and 1440, among row 17's);
+row 16 (set idempotence) is the control. -/
 def expected : Summary :=
-  [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 23, 23, 0, 0, 0), (18, 64, 63, 63, 0, 0, 0),
+  [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 25, 25, 0, 0, 0), (18, 64, 63, 63, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 /-- The sentences reading the interpretation that are no condition of `Semantics.libAdmitted`,
@@ -861,7 +862,7 @@ not agree with the equation; and `=/=Float`'s (1648) where an operand is the `p2
 `==Float` and `=/=Float` are silent, under `pick0`, `pick1` and `hash`, which give the two values
 that do not agree with the equation (`neFloatEq`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 37, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 63, 0, 10, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 39, 0, 5, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
@@ -882,7 +883,7 @@ one sentence of row 15 failing only under some interpretation; RANGEMAP's other 
 `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size` and `updateRangeMap`, and the two unit laws)
 hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 43, 37, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 71, 0, 10, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 39, 0, 5, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do

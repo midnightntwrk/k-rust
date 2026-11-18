@@ -15,6 +15,9 @@
     variable (`_Gen0:Exp`) and the symbol `dblExp`.
   - `e5-ovl-fun-lhs-owise`: `e5-ovl-fun-lhs` beside `rule <k> run(G:Gas) => done(inf) </k> [owise]`:
     refused `openRequires` (G of the unconfined sort Gas in a rule below another's priority).
+  - The emitted rule (`rulePattern`) carries the cut's membership beside the `requires`:
+    `\and(lhs, \and(req, V ∈ g(P̄)))`, for any rule whose `pre` is one membership (kernel-checked),
+    and on the rules read from `e5-ovl-fun-lhs` and `e5-ovl-fun-keep-run` (printed).
 -/
 import KcoreSpec
 
@@ -69,3 +72,32 @@ openRequires (VarG:Gas: in a condition with a variable the left side binds (V �
   IO.println (← ovlCutVerdict "f2-examples/e5-ovl-fun-lhs.kompile.kore")
   IO.println (← ovlCutVerdict "f2-examples/e5-ovl-fun-lhs-int.kompile.kore")
   IO.println (← ovlCutVerdict "f2-examples/e5-ovl-fun-lhs-owise.kompile.kore")
+
+/-- A rule without existential variables whose `pre` is one membership `t ∈ u` and whose `post` is
+`\top` is emitted with the membership beside its `requires`. -/
+example (c : Semantics) (vs : List KoreAML.Var) (r : Rule) (s : Srt) (t u : Term) (hex : r.exs = [])
+    (hpre : r.pre = .mem s t u) (hpost : r.post = .top) :
+    rulePattern c vs r =
+      .rewrites (srtOf c topCellSort)
+        (.and (srtOf c topCellSort) [Term.kore c vs r.lhs,
+          .and (srtOf c topCellSort) [reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs)),
+            .in (srtOf c s) (srtOf c topCellSort) (Term.kore c vs t) (Term.kore c vs u)]])
+        (.and (srtOf c topCellSort) [Term.kore c vs r.rhs, reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs))]) := by
+  rw [rulePattern_noExs c vs r hex, rulePredPat_top hpost, hpre]; rfl
+
+/-- Each rule of the text at `path`, emitted (`rulePattern`, under the presentation's names). -/
+def ovlCutEmitted (path : String) : IO String := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile path) | return "KORE read error"
+  return match Parse.parse k with
+    | .error r => s!"{r.reason.name} ({r.detail})"
+    | .ok d => "\n".intercalate ((d.sem.rules.zip d.pres.rules).map fun (r, p) =>
+        Kore.Printer.pattern (rulePattern d.sem (KoreAML.varList (r.vars.map d.sem.sortName) p.names) r))
+
+/--
+info: \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lblrun{}(VarOvl0:SortGas{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), \in{SortGas{}, SortGeneratedTopCell{}}(VarOvl0:SortGas{}, LblcapGas{}(VarG:SortGas{})))), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lbldone{}(VarG:SortGas{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+\rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lblrun{}(VarOvl0:SortGas{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), \in{SortGas{}, SortGeneratedTopCell{}}(VarOvl0:SortGas{}, LblcapGas{}(VarG:SortGas{})))), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(Lbldone{}(VarG:SortGas{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  IO.println (← ovlCutEmitted "f2-examples/e5-ovl-fun-lhs.kompile.kore")
+  IO.println (← ovlCutEmitted "f2-examples/e5-ovl-fun-keep-run.kompile.kore")

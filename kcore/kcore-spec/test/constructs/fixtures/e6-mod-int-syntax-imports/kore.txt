@@ -1,0 +1,4 @@
+//@ 0
+module E6-MOD-INT-SYNTAX-IMPORTS
+//@ 227
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-int-syntax-imports.k)")]

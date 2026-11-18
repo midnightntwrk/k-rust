@@ -228,7 +228,7 @@ def generate(rows_path, manifest_path):
                     text(e.get("fixture", "")), mark(e.get("kimp")), mark(e.get("kore")),
                     text(e.get("evidence", ""), CUT)])
         o += table(["row", "status", "class", "reason", "cone", "unit", "fixture", "kimp",
-                    "kore.k", "evidence"], lines)
+                    "kk.k", "evidence"], lines)
     return "\n".join(o) + "\n"
 
 

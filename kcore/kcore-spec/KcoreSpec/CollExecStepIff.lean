@@ -160,7 +160,21 @@ mutual
           · have hp' : c.isParam f = false := by simpa using hp
             simp only [hp', ↓reduceIte, Bool.false_eq_true] at hk ⊢
             by_cases ho : c.isOvl f = true
-            · simp only [ho, ↓reduceIte] at hk ⊢; exact hk
+            · simp only [ho, ↓reduceIte] at hk ⊢
+              cases hall : allSome rs with
+              | none => simp only [hall] at hk ⊢; exact hk
+              | some vs =>
+                simp only [hall] at hk ⊢
+                cases hcv : c.fnCover f vs with
+                | none => simp only [hcv] at hk ⊢; exact hk
+                | some kg =>
+                  obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
+                  have hvs := EvalTerms.sorted hsc (evalTs_sound hsc hcc hcm n hrs hL hσ hargs) hL hσ hargs hall
+                  obtain ⟨fn, -, hlook, -, -, -, -, hus⟩ :=
+                    OvlLaws.fnCover_fn_ovlF (hsc.ovl.fnFacts hsc.trans) hlo hvs hcv
+                  simp only [hcv, hlo, Option.map_eq_some_iff] at hk ⊢
+                  obtain ⟨r₀, hr₀, rfl⟩ := hk
+                  exact ⟨r₀, evalF_mono n hr₀ hlook hus, rfl⟩
             have ho' : c.isOvl f = false := by simpa using ho
             simp only [ho', ↓reduceIte, Bool.false_eq_true] at hk ⊢
             cases hall : allSome rs with
@@ -714,13 +728,41 @@ theorem case_callUndef {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Optio
   cases ho : c.isOvl f <;> simp [CExec.evalT, hn, hk, hhk, hp, hvs, ho]
 
 theorem case_ovl {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
-    (hk : c.isCtor f = false) (ho : c.isOvl f = true) (ihts : M5 c σ ts rs) :
+    (hk : c.isCtor f = false) (ho : c.isOvl f = true)
+    (hnf : ∀ vs, allSome rs = some vs → c.fnCover f vs = none) (ihts : M5 c σ ts rs) :
     M4 c σ (.app f ts) ((allSome rs).map (c.norm f)) := by
   intro vars L s hL hσ ht
   obtain ⟨k, _, hargs, _⟩ := sortOfTerm_app.mp ht
   obtain ⟨n, hn⟩ := ihts vars L k.args hL hσ hargs
   obtain ⟨-, hhk, hp, -, -⟩ := c.isOvl_parts ho
-  exact ⟨n + 1, by simp [CExec.evalT, hn, hk, hhk, hp, ho]⟩
+  refine ⟨n + 1, ?_⟩
+  cases hall : allSome rs with
+  | none => simp [CExec.evalT, hn, hk, hhk, hp, ho, hall]
+  | some vs => simp [CExec.evalT, hn, hk, hhk, hp, ho, hall, hnf vs hall]
+
+/-- An overloading symbol at values a function it overloads covers: the fuel of the arguments and
+of the function's evaluation at the stripped arguments. -/
+theorem case_ovlFn {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
+    {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig} {r : Option GroundTerm}
+    (hk : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+    (hvs : allSome rs = some vs) (hlo : c.lookupOvl f = some o) (hcov : c.fnCover f vs = some kg)
+    (ihts : M5 c σ ts rs) (ihf : M1 c kg.name (stripAll kg.args o.sig.args vs) r) :
+    M4 c σ (.app f ts) (r.map (lift kg.result o.sig.result)) := by
+  intro vars L s hL hσ ht
+  obtain ⟨k, hk', hargs, _⟩ := sortOfTerm_app.mp ht
+  obtain ⟨n₁, hn₁⟩ := ihts vars L k.args hL hσ hargs
+  obtain ⟨-, hhk, hp, -, -⟩ := c.isOvl_parts ho
+  have hvsS := EvalTerms.sorted hsc hts hL hσ hargs hvs
+  obtain ⟨o', hlo', hko⟩ := rhs_lookup_ovl hsc hL hk' ho
+  rw [hlo] at hlo'
+  cases hlo'
+  rw [hko] at hvsS
+  obtain ⟨fn, -, hlook, -, -, -, -, hus⟩ := OvlLaws.fnCover_fn_ovlF (hsc.ovl.fnFacts hsc.trans) hlo hvsS hcov
+  obtain ⟨n₂, hn₂⟩ := ihf fn hlook hus
+  refine ⟨max n₁ n₂ + 1, ?_⟩
+  simp only [CExec.evalT, evalTs_mono_le hsc hcc hcm hfd (Nat.le_max_left _ _) hn₁ hL hσ hargs, hk, hhk, hp, ho,
+    hvs, hcov, hlo, evalF_mono_le hsc hcc hcm hfd (Nat.le_max_right _ _) hn₂ hlook hus, Option.bind_eq_bind,
+    Option.bind_some, Bool.false_eq_true, ↓reduceIte, Option.map_some]
 
 theorem case_inj {σ : Subst} {a b : Srt} {t : Term} {r : Option GroundTerm} (ih : M4 c σ t r) :
     M4 c σ (.inj a b t) (r.map (injNormal a b)) := by
@@ -767,8 +809,8 @@ theorem EvalTerm.exec (hna : c.AsideFree) {σ : Subst} {t : Term} {r : Option Gr
     (fun hk hhk hp _ hr ihts => case_param hsc hcc hcm hfd hk hhk hp hr ihts)
     (fun hk hhk hts hvs hev hp ihts ihf => case_call hsc hcc hcm hfd hk hhk hts hvs hev hp ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hsc hcc hcm hfd hk hhk hvs hp ihts)
-    (fun hk ho _ _ ihts => case_ovl hsc hcc hcm hfd hk ho ihts)
-    (fun _ _ _ _ _ hcov _ _ _ => by rw [hsc.ovl.fnCover_none] at hcov; cases hcov)
+    (fun hk ho _ hnf ihts => case_ovl hsc hcc hcm hfd hk ho hnf ihts)
+    (fun hk ho hts hvs hlo hcov _ ihts ihf => case_ovlFn hsc hcc hcm hfd hk ho hts hvs hlo hcov ihts ihf)
     (fun _ _ _ _ _ _ => ⟨1, rfl⟩)
     (fun _ _ ih1 ih2 => case_cons hsc hcc hcm hfd ih1 ih2)
     (by intros; trivial)
@@ -817,8 +859,8 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
     (fun hk hhk hp _ hr ihts => case_param hsc hcc hcm hfd hk hhk hp hr ihts)
     (fun hk hhk hts hvs hev hp ihts ihf => case_call hsc hcc hcm hfd hk hhk hts hvs hev hp ihts ihf)
     (fun hk hhk _ hvs hp ihts => case_callUndef hsc hcc hcm hfd hk hhk hvs hp ihts)
-    (fun hk ho _ _ ihts => case_ovl hsc hcc hcm hfd hk ho ihts)
-    (fun _ _ _ _ _ hcov _ _ _ => by rw [hsc.ovl.fnCover_none] at hcov; cases hcov)
+    (fun hk ho _ hnf ihts => case_ovl hsc hcc hcm hfd hk ho hnf ihts)
+    (fun hk ho hts hvs hlo hcov _ ihts ihf => case_ovlFn hsc hcc hcm hfd hk ho hts hvs hlo hcov ihts ihf)
     (fun _ _ _ _ _ _ => ⟨1, rfl⟩)
     (fun _ _ ih1 ih2 => case_cons hsc hcc hcm hfd ih1 ih2)
     (by intros; trivial)
@@ -924,6 +966,7 @@ theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
   have hready := hr
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
+  replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
   have hsc := sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
   have hcc := cclauseCtx_of hok

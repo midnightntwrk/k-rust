@@ -1,0 +1,66 @@
+//@ 0
+module E6-MOD-KSTRING
+//@ 14
+  sort SortKString{} [hasDomainValues{}()]
+//@ 65
+  symbol LblisKString{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 159
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisKString{}(K0:SortK{}))) [functional{}()] // functional
+//@ 182
+  axiom{} \or{SortKString{}} (\top{SortKString{}}(), \bottom{SortKString{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 210
+// rule isKString(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(996438e14d2e92b238c16b9dd1272a1c445ef380a6db74d21d7b617e560c3d10), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortKString{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortKString{}, SortKItem{}}(Var'Unds'Gen0:SortKString{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisKString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("996438e14d2e92b238c16b9dd1272a1c445ef380a6db74d21d7b617e560c3d10"), owise{}()]
+//@ 211
+// rule isKString(inj{KString,KItem}(KString))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(987f28cb2b124d08cbabde0a7714c85d217dbf3ae55e652864398eadd1068f79)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortKString{}, SortKItem{}}(VarKString:SortKString{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisKString{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("987f28cb2b124d08cbabde0a7714c85d217dbf3ae55e652864398eadd1068f79")]
+//@ 233
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-kstring.k)")]

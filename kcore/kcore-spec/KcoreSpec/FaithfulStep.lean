@@ -4,6 +4,7 @@
   gets the element of its value.
 -/
 import KcoreSpec.FaithfulStage1
+import KcoreSpec.OvlLawsFn
 import Std.Data.String.ToNat
 
 set_option autoImplicit false
@@ -269,19 +270,26 @@ def Callable (c : Semantics) (f : Sym) : Prop :=
   ∀ fn, c.lookupFn f = some fn → (∀ cl ∈ fn.clauses, lowerClauses fn cl = []) ∧
     ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c f vs (some v)
 
+/-- `P` holds of every function an application of `f` may call: of `f`, and of each function among
+the symbols `f` overloads where `f` is an overloading symbol (at arguments such a function covers,
+the application has that function's value, `EvalTerm.ovlFn`). -/
+def CallsAll (c : Semantics) (P : Sym → Prop) (f : Sym) : Prop :=
+  P f ∧ ∀ o, c.lookupOvl f = some o → ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = true → P kg.name
+
 /-- **The first stage's restrictions.** No rule has a rule of a smaller priority to compete
 with; every rule's left-hand side and every clause's patterns are plain (constructors,
 injections, aliases, variables and domain values: no map or collection pattern symbol); and every
-symbol a rule's or a clause's right-hand side, `requires` or `ensures` applies is `Callable`:
-every function it reaches is total and has ordinary clauses only. -/
+symbol a rule's or a clause's right-hand side, `requires` or `ensures` applies is `Callable`, and
+so is each function among the symbols it overloads (`CallsAll`): every function it reaches is total
+and has ordinary clauses only. -/
 def Stage1 (c : Semantics) : Prop :=
   (∀ r ∈ c.rules, ∀ r' ∈ c.rules, ¬ r'.prio < r.prio) ∧
   (∀ r ∈ c.rules, plainPat c r.lhs = true ∧
     ∀ f ∈ Term.heads r.rhs ++ (r.req.map Term.heads).getD [] ++ (r.ens.map Term.heads).getD [],
-      Callable c f) ∧
+      CallsAll c (Callable c) f) ∧
   (∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, plainPats c cl.pats = true ∧
     ∀ f ∈ Term.heads cl.rhs ++ (cl.req.map Term.heads).getD [] ++ (cl.ens.map Term.heads).getD [],
-      Callable c f)
+      CallsAll c (Callable c) f)
 
 section
 variable {c : Semantics} {M : Type} {I : Interpretation KoreAML.Sym M}
@@ -1051,6 +1059,7 @@ theorem clause_ctxOccE (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFn
     simp only [Bool.and_eq_true, List.all_eq_true] at hok
     have h2 := hok.1.2 fn hu cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at h2
+    replace h2 := h2.1
     obtain ⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩ := h2
     refine ⟨hpats, fun i hi => ?_, c.fns.map Fn.sig, fun k hk => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
     · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
@@ -1222,12 +1231,22 @@ theorem injApp_empty {e : Valuation M} {A B : String} {φ : KoreAML.P} (h : ∀ 
   exact h b hb
 
 /-- In the model `I`, an overloading symbol applied to the elements of values of its argument sorts
-that no function overload covers is the element of their normal form (`norm`). Every model of `Γ`
-has it (`normDen_of`, FaithfulNeg.lean). -/
+is: where no function overload covers them, the element of their normal form (`norm`); where the
+function overload `kg` covers them, what `kg`'s application to the elements of the stripped
+arguments is, lifted to the symbol's result sort (nothing where that application denotes nothing).
+Every model of `Γ` has it (`normDen_of`, FaithfulNeg.lean). -/
 def NormDen [Inhabited M] (c : Semantics) (I : Interpretation KoreAML.Sym M) : Prop :=
-  ∀ {f : Sym} {o : OvlSig} {ws : List GroundTerm}, c.lookupOvl f = some o → c.sortsOf ws = some o.sig.args →
+  (∀ {f : Sym} {o : OvlSig} {ws : List GroundTerm}, c.lookupOvl f = some o → c.sortsOf ws = some o.sig.args →
     c.fnCover f ws = none → ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
-      (den c (c.norm f ws)).interpret I e m
+      (den c (c.norm f ws)).interpret I e m) ∧
+  ∀ {f : Sym} {o : OvlSig} {ws : List GroundTerm} {kg : CtorSig} {r : Option GroundTerm},
+    c.lookupOvl f = some o → c.sortsOf ws = some o.sig.args → c.fnCover f ws = some kg →
+    iteSort? (c.symName kg.name) = none → (∀ v, r = some v → c.sortOf v = some kg.result) →
+    ∀ (e : Valuation M),
+      (∀ m, (KoreAML.den (symApp c kg.name (GroundTerm.koreList c (stripAll kg.args o.sig.args ws)))).interpret I e m ↔
+        Res c I e r m) →
+      ∀ m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔
+        Res c I e (r.map (lift kg.result o.sig.result)) m
 
 section
 variable [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNumbered c) (hsc : SortCtx c) (hst : Stage1 c)
@@ -1280,7 +1299,7 @@ mutual
   theorem evalTerm_den : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm c σ t r →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {s : Srt},
       HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
-      sortOfTerm (c.rhsCtx L) vars t = some s → (∀ f ∈ Term.heads t, Callable c f) →
+      sortOfTerm (c.rhsCtx L) vars t = some s → (∀ f ∈ Term.heads t, CallsAll c (Callable c) f) →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e m ↔ Res c I e r m
     | _, _, _, .var (i := i), L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, _, m => by
       have hi := sortOfTerm_var.mp ht
@@ -1381,7 +1400,7 @@ mutual
       have ih := evalTerms_den hts hL hσ hvs hag hargs hcalls
       have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
       rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
-      have := eval_den hf hlook hws hcf e m
+      have := eval_den hf hlook hws hcf.1 e m
       unfold KoreAML.den at this
       rw [tr_symApp] at this
       exact this
@@ -1392,8 +1411,25 @@ mutual
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
-    | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-      rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
+    | _, _, _, .ovlFn (f := f) (rs := rs) (vs := ws) (o := o) (kg := kg) (r := r) hk ho hts hvs' hlo hcov hf,
+        L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
+      obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
+      rw [hlo] at hlo'; cases hlo'
+      obtain ⟨hcf, hcalls⟩ := heads_app hcall
+      have ih := evalTerms_den hts hL hσ hvs hag hargs hcalls
+      have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
+      obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ :=
+        OvlLaws.fnCover_fn_ovlF ((inferInstance : OvlOK c).hyp hsc.trans).fnFacts hlo hws hcov
+      have hname : kg.name = fn.label := by rw [hsig]
+      have hres : kg.result = fn.result := by rw [hsig]
+      have hgd := eval_den hf hlook hus (hcf.2 o hlo kg hkg hb) e
+      rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
+      have := hnd.2 hlo hws hcov (by rw [hname]; exact hnn.2.1 fn (List.mem_append_left _ hfn))
+        (fun v hv => by rw [hres]; exact Eval.sorted hsc hf hlook hus hv) e hgd m
+      unfold KoreAML.den at this
+      rw [tr_symApp] at this
+      exact this
     | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
@@ -1408,7 +1444,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := hnd hlo hws (hnf ws hall) e m
+        have := hnd.1 hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this
@@ -1416,7 +1452,7 @@ mutual
   theorem evalTerms_den : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {ss : List Srt},
       HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
-      sortsOfTerms (c.rhsCtx L) vars ts = some ss → (∀ f ∈ Term.headsList ts, Callable c f) →
+      sortsOfTerms (c.rhsCtx L) vars ts = some ss → (∀ f ∈ Term.headsList ts, CallsAll c (Callable c) f) →
       (∀ ws, allSome rs = some ws → ∀ (acc acc' : KoreAML.P), (∀ m, acc.interpret I e m ↔ acc'.interpret I e m) →
         ∀ m, (KoreAML.trArgs ⟨tbl, []⟩ acc (Term.koreList c vs ts)).interpret I e m ↔
           (KoreAML.trArgs ⟨[], []⟩ acc' (GroundTerm.koreList c ws)).interpret I e m) ∧

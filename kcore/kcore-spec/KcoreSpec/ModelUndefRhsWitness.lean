@@ -241,13 +241,13 @@ theorem stage1 : Stage1 c := by
     obtain rfl := List.mem_singleton.mp hr'
     exact Nat.lt_irrefl _
   · obtain rfl := List.mem_singleton.mp hr
-    refine ⟨by decide +kernel, fun f hf fn hfn => ?_⟩
+    refine ⟨by decide +kernel, fun f hf => ⟨fun fn hfn => ?_, fun o ho => nomatch ho⟩⟩
     have := List.all_eq_true.mp heads_plain f hf
     rw [hfn] at this
     cases this
   · have h := List.all_eq_true.mp (List.all_eq_true.mp clauses_plain fn hfn) cl hcl
     simp only [Bool.and_eq_true] at h
-    refine ⟨h.1, fun f hf fn' hfn' => ?_⟩
+    refine ⟨h.1, fun f hf => ⟨fun fn' hfn' => ?_, fun o ho => nomatch ho⟩⟩
     have := List.all_eq_true.mp h.2 f hf
     rw [hfn'] at this
     cases this

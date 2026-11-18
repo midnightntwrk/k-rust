@@ -18,7 +18,7 @@
 -/
 import KcoreSpec.OpenSound
 import KcoreSpec.SatRulePP
-import KcoreSpec.HoldsFactsCore
+import KcoreSpec.ClausePreCore
 import KcoreSpec.CondTwoTables
 
 set_option autoImplicit false
@@ -82,7 +82,7 @@ theorem famEx_denPP (h : c.coreOK = true) {r : Rule} (hs : c.ruleSorted r = true
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
-  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hIc))
   obtain ⟨-, -, -, hensS, hrhss, -, -, -, hokQ, -, hbdQ⟩ := Model.ruleSorted_partsPP hs
   have hsorts := sortsNumbered_of_core h
   have hov := Semantics.coreOK_ovls h
@@ -109,7 +109,7 @@ theorem famEx_denPP (h : c.coreOK = true) {r : Rule} (hs : c.ruleSorted r = true
       (fun i hi => List.mem_range.mpr hi) (fun p hp => hb p (List.mem_append_left _ hp))
     have hRm := hb _ (List.mem_append_right _ (List.mem_singleton_self _))
     rw [interp_and (hne2 _ _ _)] at hRm
-    have := (evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag
+    have := (evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hIc) heval fns_headsOK hσ (canonVars_length c r.vars) hag
       hrhss m).mp (hRm _ (by simp))
     exact ((den_closed c y.val).interp e' e m).mp this
   · intro hm
@@ -159,10 +159,10 @@ theorem famEx_denPP (h : c.coreOK = true) {r : Rule} (hs : c.ruleSorted r = true
         intro q hq
         simp only [List.cons_append, List.nil_append, List.mem_cons] at hq
         rcases hq with rfl | rfl | hq
-        · exact (evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg heval fns_headsOK hσ (canonVars_length c r.vars) hag
+        · exact (evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hIc) heval fns_headsOK hσ (canonVars_length c r.vars) hag
             hrhss m).mpr (((den_closed c y.val).interp e _ m).mp hm)
         · exact reqPat_holds hI (fun t ht b =>
-            evalTerm_den4Cl hI hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag
+            evalTerm_den4ClPre hI hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hIc) (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag
               (hensS t ht) b) hinC
         · have hT : r.post.isTop = false := by
             cases hT : r.post.isTop

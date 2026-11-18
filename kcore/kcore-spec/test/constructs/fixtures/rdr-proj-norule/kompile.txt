@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-proj-norule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 204368
+definition.kore sha256: 16e4fc54f80956f999863ede04c60fbf592a59fac3ecd4e6045b0da2e93e6210
+stripped sha256: f1c80e97234804c0c5ef09a9b83c8c11f9cbf16f78632f2efccd47bff4b1d75b
+main module: 400 sentences, 44 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-PROJ-NORULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-PROJ-NORULE as default.

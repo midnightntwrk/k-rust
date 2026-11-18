@@ -253,14 +253,14 @@ theorem not_fnSolves : ¬ FnSolves c := by
     | 0, hi => simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨i0, rfl, i0_int⟩
     | _ + 1, hi => simp [cl2] at hi
   have hdec : cl2.DecidesAt c fF σ [i0] := by
-    refine ⟨⟨hσ, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
+    refine ⟨⟨hσ.at _, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
     rcases hcl' with rfl | rfl
     · cases hm with
       | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq.1 req1 rfl)
     · exact absurd hlt (Nat.lt_irrefl _)
   have hE := (hs fF (by simp [c]) [i0] (by decide +kernel) cl2 (by simp [fF]) σ hdec (.dv Srt.int (.int 2))).mpr
-    ⟨.dv, fun t ht => by simp [cl2] at ht⟩
+    ⟨σ, AgreeOff.refl _ _, hσ, .dv, fun t ht => by simp [cl2] at ht, .top⟩
   exact f_none i0_int hE
 
 /-! ## No model of `Γ`

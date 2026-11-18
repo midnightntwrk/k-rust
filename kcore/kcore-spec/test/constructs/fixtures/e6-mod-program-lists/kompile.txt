@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-program-lists.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.6
+definition.kore bytes: 79228
+definition.kore sha256: 0e35f993424a352bd87984532f1156bf660408fe36d025ea19c845d57d5d9486
+stripped sha256: 7c6cb5820c63ac4a731fe3d1def551fa278977b244d10bd349578cb2de858506
+main module: 228 sentences, 2 not in base's, in kore.txt
+same_as e6-mod-sort-k: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-PROGRAM-LISTS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-PROGRAM-LISTS as default.

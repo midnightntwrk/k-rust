@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-lib-missing/hw-lib-missing.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-lib-missing/hw-lib-missing.kore` (cwd: kcore-spec)
+definition.kore bytes: 246243
+definition.kore sha256: 93626d23e8a040f162992dc270d81bdf4abcc9bc6e64a1f83c96ebbb0dc46c71

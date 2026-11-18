@@ -23,7 +23,7 @@ Files of an entry:
 | `entry.toml` | by hand | section 2. **No tool writes or changes it.** |
 | the K text | by hand | `def.k` and `pgm` for a case; `<id>.k` or `<id>.kore` for a text entry; none for a hook entry that quotes a declaration |
 | `evidence.json` | `tools/case.py` only | section 4 |
-| `kompile.txt`, `kore.txt` | `tools/case.py` only | kompile's command, release, exit code and messages, with the entry's directory and K's paths replaced by names and the process numbers kore-exec prints by `PID`; the sentences the text adds to an empty module (those of the main module that come from no builtin file of K and that the main module of an empty module does not hold), each after a line `//@ N`, N its index among the main module's sentences, without their `Source` and `Location` attributes and with the variables kompile generates renumbered, so that no absolute path is committed. A rebuild of the same text need not write the same `kore.txt`: kompile does not always write the disjuncts of a premise in the same order (seen on c48), and a rebuild that reorders them changes the file, its hash in `evidence.json`, and the lines a `kompiled` locator names. No `kore.txt` where kompile refused the text |
+| `kompile.txt`, `kore.txt` | `tools/case.py` only | kompile's command, release, exit code and messages, with the entry's directory and K's paths replaced by names and the process numbers kore-exec prints by `PID`; the sentences the text adds to an empty module (those of the main module that come from no builtin file of K and that the main module of an empty module does not hold), each after a line `//@ N`, N its index among the main module's sentences, without their `Source` and `Location` attributes and with the variables kompile generates renumbered, so that no absolute path is committed. A rebuild of the same text need not write the same `kore.txt`: kompile writes the disjuncts of an `[owise]` premise in an order that depends on the absolute path of the text it kompiles (seen on c48), and a rebuild in another directory that reorders them changes the file, its hash in `evidence.json`, and the lines a `kompiled` locator names. No `kore.txt` where kompile refused the text |
 | `pgm.kore`, `kore.pgm`, `symbols.json` | `tools/case.py`, cases only | the initial term's KORE, the encoded program for `kore.k`, and the encoder's numbering |
 
 
@@ -45,7 +45,7 @@ files = ["def.k", "pgm"]           # case: def.k and pgm. text: one K or KORE fi
 kompile = "accepts"                # accepts | rejects | not-run (a declaration quoted alone)
 
 [ruling]
-status = "unsettled"               # settled | unsettled | pending (section 2.3)
+status = "unsettled"               # settled | unsettled
 reason = """
 The derivation, in sentences: which sentence gives which step. No implementation is named in it."""
 interpreter = "applied-blocks"     # unsettled case only: the reading kore.k computes, or "outside"
@@ -87,9 +87,9 @@ reason = "Why the result is not the ruling, or no reading."
 | `files` or `declaration` | `[text]` | exactly one | the entry's K text, or a quoted declaration with `source`, `locator`, `quote` |
 | `kompile` | `[text]` | yes | `accepts`, `rejects`, or `not-run` |
 | `frontend`, `frontend_difference` | `[text]` | no | `as-ruled`, `differs` or `manual-silent`: how the sentences kompile writes stand against the manual; `differs` needs `frontend_difference`, a sentence saying where |
-| `status` | `[ruling]` | yes | `settled`, `unsettled`, `pending` |
-| `reason` | `[ruling]` | settled, unsettled | the derivation of the ruling from the basis and from `rests_on` |
-| `[[ruling.basis]]` | `[ruling]` | settled, unsettled: at least one | `source`, `locator`, `quote` |
+| `status` | `[ruling]` | yes | `settled`, `unsettled` |
+| `reason` | `[ruling]` | yes | the derivation of the ruling from the basis and from `rests_on` |
+| `[[ruling.basis]]` | `[ruling]` | at least one | `source`, `locator`, `quote` |
 | `finals` | `[ruling]` | settled case | the final configurations, as terms in the syntax of `def.k`; `[]` means there is none |
 | `finals_canonical` | `[ruling]`, `[[reading]]` | no | finals in the canonical text of `tools/korek.py`, where `kast` cannot parse them from `def.k`'s syntax; then in place of `finals` |
 | `statement`, `form` | `[ruling]` | settled text entry | section 3 |
@@ -114,10 +114,6 @@ reason = "Why the result is not the ruling, or no reading."
   - `reading:<name>`: the result is that reading and cannot be compared mechanically (finals under conditions that cover several readings);
   - `coincides:<name>`: the finals equal that reading's, reached by a route that is not the reading. The equality must hold.
 - The implementations are named `haskell`, `llvm`, `kcore`, and `kore.k` for the interpreter as krust runs it.
-
-### 2.3 `pending`
-
-`status = "pending"` marks an entry whose ruling is not written yet, a case or a text entry. Its `[ruling]` holds nothing else, and the dispositions of a pending case (all of the form `difference`) state how `kore.k`'s result differs from a backend's recorded result. `tools/check.py` admits a pending entry only under `--allow-pending`.
 
 ## 3. The ruling of a text entry
 
@@ -166,7 +162,7 @@ Written by `tools/case.py`, never by hand.
 
   with the readings in the order of `entry.toml`.
 - `kompile` is absent for an entry that has no K text to kompile (a KORE text, a quoted declaration). Its `exit` is 0 exactly when `[text].kompile` is `accepts`; `message` is kompile's output where it refused the text, else `null`. `kore.txt` is the hash of the entry's `kore.txt`, absent where kompile wrote none.
-- `ruling_canonical` (a case only) is the hand-written `finals` (`settled`), and each reading's (`readings`, by name; a reading with a prose `answer` has no key), in the canonical text `tools/korek.py` prints. It is a translation of the ruling and changes no word of it. `tools/case.py` parses each term with `kast` against the kompiled `def.k`: the term the `<k>` cell holds, for a configuration of one cell; the top cell, for one of several. Where `kast` does not parse the terms (a cell collection of several instances, or of none), the entry carries `finals_canonical` in place of `finals`, taken as written. It is `{}` while the ruling is `pending`.
+- `ruling_canonical` (a case only) is the hand-written `finals` (`settled`), and each reading's (`readings`, by name; a reading with a prose `answer` has no key), in the canonical text `tools/korek.py` prints. It is a translation of the ruling and changes no word of it. `tools/case.py` parses each term with `kast` against the kompiled `def.k`: the term the `<k>` cell holds, for a configuration of one cell; the top cell, for one of several. Where `kast` does not parse the terms (a cell collection of several instances, or of none), the entry carries `finals_canonical` in place of `finals`, taken as written.
 - A row of `implementations` holds `version` and `finals` (canonical texts, sorted), or `error` where the implementation failed. `kcore` is optional, added by `tools/case.py --import kcore=FILE` with `imported_from`, the SHA-256 of FILE. A row is kept only while the K text it was computed from is unchanged. For a text entry the rows hold what was observed of each implementation on the text, and there may be none.
 - `kore.k`'s result is not stored: `tools/check.py` runs it and treats it as one more implementation.
 
@@ -174,7 +170,7 @@ Written by `tools/case.py`, never by hand.
 
 An entry fails for one of three causes.
 
-1. **Schema fault.** `entry.toml` does not parse; a field of section 2.1 is missing, has a value outside its list, or is not one of the fields; no `ruling.basis`, or one without `locator` and `quote`; an unsettled entry with fewer than two readings, or a reading without an answer and a consequence; a settled entry resting on an entry that is not settled; `rests_on` naming no entry; an unsettled case without `interpreter`; a word of an implementation in `reason` (`haskell`, `llvm`, `krust`, `kcore`, `backend`, `compatibility.md`); `[text].kompile` against the exit code in `evidence.json`; an `[[observe]]` pointer that does not hold; a pending entry without `--allow-pending`.
+1. **Schema fault.** `entry.toml` does not parse; a field of section 2.1 is missing, has a value outside its list, or is not one of the fields; no `ruling.basis`, or one without `locator` and `quote`; an unsettled entry with fewer than two readings, or a reading without an answer and a consequence; a settled entry resting on an entry that is not settled; `rests_on` naming no entry; an unsettled case without `interpreter`; a word of an implementation in `reason` (`haskell`, `llvm`, `krust`, `kcore`, `backend`, `compatibility.md`); `[text].kompile` against the exit code in `evidence.json`; an `[[observe]]` pointer that does not hold.
 2. **Stale.** A hash in `evidence.json` is not the present one (the answer, a file of the K text, `kore.txt`), the canonical text of the ruling is missing, or there is no `evidence.json`.
 3. **Unrecorded or outlived difference**, for each implementation result of a case, `kore.k`'s included:
    - settled: the result equals `ruling_canonical.settled`, or a disposition names the implementation. Equal and named fails: a disposition does not outlive its difference.
@@ -186,7 +182,7 @@ An implementation that differs from the ruling under a disposition is not a fail
 A text entry is checked for causes 1 and 2.
 What the script does not check: that a `quote` stands at its `locator`, that the reason follows from the basis, and the rule on `source = "kompiled"`.
 
-A pending case, under `--allow-pending`: stale as any entry (section 5, cause 2); it passes when `kore.k`'s result equals each recorded result no disposition names and differs from each one a disposition names.
+It prints one line per entry, its status and, for a case, how each implementation stands (`=`, `reading:<name>`, `coincides:<name>`, `differs`), then a summary: the entries that pass, how many are settled and unsettled, and per implementation the number of recorded differences, `kore.k`'s apart. `kore.k`'s count is the list of cases where the catalogue's interpreter does not compute the settled ruling or computes no reading of the text: work for `kore.k`, not a fault of the entry.
 
 ## 6. The ruling hash
 

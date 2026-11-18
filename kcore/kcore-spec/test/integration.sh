@@ -36,9 +36,9 @@
 #   agree       `kcore agree` over test/agree.jsonl, the cases built from the reference backends' cached
 #               results (test/agree.sh, test/agree.expected; after corpus, whose extraction holds
 #               the cases' definitions)
-#   agree-kore-in-k  `kcore agree` over test/agree-kore-in-k.jsonl, the kore-in-k corpus's 49 cases
-#               against each backend's recorded finals (test/agree-kore-in-k.py builds the case file
-#               and the kompiled texts in .lake/kore-in-k; test/agree-kore-in-k.expected);
+#   agree-kore-in-k  `kcore agree` over kk/agree-kore-in-k.jsonl, the kore-in-k corpus's 52 cases
+#               against each backend's recorded finals (kk/agree-kore-in-k.py builds the case file
+#               and the kompiled texts in .lake/kore-in-k; kk/agree-kore-in-k.expected);
 #               `skipped` (neither ok nor red) when .lake/kore-in-k is absent: the texts are built
 #               from a corpus outside this tree (test/README.md, "The kore-in-k corpus")
 #   imp-kompile test/imp-kompile.sh: the kompile command recorded for ref-kimp's text is within the
@@ -47,6 +47,8 @@
 #   imp-tie     test/imp-tie.sh: the record of ref-kimp's tie per class (test/imp-tie.toml) has the
 #               account's classes and counts, tieClasses' directions, and names stated theorems
 #               (nothing is run as Lean)
+#   imp-tie-atvalues test/imp-tie-atvalues.sh: the files of that record that import the generated
+#               package (TieKimpAtValues, TieKimpRefuted, TieKimpReach), over its own build of it
 #   kk-kompile  test/kk-kompile.sh: the same of the command recorded for ref-kk's text, kore.k's
 #               kompiled KORE, and kore.k has the recorded SHA-256 (nothing is kompiled)
 #   member      test/member.sh: why each text is or is not tied, the frozen registry table
@@ -61,7 +63,8 @@
 #               ref-peano it reads; `skipped` when the k2lean directory ($K2LEAN) is absent
 #   test/X      every other test/*.lean checked by `lean`: the kompiled text per K construct and the
 #               library's small cores (not ReviewCone, which writes the committed cones, nor
-#               PrintNames, a command-line tool, nor TieKimpHints, a generator), each with
+#               PrintNames, a command-line tool, nor TieKimpHints, a generator, nor the three files
+#               imp-tie-atvalues checks over the package), each with
 #               `#axioms_here` appended (axioms-tests)
 #
 # The native checks run first, then the Lean checks, JOBS at once: JOBS is the available memory
@@ -140,7 +143,7 @@ axiomsPackages() {
 }
 agreeKoreInK() {
   [ -d .lake/kore-in-k ] || { echo "texts not built"; return 77; }
-  test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected
+  test/agree.sh kk/agree-kore-in-k.jsonl kk/agree-kore-in-k.expected
 }
 predSorted() {
   [ -d .lake/regen/peano ] || { echo "no regenerated peano (test/regen.sh)"; return 1; }
@@ -198,13 +201,14 @@ check imp-tie scoreboard test/imp-tie.sh
 check kk-kompile scoreboard test/kk-kompile.sh
 
 # Lean checks, the longest first
-order="$order pins pins-peano pins-kimp axioms witnesses cone member not-plain pred-sorted user cs2"
+order="$order pins pins-peano pins-kimp imp-tie-atvalues axioms witnesses cone member not-plain pred-sorted user cs2"
 testx=""
 while [ "$(jobs -rp | wc -l)" -ge "$J" ]; do wait -n; done
 { check user scoreboard userModules; check cs2 scoreboard cs2; } &
 pool pred-sorted scoreboard predSorted
 pool pins-peano required test/pins-peano.sh
 pool pins-kimp required test/pins-kimp.sh
+pool imp-tie-atvalues scoreboard test/imp-tie-atvalues.sh
 pool member scoreboard test/member.sh
 pool not-plain scoreboard test/not-plain.sh
 pool pins required lean1 test/Pins.lean
@@ -213,7 +217,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints) continue;;
+    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted|TieKimpHints|TieKimpAtValues|TieKimpRefuted|TieKimpReach) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"

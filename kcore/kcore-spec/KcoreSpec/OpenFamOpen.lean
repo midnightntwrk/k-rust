@@ -50,7 +50,7 @@ theorem famOpen_stepOpen (h : c.coreOK = true) (hft : FnTerminates c) (hI : I �
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hIΓ
-  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw)
+  have hneg := (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI))
   obtain ⟨hlhs, -, hreqs, hensS, hrhss⟩ := Model.ruleSorted_partsOpen hs hp
   obtain ⟨-, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
   let vs := canonVars c r.vars
@@ -137,7 +137,7 @@ theorem famOpen_stepOpen (h : c.coreOK = true) (hft : FnTerminates c) (hI : I �
   have hensT := htrue r.ens hensS hRm.2
   -- the right side evaluates to a value whose element is m
   obtain ⟨v, hv⟩ := Model.evalTerm_total hs0 hft fns_headsOK hσ' hrhss
-  have hbR := (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg hv fns_headsOK hσ' (canonVars_length c r.vars) hag hrhss m).mp
+  have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK hσ' (canonVars_length c r.vars) hag hrhss m).mp
     hRm.1
   cases v with
   | none => exact hbR.elim

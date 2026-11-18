@@ -100,35 +100,50 @@ theorem prioDecided_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = tr
   exact evalTerm_total_atCl (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)) hov ht hL hσ'
     (Clause.req_leftVars hq) (hreqs t hq)
 
-/-- Where every function terminates, each clause instance that decides has a result (`CoDefined`),
-for a semantics `sortedOKCl` accepts: its `ensures` has one, and where that is `true`, its
-right-hand side. -/
-theorem coDefined_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
-    (ht : FnTerminates c) : CoDefined c := by
-  intro fn hfn vs cl σ cl' σ' _ hcl' _ hdec' _
+/-- Where every function terminates, each clause instance has a result under each well-sorted
+substitution, for a semantics `sortedOKCl` accepts: its `ensures` has one, and where that is
+`true`, its right-hand side. -/
+theorem instRes_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
+    (ht : FnTerminates c) {fn : Fn} (hfn : fn ∈ c.fns) {cl' : Clause} (hcl' : cl' ∈ fn.clauses)
+    {σ' : Subst} (hσ' : c.WellSorted cl'.vars σ') : ∃ r, cl'.InstRes c σ' r := by
   have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)
   obtain ⟨L, hL, -, -, -, -, -, hrhs, hens, -⟩ := clauseOpenFacts_of_sortedOKCl hok fn (List.mem_append_left _ hfn) cl' hcl'
-  obtain ⟨r, hr⟩ := Model.evalTerm_totalCl hsc hov ht hL hdec'.1.1 hrhs
+  obtain ⟨r, hr⟩ := Model.evalTerm_totalCl hsc hov ht hL hσ' hrhs
   cases he : cl'.ens with
   | none => exact ⟨r, .inl ⟨fun t ht => (by rw [he] at ht; cases ht), hr⟩⟩
   | some t =>
-    obtain ⟨w, hw⟩ := Model.evalTerm_totalCl hsc hov ht hL hdec'.1.1 (hens t he)
+    obtain ⟨w, hw⟩ := Model.evalTerm_totalCl hsc hov ht hL hσ' (hens t he)
     by_cases hb : w = some (bool true)
     · subst hb
       exact ⟨r, .inl ⟨fun t' ht' => (by rw [he] at ht'; cases ht'; exact hw), hr⟩⟩
     · exact ⟨none, .inr ⟨t, w, he, hw, hb, rfl⟩⟩
 
+/-- Where every function terminates, each clause instance that decides has a result (`CoDefined`),
+for a semantics `sortedOKCl` accepts (`instRes_of_totalCl`). -/
+theorem coDefined_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
+    (ht : FnTerminates c) : CoDefined c :=
+  fun fn hfn _ _ _ cl' _ _ hcl' _ hdec' _ => instRes_of_totalCl hok hsr hov ht hfn hcl'
+    ((wellSortedAt_univ
+      (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl' hcl').2).1).mp hdec'.1.1)
+
 /-- **Evaluation solves the equations** where every function has at most one result and a result
-at arguments of its sorts, for a semantics `sortedOKCl` accepts. -/
+at arguments of its sorts, for a semantics `sortedOKCl` accepts, and each clause with existential
+variables has a result (`Clause.Res`) at each match under which it decides (`hex`;
+`MatchIndependent` holds it). A clause without existential variables has one by the termination,
+its right side's predicate being `\top`. -/
 theorem fnSolves_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
-    (hd : FnDet c) (ht : FnTerminates c) : FnSolves c :=
-  fnSolves_of_parts_lookup (fun _ hfn => by
+    (hd : FnDet c) (ht : FnTerminates c)
+    (hex : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs ≠ [] → ∀ vs σ, cl.Decides c fn σ vs → ∃ r, cl.Res c σ r) :
+    FnSolves c :=
+  fnSolves_of_res (fun _ hfn => by
       rw [Semantics.lookupFn_eq]
       exact find?_label (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)).nodupFns (List.mem_append_left _ hfn))
-    hd (fun fn hfn cl hcl =>
-      let p := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl hcl).2
-      ⟨p.1, p.2.2.1⟩)
-    (prioDecided_of_totalCl hok hsr hov ht) (coDefined_of_totalCl hok hsr hov ht)
+    hd (prioDecided_of_totalCl hok hsr hov ht) fun fn hfn cl hcl vs _ σ hdec => by
+      by_cases hx : cl.exs = []
+      · obtain ⟨r, hr⟩ := instRes_of_totalCl hok hsr hov ht hfn hcl ((wellSortedAt_univ hx).mp hdec.1.1)
+        exact ⟨r, Clause.res_of_instRes hx
+          (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl hcl).2).2.2.1 hr⟩
+      · exact hex fn hfn cl hcl hx vs σ hdec
 
 /-- **One result, and evaluation solves the equations**, for a semantics whose clauses are asked
 CN-4's bodies, from the termination of its functions, the agreement of their equations and the
@@ -137,7 +152,11 @@ theorem fnModel_ofCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov :
     (ht : FnTerminates c) (hag : ∀ fn ∈ c.fns, ClausesAgree c fn)
     (hmi : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) : FnDet c ∧ FnSolves c :=
   have hd := fnDet_of_coherent (coherentAll_ofCl hag hmi)
-  ⟨hd, fnSolves_of_totalCl hok hsr hov hd ht⟩
+  ⟨hd, fnSolves_of_totalCl hok hsr hov hd ht fun fn hfn cl hcl hne vs σ hdec =>
+    (hmi fn hfn cl hcl).2 hne fn.label fn vs σ (by
+      rw [Semantics.lookupFn_eq]
+      exact find?_label (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)).nodupFns (List.mem_append_left _ hfn))
+      hcl hdec⟩
 
 end Faithful
 

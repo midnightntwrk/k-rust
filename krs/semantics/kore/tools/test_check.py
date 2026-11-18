@@ -122,8 +122,8 @@ class Package:
         with open(os.path.join(d, 'evidence.json'), 'w') as f:
             json.dump(ev, f)
 
-    def check(self, d, live=None, allow_pending=False):
-        ok, line, _, differing = check.check_entry(d, check.index_of(self.root), live, allow_pending)
+    def check(self, d, live=None):
+        ok, line, _, differing = check.check_entry(d, check.index_of(self.root), live)
         return ok, line, differing
 
 
@@ -230,9 +230,9 @@ class PassRule(unittest.TestCase):
         self.p.evidence(d, {})
         self.fails(d, 'schema', 'text.kompile is rejects and kompile exited 0')
 
-    def test_schema_pending_without_the_flag(self):
+    def test_schema_pending_is_no_status(self):
         d = self.p.entry('c01-x', PENDING, {'haskell': finals(B1)})
-        self.fails(d, 'schema', 'ruling.status is pending', live=finals(B1))
+        self.fails(d, 'schema', 'ruling.status is not one of settled, unsettled', live=finals(B1))
 
     def test_schema_observe_pointer(self):
         seen = '\n[[observe]]\nfile = "kore.txt"\ncontains = "\\\\rewrites"\n'
@@ -271,6 +271,14 @@ class PassRule(unittest.TestCase):
     def test_stale_no_evidence(self):
         d = self.p.entry('c01-x', SETTLED, evidence=False)
         self.fails(d, 'stale', 'no evidence.json')
+
+    def test_stale_no_kompile_record(self):
+        d = self.p.entry('c01-x', SETTLED, {'haskell': finals(B1)})
+        path = os.path.join(d, 'evidence.json')
+        ev = json.loads(check.read_text(path))
+        del ev['kompile']
+        rewrite(path, json.dumps(ev))
+        self.fails(d, 'stale', 'evidence.json records no kompile run', live=finals(B1))
 
     # cause 3: an unrecorded or an outlived difference
 
@@ -333,56 +341,19 @@ class PassRule(unittest.TestCase):
         d = self.unsettled(disposition('llvm', 'coincides:absent'), llvm=finals(B1))
         self.fails(d, 'schema', 'names no reading')
 
-    # a pending entry, under --allow-pending
-
-    def pending(self, body=PENDING, **backends):
-        return self.p.entry('c01-x', body, backends)
-
-    def test_pending_pass(self):
-        d = self.pending(PENDING + disposition('llvm'), haskell=finals(B1), llvm={'error': 'abort'})
-        self.assertEqual(self.passes(d, 'ok pending 1 final(s) haskell:= llvm:differs', live=finals(B1),
-                                     allow_pending=True), ['llvm'])
-
-    def test_pending_unrecorded(self):
-        d = self.pending(haskell=finals(B1), llvm=finals(B0))
-        self.fails(d, 'differs', 'no disposition names llvm', live=finals(B1), allow_pending=True)
-
-    def test_pending_outlived(self):
-        d = self.pending(PENDING + disposition('llvm'), haskell=finals(B1), llvm=finals(B1))
-        self.fails(d, 'differs', 'a disposition names llvm, whose result is now kore.k\'s', live=finals(B1),
-                   allow_pending=True)
-
-    def test_pending_stale(self):
-        d = self.pending(haskell=finals(B1))
-        with open(os.path.join(d, 'pgm'), 'a') as f:
-            f.write('// changed\n')
-        self.fails(d, 'stale', 'pgm changed since evidence.json', live=finals(B1), allow_pending=True)
-
-    def test_pending_without_evidence(self):
-        d = self.p.entry('c01-x', PENDING, evidence=False)
-        self.fails(d, 'stale', 'no evidence.json', live=finals(B1), allow_pending=True)
-
-    def test_pending_kompile_record(self):
-        d = self.pending(haskell=finals(B1))
-        path = os.path.join(d, 'evidence.json')
-        ev = json.loads(check.read_text(path))
-        del ev['kompile']
-        rewrite(path, json.dumps(ev))
-        self.fails(d, 'stale', 'evidence.json records no kompile run', live=finals(B1), allow_pending=True)
-
     # the command, without a run
 
     def test_command_no_run(self):
         self.p.entry('c01-x', SETTLED + disposition('llvm'), {'haskell': finals(B1), 'llvm': finals(B0)})
-        self.p.entry('c02-y', PENDING, {'haskell': finals(B1)})
+        self.p.entry('c02-y', UNSETTLED.format(interpreter='blocks'), {'haskell': finals(B1)})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = check.main(['--no-run', '--allow-pending'], package=self.p.root)
+            code = check.main(['--no-run'], package=self.p.root)
         self.assertEqual(code, 0, out.getvalue())
-        self.assertIn('PASS kore-in-k: 2 of 2 entries pass (1 settled, 0 unsettled, 1 pending); '
+        self.assertIn('PASS kore-in-k: 2 of 2 entries pass (1 settled, 1 unsettled); '
                       'recorded differences: llvm 1;', out.getvalue())
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(check.main(['--no-run'], package=self.p.root), 1)
+        with self.assertRaises(SystemExit):
+            check.main(['--no-run', '--allow-pending'], package=self.p.root)
 
     def test_answer_hash_reads_the_answer_fields_only(self):
         d = self.p.entry('c01-x', SETTLED, {})

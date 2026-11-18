@@ -97,12 +97,12 @@ theorem kr_hole : Eval c 382 [hole] (some (bool true)) :=
       rcases List.mem_cons.mp hcl' with rfl | hcl'
       · exact absurd hlt (by decide)
       · rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (by decide))
-    .dv (fun _ ht => by cases ht)
+    rfl .dv (fun _ ht => by cases ht) .top
 
 /-- **and nothing else**: `kr2` and the rest are blocked by `kr1`, which applies. -/
 theorem kr_hole_only {r : Option GroundTerm} (h : Eval c 382 [hole] r) : r = some (bool true) := by
   cases h with
-  | clause hfn hmem _ _ _ _ hprio hrhs _ =>
+  | clause hfn hmem _ _ _ _ hprio _ hrhs _ _ =>
     rw [lookupKR] at hfn; cases hfn
     rcases List.mem_cons.mp hmem with rfl | hmem
     · cases hrhs; rfl
@@ -111,11 +111,21 @@ theorem kr_hole_only {r : Option GroundTerm} (h : Eval c 382 [hole] r) : r = som
   | rest hfn hnone =>
     rw [lookupKR] at hfn; cases hfn
     exact absurd (hnone kr1 (List.mem_cons_self ..)) kr1_not_fails
-  | ensFails hfn hmem _ _ _ _ _ ht _ _ =>
+  | ensFails hfn hmem _ _ _ _ _ _ ht _ _ =>
     rw [lookupKR] at hfn; cases hfn
     rcases List.mem_cons.mp hmem with rfl | hmem
     · cases ht
     · rw [List.mem_singleton.mp hmem] at ht; cases ht
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [lookupKR] at hfn; cases hfn
+    rcases List.mem_cons.mp hmem with rfl | hmem
+    · exact absurd rfl hne
+    · rw [List.mem_singleton.mp hmem] at hne; exact absurd rfl hne
+  | exNone hfn hmem hne =>
+    rw [lookupKR] at hfn; cases hfn
+    rcases List.mem_cons.mp hmem with rfl | hmem
+    · exact absurd rfl hne
+    · rw [List.mem_singleton.mp hmem] at hne; exact absurd rfl hne
 
 /-- `isKResult(HOLE)` under a σ giving HOLE `hole`: `true`, and nothing else. -/
 theorem call_kr {σ : Subst} (h1 : σ.lookup 1 = some hole) :
@@ -190,7 +200,7 @@ theorem eval_f3 : Eval c 385 [.dv Srt.int (.int 3)] (some (.dv Srt.int (.int 3))
       | _ + 2, hs => cases (show (none : Option Srt) = some s from hs))
     (.cons (.var rfl) .nil) (fun _ ht => by cases ht; exact req_true rfl) .top
     (fun cl' hcl' _ hlt => by rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (by decide))
-    .var (fun _ ht => by cases ht)
+    rfl .var (fun _ ht => by cases ht) .top
 
 end Cool
 
@@ -395,12 +405,17 @@ theorem no_E (v : GroundTerm) : c.sortOf v ≠ some 33 := by
 theorem isC_not_true (v : GroundTerm) : ¬ Eval c 390 [v] (some (bool true)) := by
   intro h
   cases h with
-  | clause hfn hmem hσ _ _ _ _ hrhs _ =>
+  | clause hfn hmem hσ _ _ _ _ _ hrhs _ _ =>
     rw [lookupIsC] at hfn; cases hfn
     rcases List.mem_cons.mp hmem with rfl | hmem
     · obtain ⟨w, -, hw⟩ := hσ 0 33 rfl
       exact no_E w hw
     · rw [List.mem_singleton.mp hmem] at hrhs; cases hrhs
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [lookupIsC] at hfn; cases hfn
+    rcases List.mem_cons.mp hmem with rfl | hmem
+    · exact absurd rfl hne
+    · rw [List.mem_singleton.mp hmem] at hne; exact absurd rfl hne
 
 /-- **`clG` is not `Witnessed`**: H must be a value of S, and `isC` is `true` at none. -/
 theorem not_witnessed : ¬ clG.Witnessed c := by

@@ -270,8 +270,8 @@ theorem isMk_syms : c.isCtor isMk = false ∧ isHook isMk = false ∧ c.isParam 
 /-- `isMk(k())` is `false`, by its clause `isMk(k()) => false`. -/
 theorem eval_isMk_k : Eval c isMk [.ctor symK []] (some (bool false)) := by
   refine Eval.clause (cl := clK) (σ := []) lookup_isMk (by rw [isMk_clauses]; simp)
-    (fun j s hs => ?_) ?_ (fun t ht => ?_) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) ?_
-    (fun t ht => ?_)
+    (fun j s hs => ?_) ?_ (fun t ht => ?_) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) (by rfl) ?_
+    (fun t ht => ?_) (Clause.holds_postTop (by rfl) _)
   · rw [clK_shape.1] at hs; cases hs
   · rw [clK_shape.2.1]; exact .cons (.ctor isMk_syms.2.2.2.1 .nil) .nil
   · rw [clK_shape.2.2.1] at ht; cases ht
@@ -288,7 +288,7 @@ theorem eval_isMk_k : Eval c isMk [.ctor symK []] (some (bool false)) := by
 the clause `isMk(k()) => false` applies, with no `requires` and no `ensures`. -/
 theorem isMk_k_only {r : Option GroundTerm} (h : Eval c isMk [.ctor symK []] r) : r = some (bool false) := by
   cases h with
-  | clause hfn hmem hσ hmatch hreq _ hprio hrhs hens =>
+  | clause hfn hmem hσ hmatch hreq _ hprio _ hrhs hens _ =>
     rw [lookup_isMk] at hfn
     cases hfn
     rw [isMk_clauses] at hmem
@@ -315,7 +315,7 @@ theorem isMk_k_only {r : Option GroundTerm} (h : Eval c isMk [.ctor symK []] r) 
       cases hreq with
       | intro ht _ _ => rw [clK_shape.2.2.1] at ht; cases ht
       | pre h => rw [show clK.pre = .top by rfl] at h; exact absurd (Holds.top_eq h) (by simp)
-  | ensFails hfn hmem _ _ _ _ _ ht _ _ =>
+  | ensFails hfn hmem _ _ _ _ _ _ ht _ _ =>
     rw [lookup_isMk] at hfn
     cases hfn
     rw [isMk_clauses] at hmem
@@ -323,6 +323,18 @@ theorem isMk_k_only {r : Option GroundTerm} (h : Eval c isMk [.ctor symK []] r) 
     rcases hmem with rfl | rfl
     · rw [clK_shape.2.2.2.2.1] at ht; cases ht
     · rw [clMk_shape.2.1] at ht; cases ht
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [lookup_isMk] at hfn
+    cases hfn
+    rw [isMk_clauses] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd (by rfl) hne
+  | exNone hfn hmem hne =>
+    rw [lookup_isMk] at hfn
+    cases hfn
+    rw [isMk_clauses] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd (by rfl) hne
 
 /-- Where X is `k()`, the `requires` `isMk(X)` evaluates to `false`. -/
 theorem req_false {σ : Subst} (hl : σ.lookup 2 = some (.ctor symK [])) :
@@ -891,7 +903,8 @@ theorem clauseCtx : Exec.ClauseCtx c := by
   · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl =>
       ⟨(sortPreds_ctx hfn cl hcl).1, (sortPreds_ctx hfn cl hcl).2.1, (sortPreds_ctx hfn cl hcl).2.2.1,
         (sortPreds_ctx hfn cl hcl).2.2.2.1, (sortPreds_ctx hfn cl hcl).2.2.2.2.1,
-        (sortPreds_ctx hfn cl hcl).2.2.2.2.2, Semantics.sortPreds_pre hfn cl hcl⟩⟩
+        (sortPreds_ctx hfn cl hcl).2.2.2.2.2, Semantics.sortPreds_pre hfn cl hcl,
+        Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩⟩
 
 theorem sortCtx : SortCtx c := by
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core coreOK

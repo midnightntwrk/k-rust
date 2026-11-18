@@ -1,5 +1,6 @@
 cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
+differs f2-examples/bandctor.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
 differs f2-examples/c3-eq-ens-owise.kompile.kore
 differs f2-examples/c3-eq-ens-prio-comp.kompile.kore
@@ -33,12 +34,18 @@ differs f2-examples/colls.kore
 differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
+differs f2-examples/e2-fn-assoc-bad.kompile.kore
+differs f2-examples/e2-fn-assoc-rest.kompile.kore
+differs f2-examples/e2-fn-assoc-unit.kompile.kore
+differs f2-examples/e2-fn-assoc.kompile.kore
+differs f2-examples/e2-fn-idem.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
+differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
@@ -67,6 +74,7 @@ cannot f2-examples/fprio-refused.kore
 differs f2-examples/fprio.kompile.kore
 exact f2-examples/fprio.kore
 differs f2-examples/hashsort.kompile.kore
+differs f2-examples/idemctor.kompile.kore
 cannot f2-examples/imp-programs.kore
 exact f2-examples/imp-sec-leaky.kore
 exact f2-examples/imp-sec.kore
@@ -123,7 +131,9 @@ differs f2-examples/opengenless.kompile.kore
 differs f2-examples/openh.kompile.kore
 cannot f2-examples/openlinked.kompile.kore
 cannot f2-examples/openlinkedbool.kompile.kore
+differs f2-examples/openmixed.kompile.kore
 cannot f2-examples/openmixedunheld.kompile.kore
+cannot f2-examples/openrec.kompile.kore
 differs f2-examples/openrule.kompile.kore
 differs f2-examples/optcell.kompile.kore
 differs f2-examples/ovlconf.kompile.kore

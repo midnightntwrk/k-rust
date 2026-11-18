@@ -223,7 +223,12 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
+      | true =>
+        have hsc := sortCtx_of_all h.1 h.2.1 (OvlOK.ovlCase h.2.2.2.2.2.2.2.2)
+        obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk hov
+        exact EvalTerm.ovl_result (h.2.2.2.2.2.2.2.2.hyp hsc.trans).fnFacts hc' hov hrs hlo
+          (fun ws has => EvalTerms.sorted_at hsc hrs hL hσ hargs has)
+          (fun kg _ _ fn hfn _ hn vs hvs => hn ▸ hft fn hfn vs hvs)
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

@@ -1,0 +1,4 @@
+param	LblRangeMap'Coln'choice	args=[RangeMap]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+param	Lblkeys'Unds'list'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap	args=[RangeMap]	result=List	impl=none	raw=false	assoc=false	idem=false
+param	Lblvalues'LParUndsRParUnds'RANGEMAP'Unds'List'Unds'RangeMap	args=[RangeMap]	result=List	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

@@ -1,0 +1,7 @@
+param	Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map	args=[Map, Map]	result=Map	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map	args=[Map, Map]	result=Bool	impl=none	raw=false	assoc=false	idem=false
+param	LblMap'Coln'choice	args=[Map]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+param	Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map	args=[Map]	result=List	impl=none	raw=false	assoc=false	idem=false
+param	LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map	args=[Map, Map]	result=Map	impl=none	raw=false	assoc=false	idem=false
+param	Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map	args=[Map]	result=List	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

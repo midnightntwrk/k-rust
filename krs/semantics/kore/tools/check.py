@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that the record of every entry (or of the named ones) is consistent with itself.
 
-  check.py [--no-run] [--allow-pending] [cases/<id> | texts/<id> ...]
+  check.py [--no-run] [cases/<id> | texts/<id> ...]
                                          (relative to the package directory, or absolute)
   check.py --ruling-sha ID...            print `ID SHA` per entry id (kk:ID or ID): the SHA-256 of
                                          its ruling (SCHEMA.md, "The ruling hash"); writes nothing
@@ -25,13 +25,10 @@ by the SHA-256 of kore.k and of the krust executable), the case's kore.pgm is ru
 
 --no-run         does not run kore.k: the schema, the hashes and the stored results only. Needs
                  nothing but Python.
---allow-pending  admits an entry whose ruling has status "pending" (no ruling written yet). Such an
-                 entry is judged by the rule that preceded the rulings: kore.k's result equals each
-                 recorded result no disposition names and differs from each one a disposition names.
-                 Without the flag a pending entry is a schema fault.
 
-One line per entry: its status and, per implementation, `=` (the ruling, or for a pending entry
-kore.k's result), `reading:<name>`, or `differs`. Exit 0 when no entry fails, 1 otherwise, 2 when
+One line per entry: its status and, per implementation, `=` (the ruling), `reading:<name>`,
+`coincides:<name>`, or `differs`. The summary counts the entries, settled and unsettled, and per
+implementation the recorded differences, kore.k's apart. Exit 0 when no entry fails, 1 otherwise, 2 when
 kore.k is to be run and no krust executable is found.
 
 krust is $KRUST, else release/krust under $CARGO_TARGET_DIR, else the repository's
@@ -59,7 +56,7 @@ TIMEOUT_S = 60
 
 KIND_DIR = {'case': 'cases', 'text': 'texts'}
 ID_FORM = {'case': re.compile(r'c\d\d+-[a-z0-9-]+\Z'), 'text': re.compile(r't\d\d+-[a-z0-9-]+\Z')}
-STATUSES = ('settled', 'unsettled', 'pending')
+STATUSES = ('settled', 'unsettled')
 KOMPILE = ('accepts', 'rejects', 'not-run')
 SOURCES = ('manual', 'tutorial', 'domains', 'builtin-module', 'kore-syntax', 'prelude', 'kompiled', 'matching-logic')
 FRONTEND = ('as-ruled', 'differs', 'manual-silent')
@@ -138,7 +135,7 @@ def basis_faults(basis, where):
     return out
 
 
-def schema_faults(entry, directory, index, allow_pending):
+def schema_faults(entry, directory, index):
     """The schema faults of a parsed entry.toml; `index` gives the status of every entry by id."""
     out = []
     cid = os.path.basename(directory)
@@ -241,11 +238,6 @@ def schema_faults(entry, directory, index, allow_pending):
             out.append(f'rests_on: {r} names no entry')
         elif status == 'settled' and index[r[3:]] != 'settled':
             out.append(f'a settled entry rests on {r}, which is {index[r[3:]]}')
-
-    if status == 'pending':
-        if not allow_pending:
-            out.append('ruling.status is pending: no ruling is written')
-        return out
 
     if not is_text(ruling.get('reason')):
         out.append('ruling: no reason')
@@ -369,7 +361,7 @@ def record_faults(entry, directory, ev):
             path = os.path.join(directory, 'kore.txt')
             if not os.path.exists(path) or sha(path) != kompile['kore.txt']:
                 stale.append('kore.txt changed since evidence.json')
-    if entry['kind'] == 'case' and status != 'pending':
+    if entry['kind'] == 'case':
         canon = ev.get('ruling_canonical') or {}
         if status == 'settled' and not is_texts(canon.get('settled')):
             stale.append('evidence.json has no canonical text of the ruling')
@@ -406,28 +398,6 @@ def compare(entry, ev, live):
     dispositions = {d['implementation']: d['is'] for d in entry.get('disposition', [])}
     results = dict(ev.get('implementations') or {})
     bad, marks, differing = [], [], []
-
-    if status == 'pending':
-        for impl in sorted(set(dispositions) - set(results)):
-            bad.append(f'a disposition names {impl}, of which no result is recorded')
-        if live is None:
-            return bad, marks, sorted(set(dispositions) & set(results))
-        if 'finals' not in live:
-            return bad + [f'{INTERPRETER}: {live.get("error")}'], marks, differing
-        marks.append(f'{len(live["finals"])} final(s)')
-        for impl, res in sorted(results.items()):
-            equal = live['finals'] == res.get('finals')
-            if impl in dispositions:
-                if equal:
-                    bad.append(f'a disposition names {impl}, whose result is now {INTERPRETER}\'s')
-                else:
-                    marks.append(f'{impl}:differs')
-                    differing.append(impl)
-            elif equal:
-                marks.append(f'{impl}:=')
-            else:
-                bad.append(f'{INTERPRETER}={shown(live)}, {impl}={shown(res)} and no disposition names {impl}')
-        return bad, marks, differing
 
     if live is not None:
         results[INTERPRETER] = live
@@ -498,13 +468,13 @@ def load(directory):
         return None, f'entry.toml does not parse: {err}'
 
 
-def check_entry(directory, index, live=None, allow_pending=False):
+def check_entry(directory, index, live=None):
     """Judge one entry. Returns (passes, line, status, the implementations that differ as recorded)."""
     cid = os.path.basename(directory)
     entry, fault = load(directory)
     if entry is None:
         return False, f'{cid}: FAIL schema: {fault}', None, []
-    faults = schema_faults(entry, directory, index, allow_pending)
+    faults = schema_faults(entry, directory, index)
     if faults:
         return False, f'{cid}: FAIL schema: ' + '; '.join(faults), None, []
     status = entry['ruling']['status']
@@ -612,9 +582,9 @@ def main(args, package=PACKAGE):
             sys.exit(__doc__)
         return print_ruling_hashes(args[1:], package)
     flags = {a for a in args if a.startswith('--')}
-    if flags - {'--no-run', '--allow-pending'}:
+    if flags - {'--no-run'}:
         sys.exit(__doc__)
-    run, allow_pending = '--no-run' not in flags, '--allow-pending' in flags
+    run = '--no-run' not in flags
     named = [a for a in args if not a.startswith('--')]
     if named:
         entries = [a if os.path.isabs(a) or os.path.exists(a) else os.path.join(package, a) for a in named]
@@ -635,7 +605,7 @@ def main(args, package=PACKAGE):
         if run and os.path.exists(os.path.join(e, 'kore.pgm')):
             live, ms = run_interpreter(e, exe, kc)
             total_ms += ms
-        ok, line, status, differing = check_entry(e, index, live, allow_pending)
+        ok, line, status, differing = check_entry(e, index, live)
         passed += ok
         if status:
             statuses[status] += 1
@@ -644,7 +614,7 @@ def main(args, package=PACKAGE):
         print(line)
     fine = passed == len(entries)
     own = differences.pop(INTERPRETER, 0)
-    counted = ', '.join(f'{n} {s}' for s, n in statuses.items() if n or s != 'pending')
+    counted = ', '.join(f'{n} {s}' for s, n in statuses.items())
     recorded = ', '.join(f'{impl} {n}' for impl, n in sorted(differences.items())) or 'none'
     if not run:
         ran = 'kore.k not run'

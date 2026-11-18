@@ -1,0 +1,16 @@
+# The pin of kk.k, the K text the statement kk_step is about (kk/compare.py checks kk_sha256).
+#
+# kk.k is krs/semantics/kore/kore.k of the k-rust commit `copied_at`, with a first line that says
+# so. Its kompiled text is fixture kore-k's (test/constructs/fixtures/kore-k: kfix.py kompiles kk.k
+# with --main-module KORE --syntax-module KORE-SYNTAX), whose kompile.txt records the SHA-256 of the
+# kk.k it kompiled (its `external` line); kk/compare.py checks that it is kk_sha256. No hash of the
+# kompiled text is pinned here: kompile's text of kk.k depends on the directory it is kompiled in
+# (the order and numbering of the quantifiers it generates for the [owise] premises change with the
+# path, also after kfix's normalisation and stripping), so a recorded hash holds in one tree only.
+# `catalogue_compared` is the commit of the catalogue (krs/semantics/kore) kk/compare.py last ran
+# against, with the result recorded in catalogue-differences.toml.
+kk_sha256 = "abd85cb8920c8fb35a39e452be9cbe3c27eb3238fb094cb316aaa15fa5cb3b28"
+copied_from = "krs/semantics/kore/kore.k"
+copied_at = "de05a5c619dddfb60c510e85109d16e1a62e585b"
+kompiled_fixture = "kore-k"
+catalogue_compared = "8b8a15424aa74fba8580f93d6baeaef07d928dd6"

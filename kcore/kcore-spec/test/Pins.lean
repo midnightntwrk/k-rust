@@ -224,12 +224,31 @@ example (c : Semantics) : ClausePreDecided c =
     (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ vs, c.WellSortedAt cl.vars cl.leftVars σ → PatVals c σ cl.pats vs →
       ∃ b, Holds c cl.vars.length σ cl.pre b) := rfl
 
-/-- `FnSolves`: where a clause decides, the function's values are that clause's. `Clause.DecidesAt`,
-which it reads, is in no review cone, so its text is here too. -/
+/-- `FnSolves`: where a clause decides, the function's values are the values the instances of that
+clause's right side give. `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`,
+which it reads, are in no review cone, so their texts are here too. -/
 example (c : Semantics) : FnSolves c =
     (∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
       cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
-        EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) := rfl
+        ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v) := rfl
+
+/-- Where no clause has an existential variable and every right side's predicate is `\top`,
+`FnSolves` is: where a clause decides, the function's values are that clause's right-hand side's
+where its `ensures` evaluates to `true`. -/
+example : ∀ {c : Semantics}, (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) →
+    (FnSolves c ↔
+      ∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+        cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+          EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) :=
+  @fnSolves_iff_noExs
+
+example (c : Semantics) (cl : Clause) (σ : Subst) (v : GroundTerm) : cl.Gives c σ v =
+    (EvalTerm c σ cl.rhs (some v) ∧ (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+      Holds c cl.vars.length σ cl.post true) := rfl
+
+example (is : List Nat) (σ σ' : Subst) : AgreeOff is σ σ' = (∀ i, i ∉ is → σ'.lookup i = σ.lookup i) := rfl
+
+example (cl : Clause) : cl.exsFree = cl.exs.filter (!cl.leftVars.contains ·) := rfl
 
 example (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) :
     cl.DecidesAt c fn σ vs =

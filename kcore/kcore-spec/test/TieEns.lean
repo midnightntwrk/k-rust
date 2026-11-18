@@ -42,7 +42,8 @@
     sentences over instances of `ite` (99, `ite{Sort}`'s `functional` sentence, and 244, 245,
     `ite{K}`'s equations; `ite_absent`): no direction. The six sentences over the shifts (128, 129, 171, 172, 178, 179; 171 is `X <<Int 0 = X`)
     apply symbols Γ interprets: 171, 172, 178, 179 are of the class library, 128 and 129 of the
-    class set-variable lemma.
+    class set-variable lemma. The equations of `bitRangeInt` and `signExtendBitRangeInt` (208, 265)
+    apply symbols Γ interprets and are of the class library.
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
   translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
@@ -695,7 +696,8 @@ The same holds of 99 (`ite{Sort}`'s `functional` sentence, at the sort variable 
 245 (`ite{K}`'s two equations): a symbol with sort parameters is one symbol at each instance, and
 Γ applies its `ite`, the registry's `kIte` at KItem, at no sort argument (`ite_absent`).
 `<<Int` and `>>Int` are symbols of Γ (interpreted hooks), so the sentences over them alone are
-not of this kind (`shift_syms`, `account_absent`). -/
+not of this kind (`shift_syms`, `account_absent`); nor are the equations of the two bit ranges
+(208, 265), also interpreted hooks. -/
 
 theorem absent_syms : ["LblinitKCell", "LblgetGeneratedCounterCell", "Lblproject'Coln'Int",
     "Lbl'UndsAnd-'Int'Unds'"].all (fun n => (kernelSyms c).all (fun k => c.symName k.name != n)) = true := by
@@ -746,11 +748,11 @@ def classes : List (String × List Nat) :=
    ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
       148, 149, 150, 151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
       174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197, 198,
-      199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 246, 247, 248, 249, 264]),
+      199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 246, 247, 248, 249, 264, 265]),
    ("set idempotence", [61]),
    ("set-variable lemma", [126, 127, 128, 129, 130, 266]),
-   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 208, 210, 212, 213,
-      214, 244, 245, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 265])]
+   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 210, 212, 213,
+      214, 244, 245, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -766,8 +768,8 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 30), ("rewrite rule", 1), ("priority equation", 0), ("constructor functional", 8),
      ("subsort", 15), ("injectivity", 6), ("distinctness", 1), ("no junk", 11), ("function functional", 15),
-     ("hooked functional", 47), ("collection law", 9), ("library", 80), ("set idempotence", 1),
-     ("set-variable lemma", 6), ("no direction", 33)] := by
+     ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1),
+     ("set-variable lemma", 6), ("no direction", 31)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
