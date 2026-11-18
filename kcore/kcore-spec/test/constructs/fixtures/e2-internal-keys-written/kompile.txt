@@ -1,0 +1,29 @@
+command: kompile --backend haskell e2-internal-keys-written.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 6.6
+output:
+  [Error] Compiler: Unrecognized attributes: [anonymous, bracketLabel,
+  cellFragment, cellOptAbsent, contentStartColumn, contentStartLine, denormal,
+  digest, filterElement, fresh, not-lr1-modules, notInjection,
+  org.kframework.definition.Production, org.kframework.kore.Sort, originalPrd,
+  predicate, prettyPrintWithSortAnnotation, projection, recordPrd,
+  recordPrd-empty, recordPrd-item, recordPrd-main, recordPrd-one,
+  recordPrd-repeat, recordPrd-subsort, recordPrd-zero, refreshed, smt-prelude,
+  sortParams, syntaxModule, temporary-cell-sort-decl, userList,
+  userListTerminator, withConfig]
+  	Source(FIXTURE/e2-internal-keys-written.k)
+  	Location(2,18,2,577)
+  	2 |	  syntax Foo ::= foo() [symbol(foo), anonymous, bracketLabel,
+  cellFragment, cellOptAbsent, contentStartColumn, contentStartLine, denormal,
+  digest, filterElement, fresh, notInjection, not-lr1-modules, originalPrd,
+  predicate, prettyPrintWithSortAnnotation, org.kframework.definition.Production,
+  projection, recordPrd, recordPrd-zero, recordPrd-one, recordPrd-main,
+  recordPrd-empty, recordPrd-subsort, recordPrd-repeat, recordPrd-item,
+  refreshed, smt-prelude, org.kframework.kore.Sort, sortParams, syntaxModule,
+  temporary-cell-sort-decl, userList, userListTerminator, withConfig]
+  	  .	                
+  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-INTERNAL-KEYS-WRITTEN-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E2-INTERNAL-KEYS-WRITTEN as default.

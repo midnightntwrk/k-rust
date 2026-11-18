@@ -15,7 +15,7 @@
     exact decimal value with its format, which reads back to the same literal.
   - FLOAT's interpreted operations on concrete values, in the kernel (`hook`): `0.1 + 0.2`, `1 / 3`,
     subnormals and ties, no value where K's text states none (above the largest finite datum, a
-    zero result of unstated sign, an infinite or NaN operand, an inexact `Int2Float`), signed zeros
+    zero result of unstated sign, an infinite or NaN operand, an inexact `Int2Float` or `sqrtFloat`), signed zeros
     and NaN compared, binary32, two formats, rounding to integral, `Int2Float`, `%Float`,
     `sqrtFloat`, the format's properties.
   - in the kernel, for `f2-examples/fltadd.kompile.kore` (`fltadd.k`: `Number ::= Int | Float`, a
@@ -314,17 +314,28 @@ example : hook floatFloor [f64 0xC004000000000000] = some (some (f64 0xC00800000
     hook floatCeil [f64 0xBFE0000000000000] = some none ∧
     hook floatTrunc [f64 0x400599999999999A] = some (some (f64 0x4000000000000000)) ∧
     hook floatFloor [f64 0x3FE0000000000000] = some none := by decide +kernel
-/-- `Int2Float(2^53 + 1, 53, 11)`, which binary64 does not hold: no value; `5 %Float 3 = -1`;
-`sqrtFloat(2)`, `sqrtFloat(4.0) = 2.0`, `sqrtFloat(+0.0) = +0.0`, `sqrtFloat(-1.0)` NaN, no value
-at `sqrtFloat(-0.0)` (squareRoot gives −0, rootn(−0, 2) +0); a format without a model gives no value. -/
+/-- `Int2Float(2^53 + 1, 53, 11)`, which binary64 does not hold: no value; `5 %Float 3 = -1`; a
+format without a model gives no value. -/
 example : hook int2Float [int 9007199254740993, int 53, int 11] = some none ∧
     hook floatRem [f64 0x4014000000000000, f64 0x4008000000000000] = some (some (f64 0xBFF0000000000000)) ∧
-    hook floatSqrt [f64 0x4000000000000000] = some (some (f64 0x3FF6A09E667F3BCD)) ∧
-    hook floatSqrt [f64 0x4010000000000000] = some (some (f64 0x4000000000000000)) ∧
-    hook floatSqrt [f64 0] = some (some (f64 0)) ∧
-    hook floatSqrt [f64 0xBFF0000000000000] = some (some (f64 0x7FF8000000000000)) ∧
-    hook floatSqrt [f64 0x8000000000000000] = some none ∧
     hook int2Float [int 1, int 1, int 8] = some none := by decide +kernel
+/-- `sqrtFloat` where the format holds the root: `sqrtFloat(4.0) = 2.0`, `sqrtFloat(2.25) = 1.5`,
+binary32's `sqrtFloat(9.0f) = 3.0f`, the least subnormal `2^-1074` to the normal `2^-537`,
+`sqrtFloat(+0.0) = +0.0`. No value at a root the format does not hold (`sqrtFloat(2.0)`, the
+subnormal `2^-1073`), at NaN, at `-1.0` and `-Infinity`, at `+Infinity`, and at `-0.0` (squareRoot
+gives −0, rootn(−0, 2) +0). -/
+example : hook floatSqrt [f64 0x4010000000000000] = some (some (f64 0x4000000000000000)) ∧
+    hook floatSqrt [f64 0x4002000000000000] = some (some (f64 0x3FF8000000000000)) ∧
+    hook floatSqrt [f32 0x41100000] = some (some (f32 0x40400000)) ∧
+    hook floatSqrt [f64 1] = some (some (f64 0x1E60000000000000)) ∧
+    hook floatSqrt [f64 0] = some (some (f64 0)) ∧
+    hook floatSqrt [f64 0x4000000000000000] = some none ∧
+    hook floatSqrt [f64 2] = some none ∧
+    hook floatSqrt [f64 0x7FF8000000000000] = some none ∧
+    hook floatSqrt [f64 0xBFF0000000000000] = some none ∧
+    hook floatSqrt [f64 0xFFF0000000000000] = some none ∧
+    hook floatSqrt [f64 0x7FF0000000000000] = some none ∧
+    hook floatSqrt [f64 0x8000000000000000] = some none := by decide_cheap
 /-- Tests and the format: `isNaN`, `isInfinite`, precision, exponent width, the largest finite and
 the smallest positive value. -/
 example : hook floatIsNaN [f64 0x7FF8000000000000] = some (some (bool true)) ∧
@@ -339,7 +350,7 @@ example : hook floatAdd [f64 (0.1 : Float).toBits.toNat, f64 (0.2 : Float).toBit
       some (some (f64 ((0.1 : Float) + 0.2).toBits.toNat)) ∧
     hook floatDiv [f64 (1.0 : Float).toBits.toNat, f64 (3.0 : Float).toBits.toNat] =
       some (some (f64 ((1.0 : Float) / 3.0).toBits.toNat)) ∧
-    hook floatSqrt [f64 (2.0 : Float).toBits.toNat] = some (some (f64 (Float.sqrt 2.0).toBits.toNat)) := by
+    hook floatSqrt [f64 (2.25 : Float).toBits.toNat] = some (some (f64 (Float.sqrt 2.25).toBits.toNat)) := by
   decide +kernel
 
 /-! ## `fltadd`: Float below a sort of the definition, a literal as a value -/

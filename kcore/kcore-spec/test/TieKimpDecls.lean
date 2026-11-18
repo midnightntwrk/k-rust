@@ -4,14 +4,14 @@
   reads `Parse.parse` or `emit`. Run from the package root: `lake env lean test/TieKimpDecls.lean`.
 
   - `decls_entailed` (E): the item of each sort declaration without sort parameters, and of each
-    symbol declaration without sort parameters of a symbol Γ has (`declItems`, 155 items), is an
+    symbol declaration without sort parameters of a symbol Γ has (`declItems`, 163 items), is an
     item of `sigItems c` pattern for pattern (`decls_in_sig`), so Γ entails it for every H.
     `declPos` names each one's place in `sigItems c` (test/TieKimpHints.lean prints it); the kernel
     checks the item there. Decided by
     ranges, joined by `tieAll_range`.
   - `decl_counts`: of the text's 21 sort declarations, 20 have no sort parameter (the other is
-    `SortMInt{Width}`); of its 187 symbol declarations, 135 have no sort parameter and name a
-    symbol Γ has, 5 have sort parameters, and 47 name a symbol Γ does not have (no direction, as
+    `SortMInt{Width}`); of its 187 symbol declarations, 143 have no sort parameter and name a
+    symbol Γ has, 5 have sort parameters, and 39 name a symbol Γ does not have (no direction, as
     the sentences that apply them).
 
   The converse, `sig_origin`, is test/TieKimpSig.lean's.
@@ -46,7 +46,7 @@ noncomputable def declItems : List Item := plainSorts.map sortConstantItem ++ pl
 theorem decl_counts :
     (kore.sortDecls.length, plainSorts.length, kore.symbolDecls.length, plainSyms.length,
       (kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length,
-      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = (21, 20, 187, 135, 5, 47) := by
+      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = (21, 20, 187, 143, 5, 39) := by
   decide +kernel
 
 theorem decl_params : (kore.sortDecls.filter fun sd => !sd.params.isEmpty).map (·.name) = ["SortMInt"] ∧
@@ -56,14 +56,13 @@ theorem decl_params : (kore.sortDecls.filter fun sd => !sd.params.isEmpty).map (
 /-- The place in `sigItems c` of each item of `declItems`, in its order. -/
 def declPos : List Nat :=
   [1, 2, 35, 31, 7, 10, 5, 4, 8, 32, 33, 19, 6, 34, 18, 20, 36, 37, 3, 38, 39, 40, 48, 49, 50, 51, 52, 53,
-   54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 167, 146, 157, 45,
-   47, 41, 42, 43, 170, 171, 168, 151, 152, 149, 162, 163, 158, 76, 128, 77, 126, 78, 124, 79, 125, 80, 127,
-   81, 142, 134, 164, 82, 133, 83, 123, 138, 145, 122, 137, 144, 84, 85, 136, 86, 141, 135, 87, 166, 148,
-   159, 150, 88, 116, 117, 129, 121, 172, 153, 130, 118, 119, 120, 147, 160, 89, 139, 140, 90, 91, 161, 101,
-   108, 109, 111, 110, 104, 105, 103, 102, 95, 106, 107, 97, 96, 112, 100, 98, 99, 113, 114, 156, 143, 132,
-   131, 46, 44, 115, 169, 155, 165, 173, 154, 92, 93, 94]
+   54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 171, 150, 161, 45, 47, 41,
+   42, 43, 174, 175, 178, 172, 155, 156, 153, 166, 167, 162, 76, 128, 77, 126, 78, 124, 79, 125, 80, 127, 81, 142, 134, 168, 82, 133,
+   83, 123, 138, 149, 122, 137, 148, 84, 85, 136, 86, 141, 135, 87, 170, 152, 163, 154, 144, 147, 88, 116, 117, 129, 121, 176, 157, 130,
+   118, 119, 120, 151, 164, 89, 139, 145, 181, 140, 90, 91, 165, 101, 108, 109, 111, 110, 104, 105, 103, 102, 95, 106, 107, 97, 96, 112,
+   100, 98, 99, 113, 114, 160, 143, 179, 132, 131, 46, 44, 115, 173, 159, 146, 169, 177, 158, 180, 92, 93, 94]
 
-theorem declPos_length : declItems.length = 155 ∧ declPos.length = 155 := by decide +kernel
+theorem declPos_length : declItems.length = 163 ∧ declPos.length = 163 := by decide +kernel
 
 /-- The item at the place `p.2` of `sigItems c` is `p.1`, pattern for pattern. -/
 noncomputable def sigAt (p : Item × Nat) : Bool :=

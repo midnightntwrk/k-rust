@@ -1,0 +1,3 @@
+# e1-lexical's text with Int written for the synonym Num and `syntax Num = Int` removed: the pair
+# of the sort synonym rows.
+same_as = "e1-lexical"

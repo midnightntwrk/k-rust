@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-macro-rule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 6.8
+definition.kore bytes: 85049
+definition.kore sha256: 6eb9e7f91d22cc5150f15a656474f0a3f54f55977d2ec7806e2f0ef73510fbba
+stripped sha256: 4058cb714206ea11be70371a739e049b2d987b9c30f4528a49410c8efa2eae82
+main module: 247 sentences, 0 not in c3-macro-rule's, in kore.txt
+other_file macros.kore: 8 lines, sha256 1f84f0e5a80211adddcc30c4366ee535873bcc9fe3b9544f8aa15749ac344f43
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-MACRO-RULE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-MACRO-RULE as default.
