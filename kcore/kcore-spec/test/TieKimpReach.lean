@@ -138,7 +138,7 @@ end KCore.TieKimpReach
 
 /-- info: 'KCore.TieKimpReach.no_rest_premise' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieKimpReach.no_rest_premise
-/-- info: 'KCore.TieKimpReach.silent_unapplied' does not depend on any axioms -/
+/-- info: 'KCore.TieKimpReach.silent_unapplied' depends on axioms: [propext] -/
 #guard_msgs in #print axioms KCore.TieKimpReach.silent_unapplied
 /-- info: 'KCore.TieKimpReach.conds_top' depends on axioms: [propext] -/
 #guard_msgs in #print axioms KCore.TieKimpReach.conds_top

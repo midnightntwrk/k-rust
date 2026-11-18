@@ -1,0 +1,20 @@
+command: kompile --backend haskell e6-mod-rule-cells.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.6
+output:
+  [Error] Compiler: Symbol #cells is not unique. Previously defined as: syntax
+  Bag ::= Bag Bag [assoc, left, symbol(#cells), unit(#cells)]
+  	Source(BUILTIN/kast.md)
+  	Location(240,18,240,43)
+  	240 |	               | ".Bag"   [symbol(#cells)]
+  	    .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Symbol #cells is not unique. Previously defined as: syntax
+  Bag ::= ".Bag" [symbol(#cells)]
+  	Source(BUILTIN/kast.md)
+  	Location(241,18,241,43)
+  	241 |	               | ".::Bag" [symbol(#cells)]
+  	    .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-RULE-CELLS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-RULE-CELLS as default.

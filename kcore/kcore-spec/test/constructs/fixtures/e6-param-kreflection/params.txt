@@ -1,0 +1,8 @@
+param	Lbl'Hash'argv'LParRParUnds'K-REFLECTION'Unds'List	args=[]	result=List	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K	args=[]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'fresh'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'String	args=[String]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'getenv'LParUndsRParUnds'K-REFLECTION'Unds'K'Unds'String	args=[String]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'kompiledDirectory'LParRParUnds'K-REFLECTION'Unds'String	args=[]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'sort'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'K	args=[K]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	Lblgetsymbol'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'K	args=[K]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

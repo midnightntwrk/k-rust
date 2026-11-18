@@ -1,0 +1,4 @@
+# The 34 internal keys of E2 other than cellSort (e2-internal-key) and dummy_cell
+# (e2-internal-key-dummy-cell), each written by an author on one
+# production: kompile refuses the text, naming the keys it does not recognize (kompile.txt).
+expect = "error"

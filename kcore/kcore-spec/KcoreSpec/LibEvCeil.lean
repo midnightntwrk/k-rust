@@ -38,7 +38,7 @@ def ceilIntEqn (f g : Sym) : SvEqn :=
   ⟨[("VarI1", Srt.int), ("VarI2", Srt.int)],
     .ceil Srt.int (.app f [.var 0, .var 1]),
     .and (.and (.eq Srt.bool (.app g [.var 1, intT 0]) (.dv Srt.bool (.bool true))) (.ceil Srt.int (.var 0)))
-      (.ceil Srt.int (.var 1))⟩
+      (.ceil Srt.int (.var 1)), []⟩
 
 theorem ceilInt_apart {c : Semantics} (h : c.coreOK = true) (f g : Sym) :
     (ceilIntEqn f g).lhs.Apart c ∧ (ceilIntEqn f g).rhs.Apart c := by
@@ -56,7 +56,7 @@ theorem ceilInt_refuted_at {c : Semantics} (h : c.coreOK = true) (f g : Sym) (hr
     ∃ e : Valuation M, AtValues c I e ad.ax ∧ SetVarsAtValues c I e ad.ax ∧
       ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default := by
   refine SvEqn.refuted_at h _ hr ht (ceilInt_apart h f g)
-    (fun i v => (i = 0 ∧ v = int p) ∨ (i = 1 ∧ (v = int q ∨ v = int z))) ?_ ?_ ad hp hsv hI
+    (fun i v => (i = 0 ∧ v = int p) ∨ (i = 1 ∧ (v = int q ∨ v = int z))) ?_ (fun _ h => nomatch h) ?_ ad hp hsv hI
   · intro i x hx v hv
     have hx' : x.2 = Srt.int := by
       match i, hx with
@@ -170,7 +170,7 @@ def ceilMapEqn : SvEqn :=
   ⟨[("VarK0", Srt.kitem), ("VarK1", Srt.kitem), ("VarRest", Srt.map)],
     .ceil Srt.map (.app mapConcat [.app mapElem [.var 0, .var 1], .var 2]),
     .and (.eq Srt.bool (.app mapInKeys [.var 0, .var 2]) (.dv Srt.bool (.bool false)))
-      (.and .top (.ceil Srt.kitem (.var 1)))⟩
+      (.and .top (.ceil Srt.kitem (.var 1))), []⟩
 
 theorem ceilMap_apart {c : Semantics} (h : c.coreOK = true) :
     ceilMapEqn.lhs.Apart c ∧ ceilMapEqn.rhs.Apart c := by
@@ -210,7 +210,7 @@ theorem ceilMap_refuted_at {c : Semantics} (h : c.coreOK = true) (hr : ceilMapEq
       ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default := by
   refine SvEqn.refuted_at h _ hr ht (ceilMap_apart h)
     (fun i (w : GroundTerm) => (i = 0 ∧ w = k) ∨ (i = 1 ∧ w = v) ∨ (i = 2 ∧ (w = .map Srt.map m0 ∨ w = .map Srt.map m1)))
-    ?_ ?_ ad hp hsv hI
+    ?_ (fun _ h => nomatch h) ?_ ad hp hsv hI
   · intro i x hx w hw
     match i, hx with
     | 0, hx => cases hx; rcases hw with ⟨-, rfl⟩ | ⟨h', -⟩ | ⟨h', -⟩ <;> first | exact hk | cases h'

@@ -1,0 +1,10 @@
+param	LblBase2String'LParUndsCommUndsRParUnds'STRING-COMMON'Unds'String'Unds'Int'Unds'Int	args=[Int, Int]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblFloat2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Float	args=[Float]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblFloatFormat	args=[Float, String]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblId2String'LParUndsRParUnds'ID-COMMON'Unds'String'Unds'Id	args=[Id]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblString2Float'LParUndsRParUnds'STRING-COMMON'Unds'Float'Unds'String	args=[String]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblString2Id'LParUndsRParUnds'ID-COMMON'Unds'Id'Unds'String	args=[String]	result=Id	impl=none	raw=false	assoc=false	idem=false
+param	LblcategoryChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String	args=[String]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LbldirectionalityChar'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'String	args=[String]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblnewUUID'Unds'STRING-COMMON'Unds'String	args=[]	result=String	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

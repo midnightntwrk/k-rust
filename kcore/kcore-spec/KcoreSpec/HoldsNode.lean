@@ -7,8 +7,9 @@
   evaluations below the one at hand. `HoldsAt c I n σ p b` is the reading at one σ and one truth
   value, and each lemma here gives it at a constructor of `Holds` from the readings of the parts
   (`HoldsAt` of the conditions below, `TermAt` of the terms evaluated), so that a recursion on a
-  derivation of `Holds` proves `HoldsAt` of its conclusion. σ is well sorted on every variable in
-  scope, which the recursion keeps under binders (`wellSorted_extN`).
+  derivation of `Holds` proves `HoldsAt` of its conclusion. Neither asks anything of σ beyond the
+  variables the valuation reads (`Reads`, which gives them values of their sorts), so a reading
+  holds at a σ whatever it gives the other variables.
 -/
 import KcoreSpec.HoldsFacts
 
@@ -20,27 +21,48 @@ namespace KCore
 
 open ML Faithful
 
+namespace Faithful
+
+/-- `Agrees` on the variables `is`: the valuation `e` gives each variable `i` of `is` that σ binds
+the element its value denotes, at the index the table `t` gives the variable's key. -/
+def AgreesOn {M : Type} (c : Semantics) (I : Interpretation KoreAML.Sym M) (t : KoreAML.VarTable)
+    (vs : List KoreAML.Var) (is : List Nat) (σ : Subst) (e : Valuation M) : Prop :=
+  ∀ i ∈ is, ∀ v, i < vs.length → σ.lookup i = some v →
+    ∀ m, m = e.evalEvar (t.ev (KoreAML.evarKey (vs.getD i default).kore)) ↔ (den c v).interpret I e m
+
+theorem Agrees.on {M : Type} {c : Semantics} {I : Interpretation KoreAML.Sym M} {t : KoreAML.VarTable}
+    {vs : List KoreAML.Var} {σ : Subst} {e : Valuation M} (h : Agrees c I t vs σ e) (is : List Nat) :
+    AgreesOn c I t vs is σ e :=
+  fun i _ => h i
+
+theorem AgreesOn.mono {M : Type} {c : Semantics} {I : Interpretation KoreAML.Sym M} {t : KoreAML.VarTable}
+    {vs : List KoreAML.Var} {is is' : List Nat} {σ : Subst} {e : Valuation M} (h : AgreesOn c I t vs is σ e)
+    (hsub : ∀ i ∈ is', i ∈ is) : AgreesOn c I t vs is' σ e :=
+  fun i hi => h i (hsub i hi)
+
+end Faithful
+
 namespace HoldsShape
 
 section Node
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- The term t, with the result r under σ, is read in I: at every valuation that reads its
-variables as their values under σ, σ well sorted on the variables in scope, its translation
-denotes what r denotes. `TermSoundAt` at one evaluation. -/
+variables as their values under σ, its translation denotes what r denotes. `TermSoundAt` at one
+evaluation. -/
 def TermAt (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (σ : Subst) (t : Term)
     (r : Option GroundTerm) : Prop :=
   ∀ {vars : List Srt} {P : Nat → Prop} {tbl : KoreAML.VarTable} {e : Valuation M} {s : Srt},
-    c.WellSorted vars σ → (∀ i ∈ varOccs t, P i) → Reads c I vars P σ tbl e →
+    (∀ i ∈ varOccs t, P i) → Reads c I vars P σ tbl e →
     sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s →
     ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e m ↔ Res c I e r m
 
 /-- The condition p, with n variables in scope and the truth value b under σ, is read in I: the
-conclusion of `HoldsDen'` at σ and b, σ well sorted on the variables in scope. -/
+conclusion of `HoldsDen'` at σ and b. -/
 def HoldsAt (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (n : Nat) (σ : Subst) (p : Cond)
     (b : Bool) : Prop :=
   ∀ {vars : List Srt} {P : Nat → Prop} {tbl : KoreAML.VarTable} {e : Valuation M} {S : Srt},
-    vars.length = n → c.WellSorted vars σ → c.condOK vars p = true → Cond.bound c vars.length p = true →
+    vars.length = n → c.condOK vars p = true → Cond.bound c vars.length p = true →
     (∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) → Reads c I vars P σ tbl e →
     (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl) →
     S < nRegSorts + c.sortNames.length →
@@ -70,12 +92,12 @@ theorem AtomFacts.node (F : AtomFacts c I) : NodeFacts c I :=
 /-- With the atoms' facts, every evaluation of a term is read. -/
 theorem AtomFacts.termAt (F : AtomFacts c I) {σ : Subst} {t : Term} {r : Option GroundTerm}
     (h : EvalTerm c σ t r) : TermAt c I σ t r :=
-  fun _ hP hr ht m => F.termSound h hP hr ht m
+  fun hP hr ht m => F.termSound h hP hr ht m
 
 /-- The Holds lemma for p gives the reading at each truth value `Holds` gives. -/
 theorem holdsAt_of_den {p : Cond} (hp : HoldsDen' c I p) {n : Nat} {σ : Subst} {b : Bool}
     (hh : Holds c n σ p b) : HoldsAt c I n σ p b := by
-  intro vars P tbl e S hlenN _ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   exact hp hok hbd hP hr hk hS hh a ha
 
@@ -103,12 +125,12 @@ theorem Reads.inSortN (F : NodeFacts c I) {vars : List Srt} {P : Nat → Prop} {
   exact hin
 
 theorem holdsAt_top (F : NodeFacts c I) {n : Nat} {σ : Subst} : HoldsAt c I n σ .top true := by
-  intro vars P tbl e S _ _ _ _ _ _ _ _ a ha
+  intro vars P tbl e S _ _ _ _ _ _ _ a ha
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sTop F.defOK Model.srtOf_free_stdI]
   exact ⟨fun _ => rfl, fun _ => ha⟩
 
 theorem holdsAt_bot (F : NodeFacts c I) {n : Nat} {σ : Subst} : HoldsAt c I n σ .bot false := by
-  intro vars P tbl e S _ _ _ _ _ _ _ _ a ha
+  intro vars P tbl e S _ _ _ _ _ _ _ a ha
   rw [Cond.kore, KoreAML.tr]
   unfold KoreAML.sBot
   rw [KoreAML.interp_sNot, KoreAML.interp_sTop F.defOK Model.srtOf_free_stdI]
@@ -116,19 +138,19 @@ theorem holdsAt_bot (F : NodeFacts c I) {n : Nat} {σ : Subst} : HoldsAt c I n �
 
 theorem holdsAt_not {n : Nat} {σ : Subst} {p : Cond} {b' : Bool} (ih : HoldsAt c I n σ p b') :
     HoldsAt c I n σ (.not p) (!b') := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok
   rw [Cond.bound] at hbd
   have hk' : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]; exact List.mem_append_right _ hk0)
-  have := ih rfl hσ hok hbd (fun i hi hl => hP i (by rw [varOccsCond]; exact hi) hl) hr hk' hS a ha
+  have := ih rfl hok hbd (fun i hi hl => hP i (by rw [varOccsCond]; exact hi) hl) hr hk' hS a ha
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sNot, this]
   cases b' <;> simp [ha]
 
 theorem holdsAt_and {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
     (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.and p q) (b1 && b2) := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
@@ -138,16 +160,16 @@ theorem holdsAt_and {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : Ho
   have hkq : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) q), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ hk0)))
-  have h1 := ihp rfl hσ hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
+  have h1 := ihp rfl hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
     hr hkp hS a ha
-  have h2 := ihq rfl hσ hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
+  have h2 := ihq rfl hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
     hr hkq hS a ha
   rw [Cond.kore, tr_and2, KoreAML.interp_sAnd, h1, h2]
   cases b1 <;> cases b2 <;> simp
 
 theorem holdsAt_or {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
     (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.or p q) (b1 || b2) := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
@@ -157,16 +179,16 @@ theorem holdsAt_or {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : Hol
   have hkq : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) q), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList]
              exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ hk0)))
-  have h1 := ihp rfl hσ hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
+  have h1 := ihp rfl hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
     hr hkp hS a ha
-  have h2 := ihq rfl hσ hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
+  have h2 := ihq rfl hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
     hr hkq hS a ha
   rw [Cond.kore, Model.tr_or2Stdi, KoreAML.interp_sOr, h1, h2]
   cases b1 <;> cases b2 <;> simp [ha]
 
 theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp : HoldsAt c I n σ p b1)
     (ihq : HoldsAt c I n σ q b2) : HoldsAt c I n σ (.implies p q) (!b1 || b2) := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK, Bool.and_eq_true] at hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
@@ -175,9 +197,9 @@ theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp 
              exact List.mem_append_left _ (List.mem_append_right _ hk0))
   have hkq : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) q), k ∈ tbl := fun k hk0 =>
     hk k (by rw [Cond.kore, KoreAML.varsOf]; exact List.mem_append_right _ hk0)
-  have h1 := ihp rfl hσ hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
+  have h1 := ihp rfl hok.1 hbd.1 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) hl)
     hr hkp hS a ha
-  have h2 := ihq rfl hσ hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
+  have h2 := ihq rfl hok.2 hbd.2 (fun i hi hl => hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) hl)
     hr hkq hS a ha
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sImp, h1, h2]
   cases b1 <;> cases b2 <;> simp [ha]
@@ -185,7 +207,7 @@ theorem holdsAt_implies {n : Nat} {σ : Subst} {p q : Cond} {b1 b2 : Bool} (ihp 
 /-- **`ceil`**, from the reading of its term's evaluation. -/
 theorem holdsAt_ceil (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t : Term} {r : Option GroundTerm}
     (hev : EvalTerm c σ t r) (hT : TermAt c I σ t r) : HoldsAt c I n σ (.ceil s t) r.isSome := by
-  intro vars P tbl e S hlenN hσ hok _ hP hr _ hS a ha
+  intro vars P tbl e S hlenN hok _ hP hr _ hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi => hP i (by rw [varOccsCond]; exact hi) (varOccs_lt t hok i hi)
@@ -202,7 +224,7 @@ theorem holdsAt_ceil (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t : T
   obtain ⟨τ, hτ, hτd⟩ := F.sort hs
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   have haS : KoreAML.Inh I τS a := (KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha
-  have hread := hT hσ hPt hr hok
+  have hread := hT hPt hr hok
   rw [Cond.kore, KoreAML.tr, KoreAML.interp_sCeil F.defOK F.ceilDef (hτd tbl e) (hτSd tbl e) hτ hτS (fun m hm => by
     cases r with
     | none => exact ((hread m).mp hm).elim
@@ -220,7 +242,7 @@ theorem holdsAt_ceil (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t : T
 /-- A term of a condition, read: its sort is numbered; the term denotes what a result whose
 evaluation is read denotes, and a result that is a value is of the term's sort. -/
 theorem term_readN (F : NodeFacts c I) {vars : List Srt} {P : Nat → Prop} {σ : Subst} {tbl : KoreAML.VarTable}
-    {e : Valuation M} (hσ : c.WellSorted vars σ) (hr : Reads c I vars P σ tbl e) {t : Term} {s : Srt}
+    {e : Valuation M} (hr : Reads c I vars P σ tbl e) {t : Term} {s : Srt}
     (ht : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s) (hP : ∀ i ∈ varOccs t, P i) :
     s < nRegSorts + c.sortNames.length ∧
       ∀ r, EvalTerm c σ t r → TermAt c I σ t r →
@@ -231,7 +253,7 @@ theorem term_readN (F : NodeFacts c I) {vars : List Srt} {P : Nat → Prop} {σ 
     obtain ⟨-, -, v, hv, hsv, -⟩ := hr i (hP i hi)
     refine ⟨v, hv, ?_⟩
     rw [hsv, List.getD_eq_getElem?_getD, hs']; rfl
-  refine ⟨F.termNum ht fun i hi s' hs' => ?_, fun r hev hT => ⟨hT hσ hP hr ht,
+  refine ⟨F.termNum ht fun i hi s' hs' => ?_, fun r hev hT => ⟨hT hP hr ht,
     fun w hw => EvalTerm.sorted_at F.sortCtx hev fns_headsOK hsat ht hw⟩⟩
   obtain ⟨-, -, v, -, hsv, -⟩ := hr i (hP i hi)
   have : vars.getD i 0 = s' := by rw [List.getD_eq_getElem?_getD, hs']; rfl
@@ -242,15 +264,15 @@ theorem term_readN (F : NodeFacts c I) {vars : List Srt} {P : Nat → Prop} {σ 
 theorem holdsAt_equals (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {r r' : Option GroundTerm}
     (hev : EvalTerm c σ t r) (hT : TermAt c I σ t r) (hev' : EvalTerm c σ u r') (hT' : TermAt c I σ u r') :
     HoldsAt c I n σ (.equals s t u) (sameResult r r') := by
-  intro vars P tbl e S hlenN hσ hok _ hP hr _ hS a ha
+  intro vars P tbl e S hlenN hok _ hP hr _ hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) (varOccs_lt t hok.1 i hi)
   have hPu : ∀ i ∈ varOccs u, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) (varOccs_lt u hok.2 i hi)
-  obtain ⟨hs, hrt⟩ := term_readN F hσ hr hok.1 hPt
-  obtain ⟨-, hru⟩ := term_readN F hσ hr hok.2 hPu
+  obtain ⟨hs, hrt⟩ := term_readN F hr hok.1 hPt
+  obtain ⟨-, hru⟩ := term_readN F hr hok.2 hPu
   obtain ⟨τ, hτ, hτd⟩ := F.sort hs
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   have haS : KoreAML.Inh I τS a := (KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha
@@ -298,15 +320,15 @@ theorem holdsAt_equals (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t u
 theorem holdsAt_mem (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {r r' : Option GroundTerm}
     (hev : EvalTerm c σ t r) (hT : TermAt c I σ t r) (hev' : EvalTerm c σ u r') (hT' : TermAt c I σ u r') :
     HoldsAt c I n σ (.mem s t u) (r.isSome && sameResult r r') := by
-  intro vars P tbl e S hlenN hσ hok _ hP hr _ hS a ha
+  intro vars P tbl e S hlenN hok _ hP hr _ hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok; replace hok := ((Bool.and_eq_true _ _).mp hok).1; rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hok
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) (varOccs_lt t hok.1 i hi)
   have hPu : ∀ i ∈ varOccs u, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_right _ hi) (varOccs_lt u hok.2 i hi)
-  obtain ⟨hs, hrt⟩ := term_readN F hσ hr hok.1 hPt
-  obtain ⟨-, hru⟩ := term_readN F hσ hr hok.2 hPu
+  obtain ⟨hs, hrt⟩ := term_readN F hr hok.1 hPt
+  obtain ⟨-, hru⟩ := term_readN F hr hok.2 hPu
   obtain ⟨τ, hτ, hτd⟩ := F.sort hs
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   have haS : KoreAML.Inh I τS a := (KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha
@@ -350,7 +372,7 @@ theorem holdsAt_mem (F : NodeFacts c I) {n : Nat} {σ : Subst} {s : Srt} {t u : 
 theorem holdsAt_ex (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool}
     (g : Subst → Bool) (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAt c I (n + 1) σ' body (g σ'))
     (hr' : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true) : HoldsAt c I n σ (.ex s body) b := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
@@ -380,7 +402,7 @@ theorem holdsAt_ex (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Sub
       ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body)).interpret I
         ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ a ↔ g σ' = true) := by
     intro σ' v a0 hσ' hn hv hd hx
-    exact ih σ' hx hlen (wellSorted_extN hσ hx) hok (by rw [hlen]; exact hbd.2) hPB (hr.snoc hK hσ' hn hv hd) hkB hS
+    exact ih σ' hx hlen hok (by rw [hlen]; exact hbd.2) hPB (hr.snoc hK hσ' hn hv hd) hkB hS
       a ((KoreAML.interp_inhOf_of (hτSd tbl _)).mpr
         ((KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha))
   have hsrt : ∀ (e' : Valuation M) m,
@@ -412,7 +434,7 @@ theorem holdsAt_ex (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Sub
 theorem holdsAt_all (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool}
     (g : Subst → Bool) (ih : ∀ σ', Extends c n [s] σ σ' → HoldsAt c I (n + 1) σ' body (g σ'))
     (hr' : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : HoldsAt c I n σ (.all s body) b := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   rw [Semantics.condOK] at hok
   rw [Cond.bound, Bool.and_eq_true] at hbd
@@ -442,7 +464,7 @@ theorem holdsAt_all (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ : Su
       ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c (vars ++ [s])) (srtOf c S) body)).interpret I
         ⟨Function.update e.evalEvar (tbl.ev K) a0, e.evalSvar⟩ a ↔ g σ' = true) := by
     intro σ' v a0 hσ' hn hv hd hx
-    exact ih σ' hx hlen (wellSorted_extN hσ hx) hok (by rw [hlen]; exact hbd.2) hPB (hr.snoc hK hσ' hn hv hd) hkB hS
+    exact ih σ' hx hlen hok (by rw [hlen]; exact hbd.2) hPB (hr.snoc hK hσ' hn hv hd) hkB hS
       a ((KoreAML.interp_inhOf_of (hτSd tbl _)).mpr
         ((KoreAML.interp_inhOf_of (hτSd tbl e)).mp ha))
   have hsrt : ∀ (e' : Valuation M) m,
@@ -485,7 +507,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
       (∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → HoldsAt c I (n + ys.length) σ' body (g σ')) ∧
       (b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true)) :
     HoldsAt c I n σ (.exMatch ys s p t body) b := by
-  intro vars P tbl e S hlenN hσ hok hbd hP hr hk hS a ha
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
   subst hlenN
   simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hok
   obtain ⟨⟨⟨hpS, htS⟩, hokB⟩, -⟩ := hok
@@ -507,7 +529,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
       (Model.varsOf_and_mem (List.mem_cons_of_mem _ (List.mem_cons_self ..)) hk0) _)
   have hPt : ∀ i ∈ varOccs t, P i := fun i hi =>
     hP i (by rw [varOccsCond]; exact List.mem_append_left _ hi) (varOccs_lt t htS i hi)
-  obtain ⟨hs, -⟩ := term_readN F hσ hr htS hPt
+  obtain ⟨hs, -⟩ := term_readN F hr htS hPt
   obtain ⟨τs, hτs, hτsd⟩ := F.sort hs
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   have haS : ∀ e' : Valuation M, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e' a :=
@@ -574,7 +596,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
     have hrt : Reads c I vars P σ tbl e' := fun i hi => by
       obtain ⟨a1, a2, v, a3, a4, a5⟩ := hr i hi
       exact ⟨a1, a2, v, a3, a4, fun m => by rw [hoff i hi]; exact (a5 m).trans ((den_closed c v).interp _ _ m)⟩
-    obtain ⟨-, hrd⟩ := term_readN F hσ hrt htS hPt
+    obtain ⟨-, hrd⟩ := term_readN F hrt htS hPt
     obtain ⟨hreadt, hsortt⟩ := hrd r hev hT'
     rw [tr_and2, KoreAML.interp_sAnd, KoreAML.tr, KoreAML.interp_sIn F.defOK F.ceilDef
       (hτsd tbl e') (hτSd tbl e') hτs hτS (fun m hm => by
@@ -603,7 +625,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
     obtain ⟨⟨m, hm, -⟩, -⟩ := (hread e' none hev hT hoffP).mp hb
     exact hm.elim
   · skip
-    obtain ⟨-, hrd⟩ := term_readN F hσ hr htS hPt
+    obtain ⟨-, hrd⟩ := term_readN F hr htS hPt
     have hsv : c.sortOf v = some s := (hrd _ hev hT).2 v rfl
     constructor
     · -- an element of the match: the binders are values' elements, by the pattern or by their sorts
@@ -687,7 +709,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
         have := F.apart hsu hsu' e' _ ((hdu _).mp rfl) ((hdu' _).mpr rfl)
         rw [hu, hu', this]
       exact hr'.mpr ⟨σE, hext, hpvE,
-        (hb σE hext hpvE hlen (wellSorted_extN hσ hext) hokB (by rw [hlen]; exact hbdB) hPB hrE hkB hS a (haS e')).mp hbodym⟩
+        (hb σE hext hpvE hlen hokB (by rw [hlen]; exact hbdB) hPB hrE hkB hS a (haS e')).mp hbodym⟩
     · -- an extension where the match holds: the binders at the elements of their values
       intro hbt
       obtain ⟨σ', hext, hpv, hg⟩ := hr'.mp hbt
@@ -740,7 +762,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
         exact ⟨u, hu, hsu, fun m' => (hdu m').symm⟩
       refine existsAll_intro_at F.defOK _ e e' a hnd hsrt (fun z hz => ?_) rfl (fun b hb' k hk => ?_)
         ((hread e' (some v) hev hT hoffP).mpr ⟨⟨m0, (hm0 m0).mpr rfl, hpm⟩,
-          (hb σ' hext hpv hlen (wellSorted_extN hσ hext) hokB (by rw [hlen]; exact hbdB) hPB hr'' hkB hS a (haS e')).mpr hg⟩)
+          (hb σ' hext hpv hlen hokB (by rw [hlen]; exact hbdB) hPB hr'' hkB hS a (haS e')).mpr hg⟩)
       · show (if h : _ then _ else _) = _
         rw [dif_neg]
         rintro ⟨i, -, hix, rfl⟩
@@ -757,43 +779,48 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
         exact (hfe i h1 h2).2
 
 /-- **A term's evaluation is read where its translation denotes its result at every valuation
-that agrees with σ on all the variables in scope** (the form a recursion on evaluations
-concludes), in a model of `Γ`: the valuation is moved to a table that holds every variable's key,
-a variable that is not read given its value's element. -/
+that agrees with σ on the term's variables, σ well sorted on them** (the form a recursion on
+evaluations concludes): a valuation that reads the term's variables gives both. -/
 theorem termAt_of_all (hI : I ⊧ᴵP Γ c) {σ : Subst} {t : Term} {r : Option GroundTerm}
-    (h : ∀ {vars : List Srt} {tbl : KoreAML.VarTable} {e : Valuation M} {s : Srt}, c.WellSorted vars σ →
-      Agrees c I tbl (canonVars c vars) σ e → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s →
+    (h : ∀ {vars : List Srt} {tbl : KoreAML.VarTable} {e : Valuation M} {s : Srt},
+      c.WellSortedAt vars (varOccs t) σ → AgreesOn c I tbl (canonVars c vars) (varOccs t) σ e →
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e m ↔ Res c I e r m) :
     TermAt c I σ t r := by
-  intro vars P tbl e s hσ hP hr ht m
-  classical
-  let tbl' : KoreAML.VarTable := (List.range vars.length).map (canonKey c vars)
-  let fe : Nat → M := fun i =>
-    if P i then e.evalEvar (tbl.ev (canonKey c vars i)) else elemOf c I ((σ.lookup i).getD default)
-  have hkeys : ∀ i < vars.length, i ∈ List.range vars.length → canonKey c vars i ∈ tbl' :=
-    fun i hi _ => List.mem_map.mpr ⟨i, List.mem_range.mpr hi, rfl⟩
-  let e' := setV c tbl' vars (List.range vars.length) fe e
-  have hat : ∀ i < vars.length, e'.evalEvar (tbl'.ev (canonKey c vars i)) = fe i :=
-    fun i hi => setV_on hkeys hi (List.mem_range.mpr hi)
-  have hag : Agrees c I tbl' (canonVars c vars) σ e' := by
-    intro i v hi hl m'
-    rw [canonVars_length] at hi
-    show m' = e'.evalEvar (tbl'.ev (canonKey c vars i)) ↔ _
-    rw [hat i hi]
-    by_cases hPi : P i
-    · obtain ⟨-, -, w, hw, -, hd⟩ := hr i hPi
-      rw [hl] at hw; cases hw
-      simp only [fe, if_pos hPi]
-      exact (hd m').trans ((den_closed c v).interp e e' m')
-    · obtain ⟨w, hw, hsw⟩ := hσ i _ (List.getElem?_eq_getElem hi)
-      rw [hl] at hw; cases hw
-      simp only [fe, if_neg hPi, hl, Option.getD_some]
-      exact ((elemOf_spec hI hsw e').1 m').symm
-  have hlt := varOccs_lt t ht
-  rw [tr_kore_congr (tbl' := tbl') (e' := e') t (fun i hi => by
-    show e.evalEvar (tbl.ev (canonKey c vars i)) = e'.evalEvar (tbl'.ev (canonKey c vars i))
-    rw [hat i (hlt i hi)]; simp only [fe, if_pos (hP i hi)]) m, h hσ hag ht m]
-  exact Res_closed r e' e m
+  intro vars P tbl e s hP hr ht m
+  refine h (fun i hi s' hs' => ?_) (fun i hi v _ hl m' => ?_) ht m
+  · obtain ⟨-, -, v, hv, hsv, -⟩ := hr i (hP i hi)
+    exact ⟨v, hv, by rw [hsv, List.getD_eq_getElem?_getD, hs']; rfl⟩
+  · obtain ⟨-, -, w, hw, -, hd⟩ := hr i (hP i hi)
+    rw [hl] at hw; cases hw
+    exact hd m'
+
+/-- A valuation that reads variables as their values under σ reads them as their values under a σ'
+that gives them the same values. -/
+theorem Reads.congr_occ {vars : List Srt} {P : Nat → Prop} {σ σ' : Subst} {tbl : KoreAML.VarTable}
+    {e : Valuation M} (hr : Reads c I vars P σ tbl e) (hag : ∀ i, P i → σ'.lookup i = σ.lookup i) :
+    Reads c I vars P σ' tbl e := fun i hi => by
+  rw [hag i hi]; exact hr i hi
+
+/-- A valuation that reads the variables P reads those of a part of P. -/
+theorem Reads.mono_occ {vars : List Srt} {P Q : Nat → Prop} {σ : Subst} {tbl : KoreAML.VarTable}
+    {e : Valuation M} (hr : Reads c I vars P σ tbl e) (hQ : ∀ i, Q i → P i) : Reads c I vars Q σ tbl e :=
+  fun i hi => hr i (hQ i hi)
+
+/-- **A term's reading depends on σ at the term's variables only.** -/
+theorem TermAt.congr_occ {σ σ' : Subst} {t : Term} {r : Option GroundTerm} (hT : TermAt c I σ t r)
+    (hag : ∀ i ∈ varOccs t, σ'.lookup i = σ.lookup i) : TermAt c I σ' t r := by
+  intro vars P tbl e s hP hr ht m
+  exact hT (P := fun i => i ∈ varOccs t) (fun i hi => hi)
+    ((hr.mono_occ fun i hi => hP i hi).congr_occ fun i hi => (hag i hi).symm) ht m
+
+/-- **A condition's reading depends on σ at the condition's variables in scope only.** -/
+theorem HoldsAt.congr_occ {n : Nat} {σ σ' : Subst} {p : Cond} {b : Bool} (hH : HoldsAt c I n σ p b)
+    (hag : ∀ i ∈ varOccsCond n p, i < n → σ'.lookup i = σ.lookup i) : HoldsAt c I n σ' p b := by
+  intro vars P tbl e S hlenN hok hbd hP hr hk hS a ha
+  subst hlenN
+  exact hH (P := fun i => i ∈ varOccsCond vars.length p ∧ i < vars.length) rfl hok hbd (fun i hi hl => ⟨hi, hl⟩)
+    ((hr.mono_occ fun i hi => hP i hi.1 hi.2).congr_occ fun i hi => (hag i hi.1 hi.2).symm) hk hS a ha
 
 end Node
 

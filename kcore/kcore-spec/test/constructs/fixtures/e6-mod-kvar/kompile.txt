@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-kvar.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 269244
+definition.kore sha256: 273ef3d37b6c9ae9d7e07040c68e60e284ee2ec75bc449403373153b2b989062
+stripped sha256: 0e14260085938d006ea775337df9ef78aef77fd3e82d9bc06e48960ae28f6afd
+main module: 487 sentences, 74 not in base's, in kore.txt
+same_as e6-mod-kvar-imports: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-KVAR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-KVAR as default.

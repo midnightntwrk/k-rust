@@ -7,35 +7,41 @@
   of a sort with a value, a substitution of the second kind extends to one of the first.
   `Semantics.RightHeld` states that of every clause of the definition's
   functions; `Semantics.rightValued` decides it, over `Semantics.valued`, a test of "the sort has a
-  value" that exhibits the value (`Semantics.valued_value`): Int (`0`), Bool (`true`), or the result
-  sort of a constructor without arguments. A sort with a value that `valued` does not exhibit
-  (KItem, String, a token sort, a sort whose constructors all take arguments) is not decided by it;
-  `RightHeld` is the Prop, and holds there too.
+  value" that exhibits the value (`Semantics.valued_value`): Int (`0`), Bool (`true`), the result
+  sort of a constructor without arguments, or a sort of which the search of Exhibit.lean exhibits a
+  value (`Parse.exhibit?`: literals, empty collections, constructors and injections). A sort with a
+  value the search does not exhibit is not decided by it; `RightHeld` is the Prop, and holds there
+  too.
 
   None of these is read by `coreOK`. Where every clause's patterns bind every variable `RightHeld`
   holds (`rightHeld_of_binds`). Neither reads the interpretation of the parameters
   (`rightValued_withHooks`; `rightHeld_withHooks`, RightHeldHooks.lean).
 -/
 import KcoreSpec.Evaluation
+import KcoreSpec.Exhibit
 
 set_option autoImplicit false
 
 namespace KCore
 
-/-- A sort with an exhibited value: Int (`0`), Bool (`true`), or the result sort of a constructor
-without arguments (the constructor). -/
+/-- A sort with an exhibited value: Int (`0`), Bool (`true`), the result sort of a constructor
+without arguments (the constructor), or a sort of which the search exhibits a value
+(`Parse.exhibit?`). The first three are tried first: they need no search. -/
 def Semantics.valued (c : Semantics) (s : Srt) : Bool :=
   s == Srt.int || s == Srt.bool ||
-  c.ctorSigs.any fun k => (lookupSig c.ctorSigs k.name).any fun k' => k'.args.isEmpty && k'.result == s
+  (c.ctorSigs.any fun k => (lookupSig c.ctorSigs k.name).any fun k' => k'.args.isEmpty && k'.result == s) ||
+  (Parse.exhibit? c s).isSome
 
 /-- **A sort `valued` accepts has a value.** -/
 theorem Semantics.valued_value {c : Semantics} {s : Srt} (h : c.valued s = true) : ∃ v, c.sortOf v = some s := by
   simp only [Semantics.valued, Bool.or_eq_true, beq_iff_eq, List.any_eq_true, Option.any_eq_true,
     Bool.and_eq_true, List.isEmpty_iff] at h
-  rcases h with (rfl | rfl) | ⟨k, -, k', hk', ha, rfl⟩
+  rcases h with ((rfl | rfl) | ⟨k, -, k', hk', ha, rfl⟩) | hx
   · exact ⟨.dv Srt.int (.int 0), by simp [Semantics.sortOf, show dvOK c.lib Srt.int (.int 0) = true from rfl]⟩
   · exact ⟨.dv Srt.bool (.bool true), by simp [Semantics.sortOf, show dvOK c.lib Srt.bool (.bool true) = true from rfl]⟩
   · exact ⟨.ctor k.name [], by simp [Semantics.sortOf, Semantics.sortsOf, hk', ha]⟩
+  · obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hx
+    exact ⟨v, Parse.sortOf_of_exhibit hv⟩
 
 /-- Each variable of each clause is held by the clause's patterns or conditions, or is of a sort
 with a value. -/
@@ -69,9 +75,27 @@ theorem Semantics.rightHeld_of_binds {c : Semantics}
   have h1 := List.all_eq_true.mp (h f hf cl hcl) i (List.mem_range.mpr hi)
   exact Or.inl (List.mem_append_left _ (List.contains_iff_mem.mp h1))
 
+/-- `valued_withHooks`, as one closed equation of functions, checked by the kernel alone. -/
+private theorem Semantics.valued_withHooks_fun :
+    (fun (c : Semantics) (H : HookParams) => (c.withHooks H).valued) = fun c _ => c.valued := by
+  kernel_rfl
+
+/-- `valued` does not read the interpretation of the parameters: the search it reads is the same at
+every interpretation by its definition (`Parse.exhibit_withHooks`). -/
+theorem Semantics.valued_withHooks (c : Semantics) (H : HookParams) : (c.withHooks H).valued = c.valued :=
+  congrFun (congrFun Semantics.valued_withHooks_fun c) H
+
+/-- `rightValued_withHooks`, as one closed equation of functions, checked by the kernel alone (the
+search `valued` reads is the same at every interpretation by its definition,
+`Parse.exhibit_withHooks`). -/
+private theorem Semantics.rightValued_withHooks_fun :
+    (fun (c : Semantics) (H : HookParams) => (c.withHooks H).rightValued) = fun c _ => c.rightValued := by
+  kernel_rfl
+
 /-- `rightValued` does not read the interpretation of the parameters. -/
 theorem Semantics.rightValued_withHooks (c : Semantics) (H : HookParams) :
-    (c.withHooks H).rightValued = c.rightValued := rfl
+    (c.withHooks H).rightValued = c.rightValued :=
+  congrFun (congrFun Semantics.rightValued_withHooks_fun c) H
 
 /-! ## The functions the test does not accept, by name
 
@@ -95,9 +119,15 @@ sort `valued` does not accept. -/
 def Semantics.heldObligations (c : Semantics) : List Sym :=
   (c.fns.filter fun f => !f.clauses.all c.clauseValued).map (·.label)
 
+/-- `heldObligations_withHooks`, as one closed equation of functions, checked by the kernel alone. -/
+private theorem Semantics.heldObligations_withHooks_fun :
+    (fun (c : Semantics) (H : HookParams) => (c.withHooks H).heldObligations) = fun c _ => c.heldObligations := by
+  kernel_rfl
+
 /-- `heldObligations` does not read the interpretation of the parameters. -/
 theorem Semantics.heldObligations_withHooks (c : Semantics) (H : HookParams) :
-    (c.withHooks H).heldObligations = c.heldObligations := rfl
+    (c.withHooks H).heldObligations = c.heldObligations :=
+  congrFun (congrFun Semantics.heldObligations_withHooks_fun c) H
 
 /-- **No function is held-named exactly where `rightValued` holds.** -/
 theorem Semantics.heldObligations_eq_nil {c : Semantics} : c.heldObligations = [] ↔ c.rightValued = true := by

@@ -46,7 +46,10 @@ def Semantics.hasValue (c : Semantics) (s : Srt) : Bool :=
 
 /-- `hasValue` does not read the interpretation of the parameters. -/
 theorem Semantics.hasValue_withHooks (c : Semantics) (H : HookParams) (s : Srt) :
-    (c.withHooks H).hasValue s = c.hasValue s := rfl
+    (c.withHooks H).hasValue s = c.hasValue s := by
+  unfold Semantics.hasValue
+  rw [Semantics.valued_withHooks]
+  rfl
 
 /-- A sort `valued` accepts, `hasValue` accepts. -/
 theorem Semantics.hasValue_of_valued {c : Semantics} {s : Srt} (h : c.valued s = true) : c.hasValue s = true := by

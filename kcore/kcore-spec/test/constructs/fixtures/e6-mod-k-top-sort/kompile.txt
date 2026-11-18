@@ -1,0 +1,28 @@
+command: kompile --backend haskell e6-mod-k-top-sort.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.9
+output:
+  kore-exec: [29310] Error (ErrorVerify):
+      Error:
+        module 'E6-MOD-K-TOP-SORT':
+        axiom declaration:
+        \exists 'Val' (definition.kore 183:20):
+        \equals (definition.kore 183:62):
+        symbol or alias 'inj' (definition.kore 183:83):
+        (definition.kore 183:87):
+          Sort variable SortSort not declared.
+  Error:
+    module 'E6-MOD-K-TOP-SORT':
+    axiom declaration:
+    \exists 'Val' (definition.kore 183:20):
+    \equals (definition.kore 183:62):
+    symbol or alias 'inj' (definition.kore 183:83):
+    (definition.kore 183:87):
+      Sort variable SortSort not declared.
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-K-TOP-SORT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-K-TOP-SORT as default.

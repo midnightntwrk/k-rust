@@ -1,0 +1,23 @@
+command: kompile --backend haskell e2-open-mixed-as.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.6
+definition.kore bytes: 89272
+definition.kore sha256: 92d9efc967f20774ef934183e9ee40c5d8fb13b30b6650a7d9f2b21a6835cd13
+stripped sha256: 88d79298e78af6713e12c30607a4fbfc6fe68140180aacb561ac59198b749d50
+main module: 261 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-open-mixed-as.k)
+  	Location(5,15,5,16)
+  	5 |	  rule <k> c((X #as Z) & Y) => d(Z) </k>
+  	  .	              ^
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-open-mixed-as.k)
+  	Location(5,26,5,27)
+  	5 |	  rule <k> c((X #as Z) & Y) => d(Z) </k>
+  	  .	                         ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-MIXED-AS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-MIXED-AS as default.

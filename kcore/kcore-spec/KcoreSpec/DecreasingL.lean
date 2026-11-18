@@ -734,6 +734,7 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
           cases hts
         exact hcall g (heads_req_callees hcl ht (mem_heads_of_callsOf t hts)) hgl gfn hg vs' hsrt
     · obtain ⟨hσ, hm, hq, -⟩ := ha
+      replace hσ := (wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp hσ
       exact evalTerm_result hc.sort hL hσ cl.rhs (hrs cl hcl) (fun g hg => hovl g (heads_rhs_callees hcl hg)) fun g ts hts gfn hg rs vs' hrs' hall hsrt => by
         by_cases hgl : g = fn.label
         · subst hgl
@@ -854,7 +855,7 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
       have hnoself := (hcls cl hcl).1.2
       rw [ht] at hnoself
       simp only [Option.map_some, Option.getD_some, List.isEmpty_iff] at hnoself
-      exact evalTerm_result hc.sort hL'' ha.1 t hq (fun g hg => hovl g (heads_ens_callees hcl ht hg)) fun g ts hts gfn hg _ vs' _ _ hsrt => by
+      exact evalTerm_result hc.sort hL'' ((wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp ha.1) t hq (fun g hg => hovl g (heads_ens_callees hcl ht hg)) fun g ts hts gfn hg _ vs' _ _ hsrt => by
         have hgl : g ≠ fn.label := by
           rintro rfl
           rw [hnoself] at hts

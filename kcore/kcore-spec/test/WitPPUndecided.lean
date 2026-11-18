@@ -196,7 +196,7 @@ theorem fnSolves' : FnSolves (cR rs) := by
   subst hfn
   simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
   subst hcl'
-  refine Iff.trans ?_ (Clause.gives_iff_noExs rfl rfl hdec.1.1 v).symm
+  refine Iff.trans ?_ (Clause.gives_iff_noExs rfl rfl ((wellSortedAt_univ rfl).mp hdec.1.1) v).symm
   obtain ⟨⟨hσ, hm, _, _⟩, _⟩ := hdec
   cases hm with
   | cons h1 h2 =>
@@ -204,7 +204,7 @@ theorem fnSolves' : FnSolves (cR rs) := by
     cases h1 with
     | var hl =>
       rename_i w
-      obtain ⟨w', hw', hs⟩ := hσ 0 Srt.int rfl
+      obtain ⟨w', hw', hs⟩ := (wellSortedAt_univ rfl).mp hσ 0 Srt.int rfl
       rw [hl] at hw'; cases hw'
       exact ⟨fun h => absurd h (f_none' rs hs),
         fun ⟨h, _⟩ => absurd h (appF_none' rs (fun r h => by cases h; exact hl) hs)⟩

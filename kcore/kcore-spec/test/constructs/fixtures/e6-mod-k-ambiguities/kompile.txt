@@ -1,0 +1,20 @@
+command: kompile --backend haskell e6-mod-k-ambiguities.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 4.0
+output:
+  kore-exec: [19948] Error (ErrorVerify):
+      Error:
+        module 'E6-MOD-K-AMBIGUITIES':
+        symbol 'Lblamb' declaration (definition.kore 118:10):
+          Cannot define constructor Lblamb with variable result sort.
+  Error:
+    module 'E6-MOD-K-AMBIGUITIES':
+    symbol 'Lblamb' declaration (definition.kore 118:10):
+      Cannot define constructor Lblamb with variable result sort.
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-K-AMBIGUITIES-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-K-AMBIGUITIES as default.

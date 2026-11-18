@@ -63,6 +63,27 @@ def itesOnce (c : Semantics) : Bool :=
   (kernelSyms c).all fun k => (kernelSyms c).all fun k' =>
     (iteSort? (c.symName k.name)).isNone || iteSort? (c.symName k.name) != iteSort? (c.symName k'.name) || k == k'
 
+/-- `itesOnce` from its pairs among the entries of `kernelSyms` that may be named like `ite`
+(`iteSyms`, the entries whose name's code is listed by `iteIdx`): an entry not among them is named
+like `ite` at no sort. -/
+theorem itesOnce_of_codesX8 {c : Semantics} {sym : List Nat}
+    (hc : (allSymNames c).map KoreAML.Distinct.strCode = sym)
+    (h : (Model.iteSyms c (iteIdx sym)).all (fun k => (Model.iteSyms c (iteIdx sym)).all fun k' =>
+      (iteSort? (c.symName k.name)).isNone || iteSort? (c.symName k.name) != iteSort? (c.symName k'.name) ||
+        k == k') = true) :
+    itesOnce c = true := by
+  simp only [List.all_eq_true] at h
+  have hmem : ∀ k ∈ kernelSyms c, iteSort? (c.symName k.name) ≠ none → k ∈ Model.iteSyms c (iteIdx sym) :=
+    fun k hk hn => List.mem_filter.mpr ⟨hk, by simpa using mem_iteIdx hc hn⟩
+  simp only [itesOnce, List.all_eq_true]
+  intro k hk k' hk'
+  by_cases hn : iteSort? (c.symName k.name) = none
+  · simp [hn]
+  by_cases hn' : iteSort? (c.symName k'.name) = none
+  · simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, hn', beq_iff_eq]
+    exact Or.inl (Or.inr hn)
+  · exact h k (hmem k hk hn) k' (hmem k' hk' hn')
+
 /-- `itesApart` is its two halves. -/
 theorem itesApart_split (c : Semantics) : Model.itesApart c = (itesNumbered c && itesOnce c) := by
   rw [Bool.eq_iff_iff]
@@ -73,7 +94,7 @@ theorem itesApart_split (c : Semantics) : Model.itesApart c = (itesNumbered c &&
 /-- No interpreted hook is named like `ite` at a sort: their names are the registry's. -/
 theorem hooks_plain_dec :
     hookSigs.all (fun k => decide (k.name < nRegSyms) && (iteSort? (regSymNames.getD k.name "")).isNone) = true := by
-  decide +kernel
+  decide_cheap 20
 
 theorem hooks_plain (c : Semantics) {k : CtorSig} (hk : k ∈ hookSigs) : iteSort? (c.symName k.name) = none := by
   have h := List.all_eq_true.mp hooks_plain_dec k hk
@@ -155,7 +176,7 @@ theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApar
   ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
-    by decide_cheap, by decide_cheap, fnHyp⟩
+    by decide_cheap, itesOnce_of_codesX8 (symCodesCD_eq c) (by decide +kernel), fnHyp⟩
 
 /-- The first half of `itesApart` fails. -/
 theorem not_itesNumbered : itesNumbered c = false := by decide +kernel

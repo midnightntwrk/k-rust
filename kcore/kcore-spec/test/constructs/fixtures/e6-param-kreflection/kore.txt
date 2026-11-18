@@ -1,0 +1,67 @@
+//@ 222
+  symbol Lblgo{}(SortInt{}, SortK{}, SortK{}) : SortKItem{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,20,10,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)"), symbol'Kywd'{}("go")]
+//@ 3079
+// rule `<generatedTop>`(`<k>`(go(#token("1","Int"),_Gen0,_Gen1)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{List,KItem}(`#argv()_K-REFLECTION_List`(.KList))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(66aedd13a58562fdc5b9b0e45bb46e228846306c9fd4edd336555e31b8add7d5), org.kframework.attributes.Location(Location(11,8,11,43)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1"),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortList{}, SortKItem{}}(Lbl'Hash'argv'LParRParUnds'K-REFLECTION'Unds'List{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("66aedd13a58562fdc5b9b0e45bb46e228846306c9fd4edd336555e31b8add7d5"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,8,11,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3080
+// rule `<generatedTop>`(`<k>`(go(#token("2","Int"),_Gen0,_Gen1)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#configuration_K-REFLECTION_K`(.KList)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(394092bda802f34f76255d57408cbac4c41459002d31d5e4a09641d6b96096f4), org.kframework.attributes.Location(Location(12,8,12,50)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2"),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K{}(),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("394092bda802f34f76255d57408cbac4c41459002d31d5e4a09641d6b96096f4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,8,12,50)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3081
+// rule `<generatedTop>`(`<k>`(go(#token("3","Int"),inj{String,KItem}(X1),_Gen0)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#fresh(_)_K-REFLECTION_KItem_String`(X1)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(b21c479c8f4e2c6c8ea2226f88dc0669743140434d08157a36623866d365a343), org.kframework.attributes.Location(Location(13,8,13,54)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("3"),kseq{}(inj{SortString{}, SortKItem{}}(VarX1:SortString{}),dotk{}()),Var'Unds'Gen0:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbl'Hash'fresh'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'String{}(VarX1:SortString{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("b21c479c8f4e2c6c8ea2226f88dc0669743140434d08157a36623866d365a343"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,8,13,54)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3082
+// rule `<generatedTop>`(`<k>`(go(#token("4","Int"),inj{String,KItem}(X1),_Gen0)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`#getenv(_)_K-REFLECTION_K_String`(X1)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(2ce6861e22fd35138e9ab8a0d77e4b4bd3ebf8fcf02c4f2457485a71b951b9af), org.kframework.attributes.Location(Location(14,8,14,55)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("4"),kseq{}(inj{SortString{}, SortKItem{}}(VarX1:SortString{}),dotk{}()),Var'Unds'Gen0:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(append{}(Lbl'Hash'getenv'LParUndsRParUnds'K-REFLECTION'Unds'K'Unds'String{}(VarX1:SortString{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("2ce6861e22fd35138e9ab8a0d77e4b4bd3ebf8fcf02c4f2457485a71b951b9af"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,8,14,55)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3083
+// rule `<generatedTop>`(`<k>`(go(#token("5","Int"),_Gen0,_Gen1)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{String,KItem}(`#kompiledDirectory()_K-REFLECTION_String`(.KList))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8198371b2f07743ab3576a410e3efbbe78d75a6f7c7a69d8a67bca144b87b0d1), org.kframework.attributes.Location(Location(15,8,15,56)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("5"),Var'Unds'Gen0:SortK{},Var'Unds'Gen1:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortString{}, SortKItem{}}(Lbl'Hash'kompiledDirectory'LParRParUnds'K-REFLECTION'Unds'String{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("8198371b2f07743ab3576a410e3efbbe78d75a6f7c7a69d8a67bca144b87b0d1"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,8,15,56)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3084
+// rule `<generatedTop>`(`<k>`(go(#token("6","Int"),X1,_Gen0)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{String,KItem}(`#sort(_)_K-REFLECTION_String_K`(X1))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c276d5e46393c007d72bc84d6a5fbb0381fa284949530da1681e4b8521219986), org.kframework.attributes.Location(Location(16,8,16,48)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("6"),VarX1:SortK{},Var'Unds'Gen0:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortString{}, SortKItem{}}(Lbl'Hash'sort'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'K{}(VarX1:SortK{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("c276d5e46393c007d72bc84d6a5fbb0381fa284949530da1681e4b8521219986"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,8,16,48)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3085
+// rule `<generatedTop>`(`<k>`(go(#token("7","Int"),X1,_Gen0)~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(`getsymbol(_)_K-REFLECTION_KItem_K`(X1)~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ca85805a7c99bd8dba39601c67ff84f12ce414a757b192b92a0ff983447f104f), org.kframework.attributes.Location(Location(17,8,17,52)), org.kframework.attributes.Source(Source(FIXTURE/e6-param-kreflection.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("7"),VarX1:SortK{},Var'Unds'Gen0:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgetsymbol'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'K{}(VarX1:SortK{}),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("ca85805a7c99bd8dba39601c67ff84f12ce414a757b192b92a0ff983447f104f"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,8,17,52)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]
+//@ 3237
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,1,18,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-param-kreflection.k)")]

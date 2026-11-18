@@ -1,0 +1,25 @@
+command: kompile --backend haskell imp-sum-spec.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Compiler: Claims are not allowed in the definition.
+  	Source(imp-sum-spec.k)
+  	Location(168,7,181,21)
+  	    .	      v~~
+  	168 |	      <k>
+  	    |		...
+  	181 |	  requires N >=Int 0
+  	    .	  ~~~~~~~~~~~~~~~~~^
+  [Error] Compiler: Claims are not allowed in the definition.
+  	Source(imp-sum-spec.k)
+  	Location(185,7,205,21)
+  	    .	      v~~
+  	185 |	      <k>
+  	    |		...
+  	205 |	   andBool M >=Int 0
+  	    .	   ~~~~~~~~~~~~~~~~^
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  IMP-SUM-SPEC-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  IMP-SUM-SPEC as default.

@@ -337,14 +337,25 @@ def ofDecimal? (s s' : Format) (m : Nat) (x : Int) : Option UnpackedFloat :=
       else none
     | _, _ => none
 
-/-- `sqrtFloat` (domains.md FLOAT, 1671: `rule sqrtFloat(F:Float) => rootFloat(F, 2)`, and described
-as the square root): IEEE 754 squareRoot (Lean core's `sqrt`) at every datum but −0, none at −0. The two
-operations the text names, rootn(x, 2) and squareRoot, agree at every datum but −0, where squareRoot
-gives −0 and rootn(−0, 2) gives +0 (as recalled: the standard's clauses were not at hand and are not
-confirmed). -/
+/-- `sqrtFloat` (domains.md 1600: "Compute the square root `sqrtFloat` of a float"; `[function]`,
+not `total`, 1624): the datum of the format whose value is the square root of the operand's value,
+where the format holds that root exactly. At a positive finite datum `m·2^q`: the candidate is Lean
+core's square root rounded to the format (`UnpackedFloat.sqrt`), kept only where it is a positive
+finite `r·2^e` with `r²·2^(2e) = m·2^q`, so it is the root itself. `none` elsewhere: NaN (no
+number), a negative datum and −∞ (no real root), a root the format does not hold (the text names no
+rounding for `sqrtFloat`, and so no datum for an inexact root), +∞ (an infinite operand, of which
+the sentence names no value, as of floor, ceil and trunc), and both zeros: the root of a zero is a
+zero, and the text gives the sign of a zero result only where an operation's own words give it
+(`--Float 0.0` and `0.0 -Float 0.0`, 1553-1554; `absFloat`, floor, ceil, trunc and `roundFloat` at a
+zero; `Int2Float` at 0), and gives none for `sqrtFloat` (1600, 1671), so which zero is unstated. -/
 def sqrt? (s : Format) : UnpackedFloat → Option UnpackedFloat
-  | .zero .negative => none
-  | u => some (UnpackedFloat.sqrt s u)
+  | .finite .positive m q h =>
+    match UnpackedFloat.sqrt s (.finite .positive m q h) with
+    | .finite .positive r e h' =>
+      if cmpScaled ((r * r : Nat) : Int) (2 * e) (m : Int) q == .eq then some (.finite .positive r e h')
+      else none
+    | _ => none
+  | _ => none
 
 /-- NaN. -/
 def isNaN : UnpackedFloat → Bool

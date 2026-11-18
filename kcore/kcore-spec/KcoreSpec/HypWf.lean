@@ -72,7 +72,7 @@ theorem clausesAgree_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) (hsr 
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     exact (Det.fnExclusiveOK_sound (Exec.matchCtx_of hmr) (fun _ _ => Det.ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(Exec.matchCtx_of hmr).noOvl] using hx⟩, rfl⟩
