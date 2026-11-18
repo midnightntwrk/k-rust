@@ -507,9 +507,9 @@ theorem pre_model (H : HookParams) :
 
 /-! ## Unit 3: the fixture's expectations, derived from `Pre` (C7 form (a)) -/
 
-/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore`: where `f` has the
+/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` whose clauses' predicates are all top: where `f` has the
 value `v` at `vs`, `Γ` entails `f(vs) = v` (as `eval_none_sound_core`, `eval_den4`). -/
-theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ den c v) := by
@@ -520,11 +520,11 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := by decide +kernel) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 (hpreTop := by decide +kernel) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 def half : Sym := 387
@@ -567,12 +567,12 @@ noncomputable def halfAt (H : HookParams) (n : Int) : P := KoreAML.den (symApp (
 among them), the rule's reading, and the families (here the graphs of `/Int` and `>=Int`), for
 every H; `Pre` has a model (`pre_model`). -/
 theorem half_4 (H : HookParams) : Pre H ⊧ (halfAt H 4 ≡ den (cH H) (int 2)) :=
-  cutΓ (gamma_from H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+  cutΓ (gamma_from H) (eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hokH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsH4 H))
 
 /-- **`half(-4)` has no value, derived from `Pre`**, for every H. -/
 theorem half_neg4 (H : HookParams) : Pre H ⊧ (halfAt H (-4) ≡ ⊥) :=
-  cutΓ (gamma_from H) (eval_none_sound_core (hpreTop := by decide +kernel) _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+  cutΓ (gamma_from H) (eval_none_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (hokH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsHm4 H))
 
 /-- The configuration with `it` in the k cell and the counter at 0. -/

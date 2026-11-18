@@ -53,9 +53,9 @@ open KCore ML Faithful KoreAML
 
 /-! ## Facts over any semantics -/
 
-/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore`: where `f` has the
+/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` whose clauses' predicates are all top: where `f` has the
 value `v` at `vs`, `Γ` entails `f(vs) = v` (`eval_den4`). -/
-theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ den c v) := by
@@ -66,11 +66,11 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := by decide +kernel) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 (hpreTop := by decide +kernel) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 /-- **Two values of one sort that one pattern equals in a model of Γ are one value**: distinct
@@ -439,7 +439,7 @@ theorem okH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).
 /-- `Γ` entails `negExp(inj 3) = v` for each result v, for every H. -/
 theorem entails_i3 (H : HookParams) (v : GroundTerm) (hE : Eval (cH H) negExp [i3] (some v)) :
     Γ (cH H) ⊧ (KoreAML.den (symApp (cH H) negExp (GroundTerm.koreList (cH H) [i3])) ≡ den (cH H) v) :=
-  eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_i3H H)
+  eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (okH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_i3H H)
 
 /-- **Γ has no model**, for every H: in a model, `negExp(inj 3)` denotes `inj -3` and `e` (the two
 `Eval` results), distinct values of Exp. -/

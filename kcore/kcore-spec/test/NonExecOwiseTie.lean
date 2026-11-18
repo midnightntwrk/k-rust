@@ -285,9 +285,9 @@ noncomputable def fnAxioms (c : Semantics) : List Kore.Axiom :=
     | .axiom a => some a
     | _ => none
 
-/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore`: where `f` has the
+/-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore` whose clauses' predicates are all top: where `f` has the
 value `v` at `vs`, `Γ` entails `f(vs) = v` (`eval_den4`). -/
-theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn} {vs : List GroundTerm}
     {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     Γ c ⊧ (KoreAML.den (symApp c f (GroundTerm.koreList c vs)) ≡ den c v) := by
@@ -298,11 +298,11 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := by decide +kernel) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 (hpreTop := by decide +kernel) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 /-- **Two values of one sort that a function has at one argument list in a model of Γ are one
@@ -592,7 +592,7 @@ theorem okH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).
 /-- `Γ` entails `choose(b, a) = a` and `choose(b, a) = b`, for every H. -/
 theorem entails_ba (H : HookParams) (v : GroundTerm) (hE : Eval (cH H) choose [vb, va] (some v)) :
     Γ (cH H) ⊧ (KoreAML.den (symApp (cH H) choose (GroundTerm.koreList (cH H) [vb, va])) ≡ den (cH H) v) :=
-  eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_ba H)
+  eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (okH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H)) hE (hfnH H) (sorts_ba H)
 
 /-- **Γ has no model**, for every H: in a model, `choose(b, a)` denotes `a` and `b` (the two `Eval`
 results), so the two values are one; they are distinct. -/
@@ -1022,7 +1022,7 @@ noncomputable def chooseAt (H : HookParams) (vs : List GroundTerm) : P :=
 
 theorem choose_bw (H : HookParams) {w : GroundTerm} (hw : (cH H).sortOf w = some foo) :
     Pre H ⊧ (chooseAt H [vb, w] ≡ den (cH H) vb) :=
-  cutΓ (gamma_from H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H))
+  cutΓ (gamma_from H) (eval_some_sound_core _ (Semantics.preTop_of_okAll (Semantics.okAll_of_ok (okH H))) (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (okH H))
     (eval_bw H hw) (hfnH H) (sorts_bw H hw))
 
 /-- **`choose(b, a) = b`, derived from `Pre`** (the text's function sentences as written and the
