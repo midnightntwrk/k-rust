@@ -3008,7 +3008,8 @@ mutual
 end
 end RCell
 
-/-- The cell tree below the cell of sort `X` (fuel: the depth). -/
+/-- The cell tree below the cell of sort `X` (fuel: the depth; `cellFuelOfR` for the text's
+configuration). -/
 def cellOf (syms : List Kore.SentenceSymbol) : Nat → String → Rd RCell
   | 0, X => fail .configuration X
   | fuel + 1, X => do
@@ -3022,9 +3023,15 @@ def cellOf (syms : List Kore.SentenceSymbol) : Nat → String → Rd RCell
         | [a] => pure (.leaf n a)
         | _ => fail .cellShape
 
+/-- `cellOf`'s fuel for the text's configuration: the number of its cell symbols, plus one. Each
+step of `cellOf` descends from a cell to a cell symbol's argument sort, so a tree of distinct cells
+is read to its full depth; a cell sort below itself (no tree) exhausts it (`configuration`). -/
+def cellFuelOfR (syms : List Kore.SentenceSymbol) : Nat :=
+  (syms.filter fun s => hasKey s.attributes .cell).length + 1
+
 /-- The user's configuration: the children of `<generatedTop>` before the counter. -/
 def configOf (syms : List Kore.SentenceSymbol) : Rd (List RCell) := do
-  match ← cellOf syms 64 "GeneratedTopCell" with
+  match ← cellOf syms (cellFuelOfR syms) "GeneratedTopCell" with
   | .node _ cs => match cs.getLast? with
     | some (.leaf "generatedCounter" "Int") => if cs.length ≥ 2 then pure cs.dropLast else fail .configuration
     | _ => fail .configuration "GeneratedCounterCell"
@@ -3069,14 +3076,15 @@ def initUidOf (eqs : List RawEqn) (f : String) : Rd String := do
   Rd.within (.attrs e.attrs) (need (attrStr? e.attrs "UNIQUE'Unds'ID") .sentenceInfo)
 
 /-- The unique id of the first equation of the projection `project:X`, or `""` when the text
-declares no projection of X: kompile declares none for a sort whose name begins with `#` (wasm's
-`syntax #Layout [token]`), and no sentence can then apply one. A projection declared without an
-equation is refused (`missingEquation`). -/
-def projUidOf (syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd String :=
+states no projection equation of X: kompile declares none for a sort whose name begins with `#`
+(wasm's `syntax #Layout [token]`), and no sentence can then apply one; and a symbol the text
+declares under the projection's label with no equation (`pe(K) [function, symbol(project:X)]`)
+is a function of which the text states its declaration only, a parameter symbol (`isGenFn`), and
+no projection equation is presented for X. -/
+def projUidOf (_syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd String :=
   match eqs.find? fun e => e.fn == KoreAML.projLabel X && e.competitors.isNone && !e.dom with
   | some e => Rd.within (.attrs e.attrs) (need (attrStr? e.attrs "UNIQUE'Unds'ID") .sentenceInfo)
-  | none => if syms.any (·.symbol.ident.ident.name == KoreAML.projLabel X) then
-      fail .missingEquation (KoreAML.projLabel X) else pure ""
+  | none => pure ""
 
 def sortUidOf (syms : List Kore.SentenceSymbol) (eqs : List RawEqn) (X : String) : Rd SortUids := do
   pure ⟨← projUidOf syms eqs X, ← uidOf eqs (KoreAML.isLabel X) false,
@@ -3104,12 +3112,15 @@ def pgmIn : Nat → Kore.Pattern → Option String
 /-- The sort of `$PGM`: the text's initializer equations (`Lblinit…`) state which cell holds which
 configuration variable, and the one whose right-hand side projects `$PGM` states its sort
 (`pgmIn`), whichever cell it initializes (`<k>`, or another: K does not require `$PGM` in `<k>`).
-Refused (`pgmSort`) where no initializer projects `$PGM`, or two project it to different sorts. -/
+Where no initializer holds `$PGM` (`configuration <k> foo </k>`) the text states no such sort and
+no cell holds it (`Presentation.pgmCell` is `none`): the sort is K, which no sentence `emit` writes
+reads. Refused (`pgmSort`) where an initializer holds `$PGM` and none projects it, or two project it
+to different sorts. -/
 def pgmSortOf (N : Names) (eqs : List RawEqn) : Rd Srt := do
-  let found := eqs.filterMap fun e =>
-    if (dropPrefix? "Lblinit" e.fn).isSome then (pgmIn 16 e.rhs).map (e, ·) else none
+  let inits := eqs.filter fun e => (dropPrefix? "Lblinit" e.fn).isSome
+  let found := inits.filterMap fun e => (pgmIn 16 e.rhs).map (e, ·)
   match found with
-  | [] => fail .pgmSort "no cell initializer projects $PGM"
+  | [] => if inits.any (holdsPgm 16 ·.rhs) then fail .pgmSort "no cell initializer projects $PGM" else pure Srt.k
   | (e, S) :: rest => Rd.within (.attrs e.attrs) do
     if rest.all (·.2 == S) then N.srtE S else fail .pgmSort "$PGM projected to several sorts"
 
@@ -4272,7 +4283,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let isCtorDecl := fun (s : Kore.SentenceSymbol) => isFreezer s || hasAttr s.attributes "constructor"
   let ownSortNames := cellSortNames ++ userSortNames
   -- the configuration's cells, the generated top and counter cells included
-  let configSyms := match cellOf S.syms 64 "GeneratedTopCell" with
+  let configSyms := match cellOf S.syms (cellFuelOfR S.syms) "GeneratedTopCell" with
     | .ok t => RCell.symsList [t]
     | .error _ => RCell.symsList rconfig
   let collCells := S.syms.filter fun s => hasAttr s.attributes "cell" && isUserSource s.attributes &&
@@ -5210,7 +5221,7 @@ structure CellParts where
   cellUids : List (Srt × SortUids)
   cellInits : List (String × String)
   cellValues : List (String × Term)
-  pgmCell : String
+  pgmCell : Option String
   deriving Repr
 
 /-- The presentation's per-sort and per-cell parts. -/
@@ -5220,12 +5231,12 @@ def cellPartsOf (S : Scan) (E : Env) (core : Semantics) : Rd CellParts := do
   -- the leaf whose initializer's right-hand side holds `$PGM` (`pgmSortOf` reads its sort there)
   let pgmCell := (cells.findSome? fun x => match x with
     | .leaf n _ _ => if (eqs.find? (·.fn == x.initLabel core)).any (holdsPgm 16 ·.rhs) then some n else none
-    | .node .. => none).getD "k"
+    | .node .. => none)
   pure { sortUids := ← E.userSortNames.mapM (sortUidOf S.syms eqs)
          cellUids := ← (Cell.topSorts E.config).mapM fun X => do pure (X, ← sortUidOf S.syms eqs (core.sortName X))
          cellInits := ← cells.mapM fun x => do pure (x.name, ← initUidOf eqs (x.initLabel core))
          cellValues := cells.filterMap fun x => match x with
-           | .leaf n _ _ => if n == pgmCell || n == "generatedCounter" then none
+           | .leaf n _ _ => if pgmCell == some n || n == "generatedCounter" then none
                             else (valueOf E.N eqs (x.initLabel core)).map (n, ·)
            | .node .. => none
          pgmCell }
