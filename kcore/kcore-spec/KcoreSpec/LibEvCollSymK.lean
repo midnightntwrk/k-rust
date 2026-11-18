@@ -18,6 +18,10 @@
   - The sentences: 422 (`msUpdConcatNe`), 429 (`msRemConcatNe`), 433 (`msLookupConcatNe`),
     435 (`msLookupUpdNe`), 438 (`msLookupDefConcatNe`), 440 (`msLookupDefUpdNe`),
     446 (`msInKeysUpdOr`), 447 (`msInKeysUpdNe`).
+  - 451 and 452 (`msInKeysConcatSv`), over the set variables `@Key`, `@M` and the element variables
+    `Key'`, `Val` (`LibEv.SvEqn` with `evs`; the right side has `#Not`): refuted at values
+    (`msInKeysConcatSv_refuted_at`), and holding at sets of at most one value
+    (`msInKeysConcatSv_one`).
 -/
 import KcoreSpec.LibEvCollSym
 import KcoreSpec.LibEvFnKNe
@@ -735,6 +739,244 @@ theorem msInKeysUpdOr_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK 
     (hp : ad.ax.pattern = msInKeysUpdOr.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
     EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
   EqnK.entailed h msInKeysUpdOr (by decide +kernel) (by rfl) (msInKeysUpdOr_holds hs) ad hp hsv
+
+/-! ## 451, 452: `{false #Equals @Key in_keys(Key' |-> Val @M)} => #Ceil(@Key) #And
+#Ceil(Key' |-> Val @M) #And #Not({@Key #Equals Key'}) #And {false #Equals @Key in_keys(@M)}` and the flip
+
+Over the set variables `@Key`, `@M` and the element variables `Key'`, `Val`. The left side holds
+where `@Key in_keys(Key' |-> Val @M)` denotes `false` alone: the choices of `@M` at which
+`Key' |-> Val @M` has no value contribute nothing to it, while the right side's test
+`@Key in_keys(@M)` ranges over every choice. At `@Key = {a}` and `@M` the maps `m1` and `m2`, where
+`Key' |-> Val m1` has a value without the key `a` and `m2` has the keys `Key'` and `a`, the left
+side holds and the test denotes `true`: the sentence fails there (`SvEqn.refuted_at`). At sets of
+at most one value both sides say that `a` is not `Key'` and no key of `M`, and `Key'` no key of `M`
+(`SvEqn.entailed_one`). -/
+
+/-- The sentence, `flip` with `false` second (452). -/
+def msInKeysConcatSv (flip : Bool) : SvEqn :=
+  let cat : Term := .app mapConcat [.app mapElem [.var 1, .var 2], .var 3]
+  let eqF (t : Term) : SvPred := if flip then .eq Srt.bool t (boolT false) else .eq Srt.bool (boolT false) t
+  { vars := [("VarKey", Srt.kitem), ("VarKey'Apos'", Srt.kitem), ("VarVal", Srt.kitem), ("VarM", Srt.map)],
+    lhs := eqF (.app mapInKeys [.var 0, cat]),
+    rhs := .and (.and (.and (.ceil Srt.kitem (.var 0)) (.ceil Srt.map cat)) (.not (.eq Srt.kitem (.var 0) (.var 1))))
+      (eqF (.app mapInKeys [.var 0, .var 3])),
+    evs := [1, 2] }
+
+theorem msInKeysConcatSv_apart {c : Semantics} (h : c.coreOK = true) (flip : Bool) :
+    (msInKeysConcatSv flip).lhs.Apart c ∧ (msInKeysConcatSv flip).rhs.Apart c := by
+  haveI : OvlOK c := ovlOK_of_core h
+  have hb : apartSort c Srt.bool = true := apart_of_distinct bool_distinct
+  have hki : apartSort c Srt.kitem = true := by simp [apartSort]
+  cases flip <;> exact ⟨hb, ⟨⟨trivial, trivial⟩, hki⟩, hb⟩
+
+/-- An equation's two orders say one thing. -/
+theorem csk_eq_comm {c : Semantics} {ρ : Nat → GroundTerm → Prop} (s : Srt) (t u : Term) :
+    (SvPred.eq s t u).Holds c ρ ↔ (SvPred.eq s u t).Holds c ρ := by
+  simp only [SvPred.Holds]
+  exact forall_congr' fun _ => Iff.comm
+
+/-- The two sides do not depend on the flip. -/
+theorem msInKeysConcatSv_flip {c : Semantics} (ρ : Nat → GroundTerm → Prop) :
+    ((msInKeysConcatSv true).lhs.Holds c ρ ↔ (msInKeysConcatSv false).lhs.Holds c ρ) ∧
+    ((msInKeysConcatSv true).rhs.Holds c ρ ↔ (msInKeysConcatSv false).rhs.Holds c ρ) := by
+  simp only [msInKeysConcatSv, ite_true, Bool.false_eq_true, ite_false]
+  refine ⟨csk_eq_comm _ _ _, ?_⟩
+  simp only [SvPred.Holds] at *
+  rw [show (∀ v, svVals c ρ (.app mapInKeys [.var 0, .var 3]) v ↔ svVals c ρ (boolT false) v) ↔
+      (∀ v, svVals c ρ (boolT false) v ↔ svVals c ρ (.app mapInKeys [.var 0, .var 3]) v) from
+    forall_congr' fun _ => Iff.comm]
+
+/-- The values of `@Key in_keys(Key' |-> Val @M)` and of `@Key in_keys(@M)`, where `@M` holds
+maps. -/
+theorem msInKeysConcatSv_vals {c : Semantics} (ρ : Nat → GroundTerm → Prop)
+    (hM : ∀ w, ρ 3 w → ∃ es, w = .map Srt.map es) (w : GroundTerm) :
+    (svVals c ρ (.app mapInKeys [.var 0, .app mapConcat [.app mapElem [.var 1, .var 2], .var 3]]) w ↔
+      ∃ a k v m, ρ 0 a ∧ ρ 1 k ∧ ρ 2 v ∧ ρ 3 (.map Srt.map m) ∧ hasKey k m = false ∧
+        w = bool (hasKey a (insertE k v m))) ∧
+    (svVals c ρ (.app mapConcat [.app mapElem [.var 1, .var 2], .var 3]) w ↔
+      ∃ k v m, ρ 1 k ∧ ρ 2 v ∧ ρ 3 (.map Srt.map m) ∧ hasKey k m = false ∧ w = .map Srt.map (insertE k v m)) ∧
+    (svVals c ρ (.app mapInKeys [.var 0, .var 3]) w ↔
+      ∃ a m, ρ 0 a ∧ ρ 3 (.map Srt.map m) ∧ w = bool (hasKey a m)) := by
+  have hcat : ∀ u, svVals c ρ (.app mapConcat [.app mapElem [.var 1, .var 2], .var 3]) u ↔
+      ∃ k v m, ρ 1 k ∧ ρ 2 v ∧ ρ 3 (.map Srt.map m) ∧ hasKey k m = false ∧ u = .map Srt.map (insertE k v m) := by
+    intro u
+    simp only [svVals, svValsList]
+    constructor
+    · rintro ⟨_, ⟨_, _, rfl, ⟨_, ⟨k, _, rfl, hk, v, _, rfl, hv, rfl⟩, he⟩, mw, _, rfl, hm, rfl⟩, hc⟩
+      rw [csHv_mapElem] at he
+      cases he
+      obtain ⟨m, rfl⟩ := hM mw hm
+      rw [fhv_mapConcat, cs_union_single] at hc
+      cases hkm : hasKey k m with
+      | true => rw [hkm] at hc; simp at hc
+      | false =>
+        rw [hkm] at hc
+        simp only [Bool.false_eq_true, ite_false, Option.map_some, Option.some.injEq] at hc
+        exact ⟨k, v, m, hk, hv, hm, hkm, hc.symm⟩
+    · rintro ⟨k, v, m, hk, hv, hm, hkm, rfl⟩
+      exact ⟨[.map Srt.map [(k, v)], .map Srt.map m], ⟨_, _, rfl, ⟨[k, v], ⟨k, _, rfl, hk, v, _, rfl, hv, rfl⟩,
+        csHv_mapElem k v⟩, _, [], rfl, hm, rfl⟩, by rw [fhv_mapConcat, cs_union_single, hkm]; rfl⟩
+  refine ⟨?_, hcat w, ?_⟩
+  · simp only [svVals, svValsList]
+    constructor
+    · rintro ⟨_, ⟨a, _, rfl, ha, u, _, rfl, hu, rfl⟩, hw⟩
+      obtain ⟨k, v, m, hk, hv, hm, hkm, rfl⟩ := (hcat u).mp hu
+      rw [csHv_mapInKeys] at hw
+      exact ⟨a, k, v, m, ha, hk, hv, hm, hkm, (Option.some.inj hw).symm⟩
+    · rintro ⟨a, k, v, m, ha, hk, hv, hm, hkm, rfl⟩
+      exact ⟨[a, .map Srt.map (insertE k v m)], ⟨a, _, rfl, ha, _, [], rfl, (hcat _).mpr ⟨k, v, m, hk, hv, hm, hkm, rfl⟩,
+        rfl⟩, csHv_mapInKeys _ _ _⟩
+  · simp only [svVals, svValsList]
+    constructor
+    · rintro ⟨_, ⟨a, _, rfl, ha, mw, _, rfl, hm, rfl⟩, hw⟩
+      obtain ⟨m, rfl⟩ := hM mw hm
+      rw [csHv_mapInKeys] at hw
+      exact ⟨a, m, ha, hm, (Option.some.inj hw).symm⟩
+    · rintro ⟨a, m, ha, hm, rfl⟩
+      exact ⟨[a, .map Srt.map m], ⟨a, _, rfl, ha, _, [], rfl, hm, rfl⟩, csHv_mapInKeys _ _ _⟩
+
+theorem csk_svVals_dv {c : Semantics} {ρ : Nat → GroundTerm → Prop} (b : Bool) (w : GroundTerm) :
+    svVals c ρ (boolT b) w ↔ w = bool b := Iff.rfl
+
+theorem csk_svVals_var {c : Semantics} {ρ : Nat → GroundTerm → Prop} (i : Nat) (w : GroundTerm) :
+    svVals c ρ (.var i) w ↔ ρ i w := Iff.rfl
+
+/-- **451 and 452 are refuted at values**: in every model of `Γ c`, at `@Key = {a}`, `Key' = k`,
+`Val = v` and `@M` the maps `m1` (`k |-> v m1` has a value without the key `a`) and `m2` (with the
+keys `k` and `a`), the left side holds and `@Key in_keys(@M)` denotes `true`. -/
+theorem msInKeysConcatSv_refuted_at {c : Semantics} (h : c.coreOK = true) (flip : Bool)
+    (hr : (msInKeysConcatSv flip).regular = true) (ht : (msInKeysConcatSv flip).typed c = true)
+    (a k v : GroundTerm) (m1 m2 : Entries) (ha : c.sortOf a = some Srt.kitem) (hk : c.sortOf k = some Srt.kitem)
+    (hv : c.sortOf v = some Srt.kitem)
+    (hm1 : c.sortOf (.map Srt.map m1) = some Srt.map) (hm2 : c.sortOf (.map Srt.map m2) = some Srt.map)
+    (h1 : hasKey k m1 = false) (h2 : hasKey a (insertE k v m1) = false) (h3 : hasKey k m2 = true)
+    (h4 : hasKey a m2 = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = (msInKeysConcatSv flip).patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v])
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) :
+    ∃ e : Valuation M, AtValues c I e ad.ax ∧ SetVarsAtValues c I e ad.ax ∧
+      ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default := by
+  let ρ : Nat → GroundTerm → Prop := fun i w => (i = 0 ∧ w = a) ∨ (i = 1 ∧ w = k) ∨ (i = 2 ∧ w = v) ∨
+    (i = 3 ∧ (w = .map Srt.map m1 ∨ w = .map Srt.map m2))
+  have hM : ∀ w, ρ 3 w → ∃ es, w = .map Srt.map es := by
+    rintro w (⟨h', -⟩ | ⟨h', -⟩ | ⟨h', -⟩ | ⟨-, rfl | rfl⟩)
+    · cases h'
+    · cases h'
+    · cases h'
+    · exact ⟨_, rfl⟩
+    · exact ⟨_, rfl⟩
+  have hL : (msInKeysConcatSv false).lhs.Holds c ρ := by
+    simp only [msInKeysConcatSv, Bool.false_eq_true, ite_false, SvPred.Holds]
+    intro w
+    rw [(msInKeysConcatSv_vals ρ hM w).1, csk_svVals_dv]
+    constructor
+    · rintro rfl
+      exact ⟨a, k, v, m1, Or.inl ⟨rfl, rfl⟩, Or.inr (Or.inl ⟨rfl, rfl⟩), Or.inr (Or.inr (Or.inl ⟨rfl, rfl⟩)),
+        Or.inr (Or.inr (Or.inr ⟨rfl, Or.inl rfl⟩)), h1, by rw [h2]⟩
+    · rintro ⟨a', k', v', m, ha', hk', hv', hm, hkm, rfl⟩
+      obtain ⟨-, rfl⟩ : 0 = 0 ∧ a' = a := by
+        rcases ha' with h' | ⟨h', -⟩ | ⟨h', -⟩ | ⟨h', -⟩ <;> first | exact h' | cases h'
+      obtain ⟨-, rfl⟩ : 1 = 1 ∧ k' = k := by
+        rcases hk' with ⟨h', -⟩ | h' | ⟨h', -⟩ | ⟨h', -⟩ <;> first | exact h' | cases h'
+      obtain ⟨-, rfl⟩ : 2 = 2 ∧ v' = v := by
+        rcases hv' with ⟨h', -⟩ | ⟨h', -⟩ | h' | ⟨h', -⟩ <;> first | exact h' | cases h'
+      rcases hm with ⟨h', -⟩ | ⟨h', -⟩ | ⟨h', -⟩ | ⟨-, hm | hm⟩
+      · cases h'
+      · cases h'
+      · cases h'
+      · injection hm with _ hm; subst hm; rw [h2]
+      · injection hm with _ hm; subst hm; rw [h3] at hkm; cases hkm
+  have hR : ¬ (msInKeysConcatSv false).rhs.Holds c ρ := by
+    simp only [msInKeysConcatSv, Bool.false_eq_true, ite_false, SvPred.Holds]
+    rintro ⟨-, heq⟩
+    have := (heq (bool true)).mpr ((msInKeysConcatSv_vals ρ hM _).2.2.mpr
+      ⟨a, m2, Or.inl ⟨rfl, rfl⟩, Or.inr (Or.inr (Or.inr ⟨rfl, Or.inr rfl⟩)), by rw [h4]⟩)
+    simp [svVals, boolT, bool] at this
+  have hfl := msInKeysConcatSv_flip (c := c) ρ
+  refine SvEqn.refuted_at h _ hr ht (msInKeysConcatSv_apart h flip) ρ ?_ ?_ ?_ ad hp hsv hI
+  · intro i x hx w hw
+    have hx' : ∀ y, (msInKeysConcatSv flip).vars[i]? = some y → x = y := fun y hy => by rw [hx] at hy; cases hy; rfl
+    rcases hw with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl | rfl⟩
+    · rw [hx' _ (by cases flip <;> rfl)]; exact ha
+    · rw [hx' _ (by cases flip <;> rfl)]; exact hk
+    · rw [hx' _ (by cases flip <;> rfl)]; exact hv
+    · rw [hx' _ (by cases flip <;> rfl)]; exact hm1
+    · rw [hx' _ (by cases flip <;> rfl)]; exact hm2
+  · intro i hi
+    have hi' : i = 1 ∨ i = 2 := by cases flip <;> simpa [msInKeysConcatSv] using hi
+    rcases hi' with rfl | rfl
+    · refine ⟨k, fun w => ⟨fun hw => ?_, fun hw => Or.inr (Or.inl ⟨rfl, hw⟩)⟩⟩
+      rcases hw with ⟨h', -⟩ | ⟨-, h'⟩ | ⟨h', -⟩ | ⟨h', -⟩ <;> first | exact h' | cases h'
+    · refine ⟨v, fun w => ⟨fun hw => ?_, fun hw => Or.inr (Or.inr (Or.inl ⟨rfl, hw⟩))⟩⟩
+      rcases hw with ⟨h', -⟩ | ⟨h', -⟩ | ⟨-, h'⟩ | ⟨h', -⟩ <;> first | exact h' | cases h'
+  · intro hiff
+    cases flip
+    · exact hR (hiff.mp hL)
+    · exact hR (hfl.2.mp (hiff.mp (hfl.1.mpr hL)))
+
+/-- **The companion of 451 and 452**: at sets of at most one value the sentence holds, in every
+semantics whose Map values are maps (`shapesOK`). -/
+theorem msInKeysConcatSv_one {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) (flip : Bool)
+    (hr : (msInKeysConcatSv flip).regular = true) (ht : (msInKeysConcatSv flip).typed c = true)
+    (hkap : apartSort c Srt.map = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = (msInKeysConcatSv flip).patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v]) :
+    SvAtMostOne c ad (KoreAML.trAxiom [] [] ad).pat := by
+  haveI : OvlOK c := ovlOK_of_core h
+  have hki : apartSort c Srt.kitem = true := by simp [apartSort]
+  refine SvEqn.entailed_one h _ hr ht (msInKeysConcatSv_apart h flip)
+    (fun x hx => by
+      have hx' : x ∈ [("VarKey", Srt.kitem), ("VarKey'Apos'", Srt.kitem), ("VarVal", Srt.kitem), ("VarM", Srt.map)] := by
+        cases flip <;> exact hx
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hx'
+      rcases hx' with rfl | rfl | rfl | rfl
+      · exact hki
+      · exact hki
+      · exact hki
+      · exact hkap) ?_ ad hp hsv
+  intro ρ hρ hone
+  have hρ' : SvEqn.Sorted c (msInKeysConcatSv false).vars ρ := by cases flip <;> exact hρ
+  have hM : ∀ w, ρ 3 w → ∃ es, w = .map Srt.map es := fun w hw => shape_map hs (hρ' 3 _ rfl w hw)
+  suffices hfalse : (msInKeysConcatSv false).lhs.Holds c ρ ↔ (msInKeysConcatSv false).rhs.Holds c ρ by
+    cases flip
+    · exact hfalse
+    · have hfl := msInKeysConcatSv_flip (c := c) ρ
+      rw [hfl.1, hfl.2]; exact hfalse
+  have hV := msInKeysConcatSv_vals (c := c) ρ hM
+  simp only [msInKeysConcatSv, Bool.false_eq_true, ite_false, SvPred.Holds, csk_svVals_dv, csk_svVals_var]
+  constructor
+  · intro hl
+    obtain ⟨a, k, v, m, ha, hk, hv, hm, hkm, hb⟩ := (hV _).1.mp ((hl _).mp rfl)
+    have hakv : hasKey a (insertE k v m) = false := (csk_bool_inj hb).symm
+    have hak : a ≠ k := by
+      rintro rfl; rw [csk_hasKey_insertE_self] at hakv; cases hakv
+    have ham : hasKey a m = false := by rw [← csk_hasKey_insertE_ne hak]; exact hakv
+    refine ⟨⟨⟨⟨a, ha⟩, _, (hV _).2.1.mpr ⟨k, v, m, hk, hv, hm, hkm, rfl⟩⟩, fun he => hak ?_⟩, fun w => ⟨?_, ?_⟩⟩
+    · exact hone 1 _ _ ((he a).mp ha) hk
+    · rintro rfl; exact (hV _).2.2.mpr ⟨a, m, ha, hm, by rw [ham]⟩
+    · rintro hw
+      obtain ⟨a', m', ha', hm', rfl⟩ := (hV _).2.2.mp hw
+      obtain rfl := hone 0 _ _ ha ha'
+      obtain rfl : m = m' := by have := hone 3 _ _ hm hm'; injection this
+      rw [ham]
+  · rintro ⟨⟨⟨⟨a, ha⟩, _, hcat⟩, hne⟩, heq⟩
+    obtain ⟨k, v, m, hk, hv, hm, hkm, -⟩ := (hV _).2.1.mp hcat
+    obtain ⟨a', m', ha', hm', hb⟩ := (hV _).2.2.mp ((heq _).mp rfl)
+    obtain rfl := hone 0 _ _ ha ha'
+    obtain rfl : m = m' := by have := hone 3 _ _ hm hm'; injection this
+    have ham : hasKey a m = false := (csk_bool_inj hb).symm
+    have hak : a ≠ k := by
+      rintro rfl
+      exact hne fun w => ⟨fun hw => by rw [hone 0 _ _ hw ha]; exact hk, fun hw => by rw [hone 1 _ _ hw hk]; exact ha⟩
+    intro w
+    constructor
+    · rintro rfl
+      exact (hV _).1.mpr ⟨a, k, v, m, ha, hk, hv, hm, hkm, by rw [csk_hasKey_insertE_ne hak, ham]⟩
+    · intro hw
+      obtain ⟨a', k', v', m', ha', hk', hv', hm', -, rfl⟩ := (hV _).1.mp hw
+      obtain rfl := hone 0 _ _ ha ha'
+      obtain rfl := hone 1 _ _ hk hk'
+      obtain rfl := hone 2 _ _ hv hv'
+      obtain rfl : m = m' := by have := hone 3 _ _ hm hm'; injection this
+      rw [csk_hasKey_insertE_ne hak, ham]
 
 end LibEv
 

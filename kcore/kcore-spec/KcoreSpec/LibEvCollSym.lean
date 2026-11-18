@@ -41,10 +41,14 @@
   Over a set variable (`LibEv.SvEqn`), entailed at set values: `msInKeysUnitSv` (449, 450),
   `{false #Equals @Key in_keys(.Map)} => #Ceil(@Key)` and the flip.
 
-  Not stated here: the lemmas whose `requires` applies `=/=K` or `==K` to two KItem variables
-  (422, 429, 433, 435, 438, 440, 446, 447), whose terms `kseq(K, dotk())` `LibEv.Term`'s
-  translation does not write; 451 and 452 (`#Not` over set variables, which `LibEv.SvPred` has
-  not); 411 and 830 (`#Ceil` of `Map:lookup` and of `_Set_` over set variables).
+  Over set variables, refuted at values (`SvEqn.refuted_at`) with their companions at sets of at
+  most one value (`SvEqn.entailed_one`): `msLookupCeilSv` (411),
+  `#Ceil(@M [@K]) => {@K in_keys(@M) #Equals true} #And #Ceil(@M) #And #Ceil(@K)`, and
+  `ssConcatCeilSv` (830), `#Ceil(@S SetItem(@E)) => {@E in @S #Equals false} #And #Ceil(@S) #And #Ceil(@E)`.
+
+  The lemmas whose `requires` applies `=/=K` or `==K` to two KItem variables (422, 429, 433, 435,
+  438, 440, 446, 447) and 451, 452 (`#Not` over set and element variables) are in
+  KcoreSpec/LibEvCollSymK.lean.
 -/
 import KcoreSpec.LibEvFnColl
 import KcoreSpec.LibEvBool
@@ -1099,7 +1103,7 @@ Over a set variable: `@Key in_keys(.Map)` denotes `false` once for each member o
 def msInKeysUnitSv (flip : Bool) : SvEqn :=
   let t : Term := .app mapInKeys [.var 0, .app mapUnit []]
   ⟨[("VarKey", Srt.kitem)], if flip then .eq Srt.bool t (boolT false) else .eq Srt.bool (boolT false) t,
-    .ceil Srt.kitem (.var 0)⟩
+    .ceil Srt.kitem (.var 0), []⟩
 
 theorem msInKeysUnitSv_apart {c : Semantics} (h : c.coreOK = true) (flip : Bool) :
     (msInKeysUnitSv flip).lhs.Apart c ∧ (msInKeysUnitSv flip).rhs.Apart c := by
@@ -1133,6 +1137,221 @@ theorem msInKeysUnitSv_ev {c : Semantics} (h : c.coreOK = true) (flip : Bool) (a
   have hr : (msInKeysUnitSv flip).regular = true := by cases flip <;> decide +kernel
   have ht : (msInKeysUnitSv flip).typed c = true := by cases flip <;> rfl
   exact SvEqn.entailed h _ hr ht (msInKeysUnitSv_apart h flip) (msInKeysUnitSv_holds flip) ad hp hsv
+
+/-! ## 411, 830: definedness lemmas over set variables, refuted at values
+
+`#Ceil(@M:Map [@K:KItem]) => {(@K in_keys(@M)) #Equals true} #And #Ceil(@M) #And #Ceil(@K)` (411)
+and `#Ceil(@S:Set SetItem(@E:KItem)) => {(@E in @S) #Equals false} #And #Ceil(@S) #And #Ceil(@E)`
+(830). The left side holds where one choice of one value per set variable gives the application a
+value; the test of the right side denotes its value at every choice. At `@M` a map with the key `k`
+and one without it (`@S` a set without `e` and one with it) the left side holds and the test
+denotes both Bools, so the sentence fails there (`SvEqn.refuted_at`). At sets of at most one value
+the test is exactly the application's definedness (`SvEqn.entailed_one`): `M [ K ]` has a value
+exactly where `K` is a key of `M`, and `S SetItem(E)` exactly where `E` is no member of `S`. -/
+
+/-- 411: `#Ceil(@M [@K]) => {@K in_keys(@M) #Equals true} #And #Ceil(@M) #And #Ceil(@K)`. -/
+def msLookupCeilSv : SvEqn :=
+  ⟨[("VarM", Srt.map), ("VarK", Srt.kitem)],
+    .ceil Srt.kitem (.app mapLookup [.var 0, .var 1]),
+    .and (.and (.eq Srt.bool (.app mapInKeys [.var 1, .var 0]) (.dv Srt.bool (.bool true)))
+      (.ceil Srt.map (.var 0))) (.ceil Srt.kitem (.var 1)), []⟩
+
+/-- 830: `#Ceil(@S SetItem(@E)) => {@E in @S #Equals false} #And #Ceil(@S) #And #Ceil(@E)`. -/
+def ssConcatCeilSv : SvEqn :=
+  ⟨[("VarS", Srt.set), ("VarE", Srt.kitem)],
+    .ceil Srt.set (.app setConcat [.var 0, .app setElem [.var 1]]),
+    .and (.and (.eq Srt.bool (.app setIn [.var 1, .var 0]) (.dv Srt.bool (.bool false)))
+      (.ceil Srt.set (.var 0))) (.ceil Srt.kitem (.var 1)), []⟩
+
+theorem msLookupCeilSv_apart {c : Semantics} (h : c.coreOK = true) :
+    msLookupCeilSv.lhs.Apart c ∧ msLookupCeilSv.rhs.Apart c := by
+  haveI : OvlOK c := ovlOK_of_core h
+  exact ⟨trivial, ⟨⟨apart_of_distinct bool_distinct, trivial⟩, trivial⟩⟩
+
+theorem ssConcatCeilSv_apart {c : Semantics} (h : c.coreOK = true) :
+    ssConcatCeilSv.lhs.Apart c ∧ ssConcatCeilSv.rhs.Apart c := by
+  haveI : OvlOK c := ovlOK_of_core h
+  exact ⟨trivial, ⟨⟨apart_of_distinct bool_distinct, trivial⟩, trivial⟩⟩
+
+section
+variable {c : Semantics}
+
+theorem csHv_setConcatElem (s : Srt) (a : List GroundTerm) (e : GroundTerm) :
+    c.hv setConcat [.set s a, .set Srt.set [e]] = (concatS a [e]).map (.set Srt.set) :=
+  fhv_setConcat s Srt.set a [e]
+
+end
+
+/-- **411 is refuted at values**: in every model of `Γ c`, at `@K = {k}` and `@M` the maps `m0`
+without the key `k` and `m1` with it, the left side holds (`m1 [ k ]` has a value) and
+`@K in_keys(@M)` denotes `false`, which is not `true`. -/
+theorem msLookupCeilSv_refuted_at {c : Semantics} (h : c.coreOK = true) (hr : msLookupCeilSv.regular = true)
+    (ht : msLookupCeilSv.typed c = true) (k v : GroundTerm) (m0 m1 : Entries)
+    (hk : c.sortOf k = some Srt.kitem)
+    (hm0 : c.sortOf (.map Srt.map m0) = some Srt.map) (hm1 : c.sortOf (.map Srt.map m1) = some Srt.map)
+    (h0 : hasKey k m0 = false) (h1 : Map.find m1 k = some v) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = msLookupCeilSv.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v])
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) :
+    ∃ e : Valuation M, AtValues c I e ad.ax ∧ SetVarsAtValues c I e ad.ax ∧
+      ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default := by
+  refine SvEqn.refuted_at h _ hr ht (msLookupCeilSv_apart h)
+    (fun i (w : GroundTerm) => (i = 0 ∧ (w = .map Srt.map m0 ∨ w = .map Srt.map m1)) ∨ (i = 1 ∧ w = k))
+    ?_ (fun _ h => nomatch h) ?_ ad hp hsv hI
+  · intro i x hx w hw
+    match i, hx with
+    | 0, hx =>
+      cases hx
+      rcases hw with ⟨-, rfl | rfl⟩ | ⟨h', -⟩
+      · exact hm0
+      · exact hm1
+      · cases h'
+    | 1, hx =>
+      cases hx
+      rcases hw with ⟨h', -⟩ | ⟨-, rfl⟩
+      · cases h'
+      · exact hk
+  · intro hiff
+    have hL : msLookupCeilSv.lhs.Holds c
+        (fun i (w : GroundTerm) => (i = 0 ∧ (w = .map Srt.map m0 ∨ w = .map Srt.map m1)) ∨ (i = 1 ∧ w = k)) :=
+      ⟨v, [.map Srt.map m1, k], ⟨.map Srt.map m1, [k], rfl, Or.inl ⟨rfl, Or.inr rfl⟩, k, [], rfl,
+        Or.inr ⟨rfl, rfl⟩, rfl⟩, by rw [csHv_mapLookup, h1]⟩
+    obtain ⟨⟨heq, -⟩, -⟩ := hiff.mp hL
+    have := (heq (bool false)).mp ⟨[k, .map Srt.map m0], ⟨k, [.map Srt.map m0], rfl, Or.inr ⟨rfl, rfl⟩,
+      .map Srt.map m0, [], rfl, Or.inl ⟨rfl, Or.inl rfl⟩, rfl⟩, by rw [csHv_mapInKeys, h0]⟩
+    exact absurd this (by simp [svVals, bool])
+
+/-- **The companion of 411**: at sets of at most one value the sentence holds, in every semantics
+whose Map values are maps (`shapesOK`). -/
+theorem msLookupCeilSv_one {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true)
+    (hr : msLookupCeilSv.regular = true) (ht : msLookupCeilSv.typed c = true)
+    (hkap : apartSort c Srt.map = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = msLookupCeilSv.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v]) :
+    SvAtMostOne c ad (KoreAML.trAxiom [] [] ad).pat := by
+  haveI : OvlOK c := ovlOK_of_core h
+  have hki : apartSort c Srt.kitem = true := by simp [apartSort]
+  refine SvEqn.entailed_one h _ hr ht (msLookupCeilSv_apart h)
+    (fun x hx => by
+      simp only [msLookupCeilSv, List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl
+      · exact hkap
+      · exact hki) ?_ ad hp hsv
+  intro ρ hρ hone
+  have hM : ∀ w, ρ 0 w → ∃ es, w = .map Srt.map es := fun w hw => shape_map hs (hρ 0 _ rfl w hw)
+  simp only [msLookupCeilSv, SvPred.Holds, svVals, svValsList]
+  constructor
+  · rintro ⟨r, _, ⟨mw, _, rfl, hm, k, _, rfl, hk, rfl⟩, hf⟩
+    obtain ⟨es, rfl⟩ := hM mw hm
+    rw [csHv_mapLookup] at hf
+    have hkey : hasKey k es = true := by rw [Map.hasKey_eq, hf]; rfl
+    refine ⟨⟨fun b => ⟨?_, ?_⟩, _, hm⟩, k, hk⟩
+    · rintro ⟨_, ⟨k', _, rfl, hk', mw', _, rfl, hm', rfl⟩, hb⟩
+      rw [hone 1 k' k hk' hk, hone 0 mw' _ hm' hm, csHv_mapInKeys, hkey] at hb
+      cases hb; rfl
+    · rintro rfl
+      exact ⟨[k, .map Srt.map es], ⟨k, [.map Srt.map es], rfl, hk, .map Srt.map es, [], rfl, hm, rfl⟩,
+        by rw [csHv_mapInKeys, hkey]; rfl⟩
+  · rintro ⟨⟨heq, -⟩, -⟩
+    obtain ⟨_, ⟨k, _, rfl, hk, mw, _, rfl, hm, rfl⟩, hb⟩ := (heq _).mpr rfl
+    obtain ⟨es, rfl⟩ := hM mw hm
+    rw [csHv_mapInKeys] at hb
+    have hkey : hasKey k es = true := by
+      cases hh : hasKey k es with
+      | false => rw [hh] at hb; cases hb
+      | true => rfl
+    rw [Map.hasKey_eq] at hkey
+    obtain ⟨r, hr'⟩ := Option.isSome_iff_exists.mp hkey
+    exact ⟨r, [.map Srt.map es, k], ⟨.map Srt.map es, [k], rfl, hm, k, [], rfl, hk, rfl⟩,
+      by rw [csHv_mapLookup]; exact hr'⟩
+
+/-- **830 is refuted at values**: in every model of `Γ c`, at `@E = {e}` and `@S` the sets `s0`
+without `e` and `s1` with it, the left side holds (`s0 SetItem(e)` has a value) and `@E in @S`
+denotes `true`, which is not `false`. -/
+theorem ssConcatCeilSv_refuted_at {c : Semantics} (h : c.coreOK = true) (hr : ssConcatCeilSv.regular = true)
+    (ht : ssConcatCeilSv.typed c = true) (e : GroundTerm) (s0 s1 : List GroundTerm)
+    (he : c.sortOf e = some Srt.kitem)
+    (hs0 : c.sortOf (.set Srt.set s0) = some Srt.set) (hs1 : c.sortOf (.set Srt.set s1) = some Srt.set)
+    (h0 : memS e s0 = false) (h1 : memS e s1 = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = ssConcatCeilSv.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v])
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γ c) :
+    ∃ e : Valuation M, AtValues c I e ad.ax ∧ SetVarsAtValues c I e ad.ax ∧
+      ¬ (KoreAML.trAxiom [] [] ad).pat.interpret I e default := by
+  refine SvEqn.refuted_at h _ hr ht (ssConcatCeilSv_apart h)
+    (fun i (w : GroundTerm) => (i = 0 ∧ (w = .set Srt.set s0 ∨ w = .set Srt.set s1)) ∨ (i = 1 ∧ w = e))
+    ?_ (fun _ h => nomatch h) ?_ ad hp hsv hI
+  · intro i x hx w hw
+    match i, hx with
+    | 0, hx =>
+      cases hx
+      rcases hw with ⟨-, rfl | rfl⟩ | ⟨h', -⟩
+      · exact hs0
+      · exact hs1
+      · cases h'
+    | 1, hx =>
+      cases hx
+      rcases hw with ⟨h', -⟩ | ⟨-, rfl⟩
+      · cases h'
+      · exact he
+  · intro hiff
+    have hu : concatS s0 [e] = some (unionS s0 [e]) := by rw [cs_concatS_single, h0]; rfl
+    have hL : ssConcatCeilSv.lhs.Holds c
+        (fun i (w : GroundTerm) => (i = 0 ∧ (w = .set Srt.set s0 ∨ w = .set Srt.set s1)) ∨ (i = 1 ∧ w = e)) :=
+      ⟨.set Srt.set (unionS s0 [e]), [.set Srt.set s0, .set Srt.set [e]], ⟨.set Srt.set s0, [.set Srt.set [e]], rfl,
+        Or.inl ⟨rfl, Or.inl rfl⟩, .set Srt.set [e], [], rfl,
+        ⟨[e], ⟨e, [], rfl, Or.inr ⟨rfl, rfl⟩, rfl⟩, csHv_setElem e⟩, rfl⟩,
+        by rw [csHv_setConcatElem, hu]; rfl⟩
+    obtain ⟨⟨heq, -⟩, -⟩ := hiff.mp hL
+    have := (heq (bool true)).mp ⟨[e, .set Srt.set s1], ⟨e, [.set Srt.set s1], rfl, Or.inr ⟨rfl, rfl⟩,
+      .set Srt.set s1, [], rfl, Or.inl ⟨rfl, Or.inr rfl⟩, rfl⟩, by rw [csHv_setIn, h1]⟩
+    exact absurd this (by simp [svVals, bool])
+
+/-- **The companion of 830**: at sets of at most one value the sentence holds, in every semantics
+whose Set values are sets (`shapesOK`). -/
+theorem ssConcatCeilSv_one {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true)
+    (hr : ssConcatCeilSv.regular = true) (ht : ssConcatCeilSv.typed c = true)
+    (hsap : apartSort c Srt.set = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = ssConcatCeilSv.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv, Q0v]) :
+    SvAtMostOne c ad (KoreAML.trAxiom [] [] ad).pat := by
+  haveI : OvlOK c := ovlOK_of_core h
+  have hki : apartSort c Srt.kitem = true := by simp [apartSort]
+  refine SvEqn.entailed_one h _ hr ht (ssConcatCeilSv_apart h)
+    (fun x hx => by
+      simp only [ssConcatCeilSv, List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl
+      · exact hsap
+      · exact hki) ?_ ad hp hsv
+  intro ρ hρ hone
+  have hS : ∀ w, ρ 0 w → ∃ es, w = .set Srt.set es := fun w hw => shape_set hs (hρ 0 _ rfl w hw)
+  simp only [ssConcatCeilSv, SvPred.Holds, svVals, svValsList]
+  constructor
+  · rintro ⟨r, _, ⟨sw, _, rfl, hsw, _, _, rfl, ⟨_, ⟨x, _, rfl, hx, rfl⟩, hxe⟩, rfl⟩, hf⟩
+    obtain ⟨es, rfl⟩ := hS sw hsw
+    rw [csHv_setElem] at hxe
+    cases hxe
+    rw [csHv_setConcatElem] at hf
+    have hmem : memS x es = false := by
+      rw [cs_concatS_single] at hf
+      cases hh : memS x es with
+      | false => rfl
+      | true => rw [hh] at hf; simp at hf
+    refine ⟨⟨fun b => ⟨?_, ?_⟩, _, hsw⟩, x, hx⟩
+    · rintro ⟨_, ⟨x', _, rfl, hx', sw', _, rfl, hsw', rfl⟩, hb⟩
+      rw [hone 1 x' x hx' hx, hone 0 sw' _ hsw' hsw, csHv_setIn, hmem] at hb
+      cases hb; rfl
+    · rintro rfl
+      exact ⟨[x, .set Srt.set es], ⟨x, [.set Srt.set es], rfl, hx, .set Srt.set es, [], rfl, hsw, rfl⟩,
+        by rw [csHv_setIn, hmem]; rfl⟩
+  · rintro ⟨⟨heq, -⟩, -⟩
+    obtain ⟨_, ⟨x, _, rfl, hx, sw, _, rfl, hsw, rfl⟩, hb⟩ := (heq _).mpr rfl
+    obtain ⟨es, rfl⟩ := hS sw hsw
+    rw [csHv_setIn] at hb
+    have hmem : memS x es = false := by
+      cases hh : memS x es with
+      | false => rfl
+      | true => rw [hh] at hb; cases hb
+    have hu : concatS es [x] = some (unionS es [x]) := by rw [cs_concatS_single, hmem]; rfl
+    exact ⟨.set Srt.set (unionS es [x]), [.set Srt.set es, .set Srt.set [x]], ⟨.set Srt.set es, [.set Srt.set [x]], rfl, hsw,
+      .set Srt.set [x], [], rfl, ⟨[x], ⟨x, [], rfl, hx, rfl⟩, csHv_setElem x⟩, rfl⟩,
+      by rw [csHv_setConcatElem, hu]; rfl⟩
 
 end LibEv
 

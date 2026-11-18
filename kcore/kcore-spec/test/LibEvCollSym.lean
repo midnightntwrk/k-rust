@@ -16,8 +16,15 @@
     (`LibEv.EqnK`, KcoreSpec/LibEvCollSymK.lean), entailed at values: 422, 429, 433, 435, 438,
     440, 446, 447 (433 and 438 with an `ensures`).
 
-  Not here: 451 and 452, whose right side has `#Not`, which `LibEv.SvPred` has not; 411 and 830,
-  `#Ceil` of a partial symbol over set variables, which take the form of `LibEv.ceilMap_refuted_at`.
+  Not entailed: four lemmas over set variables are refuted at values; for each sentence `n`,
+  `sn_at` (in every model of Γ the sentence fails at a valuation meeting `AtValues` and
+  `SetVarsAtValues`), `sn_refuted` (Γ with it has no model) and `sn_one` (it holds at every valuation
+  at values whose set variables hold at most one element):
+  - 137 (domains.md 411, `#Ceil(@M [@K])`), at `@K = {0}`, `@M = {.Map, 0 |-> 0}`;
+  - 138 (830, `#Ceil(@S SetItem(@E))`), at `@E = {0}`, `@S = {.Set, SetItem(0)}`;
+  - 158 (451) and 149 (452, the flip), `{false #Equals @Key in_keys(Key' |-> Val @M)} => ...`,
+    at `@Key = {1}`, `Key' = Val = 0`, `@M = {.Map, 0 |-> 0 1 |-> 0}`.
+  (0 and 1 are the KItem injections of the Ints.)
 -/
 import KcoreSpec
 
@@ -259,6 +266,111 @@ theorem ev235 (H : HookParams) : EntailsAtValues (cH H) U.ax235 (trS U.ax235).pa
   rw [(by decide +kernel : (trS U.ax235).pat = (trAxiom [] [] U.ax235).pat)]
   exact LibEv.msInKeysUpdOr_ev (coreOKH H) (shapesOKH H) U.ax235 (by decide +kernel) (by decide +kernel)
 
+/-! ## Over set variables, refuted at values, and the companions at sets of at most one value -/
+
+/-- What a refutation at values gives: Γ with the sentence has no model. -/
+theorem refuted_of_at {c' : Semantics} {ad : AxiomDecl} {φ : KoreAML.P}
+    (hat : ∀ (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c' →
+      ∃ e : Valuation M, AtValues c' I e ad.ax ∧ SetVarsAtValues c' I e ad.ax ∧ ¬ φ.interpret I e default) :
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP Γ c' → ¬ (I ⊧ᴵ φ) := by
+  intro M _ I hI hax
+  obtain ⟨e, -, -, hn⟩ := hat M I hI
+  exact hn (hax e default)
+
+/-- The KItem injections of 0 and 1. -/
+def k0 : GroundTerm := .inj Srt.int Srt.kitem (KCore.int 0)
+def k1 : GroundTerm := .inj Srt.int Srt.kitem (KCore.int 1)
+
+theorem sort_k0 (H : HookParams) : (cH H).sortOf k0 = some Srt.kitem := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_k1 (H : HookParams) : (cH H).sortOf k1 = some Srt.kitem := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_m0 (H : HookParams) : (cH H).sortOf (.map Srt.map []) = some Srt.map := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_m1 (H : HookParams) : (cH H).sortOf (.map Srt.map [(k0, k0)]) = some Srt.map := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_m2 (H : HookParams) : (cH H).sortOf (.map Srt.map [(k0, k0), (k1, k0)]) = some Srt.map := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_s0 (H : HookParams) : (cH H).sortOf (.set Srt.set []) = some Srt.set := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+theorem sort_s1 (H : HookParams) : (cH H).sortOf (.set Srt.set [k0]) = some Srt.set := by
+  rw [Semantics.sortOf_withHooks_rawFree c H rfl]; decide +kernel
+
+theorem t137 : (trS U.ax137).pat = (trAxiom [] [] U.ax137).pat := by decide +kernel
+theorem t138 : (trS U.ax138).pat = (trAxiom [] [] U.ax138).pat := by decide +kernel
+theorem t149 : (trS U.ax149).pat = (trAxiom [] [] U.ax149).pat := by decide +kernel
+theorem t158 : (trS U.ax158).pat = (trAxiom [] [] U.ax158).pat := by decide +kernel
+
+/-- domains.md 411 (`LibEv.msLookupCeilSv`): at `@K = {0}`, `@M = {.Map, 0 |-> 0}` the left side
+holds (`(0 |-> 0) [ 0 ]` is `0`) and `0 in_keys(.Map)` is `false`. -/
+theorem s137_at (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M) (hI : I ⊧ᴵP Γ (cH H)) :
+    ∃ e : Valuation M, AtValues (cH H) I e U.ax137.ax ∧ SetVarsAtValues (cH H) I e U.ax137.ax ∧
+      ¬ (trS U.ax137).pat.interpret I e default := by
+  rw [t137]
+  exact LibEv.msLookupCeilSv_refuted_at (coreOKH H) (by decide +kernel) (by rfl) k0 k0 [] [(k0, k0)] (sort_k0 H)
+    (sort_m0 H) (sort_m1 H) rfl (by decide +kernel) U.ax137 (by decide +kernel) (by decide +kernel) hI
+
+theorem s137_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax137).pat) := refuted_of_at (s137_at H)
+
+theorem s137_one (H : HookParams) : LibEv.SvAtMostOne (cH H) U.ax137 (trS U.ax137).pat := by
+  rw [t137]
+  exact LibEv.msLookupCeilSv_one (coreOKH H) (shapesOKH H) (by decide +kernel) (by rfl)
+    (by decide +kernel : apartSort c Srt.map = true) U.ax137 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 830 (`LibEv.ssConcatCeilSv`): at `@E = {0}`, `@S = {.Set, SetItem(0)}` the left side
+holds (`.Set SetItem(0)` has a value) and `0 in SetItem(0)` is `true`. -/
+theorem s138_at (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M) (hI : I ⊧ᴵP Γ (cH H)) :
+    ∃ e : Valuation M, AtValues (cH H) I e U.ax138.ax ∧ SetVarsAtValues (cH H) I e U.ax138.ax ∧
+      ¬ (trS U.ax138).pat.interpret I e default := by
+  rw [t138]
+  exact LibEv.ssConcatCeilSv_refuted_at (coreOKH H) (by decide +kernel) (by rfl) k0 [] [k0] (sort_k0 H)
+    (sort_s0 H) (sort_s1 H) rfl (by decide +kernel) U.ax138 (by decide +kernel) (by decide +kernel) hI
+
+theorem s138_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax138).pat) := refuted_of_at (s138_at H)
+
+theorem s138_one (H : HookParams) : LibEv.SvAtMostOne (cH H) U.ax138 (trS U.ax138).pat := by
+  rw [t138]
+  exact LibEv.ssConcatCeilSv_one (coreOKH H) (shapesOKH H) (by decide +kernel) (by rfl)
+    (by decide +kernel : apartSort c Srt.set = true) U.ax138 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 451 (`LibEv.msInKeysConcatSv false`): at `@Key = {1}`, `Key' = Val = 0` and
+`@M = {.Map, 0 |-> 0 1 |-> 0}` the left side holds (`0 |-> 0 .Map` has no key 1, and
+`0 |-> 0 (0 |-> 0 1 |-> 0)` no value) and `1 in_keys(0 |-> 0 1 |-> 0)` is `true`. -/
+theorem s158_at (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M) (hI : I ⊧ᴵP Γ (cH H)) :
+    ∃ e : Valuation M, AtValues (cH H) I e U.ax158.ax ∧ SetVarsAtValues (cH H) I e U.ax158.ax ∧
+      ¬ (trS U.ax158).pat.interpret I e default := by
+  rw [t158]
+  exact LibEv.msInKeysConcatSv_refuted_at (coreOKH H) false (by decide +kernel) (by rfl) k1 k0 k0 []
+    [(k0, k0), (k1, k0)] (sort_k1 H) (sort_k0 H) (sort_k0 H) (sort_m0 H) (sort_m2 H) rfl
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) U.ax158 (by decide +kernel) (by decide +kernel) hI
+
+theorem s158_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax158).pat) := refuted_of_at (s158_at H)
+
+theorem s158_one (H : HookParams) : LibEv.SvAtMostOne (cH H) U.ax158 (trS U.ax158).pat := by
+  rw [t158]
+  exact LibEv.msInKeysConcatSv_one (coreOKH H) (shapesOKH H) false (by decide +kernel) (by rfl)
+    (by decide +kernel : apartSort c Srt.map = true) U.ax158 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 452 (`LibEv.msInKeysConcatSv true`), at the same sets. -/
+theorem s149_at (H : HookParams) (M : Type) [Inhabited M] (I : Interpretation KoreAML.Sym M) (hI : I ⊧ᴵP Γ (cH H)) :
+    ∃ e : Valuation M, AtValues (cH H) I e U.ax149.ax ∧ SetVarsAtValues (cH H) I e U.ax149.ax ∧
+      ¬ (trS U.ax149).pat.interpret I e default := by
+  rw [t149]
+  exact LibEv.msInKeysConcatSv_refuted_at (coreOKH H) true (by decide +kernel) (by rfl) k1 k0 k0 []
+    [(k0, k0), (k1, k0)] (sort_k1 H) (sort_k0 H) (sort_k0 H) (sort_m0 H) (sort_m2 H) rfl
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) U.ax149 (by decide +kernel) (by decide +kernel) hI
+
+theorem s149_refuted (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax149).pat) := refuted_of_at (s149_at H)
+
+theorem s149_one (H : HookParams) : LibEv.SvAtMostOne (cH H) U.ax149 (trS U.ax149).pat := by
+  rw [t149]
+  exact LibEv.msInKeysConcatSv_one (coreOKH H) (shapesOKH H) true (by decide +kernel) (by rfl)
+    (by decide +kernel : apartSort c Srt.map = true) U.ax149 (by decide +kernel) (by decide +kernel)
+
 end KCore.LibEvCollSym
 
 /-- info: 'KCore.LibEvCollSym.ev179' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -347,3 +459,19 @@ end KCore.LibEvCollSym
 #guard_msgs in #print axioms KCore.LibEvCollSym.ev234
 /-- info: 'KCore.LibEvCollSym.ev235' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvCollSym.ev235
+/-- info: 'KCore.LibEvCollSym.s137_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s137_refuted
+/-- info: 'KCore.LibEvCollSym.s137_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s137_one
+/-- info: 'KCore.LibEvCollSym.s138_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s138_refuted
+/-- info: 'KCore.LibEvCollSym.s138_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s138_one
+/-- info: 'KCore.LibEvCollSym.s158_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s158_refuted
+/-- info: 'KCore.LibEvCollSym.s158_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s158_one
+/-- info: 'KCore.LibEvCollSym.s149_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s149_refuted
+/-- info: 'KCore.LibEvCollSym.s149_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.s149_one
