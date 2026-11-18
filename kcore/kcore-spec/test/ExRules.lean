@@ -31,6 +31,12 @@ set_option maxRecDepth 1000000
 
 open KCore
 
+/-- `ClausePostDecided` from the decided check that every clause's right-side predicate is `\top`. -/
+theorem clausePostDecided_of_isTop_exr {c : Semantics}
+    (h : (c.fns.all fun f => f.clauses.all fun cl => cl.post.isTop) = true) : ClausePostDecided c :=
+  clausePostDecided_of_top fun fn hfn cl hcl =>
+    Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h fn hfn) cl hcl)
+
 namespace ExRules
 
 definition_of defn from "f2-examples/symrule.kompile.kore"
@@ -282,12 +288,12 @@ example (hd : FnDet c) (hs : FnSolves c) (x y : Config c) :
 /-! ## The models, at the definition's rules -/
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI_T c (StepM c) ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_modelCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_top (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
+  stdI_T_modelCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_model_exCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_top (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC
+  stdI_model_exCEx c (hypModel_of_fn coreOK hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesC
 
 /-- `has_model_choice_exCEx` at `T := Step c`. -/
 example (hf : FnHyp c) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
@@ -569,12 +575,12 @@ example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP Γstep
 
 /-- `stdI_T_modelCEx` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_T_modelCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_top (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+  stdI_T_modelCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_model_exCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_top (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX
+  stdI_model_exCEx cX (hypModel_of_fn coreX.1 hd hs) (clausePreDecided_of_isTop (by decide +kernel)) (clausePostDecided_of_isTop_exr (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) hrulesX
 
 /-- The pinned `consistent_of` at `cX`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) (hp : ClausePreDecided cX) (hl : OpenLaws cX) : Consistent cX :=
