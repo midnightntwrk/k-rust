@@ -25,6 +25,7 @@ import KcoreSpec.Emit
 import KcoreSpec.Kore.Read
 import KcoreSpec.FaithOK
 import KcoreSpec.RightHeld
+import KcoreSpec.OvlHeldDefs
 import KcoreSpec.ParseAttr
 
 set_option autoImplicit false
@@ -5256,15 +5257,20 @@ def openRefusalCutSym (bound : List Nat) (i : Nat) : Cond → Option Sym
 where it occurs; `none` where it is read. A variable the left side does not bind is read where the
 values decide it (`rulesPlain`, Tie.lean): held by the right side under constructors, injections
 the unit, element and concatenation symbols of a map, list or set collection and the overloading
-symbols whose function overloads take arguments of confined sorts (`heldOccs`), of a confined sort, or held by closed conditions no variable of which the right side, the `ensures` or
-`post` holds; and a rule that competes with a larger one has open condition variables of confined sorts,
-or closed conditions. Otherwise the truth of a condition (`openRequires`) or the successor
+symbols whose function overloads take arguments of confined sorts (`heldOccs`), of a confined sort,
+held by a cut, or held by closed conditions no variable of which the right side, the `ensures` or
+`post` holds; and a rule that competes with a larger one has open condition variables of confined
+sorts or held by a cut, or closed conditions. A cut is a top-level conjunct `V ∈ t` of `pre` with V
+bound by the left side, and it holds the variables of t under those same symbols (`memHeld`): where
+the left side matches a value, V is a value's element, the conjunct puts that element in t, and an
+application of such a symbol that is a value's element has values' elements as its arguments, so
+the variable ranges over values' elements only, as one of a confined sort does. Otherwise the truth of a condition (`openRequires`) or the successor
 (`openRight`) at given values differs between models of the text. For a variable in closed
 conditions the detail names the first variable of the conditions that the rest of the rule holds;
-for a variable in the term of a membership `V ∈ f(…)` of `pre`, V bound by the left side (a cut),
-it names the symbol f (`openRefusalCutSym`). -/
+for a variable in the term of a membership `V ∈ f(…)` of `pre`, V bound by the left side (a cut)
+that does not hold it, it names the symbol f (`openRefusalCutSym`). -/
 def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (RefusalReason × String) :=
-  let conf := fun i => (r.vars[i]?.map c.confined).getD false
+  let conf := fun i => (r.vars[i]?.map c.confined).getD false || memHeld c (varOccs r.lhs) r.pre i
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}"
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j

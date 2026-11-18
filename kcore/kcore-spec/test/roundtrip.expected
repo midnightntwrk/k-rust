@@ -102,7 +102,7 @@ differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
 differs f2-examples/e5-ovl-fun-keep-run.kompile.kore
 cannot f2-examples/e5-ovl-fun-lhs-int.kompile.kore
-cannot f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
+differs f2-examples/e5-ovl-fun-lhs-owise.kompile.kore
 differs f2-examples/e5-ovl-fun-lhs.kompile.kore
 differs f2-examples/e6-param-bytes.kompile.kore
 differs f2-examples/e6-param-ffi.kompile.kore

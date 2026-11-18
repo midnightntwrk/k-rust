@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 58 | 7 | 0 | 1 | 0 | 50 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 50 | 20 | 0 | 4 | 0 | 26 | 0 | 0 |
-| E5 | 59 | 36 | 1 | 2 | 0 | 20 | 0 | 0 |
+| E5 | 59 | 37 | 1 | 2 | 0 | 19 | 0 | 0 |
 | E6 | 30 | 9 | 0 | 0 | 0 | 21 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 329 | 126 | 2 | 11 | 1 | 189 | 0 | 0 |
+| all | 329 | 127 | 2 | 11 | 1 | 188 | 0 | 0 |
 
 Refused rows by class:
 
@@ -63,14 +63,14 @@ Refused nested entries by class:
 | E2 | 50 | 3 | 0 | 3 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 26 | 14 | 6 | 0 | 6 |
-| E5 | 20 | 10 | 1 | 4 | 5 |
+| E5 | 19 | 10 | 1 | 3 | 5 |
 | E6 | 21 | 2 | 1 | 2 | 16 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 189 | 49 | 14 | 44 | 82 |
+| all | 188 | 49 | 14 | 43 | 82 |
 
-## Entries of class R-c (56)
+## Entries of class R-c (55)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -125,7 +125,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
 | E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |
-| E5 | `convertRule:axiom#2` | cases[13] | refused |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip |  |
 | E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the arguments at which an interpreted hooked symbol takes a value) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a hooked symbol the registry interprets (LIST.update) in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built f… | no unit |  |
 | E6 | `hook:KEQUAL.ite:Lblite` | cases[2] | refused |  | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application | no unit |  |
 | C3 | `hook x equation` | row | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
@@ -953,7 +952,7 @@ Not core:
 | cases[10]: a left side that is an alias application (rule&lt;N>LHS), with or without \\exists binders on the right side | refused | scope | kompile writes a rule's left side as an application of a generated alias only under --enable-kore-antileft, an option value outside R-12; the alias declaration is refused (aliasDeclaration), so its application is refused by name. A right side under \\exists does not change the refusal: the left side… |  | none (scope): option | hw-ex-left-alias |  |  | fixtures/e8-enable-kore-antileft/kompile.txt: kompile --backend haskell --enable-kore-antileft ref.k -o out; exit 0, and its two rewrite axioms have the left sides rule29LHS and rule30LHS (findings/work/existentialRhs/scan.out: left-not-and, the only 2 of 295), written by k/k-frontend/src/main/java/… |
 | cases[11]: an application of a function-overloaded symbol in a rule's left side | supported |  |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit | e5-ovl-fun-lhs |  |  | fixtures/e5-ovl-fun-lhs/account.txt and fixtures/e5-ovl-fun-keep-run/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying a function symbol in their left side: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; test/OvlCutRule.lean |
 | cases[12]: the same with a variable under the symbol whose covering function takes an argument of an unconfined sort | refused | R-a |  |  | none (R-a): an element outside the values can be covered to a value, so two models agreeing at the values disagree on whether the rule applies (designs/CN-4b section 3.2, openRequires) | e5-ovl-fun-lhs-int |  |  | fixtures/e5-ovl-fun-lhs-int/account.txt: \`openRequires (Var'Unds'Gen0:Exp: in a condition with a variable the left side binds (V ∈ LbldblExp(…)), under LbldblExp, of a sort the text leaves unconfined)\` |
-| cases[13]: the same with confined covering sorts, in a rule below an [owise] rule | refused | R-c |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip | e5-ovl-fun-lhs-owise |  |  | fixtures/e5-ovl-fun-lhs-owise/account.txt: \`openRequires (VarG:Gas: in a condition with a variable the left side binds (V ∈ LblcapGas(…)), under LblcapGas, of a sort the text leaves unconfined, in a rule of a priority below another's)\` |
+| cases[13]: the same with confined covering sorts, in a rule below an [owise] rule | supported |  |  | KCore.Semantics.rulesPlain (conf: of a confined sort, or held by memHeld through the cut) | R4.ho2-flip | e5-ovl-fun-lhs-owise |  |  | fixtures/e5-ovl-fun-lhs-owise/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying a function symbol in their left side: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/OvlCutRule.lean (the text read, coreO… |
 | `convertRule:claim#2` | inert |  | DONE-0 C1, class use: a claim is a proof task, a use of a definition and not part of its meaning (InertReason.claim); kompile writes no claim into a definition (fixtures/e1-claim/kompile.txt: \`Claims are not allowed in the definition.\`) |  |  |  |  |  | K-coverage.md Part B rows 56 |
 | `convertRule:axiom#3` | erased (O) |  | The axiom of a macro symbol's rule is written into macros.kore beside definition.kore and into no sentence of definition.kore: c3-macro-rule's rule m(X) => g(X) is macros.kore's axiom, and definition.kore holds g(X) where the text wrote m(X) (f's equation). |  |  | e5-macro-rule-other |  |  | other\_file (form O): fixtures/e5-macro-rule-other/other.txt (macros.kore of c3-macro-rule's text) holds the macro rule's axiom, which no sentence of its definition.kore holds |
 | `genAliasForSemanticsRuleLHS:alias#1` | refused | R-b | Written only under --enable-kore-antileft, outside R-12. |  |  |  |  |  | fixture e8-enable-kore-antileft; Parse.lean:1761 |
