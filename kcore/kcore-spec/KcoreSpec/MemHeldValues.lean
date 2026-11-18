@@ -224,7 +224,7 @@ theorem memHeld_valuesB (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {H : Sym �
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   obtain ⟨hlhs, -, -, -⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   have hokP : c.condOK r.vars r.pre = true := by
     simp only [Semantics.ruleSorted, Bool.and_eq_true] at hs
     exact hs.1.1.1.1.1.2

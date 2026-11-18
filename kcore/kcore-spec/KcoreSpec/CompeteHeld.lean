@@ -134,7 +134,7 @@ theorem not_applies_of_notApplies_held (h : c.coreOK = true) (hI : I ⊧ᴵP Γc
     have hin2 : ∀ i < r.leftSorts.length, InS I (c.sortName (r.leftSorts.getD i 0)) (e2.evalEvar (tbl.ev (keyAt vs i))) :=
       fun i hi => by obtain ⟨v, hv, he⟩ := hwit2 i hi; rw [← he]; exact (inS_iff e2).mp (elemOf_spec hIΓ hv e2).2
     obtain ⟨hpv, -⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin2 (collPat_of_sorted hph' hlhs')
-      (Semantics.lhs_nf OvlOK.ok hr hlhs') x.property hl2
+      (OvlOK.nf_bridge inferInstance hlhs') x.property hl2
     obtain ⟨hσ2, hag2⟩ := substOf_ok hIΓ hg hsc.trans hvsl hwit2
     obtain ⟨t, v, ht, he, hv⟩ : ∃ t v, r.req = some t ∧ EvalTerm c (substOf c I tbl vs r.leftSorts e2) t v ∧
         v ≠ some (bool true) := by
@@ -178,7 +178,7 @@ theorem not_applies_of_notApplies_held (h : c.coreOK = true) (hI : I ⊧ᴵP Γc
     refine List.mem_filter.mpr ⟨?_, by simpa using hcv⟩
     simp only [Rule.opens, List.mem_filter, List.mem_range]; exact ⟨hi, by simpa using hnl⟩
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPat_of_sorted hph' hlhs')
-    (Semantics.lhs_nf OvlOK.ok hr hlhs') x.property hlx1
+    (OvlOK.nf_bridge inferInstance hlhs') x.property hlx1
   by_cases hconf : ∀ i ∈ r.openCondVars, (r.vars[i]?.map c.confined).getD false = true ∨
       memHeldH c H (varOccs r.lhs) r.pre i = true
   · -- every open condition variable is of a confined sort or held by a cut: it is a value's

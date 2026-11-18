@@ -72,7 +72,7 @@ theorem rule_witnessed (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {r : Rule} (
   obtain ⟨hlhs, -, -, hrhs⟩ := Semantics.ruleSorted_parts c hs
   rcases harm with hL | hAB
   · obtain ⟨-, hwit⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-      (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+      (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
     exact hwit i (List.contains_iff_mem.mp hL)
   simp only [Rule.armAB, Bool.or_eq_true] at hAB
   rcases hAB with hA | hB
@@ -107,7 +107,7 @@ theorem rule_subst_AB (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {r : Rule} (h
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   obtain ⟨hlhs, -, -, -⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   have hwit : ∀ i < r.vars.length, Witnessed c I tbl (canonVars c r.vars) r.vars e i := by
     intro i hi
     by_cases hL : (varOccs r.lhs).contains i = true
@@ -231,7 +231,7 @@ theorem rule_witnessed_all (h : c.coreOK = true) (hIΓ : I ⊧ᴵP Γ c) {r : Ru
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   obtain ⟨hlhs, -, -, -⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   intro i hi
   by_cases hL : (varOccs r.lhs).contains i = true
   · exact hwitL i (List.contains_iff_mem.mp hL)

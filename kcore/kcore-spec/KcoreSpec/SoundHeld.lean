@@ -98,7 +98,7 @@ theorem step_sound_held (h : c.coreOK = true)
       (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs r.lhs)).interpret I e' (elemOf c I x.val) ∧
       (KoreAML.tr ⟨tbl, []⟩ (reqPat C (r.req.map (Term.kore c vs)))).interpret I e' (elemOf c I x.val) :=
     fun tbl e' hag =>
-      ⟨(patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (Semantics.lhs_nf OvlOK.ok hr hlhs)).2 _ |>.mpr
+      ⟨(patVal_den4 hIΓ hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (OvlOK.nf_bridge inferInstance hlhs)).2 _ |>.mpr
         ((elemOf_spec hIΓ x.property e').1 _ |>.mpr rfl),
        reqPat_holds hIΓ (fun t ht b => evalTerm_den4Cl hIΓ hnn hsc hph
         (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg (hreq t ht) fns_headsOK hσ

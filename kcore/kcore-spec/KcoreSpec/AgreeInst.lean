@@ -873,10 +873,12 @@ theorem fnExclusiveI_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   · exact pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 hl hprio
   · have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
-    exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
+    exact instAgree_sound hmc (sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1)))
+      (sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))) hi
   · have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
-    exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi).symm
+    exact (instAgree_sound hmc (sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2)))
+      (sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))) hi).symm
 
 theorem ovlClosure_self (f : Sym) : f ∈ c.ovlClosure f := by
   simp [Semantics.ovlClosure, Semantics.ovlReach]
@@ -895,7 +897,8 @@ theorem patVal_head (hmc : MatchCtxO c) {σ : Subst} {vars : List Srt} (hσ : c.
     obtain ⟨o, hlo, rfl⟩ := patCtxNF_ovl_lookup ho hk'
     obtain ⟨-, hn, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF hmc.ovlHyp.fnFacts hlo
     obtain ⟨A, g, us, he, hg⟩ := OvlLaws.norm_head_ovlF hmc.ovlHyp hmc.ovlHyp.fnFacts hks
-      (patVals_sortedAllO hmc hσ hvs hargs) (OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
+      (patVals_sortedAllO hmc hσ hvs hargs)
+      (by rw [hn]; exact OvlLaws.fnCover_none_of_not_fnOvl (patCtxNF_lookup.mp hk').2 _)
     rw [hn] at he hg
     exact ⟨A, g, us, by rw [← hv]; exact he, hg⟩
 
@@ -961,7 +964,8 @@ theorem clausesHeadApart_sound (hmc : MatchCtxO c) {cl cl' : Clause} {ss : List 
 
 /-- **The equations `fnExclusiveIO` accepts agree.** -/
 theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
-    (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveIO heads f = true) :
+    (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true)
+    (hnf : ∀ cl ∈ f.clauses, c.NoFnOvlInL cl.pats) (h : c.fnExclusiveIO heads f = true) :
     ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
@@ -970,18 +974,20 @@ theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   have hc2 := hcls cl' h2
   have hc1' := hc1; have hc2' := hc2
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+  have hn1 := sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (hnf cl h1)
+  have hn2 := sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (hnf cl' h2)
   simp only [Semantics.pairAgreeO, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((((⟨⟨hf1, hf2⟩, hl⟩ | ⟨-, hi | hi⟩) | hne) | ha) | hh)
   · exact pairAgreeL_sound hmc hf1 hf2 hc1 hc2 hl hprio
-  · exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
-  · exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi).symm
+  · exact instAgree_sound hmc hn1 hn2 hi
+  · exact (instAgree_sound hmc hn2 hn1 hi).symm
   · exact (notCompeting_iff.mp hne hprio).elim
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
-        (clausesHeadApart_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hh hσ hσ' hm hm').elim,
+        (clausesHeadApart_sound hmc hn1 hn2 hh hσ hσ' hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
-        (clausesHeadApart_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hh hσ hσ' hm hm').elim⟩
+        (clausesHeadApart_sound hmc hn1 hn2 hh hσ hσ' hm hm').elim⟩
 
 /-- In a core that `sortedOK` and `srReady` accept, with the matcher's facts `MatchCtxO`
 (overloading symbols admitted), each two equations of one priority of each function are coherent:
@@ -1000,7 +1006,8 @@ theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     cases he : c.ovls.isEmpty
     · rw [he, Bool.cond_false] at hx
-      exact (fnExclusiveIO_sound hmc (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      exact (fnExclusiveIO_sound hmc (hf.1.2 fn hfn)
+        (fun _ hcl => Semantics.pats_noFnOvl hmc.ovlHyp (List.mem_append_left _ hfn) hcl) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
     · rw [he, Bool.cond_true] at hx
       exact (fnExclusiveI_sound hmc (fun _ _ => ovlFreeList_of_nil (List.isEmpty_iff.mp he) _) (hf.1.2 fn hfn) hx).agree
         (Semantics.fnsNoExs_of_sortedOK hok fn hfn)

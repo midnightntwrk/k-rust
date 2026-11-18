@@ -267,7 +267,7 @@ theorem exclusion_ofPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ cl.leftVars
   have hpatOK : ∀ p ∈ cl.pats, PatOK c P p := fun p hp =>
-    (patOKs_of_sorted h (h.pats_nf hfn hcl hpats) p hp).monoOpen fun i hi =>
+    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge hpats) p hp).monoOpen fun i hi =>
       ⟨varOccsList_lt cl.pats hpats i (varOccsList_of_memOpen hp hi), List.mem_append_left _ (varOccsList_of_memOpen hp hi)⟩
   have hreqOK : ∀ t, cl.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>
@@ -380,7 +380,7 @@ theorem withPre_readPre (h : HypModelCore c) {fn : Fn} {cl : Clause} (F : EqnFac
     | true => rw [withPre_isTop hpt] at hprem; exact ⟨hprem, fun h' => Bool.noConfusion h'⟩
     | false => exact ⟨((HoldsShape.withPre_interp hpt).mp hprem).1, fun _ => ((HoldsShape.withPre_interp hpt).mp hprem).2⟩
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
-    (patOKs_of_sorted h F.pats) hlen hEq.args a).mp hsplit.1
+    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge F.pats)) hlen hEq.args a).mp hsplit.1
   refine ⟨hσ, hpv, hq, ?_⟩
   cases hpt : cl.pre.isTop with
   | true => exact Clause.holds_preTop (Cond.eq_top_of_isTop hpt) _

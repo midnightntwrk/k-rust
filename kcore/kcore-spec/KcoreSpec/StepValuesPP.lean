@@ -122,7 +122,7 @@ theorem rule_step_of_witnessed_pp (h : c.coreOK = true) (hft : FnTerminates c) (
     obtain ⟨v, hv, he⟩ := hwit i hi
     rw [← he]; exact (inS_iff e).mp (elemOf_spec hIΓ hv e).2
   obtain ⟨hmatch, -⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) hwit
   have hensS : ∀ t, r.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool :=
     fun t ht => by rw [ht] at hensK; simpa [reqOK] using hensK
@@ -324,7 +324,7 @@ theorem rule_step_C_pp (h : c.coreOK = true) (hft : FnTerminates c) (hI : I ⊧�
   let vs := canonVars c r.vars
   let n := r.vars.length
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   have hwe : ∀ i < n, i ∉ r.condVars → Witnessed c I tbl vs r.vars e i := fun i hi hc => by
     by_cases hL : (varOccs r.lhs).contains i = true
     · exact hwitL i (List.contains_iff_mem.mp hL)

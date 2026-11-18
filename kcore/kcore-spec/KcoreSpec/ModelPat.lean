@@ -370,18 +370,18 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
 
 theorem HypModelCore.patHeads (h : HypModelCore c) : patHeadsOK c = true := h.sound.2.2.2.2.2.2.2.1
 
-theorem HypModelCore.ovlOK (h : HypModelCore c) : OvlOK c := h.sound.2.2.2.2.2.2.2.2
+theorem HypModelCore.ovlOKI (h : HypModelCore c) : OvlOK c := h.sound.2.2.2.2.2.2.2.2
 
 /-- A rule's left side is sorted over `patCtxNF` as it is over `patCtxAll`. -/
 theorem HypModelCore.lhs_nf (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {vars : List Srt} {s : Srt}
     (hl : sortOfTerm c.patCtxAll vars r.lhs = some s) : sortOfTerm c.patCtxNF vars r.lhs = some s :=
-  Semantics.lhs_nf h.ovlOK.ok hr hl
+  Semantics.lhs_nf h.ovlOKI.ok hr hl
 
 /-- A clause's patterns are sorted over `patCtxNF` as they are over `patCtxAll`. -/
 theorem HypModelCore.pats_nf (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
     (hcl : cl ∈ fn.clauses) {vars : List Srt} {ss : List Srt}
     (hp : sortsOfTerms c.patCtxAll vars cl.pats = some ss) : sortsOfTerms c.patCtxNF vars cl.pats = some ss :=
-  Semantics.pats_nf (h.ovlOK.hyp h.trans) hfn hcl hp
+  Semantics.pats_nf (h.ovlOKI.hyp h.trans) hfn hcl hp
 
 theorem patHead_kernel {k : CtorSig} (hk : k ∈ c.patCtxAll.heads) : k ∈ kernelSyms c := by
   simp only [Semantics.patCtxAll, Semantics.patCtx, Semantics.collPatSigs, List.mem_append] at hk

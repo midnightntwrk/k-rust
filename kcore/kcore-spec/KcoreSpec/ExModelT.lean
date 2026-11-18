@@ -322,7 +322,7 @@ theorem rule_premise_T (h : HypModelCore c)
   have hreqP : ∀ t, r.req = some t → ∀ i ∈ varOccs t, P i := fun t ht i hi =>
     ⟨varOccs_lt t (hreqs t ht) i hi, fun hx => (hexs i hx).2.2
       (List.mem_append_left _ (by rw [ht]; exact hi))⟩
-  have hpat : PatOK c P r.lhs := (patOK_of_sorted h (h.lhs_nf hr hlhs)).monoOpen hltL
+  have hpat : PatOK c P r.lhs := (patOK_of_sorted h (h.ovlOKI.nf_bridge hlhs)).monoOpen hltL
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqs t ht)).monoOpen (hreqP t ht)
   -- the keys of the parts

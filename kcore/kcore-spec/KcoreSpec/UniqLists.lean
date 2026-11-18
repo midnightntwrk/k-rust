@@ -459,7 +459,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
     | some t => simpa [reqOK, he] using hens t he
   rcases List.mem_append.mp hmem with hf | hp
   · cases hfx : c.clauseFixedL cl with
-    | true => exact clauseFixedL_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixedL_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false =>
       obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
       refine hob (fn.label, i) ?_ fn (by rw [hlab]; exact hfn) _ (List.getElem?_eq_getElem hi)
@@ -468,7 +468,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx]
   · cases hfx : c.clauseFixed cl with
-    | true => exact clauseFixed_sound hmc hpt hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixed_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     | false => exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
 
 kernel_rfl Semantics.matchObligationsL_withHooks :
