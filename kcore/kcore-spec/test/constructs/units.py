@@ -114,7 +114,9 @@ ALLOWANCE = [
     # 31 -> 33: E6 hook:KEQUAL.ite's cases of the text's own one-sort Lblite
     # with an equation of an instance (NamesNumbered) and hooked to KEQUAL.ite (as E2
     # SYMBOL(symbol)@symbol's registry-name case), R-c with no ticket that reads them.
-    ("ROWS-1.unit-rc", 33, "entries of class R-c without unit",
+    # 33 -> 32: E6 hook:KEQUAL.ite's case of the text's own one-sort Lblite hooked to KEQUAL.ite
+    # is supported, the declaration being the registry's ite declared again (Parse.regIteDeclIoh).
+    ("ROWS-1.unit-rc", 32, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
     # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).

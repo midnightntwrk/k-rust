@@ -296,7 +296,9 @@ inductive RefusalReason where
   one is no imported module's. Names are numbered registry first, so the declaration would read as
   the registry symbol, with its arity, sorts and interpretation, which are not the declaration's;
   read as a symbol of its own it would carry a registry symbol's name, which the numbered symbols'
-  names being apart excludes. The detail is the name. -/
+  names being apart excludes. The detail is the name. A hooked symbol with the registry `ite`'s
+  name, shape and hook is that symbol declared again, with its meaning, and is not refused
+  (`regIteDeclIoh`). -/
   | registrySymbolName
   /-- A function equation's attribute that `attrVerdict` refuses at class `equation`
   (`eqnAttrFault?`): one whose meaning for the equation no text states, so that reading the equation
@@ -4675,6 +4677,20 @@ def collSigOf (N : Names) (hooked : List Kore.HookedSymbol) :
       | _, _ => fail .collectionShape X
     pure ⟨← N.srtE X, k, ← N.srtE key, ← val.mapM N.srtE, ← N.symE u, ← N.symE e, ← N.symE cc⟩
 
+/-- A hooked symbol that is the registry's `ite` declared again: named `Lblite`, with exactly one
+sort variable S, arguments `Bool, S, S`, result S, and the hook the registry gives `kIte`
+(`regHookOf`). Name, shape and hook are `kIte`'s, so the declaration states the meaning the
+registry gives the name, one meaning, and `envOf` reads its applications at each sort as K's
+`ite` there (`iteNames`), as where K-EQUAL declares it. -/
+def regIteDeclIoh (h : Kore.HookedSymbol) : Bool :=
+  match h.symbol.sortVars with
+  | [v] =>
+    let S : Kore.KSort := .var v
+    h.symbol.ident.ident.name == "Lblite" &&
+    h.sorts == [.ctor ⟨⟨"SortBool"⟩⟩ [], S, S] && h.sort == S &&
+    (attrStr? h.attributes "hook").bind regHookOf == some kIte
+  | _ => false
+
 def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let src ← need (source? m.attributes) .moduleSource
   -- the module's attributes, as `attrVerdict` rules them at class `module`
@@ -4700,10 +4716,12 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
       | some s => .sentence s
       | none => .unset) (fail .registrySortName X)
   | none => pure ()
-  -- a symbol a user file declares under the name of a registry symbol (`registrySymbolName`)
+  -- a symbol a user file declares under the name of a registry symbol (`registrySymbolName`), but
+  -- the registry's `ite` declared again with its own shape and hook (`regIteDeclIoh`)
   let userDecls : List (String × Kore.Sentence) :=
     (S.userSyms.filter (isUserSource ·.attributes)).map (fun s => (s.symbol.ident.ident.name, .symbol s)) ++
-    (S.userHooked.filter (isUserSource ·.attributes)).map (fun h => (h.symbol.ident.ident.name, .hookedSymbol h))
+    (S.userHooked.filter (fun h => isUserSource h.attributes && !regIteDeclIoh h)).map
+      (fun h => (h.symbol.ident.ident.name, .hookedSymbol h))
   match userDecls.find? (fun d => regSymNames.contains d.1) with
   | some (n, s) => Rd.within (.sentence s) (fail .registrySymbolName n)
   | none => pure ()
@@ -4796,8 +4814,11 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let hookFnNames := (hookFnDecls S).map (·.symbol.ident.ident.name)
   let fnNames := notOvl (((S.userSyms ++ genSyms ++ instSyms).filter (!isCtorDecl ·)).map (·.symbol.ident.ident.name) |>.filter
     (!clauseless.contains ·)) ++ hookFnNames
-  -- the definition's own hooked symbols are its parameter symbols, but those read as functions
-  let paramNames := (S.userHooked.filter (!hookFnSym S ·)).map (·.symbol.ident.ident.name)
+  -- the definition's own hooked symbols are its parameter symbols, but those read as functions and
+  -- the registry's `ite` declared again (`regIteDeclIoh`: the registry's symbol, its instances
+  -- numbered from their use, `iteNames`)
+  let ownHooked := S.userHooked.filter fun h => !hookFnSym S h && !regIteDeclIoh h
+  let paramNames := ownHooked.map (·.symbol.ident.ident.name)
   -- an overload axiom of an overloading symbol is the kernel's overload equation (`ovlEqMissing`) of
   -- a constructor, an overloading symbol or a function with equations; one whose first symbol is a
   -- function is a clause of that function (`overloadEqn?`), whatever the second symbol is
@@ -4882,7 +4903,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))
-  let userParams ← (S.userHooked.filter (!hookFnSym S ·)).mapM fun h => Rd.within (.sentence (.hookedSymbol h)) do
+  let userParams ← ownHooked.mapM fun h => Rd.within (.sentence (.hookedSymbol h)) do
     let hk ← need (attrStr? h.attributes "hook") .hookAttribute
     let sig : CtorSig := ⟨← N.symE h.symbol.ident.ident.name, ← h.sorts.mapM N.sortE, ← N.sortE h.sort⟩
     let pp : ParamPres := ⟨hk, attrStr? h.attributes "symbol'Kywd'", loc? h.attributes, srcOver src h.attributes,
