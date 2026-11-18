@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
-| E6 | 27 | 6 | 0 | 0 | 0 | 20 | 0 | 1 |
+| E6 | 29 | 7 | 0 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 7 | 2 | 1 | 1 | 0 | 3 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 312 | 107 | 2 | 17 | 1 | 184 | 0 | 1 |
+| all | 314 | 108 | 2 | 17 | 1 | 186 | 0 | 0 |
 
 Refused rows by class:
 
@@ -64,13 +64,13 @@ Refused nested entries by class:
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 20 | 9 | 0 | 6 | 5 |
-| E6 | 20 | 2 | 1 | 1 | 16 |
+| E6 | 22 | 2 | 1 | 3 | 16 |
 | E7 | 3 | 0 | 0 | 0 | 3 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 184 | 46 | 11 | 46 | 81 |
+| all | 186 | 46 | 11 | 48 | 81 |
 
-## Entries of class R-c (58)
+## Entries of class R-c (60)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -130,6 +130,8 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `convertRule:axiom#2` | cases[11] | refused |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit |  |
 | E5 | `convertRule:axiom#2` | cases[13] | refused |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip |  |
 | E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the arguments at which an interpreted hooked symbol takes a value) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a hooked symbol the registry interprets (LIST.update) in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built f… | no unit |  |
+| E6 | `hook:KEQUAL.ite:Lblite` | cases[2] | refused |  | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application | no unit |  |
+| E6 | `hook:KEQUAL.ite:Lblite` | cases[3] | refused |  | as E2 SYMBOL(symbol)@symbol's case of a symbol declared under an interpreted hook's KORE name | no unit |  |
 | C3 | `hook x equation` | row | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[0] | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[2] | refused | as the row's (class R-c inherited from the row, TRIAGE-hook-eq-premise section 0 item 2 and section 2.3): a premise about the symbol beside what Γ states of it, with the obligation that Γ's statement satisfies the equation | as the row's: the declarations its cone names (KCore.Semantics, KCore.Faithful.fnItems, KCore.FnHyp, KCore.consistent\_of, KCore.Semantics.coreOK) | no unit |  |
@@ -1456,7 +1458,9 @@ Not core:
 | `hook:FLOAT.isNaN:LblisNaN'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.isNaN |
 | `hook:KEQUAL.ite:Lblite` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: KEQUAL.ite |
 | cases[0]: a function of the text labelled ite at two sort parameters (syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]) | supported |  | the text declares \`symbol Lblite{SortS1, SortS2}(SortS1) : SortS2 [function{}()]\` (kore.txt; no hook) and applies \`Lblite{SortFoo{}, SortFoo{}}(VarX:SortFoo{})\` in f's equation. K's ite has one sort parameter (\`Lblite{SortSort}(SortBool, SortSort, SortSort)\`), and this definition, which imports BOOL… | KCore.iteSort? (Emit): a name Lblite{…} holding a comma has no sort; KCore.itesApart unchanged |  | rdr-ite-two |  |  | fixtures/rdr-ite-two/kompile.txt: exit 0; fixtures/rdr-ite-two/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
-| cases[1]: a function of the text labelled ite at one sort parameter, in a definition that does not import K-EQUAL (syntax {S} S ::… | not-handled |  | the text declares its own sort-parametric function \`symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}()]\` (kore.txt; no hook, no equation) and applies its instance \`Lblite{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\` in f's equation. The reader's name of that instan… |  |  | rdr-ite-own |  |  | fixtures/rdr-ite-own/kompile.txt: exit 0; its account as reader\_today |
+| cases[1]: a function of the text labelled ite at one sort parameter, in a definition that does not import K-EQUAL (syntax {S} S ::… | supported |  | the text declares \`symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}()]\` (kore.txt; no hook, no equation) and applies \`Lblite{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\` in f's equation. In KORE that application is an instance of the one symbol Lblite the text decl… | none (reader only): Parse.envOf reads the text's own one-sort Lblite's instances as its parameters and gives impl kIte to no name it numbers so |  | rdr-ite-own |  |  | fixtures/rdr-ite-own/kompile.txt: exit 0; fixtures/rdr-ite-own/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\`; fixtures/rdr-ite-own/params.txt: \`param Lblite{Foo} args=[Bool, Foo, Foo] result=Foo impl=none\`; test/Ite… |
+| cases[2]: a function of the text labelled ite at one sort parameter with an equation of its instance at a sort of the definition (… | refused | R-c | the text states the equation \`Lblite{SortFoo{}}(X0:SortBool{},X1:SortFoo{},X2:SortFoo{}) = VarX\` (kore.txt), so read, the instance Lblite{Foo} would be a function of the definition named Lblite{Foo}, which KCore.iteSort? reads at Foo. Faithful.NamesNumbered (namesNumbered, a coreOK conjunct) exclude… | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application |  | rdr-ite-own-eq |  |  | fixtures/rdr-ite-own-eq/kompile.txt: exit 0; its account as reader\_today |
+| cases[3]: a function of the text labelled ite at one sort parameter, hooked to KEQUAL.ite (syntax {S} S ::= pick(Bool, S, S) [func… | refused | R-c | kompile keeps the hook: the text declares \`hooked-symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite")]\` (kore.txt) and applies \`Lblite{SortFoo{}}(…)\` in f's equation. A hooked symbol of the user's file named Lblite carries the name of the registry's kIte, and e… | as E2 SYMBOL(symbol)@symbol's case of a symbol declared under an interpreted hook's KORE name |  | rdr-ite-own-hook |  |  | fixtures/rdr-ite-own-hook/kompile.txt: exit 0; its account as reader\_today. With the hook BOOL.and instead kompile writes no definition: fixtures/rdr-ite-own-hookand/kompile.txt: exit 113, the backend's \`unexpected sort variable 'SortS'\` in the hooked symbol's result sort |
 | `hook:MAP.keys:Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: MAP.keys |
 | `hook:RANGEMAP.keys:Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap` | supported |  | FIX-core.rangemap-silent: was refused R-c (E6 group rangemap: no carrier for RangeMap); the carrier (CollKind.rangeMap, rangeMapHooks) and the reader's module landed with c1 and c2, fixtures/e6-rangemap/account.txt reads the text with \`coreOK: true\` and \`refused by the account: 0\`, and test/HooksRan… |  | c1-D.table |  | no | no | FixedSignature.lean regHookNames: RANGEMAP.keys; test/HooksRangeMap.lean rmRows\_registry, vals\_hook |
 | `hook:MAP.keys_list:Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map` | parameter |  |  |  |  | e6-param-map | yes | yes | BuiltinData.lean modules: MAP; Builtins.libParams (no registry hook) |

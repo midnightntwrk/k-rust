@@ -116,9 +116,12 @@ inductive RefusalReason where
   | parametricSymbol
   /-- `inj` not applied to two sorts and one argument. -/
   | injShape
-  /-- `ite` applied to one sort in a text that declares its own sort-parametric function `Lblite`
-  at one sort: the instance `Lblite{X}` of that function and K's `ite` at X have one name
-  (`instName`, `iteName`), and the reader cannot keep the two apart. -/
+  /-- `Lblite` applied to one sort X in a text that declares its own sort-parametric function
+  `Lblite` at one sort, where the instance `Lblite{X}` is not a parameter of the definition: the
+  text states an equation of it, which would make it a function named like `ite` at X
+  (`Faithful.NamesNumbered` excludes one), or X is no sort the definition has, so no instance is
+  declared. The application is that function's instance (the text declares no other
+  `Lblite`), not K's `ite`. The detail is the instance's name. -/
   | iteShape
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
@@ -1060,14 +1063,16 @@ def lit? (s : Srt) (text : String) : Option Lit :=
 /-! ## Terms -/
 
 /-- The name of `ite` at the sort X (K-EQUAL's `ite{SortX{}}`): an own parameter symbol of the
-definition, implemented by the registry's `kIte` (FixedSignature.lean). -/
+definition, implemented by the registry's `kIte` (FixedSignature.lean). In a text that declares its
+own sort-parametric `Lblite` at one sort instead, it is the name of that symbol's instance at X
+(`instName "Lblite" [X]`), a parameter without an implementation (`envOf`). -/
 def iteName (X : String) : String := "Lblite{" ++ X ++ "}"
 
 /-- The name of the instance of a sort-parametric symbol `f{S₁,…,Sₙ}` at the sorts `X₁ … Xₙ`
 (`Sort` dropped): `f{X₁,…,Xₙ}`. In KORE the instances of a sort-parametric symbol are distinct
 symbols, related by no sentence the text does not state; each instance a read sentence applies is a
 symbol of the definition's own (`envOf`). KORE's identifiers hold no brace or comma, so the name is
-no other symbol's. (`ite`'s instances keep their own reading, `iteName`, implemented by the
+no other symbol's. (K's `ite`'s instances keep their own reading, `iteName`, implemented by the
 registry's `kIte`.) -/
 def instName (f : String) (xs : List String) : String := f ++ "{" ++ ",".intercalate xs ++ "}"
 
@@ -4707,12 +4712,16 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the names applied that are numbered from their use: `ite` at its sorts, and the generated
   -- functions the KORE declares that have no number yet
   let extra := (heads.flatten).eraseDups.filter fun n => (N₀.sym? n).isNone
-  let iteNames := extra.filter fun n => (iteSort? n).isSome
-  -- a text that declares its own sort-parametric function `Lblite` at one sort and applies a name
-  -- of `ite` at a sort: the application is that function's instance or K's `ite`, under one name
-  if S.paramDecls.any (fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1) &&
-      (heads.flatten).any (fun n => (iteSort? n).isSome) then
-    fail .iteShape
+  -- a text that declares its own sort-parametric function `Lblite` at one sort: each application
+  -- of `Lblite` at a sort is that function's instance (the text declares no other `Lblite`), read
+  -- as its own parameter where `instSyms` has it without an equation; one it has with an equation
+  -- would be a function named like `ite` at a sort (`Faithful.NamesNumbered`), and one at a sort
+  -- the definition does not have has no declaration, so either is refused, not read as K's `ite`
+  let ownIte := S.paramDecls.any fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1
+  match (if ownIte then (heads.flatten).find? (fun n => (iteSort? n).isSome && !clauseless.contains n) else none) with
+  | some n => fail .iteShape n
+  | none => pure ()
+  let iteNames := extra.filter fun n => (iteSort? n).isSome && !clauseless.contains n
   -- a generated function's argument and result sort names: its declaration's, or K's for
   -- `append`, which the kernel module declares
   let genDecls := (extra.filter (!iteNames.contains ·)).filterMap fun n =>

@@ -1,0 +1,15 @@
+command: kompile --backend haskell rdr-ite-own-keq.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.0
+output:
+  [Error] Compiler: Symbol ite is not unique. Previously defined as: syntax
+  {Sort} Sort ::= "#if" Bool "#then" Sort "#else" Sort "#fi" [function,
+  hook(KEQUAL.ite), smt-hook(ite), symbol(ite), total]
+  	Source(FIXTURE/rdr-ite-own-keq.k)
+  	Location(6,20,6,60)
+  	6 |	  syntax {S} S ::= pick(Bool, S, S) [function, symbol(ite)]
+  	  .	                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-OWN-KEQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-ITE-OWN-KEQ as default.
