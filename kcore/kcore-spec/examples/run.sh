@@ -70,7 +70,7 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # its functions coherent at HookParams.none (User.Coherent: `KK.coherent`); one clause of its `eval`
 # inverted (User.EvalInversion: `KK.eval_app_inv`); FnDet at HookParams.none (User.FnSolves:
 # `KK.fnDet`); PrioDecided with `leq`'s Bool results (User.PrioDecided: `KK.prioDecided`,
-# `KK.leq_result`)
+# `KK.leq_result`); CoDefined (User.CoDefined: `KK.coDefined`)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
-  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided; fi
+  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined; fi
 echo "all built"
