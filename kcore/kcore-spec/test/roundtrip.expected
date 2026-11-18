@@ -76,6 +76,7 @@ differs f2-examples/ensreq.kompile.kore
 differs f2-examples/ensrule-overlap.kompile.kore
 differs f2-examples/ensrule-prio.kompile.kore
 differs f2-examples/ensrule.kompile.kore
+differs f2-examples/eqprio.kompile.kore
 cannot f2-examples/exensfree.kompile.kore
 differs f2-examples/exensunsat.kompile.kore
 differs f2-examples/exrhs.kompile.kore
@@ -101,6 +102,7 @@ differs f2-examples/iot-in.kompile.kore
 differs f2-examples/iot.kompile.kore
 differs f2-examples/kappend-init.kompile.kore
 differs f2-examples/kappend.kompile.kore
+differs f2-examples/keyfn-both.kompile.kore
 differs f2-examples/keyfn-partial.kompile.kore
 differs f2-examples/keyfn.kompile.kore
 exact f2-examples/kimp.kore
@@ -133,6 +135,7 @@ cannot f2-examples/mlmixed.kompile.kore
 cannot f2-examples/mlnot.kompile.kore
 differs f2-examples/mlor.kompile.kore
 differs f2-examples/mlorand.kompile.kore
+differs f2-examples/mlorvar.kompile.kore
 differs f2-examples/mlreqor.kompile.kore
 differs f2-examples/mlreqorsplit.kompile.kore
 differs f2-examples/mlrequnheld.kompile.kore
