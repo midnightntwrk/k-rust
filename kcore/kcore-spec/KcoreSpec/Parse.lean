@@ -400,7 +400,9 @@ inductive RefusalReason where
   states a sort other than s at its head (`rhsSorted`): an `\and`, `\or`, `\exists`, `\top` or
   `\bottom` at another sort, an `\exists{s}` whose body states another sort than s (its pattern
   argument is of the sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result
-  sort S2 is not s.
+  sort S2 is not s; or a binder `\exists{T}` heading the right side of a rewrite axiom
+  `\rewrites{s}` (`ruleBodyRead`) or of an equation of a function of result sort s
+  (`eqnBinderSortGuard`) with T not s.
   In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
@@ -2819,6 +2821,14 @@ def peelExists : Kore.Pattern → List Kore.EVar × Kore.Pattern
   | .exist _ x p => (x :: (peelExists p).1, (peelExists p).2)
   | p => ([], p)
 
+/-- The first `\exists{T}(x, …)` binder heading a pattern (outermost first, the binders
+`peelExists` removes) whose sort T `ok` does not accept, named with its sort and its variable. -/
+def peelSortFault? (ok : Kore.KSort → Bool) : Kore.Pattern → Option String
+  | .exist T x p =>
+    if ok T then peelSortFault? ok p
+    else some s!"\\exists\{{Kore.Printer.sort T}}({x.var.ident.name}:{Kore.Printer.sort x.sort}, …)"
+  | _ => none
+
 /-- The `\exists` binders heading a rewrite axiom's right side renamed apart: each binder whose
 name is one of `outer` (the names the left side and the `requires` hold) gets, with the occurrences
 it binds, its name primed until no name of `used` is it (`freshIn`, as `lhsBind` names its
@@ -3000,12 +3010,18 @@ The right side's `\exists` binders are peeled before the form is chosen: the lef
 body under the binders are read, or refused, as those of the axiom without binders. A binder is
 read by the sentence's scoping: one whose name the left side or the `requires` holds is renamed
 apart (`rhsApart`, `ReadingNote.existsRenamedApart`), and one that binds nothing is dropped
-(`exKept`, `ReadingNote.existsDropped`); no binder is refused. -/
+(`exKept`, `ReadingNote.existsDropped`). A binder `\exists{T}` is of the sort T and its body of T,
+and the right side of `\rewrites{s}` is of the sort s (kore-syntax.md:195, 330), so a binder with
+T not s is no valid KORE axiom: refused `rhsOperandSort` before the body is read, the binder named
+as the text writes it (`peelSortFault?`). -/
 def ruleBodyRead (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   match a.pattern with
   | .rewrites s (.and s' [l, r0]) rx =>
     match peelExists (rhsApart a.pattern l r0 rx) with
-    | (xs, .and _ [r, en]) => ruleBodyAnd N msrc a l r0 xs r en
+    | (xs, .and _ [r, en]) => do
+      if let some d := peelSortFault? (fun T => decide (T = s)) rx then
+        fail .rhsOperandSort s!"\\rewrites\{{Kore.Printer.sort s}}: a binder {d} heading its right side"
+      ruleBodyAnd N msrc a l r0 xs r en
     | (_, b) => ruleBodyOther N (.rewrites s (.and s' [l, r0]) b)
   | .rewrites s l rx => ruleBodyOther N (.rewrites s l (peelExists rx).2)
   | p => ruleBodyOther N p

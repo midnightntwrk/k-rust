@@ -388,11 +388,26 @@ def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
     pure ((a, cs) :: xs, vs)
   termination_by structural _ rest => rest
 
+/-- The `\exists{T}` binders heading an equation's right side (those `peelExists` removes) are of
+the function's result sort: the right side of `f(X̄) = rhs` is of f's result sort, and
+`\exists{T}(x, φ)` is of the sort T (kore-syntax.md:195, 330). Refused `rhsOperandSort` otherwise,
+the binder named (`peelSortFault?`). Where the text gives the function no result sort (`resSort`
+refuses) there is no sort to compare with, and nothing is checked here. -/
+def eqnBinderSortGuard (N : Names) (e : RawEqn) : Rd Unit :=
+  match resSort N e with
+  | .error _ => pure ()
+  | .ok S =>
+    match peelSortFault? (fun T => N.sortOf? T == some S) e.rhs with
+    | some d => fail .rhsOperandSort
+        s!"{e.fn}: a binder {d} heading its right side, not of the function's result sort {N.sortNameOf S}"
+    | none => pure ()
+
 /-- `existsAsCases`: an equation whose right side is `\exists B:Bool. (t ∧ P)` (`exShape?`), of a
 function whose `functional` sentence the text holds: `frClauses` over the alternatives of
 `t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
 equation's `ensures`.
-Refused `rhsOperandSort` where the right side under its `\exists` binders is not `rhsSorted`,
+Refused `rhsOperandSort` where the right side under its `\exists` binders is not `rhsSorted`, or
+where one of those binders is of another sort than the function's result (`eqnBinderSortGuard`),
 whether or not it is this function's.
 `none` where the right side is not of that shape or the text does not hold the `functional`
 sentence: the reading is not this function's.
@@ -405,6 +420,7 @@ That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is 
 built definition, not here. -/
 def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
   rhsSortGuard (peelExists e.rhs).2
+  eqnBinderSortGuard N e
   let some (B, t, ps) := exShape? e | pure none
   if !eqnFnl N e then pure none else
   let (pats, req, ens, vs, np) ← eqnHead N e
@@ -635,9 +651,11 @@ in an operand of `\equals` or `\in`, or of a `\ceil` under `\not`, `\or` or `\im
 conjunction under an application of an alternative; a disjunction under an application in the
 operand of a `\ceil`, outside an alternative.
 Refused `rhsOperandSort`, before any of these: the body (the right side under its `\exists`
-binders) is not `rhsSorted`. -/
+binders) is not `rhsSorted`, or a binder is of another sort than the function's result
+(`eqnBinderSortGuard`). -/
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   rhsSortGuard (peelExists e.rhs).2
+  eqnBinderSortGuard N e
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
   let (xs, body) := peelExists e.rhs
