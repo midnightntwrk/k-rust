@@ -1,7 +1,8 @@
 /-
-  The reader refuses an equation whose right side has an `\and{s}` or `\or{s}` with an operand of
-  another sort (`Parse.rhsSorted`, `RefusalReason.rhsOperandSort`), on hand-written equations: no
-  K text kompiles to one, kompile's sort inference giving each connective its operands' sort. In a
+  The reader refuses an equation or a rewrite axiom whose right side has an `\and{s}` or `\or{s}`
+  with an operand of another sort (`Parse.rhsSorted`, `RefusalReason.rhsOperandSort`), on
+  hand-written sentences: no K text kompiles to one, kompile's sort inference giving each
+  connective its operands' sort. In a
   valid KORE pattern the sort of each argument of a connective is the connective's sort parameter
   (kore-syntax.md:330), so such a sentence is no valid KORE axiom.
 
@@ -12,9 +13,13 @@
     `f(X) = f(X) ensures X >Int 0`; `frRead` reads the `\or` (test/RhsReader.lean `eqA`).
   - `illOr`, `\or{SortInt}(\and{SortFoo}(f(X), …), g(X))`: an operand `\and` of sort Foo.
   - `illNested`, `f(\and{SortInt}(X, \or{SortFoo}(…)))`: under an application.
-  Kernel-checked (`decide +kernel`, `kernel_rfl`): the reasons, `rhsSorted` on each side, and
-  that a read clause's or `frRead`'s right side is `rhsSorted` (`clauseBody_rhsSorted`,
-  `frRead_rhsSorted`). Run from the package root: `lake env lean -j1 test/RhsSortCheck.lean`.
+  - The same right sides on a rewrite axiom (`rule`): `ruleBodyRead` refuses `illAnd` and
+    `illNested` and reads `okAnd`.
+  - Under `\exists` (`exIll`, `exOk`): `exRead` and `ceRead` check the body under the binders.
+  Kernel-checked (`decide +kernel`): the reasons, `rhsSorted` on each side, and that a read
+  clause's, `frRead`'s, `exRead`'s, `ceRead`'s or `ruleBodyAnd`'s right side is `rhsSorted`
+  (`clauseBody_rhsSorted`, `frRead_rhsSorted`, `exRead_rhsSorted`, `ceRead_rhsSorted`,
+  `ruleBodyAnd_rhsSorted`). Run from the package root: `lake env lean -j1 test/RhsSortCheck.lean`.
 -/
 import KcoreSpec.ReadFns
 
@@ -106,11 +111,95 @@ example {N : Names} {msrc : String} {e : RawEqn} {x : Clause × ClausePres}
 example {N : Names} {e : RawEqn} {x : Option (List Clause × List KoreAML.Var)}
     (h : frRead N e = .ok x) : rhsSorted e.rhs = true := frRead_rhsSorted h
 
+/-! ## A rewrite axiom's right side
+
+`\rewrites{SortInt{}}(\and{SortInt{}}(X, \top{SortInt{}}()), \and{SortInt{}}(r, \top{SortInt{}}()))`
+with r `illAnd` or `illNested` is refused `rhsOperandSort` by `ruleBodyRead` (through
+`ruleBodyAnd`, before `hoist` lifts the conjunct); with r `okAnd` it is read, the conjunct as the
+rule's `ensures`. -/
+
+def loc : Kore.AppPattern :=
+  ⟨⟨⟨"org'Stop'kframework'Stop'attributes'Stop'Location"⟩⟩, [], [.string "Location(1,1,1,1)"]⟩
+
+def rule (r : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .rewrites (srt "Int") (.and (srt "Int") [X, .top (srt "Int")]) (.and (srt "Int") [r, .top (srt "Int")]),
+   [uid, loc]⟩
+
+/--
+info: ruleBodyRead illAnd: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \equals of sort SortFoo{})
+ruleBodyRead illNested: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \or of sort SortFoo{})
+ruleBodyRead okAnd: read
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  showRd "ruleBodyRead illAnd" (ruleBodyRead N0 "" (rule illAnd))
+  showRd "ruleBodyRead illNested" (ruleBodyRead N0 "" (rule illNested))
+  showRd "ruleBodyRead okAnd" (ruleBodyRead N0 "" (rule okAnd))
+
+/-- The rule reader's refusals and its reading of the twin. -/
+theorem rule_hand :
+    reasonOf (ruleBodyRead N0 "" (rule illAnd)) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (rule illNested)) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (rule okAnd)) = none := by
+  decide +kernel
+
+example {N : Names} {msrc : String} {a : Kore.Axiom} {l r0 : Kore.Pattern} {xs : List Kore.EVar}
+    {r en : Kore.Pattern} {x : Rule × RulePres}
+    (h : ruleBodyAnd N msrc a l r0 xs r en = .ok x) : rhsSorted r = true := ruleBodyAnd_rhsSorted h
+
+/-! ## A right side under `\exists`: `exRead` and `ceRead`
+
+f : Bool → Bool with its `functional` sentence (test/RhsReader.lean's `HandEx.N1`).
+`exIll`, `f(X) = \exists{SortBool{}}(B, \and{SortBool{}}(B, \equals{SortBool{},SortFoo{}}(B, notBool X)))`:
+the predicate's result sort is Foo, not Bool. Refused `rhsOperandSort` by `exRead` and `ceRead`
+(the guard reads the body under the binder: `rhsSorted` does not look under `\exists`). Its twin
+`exOk` at `\equals{SortBool{},SortBool{}}` (test/RhsReader.lean `HandEx.eqB`) is read by both. -/
+
+def N1 : Names := { sorts := [], syms := ["Lblf"], keyFns := [(nRegSyms, "Bool")], fnlSyms := [("Lblf", false)] }
+def bool : Kore.KSort := srt "Bool"
+def XB : Kore.Pattern := ev "VarX" bool
+def B : Kore.Pattern := ev "VarB" bool
+def notB (p : Kore.Pattern) : Kore.Pattern := ap "LblnotBool'Unds'" [p]
+def exEqn (S : Kore.KSort) : RawEqn :=
+  ⟨"Lblf", [XB], none, none,
+   .exist bool (KoreAML.evar "VarB" bool) (.and bool [B, .equals bool S B (notB XB)]), [], none, false⟩
+def exIll : RawEqn := exEqn (srt "Foo")
+def exOk : RawEqn := exEqn bool
+
+/--
+info: exRead exIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortBool{}}: an operand \equals of sort SortFoo{})
+exRead exOk: read
+ceRead exIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortBool{}}: an operand \equals of sort SortFoo{})
+ceRead exOk: read
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  showRd "exRead exIll" (exRead N1 exIll)
+  showRd "exRead exOk" (exRead N1 exOk)
+  showRd "ceRead exIll" (ceRead N1 exIll)
+  showRd "ceRead exOk" (ceRead N1 exOk)
+
+/-- The refusals and the twin's readings, by `exRead` and `ceRead`. -/
+theorem ex_hand :
+    rhsSorted exIll.rhs = true ∧ rhsSorted (peelExists exIll.rhs).2 = false ∧
+    reasonOf (exRead N1 exIll) = some .rhsOperandSort ∧ reasonOf (exRead N1 exOk) = none ∧
+    reasonOf (ceRead N1 exIll) = some .rhsOperandSort ∧ reasonOf (ceRead N1 exOk) = none := by
+  decide +kernel
+
+example {N : Names} {e : RawEqn} {x : Option (List Clause × List KoreAML.Var)}
+    (h : exRead N e = .ok x) : rhsSorted (peelExists e.rhs).2 = true := exRead_rhsSorted h
+example {N : Names} {e : RawEqn} {x : Clause × List KoreAML.Var}
+    (h : ceRead N e = .ok x) : rhsSorted (peelExists e.rhs).2 = true := ceRead_rhsSorted h
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.refused_hand
 /-- info: 'RhsSortCheck.read_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.read_hand
+/-- info: 'RhsSortCheck.rule_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.rule_hand
+/-- info: 'RhsSortCheck.ex_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.ex_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted

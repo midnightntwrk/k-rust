@@ -392,6 +392,8 @@ def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
 function whose `functional` sentence the text holds: `frClauses` over the alternatives of
 `t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
 equation's `ensures`.
+Refused `rhsOperandSort` where the right side under its `\exists` binders is not `rhsSorted`,
+whether or not it is this function's.
 `none` where the right side is not of that shape or the text does not hold the `functional`
 sentence: the reading is not this function's.
 Refused `manyValuedRightSide`: more than 8 alternatives; an alternative, a predicate or the
@@ -402,6 +404,7 @@ alternative.
 That the definition's Bool literals are its Bool values (`litSort Srt.bool`) is decided on the
 built definition, not here. -/
 def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
+  rhsSortGuard (peelExists e.rhs).2
   let some (B, t, ps) := exShape? e | pure none
   if !eqnFnl N e then pure none else
   let (pats, req, ens, vs, np) ← eqnHead N e
@@ -413,6 +416,12 @@ def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := d
   let s ← resSort N e
   let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
   pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+
+/-- `exRead` reads only a right side whose body under its `\exists` binders is `rhsSorted`. -/
+theorem exRead_rhsSorted {N : Names} {e : RawEqn} {x : Option (List Clause × List Var)}
+    (h : exRead N e = .ok x) : rhsSorted (peelExists e.rhs).2 = true := by
+  obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := (peelExists e.rhs).2) h
+  exact rhsSortGuard_ok hu
 
 /-! ## `\exists` on an equation's right side as the clause's existential variables
 
@@ -624,8 +633,11 @@ alternative that is a predicate.
 Refused `patternConnective`: a predicate `condOf` does not read, among them a conjunction of terms
 in an operand of `\equals` or `\in`, or of a `\ceil` under `\not`, `\or` or `\implies`; a
 conjunction under an application of an alternative; a disjunction under an application in the
-operand of a `\ceil`, outside an alternative. -/
+operand of a `\ceil`, outside an alternative.
+Refused `rhsOperandSort`, before any of these: the body (the right side under its `\exists`
+binders) is not `rhsSorted`. -/
 def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
+  rhsSortGuard (peelExists e.rhs).2
   let (pats, req, ens, vs, _) ← eqnHead N e
   let n0 := vs.length
   let (xs, body) := peelExists e.rhs
@@ -648,6 +660,12 @@ def ceRead (N : Names) (e : RawEqn) : Rd (Clause × List Var) := do
   let (ms, vs) ← cutMemsOr N vs cuts
   pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio := (eqnPrio e).2, aside := nonExec e,
           exs := exs ++ zs, post := conjC (cs ++ ms) }, vs)
+
+/-- `ceRead` reads only a right side whose body under its `\exists` binders is `rhsSorted`. -/
+theorem ceRead_rhsSorted {N : Names} {e : RawEqn} {x : Clause × List Var}
+    (h : ceRead N e = .ok x) : rhsSorted (peelExists e.rhs).2 = true := by
+  obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := (peelExists e.rhs).2) h
+  exact rhsSortGuard_ok hu
 
 /-! ## `\exists` moved to the top of a right side (`hoistExists`)
 
