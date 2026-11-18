@@ -1358,9 +1358,22 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
   classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
   kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
-  collection laws (`laws_entailed`) and library 80 of 82 (`lib_entailed`, `libSet_entailed`) at
+  collection laws (`laws_entailed`) and library 80 of 84 (`lib_entailed`, `libSet_entailed`) at
   values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
   (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
+  243 (`ite{SortK}`) and 207, 263 (the equations of `bitRangeInt` and `signExtendBitRangeInt`); the `_c`
+  forms over `Γc`. 51 s, 3.4 GiB.
+- `test/TieRuleCoolText.lean`, `TieRuleCoolWf.lean`, `TieRuleCoolCons.lean`, `TieRuleCoolAttrs.lean`,
+  `TieRuleCoolAccount.lean`, `TieRuleCoolAtValues.lean`: the tie on `f2-examples/rulecool.kompile.kore`
+  (fixture e2-rule) beside test/TieRuleCool.lean's rules and steps, ported from test/TieUnbound.lean
+  and test/TieUnboundAtValues.lean over the axiom index maps, for every H: `wf_defn` and
+  `not_reordered` (Wf, 3.4 GiB); the 31 function equations (`shape`), no junk (the trivial three,
+  nine over generators, KItem's in another order), set idempotence refuted, the `_c` forms (Text,
+  2.9 GiB); the 37 constructor sentences (Cons, 3.5 GiB); `attrs_agree`, `fn_prios` (Attrs, 6.2
+  GiB: `attrsAgree` on the whole text); the account of the 282 sentences and the closed
+  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 80
+  of 84 at values, the 6 set-variable lemmas refuted, owed 109, 225, 262, 263, 284 (AtValues, 3.5
+  GiB).
   243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
   `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
   (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
