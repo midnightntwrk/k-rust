@@ -28,7 +28,9 @@
     model with `NodeFacts c I` and `TermsInSort c I`. The literal facts they read are kernel
     decisions (`gamma_shapeG`, `lit_facts`, `norm_facts`): `Γ`'s premises are `clauseQ` and
     `lastQ` over `Γ`'s table `tblG`, the text's alternatives translate as `Γ`'s, and the reader
-    reads `f(X) ∨ g(X)` as the alternatives `f(X)`, `g(X)` with no condition.
+    reads `f(X) ∨ g(X)` as the alternatives `f(X)`, `g(X)` with no condition. `frRead_eqT`: the
+    reader reads the equation as h's clauses, so its right side is `rhsSorted`, which gives
+    `readings_of_fr` the sorts of the right side's connectives.
 -/
 import KcoreSpec
 
@@ -258,7 +260,8 @@ end
 
 The same tie with the readings derived by the general lemmas: `Readings` from `readings_of_fr`
 (the clauses' premises read from `NodeFacts`, the alternatives in Int from `TermsInSort`, the
-right side from `rhs_of_reader`), and the last clause's right side empty from `NodeFacts.apart`
+right side from `rhs_of_reader`, the sorts of its connectives from `frRead` reading the equation,
+`frRead_eqT`), and the last clause's right side empty from `NodeFacts.apart`
 (`noneEmpty_of_apart`). What is read of the model is `NodeFacts c I` and `TermsInSort c I`. -/
 
 section General
@@ -275,6 +278,21 @@ def fK : Kore.Pattern := ap "Lblf" [ev "VarX" iS]
 def gK : Kore.Pattern := ap "Lblg" [ev "VarX" iS]
 def pT : Kore.Pattern := .or iS [fK, gK]
 def enT : Kore.Pattern := .top iS
+
+/-- The names of the text: f, g, h are the symbols `nRegSyms + 4` to `nRegSyms + 6`, of result
+sort Int; h has its `functional` sentence. -/
+def NT : Parse.Names :=
+  { sorts := ["KCell", "KCellOpt"]
+    syms := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblf", "Lblg", "Lblh"]
+    keyFns := [(nRegSyms + 4, "Int"), (nRegSyms + 5, "Int"), (nRegSyms + 6, "Int")]
+    fnlSyms := [("Lblh", false)] }
+
+/-- The equation `h(X) => f(X) #Or g(X)` as the reader takes it. -/
+def eqT : Parse.RawEqn := ⟨"Lblh", [ev "VarX" iS], none, none, pT, [], none, false⟩
+
+/-- **The reader reads the equation** as h's clauses (kernel). -/
+theorem frRead_eqT : Parse.frRead NT eqT = .ok (some (hFn.clauses, [⟨"X", "Int"⟩])) := by
+  kernel_rfl
 
 theorem hFn_clauses : hFn.clauses = Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC) := rfl
 
@@ -344,41 +362,44 @@ theorem readingsG (F : HoldsShape.NodeFacts c I) (hTS : Faithful.TermsInSort c I
       rw [List.getD_cons_zero, hn0, hk0, ← Faithful.inS_iff e]
       rw [hIntP] at this
       exact this
-  -- the right side, from the reader
-  have hrhs : ∀ e m, At I ws r e m → ∀ a, Inh I σI a →
-      (rhsT.interpret I e a ↔ ∃ x ∈ xsC, (altP c tblG vsC x).interpret I e a ∧ altG I c tblG vsC x e) := by
-    rw [hrhs0]
-    refine rhs_of_reader hD F.ceilDef hB (Ens := fun _ => True) (cs := []) (r0 := pT) ?_ hh0 (by simp [AllTrue]) ?_ ?_ ?_
-    · intro e m hat
-      refine ⟨fun q hq => ?_, ?_⟩
-      · simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
-        refine ⟨by rcases hq with rfl | rfl <;> rfl, fun a ha => ?_⟩
-        have hIn : Inh I σI a := by
-          rcases hq with rfl | rfl
-          · rw [hA1] at ha; exact hin e m hat _ (List.mem_cons_self ..) a ha
-          · rw [hA2] at ha; exact hin e m hat _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)) a ha
-        show (inhOf IntP).interpret I e a
-        rw [interp_inhOf_of (hSA.den e)]
-        exact hIn
-      · exact ⟨⟨trivial, trivial⟩, ⟨trivial, trivial⟩, trivial⟩
-    · intro a ha
-      rw [hor0] at ha
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
-      rcases ha with rfl | rfl
-      · rw [hal1]; simp [AllTrue]
-      · rw [hal2]; simp [AllTrue]
-    · intro e m _ a ha
-      rw [enT, tr_top_iff hD (hSA.den e)]
-      exact iff_of_true ha trivial
-    · rw [hkept0]
-      refine .cons ⟨fun e m _ a => by rw [hA1], fun e m _ => ?_⟩
-        (.cons ⟨fun e m _ a => by rw [hA2], fun e m _ => ?_⟩ .nil)
-      · simp [altG, holdsSC_nil]
-      · simp [altG, holdsSC_nil]
+  -- the right side, from the reader: its sorts from `frRead`, the rest from the model
+  have hT : ∀ e m, At I ws r e m → TightSem I tbl e pT := by
+    intro e m hat
+    refine ⟨fun q hq a ha => ?_, ⟨⟨trivial, trivial⟩, ⟨trivial, trivial⟩, trivial⟩⟩
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
+    have hIn : Inh I σI a := by
+      rcases hq with rfl | rfl
+      · rw [hA1] at ha; exact hin e m hat _ (List.mem_cons_self ..) a ha
+      · rw [hA2] at ha; exact hin e m hat _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)) a ha
+    show (inhOf IntP).interpret I e a
+    rw [interp_inhOf_of (hSA.den e)]
+    exact hIn
+  have halt : ∀ a ∈ Parse.orAlts pT, AllTrue (Parse.hoist a).2.1 := by
+    intro a ha
+    rw [hor0] at ha
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+    rcases ha with rfl | rfl
+    · rw [hal1]; simp [AllTrue]
+    · rw [hal2]; simp [AllTrue]
+  have hen : ∀ e m, At I ws r e m → ∀ a, Inh I σI a → ((tr ⟨tbl, []⟩ enT).interpret I e a ↔ True) := by
+    intro e m _ a ha
+    rw [enT, tr_top_iff hD (hSA.den e)]
+    exact iff_of_true ha trivial
+  have hbr : Faithful.All2 (fun k x =>
+      (∀ e m, At I ws r e m → ∀ a, (altP c tblG vsC x).interpret I e a ↔ (tr ⟨tbl, []⟩ k.1).interpret I e a) ∧
+      ∀ e m, At I ws r e m →
+        (altG I c tblG vsC x e ↔ True ∧ HoldsSC I tbl e [] ∧ HoldsSC I tbl e k.2)) (keptAlts pT) xsC := by
+    rw [hkept0]
+    refine .cons ⟨fun e m _ a => by rw [hA1], fun e m _ => ?_⟩
+      (.cons ⟨fun e m _ a => by rw [hA2], fun e m _ => ?_⟩ .nil)
+    · simp [altG, holdsSC_nil]
+    · simp [altG, holdsSC_nil]
   have hr' : sortGuard (tblG.ev (sortVarKey Rv)) ∈ ws := by rw [hr0]; exact hr
-  have R := readings_of_fr F (prem := prem) hr' hσ' hσS (by rw [hr0]; exact hin) (by rw [hr0]; exact hrhs)
+  have R := readings_of_fr F (Ens := fun _ => True) (prem := prem) frRead_eqT hr' hσ' hσS
+    (by rw [hr0]; exact hin) (by rw [hr0]; exact hT) hh0 (by simp [AllTrue]) halt
+    (by rw [hr0]; exact hen) (by rw [hr0]; exact hbr)
   rw [hr0] at R
-  exact ⟨σI, hSA, hσ', R⟩
+  exact ⟨σI, hSA, hσ', by rw [hrhs0]; exact R⟩
 
 /-- **`Γ`'s three items for h give the sentence**, from `NodeFacts c I` and `TermsInSort c I`,
 the last clause's right side empty because `false` and `true` are two elements of Bool. -/
@@ -455,5 +476,9 @@ end KCore.TieFRTest
 #guard_msgs in #print axioms KCore.TieFRRead.rhs_sem
 /-- info: 'KCore.TieFRRead.readings_of_fr' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieFRRead.readings_of_fr
+/-- info: 'KCore.TieFRRead.tight_of_rhsSorted' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRRead.tight_of_rhsSorted
+/-- info: 'KCore.TieFRTest.frRead_eqT' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRTest.frRead_eqT
 /-- info: 'KCore.TieFRRead.noneEmpty_of_apart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieFRRead.noneEmpty_of_apart
