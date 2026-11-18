@@ -23,8 +23,11 @@ Usage (from kcore-spec):
       that names no state for it; on a key whose account prints no `CondDecided open`, or that is
       neither a fixture of the entry nor named in its text; on a state of no known form; on a
       theorem not declared, under its full name, in the state's FILE (a test/X.lean that
-      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; and on a
-      fixture printing `CondDecided open` that no entry's `owed_state` keys
+      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; on a
+      fixture printing `CondDecided open` that no entry's `owed_state` keys; and on an entry none
+      of whose states is proved where no state ends `; no fixture of this shape has it proved:
+      REASON` (rows-header.toml: why no fixture of the entry's shape has the fact proved), or where
+      one does beside a proved state. Prints the entries by their best fixture (proved, else open, else false)
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -1115,6 +1118,10 @@ def print_reader_owed(t, gate):
 OWED_OPEN = re.compile(r"^\s+(.+): CondDecided open, over (\S+)$", re.M)
 # A state of `owed_state` (rows-header.toml): proved or refuted by a theorem, or open with a reason.
 OWED_STATE = re.compile(r"^(proved|refuted): (\S+)(?: \((test/[^()\s]+\.lean)\))?$|^(open): (\S.*)$")
+# The ending of a state saying that no fixture of the entry's shape has its owed fact proved, and why
+# (rows-header.toml); the state before it is read as OWED_STATE.
+NONE_PROVED = "no fixture of this shape has it proved:"
+NONE_PROVED_END = re.compile(r"; " + re.escape(NONE_PROVED) + r" (\S.*)$")
 # The fields whose text may name a companion fixture of the entry (its same_as pair, its evidence).
 OWED_NAMING = ("evidence", "reader_today", "refused_by", "place", "note", "reading", "no_sentence", "reason")
 
@@ -1143,8 +1150,11 @@ def owed_state(t, fx):
         out += [(where, x, None, "owed_state has no key for its fixture, whose account prints"
                  " `CondDecided open`") for x in need if x not in st]
         prose = " ".join(str(e.get(f, "")) for f in OWED_NAMING)
+        words, none_proved = set(), False
         for x, v in st.items():
             keyed.add(x)
+            if isinstance(v, str) and NONE_PROVED_END.search(v):
+                none_proved, v = True, NONE_PROVED_END.sub("", v)
             m = OWED_STATE.match(v) if isinstance(v, str) else None
             word = m and (m[1] or m[4])
             why = None
@@ -1166,6 +1176,12 @@ def owed_state(t, fx):
                 elif not any(th in (file_decls(f) or ()) for f in files):
                     why = f"{th} is not declared in {', '.join(map(str, files))}"
             out.append((where, x, word, why))
+            words.add(word)
+        if "proved" not in words and not none_proved:
+            out.append((where, None, None, "no fixture of the entry has its owed fact proved, and no state"
+                        f" ends `; {NONE_PROVED} REASON`"))
+        elif "proved" in words and none_proved:
+            out.append((where, None, None, f"a state ends `; {NONE_PROVED} ...` beside a proved state"))
     for x in sorted(os.listdir(fx.fx)):
         if x not in keyed and owed_open(fx, x):
             out.append(("fixtures", x, None, "its account prints `CondDecided open` and no entry's owed_state"
@@ -1181,6 +1197,12 @@ def print_owed_state(t, fx):
     print(f"owed-state: {len({r[0] for r in rs if r[2]})} entries name the state of an owed CondDecided"
           f" at {len({r[1] for r in rs if r[2]})} fixtures: "
           + ", ".join(f"{k} {states[k]}" for k in ("proved", "refuted", "open")) + f"; {len(bad)} failing")
+    best = {}
+    for where, _, word, _ in rs:
+        if word:
+            best[where] = min(best.get(where, 2), {"proved": 0, "open": 1}.get(word, 2))
+    groups = collections.Counter(best.values())
+    print(f"owed-state: entries by their best fixture: proved {groups[0]}, open {groups[1]}, false {groups[2]}")
     for where, x, word, why in rs:
         if why or word != "proved":
             print(f"    {where}: {x or ''} {word or ''}".rstrip() + (f"; FAILS: {why}" if why else ""))
@@ -1517,26 +1539,39 @@ def self_test():
             os.makedirs(os.path.join(ofx, name))
             open(os.path.join(ofx, name, "account.txt"), "w").write(acc)
         ofix = Fixtures(ofx, False)
-        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r"}}
+        np = "; no fixture of this shape has it proved: s"
+        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r" + np}}
         a = lambda **kw: {"status": "supported", "fixture": "ow", **kw}
         f5 = "KCore.C3EqReqEns.f_5"
+        nop = "no fixture of the entry has its owed fact proved"
         ocases = [  # ({row key: entry} of E2, the failures expected, each named by a substring)
             ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r"}, evidence="fixtures/ow2",
-                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}"}}])}, []),
+                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}" + np}}])}, []),
             ({"A": a(), "B": b}, ["the entry has no owed_state", "no entry's owed_state names"]),
-            ({"A": a(owed_state={"ow": "open: r", "no": "open: r"}, evidence="fixtures/no"), "B": b},
+            ({"A": a(owed_state={"ow": "open: r", "no": "open: r" + np}, evidence="fixtures/no"), "B": b},
              ["prints no `CondDecided open`"]),
             ({"A": a(owed_state={"ow": f"proved: KCore.C3EqReqEns.nope ({tie})"}), "B": b},
              [f"KCore.C3EqReqEns.nope is not declared in {tie}"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}, tie=["test/TieE1Module.lean"]), "B": b},
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}, tie=["test/TieE1Module.lean"]), "B": b},
              ["is not declared in test/TieE1Module.lean"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}), "B": b}, ["names no file and the entry has no tie"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}), "B": b}, ["names no file and the entry has no tie"]),
             ({"A": a(owed_state={"ow": f"proved: {f5} (test/PrintNames.lean)"}), "B": b}, ["skip list"]),
-            ({"A": a(owed_state={"ow": "witnessed"}), "B": b}, ["is not 'proved: THEOREM"]),
-            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r"})}, ["ow2 is no fixture of the entry"]),
-            ({"A": a(owed_state={"ow2": "open: r"}, evidence="fixtures/ow2")},
+            ({"A": a(owed_state={"ow": "witnessed" + np}), "B": b}, ["is not 'proved: THEOREM"]),
+            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r" + np})}, ["ow2 is no fixture of the entry"]),
+            ({"A": a(owed_state={"ow2": "open: r" + np}, evidence="fixtures/ow2")},
              ["has no key for its fixture", "no entry's owed_state names"]),
             ({"A": a(owed_state="open: r"), "B": b}, ["not a table", "no entry's owed_state names"]),
+            # no proved fixture: accepted with the ending on a refuted or an open state, refused without it
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})" + np}), "B": b}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": {**b, "owed_state": {"ow2": "open: r"}}}, [nop, nop]),
+            # the ending beside a proved state, or on the proved state itself
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, ["beside a proved state"]),
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})" + np}), "B": b}, ["beside a proved state"]),
         ]
         for i, (rows, want) in enumerate(ocases):
             got = [why for _, _, _, why in owed_state({"E2": rows}, ofix) if why]

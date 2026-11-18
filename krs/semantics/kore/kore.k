@@ -499,8 +499,8 @@ module KORE
   rule [op-str-eq]: hookOp(80, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X ==String Y)
   rule [op-str-lt]: hookOp(81, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X <String Y)
   // No other case gives a value. Where the hook's text states none (/Int and %Int by zero, a
-  // missing key), bot is the text's \bottom; where it leaves the point open, bot is a reading of
-  // that point's entry: for two sets with a common element, nilpotent of kk:t35-set-concat-overlap.
+  // missing key, two sets with a common element: the settled entry kk:t35-set-concat-overlap),
+  // bot is the text's \bottom; where it leaves the point open, bot is a reading of that point's entry.
   rule [op-undef]: hookOp(_, _) => bot [owise]
 
   syntax Ts ::= union(Ts, Ts) [function]

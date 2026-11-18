@@ -14,7 +14,9 @@
 #
 # The roots after FnHyp are library definitions the statements of DONE-0 C9 (ref-kimp's
 # consistent, sound_at, complete_at, run_exact and totals_withHooks; the consumer's statement), C10
-# (kore.k's three) and C14 (the theory, the translation, the tie's statement definitions) mention.
+# (kore.k's three) and C14 (the theory, the translation, the tie's statement definitions, and the
+# registry family's two statements at the decided check, registry_conservative and exact_own, with
+# detached_of_decided) mention.
 # With the roots before them they reach every library definition those statements mention (Step,
 # Config, NotApplies, den and the like through the closure). run_exact's executor, successorsN and
 # outOfFuel, is listed under [opaque] and is no root: run_exact, which names it, is a theorem, and a
@@ -69,6 +71,28 @@ roots = [
   "KCore.gammaHasHead",
   "KCore.surplusItem",
   "KCore.tieClasses",
+  # C14, the registry family: registry_conservative, exact_own and detached_of_decided (pinned by type
+  # in test/Pins.lean) at the decided check detachedB, every clause's predicate \top (clausesPreTop),
+  # and the definitions their statements' bodies read
+  "KCore.Semantics.clausesPreTop",
+  "KCore.RegistryConservative",
+  "KCore.ExactOwn",
+  "KCore.Detached",
+  "KCore.Γown",
+  "KCore.RegistryItem",
+  "KCore.psyms",
+  "KCore.detachedB",
+  "KCore.DetachedB.names",
+  "KCore.DetachedB.isName",
+  "KCore.DetachedB.clean",
+  "KCore.DetachedB.sOK",
+  "KCore.DetachedB.kOK",
+  "KCore.DetachedB.appOK",
+  "KCore.DetachedB.valuesB",
+  "KCore.DetachedB.graphsB",
+  "KCore.DetachedB.sortsB",
+  "KCore.DetachedB.regSig",
+  "KCore.DetachedB.listsB",
 ]
 
 [opaque]

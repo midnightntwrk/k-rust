@@ -9,14 +9,12 @@ files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "unsettled"
+status = "settled"
+finals = ["out(1, SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(13))"]
 reason = """
-What every reading with a model shares:
 (1) The program is s(T), T the set of 1, 2 and 3 (kk:t34-collection-values). The pattern SetItem(X:Int) S:Set is one of the allowed forms (user_manual.md:2231-2233), and matches T at every substitution under which it denotes T (kk:t38-collection-patterns). The rule has no requires and gives a successor for each such substitution (kk:t02-step-successors).
-(2) At X = 1 and S = SetItem(2) SetItem(3), and likewise for 2 and 3, the pattern denotes T, the two parts having no element in common (kk:t35-set-concat-overlap, point (1)). The right side out(X, S SetItem(X +Int 10)) then joins S with an element it does not hold (11, 12, 13; domains.md:1238), and gives out(1, SetItem(2) SetItem(3) SetItem(11)), out(2, SetItem(1) SetItem(3) SetItem(12)) and out(3, SetItem(1) SetItem(2) SetItem(13)). No rule's left side matches out(_, _): each is final (kk:t06-final-configuration).
-What the text does not determine:
-(3) Whether the pattern also matches T at a substitution where S holds X: SetItem(1) T is a concatenation of two sets with the element 1 in common, which domains.md:705-709 makes #False and the declaration's idem, with its assoc, makes T (domains.md:721; user_manual.md:958-963): kk:t35-set-concat-overlap's question. The readings are that entry's, with the final configurations each gives."""
-interpreter = "nilpotent"
+(2) At X = 1 and S = SetItem(2) SetItem(3), and likewise for 2 and 3, the pattern denotes T, the two parts having no element in common (kk:t35-set-concat-overlap). The right side out(X, S SetItem(X +Int 10)) then joins S with an element it does not hold (11, 12, 13; domains.md:1238), and gives out(1, SetItem(2) SetItem(3) SetItem(11)), out(2, SetItem(1) SetItem(3) SetItem(12)) and out(3, SetItem(1) SetItem(2) SetItem(13)). No rule's left side matches out(_, _): each is final (kk:t06-final-configuration).
+(3) The pattern matches T at no other substitution. Where S holds X, SetItem(X) S is a concatenation of two sets with an element in common, which has no value (domains.md:705-709; kk:t35-set-concat-overlap), so it does not denote T; the idem of the declaration (domains.md:721; user_manual.md:958-963) states no value there (the same entry). Where S does not hold X, SetItem(X) S is the set of X and the items of S, which is T only at the three substitutions of (2). So the three configurations of (2) are the final configurations."""
 
 [[ruling.basis]]
 source = "manual"
@@ -42,21 +40,3 @@ quote = "These attributes are used to indicate whether a collection or a product
 source = "domains"
 locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
 quote = "Compute the sum `+Int` or difference `-Int` of two integers."
-
-[[reading]]
-name = "nilpotent"
-statement = "The concatenation of two sets with an element in common has no value (kk:t35-set-concat-overlap, reading nilpotent): the pattern matches T only where S does not hold X."
-finals = ["out(1, SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(13))"]
-consequence = "One successor per element of T, and those three are the final configurations."
-
-[[reading]]
-name = "idempotent"
-statement = "S S = S (kk:t35-set-concat-overlap, reading idempotent). With assoc and comm on the same declaration, SetItem(1) T = SetItem(1) SetItem(1) SetItem(2) SetItem(3) = T, and likewise for 2 and 3: the pattern also matches at X in T with S = T. A set S holding an element outside T gives no T, its items being items of the concatenation (kk:t34-collection-values)."
-finals = ["out(1, SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(13))", "out(1, SetItem(1) SetItem(2) SetItem(3) SetItem(11))", "out(2, SetItem(1) SetItem(2) SetItem(3) SetItem(12))", "out(3, SetItem(1) SetItem(2) SetItem(3) SetItem(13))"]
-consequence = "Two successors per element of T, the second keeping X in the set."
-
-[[reading]]
-name = "as-written"
-statement = "Both sentences hold (kk:t35-set-concat-overlap, reading as-written)."
-answer = "No model has a set with an element; nothing is concluded about s(T)."
-consequence = "No final configuration is a consequence of the text."

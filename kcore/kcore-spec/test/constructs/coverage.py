@@ -5,7 +5,10 @@ layers and what each teaches), and from nothing else, so that it states no statu
 The document holds, in this order:
   totals     per list (E1 to E8, C3) the rows by status, the nested entries by status, and the
              refused rows and refused nested entries by class (R-a, R-b, R-c, scope, then any other
-             class met). Nested entries are the tables of a row's `cases` (recursively),
+             class met); then the supported entries (rows and nested) with an owed fact, counted
+             in three groups by their best fixture (below), the first, proved, named apart: the
+             entries of status supported whose owed fact the headline statements' hypothesis
+             holds on a listed fixture. Nested entries are the tables of a row's `cases` (recursively),
              `also_refused` and `split`, walked as test/constructs/units.py walks them, so the class
              counts are units.py's.
   R-c        every entry (row or nested) of class R-c: its notion, the cone declaration that
@@ -17,10 +20,11 @@ The document holds, in this order:
              entry's status cell in its list reads "STATUS (no model)".
   owed facts every entry (row or nested) with an `owed_state` (rows-header.toml: per fixture, the
              state of the CondDecided its account lists as owed) or an `owed_refuted`: the count
-             by state, and each entry with a false or open owed fact, one line per fixture: the
-             state, and the theorem or the reason. Such an entry's status cell reads "STATUS (owed
-             fact false)", "STATUS (owed fact open)" or "STATUS (owed fact proved)", the first of
-             the three that one of its states gives (an owed_refuted gives false).
+             of entries by their best fixture (rows-header.toml: proved where one of its states is
+             proved, else open where one is, else false; an owed_refuted is false), and each false
+             or open owed fact, one line per fixture: the entry's group, the state, and the
+             theorem or the reason. Such an entry's status cell reads "STATUS (owed fact proved)",
+             "STATUS (owed fact open)" or "STATUS (owed fact false)", its group.
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.
   the lists  one table per list, one line per row in rows.toml's order, each nested entry on a line
@@ -115,9 +119,10 @@ def owed_facts(e):
 
 
 def owed_mark(e):
-    """The state K-coverage.md prints beside the entry's status, or None."""
+    """The entry's group, its best fixture's state (proved, else open, else false), which
+    K-coverage.md prints beside the entry's status; None for an entry with no owed fact."""
     ws = {w for _, w, _ in owed_facts(e)}
-    return next((w for w in ("false", "open", "proved") if w in ws), None)
+    return next((w for w in ("proved", "open", "false") if w in ws), None)
 
 
 def mark(v):
@@ -219,6 +224,13 @@ def generate(rows_path, manifest_path):
     o += counts_table("list", cl_rows, clcols)
     o += ["", "Refused nested entries by class:", ""]
     o += counts_table("list", cl_nest, clcols)
+    sup = sum(c["supported"] for c in list(st_rows.values()) + list(st_nest.values()))
+    sg = collections.Counter(owed_mark(e) for _, _, _, e in owed if e.get("status") == "supported")
+    o += ["", f"Supported entries (rows and nested): {sup}; {sum(sg.values())} of them have an owed fact and "
+          f"are counted by their best fixture: **{sg['proved']} proved** (the owed fact proved on a "
+          "fixture the entry names: these count as supported under the headline statements), "
+          f"{sg['open']} open and {sg['false']} false (counted apart: the headline statements' hypothesis "
+          f"is not shown on their fixtures). The other {sup - sum(sg.values())} have no owed fact."]
 
     o += ["", f"## Entries of class R-c ({len(rc)})", "",
           "Each names the notion the kernel lacks, the cone declaration that would change, and the "
@@ -256,20 +268,24 @@ def generate(rows_path, manifest_path):
 
     marks = collections.Counter(owed_mark(e) for _, _, _, e in owed)
     shown = [(l, key, w, e, f) for l, key, w, e in owed for f in owed_facts(e) if f[1] != "proved"]
-    o += ["", f"## Entries with an owed fact ({len(owed)}: false {marks['false']}, open {marks['open']},"
-          f" proved {marks['proved']})", "",
+    o += ["", f"## Entries with an owed fact ({len(owed)}: proved {marks['proved']}, open {marks['open']},"
+          f" false {marks['false']})", "",
           "An entry's `owed_state` names, per fixture, the state of the CondDecided its account lists "
           "as owed: proved or refuted by the theorem named, or open with the reason; an "
-          "`owed_refuted` of form (r) is a refuted owed fact of the entry's fixture. The status stays "
+          "`owed_refuted` of form (r) is a refuted owed fact of the entry's fixture. An entry is "
+          "counted by its best fixture: proved where one of its fixtures' facts is proved, else open "
+          "where one is open, else false. An entry with an `owed_state` and no proved fixture "
+          "says in a state why no fixture of its shape has the fact proved (`rest.py check`). The status stays "
           "the reading's: where the owed fact is false, the headline statements, whose hypothesis "
-          "holds it, state nothing of the step at that text. The list prints the state beside the "
-          "status; below, every false or open owed fact.", ""]
+          "holds it, state nothing of the step at that text, and the fixture is a recorded limit of "
+          "that hypothesis. The list prints the entry's group beside the "
+          "status; below, every false or open owed fact, with its entry's group.", ""]
     if not shown:
         o += ["None."]
     else:
-        o += table(["list", "row", "entry", "status", "fixture", "owed fact", "theorem or reason"], [
-            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(f[0]), text(f[1]),
-             text(f[2], CUT)]
+        o += table(["list", "row", "entry", "status", "group", "fixture", "owed fact", "theorem or reason"], [
+            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(owed_mark(e)),
+             text(f[0]), text(f[1]), text(f[2], CUT)]
             for l, key, w, e, f in shown])
 
     o += ["", "## What the cone teaches", "",
