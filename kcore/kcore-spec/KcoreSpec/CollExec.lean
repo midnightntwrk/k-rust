@@ -79,7 +79,7 @@
     overloads covers the arguments (`fnCover`); the
     candidates of `f(p̄)` at v are the argument patterns matched at `ovlArgs c f v`, the one
     argument list at which f's normal form can be v (`ovlArgs_complete`, from
-    `OvlLaws.norm_decomp`). The laws of `norm` read `overloadsOK`, which `execReady` holds through
+    `OvlLaws.norm_decomp_ovlF`). The laws of `norm` read `overloadsOK`, which `execReady` holds through
     `matchReadyO` (`MatchCtxO`).
   - In the namespace `KCore.CExec` with `Exec` open, a name of the current namespace wins over
     `Exec`'s; still write `CExec.evalT` (and `evalTs`, `evalF`, `firstClause`) in `simp` sets.
@@ -211,7 +211,7 @@ def rawHead : GroundTerm → Option (Sym × List GroundTerm)
 
 /-- The arguments at which the overloading symbol f may denote v: a normal form is `h(ū)`, lifted
 to f's result sort, for h f itself or a symbol below it along the overloads, at arguments ū whose
-lifts to f's argument sorts are f's arguments (`OvlLaws.norm_decomp`); h and ū are read off v. -/
+lifts to f's argument sorts are f's arguments (`OvlLaws.norm_decomp_ovlF`); h and ū are read off v. -/
 def ovlArgs (c : Semantics) (f : Sym) (v : GroundTerm) : Option (List GroundTerm) :=
   match c.lookupOvl f, rawHead v with
   | some o, some (h, us) => (lookupSig (c.ctorSigs ++ c.ovlSigs) h).map fun kh => liftAll kh.args o.sig.args us

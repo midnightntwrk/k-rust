@@ -10,7 +10,7 @@
   - a lone map element `K |-> V`, which denotes the one-entry map: two matches agree on K's and V's
     values;
   - an overloading symbol `f(P̄)`, which denotes the normal form of its arguments' values: two
-    matches agree on them (`norm_inj`, at arguments of f's sorts);
+    matches agree on them (`norm_inj_ovlF`, at arguments of f's sorts);
   and `uniqArgs` reads the arguments in passes, each pass taking those whose map keys are fixed by
   the arguments taken before, so `lookup(K |-> V M, K)` is fixed (its key bound by the second
   argument). Reading the arguments in another order is sound because each argument's denotation is
@@ -255,7 +255,7 @@ mutual
         obtain ⟨kk, -, hk, -⟩ := sortOfTerm_app.mp hs
         exact uniqLList_sound hmc hσ hσ' ps hu hvs hvs' hk hD
       split at hu
-      · -- an overloading symbol: the normal form determines its arguments' values (`norm_inj`)
+      · -- an overloading symbol: the normal form determines its arguments' values (`norm_inj_ovlF`)
         rename_i hfo
         simp only [Bool.and_eq_true] at hfo
         obtain ⟨vs, hvs, hv⟩ := PatVal.ovl_inv hfo.2 h

@@ -86,6 +86,7 @@ of sort `s`, `∃y:s. y = L()`. -/
 theorem functional_const {c : Semantics} {Nm : Names} {msrc : String} {eqs : List RawEqn} {names order : List String}
     {base : String → List GroundTerm → Option GroundTerm} {I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem}
     (hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order base) I)
+    (hc : c.coreOK = true)
     (hR : armRankB order eqs = true) (hord : order.all names.contains = true) {funcs : List String}
     {cells : List Cell} {L : String}
     (hok : (cells.find? (·.initLabel c == L)).any (fun x => initFunctionalOK Nm msrc eqs funcs c x && x.initLabel c == L) = true)
@@ -98,7 +99,7 @@ theorem functional_const {c : Semantics} {Nm : Names} {msrc : String} {eqs : Lis
     rw [hx] at hok
     simp only [Option.any_some, Bool.and_eq_true, beq_iff_eq] at hok
     obtain ⟨hok, hxL⟩ := hok
-    obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := base) hM hR hord hok (hxL ▸ hL)
+    obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := base) hM hc hR hord hok (hxL ▸ hL)
     rw [hxL] at he
     have hxl : xs = [] := by
       unfold armAr at har; rw [he] at har
@@ -278,24 +279,24 @@ theorem eqns :
   obtain ⟨ar1, ar2, ar3, ar4, ar5, ar6, ar7⟩ := arities
   obtain ⟨-, -, f1, f2⟩ := functionals
   obtain ⟨h1, h0, htop, hctr, hone, hec, nOne, nEc⟩ := sorts
-  have e6 := init_arm_at hM rank hord a6 o6 (ws := [w1]) ar6.symm (sorted1 h1) r6
-  have e9 := init_arm_at hM rank hord a6 o6 (ws := [w0]) ar6.symm (sorted1 h0) r9
+  have e6 := init_arm_at hM coreOK rank hord a6 o6 (ws := [w1]) ar6.symm (sorted1 h1) r6
+  have e9 := init_arm_at hM coreOK rank hord a6 o6 (ws := [w0]) ar6.symm (sorted1 h0) r9
   have ⟨_, _, _, _, hg6, _⟩ := e6
   have ⟨_, _, _, _, hg9, _⟩ := e9
   obtain ⟨st, hst⟩ := sortOf_some htop
   obtain ⟨sc, hsc⟩ := sortOf_some hctr
-  have fOne := functional_const hM rank hord f1 o3 ar3 r1 hone ⟨1⟩
-  have fEc := functional_const hM rank hord f2 o2 ar2 r2 hec ⟨1⟩
+  have fOne := functional_const hM coreOK rank hord f1 o3 ar3 r1 hone ⟨1⟩
+  have fEc := functional_const hM coreOK rank hord f2 o2 ar2 r2 hec ⟨1⟩
   rw [nOne] at fOne
   rw [nEc] at fEc
   exact ⟨last_eq, env_eq, eqs_eq, funcs_eq, I, hM.sat,
-    init_arm_at hM rank hord a3 o3 (ws := []) ar3.symm sorted0 r1,
-    init_arm_at hM rank hord a2 o2 (ws := []) ar2.symm sorted0 r2,
-    init_arm_at hM rank hord a1 o1 (ws := []) ar1.symm sorted0 r3, fOne, fEc,
-    init_arm_at hM rank hord a4 o4 (ws := [w1]) ar4.symm (sorted1 h1) r4,
-    init_arm_at hM rank hord a5 o5 (ws := [w1]) ar5.symm (sorted1 h1) r5, e6,
-    init_arm_at hM rank hord a4 o4 (ws := [w0]) ar4.symm (sorted1 h0) r7,
-    init_arm_at hM rank hord a5 o5 (ws := [w0]) ar5.symm (sorted1 h0) r8, e9,
+    init_arm_at hM coreOK rank hord a3 o3 (ws := []) ar3.symm sorted0 r1,
+    init_arm_at hM coreOK rank hord a2 o2 (ws := []) ar2.symm sorted0 r2,
+    init_arm_at hM coreOK rank hord a1 o1 (ws := []) ar1.symm sorted0 r3, fOne, fEc,
+    init_arm_at hM coreOK rank hord a4 o4 (ws := [w1]) ar4.symm (sorted1 h1) r4,
+    init_arm_at hM coreOK rank hord a5 o5 (ws := [w1]) ar5.symm (sorted1 h1) r5, e6,
+    init_arm_at hM coreOK rank hord a4 o4 (ws := [w0]) ar4.symm (sorted1 h0) r7,
+    init_arm_at hM coreOK rank hord a5 o5 (ws := [w0]) ar5.symm (sorted1 h0) r8, e9,
     arm_name_eqn hM o8 (ws := [w1]) ar6.symm (sorted1 h1) hg6 hst,
     arm_name_eqn hM o7 (ws := [topV]) ar7.symm (sorted1 htop) r10 hsc,
     arm_name_none hM o8 (ws := [w0]) ar6.symm (sorted1 h0) hg9, hstep⟩

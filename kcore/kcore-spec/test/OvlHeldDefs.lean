@@ -1,5 +1,6 @@
 /-
-  `Semantics.ovlHeld`, `Cond.conjuncts` and `memHeld` (KcoreSpec/OvlHeldDefs.lean) at data.
+  `Semantics.ovlHeld` (KcoreSpec/FaithOK.lean), `Cond.conjuncts` and `memHeld`
+  (KcoreSpec/OvlHeldDefs.lean) at data.
   Run from the package root: `lake env lean -j1 test/OvlHeldDefs.lean`. Kernel-checked
   (`decide +kernel`).
 
@@ -13,7 +14,7 @@
   - `memHeld`, at the cut `V ∈ t` with V the variable 2: held where t holds the variable under a
     constructor (`capN(G)`), also as a conjunct of an `and`; not held under `or` or `not`, not where
     V is not bound, not for a variable t does not hold. At `V ∈ capGas(G)` the variable
-    is not held: `capGas` is not in `holds`, whose body here is the collection symbols alone.
+    is held: `capGas` is `ovlHeld`, so `holds` names it.
 -/
 import KcoreSpec
 
@@ -78,7 +79,7 @@ theorem memHeld_rows :
     memHeld c [2] cutN 1 = false ∧
     memHeld c [2] (.or cutN .top) 0 = false ∧ memHeld c [2] (.not cutN) 0 = false ∧
     memHeld c [1] cutN 0 = false ∧
-    heldOccs c (.app capGas [.var 0]) = [] ∧ memHeld c [2] cutGas 0 = false := by
+    heldOccs c (.app capGas [.var 0]) = [0] ∧ memHeld c [2] cutGas 0 = true := by
   decide +kernel
 
 end OvlHeldDefs

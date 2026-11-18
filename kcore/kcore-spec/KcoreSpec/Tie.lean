@@ -10,6 +10,8 @@ import KcoreSpec.Kore.Translate
 import KcoreSpec.Kore.Blocks
 import KcoreSpec.Kore.Distinct
 import KcoreSpec.FaithOK
+import KcoreSpec.ClausePlainEx
+import KcoreSpec.OvlHeldDefs
 
 set_option autoImplicit false
 
@@ -45,12 +47,13 @@ def Definition.namesOK (d : Definition) : Bool :=
 /-- Which variables the left side of a rule leaves open the values decide, an existential variable
 of the right side among them: each is held by the right side under constructors, injections and
 the symbols under which a value's element has values' elements as arguments (`heldOccs`), or of a
-confined sort, or held by closed conditions (`OpenDecided`) no variable of which the right side, the
-`ensures` or `post` holds; and a rule that competes with a larger one has open condition variables
-of confined sorts, or closed conditions. A rule's predicates `pre` and `post` are not asked to be
-`\top`. -/
+confined sort, or held by a cut of `pre` (`memHeld`: a conjunct `V ∈ t`, V bound by the left side,
+t holding the variable), or held by closed conditions (`OpenDecided`) no variable of which the right
+side, the `ensures` or `post` holds; and a rule that competes with a larger one has open condition
+variables of confined sorts or held by a cut, or closed conditions. A rule's predicates `pre` and
+`post` are not asked to be `\top`. -/
 def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
-  let conf := fun i => (r.vars[i]?.map c.confined).getD false
+  let conf := fun i => (r.vars[i]?.map c.confined).getD false || memHeld c (varOccs r.lhs) r.pre i
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
   r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
@@ -128,6 +131,12 @@ def condOK (vars : List Srt) : Cond → Bool
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body) &&
       decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
+
+/-- The existential variables of a clause are in scope, apart and in no pattern or condition of
+the left side, and its right-side predicate is sorted. -/
+def clauseExOK (cl : Clause) : Bool :=
+  cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
+    c.condOK cl.vars cl.post
 
 /-- A clause of `f` is well sorted over the function signatures `rhsHeads`: its patterns have the
 argument sorts in the context of a pattern that applies no function-overloaded symbol (`patCtxNF`),
@@ -572,7 +581,8 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("theory: functions apart from constructors, hooks and parameters", Faithful.Model.fnsApart d.sem),
    ("hooked functions: no registry hook interprets their hook", d.hookFnsUnregOK),
    ("parameter symbols (paramsOK): the imported modules' and the user's, each as its hook names", d.paramsOK),
-   ("overloading symbols (overloadsOK)", d.sem.overloadsOK)]
+   ("overloading symbols (overloadsOK)", d.sem.overloadsOK),
+   ("clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate", d.sem.clausesPreTop)]
 
 /-- **A well-formed definition**: its names (`namesOK`), its core (`okAll`), its certificate, its
 presentation and its parameters are well formed, its semantics meets the decidable conditions

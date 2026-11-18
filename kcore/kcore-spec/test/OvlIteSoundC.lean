@@ -82,10 +82,12 @@ def ovlsButIte (c : Semantics) : Bool :=
   (c.ovls.zipIdx.all fun (o, i) =>
     c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o &&
     (Faithful.consSorts c).contains o.sig.result &&
-    o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) &&
+    o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
+      c.fns.any (·.label == g)) &&
     (c.ovlOver o).length == o.over.length &&
     (c.ovlOver o).all (c.ovlPairOK o) &&
-    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
+    ((c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
+    (c.ovlClosure o.sig.name).all fun g => !c.fns.any (·.label == g) || o.over.contains g) &&
   c.ovlPatsOK
 
 def ovlsPlain (c : Semantics) : Bool :=
@@ -97,13 +99,13 @@ theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovl
   simp only [Semantics.overloadsOK, ovlsButIte, ovlsPlain, List.all_eq_true, Bool.and_eq_true]
   constructor
   · rintro ⟨h, hp⟩
-    refine ⟨⟨fun x hx => ?_, hp⟩, fun x hx => (h x hx).1.1.1.1.1.2⟩
-    obtain ⟨⟨⟨⟨⟨⟨⟨a, b⟩, -⟩, d⟩, e⟩, f⟩, g⟩, k⟩ := h x hx
-    exact ⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩
+    refine ⟨⟨fun x hx => ?_, hp⟩, fun x hx => (h x hx).1.1.1.1.1.1.2⟩
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨a, b⟩, -⟩, d⟩, e⟩, f⟩, g⟩, k⟩, l⟩ := h x hx
+    exact ⟨⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩, l⟩
   · rintro ⟨⟨h1, hp⟩, h2⟩
     refine ⟨fun x hx => ?_, hp⟩
-    obtain ⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩ := h1 x hx
-    exact ⟨⟨⟨⟨⟨⟨⟨a, b⟩, h2 x hx⟩, d⟩, e⟩, f⟩, g⟩, k⟩
+    obtain ⟨⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩, l⟩ := h1 x hx
+    exact ⟨⟨⟨⟨⟨⟨⟨⟨a, b⟩, h2 x hx⟩, d⟩, e⟩, f⟩, g⟩, k⟩, l⟩
 
 theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem clausesPreTopC : c.clausesPreTop = true := by decide +kernel

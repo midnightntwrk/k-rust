@@ -24,6 +24,8 @@
     disjunct excludes;
   - the faults of `[ow [dPair, dStd], pair, std]` and of `[ow [dPair, dStd], std, pair]` are the
     `[owise]` equation's and `pair`'s, `generatedEquation`; with a user source, `unaccounted`.
+  - `Γ` entails `pairT`'s equation (`inst_entailed`) and the `[owise]` equation that also names it
+    (`owise_inst_entailed`).
 
   ## The fixtures' kompiled texts (K 7.1.337 kompile's KORE, from the cache `kfix.py` keeps)
 
@@ -183,6 +185,25 @@ theorem inst_entailed : ∃ fn ∈ c.sortPreds, c.symName fn.label = "LblisFoo" 
     clause? N "" pairT none = .ok (cl, cp) ∧
     ∀ it ∈ Faithful.kernelItems [Faithful.prioEquation c fn cl], Faithful.Γ c ⊧ it.pat :=
   GenEqs.predInst_entailed (by decide +kernel) inst.1
+
+/-- `isFoo`, the predicate of Foo among the semantics' sort predicates. -/
+def fooPred : Fn := (c.sortPreds.find? (·.label == isFoo)).getD ⟨isFoo, [], Srt.bool, [], true⟩
+
+theorem fooPred_mem : fooPred ∈ c.sortPreds := by
+  have h : (c.sortPreds.find? (·.label == isFoo)).isSome = true := by decide +kernel
+  obtain ⟨f, hf⟩ := Option.isSome_iff_exists.mp h
+  unfold fooPred; rw [hf]; exact List.mem_of_find?_eq_some hf
+
+/-- **`Γ` entails `inst_text`'s `[owise]` equation, whose exclusion names `pairT` beside `std`**,
+for the semantics `c` (`GenEqs.predOwiseInst_entailed`): without `dPairT` it reads to a clause `ow`
+of `isFoo`, and `Γ` entails `ow`'s equation under the negation of any disjuncts among which are
+the exclusions of the clauses before it, `dPairT` among them or not. -/
+theorem owise_inst_entailed : ∃ ow ∈ fooPred.clauses, ∀ ds₀ : List Kore.Pattern,
+    (∀ cl' ∈ Faithful.lowerClauses fooPred ow, exclusion c fooPred cl' (Faithful.canonClausePres cl') ∈ ds₀) →
+    ∀ it ∈ Faithful.kernelItems [GenEqs.owiseWith c fooPred ds₀ ow], Faithful.Γ c ⊧ it.pat := by
+  obtain ⟨-, -, -, -, -, -, ow, -, how, -, h⟩ := GenEqs.predOwiseInst_entailed fooPred_mem
+    (show predOwiseInstOK N "" [ow [dPairT, dStd], pairT, std] c fooPred (ow [dPairT, dStd]) = true by decide +kernel)
+  exact ⟨ow, how, h⟩
 
 end Hand
 

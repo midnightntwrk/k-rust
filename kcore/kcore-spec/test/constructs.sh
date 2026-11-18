@@ -27,8 +27,9 @@
 # in report mode (listed, not failing) until FIX-rest's closing check removes --report; with the
 # entries FIX-core does not hold, by list, status and evidence form, with the evidence each has and
 # lacks (accounts compared with fresh ones; each entry in .lake/constructs/rest.txt). Then
-# test/constructs/e4e5.py check: every supported E4 and E5 row naming a fixture names one whose text
-# holds its node or translation site, by a parse of the text. Then
+# test/constructs/e4e5.py check: every supported E4 and E5 row and `cases` entry naming a fixture
+# names one whose text holds its node or translation site, by a parse of the text (an entry with
+# node_sentence: of the fixture's kompiled definition, which kfix.py's cache must hold). Then
 # test/constructs/coverage.py check: the
 # committed test/constructs/K-coverage.md is what the generator writes from rows.toml and
 # ../core-manifest.toml (DONE-0 C11). Then test/provenance.sh: the

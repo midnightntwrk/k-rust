@@ -62,6 +62,7 @@ theorem eqnFactsEx_of_sorted (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allF
     (hx : c.clauseExOK cl = true) : EqnFactsEx c fn cl := by
   obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
   have hpreOK := Semantics.clauseSortedOpen_preOK hs
+  have hpatsN := Semantics.clauseSortedOpen_pats_nf hs
   simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs
   have hbd := hs.1.2
   simp only [Semantics.clauseExOK, Bool.and_eq_true] at hx
@@ -69,7 +70,7 @@ theorem eqnFactsEx_of_sorted (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allF
   have hlt : ∀ i ∈ cl.exs, i < cl.vars.length := fun i hi => of_decide_eq_true (List.all_eq_true.mp hltB i hi)
   have hleft : ∀ i ∈ cl.exs, i ∉ cl.leftVars := fun i hi => by
     simpa [List.contains_iff_mem] using List.all_eq_true.mp hleftB i hi
-  refine ⟨⟨hpats, ⟨L, hL, hreq⟩, hpreOK, hbd.1⟩, hlt, (NamesApart.nodupB_iff _).mp hndB, hleft, fun i hi => ?_,
+  refine ⟨⟨hpatsN, ⟨L, hL, hreq⟩, hpreOK, hbd.1⟩, hlt, (NamesApart.nodupB_iff _).mp hndB, hleft, fun i hi => ?_,
     hokQ, hbd.2, fun i hi => Or.inr (hocc i hi), ⟨L, hL, hrhs, hens⟩⟩
   have hil := hlt i hi
   have hg : cl.vars[i]? = some (cl.vars.getD i 0) := by
@@ -95,8 +96,9 @@ theorem eqnFactsPre_of_sorted {fn : Fn} {cl : Clause} {L : List CtorSig} (hL : H
     EqnFactsPre c fn cl := by
   obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
   have hpreOK := Semantics.clauseSortedOpen_preOK hs
+  have hpatsN := Semantics.clauseSortedOpen_pats_nf hs
   simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs
-  refine ⟨⟨hpats, ⟨L, hL, hreq⟩, hpreOK, hs.1.2.1⟩, hex, fun i hi => ?_, ⟨L, hL, hrhs, hens⟩⟩
+  refine ⟨⟨hpatsN, ⟨L, hL, hreq⟩, hpreOK, hs.1.2.1⟩, hex, fun i hi => ?_, ⟨L, hL, hrhs, hens⟩⟩
   have h1 := hocc i hi
   simp only [Clause.condVars, List.mem_append] at h1
   rcases h1 with ((((h1 | h1 | h1) | h1) | h1) | h1)
@@ -112,11 +114,11 @@ theorem eqnFactsPre_of_sorted {fn : Fn} {cl : Clause} {L : List CtorSig} (hL : H
   · rw [hpost] at h1; simp [varOccsCond] at h1
 
 /-- **`EqnFactsPre` of a sort predicate's clause**, by its text. -/
-theorem eqnFactsPre_sortPred {fn : Fn} (hp : fn ∈ c.sortPreds) {cl : Clause} (hcl : cl ∈ fn.clauses) :
-    EqnFactsPre c fn cl := by
+theorem eqnFactsPre_sortPred (H : OvlLaws.OvlFnFacts c) {fn : Fn} (hp : fn ∈ c.sortPreds) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : EqnFactsPre c fn cl := by
   obtain ⟨hpats, -, hb, hreq, hrhs, hens⟩ := sortPreds_ctx hp cl hcl
   have hpre := Semantics.sortPreds_pre hp cl hcl
-  refine ⟨⟨sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats,
+  refine ⟨⟨Semantics.sortPredPats_nf H hp hcl,
     ⟨[], fun k hk => absurd hk List.not_mem_nil, fun t ht => ?_⟩, by rw [hpre]; rfl, by rw [hpre]; rfl⟩,
     Semantics.sortPreds_exs hp cl hcl, fun i hi => ?_, ⟨[], fun k hk => absurd hk List.not_mem_nil, hrhs, fun t ht => ?_⟩⟩
   · rw [ht] at hreq
@@ -146,7 +148,7 @@ theorem satFnsGoalEx (h : HypModelCore c)
   have hE : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclFactsPre c fn cl := fun fn hfn cl hcl => by
     rcases List.mem_append.mp hfn with hu | hs
     · exact (eqnFactsEx_of_sorted h hfn hL (hcls fn hu cl hcl).1 (hcls fn hu cl hcl).2.1).toExclFactsPre
-    · exact (eqnFactsPre_sortPred hs hcl).toExclFactsPre
+    · exact (eqnFactsPre_sortPred h.ovlHyp.fnFacts hs hcl).toExclFactsPre
   have hdecL : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ σ ws, c.WellSortedAt cl.vars cl.leftVars σ →
       PatVals c σ cl.pats ws → (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) →
       ∃ b, Holds c cl.vars.length σ cl.pre b := fun fn hfn cl hcl σ ws hσ hpv _ => by
@@ -158,7 +160,7 @@ theorem satFnsGoalEx (h : HypModelCore c)
       rcases List.mem_append.mp hfn with hu | hs
       · exact ⟨eqnFactsPre_of_sorted hL (hcls fn hu cl hcl).1 hex ((hcls fn hu cl hcl).2.2 hex),
           (hcls fn hu cl hcl).2.2 hex⟩
-      · exact ⟨eqnFactsPre_sortPred hs hcl, Semantics.sortPreds_post hs cl hcl⟩
+      · exact ⟨eqnFactsPre_sortPred h.ovlHyp.fnFacts hs hcl, Semantics.sortPreds_post hs cl hcl⟩
   have hcons : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs ≠ [] →
       EqnFactsEx c fn cl ∧ ∀ σ', c.WellSorted cl.vars σ' → ∃ b, Holds c cl.vars.length σ' cl.post b :=
     fun fn hfn cl hcl hne => by

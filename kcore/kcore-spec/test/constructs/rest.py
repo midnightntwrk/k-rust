@@ -23,8 +23,11 @@ Usage (from kcore-spec):
       that names no state for it; on a key whose account prints no `CondDecided open`, or that is
       neither a fixture of the entry nor named in its text; on a state of no known form; on a
       theorem not declared, under its full name, in the state's FILE (a test/X.lean that
-      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; and on a
-      fixture printing `CondDecided open` that no entry's `owed_state` keys
+      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; on a
+      fixture printing `CondDecided open` that no entry's `owed_state` keys; and on an entry none
+      of whose states is proved where no state ends `; no fixture of this shape has it proved:
+      REASON` (rows-header.toml: why no fixture of the entry's shape has the fact proved), or where
+      one does beside a proved state. Prints the entries by their best fixture (proved, else open, else false)
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -47,18 +50,48 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       clean        its account.txt refuses nothing: `parse: ok`, no `N refused` class line above 0,
                    `stage refusals ...: 0`, `refused by the account: 0`, no line `sentence I (...): R`
       fresh        the account equals a fresh one (--fresh)
+      no direction (owed-sentence rule item 7, rows-header.toml; also on supported E4, E5) on an
+                   entry with `no_direction`, or where a sentence `sentence` locates is of the
+                   no-direction class: the class of a sentence is the one the fixture's tie gives
+                   it (`classes` of the file of `tie`, else of test/, that reads
+                   f2-examples/FIXTURE.kompile.kore; the indices AxiomDecl.index, a `// rule`
+                   comment locating the axiom after it), never whether a sentence applies a symbol.
+                   A declaration is no axiom and has no class: a `sentence` that locates no axiom
+                   counts neither way, one that does not occur in that text is missing (its class
+                   is not read). `no_direction` a non-empty list of indices of that class holding
+                   each one `sentence` locates there; that tie file in `tie`; its account,
+                   account_absent and absent_closed among tie_theorems; a `derived` table of form
+                   (a), kind "in a model", whose sentences are the no_direction indices
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
                    file of `tie`) and the `theorem` of each `derived` table (declared in its
                    `file`): at least one, each declared
+      removed      on an entry with `removed` (the sentences an option removes from a reference
+                   text; any status): the fixture's `differs_from` names the reference, and of the
+                   texts f2-examples/REFERENCE.kompile.kore and f2-examples/FIXTURE.kompile.kore,
+                   each `sentence` N (counted from 1 over the reference text's axioms, as
+                   AxiomDecl.index and `U.axN` count them) is an axiom of the reference's user
+                   module and none of the fixture's text, and every axiom of the reference absent
+                   from the fixture's text is listed (axioms compared with whitespace runs one
+                   space, Location, Source and UNIQUE'Unds'ID dropped and generated variables
+                   renumbered within each); each `theorem` and `companion` is declared in its
+                   `file`, which reads the reference text
   supported E4, E5
       fixture, clean, fresh, tie, theorems as above; node: the fixture's kompiled sentences (kore.txt,
       or the text of a `kore` fixture) hold the row's node or translation site, found by
-      test/constructs/e4e5.py's parse of the text when that module exists, else by `sentence`
+      test/constructs/e4e5.py's parse of the text when that module exists, else by `sentence`;
+      with `node_sentence`, the sentence of the fixture's cached kompiled definition whose first
+      line contains it holds the node (e4e5.py)
   supported hook (E6, key hook:)
       derived      a `derived` table of form (a) (the in-domain value; FIX-core.rows-evidence names
                    the hook's three statements there)
+  supported function of the text (a table nested in an E6 `hook:` row, whose fixture's reading
+  takes the row's symbol for no hook: the fixture's params.txt, the `param` lines of `kcore
+  sem-fields`, lists no parameter implemented by it, `impl=SYMBOL` with SYMBOL the key's last part;
+  the entry reads a symbol of the text of that name, so the hook's in-domain value is not its
+  evidence)
+      fixture, sentence, clean, fresh, no direction, tie, theorems as for supported (E1, ...)
   supported E6 (other keys)
       tie, theorems (the theorem that ties the row's sentence on a tied text); or the row's
                    `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
@@ -67,6 +100,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    sentence or entails it only partly) is missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
+  parameter (no model) (a parameter entry with a `derived` table of form (r): its fixture's text
+  has no model, so no param_undetermined instance exists there; counted apart)
+      derived      a `derived` table of form (r)
   inert
       class        `inert_class` or a `reasons` item InertReason.X: a constructor of InertReason
                    (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
@@ -184,14 +220,36 @@ def core(t, l, key, r):
     return None
 
 
-def form(l, key, e):
-    """The evidence form of DONE-0 C2's table for the entry's status, or None without a status."""
+def hook_own(fx, key, e, row):
+    """Whether a table nested in an E6 `hook:` row reads the row's symbol as a function of the text,
+    not as the hook: its fixture's params.txt (the `param` lines of `kcore sem-fields`) lists no
+    parameter implemented by the symbol (`impl=SYMBOL`, SYMBOL the key's last part). False for the
+    row itself and where the fixture has no params.txt (the reading is not shown)."""
+    if fx is None or e is row or not key.startswith("hook:") or key.count(":") < 2:
+        return False
+    x = e.get("fixture")
+    p = fx.read(x, "params.txt") if fx.exists(x) else None
+    if p is None:
+        return False
+    sym = key.split(":", 2)[2]
+    return not any(len(c) > 1 and c[0] == "param" and f"impl={sym}" in c[1:]
+                   for c in (ln.split("\t") for ln in p.splitlines()))
+
+
+def form(l, key, e, row=None, fx=None):
+    """The evidence form of DONE-0 C2's table for the entry's status, or None without a status.
+    With the entry's row and the fixtures, a table nested in an E6 `hook:` row whose reading takes
+    the symbol for a function of the text has that form (`hook_own`)."""
     s = e.get("status")
     if s is None:
         return None
     if s == "supported":
+        if l == "E6" and hook_own(fx, key, e, row):
+            return "supported function of the text"
         return ("supported" if l in KLEVEL else "supported E4/E5" if l in ("E4", "E5") else
                 "supported hook" if key.startswith("hook:") else "supported E6")
+    if s == "parameter" and any(isinstance(d, dict) and d.get("form") == "r" for d in (e.get("derived") or [])):
+        return "parameter (no model)"
     if s == "inert" and e.get("inert_class") == "use":
         return "inert (use)"
     if s == "inert" and e.get("inert_class") == "attribute":
@@ -228,6 +286,10 @@ class Fixtures:
 
     def exists(self, name):
         return isinstance(name, str) and name != "none" and os.path.isdir(os.path.join(self.fx, name))
+
+    def kompiled(self, name):
+        """The fixture's kompiled text as tiegen.py and the tie files read it."""
+        return os.path.join(K, "f2-examples", f"{name}.kompile.kore")
 
     def read(self, name, f):
         p = os.path.join(self.fx, name, f)
@@ -272,6 +334,30 @@ class Fixtures:
                          and bool(re.search(r"^refused by the account: 0$", a, re.M)))
                 self._acc[name] = (names, refusals, clean)
         return self._acc[name]
+
+    def nodir_tie(self, name, ties):
+        """The tie file of the fixture whose classes give a sentence's class: a file of `ties`, else
+        any test/*.lean, that reads f2-examples/NAME.kompile.kore and defines `classes`; or None."""
+        want = f"f2-examples/{name}.kompile.kore"
+        own = [f for f in ties if isinstance(f, str) and (nodir_classes(f) or ("",))[0] == want]
+        if own:
+            return own[0]
+        return next((f for f in nodir_tie_files() if nodir_classes(f)[0] == want), None)
+
+    def located(self, path, ss):
+        """(the indices of the user module's axioms of the text at path that the substrings locate,
+        in an axiom's text or in the `//` comment lines just before it; the substrings that do not
+        occur in that text). A substring of the text that locates no axiom (a declaration, a module's
+        attributes) adds no index: a declaration is no axiom and has no class."""
+        p = os.path.join(K, path)
+        body = open(p).read() if os.path.isfile(p) else ""
+        out, absent = set(), []
+        for s in ss:
+            if s not in body:
+                absent.append(s)
+                continue
+            out |= {i for i, text, notes in nodir_axioms(path) if s in text or any(s in n for n in notes)}
+        return out, absent
 
     def fresh_equal(self, name):
         """True / False: the account against a fresh one; otherwise why it was not compared: "not
@@ -372,6 +458,125 @@ def file_decls(f):
     return _decls[f]
 
 
+_ndcls, _ndfiles, _ndax = {}, None, {}
+
+
+def nodir_classes(f):
+    """(the text the tie file reads by `kore_term kore from`, {AxiomDecl.index: class}) from its
+    `classes` (the account the kernel checks), or None where it has no such text or no classes."""
+    if f not in _ndcls:
+        p = os.path.join(K, f) if isinstance(f, str) else None
+        r = None
+        if p and os.path.isfile(p):
+            src = open(p).read()
+            m = re.search(r'^kore_term kore from "([^"]+)"', src, re.M)
+            i = src.find("\ndef classes : List (String × List Nat) :=")
+            if m and i >= 0:
+                body = src[i + 1:].split("\n\n", 1)[0]
+                cls = {int(n): name for name, nums in re.findall(r'\("([^"]+)", \[([^\]]*)\]\)', body)
+                       for n in re.findall(r"\d+", nums)}
+                r = (m[1], cls)
+        _ndcls[f] = r
+    return _ndcls[f]
+
+
+def nodir_tie_files():
+    """The files test/*.lean that read a text and define `classes`."""
+    global _ndfiles
+    if _ndfiles is None:
+        d = os.path.join(K, "test")
+        _ndfiles = [f"test/{n}" for n in sorted(os.listdir(d)) if n.endswith(".lean")
+                     and nodir_classes(f"test/{n}")]
+    return _ndfiles
+
+
+def nodir_axioms(path):
+    """[(index, text, comments)] of the axioms of the text's last module, index counted from 1 over
+    every axiom of the text (AxiomDecl.index, the numbering of a tie's `classes`), text its lines up
+    to a blank line, a declaration or a comment line, comments the `//` lines just before it."""
+    if path not in _ndax:
+        p = os.path.join(K, path)
+        lines = open(p).read().split("\n") if os.path.isfile(p) else []
+        out, cur, mod, notes = [], None, None, []
+        for line in lines:
+            s = line.strip()
+            m = re.match(r"module (\S+)", s)
+            if m:
+                mod = m[1]
+            if re.match(r"axiom\s*\{", s):
+                if cur:
+                    out.append(cur)
+                cur = [len(out) + 1, mod, [line], notes]
+                notes = []
+                continue
+            if cur is not None and (s == "" or re.match(r"(sort|symbol|hooked-sort|hooked-symbol|alias|endmodule"
+                                                        r"|import|//)", s)):
+                out.append(cur); cur = None
+            if cur is not None:
+                cur[2].append(line)
+            elif s.startswith("//"):
+                notes.append(s)
+            elif s:
+                notes = []
+        if cur:
+            out.append(cur)
+        um = out[-1][1] if out else None
+        _ndax[path] = [(i, "\n".join(ls), ns) for i, m, ls, ns in out if m == um]
+    return _ndax[path]
+
+
+def nodir_items(fx, e, x, have, miss):
+    """Owed-sentence rule item 7 (rows-header.toml, field no_direction) on a supported entry whose
+    fixture is x: the class of each sentence is read from the fixture's tie (`classes`)."""
+    nd = e.get("no_direction")
+    ts = e.get("tie")
+    ts = ts if isinstance(ts, list) else [ts] if ts else []
+    tf = fx.nodir_tie(x, ts) if x else None
+    text, cls = nodir_classes(tf) if tf else (None, {})
+    ss = e.get("sentence")
+    ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
+    loc, absent = fx.located(text, ss) if tf and ss else (set(), [])
+    loc_nd = {i for i in loc if cls.get(i) == "no direction"}
+    if absent:
+        miss.append(f"sentence {absent[0][:50]!r} not in {text}, the text of {tf}: its class is not read")
+    if nd is None and not loc_nd:
+        return
+    if tf is None:
+        miss.append(f"no-direction class (no file test/X.lean reads f2-examples/{x}.kompile.kore with its classes)")
+        return
+    if nd is None:
+        miss.append(f"no_direction (sentences `sentence` locates are of the no-direction class of {tf}:"
+                    f" {sorted(loc_nd)})")
+        nd = []
+    elif not (isinstance(nd, list) and nd and all(isinstance(i, int) and not isinstance(i, bool) for i in nd)):
+        miss.append("no_direction (not a non-empty list of sentence indices)")
+        nd = []
+    else:
+        out = [i for i in nd if cls.get(i) != "no direction"]
+        ok = not out and loc_nd <= set(nd)
+        (have if ok else miss).append(
+            f"no_direction {sorted(nd)} in the no-direction class of {tf}" if ok else
+            "no_direction (" + (", ".join(f"{i} is of class {cls.get(i, 'none: no sentence of the user module')}"
+                                          for i in out[:3]) if out else
+                                f"{sorted(loc_nd - set(nd))} located by `sentence`, of that class, not listed")
+            + f" in {tf})")
+    if tf not in ts:
+        miss.append(f"tie ({tf}, the tie whose classes hold the no-direction sentences, not in tie)")
+    names = [n for n in (e.get("tie_theorems") or []) if isinstance(n, str)]
+    lack = [t for t in ("account", "account_absent", "absent_closed")
+            if not any(n.endswith("." + t) and declared(n, [tf]) for n in names)]
+    (have if not lack else miss).append(
+        f"the class's statement ({tf}: account, account_absent, absent_closed)" if not lack else
+        f"the class's statement ({', '.join(lack)} of {tf} not in tie_theorems)")
+    tabs = [d for d in (e.get("derived") or []) if isinstance(d, dict) and d.get("form") == "a"
+            and d.get("kind") == "in a model" and isinstance(d.get("sentences"), list)]
+    hit = [d for d in tabs if nd and set(d["sentences"]) == set(nd)]
+    (have if hit else miss).append(
+        "derived form a, in a model" if hit else
+        "derived of form a, kind 'in a model', whose sentences are the no_direction indices"
+        + (f" ({len(tabs)} of that kind with other sentences)" if tabs else ""))
+
+
 def declared(name, files):
     """Whether the full name is declared in one of the files (a declaration's name may also be a
     suffix of it)."""
@@ -386,7 +591,7 @@ def declared(name, files):
 
 def evidence(fx, l, key, e, row):
     """(present, missing): two lists of strings, the items of the entry's form (module docstring)."""
-    f = form(l, key, e)
+    f = form(l, key, e, row, fx)
     have, miss = [], []
     item = lambda ok, yes, no: (have if ok else miss).append(yes if ok else no)
     own = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if fx.exists(x)]
@@ -476,19 +681,26 @@ def evidence(fx, l, key, e, row):
     if f in ("pending-fixture", "not-handled"):
         miss.append(f"a status ({f} is none of DONE-0 C2's five)")
     elif f == "supported":
-        fixture_items(True); ties()
+        x = fixture_items(True); ties()
+        nodir_items(fx, e, x, have, miss)
     elif f == "supported E4/E5":
         x = fixture_items(True)
         if x:
             ok, how = node_held(fx, l, key, x, e)
             item(ok, f"node ({how})", f"node ({how})")
         ties()
+        nodir_items(fx, e, x, have, miss)
     elif f == "supported hook":
         derived(["a"])
+    elif f == "supported function of the text":
+        x = fixture_items(True); ties()
+        nodir_items(fx, e, x, have, miss)
     elif f == "supported E6":
         ties()
     elif f == "parameter":
         derived(["c"])
+    elif f == "parameter (no model)":
+        derived(["r"])
     elif f == "inert (use)":
         reason_sentence(["reason"])
         comp = [x for x in own if fx.conf(x).get("differs_from")]
@@ -551,6 +763,8 @@ def evidence(fx, l, key, e, row):
         item(isinstance(ds, list) and len(ds) == 2, "declarations", "declarations (two)")
     else:
         miss.append(f"a status ({f!r} is none of DONE-0 C2's five)")
+    if "removed" in e:
+        removed_items(fx, e, own, item, miss)
     return have, miss
 
 
@@ -615,7 +829,7 @@ def node_held(fx, l, key, x, e):
     except ImportError:
         e4e5 = None
     if e4e5 is not None:
-        return e4e5.holds(fx, l, key, x)
+        return e4e5.holds(fx, l, key, x, e.get("node_sentence"))
     if "sentence" in e:
         return True, "sentence"
     return False, "no parse of the text (test/constructs/e4e5.py) and no sentence"
@@ -636,7 +850,7 @@ def run(t, fx):
             pass                # each entry's check reports it
     for l, key, where, e, row in entries(t):
         c = core(t, l, key, row)
-        f = form(l, key, e)
+        f = form(l, key, e, row, fx)
         if f is None:
             continue
         have, miss = evidence(fx, l, key, e, row)
@@ -781,6 +995,57 @@ def attribute_items(fx, e, own, item, miss):
          + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
 
 
+# ------------------------------------------------------------------- the sentences an option removes
+
+def text_axioms(path):
+    """[(index, module, sentence)] of the text's axioms: index counted from 1 over the whole text,
+    the sentence with whitespace runs one space, the Location, Source and UNIQUE'Unds'ID attributes
+    dropped (tiegen.axioms) and kompile's generated variables renumbered within it (kfix.alpha)."""
+    import kfix, tiegen
+    return [(i, m, kfix.alpha("  " + s)) for i, m, s, _ in tiegen.axioms(open(path).read())]
+
+
+def removed_items(fx, e, own, item, miss):
+    """The items of an entry's `removed` (module docstring, form supported, item removed)."""
+    rs = e.get("removed")
+    if not (isinstance(rs, list) and rs and all(isinstance(r, dict) for r in rs)):
+        miss.append("removed (a list of tables)"); return
+    x = own[0] if own else None
+    ref = fx.conf(x).get("differs_from") if x else None
+    if not isinstance(ref, str):
+        miss.append("removed: the fixture names no reference text (differs_from)"); return
+    paths = {n: fx.kompiled(n) for n in (ref, x)}
+    gone = [n for n, p in paths.items() if not os.path.isfile(p)]
+    if gone:
+        miss.append(f"removed: no text {os.path.relpath(paths[gone[0]], K)}"); return
+    ra, xa = text_axioms(paths[ref]), text_axioms(paths[x])
+    user = ra[-1][1] if ra else None
+    held = collections.Counter(s for _, _, s in xa)
+    by_index = {i: (m, s) for i, m, s in ra}
+    ns = [r.get("sentence") for r in rs]
+    bad = [n for n in ns if not (isinstance(n, int) and n in by_index and by_index[n][0] == user)]
+    item(not bad, f"removed: {len(ns)} axioms of {ref}'s user module {user}",
+         f"removed: sentence {bad[0] if bad else ''!r} is no axiom of {ref}'s user module {user}")
+    kept = [n for n in ns if n in by_index and held[by_index[n][1]]]
+    item(not kept, f"removed: none in {x}'s text", f"removed: axiom {kept[0] if kept else ''} of {ref} is in {x}'s text")
+    want = collections.Counter(s for _, _, s in ra)
+    unlisted = [i for i, _, s in ra if i not in ns and want[s] > held[s]]
+    item(not unlisted, f"removed: every axiom of {ref} absent from {x}'s text listed",
+         f"removed: axiom {unlisted[0] if unlisted else ''} of {ref} is absent from {x}'s text and not listed"
+         f" ({len(unlisted)} such)")
+    lit = f"f2-examples/{ref}.kompile.kore"
+    for r in rs:
+        f = r.get("file")
+        thms = [r.get("theorem"), r.get("companion")]
+        undecl = [t for t in thms if not (isinstance(t, str) and isinstance(f, str) and declared(t, [f]))]
+        reads = isinstance(f, str) and os.path.isfile(os.path.join(K, f)) and lit in open(os.path.join(K, f)).read()
+        if undecl or not reads:
+            miss.append(f"removed: sentence {r.get('sentence')}: " + (f"{undecl[0]!r} not declared in {f}"
+                        if undecl else f"{f} does not read {lit}"))
+            return
+    item(True, f"removed: theorems ({2 * len(rs)}) declared, on {lit}", "")
+
+
 # ------------------------------------------------------------------------------- the reading owed
 
 # The reading an entry's status is owed by, while the reader does not do it (`reader_does_it =
@@ -853,6 +1118,10 @@ def print_reader_owed(t, gate):
 OWED_OPEN = re.compile(r"^\s+(.+): CondDecided open, over (\S+)$", re.M)
 # A state of `owed_state` (rows-header.toml): proved or refuted by a theorem, or open with a reason.
 OWED_STATE = re.compile(r"^(proved|refuted): (\S+)(?: \((test/[^()\s]+\.lean)\))?$|^(open): (\S.*)$")
+# The ending of a state saying that no fixture of the entry's shape has its owed fact proved, and why
+# (rows-header.toml); the state before it is read as OWED_STATE.
+NONE_PROVED = "no fixture of this shape has it proved:"
+NONE_PROVED_END = re.compile(r"; " + re.escape(NONE_PROVED) + r" (\S.*)$")
 # The fields whose text may name a companion fixture of the entry (its same_as pair, its evidence).
 OWED_NAMING = ("evidence", "reader_today", "refused_by", "place", "note", "reading", "no_sentence", "reason")
 
@@ -881,8 +1150,11 @@ def owed_state(t, fx):
         out += [(where, x, None, "owed_state has no key for its fixture, whose account prints"
                  " `CondDecided open`") for x in need if x not in st]
         prose = " ".join(str(e.get(f, "")) for f in OWED_NAMING)
+        words, none_proved = set(), False
         for x, v in st.items():
             keyed.add(x)
+            if isinstance(v, str) and NONE_PROVED_END.search(v):
+                none_proved, v = True, NONE_PROVED_END.sub("", v)
             m = OWED_STATE.match(v) if isinstance(v, str) else None
             word = m and (m[1] or m[4])
             why = None
@@ -904,6 +1176,12 @@ def owed_state(t, fx):
                 elif not any(th in (file_decls(f) or ()) for f in files):
                     why = f"{th} is not declared in {', '.join(map(str, files))}"
             out.append((where, x, word, why))
+            words.add(word)
+        if "proved" not in words and not none_proved:
+            out.append((where, None, None, "no fixture of the entry has its owed fact proved, and no state"
+                        f" ends `; {NONE_PROVED} REASON`"))
+        elif "proved" in words and none_proved:
+            out.append((where, None, None, f"a state ends `; {NONE_PROVED} ...` beside a proved state"))
     for x in sorted(os.listdir(fx.fx)):
         if x not in keyed and owed_open(fx, x):
             out.append(("fixtures", x, None, "its account prints `CondDecided open` and no entry's owed_state"
@@ -919,6 +1197,12 @@ def print_owed_state(t, fx):
     print(f"owed-state: {len({r[0] for r in rs if r[2]})} entries name the state of an owed CondDecided"
           f" at {len({r[1] for r in rs if r[2]})} fixtures: "
           + ", ".join(f"{k} {states[k]}" for k in ("proved", "refuted", "open")) + f"; {len(bad)} failing")
+    best = {}
+    for where, _, word, _ in rs:
+        if word:
+            best[where] = min(best.get(where, 2), {"proved": 0, "open": 1}.get(word, 2))
+    groups = collections.Counter(best.values())
+    print(f"owed-state: entries by their best fixture: proved {groups[0]}, open {groups[1]}, false {groups[2]}")
     for where, x, word, why in rs:
         if why or word != "proved":
             print(f"    {where}: {x or ''} {word or ''}".rstrip() + (f"; FAILS: {why}" if why else ""))
@@ -974,12 +1258,35 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
-        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", "")):
+        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("opt", 'differs_from = "e8-ref"\n')):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
             open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
             if conf:
                 open(os.path.join(fxd, name, "fixture.toml"), "w").write(conf)
+        # item 7: fixtures named as two texts with a tie, base (sentence 93, initKCell's equation, of
+        # the no-direction class of test/TieBase.lean) and e1-starinit (281, initTCell's equation,
+        # of class function equation in test/TieE1Starinit.lean, applied only by 283, of no direction)
+        nd_k = '// rule initKCell(Init)=>`<k>`(`project:KItem`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$PGM","KConfigVar")))))'
+        nd_kd = "symbol LblinitKCell{}(SortMap{}) : SortKCell{}"
+        # isBool's [owise] equation (94, a function equation), and a path of the fixture's kore.txt that
+        # the tie's text writes otherwise
+        nd_f, nd_src = "\\exists{R} (Var'Unds'Gen0:SortBool{},", 'Source(FIXTURE/base.k)'
+        nd_t = "// rule initTCell(Init)=>`TCellSetItem`(`<t>`(initVCell(Init),initPCell(Init)))"
+        for name, kore in (("base", f"//@ 30\n  {nd_kd} [function{{}}()]\n//@ 99\n{nd_k}\n  axiom{{R}} x\n"
+                                    f"//@ 100\n  axiom{{R}} {nd_f} [{nd_src}]\n"),
+                           ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
+            open(os.path.join(fxd, name, "kore.txt"), "w").write(kore)
+        tbase, ts_ = "test/TieBase.lean", "test/TieE1Starinit.lean"
+        acc3 = lambda ns: [f"KCore.{ns}.account", f"KCore.{ns}.account_absent", f"KCore.{ns}.absent_closed"]
+        model = lambda ss, kind="in a model": {"form": "a", "kind": kind, "sentences": ss, "theorem": "KCore.C3EqReqEns.f_5",
+                                              "file": tie}
+        ndok = {"status": "supported", "fixture": "base", "sentence": [nd_k], "tie": [tbase, tie],
+                "tie_theorems": acc3("TieBase"), "no_direction": [93], "derived": [model([93])]}
+        nd = lambda **kw: dict({k: v for k, v in ndok.items() if kw.get(k, 0) is not None}, **{k: v for k, v in kw.items() if v is not None})
         txt = ("module M\n  axiom{R} f{}() [UNIQUE'Unds'ID{}(\"%s\"), org.kframework.attributes.Location("
                "Location(%d,1,1,2))]\n  axiom{R} g{}() [%s]\nendmodule []\n")
         ta, tb, tc = (os.path.relpath(os.path.join(d, n), K) for n in ("a.kore", "b.kore", "c.kore"))
@@ -987,6 +1294,18 @@ def self_test():
                         (tc, ("a1", 1, "cool-like{}()"))):
             open(os.path.join(K, n), "w").write(txt % args)
         sp = "test/InertSemPairs.lean"
+        # a reference text and an option's text without its axiom 4, generated variables and
+        # identifiers numbered otherwise
+        refx = ("module INJ\n  axiom{R} inj{}() []\nendmodule []\nmodule REF\n  axiom{R} a{}() [UNIQUE'Unds'ID{}(\"1\")]\n"
+                "  axiom{R} b{}(Var'Unds'Gen3:SortInt{}) []\n  axiom{R} c{}() []\nendmodule []\n")
+        optx = ("module INJ\n  axiom{R} inj{}() []\nendmodule []\nmodule REF\n  axiom{R} a{}() [UNIQUE'Unds'ID{}(\"9\")]\n"
+                "  axiom{R}  b{}(Var'Unds'Gen0:SortInt{}) []\nendmodule []\n")
+        for n, t in (("e8-ref", refx), ("opt", optx)):
+            open(os.path.join(d, f"{n}.kompile.kore"), "w").write(t)
+        fx.kompiled = lambda n: os.path.join(d, f"{n}.kompile.kore")
+        rm = lambda n, thm="KCore.LibEvCeilE8Ref.s153_refuted": {
+            "sentence": n, "theorem": thm, "companion": "KCore.LibEvCeilE8Ref.s153_one", "file": "test/LibEvCeilE8Ref.lean"}
+        opt = lambda rs, fixture="opt": {"status": "supported", "fixture": fixture, "tie": [tie], "derived": [thm], "removed": rs}
         attr = {"status": "inert", "inert_class": "attribute", "fixture": "e1-module", "attribute": "UNIQUE'Unds'ID",
                 "attr_pairs": [[ta, tb]], "tie": ["test/TieE1Module.lean", sp],
                 "tie_theorems": ["KCore.TieE1Module.fns_entailed", "KCore.InertSemPairs.trS_attrs"],
@@ -997,6 +1316,46 @@ def self_test():
             return 1
         cases = [
             # (list, key, entry, accepted)
+            # item 7: a no-direction sentence with its class's statement and a table 'in a model'
+            ("E7", "A", ndok, True),
+            ("E7", "A", nd(no_direction=None, derived=None), False),
+            ("E7", "A", nd(derived=None), False),
+            ("E7", "A", nd(no_direction=None), False),
+            ("E7", "A", nd(derived=[model([93], "from sentences")]), False),
+            ("E7", "A", nd(derived=[model([93, 35])]), False),
+            ("E7", "A", nd(no_direction=[93, 94], derived=[model([93, 94])]), False),
+            ("E7", "A", nd(no_direction=[35], derived=[model([35])]), False),
+            ("E7", "A", nd(no_direction=[], derived=[model([])]), False),
+            ("E7", "A", nd(tie_theorems=acc3("TieBase")[:2]), False),
+            ("E7", "A", nd(tie=[tie], tie_theorems=acc3("TieBase")), False),
+            ("E7", "A", nd(tie=[tbase, "test/TieE1Module.lean", tie], tie_theorems=acc3("TieE1Module")), False),
+            # a declaration is no axiom and counts neither way: beside a no-direction sentence the entry
+            # needs no_direction, alone it needs nothing
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_kd, nd_k], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_kd, nd_k]), True),
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_kd], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, True),
+            # a no-direction sentence beside one of another class: no_direction is needed all the same
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_f, nd_k], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_f, nd_k]), True),
+            ("E7", "A", nd(sentence=[nd_f, nd_k], no_direction=[93, 94], derived=[model([93, 94])]), False),
+            # the string narrowed to the sentence of the other class: no_direction is not needed
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_f], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, True),
+            # a sentence of kore.txt that the tie's text does not hold: its class is not read
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_src], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_k, nd_src]), False),
+            # the class is the tie's: initTCell's equation, applied only by a no-direction sentence, is a
+            # function equation
+            ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
+                         "tie_theorems": ["KCore.TieE1Starinit.fns_entailed"]}, True),
+            ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
+                         "tie_theorems": acc3("TieE1Starinit"), "no_direction": [281], "derived": [model([281])]}, False),
+            ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
+                         "tie_theorems": acc3("TieE1Starinit"), "no_direction": [283], "derived": [model([283])]}, True),
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} f"], "tie": [tie],
                          "derived": [thm]}, True),
             ("E2", "A", {"status": "supported", "fixture": "ok", "tie": [tie]}, False),
@@ -1073,6 +1432,8 @@ def self_test():
             ("E7", "A", {k: v for k, v in attr.items() if k != "reason"}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "c", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}]}, True),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}, thm]}, True),
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
             ("E6", "hook:X", {"status": "supported"}, False),
             ("E6", "symbol:X", {"status": "supported", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
@@ -1089,6 +1450,16 @@ def self_test():
             ("E2", "A", {"status": "pending-fixture"}, False),
             ("E2", "A", {"status": "not-handled"}, False),
             ("C3", "A x B", {"status": "independent", "declarations": ["a", "b"]}, True),
+            # removed: axiom 4 of the reference, absent from the option's text and the only one
+            ("E8", "A", opt([rm(4)]), True),
+            ("E8", "A", opt([rm(3)]), False),
+            ("E8", "A", opt([rm(4), rm(3)]), False),
+            ("E8", "A", opt([rm(4), rm(9)]), False),
+            ("E8", "A", opt([rm(4), rm(1)]), False),
+            ("E8", "A", opt([]), False),
+            ("E8", "A", opt([rm(4, "KCore.LibEvCeilE8Ref.no_such")]), False),
+            ("E8", "A", opt([dict(rm(4), file=tie)]), False),
+            ("E8", "A", opt([rm(4)], fixture="ok"), False),
         ]
         bad = []
         for i, (l, key, e, want) in enumerate(cases):
@@ -1096,6 +1467,41 @@ def self_test():
             if (not miss) != want:
                 bad.append(f"case {i} ({l} {e.get('status')}): {'refused' if miss else 'accepted'}, expected "
                            f"{'accepted' if want else 'refused'}; missing {miss}")
+        # a table nested in a hook: row: the hook's form where its fixture's reading implements the
+        # symbol by the hook (or shows no reading), the form of a function of the text otherwise
+        for name, prm in (("hk", "param\tLblx{Foo}\targs=[Foo]\tresult=Foo\timpl=Lblx\traw=false\n(exit 0)\n"),
+                          ("own", "param\tLbly\targs=[]\tresult=Foo\timpl=none\traw=false\n(exit 0)\n")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
+            open(os.path.join(fxd, name, "params.txt"), "w").write(prm)
+        hrow = {"status": "supported", "derived": [thm]}
+        ncases = [  # (entry nested in the row hook:K.x:Lblx, the form expected, accepted)
+            ({"status": "supported", "fixture": "hk", "derived": [thm]}, "supported hook", True),
+            ({"status": "supported", "fixture": "hk"}, "supported hook", False),
+            ({"status": "supported", "fixture": "ok", "derived": [thm]}, "supported hook", True),
+            ({"status": "supported", "fixture": "own", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]},
+             "supported function of the text", True),
+            ({"status": "supported", "fixture": "own", "derived": [thm]}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own"}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.nope"]},
+             "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "tie": ["test/PrintNames.lean"],
+              "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "derived": [thm], "tie": [tie]},
+             "supported function of the text", True),
+            ({"status": "supported", "derived": [thm]}, "supported hook", True),
+        ]
+        for i, (e, fwant, want) in enumerate(ncases):
+            row = dict(hrow, cases=[e])
+            fgot = form("E6", "hook:K.x:Lblx", e, row, fx)
+            have, miss = evidence(fx, "E6", "hook:K.x:Lblx", e, row)
+            if fgot != fwant or (not miss) != want:
+                bad.append(f"nested hook case {i}: form {fgot!r} ({'refused' if miss else 'accepted'}), expected "
+                           f"{fwant!r} ({'accepted' if want else 'refused'}); missing {miss}")
+        rown = dict(hrow, fixture="own")
+        if form("E6", "hook:K.x:Lblx", rown, rown, fx) != "supported hook":
+            bad.append("the hook: row itself is given the form of a function of the text")
         t = {"C3": {"p": {"status": "supported", "core": True}}, "E6": {"hook:Y": {"status": "supported"}},
              "E2": {"N": {"status": "inert", "notes": {"x": "y"}}, "W": {"status": "supported", "fixture": "e2-clause-1"},
                     "R": {"status": "refused", "cone": "KCore.Term"}, "Q": {"status": "refused", "cone": "as R"},
@@ -1133,26 +1539,39 @@ def self_test():
             os.makedirs(os.path.join(ofx, name))
             open(os.path.join(ofx, name, "account.txt"), "w").write(acc)
         ofix = Fixtures(ofx, False)
-        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r"}}
+        np = "; no fixture of this shape has it proved: s"
+        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r" + np}}
         a = lambda **kw: {"status": "supported", "fixture": "ow", **kw}
         f5 = "KCore.C3EqReqEns.f_5"
+        nop = "no fixture of the entry has its owed fact proved"
         ocases = [  # ({row key: entry} of E2, the failures expected, each named by a substring)
             ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r"}, evidence="fixtures/ow2",
-                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}"}}])}, []),
+                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}" + np}}])}, []),
             ({"A": a(), "B": b}, ["the entry has no owed_state", "no entry's owed_state names"]),
-            ({"A": a(owed_state={"ow": "open: r", "no": "open: r"}, evidence="fixtures/no"), "B": b},
+            ({"A": a(owed_state={"ow": "open: r", "no": "open: r" + np}, evidence="fixtures/no"), "B": b},
              ["prints no `CondDecided open`"]),
             ({"A": a(owed_state={"ow": f"proved: KCore.C3EqReqEns.nope ({tie})"}), "B": b},
              [f"KCore.C3EqReqEns.nope is not declared in {tie}"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}, tie=["test/TieE1Module.lean"]), "B": b},
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}, tie=["test/TieE1Module.lean"]), "B": b},
              ["is not declared in test/TieE1Module.lean"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}), "B": b}, ["names no file and the entry has no tie"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}), "B": b}, ["names no file and the entry has no tie"]),
             ({"A": a(owed_state={"ow": f"proved: {f5} (test/PrintNames.lean)"}), "B": b}, ["skip list"]),
-            ({"A": a(owed_state={"ow": "witnessed"}), "B": b}, ["is not 'proved: THEOREM"]),
-            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r"})}, ["ow2 is no fixture of the entry"]),
-            ({"A": a(owed_state={"ow2": "open: r"}, evidence="fixtures/ow2")},
+            ({"A": a(owed_state={"ow": "witnessed" + np}), "B": b}, ["is not 'proved: THEOREM"]),
+            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r" + np})}, ["ow2 is no fixture of the entry"]),
+            ({"A": a(owed_state={"ow2": "open: r" + np}, evidence="fixtures/ow2")},
              ["has no key for its fixture", "no entry's owed_state names"]),
             ({"A": a(owed_state="open: r"), "B": b}, ["not a table", "no entry's owed_state names"]),
+            # no proved fixture: accepted with the ending on a refuted or an open state, refused without it
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})" + np}), "B": b}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": {**b, "owed_state": {"ow2": "open: r"}}}, [nop, nop]),
+            # the ending beside a proved state, or on the proved state itself
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, ["beside a proved state"]),
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})" + np}), "B": b}, ["beside a proved state"]),
         ]
         for i, (rows, want) in enumerate(ocases):
             got = [why for _, _, _, why in owed_state({"E2": rows}, ofix) if why]
@@ -1160,7 +1579,8 @@ def self_test():
                 bad.append(f"owed_state case {i}: failures {got}, expected {want}")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
-        print(f"rest self-test: {len(cases)} entries, the core predicate and {len(ocases)} owed_state tables,"
+        print(f"rest self-test: {len(cases)} entries, {len(ncases)} nested in a hook: row, the core predicate and"
+              f" {len(ocases)} owed_state tables,"
               f" {len(bad)} failing")
         return 1 if bad else 0
     finally:

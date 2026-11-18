@@ -3,7 +3,7 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--at-values N,...]
+                                               [--hand consistency=FILE] [--at-values N,...] [--cons-head] [--wf-parts]
                                                [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
@@ -17,6 +17,15 @@ For FIXTURE (a directory of test/constructs/fixtures with a kompiled text), it w
 With --out DIR it writes the test into DIR and leaves f2-examples alone. --chunk N cuts the
 decisions over the whole user module (`account_absent`) and over the constructor sentences
 (`cons_checked`, `cons_trS`) into ranges of N, each its own kernel decision (default: one each).
+--cons-head decides the constructor sentences with `tchConsB` (KcoreSpec/TieConsHd.lean), in the
+probe and in the test (`cons_checked_hd`, and `cons_checked` from it by `tchConsB_all`), in place of
+`tieConsB`, whose search over pairs of generators and scans of `consItemsK` are quadratic in a sort's
+generators: for a text with a sort of many generators (KItem over the cell sorts of a deep
+configuration). It accepts only what `tieConsB` accepts (`tchConsB_sound`); a sentence `tieConsB`
+accepts and it does not is left to the classes the probe gives otherwise.
+--wf-parts states `wf_defn` from its conjuncts (`wf_of_parts_all`), each a decision of its own, the
+names' distinctness by their codes (`KoreAML.Distinct`): `namesOK`'s `nodup` over the emitted
+declarations compares every pair of names, which for a text of many symbols exceeds a 12 GiB scope.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -112,14 +121,19 @@ What the test states (each a kernel decision or a proof from one):
   (`cons_entailed`), the no-junk sentences (`nojunk_trivial_entailed`, `nojunk_items`,
   `nojunk_kitem_entailed`), set idempotence (`idem_refuted`) and the library sample `I -Int 0 = I`
   (`lib166`, `lib166_at_values`) where the text holds that sentence, and `gamma_origin` where
-  every premise of Γ has its origin here.
+  every premise of Γ has its origin here;
+- the idempotence sentence of each other set collection (a definition's own, hooked to SET.concat):
+  `own_idem_refuted_<i>` from `Faithful.setColl_idem_refuted_text`, its shape and the collection's
+  key value one kernel decision (`own_idem_ok_<i>`).
 
 The classes. A sentence whose text equals one of f2-examples/ens.kompile.kore's user module (up to
 `Location`, `Source` and `UNIQUE'Unds'ID` attributes and whitespace) takes that sentence's class in
 test/TieEns.lean's account. Any other sentence (`unmapped` in the test) takes its class from what a
 probe evaluates of it (a run of the Lean definitions on the text: the heads it applies, each a symbol
 with its sort arguments (`appHeadsOf`), against Γ's (`gammaHasHead`),
-its place among Γ's function items, `tieConsB`, the constructor items) and from its form (kompile's
+its place among Γ's function items, `tieConsB`, the constructor items; a symbol the registry interprets
+is a registry hook or a parameter symbol a registry hook implements, `MtCellMap:in_keys` with
+`MAP.in_keys`) and from its form (kompile's
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
@@ -459,9 +473,6 @@ def tgFreeEV {𝕊 : Type} : List EVar → Pattern 𝕊 → List EVar
   | bound, .implication p q => tgFreeEV bound p ++ tgFreeEV bound q
   | bound, .existential x p => tgFreeEV (x :: bound) p
   | bound, .mu _ p => tgFreeEV bound p
-def tgFreeMap {𝕊 : Type} (φ ψ : Pattern 𝕊) : List (EVar × EVar) :=
-  (tgFreeEV [] φ).eraseDups.zip (tgFreeEV [] ψ).eraseDups
-def tgAlpha2 (p q : P) : Bool := tgAlphaB (tgFreeMap p q) p q && tgAlphaB (tgFreeMap q p) q p
 partial def tgPerms : List Nat → List (List Nat)
   | [] => [[]]
   | l => l.flatMap fun x => (tgPerms (l.erase x)).map (x :: ·)
@@ -498,7 +509,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   let isFn := fun (n : String) => afs.any (c.symName ·.label == n)
   let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
-  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n then "hook" else if has n then "other" else "absent"
+  let isImplParam := fun (n : String) => c.params.any fun k => c.symName k.sig.name == n && k.impl.isSome && !k.raw
+  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
@@ -529,8 +541,9 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
   IO.println s!"H fnPrios {(afs.flatMap (fun f => f.clauses.map (·.prio)))}"
   let us := k.axiomDecls.filter (·.module == "@MOD@")
+  let usP := us.map fun ad => let q := (trS ad).pat; (ad, q, (tgFreeEV [] q).eraseDups)
   let nmK := Parse.namesOf k
-  let ixOf := fun (q : P) => (us.filter fun ad => (trS ad).pat == q).map (·.index)
+  let ixOf := fun (q : P) => (usP.filter fun (_, p, _) => p == q).map (·.1.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
@@ -567,7 +580,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
-    IO.println s!"F {j}\t{(us.filter fun ad => tgAlpha2 it.pat (trS ad).pat).map (·.index)}"
+    let fp := (tgFreeEV [] it.pat).eraseDups
+    IO.println s!"F {j}\t{(usP.filter fun (_, q, fq) => tgAlphaB (fp.zip fq) it.pat q && tgAlphaB (fq.zip fp) q it.pat).map (·.1.index)}"
   let pairText := TiePair.fnTextOf c us
   let fax := tgFnAxioms c
   for (it, j) in fis.zip (List.range fis.length) do
@@ -586,13 +600,12 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     let ok := (tgRuleParts p).isSome && decide (tableOf [] p = tableOf [] (tgDropThird p)) &&
       decide ((freeOf [] p).eraseDups = (freeOf [] (tgDropThird p)).eraseDups)
     let tgt := (trAxiom [] [] ⟨0, "kernel", ⟨[], tgDropThird p, []⟩⟩).pat
-    let is := (us.filter (fun ad => (trS ad).pat == tgt)).map (·.index)
+    let is := (usP.filter (fun (_, q, _) => q == tgt)).map (·.1.index)
     IO.println s!"R {j}\t{ok}\t{is}"
-  for ad in us do
-    let p := (trS ad).pat
+  for (ad, p, _) in usP do
     let absent := !(appHeadsOf ad.ax.pattern).all hasHead
     let fnJ := ((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == p)).map (·.2)
-    let cons := tieConsB c ad.ax
+    let cons := @CONS@ c ad.ax
     let plain := decide (p = (trAxiom [] [] ad).pat)
     let consItem := ci.any (·.pat == p)
     let triv := (k.sortDecls.filter fun sd => p == tgOrTopBot (sym (.sort sd.name))).map (·.name)
@@ -617,11 +630,12 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
 '''
 
 
-def probe(name, path, um, order="[]"):
+def probe(name, path, um, order="[]", cons_head=False):
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         f = os.path.join(d, "Probe.lean")
         open(f, "w").write(PROBE.replace("@PATH@", os.path.abspath(path)).replace("@MOD@", um)
-                           .replace("@ORDER@", f"({order} : List Nat)"))
+                           .replace("@ORDER@", f"({order} : List Nat)")
+                           .replace("@CONS@", "tchConsB" if cons_head else "tieConsB"))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
@@ -809,7 +823,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0, at_values=()):
+             hand=None, chunk=0, at_values=(), cons_head=False, wf_parts=None):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -896,6 +910,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             nj_sort_new[e["srt"]] = e["sort"]
     inv = {j: i for i, j in mapped.items()}
     idem = inv.get(61) if cls.get(inv.get(61)) == "set idempotence" else None
+    # the idempotence sentences of the other set collections (the definition's own, hooked to
+    # SET.concat), each `(index, concatenation symbol, variable)`; refuted by
+    # `setColl_idem_refuted_text`, which decides in the kernel that the collection is a set
+    # collection with a value of its key sort and that the sentence is its idempotence sentence
+    own_idem = [(i,) + m for i in by_class["set idempotence"] if i != idem
+                for m in [own_idem_shape(raws.get(i, ""))] if m]
     lib166 = inv.get(166) if cls.get(inv.get(166)) == "library" else None
     rule_map = [(j, ix[0]) for j, ok, ix in head["rules"] if ok and len(ix) == 1]
     rules_full = (len(rule_map) == nrules and sorted(i for _, i in rule_map) == by_class["rewrite rule"])
@@ -904,6 +924,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     covered |= {i for i, _ in nj_sorts}
     if fn_pair:
         covered |= set(pair_text)
+    covered |= {i for i, _, _ in own_idem}
     if idem is not None:
         covered.add(idem)
     # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
@@ -1061,6 +1082,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("    order, `nojunk_kitem_entailed`).")
     if idem is not None:
         w(f"  - Set idempotence ({idem}): Γ with it has no model (`idem_refuted`).")
+    for i, f, _ in own_idem:
+        w(f"  - Set idempotence of the set collection of `{f}` ({i}): Γ with it has no model")
+        w(f"    (`own_idem_refuted_{i}`, from `setColl_idem_refuted_text`).")
     if lib166 is not None:
         w(f"  - Library sample, {lib166} (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).")
     if gamma and fn_align:
@@ -1218,7 +1242,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("theorem coreOK : c.coreOK = true := by decide_cheap")
     w("theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK")
     w("")
-    if wf_ok:
+    if wf_ok and wf_parts:
+        w("/-! `wf defn` conjunct by conjunct (`wf_of_parts_all`), each a decision of its own; the names")
+        w("declared once by their codes (`KoreAML.Distinct.codesDistinct`), sorted in as many passes as the")
+        w("bits of the text's number of declarations. -/")
+        w(f"theorem sorts_distinct : KoreAML.Distinct.codesDistinct {wf_parts[0]} (defn.emit.sortDecls.map (·.name)) = true := by")
+        w("  decide +kernel")
+        w(f"theorem syms_distinct :")
+        w(f"    KoreAML.Distinct.codesDistinct {wf_parts[1]} (defn.emit.symbolDecls.map (·.name) ++ defn.emit.aliasNames) = true := by")
+        w("  decide +kernel")
+        w("theorem names_rest : (c.hooksApart && c.predsApart && c.idsOK) = true := by decide_cheap")
+        w("theorem okAll_c : c.okAll = true := by decide_cheap")
+        w("theorem cert_ok : defn.cert.ok c = true := by decide +kernel")
+        w("theorem pres_ok : defn.pres.ok c = true := by decide +kernel")
+        w("theorem params_ok : defn.paramsOK = true := by decide +kernel")
+        w("theorem faith_ok : c.faithOK = true := by unfold Semantics.faithOK; decide_cheap")
+        w("theorem overloads_ok : c.overloadsOK = true := by decide +kernel")
+        w("theorem wf_defn : wf defn = true :=")
+        w("  wf_of_parts_all sorts_distinct syms_distinct names_rest okAll_c cert_ok pres_ok params_ok faith_ok overloads_ok")
+    elif wf_ok:
         w("set_option maxHeartbeats 1000000 in")
         w("theorem wf_defn : wf defn = true := by decide_cheap")
     else:
@@ -1712,17 +1754,22 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if cons_text:
         w("/-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/")
         w("")
-        w("/-- The constructor sentences `tieConsB` decides, in text order. -/")
+        dec = "tchConsB" if cons_head else "tieConsB"
+        w(f"/-- The constructor sentences `{dec}` decides, in text order. -/")
         w("noncomputable def consText : List AxiomDecl :=")
         w("  " + ax_list(cons_text))
         w("")
+        checked = "cons_checked_hd" if cons_head else "cons_checked"
         if chunk and len(cons_text) > chunk:
-            thms, body = by_ranges("consE", "consText", "(fun ad => tieConsB c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll", True)
+            thms, body = by_ranges("consE", "consText", f"(fun ad => {dec} c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll", True)
             w(thms)
-            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true :=")
+            w(f"theorem {checked} : consText.all (fun ad => {dec} c ad.ax) = true :=")
             w("  " + body)
         else:
-            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true := by decide +kernel")
+            w(f"theorem {checked} : consText.all (fun ad => {dec} c ad.ax) = true := by decide +kernel")
+        if cons_head:
+            w("")
+            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true := tchConsB_all cons_checked_hd")
         w("")
         if chunk and len(cons_text) > chunk:
             pr = "(fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))"
@@ -1752,6 +1799,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                     raise Refused(f"test/TieEns.lean has changed: no {a[:60]!r} in its idempotence section")
                 sec = sec.replace(a, b)
         w(sec)
+    if own_idem:
+        w(own_idem_section(own_idem))
     if lib166 is not None:
         w(ens_section("/-! ## Library sample: sentence 166", "/-! ## Symbols the text's sentences apply").replace("@I@", str(lib166)))
         w(ens_section("theorem shapesOK_c", "/-- The symbols the rule's sentence applies. -/").replace("@I@", str(lib166)))
@@ -1773,7 +1822,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
     cnames = []
     if confined:
-        sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem)
+        sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
+                                      own_idem)
         w(sec)
     w(f"end KCore.{ns}")
     w("")
@@ -1796,6 +1846,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["rules_account", "rule_from_text"]
     if idem is not None:
         names.append("idem_refuted")
+    names += [f"own_idem_refuted_{i}" for i, _, _ in own_idem]
     if lib166 is not None:
         names += ["lib166", "lib166_at_values"]
     if gamma and not fn_align:
@@ -1850,7 +1901,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
                    fn_pair=fn_pair,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
-                   idem=idem, lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
+                   idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
                    law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
                                for r in head["lawRef"]])
@@ -2268,7 +2319,7 @@ theorem open_functional_not_item : {ax_list(open_fun, 4)}.all (fun ad => !(consI
 """
 
 
-def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem):
+def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=()):
     """The statements over `Γc = Γ ∪ Γcl`, the theory of a definition that reads a confined sort: each
     entailment over Γ holds over `Γc`; `Γcl` holds `boolClosed` alone; the origin of `Γc`'s premises."""
     L = ["/-! ## Over `Γc`, the theory the statements are about -/", "",
@@ -2335,7 +2386,49 @@ def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem
               f"    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax{idem}).pat) :=",
               "  fun M hM I hI => idem_refuted H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
         names.append("idem_refuted_c")
+    for i, _, _ in own_idem:
+        L += [f"/-- **Sentence {i} is refuted over `Γc`, for every H**: a model of `Γc` is one of Γ. -/",
+              f"theorem own_idem_refuted_{i}_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),",
+              f"    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) :=",
+              f"  fun M hM I hI => own_idem_refuted_{i} H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
+        names.append(f"own_idem_refuted_{i}_c")
     return "\n".join(L) + "\n", names
+
+
+OWN_IDEM_RE = re.compile(r"axiom ?\{R\} ?\\equals\{Sort([\w']+)\{\}, ?R\} ?\(([^\s{}(),]+)\{\}\("
+                         r"(\w+):Sort\1\{\}, ?\3:Sort\1\{\}\), ?\3:Sort\1\{\}\) ?\[idem\{\}\(\)\]")
+
+
+def own_idem_shape(raw):
+    """`(concatenation symbol, variable)` of an idempotence sentence `\\equals{S, R}(f(K, K), K)`
+    with nothing but `idem` among its attributes, or None."""
+    m = OWN_IDEM_RE.match(raw.strip())
+    return (m.group(2), m.group(3)) if m else None
+
+
+def own_idem_section(own_idem):
+    """The refutation of each idempotence sentence of a set collection other than the library's
+    `Set` (`Faithful.setColl_idem_refuted_text`)."""
+    L = ["/-! ## Set idempotence of the definition's own set collections: refuted",
+         "",
+         "Each sentence is the idempotence sentence of a set collection of the definition, whose key sort",
+         "has a value the search exhibits (`setIdemTextOK`, a kernel decision). At the element `x` of a",
+         "one-member set `{w}` the sentence says `concat(x, x)` holds `x`; `ΓColls` (`setElemAtomAx`) then",
+         "makes `x` the unit's, which `setElemNotUnitAx` denies (`Faithful.setColl_idem_refuted_text`). -/",
+         ""]
+    for i, f, v in own_idem:
+        L += [f"theorem own_idem_ok_{i} : setIdemTextOK c \"{f}\" \"{v}\" U.ax{i} = true := by decide +kernel",
+              f"theorem own_idem_trS_{i} : (trS U.ax{i}).pat = (trAxiom [] [] U.ax{i}).pat := by decide +kernel",
+              "",
+              f"/-- **Sentence {i} is refuted, for every H**: Γ with it has no model. -/",
+              f"theorem own_idem_refuted_{i} (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),",
+              f"    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) := by",
+              "  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)",
+              "  intro M hM I hI hax",
+              f"  rw [own_idem_trS_{i}] at hax",
+              f"  exact setColl_idem_refuted_text c H own_idem_ok_{i} M hM I hI hax",
+              ""]
+    return "\n".join(L)
 
 
 
@@ -2569,7 +2662,13 @@ def main(argv):
     wf_ok, failing = account_check(name, path)
     ob = obligations(name, path, "consistency" in hand)
     um0, ua = user_axioms(text)
-    head, sents = probe(name, path, um0, ob["order_list"])
+    cons_head = "--cons-head" in argv
+    wf_parts = None
+    if "--wf-parts" in argv:
+        nsorts = len(re.findall(r"^\s*(?:hooked-)?sort ", text, re.M))
+        nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
+        wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
+    head, sents = probe(name, path, um0, ob["order_list"], cons_head)
     if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
         raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
                       f"condition")
@@ -2596,7 +2695,7 @@ def main(argv):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
                                  ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
-                                 at_values)
+                                 at_values, cons_head, wf_parts)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)

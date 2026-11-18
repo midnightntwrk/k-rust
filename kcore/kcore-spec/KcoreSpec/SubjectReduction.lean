@@ -1473,7 +1473,7 @@ def Semantics.srReady (c : Semantics) : Bool :=
 
 /-- What subject reduction reads of the overloading symbols: there are none, or they are well
 formed and the subsorts irreflexive (so the normal form of an overloading symbol's application is a
-value of its result sort, `OvlLaws.sortOf_norm`). -/
+value of its result sort, `OvlLaws.sortOf_norm_ovlF`). -/
 def Semantics.OvlCase (c : Semantics) : Prop := c.ovls = [] ∨ (c.overloadsOK = true ∧ ∀ a, (a, a) ∉ c.subsorts)
 
 /-- With `OvlCase` no pattern applies a function-overloaded symbol: there is none, or

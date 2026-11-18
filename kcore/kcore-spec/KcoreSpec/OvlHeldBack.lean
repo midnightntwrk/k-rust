@@ -25,9 +25,15 @@
     where the symbol's closure holds a function) gives what `ovlCovered_values` takes and the
     proof is `ovlBackConfOB`.
   - `heldBackAll_collOvl`: the `collHeld` and the `ovlHeld` symbols have `HeldBack` in every model
-    of `Γc`.
+    of `Γc`. They are the symbols `Semantics.holds` names: `heldBackAll_holds`, `backO_of_core`.
+  - `Semantics.heldFacts_of_core`: what `coreOK` alone gives the statements over a set of held
+    symbols, some set with the rules' facts and `HeldBackAll`.
+  - `heldOccsO_witnessed`: the variables a term holds (`heldOccs`), at a value.
+  - The `…Cl` forms are stated over the facts the proofs read (`ConfinedValsOB` for
+    `confinedAt_value`'s conclusion), so that they serve every check that gives those facts.
 -/
 import KcoreSpec.HeldBackAll
+import KcoreSpec.OpenSuccessor
 
 set_option autoImplicit false
 set_option linter.unusedSectionVars false
@@ -37,35 +43,41 @@ namespace KCore
 
 open ML Faithful
 
+/-- In the interpretation, every element of a sort that is confined at some depth is a value's
+element. -/
+def ConfinedValsOB (c : Semantics) {M : Type} [Inhabited M] (I : Interpretation KoreAML.Sym M) : Prop :=
+  ∀ (k : Nat) (s : Srt), c.confinedAt k s = true → ∀ x, InS I (c.sortName s) x →
+    ∃ v, c.sortOf v = some s ∧ elemOf c I v = x
+
 section OvlHeldBack
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 /-- **An argument that lifts an element of a confined sort is a value's element.** A, the sort the
 argument is lifted from, is confined, and B, the argument's sort, is A or a sort A is a subsort of;
 where they differ the argument is the injection of an element of A. -/
-theorem ovlCovered_elem (h : c.coreOK = true) (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c)
+theorem ovlCovered_elem (hIΓ : I ⊧ᴵP Γ c) [OvlOK c]
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    (hcf : ConfinedValsOB c I)
     {A B : Srt} (hsub : A ≠ B → (A, B) ∈ c.subsorts) (hA : c.confined A = true) {b : M}
     (hb : InS I (c.sortName B) b)
     (hcov : A ≠ B → ∃ y, InS I (c.sortName A) y ∧ GS I (c.sortName B) (.inj (c.sortName A)) [y] b) :
     ∃ w, c.sortOf w = some B ∧ b = elemOf c I w := by
-  obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := hypSound_of_core h
-  haveI : OvlOK c := hno
-  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   by_cases hAB : A = B
   · subst hAB
-    obtain ⟨v, hv, rfl⟩ := confinedAt_value h hr hI _ A hA b hb
+    obtain ⟨v, hv, rfl⟩ := hcf _ A hA b hb
     exact ⟨v, hv, rfl⟩
   · obtain ⟨y, hy, hyb⟩ := hcov hAB
-    obtain ⟨v, hv, rfl⟩ := confinedAt_value h hr hI _ A hA y hy
-    have hs := sortOf_injNormal hsc.trans (hsub hAB) hv
+    obtain ⟨v, hv, rfl⟩ := hcf _ A hA y hy
+    have hs := sortOf_injNormal htr (hsub hAB) hv
     exact ⟨injNormal A B v, hs, ((elemOf_spec hIΓ hs KoreAML.val0).1 b).mp
-      ((den_injNormal_gs hIΓ hsc.trans (hsub hAB) hv KoreAML.val0 b).mpr hyb)⟩
+      ((den_injNormal_gs hIΓ htr (hsub hAB) hv KoreAML.val0 b).mpr hyb)⟩
 
 /-- **Arguments a signature of confined argument sorts covers are values' elements.** `As` are the
 covering signature's argument sorts, `Bs` the covered symbol's; `hcov` is the covering in the
 model: each argument whose two sorts differ is the injection of an element of the covering sort. -/
-theorem ovlCovered_values (h : c.coreOK = true) (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
+theorem ovlCovered_values (hIΓ : I ⊧ᴵP Γ c) [OvlOK c]
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    (hcf : ConfinedValsOB c I) :
     ∀ (As Bs : List Srt) (bs : List M), As.length = Bs.length →
       bs.length = (Bs.map c.sortName).length →
       (∀ (i : Nat) (A B : Srt), As[i]? = some A → Bs[i]? = some B → A ≠ B → (A, B) ∈ c.subsorts) →
@@ -92,7 +104,7 @@ theorem ovlCovered_values (h : c.coreOK = true) (hr : c.readsConfined = true) (h
       cases bs with
       | nil => simp at hbl
       | cons b bs =>
-        obtain ⟨w, hw, rfl⟩ := ovlCovered_elem h hr hI (fun hAB => hsub 0 A B rfl rfl hAB)
+        obtain ⟨w, hw, rfl⟩ := ovlCovered_elem hIΓ htr hcf (fun hAB => hsub 0 A B rfl rfl hAB)
           (hconf A (List.mem_cons_self ..)) (hbs 0 b _ rfl rfl) (fun hAB => hcov 0 A B b rfl rfl rfl hAB)
         obtain ⟨ws, hws, rfl⟩ := ih Bs bs (by simpa using hl) (by simpa using hbl)
           (fun i A' B' hA' hB' => hsub (i + 1) A' B' (by simpa using hA') (by simpa using hB'))
@@ -322,8 +334,8 @@ theorem ovlKnownInSOB {k : CtorSig} (hk : OvlLaws.KnownSig c k) {bs : List M}
   intro m hm
   rw [(hyy m).mp hm]; exact hy
 
-variable (h : c.coreOK = true) (hr : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
-include h hr hIc
+variable (hcf : ConfinedValsOB c I)
+include hcf
 
 /-- **Arguments a function overload covers in the model are values' elements**, where the function
 takes arguments of confined sorts. No item of the function or of the symbol is read. -/
@@ -334,7 +346,7 @@ theorem ovlFnCovOB {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {kg : Ct
     (hcv : OvlCovE c I kg o bs) : ∃ ws, c.sortsOf ws = some o.sig.args ∧ bs = ws.map (elemOf c I) := by
   have H : OvlLaws.OvlHyp c := hO.hyp htr
   obtain ⟨hlen, -, -, -⟩ := OvlLaws.over_ovlF H.fnFacts ho hkg
-  exact ovlCovered_values h hr hIc kg.args o.sig.args bs hlen hbl (ovlSubAtOB hI hg htr ho hkg)
+  exact ovlCovered_values hI htr hcf kg.args o.sig.args bs hlen hbl (ovlSubAtOB hI hg htr ho hkg)
     (hc o ho kg hkg hb) hbs hcv
 
 /-- **Arguments of a constructor or an overloading symbol are values' elements, or the symbol
@@ -368,7 +380,7 @@ theorem ovlValsOrInSOB : ∀ (n : Nat) (k : CtorSig), OvlLaws.KnownSig c k → O
     by_cases hcov : ∃ kg ∈ c.ovlOver o, OvlCovE c I kg o bs
     · obtain ⟨kg, hkg, hcv⟩ := hcov
       cases hb : c.ovlByFn kg with
-      | true => exact Or.inl (ovlFnCovOB hI hg htr h hr hIc ho hkg hb hc hbl hbs hcv)
+      | true => exact Or.inl (ovlFnCovOB hI hg htr hcf ho hkg hb hc hbl hbs hcv)
       | false =>
         have hkk := OvlLaws.known_of_not_byFn hkg hb
         obtain ⟨hlen, hle, hres, hrank⟩ := OvlLaws.over_ovlF F ho hkg
@@ -439,7 +451,7 @@ theorem ovlBackConfOB : ∀ (n : Nat) (k : CtorSig), OvlLaws.KnownSig c k →
     by_cases hcov : ∃ kg ∈ c.ovlOver o, OvlCovE c I kg o bs
     · obtain ⟨kg, hkg, hcv⟩ := hcov
       cases hb : c.ovlByFn kg with
-      | true => exact ovlFnCovOB hI hg htr h hr hIc ho hkg hb hc hbl hbs hcv
+      | true => exact ovlFnCovOB hI hg htr hcf ho hkg hb hc hbl hbs hcv
       | false =>
         have hkk := OvlLaws.known_of_not_byFn hkg hb
         have hck := hc.over F ho hkg
@@ -459,7 +471,7 @@ theorem ovlBackConfOB : ∀ (n : Nat) (k : CtorSig), OvlLaws.KnownSig c k →
           have hsub : (kg.result, o.sig.result) ∈ c.subsorts := OvlLaws.mem_of_le hres hRR
           simp only [toK, beq_iff_eq, hn', ↓reduceIte] at hk
           obtain ⟨x, hx, hxw⟩ := hk
-          rcases ovlValsOrInSOB hI hg htr h hr hIc n kg hkk hrk' hck hzl' hzsorts with ⟨us, hus, rfl⟩ | hin
+          rcases ovlValsOrInSOB hI hg htr hcf n kg hkk hrk' hck hzl' hzsorts with ⟨us, hus, rfl⟩ | hin
           · exact ovlLiftBackOB hI hg htr ho hkg hbl' hus hzs
           · obtain ⟨w', hw', -, rfl⟩ := inj_back hI hg htr w hsub hw (hin x hx) hxw
             obtain ⟨us, hus, rfl⟩ := ih kg hkk hrk' hck hw' hzl' hzsorts hx
@@ -532,6 +544,46 @@ end OvlBackConf
 section OvlHeldBack
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
+/-- **An `ovlHeld` symbol at a value**, from the facts a proof reads: in a model of `Γ`, an
+application of an `ovlHeld` symbol that is a value's element has values' elements as arguments.
+`hcf`: where the symbol's overload closure holds a function, every element of a confined sort is a
+value's. -/
+theorem ovlHeld_backCl (hIΓ : I ⊧ᴵP Γ c) [OvlOK c] (hg : genWf c = true)
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts) {f : Sym}
+    (hcf : (c.fnOverloads f).isEmpty = false → ConfinedValsOB c I)
+    {o : OvlSig} (hlo : c.lookupOvl f = some o) (hh : c.ovlHeld f = true)
+    {w : GroundTerm} (hw : c.sortOf w = some o.sig.result) {bs : List M}
+    (hbl : bs.length = (o.sig.args.map c.sortName).length)
+    (hbs : ∀ (i : Nat) x s, bs[i]? = some x → (o.sig.args.map c.sortName)[i]? = some s → InS I s x)
+    (hm : SymE I (c.symName f) bs (elemOf c I w)) :
+    ∃ ws, c.sortsOf ws = some o.sig.args ∧ bs = ws.map (elemOf c I) := by
+  obtain ⟨-, hn, -, -, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+  have H := (inferInstance : OvlOK c).hyp htr
+  obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
+  obtain ⟨a, ha, hm⟩ := hm
+  have hgs : GS I (c.sortName o.sig.result) (Gen.toK c (.ctor o.sig)) bs (elemOf c I w) :=
+    ⟨a, by rw [← hn] at ha; exact ha, hm⟩
+  by_cases hall : ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = false
+  · -- no function among the overloads
+    have hnf : OvlLaws.NoFnOver c o.sig.name := fun o' ho' kg hkg => by
+      rw [hn, hlo] at ho'; cases ho'
+      exact hall kg hkg
+    obtain ⟨ws, hws, hb, -⟩ := ovl_back hIΓ htr hg _ o.sig hks (OvlLaws.ovlRank_le _) hnf hw hbl hbs hgs
+    exact ⟨ws, hws, hb⟩
+  · -- a function among the overloads: the elements of confined sorts are values'
+    obtain ⟨kg, hkg, hb⟩ : ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true :=
+      Classical.byContradiction fun hc => hall fun kg hkg => by
+        cases hb : c.ovlByFn kg with
+        | false => rfl
+        | true => exact absurd ⟨kg, hkg, hb⟩ hc
+    have hcv : ConfinedValsOB c I := hcf (by
+      obtain ⟨fn, hfn, -⟩ := fnOverloads_of_byFnOB hlo hkg hb
+      cases hfo : c.fnOverloads f with
+      | nil => rw [hfo] at hfn; cases hfn
+      | cons _ _ => rfl)
+    exact ovlBackConfOB hIΓ hg htr hcv _ o.sig hks (OvlLaws.ovlRank_le _)
+      (by rw [hn]; exact ovlConfOver_of_held hh) hw hbl hbs hgs
+
 /-- **An `ovlHeld` symbol at a value**: in a model of `Γc`, an application of an `ovlHeld` symbol
 that is a value's element has values' elements as arguments. `hrc`: the definition reads a
 confined sort where the symbol's overload closure holds a function. -/
@@ -546,33 +598,25 @@ theorem ovlHeld_back (h : c.coreOK = true) {f : Sym}
   obtain ⟨hok, hsr, -, hg, -, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
-  obtain ⟨-, hn, -, -, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-  have H := (inferInstance : OvlOK c).hyp hsc.trans
-  obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
-  obtain ⟨a, ha, hm⟩ := hm
-  have hgs : GS I (c.sortName o.sig.result) (Gen.toK c (.ctor o.sig)) bs (elemOf c I w) :=
-    ⟨a, by rw [← hn] at ha; exact ha, hm⟩
-  by_cases hall : ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = false
-  · -- no function among the overloads
-    have hnf : OvlLaws.NoFnOver c o.sig.name := fun o' ho' kg hkg => by
-      rw [hn, hlo] at ho'; cases ho'
-      exact hall kg hkg
-    obtain ⟨ws, hws, hb, -⟩ := ovl_back hIΓ hsc.trans hg _ o.sig hks (OvlLaws.ovlRank_le _) hnf hw hbl hbs hgs
-    exact ⟨ws, hws, hb⟩
-  · -- a function among the overloads: the definition reads a confined sort
-    obtain ⟨kg, hkg, hb⟩ : ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true :=
-      Classical.byContradiction fun hc => hall fun kg hkg => by
-        cases hb : c.ovlByFn kg with
-        | false => rfl
-        | true => exact absurd ⟨kg, hkg, hb⟩ hc
-    have hr : c.readsConfined = true := hrc (by
-      obtain ⟨fn, hfn, -⟩ := fnOverloads_of_byFnOB hlo hkg hb
-      cases hfo : c.fnOverloads f with
-      | nil => rw [hfo] at hfn; cases hfn
-      | cons _ _ => rfl)
-    exact ovlBackConfOB hIΓ hg hsc.trans h hr hI _ o.sig hks (OvlLaws.ovlRank_le _)
-      (by rw [hn]; exact ovlConfOver_of_held hh) hw hbl hbs hgs
+  exact ovlHeld_backCl (fun φ hφ => hI φ (Or.inl hφ)) hg hsc.trans
+    (fun hne => confinedAt_value h (hrc hne) hI) hlo hh hw hbl hbs hm
+
+/-- **The `collHeld` and the `ovlHeld` symbols have `HeldBack`**, from the facts a proof reads.
+`hcf`: where an overload closure holds a function, every element of a confined sort is a value's. -/
+theorem heldBack_collOvlCl (hIΓ : I ⊧ᴵP Γ c) [OvlOK c] (hsc : SortCtx c) (hg : genWf c = true)
+    (hph : patHooksApart c = true) (hcs : collsOK c = true) (hcso : collSortsOK c = true)
+    (hcf : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → ConfinedValsOB c I)
+    (f : Sym) (k : CtorSig) (hc : c.isCtor f = false) (hh : (collHeld c f || c.ovlHeld f) = true)
+    (hk : lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k) : HeldBack c I f k := by
+  rcases Bool.or_eq_true_iff.mp hh with hh | hh
+  · exact collHeld_back hIΓ hg hsc.trans hph hcs hcso hc hh hk
+  · have ho : c.isOvl f = true := by
+      unfold Semantics.ovlHeld at hh; exact (Bool.and_eq_true_iff.mp hh).1
+    obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc fns_headsOK hk ho
+    obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
+    refine ⟨hit, fun {w} hw {bs} hbl hbs hm =>
+      ovlHeld_backCl hIΓ hg hsc.trans (fun hne => hcf ?_) hlo hh hw hbl hbs hm⟩
+    exact List.any_eq_true.mpr ⟨o, hom, by rw [hn, hne]; rfl⟩
 
 end OvlHeldBack
 
@@ -584,14 +628,55 @@ theorem heldBackAll_collOvl {c : Semantics} (h : c.coreOK = true)
   intro M _ I hI f k hc hh hk
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
+  exact heldBack_collOvlCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hg hph hcs
+    hcso (fun hany => confinedAt_value h (hrc hany) hI) f k hc hh hk
+
+/-- **The symbols `Semantics.holds` names have `HeldBack` in every model of `Γc`.** `hrc`: the
+definition reads a confined sort where an overload closure holds a function. -/
+theorem heldBackAll_holds {c : Semantics} (h : c.coreOK = true)
+    (hrc : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → c.readsConfined = true) :
+    HeldBackAll c c.holds :=
+  heldBackAll_collOvl h hrc
+
+/-- **Each symbol `Semantics.holds` names has `HeldBack`** in a model of `Γc`. `hrc`: the
+definition reads a confined sort where an overload closure holds a function. -/
+theorem backO_of_core {c : Semantics} (h : c.coreOK = true)
+    (hrc : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → c.readsConfined = true)
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γc c) :
+    ∀ f k, c.isCtor f = false → c.holds f = true →
+      lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k :=
+  heldBackAll_holds h hrc I hI
+
+/-- **What `coreOK` gives the statements over a set of held symbols**: some set at which the rules
+have `ruleSorted` and `rulePlainHeldH` and whose symbols have `HeldBack` in every model of `Γc`.
+It is the symbols `Semantics.holds` names where the definition reads a confined sort, and no
+symbol where it reads none. -/
+theorem Semantics.heldFacts_of_core {c : Semantics} (h : c.coreOK = true) :
+    ∃ H : Sym → Bool, (∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) ∧
+      HeldBackAll c H :=
+  heldFacts_of_rules (Semantics.ruleFactsHeld_of_core h) fun hr => heldBackAll_holds h fun _ => hr
+
+/-- **A term's held variables, at a value.** In a model of `Γc`, if the element of a value of a
+well-sorted term's sort lies in its translation, at a valuation of its variables in their sorts,
+the valuation gives each variable the term holds (`heldOccs`: under constructors, injections and
+the symbols `Semantics.holds` names) the element of a value of its sort. `hrc`: the definition
+reads a confined sort where an overload closure holds a function. -/
+theorem heldOccsO_witnessed {c : Semantics} (h : c.coreOK = true)
+    (hrc : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → c.readsConfined = true)
+    {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γc c)
+    {vars : List Srt} {tbl : KoreAML.VarTable} {e : Valuation M}
+    (hin : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0))
+      (e.evalEvar (tbl.ev (keyAt (canonVars c vars) i))))
+    {t : Term} {s : Srt} {w : GroundTerm}
+    (ht : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s) (hw : c.sortOf w = some s)
+    (hm : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c vars) t)).interpret I e (elemOf c I w)) :
+    ∀ i ∈ heldOccs c t, Witnessed c I tbl (canonVars c vars) vars e i := by
+  obtain ⟨hok, hsr, hnn, hg, -, -, -, -, hno⟩ := hypSound_of_core h
+  haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  rcases Bool.or_eq_true_iff.mp hh with hh | hh
-  · exact collHeld_back (fun φ hφ => hI φ (Or.inl hφ)) hg hsc.trans hph hcs hcso hc hh hk
-  · have ho : c.isOvl f = true := by
-      unfold Semantics.ovlHeld at hh; exact (Bool.and_eq_true_iff.mp hh).1
-    obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc fns_headsOK hk ho
-    obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
-    refine ⟨hit, fun {w} hw {bs} hbl hbs hm => ovlHeld_back h (fun hne => hrc ?_) hI hlo hh hw hbl hbs hm⟩
-    exact List.any_eq_true.mpr ⟨o, hom, by rw [hn, hne]; rfl⟩
+  intro i hi
+  rw [heldOccs_eq] at hi
+  exact occsUnder_witnessed (fun φ hφ => hI φ (Or.inl hφ)) hg hsc.trans hnn.1 (canonVars_length c vars) hin
+    fns_headsOK (backO_of_core h hrc hI) ht hw hm i hi
 
 end KCore

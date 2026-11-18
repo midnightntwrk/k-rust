@@ -206,9 +206,11 @@ file and added as terms; nothing is trusted (a wrong one makes its check fail). 
       liftCoreM <| addDecl <| .defnDecl
         { name := base ++ n, levelParams := [], type := ty, value := v, hints := .regular 0, safety := .safe }
     let nums := fun (xs : Syntax.TSepArray `num ",") => xs.getElems.toList.map (·.getNat)
+    -- each block is scanned at the cell-collection pairs of the whole module (`Parse.ScanIs`)
+    let P := Parse.cellCollPairs m.sentences
     let mut a := 0
     for (n, i) in (nums bs).zipIdx do
-      add (Name.mkSimple s!"scan{i}") (mkConst ``Parse.Scan) (toExpr (Parse.scan ((segs.drop a).take n).flatten))
+      add (Name.mkSimple s!"scan{i}") (mkConst ``Parse.Scan) (toExpr (Parse.scanWith P ((segs.drop a).take n).flatten))
       a := a + n
     let S := Parse.scan m.sentences
     let .ok E := Parse.envOf m S | throwError "parse_stages: the names fail"

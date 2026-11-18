@@ -5,7 +5,8 @@
     kompile writes with `append(K1, K2)`, K's `append`, whose equations the text states in the
     prelude's module KSEQ: `append(dotk, T) = T`, `append(kseq(K, KS), T) = kseq(K, append(KS, T))`.
     `append` is a function with those two clauses (`Parse.appendEqns`), no parameter symbol; for
-    every interpretation H and every value t of sort K, `append(.K, t)` is t.
+    every interpretation H and every value t of sort K, `append(.K, t)` is t. Its clauses cover
+    K × K (`covers` splits K over `dotk` and `kseq`), and the totality decider accepts it.
   - `f2-examples/kappend-init.kompile.kore`: the same text with the rule's right side holding
     `initGeneratedCounterCell()` for the counter cell's variable (an edit of the text, so that a rule
     applies an initializer of the top cell tree, which no K source can write). The initializer is a
@@ -91,6 +92,16 @@ theorem append_dotk (H : HookParams) (t : GroundTerm) (ht : c.sortOf t = some Sr
 
 theorem not_param : (c.params.any (·.sig.name == appendS)) = false := by decide +kernel
 
+/-- The clauses' patterns cover K × K: K is enumerable, and `covers` splits the first argument over
+K's generators, `dotk` and `kseq`. -/
+theorem k_enumerable : c.enumerable Srt.k = true := by decide +kernel
+
+theorem append_covers : c.covers (Semantics.coverFuel fn) fn.args (Semantics.coverRows fn) = true := by
+  decide +kernel
+
+/-- **`append` is total by the decider** (`totalOKG`, sound by `totals_of_rankP`). -/
+theorem append_totalOKG : c.totalOKG [] fn = true := by decide +kernel
+
 end KAppend
 
 namespace KAppendInit
@@ -138,4 +149,6 @@ end KAppendInit
 
 #print axioms KAppend.append_dotk
 #print axioms KAppend.not_param
+#print axioms KAppend.append_covers
+#print axioms KAppend.append_totalOKG
 #print axioms KAppendInit.init_value

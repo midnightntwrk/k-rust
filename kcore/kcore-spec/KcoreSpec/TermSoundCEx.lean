@@ -19,18 +19,6 @@ set_option linter.unusedSectionVars false
 
 namespace KCore
 
-/-- `sortedOKEx` gives `sortedOKClEx`: a sorted clause is sorted with its open variables
-(`clauseSortedOpen_of_sorted`), and `clausesPlainEx` asks of each clause what `clausePlainOpenEx`
-asks. -/
-theorem Semantics.sortedOKClEx_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx = true) : c.sortedOKClEx = true := by
-  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := Semantics.sortedOKEx_parts h
-  refine Semantics.sortedOKClEx_of_parts h1
-    (fun f hf cl hcl => ⟨Semantics.clauseSortedOpen_of_sorted (h2 f hf cl hcl), ?_⟩) h3 h4 h6
-  obtain ⟨hp, hs, hpre, hopen⟩ := Semantics.clausesPlainEx_spec h5 hf hcl
-  simp only [Semantics.clausePlainEx, Bool.and_eq_true] at hp
-  simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
-  exact ⟨⟨⟨hp.1, hs⟩, hpre⟩, hopen⟩
-
 namespace Faithful
 
 open ML
@@ -88,14 +76,15 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKClEx_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
     obtain ⟨-, -, hconj, hnw⟩ := Semantics.clausePlainOpenEx_parts hpl
-    exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv hpats
+    exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
+      (Semantics.clauseSortedOpen_pats_nf hs)
       (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
       (readsConfined_of_openCl hu hcl) (hc fn hu cl hcl)
   · obtain ⟨hpats, -, hb, hreq, -, -⟩ := sortPreds_ctx hp cl hcl
     have hoc := openCondVars_of_bindsCl hb
     have hnw : cl.needsWitness c = false := by simp [Clause.needsWitness, Clause.reqOpen, hoc]
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv (L := [])
-      (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats)
+      (Semantics.sortPredPats_nf (hov.hyp hsc.trans).fnFacts hp hcl)
       (by rw [(sortPreds_topCl hp cl hcl).1, Semantics.condOK]) (fun hne => absurd (sortPreds_topCl hp cl hcl).1 hne)
       (fun t ht => by rw [ht] at hreq; simpa [reqOK] using hreq) (by simp [Clause.reqOpen, hoc])
       (fun h' => by simp [hoc] at h') (fun h' => by rw [hnw] at h'; cases h')

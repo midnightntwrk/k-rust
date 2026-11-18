@@ -895,7 +895,7 @@ theorem ovlClosure_self (f : Sym) : f ∈ c.ovlClosure f := by
   simp [Semantics.ovlClosure, Semantics.ovlReach]
 
 /-- A pattern headed by a constructor or an overloading symbol, of sort s, denotes `h(ū)` lifted to
-s, for h in its head's overload closure (`norm_head`). -/
+s, for h in its head's overload closure (`norm_head_ovlF`). -/
 theorem patVal_head (hmc : MatchCtxO c) {σ : Subst} {vars : List Srt} (hσ : c.WellSorted vars σ)
     {f : Sym} {ps : List Term} {s : Srt} {v : GroundTerm}
     (hs : sortOfTerm c.patCtxNF vars (.app f ps) = some s) (hk : (c.isCtor f || c.isOvl f) = true)

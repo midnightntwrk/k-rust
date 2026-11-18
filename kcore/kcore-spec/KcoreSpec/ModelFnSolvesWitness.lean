@@ -286,7 +286,7 @@ theorem premise_holdsB {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Na
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
     {fn : Fn} (hfnm : fn ∈ c.allFns) {cl : Clause} {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
-    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpats : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args)
     {σB : M} (hσB1 : ∀ a, I.evalSymb (.sort ("Sort" ++ "Bool")) a ↔ a = σB) (hσB2 : IsSort I σB)
     {tbl : VarTable} {e : Valuation M} {σr m0 : M} (hag : Agrees c I tbl (canonVars c cl.vars) σ' e)
     (hX : ∀ (j : Nat) w s, ws[j]? = some w → (fn.args.map c.sortName)[j]? = some s →
@@ -303,7 +303,7 @@ theorem premise_holdsB {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Na
   unfold premise
   rw [tr_and2, KoreAML.interp_sAnd]
   refine ⟨?_, argsConj_den4 hI hnn.1 hph htr hσ' (canonVars_length c cl.vars) hag hRv hσr2 hm0 hmatch fn.args 0
-    (OvlOK.nfs_bridge inferInstance hpats) (fun s hs => hnum s (List.mem_cons_of_mem _ hs)) ?_⟩
+    hpats (fun s hs => hnum s (List.mem_cons_of_mem _ hs)) ?_⟩
   · cases hq : cl.req with
     | none =>
       simp only [Option.map_none, reqPat]
@@ -424,7 +424,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       (∀ i < cl'.vars.length, i ∈ varOccsList cl'.pats) ∧ (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyAt c I fn cl' ws)
     {σ' : Subst} (hσ' : c.WellSorted cl.vars σ') (hmatch : PatVals c σ' cl.pats ws)
-    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpatsN : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats)
     (hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     (hrhsv : ∀ i ∈ varOccs cl.rhs, i < cl.vars.length)
@@ -437,6 +437,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (clauseRight c fn cl)).interpret I e m ↔ Res c I e r m)
     (e0 : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e0 m ↔ Res c I e0 r m := by
+  have hpats := sortsOfTerms_all_of_nf hpatsN
   rw [competingEquation_top hpre hexs] at hmem
   have hfnm := (lookupFn_spec hfn).1
   have hD := defOK hI
@@ -475,7 +476,7 @@ theorem compete_eqAt {c : Semantics} [OvlOK c] (hI : I ⊧ᴵP Γ c) (hnn : Name
       exact List.mem_append_left _ (List.mem_singleton_self _))
     unfold competingPremise
     rw [tr_and2, KoreAML.interp_sAnd]
-    refine ⟨?_, premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq tbl e hag)⟩
+    refine ⟨?_, premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpatsN hag hX hRv hσr2 hm0 (ihreq tbl e hag)⟩
     rw [KoreAML.tr, KoreAML.interp_sNot]
     refine ⟨?_, (KoreAML.interp_inhOf_of hRv).mpr hm0⟩
     rw [anyOf_eq]
@@ -563,6 +564,8 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   obtain ⟨hpats1, hbinds1, -⟩ := clause_ctx hok hbc hfnm (cl := cl1) (List.mem_cons_self ..)
   obtain ⟨hpats2, hbinds2, -⟩ := clause_ctx hok hbc hfnm (cl := cl2) (List.mem_cons_of_mem _ (List.mem_cons_self ..))
   have hws : c.sortsOf [i0] = some fF.args := by decide +kernel
+  have hpats1N := Semantics.pats_nf (OvlOK.hyp inferInstance htr) hfnm (cl := cl1) (List.mem_cons_self ..) hpats1
+  have hpats2N := Semantics.pats_nf (OvlOK.hyp inferInstance htr) hfnm (cl := cl2) (List.mem_cons_of_mem _ (List.mem_cons_self ..)) hpats2
   have hreqv1 : ∀ t, cl1.req = some t → ∀ i ∈ varOccs t, i < cl1.vars.length := fun t ht => by
     cases ht; decide
   let σ1 : Subst := [(0, i0)]
@@ -590,7 +593,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
       (r := some one)
       (fun v hv => by cases hv; exact one_sort)
       (fun tbl e σr m0 _ hag hX hRv hσr2 hm0 =>
-        premise_holdsB hI hnn hph htr hfnm hws (hσ1 cl1 rfl) (.cons (.var rfl) .nil) hpats1 hσB1 hσB2 hag hX hRv
+        premise_holdsB hI hnn hph htr hfnm hws (hσ1 cl1 rfl) (.cons (.var rfl) .nil) hpats1N hσB1 hσB2 hag hX hRv
           hσr2 hm0 (fun t ht a ha => by
             cases ht
             rw [req_den rfl hag, QP_closed.interp e e0, hP a ha]
@@ -621,7 +624,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
     have h2 := fun e m => compete_eqAt hI hnn hph htr lookupF (others := [cl1]) (cl := cl2) hmem rfl rfl
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; rfl) hws
       (fun cl' h => by rw [List.mem_singleton] at h; subst h; exact ⟨hpats1, hbinds1, hreqv1, hex⟩)
-      (hσ1 cl2 rfl) (.cons (.var rfl) .nil) hpats2 hbinds2 (fun _ h => by cases h)
+      (hσ1 cl2 rfl) (.cons (.var rfl) .nil) hpats2N hbinds2 (fun _ h => by cases h)
       (fun _ h => by simp [cl2, varOccs] at h) (fun _ h => by simp [cl2] at h) (r := some two)
       (fun v hv => by cases hv; exact two_sort)
       (fun _ _ _ _ h => by cases h)

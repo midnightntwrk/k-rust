@@ -44,7 +44,7 @@ variable {c : Semantics}
 patterns have the argument sorts, its `requires` is a Bool over some functions' signatures, and its
 predicate is well sorted with binders that range where values and elements agree. -/
 structure ExclFactsPre (c : Semantics) (fn : Fn) (cl : Clause) : Prop where
-  pats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args
+  pats : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args
   req : ∃ L, HeadsOK c L ∧ ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool
   preOK : c.condOK cl.vars cl.pre = true
   bound : Cond.bound c cl.vars.length cl.pre = true
@@ -59,6 +59,10 @@ structure EqnFactsPre (c : Semantics) (fn : Fn) (cl : Clause) : Prop extends Exc
   concl : ∃ L, HeadsOK c L ∧ sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
     ∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool
 
+/-- The patterns of such a clause have the argument sorts over the context of all pattern symbols. -/
+theorem ExclFactsPre.patsAll {c : Semantics} {fn : Fn} {cl : Clause} (F : ExclFactsPre c fn cl) :
+    sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args := sortsOfTerms_all_of_nf F.pats
+
 /-- The variables of a clause's patterns and conditions have numbered sorts: those of its patterns
 by the argument sorts, those of its `requires` and its predicate by their sorting. -/
 theorem leftVars_numPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
@@ -72,7 +76,7 @@ theorem leftVars_numPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
   have hsub : ∀ a b, (a, b) ∈ (c.rhsCtx L).subs → (a, b) ∈ c.subsorts := fun _ _ h' => h'
   simp only [Clause.leftVars, Clause.condVars, List.mem_append] at hil
   rcases hil with hP | hR | hC
-  · exact varOccsList_num h cl.pats F.pats (fun s hs => h.fnSorts hfn s (List.mem_cons_of_mem _ hs)) i hP _ hg
+  · exact varOccsList_num h cl.pats F.patsAll (fun s hs => h.fnSorts hfn s (List.mem_cons_of_mem _ hs)) i hP _ hg
   · cases ht : cl.req with
     | none => rw [ht] at hR; cases hR
     | some t =>
@@ -246,7 +250,7 @@ theorem exclusion_ofPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret (stdI_T c T) e a := by
   have hn := h.namesK
   obtain ⟨L, hL, hreqs⟩ := F.req
-  have hpats := F.pats
+  have hpats := F.patsAll
   have hnum := leftVars_numPre h hfn F
   have hlen : cl.pats.length = fn.args.length := sortsOfTerms_length hpats
   let vs := canonVars c cl.vars
@@ -267,7 +271,7 @@ theorem exclusion_ofPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     rw [canonVars_getD c (hl i hi)]; exact ⟨_, rfl⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ cl.leftVars
   have hpatOK : ∀ p ∈ cl.pats, PatOK c P p := fun p hp =>
-    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge hpats) p hp).monoOpen fun i hi =>
+    (patOKs_of_sorted h F.pats p hp).monoOpen fun i hi =>
       ⟨varOccsList_lt cl.pats hpats i (varOccsList_of_memOpen hp hi), List.mem_append_left _ (varOccsList_of_memOpen hp hi)⟩
   have hreqOK : ∀ t, cl.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>
@@ -380,7 +384,7 @@ theorem withPre_readPre (h : HypModelCore c) {fn : Fn} {cl : Clause} (F : EqnFac
     | true => rw [withPre_isTop hpt] at hprem; exact ⟨hprem, fun h' => Bool.noConfusion h'⟩
     | false => exact ⟨((HoldsShape.withPre_interp hpt).mp hprem).1, fun _ => ((HoldsShape.withPre_interp hpt).mp hprem).2⟩
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
-    (patOKs_of_sorted h (h.ovlOKI.nfs_bridge F.pats)) hlen hEq.args a).mp hsplit.1
+    (patOKs_of_sorted h F.pats) hlen hEq.args a).mp hsplit.1
   refine ⟨hσ, hpv, hq, ?_⟩
   cases hpt : cl.pre.isTop with
   | true => exact Clause.holds_preTop (Cond.eq_top_of_isTop hpt) _
@@ -477,7 +481,7 @@ theorem clause_eqnFactsPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
       simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs; exact hs.1.2.1
     obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
     have hpost := (Semantics.clausePlainOpenEx_parts hpl).2.1 hex
-    refine ⟨⟨hpats, ⟨c.fns.map Fn.sig, fun k hk => ?_, hreq⟩, hpreOK, hbd⟩, hex, fun i hi => ?_,
+    refine ⟨⟨Semantics.clauseSortedOpen_pats_nf hs, ⟨c.fns.map Fn.sig, fun k hk => ?_, hreq⟩, hpreOK, hbd⟩, hex, fun i hi => ?_,
       ⟨c.fns.map Fn.sig, fun k hk => ?_, hrhs, hens⟩⟩
     · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
       exact ⟨g, List.mem_append_left _ hg, rfl⟩
@@ -498,7 +502,7 @@ theorem clause_eqnFactsPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
       exact ⟨g, List.mem_append_left _ hg, rfl⟩
   · obtain ⟨hpats, -, hb, hreq, hrhs, hens⟩ := sortPreds_ctx hp cl hcl
     have hpre := Semantics.sortPreds_pre hp cl hcl
-    refine ⟨⟨sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats,
+    refine ⟨⟨Semantics.sortPredPats_nf h.ovlHyp.fnFacts hp hcl,
       ⟨[], fun k hk => absurd hk List.not_mem_nil, fun t ht => ?_⟩, hpreOK, by rw [hpre]; rfl⟩,
       Semantics.sortPreds_exs hp cl hcl, fun i hi => ?_, ⟨[], fun k hk => absurd hk List.not_mem_nil, hrhs, fun t ht => ?_⟩⟩
     · rw [ht] at hreq

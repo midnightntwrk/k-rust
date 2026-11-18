@@ -1,0 +1,62 @@
+//@ 0
+module E6-MOD-KVARIABLE-SYNTAX
+//@ 54
+  symbol Lblis'Hash'KVariable{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 148
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis'Hash'KVariable{}(K0:SortK{}))) [functional{}()] // functional
+//@ 188
+// rule `is#KVariable`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a69f9bc8219347b6c2d405248cc63b91ee1350ebf8952536d78221833a9c457b), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort'Hash'KVariable{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort'Hash'KVariable{}, SortKItem{}}(Var'Unds'Gen1:Sort'Hash'KVariable{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'KVariable{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("a69f9bc8219347b6c2d405248cc63b91ee1350ebf8952536d78221833a9c457b"), owise{}()]
+//@ 189
+// rule `is#KVariable`(inj{#KVariable,KItem}(#KVariable))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(62e0bd07aab19759a49a0c168ed2bf75db0ac010573d108b39908f467f4ba907)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort'Hash'KVariable{}, SortKItem{}}(Var'Hash'KVariable:Sort'Hash'KVariable{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'KVariable{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("62e0bd07aab19759a49a0c168ed2bf75db0ac010573d108b39908f467f4ba907")]
+//@ 232
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-kvariable-syntax.k)")]

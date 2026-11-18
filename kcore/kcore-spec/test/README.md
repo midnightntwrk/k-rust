@@ -772,11 +772,15 @@ and wasm 6 (also a pattern applying an overloading symbol, "a symbol of no known
 pattern"). 20 of the 343 texts hold a `symbol-overload` axiom; the one of them that meets
 `execReady` (evm-equivalence) has no overloading symbol in the reader's sense. No `mismatch` line
 (`readyWhy` and `readyP` agree on every clause and rule).
+Re-measured 2026-11-19, with `overloadsOK` admitting an overload by a function (`test/corpus.expected`
+and `grep -l symbol-overload` over `.lake/corpus/defs`): 359 texts are `clean coreOK`, 20 of them hold
+a `symbol-overload` axiom, and none of the 22 `unclean` texts holds one, so the admission changes no
+corpus line.
 
 ## The executable step reads overloading symbols (kcore-theory, 2026-11-14)
 
 `CExec` (CollExec.lean) matches a pattern headed by an overloading symbol at the one argument list
-its normal form determines (`ovlArgs`, complete by `ovlArgs_complete` from `OvlLaws.norm_decomp`)
+its normal form determines (`ovlArgs`, complete by `ovlArgs_complete` from `OvlLaws.norm_decomp_ovlF`)
 and evaluates such a symbol to `norm`; `execReady` holds `matchReadyO` (`overloadsOK` in place of
 `ovls.isEmpty`); `CExec.step_iff` keeps its statement (designs/OV-0-overloads.md, "OV-6").
 `kcore exec-ready` over the 343 coreOK corpus texts: 343 meet `execReady` (324 before), no
@@ -1578,13 +1582,40 @@ table above, on the tree before String and Bytes). Not investigated here.
   e6-param-rangemap), RANGEMAP's `choice`, `keys_list` and `values`, parameters no hook implements:
   over all H, Γ entails neither that each has no value at `[0, 3) ↦ 7` nor that it is a given value
   of its result sort (`choice_undetermined`, `keysList_undetermined`, `values_undetermined`, from the
-  schema `param_undeterminedPR`: ⊥ under `HookParams.none`, the value under the interpretation that
+  schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`: ⊥ under `HookParams.none`, the value under the interpretation that
   gives it, both theories with models).
+- `test/ParamKLevel.lean`: on `f2-examples/e3-param-cases.kompile.kore` (fixture e3-param-cases)
+  and `f2-examples/e8-hook-namespaces.kompile.kore` (fixture e8-hook-namespaces), the instances
+  `pick{Int}` and `isZeroOf{Exp}` of sort-parametric functions the text gives no equation, and `fh`,
+  hooked to `FOO.bar`, which no registry entry names: parameters no hook implements. Over all H, Γ
+  entails neither that each has no value at a point nor that it is a given value of its result sort
+  (`E3Cases.pickInt_undetermined`, `E3Cases.isZeroOfExp_undetermined`, `E8HookNs.fh_undetermined`,
+  from the schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`; `FnHyp` for every H, the texts' functions owing no fact).
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/ParamE6Lib.lean`: on the kompiled texts of the fixtures e6-param-float, e6-param-string,
+  e6-param-map, e6-param-bytes, e6-param-set and e6-param-int (`f2-examples/e6-param-*.kompile.kore`),
+  every hooked function of FLOAT, STRING, MAP, BYTES, SET and INT the reader reads as a parameter no
+  hook implements (45): over all H, Γ entails neither that it has no value at a point nor that it is
+  a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`).
+  `FnHyp` for every H: five texts have no function; INT's has K's `append`, declared total, which
+  the totality decider confirms, and the deciders name no fact (`fnHyp_decided`). Axioms guarded.
+- `test/ParamE6Sys.lean`: the same on the fixtures e6-param-io, e6-param-ffi, e6-param-kreflection,
+  e6-param-timer, e6-param-unification and e6-param-json, every parameter of K-IO, FFI, K-REFLECTION,
+  TIMER, UNIFICATION and JSON (45; the same schema). `FnHyp` for every H: JSON's text
+  has no function; the other five have K's `append`, total by the decider, and the deciders name no
+  fact (`fnHyp_decided`). Axioms guarded.
+- `test/RatNoModel.lean`: on the kompiled text of the fixture e6-param-rat
+  (`f2-examples/e6-param-rat.kompile.kore`), for every H: `Eval` gives maxRat at `(<1,1>Rat, 1)`
+  both arguments (`maxRat_first`, `maxRat_second`; RAT's two equations, of one priority, both
+  decide there), and minRat likewise (`minRat_first`, `minRat_second`). Each result is a theorem
+  of Γ and the two are distinct values of Rat, so Γ has no model (`no_model`, and `no_model_min`
+  by minRat alone); `not_consistent`, `not_fnHyp`, `not_fnDet`, `not_coherentAll`. `coreOK` holds;
+  the symbol numbers are checked by name (`names`). `both_at_2`: the `requires` hold both ways at
+  `(<2,2>Rat, 1)` and `(<3,3>Rat, 1)` too. Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
@@ -1897,3 +1928,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
   by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
   translation of an axiom does not read its attributes.
+- `test/InertBaseLaws.lean`: the collection laws of `_List_` in construct fixture base (axioms 38, 39,
+  40 of `f2-examples/base.kompile.kore`: associativity, right unit, left unit), each left inert by the
+  reader (`collectionLaw`) and entailed by Γ at values for every H (`list_laws_base`,
+  `InertEv.listLaw_ev`).
+- `test/ClassNamesNotes.lean`: the two notes of a rule that the class reads from the names
+  (`Parse.classify` at `Parse.namesOf`), each against the rule read: on mlandt, mlandc, mlandv and
+  mlorand the notes hold `andTermsCut` exactly where a rule read (`ruleOf`) is not the one read
+  without the cut (`ruleBodyUncut`), all four taking it; on keyfn, its edit with the key's argument
+  bound only inside the key, keyfn-both and keyfn-partial the class is `read keyFunctionAsMember`
+  exactly where the rule read holds the fresh variable of a cut key (`keyCutFns`), and the account's
+  line (`keysAsMember`) lists those axioms.

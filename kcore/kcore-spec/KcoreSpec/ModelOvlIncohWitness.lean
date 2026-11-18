@@ -1,5 +1,5 @@
 /-
-  KCore. A semantics that meets every condition of `coreOK` but the last part of `overloadsOK`
+  KCore. A semantics that meets every condition of `coreOK` but the agreement of two overloads in `overloadsOK`
   (any two overloads of one symbol agree, `ovlCoherent`), and `FnHyp`, whose `Γ` has no model
   because two overloads of one symbol meet at a value no overload covers: so `SoundC` fails of it
   (`not_sound`), and that part cannot be left out of `coreOK`.
@@ -26,7 +26,7 @@ namespace OvlIncohWitness
 
 open ML
 open Faithful.OvlTwiceWitness (cellSorts cellCtors cellSubsorts)
-open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8)
+open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8 ov9)
 
 /-- The `k` cell's sort. -/
 def KCell : Srt := nRegSorts
@@ -62,13 +62,16 @@ theorem fnHyp : FnHyp c :=
     openDecided_of_readsConfined (by decide +kernel), openLaws_of_plain (by decide +kernel)⟩
 
 set_option maxHeartbeats 1000000 in
-/-- Every condition of `coreOK` but `overloadsOK`'s last part holds, and `FnHyp`. -/
+/-- Every condition of `coreOK` but `overloadsOK`'s agreement of two overloads holds, and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov5 c = true ∧ ov6 c = true ∧ ov7 c = true ∧ FnHyp c :=
   ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
+
+/-- It lists every function it reaches along the overloads: it reaches none. -/
+theorem meets_ov9 : ov9 c = true := by decide +kernel
 
 theorem not_ov8 : ov8 c = false := by decide +kernel
 theorem not_overloadsOK : c.overloadsOK = false := by decide +kernel
@@ -117,7 +120,7 @@ theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.
   exact dist_at hD hit (xs := [elemOf c I (int 0)]) (ys := [elemOf c I (int 0)]) rfl rfl
     (single_sorts hx) (single_sorts hx) (fun m => (hg m).symm.trans (hh m))
 
-/-- **Soundness fails** of `c`, which meets every condition of `coreOK` but `overloadsOK`'s last
+/-- **Soundness fails** of `c`, which meets every condition of `coreOK` but `overloadsOK`'s agreement of two overloads
 part, and `FnHyp`. -/
 theorem not_sound : ¬ SoundC c := fun h => by
   obtain ⟨⟨M, hM, I, hI⟩, -⟩ := h

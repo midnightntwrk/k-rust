@@ -765,19 +765,27 @@ x decided); where clauses are owed (`owesC`), `sound_at` and `complete_at` take 
 otherwise those sides are proved in the package (`rulesDecided_defn`, `clausesDecided_defn`). A name
 ends in `_of` exactly where its statement has a binder for a fact (`named`: the facts `hob`, or,
 where functions are held-named, `held`, the facts `hheld` owed of them, which then stand in place
-of `rightHeld_withHooks_defn`). -/
-def headlineAtOpen (bind hob given : String) (named run owesR owesC : Bool) (held : Bool := false) : String :=
+of `rightHeld_withHooks_defn`). Where `hf` is given (a term of `FnHyp (defn.sem.withHooks H)` under
+`bind`), `Consistent` and the functions' model are read from it (`KCore.consistent_of_fnHyp`,
+`KCore.fnModel_of_fnHyp`) in place of the named facts. -/
+def headlineAtOpen (bind hob given : String) (named run owesR owesC : Bool) (held : Bool := false)
+    (hf : String := "") : String :=
   let sfxC := if named then "_of" else ""
   let sfxS := if named || owesR || owesC then "_of" else ""
   let sfxP := if named || owesC then "_of" else ""
   let S := "(defn.sem.withHooks H)"
   let hc := "(coreOK_withHooks_defn H)"
   -- with functions held-named (`held`), the facts owed of them are the binder `hheld` (in `bind`)
-  let cons := if held then s!"consistent_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
+  let cons := if !hf.isEmpty then s!"consistent_of_fnHyp _ {hc} {hf}"
+    else if held then s!"consistent_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
     else s!"consistent_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
-  let consName := if held then "consistent_of_fnFacts_withHooksN" else "consistent_of_fnFacts"
-  let fnModel := if held then s!"fnModel_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
+  let consName := if !hf.isEmpty then "consistent_of_fnHyp"
+    else if held then "consistent_of_fnFacts_withHooksN" else "consistent_of_fnFacts"
+  let fnModel := if !hf.isEmpty then s!"fnModel_of_fnHyp {hc} {hf}"
+    else if held then s!"fnModel_of_fnFacts_withHooksN coreOK_defn H hheld {hob}"
     else s!"fnModel_of_fnFacts {hc} (rightHeld_withHooks_defn H) {hob}"
+  let owedD := if hf.isEmpty then " (the facts still
+owed are `namedFacts`)" else ""
   let hwB := if owesR then s!"
     (hw : ∀ r' ∈ {S}.rules, r'.prio < r.prio → r'.needsWitness {S} = true →
       (∃ σ', PatVal {S} σ' r'.lhs x.val) → r'.CondDecided {S})" else ""
@@ -811,8 +819,7 @@ theorem coreOK_withHooks_defn (H : HookParams) : {S}.coreOK = true :=
   (Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn
 
 /-- **The theory without the `[total]` axioms has a model** (`KCore.Consistent`, by
-`KCore.{consName}`) under every interpretation H, {given} (the facts still
-owed are `namedFacts`); no owed condition is read. `Γ` holds no axiom `∃y. f(x̄) = y` of a
+`KCore.{consName}`) under every interpretation H, {given}{owedD}; no owed condition is read. `Γ` holds no axiom `∃y. f(x̄) = y` of a
 function, so no `[total]` declaration is read here (the theory with them:
 `KCore.Faithful.has_model_total`). -/
 theorem consistent{sfxC}{bind} : Consistent {S} :=
@@ -865,8 +872,12 @@ with none held-named the emitted text is as before. Where a parameter is an open
 lemmas at `defn.sem.withHooks H` (the `…_withHooks` forms ask that no parameter be raw); and the
 module ends with `lawHooks`: the laws, the values and the library's sentences there
 (`openLaws_lawHooks_defn`, `openTotal_lawHooks_defn`, `libAdmitted_lawHooks_defn`,
-`lawHooks_lib_defn`) and each statement's instance (`…_lawHooks`). `force` (`--as-not-plain`): every binder is written, as if facts and
-conditions were owed. -/
+`lawHooks_lib_defn`) and each statement's instance (`…_lawHooks`). Where a clause's predicate is not
+`\top` (`KCore.Semantics.clausesPreTop` false, decided by `clausesPreTop_false`), the named facts do
+not give `FnHyp` (every lemma from them to `FnHyp` or `Consistent` reads `clausesPreTop`): the four
+lists are still decided, but `Obl`, `fnHyp_defn` and the `lawHooks` section are not written, and
+soundness, completeness, consistency and the statements at a step take `FnHyp` itself (`hf`).
+`force` (`--as-not-plain`): every binder is written, as if facts and conditions were owed. -/
 def genFnHyp (o : Out) (ns : String) (d : Definition) (facts plain : Bool) (force : Bool := false) : IO Out := do
   let mut o := o
   let c := d.sem
@@ -971,6 +982,12 @@ end {ns}
       owedC.map (fun (i, j) => s!"condition decided (a witness at which the `requires` has no other result, or a refutation): clause {j} of {fnName i}") ++
       (if raw then ["the open generators' laws (`KCore.OpenLaws`)",
         "the open generators' values at every argument list of their sorts (`KCore.OpenTotal`)"] else []))
+  -- a clause's predicate is not `\top` (`clausesPreTop` false): every lemma that gives `FnHyp`,
+  -- `Consistent` or the functions' model from the named facts reads `clausesPreTop`, so the
+  -- statements take `FnHyp` itself (`hf`), and `Consistent` and the step statements read it
+  let preTop := c.clausesPreTop
+  let entries := if preTop then entries else entries ++
+    ["`FnHyp` itself (a clause's predicate is not `\\top`, `clausesPreTop_false`: the facts above do not give it)"]
   let strs := if entries.isEmpty then "[]" else
     "[\n  " ++ ",\n  ".intercalate (entries.map fun e => (repr e).pretty) ++ "]"
   let factsDef := s!"/-- The named facts, one per line: the class, the function (its KORE name decoded) and its source
@@ -1042,6 +1059,34 @@ theorem clausesDecided_defn (H : HookParams) :
 `owed_clauses` are decided by the text (`KCore.Rule.CondDecided`, `KCore.Clause.CondDecided`:
 witnessed at values, or refuted by the theory). The text may hold this or not; where it does not,
 the statements that take it say nothing of the text. -/"
+  -- a clause's predicate is not `\top`: `FnHyp` itself is the hypothesis (`hf`), and soundness and
+  -- completeness are `KCore.sound_hyp` and `KCore.complete_hyp` under H
+  let cw := "((Semantics.coreOK_withHooks defn.sem H).trans coreOK_defn)"
+  let hypPre := s!"/-- **A clause's predicate is not `\\top`** (`KCore.Semantics.clausesPreTop`, decided). The
+named facts give `FnHyp` only where every clause's predicate is `\\top`
+(`KCore.fnHyp_of_fnObligations` and `KCore.consistent_of_fnFacts` read `clausesPreTop`), so here
+`FnHyp` itself is the hypothesis of every statement (`hf`), as of `sound_hyp` and `complete_hyp`;
+the named facts (`namedFacts`) are not read. -/
+theorem clausesPreTop_false : defn.sem.clausesPreTop = false := by decide +kernel
+"
+  let hypH := s!"
+/-- **Soundness of the semantics** (`KCore.SoundC`, by `KCore.sound_hyp`) under every interpretation
+H, given `FnHyp` of the semantics under H (`hf`). -/
+theorem {if hasParams then "sound_defn" else "sound_withHooks_defn"} (H : HookParams) (hf : FnHyp {S}) : SoundC {S} :=
+  KCore.sound_hyp _ {cw} hf
+
+/-- **Completeness of the semantics** (`KCore.CompleteC`, by `KCore.complete_hyp`) under every
+interpretation H, given `FnHyp` of the semantics under H (`hf`). -/
+theorem {if hasParams then "complete_defn" else "complete_withHooks_defn"} (ref : OutFn) (H : HookParams) (hf : FnHyp {S}) : CompleteC {S} ref :=
+  KCore.complete_hyp _ ref {cw} hf"
+  let hyp0 := s!"
+/-- **Soundness of the semantics** (`KCore.SoundC`, by `KCore.sound_hyp`), given `FnHyp` (`hf`). -/
+theorem sound_defn (hf : FnHyp defn.sem) : SoundC defn.sem := KCore.sound_hyp defn.sem coreOK_defn hf
+
+/-- **Completeness of the semantics** (`KCore.CompleteC`, by `KCore.complete_hyp`), given `FnHyp` (`hf`). -/
+theorem complete_defn (ref : OutFn) (hf : FnHyp defn.sem) : CompleteC defn.sem ref :=
+  KCore.complete_hyp defn.sem ref coreOK_defn hf
+"
   let body := if hasParams then
     let nilPart := if !none then "" else if raw then s!"
 
@@ -1093,6 +1138,7 @@ depends on the interpretation." else ""
       else s!"sound_fn_withHooks{nN} defn.sem callOrder defn.totalParams coreOK_defn {rhH} hH {hobAD}"
     let completePf := if raw then s!"complete_fn{nN} (defn.sem.withHooks H) callOrder defn.totalParams ref {cwH} {rhR} hH {hobAD}"
       else s!"complete_fn_withHooks{nN} defn.sem callOrder defn.totalParams ref coreOK_defn {rhH} hH {hobAD}"
+    if !preTop then hypPre ++ owedPart ++ hypH else
     s!"/-- **The interpretations the statements are about**: H gives each parameter symbol the text
 declares total, and no registry hook implements, a value of its result sort at every argument list
 of its sorts (`KCore.ParamsTotal`; the parameters are `totalParams_eq`'s). A parameter the text does
@@ -1161,6 +1207,7 @@ theorem openDecided_defn : OpenDecided defn.sem :=
 theorem openDecided_withHooks_defn (H : HookParams) : OpenDecided {S} :=
   ⟨rulesDecided_defn H, clausesDecided_defn H⟩
 ")
+    if !preTop then hypPre ++ owedPart ++ hyp0 ++ hypH else
     s!"/-- **The facts the deciders leave of `FnHyp`** ({termL.length} functions' termination, {totL.length}
 `[total]` functions' totality, {agrL.length} functions' agreement, {matL.length} clauses' match
 independence; the lists are `term_named`, `total_named`, `agree_named`, `match_named`). The
@@ -1202,7 +1249,12 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
   let (bindH, fnHypH) := if hasParams then (s!" (H : HookParams) (hH : HooksTotal H){hobB}{heldBH}{lawsH}", s!"fnHyp_defn H hH{hobArg}{heldA}{lawsA}")
     else (s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}", s!"fnHyp_withHooks_defn H{hobArg}{heldA}{lawsA}")
   let runExact := facts && CExec.execReady c
-  let atSrc := if plain then headlineAt bindH fnHypH givenH (!none || held) runExact plain else
+  let bindF := s!" (H : HookParams) (hf : FnHyp {S})"
+  let givenF := "given `FnHyp` of the semantics under H (`hf`)"
+  let atSrc := if !preTop then
+      (if plain then headlineAt bindF "hf" givenF true runExact plain
+       else headlineAtOpen bindF "" givenF true runExact owesR owesC (hf := "hf"))
+    else if plain then headlineAt bindH fnHypH givenH (!none || held) runExact plain else
     let bindN := if hasParams then s!" (H : HookParams){rawB}{hobB}{heldBH}{lawsH}"
       else s!" (H : HookParams){if none then "" else " (hob : OblH H)"}{heldBH}{lawsH}"
     let hobT := if raw then hobA else if !none then "hob" else if hasParams then "(obl_nil H)" else "(obl_nil_withHooks H)"
@@ -1210,8 +1262,9 @@ theorem complete_withHooks_defn (ref : OutFn) (H : HookParams){hobBDH} : Complet
   -- with an open generator: `lawHooks defn.sem H` satisfies the laws and gives the generators
   -- values, for every H, and is admitted by the library's sentences where H is and gives
   -- `_RangeMap_` no value; beside each
-  -- statement, its instance there with both obligations discharged
-  let lawPart := if !raw then "" else
+  -- statement, its instance there with both obligations discharged (with `FnHyp` the hypothesis,
+  -- no statement takes the laws or the values, and there is none)
+  let lawPart := if !raw || !preTop then "" else
     let named := !none || held
     let sfxC := if named then "_of" else ""
     let sfxS := if named || owesR || owesC then "_of" else ""
@@ -1280,7 +1333,7 @@ import {ns}.FnHyp.Total
 import {ns}.FnHyp.Agree
 import {ns}.FnHyp.Match
 " ++ (if held then s!"import {ns}.FnHyp.Held\n" else "") ++ (if plain then "" else s!"import {ns}.FnHyp.Owed\n") ++ (if runExact then s!"import {ns}.Facts\n" else "") ++ "import KcoreSpec.StepCompleteAt
-" ++ (if raw then "import KcoreSpec.LawHooksLib\n" else "") ++ hdr "What the deciders leave of `FnHyp` (`KCore.FnObligations` at the rank `callOrder`; its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), soundness and completeness of the definition's semantics from those facts, and, under the same facts, consistency with the statements at a step and at a configuration." ++ s!"
+" ++ (if raw && preTop then "import KcoreSpec.LawHooksLib\n" else "") ++ hdr (if preTop then "What the deciders leave of `FnHyp` (`KCore.FnObligations` at the rank `callOrder`; its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), soundness and completeness of the definition's semantics from those facts, and, under the same facts, consistency with the statements at a step and at a configuration." else "What the deciders leave of `FnHyp` (its four lists are `term_named`, `total_named`, `agree_named`, `match_named`), which does not give `FnHyp` where a clause's predicate is not `\\top` (`clausesPreTop_false`); soundness and completeness of the definition's semantics, consistency, and the statements at a step and at a configuration, given `FnHyp` itself.") ++ s!"
 namespace {ns}
 open KCore
 open KCore.Faithful (Γ Γstep)
@@ -2054,6 +2107,9 @@ end {ns}
   if core then
     o ← genCore { o with skip := fun _ => false } ns c budgetNodes
     o ← genFnHyp o ns d false plain asNotPlain
+    -- a clause's predicate is not `\top`: the package's statements take `FnHyp` itself
+    unless c.clausesPreTop do
+      IO.println "{\"fnHyp\": \"hypothesis\", \"why\": \"clausesPreTop false: a clause's predicate is not \\\\top, and the named facts give FnHyp only where every clause's predicate is \\\\top\"}"
     -- readable terms, with the symbols' and sorts' numbers (the package has no `Names`)
     if withSyntax then o ← genSyntax o ns { g with symIds := [], srtIds := [] } c s!"{ns}.Core"
     o ← o.write ns (s!"import {ns}.FnHyp\n" ++ hdr s!"The package of `{koreFile}`, deciding `coreOK` without `wf`, with what the deciders leave of `FnHyp`.")
@@ -2778,8 +2834,9 @@ def account (koreFile : String) : IO UInt32 := do
       | some s => IO.println s!"      sentence {i}: {clip 300 (Kore.Printer.sentence s)}"
       | none => pure ()
   let rs := Parse.refusals k
+  let P := Parse.cellCollPairs m.sentences
   let classRefused := fun (i : Nat) => match m.sentences[i - off]? with
-    | some s => match Parse.classifyShape s with | .refused _ => true | _ => false
+    | some s => match Parse.classifyShapeIn P s with | .refused _ => true | _ => false
     | none => false
   let stage := rs.filter fun r => match r.index with
     | some i => !classRefused i
@@ -2970,6 +3027,12 @@ def account (koreFile : String) : IO UInt32 := do
         IO.println s!"open generators, whose laws and values at every argument list are owed at each interpretation H (OpenLaws and OpenTotal of defn.sem.withHooks H, hypotheses of every statement; not a condition of wf or coreOK): {og.length}: {", ".intercalate (og.map fun k => decodeK (d.sem.symName k.sig.name) ++ lawsOf k)}"
       let owedAgr := d.sem.agreeObligationsI
       IO.println s!"functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): {owedAgr.length}: {", ".intercalate (owedAgr.map fun f => decodeK (d.sem.symName f))}"
+      -- printed only when some clause's predicate is not `\top`: the clauses, by function and
+      -- position; the `--core` package's statements then take `FnHyp` itself
+      let notTop := d.sem.fns.flatMap fun f => (f.clauses.zipIdx.filter (!·.1.pre.isTop)).map fun (_, j) =>
+        s!"{decodeK (d.sem.symName f.label)} clause {j}"
+      unless notTop.isEmpty do
+        IO.println s!"clauses whose predicate is not \\top (Semantics.clausesPreTop false; not a condition of coreOK: the named facts give FnHyp only where every clause's predicate is \\top, so the --core package's statements take FnHyp itself as a hypothesis): {notTop.length}: {", ".intercalate notTop}"
       -- printed only when some clause holds an existential variable
       for l in Parse.owedExsText d decodeK do IO.println l
       -- printed only when some equation is read so: the clauses with `Clause.aside`, each with the
@@ -3285,8 +3348,9 @@ import, a claim, a projection's selector-domain axiom and selector-inverse lemma
 `UNIQUE'Unds'ID`), a lemma (`simplification`), an equation of a symbol `d` has no function for (a
 library symbol's, a cell initializer's, a projection `d` does not read), the `functional` axiom of
 a function (read into `FnHyp`, not into Γ) or of a hooked symbol, a collection law, set
-idempotence, and a sentence of any other form. -/
-def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
+idempotence, and a sentence of any other form. The class is the one at the text's cell-collection
+pairs `P` (`Parse.cellCollPairs`). -/
+def gapKind (P : List (String × String)) (d : Definition) (s : Kore.Sentence) : String × Bool :=
   let c := d.sem
   let fnLabels := c.fns.map fun f => c.symName f.label
   let ctorNames := c.ctorSigs.map fun k => c.symName k.name
@@ -3301,7 +3365,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
     if uid.endsWith ".selector-domain" then ("selector-domain axiom of a projection", false)
     else if uid.endsWith ".selector-inverse" then ("selector-inverse lemma of a projection", false)
     else
-    match Parse.classifyShape s with
+    match Parse.classifyShapeIn P s with
     | .inert .simplification => ("simplification", false)
     | .inert .injectivity => ("injectivity axiom", true)
     | .inert .distinctCtors => ("distinctness axiom", true)
@@ -3323,7 +3387,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
           else ("functional axiom of another symbol", false)
         | some (.inr _) => ("subsort axiom", true)
         | none => if (Parse.scanOr s).isSome then ("no-junk axiom", true)
-          else (s!"axiom of another form ({(Parse.classifyShape s).name})", false)
+          else (s!"axiom of another form ({(Parse.classifyShapeIn P s).name})", false)
 
 /-- The attributes the two sentences do not share, `-a` the text's, `+a` the emitted's (their head
 names, sorted). -/
@@ -3353,6 +3417,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     | .ok d => pure d
     | .error r => IO.println s!"cannot {koreFile}: KCore's parse refuses it ({r.toText})"; return 3
   let e := d.emit
+  let P := (k.modules.getLast?.map fun m => Parse.cellCollPairs m.sentences).getD []
   -- the text's sentences not emitted (module name, index in the module, sentence), the emitted not in the text
   let mut ts : Array (String × Nat × Kore.Sentence) := #[]
   let mut es : Array (String × Kore.Sentence) := #[]
@@ -3388,7 +3453,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     if st == "attributes" then s!"attributes ({gapAttrDiff ts[i]!.2.2 es[j]!.2})" else st
   let tAlone := (List.range ts.size).filter fun i => tPair[i]!.isNone
   let eAlone := (List.range es.size).filter fun j => !eUsed[j]!
-  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
+  let kindOf := fun (s : Kore.Sentence) => let (kd, dir) := gapKind P d s; s!"{kd}{if dir then " (direction)" else ""} [{origin s}]"
   IO.println s!"gap {koreFile}: {ts.size} sentences of the text not emitted, {es.size} emitted sentences not in the text"
   IO.println s!"paired, one text sentence with one emitted: {pairs.length}"
   for (n, m) in tally pairCauses do IO.println s!"  {m} {n}"
@@ -3425,15 +3490,16 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     let (mn, j, s) := ts[i]!
     if mn != userName then [] else
       let n := off + j
-      (match Parse.classify N s with
+      ((match Parse.classify N s with
         | .readAs r => [r.name]
         | .unread r => [s!"unread {r.name}"]
-        | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
+        | .inert r => if Parse.ctorInert? P s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
-      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsMember"] else []) ++
+      ((conn.lookup n).getD []).map (·.name) ++
+      (if (keys.lookup n).isSome then [Parse.ReadingNote.keyFunctionAsMember.name] else []) ++
       (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
-      (if tokOmitted.contains n then ["tokKItem"] else [])
-  let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
+      (if tokOmitted.contains n then ["tokKItem"] else [])).eraseDups
+  let notHeld := (List.range ts.size).filter fun i => (gapKind P d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty
   IO.println s!"text sentences of a kind with a direction that d does not hold as written: {notHeld.length}; read in another form with a reading note: {noted.length}{if noted.isEmpty then "" else s!" ({countsOf (noted.flatMap notesOf)})"}; without one (a candidate reader defect): {unnoted.length}"
@@ -3448,7 +3514,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         s!"; emitted under the same name, the first difference at character {pos}: text …{around a}…, emitted …{around b}…"
       | none => ""
     let ns := notesOf i
-    IO.println s!"  {mn} sentence {j} ({(gapKind d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
+    IO.println s!"  {mn} sentence {j} ({(gapKind P d s).1}, {origin s}; {if ns.isEmpty then "no reading note" else s!"read {", ".intercalate ns}"}): {clip 200 (Kore.Printer.sentence s)}{partner}"
   return if unnoted.isEmpty then 0 else 1
 
 /-! ## Agreement with recorded results
@@ -4086,6 +4152,8 @@ def fnFacts (koreFile : String) : IO UInt32 := do
   let tot := c.totalObligationsRP ord tp
   let agr := c.agreeObligationsI
   out s!"{koreFile}: termination {rk.length} + {dec.length}, totality {tot.length}, agreement {agr.length}, match {c.matchObligationsL.length}"
+  unless c.clausesPreTop do
+    out "a clause's predicate is not \\top (clausesPreTop false): these facts do not give FnHyp, which the --core package's statements take as a hypothesis"
   for f in rk do
     let some fn := fnOf f | continue
     let bad := fn.callees.eraseDups.filter fun g => g != f && labels.contains g && !decide (ord.idxOf g < ord.idxOf f)

@@ -185,8 +185,10 @@ sorts:
   the application, so `Parse.openCutRefusal` refuses nothing: the membership is a condition over
   variables the left side binds, and the text has `coreOK`.
 - `f2-examples/openmixedas.kompile.kore` (fixture e2-open-mixed-as): `<k> c((X #as Z) & Y) => d(Z)
-  </k>`. An application whose arguments hold `#as` is not cut: the left side keeps `&`, the account
-  refuses it `openGeneratorPattern`, and the rule is not sorted (`coreOK` false). -/
+  </k>`. An application whose arguments hold `#as` is cut too: `X #as Z` is `X ∧ Z`, Z's element
+  where it is X's and nothing elsewhere, and an application is pointwise and empty at an empty
+  argument, so the left side is `c(Open0)` with `pre` `Open0 ∈ and(Z, Y) ∧ Z ∈ X`; X, Y and Z are of
+  the confined sort A, and the text has `coreOK`. -/
 
 /--
 info: open generators: [Lbland : [A, A] → B assoc false idem false confined true]
@@ -200,10 +202,10 @@ functionInPattern: []
 openGeneratorInPattern: []
 coreOK: true
 open generators: [Lbland : [A, A] → B assoc false idem false confined true]
-rules: [[[X, Z, Y, 'Unds'DotVar0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc(Lbland((X as Z), Y)), dotk())), 'Unds'DotVar0) pre top]
+rules: [[[X, Z, Y, 'Unds'DotVar0, Open0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc(Open0), dotk())), 'Unds'DotVar0) pre and(in[B](Open0, Lbland(Z, Y)), in[A](Z, X))]
 functionInPattern: []
-openGeneratorInPattern: [sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)]
-coreOK: false
+openGeneratorInPattern: []
+coreOK: true
 -/
 #guard_msgs in
 #eval show IO Unit from do

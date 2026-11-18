@@ -426,15 +426,17 @@ def isOpenGen : Gen → Bool
 
 /-- The sorts whose generators `covers` enumerates: those whose values are exactly the applications
 of their generators (`gens`: constructor terms of the sort, and injections from its subsorts). A
-user sort is one, unless it is a collection sort (`collOf`: its values are collections, which no
+user sort is one, and so is K (its generators are the fixed constructors `kseq` and `dotk` and any
+other constructor of result K; Γ's no-junk item for K ranges over the same `gens`), unless it is a
+collection sort (`collOf`: its values are collections, which no
 generator builds) or holds domain values (Int, Bool, KConfigVar, the library's token and byte sorts,
-Float, String, Bytes, a sort hooked to a library carrier: its literals, `dvOK`). Base sorts, K, KItem and those sorts are covered only by
+Float, String, Bytes, a sort hooked to a library carrier: its literals, `dvOK`). Base sorts, KItem and those sorts are covered only by
 variables, and so is every sort of a semantics with overloading symbols (whose raw applications no
 constructor pattern matches), and every sort of a semantics with a raw parameter (an open
 generator's application is a value of its result sort only where the interpretation leaves it raw,
 so the values of a sort are not fixed by the data). -/
 def enumerable (N : Srt) : Bool :=
-  c.ovls.isEmpty && c.userSorts.contains N && (c.collOf N).isNone &&
+  c.ovls.isEmpty && (c.userSorts.contains N || N == Srt.k) && (c.collOf N).isNone &&
     !(N == Srt.int || N == Srt.bool || N == Srt.kconfigVar || c.lib.tokenSorts.contains N ||
       c.lib.byteSorts.contains N || N == Srt.float || N == Srt.string || N == Srt.bytes) &&
     c.lib.carriers.all (·.1 != N) && !c.params.any (·.raw)

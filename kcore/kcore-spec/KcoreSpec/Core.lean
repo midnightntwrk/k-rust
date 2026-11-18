@@ -195,9 +195,11 @@ def builtinColls : List CollSig :=
 
 /-- An overloading symbol: a symbol of K's overload sets declared `anywhere` and not a constructor
 (`f(lift ā) = lift (g(ā))` for each symbol g it overloads). Its signature, and the symbols it
-overloads (`over`: constructors, or overloading symbols listed before it in `Semantics.ovls`).
+overloads (`over`: constructors, overloading symbols listed before it in `Semantics.ovls`, or
+functions of the definition).
 A term `f(v̄)` denotes the value `Semantics.norm f v̄` (Value.lean): the raw application where no
-overload covers v̄, otherwise the overloaded symbol's value, injected into f's result sort. -/
+overload covers v̄, otherwise the overloaded symbol's value, injected into f's result sort; at
+arguments a function it overloads covers, it denotes that function's value, injected likewise. -/
 structure OvlSig where
   sig : CtorSig
   over : List Sym

@@ -2,11 +2,9 @@
   KCore. What the existence of a model reads (`HypModelCore`), for a semantics whose clauses may bind
   variables by `\exists` (`Semantics.coreOKEx`).
 
-  - `Semantics.sortedOKClEx_of_okEx`: `sortedOKEx` asks of each clause `clauseSorted` and what
-    `clausesPlainEx` asks, which give `clauseSortedOpen` and `clausePlainOpenEx`
-    (`Semantics.clausePlainOpenEx_of_plainEx`), so the value model's sortedness `sortedOKClEx`.
   - `Faithful.Model.hypModelCore_of_coreEx`: `HypModelCore` from `coreOKEx`, `FnDet` and `FnSolves`,
-    as `hypModel_of_fn` gives it from `coreOK`.
+    as `hypModel_of_fn` gives it from `coreOK`; the value model's sortedness `sortedOKClEx` is
+    `Semantics.sortedOKClEx_of_sortedOKEx`'s, from `sortedOKEx`.
   - `Faithful.Model.HypModel.fnsNoExs`: `HypModel` holds `okAll`, hence `sortedOK`, which asks every
     clause to bind no variable by `\exists`. So no semantics with such a clause meets `HypModel`;
     what the model reads of it is `HypModelCore`, which `hypModelCore_of_coreEx` gives.
@@ -20,24 +18,17 @@
 import KcoreSpec.ModelHasEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseModel
+import KcoreSpec.TermSoundCEx
 
 set_option autoImplicit false
 
 namespace KCore
 
-/-- **`sortedOKEx` gives `sortedOKClEx`**: each clause's `clauseSorted` is `clauseSortedOpen`, and
-what `clausesPlainEx` asks of it gives `clausePlainOpenEx`. -/
-theorem Semantics.sortedOKClEx_of_okEx {c : Semantics} (h : c.sortedOKEx = true) :
-    c.sortedOKClEx = true := by
-  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := Semantics.sortedOKEx_parts h
-  refine Semantics.sortedOKClEx_of_parts h1 (fun f hf cl hcl => ⟨Semantics.clauseSortedOpen_of_sorted (h2 f hf cl hcl),
-    Semantics.clausePlainOpenEx_of_plainEx (List.all_eq_true.mp (List.all_eq_true.mp h5 f hf) cl hcl)⟩) h3 h4 h6
-
 namespace Faithful
 
 /-- `HypSoundCoreEx` gives what the value model reads of the conditions step soundness reads. -/
 theorem HypSoundCoreEx.model {c : Semantics} (h : HypSoundCoreEx c) : Model.HypSoundModel c :=
-  ⟨Semantics.sortedOKClEx_of_okEx h.1, h.2⟩
+  ⟨Semantics.sortedOKClEx_of_sortedOKEx h.1, h.2⟩
 
 variable {c : Semantics}
 
@@ -78,14 +69,14 @@ open ML
 
 /-- **What the existence of a model reads, from `coreOKEx`, `FnDet` and `FnSolves`**:
 `hypModel_of_fn` with `coreOKEx` for `coreOK`. The clauses' sortedness `sortedOKClEx` is
-`sortedOKClEx_of_okEx`; `srReady`, the names numbered and the conditions of `HypSoundModel`
+`sortedOKClEx_of_sortedOKEx`; `srReady`, the names numbered and the conditions of `HypSoundModel`
 are `hypSoundEx_of_coreEx`'s; the conditions `faithCoreOK` decides are read as there. -/
 theorem hypModelCore_of_coreEx (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSolves c) :
     HypModelCore c := by
   obtain ⟨-, hfa, -, -, hids⟩ := Semantics.coreOKEx_parts h
   obtain ⟨hnn, -, -, hcs, -, hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
   have hsd := hypSoundEx_of_coreEx h
-  exact ⟨⟨Semantics.sortedOKClEx_of_okEx hsd.1, hsd.2.1, namesNumbered_spec hnn, hd, hs⟩,
+  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKEx hsd.1, hsd.2.1, namesNumbered_spec hnn, hd, hs⟩,
     hsd.model, hn, hl, hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', Semantics.coreOKEx_ovls h,
     ovlsOnce_of_ids hids⟩
 
@@ -117,7 +108,7 @@ theorem Faithful.Model.consistent_of_coreEx (h : c.coreOKEx = true) (hd : FnDet 
     (hp : ClausePreDecided c) (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
   consistent_of_modelEx c (hypModelCore_of_coreEx h hd hs)
     (fun fn hfn cl hcl =>
-      have hcp := (Semantics.sortedOKClEx_parts (Semantics.sortedOKClEx_of_okEx
+      have hcp := (Semantics.sortedOKClEx_parts (Semantics.sortedOKClEx_of_sortedOKEx
         (Semantics.coreOKEx_parts h).1)).2.1 fn hfn cl hcl
       ⟨hcp.1, (Semantics.clausePlainOpenEx_parts hcp.2).1, (Semantics.clausePlainOpenEx_parts hcp.2).2.1⟩)
     hp hq hl

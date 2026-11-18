@@ -46,9 +46,10 @@
 
   - `e3-eq-exists-bool-ml`, `f(X) => #Exists B:Bool. (B #And {B #Equals notBool X})`, f `total`:
     three clauses over `[X:Bool]`: `pre ⌈true⌉ ∧ (true = notBool(X))`, `rhs true`; the same at
-    `false`; the negations, `rhs true`, `ens false`.
+    `false`; `pre ¬∃B:Bool. (⌈B⌉ ∧ B = notBool(X))` (the binder kept, `Parse.exClauses`), `rhs true`,
+    `ens false`; `readsConfined` is true.
   - `e3-eq-exists-bool-ml-loop`, `f() => #Exists B:Bool. pick(B)`, f `total`: `pre ⌈pick(true)⌉`,
-    `rhs pick(true)`; the same at `false`; the negations.
+    `rhs pick(true)`; the same at `false`; `pre ¬∃B:Bool. ⌈pick(B)⌉`.
   - `e3-eq-exists-partial-ml` (f not `total`) and `e3-eq-exists-ml-under-app` (the binder under an
     application): `none`.
   Hand-written (`HandEx`, over the names `N1`):
@@ -499,10 +500,10 @@ info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       rhs false ens none exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X))))
+      pre ¬∃.(⌈#1⌉:Bool ∧ (#1 =[Bool] LblnotBool'Unds'(X)))
       rhs true ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined true; litSort Bool true
 e3-eq-exists-bool-ml-loop Lblf: functional sentence true; clauses 3
   [0] vars [] pats [] req none prio 50 aside false
       pre ⌈Lblpick(true)⌉:Int
@@ -513,10 +514,10 @@ e3-eq-exists-bool-ml-loop Lblf: functional sentence true; clauses 3
       rhs Lblpick(false) ens none exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
   [2] vars [] pats [] req none prio 50 aside false
-      pre (¬⌈Lblpick(true)⌉:Int ∧ ¬⌈Lblpick(false)⌉:Int)
+      pre ¬∃.⌈Lblpick(#0)⌉:Int
       rhs Lblpick(true) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined true; litSort Bool true
 e3-eq-exists-partial-ml Lblf: none
 e3-eq-exists-ml-under-app Lblf: none
 -/
@@ -582,7 +583,7 @@ info: eqB: clauses 3
       pre (⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X)))
       rhs false ens none exs [] post ⊤
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X))))
+      pre ¬∃.(⌈#1⌉:Bool ∧ (#1 =[Bool] LblnotBool'Unds'(X)))
       rhs true ens (some false) exs [] post ⊤
 eqY: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists: VarY: in an alternative or the ensures, not bound by the arguments)
 eqYreq: refused KCore.Parse.RefusalReason.manyValuedRightSide (\exists: VarY: in an alternative or the ensures, not bound by the arguments)
@@ -594,7 +595,7 @@ eqEns: clauses 3
       pre (⌈false⌉:Bool ∧ ((false =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true)))
       rhs false ens none exs [] post ⊤
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈true⌉:Bool ∧ ((true =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))) ∧ ¬(⌈false⌉:Bool ∧ ((false =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))))
+      pre ¬∃.(⌈#1⌉:Bool ∧ ((#1 =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true)))
       rhs true ens (some false) exs [] post ⊤
 eqFloor: refused KCore.Parse.RefusalReason.patternConnective (\floor)
 eqTwo: clauses 3
@@ -605,7 +606,7 @@ eqTwo: clauses 3
       pre (⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X)))
       rhs false ens none exs [] post ⊤
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X))))
+      pre ¬∃.(⌈#1⌉:Bool ∧ (#1 ∈[Bool] LblnotBool'Unds'(X)))
       rhs true ens (some false) exs [] post ⊤
 eqUnderAnd: clauses 3
   [0] vars [X:Bool] pats [X] req none prio 50 aside false
@@ -615,7 +616,7 @@ eqUnderAnd: clauses 3
       pre (⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X))
       rhs LblnotBool'Unds'(false) ens none exs [] post ⊤
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X)) ∧ ¬(⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X)))
+      pre ¬∃.(⌈LblnotBool'Unds'(#1)⌉:Bool ∧ (#1 ∈[Bool] X))
       rhs LblnotBool'Unds'(true) ens (some false) exs [] post ⊤
 eqFresh: none
 eqFresh by ceRead: clauses 1
@@ -649,10 +650,10 @@ info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       rhs false ens none exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X))))
+      pre ¬∃.(⌈#1⌉:Bool ∧ (#1 ∈[Bool] LblnotBool'Unds'(X)))
       rhs true ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined true; litSort Bool true
 e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
   [0] vars [X:Bool] pats [X] req none prio 50 aside false
       pre (⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X))
@@ -663,10 +664,10 @@ e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       rhs LblnotBool'Unds'(false) ens none exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
   [2] vars [X:Bool] pats [X] req none prio 50 aside false
-      pre (¬(⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X)) ∧ ¬(⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X)))
+      pre ¬∃.(⌈LblnotBool'Unds'(#1)⌉:Bool ∧ (#1 ∈[Bool] X))
       rhs LblnotBool'Unds'(true) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined true; litSort Bool true
 e3-eq-exists-bool-ml Lblf: none
 -/
 #guard_msgs in
@@ -686,10 +687,11 @@ def cl (rhs : Term) (ens : Option Term) (pre : Cond) : Clause :=
   { vars := [Srt.bool], pats := [.var 0], req := none, rhs, ens, prio := 50, aside := false, pre }
 
 /-- **`exRead` on the fixture's equation, in the kernel**: the clauses of the instances `true`
-and `false`, the clause of neither, and the variables. -/
+and `false`, the clause where no element of Bool gives the body one (its `pre` keeps the binder, B
+the index 1), and the variables. -/
 theorem exRead_eqB : exRead N1 eqB = .ok (some
     ([cl (boolT true) none (preB true), cl (boolT false) none (preB false),
-      cl (boolT true) (some (boolT false)) (.and (.not (preB true)) (.not (preB false)))],
+      cl (boolT true) (some (boolT false)) (.not (.ex Srt.bool (.and (.ceil Srt.bool (.var 1)) (.equals Srt.bool (.var 1) notX))))],
      [⟨"X", "Bool"⟩])) := by
   kernel_rfl
 
@@ -702,7 +704,7 @@ def preM (b : Bool) : Cond := .and (.ceil Srt.bool (boolT b)) (memB b)
 `b ∈ notBool(X)`. -/
 theorem exRead_eqTwo : exRead N1 eqTwo = .ok (some
     ([cl (boolT true) none (preM true), cl (boolT false) none (preM false),
-      cl (boolT true) (some (boolT false)) (.and (.not (preM true)) (.not (preM false)))],
+      cl (boolT true) (some (boolT false)) (.not (.ex Srt.bool (.and (.ceil Srt.bool (.var 1)) (.mem Srt.bool (.var 1) notX))))],
      [⟨"X", "Bool"⟩])) := by
   kernel_rfl
 
@@ -713,7 +715,9 @@ def preU (b : Bool) : Cond := .and (.ceil Srt.bool (notT b)) (.mem Srt.bool (boo
 /-- The same under an application: the alternative is `notBool(b)`, `pre` holds `b ∈ X`. -/
 theorem exRead_eqUnderAnd : exRead N1 eqUnderAnd = .ok (some
     ([cl (notT true) none (preU true), cl (notT false) none (preU false),
-      cl (notT true) (some (boolT false)) (.and (.not (preU true)) (.not (preU false)))],
+      cl (notT true) (some (boolT false))
+        (.not (.ex Srt.bool (.and (.ceil Srt.bool (.app (regSymNames.idxOf "LblnotBool'Unds'") [.var 1]))
+          (.mem Srt.bool (.var 1) (.var 0)))))],
      [⟨"X", "Bool"⟩])) := by
   kernel_rfl
 

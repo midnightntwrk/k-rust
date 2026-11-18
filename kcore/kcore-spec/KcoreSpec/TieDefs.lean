@@ -188,10 +188,38 @@ def isLaw (a : Kore.Axiom) : Bool :=
   | .equals _ _ (.app _ _ _) _ => true
   | _ => false
 
+/-- The name a sort argument of an instance takes among the semantics' names: `X` for the sort
+constructor `SortX{}` applied to no sort; none for a sort variable or an applied sort constructor. -/
+def instSortName (s : Kore.KSort) : Option String :=
+  match s with
+  | .ctor h [] =>
+    let l := h.ident.name.toList
+    if l.take 4 == ['S', 'o', 'r', 't'] then some (String.ofList (l.drop 4)) else none
+  | _ => none
+
+/-- The name of the symbol `h` applied at the sort arguments `ss`, as the semantics names an
+instance of a sort-parametric symbol: `h{X₁,…,Xₙ}` (`instSortName`). In KORE `h{SortK{}}` and
+`h{SortInt{}}` are distinct symbols, and a sentence with one at its head states nothing of the
+other; at a sort variable the head names no one instance, and this is none. -/
+def instHeadName (h : Kore.SymbolIdent) (ss : List Kore.KSort) : Option String :=
+  (ss.mapM instSortName).map fun xs => h.ident.name ++ "{" ++ ",".intercalate xs ++ "}"
+
+/-- The symbol at the head of an equation's left side (`eqnHead`'s forms) is `n`: by its declared
+name, or, where it is applied at sort arguments, by its instance's name (`instHeadName`). -/
+def eqnHeadIs (n : String) : Kore.Pattern → Bool
+  | .implies _ _ (.equals _ _ (.app h ss _) _) | .equals _ _ (.app h ss _) _ =>
+    h.ident.name == n || (match ss with
+      | [] => false
+      | _ => instHeadName h ss == some n)
+  | _ => false
+
 /-- The text's equations of the symbol `n`: the axioms with `n` at the head of their left side
-that are no law sentence (`isLaw`). -/
+(`eqnHeadIs`: a declared symbol, or one of its instances at sort arguments, where `n` names it as
+the semantics names an instance) that are no law sentence (`isLaw`). For a declared name the
+equations of all its instances are its equations; for an instance's name, only the equations at
+that instance's sort arguments. -/
 def eqnsOf (k : Kore.Definition) (n : String) : List Kore.Axiom :=
-  (k.axiomDecls.map (·.ax)).filter fun a => eqnHead a.pattern == some n && !isLaw a
+  (k.axiomDecls.map (·.ax)).filter fun a => eqnHeadIs n a.pattern && !isLaw a
 
 /-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
 that the theory has as a constructor, function, parameter or overloading symbol is a function of
@@ -260,8 +288,9 @@ def rewritePrioOf (k : Kore.Definition) (u : String) : Option Nat :=
 whose id the rule's presentation holds (`RulePres.info`; the rules a reading makes of one axiom,
 `orSplit`'s, each hold that axiom's id), and every rewrite axiom of the text is read as some rule.
 For each function of the semantics, the priorities of the text's equations of the function
-(`eqnsOf`: with the function at the head of their left side, and no law sentence, which states a
-law and no priority), less the `simplification` ones, are its clauses' priorities, as lists up to
+(`eqnsOf`: with the function at the head of their left side, for an instance of a sort-parametric
+function at that instance's sort arguments, and no law sentence, which states a law and no
+priority), less the `simplification` ones, are its clauses' priorities, as lists up to
 order. The semantics need not hold a function's clauses in text order, so which equation has
 which priority is not compared here. It is decided where a tie pairs each clause's item with its
 sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of

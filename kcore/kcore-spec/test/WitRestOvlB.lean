@@ -1,24 +1,21 @@
 /-
-  The rows overloadsOK.5 to overloadsOK.9 of test/witnesses.toml (the symbols an overloading
-  symbol overloads are known and listed before it, `ovlOver` finds them all, each pair is well
-  formed, the overloads agree, no pattern applies a function-overloaded symbol). Run from the
+  The rows overloadsOK.5 to overloadsOK.8 of test/witnesses.toml (the symbols an overloading
+  symbol overloads are constructors, overloading symbols listed before it or functions, `ovlOver`
+  finds them all, each pair is well formed, the overloads agree). Run from the
   package root: `lake env lean -j1 test/WitRestOvlB.lean`.
 
   overloadsOK.8 has a witness module, KcoreSpec/ModelOvlIncohWitness.lean (two constructors
-  overloaded by one symbol, meeting at Int: `Γ` has no model). The leaves `ov1` to `ov8` are those of
+  overloaded by one symbol, meeting at Int: `Γ` has no model). The leaves `ov1` to `ov9` are those of
   KcoreSpec/ModelOvlLibCtorWitness.lean.
 
   Kernel-checked here:
   - overloadsOK.6: implied by overloadsOK.5 at the same overloading symbol, for every semantics
-    (`ov6_of_ov5`): a symbol found among the constructors or among the overloading symbols listed
-    before is found by `ovlOver`'s lookup in the constructors and every overloading symbol, so no
-    overloaded symbol is dropped.
-  - overloadsOK.9 (`ovlPatsOK`): implied by overloadsOK.1, overloadsOK.5 and `fnsApart`, for every
-    semantics (`ov9_of_ov15`): no overloaded symbol is a function's label, so no symbol is
-    function-overloaded and no pattern applies one.
+    (`ov6_of_ov5`): a symbol found among the constructors, among the overloading symbols listed
+    before or among the functions is found by `ovlOver`'s lookup in the constructors, every
+    overloading symbol and the functions, so no overloaded symbol is dropped.
   - overloadsOK.5, `Self.c`: the overloading symbol `f : Int → K` overloading itself meets every
     other leaf condition of `coreOK` (`sortedOK`, `faithCoreOK`, `hooksApart`, `predsApart`,
-    `idsOK`, the other eight leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.5 false.
+    `idsOK`, the other nine leaves of `overloadsOK`) and `FnHyp`, with overloadsOK.5 false.
   - overloadsOK.7, `Pair.c`: `f : Int → KCellOpt` overloading the counter cell's constructor
     `<generatedCounter> : Int → GeneratedCounterCell`, whose result sort is not below KCellOpt,
     meets every other leaf and `FnHyp`, with overloadsOK.7 false.
@@ -46,7 +43,7 @@ set_option maxRecDepth 100000
 namespace KCore.Faithful.WitRestOvlB
 
 open ML Faithful.Model
-open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8)
+open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8 ov9)
 open Faithful.OvlTwiceWitness (cellSorts cellCtors cellSubsorts fSig)
 
 /-! ## overloadsOK.6: implied by overloadsOK.5 -/
@@ -62,62 +59,33 @@ theorem length_filterMap {α β : Type} (f : α → Option β) :
 /-- **overloadsOK.6 is implied by overloadsOK.5** at each overloading symbol `o` (at any place `i`),
 for every semantics. -/
 theorem ov6_of_ov5 (c : Semantics) (o : OvlSig) (i : Nat)
-    (h : o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) = true) :
+    (h : o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
+      c.fns.any (·.label == g)) = true) :
     ((c.ovlOver o).length == o.over.length) = true := by
   unfold Semantics.ovlOver
   rw [beq_iff_eq]
   refine length_filterMap _ _ fun g hg => ?_
   have hg' := List.all_eq_true.mp h g hg
   rw [lookupSig_eq, List.find?_append, List.find?_append]
-  rcases Bool.or_eq_true_iff.mp hg' with h1 | h2
-  · rw [lookupSig_eq] at h1
-    obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp h1
-    rw [hk]; rfl
-  · obtain ⟨x, hx, hxg⟩ := List.any_eq_true.mp h2
-    have hs : (c.ovlSigs.find? (·.name == g)).isSome = true :=
-      List.find?_isSome.mpr ⟨x.sig, List.mem_map_of_mem (List.mem_of_mem_take hx), hxg⟩
-    cases h' : c.ctorSigs.find? (·.name == g) with
-    | none =>
-      obtain ⟨y, hy⟩ := Option.isSome_iff_exists.mp hs
-      rw [hy]; rfl
-    | some k => rfl
-
-/-! ## overloadsOK.9: implied by overloadsOK.1, overloadsOK.5 and fnsApart -/
-
-/-- No overloading symbol overloads a function where each symbol an overloading symbol overloads is
-a constructor or an overloading symbol listed before it (overloadsOK.5), an overloading symbol is
-no function (overloadsOK.1), and no function is named like a constructor (`fnsApart`), for every
-semantics. -/
-theorem fnOvlSyms_nil_of_ov15 (c : Semantics) (h1 : ov1 c = true) (h5 : ov5 c = true)
-    (hfa : fnsApart c = true) : c.fnOvlSyms = [] := by
-  unfold Semantics.fnOvlSyms
-  rw [List.map_eq_nil_iff, List.filter_eq_nil_iff]
-  intro o ho hany
-  obtain ⟨g, hg, hfn⟩ := List.any_eq_true.mp hany
-  obtain ⟨fn, hfnm, hl⟩ := List.any_eq_true.mp hfn
-  have hl : fn.label = g := by simpa using hl
-  have hmem : fn ∈ c.allFns := List.mem_append_left _ hfnm
-  obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho
-  have h5' : o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) = true :=
-    List.all_eq_true.mp h5 (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
-  rcases Bool.or_eq_true _ _ |>.mp (List.all_eq_true.mp h5' g hg) with hc | hov
-  · have := List.all_eq_true.mp hfa fn hmem
-    simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
-    have hc' := this.1.1
-    rw [hl, Semantics.isCtor, hc] at hc'
-    cases hc'
-  · obtain ⟨o', ho', hn⟩ := List.any_eq_true.mp hov
-    have hnf := (c.isOvl_parts (List.all_eq_true.mp h1 o' (List.mem_of_mem_take ho'))).2.2.2.1
-    rw [c.lookupFn_eq, List.find?_eq_none] at hnf
-    have := hnf fn hmem
-    rw [hl, beq_iff_eq.mp hn] at this
-    simp at this
-
-/-- **overloadsOK.9 is implied by overloadsOK.1, overloadsOK.5 and fnsApart**, for every semantics:
-no symbol is function-overloaded, so no pattern applies one. -/
-theorem ov9_of_ov15 (c : Semantics) (h1 : ov1 c = true) (h5 : ov5 c = true)
-    (hfa : fnsApart c = true) : c.ovlPatsOK = true := by
-  simp [Semantics.ovlPatsOK, fnOvlSyms_nil_of_ov15 c h1 h5 hfa]
+  rcases Bool.or_eq_true_iff.mp hg' with h12 | h3
+  · rcases Bool.or_eq_true_iff.mp h12 with h1 | h2
+    · rw [lookupSig_eq] at h1
+      obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp h1
+      rw [hk]; rfl
+    · obtain ⟨x, hx, hxg⟩ := List.any_eq_true.mp h2
+      have hs : (c.ovlSigs.find? (·.name == g)).isSome = true :=
+        List.find?_isSome.mpr ⟨x.sig, List.mem_map_of_mem (List.mem_of_mem_take hx), hxg⟩
+      cases h' : c.ctorSigs.find? (·.name == g) with
+      | none =>
+        obtain ⟨y, hy⟩ := Option.isSome_iff_exists.mp hs
+        rw [hy]; rfl
+      | some k => rfl
+  · obtain ⟨fn, hfn, hl⟩ := List.any_eq_true.mp h3
+    have hs : ((c.fns.map fun fn => (⟨fn.label, fn.args, fn.result⟩ : CtorSig)).find? (·.name == g)).isSome = true :=
+      List.find?_isSome.mpr ⟨_, List.mem_map_of_mem hfn, hl⟩
+    obtain ⟨y, hy⟩ := Option.isSome_iff_exists.mp hs
+    rw [hy]
+    cases c.ctorSigs.find? (·.name == g) <;> cases c.ovlSigs.find? (·.name == g) <;> rfl
 
 /-! ## overloadsOK.5: an overloading symbol overloading itself -/
 
@@ -155,6 +123,9 @@ theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApa
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
+/-- It lists every function it reaches along the overloads: it reaches itself only. -/
+theorem meets_ov9 : ov9 c = true := by decide +kernel
+
 theorem not_ov5 : ov5 c = false := by decide +kernel
 
 /-- `f(0)` is a value of `c0`, none of `c`. -/
@@ -185,6 +156,9 @@ theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApa
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
+/-- It lists every function it reaches along the overloads: it reaches a constructor only. -/
+theorem meets_ov9 : ov9 c = true := by decide +kernel
+
 theorem not_ov7 : ov7 c = false := by decide +kernel
 
 /-- GeneratedCounterCell lies below no sort, KCellOpt in particular. -/
@@ -196,10 +170,6 @@ end Pair
 /-- info: 'KCore.Faithful.WitRestOvlB.ov6_of_ov5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms ov6_of_ov5
-
-/-- info: 'KCore.Faithful.WitRestOvlB.ov9_of_ov15' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms ov9_of_ov15
 
 /-- info: 'KCore.Faithful.WitRestOvlB.Self.meets_others' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

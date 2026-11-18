@@ -159,8 +159,13 @@ theorem Exec.step_iff_all {c : Semantics} (hok : c.ok = true) (hsr : c.srReady =
     ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr) hco x y
     (Semantics.asideFree_withHooks c H ▸ hna)
 
+-- `overloadsOK` does not read the interpretation of the parameters.
+kernel_rfl Semantics.overloadsOK_withHooks :
+  ∀ (c : Semantics) (H : HookParams), (c.withHooks H).overloadsOK = c.overloadsOK
+
 /-- The parameters' interpretation does not touch the overloading symbols. -/
-theorem Semantics.ovlCase_withHooks {c : Semantics} (h : c.OvlCase) (H : HookParams) : (c.withHooks H).OvlCase := h
+theorem Semantics.ovlCase_withHooks {c : Semantics} (h : c.OvlCase) (H : HookParams) : (c.withHooks H).OvlCase :=
+  h.imp id fun ⟨hok, hirr⟩ => ⟨(Semantics.overloadsOK_withHooks c H).trans hok, hirr⟩
 
 /-- Subject reduction for every interpretation of the parameters, from `okAll`, `srReady` and
 `OvlCase` decided once on the data. -/

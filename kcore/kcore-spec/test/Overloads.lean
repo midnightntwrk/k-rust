@@ -16,7 +16,8 @@
     (`overloadConfusion`).
   - `f2-examples/ovlfun.kompile.kore` (`ovlfun.k`): `capGas` overloads the function `capN`: read,
     with the function among `capGas`'s overloads (`Parse.overloadFunctions`,
-    `ReadingNote.overloadFunction`); not `coreOK`, whose `overloadsOK` admits no function overload.
+    `ReadingNote.overloadFunction`), and `coreOK`, whose `overloadsOK` admits an overload by a
+    function.
     Edited texts of ovlsub: an argument of the
     overload axiom that is no injected variable, a right side without its injection, and the
     overload axiom dropped (then `capGas` is a function without clauses, applied in a left side).
@@ -93,7 +94,7 @@ def order (path : String) : IO String := do
 #guard_msgs in
 #eval show IO Unit from do IO.println (← verdict "f2-examples/ovlconf.kompile.kore")
 
-/-- info: read; ovls [(LblcapGas, [LblcapN])]; unaccounted 0; not induced 0; confusions []; functionInPattern []; coreOK false -/
+/-- info: read; ovls [(LblcapGas, [LblcapN])]; unaccounted 0; not induced 0; confusions []; functionInPattern []; coreOK true -/
 #guard_msgs in
 #eval show IO Unit from do IO.println (← verdict "f2-examples/ovlfun.kompile.kore")
 
@@ -104,7 +105,7 @@ def fnOverloads (path : String) : IO String := do
   let .ok d := Parse.parse k | return "refused"
   return s!"overloadFunction {Parse.overloadFunctions d}; overloadsOK {d.sem.overloadsOK}"
 
-/-- info: overloadFunction [(LblcapGas, [LblcapN])]; overloadsOK false -/
+/-- info: overloadFunction [(LblcapGas, [LblcapN])]; overloadsOK true -/
 #guard_msgs in
 #eval show IO Unit from do IO.println (← fnOverloads "f2-examples/ovlfun.kompile.kore")
 
@@ -386,7 +387,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- `count(.Stmts) = 0` and `count(_S SS) = 1 +Int count(SS)`, both patterns headed by overloading
 symbols that overload others: the two clauses agree because the heads' overload closures meet
 nowhere (`clausesHeadApart`, in `fnExclusiveIO`), and each clause is match independent because a
-normal form determines its arguments (`uniqL`'s overloading branch, `norm_inj`); only `count`'s
+normal form determines its arguments (`uniqL`'s overloading branch, `norm_inj_ovlF`); only `count`'s
 totality (its cover) and termination are named. -/
 theorem named : c.agreeObligationsI = [] ∧ c.matchObligationsL = [] ∧ (c.totalObligationsRP [] []).length = 1 := by
   decide +kernel
