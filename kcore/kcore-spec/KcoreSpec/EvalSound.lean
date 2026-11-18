@@ -185,7 +185,7 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     have htop : cl.pre = .top := Semantics.allFns_preTop hpl.2 fn hfn' cl hcl
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop,
-      Semantics.allFns_plainCl hpl.1 fn hfn' cl hcl⟩
+      Semantics.clausesPlain_plainCl_of_binds hpl.1 hfn hcl this.1.1.1.2⟩
 
 theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
 

@@ -50,7 +50,7 @@ theorem execReady_parts (hr : execReady c = true) :
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
-  exact ⟨hok, sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase, cclauseCtx_of (hpreTop := hpreTop) hok,
+  exact ⟨hok, sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase, cclauseCtx_of (hpreTop := hpreTop) hok (plainCl_of_execReady hr),
     clauseComplete_of_ready hr, ruleComplete_of_ready hr⟩
 
 /-! ## (N): no rule applies -/

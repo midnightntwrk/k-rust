@@ -82,11 +82,11 @@ theorem terminates_of_not_label (hc : EvalCtx c) {g : Sym} (hg : g ∉ c.fns.map
 
 /-- **A function `totalOKR` confirms is total**, in a core that `sortedOK` and `srReady` accept,
 every function terminating and the total functions ranked before it total. -/
-theorem total_of_totalOKR (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+theorem total_of_totalOKR (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase)
     (hrh : c.RightHeld) (hterm : ∀ g, Terminates c g) {ord : List Sym} {fn : Fn} (hfn : fn ∈ c.fns)
     (hT : c.totalOKR ord fn = true) (htot : ∀ g ∈ c.totalBeforeR ord fn, Total c g) :
     Total c fn.label := by
-  have hc := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
+  have hc := evalCtx_of_all (hpreTop := hpreTop) (hnoEx := hnoEx) hok hsr hov hrh
   simp only [Semantics.totalOKR, Bool.and_eq_true, List.all_eq_true] at hT
   obtain ⟨⟨⟨⟨hs, hdec⟩, hcov⟩, hrhs⟩, hne⟩ := hT
   have hfok : ∀ cl ∈ fn.clauses, c.clauseSorted fn (c.fns.map Fn.sig) cl = true := by
@@ -109,10 +109,10 @@ theorem total_of_totalOKR (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK =
 every function terminating, given those `totalObligationsR` names: by induction on the rank, a
 function `totalOKR` confirms is total where the total functions ranked before it are; the sort
 predicates are total. -/
-theorem totals_of_rank (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (hrh : c.RightHeld) (hterm : ∀ g, Terminates c g)
+theorem totals_of_rank (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov : c.OvlCase) (hrh : c.RightHeld) (hterm : ∀ g, Terminates c g)
     (ord : List Sym) (hnamed : ∀ g ∈ c.totalObligationsR ord, Total c g) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f := by
-  have hc := evalCtx_of_all (hpreTop := hpreTop) hok hsr hov hrh
+  have hc := evalCtx_of_all (hpreTop := hpreTop) (hnoEx := hnoEx) hok hsr hov hrh
   have pos : ∀ (n : Nat) (fn : Fn), fn ∈ c.fns → ord.idxOf fn.label = n → fn.total = true →
       Total c fn.label := by
     intro n
@@ -125,7 +125,7 @@ theorem totals_of_rank (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = tr
         cases h : c.totalOKR ord fn
         · exact absurd (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨hmem, by simp [htot, h]⟩, rfl⟩) hN
         · rfl
-      refine total_of_totalOKR (hpreTop := hpreTop) hok hsr hov hrh hterm hmem hT fun g hg => ?_
+      refine total_of_totalOKR (hpreTop := hpreTop) (hnoEx := hnoEx) hok hsr hov hrh hterm hmem hT fun g hg => ?_
       simp only [Semantics.totalBeforeR, List.mem_map, List.mem_filter, Bool.and_eq_true,
         decide_eq_true_eq] at hg
       obtain ⟨gfn, ⟨hgm, hgt, hlt⟩, rfl⟩ := hg

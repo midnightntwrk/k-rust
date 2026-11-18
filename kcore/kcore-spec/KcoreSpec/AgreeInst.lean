@@ -1005,11 +1005,11 @@ theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
         (clausesHeadApart_sound hmc hn1 hn2 hh
           ((wellSortedAt_univ (hxs cl h1)).mp hσ) ((wellSortedAt_univ (hxs cl' h2)).mp hσ') hm hm').elim⟩
 
-/-- In a core that `sortedOK` and `srReady` accept, with the matcher's facts `MatchCtxO`
+/-- In a core that `sortedOK` and `srReady` accept, whose clauses bind no variable by `\exists` (the deciders read none), with the matcher's facts `MatchCtxO`
 (overloading symbols admitted), each two equations of one priority of each function are coherent:
 by `fnExclusiveI_sound` (without overloading symbols) or `fnExclusiveIO_sound`, and by the named
 obligation for the functions `agreeObligationsI` names. -/
-theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srReady = true)
+theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hsr : c.srReady = true)
     (hmc : MatchCtxO c)
     (hob : ∀ f ∈ c.agreeObligationsI, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
     ∀ fn ∈ c.fns, ClausesAgree c fn := by
@@ -1022,12 +1022,12 @@ theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     cases he : c.ovls.isEmpty
     · rw [he, Bool.cond_false] at hx
-      exact (fnExclusiveIO_sound hmc (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
-        (fun _ hcl => Semantics.pats_noFnOvl hmc.ovlHyp (List.mem_append_left _ hfn) hcl) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      exact (fnExclusiveIO_sound hmc (hf.1.2 fn hfn) (hnoEx fn hfn)
+        (fun _ hcl => Semantics.pats_noFnOvl hmc.ovlHyp (List.mem_append_left _ hfn) hcl) hx).agree (hnoEx fn hfn)
     · rw [he, Bool.cond_true] at hx
       exact (fnExclusiveI_sound hmc (fun _ _ => ovlFreeList_of_nil (List.isEmpty_iff.mp he) _) (hf.1.2 fn hfn)
-        (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree
-        (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+        (hnoEx fn hfn) hx).agree
+        (hnoEx fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligationsI, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by rw [Bool.eq_false_iff.mpr hx]; rfl⟩, rfl⟩
@@ -1035,11 +1035,11 @@ theorem clausesAgree_of_IO {c : Semantics} (hok : c.sortedOK = true) (hsr : c.sr
       exact find?_label hsc.nodupFns (List.mem_append_left _ hfn)
 
 /-- `clausesAgree_of_IO` where `matchReady` holds (no overloading symbol). -/
-theorem clausesAgree_of_I {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srReady = true)
+theorem clausesAgree_of_I {c : Semantics} (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hsr : c.srReady = true)
     (hmr : c.matchReady = true)
     (hob : ∀ f ∈ c.agreeObligationsI, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
     ∀ fn ∈ c.fns, ClausesAgree c fn :=
-  clausesAgree_of_IO hok hsr (Exec.matchCtx_of hmr) hob
+  clausesAgree_of_IO hok hnoEx hsr (Exec.matchCtx_of hmr) hob
 
 /-! ## Read from the tables -/
 

@@ -189,11 +189,11 @@ theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 
 /-- No agreement or match obligation is named, so the clauses of one priority are coherent. -/
 theorem coherent : CoherentAll c :=
-  coherentAll_of_parts (matchIndependentAll_of_sortedOK sortedOK matchReady (.of_nil (by decide +kernel)))
+  coherentAll_of_parts (matchIndependentAll_of_sortedOK sortedOK (Semantics.fnsNoExs_of_all (by decide +kernel)) matchReady (.of_nil (by decide +kernel)))
     fun f fn hfn => by
       obtain ⟨hmem, -⟩ := lookupFn_spec hfn
       rcases List.mem_append.mp hmem with hu | hp
-      · exact clausesAgree_of_sortedOK sortedOK srReady matchReady
+      · exact clausesAgree_of_sortedOK sortedOK (Semantics.fnsNoExs_of_all (by decide +kernel)) srReady matchReady
           (fun f hf => by rw [show c.agreeObligations = [] by decide +kernel] at hf; nomatch hf) fn hu
       · exact sortPreds_agree hp
 

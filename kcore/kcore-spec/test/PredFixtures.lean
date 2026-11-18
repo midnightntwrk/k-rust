@@ -1202,11 +1202,11 @@ theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 theorem coherent : CoherentAll c := by
   have hag : c.agreeObligations = [] := by decide +kernel
   have hcf : c.clausesFixed = true := by decide +kernel
-  refine coherentAll_of_parts (matchIndependentAll_of_sortedOK sortedOK matchReady
+  refine coherentAll_of_parts (matchIndependentAll_of_sortedOK sortedOK (Semantics.fnsNoExs_of_all (by decide +kernel)) matchReady
     (.of_fixed hcf (Exec.matchCtx_of matchReady).noOvl)) fun f fn hfn => ?_
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with h | h
-  · exact clausesAgree_of_sortedOK sortedOK srReady matchReady (fun f hf => by rw [hag] at hf; nomatch hf) fn h
+  · exact clausesAgree_of_sortedOK sortedOK (Semantics.fnsNoExs_of_all (by decide +kernel)) srReady matchReady (fun f hf => by rw [hag] at hf; nomatch hf) fn h
   · exact sortPreds_agree h
 
 theorem fnDet : FnDet c := fnDet_of_coherent coherent
