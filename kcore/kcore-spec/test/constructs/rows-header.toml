@@ -216,14 +216,18 @@
 #             fixtures.
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
-#   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values) or a
+#   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values; for a
+#      lemma of a user's file that applies no parameter symbol without impl, the classes user lemma,
+#      direction entailed, and user lemma at values, direction at values) or a
 #      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law,
 #      and, for a lemma that applies a parameter symbol without impl (class parameter lemma), the
 #      sentence itself at the member, Γ (c.withHooks H) ⊧ tr s; direction hypothesis);
 #   2. the reader neither claims it true nor refuses it for being false (in general it can decide
 #      neither); the account's word for it is "owed";
-#   3. a user's sentence that applies no symbol whose value H gives is proved for every H, or Γ with
-#      it has no model and the text is not tied; one that applies a parameter without impl is a
+#   3. a user's sentence that applies no symbol whose value H gives is proved for every H, at every
+#      valuation (class user lemma) or, where it rests on an interpreted symbol's graph, at the
+#      valuations sending its variables to values (class user lemma at values), or Γ with it has no
+#      model and the text is not tied; one that applies a parameter without impl is a
 #      hypothesis on H (class parameter lemma), and the tie shows an H at which the text's hypotheses
 #      hold. Only trusted base (4)'s refuted library sentences are recorded instead of failing;
 #   4. a row's status is shown on a fixture where the owed sentence holds; a fixture where it fails is

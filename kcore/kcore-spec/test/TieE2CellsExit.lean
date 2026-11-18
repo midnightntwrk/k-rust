@@ -110,6 +110,8 @@ def classes : List (String × List Nat) :=
    ("open generator law", []),
    ("open generator functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [54, 58, 60, 91, 93, 98, 99, 100, 124, 139, 140, 189, 221, 243, 244, 245, 246, 247, 248, 249,
       293, 294, 299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314,
       315, 316, 317, 318, 319])]
@@ -126,7 +128,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 44), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 14), ("subsort", 25), ("injectivity", 8), ("distinctness", 0), ("no junk", 18), ("function functional", 22), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("no direction", 43)] := by
+    [("function equation", 44), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 14), ("subsort", 25), ("injectivity", 8), ("distinctness", 0), ("no junk", 18), ("function functional", 22), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("parameter lemma", 0), ("user lemma", 0), ("user lemma at values", 0), ("no direction", 43)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/

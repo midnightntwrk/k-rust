@@ -3,7 +3,8 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--out DIR] [--print]
+                                               [--hand consistency=FILE] [--at-values N,...]
+                                               [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -20,6 +21,8 @@ decisions over the whole user module (`account_absent`) and over the constructor
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
 agreement, and `owed_rules`, `owed_clauses` and `openDecidedH` (`OpenDecided` for every H) otherwise.
+--at-values N,... names the user lemmas (by `AxiomDecl.index`) that are of the class `user lemma at
+values` in place of `user lemma`; an index that is no user lemma of the text is refused.
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
@@ -67,7 +70,16 @@ What it states where the text:
   `law_not_item`, `law_account` (the class `function law`);
 - has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
   lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitness`, one H at which
-  `FnObligations` and every parameter lemma hold, stated and owed (`owed` in the summary);
+  `FnObligations` and every parameter lemma hold, stated and owed (`owed` in the summary); and
+  `paramlemma_heads`: every `simplification` equation of the user module whose left side's head is
+  a parameter symbol without `impl` is in that class;
+- has a lemma of a user's file that applies no such parameter symbol (the reader's class inert
+  simplification, a `Source` outside K's installation): the class `user lemma` (direction entailed),
+  or `user lemma at values` (direction atValues) for the indices `--at-values` names;
+  `userlemma_account`, and the Props `UserLemmaEntailed` (Γ entails each for every H) and
+  `UserLemmaAtValues` (`EntailsAtValues` of each for every H), stated and owed (`owed` in the
+  summary). tiegen cannot decide which of the two holds: the default is the stronger class, whose
+  proof fails where the lemma holds at values only, and the author then names the index;
 - has a parameter symbol no hook implements (the H form): `total_named` and `obl_nil` at `[]`, which
   holds where no `[total]` function owes a parameter's totality (otherwise refused);
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
@@ -116,15 +128,17 @@ to one of ens's that is in the no-direction class in one of the two texts and no
 projection that no read sentence of ens applies and a read sentence here does) is not mapped; it
 takes its class from the probe and its form.
 A sentence of a class with a theorem in test/TieEns.lean that no theorem here holds of is listed in
-`uncovered`, with its class: the part of the tie that is left to write by hand.
+`uncovered`, with its class, and so is each user lemma: the part of the tie that is left to write by
+hand.
 
 What the kernel checks of the classes: that the lists partition the user module (`account`), that
 the no-direction class is exactly the sentences applying a head Γ lacks (`account_absent`), and,
 by each class theorem, that its list (`fnText`, `ruleText`, `consText`, the no-junk lists) is what
 the theorem says. It does not check the other labels: which of the classes without a theorem here
-(function functional, hooked functional, collection law, library, set-variable lemma) a sentence is
-in, and which of the four constructor classes a sentence of `consText` is in, rest on ens's account
-(for a mapped sentence) or on the form read above (for an unmapped one).
+(function functional, hooked functional, collection law, library, set-variable lemma, user lemma,
+user lemma at values) a sentence is in, and which of the four constructor classes a sentence of
+`consText` is in, rest on ens's account (for a mapped sentence) or on the form read above (for an
+unmapped one).
 """
 import hashlib, json, os, re, subprocess, sys, tempfile, textwrap, tomllib
 
@@ -146,7 +160,8 @@ WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "
 CLASSES = ["function equation", "rewrite rule", "priority equation", "constructor functional", "subsort",
            "injectivity", "distinctness", "no junk", "function functional", "hooked functional",
            "collection law", "library", "set idempotence", "set-variable lemma", "function law",
-           "open generator law", "open generator functional", "parameter lemma", "no direction"]
+           "open generator law", "open generator functional", "parameter lemma", "user lemma",
+           "user lemma at values", "no direction"]
 # the classes test/TieEns.lean states a theorem of, sentence by sentence
 THEOREM_CLASSES = {"function equation", "rewrite rule", "priority equation", "constructor functional",
                    "subsort", "injectivity", "distinctness", "no junk", "set idempotence"}
@@ -164,6 +179,15 @@ OPEN_FUNCTIONAL_CLASS = "open generator functional"
 # H at which `FnObligations` and every one of them hold (`ParamLemmaWitness`), since a hypothesis no
 # H satisfies would tie a text without a model.
 PARAM_LEMMA_CLASS = "parameter lemma"
+# The classes of a lemma of a user's file that the reader leaves out of Γ (inert simplification) and
+# that applies no parameter symbol without `impl`: Γ at every H either entails it or, with it, has
+# no model. `user lemma` (direction entailed): Γ entails it at every valuation; `user lemma at
+# values` (direction atValues): it holds at the valuations sending its variables to values, because
+# it rests on an interpreted symbol's graph, which Γ states at values. Neither has a generated
+# theorem: the tie states what is owed (`UserLemmaEntailed`, `UserLemmaAtValues`), proved by hand.
+USER_LEMMA_CLASS = "user lemma"
+USER_LEMMA_VALUES_CLASS = "user lemma at values"
+USER_LEMMA_CLASSES = (USER_LEMMA_CLASS, USER_LEMMA_VALUES_CLASS)
 
 
 class Refused(Exception):
@@ -579,7 +603,9 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
       | .exist _ _ (.equals _ _ _ (.app h _ _)) => h.ident.name
       | _ => ""
     let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax)
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}"
+    let simp := Parse.classify nmK (.axiom ad.ax) == .inert .simplification
+    let usrc := Parse.isUserSource ad.ax.attributes
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}\t{simp}\t{usrc}"
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -635,17 +661,19 @@ def probe(name, path, um, order="[]"):
             sents[int(f[0])] = dict(idx=int(f[0]), absent=f[1] == "true", fnJ=nums(f[2]), cons=f[3] == "true", plain=f[4] == "true",
                                     consItem=f[5] == "true", triv=re.findall(r"Sort[^,\]\s]+", f[6]),
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
-                                    fhk=f[12], prio=int(f[13]), pl=f[14] == "true")
+                                    fhk=f[12], prio=int(f[13]), pl=f[14] == "true",
+                                    simp=f[15] == "true", usrc=f[16] == "true")
     return head, sents
 
 
 # ---------------------------------------------------------------------------------------------
 # Classes
 
-def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=()):
+def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=(), at_values=()):
     """The class a sentence's form and its probe give, or None. `laws`: the sentences that are, as
     written, the reader's laws of functions (`lawPattern`); `open_laws`: those that are Γ's law
-    items of open generators (`lawItemsK`); `raw_names`: the open generators' symbol names."""
+    items of open generators (`lawItemsK`); `raw_names`: the open generators' symbol names;
+    `at_values`: the user lemmas the caller names as holding at values only."""
     if s["absent"]:
         return "no direction"
     if s["idx"] in laws:
@@ -660,6 +688,10 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=()):
         return "rewrite rule"
     if s["pl"]:
         return PARAM_LEMMA_CLASS
+    # a lemma of a user's file (the reader's inert simplification, a `Source` outside K's
+    # installation), whatever its form: with a set variable it is no library lemma
+    if s["simp"] and s["usrc"] and not builtin:
+        return USER_LEMMA_VALUES_CLASS if s["idx"] in at_values else USER_LEMMA_CLASS
     if s["triv"] or s["consItem"] or s["kitem"] or "// no junk" in raw:
         return "no junk"
     if "[subsort{" in raw:
@@ -683,7 +715,7 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=()):
     return None
 
 
-def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
+def classify(name, text, sents, laws=(), open_laws=(), raw_names=(), at_values=()):
     um, ua = user_axioms(text)
     if sorted(sents) != [a[0] for a in ua]:
         raise Refused(f"{name}: the probe's user-module sentences are not the text's (indices differ)")
@@ -695,7 +727,7 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
     cls, mapped, unmapped = {}, {}, []
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
-        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names)
+        fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names, at_values)
         # whether a sentence applies a head Γ lacks is a fact of this text's Γ: a sentence equal to one
         # of ens's that is in the no-direction class in one text and not in the other takes no class
         # from ens's and is unmapped
@@ -703,8 +735,9 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
             j = pool[s].pop(0)
             mapped[i] = j
             # a lemma over a parameter symbol of this text's reading without `impl` is a parameter
-            # lemma whatever ens's class of the same sentence (the parameters are the text's)
-            ec = PARAM_LEMMA_CLASS if fc == PARAM_LEMMA_CLASS else ecls[j]
+            # lemma whatever ens's class of the same sentence (the parameters are the text's), and a
+            # lemma of a user's file is a user lemma (the `Source` is this text's)
+            ec = fc if fc == PARAM_LEMMA_CLASS or fc in USER_LEMMA_CLASSES else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if decided and decided != ec:
@@ -715,6 +748,11 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
                 raise Refused(f"{name}: sentence {i} has no ens counterpart and neither its form nor the probe gives its class: {raw[:200]}")
             cls[i] = fc
             unmapped.append(i)
+    stray = sorted(i for i in at_values if cls.get(i) != USER_LEMMA_VALUES_CLASS)
+    if stray:
+        raise Refused(f"{name}: --at-values names {', '.join(map(str, stray))}, no user lemma of the text "
+                      f"(a sentence of a user's file that the reader classes inert simplification and that "
+                      f"applies no parameter symbol without `impl`)")
     return um, cls, mapped, unmapped
 
 
@@ -771,7 +809,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0):
+             hand=None, chunk=0, at_values=()):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -868,11 +906,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         covered |= set(pair_text)
     if idem is not None:
         covered.add(idem)
-    uncovered = [(i, cls[i]) for i in idx if cls[i] in THEOREM_CLASSES and i not in covered]
+    # a user lemma has no generated theorem: it is the tie's remainder, as an uncovered sentence of a
+    # class with a theorem is
+    uncovered = [(i, cls[i]) for i in idx
+                 if (cls[i] in THEOREM_CLASSES and i not in covered) or cls[i] in USER_LEMMA_CLASSES]
     gamma = (fn_full and rules_full) or (fn_align and nrules == 0)
     fn_any = fn_full or fn_align
     open_fun = [i for i in idx if cls[i] == OPEN_FUNCTIONAL_CLASS and sents[i]["fh"] in {k["name"] for k in raw}]
     param_lem = by_class[PARAM_LEMMA_CLASS]
+    user_lem, user_lem_v = by_class[USER_LEMMA_CLASS], by_class[USER_LEMMA_VALUES_CLASS]
     if tp_params:
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
                       f"(`totalObligationsRP callOrder []` not empty): tiegen does not state `ParamsTotal`")
@@ -899,11 +941,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w(f"  (`test/constructs/fixtures/{name}`), sentence by sentence, against the translation of the text as")
     w("  written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for")
     w("  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by")
+    cmd = name + (f" --at-values {','.join(map(str, sorted(at_values)))}" if at_values else "")
     if hand:
-        w(f"  `test/constructs/tiegen.py {name}`, its {', '.join(sorted(hand))} section by hand; run from the package root:")
+        w(f"  `test/constructs/tiegen.py {cmd}`, its {', '.join(sorted(hand))} section by hand; run from the package root:")
         w(f"  `lake env lean -j1 test/{ns}.lean`.")
     else:
-        w(f"  `test/constructs/tiegen.py {name}`; run from the package root: `lake env lean -j1 test/{ns}.lean`.")
+        w(f"  `test/constructs/tiegen.py {cmd}`; run from the package root: `lake env lean -j1 test/{ns}.lean`.")
     w("")
     if confined:
         w("  The definition reads a confined sort (`readsConfined_c`, `Semantics.readsConfined`), so its")
@@ -1041,7 +1084,11 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_law:
         owed_more += "; open generator law: Γ's law item (`openlaw_item`,\n    `openlaw_account`)"
     if param_lem:
-        owed_more += "; parameter lemma: owed as a hypothesis on H\n    (`paramlemma_account`, `ParamLemmaWitness`)"
+        owed_more += ("; parameter lemma: owed as a hypothesis on H\n    (`paramlemma_account`, `paramlemma_heads`, "
+                      "`ParamLemmaWitness`)")
+    if user_lem or user_lem_v:
+        owed_more += ("; user lemma: owed, by hand\n    (`userlemma_account`, `UserLemmaEntailed`, "
+                      "`UserLemmaAtValues`)")
     w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
     w(f"    owed as `FnHyp` (no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
@@ -1078,10 +1125,31 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  member (`Γ (cH H) ⊧ (trS ad).pat`). The account holds them in the class `{PARAM_LEMMA_CLASS}`, of the")
         w("  direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes")
         w("  one H at which the functions' obligations and every parameter lemma hold (`ParamLemmaWitness`,")
-        w("  stated here and proved by hand: owed).")
+        w("  stated here and proved by hand: owed). Every `simplification` equation of the user module whose")
+        w("  left side's head is a parameter symbol without `impl` is one of them (`paramlemma_heads`).")
+        w("")
+    if user_lem or user_lem_v:
+        para = [f"The user lemmas ({', '.join(map(str, user_lem + user_lem_v))}) are sentences of a user's file that the "
+                "reader leaves out of Γ as lemmas (inert simplification) and that apply no parameter symbol "
+                "without `impl`."]
+        if user_lem:
+            para.append(f"Of the class `{USER_LEMMA_CLASS}` (direction `entailed`): {', '.join(map(str, user_lem))}, "
+                        "each owed as `Γ (cH H) ⊧ (trS ad).pat` for every H (`UserLemmaEntailed`).")
+        if user_lem_v:
+            para.append(f"Of the class `{USER_LEMMA_VALUES_CLASS}` (direction `atValues`), named by `--at-values`: "
+                        f"{', '.join(map(str, user_lem_v))}, each owed at the valuations sending its variables to "
+                        "values, for every H (`UserLemmaAtValues`).")
+        para.append("Both are stated here and proved by hand: owed. A lemma that is false has no proof, and its "
+                    "text is not tied.")
+        w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
+                        break_on_hyphens=False, break_long_words=False))
         w("")
     w(f"  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` ({len(unmapped)});")
-    w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
+    if user_lem or user_lem_v:
+        w(f"  the sentences of a class with a theorem that no theorem here holds of, and the user lemmas, are")
+        w(f"  `uncovered` ({len(uncovered)}).")
+    else:
+        w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
     w("-/")
     w("import KcoreSpec")
     w("")
@@ -1217,8 +1285,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("def unmapped : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{cls[i]}")' for i in unmapped], 3) + "]")
     w("")
-    w("/-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the")
-    w("tie's remainder on this text. -/")
+    if user_lem or user_lem_v:
+        w("/-- The sentences of a class with a theorem in the tie that no theorem of this file holds of, and")
+        w("the user lemmas, of which the tie has no generated theorem: the tie's remainder on this text. -/")
+    else:
+        w("/-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the")
+        w("tie's remainder on this text. -/")
     w("def uncovered : List (Nat × String) :=")
     w("  [" + wrap_nums([f'({i}, "{c_}")' for i, c_ in uncovered], 3) + "]")
     w("")
@@ -1691,6 +1763,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(open_functional_section(open_fun, rnames))
     if param_lem:
         w(param_lemma_section(param_lem))
+    if user_lem or user_lem_v:
+        w(user_lemma_section(user_lem, user_lem_v))
     if fn_pair:
         wi = pair_text[pair_w]
         w(pair_section(pair_w, wi, sents[wi]["prio"], "non-executable{}()" in raws.get(wi, ""),
@@ -1744,7 +1818,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if open_fun:
         names.append("open_functional_not_item")
     if param_lem:
-        names += ["paramlemma_account", "ParamLemmaWitness"]
+        names += ["paramlemma_account", "paramlemma_heads", "ParamLemmaWitness"]
+    if user_lem or user_lem_v:
+        names += ["userlemma_account", "UserLemmaEntailed", "UserLemmaAtValues"]
     if facts_kind == "FnFacts" and not agree and not raw:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
@@ -1766,6 +1842,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if param_lem:
         owed.append(f"one H at which FnObligations and the parameter lemmas {', '.join(map(str, param_lem))} hold "
                     f"(ParamLemmaWitness)")
+    if user_lem:
+        owed.append(f"Γ entails the user lemmas {', '.join(map(str, user_lem))} for every H (UserLemmaEntailed)")
+    if user_lem_v:
+        owed.append(f"the user lemmas {', '.join(map(str, user_lem_v))} hold at values for every H (UserLemmaAtValues)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
                    fn_pair=fn_pair,
@@ -2093,6 +2173,49 @@ obligations hold and Γ entails every parameter lemma, so that the text with its
 model. Stated, not proved here: the proof is owed. -/
 def ParamLemmaWitness : Prop :=
   ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText, Γ (cH H) ⊧ (trS ad).pat
+
+/-- Every sentence of the user module that carries `simplification`, is an equation
+(`AttrsAgree.eqnHead`) and has at the head of its left side a parameter symbol no registry hook
+interprets (`impl = none`) is of the class `{PARAM_LEMMA_CLASS}`: the sentences `attrsAgree` does not
+count as equations of such a parameter are held by the account as hypotheses on `H`. -/
+theorem paramlemma_heads : userAxioms.all (fun ad =>
+    !(AttrsAgree.has ad.ax.attributes "simplification" &&
+      (AttrsAgree.eqnHead ad.ax.pattern).any (fun n =>
+        c.params.any fun k => k.impl.isNone && c.symName k.sig.name == n)) ||
+    (classOf "{PARAM_LEMMA_CLASS}").contains ad.index) = true := by
+  rw [userAxioms_eq]; decide +kernel
+"""
+
+
+def user_lemma_section(user_lem, user_lem_v):
+    il = ", ".join(map(str, user_lem + user_lem_v))
+    lt = ", ".join(f"U.ax{i}" for i in user_lem)
+    lv = ", ".join(f"U.ax{i}" for i in user_lem_v)
+    return f"""/-! ## The user lemmas ({il}): owed, by hand -/
+
+/-- The lemmas of a user's file that the reader leaves out of Γ and that apply no parameter symbol
+without `impl`, of the class `{USER_LEMMA_CLASS}`. -/
+noncomputable def userLemmaText : List AxiomDecl := [{lt}]
+
+/-- Those of the class `{USER_LEMMA_VALUES_CLASS}`. -/
+noncomputable def userLemmaValuesText : List AxiomDecl := [{lv}]
+
+/-- The two lists are the account's classes `{USER_LEMMA_CLASS}`, of the direction `entailed`, and
+`{USER_LEMMA_VALUES_CLASS}`, of the direction `atValues`. -/
+theorem userlemma_account : userLemmaText.map (·.index) = classOf "{USER_LEMMA_CLASS}" ∧
+    userLemmaValuesText.map (·.index) = classOf "{USER_LEMMA_VALUES_CLASS}" := by
+  decide +kernel
+
+/-- **What the tie owes of the user lemmas of the class `{USER_LEMMA_CLASS}`**: Γ entails each, for
+every interpretation `H`. Stated, not proved here: the proof is owed. -/
+def UserLemmaEntailed : Prop :=
+  ∀ (H : HookParams), ∀ ad ∈ userLemmaText, Γ (cH H) ⊧ (trS ad).pat
+
+/-- **What the tie owes of the user lemmas of the class `{USER_LEMMA_VALUES_CLASS}`**: each holds in
+every model of Γ at the valuations sending its free element variables to values, for every
+interpretation `H`. Stated, not proved here: the proof is owed. -/
+def UserLemmaAtValues : Prop :=
+  ∀ (H : HookParams), ∀ ad ∈ userLemmaValuesText, EntailsAtValues (cH H) ad (trS ad).pat
 """
 
 
@@ -2422,6 +2545,12 @@ def main(argv):
     opt = lambda f, d: int(argv[argv.index(f) + 1]) if f in argv else d
     chunks = (opt("--sig-chunk-first", 34), opt("--sig-chunk", 13), opt("--decl-chunk", 25))
     chunk = opt("--chunk", 0)
+    at_values = ()
+    if "--at-values" in argv:
+        v = argv[argv.index("--at-values") + 1] if argv.index("--at-values") + 1 < len(argv) else ""
+        if not re.fullmatch(r"\d+(,\d+)*", v):
+            raise Refused(f"--at-values {v!r}: a comma-separated list of sentence indices is expected")
+        at_values = tuple(sorted({int(x) for x in v.split(",")}))
     hand = {}
     for j, a in enumerate(argv):
         if a == "--hand":
@@ -2460,12 +2589,14 @@ def main(argv):
     if (head.get("sigAll") != "true" and not next_only) or head.get("declAll") != "true":
         raise Refused(f"{name}: an item of the signature has no origin (items {head.get('sigBad')}) or a declaration's item is not Γ's")
     law_set, open_set = {l[0] for l in laws}, {l[0] for l in open_laws}
-    um, cls, mapped, unmapped = classify(name, text, sents, law_set, open_set, {k["name"] for k in head["raw"]})
+    um, cls, mapped, unmapped = classify(name, text, sents, law_set, open_set, {k["name"] for k in head["raw"]},
+                                         at_values)
     for i in law_set | open_set:
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
-                                 ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk)
+                                 ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk,
+                                 at_values)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
