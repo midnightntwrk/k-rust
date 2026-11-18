@@ -309,6 +309,7 @@ import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
 import KcoreSpec.ClauseExDen
+import KcoreSpec.ClauseExModel
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
