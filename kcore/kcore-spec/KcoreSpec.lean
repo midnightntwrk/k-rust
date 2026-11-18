@@ -390,3 +390,4 @@ import KcoreSpec.FnModelCEx
 import KcoreSpec.TieFR
 import KcoreSpec.GenEqsProjInj
 import KcoreSpec.ExChoiceCEx
+import KcoreSpec.GenEqsNodir
