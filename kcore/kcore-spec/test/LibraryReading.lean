@@ -88,6 +88,6 @@ overload: read; equation of Lblf'Unds'Gas, patterns [inj{SortInt{}, SortGas{}}(V
     | .ok d => IO.println s!"without Int < KItem: {(Parse.libraryUnstated k d).length}"
     | .error _ => IO.println "without Int < KItem: finish fails"
   | none => pure ()
-  match Parse.overloadEqn? overloadAx, Parse.classify (.axiom overloadAx) with
+  match Parse.overloadEqn? overloadAx, Parse.classifyShape (.axiom overloadAx) with
   | some e, .read => IO.println s!"overload: read; equation of {e.fn}, patterns {e.pats.map Kore.Printer.pattern}"
   | _, c => IO.println s!"overload: not read ({c.name})"

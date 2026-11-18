@@ -14,11 +14,13 @@
     `cIn` the semantics with the rule in the fresh form (`zForm`). From `Holds.mem` and
     `sameResult` on one side and the hook of `==Int` on the other: both say that t and u evaluate
     to one Int.
-  - `MlAndT.step_and_same`: the instance at the reader's semantics for
-    `f2-examples/mlandt.kompile.kore` (fixture e3-ml-rule-rhs-and-term,
-    `go(X) => f(X) #And g(X)`), the rule as the reader reads it today.
+  - `MlAndT.step_and_same`: the instance at the semantics for `f2-examples/mlandt.kompile.kore`
+    (fixture e3-ml-rule-rhs-and-term, `go(X) => f(X) #And g(X)`) with its rule read without the
+    cut (`Parse.ruleOfUncut`, `andTermsWeaker`: the reading the reader takes where its test at
+    reading time fails; at this text the reader takes the cut, `andTermsCut`).
   - `step_var_k`, `MlAndC.step_and_same`: the same for the variable form and `==K`, at
-    `f2-examples/mlandc.kompile.kore` (fixture e3-ml-rule-rhs-and-ctor, `c(X) => X #And a()`).
+    `f2-examples/mlandc.kompile.kore` (fixture e3-ml-rule-rhs-and-ctor, `c(X) => X #And a()`), its
+    rule read without the cut.
 -/
 import KcoreSpec
 
@@ -30,6 +32,23 @@ set_option maxRecDepth 1000000
 open KCore
 
 namespace RuleAndSame
+
+open Lean Elab Command in
+/-- `definition_uncut NAME from "file.kore"`: `def NAME : Definition`, the definition
+`Parse.parseWith Parse.ruleOfUncut` builds from the file (a conjunction of terms on a rule's right
+side read with the `ensures` of the conjuncts' equality), added as a term (not compiled). -/
+elab "definition_uncut " id:ident " from " path:str : command => do
+  let input ← IO.FS.readFile path.getString
+  let k ← match Kore.parseDefinition input with
+    | .error e => throwError "definition_uncut: {path.getString}: KORE read error {e}"
+    | .ok k => pure k
+  let d ← match Parse.parseWith Parse.ruleOfUncut k with
+    | .ok d => pure d
+    | .error r => throwError "definition_uncut: {path.getString}: refused: {r.toText}"
+  let name := (← getCurrNamespace) ++ id.getId
+  liftCoreM <| addDecl <| .defnDecl {
+    name, levelParams := [], type := mkConst ``Definition, value := definitionExpr d,
+    hints := .regular 0, safety := .safe }
 
 /-! ## The evaluation and matching of a semantics do not read its rules -/
 
@@ -458,17 +477,17 @@ end Fresh
 
 namespace MlAndT
 
-definition_of defn from "f2-examples/mlandt.kompile.kore"
+definition_uncut defn from "f2-examples/mlandt.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
-/-- The text's one rule, as the reader reads it. -/
+/-- The text's one rule, read without the cut. -/
 noncomputable abbrev r : Rule := c.rules[0]'(by decide +kernel)
 def t : Term := .app 388 [.var 0]
 def u : Term := .app 389 [.var 0]
 
 theorem names_ok : c.symName 388 = "Lblf" ∧ c.symName 389 = "Lblg" := by decide +kernel
 
-/-- The rule read today: three variables, the ensures `f(X) ==Int g(X)`, `\top` predicates, no
+/-- The rule read without the cut: three variables, the ensures `f(X) ==Int g(X)`, `\top` predicates, no
 existential variable, and `f(X)` on its right side. -/
 theorem rule_shape_dec : c.rules.length = 1 ∧ r.vars = [Srt.int, Srt.k, Srt.counter] ∧
     optIs r.ens (.app intEq [t, u]) = true ∧ r.req.isNone = true ∧ r.pre.isTop = true ∧
@@ -654,17 +673,17 @@ end VarForm
 
 namespace MlAndC
 
-definition_of defn from "f2-examples/mlandc.kompile.kore"
+definition_uncut defn from "f2-examples/mlandc.kompile.kore"
 noncomputable abbrev c : Semantics := defn.sem
 
-/-- The text's one rule, as the reader reads it. -/
+/-- The text's one rule, read without the cut. -/
 noncomputable abbrev r : Rule := c.rules[0]'(by decide +kernel)
 def exp : Srt := 32
 def a : Sym := 385
 
 theorem names_ok : c.symName a = "Lbla" ∧ c.sortName exp = "Exp" := by decide +kernel
 
-/-- The rule read today: X of Exp its first variable, the ensures `X ==K a()` of one-item K
+/-- The rule read without the cut: X of Exp its first variable, the ensures `X ==K a()` of one-item K
 sequences, `\top` predicates, no existential variable. -/
 theorem rule_shape_dec : c.rules.length = 1 ∧ r.vars[0]? = some exp ∧
     optIs r.ens (.app kEq [wrapK exp (.var 0), wrapK exp (.app a [])]) = true ∧ r.req.isNone = true ∧

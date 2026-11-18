@@ -34,7 +34,7 @@ def lawsOf (path h : String) : IO (List (Nat × List String) × List String) := 
       let off := Parse.preludeLength k
       let ls := m.sentences.zipIdx.filterMap fun (s, i) => match s with
         | .axiom a =>
-          if Parse.classify s == .inert .collectionLaw && Parse.lawHead? a == some h then
+          if Parse.classifyShape s == .inert .collectionLaw && Parse.lawHead? a == some h then
             some (off + i, Parse.lawKeys a)
           else none
         | _ => none

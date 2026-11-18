@@ -73,7 +73,7 @@ def refusals (k : Kore.Definition) : List Refusal :=
   | some m =>
     let off := preludeLength k
     let pre := if k.modules.dropLast = preludeModules then [] else [preludeRefusal k]
-    let cls := m.sentences.zipIdx.filterMap fun (s, i) => match classify s with
+    let cls := m.sentences.zipIdx.filterMap fun (s, i) => match classifyShape s with
       | .refused r => some (⟨some (off + i), headOf s, r, classDetail m s r⟩ : Refusal)
       | _ => none
     let S := scan m.sentences
@@ -601,7 +601,7 @@ def cellCollUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
       | _, .or _ ds => ds.filterMap fun dj => injSorts? (binders eqnFuel dj).2
       | _, _ => []
     let off := preludeLength k
-    m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
+    m.sentences.zipIdx.filterMap fun (s, i) => match s, classifyShape s with
       | .axiom a, .unread .cellCollectionInjection =>
         if (sortsOf a).all pairs.contains then none
         else some ⟨some (off + i), headOf s, .cellCollectionInjection, "not a collection of the definition and its cell"⟩
@@ -639,7 +639,7 @@ def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
       c.allColls.any fun cs => c.symName cs.concat == h && (!set || cs.kind == .set)
     let openGen := fun (h : String) => c.params.any fun k => k.raw && c.symName k.sig.name == h
     let ctor := fun (h : String) => c.ctors.any fun k => c.symName k.name == h
-    m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
+    m.sentences.zipIdx.filterMap fun (s, i) => match s, classifyShape s with
       | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
         let h := (lawHead? a).getD ""
         let keys := ", ".intercalate (lawKeys a)
@@ -829,7 +829,7 @@ def missingBuiltin (k : Kore.Definition) (d : Definition) : List Refusal :=
       (moduleText d.pres.simpArg i).filterMap fun t =>
         -- a lemma without a place (MAP's `#Ceil` of a concatenation) is no sentence of the module's
         -- file, and states nothing the reading reads (`InertReason.simplification`)
-        if classify t == .inert .simplification then none
+        if classifyShape t == .inert .simplification then none
         else if held.any (fun s => decide (s = bare t)) then none
         else some ⟨none, (library.getD i default).name, .builtinIncomplete, Kore.Printer.sentence (bare t)⟩)
 
@@ -981,7 +981,7 @@ def kernelAbsent (k : Kore.Definition) (d : Definition) : List Kore.Sentence :=
 
 /-- An inert constructor axiom's reason. -/
 def ctorInert? (s : Kore.Sentence) : Option InertReason :=
-  match classify s with
+  match classifyShape s with
   | .inert .distinctCtors => some .distinctCtors
   | .inert .injectivity => some .injectivity
   | .inert .noJunk => some .noJunk
@@ -1119,7 +1119,7 @@ def libraryUnstated (k : Kore.Definition) (d : Definition) : List Refusal :=
       | _ => none
     (libBlocks d.sem d.pres).flatten.filterMap fun t =>
       if texts.any (fun u => decide (u = t)) then none
-      else if classify t == .inert .simplification || classify t == .readAs .projectionDomainAsClause then none
+      else if classifyShape t == .inert .simplification || classifyShape t == .readAs .projectionDomainAsClause then none
       else if held.any (fun s => decide (s = bare t)) then none
       else match t with
         | .axiom a => if heldCanon.contains (canon a.pattern) then none
@@ -1144,10 +1144,11 @@ K's documentation gives it; the account lists the read sentences applying it. -/
 /-- The read rewrite axioms and equations of the user module read through a connective, each with
 its position in the file and every note it is read through (`connNotes`). -/
 def connReadings (k : Kore.Definition) : List (Nat × List ReadingNote) :=
+  let N := namesOf k
   match k.modules.getLast? with
   | none => []
   | some m => m.sentences.zipIdx.filterMap fun (s, i) => match s with
-    | .axiom a => if isRead s && !(connNotes a).isEmpty then some (preludeLength k + i, connNotes a) else none
+    | .axiom a => if isRead s && !(connNotes N a).isEmpty then some (preludeLength k + i, connNotes N a) else none
     | _ => none
 
 mutual
@@ -1188,7 +1189,8 @@ def configurationUses (k : Kore.Definition) : Option (List Nat) :=
 /-- The user module's sentences counted by class, the classes in the order first met. -/
 def classCounts (k : Kore.Definition) : List (String × Nat) :=
   let ss := (k.modules.getLast?.map (·.sentences)).getD []
-  let names := ss.map fun s => (classify s).name
+  let N := namesOf k
+  let names := ss.map fun s => (classify N s).name
   names.eraseDups.map fun n => (n, names.count n)
 
 /-! ## Facts the text leaves open

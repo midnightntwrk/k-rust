@@ -58,7 +58,7 @@ theorem hkf : lookupSig hookSigs f = none := by decide +kernel
 noncomputable abbrev simpAx : AxiomDecl := U.ax201
 
 /-- The reader's class of the sentence. -/
-theorem simp_class : Parse.classify (.axiom simpAx.ax) = .inert .simplification := by decide +kernel
+theorem simp_class : Parse.classifyShape (.axiom simpAx.ax) = .inert .simplification := by decide +kernel
 
 /-- `f(f(X)) => f(X)` as an equation over `f`. -/
 def E : LibEv.Eqn := ⟨[("VarX", Srt.int)], Srt.int, none, .app f [.app f [.var 0]], .app f [.var 0]⟩

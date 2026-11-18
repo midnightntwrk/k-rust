@@ -21,7 +21,7 @@ def verdict (path : String) : IO String := do
   | .error e => return s!"KORE read error {e}"
   | .ok k =>
     let decl := ((k.modules.getLast?.map (·.sentences)).getD []).filterMap fun s => match s with
-      | .symbol x => if x.symbol.ident.ident.name == "Lblpair" then some (Parse.classify s).name else none
+      | .symbol x => if x.symbol.ident.ident.name == "Lblpair" then some (Parse.classifyShape s).name else none
       | _ => none
     return s!"{decl}; " ++ match Parse.parse k with
       | .ok d => s!"read; unaccounted {(Parse.unconsumed k d).map (·.detail)}"
