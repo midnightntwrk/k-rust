@@ -21,15 +21,20 @@ a theorem when one of these holds, read from the files' text:
   (c) on kimp's text, N is in a class of test/TieKimp.lean's `classes` for which test/imp-tie.toml
       records the class's sentences proved, entailed at values or refuted with no remainder, or with
       its remainder given by `remainder_indices` and N not among them, and neither (a) nor (b) ties N
-      there; the theorems are the class's in imp-tie.toml (its file and theorems, those stating the
-      class's list of indices left out).
+      there, and the class's list has the class's count; the theorems are the class's in
+      imp-tie.toml (its file and theorems, those stating the class's list of indices left out).
+A theorem whose statement holds `¬` refutes the sentence (Γ with it has no model, or it fails at a
+valuation), one stating `SvAtMostOne` holds it only where its set variables hold one value at most, and
+so does a theorem of a class of direction refuted: neither ties it. A row whose only theorems are such
+gets "refuted: MODULE; ..." with them, is not tied, and counts as not tied for its module.
 A row's sentences are the text's axioms whose key, computed as test/constructs/extract.py computes
 E6's keys (the axiom's Source file, the module of that file holding its Location line, and the
 Location's line and column; `lemma` when it is a simplification), is the row's key. A row of a
 declaration (sort, symbol, token) is tied only where (a) to (c) name it, which none of them does: a
 declaration is not an axiom. A module row is tied when every row of the module in this scope (axiom,
 lemma, sort, symbol) is, and at least one exists.
-e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" strings, or "uncovered: MODULE" with, after
+e6_tie, on a row: a list of "THEOREM (FILE; TEXT axiom N)" strings, "refuted: MODULE; ..." (above), or
+"uncovered: MODULE" with, after
 the module, why: no tied text holds the sentence, the texts that hold it tie it by no theorem, or
 the row is a declaration (or a module with a row left uncovered).
 """
@@ -171,8 +176,9 @@ def lean_ties():
             m = re.search(r"∀ ad ∈ (\w+),", stmt)
             if m and m.group(1) in lists:
                 ns_ |= set(lists[m.group(1)])
+            kind = "refutes" if "¬" in stmt else ("partial" if "SvAtMostOne" in stmt else "ties")
             for n in ns_:
-                ties[text][n].append((name, rel))
+                ties[text][n].append((name, rel, kind))
     return ties
 
 
@@ -187,7 +193,7 @@ def kimp_ties():
     for c in tie["class"]:
         tied = sum(c.get(k, 0) or 0 for k in ("proved", "at_values", "refuted"))
         rem = c.get("remainder", 0) or 0
-        if not c.get("file") or tied == 0 or tied + rem != c["count"]:
+        if not c.get("file") or tied == 0 or tied + rem != c["count"] or len(classes.get(c["name"], [])) != c["count"]:
             continue
         if rem and len(c.get("remainder_indices", [])) != rem:
             continue
@@ -195,7 +201,8 @@ def kimp_ties():
             if n not in c.get("remainder_indices", []):
                 for th in c["theorems"]:
                     if not re.search(r"_(indices|account|length|text|checked)$", th):
-                        out[n].append((f"{c['name']}: {th}", c["file"]))
+                        kind = "refutes" if c.get("direction") == "refuted" else "ties"
+                        out[n].append((f"{c['name']}: {th}", c["file"], kind))
     return tie["text"], out
 
 
@@ -221,12 +228,18 @@ def compute():
         kind = k.split(":")[0]
         mod = k.split(":")[1] if kind != "token" else "(token sort)"
         if kind in ("axiom", "lemma"):
-            got = []
+            got, other = [], []
             for text, ns in sorted(where.get(k, {}).items()):
                 for n in ns:
-                    got += [f"{th} ({f}; {text} axiom {n})" for th, f in ties[text].get(n, [])]
+                    for th, f, kind in ties[text].get(n, []):
+                        (got if kind == "ties" else other).append(f"{th} ({f}; {text} axiom {n})" + (
+                            "" if kind == "ties" else f" [{kind}]"))
             if got:
                 res[k] = sorted(set(got))
+            elif other:
+                res[k] = (f"refuted: {mod}; no theorem entails the sentence; it is refuted (Γ with it has no "
+                          f"model) or holds only where its set variables hold at most one value: "
+                          + ", ".join(sorted(set(other))))
             elif k in where:
                 res[k] = f"uncovered: {mod}; held by {', '.join(sorted(where[k]))}, tied there by no theorem"
             else:
