@@ -341,7 +341,7 @@ inductive RefusalReason where
   | hookEquation
   /-- A rule or equation whose read `requires` or `ensures` holds an equality `_==K_` or `_==Int_`
   that the reader writes for what the text states (a strict conjunction, `conjTerms`; `t ∧ u` on a
-  right side, `sideConds`; a map key's application, `keyCut`), in a text that declares that hooked
+  right side, `sideConds`), in a text that declares that hooked
   symbol without its `functional` axiom or without the sentence `((K1 σ K2) = true) = (K1 = K2)`
   over two distinct variables of its sort (`hookEqSentence`). The reading's sentence is the text's
   only with both: the first makes `K1 σ K2` one element, the second makes `true` its value exactly
@@ -652,15 +652,13 @@ inductive ReadingNote where
   variable outside `[simplification]` is refused (`setVariable`, the detail saying why). -/
   | setVarInDropped
   /-- A rule whose left side holds a map key applying a function of the definition (`keyCut`), read
-  with a fresh variable in the key's place and that variable's equality to the application conjoined
-  to its `requires` (the block above `keyCut` says why the rule then applies, and blocks, where the
-  text's does). The equality is `_==Int_` (`_==K_` of one-item sequences off Int, and of the
-  sequences where there are several conjuncts); the `requires` read is the text's under that
-  symbol's `functional` axiom and its sentence `((K1 σ K2) = true) = (K1 = K2)`, which a text
-  declaring the symbol must hold (`hookEqualityUnstated`). No sentence is classified so (`classify`
-  reads a sentence alone, and which symbols are the definition's functions it does not know): the
-  account lists the rules read so (`keysAsRequires`). -/
-  | keyFunctionAsRequires
+  with a fresh variable Key in the key's place and the membership `Key ∈ f(t̄)` a conjunct of its
+  `pre`, its `requires` and right side as written. The read rule is the text's in every
+  interpretation, with no premise: the text's left side is `∃Key. C[Key] ∧ Key ∈ f(t̄)` (the block of
+  `keyCut` says why). No sentence is classified so (`classify` reads a sentence alone, and which
+  symbols are the definition's functions it does not know): the account lists the rules read so
+  (`keysAsMember`). -/
+  | keyFunctionAsMember
   /-- A function equation of priority p (`priority{}("p")`, 50 without the attribute) read in `Γ`
   with the premise that no executable clause of the function of a smaller priority applies
   (`Faithful.prioEquation`, `lowerClauses`); the text writes the equation without that premise.
@@ -1269,35 +1267,29 @@ def freshName (vs : List Var) : Nat → String → String
   | 0, x => x
   | fuel + 1, x => if vs.any (·.name == x) then freshName vs fuel (x ++ "'") else x
 
-/-- A rule's left side `lhs`, its variables `vs` and its `requires` `req`, read with each map key
-that applies a function of the definition's own as a fresh variable (`keyCuts`): the left side, the
-variables with the fresh ones after them, and the `requires` conjoined with each fresh variable's
-equality to its application (`==Int` for an Int, `==K` of one-item K sequences otherwise): the one
-equality where there is no written `requires` and one key, otherwise the written one and the
-equalities as one strict conjunction, the K sequence of their values `==K` that of as many `true`. -/
-def keyCut (N : Names) (lhs : Term) (vs : List Var) (req : Option Term) : Rd (Term × List Var × Option Term) :=
+/-- A rule's left side `lhs` and its variables `vs`, read with each map key that applies a function
+of the definition's own cut (`keyCuts`): the left side, the variables with the fresh ones after them
+(`Key0`, `Key1`, …, primed until new), and the memberships `Key ∈ f(t̄)` of the fresh variables in
+their applications (`Cond.mem` at the function's result sort, the variable first), in the order of
+the text.
+
+The text's left side `C[f(t̄)]` is `∃Key. C[Key] ∧ Key ∈ f(t̄)` in every interpretation: an
+application is pointwise over the elements its arguments hold, and `f(t̄)` is inside f's result
+sort, Key's (`KCore.cut_identity`). Key is fresh, so it is in neither the right side nor the
+`requires`, and `(∃Key. C[Key] ∧ Key ∈ f(t̄)) ∧ req → •R` is `∀Key. (C[Key] ∧ req ∧ Key ∈ f(t̄) → •R)`:
+the rule read with Key a variable, the written `requires` as `req` and the membership a conjunct of
+`pre`, is the text's rule, with no premise. The right side is read as the text writes it, an
+application of f there included: the cut is of the left side only. -/
+def keyCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × List Cond) :=
   match N.keyFns with
-  | [] => pure (lhs, vs, req)
+  | [] => pure (lhs, vs, [])
   | fs => match keyCuts fs lhs vs.length with
-    | (_, _, []) => pure (lhs, vs, req)
+    | (_, _, []) => pure (lhs, vs, [])
     | (lhs', _, cs) => do
       let vs' := cs.foldl (fun acc (_, _, X, _) =>
         acc ++ [⟨freshName acc (acc.length + 1) ("Key" ++ toString (acc.length - vs.length)), X⟩]) vs
-      let conds ← cs.mapM fun (i, _, X, app) => do
-        N.hookEqE (if X == "Int" then intEq else kEq)
-        if X == "Int" then pure (Term.app intEq [.var i, app])
-        else
-          let s ← N.srtE X
-          let wrap := fun (t : Term) => if X == "K" then t
-            else Term.app kseq [if X == "KItem" then t else .inj s Srt.kitem t, .app dotk []]
-          pure (Term.app kEq [wrap (.var i), wrap app])
-      let parts := req.toList ++ conds
-      if parts.length > 1 then N.hookEqE kEq
-      let seqOf := fun (ts : List Term) =>
-        ts.foldr (fun t acc => Term.app kseq [.inj Srt.bool Srt.kitem t, acc]) (Term.app dotk [])
-      pure (lhs', vs', match parts with
-        | [c] => some c
-        | _ => some (Term.app kEq [seqOf parts, seqOf (parts.map fun _ => .dv Srt.bool (.bool true))]))
+      let mems ← cs.mapM fun (i, _, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
+      pure (lhs', vs', mems)
 
 /-! ## A function-overloaded symbol in a rule's left side
 
@@ -2723,15 +2715,16 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
         let (cs, vs) ← sideConds N vs conds
         if ens.toList.length + cs.length > 1 then N.hookEqE kEq
         pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
-    -- a map key of the left side applying a function of the definition's own: a fresh
-    -- variable, its equality to the application a conjunct of the `requires` (`keyCut`)
     -- the right side's existential variables, in the text's order of nesting: the binders that
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
-    let (lhs, vs, req) ← keyCut N lhs vs req
+    -- a map key of the left side applying a function of the definition's own: a fresh variable,
+    -- its membership in the application a conjunct of `pre` (`keyCut`)
+    let (lhs, vs, keys) ← keyCut N lhs vs
     -- an application of a function-overloaded symbol in the left side: a fresh variable, its
     -- membership in the application a conjunct of `pre` (`ovlCut`)
     let (lhs, vs, pre) ← ovlCut N lhs vs
+    let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]))
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
@@ -4641,84 +4634,11 @@ def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Refus
 /-! ### Exhibited values
 
 A rule read without a variable of the axiom it comes from (`splitRule`, `unheldBinders`) needs an
-element of the variable's sort. The reader exhibits a value: a ground term built from literals,
-empty collections, constructors and injections, checked to apply no open generator
-(`rawFree_of_exhibit`), of which the built semantics gives the sort (`sortOf_of_exhibit`). Its sort
-then reads no interpretation of the parameters, and `Γ` entails an element of the sort in every
-model at every interpretation (`Faithful.inhabited_of_exhibit_withHooks`). At a sort whose only
-values apply an open generator no value is exhibited: at an interpretation that answers the
-generator outside the sort, the sort has no value. A sort without one found is refused (`unheldVariable`): the
-search may miss a value, and a refusal states nothing. -/
-
-/-- The value of each sort first in `l`. -/
-def firstPerSort (l : List (Srt × GroundTerm)) : List (Srt × GroundTerm) :=
-  l.foldl (fun acc (s, v) => if acc.any (·.1 == s) then acc else acc ++ [(s, v)]) []
-
-/-- Literals (`0`, `false`, the empty token) of Int, Bool, String, KConfigVar, Bytes and the
-library's token, byte and carrier sorts, and the empty collections of the collection sorts, each
-with the sort the semantics gives it. -/
-def exhibitSeeds (c : Semantics) : List (Srt × GroundTerm) :=
-  let litSorts := [Srt.int, Srt.bool, Srt.string, Srt.kconfigVar, Srt.bytes] ++ c.lib.tokenSorts ++
-    c.lib.byteSorts ++ c.lib.carriers.map (·.1)
-  let lits := litSorts.flatMap fun s =>
-    [(s, GroundTerm.dv s (.int 0)), (s, .dv s (.bool false)), (s, .dv s (.tok ""))]
-  let colls := c.colls.flatMap fun k =>
-    [(k.sort, GroundTerm.map k.sort []), (k.sort, .set k.sort []), (k.sort, .list k.sort [])]
-  firstPerSort ((lits ++ colls).filter fun (s, v) => c.sortOf v == some s)
-
-/-- One round: a constructor applied to the values `acc` holds of its argument sorts, and an
-injection of a value `acc` holds, at each sort `acc` has no value of. -/
-def exhibitRound (c : Semantics) (acc : List (Srt × GroundTerm)) : List (Srt × GroundTerm) :=
-  let has := fun (s : Srt) => acc.any (·.1 == s)
-  let ctors := c.ctorSigs.filterMap fun k => if has k.result then none else do
-    let args ← k.args.mapM fun a => acc.lookup a
-    let v := GroundTerm.ctor k.name args
-    if c.sortOf v == some k.result then some (k.result, v) else none
-  let injs := c.subsorts.filterMap fun (a, b) => if has b then none else do
-    let w ← acc.lookup a
-    let v := match w with
-      | .inj a' _ w' => GroundTerm.inj a' b w'
-      | _ => GroundTerm.inj a b w
-    if c.sortOf v == some b then some (b, v) else none
-  firstPerSort (ctors ++ injs)
-
-/-- `n` rounds from `acc`, or fewer where a round adds nothing. -/
-def exhibitN (c : Semantics) : Nat → List (Srt × GroundTerm) → List (Srt × GroundTerm)
-  | 0, acc => acc
-  | n + 1, acc => match exhibitRound c acc with
-    | [] => acc
-    | new => exhibitN c n (acc ++ new)
-
-/-- A value of the sort `s` the reader exhibits (`exhibitSeeds`, then rounds of `exhibitRound`,
-each adding a sort, as many as there are constructors and subsort pairs), checked: one the
-semantics gives the sort `s` and that applies no open generator (`Semantics.rawFree`), so that it
-is a value of `s` at every interpretation of the parameters (`Faithful.sortOf_withHooks_of_exhibit`). -/
-def exhibit? (c : Semantics) (s : Srt) : Option GroundTerm :=
-  ((exhibitN c (c.ctorSigs.length + c.subsorts.length) (exhibitSeeds c)).lookup s).filter
-    fun v => c.sortOf v == some s && c.rawFree v
-
-theorem exhibit_parts {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.sortOf v = some s ∧ c.rawFree v = true := by
-  unfold exhibit? at h
-  generalize List.lookup s _ = o at h
-  cases o with
-  | none => simp at h
-  | some w =>
-    simp only [Option.filter] at h
-    split at h
-    · rename_i hw; cases h
-      rw [Bool.and_eq_true] at hw
-      exact ⟨beq_iff_eq.mp hw.1, hw.2⟩
-    · cases h
-
-theorem sortOf_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.sortOf v = some s :=
-  (exhibit_parts h).1
-
-/-- An exhibited value applies no open generator. -/
-theorem rawFree_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm} (h : exhibit? c s = some v) :
-    c.rawFree v = true :=
-  (exhibit_parts h).2
+element of the variable's sort. The reader asks the search of Exhibit.lean for a value (`exhibit?`):
+one applying no open generator, of which the built semantics gives the sort at every interpretation
+of the parameters, where `Γ` entails an element of the sort in every model
+(`Faithful.inhabited_of_exhibit_withHooks`). A sort without one found is refused
+(`unheldVariable`): the search may miss a value, and a refusal states nothing. -/
 
 /-- Why a rule read from a rewrite axiom without some of its variables (`unheldBinders` of its left
 side, `splitRule`) is not read: a variable whose sort has no value the reader exhibits

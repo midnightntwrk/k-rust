@@ -559,10 +559,10 @@ def rangeMapInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
           (⟨i, h, .rangeMapPattern, f⟩ : Refusal)
     ruleRs ++ clauseRs
 
-/-- The rules read with a map key of their left side as a fresh variable and a `requires`
-conjunct (`Parse.keyCut`, `ReadingNote.keyFunctionAsRequires`): each rule's place and the
-functions so read. -/
-def keysAsRequires (k : Kore.Definition) : List (Nat × List String) :=
+/-- The rules read with a map key of their left side as a fresh variable and its membership in the
+key a conjunct of `pre` (`Parse.keyCut`, `ReadingNote.keyFunctionAsMember`): each rule's place and
+the functions so read. -/
+def keysAsMember (k : Kore.Definition) : List (Nat × List String) :=
   match k.modules.getLast? with
   | none => []
   | some m =>

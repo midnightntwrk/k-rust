@@ -18,7 +18,7 @@ law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 1
 rules and clauses applying a function symbol in their left side: 0
-rules read with a map key applying a function as a `requires` conjunct (keyFunctionAsRequires): 1
+rules read with a map key applying a function as a membership conjunct of pre (keyFunctionAsMember): 1
       sentence 316: [Lblkey]
 sentences the library's data induces that the text does not hold: 0
 library sentences of the modules held that the text does not hold: 0
