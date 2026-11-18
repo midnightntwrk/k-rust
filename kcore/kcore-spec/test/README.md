@@ -1582,6 +1582,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   `LibEvFnBoolInt.lean`, `LibEvFnColl.lean`): sentences 174, 180, 246, 247; 173, 183, 184, 187, 188,
   192, 193, 198, 199, 202, 203, 204, 206, 209, 248, 249 (BOOL and INT); 207, 264 (`|Set`,
   `pushList`). Axioms guarded.
+- `test/LibEvFnBitRangeEns.lean`: the equations of `bitRangeInt` and `signExtendBitRangeInt`
+  (domains.md 1438, 1440) of `f2-examples/ens.kompile.kore`, sentences 208 and 265, entailed at
+  values for every H (`ev208`, `ev265`), from `LibEv.fnBitRange_ev` and `LibEv.fnSignExt_ev`
+  (`KcoreSpec/LibEvFnBitRange.lean`, through `LibEv.FnEqn.entailed_reg`). Axioms guarded.
 - `test/LibEvLawEns.lean`: the nine collection laws of `f2-examples/ens.kompile.kore` (sentences 53,
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
