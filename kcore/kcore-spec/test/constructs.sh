@@ -20,7 +20,8 @@
 # is not current is reported stale, not failed). Then
 # test/constructs/provisional.py: no entry of ../core-manifest.toml is provisional, and each entry
 # relabelled stable names the rows.toml entries it leaves refused or parameter, or the sentence "no
-# construct depends on it" (DONE-0 C5 part 4). Then test/constructs/rest.py check: DONE-0 C2's
+# construct depends on it" (DONE-0 C5 part 4). Then test/constructs/e6map.py --check: each E6 library
+# row's e6_tie is the tie its sentences have in the tie files. Then test/constructs/rest.py check: DONE-0 C2's
 # evidence per status over every row and nested entry (each failure in .lake/constructs/c2-evidence.txt),
 # in report mode (listed, not failing) until FIX-rest's closing check removes --report; with the
 # entries FIX-core does not hold, by list, status and evidence form, with the evidence each has and
@@ -78,6 +79,7 @@ python3 -I test/constructs/closed.py || rc=1
 python3 -I test/constructs/modifiers.py check || rc=1
 python3 -I test/constructs/kklink.py || rc=1
 python3 -I test/constructs/provisional.py || rc=1
+python3 -I test/constructs/e6map.py --check || rc=1
 python3 -I test/constructs/rest.py check --report --fresh --list .lake/constructs/rest.txt \
   --out .lake/constructs/c2-evidence.txt || rc=1
 python3 -I test/constructs/coverage.py check || rc=1
