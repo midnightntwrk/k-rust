@@ -23,7 +23,9 @@ What an account prints (KcoreGen's `account`):
 Failures (exit 1):
   - an account prints, in one of the first two forms, a name that is no constructor of the form's
     inductive (the account is not of this reader);
-  - a `reasons` item is not "<one of the four inductives>.<a constructor of it>";
+  - a `reasons` item is not "<one of the four inductives>.<a constructor of it>", nor SCOPE_OPTION
+    ("none (scope): option", an E8 option row's scope refusal, which names no constructor; rest.py
+    checks where it stands);
   - a `reasons` name that no account.txt of the fixtures the entry's evidence names prints, when the
     evidence names fixtures (a directory of test/constructs/fixtures/ written in `evidence`,
     `reader_today`, `refused_by`, `place` or `note` as `fixtures/NAME`, `FX/NAME` or `fixture NAME`),
@@ -97,6 +99,8 @@ if not tstatus:
     sys.exit(1)
 
 INDUCTIVES = ["RefusalReason", "InertReason", "UnreadReason", "ReadingNote"]
+# The `reasons` item of an E8 option row refused for scope (rest.py's SCOPE_OPTION): no constructor.
+SCOPE_OPTION = "none (scope): option"
 CLASSWORD = {"refused": "RefusalReason", "inert": "InertReason", "unread": "UnreadReason",
              "read": "ReadingNote"}
 
@@ -260,6 +264,8 @@ for l, tab in t.items():
                 ev = [f for f in evidence_fixtures(e) if account(f)]
                 shown = set().union(*[account(f)[0] for f in ev if account(f)]) if ev else set()
                 for x in rs:
+                    if x == SCOPE_OPTION:
+                        continue
                     ind, _, c = x.partition(".") if isinstance(x, str) else ("", "", "")
                     if ind not in CTORS or c not in CTORS[ind]:
                         bad.append(f"{where}: reasons {x!r} is not <{' | '.join(INDUCTIVES)}>.<constructor>")

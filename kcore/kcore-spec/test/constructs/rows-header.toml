@@ -56,6 +56,11 @@
 #             neither a fixture nor reasons, and on a name that no account.txt of the fixtures the
 #             entry's evidence names (`fixtures/NAME`, `FX/NAME`, `fixture NAME` in evidence,
 #             reader_today, refused_by, place or note) prints, outside its pinned allowance.
+#             The item "none (scope): option" names no constructor: on an E8 option row of class R-b
+#             or scope, the option (the row's key) is outside R-12's option set (`kompile --backend
+#             haskell`), which refuses the row whatever the reader answers on the text the option
+#             gives; test/constructs/rest.py accepts it in place of a RefusalReason where a fixture
+#             of the entry has kompile.txt's command passing the option outside that set.
 # First written by test/constructs/seed-rows.py (its docstring states how each status was carried).
 # Then test/constructs/apply-triage.py applies findings/TRIAGE-*.toml, copying each decision's fields
 # as written (names made one vocabulary; its docstring gives the renaming). Fields it adds:
