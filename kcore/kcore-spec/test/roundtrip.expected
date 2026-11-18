@@ -63,9 +63,13 @@ differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
 differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
+differs f2-examples/e3-casts.kompile.kore
+differs f2-examples/e3-fresh.kompile.kore
+differs f2-examples/e3-kseq.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
+differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-ctor.kompile.kore
 differs f2-examples/e5-ovl-fn-fn-owise.kompile.kore
 differs f2-examples/e5-ovl-fn-fn.kompile.kore
