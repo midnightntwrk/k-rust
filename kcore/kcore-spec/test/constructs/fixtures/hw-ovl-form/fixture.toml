@@ -1,0 +1,8 @@
+# Hand-written KORE: the kompiled text of fixture e5-ovl-fun (K 7.1.337, definition.kore sha256
+# 632282882e0c551f384f5759bd526299899c61df13eb51223b61851060a9b853), BUILTIN/ and FIXTURE/ restored as paths,
+# and the symbol-overload axiom's right side changed: inj(LblplusInt(K1, K0)) in place of
+# inj(LblplusInt(K0, K1)), so the axiom is not f(lift x) = lift(g(x)). Kompile writes the axiom from the
+# two productions and only in that form, so no text it delivers has this shape.
+# Expected: refused overloadForm (Parse.ovlEqMissing: a right side other than LblplusInt applied to the
+# arguments' variables).
+kore = "test/constructs/fixtures/hw-ovl-form/hw-ovl-form.kore"

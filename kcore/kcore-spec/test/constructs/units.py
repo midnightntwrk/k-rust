@@ -142,7 +142,17 @@ ALLOWANCE = [
     # supports their shape: E3 #And's \ceil-of-a-conjunction case, #Or's and #Exists' cases of a
     # binder in an alternative and #Exists' case of a binder beside a term name CE.reader-wire,
     # #Exists' case of a binder under applications F2.E1-after-hoist.
-    ("ROWS-1.unit-rc", 26, "entries of class R-c without unit",
+    # 26 -> 2 with ROWS.rc-unticketed-apply (findings/work/decision-rc-unticketed.md section 0): the
+    # E3 rule-side connectives and E2 ML_OP(mlOp)@frontend name their reader tickets
+    # (RDR.rule-conn-wire, RDR.rule-lhs-and, RDR.req-not-term, RDR.cond-and-under-app,
+    # RDR.rule-conn-implies); E1 Sentence:kw:syntax's and E2 SYMBOL(symbol)@symbol's registry-name
+    # cases REGN.design; C3 'hook x equation' and its library symbol's case RDR.hook-eq-owed;
+    # E5 genOverloadedAxiom:axiom#1's overloadForm case splits, its parameter-symbol half naming
+    # OVP.kernel; its constructor-with-function case, that overloadForm case's own form and C3's
+    # open generator case are scope, never written; E6 hook:LIST.update's List:set in a left side
+    # is R-a, its neighbour (every argument bound) R-c naming RDR.cut-hooked-lhs. The 2 left are E2
+    # HYBRID(hybrid)@frontend and C3 'strict x hybrid', whose reading decision:hybrid-pred-read decides.
+    ("ROWS-1.unit-rc", 2, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 46: the entries of class R-b without unit, each of which findings/KPROV-citations.md,
     # KPROV-scope.md and KPROV-reopen-decision.md decide and KPROV.apply writes: most become

@@ -1,0 +1,18 @@
+test/constructs/fixtures/hw-ovl-ctor-fn/hw-ovl-ctor-fn.kore: 5 modules; prelude agrees
+user module E5-OVL-FUN: 402 sentences
+  1 inert import [generated]
+  187 read [generated]
+  184 read [builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 overloadAxiom
+      sentence 276 (LblplusExp): overloadAxiom (LblplusExp)
+        [generated] (no label) at :0: axiom{R} \equals{SortExp{}, R}(LblplusExp{}(inj{SortInt{}, SortExp{}}(K0:SortInt{}), inj{SortInt{}, SortExp{}}(K1:SortInt{})), inj{SortInt{}, SortExp{}}(LblplusInt{}(K0:SortInt{}, K1:SortInt{}))) [symbol-overload{}(LblplusExp{}(), LblplusInt{}())]
+finish: sentence 276 (LblplusExp): overloadAxiom (LblplusExp)
+(exit 0)
