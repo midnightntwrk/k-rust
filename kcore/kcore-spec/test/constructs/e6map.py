@@ -29,7 +29,9 @@ so does a theorem of a class of direction refuted: neither ties it. A row whose 
 gets "refuted: MODULE; ..." with them, is not tied, and counts as not tied for its module.
 A row's sentences are the text's axioms whose key, computed as test/constructs/extract.py computes
 E6's keys (the axiom's Source file, the module of that file holding its Location line, and the
-Location's line and column; `lemma` when it is a simplification), is the row's key. A row of a
+Location's line and column; `lemma` when it is a simplification, and `#N` after the key for the
+N-th sentence of a text with that key where rows.toml has a row of that name, as extract.py
+numbers the sentences of one location, a `comm` rule's two among them), is the row's key. A row of a
 declaration (sort, symbol, token) is tied only where (a) to (c) name it, which none of them does: a
 declaration is not an axiom. A module row is tied when every row of the module in this scope (axiom,
 lemma, sort, symbol) is, and at least one exists.
@@ -216,9 +218,13 @@ def compute():
     # key -> text -> [index]
     where = defaultdict(lambda: defaultdict(list))
     for text in sorted(ties) + ([] if ktext in ties else [ktext]):
+        seen = defaultdict(int)
         for i, _m, s in axioms(text):
             k = e6_key(s)
             if k:
+                seen[k] += 1
+                if seen[k] > 1 and f"{k}#{seen[k]}" in rows:
+                    k = f"{k}#{seen[k]}"
                 where[k][text].append(i)
     scope = {k: v for k, v in rows.items()
              if (v["status"] == "supported" and k.split(":")[0] in ("axiom", "module", "sort", "symbol", "token"))

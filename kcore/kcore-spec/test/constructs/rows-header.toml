@@ -121,13 +121,26 @@
 #             at <location>: <the sentence>" and the hand-written fixture's account line
 #             ("fixtures/<dir>/account.txt: ...").
 # Field of DONE-0 C7 (checked by test/provenance.sh), on a row or a nested table:
-#   derived   the row's evidence theorems, a list of tables: form ("a", "b" or "c": a Lean proof
-#             from the translated text, a derivation written by hand, or the pair of models showing
-#             the text entails no value), for form (a) kind ("from sentences" or "through the
-#             reading"; the second with family, the family it goes through) and sentences (the
-#             indices of the sentences that determine it), theorem (full name) and file (relative to
-#             kcore-spec) for forms (a) and (c), derivation (a file) for form (b). The theorem's
-#             statement mentions H (a name of type HookParams) and no AtNone file or namespace holds it.
+#   derived   the row's evidence theorems, a list of tables: form ("a", "b", "c" or "r": a Lean
+#             proof from the translated text, a derivation written by hand, the pair of models
+#             showing the text entails no value, or a Lean proof that the text's sentences have no
+#             model), for form (a) kind ("from sentences" or "through the reading"; the second with
+#             family, the family it goes through) and sentences (the indices of the sentences that
+#             determine it), theorem (full name) and file (relative to kcore-spec) for forms (a), (c)
+#             and (r), derivation (a file) for form (b). The theorem's statement mentions H (a name of
+#             type HookParams) and no AtNone file or namespace holds it.
+#             Form (r), for a text without a model (it is not a substitute for (a) where a model
+#             exists): theorem states, for every H, that the premise set form (a) would use (each
+#             sentence as written where its class is E by equality, Γ's item with its W1 theorem
+#             otherwise, the named families) has no model; sentences the indices of the sentences
+#             the refutation uses; family (required) the families of the reading it uses beside them,
+#             each named, so that it is not read as "from sentences alone"; kind optional, "through
+#             the reading" where only the reading's theory is refuted (the sentence-level statement
+#             then owed, named in the row); owed_refuted optional, the full name of a theorem of the
+#             same file refuting the fact the package names as owed (stated for every H). The
+#             entry's status stays the reading's (`supported` where the reading agrees with the
+#             text that it has no model); K-coverage.md prints "(no model)" beside it and lists
+#             such entries with their fixtures.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
 #             files test/X.lean that test/integration.sh builds.

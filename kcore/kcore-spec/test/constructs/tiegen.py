@@ -4,6 +4,7 @@
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--out DIR] [--print]
+  (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
 
 For FIXTURE (a directory of test/constructs/fixtures with a kompiled text), it writes
   f2-examples/FIXTURE.kompile.kore   the kompiled text kompile.txt records (from the cache kfix.py
@@ -406,17 +407,23 @@ partial def tgPerms : List Nat → List (List Nat)
   let c := d.sem
   let trS := fun (ad : AxiomDecl) => trAxiom k.symbolDecls k.aliasNames ad
   let fis := fnItems c
-  let has := fun (n : String) => (kernelSyms c).any (fun g => c.symName g.name == n)
-  let isFn := fun (n : String) => c.allFns.any (c.symName ·.label == n)
-  let isCtor := fun (n : String) => c.ctorSigs.any (c.symName ·.name == n)
+  let ks := kernelSyms c
+  let ci := consItemsK c
+  let has := fun (n : String) => ks.any (fun g => c.symName g.name == n)
+  let afs := c.allFns
+  let css := c.ctorSigs
+  let isFn := fun (n : String) => afs.any (c.symName ·.label == n)
+  let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
   let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n then "hook" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
-  let sigFrom := fun (it : Item) => (Theory.ofDefinition k).signature.any (·.pat == it.pat) || surplusItem k it
-  let hasSym := fun (n : String) => (kernelSyms c).any fun g => c.symName g.name == n
+  let tsig := (Theory.ofDefinition k).signature
+  let sigFrom := fun (it : Item) => tsig.any (·.pat == it.pat) || surplusItem k it
+  let hasSym := has
   let plainSyms := k.symbolDecls.filter fun sd => sd.params.isEmpty && hasSym sd.name
   let plainSorts := k.sortDecls.filter (·.params.isEmpty)
+  let si := sigItems c
   let declItems := plainSorts.map sortConstantItem ++ plainSyms.map arityItem
   IO.println s!"H readsConfined {c.readsConfined}"
   IO.println s!"H wf {wf d}"
@@ -426,18 +433,18 @@ partial def tgPerms : List Nat → List (List Nat)
   IO.println s!"H rawParams {(c.params.filter (·.raw)).length}"
   IO.println s!"H nFnItems {fis.length}"
   IO.println s!"H nRuleItems {(ruleItems c).length}"
-  IO.println s!"H nSig {(sigItems c).length}"
-  IO.println s!"H sigAll {(sigItems c).all sigFrom}"
-  IO.println s!"H sigBad {((sigItems c).zip (List.range (sigItems c).length)).filter (!sigFrom ·.1) |>.map (·.2)}"
+  IO.println s!"H nSig {si.length}"
+  IO.println s!"H sigAll {si.all sigFrom}"
+  IO.println s!"H sigBad {(si.zip (List.range si.length)).filter (!sigFrom ·.1) |>.map (·.2)}"
   let nextIt := (KoreAML.nextArityItem [] (srtOf c topCellSort)).pat
-  IO.println s!"H sigBadNext {((sigItems c).filter (!sigFrom ·)).all (·.pat == nextIt)}"
+  IO.println s!"H sigBadNext {(si.filter (!sigFrom ·)).all (·.pat == nextIt)}"
   IO.println s!"H textNext {k.axiomDecls.any fun ad => !(nextSortsOf ad.ax.pattern).isEmpty}"
   IO.println s!"H nDecl {declItems.length}"
-  IO.println s!"H declAll {declItems.all fun it => (sigItems c).any (·.pat == it.pat)}"
+  IO.println s!"H declAll {declItems.all fun it => si.any (·.pat == it.pat)}"
   IO.println s!"H declCounts {k.sortDecls.length} {plainSorts.length} {k.symbolDecls.length} {plainSyms.length} {(k.symbolDecls.filter fun sd => !sd.params.isEmpty).length} {(k.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length}"
   IO.println s!"H kitemCons {decide (Srt.kitem ∈ consSorts c)} {(c.gens Srt.kitem).isEmpty}"
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
-  IO.println s!"H fnPrios {(c.allFns.flatMap (fun f => f.clauses.map (·.prio)))}"
+  IO.println s!"H fnPrios {(afs.flatMap (fun f => f.clauses.map (·.prio)))}"
   let us := k.axiomDecls.filter (·.module == "@MOD@")
   let ixOf := fun (q : P) => (us.filter fun ad => (trS ad).pat == q).map (·.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
@@ -450,7 +457,7 @@ partial def tgPerms : List Nat → List (List Nat)
   IO.println s!"H openLawIx {(lawItemsK c).map fun it => ixOf it.pat}"
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
-  IO.println s!"H fnClauses {c.allFns.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
+  IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
@@ -472,7 +479,7 @@ partial def tgPerms : List Nat → List (List Nat)
     let fnJ := ((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == p)).map (·.2)
     let cons := tieConsB c ad.ax
     let plain := decide (p = (trAxiom [] [] ad).pat)
-    let consItem := (consItemsK c).any (·.pat == p)
+    let consItem := ci.any (·.pat == p)
     let triv := (k.sortDecls.filter fun sd => p == tgOrTopBot (sym (.sort sd.name))).map (·.name)
     let kitem := p == kitemPat
     let rw := AttrsAgree.isRewrite ad.ax.pattern
@@ -498,7 +505,7 @@ def probe(name, path, um, order="[]"):
         open(f, "w").write(PROBE.replace("@PATH@", os.path.abspath(path)).replace("@MOD@", um)
                            .replace("@ORDER@", f"({order} : List Nat)"))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
-        r = run(WRAP + ["timeout", "900", "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
+        r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
         raise Refused(f"{name}: the probe fails: {(r.stdout + r.stderr).strip()[-600:]}")
     head, sents = {}, {}

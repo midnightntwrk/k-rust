@@ -1,0 +1,6 @@
+# initial (FrontendOnly, onlyon[Production]) on a cell collection: c3-cells-star's text with initial=""
+# on the List cell collection <lt multiplicity="*" type="List">, which holds no configuration
+# variable; differs_from c3-cells-star, the text without the key. The collection-cell case of
+# e2-initial (an optional cell there).
+main = "c.k"
+differs_from = "c3-cells-star"

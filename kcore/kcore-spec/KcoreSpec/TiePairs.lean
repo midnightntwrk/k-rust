@@ -130,9 +130,31 @@ def findEqn (us : List AxiomDecl) (k : String × Nat) : Option AxiomDecl :=
   us.find? fun ad => AttrsAgree.eqnHead ad.ax.pattern == some k.1 &&
     AttrsAgree.prioOf ad.ax.attributes == k.2 && !AttrsAgree.has ad.ax.attributes "simplification"
 
+/-- `findEqn`'s test: `ad` is an equation with the symbol named `k.1` at the head of its left side,
+of the priority `k.2`, and not a `simplification`. -/
+def eqnKeyB (k : String × Nat) (ad : AxiomDecl) : Bool :=
+  AttrsAgree.eqnHead ad.ax.pattern == some k.1 && AttrsAgree.prioOf ad.ax.attributes == k.2 &&
+    !AttrsAgree.has ad.ax.attributes "simplification"
+
+/-- The first of `us` that `eqnKeyB k` accepts, with the others in their order. -/
+def takeEqn (k : String × Nat) : List AxiomDecl → Option (AxiomDecl × List AxiomDecl)
+  | [] => none
+  | ad :: us => if eqnKeyB k ad then some (ad, us) else (takeEqn k us).map fun p => (p.1, ad :: p.2)
+
+/-- For each key in order, the first sentence of `us` of that key that no earlier key took. -/
+def fnTextFrom : List (String × Nat) → List AxiomDecl → List AxiomDecl
+  | [], _ => []
+  | k :: ks, us => match takeEqn k us with
+    | some (ad, rest) => ad :: fnTextFrom ks rest
+    | none => fnTextFrom ks us
+
 /-- The sentences among `us` of the clauses of `c`, in `fnItems`'s order, found by head symbol and
-priority (`findEqn`); what the list is worth is its `shapeB` against `gammaPats c`. -/
-def fnTextOf (c : Semantics) (us : List AxiomDecl) : List AxiomDecl := (clauseKeys c).filterMap (findEqn us)
+priority: each clause takes the first sentence of its function's symbol and its priority that no
+earlier clause took (`fnTextFrom`), so two clauses of one function and one priority take two
+sentences, in the text's order. Where no two clauses share a symbol and a priority, each takes the
+first sentence of its key (`findEqn`). What the list is worth is its `shapeB` against
+`gammaPats c`. -/
+def fnTextOf (c : Semantics) (us : List AxiomDecl) : List AxiomDecl := fnTextFrom (clauseKeys c) us
 
 kernel_rfl fnItems_withHooks : ∀ (c : Semantics) (H : HookParams), fnItems (c.withHooks H) = fnItems c
 kernel_rfl ruleItems_withHooks : ∀ (c : Semantics) (H : HookParams), ruleItems (c.withHooks H) = ruleItems c
