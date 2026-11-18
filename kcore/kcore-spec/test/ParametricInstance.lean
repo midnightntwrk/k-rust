@@ -16,6 +16,11 @@
     `idp{K}` a total function, `idp{Int}` a total parameter.
   - `parsel` with the rule's application at a sort the text does not declare: refused at the rule
     (`parametricSymbol`).
+  On the three read texts the attributes agree, each part of `attrsAgree` true (the verdict's
+  `attrs`: `ctors`, `fns`, `hooks`, `colls`, `prios`): `prios` compares an instance's clauses with
+  the text's equations at that instance's sort arguments (`AttrsAgree.eqnsOf`, `instHeadName`),
+  which name it as the reader names it (`instHeadName_eq_instName`). parsel-tot's `functional`
+  axiom, quantified over the sort variable, is no equation and is not compared.
 -/
 import KcoreSpec
 
@@ -34,13 +39,15 @@ def verdict (path : String) (edit : String → String := id) : IO String := do
       | .ok d =>
         let fns := d.sem.fns.map fun f => (d.sem.symName f.label, f.clauses.length, f.total)
         let ps := (withPres d.sem.params d.pres.params).map fun (p, pp) => (d.sem.symName p.sig.name, pp.total)
-        s!"read; fns {fns}; params {ps}; unaccounted {(Parse.unconsumed k d).map (·.detail)}; coreOK {d.sem.coreOK}"
+        let attrs := [AttrsAgree.ctors k d.sem, AttrsAgree.fns k d.sem, AttrsAgree.hooks k d.sem,
+          AttrsAgree.colls k d.sem, AttrsAgree.prios k d]
+        s!"read; fns {fns}; params {ps}; unaccounted {(Parse.unconsumed k d).map (·.detail)}; coreOK {d.sem.coreOK}; attrs {attrs}"
       | .error r => s!"{r.reason.name} {r.detail}"
 
 /--
-info: read; fns [(Lblsel{K}, (2, false))]; params [(Lblsel{Int}, false)]; unaccounted []; coreOK true
-read; fns [(Lblsel{Int}, (2, false))]; params []; unaccounted []; coreOK true
-read; fns [(Lblidp{K}, (1, true))]; params [(Lblidp{Int}, true)]; unaccounted []; coreOK true
+info: read; fns [(Lblsel{K}, (2, false))]; params [(Lblsel{Int}, false)]; unaccounted []; coreOK true; attrs [true, true, true, true, true]
+read; fns [(Lblsel{Int}, (2, false))]; params []; unaccounted []; coreOK true; attrs [true, true, true, true, true]
+read; fns [(Lblidp{K}, (1, true))]; params [(Lblidp{Int}, true)]; unaccounted []; coreOK true; attrs [true, true, true, true, true]
 parametricSymbol Lblsel
 -/
 #guard_msgs in
@@ -50,3 +57,30 @@ parametricSymbol Lblsel
   IO.println (← verdict "f2-examples/parsel-tot.kompile.kore")
   IO.println (← verdict "f2-examples/parsel.kompile.kore" fun s =>
     s.replace "Lblsel{SortInt{}}" "Lblsel{SortNope{}}")
+
+/-- The sort argument's name is the reader's (`sortName?`). -/
+theorem instSortName_eq_sortName? (s : Kore.KSort) :
+    AttrsAgree.instSortName s = KoreAML.Parse.sortName? s := by
+  cases s with
+  | var => rfl
+  | ctor h as => cases as <;> rfl
+
+/-- The name `prios` gives an equation's head at sort arguments is the name the reader gives that
+instance of a sort-parametric symbol (`Parse.instName`). -/
+theorem instHeadName_eq_instName (h : Kore.SymbolIdent) (ss : List Kore.KSort) :
+    AttrsAgree.instHeadName h ss = (ss.mapM KoreAML.Parse.sortName?).map (Parse.instName h.ident.name) := by
+  have e : AttrsAgree.instSortName = KoreAML.Parse.sortName? := funext instSortName_eq_sortName?
+  simp only [AttrsAgree.instHeadName, e]; rfl
+
+/-- The kernel reduces the instance's name at a literal head. -/
+example : AttrsAgree.instHeadName ⟨⟨"Lblsel"⟩⟩ [.ctor ⟨⟨"SortK"⟩⟩ [], .ctor ⟨⟨"SortInt"⟩⟩ []] =
+    some "Lblsel{K,Int}" := by decide +kernel
+
+example (R : Kore.SortVar) : AttrsAgree.instHeadName ⟨⟨"Lblsel"⟩⟩ [.var R] = none := rfl
+
+/-- An equation at `sel{SortK{}}` is one of `sel{K}` and of the declared `sel`, not of `sel{Int}`. -/
+example :
+    let k : Kore.KSort := .ctor ⟨⟨"SortK"⟩⟩ []
+    let e : Kore.Pattern := .equals k k (.app ⟨⟨"Lblsel"⟩⟩ [k] []) (.app ⟨⟨"Lblx"⟩⟩ [] [])
+    AttrsAgree.eqnHeadIs "Lblsel{K}" e = true ∧ AttrsAgree.eqnHeadIs "Lblsel" e = true ∧
+      AttrsAgree.eqnHeadIs "Lblsel{Int}" e = false := by decide +kernel
