@@ -22,6 +22,12 @@
 
   The extensions vary the existential variables the left side does not hold, the list
   `cl.exs.filter (!cl.leftVars.contains ·)`; under `clauseExOK` it is `cl.exs`.
+
+  `exs_values_hr` is the statement with the constructors' facts in place of the soundness of
+  `EvalTerm`: each truth value of `post` comes with the readings of the terms it evaluates
+  (`HoldsRead`). `fixes_value_hr` asks a truth value at the substitutions that are σ beyond the
+  variables in scope, which are extensions of σ as they stand. `exs_values` is it where `EvalTerm`
+  is sound in the model.
 -/
 import KcoreSpec.FixesValue
 import KcoreSpec.CondTwoTables
@@ -55,14 +61,15 @@ theorem lookup_overEV (σ σ₁ : Subst) (n i : Nat) :
 
 /-- **An element valuation that extends a match of values and satisfies `post` gives each
 existential variable a value's element**, where `post` has a truth value at every extension of the
-match by values and one such extension exists. -/
-theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
-    (hT : TermSound c I) {cl : Clause} (hs : c.clauseExOK cl = true)
+match by values, with the reading in I of each term it evaluates (`HoldsRead`), and one such
+extension exists. Asked of I: the constructors' facts (`N`), not the soundness of `EvalTerm`. -/
+theorem exs_values_hr (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (N : NodeFacts c I) {cl : Clause} (hs : c.clauseExOK cl = true)
     (hb : Cond.bound c cl.vars.length cl.post = true) (hp : c.clausePlainEx cl = true)
     {σ : Subst} (hσ : c.WellSortedAt cl.vars cl.univ σ)
     (hsome : ∃ σ', AgreeOff (cl.exs.filter (!cl.leftVars.contains ·)) σ σ' ∧ c.WellSorted cl.vars σ')
     (hdec : ∀ σ', AgreeOff (cl.exs.filter (!cl.leftVars.contains ·)) σ σ' → c.WellSorted cl.vars σ' →
-      ∃ b, Holds c cl.vars.length σ' cl.post b)
+      ∃ b, HoldsRead c I cl.vars.length σ' cl.post b)
     {tbl : KoreAML.VarTable} {e : Valuation M} {S : Srt}
     (hag : ∀ i ∈ cl.univ, ∀ v, σ.lookup i = some v →
       ∀ m, m = e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i)) ↔ (den c v).interpret I e m)
@@ -75,7 +82,6 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
       (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c cl.vars) (srtOf c S) cl.post)).interpret I e a) :
     ∀ i ∈ cl.exs, Witnessed c I tbl (canonVars c cl.vars) cl.vars e i := by
   have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
-  have F : AtomFacts c I := atomFacts_of_core h hIc hT
   simp only [Semantics.clauseExOK, Bool.and_eq_true] at hs
   obtain ⟨⟨⟨hlt, -⟩, hleft⟩, hok⟩ := hs
   have hlt : ∀ i ∈ cl.exs, i < cl.vars.length := fun i hi => of_decide_eq_true (List.all_eq_true.mp hlt i hi)
@@ -114,36 +120,23 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
     obtain ⟨σ', -, hw⟩ := hsome
     exact ⟨σ', hw⟩
   -- `post` has a truth value at a substitution of values that agrees with the valuation on the
-  -- variables that are not existential: on the variables in scope it is an extension of σ
+  -- variables that are not existential and is σ beyond the variables in scope: an extension of σ
   have hdecG : ∀ (ok : Nat → Bool), (∀ j, j < cl.vars.length → j ∉ cl.exs → ok j = true) → ∀ σ₁,
-      c.WellSorted cl.vars σ₁ → AtElems c I tbl cl.vars e ok (fun _ => True) σ₁ → ∃ b, Holds c cl.vars.length σ₁ cl.post b := by
-    intro ok hokU σ₁ hσ₁ hat
-    have hl₁ : ∀ j, j < cl.vars.length → ∃ v, σ₁.lookup j = some v ∧ c.sortOf v = some (cl.vars.getD j 0) :=
-      fun j hj => hσ₁ j _ (hsj j hj)
-    have hl₂ : ∀ j, j < cl.vars.length →
-        (((List.range cl.vars.length).map fun j => (j, (σ₁.lookup j).getD default)) ++ σ).lookup j = σ₁.lookup j :=
-      fun j hj => by
-        obtain ⟨v, hv, -⟩ := hl₁ j hj
-        simp [lookup_overEV, hj, hv]
-    obtain ⟨b, hb⟩ := hdec (((List.range cl.vars.length).map fun j => (j, (σ₁.lookup j).getD default)) ++ σ)
-      (fun i hi => by
-        by_cases hil : i < cl.vars.length
-        · rw [hl₂ i hil]
-          obtain ⟨v, hv, hsv, hev⟩ := hunivV i hil hi
-          obtain ⟨v₁, hv₁, hev₁⟩ := hat i (hokU i hil hi) trivial hil
-          have hev₁ : elemOf c I v₁ = e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i)) := hev₁
-          obtain ⟨v₁', hv₁', hsv₁⟩ := hl₁ i hil
-          rw [hv₁] at hv₁'; cases hv₁'
-          have hd : (den c v₁).interpret I e (elemOf c I v) := by
-            rw [hev, ← hev₁]
-            exact ((elemOf_spec hI hsv₁ e).1 _).mpr rfl
-          rw [hv₁, hv, F.apart hsv₁ hsv e _ hd (((elemOf_spec hI hsv e).1 _).mpr rfl)]
-        · simp [lookup_overEV, hil])
-      (fun j s hj => by
-        have hjl : j < cl.vars.length := (List.getElem?_eq_some_iff.mp hj).1
-        rw [hl₂ j hjl]
-        exact hσ₁ j s hj)
-    exact ⟨b, hb.congr_NI fun j hj => hl₂ j (varOccsCond_lt_twoT cl.post hok j hj)⟩
+      (∀ j, cl.vars.length ≤ j → σ₁.lookup j = σ.lookup j) → c.WellSorted cl.vars σ₁ →
+      AtElems c I tbl cl.vars e ok (fun _ => True) σ₁ → ∃ b, HoldsRead c I cl.vars.length σ₁ cl.post b := by
+    intro ok hokU σ₁ htl hσ₁ hat
+    refine hdec σ₁ (fun i hi => ?_) hσ₁
+    by_cases hil : i < cl.vars.length
+    · obtain ⟨v, hv, hsv, hev⟩ := hunivV i hil hi
+      obtain ⟨v₁, hv₁, hev₁⟩ := hat i (hokU i hil hi) trivial hil
+      have hev₁ : elemOf c I v₁ = e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i)) := hev₁
+      obtain ⟨v₁', hv₁', hsv₁⟩ := hσ₁ i _ (hsj i hil)
+      rw [hv₁] at hv₁'; cases hv₁'
+      have hd : (den c v₁).interpret I e (elemOf c I v) := by
+        rw [hev, ← hev₁]
+        exact ((elemOf_spec hI hsv₁ e).1 _).mpr rfl
+      rw [hv₁, hv, N.apart hsv₁ hsv e _ hd (((elemOf_spec hI hsv e).1 _).mpr rfl)]
+    · exact htl i (by omega)
   -- the rounds of `fixedExs`
   have key : ∀ (l acc : List Nat), (∀ i ∈ acc, Witnessed c I tbl (canonVars c cl.vars) cl.vars e i) →
       ∀ i ∈ l.foldl (fun acc _ =>
@@ -162,7 +155,7 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
       rw [Bool.or_eq_true] at hcond
       rcases hcond with hc | hfix
       · exact hacc i (List.contains_iff_mem.mp hc)
-      · refine fixes_value h hrc hIc F (val := fun _ => false) (fun s hs => by cases hs) cl.post _ i cl.vars tbl e S
+      · refine fixes_value_hr h hrc hIc N (val := fun _ => false) (fun s hs => by cases hs) σ cl.post _ i cl.vars tbl e S
           hok (Cond.boundV_of_bound c _ cl.post _ hb) hfix (hlt i hie) hσ0
           (hdecG _ fun j _ hne => by simp [hne]) (fun j hj hjl => ?_)
           (fun j hj => ⟨hkv j hj, hinAll j hj⟩) hk hS hpost
@@ -178,6 +171,33 @@ theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I
   rcases hpi with hc | hf
   · exact hconfW i (hlt i hi) hc
   · exact key _ [] (fun _ hm => nomatch hm) i (List.contains_iff_mem.mp hf)
+
+/-- **An element valuation that extends a match of values and satisfies `post` gives each
+existential variable a value's element**, where `post` has a truth value at every extension of the
+match by values and one such extension exists. -/
+theorem exs_values (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (hT : TermSound c I) {cl : Clause} (hs : c.clauseExOK cl = true)
+    (hb : Cond.bound c cl.vars.length cl.post = true) (hp : c.clausePlainEx cl = true)
+    {σ : Subst} (hσ : c.WellSortedAt cl.vars cl.univ σ)
+    (hsome : ∃ σ', AgreeOff (cl.exs.filter (!cl.leftVars.contains ·)) σ σ' ∧ c.WellSorted cl.vars σ')
+    (hdec : ∀ σ', AgreeOff (cl.exs.filter (!cl.leftVars.contains ·)) σ σ' → c.WellSorted cl.vars σ' →
+      ∃ b, Holds c cl.vars.length σ' cl.post b)
+    {tbl : KoreAML.VarTable} {e : Valuation M} {S : Srt}
+    (hag : ∀ i ∈ cl.univ, ∀ v, σ.lookup i = some v →
+      ∀ m, m = e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i)) ↔ (den c v).interpret I e m)
+    (hin : ∀ i ∈ cl.exs, ∀ s, cl.vars[i]? = some s →
+      (KoreAML.inhOf (sortP (c.sortName s))).interpret I e (e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i))))
+    (hkv : ∀ j, j < cl.vars.length → keyAt (canonVars c cl.vars) j ∈ tbl)
+    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) (srtOf c S) cl.post), k ∈ tbl)
+    (hS : S < nRegSorts + c.sortNames.length)
+    (hpost : ∃ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a ∧
+      (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c cl.vars) (srtOf c S) cl.post)).interpret I e a) :
+    ∀ i ∈ cl.exs, Witnessed c I tbl (canonVars c cl.vars) cl.vars e i := by
+  have F : AtomFacts c I := atomFacts_of_core h hIc hT
+  exact exs_values_hr h hrc hIc F.node hs hb hp hσ hsome
+    (fun σ' ha hw' => by
+      obtain ⟨b, hb'⟩ := hdec σ' ha hw'
+      exact ⟨b, HoldsReadT.of_holds F.termAt cl.post hb'⟩) hag hin hkv hk hS hpost
 
 end ExsValues
 

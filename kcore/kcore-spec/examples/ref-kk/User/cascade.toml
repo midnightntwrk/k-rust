@@ -1,0 +1,53 @@
+# What gen/kkcascade.py emits for kore.k's functions over sorted values (paths relative to kcore-spec).
+package = "examples/ref-kk"
+kore = "RefKk/definition.kore"
+facts = "User/KkFacts.lean"
+module = "User/KkCascade.lean"
+namespace = "KK.Cascade"
+hb = true
+
+# kore.k's list sorts as Lean values (User.KkKit): the constructors that are `[]` and `::` (`tail`:
+# the position of the list's rest among the cons constructor's arguments) or `none` and `some`, the
+# function that gives a value its term, the sort lemma from the elements' sorts, and the names of
+# the cons constructor's arguments in a branch of the cascade.
+[mirror.43] # Ts: `.Ts`, `T ; Ts`
+kind = "list"
+nil = 406
+cons = 407
+tail = 1
+emb = "tsOf"
+sorted = "sort_ts"
+names = ["t", "ts"]
+
+[mirror.39] # Fns: `.Fns`, `fn(G, Cs, Fs)`
+kind = "list"
+nil = 402
+cons = 421
+tail = 2
+emb = "fnsOf"
+sorted = "sort_fns"
+names = ["g", "cs", "fs"]
+
+[mirror.40] # Look: `nofn`, `fnd(Cs)`
+kind = "option"
+none = 432
+some = 422
+emb = "lookOf"
+
+# The functions: the symbol, the name of F (`nameF`), the arguments' names, and the arguments of
+# sort Int taken as terms rather than as Ints (`raw`).
+[[fn]]
+sym = 447
+name = "app"
+args = ["xs", "ys"]
+
+[[fn]]
+sym = 485
+name = "lookup"
+args = ["f", "fs"]
+
+[[fn]]
+sym = 493
+name = "mkInj"
+args = ["a", "b", "t"]
+raw = [0, 1]

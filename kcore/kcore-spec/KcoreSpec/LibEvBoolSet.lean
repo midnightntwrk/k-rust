@@ -41,13 +41,13 @@ def bsEq (flip : Bool) (t u : Term) : SvPred :=
 
 /-- `{notBool @B #Equals b} => {@B #Equals !b}`, each literal first where `flip`. -/
 def boolNotSet (b flip : Bool) : SvEqn :=
-  ⟨[("VarB", Srt.bool)], bsEq flip (.app boolNot [.var 0]) (bsLit b), bsEq flip (.var 0) (bsLit !b)⟩
+  ⟨[("VarB", Srt.bool)], bsEq flip (.app boolNot [.var 0]) (bsLit b), bsEq flip (.var 0) (bsLit !b), []⟩
 
 /-- `{f(@B1, @B2) #Equals b} => {@B1 #Equals b} #And {@B2 #Equals b}`, each literal first where
 `flip`. -/
 def boolBinSet (f : Sym) (b flip : Bool) : SvEqn :=
   ⟨[("VarB1", Srt.bool), ("VarB2", Srt.bool)], bsEq flip (.app f [.var 0, .var 1]) (bsLit b),
-    .and (bsEq flip (.var 0) (bsLit b)) (bsEq flip (.var 1) (bsLit b))⟩
+    .and (bsEq flip (.var 0) (bsLit b)) (bsEq flip (.var 1) (bsLit b)), []⟩
 
 theorem bsEq_holds (c : Semantics) (ρ : Nat → GroundTerm → Prop) (flip : Bool) (t u : Term) :
     (bsEq flip t u).Holds c ρ ↔ ∀ v, svVals c ρ t v ↔ svVals c ρ u v := by

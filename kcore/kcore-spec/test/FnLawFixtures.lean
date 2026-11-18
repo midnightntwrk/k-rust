@@ -213,7 +213,7 @@ theorem sorted : lawSorted c (assocFL pl) = true := by decide +kernel
 
 theorem entries : defn.laws.map (Parse.fnLawEntry c) = [openEntryFL] := by decide +kernel
 
-theorem coreOK_text : c.coreOK = true := by decide +kernel
+theorem coreOK_text : c.coreOK = true := by decide_cheap
 
 /-- The text's one function is `pl` with its clause. -/
 theorem fns_eq : c.fns = [fnOpFL pl intAdd] := by kernel_rfl

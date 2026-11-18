@@ -253,13 +253,13 @@ fn parse(args: &[String]) -> Args {
 }
 
 /// One claim sentence.
-struct RawClaim {
-    module: String,
-    label: String,
+pub(crate) struct RawClaim {
+    pub(crate) module: String,
+    pub(crate) label: String,
     location: String,
     source: String,
     trusted: bool,
-    pattern: P,
+    pub(crate) pattern: P,
 }
 
 fn kstr(s: &k_rust_kore::kore::ast::KoreString) -> String {
@@ -283,7 +283,7 @@ fn attr_string(attrs: &k_rust_kore::kore::ast::Attributes, name: &str) -> Option
     None
 }
 
-fn read_claims(path: &PathBuf) -> Vec<RawClaim> {
+pub(crate) fn read_claims(path: &PathBuf) -> Vec<RawClaim> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let d = k_rust_kore::kore::parser::parse_definition(&text)
         .unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
@@ -330,13 +330,13 @@ fn read_claims(path: &PathBuf) -> Vec<RawClaim> {
 }
 
 /// The parts of a claim formula.
-struct Parts<'p> {
-    lhs: &'p P,
-    requires: Vec<&'p P>,
-    all_path: bool,
-    existentials: Vec<(String, String)>,
-    rhs: &'p P,
-    ensures: Vec<&'p P>,
+pub(crate) struct Parts<'p> {
+    pub(crate) lhs: &'p P,
+    pub(crate) requires: Vec<&'p P>,
+    pub(crate) all_path: bool,
+    pub(crate) existentials: Vec<(String, String)>,
+    pub(crate) rhs: &'p P,
+    pub(crate) ensures: Vec<&'p P>,
 }
 
 fn is_pred(p: &P) -> bool {
@@ -368,7 +368,7 @@ fn split_and<'p>(p: &'p P, terms: &mut Vec<&'p P>, preds: &mut Vec<&'p P>) {
     }
 }
 
-fn parts(p: &P) -> Result<Parts<'_>, String> {
+pub(crate) fn parts(p: &P) -> Result<Parts<'_>, String> {
     let P::Implies(_, l, r) = p else {
         return Err("claim is not an implication".into());
     };

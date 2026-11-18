@@ -85,6 +85,72 @@ def regSig (φ : KoreAML.P) : Bool :=
   ss.any (fun s => φ == (KoreAML.sortConstantItem (sortDeclOf c s)).pat) ||
   hookSigs.any (fun h => ks.contains h.name && φ == (symArityItem c h).pat)
 
+/-- `consItemsK c` with the subsorts `sub`, the order `le` and the common lower bounds `lb` as
+arguments: at `c.subsorts`, `c.le` and `c.lowerBounds` it is `consItemsK c`
+(`consItemsK_eq_withCdp`). -/
+def consItemsKWithCdp (sub : List (Srt × Srt)) (le : Srt → Srt → Bool) (lb : Srt → Srt → List Srt) :
+    List KoreAML.Item :=
+  let n := c.sortName
+  let ovlArgs := fun (g : Gen) => match g with
+    | .ctor k => if c.isOvl k.name then (c.lookupOvl k.name).map fun o => (c.ovlOver o).map fun kg => kg.args.map n
+      else none
+    | .inj _ => none
+  let perSort := (consSorts c).flatMap fun N =>
+    let gs := c.gens N
+    let fr := gs.filter (!c.isOpenGen ·)
+    (fr.map fun g =>
+      if c.fnOvl g then KoreAML.Cons.funUncItem (n N) (Gen.toK c g) ((ovlArgs g).getD [])
+      else KoreAML.Cons.funItem (n N) (Gen.toK c g)) ++
+    ((fr.filter fun g => !(Gen.toK c g).argSorts.isEmpty).map fun g =>
+      if c.fnOvl g then KoreAML.Cons.injUncItem (n N) (Gen.toK c g) ((ovlArgs g).getD [])
+      else KoreAML.Cons.injItem (n N) (Gen.toK c g)) ++
+    (pairs fr).flatMap (fun (g, g') => match g, g' with
+      | .inj a, .inj b =>
+        if le a b || le b a then []
+        else match lb a b with
+          | [] => [KoreAML.Cons.distItem (n N) (Gen.toK c g) (Gen.toK c g')]
+          | lbs => [distLbItem (n N) (n a) (n b) (lbs.map n)]
+      | _, _ =>
+        if c.distGuarded g g' then
+          [KoreAML.Cons.distUncItem (n N) (Gen.toK c g) (Gen.toK c g') (ovlArgs g) (ovlArgs g')]
+        else [KoreAML.Cons.distItem (n N) (Gen.toK c g) (Gen.toK c g')]) ++
+    (if gs.isEmpty then [] else [KoreAML.Cons.noJunkItem (n N) (gs.map (Gen.toK c))])
+  let coh := sub.flatMap fun (a, b) =>
+    (sub.filter (·.1 == b)).map fun (_, e) => KoreAML.Cons.cohItem (n a) (n b) (n e)
+  let ovlEqs := c.ovls.flatMap fun o => (c.ovlOver o).map fun kg => KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)
+  perSort ++ coh ++ ovlEqs ++ lawItemsK c
+
+theorem consItemsK_eq_withCdp : consItemsK c = consItemsKWithCdp c c.subsorts c.le c.lowerBounds := rfl
+
+/-- `consItemsK c` computed with `c.subsorts`, its first sorts and each sort's supersorts
+(`NatMap.group`) built once per call, where `Semantics.le` and `Semantics.lowerBounds` build the
+subsorts again at each comparison (`lowerBounds` at each sort it tries). The compiled code computes
+`consItemsK` as it (`consItemsK_eq_fastCdp`), so that `listsB` and the code after it here read
+`consItemsK` at that cost. -/
+def consItemsKFastCdp : List KoreAML.Item :=
+  let sub := c.subsorts
+  let up := NatMap.group sub
+  let cands := (sub.map (·.1)).eraseDups
+  consItemsKWithCdp c sub (fun a b => a == b || (NatMap.succs up a).contains b)
+    (fun a b => sortBy id (cands.filter fun s => (NatMap.succs up s).contains a && (NatMap.succs up s).contains b))
+
+/-- `consItemsKFastCdp` is `consItemsK`: the supersorts trie holds exactly the subsort pairs
+(`NatMap.mem_group`). -/
+@[csimp] theorem consItemsK_eq_fastCdp : @consItemsK = @consItemsKFastCdp := by
+  funext c
+  have hup : ∀ a b, (NatMap.succs (NatMap.group c.subsorts) a).contains b = c.subsorts.contains (a, b) := by
+    intro a b
+    rw [Bool.eq_iff_iff, List.contains_iff_mem, List.contains_iff_mem, NatMap.mem_group]
+  have hle : (fun a b => a == b || (NatMap.succs (NatMap.group c.subsorts) a).contains b) = c.le := by
+    funext a b; simp only [hup, Semantics.le]
+  have hlb : (fun a b => sortBy id (((c.subsorts.map (·.1)).eraseDups).filter fun s =>
+      (NatMap.succs (NatMap.group c.subsorts) s).contains a &&
+        (NatMap.succs (NatMap.group c.subsorts) s).contains b)) = c.lowerBounds := by
+    funext a b; simp only [hup, Semantics.lowerBounds]
+  show consItemsK c = consItemsKWithCdp c c.subsorts _ _
+  rw [hle, hlb]
+  exact consItemsK_eq_withCdp c
+
 /-- The parts of the theory that are lists. -/
 def listsB : Bool :=
   (sigItems c).all (fun it => clean c ss ks it.pat || regSig c ss ks it.pat) &&

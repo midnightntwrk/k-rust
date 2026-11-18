@@ -53,7 +53,7 @@ variables of the pattern at `R`, an element of `σr` is in `Cond.kore … R p` e
 `true`. -/
 theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {p : Cond}
     {vars : List Srt} {P : Nat → Prop} {σ : Subst} {b : Bool} {tbl : KoreAML.VarTable} {e : Valuation M}
-    (hp : HoldsAt c I vars.length σ p b) (hσ : c.WellSorted vars σ)
+    (hp : HoldsAt c I vars.length σ p b)
     (hok : c.condOK vars p = true) (hbd : Cond.bound c vars.length p = true)
     (hP : ∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) (hr : Reads c I vars P σ tbl e)
     (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) KoreAML.R p), k ∈ tbl)
@@ -72,7 +72,7 @@ theorem holdsAt_atR (F : NodeFacts c I) (hT : TermsInSort c I) {p : Cond}
     exact ⟨(hr i hPi).2.1, inhOf_srtOf_inS.mp (hr.inSortN F hPi)⟩
   rw [cond_crossAt F.defOK F.ceilDef F.sort hT hτS hσS hσr p hok hk hRm hf hRe a a0 ha
     ((KoreAML.interp_inhOf_of (hτS tbl e)).mp ha0)]
-  exact hp rfl hσ hok hbd hP hr (fun k hk0 => hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) p _ k hk0))
+  exact hp rfl hok hbd hP hr (fun k hk0 => hk k (condKore_varsOf_resort (sortVarsOf_srtOf c Srt.bool) p _ k hk0))
     hS a0 ha0
 
 /-- **A clause's predicate is read in I** (`PreRead`): in an interpretation with the constructors'
@@ -108,7 +108,7 @@ theorem preRead_of {cl : Clause} (F : NodeFacts c I) (G : hasBinder cl.pre = tru
       · rw [hsv, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi']; rfl
       · rw [hkey i hi]; exact hrd i (hocc i hi) v hv
     rw [← hkore]
-    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hσ hokV (by rw [hlen]; exact hbd) (fun i hi _ => hi) hr
+    exact holdsAt_atR F hT (by rw [hlen]; exact hH) hokV (by rw [hlen]; exact hbd) (fun i hi _ => hi) hr
       (by rw [hkore]; exact hk) hRm hR hσr a ha
   toBool := by
     intro tbl tbl' e e' σr m mB hk hRm hk' hf hR hσr hm hmB h
