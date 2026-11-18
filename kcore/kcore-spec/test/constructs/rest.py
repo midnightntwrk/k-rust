@@ -715,7 +715,8 @@ def self_test():
               "lists": [[4, 0, "symbol", "constructor,comm", "Source(BUILTIN/kast.md)", "Location(80,3,80,20)"],
                         [4, 1, "axiom", "UNIQUE'Unds'ID", "-", "-"], [None, None, "module", "", "-", "-"],
                         [4, 2, "sort", "", "Source(/nix/store/x-k-6.0.0-y/include/kframework/builtin/domains.md)",
-                         "Location(900,1,900,9)"]]}
+                         "Location(900,1,900,9)"],
+                        [4, 3, "sort", "", "Source(FIXTURE/x/other.md)", "Location(1,1,1,9)"]]}
         fake = lambda ps: {p: (1, [], [f"t: {h}" for h in kfix.absent_hits(p, sm)])
                            if kfix.absent_form(p) else None for p in ps}
         fx.check_absent = lambda e: kfix.check_absent(e, fake)
@@ -755,6 +756,7 @@ def self_test():
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source kast.md 70-90"}, False),
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source kast.md 100-200"}, True),
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source domains.md 1-5"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source other.md 1-5"}, False),
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "module other than BASIC-K, KSEQ, K and the main module"}, False),
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "no sentence holds it"}, False),
             # O: the witness in other.txt and not in definition.kore
