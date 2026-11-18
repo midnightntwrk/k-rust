@@ -85,6 +85,7 @@ of sort `s`, `∃y:s. y = L()`. -/
 theorem functional_const {c : Semantics} {Nm : Names} {msrc : String} {eqs : List RawEqn} {names order : List String}
     {base : String → List GroundTerm → Option GroundTerm} {I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem}
     (hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order base) I)
+    (hc : c.coreOK = true)
     (hR : armRankB order eqs = true) (hord : order.all names.contains = true) {funcs : List String}
     {cells : List Cell} {L : String}
     (hok : (cells.find? (·.initLabel c == L)).any (fun x => initFunctionalOK Nm msrc eqs funcs c x && x.initLabel c == L) = true)
@@ -97,7 +98,7 @@ theorem functional_const {c : Semantics} {Nm : Names} {msrc : String} {eqs : Lis
     rw [hx] at hok
     simp only [Option.any_some, Bool.and_eq_true, beq_iff_eq] at hok
     obtain ⟨hok, hxL⟩ := hok
-    obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := base) hM hR hord hok (hxL ▸ hL)
+    obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := base) hM hc hR hord hok (hxL ▸ hL)
     rw [hxL] at he
     have hxl : xs = [] := by
       unfold armAr at har; rw [he] at har
@@ -273,7 +274,7 @@ theorem eqns :
   obtain ⟨ar1, ar2, ar3⟩ := arities
   obtain ⟨hw1, htop, hctr, nCtr⟩ := sorts
   have sw := sorted2 hw1 htop
-  have fCtr := functional_const hM rank hord ctrFunctional.2 o3 ar3 r3 hctr ⟨1⟩
+  have fCtr := functional_const hM coreOK rank hord ctrFunctional.2 o3 ar3 r3 hctr ⟨1⟩
   rw [nCtr] at fCtr
   have hfx := idFunctional
   cases hx : cells.find? (·.initLabel c == initId) with
@@ -282,16 +283,16 @@ theorem eqns :
   rw [hx] at hfx
   simp only [Option.any_some, Bool.and_eq_true, beq_iff_eq] at hfx
   obtain ⟨hok, hxL⟩ := hfx
-  obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := armBase c eqs) hM rank hord hok (hxL ▸ o1)
+  obtain ⟨e, xs, he, hxs, hall⟩ := init_arm_functional (base := armBase c eqs) hM coreOK rank hord hok (hxL ▸ o1)
   rw [hxL] at he
   have hrhs := idRhs
   rw [he] at hrhs
   simp only [Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq] at hrhs
   obtain ⟨hv, hval⟩ := hrhs
   refine ⟨last_eq, env_eq, eqs_eq, funcs_eq, noIdFunctional, I, hM.sat,
-    init_arm_at hM rank hord a3 o3 (ws := []) ar3.symm sorted0 r3, fCtr,
-    init_arm_at hM rank hord a1 o1 (ws := [w1, topV]) ar1.symm sw r1,
-    init_arm_at hM rank hord a2 o2 (ws := [w1, topV]) ar2.symm sw r2,
+    init_arm_at hM coreOK rank hord a3 o3 (ws := []) ar3.symm sorted0 r3, fCtr,
+    init_arm_at hM coreOK rank hord a1 o1 (ws := [w1, topV]) ar1.symm sw r1,
+    init_arm_at hM coreOK rank hord a2 o2 (ws := [w1, topV]) ar2.symm sw r2,
     ⟨e, xs, he, hxs, fun ws hl hws y => ?_⟩, hstep⟩
   have hl' : ws.length = xs.length := by
     rw [hl, ← ar1]; unfold armAr; rw [he]
