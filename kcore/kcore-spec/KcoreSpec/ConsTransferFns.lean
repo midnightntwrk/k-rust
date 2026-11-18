@@ -283,11 +283,14 @@ theorem rfrag_prioEquation_fn (hB : S ("Sort" ++ "Bool")) {f : Fn} {cl : Clause}
       exact kfrag_kore_fg c _ t) (kfrag_koreList_fg c _ _)
   have heq : ∀ prem, RFrag S prem → RFrag S (.implies KoreAML.R prem
       (.equals (KoreAML.srt (c.sortName f.result)) KoreAML.R
-        (KoreAML.ap (c.symName f.label) (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))))
+        (symApp c f.label (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))))
         (.and (KoreAML.srt (c.sortName f.result)) [Term.kore c (canonVars c cl.vars) cl.rhs,
           reqPat (srtOf c f.result) (cl.ens.map (Term.kore c (canonVars c cl.vars)))]))) := fun prem hp =>
     .implies hp (.equals (ha _ (List.mem_cons_self ..))
-      (.app (fun s hs => absurd hs List.not_mem_nil) (kfrag_numbered_fn "X" _ 0))
+      (by
+        unfold symApp; split
+        · exact .app (fun s hs => by rw [List.mem_singleton.mp hs]; exact ⟨_, rfl⟩) (kfrag_numbered_fn "X" _ 0)
+        · exact .app (fun s hs => absurd hs List.not_mem_nil) (kfrag_numbered_fn "X" _ 0))
       (.and fun p hp => by
         rcases mem_two hp with rfl | rfl
         · exact kfrag_kore_fg c _ _

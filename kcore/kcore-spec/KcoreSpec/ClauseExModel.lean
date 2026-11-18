@@ -251,8 +251,7 @@ theorem sat_eqnRightEx (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {v
     unfold eqConclEx
     rw [KoreAML.freeOf]
     refine List.mem_append_left _ ?_
-    unfold KoreAML.ap
-    rw [KoreAML.freeOf]
+    rw [freeOf_symApp]
     have := X_mem_call _ 0 j s hj
     rwa [Nat.zero_add] at this
   have hXk : ∀ j s, (fn.args.map c.sortName)[j]? = some s →
@@ -263,9 +262,7 @@ theorem sat_eqnRightEx (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {v
     unfold eqConclEx
     rw [KoreAML.varsOf]
     refine List.mem_append_left _ (List.mem_append_right _ ?_)
-    unfold KoreAML.ap
-    rw [KoreAML.varsOf]
-    refine List.mem_append_right _ ?_
+    refine mem_varsOf_symApp _ _ ?_
     have := X_mem_varsOf_call _ 0 j s hj
     rwa [Nat.zero_add] at this
   obtain ⟨ws, hws⟩ := argsAt_of (tbl := tbl) (e := e) (fun s hs => hfs s (List.mem_cons_of_mem _ hs)) (fun j hj => by

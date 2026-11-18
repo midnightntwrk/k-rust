@@ -379,7 +379,14 @@ def withCompFG (L : List Clause) (n q : P) : P := if L.isEmpty then q else sAnd 
 
 /-- The equations' left side `f(X0, …)`. -/
 def headFG (c : Semantics) (f : Fn) : Kore.Pattern :=
-  ap (c.symName f.label) (KoreAML.vars (numbered "X" 0 (f.args.map c.sortName)))
+  symApp c f.label (KoreAML.vars (numbered "X" 0 (f.args.map c.sortName)))
+
+/-- The variables of an application `symApp` writes are its arguments': the sort argument of a
+symbol named like `ite` at a sort is a sort constant. -/
+theorem varsOf_symAppFG (c : Semantics) (f : Sym) (ps : List Kore.Pattern) :
+    KoreAML.varsOf (symApp c f ps) = KoreAML.varsOfList ps := by
+  unfold symApp; split <;>
+    simp [KoreAML.varsOf, KoreAML.sortVarsOfList, KoreAML.sortVarsOf, KoreAML.srt]
 
 /-- The axiom of a clause's equation, as `prioEquation` writes it. -/
 def prioAxFG (c : Semantics) (f : Fn) (cl : Clause) : Kore.Axiom :=
@@ -435,8 +442,9 @@ theorem head_sub_premFG (hlen : pats.length = f.args.length) :
   have hl : (f.args.map c.sortName).length ≤ (Term.koreList c (canonVars c vars) pats).length := by
     rw [koreList_length, List.length_map, hlen]; exact Nat.le_refl _
   unfold headFG premFG KCore.premise
-  simp only [KoreAML.ap, KoreAML.varsOf, KoreAML.freeOf, KoreAML.sortVarsOfList, List.nil_append,
-    KoreAML.varsOfList, KoreAML.freeOfList, List.append_nil, List.mem_append]
+  rw [varsOf_symAppFG, freeOf_symApp]
+  simp only [KoreAML.varsOf, KoreAML.freeOf, KoreAML.varsOfList, KoreAML.freeOfList,
+    List.append_nil, List.mem_append]
   exact ⟨fun k hk => Or.inr (Or.inr (argsConj_XvarsFG 0 _ _ hl k hk)),
     fun k hk => Or.inr (argsConj_XfreeFG 0 _ _ hl k hk)⟩
 
