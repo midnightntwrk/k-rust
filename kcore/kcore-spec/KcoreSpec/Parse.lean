@@ -393,8 +393,10 @@ inductive RefusalReason where
   | symbolAttrUnkeyed
   /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
   applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
-  states a sort other than s at its head (`rhsSorted`): an `\and` or `\or` at another sort, or an
-  `\equals{S1,S2}` whose result sort S2 is not s. In a valid KORE pattern the sort of each
+  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or` or `\exists` at another
+  sort, an `\exists{s}` whose body states another sort than s (its pattern argument is of the
+  sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result sort S2 is not s.
+  In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
   parameter"), so the sentence is no valid KORE axiom. The reader drops these sorts when it lifts
@@ -1734,13 +1736,14 @@ mutual
 end
 
 mutual
-  /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}` or
-  `\and{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the operands of such
-  an `\or` and `\and`. An application, a variable, a domain value and the other connectives are
-  not looked at. -/
+  /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
+  `\and{s'}` or `\exists{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the
+  operands of such an `\or` and `\and` and the body of such an `\exists`. An application, a
+  variable, a domain value and the other connectives are not looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
+    | .exist s' _ p => decide (s' = s) && rhsOpSort s p
     | .equals _ s' _ _ => decide (s' = s)
     | _ => true
     termination_by structural p => p
@@ -1772,6 +1775,7 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .or s _ => some ("\\or", s)
   | .and s _ => some ("\\and", s)
   | .equals _ s _ _ => some ("\\equals", s)
+  | .exist s _ _ => some ("\\exists", s)
   | _ => none
 
 /-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
@@ -1783,11 +1787,12 @@ def rhsOpFault? (conn : String) (s : Kore.KSort) (ps : List Kore.Pattern) : Opti
 
 mutual
   /-- Where `rhsSorted` fails, the first connective (outermost first) with an operand of another
-  sort, named (`rhsOpFault?`). -/
+  sort, or an `\exists` whose body states another sort, named (`rhsOpFault?`). -/
   def rhsSortFault? : Kore.Pattern → Option String
     | .app _ _ ps => rhsSortFaultList? ps
     | .and s ps => (rhsOpFault? "\\and" s ps).orElse fun _ => rhsSortFaultList? ps
     | .or s ps => (rhsOpFault? "\\or" s ps).orElse fun _ => rhsSortFaultList? ps
+    | .exist s _ p => (rhsOpFault? "\\exists" s [p]).orElse fun _ => rhsSortFault? p
     | _ => none
     termination_by structural p => p
   def rhsSortFaultList? : List Kore.Pattern → Option String
