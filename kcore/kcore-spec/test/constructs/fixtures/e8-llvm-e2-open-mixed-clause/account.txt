@@ -31,6 +31,7 @@ functions declared [total] whose totality no decider confirms (the package's tot
 functions with an equation holding a variable its arguments and conditions do not bind, of a sort without an exhibited value (the package's held_named, Semantics.heldObligations; not a condition of wf or coreOK: owed for each is that every such variable's sort has a value, or that the function has a result at every argument list, a value where it is [total]): 0: 
 open generators, whose laws and values at every argument list are owed at each interpretation H (OpenLaws and OpenTotal of defn.sem.withHooks H, hypotheses of every statement; not a condition of wf or coreOK): 1: and
 functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
+clauses whose predicate is not \top (Semantics.clausesPreTop false; not a condition of coreOK: the named facts give FnHyp only where every clause's predicate is \top, so the --core package's statements take FnHyp itself as a hypothesis): 1: first clause 0
 parse: ok; wf false; failing: [clauses' premise predicates \top (clausesPreTop): the checks outside coreOK read no clause predicate]
 coreOK: true; failing: []
 refused by the account: 0
