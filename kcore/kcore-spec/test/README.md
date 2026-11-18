@@ -863,8 +863,8 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   its control without the constructor, `coreOK = true`. A library constructor into MInt keeps
   `coreOK`; into RangeMap, a collection sort of the kernel, it fails the third conjunct.
 - `test/ExReader.lean`: the reader on rewrite axioms whose right side is under `\exists`: the
-  kompiled texts of e3-vars, e3-vars-two, e3-vars-bool (read, `exs` in the text's order of nesting)
-  and e3-vars-list (`openRight`); and the binders read by the sentence's scoping on e3-vars' and
+  kompiled texts of e3-vars, e3-vars-two, e3-vars-bool and e3-vars-list (read, `exs` in the text's
+  order of nesting; e3-vars-list's `?V` held under the list's symbols, `heldOccs`); and the binders read by the sentence's scoping on e3-vars' and
   e3-ml-lhs-empty-sort's texts changed by hand: a binder whose name the left side holds is renamed
   apart (`existsRenamedApart`), a binder that binds nothing (absent, at another sort than the
   body's variable, the outer of two, or over an empty right side) is dropped at every sort
@@ -1829,6 +1829,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
   `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
   `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.
+- `test/DetOkM.lean`: coherence and the decider's soundness over `okM` (`Det.coherentAll_of_nil_okM`,
+  `Det.detCond_sound_okM`) at e3-ml-rule-rhs-and-ctor's core with its rule read by `Parse.andRuleOf`
+  (`post := mem X a`), where `ok` is false and `okM` holds.
+- `test/HeldFixtures.lean`: a variable a right side holds under a collection's symbols (HO-1), on the
+  kompiled texts of e3-vars-map, -set, -list, -update and -rangemap (`f2-examples/held*`,
+  `exvarslist`): the
+  reader's verdict, and on its reading before the rules are checked (`Parse.coreBase`) each rule's
+  `openRefusal` against `rulePlainHO1` (`agree true`). Map, set and list are read; the map update
+  (a hooked function) and the range map are refused `openRight` at Int.
 - `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
   inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
   `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,

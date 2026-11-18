@@ -65,6 +65,31 @@ kernel_rfl Definition.wf_withHooks :
 /-- **Determinism up to listed overlaps, for every interpretation of the parameters**, from the
 conditions decided once on the data and the coherence of the clauses of one priority under each
 interpretation (`coherentAll_withHooks_of_nil`, FnExclusive.lean, where every clause is fixed and
+no agreement is named); in a core `okM` accepts. -/
+theorem Det.deterministic_except_all_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hmo : ∀ H, CoherentAll (c.withHooks H)) {T : Tables}
+    (hT : T = tables c) {ix : Det.DetIndex} {ovl : List (Nat × Nat)}
+    (hd : Det.detOKExcept c T ix ovl = true) (H : HookParams) {x y y' : Config (c.withHooks H)}
+    (h : Step (c.withHooks H) x y) (h' : Step (c.withHooks H) x y') :
+    y = y' ∨ ∃ i j, ((i, j) ∈ ovl ∨ (j, i) ∈ ovl) ∧ ∃ (hi : i < c.rules.length) (hj : j < c.rules.length),
+      Det.Applies (c.withHooks H) c.rules[i] x.val ∧ Det.Applies (c.withHooks H) c.rules[j] x.val :=
+  Det.deterministic_except_okM (c := c.withHooks H) ((Semantics.okM_withHooks c H).trans hok)
+    ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr)
+    (hmo H) (hT.trans (tables_withHooks c H).symm) ((Det.detOKExcept_withHooks c T H ix ovl).trans hd) h h'
+
+/-- **Determinism for every interpretation of the parameters**, from the condition decided once on
+the data with no overlaps and coherence under each interpretation, in a core `okM` accepts. -/
+theorem Det.deterministic_all_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hmo : ∀ H, CoherentAll (c.withHooks H)) {T : Tables}
+    (hT : T = tables c) {ix : Det.DetIndex} (hd : Det.detOK c T ix = true) (H : HookParams)
+    {x y y' : Config (c.withHooks H)} (h : Step (c.withHooks H) x y) (h' : Step (c.withHooks H) x y') :
+    y = y' :=
+  (Det.deterministic_except_all_okM hok hsr hmr hmo hT hd H h h').resolve_right
+    fun ⟨_, _, hm, _⟩ => by rcases hm with hm | hm <;> cases hm
+
+/-- **Determinism up to listed overlaps, for every interpretation of the parameters**, from the
+conditions decided once on the data and the coherence of the clauses of one priority under each
+interpretation (`coherentAll_withHooks_of_nil`, FnExclusive.lean, where every clause is fixed and
 no agreement is named). -/
 theorem Det.deterministic_except_all {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
     (hmr : c.matchReady = true) (hmo : ∀ H, CoherentAll (c.withHooks H)) {T : Tables}
@@ -73,9 +98,7 @@ theorem Det.deterministic_except_all {c : Semantics} (hok : c.ok = true) (hsr : 
     (h : Step (c.withHooks H) x y) (h' : Step (c.withHooks H) x y') :
     y = y' ∨ ∃ i j, ((i, j) ∈ ovl ∨ (j, i) ∈ ovl) ∧ ∃ (hi : i < c.rules.length) (hj : j < c.rules.length),
       Det.Applies (c.withHooks H) c.rules[i] x.val ∧ Det.Applies (c.withHooks H) c.rules[j] x.val :=
-  Det.deterministic_except (c := c.withHooks H) ((Semantics.ok_withHooks c H).trans hok)
-    ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr)
-    (hmo H) (hT.trans (tables_withHooks c H).symm) ((Det.detOKExcept_withHooks c T H ix ovl).trans hd) h h'
+  Det.deterministic_except_all_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd H h h'
 
 /-- **Determinism for every interpretation of the parameters**, from the condition decided once on
 the data with no overlaps and coherence under each interpretation. -/
@@ -84,8 +107,7 @@ theorem Det.deterministic_all {c : Semantics} (hok : c.ok = true) (hsr : c.srRea
     (hT : T = tables c) {ix : Det.DetIndex} (hd : Det.detOK c T ix = true) (H : HookParams)
     {x y y' : Config (c.withHooks H)} (h : Step (c.withHooks H) x y) (h' : Step (c.withHooks H) x y') :
     y = y' :=
-  (Det.deterministic_except_all hok hsr hmr hmo hT hd H h h').resolve_right
-    fun ⟨_, _, hm, _⟩ => by rcases hm with hm | hm <;> cases hm
+  Det.deterministic_all_okM (Semantics.okM_of_ok hok) hsr hmr hmo hT hd H h h'
 
 /-- **The determinism kind, for an interpretation H of the parameters**: `Det.kind (c.withHooks H)`
 indexed by the pairs of the data's rules (the same list), from the index checked once on the data. -/
@@ -108,6 +130,18 @@ def Det.deciderAll {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
     (Inv : Config (c.withHooks H) → Prop) : (Det.kindAll hmr hT hidx H Inv).Decider where
   cond := Det.detCond c T
   sound p h := Det.detCond_sound ((Semantics.ok_withHooks c H).trans hok)
+    ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr) (hmo H)
+    (hT.trans (tables_withHooks c H).symm) p ((Det.detCond_withHooks c T H p).trans h)
+
+/-- Determinism's decider for `Det.kindAll`: the condition on the data (`detCond` does not read
+`hooks`), sound under every interpretation from the conditions decided once on the data and
+coherence under each interpretation, in a core `okM` accepts. -/
+def Det.deciderAll_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmo : ∀ H, CoherentAll (c.withHooks H)) {hmr : c.matchReady = true} {T : Tables}
+    {hT : T = tables c} {ix : Det.DetIndex} {hidx : Det.idxOK c T ix = true} (H : HookParams)
+    (Inv : Config (c.withHooks H) → Prop) : (Det.kindAll hmr hT hidx H Inv).Decider where
+  cond := Det.detCond c T
+  sound p h := Det.detCond_sound_okM ((Semantics.okM_withHooks c H).trans hok)
     ((Semantics.srReady_withHooks c H).trans hsr) ((Semantics.matchReady_withHooks c H).trans hmr) (hmo H)
     (hT.trans (tables_withHooks c H).symm) p ((Det.detCond_withHooks c T H p).trans h)
 

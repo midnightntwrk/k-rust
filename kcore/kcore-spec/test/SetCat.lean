@@ -121,7 +121,7 @@ def idemClasses (path : String) : IO String := do
   | .ok k =>
     let ss := k.modules.flatMap (·.sentences)
     let cls := ss.filterMap fun s => match s with
-      | .axiom a => if KoreAML.Parse.hasAttr a.attributes "idem" then some (reprStr (Parse.classify s)) else none
+      | .axiom a => if KoreAML.Parse.hasAttr a.attributes "idem" then some (reprStr (Parse.classifyShape s)) else none
       | _ => none
     return toString cls
 

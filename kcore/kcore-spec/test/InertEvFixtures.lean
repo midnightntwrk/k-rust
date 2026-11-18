@@ -60,7 +60,7 @@ theorem law55 (H : HookParams) : EntailsAtValues (cH H) U.ax55 (trS U.ax55).pat 
     (by decide +kernel)
 
 /-- The reader's class of the three sentences. -/
-theorem laws_class : [U.ax53, U.ax54, U.ax55].map (fun ad => Parse.classify (.axiom ad.ax)) =
+theorem laws_class : [U.ax53, U.ax54, U.ax55].map (fun ad => Parse.classifyShape (.axiom ad.ax)) =
     [.inert .collectionLaw, .inert .collectionLaw, .inert .collectionLaw] := by decide +kernel
 
 /-- **The three laws of `_List_` in ens are entailed at values**, for every H. -/
@@ -106,7 +106,7 @@ theorem ax39_text : U.ax39.ax.pattern = iteFunAt (.var ⟨⟨⟨"SortSort"⟩⟩
     U.ax39.ax.sortVars = [Rv, ⟨⟨⟨"SortSort"⟩⟩⟩] := by decide +kernel
 
 /-- The reader's class of sentence 39. -/
-theorem ax39_class : Parse.classify (.axiom U.ax39.ax) = .inert .parametricFunctional := by decide +kernel
+theorem ax39_class : Parse.classifyShape (.axiom U.ax39.ax) = .inert .parametricFunctional := by decide +kernel
 
 /-- Sentence 39 at `SortSort := SortInt{}`. -/
 noncomputable def ax39Int : AxiomDecl :=
@@ -144,7 +144,7 @@ def ax : Kore.Axiom :=
     attributes := [] }
 
 /-- info: "inert vacuousLeft" -/
-#guard_msgs in #eval (Parse.classify (.axiom ax)).name
+#guard_msgs in #eval (Parse.classifyShape (.axiom ax)).name
 
 /-- **The rule with `#Bottom` on its left side is entailed**, for every semantics and every H,
 with any declarations, at any place in a text. -/

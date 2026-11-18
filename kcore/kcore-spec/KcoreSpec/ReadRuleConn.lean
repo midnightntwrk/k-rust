@@ -1,7 +1,8 @@
 /-
   Reading functions for a rewrite axiom that holds a matching-logic connective at a term position
-  under applications, beside the landed reader (Parse.lean). `ruleBody` calls none of them: a text
-  is read as before, and no account changes.
+  under applications, beside the landed reader (Parse.lean). `ruleBody` calls `connRuleBody` nowhere;
+  the cut of a conjunction of terms (`andCut`, `memCond`, `andRuleBody`) is the landed reader's
+  (Parse.lean, where `ruleBody` takes it under the test at reading time `andCutOK`).
 
   A connective φ of sort S at a position `C[·]` under applications is the elements it holds, and an
   application holds the elements its arguments' elements give: `C[φ] = ∃Z:S. C[Z] ∧ Z ∈ φ` for a
@@ -13,7 +14,7 @@
   - `connCut`: a pattern with each maximal connective under applications replaced by a fresh
     variable; on a right side `\or`, `\top` and `\not`, on a left side `\not` (a left side's `\top`
     is a variable of the rule, `lhsBound`, and its `\or` is split, `orSplit`).
-  - `memCond`: `Z ∈ φ` as a condition.
+  - `memCond` (Parse.lean): `Z ∈ φ` as a condition.
   - `connRuleBody`: a rewrite axiom the landed reader refuses, read with its connectives cut: a
     right side's cut variable is an existential variable of the rule (`exs`) and its membership a
     conjunct of `post`; a left side's is a variable of the rule and its membership a conjunct of
@@ -25,12 +26,13 @@
   holds the elements all of the tᵢ hold. Where a conjunct is a variable V it is V where V is in
   each other conjunct, `C[V ∧ u] = C[V] ∧ V ∈ u`; otherwise it is cut as a connective is,
   `C[t₁ ∧ … ∧ tₙ] = ∃Z:S. C[Z] ∧ Z ∈ t₁ ∧ … ∧ Z ∈ tₙ`.
-  - `andCut`: a right side with each maximal conjunction of terms under applications replaced by
-    its first conjunct that is a variable, or by a fresh variable where none is.
-  - `andRuleBody`: a rewrite axiom read with its right side's conjunctions of terms cut: the
-    memberships are `post`, a fresh variable is added to `exs`, and the rule has no `ensures` from
-    the conjunction. `ruleBody` reads the same axiom with the first conjunct at the position and
-    the equality of the conjuncts as an `ensures`.
+  - `andCut` (Parse.lean): a right side with each maximal conjunction of terms under applications
+    replaced by its first conjunct that is a variable, or by a fresh variable where none is.
+  - `andRuleBody` (Parse.lean): a rewrite axiom read with its right side's conjunctions of terms
+    cut: the memberships are `post`, a fresh variable is added to `exs`, and the rule has no
+    `ensures` from the conjunction. `ruleBodyUncut` reads the same axiom with the first conjunct at
+    the position and the equality of the conjuncts as an `ensures`; `ruleBody` takes the cut where
+    `andCutOK` holds (`ReadingNote.andTermsCut`). `andRuleOf` takes it wherever it reads.
 -/
 import KcoreSpec.ReadFns
 
@@ -43,11 +45,6 @@ open KoreAML (Var)
 
 /-- A cut connective: the variable that stands in its place, its sort, the connective. -/
 abbrev ConnCut := Kore.EVar × Kore.KSort × Kore.Pattern
-
-/-- The variable of the n-th cut at the sort s: `Var'Hash'Cut<n>`, primed until no name of `used`
-is it. -/
-def connCutVar (used : List String) (n : Nat) (s : Kore.KSort) : Kore.EVar :=
-  KoreAML.evar (freshIn used (used.length + 1) s!"Var'Hash'Cut{n}") s
 
 mutual
   /-- A pattern at a term position with each maximal connective under applications replaced by a
@@ -74,41 +71,6 @@ mutual
     termination_by structural ps => ps
 end
 
-mutual
-  /-- `Z ∈ φ` for the variable z of the sort s (S in the text) and a pattern φ of that sort: the
-  connective of the memberships in φ's operands, `\top` for `\top{S}` and `\bottom` for
-  `\bottom{S}`, and `mem s Z t` for a term t (`termNoAnd`). A connective at another sort than S is
-  refused `patternConnective`. -/
-  def memCond (N : Names) (z : Nat) (s : Srt) (S : Kore.KSort) (vs : List Var) :
-      Kore.Pattern → Rd (Cond × List Var)
-    | .top S' => if decide (S' = S) then pure (.top, vs) else fail .patternConnective "\\top"
-    | .bottom S' => if decide (S' = S) then pure (.bot, vs) else fail .patternConnective "\\bottom"
-    | .not S' p => if decide (S' = S) then do
-        let (c, vs) ← memCond N z s S vs p
-        pure (.not c, vs)
-      else fail .patternConnective "\\not"
-    | .and S' ps => if decide (S' = S) then do
-        let (cs, vs) ← memCondList N z s S vs ps
-        pure (conjC cs, vs)
-      else fail .patternConnective "\\and"
-    | .or S' ps => if decide (S' = S) then do
-        let (cs, vs) ← memCondList N z s S vs ps
-        pure (disjC cs, vs)
-      else fail .patternConnective "\\or"
-    | p => do
-      let (t, vs) ← termNoAnd N vs p
-      pure (.mem s (.var z) t, vs)
-    termination_by structural p => p
-  def memCondList (N : Names) (z : Nat) (s : Srt) (S : Kore.KSort) (vs : List Var) :
-      List Kore.Pattern → Rd (List Cond × List Var)
-    | [] => pure ([], vs)
-    | p :: ps => do
-      let (c, vs) ← memCond N z s S vs p
-      let (cs, vs) ← memCondList N z s S vs ps
-      pure (c :: cs, vs)
-    termination_by structural ps => ps
-end
-
 /-- The membership of each cut's variable in its connective, and the variables' indices. -/
 def connCutConds (N : Names) : List Var → List ConnCut → Rd (List Cond × List Nat × List Var)
   | vs, [] => pure ([], [], vs)
@@ -119,10 +81,6 @@ def connCutConds (N : Names) : List Var → List ConnCut → Rd (List Cond × Li
     let (ps, is, vs) ← connCutConds N vs cs
     pure (p :: ps, i :: is, vs)
   termination_by structural _ cs => cs
-
-/-- The name of the sort numbered s (`Names.srt?`'s numbering). -/
-def Names.sortNameOf (N : Names) (s : Srt) : String :=
-  if s < nRegSorts then regSortNames.getD s "" else N.sorts.getD (s - nRegSorts) ""
 
 /-- A rewrite axiom's rule, its connectives at term positions cut. An axiom the landed reader
 reads (`ruleBody`) is read by it. Otherwise, for `\rewrites(\and(l, req), \and(r, ens))` with a
@@ -176,115 +134,14 @@ def parseWith (rd : Names → String → Kore.Axiom → Rd (Rule × RulePres)) (
 
 /-! ## A right side's conjunctions of terms -/
 
-/-- A cut conjunction of terms: the variable that stands at its position, the conjunction's sort,
-whether the variable is fresh (no conjunct is a variable), and the conjuncts the variable is in:
-all of them for a fresh variable, the others for a conjunct. -/
-structure AndCut where
-  var : Kore.EVar
-  sort : Kore.KSort
-  fresh : Bool
-  members : List Kore.Pattern
-  deriving DecidableEq
-
-/-- The conjuncts of a conjunction at the sort S, nested conjunctions at S flattened: its terms,
-and its conjuncts `\equals(B, true)` (`isTrueOf?`, which `hoist` reads as conditions). -/
-def andFlat (S : Kore.KSort) : Kore.Pattern → List Kore.Pattern × List Kore.Pattern
-  | .and S' [t, u] =>
-    if decide (S' = S) then
-      match isTrueOf? u, isTrueOf? t with
-      | some _, _ => let (ts, cs) := andFlat S t; (ts, cs ++ [u])
-      | none, some _ => let (ts, cs) := andFlat S u; (ts, cs ++ [t])
-      | none, none =>
-        let (ts, cs) := andFlat S t
-        let (us, ds) := andFlat S u
-        (ts ++ us, cs ++ ds)
-    else ([.and S' [t, u]], [])
-  | p => ([p], [])
-  termination_by structural p => p
-
-/-- The first pattern of the list that is a variable, and the list without it. -/
-def firstVar : List Kore.Pattern → Option (Kore.EVar × List Kore.Pattern)
-  | [] => none
-  | .var (.evar x) :: ps => some (x, ps)
-  | p :: ps => (firstVar ps).map fun (x, qs) => (x, p :: qs)
-
-mutual
-  /-- A right side with each maximal conjunction of two terms or more under applications replaced
-  by a variable: its first conjunct that is a variable, or the n-th fresh variable (`connCutVar`)
-  where none is. A conjunct `\equals(B, true)` stays a conjunct of the variable. The pattern, the
-  next number and the cuts, in the order met. -/
-  def andCut (used : List String) (n : Nat) : Kore.Pattern → Kore.Pattern × Nat × List AndCut
-    | .app h ss ps => let (ps', n, cs) := andCutList used n ps; (.app h ss ps', n, cs)
-    | .and S [t, u] =>
-      match isTrueOf? u, isTrueOf? t with
-      | some _, _ => let (t', n, cs) := andCut used n t; (.and S [t', u], n, cs)
-      | none, some _ => let (u', n, cs) := andCut used n u; (.and S [t, u'], n, cs)
-      | none, none =>
-        let (ts, conds) := andFlat S (.and S [t, u])
-        if ts.length < 2 then (.and S [t, u], n, [])
-        else match firstVar ts with
-          | some (x, us) => (conds.foldl (fun acc b => .and S [acc, b]) (.var (.evar x)), n, [⟨x, S, false, us⟩])
-          | none =>
-            let z := connCutVar used n S
-            (conds.foldl (fun acc b => .and S [acc, b]) (.var (.evar z)), n + 1, [⟨z, S, true, ts⟩])
-    | p => (p, n, [])
-    termination_by structural p => p
-  def andCutList (used : List String) (n : Nat) :
-      List Kore.Pattern → List Kore.Pattern × Nat × List AndCut
-    | [] => ([], n, [])
-    | p :: ps =>
-      let (p', n, cs) := andCut used n p
-      let (ps', n, cs') := andCutList used n ps
-      (p' :: ps', n, cs ++ cs')
-    termination_by structural ps => ps
-end
-
-/-- A rewrite axiom's right side `\exists(x̄, \and(r, en))` with `r`'s conjunctions of terms cut
-(`andCut`); the `ensures` `en` is kept. -/
-def andCutRhs (used : List String) : Kore.Pattern → Kore.Pattern × List AndCut
-  | .exist S x p => let (p', cs) := andCutRhs used p; (.exist S x p', cs)
-  | .and S [r, en] => let (r', _, cs) := andCut used 0 r; (.and S [r', en], cs)
-  | p => (p, [])
-
-/-- The memberships of each cut's variable in its conjuncts, the indices of the fresh variables,
-and the variables. -/
-def andCutConds (N : Names) : List Var → List AndCut → Rd (List Cond × List Nat × List Var)
-  | vs, [] => pure ([], [], vs)
-  | vs, c :: cs => do
-    let (i, vs) ← varIndex vs c.var
-    let s ← N.sortE c.sort
-    let (ms, vs) ← memCondList N i s c.sort vs c.members
-    let (ps, is, vs) ← andCutConds N vs cs
-    pure (ms ++ ps, (if c.fresh then [i] else []) ++ is, vs)
-  termination_by structural _ cs => cs
-
-/-- A rewrite axiom's rule, its right side's conjunctions of terms cut. For
-`\rewrites(\and(l, req), \exists(x̄, \and(r, en)))`, the binders renamed apart as the landed
-reader renames them (`rhsApart`): the axiom with `andCut`'s variables at the conjunctions' places
-is read by the landed reader, so the rule's `ensures` is `en`'s; `post` is the memberships of each
-cut's variable in its conjuncts; the fresh variables are existential variables of the rule, after
-the binders that bind something in the right side as written (`exKept`). An axiom with no such
-conjunction, or of another shape, is read by the landed reader. -/
-def andRuleBody (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
-  match a.pattern with
-  | .rewrites s (.and s' [l, r0]) rx =>
-    let rxA := rhsApart a.pattern l r0 rx
-    let used := evarNames (.rewrites s (.and s' [l, r0]) rxA) ++ evarNames (lhsBound a.pattern l)
-    let (rx', cuts) := andCutRhs used rxA
-    if cuts.isEmpty then ruleBody N msrc a else do
-      let (rule, pres) ← ruleBody N msrc { a with pattern := .rewrites s (.and s' [l, r0]) rx' }
-      let vs : List Var := (pres.names.zip rule.vars).map fun (n, s) => ⟨n, N.sortNameOf s⟩
-      let (post, zs, vs) ← andCutConds N vs cuts
-      let kept := match peelExists rxA with
-        | (xs, .and _ [r, en]) => exKept xs r en
-        | _ => []
-      pure ({ rule with vars := ← varSorts N vs, post := conjC post, exs := exIndices vs 0 kept ++ zs },
-            { pres with names := vs.map (·.name) })
-  | _ => ruleBody N msrc a
-
 /-- The rule of a rewrite axiom, its right side's conjunctions of terms cut (`andRuleBody`). -/
 def andRuleOf (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   Rd.within (.sentence (.axiom a)) (andRuleBody N msrc a)
+
+/-- The rule of a rewrite axiom read without the cut of its right side's conjunctions of terms
+(`ruleBodyUncut`: a conjunction with the `ensures` of the conjuncts' equality, `andTermsWeaker`). -/
+def ruleOfUncut (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
+  Rd.within (.sentence (.axiom a)) (ruleBodyUncut N msrc a)
 
 /-- With the landed rule reader, `parseWith` is `parse`. -/
 theorem parseWith_ruleOf (k : Kore.Definition) : parseWith ruleOf k = parse k := rfl

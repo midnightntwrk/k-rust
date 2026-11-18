@@ -2741,7 +2741,8 @@ def account (koreFile : String) : IO UInt32 := do
   let off := Parse.preludeLength k
   IO.println s!"{koreFile}: {k.modules.length} modules; prelude {if k.modules.dropLast = preludeModules then "agrees" else "differs: " ++ (Parse.preludeRefusal k).toText}"
   IO.println s!"user module {m.name.ident.name}: {m.sentences.length} sentences"
-  let cls := m.sentences.map fun s => ((Parse.classify s).name, origin s, s)
+  let N := Parse.namesOf k
+  let cls := m.sentences.map fun s => ((Parse.classify N s).name, origin s, s)
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do
     let these := cls.filter fun (c', o', _) => c' == c && o' == o
@@ -2762,7 +2763,7 @@ def account (koreFile : String) : IO UInt32 := do
       | none => pure ()
   let rs := Parse.refusals k
   let classRefused := fun (i : Nat) => match m.sentences[i - off]? with
-    | some s => match Parse.classify s with | .refused _ => true | _ => false
+    | some s => match Parse.classifyShape s with | .refused _ => true | _ => false
     | none => false
   let stage := rs.filter fun r => match r.index with
     | some i => !classRefused i
@@ -3160,6 +3161,7 @@ def roundTrip (koreFile : String) : IO UInt32 := do
   unless e.modules.length == k.modules.length do
     probs := probs.push s!"{e.modules.length} modules emitted, {k.modules.length} in the text"
   let user := k.modules.length - 1
+  let names := Parse.namesOf k
   let mut allowed : Array (String × Kore.Sentence) := #[]
   let mut other : Array (String × String × Kore.Sentence) := #[]
   let mut extra : Array Kore.Sentence := #[]
@@ -3172,7 +3174,7 @@ def roundTrip (koreFile : String) : IO UInt32 := do
     let (missing, ex) := sentenceDiff mk.sentences me.sentences
     for j in missing do
       let s := mk.sentences[j]!
-      let cl := Parse.classify s
+      let cl := Parse.classify names s
       if i == user then
         match cl with
         | .readAs _ | .unread _ => allowed := allowed.push (cl.name, s)
@@ -3283,7 +3285,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
     if uid.endsWith ".selector-domain" then ("selector-domain axiom of a projection", false)
     else if uid.endsWith ".selector-inverse" then ("selector-inverse lemma of a projection", false)
     else
-    match Parse.classify s with
+    match Parse.classifyShape s with
     | .inert .simplification => ("simplification", false)
     | .inert .injectivity => ("injectivity axiom", true)
     | .inert .distinctCtors => ("distinctness axiom", true)
@@ -3305,7 +3307,7 @@ def gapKind (d : Definition) (s : Kore.Sentence) : String × Bool :=
           else ("functional axiom of another symbol", false)
         | some (.inr _) => ("subsort axiom", true)
         | none => if (Parse.scanOr s).isSome then ("no-junk axiom", true)
-          else (s!"axiom of another form ({(Parse.classify s).name})", false)
+          else (s!"axiom of another form ({(Parse.classifyShape s).name})", false)
 
 /-- The attributes the two sentences do not share, `-a` the text's, `+a` the emitted's (their head
 names, sorted). -/
@@ -3394,6 +3396,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let userName := (k.modules.getLast?.map (·.name.ident.name)).getD ""
   let off := Parse.preludeLength k
   let conn := Parse.connReadings k
+  let N := Parse.namesOf k
   let keys := Parse.keysAsMember k
   -- the `[owise]` equations read with a premise narrower than the text's
   let narrowed := (Parse.owiseNarrowed k d).map (·.1)
@@ -3406,7 +3409,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     let (mn, j, s) := ts[i]!
     if mn != userName then [] else
       let n := off + j
-      (match Parse.classify s with
+      (match Parse.classify N s with
         | .readAs r => [r.name]
         | .unread r => [s!"unread {r.name}"]
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]

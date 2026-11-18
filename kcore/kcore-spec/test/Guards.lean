@@ -2097,6 +2097,11 @@ def readingNote : ReadingNote → GuardEntry
     { status := .pending "GUARD.final",
       guard := [.test "test/Connectives.lean" "andTermsWeaker"],
       note := "a CE reader device (CE.note-rule-and-weaker); reader tests at the parsed semantics only; the entailment of the read rule by the text's sentence (its docstring) is stated by no theorem, no statement over c.withHooks H, no companion" }
+  | .andTermsCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/PredFixtures.lean" "parsed", .test "test/Connectives.lean" "andTermsCut",
+        .decl ``KoreAML.rule_and_in, .decl ``KoreAML.rule_and_var],
+      note := "a rule's right side's conjunction of terms read through the cut where the test at reading time holds (Parse.andCutOK); the steps at the parsed semantics are test/PredFixtures.lean's (RhsAnd), the read right side is the text's under the cut's premises (KoreAML.rule_and_in, rule_and_var); no statement over c.withHooks H, no companion" }
   | .bottomAsEnsures =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevBot.bot_values, .test "test/Connectives.lean" "bottomAsEnsures"],
@@ -2263,7 +2268,7 @@ def unreadReason : UnreadReason → GuardEntry
 
 def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
-   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
+   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .andTermsCut, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem]

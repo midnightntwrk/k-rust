@@ -303,7 +303,7 @@ def E178 : LibEv.Eqn :=
   ⟨[("VarX", Srt.int)], Srt.bool, none, .app intGe [.app sl [.var 0], .dv Srt.int (.int 0)], .dv Srt.bool (.bool true)⟩
 
 /-- The reader's class of the two sentences. -/
-theorem simp_class : [U.ax170, U.ax178].map (fun ad => Parse.classify (.axiom ad.ax)) =
+theorem simp_class : [U.ax170, U.ax178].map (fun ad => Parse.classifyShape (.axiom ad.ax)) =
     [.inert .simplification, .inert .simplification] := by decide +kernel
 
 theorem text170 : U.ax170.ax.pattern = E170.pattern c ∧ U.ax170.ax.sortVars = [Rv] ∧

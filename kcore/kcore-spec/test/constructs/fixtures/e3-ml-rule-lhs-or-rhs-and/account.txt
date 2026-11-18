@@ -12,13 +12,13 @@ user module E3-ML-RULE-LHS-OR-RHS-AND: 251 sentences
   1 read orSplit [user]
   1 inert simplification [generated]
 connective readings per sentence: 1
-      sentence 215: orSplit, andTermsWeaker
+      sentence 215: orSplit, andTermsCut
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0
 inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
-rules with an `ensures`: 2
+rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 2
 rules and clauses applying a function symbol in their left side: 0
 sentences the library's data induces that the text does not hold: 0
