@@ -1897,3 +1897,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
   by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
   translation of an axiom does not read its attributes.
+- `test/InertBaseLaws.lean`: the collection laws of `_List_` in construct fixture base (axioms 38, 39,
+  40 of `f2-examples/base.kompile.kore`: associativity, right unit, left unit), each left inert by the
+  reader (`collectionLaw`) and entailed by Γ at values for every H (`list_laws_base`,
+  `InertEv.listLaw_ev`).
