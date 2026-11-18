@@ -263,8 +263,8 @@ theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
 theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
 theorem total_named : c.totalObligationsRP callOrder [] = [] := by decide +kernel
 
-/-- None named, and the semantics is `plain`; no parameter (the seven K-REFLECTION symbols) is
-claimed total. -/
+/-- None named, and the semantics is `plain`; none of the ten parameter symbols (the seven
+K-REFLECTION ones among them) is claimed total. -/
 theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] :=
   FnObligations.of_nil
     (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named)
