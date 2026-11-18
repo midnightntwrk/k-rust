@@ -38,7 +38,7 @@ def placeAt (f : String) : List Kore.AppPattern :=
 /-- A user file's place. -/
 def userPlace : List Kore.AppPattern :=
   [⟨⟨⟨"org'Stop'kframework'Stop'attributes'Stop'Location"⟩⟩, [], [.string "Location(3,3,3,15)"]⟩,
-   ⟨⟨⟨"org'Stop'kframework'Stop'attributes'Stop'Source"⟩⟩, [], [.string "Source(/home/u/a.k)"]⟩]
+   ⟨⟨⟨"org'Stop'kframework'Stop'attributes'Stop'Source"⟩⟩, [], [.string "Source(/src/u/a.k)"]⟩]
 
 def sortDecl (n : String) (as : List Kore.AppPattern) : Kore.Sentence :=
   .sort ⟨⟨⟨n⟩⟩, [], as⟩
@@ -116,7 +116,7 @@ info: 9 sentences
 #guard_msgs in
 #eval show IO Unit from do
   let b := axiomsOf "/k/include/kframework/builtin/domains.md"
-  let u := axiomsOf "/home/u/a.k"
+  let u := axiomsOf "/src/u/a.k"
   IO.println s!"{b.length} sentences"
   for (x, y) in b.zip u do
     IO.println ((Parse.classify x).name, (Parse.classify y).name, Parse.isOwnBuiltin x)
