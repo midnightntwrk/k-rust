@@ -107,7 +107,9 @@ The classes. A sentence whose text equals one of f2-examples/ens.kompile.kore's 
 test/TieEns.lean's account. Any other sentence (`unmapped` in the test) takes its class from what a
 probe evaluates of it (a run of the Lean definitions on the text: the heads it applies, each a symbol
 with its sort arguments (`appHeadsOf`), against Γ's (`gammaHasHead`),
-its place among Γ's function items, `tieConsB`, the constructor items) and from its form (kompile's
+its place among Γ's function items, `tieConsB`, the constructor items; a symbol the registry interprets
+is a registry hook or a parameter symbol a registry hook implements, `MtCellMap:in_keys` with
+`MAP.in_keys`) and from its form (kompile's
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
@@ -474,7 +476,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   let isFn := fun (n : String) => afs.any (c.symName ·.label == n)
   let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
-  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n then "hook" else if has n then "other" else "absent"
+  let isImplParam := fun (n : String) => c.params.any fun k => c.symName k.sig.name == n && k.impl.isSome && !k.raw
+  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
