@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 58 | 6 | 0 | 1 | 0 | 51 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
-| E5 | 58 | 31 | 1 | 5 | 0 | 21 | 0 | 0 |
+| E5 | 59 | 35 | 1 | 2 | 0 | 21 | 0 | 0 |
 | E6 | 30 | 8 | 0 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 326 | 117 | 2 | 16 | 1 | 190 | 0 | 0 |
+| all | 327 | 121 | 2 | 13 | 1 | 190 | 0 | 0 |
 
 Refused rows by class:
 
@@ -903,7 +903,7 @@ Not core:
 | `translateSymbol:symbol#1` | supported |  | The site writes every unhooked symbol declaration. A declaration states the symbol's signature and, by constructor/function/total/functional, its kind. Each kind kompile writes is read or decided: constructors, functions with equations, cells, fragments, freezers (B5, B6, B8-B11); a function without… | none (reader only) |  | base |  |  | Parse.lean:1762-1766 (classify), :1548 scanUserSym, :1713 isDefaultConfig; fixtures e2-symbol, e2-cells, e2-macro (parse ok); e3-setvar (no configuration declared: default configuration read, parse ok) |
 | cases[0]: B5 B6 B8 B9 B10 B11 | supported |  |  |  |  |  |  |  |  |
 | cases[1]: B7 function without equation, not total | parameter |  |  |  |  |  |  |  |  |
-| cases[2]: B12 macro/alias symbol | inert |  | the declaration is unread (UnreadReason.macroUnused); an application is refused macroSymbol. kompile has expanded every application, so none remains under R-12 |  |  |  |  |  |  |
+| cases[2]: B12 macro/alias symbol | supported |  | the declaration is unread (UnreadReason.macroUnused); an application is refused macroSymbol. kompile has expanded every application, so none remains under R-12 |  |  | e2-macro-plain |  |  | fixtures/e2-macro-plain/account.txt \`4 unread macroUnused [user]\` |
 | cases[3]: B13 sort-parametric user symbol | refused | R-a |  |  |  |  |  |  |  |
 | cases[4]: B55 default configuration cell | supported |  |  |  |  |  |  |  |  |
 | cases[5]: the declaration of LblisMInt in a text that declares SortMInt twice | refused | R-b | A text declaring one sort twice is no valid KORE definition (kore-syntax.md:301, :309): the frontend's text for a K sort named MInt without parameters holds \`sort SortMInt{} []\` beside the prelude's \`hooked-sort SortMInt{SortS0}\`, and its declaration of LblisMInt{} is in that text only. The reader's… |  | none (R-b): no shape (ill-formed) | rdr-own-mint |  |  | kore-syntax.md:309: "Every sort, symbol, and alias must have a unique (in the definition) name. No sort, symbol, or alias may be declared more than once."; fixtures/rdr-own-mint/kompile.txt: exit 113, kore-exec 0.1.155 Error (ErrorVerify): Duplicated name: SortMInt (definition.kore 80:15, 72:8); fix… |
@@ -928,8 +928,8 @@ Not core:
 | `convertRule:claim#1` | inert |  | DONE-0 C1, class use: a claim is a proof task, a use of a definition and not part of its meaning (InertReason.claim); kompile writes no claim into a definition (fixtures/e1-claim/kompile.txt: \`Claims are not allowed in the definition.\`) |  |  |  |  |  | K-coverage.md Part B rows 56 |
 | `convertRule:axiom#1` | supported |  | The site writes \`\\implies(premise, \\equals(f(x̄), \\and(rhs, ens)))\`. An equation states f's value where the premise holds. Read as a clause (rawEqn?, clauseBody), with the cases below. Lane CE's Clause.ens is taken as given for B36. | none (reader only) for the supported cases |  | base |  |  | Parse.lean:732-745 (rawEqn?), :777-800 (excludes, pairExcl), :903-1015; fixtures e2-equation, e2-equation-partial, e3-reqens, e2-cells (parse ok) |
 | cases[0]: B30 B31 B32 B35 B37 B40 B43 B45 | supported |  |  |  |  |  |  |  |  |
-| cases[1]: B29 MAP #Ceil simplification, B41 simplification | inert |  | see [simp] |  |  |  |  |  |  |
-| cases[2]: B42 projection domain | inert |  | pending PROJ (G3) |  |  |  |  |  |  |
+| cases[1]: B41 simplification | inert |  |  |  |  | c3-simp-req |  |  | fixtures/c3-simp-req/account.txt \`1 inert simplification [user]: owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader\` |
+| cases[2]: B42 projection domain: the selector-domain axiom of a projection, a sentence of krust's texts (partb-sites.tsv:50); K 7.… | supported |  |  |  |  | kore-projapp |  |  | fixtures/kore-projapp/account.txt \`14 read projectionDomainAsClause [generated]\`, \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\` |
 | cases[3]: B33 several [owise] equations of one function | supported |  | each [owise] premise excludes the non-owise equations; two [owise] equations are both stated wherever none of those applies, which is two clauses of priority 200 (unordered). To run: a fixture with two [owise] equations, account and K8 |  |  |  |  |  |  |
 | cases[4]: B34 [owise] beside an equation of priority >= 200 | refused | R-a | decided R-a by findings/C3-open-pairs-decision.md section 2 (ii): the [owise] equation's exclusion names the sibling, so its pattern orders it after the sibling, while the sibling's priority of 200 or more orders the sibling after it, and no sentence chooses. The earlier reading of this case (suppor… | none (reader only) | none (R-a): the [owise] exclusion orders the equation after a sibling whose priority of 200 or more orders it before | c3-eq-owise-sib-prio250 |  |  | fixtures/c3-eq-owise-sib-prio250 (f(X) => X [priority(250)] beside f(\_) => 0 [owise]): account.txt \`stage refusals (of sentences classified read): 1\`, \`sentence 348 (Lblf): owisePriority\` (the priority(250) equation); the [C3] entry 'equation priority x equation owise', its case '[owise] equation be… |
 | cases[5]: B36 ensures | supported |  | Clause.ens (lane CE) |  |  |  |  |  |  |
@@ -939,6 +939,7 @@ Not core:
 | cases[9]: B44 generated initializer applying a projection | supported |  | the projection is a parameter symbol; fixtures e2-cells, e3-withconfig parse ok |  |  |  |  |  |  |
 | cases[10]: an application of a function-overloaded symbol in an equation's argument pattern | refused | R-c | a covered application of the symbol is the function's value, and matching it would need the function's inverse; the cut reads it as a fresh variable with its membership in the application, a Clause.pre that clausesPlain admits only after e3.admit | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |  |  | fixtures/e5-ovl-fun-clause/account.txt: \`sentence 271 (Lbluncap): functionInPattern (LblcapGas)\` (rule uncap(cap(G:Gas)) => G, capGas overloading the function capN) |
 | cases[11]: B58 heat/cool rule written as an equation | supported |  | it is an equation in the text. Fixture e2-cool-eq is read with wf and coreOK true and one owed CondDecided: its requires is closed over HOLE, which the arguments do not bind (fixtures/e2-cool-eq/account.txt \`function f, clause 0 at e2-cool-eq.k:5: CondDecided open, over VarHOLE:K\`, \`parse: ok; wf tr… |  |  |  |  |  |  |
+| cases[12]: B29 MAP #Ceil simplification | supported |  | refuted and recorded (tie class set-variable lemma, direction refuted; findings/LIB-ev-F1-decision.md section 1.3): kompile's lemma \`#Ceil(@K0 \|-> @K1 @Rest)\`, the sentence of E4 \\ceil cases[1]. Γ with it has no model, for every H (s312\_refuted); it holds where its set variables hold at most one ele… |  |  | e8-ref |  |  | fixtures/e8-ref/account.txt \`1 inert simplification [generated]\` |
 | `convertRule:axiom#2` | supported |  | The site writes \`\\rewrites(\\and(lhs, req), \\and(rhs, ens))\`. Read as a Rule (ruleBody); Step.rule states its meaning, the ensures a premise on the right side (hens). | none (reader only) for the supported cases |  | e1-sentences |  |  | Parse.lean:1017-1066; Step.lean:34-41; fixtures e2-rule, e3-reqens, e3-cells, e2-cells-stream |
 | cases[0]: B46 B47 B52 | supported |  |  |  |  |  |  |  |  |
 | cases[1]: B48 rule with ensures | supported |  | Rule.ens, Step.rule hens; the row said refused at 57f851ec |  |  |  |  |  |  |
@@ -960,9 +961,9 @@ Not core:
 | `genPriorityGroups:alias#1` | refused | R-b | Written only under --enable-kore-antileft, outside R-12. |  |  |  |  |  | fixture e8-enable-kore-antileft; Parse.lean:1761 |
 | `functionalPattern:axiom#1` | supported |  | The site writes \`\\exists(V, \\equals(V, t))\` for a subsort (t an injection) and for a total symbol (t its application). The first states the injection is total, the second that the symbol is. Read as a subsort (scanEvent) and as Fn.total / ParamPres.total / a constructor. | none (reader only) |  | base |  |  | Parse.lean:1610-1617 (scanEvent), :1672 (isParametricFunctional), :1727 (isCellCollAxiom) |
 | cases[0]: B16 B19 | supported |  |  |  |  |  |  |  |  |
-| cases[1]: B17 subsort of a cell into its collection sort | inert |  | the reader classes it unread (cellCollectionInjection), not inert: finding 5 |  |  |  |  |  |  |
+| cases[1]: B17 subsort of a cell into its collection sort | supported |  | the subsort sentence applies the cell-collection injection inj{SortTCell{}, SortTCellSet{}}, a symbol Γ lacks: the tie class no direction (sentence 31 of the fixture's text), and every other sentence of the text applies only symbols Γ has (absent\_closed) |  |  | e1-starinit |  |  | fixtures/e1-starinit/account.txt \`2 unread cellCollectionInjection [generated]\` |
 | cases[2]: B18 subsort of a cell sort into a user sort | supported |  | a cell sort is a sort of the definition and scanEvent reads any subsort attribute pair that is not a cell-collection pair; to run: account on a text with such a subsort |  |  |  |  |  |  |
-| cases[3]: B20 functional axiom of a sort-parametric symbol | inert |  |  |  |  |  |  |  |  |
+| cases[3]: B20 functional axiom of a sort-parametric symbol | inert |  | Stated per instance at values: for every semantics with coreOK and shapesOK, every H and every sort at which the definition has ite implemented by kIte, the sentence at that sort holds at values (inertIteFunctional\_everyH); on f2-examples/lazy.kore, sentence 39 at SortInt{} (ax39\_text, ax39\_class, i… |  |  |  |  |  | fixtures/hw-base/account.txt \`1 inert parametricFunctional [generated]\` (the functional axiom of ite) |
 | cases[4]: B21 functional axiom of a function not read total | supported |  | kompile writes the axiom only for a symbol declared total/functional, and every function symbol the reader numbers can carry total (Fn.total, ParamPres.total). If \`unaccounted\` is reachable here it is a reader defect, not a refusal |  |  |  |  |  |  |
 
 ## E6 builtin library (826 rows)
