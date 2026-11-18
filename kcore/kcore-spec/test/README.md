@@ -1542,6 +1542,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
   guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
   and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
+- `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
+  not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
+  and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,
+  `sl(X) => X` (`s170_refuted`, `s178_refuted`, from `eqn1_fails`): each fails at X = -1 in every
+  model of Γ, for every H, so Γ with it has no model.
 - `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
   `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
   simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,
