@@ -3,6 +3,7 @@ cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
+differs f2-examples/c3-cells-star.kompile.kore
 differs f2-examples/c3-ctor-assoc.kompile.kore
 differs f2-examples/c3-ctor-comm.kompile.kore
 differs f2-examples/c3-ctor-idem.kompile.kore
