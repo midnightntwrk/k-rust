@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-ite-own.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.6
+definition.kore bytes: 126501
+definition.kore sha256: e22879ad21b5024852af02bce628446eae5f3d155cd3849f423553577c1fe6cf
+stripped sha256: 17c5be607586b38a44cd195028e4e2ace594b7984c68c5f6d6506c632e892a39
+main module: 297 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-OWN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-ITE-OWN as default.
