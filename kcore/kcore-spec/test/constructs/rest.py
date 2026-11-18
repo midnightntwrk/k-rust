@@ -7,12 +7,17 @@ Usage (from kcore-spec):
       the entries FIX-core does not hold (below), grouped by list, status and evidence form, each
       with the evidence present and missing; prints the count per group, and every entry when no
       FILE is given (with FILE, the entries go there)
-  python3 -I test/constructs/rest.py check [--report] [--fresh] [--list LFILE] [--out FILE] [ROWS.toml]
+  python3 -I test/constructs/rest.py check [--report] [--fresh] [--gate] [--list LFILE] [--out FILE] [ROWS.toml]
       DONE-0 C2's check of every entry, FIX-core's included: an entry fails when an item its form
       needs is missing; prints per list and form how many entries have their evidence, and the
       failures (all of them into FILE, the first 40 on the output); with --list, also the list
       above (its entries into LFILE); exit 1 on a failure, exit 0 with --report (failures listed,
       not failing: test/constructs.sh's mode until the closing check of FIX-rest)
+      Then the entries whose reading is owed (READER_OWED): every entry of status supported,
+      parameter or inert with reader_does_it = false, with the ticket that owes the reading; exit 1
+      (--report or not) on one that names no ticket, or whose ticket is done or not in PROGRESS
+      (KCORE_PROGRESS, else ../progress beside kcore-spec, else the main checkout's, as units.py);
+      with --gate (the completion gate), on every one
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -608,8 +613,8 @@ def main(argv):
     for o in ("--out", "--list"):
         if o in argv:
             i = argv.index(o); opt[o] = argv[i + 1]; del argv[i:i + 2]
-    report, fresh = "--report" in argv, "--fresh" in argv
-    argv = [a for a in argv if a not in ("--report", "--fresh")]
+    report, fresh, gate = "--report" in argv, "--fresh" in argv, "--gate" in argv
+    argv = [a for a in argv if a not in ("--report", "--fresh", "--gate")]
     t = tomllib.load(open(argv[0] if argv else os.path.join(HERE, "rows.toml"), "rb"))
     fx = Fixtures(os.path.join(HERE, "fixtures"), fresh)
     res = run(t, fx)
@@ -618,7 +623,8 @@ def main(argv):
         return 0
     if "--list" in opt:
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
-    return print_check(res, fresh, report, opt.get("--out"))
+    rc = print_check(res, fresh, report, opt.get("--out"))
+    return print_reader_owed(t, gate) or rc
 
 
 # ------------------------------------------------------------------------- inert of class attribute
@@ -678,6 +684,73 @@ def attribute_items(fx, e, own, item, miss):
     item(bool(reads), f"tie of the fixture's text ({', '.join(reads)})",
          "tie of the fixture's text (no file of `tie` other than test/InertSemPairs.lean reads "
          + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
+
+
+# ------------------------------------------------------------------------------- the reading owed
+
+# The reading an entry's status is owed by, while the reader does not do it (`reader_does_it =
+# false` on an entry of status supported, parameter or inert): the ticket of PROGRESS that makes the
+# reader do it, with the entries it owes, each named by its fixture or by "<list> <row key>". An
+# entry is accepted while its ticket is in PROGRESS and not done; the completion gate (--gate)
+# accepts none.
+READER_OWED = [
+    ("RDR.read-cellcoll-own", ["rdr-cellcoll-own"]),
+    ("RDR.read-hook-assoc", ["rdr-hook-assoc"]),
+    ("RDR.read-keq-only", ["rdr-keq-only"]),
+    ("RDR.read-pred-rule", ["rdr-pred-rule"]),
+    ("RDR.builtin-own-reading", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
+]
+OWED_STATUSES = ("supported", "parameter", "inert")
+
+
+def progress_status():
+    """{ticket id: status} of PROGRESS/tickets-*.toml, PROGRESS as units.py resolves it, or None."""
+    import glob
+    kr = os.environ.get("K_RUST", os.path.expanduser(
+        "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
+    prog = os.environ.get("KCORE_PROGRESS") or next(
+        (d for d in (os.path.join(K, "../progress"),
+                     os.path.join(kr, "draft-personal/k-semantics-core-2026-11/progress"))
+         if os.path.isdir(d)), None)
+    files = sorted(glob.glob(os.path.join(prog, "tickets-*.toml"))) if prog else []
+    if not files:
+        return None
+    st = {}
+    for f in files:
+        st |= {k: v.get("status") for k, v in tomllib.load(open(f, "rb")).get("ticket", {}).items()
+               if isinstance(v, dict)}
+    return st
+
+
+def reader_owed(t, owed, tstatus, gate):
+    """[(where, ticket or None, failure or None)] over the entries of a status in OWED_STATUSES
+    with reader_does_it = false."""
+    out = []
+    for l, key, where, e, row in entries(t):
+        if e.get("status") not in OWED_STATUSES or e.get("reader_does_it") is not False:
+            continue
+        names = {f"{l} {key}"} | ({e["fixture"]} if isinstance(e.get("fixture"), str) else set())
+        tid = next((tid for tid, sel in owed if names & set(sel)), None)
+        st = (tstatus or {}).get(tid)
+        why = ("the completion gate: the reader does not do it" if gate else
+               "names no ticket that owes the reading (READER_OWED)" if tid is None else
+               "PROGRESS has no ticket file" if tstatus is None else
+               f"ticket {tid} is not in PROGRESS" if st is None else
+               f"ticket {tid} is done, and the entry still says the reader does not do it" if st == "done"
+               else None)
+        out.append((where, tid, why))
+    return out
+
+
+def print_reader_owed(t, gate):
+    """The entries whose reading is owed, each with its ticket; returns the exit code."""
+    rs = reader_owed(t, READER_OWED, progress_status(), gate)
+    bad = [r for r in rs if r[2]]
+    print(f"reader-owed: {len(rs)} entries of status {', '.join(OWED_STATUSES)} with reader_does_it = false"
+          + (" (completion gate: none accepted)" if gate else f", {len(rs) - len(bad)} owed by a ticket not done"))
+    for where, tid, why in rs:
+        print(f"    {where}: {tid or 'no ticket'}" + (f"; FAILS: {why}" if why else ""))
+    return 1 if bad else 0
 
 
 # ------------------------------------------------------------------------------------ self-test
@@ -803,6 +876,22 @@ def self_test():
                      print_check([], True, False, None))
         if codes != (1, 0, 0):
             bad.append(f"check exit codes (failing, --report, none failing): {codes}, expected (1, 0, 0)")
+        t = {"E2": {"P": {"status": "supported", "reader_does_it": False, "cases": [
+                 {"case": "c", "status": "inert", "fixture": "rdr-x", "reader_does_it": False},
+                 {"case": "d", "status": "refused", "fixture": "rdr-y", "reader_does_it": False}]},
+                    "Q": {"status": "parameter", "reader_does_it": False},
+                    "R": {"status": "supported", "reader_does_it": True}}}
+        owed = [("T.one", ["rdr-x"]), ("T.two", ["E2 P"]), ("T.done", ["E2 Q"])]
+        st = {"T.one": "running", "T.two": "pending", "T.done": "done"}
+        got = [(w, tid, bool(why)) for w, tid, why in reader_owed(t, owed, st, False)]
+        want = [("E2 'P'", "T.two", False), ("E2 'P' cases[0] ('c')", "T.one", False), ("E2 'Q'", "T.done", True)]
+        if got != want:
+            bad.append(f"reader_owed: {got}, expected {want}")
+        got = [(w, tid, bool(why)) for w, tid, why in reader_owed(t, owed[:1], st, False)]
+        if [x[2] for x in got] != [True, False, True] or got[0][1] is not None:
+            bad.append(f"reader_owed without an owing ticket: {got}")
+        if not all(why for _, _, why in reader_owed(t, owed, st, True)):
+            bad.append("reader_owed --gate accepts an entry")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
         print(f"rest self-test: {len(cases)} entries and the core predicate, {len(bad)} failing")
