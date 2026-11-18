@@ -572,7 +572,8 @@ def Definition.report (d : Definition) : List (String × Bool) :=
    ("theory: functions apart from constructors, hooks and parameters", Faithful.Model.fnsApart d.sem),
    ("hooked functions: no registry hook interprets their hook", d.hookFnsUnregOK),
    ("parameter symbols (paramsOK): the imported modules' and the user's, each as its hook names", d.paramsOK),
-   ("overloading symbols (overloadsOK)", d.sem.overloadsOK)]
+   ("overloading symbols (overloadsOK)", d.sem.overloadsOK),
+   ("clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause predicate", d.sem.clausesPreTop)]
 
 /-- **A well-formed definition**: its names (`namesOK`), its core (`okAll`), its certificate, its
 presentation and its parameters are well formed, its semantics meets the decidable conditions
