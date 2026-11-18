@@ -1369,7 +1369,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`fnHypH`), `consistent` and `pre_model`; the steps by hand (`stepA5` ... `stepC2`, the priority
   premise by `NotApplies`), their inversions over the nine rules (`succ_A5`, `succ_B5`, `succ_B0`,
   `succ_C5`); the expectations from `Pre`: `a5_step`, `a5_succs`, `b5_step`, `b5_succs`, `b0_step`,
-  `b0_succs`, `c5_step`, `c5_succs`, `c1_step`, `c2_step`. About 23 s, 2.8 GiB.
+  `b0_succs`, `c5_step`, `c5_succs`, `c1_step`, `c2_step`, and at `c(1)`, `c(2)` the successor sets
+  with the `[cool]` and `[heat]` rules' families (`c1_succs`, `c2_succs`, `complete_at` with `Outcome.fam`).
+  About 20 s, 3.1 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
