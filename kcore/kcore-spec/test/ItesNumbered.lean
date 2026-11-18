@@ -8,7 +8,7 @@
   - `itesApart_split`: `itesApart` is the conjunction of its two halves, `itesNumbered` (the first)
     and `itesOnce` (no two at one sort), for every semantics.
   - `iteNamed_param`: under `namesNumbered` and `overloadsOK`, a symbol of `kernelSyms` named like
-    `ite` at a sort is a parameter: `namesNumbered` excludes the constructors and functions,
+    `ite` at a sort is a parameter or a function: `namesNumbered` excludes the constructors,
     `overloadsOK` the overloading symbols, and no interpreted hook is so named (`hooks_plain`).
   - `c`, one parameter `Lblite{Foo}` (`ite` at `Foo`, which names no sort), implemented by `_+Int_`:
     every other condition of `coreOK` and `FnHyp` hold (`meets_others`), `itesOnce` holds and
@@ -16,9 +16,11 @@
   - `graph_head`: `Γ`'s graph of the parameter (`ΓDomains`, through `symApp`) is about `Lblite`
     applied to the sort symbol `SortFoo`; `foo_unnamed`: no numbered sort is named `Foo`.
 
-  Argued, not kernel-checked: `Γ` of such a semantics has a model. The only symbols named like
-  `ite` at an unnumbered X are parameters (`iteNamed_param`), and `Γ` writes each application of
-  one as `Lblite ⬝ SortX ⬝ …` (`symApp`, `symArityItem`, `Term.kore`). The sort symbol `SortX` occurs
+  Argued, not kernel-checked, for a semantics whose symbols named like `ite` at an unnumbered X
+  are parameters (`iteNamed_param` leaves parameters and functions; a function so named, whose
+  equations `Γ` writes at the same head, is not examined here): `Γ` of such a semantics has a model.
+  `Γ` writes each application of such a parameter as `Lblite ⬝ SortX ⬝ …` (`symApp`, `symArityItem`,
+  `Term.kore`). The sort symbol `SortX` occurs
   in `Γ` nowhere else: the signature names the sort symbols of the numbered sorts only
   (`sigItems`, `sortConstantItem` over `kernelSorts`); every other sort `Γ` writes is
   `sortName` of a numbered sort (`srtOf`, `sortP`), or the fixed `Bool` of `reqPat`;
@@ -104,21 +106,18 @@ theorem hooks_plain (c : Semantics) {k : CtorSig} (hk : k ∈ hookSigs) : iteSor
   exact h.2
 
 /-- **Under `namesNumbered` and `overloadsOK`, a symbol named like `ite` at a sort is a
-parameter.** -/
+parameter or a function.** -/
 theorem iteNamed_param {c : Semantics} (hn : namesNumbered c = true) (ho : c.overloadsOK = true)
     {k : CtorSig} (hk : k ∈ kernelSyms c) {X : String} (hi : iteSort? (c.symName k.name) = some X) :
-    k ∈ c.params.map (·.sig) := by
+    k ∈ c.params.map (·.sig) ∨ k ∈ c.allFns.map (·.sig) := by
   simp only [namesNumbered, Bool.and_eq_true, List.all_eq_true, Option.isNone_iff_eq_none] at hn
-  obtain ⟨⟨hctor, hfn⟩, -⟩ := hn
+  obtain ⟨⟨hctor, -⟩, -⟩ := hn
   unfold kernelSyms at hk
   simp only [List.mem_append] at hk
   rcases hk with (((hk | hk) | hk) | hk) | hk
   · rw [hctor k hk] at hi; cases hi
-  · obtain ⟨fn, hfn', rfl⟩ := List.mem_map.mp hk
-    have := hfn fn hfn'
-    simp only [Fn.sig] at hi
-    rw [this] at hi; cases hi
-  · exact hk
+  · exact .inr hk
+  · exact .inl hk
   · rw [hooks_plain c hk] at hi; cases hi
   · obtain ⟨o, hmem, rfl⟩ := List.mem_map.mp hk
     obtain ⟨i, hlt, he⟩ := List.getElem_of_mem hmem

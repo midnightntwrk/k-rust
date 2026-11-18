@@ -7,10 +7,13 @@
   Kernel-checked here, for each conjunct: a semantics meeting every other leaf condition of `coreOK`
   (`sortedOK`, the other eleven conjuncts of `faithCoreOK`, `hooksApart`, `predsApart`, `idsOK`,
   `overloadsOK`) and `FnHyp`, with the conjunct false. So none of the three is implied by the others.
-  - `namesNumbered`: `CtorIte.c` has a constructor named `Lblite{KCell}` (its first part fails),
-    `FnIte.c` a function so named, without clauses (its second part fails). Its third part (the sorts
-    of every function are numbered) is implied by `sortsNumbered`, which says it of every symbol of
-    `kernelSyms`, the functions among them (`fnSorts_of_sortsNumbered`, every semantics).
+  - `namesNumbered`: `CtorIte.c` has a constructor named `Lblite{KCell}` (its first part fails).
+    `FnIte.c` has a function so named, without clauses, that no symbol overloads: `namesNumbered`
+    holds of it (`FnIte.namesNumbered_holds`), a function's equations and applications being written
+    at one head. Its second part (no symbol that an overloading symbol overloads is so named) has no
+    semantics here that fails it alone. Its third part (the sorts of every function are numbered) is
+    implied by `sortsNumbered`, which says it of every symbol of `kernelSyms`, the functions among
+    them (`fnSorts_of_sortsNumbered`, every semantics).
   - `genWf`: `CtorInt.c` has a constructor `k : → Int` (Int is no constructor sort: genWf's first
     part fails). `LibInt.c` has a library constructor `#KConfigValue : → Int` (Int a library sort
     with a generator, so a constructor sort, `int_cons`: genWf's third part fails), and `Γ` holds a
@@ -22,10 +25,10 @@
   semantics), the witness module of the row faithCoreOK.2.
 
   Argued, not kernel-checked: `Γ` of each other semantics has a model.
-  - `CtorIte.c`, `FnIte.c`: as for `overloadsOK`'s conjunct on overloading symbols
+  - `CtorIte.c`: as for `overloadsOK`'s conjunct on overloading symbols
     (test/OvlIteName.lean, whose `pattern_head`, `value_head` and `heads_differ` hold of every
     symbol named like `ite` at a sort): a value and the constructor items write the symbol under its
-    own name `Lblite{KCell}`, a pattern, right-hand side or equation (`Term.kore`) as the head `Lblite`
+    own name `Lblite{KCell}`, a pattern or right-hand side (`Term.kore`) as the head `Lblite`
     applied to `SortKCell`; reading both heads as the symbol, as the canonical model's `resolve` reads
     the second once `itesApart` holds, meets each item as for a plainly named symbol, and nothing
     else in `Γ` names `Lblite` at `SortKCell` (`itesApart` leaves no other symbol there; the
@@ -120,7 +123,7 @@ theorem ite_named : iteSort? (c.symName g) = some "KCell" := by decide +kernel
 
 end CtorIte
 
-/-! ## `namesNumbered`: a function named like `ite` at a sort -/
+/-! ## `namesNumbered` holds of a function named like `ite` at a sort that no symbol overloads -/
 
 namespace FnIte
 
@@ -149,7 +152,7 @@ theorem meets_others : outside c ∧
     by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
     by decide_cheap, fnHyp⟩
 
-theorem not_namesNumbered : namesNumbered c = false := by decide +kernel
+theorem namesNumbered_holds : namesNumbered c = true := by decide +kernel
 
 end FnIte
 

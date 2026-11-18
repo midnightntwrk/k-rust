@@ -60,11 +60,11 @@ theorem names_fns : c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNo
     (fn.result :: fn.args).all (· < nRegSorts + c.sortNames.length)) = true := by decide +kernel
 
 theorem namesNumbered : NamesNumbered c := by
-  refine ⟨fun k hk => ?_, fun fn hfn => ?_, fun fn hfn s hs => ?_⟩
+  refine ⟨fun k hk => ?_, fun o ho g hg => ?_, fun fn hfn s hs => ?_⟩
   · exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp names_plain k hk)
-  · have := List.all_eq_true.mp names_fns fn hfn
-    simp only [Bool.and_eq_true] at this
-    exact Option.isNone_iff_eq_none.mp this.1
+  · have h : c.ovls.all (fun o => o.over.all fun g => (iteSort? (c.symName g)).isNone) = true := by
+      decide +kernel
+    exact Option.isNone_iff_eq_none.mp (List.all_eq_true.mp (List.all_eq_true.mp h o ho) g hg)
   · have := List.all_eq_true.mp names_fns fn hfn
     simp only [Bool.and_eq_true] at this
     exact of_decide_eq_true (List.all_eq_true.mp this.2 s hs)

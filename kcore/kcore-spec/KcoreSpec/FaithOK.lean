@@ -159,12 +159,12 @@ or a symbol the downward reading covers (`downHead`). Decidable on the data. -/
 def patHeadsOK (c : Semantics) : Bool :=
   c.patCtxAll.heads.all fun k => c.isCtor k.name || downHead c k.name
 
-/-- The names and sort numbers of the functions are well formed: no constructor or function is
-named like `ite` at a sort (`iteSort?`), and every sort of a function is a numbered sort.
-`NamesNumbered` (Faithful.lean), decided. -/
+/-- The names and sort numbers of the functions are well formed: no constructor, and no symbol that
+an overloading symbol overloads, is named like `ite` at a sort (`iteSort?`), and every sort of a
+function is a numbered sort. `NamesNumbered` (Faithful.lean), decided. -/
 def namesNumbered (c : Semantics) : Bool :=
   c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) &&
-  c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone) &&
+  c.ovls.all (fun o => o.over.all fun g => (iteSort? (c.symName g)).isNone) &&
   c.allFns.all fun fn => (fn.result :: fn.args).all fun s => decide (s < nRegSorts + c.sortNames.length)
 
 namespace Model
