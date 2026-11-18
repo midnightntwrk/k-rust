@@ -1854,7 +1854,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   `exvarslist`): the
   reader's verdict, and on its reading before the rules are checked (`Parse.coreBase`) each rule's
   `openRefusal` against `rulePlainHO1` (`agree true`). Map, set and list are read; the map update
-  (a hooked function) and the range map are refused `openRight` at Int.
+  (a hooked function) and the range map are refused `openRight` at Int. `Map` (e3-vars-map):
+  `coreOK` and `FnHyp` by the kernel; from `<k> set(5) </k> <m> .Map </m>` `Step` reaches exactly the
+  `5 |-> i`, i an Int; `Γc ⊧ den x ⇒ •famEx` by `sound_at`; by `ExactC` no other value is a successor
+  in any model of `Γc` with the step's closure.
 - `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
   inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
   `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,
