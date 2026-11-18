@@ -92,6 +92,15 @@ theorem pats_nf (H : OvlLaws.OvlHyp c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : C
     (h : sortsOfTerms c.patCtxAll vars cl.pats = some ss) : sortsOfTerms c.patCtxNF vars cl.pats = some ss :=
   sortsOfTerms_to_nf _ h (pats_noFnOvl H hfn hcl)
 
+/-- The patterns of a sort predicate's clause have its argument sorts over `patCtxNF`: they are
+sorted over the matcher's context, which holds no function-overloaded symbol. -/
+theorem sortPredPats_nf (H : OvlLaws.OvlFnFacts c) {fn : Fn} (hp : fn ∈ c.sortPreds) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args :=
+  have h := (sortPreds_ctx hp cl hcl).1
+  have hA : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args :=
+    sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats h
+  sortsOfTerms_to_nf _ hA (noFnOvlInL_of_sorted (fun _ _ => patCtx_not_fnOvl H) _ h)
+
 /-- A rule's left side is sorted over `patCtxNF` as it is over `patCtxAll` (`ovlPatsOK`). -/
 theorem lhs_nf (hok : c.overloadsOK = true) {r : Rule} (hr : r ∈ c.rules) {vars : List Srt} {s : Srt}
     (h : sortOfTerm c.patCtxAll vars r.lhs = some s) : sortOfTerm c.patCtxNF vars r.lhs = some s :=

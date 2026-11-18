@@ -111,7 +111,7 @@ theorem memHeld_clause_valuesF (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg
     (hback : ∀ f k, c.isCtor f = false → H f = true →
       lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
     {cl : Clause} {vars ss : List Srt}
-    (hpats : sortsOfTerms c.patCtxAll vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
+    (hpats : sortsOfTerms c.patCtxNF vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
     {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} (hvs : vs.length = vars.length)
     (hin : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i))))
     {ws : List GroundTerm} (hws : c.sortsOf ws = some ss)
@@ -123,7 +123,7 @@ theorem memHeld_clause_valuesF (hI : I ⊧ᴵP Γ c) (hnn : NamesNumbered c) (hg
     (i : Nat) (hi : memHeldH c H (varOccsList cl.pats) cl.pre i = true) :
     Witnessed c I tbl vs vars e i := by
   obtain ⟨-, hwitP⟩ := patVals_backC hI hph hcs hcso hg hsc.trans hnn.1 hvs hin
-    (collPats_of_sorted hph' hpats) (OvlOK.nfs_bridge inferInstance hpats) hws hall
+    (collPats_of_sorted hph' (sortsOfTerms_all_of_nf hpats)) hpats hws hall
   exact memHeldCl_witnessedAt hI hg hsc.trans hnn.1 hvs hin fns_headsOK hback hwitP
     (fun s v t hq => conjuncts_memOK hok hq) hS' hσ' hpre i hi
 
@@ -137,7 +137,7 @@ theorem memHeld_clause_valuesB (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {H :
     (hback : ∀ f k, c.isCtor f = false → H f = true →
       lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
     {cl : Clause} {vars ss : List Srt}
-    (hpats : sortsOfTerms c.patCtxAll vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
+    (hpats : sortsOfTerms c.patCtxNF vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
     {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} (hvs : vs.length = vars.length)
     (hin : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i))))
     {ws : List GroundTerm} (hws : c.sortsOf ws = some ss)
@@ -161,7 +161,7 @@ theorem memHeld_clause_values (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c)
     (hback : ∀ f k, c.isCtor f = false → c.holds f = true →
       lookupSig (c.rhsCtx (c.fns.map Fn.sig)).heads f = some k → HeldBack c I f k)
     {cl : Clause} {vars ss : List Srt}
-    (hpats : sortsOfTerms c.patCtxAll vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
+    (hpats : sortsOfTerms c.patCtxNF vars cl.pats = some ss) (hok : c.condOK vars cl.pre = true)
     {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} (hvs : vs.length = vars.length)
     (hin : ∀ i < vars.length, InS I (c.sortName (vars.getD i 0)) (e.evalEvar (tbl.ev (keyAt vs i))))
     {ws : List GroundTerm} (hws : c.sortsOf ws = some ss)
