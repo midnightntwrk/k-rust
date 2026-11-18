@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-mint.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.3
+definition.kore bytes: 272916
+definition.kore sha256: 0c2bd642731c94818ae1727c10da0c6d8d41f0704de8bc0da4213ca4e24ccff5
+stripped sha256: d04cb782f9537d53eee5cb362fea53d368a68837a12977c16bdd9cf94ffedf1f
+main module: 560 sentences, 115 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-MINT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-MINT as default.

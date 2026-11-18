@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-requires-ensures.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 91837
+definition.kore sha256: 64e541ca73d7f1c0d942dcb9b7656453aa70f73c0fd7f4fc31c0b1e6e728ff3c
+stripped sha256: 262ea81173757cb630bc90726df59e4cb06c47f92f0613fd99fcfd135f0462a0
+main module: 259 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-REQUIRES-ENSURES-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-REQUIRES-ENSURES as default.

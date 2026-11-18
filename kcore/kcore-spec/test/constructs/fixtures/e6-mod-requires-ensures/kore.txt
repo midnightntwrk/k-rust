@@ -1,0 +1,158 @@
+//@ 0
+module E6-MOD-REQUIRES-ENSURES
+//@ 4
+  sort Sort'Hash'RuleBody{} []
+//@ 10
+  sort Sort'Hash'RuleContent{} []
+//@ 59
+  symbol Lblis'Hash'RuleBody{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 60
+  symbol Lblis'Hash'RuleContent{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 115
+  axiom{R} \exists{R} (Val:Sort'Hash'RuleBody{}, \equals{Sort'Hash'RuleBody{}, R} (Val:Sort'Hash'RuleBody{}, inj{SortK{}, Sort'Hash'RuleBody{}} (From:SortK{}))) [subsort{SortK{}, Sort'Hash'RuleBody{}}()] // subsort
+//@ 117
+  axiom{R} \exists{R} (Val:Sort'Hash'RuleContent{}, \equals{Sort'Hash'RuleContent{}, R} (Val:Sort'Hash'RuleContent{}, Lbl'Hash'ruleEnsures{}(K0:Sort'Hash'RuleBody{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 118
+  axiom{}\implies{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleEnsures{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{})), Lbl'Hash'ruleEnsures{}(\and{Sort'Hash'RuleBody{}} (X0:Sort'Hash'RuleBody{}, Y0:Sort'Hash'RuleBody{}), \and{SortBool{}} (X1:SortBool{}, Y1:SortBool{}))) [constructor{}()] // no confusion same constructor
+//@ 119
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleNoConditions{}(Y0:Sort'Hash'RuleBody{}))) [constructor{}()] // no confusion different constructors
+//@ 120
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleRequires{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}))) [constructor{}()] // no confusion different constructors
+//@ 121
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleRequiresEnsures{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}, Y2:SortBool{}))) [constructor{}()] // no confusion different constructors
+//@ 122
+  axiom{R} \exists{R} (Val:Sort'Hash'RuleContent{}, \equals{Sort'Hash'RuleContent{}, R} (Val:Sort'Hash'RuleContent{}, Lbl'Hash'ruleNoConditions{}(K0:Sort'Hash'RuleBody{}))) [functional{}()] // functional
+//@ 123
+  axiom{}\implies{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleNoConditions{}(X0:Sort'Hash'RuleBody{}), Lbl'Hash'ruleNoConditions{}(Y0:Sort'Hash'RuleBody{})), Lbl'Hash'ruleNoConditions{}(\and{Sort'Hash'RuleBody{}} (X0:Sort'Hash'RuleBody{}, Y0:Sort'Hash'RuleBody{}))) [constructor{}()] // no confusion same constructor
+//@ 124
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleNoConditions{}(X0:Sort'Hash'RuleBody{}), Lbl'Hash'ruleRequires{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}))) [constructor{}()] // no confusion different constructors
+//@ 125
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleNoConditions{}(X0:Sort'Hash'RuleBody{}), Lbl'Hash'ruleRequiresEnsures{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}, Y2:SortBool{}))) [constructor{}()] // no confusion different constructors
+//@ 126
+  axiom{R} \exists{R} (Val:Sort'Hash'RuleContent{}, \equals{Sort'Hash'RuleContent{}, R} (Val:Sort'Hash'RuleContent{}, Lbl'Hash'ruleRequires{}(K0:Sort'Hash'RuleBody{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 127
+  axiom{}\implies{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleRequires{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleRequires{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{})), Lbl'Hash'ruleRequires{}(\and{Sort'Hash'RuleBody{}} (X0:Sort'Hash'RuleBody{}, Y0:Sort'Hash'RuleBody{}), \and{SortBool{}} (X1:SortBool{}, Y1:SortBool{}))) [constructor{}()] // no confusion same constructor
+//@ 128
+  axiom{}\not{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleRequires{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}), Lbl'Hash'ruleRequiresEnsures{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}, Y2:SortBool{}))) [constructor{}()] // no confusion different constructors
+//@ 129
+  axiom{R} \exists{R} (Val:Sort'Hash'RuleContent{}, \equals{Sort'Hash'RuleContent{}, R} (Val:Sort'Hash'RuleContent{}, Lbl'Hash'ruleRequiresEnsures{}(K0:Sort'Hash'RuleBody{}, K1:SortBool{}, K2:SortBool{}))) [functional{}()] // functional
+//@ 130
+  axiom{}\implies{Sort'Hash'RuleContent{}} (\and{Sort'Hash'RuleContent{}} (Lbl'Hash'ruleRequiresEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}, X2:SortBool{}), Lbl'Hash'ruleRequiresEnsures{}(Y0:Sort'Hash'RuleBody{}, Y1:SortBool{}, Y2:SortBool{})), Lbl'Hash'ruleRequiresEnsures{}(\and{Sort'Hash'RuleBody{}} (X0:Sort'Hash'RuleBody{}, Y0:Sort'Hash'RuleBody{}), \and{SortBool{}} (X1:SortBool{}, Y1:SortBool{}), \and{SortBool{}} (X2:SortBool{}, Y2:SortBool{}))) [constructor{}()] // no confusion same constructor
+//@ 169
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis'Hash'RuleBody{}(K0:SortK{}))) [functional{}()] // functional
+//@ 170
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis'Hash'RuleContent{}(K0:SortK{}))) [functional{}()] // functional
+//@ 194
+  axiom{} \or{Sort'Hash'RuleBody{}} (\exists{Sort'Hash'RuleBody{}} (Val:SortBool{}, inj{SortBool{}, Sort'Hash'RuleBody{}} (Val:SortBool{})), \exists{Sort'Hash'RuleBody{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, Sort'Hash'RuleBody{}} (Val:SortGeneratedCounterCell{})), \exists{Sort'Hash'RuleBody{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, Sort'Hash'RuleBody{}} (Val:SortGeneratedCounterCellOpt{})), \exists{Sort'Hash'RuleBody{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, Sort'Hash'RuleBody{}} (Val:SortGeneratedTopCell{})), \exists{Sort'Hash'RuleBody{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, Sort'Hash'RuleBody{}} (Val:SortGeneratedTopCellFragment{})), \exists{Sort'Hash'RuleBody{}} (Val:SortInt{}, inj{SortInt{}, Sort'Hash'RuleBody{}} (Val:SortInt{})), \exists{Sort'Hash'RuleBody{}} (Val:SortK{}, inj{SortK{}, Sort'Hash'RuleBody{}} (Val:SortK{})), \exists{Sort'Hash'RuleBody{}} (Val:SortKCell{}, inj{SortKCell{}, Sort'Hash'RuleBody{}} (Val:SortKCell{})), \exists{Sort'Hash'RuleBody{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, Sort'Hash'RuleBody{}} (Val:SortKCellOpt{})), \exists{Sort'Hash'RuleBody{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, Sort'Hash'RuleBody{}} (Val:SortKConfigVar{})), \exists{Sort'Hash'RuleBody{}} (Val:SortKItem{}, inj{SortKItem{}, Sort'Hash'RuleBody{}} (Val:SortKItem{})), \exists{Sort'Hash'RuleBody{}} (Val:SortList{}, inj{SortList{}, Sort'Hash'RuleBody{}} (Val:SortList{})), \exists{Sort'Hash'RuleBody{}} (Val:SortMap{}, inj{SortMap{}, Sort'Hash'RuleBody{}} (Val:SortMap{})), \exists{Sort'Hash'RuleBody{}} (Val:SortSet{}, inj{SortSet{}, Sort'Hash'RuleBody{}} (Val:SortSet{})), \bottom{Sort'Hash'RuleBody{}}()) [constructor{}()] // no junk
+//@ 195
+  axiom{} \or{Sort'Hash'RuleContent{}} (\exists{Sort'Hash'RuleContent{}} (X0:Sort'Hash'RuleBody{}, \exists{Sort'Hash'RuleContent{}} (X1:SortBool{}, Lbl'Hash'ruleEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}))), \exists{Sort'Hash'RuleContent{}} (X0:Sort'Hash'RuleBody{}, Lbl'Hash'ruleNoConditions{}(X0:Sort'Hash'RuleBody{})), \exists{Sort'Hash'RuleContent{}} (X0:Sort'Hash'RuleBody{}, \exists{Sort'Hash'RuleContent{}} (X1:SortBool{}, Lbl'Hash'ruleRequires{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}))), \exists{Sort'Hash'RuleContent{}} (X0:Sort'Hash'RuleBody{}, \exists{Sort'Hash'RuleContent{}} (X1:SortBool{}, \exists{Sort'Hash'RuleContent{}} (X2:SortBool{}, Lbl'Hash'ruleRequiresEnsures{}(X0:Sort'Hash'RuleBody{}, X1:SortBool{}, X2:SortBool{})))), \bottom{Sort'Hash'RuleContent{}}()) [constructor{}()] // no junk
+//@ 212
+// rule `is#RuleBody`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a9553e34292a5e1f7e314e2cd0e47ad573c41de2eb9718d6861f1e626c0470f4), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort'Hash'RuleBody{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort'Hash'RuleBody{}, SortKItem{}}(Var'Unds'Gen1:Sort'Hash'RuleBody{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'RuleBody{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("a9553e34292a5e1f7e314e2cd0e47ad573c41de2eb9718d6861f1e626c0470f4"), owise{}()]
+//@ 213
+// rule `is#RuleBody`(inj{#RuleBody,KItem}(#RuleBody))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(eb57716475d641ee8c5ca9ddffe15f855af2ca81a2d220807e68e18c19e67af4)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort'Hash'RuleBody{}, SortKItem{}}(Var'Hash'RuleBody:Sort'Hash'RuleBody{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'RuleBody{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("eb57716475d641ee8c5ca9ddffe15f855af2ca81a2d220807e68e18c19e67af4")]
+//@ 214
+// rule `is#RuleContent`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(a4262d84c36f6fd37495d0393dae94d3215ecdbda43d96138c5d2ed377835db7), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort'Hash'RuleContent{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort'Hash'RuleContent{}, SortKItem{}}(Var'Unds'Gen1:Sort'Hash'RuleContent{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'RuleContent{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("a4262d84c36f6fd37495d0393dae94d3215ecdbda43d96138c5d2ed377835db7"), owise{}()]
+//@ 215
+// rule `is#RuleContent`(inj{#RuleContent,KItem}(#RuleContent))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0c946f423b7439da29b25b144d79631b38ea5ab890f68f8677acc101def085b5)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort'Hash'RuleContent{}, SortKItem{}}(Var'Hash'RuleContent:Sort'Hash'RuleContent{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'RuleContent{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("0c946f423b7439da29b25b144d79631b38ea5ab890f68f8677acc101def085b5")]
+//@ 258
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-requires-ensures.k)")]

@@ -1,0 +1,62 @@
+//@ 0
+module E6-MOD-SORT-KBOTT
+//@ 61
+  symbol LblisKBott{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 155
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisKBott{}(K0:SortK{}))) [functional{}()] // functional
+//@ 201
+// rule isKBott(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(82eb683129eda94db5e329d4f1bd6c8bbb720029bd7388159f16233f1c289720), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortKBott{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortKBott{}, SortKItem{}}(Var'Unds'Gen1:SortKBott{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisKBott{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("82eb683129eda94db5e329d4f1bd6c8bbb720029bd7388159f16233f1c289720"), owise{}()]
+//@ 202
+// rule isKBott(inj{KBott,KItem}(KBott))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0430532b28c9e8637bebd9d20a684d86d5aa95588527682c65b16574ca5d16c3)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortKBott{}, SortKItem{}}(VarKBott:SortKBott{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisKBott{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("0430532b28c9e8637bebd9d20a684d86d5aa95588527682c65b16574ca5d16c3")]
+//@ 232
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,5,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-sort-kbott.k)")]

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-sort-kbott.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.9
+definition.kore bytes: 81390
+definition.kore sha256: 322502576e89bfc83c018ed1aa64a1895e2555d4d3e4687e0a886c1144426a28
+stripped sha256: 723f9d1ef3531052cc248edd5a51b7c991ed7f70571d7dd4a33f288d2d85bd2c
+main module: 233 sentences, 6 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-SORT-KBOTT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-SORT-KBOTT as default.
