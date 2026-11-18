@@ -356,4 +356,9 @@
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
 #             (test/TieEns*, TieKimp*, TieKk*, LibEv*) that entail the row's sentence, axiom N of the
 #             tied text TEXT; or "refuted: MODULE; ..." where they only refute it or hold it where its
-#             set variables hold one value at most; or "uncovered: MODULE; why".
+#             set variables hold one value at most; or "no direction: MODULE; THEOREM (FILE; TEXT
+#             axiom N|symbol declaration NAME); ..." where no theorem ties or refutes it and, on a
+#             tied text, it is of the tie's no-direction class (owed-sentence rule item 7; the
+#             theorems that state the class, e6map.py's form (e)): never tied, counted apart, and
+#             counted toward its module being tied only with a theorem of kind "in a model" naming
+#             it; or "uncovered: MODULE; why".

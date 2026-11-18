@@ -72,6 +72,8 @@ Refused nested entries by class:
 
 Supported entries (rows and nested): 961; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 947 have no owed fact.
 
+E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): 480, of which 183 tied, 12 of no direction (the tie's no-direction class, owed-sentence rule item 7: never tied, counted apart), 9 refuted and 276 uncovered.
+
 ## Entries of class R-c (48)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
