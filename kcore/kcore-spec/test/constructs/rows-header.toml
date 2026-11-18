@@ -153,6 +153,22 @@
 #             fixture holds the entry's `sentence`.
 #   A parameter entry's param_undetermined instance is a `derived` table of form (c); a supported
 #   hook's in-domain value a `derived` table of form (a).
+#   inert_class "use" holds DONE-0 C1's content only: proof tasks, solver encodings, parsing and
+#             unparsing of programs (a use of a definition, not part of its meaning); rest.py refuses
+#             it on an entry whose fixture differs from a companion (fixture.toml differs_from) or that
+#             has attr_pairs. inert_class "attribute": an attribute of a read sentence or declaration to
+#             which K gives no meaning; its evidence (rest.py) is the tie of the fixture's own text (a
+#             file of `tie` other than test/InertSemPairs.lean that reads f2-examples/FIXTURE.kompile.kore),
+#             KCore.InertSemPairs.trS_attrs among tie_theorems, the fields below, and `reason` saying
+#             why K gives the attribute no meaning.
+#   attribute the attribute's head as KORE writes it (UNIQUE'Unds'ID, cool-like, unit).
+#   attr_pairs  pairs [TEXT, COMPANION] of texts f2-examples/*.kore that differ and are equal once
+#             every attribute of that head is removed (and kfix.py's stripped applied to both).
+#   reader_tests  theorems that test the reader on the entry (a pair's sem_eq: the reader builds one
+#             semantics from both texts); evidence of nothing about the text, never counted as such.
+#   removed   on a row whose option removes sentences of a reference text: per sentence (its index in
+#             the reference text's user module), its tie class and direction there, the theorem and
+#             its companion, and the file.
 # Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
 # checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
