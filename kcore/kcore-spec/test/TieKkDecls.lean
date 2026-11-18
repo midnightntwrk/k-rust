@@ -8,7 +8,7 @@
   - `syms_in_sig`: of the 311 symbol declarations, each without sort parameters (all but 5,
     `decl_params`) names no symbol of Γ, or its item is the arity item `sigItems c` holds for the
     first of Γ's symbols under its name, pattern for pattern (`symOK`); the former are
-    65 (`noSym_count`; no direction, as the sentences that apply them), so 241 have their item in
+    57 (`noSym_count`; no direction, as the sentences that apply them), so 249 have their item in
     Γ. Decided by ranges of 50 declarations, each its own kernel decision (`syms_a`), joined by
     `tieAll_range` and `declCount_range`.
   - `decls_entailed`: so Γ entails the item of each sort declaration without sort parameters and of
@@ -68,19 +68,19 @@ theorem decl_params : (kore.sortDecls.filter fun sd => !sd.params.isEmpty).map (
 
 theorem sorts_in_sig : kore.sortDecls.all sortOK = true := by decide +kernel
 
-theorem syms_0 : (((kore.symbolDecls.drop 0).take 50).all symOK, ((kore.symbolDecls.drop 0).take 50).countP noSymP) = (true, 10) := by
+theorem syms_0 : (((kore.symbolDecls.drop 0).take 50).all symOK, ((kore.symbolDecls.drop 0).take 50).countP noSymP) = (true, 9) := by
   decide +kernel
-theorem syms_50 : (((kore.symbolDecls.drop 50).take 50).all symOK, ((kore.symbolDecls.drop 50).take 50).countP noSymP) = (true, 6) := by
+theorem syms_50 : (((kore.symbolDecls.drop 50).take 50).all symOK, ((kore.symbolDecls.drop 50).take 50).countP noSymP) = (true, 4) := by
   decide +kernel
-theorem syms_100 : (((kore.symbolDecls.drop 100).take 50).all symOK, ((kore.symbolDecls.drop 100).take 50).countP noSymP) = (true, 8) := by
+theorem syms_100 : (((kore.symbolDecls.drop 100).take 50).all symOK, ((kore.symbolDecls.drop 100).take 50).countP noSymP) = (true, 6) := by
   decide +kernel
 theorem syms_150 : (((kore.symbolDecls.drop 150).take 50).all symOK, ((kore.symbolDecls.drop 150).take 50).countP noSymP) = (true, 1) := by
   decide +kernel
-theorem syms_200 : (((kore.symbolDecls.drop 200).take 50).all symOK, ((kore.symbolDecls.drop 200).take 50).countP noSymP) = (true, 20) := by
+theorem syms_200 : (((kore.symbolDecls.drop 200).take 50).all symOK, ((kore.symbolDecls.drop 200).take 50).countP noSymP) = (true, 19) := by
   decide +kernel
-theorem syms_250 : (((kore.symbolDecls.drop 250).take 50).all symOK, ((kore.symbolDecls.drop 250).take 50).countP noSymP) = (true, 16) := by
+theorem syms_250 : (((kore.symbolDecls.drop 250).take 50).all symOK, ((kore.symbolDecls.drop 250).take 50).countP noSymP) = (true, 15) := by
   decide +kernel
-theorem syms_300 : ((kore.symbolDecls.drop 300).all symOK, (kore.symbolDecls.drop 300).countP noSymP) = (true, 4) := by
+theorem syms_300 : ((kore.symbolDecls.drop 300).all symOK, (kore.symbolDecls.drop 300).countP noSymP) = (true, 3) := by
   decide +kernel
 
 theorem syms_in_sig : kore.symbolDecls.all symOK = true :=
@@ -93,10 +93,10 @@ theorem syms_in_sig : kore.symbolDecls.all symOK = true :=
     tieAll_range (a := 250) (n := 50) (Prod.mk.inj syms_250).1 <|
     (Prod.mk.inj syms_300).1
 
-/-- **The account of the symbol declarations**: 65 have no sort parameter and name no symbol of Γ;
-with the 5 with sort parameters (`decl_params`), the other 241 have their item in Γ
+/-- **The account of the symbol declarations**: 57 have no sort parameter and name no symbol of Γ;
+with the 5 with sort parameters (`decl_params`), the other 249 have their item in Γ
 (`syms_in_sig`). -/
-theorem noSym_count : kore.symbolDecls.countP noSymP = 65 := by
+theorem noSym_count : kore.symbolDecls.countP noSymP = 57 := by
   have h : (kore.symbolDecls.drop 0).countP noSymP = _ :=
     declCount_range (a := 0) (n := 50) (Prod.mk.inj syms_0).2 <|
     declCount_range (a := 50) (n := 50) (Prod.mk.inj syms_50).2 <|

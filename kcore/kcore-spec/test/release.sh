@@ -6,10 +6,23 @@
 #   examples     every example package as committed, built in the kernel with its user's modules
 #                (examples/run.sh --build-only): peano with its tie, the one worked example of a
 #                definition read from its KORE text that `emit` gives back; ref-kimp with User.SumSpec
-#                (K's claim sum-spec), User.SumN, User.SumSpecStmt and User.RunInstance (run_exact at
-#                one configuration); kimp-ni's noninterference modules
+#                (K's claim sum-spec), User.SumN, User.SumSpecStmt, User.SumSpecGen (the statement
+#                `k2lean kcore-claims` writes; test/pins-kimp.sh, run by the integration step,
+#                regenerates and compares it), User.RunInstance (run_exact at
+#                one configuration), User.SumSpecHolds (the statement proved at every H) and
+#                User.SumSpecML (its matching-logic corollaries), User.SumSpecInstance (the claim
+#                at N = 3, S = 0). Building SumSpecHolds, SumSpecML and SumSpecInstance runs each
+#                module's own check of its theorems: axioms within propext, Classical.choice,
+#                Quot.sound, and no hypothesis on the functions among their constants (`FnHyp`,
+#                `fnHyp_defn`, `fnHyp_withHooks_defn`: through every definition and proof below
+#                sum_spec_holds, sum_spec_kore and sum_spec_instance; named by the proofs of
+#                stepDecided_all and the sum_spec_ml theorems, whose route through consistent,
+#                sound_at and complete_at proves FnHyp as a theorem); a failing check fails the build;
+#                kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
-#                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance; ref-kimp's row
+#                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance,
+#                sum_spec_holds, sum_spec_kore, stepDecided_all, sum_spec_ml, sum_spec_ml_closure,
+#                sum_spec_ml_stuck, sum_spec_instance; ref-kimp's row
 #                statements coreOK_defn, consistent, sound_at, complete_at, run_exact, totals (every
 #                [total] function is Total) and totals_withHooks (the same at every hook
 #                interpretation H); ref-kk's coreOK_defn, sound_hyp, complete_hyp (kore.k's text);
@@ -99,8 +112,8 @@ step examples examples/run.sh --build-only
 if grep -q '|ok|' "$R/examples.res"; then
   step axioms-peano axioms axioms-peano peano 'Peano.Tie Peano.Sound' \
     'Peano.tied Peano.sound_hyp Peano.complete_hyp Peano.sound Peano.complete Peano.coreOK_defn'
-  step axioms-sumspec axioms axioms-sumspec ref-kimp 'RefKimp.Sound User.SumSpec User.SumN User.RunInstance' \
-    'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp RefKimp.RunInstance.run_instance'
+  step axioms-sumspec axioms axioms-sumspec ref-kimp 'RefKimp.Sound User.SumSpec User.SumN User.RunInstance User.SumSpecHolds User.SumSpecML User.SumSpecInstance' \
+    'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp RefKimp.RunInstance.run_instance RefKimp.Claims.sum_spec_holds RefKimp.Claims.sum_spec_kore RefKimp.stepDecided_all RefKimp.Claims.sum_spec_ml RefKimp.Claims.sum_spec_ml_closure RefKimp.Claims.sum_spec_ml_stuck RefKimp.Claims.sum_spec_instance'
   step axioms-refkimp axioms axioms-refkimp ref-kimp 'RefKimp.Sound RefKimp.FnHyp RefKimp.Facts.Terminates' \
     'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals RefKimp.totals_withHooks'
   step axioms-refkk axioms axioms-refkk ref-kk 'RefKk.Sound' \

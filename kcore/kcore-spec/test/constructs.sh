@@ -5,8 +5,9 @@
 # the strings of test/ConstructsE4.lean, whose functions match every constructor with no wildcard
 # (elaborated here). Prints the eight counts, the rows per status and the not-handled rows per list. Then
 # test/constructs/kfix.py check: every row of E1, E2, E3, E7, E8 points at a fixture of
-# test/constructs/fixtures/ whose committed kore.txt holds the sentences the row names. Exit 1 on any
-# difference. Then test/constructs/units.py: every refused row and every class R-c row names in `unit`
+# test/constructs/fixtures/ whose committed kore.txt holds the sentences the row names, and every
+# erased entry's forms S, O, C hold (S: a native scan, `kcore sentence-heads`, of every fixture's
+# kompiled text and of the corpus). Exit 1 on any difference. Then test/constructs/units.py: every refused row and every class R-c row names in `unit`
 # a ticket or unit of progress/ (KCORE_PROGRESS), or "none (CLASS)" (rows-header.toml). Then
 # test/constructs/closed.py: every constructor of the reader's four reason inductives is named by an
 # entry or pinned with the ticket that owes it, and every `reasons` name is such a constructor
@@ -35,6 +36,7 @@
 # (test/constructs/kompile-e6.sh; exit 77 without it).
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
+mkdir -p .lake/constructs
 [ -f .lake/constructs-e6/all-builtins-kompiled/definition.kore ] || { echo "constructs: no E6 text (test/constructs/kompile-e6.sh)"; exit 77; }
 test/constructs/extract.sh > .lake/constructs/extract.out 2>&1; rc=$?
 cat .lake/constructs/recount.txt

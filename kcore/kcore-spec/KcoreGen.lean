@@ -420,6 +420,7 @@ partial def cellGo (g : Ctx) (pre : String) : Cell → List String
   | .leaf nm _ ids => [s!"def {quoteId (nm ++ "Path")} : Path := {pre}.arg {g.sym ids.label} 1 0]",
       s!"def {quoteId ("get_" ++ nm)} (x : GroundTerm) : Option GroundTerm := x.atPath {quoteId (nm ++ "Path")}"]
   | .node _ cs ids => cs.zipIdx.flatMap fun (ch, i) => cellGo g (pre ++ s!".arg {g.sym ids.label} {cs.length} {i}, ") ch
+  | .coll _ => []
 
 def cellPathsOf (g : Ctx) : List String :=
   let p := g.d.pres
@@ -2707,6 +2708,14 @@ def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
       (cs ++ r.1, r.2)
     else (cs.take n, true)
 
+/-- What the account says after a class line beyond the class: for a sentence of the user's text
+classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
+the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails. -/
+def classLineOwed (c o : String) : String :=
+  if c == "inert simplification" && o == "user" then
+    ": owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader"
+  else ""
+
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
 (FIX-core.account-trunc-path): where a line is cut does not depend on the directory a text was
 kompiled in or on K's installation path, so the line is the same for two texts that differ only in
@@ -2736,7 +2745,7 @@ def account (koreFile : String) : IO UInt32 := do
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do
     let these := cls.filter fun (c', o', _) => c' == c && o' == o
-    IO.println s!"  {these.length} {c} [{o}]"
+    IO.println s!"  {these.length} {c} [{o}]{classLineOwed c o}"
     if (c.splitOn "refused").length > 1 then
       for (_, _, s) in these.take 1 do IO.println s!"      e.g. {clip 400 (Kore.Printer.sentence s)}"
   -- printed only when some sentence is read so
@@ -2846,10 +2855,15 @@ def account (koreFile : String) : IO UInt32 := do
       IO.println s!"rules and clauses applying an open generator in their left side: {gp.length}"
       for r in gp.take 10 do IO.println s!"      {r.toText}"
     -- printed only when some rule is read so
-    let kr := Parse.keysAsRequires k
+    let kr := Parse.keysAsMember k
     unless kr.isEmpty do
-      IO.println s!"rules read with a map key applying a function as a `requires` conjunct (keyFunctionAsRequires): {kr.length}"
+      IO.println s!"rules read with a map key applying a function as a membership conjunct of pre (keyFunctionAsMember): {kr.length}"
       for (i, fs) in kr.take 10 do IO.println s!"      sentence {i}: {fs}"
+    -- printed only when some rule is read so
+    let rc := Parse.rulesCondConjCnj d
+    unless rc.isEmpty do
+      IO.println s!"rules read with conjuncts B = true of pre or post, the conjuncts of a requires or of the right side's conditions after the first (andAtBool): {rc.length}"
+      for (i, np, nq) in rc.take 10 do IO.println s!"      rule {i}: {np} in pre, {nq} in post"
     -- printed only when some rule's `CondDecided` is owed
     let ow := Parse.owedCondDecided d.sem
     unless ow.isEmpty do
@@ -3309,7 +3323,7 @@ sentences the text lacks (module by module, as `roundtrip` finds them), each cla
 (the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
 what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
 stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
-account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
+account gives it (`Parse.connReadings`, `keysAsMember`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
 inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
 read in another form under a note is a named reading (C14's weaker or more, with its note); one
 without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
@@ -3380,7 +3394,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let userName := (k.modules.getLast?.map (·.name.ident.name)).getD ""
   let off := Parse.preludeLength k
   let conn := Parse.connReadings k
-  let keys := Parse.keysAsRequires k
+  let keys := Parse.keysAsMember k
   -- the `[owise]` equations read with a premise narrower than the text's
   let narrowed := (Parse.owiseNarrowed k d).map (·.1)
   -- KItem's no-junk axioms read with a generator they do not list
@@ -3397,7 +3411,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         | .unread r => [s!"unread {r.name}"]
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
-      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
+      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsMember"] else []) ++
       (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
       (if tokOmitted.contains n then ["tokKItem"] else [])
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
@@ -4143,10 +4157,11 @@ def readyWhy (c : Semantics) (vars : List Srt) : Nat → Term → Option (String
         else some (s!"{noRoleKind c f} in a pattern", decodeK (c.symName f))
 
 /-- `kcore exec-ready definition.kore`: `coreOK`, the conditions the executable matcher of Exec.lean
-reads (`ok`, `srReady`, `matchReady`), `CExec.execReady` and `ok`'s conjuncts, as `name 0|1` pairs on one
-line; then,
+reads (`ok`, `srReady`, `matchReady`), `CExec.execReady`, `ok`'s conjuncts and `readsConfined`, as `name 0|1`
+pairs on one line; then,
 for each clause and rule whose left-hand side `execReady` does not accept, and each rule with a
-predicate other than `\top`, a tab-separated line `why`, the reason, its detail, the place. A line `mismatch` where `readyWhy` and `readyP` disagree. -/
+predicate other than a conjunction of `\in` and `\equals` atoms (`CExec.predAtoms`), a
+tab-separated line `why`, the reason, its detail, the place. A line `mismatch` where `readyWhy` and `readyP` disagree. -/
 def execReadyCmd (koreFile : String) : IO UInt32 := do
   let out := fun (s : String) => do IO.println s; (← IO.getStdout).flush
   let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
@@ -4156,7 +4171,7 @@ def execReadyCmd (koreFile : String) : IO UInt32 := do
   let c := d.sem
   let b := fun (x : Bool) => if x then "1" else "0"
   let core := ((coreParts c (tables c)).filter (!·.2)).isEmpty
-  out s!"coreOK {b core} ok {b c.ok} srReady {b c.srReady} matchReady {b c.matchReady} sortedOK {b c.sortedOK} execReady {b (CExec.execReady c)} ok.declsOK {b c.declsOK} ok.subsortsOK {b c.subsortsOK} ok.fnsOK {b c.fnsOK} ok.rulesOK {b (c.rules.all c.ruleOK)} matchReadyO {b c.matchReadyO}"
+  out s!"coreOK {b core} ok {b c.ok} srReady {b c.srReady} matchReady {b c.matchReady} sortedOK {b c.sortedOK} execReady {b (CExec.execReady c)} ok.declsOK {b c.declsOK} ok.subsortsOK {b c.subsortsOK} ok.fnsOK {b c.fnsOK} ok.rulesOK {b (c.rules.all c.ruleOK)} matchReadyO {b c.matchReadyO} readsConfined {b c.readsConfined}"
   let check := fun (vars : List Srt) (ps : List Term) (at_ : String) => do
     for p in ps do
       let r := readyWhy c vars (Exec.termSize p) p
@@ -4172,7 +4187,8 @@ def execReadyCmd (koreFile : String) : IO UInt32 := do
   for (r, rp) in withPres c.rules d.pres.rules do
     let at_ := s!"rule {rp.label.getD "(no label)"} at {(rp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{rp.info.loc.l1}"
     check r.vars [r.lhs] at_
-    unless r.pre.isTop && r.post.isTop do out s!"why\ta predicate of the rule (pre or post) other than \\top\t\t{at_}"
+    unless CExec.predAtoms r.pre && CExec.predAtoms r.post do
+      out s!"why\ta predicate of the rule (pre or post) other than a conjunction of \\in and \\equals atoms\t\t{at_}"
   return 0
 
 /-- `kcore exec definition.kore config.kore [--steps N] [--fuel F]`: the executable step of
@@ -4366,6 +4382,55 @@ def scopeCountCmd (koreFile : String) : IO UInt32 := do
   IO.println s!"modules={ms.length}\tiff={c.iff}\tmu={c.mu}\tnu={c.nu}\tnext={c.next}\tleftAssoc={c.leftAssoc}\trightAssoc={c.rightAssoc}\tstring={c.string}\talias={c.alias}\tsvarEqn={c.svarEqn}"
   return 0
 
+/-! ## `kcore sentence-heads`: each sentence's kind, attribute heads, Source and Location -/
+
+/-- The text of a string, one line: tabs and line ends as spaces. -/
+def sentenceHeadsOneLine (s : String) : String :=
+  s.map fun ch => if ch == '\t' || ch == '\n' || ch == '\r' then ' ' else ch
+
+/-- The sentence's kind (its keyword) and its attributes. -/
+def sentenceHeadsOf : Kore.Sentence → String × List Kore.AppPattern
+  | .import i => ("import", i.attributes)
+  | .sort s => ("sort", s.attributes)
+  | .hookedSort s => ("hooked-sort", s.attributes)
+  | .symbol s => ("symbol", s.attributes)
+  | .hookedSymbol s => ("hooked-symbol", s.attributes)
+  | .alias a => ("alias", a.attributes)
+  | .axiom a => ("axiom", a.attributes)
+  | .claim c => ("claim", c.attributes)
+
+/-- The string argument of the attribute whose head is `head`, or "-". -/
+def sentenceHeadsArg (attrs : List Kore.AppPattern) (head : String) : String :=
+  match attrs.find? (·.head.ident.name == head) with
+  | some { args := [.string v], .. } => sentenceHeadsOneLine v
+  | _ => "-"
+
+/-- One line of an attribute list: its heads (comma-separated, in order), the Source and the
+Location strings. -/
+def sentenceHeadsLine (attrs : List Kore.AppPattern) : String :=
+  ",".intercalate (attrs.map (·.head.ident.name)) ++ "\t" ++
+    sentenceHeadsArg attrs "org'Stop'kframework'Stop'attributes'Stop'Source" ++ "\t" ++
+    sentenceHeadsArg attrs "org'Stop'kframework'Stop'attributes'Stop'Location"
+
+/-- `kcore sentence-heads KORE`: the parsed text's attribute lists, one line each, tab-separated:
+`definition HEADS SOURCE LOCATION` for the definition's, then per module (index I from 0)
+`module I NAME HEADS SOURCE LOCATION` and per sentence (index J from 0 in its module)
+`sentence I J KIND HEADS SOURCE LOCATION`, KIND the sentence's keyword, HEADS the head identifiers
+of its attributes (comma-separated, as written), SOURCE and LOCATION the string arguments of its
+Source and Location attributes or "-". Then `sentences N`, their number. -/
+def sentenceHeadsCmd (koreFile : String) : IO UInt32 := do
+  let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
+  IO.println s!"definition\t{sentenceHeadsLine k.attributes}"
+  let mut n := 0
+  for (m, i) in k.modules.zipIdx do
+    IO.println s!"module\t{i}\t{sentenceHeadsOneLine m.name.ident.name}\t{sentenceHeadsLine m.attributes}"
+    for (s, j) in m.sentences.zipIdx do
+      let (kind, attrs) := sentenceHeadsOf s
+      IO.println s!"sentence\t{i}\t{j}\t{kind}\t{sentenceHeadsLine attrs}"
+      n := n + 1
+  IO.println s!"sentences {n}"
+  return 0
+
 end KcoreGen
 
 def main (argv : List String) : IO UInt32 := do
@@ -4373,6 +4438,7 @@ def main (argv : List String) : IO UInt32 := do
   | ["generated-eqs", kore] => KcoreGen.generatedEqsCmd kore
   | ["sem-fields", kore] => KcoreGen.semFieldsCmd kore
   | ["scope-count", kore] => KcoreGen.scopeCountCmd kore
+  | ["sentence-heads", kore] => KcoreGen.sentenceHeadsCmd kore
   | ["account", kore] => KcoreGen.account kore
   | ["wf-parts", kore] => KcoreGen.wfParts kore
   | ["roundtrip", kore] => KcoreGen.roundTrip kore
@@ -4405,4 +4471,4 @@ def main (argv : List String) : IO UInt32 := do
     KcoreGen.gen kore out ns (certs := certs) (high := high) (keyed := keyed) (tie := rest.contains "--tie")
       (wfMods := rest.contains "--wf") (core := rest.contains "--core") (withSyntax := !rest.contains "--no-syntax")
       (asNotPlain := rest.contains "--as-not-plain")
-  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore"; return 2
+  | _ => IO.eprintln "usage: kcore gen definition.kore OUTDIR NAME [--tie | --wf | --core [--no-syntax]] [--as-not-plain] [--cert NAME=RUN.json]... [--high CELL]... [--keyed CELL]...\n       kcore account definition.kore\n       kcore wf-parts definition.kore\n       kcore roundtrip definition.kore\n       kcore gap definition.kore [--all]\n       kcore agree CASES.jsonl...\n       kcore oracle definition.kore config.kore | kcore oracle CASES.jsonl...\n       kcore exec definition.kore config.kore [--steps N] [--fuel F]\n       kcore exec-ready definition.kore\n       kcore rule-ids definition.kore\n       kcore sem-fields definition.kore\n       kcore scope-count definition.kore\n       kcore sentence-heads definition.kore"; return 2

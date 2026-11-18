@@ -176,7 +176,8 @@ theorem fnHyp_withHooksN (h : c.coreOK = true) (H : HookParams)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f) (hH : ParamsTotal c tp H)
     (hob : FnObligations (c.withHooks H) ord tp)
     (hr : ∀ k ∈ c.params, k.raw = false := by decide +kernel) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : FnHyp (c.withHooks H) :=
-  fnHyp_of_fnObligationsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h) hheld (hH.withHooks hr) hob
+  fnHyp_of_fnObligationsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h)
+    (Semantics.heldObligations_withHooks c H ▸ hheld) (hH.withHooks hr) hob
 
 /-- `sound_fn_withHooks` with the held variables asked of the held-named functions only. -/
 theorem sound_fn_withHooksN (c : Semantics) (ord tp : List Sym) (h : c.coreOK = true) (H : HookParams)
@@ -351,7 +352,8 @@ functions is the data's, their owed facts are stated for the interpretation. -/
 theorem fnModel_of_fnFacts_withHooksN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
     (H : HookParams) (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
     (hob : FnFacts (c.withHooks H) ord tp) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) :=
-  fnModel_of_fnFactsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h) hheld hob
+  fnModel_of_fnFactsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h)
+    (Semantics.heldObligations_withHooks c H ▸ hheld) hob
 
 /-- `consistent_of_fnFactsN` for an interpretation H of the parameters: `coreOK` of the data, the
 list of the held-named functions the data's, their owed facts stated for the interpretation. No
@@ -359,6 +361,7 @@ hypothesis on the parameters: the functions not named have their variables held 
 theorem consistent_of_fnFacts_withHooksN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
     (H : HookParams) (hheld : ∀ f ∈ c.heldObligations, HeldOwed (c.withHooks H) f)
     (hob : FnFacts (c.withHooks H) ord tp) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : Consistent (c.withHooks H) :=
-  consistent_of_fnFactsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h) hheld hob
+  consistent_of_fnFactsN (hpreTop := hpreTop) ((Semantics.coreOK_withHooks c H).trans h)
+    (Semantics.heldObligations_withHooks c H ▸ hheld) hob
 
 end KCore

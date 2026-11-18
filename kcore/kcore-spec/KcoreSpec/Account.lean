@@ -8,6 +8,7 @@
 import KcoreSpec.Parse
 import KcoreSpec.Statements
 import KcoreSpec.UniqLists
+import KcoreSpec.DetachedB
 
 set_option autoImplicit false
 
@@ -104,14 +105,32 @@ def refusals (k : Kore.Definition) : List Refusal :=
         else ps ++ rs
     pre ++ cls ++ stages
 
+/-- A sort's projection `project:X` whose name the registry numbers is that registry symbol: an
+equation of it that `predProjOK?` accepts is accounted only where no premise of `Γ` names the
+symbol (`GenEqs.freeB`, decided). `predProjOK?` checks that the name is none of the definition's own,
+which does not exclude that the semantics lists or applies the registry's symbol of that name (a
+parameter symbol numbered as it, for example). Any other name: no check. -/
+def regProjFree (c : Semantics) (fn : String) : Bool :=
+  if (dropPrefix? "Lblproject'Coln'" fn).isSome then
+    match regSymNames.idxOf? fn with
+    | some i => GenEqs.freeB c [i]
+    | none => true
+  else true
+
+/-- An equation `predProjOK?` accepts, a registry-numbered sort projection's where its symbol is
+free of `Γ` (`regProjFree`). -/
+def predProjAcc (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (e : RawEqn) : Bool :=
+  predProjOK? N msrc eqs c e == some true && regProjFree c e.fn
+
 /-- The equations that `consumed` accounts for without a function of `d` holding them as clauses,
 by three classes, each checked, `eqs` the text's equations:
 - a sort predicate's equation that is a clause of that predicate's `Semantics.sortPreds` function,
   an `[owise]` one with its exclusion (`predProjOK?`, `predEqnOK`): the sentence is a clause `Γ`
   states (`ΓFns` over `allFns`);
 - a sort X's projection `project:X(P) = V` or its selector-domain axiom, where `d` does not number
-  `project:X` (`predProjOK?`): the symbol is in no sentence of `Γ`, and the equation defines it on
-  the image of the injection;
+  `project:X` (`predProjOK?`) and, where the registry numbers a symbol of that name, no premise of
+  `Γ` names it (`regProjFree`, `predProjAcc`): the symbol is in no sentence of `Γ`, and the equation
+  defines it on the image of the injection;
 - a constructor argument's projection `project:c:x(c(x₁, …, xₙ)) = xᵢ`, the projection no symbol
   of the registry or of `d`, c a constructor of the definition (`Semantics.ctorSigs`), the xᵢ
   distinct variables: the symbol is outside `Γ`'s signature, and the equation defines it on c's
@@ -127,7 +146,7 @@ def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn) : B
       args.all (fun a => match a with | .var (.evar _) => true | _ => false) &&
       args.eraseDups.length == args.length && args.contains (.var (.evar v))
     | _, _ => false
-  predProjOK? E.N E.src eqs c e == some true || argProj
+  predProjAcc E.N E.src eqs c e || argProj
 
 /-- A sentence of `kconfigModule`'s text (the kernel text's sentences naming `#KConfigValue` or
 `#unboxKConfigValue`, `namesKconfig`), compared with that text in the form the definition selects
@@ -153,9 +172,12 @@ as `S`, named as `E`) accounts for:
 - a function equation is one of `d`'s functions' clauses (each `[owise]` equation of a function is
   one), or the equation of `getGeneratedCounterCell` or of a cell's initializer, each no symbol of
   `d`, of the shape under which it states nothing of another symbol (`getterEqnOK`, `initEqnOK`); or an equation of a sort predicate `isX` that is a clause
-  of that predicate (which KCore defines from the sort order), or of a sort's projection that `d`
+  of that predicate (which KCore defines from the sort order), or an instance of such a clause at a
+  constructor pattern, or that predicate's `[owise]` equation whose exclusion names those
+  instances too (`predInstAcc`), or of a sort's projection that `d`
   does not read (`predProjOK?`; a projection a sentence applies is a function of `d` with its
-  equation, `Presentation.libProjs`); or, generated (without a user source), a constructor
+  equation, `Presentation.libProjs`) and that, where the registry numbers it, no premise of `Γ`
+  names (`predProjAcc`); or, generated (without a user source), a constructor
   argument's projection's equation (`genEqClassOK`) or a sentence of `kconfigModule`'s text
   (`kconfigOwnSentence`); any other generated equation is refused
   (`RefusalReason.generatedEquation`);
@@ -219,11 +241,13 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- the getter's equation and a tree initializer's, by their content
       (!symOfDefn c getterName && getterEqnOK c S.eqs e) ||
       ((initCell e.fn).any fun x => initEqnOK E.N E.src S.eqs c x e) ||
-      -- a sort predicate's equation that is its clause, or a sort's projection's that no symbol
-      -- of `d` reads (`predProjOK?`), whoever wrote it; or, generated (no user source), a
+      -- a sort predicate's equation that is its clause, or an instance of one at a constructor
+      -- pattern with its `[owise]` equation (`predInstAcc`), or a sort's projection's that no symbol
+      -- of `d` reads and, registry-numbered, no premise of `Γ` names (`predProjAcc`), whoever
+      -- wrote it; or, generated (no user source), a
       -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
       -- text where `d` imports that module (`kconfigOwnSentence`)
-      (generated && (predProjOK? E.N E.src S.eqs c e == some true ||
+      (generated && (predProjAcc E.N E.src S.eqs c e || predInstAcc E.N E.src S.eqs c e ||
         (!isUserSource a.attributes && (genEqClassOK E d S.eqs e || kconfigOwnSentence E s))))
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
@@ -335,6 +359,22 @@ def rulesWithEnsures (d : Definition) : Nat :=
 /-- The number of the definition's rules, each read in `Γ` with the premise `⌈rhs ∧ ens⌉`
 (`ReadingNote.ruleRightDefined`). -/
 def rulesRightDefined (d : Definition) : Nat := d.sem.rules.length
+
+/-- The number of conjuncts `B = true` (`Cond.equals` at Bool with the literal `true`) of a
+condition's conjunction. -/
+def eqTrueConjunctsCnj : Cond → Nat
+  | .and p q => eqTrueConjunctsCnj p + eqTrueConjunctsCnj q
+  | .equals s _ (.dv s' (.bool true)) => if s == Srt.bool && s' == Srt.bool then 1 else 0
+  | _ => 0
+
+/-- The definition's rules read with conjuncts `B = true` in `pre` or `post`
+(`ReadingNote.andAtBool`: the conjuncts after the first of a `requires`, or of the right side's
+conditions): each one's index and its numbers of such conjuncts in `pre` and in `post`. -/
+def rulesCondConjCnj (d : Definition) : List (Nat × Nat × Nat) :=
+  d.sem.rules.zipIdx.filterMap fun (r, i) =>
+    let np := eqTrueConjunctsCnj r.pre
+    let nq := eqTrueConjunctsCnj r.post
+    if np + nq == 0 then none else some (i, np, nq)
 
 /-- The number of the definition's function clauses, other than those written `[owise]`
 (`Emit.writtenOwise`: priority 200 without a `priority` attribute, `ReadingNote.owiseAsPriority`),
@@ -559,10 +599,10 @@ def rangeMapInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
           (⟨i, h, .rangeMapPattern, f⟩ : Refusal)
     ruleRs ++ clauseRs
 
-/-- The rules read with a map key of their left side as a fresh variable and a `requires`
-conjunct (`Parse.keyCut`, `ReadingNote.keyFunctionAsRequires`): each rule's place and the
-functions so read. -/
-def keysAsRequires (k : Kore.Definition) : List (Nat × List String) :=
+/-- The rules read with a map key of their left side as a fresh variable and its membership in the
+key a conjunct of `pre` (`Parse.keyCut`, `ReadingNote.keyFunctionAsMember`): each rule's place and
+the functions so read. -/
+def keysAsMember (k : Kore.Definition) : List (Nat × List String) :=
   match k.modules.getLast? with
   | none => []
   | some m =>
@@ -627,7 +667,7 @@ symbol states something of that symbol which no reading of the collections state
 /-- The law axioms read by none of the readings, in this order: the concatenation of a
 collection of `d` (an idempotence axiom: of a set), an open generator's associativity or
 idempotence sentence (`openLawRead`, read into `ParamSig.assoc`, `ParamSig.idem`), a function of
-`d` or a parameter no hook implements and no open generator (`fnLawHead`; whose laws `presOf` reads
+`d` or a parameter that is no open generator (`fnLawHead`; whose laws `presOf` reads
 into `Presentation.laws`, `fnLawAxioms`). One refusal for each other: `openLaw` for another law of
 an open generator, `lawAxiom` for the law of any other symbol, the symbol and the law named, with,
 for the idempotence of a symbol that kept `constructor`, that it contradicts the constructor's

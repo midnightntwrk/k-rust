@@ -46,13 +46,14 @@
     label `r2` (172), its only successor: the `[cool]` and `[heat]` rules do not match there.
   - `c1_step`: `c(1)` steps to `b(1)` by the `[cool]` rule (170), HOLE := `kseq(inj{Int,KItem}(0), dotk)`.
   - `c2_step`: `c(2)` steps to `b(2)` by the `[heat]` rule (171), HOLE := `dotk`.
+  - `c1_succs`, `c2_succs`: every successor of `c(1)` is `b(1)` or in the `[cool]` rule's family at
+    X := 1 (`Outcome.fam`, `famOpen`: `b(1)` where some HOLE satisfies the `requires`), and the same
+    at `c(2)` with the `[heat]` rule; the other rule with HOLE open does not match there.
   The rule labelled `r2` (172) steps `c(1)` and `c(2)` to `b(1)` and `b(2)` too; `c1_step` and
-  `c2_step` are derived through the `[cool]` and `[heat]` steps. No successor set is stated at `c(1)`
-  or `c(2)`, where an outcome is the family of a rule with HOLE open.
+  `c2_step` are derived through the `[cool]` and `[heat]` steps.
 
-  Not tied here: the constructor sentences, no junk, the hooked functional, collection law, library
-  and set-variable classes, and the account of the user module (on e2-unbound,
-  test/TieUnbound.lean and test/TieUnboundAtValues.lean tie them).
+  The rest of the tie on this text: test/TieRuleCoolWf.lean, TieRuleCoolText.lean,
+  TieRuleCoolCons.lean, TieRuleCoolAttrs.lean, TieRuleCoolAccount.lean, TieRuleCoolAtValues.lean.
 -/
 import KcoreSpec
 
@@ -864,6 +865,97 @@ theorem nomatch_heat {g : Sym} {n : Int} (hg : g ≠ symC ∨ n ≠ 2) (σ : Sub
     simp only [int, GroundTerm.dv.injEq, Lit.int.injEq, true_and] at this
     exact hn this
 
+/-- The variables the left side of the `[cool]` and `[heat]` rules binds: X (by `as`), R and the
+counter cell. -/
+theorem varOccs_r67 : varOccs r6.lhs = [0, 1, 2] ∧ varOccs r7.lhs = [0, 1, 2] := by decide +kernel
+
+/-- **Every successor by a rule without an open variable at `<k> c(n) </k>`, n of 1 and 2, is
+`<k> b(n) </k>`**: of those rules only `c(X) => b(X)` matches. -/
+theorem succ_Cn {n : Int} {x y : Config (cH H)} (hx : x.val = cfgOf symC (int n) dotK cnt0) {r : Rule} {σ : Subst}
+    (hop : r.opens = []) (hb : StepBy (cH H) r σ x y) : y.val = cfgOf symB (int n) dotK cnt0 := by
+  have hm := hb.hmatch
+  rw [hx] at hm
+  obtain ⟨-, -, h6o, h7o, -⟩ := witness_rules
+  rcases mem_rules H hb.mem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · rw [r0_parts.2.1] at hm; exact absurd (mismatch H abcA ne_syms.2.1 hm) id
+  · rw [r1_parts.2.1] at hm; exact absurd (mismatch H abcA ne_syms.2.1 hm) id
+  · rw [r2_parts.1] at hm; exact absurd (mismatch H abcA ne_syms.2.1 hm) id
+  · rw [r3_parts.1] at hm; exact absurd (mismatch H abcA ne_syms.2.1 hm) id
+  · rw [r4_parts.2.1] at hm; exact absurd (mismatch H abcB ne_syms.2.2.1 hm) id
+  · rw [r5_parts.2.1] at hm; exact absurd (mismatch H abcB ne_syms.2.2.1 hm) id
+  · rw [h6o] at hop; cases hop
+  · rw [h7o] at hop; cases hop
+  · exact step_end H abcC abcB r8_parts.2.1 r8_parts.2.2.1 (fun _ h => PatVal.var_inv h) hx hb
+
+/-- At an unblocked match of a rule whose left side is `<k> c(k #as X) ~> R </k>` at `<k> c(k) </k>`,
+σ gives the left side's variables the values `σn k` does. -/
+theorem lit_match {k : Int} {r : Rule} {σ : Subst} {x : GroundTerm} (hx : x = cfgOf symC (int k) dotK cnt0)
+    (hl : r.lhs = lhsOf symC (litAs k)) (hv : varOccs r.lhs = [0, 1, 2]) (hm : PatVal (cH H) σ r.lhs x) :
+    ∀ i ∈ varOccs r.lhs, (σn k).lookup i = σ.lookup i := by
+  rw [hl, hx] at hm
+  obtain ⟨v, w, u, he, hp, h1, h2⟩ := lhs_inv H abcC hm
+  obtain ⟨-, rfl, rfl, rfl⟩ := cfgOf_inj he
+  have h0 := (PatVal.as_inv hp).2
+  intro i hi
+  rw [hv] at hi
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+  rcases hi with rfl | rfl | rfl
+  · rw [h0]; rfl
+  · rw [h1]; rfl
+  · rw [h2]; rfl
+
+/-- **Completeness at `<k> c(1) </k>`**: with the step's closure, every successor is `<k> b(1) </k>`
+(by `c(X) => b(X)`) or in the `[cool]` rule's family at X := 1 (`famOpen`: `<k> b(1) </k>` where
+some HOLE satisfies `true andBool isKResult(HOLE)`); the `[heat]` rule does not match. -/
+theorem complete_C1 :
+    (Γc (cH H) ∪ Γstep (cH H)) ⊧ (den (cH H) (C1 H).val ⇒ KoreAML.allNext (KoreAML.disjList
+      ([Outcome.val (B1 H).val, Outcome.fam r6 (σn 1)].map (Outcome.pat (cH H))))) := by
+  intro M _ I hI
+  have hx : (C1 H).val = cfgOf symC (int 1) dotK cnt0 := rfl
+  obtain ⟨-, -, h6o, h7o, -, -, -, -, -, -, -, h0, h1, h2, h3, h4, h5, h8⟩ := witness_rules
+  refine complete_at (cH H) (coreOKH H) (C1 H) (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) _
+    (fun y r σ hop hb => ?_) (fun r hr hne σ hu => ?_) (openDecidedH H).2 hI
+  · have := succ_Cn H hx hop hb
+    rw [show y = B1 H from Subtype.ext this]
+    exact .head _
+  · have hm := hu.2.1
+    rcases mem_rules H hr with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact absurd h0 hne
+    · exact absurd h1 hne
+    · exact absurd h2 hne
+    · exact absurd h3 hne
+    · exact absurd h4 hne
+    · exact absurd h5 hne
+    · exact ⟨σn 1, lit_match H hx r6_parts.2.1 varOccs_r67.1 hm, .tail _ (.head _)⟩
+    · rw [r7_parts.2.1, hx] at hm; exact absurd (mismatch_lit H abcC (by decide) hm) id
+    · exact absurd h8 hne
+
+/-- **Completeness at `<k> c(2) </k>`**: every successor is `<k> b(2) </k>` or in the `[heat]`
+rule's family at X := 2 (`<k> b(2) </k>` where some HOLE satisfies `true andBool notBool
+isKResult(HOLE)`); the `[cool]` rule does not match. -/
+theorem complete_C2 :
+    (Γc (cH H) ∪ Γstep (cH H)) ⊧ (den (cH H) (C2 H).val ⇒ KoreAML.allNext (KoreAML.disjList
+      ([Outcome.val (B2 H).val, Outcome.fam r7 (σn 2)].map (Outcome.pat (cH H))))) := by
+  intro M _ I hI
+  have hx : (C2 H).val = cfgOf symC (int 2) dotK cnt0 := rfl
+  obtain ⟨-, -, h6o, h7o, -, -, -, -, -, -, -, h0, h1, h2, h3, h4, h5, h8⟩ := witness_rules
+  refine complete_at (cH H) (coreOKH H) (C2 H) (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) _
+    (fun y r σ hop hb => ?_) (fun r hr hne σ hu => ?_) (openDecidedH H).2 hI
+  · have := succ_Cn H hx hop hb
+    rw [show y = B2 H from Subtype.ext this]
+    exact .head _
+  · have hm := hu.2.1
+    rcases mem_rules H hr with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact absurd h0 hne
+    · exact absurd h1 hne
+    · exact absurd h2 hne
+    · exact absurd h3 hne
+    · exact absurd h4 hne
+    · exact absurd h5 hne
+    · rw [r6_parts.2.1, hx] at hm; exact absurd (mismatch_lit H abcC (by decide) hm) id
+    · exact ⟨σn 2, lit_match H hx r7_parts.2.1 varOccs_r67.2 hm, .tail _ (.head _)⟩
+    · exact absurd h8 hne
+
 end Steps
 
 /-! ## The fixture's expectations (C7 form (a)) -/
@@ -926,6 +1018,20 @@ theorem c1_step (H : HookParams) : Pre H ⊧ (den (cH H) (C1 H).val ⇒ KoreAML.
 theorem c2_step (H : HookParams) : Pre H ⊧ (den (cH H) (C2 H).val ⇒ KoreAML.sNext (den (cH H) (B2 H).val)) :=
   cutC H (sound_of H (stepC2 H) r_exs.2.2.2.2.1)
 
+/-- **Every successor of `c(1)` is `b(1)` or in the `[cool]` rule's family at X := 1**, for every H:
+derived from `Pre` with the step's closure (the `[cool]` rule's family, `Outcome.fam`, at its
+unblocked match). -/
+theorem c1_succs (H : HookParams) :
+    (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (C1 H).val ⇒ KoreAML.allNext (KoreAML.disjList
+      ([Outcome.val (B1 H).val, Outcome.fam r6 (σn 1)].map (Outcome.pat (cH H))))) :=
+  cutStep H (complete_C1 H)
+
+/-- **Every successor of `c(2)` is `b(2)` or in the `[heat]` rule's family at X := 2**, for every H. -/
+theorem c2_succs (H : HookParams) :
+    (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (C2 H).val ⇒ KoreAML.allNext (KoreAML.disjList
+      ([Outcome.val (B2 H).val, Outcome.fam r7 (σn 2)].map (Outcome.pat (cH H))))) :=
+  cutStep H (complete_C2 H)
+
 end KCore.TieRuleCool
 
 #print axioms KCore.TieRuleCool.shape
@@ -947,3 +1053,5 @@ end KCore.TieRuleCool
 #print axioms KCore.TieRuleCool.c5_succs
 #print axioms KCore.TieRuleCool.c1_step
 #print axioms KCore.TieRuleCool.c2_step
+#print axioms KCore.TieRuleCool.c1_succs
+#print axioms KCore.TieRuleCool.c2_succs

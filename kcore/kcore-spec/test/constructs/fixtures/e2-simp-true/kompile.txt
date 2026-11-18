@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-simp-true.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.2
+definition.kore bytes: 205312
+definition.kore sha256: 2b53c72f2fc4975f522871077ee91ccac0dfb7aa737e1b55161b7bded1788753
+stripped sha256: c3ce7bfd344183225ce8b93ae6862be43eeb48863e3378dc687fce939261856c
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SIMP-TRUE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-SIMP-TRUE as default.

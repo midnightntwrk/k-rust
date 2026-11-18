@@ -24,6 +24,8 @@ read. An E5 site is recognised by the form ModuleToKORE.java writes there:
                                \\rewrites
   functionalPattern:axiom#1    an axiom with the attribute functional or subsort whose body is an
                                \\exists (ModuleToKORE.java:1588)
+  genIdemAxiom:axiom#1         an axiom with the attribute idem whose body is an \\equals
+                               (ModuleToKORE.java's genIdemAxiom: `f(K, K) = K` of a symbol with idem)
 
 Usage (from kcore-spec):
   python3 -I test/constructs/e4e5.py find [--write] [ROWS.toml]
@@ -390,6 +392,8 @@ def e5_sites(kw, heads, body, nvars):
             out.add("convertRule:axiom#1")
         elif body == "\\exists" and names & {"functional", "subsort"}:
             out.add("functionalPattern:axiom#1")
+        elif body == "\\equals" and "idem" in names:
+            out.add("genIdemAxiom:axiom#1")
     return out
 
 
