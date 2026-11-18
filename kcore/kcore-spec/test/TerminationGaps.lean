@@ -145,7 +145,7 @@ theorem match_dec {σ : Subst} {v : GroundTerm} (hσ : gapDec.WellSorted [Srt.ma
 /-- The clause is match independent: every match binds its one variable to the argument. -/
 theorem gapDec_matchIndependent : MatchIndependent gapDec clDec := by
   refine ⟨?_, fun hne => absurd rfl hne⟩
-  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
+  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ _
   refine .inl ⟨rfl, rfl, rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
   intro i hi
   have hi0 : i = 0 := by simpa [clDec, varOccs, varOccsList] using hi
@@ -294,7 +294,7 @@ theorem gapCov_match : gapCov.matchObligations = [(G, 0)] := by decide +kernel
 
 /-- The clause's obligation holds: it has no variable. -/
 theorem gapCov_matchIndependent : MatchIndependent gapCov clCov :=
-  ⟨fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
+  ⟨fun _ _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
     fun t ht => (by simp [clCov] at ht)⟩, fun hne => absurd rfl hne⟩
 
 def mS : GroundTerm := .map S [(.dv Srt.int (.int 1), .dv Srt.int (.int 1))]

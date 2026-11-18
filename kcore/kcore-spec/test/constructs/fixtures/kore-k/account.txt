@@ -1,9 +1,9 @@
 out/definition.kore: 5 modules; prelude agrees
-user module KORE: 1172 sentences
+user module KORE: 1173 sentences
   1 inert import [generated]
   379 read [generated]
   236 read [builtin]
-  367 read [user]
+  368 read [user]
   115 inert distinctCtors [generated]
   35 inert injectivity [generated]
   9 inert collectionLaw [generated]

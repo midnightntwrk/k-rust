@@ -94,7 +94,9 @@ fails); `f()` is `1` by `clOne`, `clYE` being of the same priority. -/
 theorem fnTerminates3 : FnTerminates c3 := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fF] from hfn) with hfn' | hfn'
-  · refine eval_result (lookup3 hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
+  · refine eval_result (lookup3 hfn)
+      (Semantics.sortedOK_plainCl shape.2.2.2.2.1 fn (List.mem_append_left _ hfn))
+      (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop
           (Semantics.sortedOK_preTop shape.2.2.2.2.1 fn (List.mem_append_left _ hfn) cl hcl) σ⟩)
@@ -112,7 +114,7 @@ theorem fnTerminates3 : FnTerminates c3 := by
       (fun cl' h _ hlt => by
         simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at h
         rcases h with rfl | rfl <;> simp [clYE, clOne] at hlt)
-      .dv (fun t h => by cases h)⟩
+      rfl .dv (fun t h => by cases h) .top⟩
 
 /-- **`stepDecided_of_coreCl` at `c3`**: every configuration of `c3` is `StepDecided`. -/
 example (x : GroundTerm) : StepDecided c3 x :=

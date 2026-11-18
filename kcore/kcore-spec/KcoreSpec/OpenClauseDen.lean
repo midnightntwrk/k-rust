@@ -75,6 +75,13 @@ def ClauseOpenFactsP (c : Semantics) (fn : Fn) (L : List CtorSig) (cl : Clause) 
     sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
     (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool) ∧ cl.exs = []
 
+/-- `clauseSortedOpen` and `clausePlainOpen` give `ClauseOpenFactsP`. -/
+theorem clauseOpenFactsP_of {c : Semantics} {fn : Fn} {L : List CtorSig} {cl : Clause}
+    (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) : ClauseOpenFactsP c fn L cl := by
+  obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.clauseSortedOpen_parts hs
+  obtain ⟨hexs, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hp
+  exact ⟨h1, Semantics.clauseSortedOpen_preOK hs, hpost, h2, h3, h4, h5, hexs⟩
+
 /-- A `\top` predicate is well sorted. -/
 theorem ClauseOpenFacts.toP {c : Semantics} {fn : Fn} {L : List CtorSig} {cl : Clause}
     (h : ClauseOpenFacts c fn L cl) : ClauseOpenFactsP c fn L cl := by
@@ -348,8 +355,24 @@ mutual
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
-    | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-      rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
+    | _, _, _, .ovlFn (f := f) (rs := rs) (vs := ws) (o := o) (kg := kg) (r := r) hk ho hts hvs' hlo hcov hf,
+        L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
+      obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
+      rw [hlo] at hlo'; cases hlo'
+      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
+      obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ :=
+        OvlLaws.fnCover_fn_ovlF ((inferInstance : OvlOK c).hyp hsc.trans).fnFacts hlo hws hcov
+      have hname : kg.name = fn.label := by rw [hsig]
+      have hres : kg.result = fn.result := by rw [hsig]
+      have hgd := eval_den4ClPre hf hlook hus e
+      rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
+      have := covDen_of hI hsc.trans hlo hws hcov (by rw [hname]; exact hnn.2.1 fn (List.mem_append_left _ hfn))
+        (fun v hv => by rw [hres]; exact Eval.sorted hsc hf hlook hus hv) e hgd m
+      unfold KoreAML.den at this
+      rw [tr_symApp] at this
+      exact this
     | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
@@ -363,7 +386,7 @@ mutual
         have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
-        have := normDen_of hI hsc.trans hlo hws (hnf ws hall) e m
+        have := (normDen_of hI hsc.trans).1 hlo hws (hnf ws hall) e m
         unfold KoreAML.den at this
         rw [tr_symApp] at this
         exact this

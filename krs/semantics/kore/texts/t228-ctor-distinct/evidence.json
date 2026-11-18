@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t228-ctor-distinct.k": "7a3d3594db4c707b8d76d765e929d7e336c6d83ecfa4edf61a01b9050dbf6b5b"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t228-ctor-distinct.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "f906b64257a51cdeb94a7587b980c84e76220990d4cc0363fa0e1228eb7c8271",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

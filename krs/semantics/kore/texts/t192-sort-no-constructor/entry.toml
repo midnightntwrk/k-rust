@@ -1,0 +1,57 @@
+id = "t192-sort-no-constructor"
+kind = "text"
+subject = "A sort with no constructor (Empty), under an existential binder in a left side and as a variable of a disjunct of a left side: whether the sort has an element, and what the two rules state."
+retro = ["F5"]
+origin = "kcore-spec fixture e3-ml-lhs-empty-sort"
+rests_on = ["kk:t02-step-successors"]
+
+[text]
+files = ["t192-sort-no-constructor.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "Empty has an element in every model, which no closed term denotes; how many it has is not stated. So \\exists Y:Empty. a() denotes what a() does, and the first rule states that c(a()) steps to b(). The second rule's left side e(_:Empty) #Or d() holds d(), so d() steps to b(); it also states that e(y) steps to b() for each element y of Empty."
+reason = """
+(1) Every carrier of a model of a sorted matching logic theory is non-empty (introduction-to-matching-logic.tex:704-707), whatever the theory's axioms: Empty has an element in every model. No sentence of the text names one, and no constructor builds one.
+(2) An existential pattern denotes the union, over the elements of its variable's sort, of what its body denotes (introduction-to-matching-logic.tex:737-741). Y does not occur in a(), and Empty has an element, so \\exists Y:Empty. a() denotes what a() denotes. The first rule thus has the left side c(a()) and states that every such configuration has a successor in b() (kk:t02-step-successors, point (4)).
+(3) A disjunction denotes the union of what its disjuncts denote (introduction-to-matching-logic.tex:732-736). The second rule's left side holds d() and each e(y), y in Empty, and states a successor b() for each: d() steps to b()."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-707 (K 7.1.337)"
+quote = '''An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:732-736 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\neg\varphi) = M_s \ \backslash\ \overline{\rho}(\varphi)$ for all $\varphi\in\Pattern_s$'''
+
+[ruling.kore]
+statement = "kompile declares SortEmpty (kore.txt:2) with no no-junk axiom of it, and keeps the binder and the disjunction in the two rules' left sides: c(\\exists Y:Empty. a()) (kore.txt:82) and \\or(e(_Gen0), d()) (kore.txt:73). The written sentences state what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''sort SortEmpty{} []'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:82"
+quote = '''Lblc{}(\exists{SortExp{}}(VarY:SortEmpty{},Lbla{}()))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:73"
+quote = '''\or{SortExp{}}(Lble{}(Var'Unds'Gen0:SortEmpty{}),Lbld{}())'''
+
+[[observe]]
+file = "kore.txt"
+absent = "(Val:SortEmpty{}, \\equals{SortEmpty"

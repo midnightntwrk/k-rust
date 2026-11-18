@@ -292,9 +292,28 @@ theorem fnModel_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = 
     rcases List.mem_append.mp hmem with hu | hp
     · exact hag fn hu
     · exact sortPreds_agree hp
-  have hd := fnDet_of_coherent hco (Semantics.fnsNoExs_of_sortedOK hok)
+  have hd := fnDet_of_coherent hco
   exact ⟨hd, Faithful.Model.fnSolves_of_total (hypSound_of_core h) hd
-    fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs⟩
+    (fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs)
+    fun fn hfn cl hcl hne vs σ hdec =>
+      (hmi fn.label fn (lookupFn_of_core h hfn) cl hcl).2 hne fn.label fn vs σ (lookupFn_of_core h hfn) hcl hdec⟩
+
+/-- **Every function has a result at arguments of its sorts, from `FnFacts`** with the held
+variables asked of the held-named functions only: termination by the rank and the self calls'
+decrease in weight. -/
+theorem fnTerminates_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) : FnTerminates c := by
+  obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
+  have hsr := NamesApart.srReady_of hp hids hok
+    (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
+  have hterm := terminates_of_rankLN hok hsr (Semantics.ovlCase_of_core h) ord hheld hob.1
+  exact fun fn hfn vs hvs => hterm fn.label fn (lookupFn_of_core h hfn) vs hvs
+
+/-- **`ClausePreDecided` from `FnFacts`**: each clause's predicate has a truth value wherever its
+patterns match, every function having a result (`fnTerminates_of_fnFactsN`). -/
+theorem clausePreDecided_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
+    (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) : ClausePreDecided c :=
+  Faithful.Model.clausePreDecided_of_terminates (hypSound_of_core h) (fnTerminates_of_fnFactsN h hheld hob)
 
 /-- **`FnDet` and `FnSolves` from `FnFacts`**, under `coreOK` and `RightHeld`: termination by the
 rank and the self calls' decrease in weight, agreement and match independence by their deciders
@@ -308,7 +327,8 @@ theorem fnModel_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = t
 /-- **Consistency from `FnFacts`** (`consistent_of`): no owed condition is read. -/
 theorem consistent_of_fnFacts {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
     (hob : FnFacts c ord tp) : Consistent c :=
-  consistent_of c h (fnModel_of_fnFacts h hrh hob).1 (fnModel_of_fnFacts h hrh hob).2 hob.2.2.2.2
+  consistent_of c h (fnModel_of_fnFacts h hrh hob).1 (fnModel_of_fnFacts h hrh hob).2
+    (clausePreDecided_of_fnFactsN h (fun f _ => hrh.heldOwed f) hob) hob.2.2.2.2
 
 /-- `consistent_of_fnFacts` for an interpretation H of the parameters: `coreOK` and `RightHeld` of
 the data, of a semantics without an open generator (`hr`). -/
@@ -322,7 +342,8 @@ theorem consistent_of_fnFacts_withHooks {c : Semantics} {ord tp : List Sym} (h :
 (`HeldOwed`). -/
 theorem consistent_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) : Consistent c :=
-  consistent_of c h (fnModel_of_fnFactsN h hheld hob).1 (fnModel_of_fnFactsN h hheld hob).2 hob.2.2.2.2
+  consistent_of c h (fnModel_of_fnFactsN h hheld hob).1 (fnModel_of_fnFactsN h hheld hob).2
+    (clausePreDecided_of_fnFactsN h hheld hob) hob.2.2.2.2
 
 /-- `fnModel_of_fnFactsN` for an interpretation H of the parameters: the list of the held-named
 functions is the data's, their owed facts are stated for the interpretation. -/

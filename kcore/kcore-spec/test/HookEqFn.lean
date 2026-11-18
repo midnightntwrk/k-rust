@@ -77,13 +77,13 @@ theorem fn_at_0 (H : HookParams) : Eval (cF.withHooks H) F [int 0] (some (int 1)
     (fun i s hi => by simp [clF] at hi) (.cons .dv .nil) (fun t ht => by cases ht) .top
     (fun cl' hcl' _ hlt => by
       rw [List.mem_singleton.mp hcl'] at hlt; exact absurd hlt (Nat.lt_irrefl _))
-    .dv (fun t ht => by cases ht)
+    rfl .dv (fun t ht => by cases ht) .top
 
 /-- And it has no other result there: the interpretation is not read. -/
 theorem fn_at_0_only (H : HookParams) (r : Option GroundTerm)
     (h : Eval (cF.withHooks H) F [int 0] r) : r = some (int 1) := by
   cases h with
-  | clause hfn hmem _ _ _ _ _ hrhs _ =>
+  | clause hfn hmem _ _ _ _ _ _ hrhs _ _ =>
     rw [cF_lookup] at hfn; cases hfn
     rw [List.mem_singleton.mp hmem] at hrhs
     generalize hr : clF.rhs = t at hrhs
@@ -96,9 +96,15 @@ theorem fn_at_0_only (H : HookParams) (r : Option GroundTerm)
       cases hf [] (fun i _ s hi => by simp [clF] at hi) (.cons .dv .nil) with
       | intro ht _ _ => cases ht
       | pre h => exact absurd (Holds.top_eq h) (by simp)
-  | ensFails hfn hmem _ _ _ _ _ ht _ _ =>
+  | ensFails hfn hmem _ _ _ _ _ _ ht _ _ =>
     rw [cF_lookup] at hfn; cases hfn
     rw [List.mem_singleton.mp hmem] at ht; cases ht
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [cF_lookup] at hfn; cases hfn
+    rw [List.mem_singleton.mp hmem] at hne; exact absurd rfl hne
+  | exNone hfn hmem hne =>
+    rw [cF_lookup] at hfn; cases hfn
+    rw [List.mem_singleton.mp hmem] at hne; exact absurd rfl hne
 
 /-- Where the equation does not apply, the value is the interpretation's (the function's rest). -/
 theorem fn_at_5 (H : HookParams) :

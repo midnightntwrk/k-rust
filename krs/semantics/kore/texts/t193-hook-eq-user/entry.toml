@@ -1,0 +1,43 @@
+id = "t193-hook-eq-user"
+kind = "text"
+subject = "A symbol of the text's own hooked to INT.add, with an equation of the text's own, plus(X, 0) => X: what the equation states beside the hook."
+retro = ["F6"]
+origin = "kcore-spec fixture c3-hook-eq"
+rests_on = ["kk:t11-eq-applies"]
+
+[text]
+files = ["t193-hook-eq-user.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The equation states plus(x, 0) = x at every integer x, not only at literals: it is a sentence about the symbol over every element of Int, and a premise beside the hook. The hook INT.add gives plus(x, y) the sum x + y (domains.md:1238), and x + 0 = x, so the two agree and the text has a model in which plus is the sum."
+reason = """
+(1) An equation states its right side at every substitution of elements for its variables under which its argument patterns denote the arguments (kk:t11-eq-applies): plus(x, 0) = x for every integer x.
+(2) hook(INT.add) names the sum of two integers, of the INT module (domains.md:1238, whose +Int carries the same hook; domains.md:1266). The sum of x and 0 is x.
+(3) So the equation is true of the sum at every integer, and the text has a model in which plus is the sum. Had the equation been false of the sum at some integer, the text would have stated two values there."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1266 (K 7.1.337)"
+quote = 'Int "+Int" Int [function, total, symbol(_+Int_), left, comm, smt-hook(+), hook(INT.add)]'
+
+[ruling.kore]
+statement = "kompile writes plus as a hooked symbol with hook INT.add and total (kore.txt:2) and the equation as plus(X0, X1) = X at X0 = X, X1 = 0 (kore.txt:68-86), X a free variable of the axiom, so it holds at every integer X."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:2"
+quote = '''hooked-symbol Lblplus{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), functional{}(), hook{}("INT.add"), symbol'Kywd'{}("plus"), total{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:79-83"
+quote = '''\equals{SortInt{},R} ( Lblplus{}(X0:SortInt{},X1:SortInt{}), \and{SortInt{}} ( VarX:SortInt{}, \top{SortInt{}}())))'''

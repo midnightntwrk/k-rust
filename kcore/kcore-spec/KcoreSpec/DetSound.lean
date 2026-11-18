@@ -19,9 +19,9 @@ variable {c : Semantics}
 /-- A term has one result under each substitution, where clauses of one priority are coherent
 (`EvalTerm.functional`; `coherentAll_of`, FnExclusive.lean, gives the premise in a core that `ok`
 and `matchReady` accept, with the named obligations). -/
-theorem evalTerm_det (hmi : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {t : Term} {r r' : Option GroundTerm}
+theorem evalTerm_det (hmi : CoherentAll c) {σ : Subst} {t : Term} {r r' : Option GroundTerm}
     (h : EvalTerm c σ t r) (h' : EvalTerm c σ t r') : r = r' :=
-  EvalTerm.functional hmi hno h h'
+  EvalTerm.functional hmi h h'
 
 theorem below_mem {a a₀ : Srt} (h : (a₀, a) ∈ c.subsorts) : a₀ ∈ below (tables c) a := by
   simp only [below, mem_below_tables]; exact h
@@ -957,13 +957,13 @@ theorem groundRefutes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs 
   split at hev
   · rename_i w hw
     rw [← hc] at hw
-    have := evalTerm_det hmi hcc.fnsNoExs (evalT_sound hsc hcc hmc litFuel hw headsOK_fns hσ hs) he
+    have := evalTerm_det hmi (evalT_sound hsc hcc hmc litFuel hw headsOK_fns hσ hs) he
     rw [Option.some.injEq] at this
     subst this
     rw [same_iff.mpr rfl] at hev; cases hev
   · rename_i hw
     rw [← hc] at hw
-    have := evalTerm_det hmi hcc.fnsNoExs (evalT_sound hsc hcc hmc litFuel hw headsOK_fns hσ hs) he
+    have := evalTerm_det hmi (evalT_sound hsc hcc hmc litFuel hw headsOK_fns hσ hs) he
     cases this
   · cases hev
 
@@ -978,7 +978,7 @@ theorem clashes_sound {vs : List Srt} {σ : Subst} (hσ : c.WellSorted vs σ) {L
     obtain ⟨⟨hb, he⟩, -⟩ := hc
     have he := Term.beq_sound he
     subst he
-    have := evalTerm_det (hmo) (Semantics.fnsNoExs_of_ok hok) (hL A b hm) (hL A b' hm')
+    have := evalTerm_det (hmo) (hL A b hm) (hL A b' hm')
     exact hb (bool_inj (Option.some.inj this))
 
 include hok hsr hmr hmo in
@@ -1651,13 +1651,13 @@ theorem holds_det (hd : ∀ (σ : Subst) (t : Term) (r r' : Option GroundTerm), 
         · intro ha σ' hx; rw [hg σ' hx]; exact ha σ' hx
 
 /-- A rule that applies at x under τ, its premise predicate holding there, is not blocked at x. -/
-theorem not_notApplies (hmi : CoherentAll c) (hno : c.FnsNoExs) {r : Rule} {x : GroundTerm} {τ : Subst}
+theorem not_notApplies (hmi : CoherentAll c) {r : Rule} {x : GroundTerm} {τ : Subst}
     (hτ : c.WellSorted r.vars τ) (hm : PatVal c τ r.lhs x)
     (hq : ∀ t, r.req = some t → EvalTerm c τ t (some (bool true)))
     (hpre : Holds c r.vars.length τ r.pre true) (hna : NotApplies c r x) : False := by
   cases hna _ (hτ.at _) hm with
-  | intro ht he hv => exact hv (evalTerm_det hmi hno he (hq _ ht))
-  | pre h => exact absurd (holds_det (fun _ _ _ _ a b => evalTerm_det hmi hno a b) hpre h) (by decide)
+  | intro ht he hv => exact hv (evalTerm_det hmi he (hq _ ht))
+  | pre h => exact absurd (holds_det (fun _ _ _ _ a b => evalTerm_det hmi a b) hpre h) (by decide)
 
 /-- Two rules with one left-hand side, one right-hand side and the same variables, the first's match
 fixing its right-hand side (`uniqOK`), rewrite x to one value. -/
@@ -1677,7 +1677,7 @@ theorem eval_eq_of_uniq (hok : c.ok = true) (hmc : MatchCtx c) (hmi : CoherentAl
     have hag := uniq_sound hmc hτ hτ' _ hD hm hm' (sortOfTerm_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) _ _ hlt) (fun _ h => by cases h)
     have he₂ := Exec.EvalTerm.congr he fun k hk => hag k (by
       simp only [List.all_eq_true, List.contains_iff_mem] at hu; exact hu k hk)
-    exact Option.some.inj (evalTerm_det hmi (Semantics.fnsNoExs_of_ok hok) he₂ he')
+    exact Option.some.inj (evalTerm_det hmi he₂ he')
   · cases hu
 
 /-- **The decider is sound**: where `detCond` holds at a pair, its two rules' steps join. -/
@@ -1703,8 +1703,8 @@ theorem detCond_sound (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.matc
   · simp only [pairCond, Bool.or_eq_true, Bool.and_eq_true, bne_iff_ne, ne_eq] at h
     rcases h with (((hne | hap) | hap) | ⟨hsame, hu⟩)
     · rcases Nat.lt_or_gt_of_ne hne with hlt | hlt
-      · exact (not_notApplies hmi (Semantics.fnsNoExs_of_ok hok) hσ hm hq hpr (hp' _ hmem hlt)).elim
-      · exact (not_notApplies hmi (Semantics.fnsNoExs_of_ok hok) hσ' hm' hq' hpr' (hp _ hmem' hlt)).elim
+      · exact (not_notApplies hmi hσ hm hq hpr (hp' _ hmem hlt)).elim
+      · exact (not_notApplies hmi hσ' hm' hq' hpr' (hp _ hmem' hlt)).elim
     · exact (apart_sound hok hsr hmr hmo hmem hmem' hap hσ hm hq hσ' hm' hq').elim
     · exact (apart_sound hok hsr hmr hmo hmem' hmem hap hσ' hm' hq' hσ hm hq).elim
     · simp only [sameRule, Bool.and_eq_true, beq_iff_eq] at hsame

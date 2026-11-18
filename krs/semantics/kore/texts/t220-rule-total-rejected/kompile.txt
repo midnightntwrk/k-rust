@@ -1,0 +1,14 @@
+command: kompile --backend haskell t220-rule-total-rejected.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Compiler: Rule cannot have the following attributes: [total]
+  	Source(t220-rule-total-rejected.k)
+  	Location(7,8,7,29)
+  	7 |	  rule <k> a(X) => b(X) </k> [total]
+  	  .	       ^~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T220-RULE-TOTAL-REJECTED-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using T220-RULE-TOTAL-REJECTED as default.

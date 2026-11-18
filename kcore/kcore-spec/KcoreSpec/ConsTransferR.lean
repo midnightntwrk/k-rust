@@ -319,9 +319,9 @@ theorem rpred_inv {n : String} {G : List (EVar × String)} {π : KoreAML.P} (h :
 
 /-- **Transfer of a sentence at its sort variable `R`**: the extension satisfies `π = ⊤_R`, under
 the guards of `R` and of the variables of `G`, where the model does, for a model in which some
-sort has an element. -/
+sort has an element. A variable of `G` has a sort outside `D`, which need not be a sort of `O`. -/
 theorem transfer_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {G : List (EVar × String)}
-    (hG : ∀ p ∈ G, O p.2) (hR : R ∉ G.map (·.1)) {π : KoreAML.P} (hπ : RPred D O R G π)
+    (hG : ∀ p ∈ G, ¬ D (.sort p.2)) (hR : R ∉ G.map (·.1)) {π : KoreAML.P} (hπ : RPred D O R G π)
     (h : I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
       (π ≡ KoreAML.inhOf (.evar R))) :
     extModel c D I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
@@ -331,7 +331,7 @@ theorem transfer_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {G : List (
   have hs : ∀ p ∈ gs, OwnSorted D [] [] .ex p.2 := fun p hp => by
     rw [← hgs] at hp
     obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hp
-    exact .sortC (hO _ (hG q hq)).1
+    exact .sortC (hG q hq)
   intro e' pt
   rw [guarded_iff]
   intro hw
@@ -410,18 +410,18 @@ theorem transfer_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {G : List (
       fun hx => ⟨htv, inh_new.mp ((KoreAML.interp_inhOf_of (σ := .inr (.srt n))
         (fun a => by rw [KoreAML.interp_evar, hRv])).mp hx)⟩⟩
 
-/-- The KORE name of the sort of an element variable's key, for a sort without parameters. -/
+/-- The name of the sort of an element variable's key, for a sort without parameters. -/
 def keySortName : KoreAML.VarKey → String
   | .evar _ (.ctor C _) => C.ident.name
   | _ => ""
 
 omit hRt in
 /-- **Transfer of the translation of a sentence `axiom{R} P`** whose pattern is at the sort `R`,
-whose free variables have sorts of `O`, and whose translation is of the class `RPred`. -/
+whose free variables have sort constants outside `D`, and whose translation is of the class `RPred`. -/
 theorem transfer_trAxiom_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {P : Kore.Pattern}
     {attrs : List Kore.AppPattern} (i : Nat) (md : String)
     (hsort : KoreAML.sortOf [] P = some KoreAML.R)
-    (hfree : ∀ key ∈ KoreAML.freeOf [] P, ∃ x n', key = .evar x (KoreAML.srt n') ∧ O ("Sort" ++ n'))
+    (hfree : ∀ key ∈ KoreAML.freeOf [] P, ∃ x C, key = .evar x (.ctor C []) ∧ ¬ D (.sort C.ident.name))
     (hπ : RPred D O ((KoreAML.tableOf [KoreAML.Rv] P).ev (.sortVar "R"))
       (((KoreAML.freeOf [] P).filter fun b => b != KoreAML.VarKey.sortVar "R").eraseDups.map fun key =>
         ((KoreAML.tableOf [KoreAML.Rv] P).ev key, keySortName key))
@@ -447,11 +447,10 @@ theorem transfer_trAxiom_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {P 
       fun p => (p.1, KoreAML.sym (.sort p.2))).map fun p => p.1 ∈∈ KoreAML.inhOf p.2
     rw [List.map_map, List.map_map]
     refine List.map_congr_left fun key hk => ?_
-    obtain ⟨x, n', rfl, _⟩ := hfree key (hfk key hk).1
-    have e1 : KoreAML.trSort t (KoreAML.srt n') = KoreAML.sym (.sort ("Sort" ++ n')) := trSort_srt _
-    show (t.ev (.evar x (KoreAML.srt n')) ∈∈ KoreAML.inhOf (KoreAML.trSort t (KoreAML.srt n'))) =
-      (t.ev (.evar x (KoreAML.srt n')) ∈∈ KoreAML.inhOf (KoreAML.sym (.sort ("Sort" ++ n'))))
-    rw [e1]
+    obtain ⟨x, C, rfl, _⟩ := hfree key (hfk key hk).1
+    show (t.ev (.evar x (.ctor C [])) ∈∈ KoreAML.inhOf (KoreAML.trSort t (.ctor C []))) =
+      (t.ev (.evar x (.ctor C [])) ∈∈ KoreAML.inhOf (KoreAML.sym (.sort C.ident.name)))
+    rw [KoreAML.trSort_const]
   have hpat : (KoreAML.trAxiom [] [] ⟨i, md, { sortVars := [KoreAML.Rv], pattern := P, attributes := attrs }⟩).pat =
       KoreAML.guarded (KoreAML.sortGuard (t.ev Rk) :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
         (KoreAML.tr ⟨t, []⟩ P ≡ KoreAML.inhOf (.evar (t.ev Rk))) := by
@@ -469,10 +468,10 @@ theorem transfer_trAxiom_R (hne : ∃ τ, IsSort I τ ∧ ∃ m, Inh I τ m) {P 
     rw [hrest] at h1
     have hne' : KoreAML.VarKey.sortVar "R" ≠ key := Ne.symm hne
     simp [List.idxOf_cons, hne', Rk] at h1
-  have hG : ∀ p ∈ G, O p.2 := fun p hp => by
+  have hG : ∀ p ∈ G, ¬ D (.sort p.2) := fun p hp => by
     obtain ⟨key, hk, rfl⟩ := List.mem_map.mp hp
-    obtain ⟨x, n', rfl, hn'⟩ := hfree key (hfk key hk).1
-    exact hn'
+    obtain ⟨x, C, rfl, hC⟩ := hfree key (hfk key hk).1
+    exact hC
   have hRt : t.ev Rk ≠ KoreAML.topVar := fun hh => by
     have := congrArg EVar.val hh
     simp [KoreAML.VarTable.ev, KoreAML.VarTable.index, KoreAML.topVar] at this

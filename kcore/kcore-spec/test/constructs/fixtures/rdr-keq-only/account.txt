@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-KEQ-ONLY: 299 sentences
+  1 inert import [generated]
+  169 read [generated]
+  97 read [builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 read andAtBool [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 237: andAtBool
+stage refusals (of sentences classified read): 1
+  1 hookEqualityUnstated
+      sentence 237 (Lbl'-LT-'generatedTop'-GT-'): hookEqualityUnstated (Lbl'UndsEqlsEqls'K'Unds': declared without ((K1 Lbl'UndsEqlsEqls'K'Unds' K2) = true) = (K1 = K2))
+        [user] (no label) at rdr-keq-only.k:8: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblgo{}(VarB:SortBool{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(\and{SortBool{}}(VarB:SortBool{}, \dv{SortBool{}}("true")), \dv{SortBool{}}("true"))), \and{SortGeneratedTopCell{}}( …
+finish: sentence 237 (Lbl'-LT-'generatedTop'-GT-'): hookEqualityUnstated (Lbl'UndsEqlsEqls'K'Unds': declared without ((K1 Lbl'UndsEqlsEqls'K'Unds' K2) = true) = (K1 = K2))
+(exit 0)

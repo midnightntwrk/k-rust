@@ -1,0 +1,69 @@
+id = "t212-eq-owise-prio40"
+kind = "text"
+subject = "An equation with both owise and priority(40), f(_) => 0 [owise, priority(40)], beside f(X) => X requires X >Int 0 of the default priority: which priority the first has, and so what f(5) is."
+retro = ["P4"]
+origin = "kcore-spec fixture c3-eq-owise-prio40-sib"
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t212-eq-owise-prio40.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) f(X) => X requires X >Int 0 has priority 50 (user_manual.md:1748-1749) and applies exactly at x > 0 (kk:t11-eq-applies; domains.md:1324-1325). f(_) => 0 matches every integer and has no requires.
+What the text does not determine:
+(2) owise sets the priority of a rule to 200 (user_manual.md:1739-1741) and priority(40) sets it to 40 (user_manual.md:1732). The one equation carries both, and no sentence says which holds. At 40 the second equation is tried first and applies everywhere: f(x) = 0. At 200 it is tried only where the first has been shown not to apply: f(x) = x for x > 0 and 0 elsewhere (kk:t12-eq-priority-owise). With priority(200) the two marks would state one number; here they state two."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1746 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`. This has a couple of implications: 1. Multiple rules with the owise attribute all have the same priority and thus can apply in any order. 2. Rules with priority higher than `200` apply **after** all rules with the `owise` attribute have been tried."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1732 (K 7.1.337)"
+quote = "You can specify the priority of a rule with the `priority` attribute."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[reading]]
+name = "priority-40"
+statement = "priority(40) holds: the equation f(_) => 0 is tried first."
+answer = "f(5) = 0; f(x) = 0 at every integer x."
+consequence = "The equation of priority 50 states nothing."
+
+[[reading]]
+name = "owise-200"
+statement = "owise holds: the equation f(_) => 0 has priority 200."
+answer = "f(5) = 5; f(x) = x for x > 0 and f(x) = 0 for x <= 0."
+consequence = "The equation of priority 50 gives the value wherever its requires is true."
+
+[ruling.kore]
+statement = "kompile keeps both attributes on the second equation's axiom (kore.txt:118) and writes its premise as the negation of the first equation's pattern and requires (kore.txt:83-117): it states f(x) = 0 at x <= 0 only, and the first axiom f(x) = x at x > 0. The written sentences follow the reading owise-200; the attribute priority 40 has no part in them."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:85-102"
+quote = '''\not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \equals{SortBool{},R}( Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen0:SortInt{},\dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ), \top{R} () ) )), \bottom{R}() ) )'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:118"
+quote = '''[UNIQUE'Unds'ID{}("0041c33f0e0d09a861ff144c1998ab96e273a972a3802195f998e2e574b24db5"), owise{}(), priority{}("40")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."

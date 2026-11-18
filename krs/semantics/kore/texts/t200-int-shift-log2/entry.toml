@@ -1,0 +1,44 @@
+id = "t200-int-shift-log2"
+kind = "text"
+subject = "The shifts <<Int and >>Int by a negative amount, and log2Int of a number not above 0: what the INT module states of their values."
+retro = ["H4"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1239-1242 (K 7.1.337)", quote = "* Compute the arithmetic right shift `>>Int` of two integers. Shifting by a negative quantity is `#False`. * Compute the left shift of two integers. Shifting by a negative quantity is `#False`." }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["INT.shl", "INT.shr", "INT.log2"]
+statement = "For N >= 0, X <<Int N is X times 2 to the N, and X >>Int N the arithmetic right shift, the floor of X / 2 to the N; for N < 0 neither has a value. For X > 0, log2Int(X) is the index of the highest bit set, the log base 2 rounded towards zero; for X <= 0 it has no value."
+points = [
+  { at = "-5 <<Int 1, -5 >>Int 1", value = "-10, -3" },
+  { at = "1 <<Int -1, 1 >>Int -1", value = "no value" },
+  { at = "log2Int(5)", value = "2" },
+  { at = "log2Int(0), log2Int(-4)", value = "no value" },
+]
+reason = """
+(1) domains.md:1239-1242: >>Int is the arithmetic right shift and the other the left shift of two integers; shifting by a negative quantity is #False, which the module uses for no value (kk:t31-int-division, the reading of #False). The declarations carry the hooks INT.shr and INT.shl (domains.md:1269-1270).
+(2) domains.md:1298-1301: log2Int is the log base 2 rounded towards zero, the index of the highest bit set of a positive integer; of zero or a negative number it is #False. The declaration carries INT.log2 (domains.md:1304).
+(3) At -5 the left shift by 1 is -10, and the arithmetic right shift by 1 is the floor of -5 / 2, -3. The highest bit set of 5 (binary 101) is at index 2."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1239-1242 (K 7.1.337)"
+quote = "* Compute the arithmetic right shift `>>Int` of two integers. Shifting by a negative quantity is `#False`. * Compute the left shift of two integers. Shifting by a negative quantity is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1298-1301 (K 7.1.337)"
+quote = "You can compute the log base 2, rounded towards zero, of an integer. The log base 2 of an integer is equal to the index of the highest bit set in the representation of a positive integer. Log base 2 of zero or a negative number is `#False`."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1269-1270 (K 7.1.337)"
+quote = 'Int ">>Int" Int [function, symbol(_>>Int_), left, hook(INT.shr), smtlib(shrInt)] | Int "<<Int" Int [function, symbol(_<<Int_), left, hook(INT.shl), smtlib(shlInt)]'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1304 (K 7.1.337)"
+quote = "syntax Int ::= log2Int ( Int ) [function, hook(INT.log2)]"

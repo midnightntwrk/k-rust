@@ -1,0 +1,27 @@
+// From the text kompile 7.1.337 writes for rule <k> a() => b() ... </k> in a module carrying
+// all-path (kcore-spec fixture hw-allpath-alias, the repaired output of fixture e2-all-path):
+// the prelude's alias and the rule's axiom, with the sorts and symbols the axiom names.
+[]
+module T224-ALL-PATH-ALIAS
+  sort SortExp{} []
+  sort SortK{} []
+  sort SortKItem{} []
+  sort SortKCell{} []
+  sort SortGeneratedCounterCell{} []
+  sort SortGeneratedTopCell{} []
+  symbol Lbla{}() : SortExp{} [constructor{}(), functional{}()]
+  symbol Lblb{}() : SortExp{} [constructor{}(), functional{}()]
+  symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), functional{}()]
+  symbol inj{From, To}(From) : To [sortInjection{}()]
+  symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), functional{}()]
+  symbol Lbl'-LT-'generatedTop'-GT-'{}(SortKCell{}, SortGeneratedCounterCell{}) : SortGeneratedTopCell{} [constructor{}(), functional{}()]
+  alias weakAlwaysFinally{A}(A) : A where weakAlwaysFinally{A}(@X:A) := @X:A []
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      weakAlwaysFinally{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}())))
+  []
+endmodule []

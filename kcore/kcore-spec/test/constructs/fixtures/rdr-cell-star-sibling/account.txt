@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-CELL-STAR-SIBLING: 456 sentences
+  1 inert import [generated]
+  231 read [generated]
+  183 read [builtin]
+  3 read [user]
+  2 unread cellCollectionInjection [generated]
+  7 inert injectivity [generated]
+  12 inert collectionLaw [generated]
+  2 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  13 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 cellShape
+      sentence 42 (Lbl'-LT-'t'-GT-'): cellShape
+        [user] (no label) at rdr-cell-star-sibling.k:4: symbol Lbl'-LT-'t'-GT-'{}(SortKCell{}, SortXCellSet{}) : SortTCell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,17,4,80)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/rdr-cell-star-sibling.k)")]
+finish: sentence 42 (Lbl'-LT-'t'-GT-'): cellShape
+(exit 0)

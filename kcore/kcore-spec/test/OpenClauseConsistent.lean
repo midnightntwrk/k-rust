@@ -152,11 +152,12 @@ theorem clE_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clE.AppliesAt c
   obtain ⟨v, -, hv⟩ := h 0 33 rfl
   exact no_E v hv
 
-/-- A clause without `ensures` whose right side is a literal is coherent with itself. -/
-theorem coherent_dvE {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l) :
-    Coherent cE cl cl :=
-  Coherent.of_rhs hn hn fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
-    rw [hr] at h h'; cases h; cases h'; rfl
+/-- A clause without `ensures` or existential variables whose right side is a literal is coherent
+with itself. -/
+theorem coherent_dvE {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l)
+    (hx : cl.exs = []) : Coherent cE cl cl :=
+  Coherent.of_rhs hn hn (fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+    rw [hr] at h h'; cases h; cases h'; rfl) hx hx
 
 /-- The equations of `cE`'s functions agree: the text's clauses of one function are of different
 priorities; `f` has one clause. -/
@@ -177,13 +178,16 @@ theorem matchIndE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fE] from hfn) with hu | hf
   · have h4 := (textFns fn hu cl hcl).2.2.2
     cases hr : cl.rhs with
-    | dv s l => exact coherent_dvE (textFns fn hu cl hcl).2.2.1 hr
+    | dv s l =>
+      have hx : cl.exs = [] :=
+        (Semantics.sortedOK_plainCl shapeE.2.2.2.2.1 fn (List.mem_append_left _ hfn) cl hcl).1
+      exact (matchIndependent_iff_noExs hx).mpr (coherent_dvE (textFns fn hu cl hcl).2.2.1 hr hx)
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
     subst hf
     simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hcl
     subst hcl
-    exact fun vs σ _ ha => absurd ha (clE_not_applies σ vs)
+    exact (matchIndependent_iff_noExs rfl).mpr fun vs σ _ ha => absurd ha (clE_not_applies σ vs)
 
 /-- No clause of `cE` has a `requires`. -/
 theorem reqNoneE : ∀ fn ∈ cE.fns, ∀ cl ∈ fn.clauses, cl.req = none := by decide +kernel
@@ -198,7 +202,8 @@ theorem fnDetE : FnDet cE := Faithful.fnDet_of_agree agreeE matchIndE
 /-- **Evaluation solves `cE`'s equations**: a clause that decides is one of the text's, whose right
 side is a literal; `clE` decides nowhere. -/
 theorem fnSolvesE : FnSolves cE := by
-  refine fnSolves_of_parts_lookup (fun _ hfn => lookupE hfn) fnDetE ?_ ?_
+  refine fnSolves_of_parts_lookup (fun _ hfn => lookupE hfn) fnDetE
+    (fun fn hfn => Semantics.sortedOK_plainCl shapeE.2.2.2.2.1 fn (List.mem_append_left _ hfn)) ?_ ?_
   · intro fn hfn _ _ _ _ _ cl' hcl' _ _ σ' _ _
     exact ⟨(fun t ht => by rw [reqNoneE fn hfn cl' hcl'] at ht; cases ht), true,
       Clause.holds_preTop (preTopE fn hfn cl' hcl') σ'⟩
@@ -235,6 +240,16 @@ theorem no_evalE (r : Option GroundTerm) : ¬ Eval cE 391 [] r := by
       cases h [] (fun i hi => by simp [shapeE.2.2.1] at hi) .nil with
       | intro hq _ _ => cases hq
       | pre h => exact absurd (Holds.top_eq h) (by simp)
+  | clauseEx hfn' hmem hσ hmatch hreq hpre =>
+    rw [hfn] at hfn'; cases hfn'
+    simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hmem
+    subst hmem
+    exact clE_not_applies _ _ ⟨hσ, hmatch, hreq, hpre⟩
+  | exNone hfn' hmem hne =>
+    rw [hfn] at hfn'; cases hfn'
+    simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hmem
+    subst hmem
+    exact absurd rfl hne
   | ensFails hfn' hmem hσ hmatch hreq hpre _ _ _ _ =>
     rw [hfn] at hfn'; cases hfn'
     simp only [fE, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -264,7 +279,7 @@ theorem not_heldOwedE : cE.heldObligations = [391] ∧ ¬ HeldOwed cE 391 := by
 /-- **`consistent_ofCl` at `cE`**: the theory of `cE` with the step's closure has a model. -/
 theorem consistentE : Consistent cE :=
   consistent_ofCl cE decidedE.1 (Semantics.rulesTop_of_isTop (by decide +kernel)) decidedE.2.1 decidedE.2.2.1 decidedE.2.2.2.1 decidedE.2.2.2.2.1 fnDetE fnSolvesE
-    (openLaws_of_plain (by decide +kernel))
+    (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel))
 
 /-! ## `f() => g(Y:Int)`, `g(_) => 0` -/
 
@@ -325,8 +340,8 @@ theorem gF_clause {cl : Clause} (h : cl ∈ gF.clauses) : cl = clG := by
 /-- `g(v)` is `0` at an Int `v`: its one clause applies. -/
 theorem evalG {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) : Eval cI 389 [v] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (σ := [(0, v)]) lookupG clG_mem (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_) ?_
-    (fun t ht => by rw [clG_ens] at ht; cases ht)
+    (fun t ht => by rw [clG_req] at ht; cases ht) (Clause.holds_preTop (by rfl) _) (fun cl' hcl' _ hlt => ?_)
+    (by rfl) ?_ (fun t ht => by rw [clG_ens] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
   · rw [gF_shape.2.2] at hs
     cases i with
     | zero => cases hs; exact ⟨_, rfl, hv⟩
@@ -340,10 +355,16 @@ with no `requires` and a variable as pattern, does not fail. -/
 theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option GroundTerm} (h : Eval cI 389 [v] r) :
     r = some (.dv Srt.int (.int 0)) := by
   cases h with
-  | clause hfn' hmem _ _ _ _ _ hrhs _ =>
+  | clause hfn' hmem _ _ _ _ _ _ hrhs _ _ =>
     rw [lookupG] at hfn'; cases hfn'
     rw [gF_clause hmem, clG_rhs] at hrhs
     cases hrhs; rfl
+  | clauseEx hfn' hmem _ _ _ _ _ hne =>
+    rw [lookupG] at hfn'; cases hfn'
+    rw [gF_clause hmem] at hne; exact absurd rfl hne
+  | exNone hfn' hmem hne =>
+    rw [lookupG] at hfn'; cases hfn'
+    rw [gF_clause hmem] at hne; exact absurd rfl hne
   | rest hfn' hnone =>
     rw [lookupG] at hfn'; cases hfn'
     cases hnone clG clG_mem with
@@ -357,7 +378,7 @@ theorem g_val {v : GroundTerm} (hv : cI.sortOf v = some Srt.int) {r : Option Gro
       cases h [(0, v)] hσ (by rw [clG_pats]; exact .cons (.var rfl) .nil) with
       | intro hq _ _ => rw [clG_req] at hq; cases hq
       | pre h => rw [show clG.pre = .top by rfl] at h; exact absurd (Holds.top_eq h) (by simp)
-  | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
+  | ensFails hfn' hmem _ _ _ _ _ _ ht _ _ =>
     rw [lookupG] at hfn'; cases hfn'
     rw [gF_clause hmem, clG_ens] at ht; cases ht
 
@@ -392,7 +413,7 @@ theorem evalTerm_gY {σ : Subst} (hσ : cI.WellSorted clI.vars σ) {r : Option G
 /-- `f()` is `0`: `clI` applies under Y := 0. -/
 theorem evalF : Eval cI 391 [] (some (.dv Srt.int (.int 0))) := by
   refine Eval.clause (cl := clI) (σ := [(0, .dv Srt.int (.int 0))]) (lookupI fI_mem) (List.mem_singleton_self _)
-    (fun i s hs => ?_) .nil (fun t h => by cases h) .top (fun cl' h _ hlt => ?_) ?_ (fun t h => by cases h)
+    (fun i s hs => ?_) .nil (fun t h => by cases h) .top (fun cl' h _ hlt => ?_) rfl ?_ (fun t h => by cases h) .top
   · cases i with
     | zero => cases hs; exact ⟨_, rfl, by decide +kernel⟩
     | succ i => simp [clI] at hs
@@ -409,7 +430,11 @@ theorem sortsOf_nilI {vs : List GroundTerm} (h : cI.sortsOf vs = some []) : vs =
 theorem fnTerminatesI : FnTerminates cI := by
   intro fn hfn vs hvs
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fI] from hfn) with hfn' | hfn'
-  · refine eval_result (lookupI hfn) (fun cl hcl => (textFns fn hfn' cl hcl).1)
+  · refine eval_result (lookupI hfn)
+      (fun cl hcl =>
+        let p := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2
+        ⟨p.1, p.2.2.1⟩)
+      (fun cl hcl => (textFns fn hfn' cl hcl).1)
       (fun cl hcl σ _ _ => ⟨(fun t ht => by rw [(textFns fn hfn' cl hcl).2.1] at ht; cases ht), true,
         Clause.holds_preTop (textPre fn hfn' cl hcl) σ⟩) (fun cl hcl _ _ => ?_)
       (fun cl hcl _ _ t ht => by rw [(textFns fn hfn' cl hcl).2.2.1] at ht; cases ht)
@@ -422,11 +447,12 @@ theorem fnTerminatesI : FnTerminates cI := by
     rw [sortsOf_nilI hvs]
     exact ⟨_, evalF⟩
 
-/-- A clause without `ensures` whose right side is a literal is coherent with itself. -/
-theorem coherent_dvI {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l) :
-    Coherent cI cl cl :=
-  Coherent.of_rhs hn hn fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
-    rw [hr] at h h'; cases h; cases h'; rfl
+/-- A clause without `ensures` or existential variables whose right side is a literal is coherent
+with itself. -/
+theorem coherent_dvI {cl : Clause} (hn : cl.ens = none) {s : Srt} {l : Lit} (hr : cl.rhs = .dv s l)
+    (hx : cl.exs = []) : Coherent cI cl cl :=
+  Coherent.of_rhs hn hn (fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+    rw [hr] at h h'; cases h; cases h'; rfl) hx hx
 
 theorem agreeI : ∀ fn ∈ cI.fns, ClausesAgree cI fn := by
   intro fn hfn
@@ -445,14 +471,18 @@ theorem matchIndI : ∀ fn ∈ cI.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
   rcases List.mem_append.mp (show fn ∈ c.fns ++ [fI] from hfn) with hu | hf
   · have h4 := (textFns fn hu cl hcl).2.2.2
     cases hr : cl.rhs with
-    | dv s l => exact coherent_dvI (textFns fn hu cl hcl).2.2.1 hr
+    | dv s l =>
+      have hx : cl.exs = [] :=
+        (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts decidedI.1).2.1 fn hfn cl hcl).2).1
+      exact (matchIndependent_iff_noExs hx).mpr (coherent_dvI (textFns fn hu cl hcl).2.2.1 hr hx)
     | _ => rw [hr] at h4; cases h4
   · rw [List.mem_singleton] at hf
     subst hf
     simp only [fI, List.mem_cons, List.not_mem_nil, or_false] at hcl
     subst hcl
-    exact Coherent.of_rhs rfl rfl fun _ _ _ ha ha' _ _ _ => .inr fun r r' h h' =>
-      (evalTerm_gY ha.1 h).trans (evalTerm_gY ha'.1 h').symm
+    exact (matchIndependent_iff_noExs rfl).mpr <|
+      Coherent.of_rhs rfl rfl fun _ _ _ ha ha' _ _ _ => .inr fun r r' h h' =>
+        (evalTerm_gY ha.1 h).trans (evalTerm_gY ha'.1 h').symm
 
 theorem fnModelI : FnDet cI ∧ FnSolves cI :=
   Faithful.fnModel_ofCl decidedI.1 decidedI.2.1 ovlI fnTerminatesI agreeI matchIndI
@@ -460,7 +490,7 @@ theorem fnModelI : FnDet cI ∧ FnSolves cI :=
 /-- **`consistent_ofCl` at `cI`**: the theory of `cI` with the step's closure has a model. -/
 theorem consistentI : Consistent cI :=
   consistent_ofCl cI decidedI.1 (Semantics.rulesTop_of_isTop (by decide +kernel)) decidedI.2.1 decidedI.2.2.1 decidedI.2.2.2.1 decidedI.2.2.2.2.1 fnModelI.1 fnModelI.2
-    (openLaws_of_plain (by decide +kernel))
+    (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel))
 
 /-- info: 'KCore.consistent_ofCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.consistent_ofCl

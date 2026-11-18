@@ -22,8 +22,7 @@ cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 1
-rules and clauses applying a function symbol in their left side: 1
-      sentence 230 (Lbl'-LT-'generatedTop'-GT-'): functionInPattern (LblcapGas)
+rules and clauses applying a function symbol in their left side: 0
 sentences the library's data induces that the text does not hold: 0
 library sentences of the modules held that the text does not hold: 0
 sentences every definition holds (kernelText) that the text does not: 4
@@ -37,5 +36,5 @@ functions with an equation holding a variable its arguments and conditions do no
 functions whose equations' agreement no decider confirms (the package's agree_named, Semantics.agreeObligationsI; not a condition of wf or coreOK: where two competing equations both decide, their agreement is owed as ClausesAgree): 0: 
 parse: ok; wf false; failing: [overloading symbols (overloadsOK)]
 coreOK: false; failing: [overloadsOK]
-refused by the account: 1
+refused by the account: 0
 (exit 0)

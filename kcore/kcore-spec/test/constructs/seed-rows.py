@@ -1,7 +1,7 @@
 """Writes rows.toml's first version from the extracted key lists (.lake/constructs) and the
 evidence that existed when it was written; run once, then rows.toml is edited, not regenerated.
 
-Usage: python3 -I seed-rows.py KEYS_DIR LIBRARY_DIR KIMP_SOURCES KORE_K OUT_TOML
+Usage: python3 -I seed-rows.py KEYS_DIR LIBRARY_DIR KIMP_SOURCES KK_K OUT_TOML
 
 A status is carried only where a recorded place gives it; anything else is `not-handled`:
   - findings/K-coverage.md (measured at kcore-reader 57f851ec), rows A.1 to A.3 for E2 and E4,
@@ -20,13 +20,13 @@ A status is carried only where a recorded place gives it; anything else is `not-
   - E5: a site whose Part B rows all carry one status gets it; a site with rows of several
     statuses, or a changed row, is `not-handled` with the rows named.
 Marks: `kimp` / `kore` are true when the row's construct occurs in kimp's text (K sources and
-f2-examples/ref-kimp.kore) / in krs/semantics/kore/kore.k, false when the check ran and found none;
-absent when no check was made for the row (E5, E7, E8, the generated E3 families, kore.k's
+f2-examples/ref-kimp.kore) / in kcore-spec's kk/kk.k, false when the check ran and found none;
+absent when no check was made for the row (E5, E7, E8, the generated E3 families, kk.k's
 KORE-level lists E4 and E6, which need its kompiled text).
 """
 import json, os, re, sys
 
-keys_dir, lib, kimp_src, kore_k, out = sys.argv[1:6]
+keys_dir, lib, kimp_src, kk_k, out = sys.argv[1:6]
 
 
 def keys(l):
@@ -49,7 +49,7 @@ def ktext(paths):
 
 
 kimp_files = [os.path.join(kimp_src, f) for f in ("imp.k", "calc.k", "expr.k")]
-KT = {"kimp": ktext(kimp_files), "kore": ktext([kore_k])}
+KT = {"kimp": ktext(kimp_files), "kore": ktext([kk_k])}
 
 
 def sentences(t):

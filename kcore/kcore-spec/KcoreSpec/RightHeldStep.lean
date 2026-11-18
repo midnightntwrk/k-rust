@@ -78,7 +78,11 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hovf : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hovf hrs (fun vs _ => hsc.ovl.fnCover_none f vs)⟩
+      | true =>
+        obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk hovf
+        exact EvalTerm.ovl_result (hov.hyp hsc.trans).fnFacts hc' hovf hrs hlo
+          (fun ws has => EvalTerms.sorted hsc hrs hL hσ hargs has)
+          (fun kg _ _ fn hfn _ hn vs hvs => hn ▸ hft fn hfn vs hvs)
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

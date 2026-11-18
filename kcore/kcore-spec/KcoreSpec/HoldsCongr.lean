@@ -328,7 +328,7 @@ theorem Clause.Res.eval {c : Semantics} {f : Sym} {fn : Fn} {cl : Clause} {σ : 
 /-- One result at each argument list gives the coherence of every two clauses: each clause's
 result at its match is an `Eval` result (`Clause.Res.eval`), and `FnDet` equates the two. -/
 theorem Coherent.of_fnDet {c : Semantics} (hd : FnDet c) (cl cl' : Clause) : Coherent c cl cl' := by
-  intro vs σ σ' _ _ _ _ _ ⟨f, fn, hfn, hmem, hmem', hdec, hdec'⟩
+  intro vs σ σ' _ _ _ _ _ _ ⟨f, fn, hfn, hmem, hmem', hdec, hdec'⟩
   exact .inr fun r r' h1 h2 => hd _ _ _ _ (h1.eval hfn hmem hdec) (h2.eval hfn hmem' hdec')
 
 end KCore

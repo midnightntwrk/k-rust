@@ -33,6 +33,7 @@ import KcoreSpec.DetSound
 import KcoreSpec.Determinism
 import KcoreSpec.Emit
 import KcoreSpec.EvalComplete
+import KcoreSpec.EvalFunctionalDefs
 import KcoreSpec.EvalFunctional
 import KcoreSpec.FnSolves
 import KcoreSpec.EvalLemmas
@@ -288,6 +289,8 @@ import KcoreSpec.ConsTransferSig
 import KcoreSpec.ConsTransferCons
 import KcoreSpec.ConsTransferDomains
 import KcoreSpec.ConsTransferFrag
+import KcoreSpec.ConsTransferFns
+import KcoreSpec.ConsConservative
 import KcoreSpec.LibEv
 import KcoreSpec.LibEvInt
 import KcoreSpec.FixesValue
@@ -320,6 +323,7 @@ import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
 import KcoreSpec.LibEvStr
+import KcoreSpec.LibEvFloat
 import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
@@ -329,3 +333,8 @@ import KcoreSpec.GenEqsNames
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
+import KcoreSpec.CondPredAt
+import KcoreSpec.CondCross
+import KcoreSpec.ClausePreCore
+import KcoreSpec.ModelFnsDecided
+import KcoreSpec.FloatUnpack

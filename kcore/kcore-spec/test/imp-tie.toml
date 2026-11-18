@@ -5,8 +5,10 @@
 # text in that direction (`proved`), entailed at values (`at_values`), refuted (`refuted`) or
 # without direction (`no_direction`, the side condition `absent_closed` checked); the rest is
 # `remainder`, with its reason, and for it the reader and the hook interpretations are trusted.
-# The theorems named are in `file` (kcore-spec-relative). test/imp-tie.sh checks this record by
-# text against those files.
+# The theorems named are in `file` (kcore-spec-relative). Where a class names `indices`, those
+# theorems state the list of the sentences it ties, and with `remainder_indices` they partition the
+# class's list in test/TieKimp.lean. test/imp-tie.sh checks this record by text against those files;
+# test/imp-tie-atvalues.sh builds the generated package and checks the files that import it.
 
 text = "examples/ref-kimp/RefKimp/definition.kore"
 sentences = 901
@@ -34,7 +36,9 @@ note = "the item of each of the 20 sort declarations without sort parameters and
 file = "examples/ref-kimp/RefKimp/FnHyp.lean"
 theorems = ["consistent"]
 pinned = "test/PinsKimp.lean"
-reached = "Consistent holds at every H, so whatever failing-clause or silent point the text has is reached by an H at which the entailments count. The text has none, by native evaluation on the parse, not kernel-checked here: its 20 functions are the sort predicates, each with an [owise] equation (isK with one equation at a variable of sort K), and none of silentTable's 48 keys (List, Float, String, Bytes and RangeMap symbols) is applied by the rules (700 to 778) or the equations (838 to 876)"
+reached = "Consistent holds at every H, so whatever failing-clause or silent point the text has is reached by an H at which the entailments count. The text has none that a term it writes reaches, kernel-checked for every H on the package's semantics (test/TieKimpReach.lean): each of its 20 functions (the sort predicates) has a clause that does not fail at any argument of its sort (one whose pattern is a variable of the argument's sort, with no requires and the predicate top), so every premise of ΓFallback is at a silent point of an interpreted symbol (no_rest_premise); no rule or clause has a condition other than top (conds_top), and no term of a rule or clause applies a symbol with a key of silentTable (silent_unapplied)"
+reach_file = "test/TieKimpReach.lean"
+reach_theorems = ["fns_catchAll", "not_fails_catchAll", "no_rest", "no_rest_premise", "conds_top", "silent_unapplied"]
 
 [[class]]
 name = "function equation"
@@ -108,36 +112,55 @@ reason = "Gamma does not hold them: the functional sentences of the semantics' 2
 name = "hooked functional"
 count = 48
 direction = "atValues"
-remainder = 48
-reason = "not kernel-checked at values on kimp's text: the library's statements (KcoreSpec/LibEv*.lean) take coreOK of the semantics, which on kimp's literal is one kernel decision above 12 GiB in a test file; they are applied on ens's and silentflt's texts (test/LibEv*Ens.lean, test/LibEv*Flt.lean). Native evidence: test/LibProbe.lean evaluates each such sentence of kimp's text on a grid of values (check on f2-examples/ref-kimp.kore, the same bytes)"
+at_values = 47
+file = "test/TieKimpAtValues.lean"
+theorems = ["fun_entailed", "fun_checked", "fun_indices"]
+indices = ["fun_indices"]
+remainder = 1
+remainder_indices = [633]
+reason = "633, the functional sentence of ite, which the text states once over a sort variable (axiom{R, SortSort}): it is not the functional sentence of a signature of hookSigs, whose sorts are the registry's, and the library states none of it"
 
 [[class]]
 name = "collection law"
 count = 9
 direction = "atValues"
-remainder = 9
-reason = "as hooked functional: not kernel-checked at values on kimp's text; the laws are checked on ens's text (test/LibEvLawEns.lean) and probed natively on kimp's (test/LibProbe.lean)"
+at_values = 9
+file = "test/TieKimpAtValues.lean"
+theorems = ["laws_entailed", "law_indices"]
+indices = ["law_indices"]
 
 [[class]]
 name = "library"
 count = 82
 direction = "atValues"
-remainder = 82
-reason = "as hooked functional: not kernel-checked at values on kimp's text; the library's equations and lemmas are checked on ens's and silentflt's texts and probed natively on kimp's (test/LibProbe.lean)"
+at_values = 80
+file = "test/TieKimpAtValues.lean"
+theorems = ["lib_entailed", "libSet_entailed", "pred_entailed", "ev_entailed", "pred_indices", "lib_indices"]
+indices = ["lib_indices"]
+note = "72 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 56 term and function equations, the shift simplifications 794, 795, 801, 802 among them); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
+remainder = 2
+remainder_indices = [877, 878]
+reason = "877, 878: ite{SortK}(C, B1, B2) at a condition C true or false, ite at the sort K, of which the library states no equation"
 
 [[class]]
 name = "set idempotence"
 count = 1
 direction = "refuted"
-remainder = 1
-reason = "sentence 573, _Set_(K, K) = K: refuted on ens's text (sentence 61, idem_refuted in test/TieEns.lean, for every H), not stated on kimp's"
+refuted = 1
+file = "test/TieKimpRefuted.lean"
+theorems = ["idem_refuted", "idem_indices"]
+indices = ["idem_indices"]
 
 [[class]]
 name = "set-variable lemma"
 count = 6
 direction = "refuted"
-remainder = 6
-reason = "sentences 671 to 675 and 904: refuted at sets of values on ens's text (sentences 126 to 130 and 266, test/LibEvCeilEns.lean), not stated on kimp's"
+refuted = 6
+file = "test/TieKimpRefuted.lean"
+theorems = ["s671_refuted", "s672_refuted", "s673_refuted", "s674_refuted", "s675_refuted", "s904_refuted",
+  "s671_one", "s672_one", "s673_one", "s674_one", "s675_one", "s904_one", "setvar_indices"]
+indices = ["setvar_indices"]
+note = "each refuted at sets of values (sN_refuted) and entailed where its set variables hold at most one element (sN_one)"
 
 [[class]]
 name = "no direction"

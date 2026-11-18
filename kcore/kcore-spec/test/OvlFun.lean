@@ -661,7 +661,7 @@ theorem eval_capN_z : Eval ovlfun capN [.ctor z []] (some (.ctor z [])) :=
       have : cl' = capNCl := by simpa [capNFn, capNCl] using h
       subst this
       exact absurd hlt (Nat.lt_irrefl _))
-    .var (fun t ht => by cases ht)
+    rfl .var (fun t ht => by cases ht) .top
 
 /-- **A covered application evaluates to the function's value, injected** (`EvalTerm.ovlFn`):
 `capGas(inj{N,Gas}(z))` evaluates to `inj{N,Gas}(z)`, the value of `capN(z)` in Gas. -/

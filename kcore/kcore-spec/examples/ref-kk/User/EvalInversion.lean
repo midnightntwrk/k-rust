@@ -209,7 +209,7 @@ theorem eval_app_inv {d f as : GroundTerm} {r : Option GroundTerm}
     (h : Eval c₀ 464 [d, .ctor 408 [f, as]] r) :
     ∃ rs, Eval c₀ 467 [d, as] rs ∧ ((∃ ys, rs = some ys ∧ Eval c₀ 448 [d, f, ys] r) ∨ (rs = none ∧ r = none)) := by
   cases h with
-  | clause hfn hmem _ hmatch _ _ _ hrhs _ =>
+  | clause hfn hmem _ hmatch _ _ _ _ hrhs _ _ =>
     rw [lookup_eval, Option.some.injEq] at hfn
     subst hfn
     simp only [fnEval, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -251,10 +251,14 @@ theorem eval_app_inv {d f as : GroundTerm} {r : Option GroundTerm}
       ⟨hw, .cons (.var rfl) (.cons (.ctor (by decide +kernel) (.cons (.var rfl) (.cons (.var rfl) .nil))) .nil),
        ⟨fun _ h => absurd h (by simp [evApp]), Holds.top⟩⟩
     exact (not_fails rfl rfl ha (hnone evApp (List.mem_cons_self ..))).elim
-  | ensFails hfn hmem _ _ _ _ _ ht =>
+  | ensFails hfn hmem _ _ _ _ _ _ ht =>
     rw [lookup_eval, Option.some.injEq] at hfn
     subst hfn
     simp only [fnEval, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> cases ht
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+  | exNone hfn hmem hne =>
+    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
 
 end KK

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t195-ite-other-sort.k": "30354d086f630dbfc11b553a1e79e18ba83d9644a0bd3e25677d0be8d374540b"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t195-ite-other-sort.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "19ade779fcb539c6e19af3a6db95bbfc5821e1b06f1d25deca356e57d51b1a20",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

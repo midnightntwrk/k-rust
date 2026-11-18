@@ -234,7 +234,6 @@ theorem fnDet : FnDet c := by
   have hcf : c.clausesFixed = true := by decide +kernel
   refine fnDet_of_coherent (coherentAll_of_parts
     (matchIndependentAll_of_sortedOK hok hmr (.of_fixed hcf (Exec.matchCtx_of hmr).noOvl)) fun f fn hfn => ?_)
-    (Semantics.fnsNoExs_of_sortedOK hok)
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with h | h
   · exact clausesAgree_of_sortedOK hok hsr hmr (fun f hf => by rw [hag] at hf; nomatch hf) fn h
@@ -261,7 +260,7 @@ theorem not_fnSolves : ¬ FnSolves c := by
       | cons h1 _ => cases h1 with | var hl => exact req1_none hl i0_int (hq.1 req1 rfl)
     · exact absurd hlt (Nat.lt_irrefl _)
   have hE := (hs fF (by simp [c]) [i0] (by decide +kernel) cl2 (by simp [fF]) σ hdec (.dv Srt.int (.int 2))).mpr
-    ⟨.dv, fun t ht => by simp [cl2] at ht⟩
+    ⟨σ, AgreeOff.refl _ _, hσ, .dv, fun t ht => by simp [cl2] at ht, .top⟩
   exact f_none i0_int hE
 
 /-! ## No model of `Γ`

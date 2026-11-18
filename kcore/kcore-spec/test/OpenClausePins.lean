@@ -464,7 +464,7 @@ example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHypCl decided.1 decided.2.1 o
 
 /-- **`fnDet_of_agree` at `c3`**: one result for every function from the agreement of the equations
 and the match independence of the clauses, nothing else of `c3` read. -/
-example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
+example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3
 
 /-- `_(1) => 1 requires H ==Int 0`, H:Int open (a clause, not one of `c3`'s). -/
 def clR : Clause :=
@@ -474,7 +474,7 @@ def clR : Clause :=
 /-- **`Clause.witnessedDet_of_fnHyp` at `clR`**: H := 0 makes its `requires` `true`, and with
 `FnHyp c3` that is its only result, so `clR` is `Witnessed` in `c3`. -/
 example : clR.Witnessed c3 :=
-  Clause.witnessedDet_of_fnHyp fnHyp3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
+  Clause.witnessedDet_of_fnHyp fnHyp3
     ⟨[(0, .dv Srt.int (.int 0))], (fun j _ s hs => by
       cases j with
       | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
@@ -520,8 +520,7 @@ theorem succ_go {r : Rule} {σ : Subst} {y : Config c3} (hs : StepBy c3 r σ Go 
     simp [varOccs, varOccsList] at hi
     subst hi
     rw [h0]; rfl
-  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3)
-    (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1) hs.heval hev
+  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3) hs.heval hev
   exact Option.some.inj this
 
 /-- **`complete_atCl` at `<k> go </k>`**: with the step's closure, in every model of `Γc c3`, every
@@ -586,7 +585,8 @@ example : (Faithful.Γc c3 ∪ Faithful.Γstep c3) ⊧
 /-- **`fnModel_of_fnHyp` and `consistent_of` at `c3`**: the theory of `c3` with the step's closure
 has a model. -/
 example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHyp core3 fnHyp3
-example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (openLaws_of_plain (by decide +kernel))
+example : Consistent c3 := consistent_of c3 core3 fnModel3.1 fnModel3.2 (clausePreDecided_of_fnHyp core3 fnHyp3)
+  (openLaws_of_plain (by decide +kernel))
 
 /-- **The headline statements at `c3`.** -/
 example : SoundC c3 := sound_hyp c3 core3 fnHyp3
@@ -929,7 +929,7 @@ theorem preTop5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
   fun fn hfn cl hcl =>
     Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
 
-theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5 (Semantics.fnsNoExs_of_coreOK shape5.2.2.1)
+theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5
 
 /-- **Evaluation solves `c5`'s equations**: a clause instance that decides is one of the text's or
 `clOne5`, whose right sides are literals; `clYE` decides nowhere. -/

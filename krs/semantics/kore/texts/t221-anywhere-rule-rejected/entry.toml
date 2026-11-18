@@ -1,0 +1,33 @@
+id = "t221-anywhere-rule-rejected"
+kind = "text"
+subject = "The attribute anywhere on a rule of constructors, a(X) => b(X) [anywhere]: what the manual says it means, and whether kompile, for the target this catalogue builds, writes a KORE text."
+retro = ["R5"]
+origin = "kcore-spec fixture e2-anywhere"
+
+[text]
+files = ["t221-anywhere-rule-rejected.k"]
+kompile = "rejects"
+frontend = "differs"
+frontend_difference = "The manual gives an anywhere rule a meaning, to apply wherever it matches in the configuration (user_manual.md:1324-1327); kompile --backend haskell refuses the text (exit 113, kompile.txt) and writes no sentence for it."
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337, with the target this catalogue kompiles for, refuses the K text (exit 113, 'anywhere is not supported by the haskell backend'). The manual gives the K text a meaning: the rule applies wherever it matches in the configuration, so that a(x) anywhere in a term is rewritten to b(x). That meaning is the manual's; no sentence of a KORE text states it here."
+reason = """
+(1) The manual: the anywhere attribute on a rule asks that it apply anywhere it matches in the entire configuration, similar to functional rules (user_manual.md:1324-1327); its table gives anywhere the type rule (user_manual.md:3036).
+(2) kompile refuses the text for the target the catalogue uses (kompile.txt): there is no KORE text to read, and the frontend difference is recorded in [text]."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1324-1327 (K 7.1.337)"
+quote = "Some rules are not functional, but you want them to apply anywhere in the configuration (similar to functional rules). You can use the `anywhere` attribute on a rule to instruct the backends to make sure they apply anywhere they match in the entire configuration."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:3036 (K 7.1.337)"
+quote = "| `anywhere` | rule | all | [`anywhere` rules](#anywhere-rules)"
+
+[[observe]]
+file = "kompile.txt"
+contains = "anywhere is not supported"

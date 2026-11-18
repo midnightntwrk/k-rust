@@ -6,15 +6,17 @@
   Clauses of different priorities never compete (the larger one's derivation has the smaller one
   failing, and a clause that applies does not fail). `Coherent` says that two clauses of one
   priority give one result where both decide (both apply, and no clause of a smaller priority
-  applies, `Clause.DecidesAt`); with every such pair coherent (`CoherentAll`) and no clause holding
-  an existential variable (`Semantics.FnsNoExs`), a function has one result at each argument list
-  (`Eval.functional`, `fnDet_of_coherent`). No sorting hypothesis is needed. Where every function
-  has one result (`FnDet`), so does every term (`EvalTerm.functional_of_fnDet`).
+  applies, `Clause.DecidesAt`); with every such pair coherent (`CoherentAll`), a function has one
+  result at each argument list (`Eval.functional`, `fnDet_of_coherent`). No sorting hypothesis is
+  needed. Where every function has one result (`FnDet`), so does every term
+  (`EvalTerm.functional_of_fnDet`). The definitions are in EvalFunctionalDefs.lean.
 
   A clause with existential variables has its results by `Eval.clauseEx` and `Eval.exNone`
   (`Clause.Res`). A derivation by `Eval.exNone` holds no derivation for the clause's right-hand
-  side or `ensures` (an instance that fails by its predicate evaluates neither), so the induction
-  has nothing to give `Coherent` for them there: that is where `FnsNoExs` is read.
+  side or `ensures` at its match (an instance that fails by its predicate evaluates neither), so
+  for such a clause `Coherent` grants nothing about them at the match: it grants that each instance
+  is decided by terms with one result (`InstDet`), which is what the derivations of the instances
+  (`InstIs`) give the induction.
 
   The shape of `Coherent` is what the proof, an induction on the first derivation, has in hand:
   - the same instance of one right-hand side and one `ensures` (first alternative) is what a
@@ -25,313 +27,22 @@
     predicate holds, none where the `ensures` is something else) is the semantic statement, for a
     pair no check confirms; it is asked only where both clauses decide, since each `Eval`
     derivation by a clause has every clause of a smaller priority failing;
-  - every term inside the first clause's `requires` and `ensures` has one result under its match,
-    and so does every term inside its right-hand side where its `ensures` is `true` (`HDet`):
-    evaluation is strict, so the first derivation holds a derivation for each of them, and the
-    induction hypothesis covers them. Nothing is available for the second clause's terms.
+  - every term inside the first clause's `requires` has one result under its match, and where it
+    has no existential variable so does every term inside its `ensures`, and inside its
+    right-hand side where its `ensures` is `true` (`HDet`): evaluation is strict, so the first
+    derivation holds a derivation for each of them, and the induction hypothesis covers them.
+    Nothing is available for the second clause's terms.
 
   `MatchIndependent` (a clause against itself) and `ClausesAgree` (two clauses of one function)
   are its instances, the obligations `Obligations` names (Statements.lean).
 -/
-import KcoreSpec.EvalSound
+import KcoreSpec.HoldsCongr
 
 set_option autoImplicit false
 
 namespace KCore
 
 open KCore.Exec
-
-/-- The clause applies at `vs` under σ: σ is well sorted, the patterns denote `vs`, the
-`requires` evaluates to `true`, and the predicate `pre` is true. -/
-def Clause.AppliesAt (c : Semantics) (cl : Clause) (σ : Subst) (vs : List GroundTerm) : Prop :=
-  c.WellSorted cl.vars σ ∧ PatVals c σ cl.pats vs ∧
-    (∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) ∧ Holds c cl.vars.length σ cl.pre true
-
-mutual
-  /-- A term and the terms inside it. Evaluation is strict, so a derivation for a term holds one
-  for each of them. -/
-  def subterms : Term → List Term
-    | .var i => [.var i]
-    | .dv s l => [.dv s l]
-    | .inj a b t => .inj a b t :: subterms t
-    | .as t i => .as t i :: subterms t
-    | .app f ts => .app f ts :: subtermsList ts
-    termination_by structural t => t
-  def subtermsList : List Term → List Term
-    | [] => []
-    | t :: ts => subterms t ++ subtermsList ts
-    termination_by structural ts => ts
-end
-
-theorem self_mem_subterms : ∀ (t : Term), t ∈ subterms t
-  | .var _ => List.mem_singleton_self _
-  | .dv _ _ => List.mem_singleton_self _
-  | .inj _ _ _ => List.mem_cons_self ..
-  | .as _ _ => List.mem_cons_self ..
-  | .app _ _ => List.mem_cons_self ..
-
-mutual
-  theorem subterms_trans {X A : Term} : ∀ {t : Term}, A ∈ subterms t → X ∈ subterms A → X ∈ subterms t
-    | .var i, hA, hX => by simp only [subterms, List.mem_singleton] at hA; subst hA; exact hX
-    | .dv s l, hA, hX => by simp only [subterms, List.mem_singleton] at hA; subst hA; exact hX
-    | .inj a b t, hA, hX => by
-      simp only [subterms, List.mem_cons] at hA ⊢
-      rcases hA with rfl | hA
-      · simpa [subterms] using hX
-      · exact .inr (subterms_trans hA hX)
-    | .as t i, hA, hX => by
-      simp only [subterms, List.mem_cons] at hA ⊢
-      rcases hA with rfl | hA
-      · simpa [subterms] using hX
-      · exact .inr (subterms_trans hA hX)
-    | .app f ts, hA, hX => by
-      simp only [subterms, List.mem_cons] at hA ⊢
-      rcases hA with rfl | hA
-      · simpa [subterms] using hX
-      · exact .inr (subtermsList_trans hA hX)
-    termination_by structural t => t
-  theorem subtermsList_trans {X A : Term} : ∀ {ts : List Term}, A ∈ subtermsList ts → X ∈ subterms A →
-      X ∈ subtermsList ts
-    | [], hA, _ => by simp [subtermsList] at hA
-    | t :: ts, hA, hX => by
-      simp only [subtermsList, List.mem_append] at hA ⊢
-      rcases hA with hA | hA
-      · exact .inl (subterms_trans hA hX)
-      · exact .inr (subtermsList_trans hA hX)
-    termination_by structural ts => ts
-end
-
-mutual
-  /-- The variables of a term inside t are t's. -/
-  theorem varOccs_subterms {X : Term} : ∀ {t : Term}, X ∈ subterms t → ∀ i ∈ varOccs X, i ∈ varOccs t
-    | .var j, h, i, hi => by simp only [subterms, List.mem_singleton] at h; subst h; exact hi
-    | .dv s l, h, i, hi => by simp only [subterms, List.mem_singleton] at h; subst h; exact hi
-    | .inj a b t, h, i, hi => by
-      simp only [subterms, List.mem_cons] at h
-      rcases h with rfl | h
-      · exact hi
-      · simpa [varOccs] using varOccs_subterms h i hi
-    | .as t j, h, i, hi => by
-      simp only [subterms, List.mem_cons] at h
-      rcases h with rfl | h
-      · exact hi
-      · simp only [varOccs, List.mem_append]; exact .inl (varOccs_subterms h i hi)
-    | .app f ts, h, i, hi => by
-      simp only [subterms, List.mem_cons] at h
-      rcases h with rfl | h
-      · exact hi
-      · simpa [varOccs] using varOccsList_subterms h i hi
-    termination_by structural t => t
-  theorem varOccsList_subterms {X : Term} : ∀ {ts : List Term}, X ∈ subtermsList ts →
-      ∀ i ∈ varOccs X, i ∈ varOccsList ts
-    | [], h, _, _ => by simp [subtermsList] at h
-    | t :: ts, h, i, hi => by
-      simp only [subtermsList, List.mem_append] at h
-      simp only [varOccsList, List.mem_append]
-      rcases h with h | h
-      · exact .inl (varOccs_subterms h i hi)
-      · exact .inr (varOccsList_subterms h i hi)
-    termination_by structural ts => ts
-end
-
-/-- `u` has one result under σ. -/
-def Fun (c : Semantics) (σ : Subst) (u : Term) : Prop :=
-  ∀ r r', EvalTerm c σ u r → EvalTerm c σ u r' → r = r'
-
-/-- One result is a property of the values of a term's variables. -/
-theorem Fun.congr {c : Semantics} {σ σ' : Subst} {u : Term}
-    (ha : ∀ i ∈ varOccs u, σ.lookup i = σ'.lookup i) (h : Fun c σ' u) : Fun c σ u :=
-  fun r r' h1 h2 => h r r' (EvalTerm.congr h1 ha) (EvalTerm.congr h2 ha)
-
-/-- Every term inside `t` has one result under σ. -/
-def HDet (c : Semantics) (σ : Subst) (t : Term) : Prop := ∀ u ∈ subterms t, Fun c σ u
-
-/-- The clause decides at `vs` under σ, as a clause of `fn`, in the form the model reads: it applies
-there under σ, and no clause of `fn` of a smaller priority that is not `aside` has its patterns
-match, its `requires` evaluate to `true` and its predicate true there, under any substitution well
-sorted on the variables of its patterns and conditions. -/
-def Clause.DecidesAt (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) : Prop :=
-  cl.AppliesAt c σ vs ∧
-    ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
-      ∀ σ', c.WellSortedAt cl'.vars cl'.leftVars σ' → PatVals c σ' cl'.pats vs →
-        ¬ ((∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) ∧
-           Holds c cl'.vars.length σ' cl'.pre true)
-
-/-- The clause decides at `vs` under σ, as a clause of `fn`, as `Eval.clause` reads it: it applies
-there under σ, and every clause of `fn` of a smaller priority that is not `aside` fails there. -/
-def Clause.Decides (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) : Prop :=
-  cl.AppliesAt c σ vs ∧ ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl'
-
-/-- The instance of the clause's right side at σ gives the value `v`: its right-hand side has the
-value `v`, its `ensures` evaluates to `true` (or it has none), and its predicate `post` is true. -/
-def Clause.Gives (c : Semantics) (cl : Clause) (σ : Subst) (v : GroundTerm) : Prop :=
-  EvalTerm c σ cl.rhs (some v) ∧ (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧
-    Holds c cl.vars.length σ cl.post true
-
-/-- A result of a clause with existential variables at the match σ, the instances being at the
-well-sorted σ' that are σ off the existential variables the left side does not hold: the value an
-instance gives, where every instance is decided and gives it or nothing; or none, where an instance
-exists and every instance is decided and gives nothing. -/
-def Clause.ResEx (c : Semantics) (cl : Clause) (σ : Subst) (r : Option GroundTerm) : Prop :=
-  (∃ σ' v, AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v ∧
-      (∀ σ'', AgreeOff cl.exsFree σ σ'' → c.WellSorted cl.vars σ'' → InstIs c σ'' cl (some v)) ∧
-      r = some v) ∨
-  (r = none ∧ (∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ') ∧
-      ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl none)
-
-/-- A result of the clause at the match σ. Without existential variables: its right-hand side's
-where its `ensures` evaluates to `true` (or it has none) and its predicate `post` is true, and none
-where its `ensures` has another result. With existential variables: `Clause.ResEx`. -/
-def Clause.Res (c : Semantics) (cl : Clause) (σ : Subst) (r : Option GroundTerm) : Prop :=
-  (cl.exs = [] ∧ (((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧
-        Holds c cl.vars.length σ cl.post true ∧ EvalTerm c σ cl.rhs r) ∨
-      ∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ r = none)) ∨
-  (cl.exs ≠ [] ∧ cl.ResEx c σ r)
-
-/-- Two clauses (or one clause twice) are coherent: where both decide at one argument list, as
-clauses of one function, they are without existential variables and the same instance of one
-right-hand side and one `ensures`, or the two clauses have the same result at their matches
-(`Clause.Res`). The one who shows it may use that the terms of the first clause's `requires` and
-`ensures` each have one result under its match, and those of its right-hand side where its
-`ensures` is `true`. -/
-def Coherent (c : Semantics) (cl cl' : Clause) : Prop :=
-  ∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
-    (∀ t, cl.req = some t → HDet c σ t) →
-    ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs) →
-    (∀ t, cl.ens = some t → HDet c σ t) →
-    (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
-      cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
-    (cl.exs = [] ∧ cl'.exs = [] ∧
-      cl.rhs = cl'.rhs ∧ cl.ens = cl'.ens ∧ (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∧
-      ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) ∨
-    ∀ r r', cl.Res c σ r → cl'.Res c σ' r' → r = r'
-
-/-- `Coherent` for two clauses without existential variables whose right sides' predicates are
-`\top` (`coherent_iff_noExs`): where both decide at one argument list, as clauses of one function,
-they are the same instance of one right-hand side and one `ensures`, or the two instances have the
-same result. An instance's result is its right-hand side's where its `ensures` evaluates to `true`
-(or it has none), and none where its `ensures` has another result. -/
-def CoherentPlain (c : Semantics) (cl cl' : Clause) : Prop :=
-  ∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
-    (∀ t, cl.req = some t → HDet c σ t) →
-    ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs) →
-    (∀ t, cl.ens = some t → HDet c σ t) →
-    (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
-      cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
-    (cl.rhs = cl'.rhs ∧ cl.ens = cl'.ens ∧ (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∧
-      ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) ∨
-    ∀ r r',
-      ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧ EvalTerm c σ cl.rhs r ∨
-        ∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ r = none) →
-      ((∀ t, cl'.ens = some t → EvalTerm c σ' t (some (bool true))) ∧ EvalTerm c σ' cl'.rhs r' ∨
-        ∃ t w, cl'.ens = some t ∧ EvalTerm c σ' t w ∧ w ≠ some (bool true) ∧ r' = none) →
-      r = r'
-
-/-- Without existential variables, a result of the clause at σ is one of the two cases: the
-right-hand side's where the `ensures` is `true` and `post` is true, none where the `ensures` has
-another result. -/
-theorem Clause.res_noExs {c : Semantics} {cl : Clause} {σ : Subst} {r : Option GroundTerm} (h : cl.exs = []) :
-    cl.Res c σ r ↔
-      ((∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧
-        Holds c cl.vars.length σ cl.post true ∧ EvalTerm c σ cl.rhs r) ∨
-        ∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ r = none :=
-  ⟨fun hr => hr.elim (fun h' => h'.2) (fun h' => absurd h h'.1), fun hr => .inl ⟨h, hr⟩⟩
-
-/-- Two clauses without existential variables are coherent where they are as `CoherentPlain`
-says: a result of such a clause is one of `CoherentPlain`'s two cases. -/
-theorem Coherent.of_plain {c : Semantics} {cl cl' : Clause} (h : cl.exs = []) (h' : cl'.exs = [])
-    (hc : CoherentPlain c cl cl') : Coherent c cl cl' := by
-  intro vs σ σ' ha ha' hq hr he hd
-  rcases hc vs σ σ' ha ha' hq hr he hd with ⟨h1, h2, h3, h4⟩ | hres
-  · exact .inl ⟨h, h', h1, h2, h3, h4⟩
-  · refine .inr fun r r' hr1 hr2 => hres r r' ?_ ?_
-    · rcases (Clause.res_noExs h).mp hr1 with ⟨a, -, b⟩ | hx
-      · exact .inl ⟨a, b⟩
-      · exact .inr hx
-    · rcases (Clause.res_noExs h').mp hr2 with ⟨a, -, b⟩ | hx
-      · exact .inl ⟨a, b⟩
-      · exact .inr hx
-
-/-- **For two clauses without existential variables whose right sides' predicates are `\top`,
-`Coherent` is the proposition without them** (`CoherentPlain`). -/
-theorem coherent_iff_noExs {c : Semantics} {cl cl' : Clause} (h : cl.exs = []) (h' : cl'.exs = [])
-    (hp : cl.post = .top) (hp' : cl'.post = .top) : Coherent c cl cl' ↔ CoherentPlain c cl cl' := by
-  refine ⟨fun hc vs σ σ' ha ha' hq hr he hd => ?_, Coherent.of_plain h h'⟩
-  rcases hc vs σ σ' ha ha' hq hr he hd with ⟨-, -, h1, h2, h3, h4⟩ | hres
-  · exact .inl ⟨h1, h2, h3, h4⟩
-  · refine .inr fun r r' hr1 hr2 => hres r r' ((Clause.res_noExs h).mpr ?_) ((Clause.res_noExs h').mpr ?_)
-    · rcases hr1 with ⟨a, b⟩ | hx
-      · exact .inl ⟨a, by rw [hp]; exact .top, b⟩
-      · exact .inr hx
-    · rcases hr2 with ⟨a, b⟩ | hx
-      · exact .inl ⟨a, by rw [hp']; exact .top, b⟩
-      · exact .inr hx
-
-/-- Two clauses without an `ensures` are as `CoherentPlain` says where, wherever both decide, they
-are the same instance of one right-hand side or their right-hand sides have one result. -/
-theorem CoherentPlain.of_rhs {c : Semantics} {cl cl' : Clause} (hn : cl.ens = none) (hn' : cl'.ens = none)
-    (h : ∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
-      (∀ t, cl.req = some t → HDet c σ t) → HDet c σ cl.rhs →
-      (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
-        cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
-      (cl.rhs = cl'.rhs ∧ ∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∨
-      ∀ r r', EvalTerm c σ cl.rhs r → EvalTerm c σ' cl'.rhs r' → r = r') : CoherentPlain c cl cl' := by
-  intro vs σ σ' ha ha' hq hr _ hd
-  rcases h vs σ σ' ha ha' hq (hr fun t ht => by rw [hn] at ht; cases ht) hd with ⟨he, hv⟩ | hres
-  · exact .inl ⟨he, hn.trans hn'.symm, hv, fun t ht => by rw [hn] at ht; cases ht⟩
-  · refine .inr fun r r' h1 h2 => ?_
-    rcases h1 with ⟨-, h1⟩ | ⟨t, -, ht, -⟩
-    · rcases h2 with ⟨-, h2⟩ | ⟨t, -, ht, -⟩
-      · exact hres r r' h1 h2
-      · rw [hn'] at ht; cases ht
-    · rw [hn] at ht; cases ht
-
-/-- Two clauses without an `ensures` or an existential variable (by default shown for clauses whose
-text has none) are coherent where, wherever both decide, they are the same instance of one
-right-hand side or their right-hand sides have one result: `Coherent` for them. -/
-theorem Coherent.of_rhs {c : Semantics} {cl cl' : Clause} (hn : cl.ens = none) (hn' : cl'.ens = none)
-    (h : ∀ vs σ σ', cl.AppliesAt c σ vs → cl'.AppliesAt c σ' vs →
-      (∀ t, cl.req = some t → HDet c σ t) → HDet c σ cl.rhs →
-      (∃ f fn, c.lookupFn f = some fn ∧ cl ∈ fn.clauses ∧ cl' ∈ fn.clauses ∧
-        cl.Decides c fn σ vs ∧ cl'.Decides c fn σ' vs) →
-      (cl.rhs = cl'.rhs ∧ ∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∨
-      ∀ r r', EvalTerm c σ cl.rhs r → EvalTerm c σ' cl'.rhs r' → r = r')
-    (hx : cl.exs = [] := by rfl) (hx' : cl'.exs = [] := by rfl) : Coherent c cl cl' := by
-  intro vs σ σ' ha ha' hq hr _ hd
-  rcases h vs σ σ' ha ha' hq (hr fun t ht => by rw [hn] at ht; cases ht) hd with ⟨he, hv⟩ | hres
-  · exact .inl ⟨hx, hx', he, hn.trans hn'.symm, hv, fun t ht => by rw [hn] at ht; cases ht⟩
-  · refine .inr fun r r' h1 h2 => ?_
-    rcases (Clause.res_noExs hx).mp h1 with ⟨-, -, h1⟩ | ⟨t, -, ht, -⟩
-    · rcases (Clause.res_noExs hx').mp h2 with ⟨-, -, h2⟩ | ⟨t, -, ht, -⟩
-      · exact hres r r' h1 h2
-      · rw [hn'] at ht; cases ht
-    · rw [hn] at ht; cases ht
-
-/-- Every two clauses of every function that compete are coherent, each clause with itself among
-them: two of one priority, or two of which the one of the smaller priority is `aside`, which no
-clause's priority premise reads. -/
-def CoherentAll (c : Semantics) : Prop :=
-  ∀ f fn, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, ∀ cl' ∈ fn.clauses,
-    (cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
-      (cl'.aside = true ∧ cl'.prio < cl.prio)) →
-    Coherent c cl cl'
-
-/-- The clause's result at an argument list does not depend on the match: two matches of it there
-give one result, and where it has existential variables, at each match where it decides its
-instances are decided and give one result (a result of the clause exists there). -/
-def MatchIndependent (c : Semantics) (cl : Clause) : Prop :=
-  Coherent c cl cl ∧
-  (cl.exs ≠ [] → ∀ f fn vs σ, c.lookupFn f = some fn → cl ∈ fn.clauses →
-    cl.Decides c fn σ vs → ∃ r, cl.Res c σ r)
-
-/-- Without existential variables, match independence is the clause's coherence with itself. -/
-theorem matchIndependent_iff_noExs {c : Semantics} {cl : Clause} (h : cl.exs = []) :
-    MatchIndependent c cl ↔ Coherent c cl cl :=
-  ⟨fun hm => hm.1, fun hc => ⟨hc, fun hne => absurd h hne⟩⟩
-
-/-- Every clause of every function is match independent. -/
-def MatchIndependentAll (c : Semantics) : Prop :=
-  ∀ f fn, c.lookupFn f = some fn → ∀ cl ∈ fn.clauses, MatchIndependent c cl
 
 namespace EvalFunctional
 
@@ -370,33 +81,6 @@ theorem not_fails {vs : List GroundTerm} {cl : Clause} {σ : Subst}
     | intro ht he hr => exact hr ((ihreq _ ht).1 _ he).symm
     | pre hf => exact absurd (ihpre _ hf) (by simp)
 
-/-- Two clauses that compete and both decide at `vs`, as `Eval`'s constructors read deciding, the
-first under σ with the induction hypotheses of its derivation: the coherence of the pair, and the
-hypotheses it asks. -/
-theorem coh_of {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl cl' : Clause} {σ σ' : Subst}
-    (hco : CoherentAll c) (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
-    (hmem' : cl' ∈ fn.clauses)
-    (hcomp : cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
-      (cl'.aside = true ∧ cl'.prio < cl.prio))
-    (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
-    (hprio : ∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl.prio → Fails c vs cl'')
-    (hσ' : c.WellSorted cl'.vars σ') (hmatch' : PatVals c σ' cl'.pats vs)
-    (hreq' : ∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true)))
-    (hpre' : Holds c cl'.vars.length σ' cl'.pre true)
-    (hprio' : ∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'')
-    (ihreq : ∀ t, cl.req = some t → M4 c σ t (some (bool true)))
-    (hrd : (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs)
-    (hed : ∀ t, cl.ens = some t → HDet c σ t) :
-    (cl.exs = [] ∧ cl'.exs = [] ∧
-      cl.rhs = cl'.rhs ∧ cl.ens = cl'.ens ∧ (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) ∧
-      ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) ∨
-    ∀ r r', cl.Res c σ r → cl'.Res c σ' r' → r = r' :=
-  hco f fn hfn cl hmem cl' hmem' hcomp vs σ σ' ⟨hσ, hmatch, hreq, hpre⟩ ⟨hσ', hmatch', hreq', hpre'⟩
-    (fun t ht => (ihreq t ht).2) hrd hed
-    ⟨f, fn, hfn, hmem, hmem', ⟨⟨hσ, hmatch, hreq, hpre⟩, hprio⟩, ⟨⟨hσ', hmatch', hreq', hpre'⟩, hprio'⟩⟩
-
 /-- Two clauses of one function: they compete (`CoherentAll`'s condition), or the one of the
 smaller priority is not `aside`, so it is among the other's smaller-priority clauses. -/
 theorem compete_or_blocks (cl cl' : Clause) :
@@ -420,141 +104,96 @@ theorem res_clauseEx {cl : Clause} {σ : Subst} {v : GroundTerm} (hσ : c.WellSo
     cl.Res c σ (some v) :=
   .inr ⟨hne, .inl ⟨σ, v, AgreeOff.refl _ _, hσ, ⟨hrhs, hens, hpost⟩, hall, rfl⟩⟩
 
-/-- A derivation by a clause, the first, with the induction hypotheses for its `requires`, its
-predicate and the clauses of a smaller priority, against a second derivation at the same argument
-list, given the first clause's result `r` at its match (`hres`) and what `Coherent` asks of its
-right-hand side and `ensures` (`hrd`, `hed`): where the two clauses are the same instance
-(`hsame`), or by the two results. No clause of the function has an existential variable (`hno`):
-read where the second derivation is by `Eval.exNone`, whose match is well sorted on the variables
-its right side does not bind only. -/
+/-- What a derivation of `InstFails` gives: the part of the instance that fails, with one result. -/
+abbrev M7 (c : Semantics) (σ : Subst) (cl : Clause) : Prop :=
+  (∃ t w, cl.ens = some t ∧ EvalTerm c σ t w ∧ w ≠ some (bool true) ∧ HDet c σ t) ∨
+  (Holds c cl.vars.length σ cl.post false ∧ M6 c cl.vars.length σ cl.post false) ∨
+  (EvalTerm c σ cl.rhs none ∧ HDet c σ cl.rhs)
+
+
+/-- A clause that applies at a match well sorted on the left side's variables applies at each of
+the match's instances, which is the match on the left side's variables. -/
+theorem at_ext {cl : Clause} {σ σ₁ : Subst} {vs : List GroundTerm}
+    (ha : AgreeOff cl.exsFree σ σ₁) (hw : c.WellSorted cl.vars σ₁) (hm : PatVals c σ cl.pats vs)
+    (hq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true) :
+    cl.AppliesAt c σ₁ vs ∧ ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := by
+  have hl : ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := fun i hi => ha i (by simp [Clause.exsFree, hi])
+  exact ⟨⟨hw, PatVals.congr_varsRH hm fun j hj => hl j (List.mem_append_left _ hj),
+    fun t ht => EvalTerm.congr (hq t ht) fun i hi => (hl i (Clause.req_leftVarsRH ht i hi)).symm,
+    Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm⟩, hl⟩
+
+/-- The result of a derivation by `Eval.exNone` is a result of its clause at each instance of its
+match: the instances of the instance are the match's. -/
+theorem res_exNone {cl : Clause} {σ σ₁ : Subst} (hne : cl.exs ≠ [])
+    (ha : AgreeOff cl.exsFree σ σ₁) (hw : c.WellSorted cl.vars σ₁)
+    (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl none) :
+    cl.Res c σ₁ none :=
+  .inr ⟨hne, .inr ⟨rfl, ⟨σ₁, AgreeOff.refl _ _, hw⟩, fun σ₂ ha₂ hw₂ => hall σ₂ (ha.trans ha₂) hw₂⟩⟩
+
+/-- A derivation by a clause, the first, applying under σ and not failing, with the induction
+hypothesis for the clauses of a smaller priority, against a second derivation at the same argument
+list, given the first clause's result `r` at σ (`hres`) and what `Coherent` asks of it there
+(`hqd`, `hrd`, `hed`, `hid`): where the two clauses are the same instance (`hsame`), or by the two
+results. A second derivation by `Eval.exNone` is read at one of its instances, where its clause
+applies and has the result none. -/
 theorem case_by {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
-    {r : Option GroundTerm} (hco : CoherentAll c) (hno : c.FnsNoExs)
-    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
-    (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
+    {r : Option GroundTerm} (hco : CoherentAll c)
+    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (ha : cl.AppliesAt c σ vs)
     (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (ihreq : ∀ t, cl.req = some t → M4 c σ t (some (bool true)))
-    (ihpre : M6 c cl.vars.length σ cl.pre true)
+    (hnf : Fails c vs cl → False)
     (ihprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → M2 c vs cl')
-    (hrd : (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs)
-    (hed : ∀ t, cl.ens = some t → HDet c σ t)
+    (hqd : ∀ t, cl.req = some t → HDet c σ t)
+    (hrd : cl.exs = [] → (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) → HDet c σ cl.rhs)
+    (hed : cl.exs = [] → ∀ t, cl.ens = some t → HDet c σ t)
+    (hid : cl.exs ≠ [] → ∀ σ₁, AgreeOff cl.exsFree σ σ₁ → c.WellSorted cl.vars σ₁ → InstDet c cl σ₁)
     (hres : cl.Res c σ r)
     (hsame : ∀ (cl' : Clause) (σ' : Subst) (r' : Option GroundTerm), cl.exs = [] → cl'.exs = [] → cl.rhs = cl'.rhs →
       cl.ens = cl'.ens → (∀ i ∈ varOccs cl.rhs, σ.lookup i = σ'.lookup i) →
       (∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) →
       cl'.Res c σ' r' → r = r') : M1 c f vs r := by
   have key : ∀ (cl' : Clause) (σ' : Subst) (r' : Option GroundTerm), cl' ∈ fn.clauses →
-      c.WellSorted cl'.vars σ' → PatVals c σ' cl'.pats vs →
-      (∀ t, cl'.req = some t → EvalTerm c σ' t (some (bool true))) →
-      Holds c cl'.vars.length σ' cl'.pre true →
+      cl'.AppliesAt c σ' vs →
       (∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'') →
       cl'.Res c σ' r' → r = r' := by
-    intro cl' σ' r' hmem' hσ' hmatch' hreq' hpre' hprio' hres'
-    rcases compete_or_blocks cl cl' with hcomp | ⟨ha, hlt⟩ | ⟨ha, hgt⟩
-    · rcases coh_of hco hfn hmem hmem' hcomp hσ hmatch hreq hpre hprio hσ' hmatch' hreq' hpre' hprio' ihreq
-          hrd hed with ⟨hx, hx', he, hee, hv, hve⟩ | hr
+    intro cl' σ' r' hmem' ha' hprio' hres'
+    rcases compete_or_blocks cl cl' with hcomp | ⟨hna, hlt⟩ | ⟨hna, hgt⟩
+    · rcases hco f fn hfn cl hmem cl' hmem' hcomp vs σ σ' ha ha' hqd hrd hed hid
+          ⟨f, fn, hfn, hmem, hmem', ⟨ha, hprio⟩, ⟨ha', hprio'⟩⟩ with ⟨hx, hx', he, hee, hv, hve⟩ | hr
       · exact hsame cl' σ' r' hx hx' he hee hv hve hres'
       · exact hr _ _ hres hres'
-    · exact (not_fails hσ hmatch ihreq ihpre (hprio' _ hmem ha hlt)).elim
-    · exact (ihprio _ hmem' ha hgt _ (hσ'.at _) hmatch' hreq' hpre').elim
+    · exact (hnf (hprio' _ hmem hna hlt)).elim
+    · exact (ihprio _ hmem' hna hgt _ (ha'.1.at _) ha'.2.1 ha'.2.2.1 ha'.2.2.2).elim
   intro r' h'
   cases h' with
   | @clause _ _ _ cl' σ' _ hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hex' hrhs' hens' hpost' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' r' hmem' hσ' hmatch' hreq' hpre' hprio' (.inl ⟨hex', .inl ⟨hens', hpost', hrhs'⟩⟩)
+    exact key cl' σ' r' hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (.inl ⟨hex', .inl ⟨hens', hpost', hrhs'⟩⟩)
   | rest hfn' hnone' =>
     rw [hfn] at hfn'; cases hfn'
-    exact (not_fails hσ hmatch ihreq ihpre (hnone' _ hmem)).elim
+    exact (hnf (hnone' _ hmem)).elim
   | @ensFails _ _ _ cl' σ' t' w' hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hex' ht' he' hw' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' none hmem' hσ' hmatch' hreq' hpre' hprio' (.inl ⟨hex', .inr ⟨t', w', ht', he', hw', rfl⟩⟩)
+    exact key cl' σ' none hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (.inl ⟨hex', .inr ⟨t', w', ht', he', hw', rfl⟩⟩)
   | @clauseEx _ _ _ cl' σ' v' hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hne' hrhs' hens' hpost' hall' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' (some v') hmem' hσ' hmatch' hreq' hpre' hprio' (res_clauseEx hσ' hne' hrhs' hens' hpost' hall')
-  | @exNone _ _ _ cl' σ' hfn' hmem' hne' _ _ _ _ _ _ _ =>
+    exact key cl' σ' (some v') hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (res_clauseEx hσ' hne' hrhs' hens' hpost' hall')
+  | @exNone _ _ _ cl' σ' hfn' hmem' hne' _ hmatch' hreq' hpre' hprio' hsome' hall' =>
     rw [hfn] at hfn'; cases hfn'
-    exact absurd (hno.lookup hfn hmem') hne'
+    obtain ⟨σ₁, ha₁, hw₁⟩ := hsome'
+    exact key cl' σ₁ none hmem' (at_ext ha₁ hw₁ hmatch' hreq' hpre').1 hprio' (res_exNone hne' ha₁ hw₁ hall')
 
-theorem case_clause (hco : CoherentAll c) (hno : c.FnsNoExs) {f : Sym} {fn : Fn} {vs : List GroundTerm}
-    {cl : Clause} {σ : Subst} {r : Option GroundTerm}
-    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
-    (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
-    (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (hex : cl.exs = [])
-    (hrhs : EvalTerm c σ cl.rhs r)
-    (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)))
-    (hpost : Holds c cl.vars.length σ cl.post true)
+/-- A clause that applies under σ, well sorted on the left side's variables, its `requires` and
+predicate having one result there, does not fail. -/
+theorem not_fails_at {vs : List GroundTerm} {cl : Clause} {σ : Subst}
+    (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hmatch : PatVals c σ cl.pats vs)
     (ihreq : ∀ t, cl.req = some t → M4 c σ t (some (bool true)))
-    (ihpre : M6 c cl.vars.length σ cl.pre true)
-    (ihprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → M2 c vs cl')
-    (ihrhs : M4 c σ cl.rhs r)
-    (ihens : ∀ t, cl.ens = some t → M4 c σ t (some (bool true))) : M1 c f vs r :=
-  case_by hco hno hfn hmem hσ hmatch hreq hpre hprio ihreq ihpre ihprio (fun _ => ihrhs.2)
-    (fun t ht => (ihens t ht).2) (.inl ⟨hex, .inl ⟨hens, hpost, hrhs⟩⟩)
-    fun cl' σ' r' _ hx' he hee hv hve hres' => by
-      rcases (Clause.res_noExs hx').mp hres' with ⟨-, -, hrhs'⟩ | ⟨t', w', ht', he', hw', rfl⟩
-      · rw [← he] at hrhs'
-        exact ihrhs.1 r' (EvalTerm.congr hrhs' fun i hi => (hv i hi).symm)
-      · rw [← hee] at ht'
-        exact (hw' ((ihens t' ht').1 w' (EvalTerm.congr he' fun i hi => (hve t' ht' i hi).symm)).symm).elim
-
-theorem case_ensFails (hco : CoherentAll c) (hno : c.FnsNoExs) {f : Sym} {fn : Fn} {vs : List GroundTerm}
-    {cl : Clause} {σ : Subst} {t : Term} {w : Option GroundTerm}
-    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
-    (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
-    (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (hex : cl.exs = [])
-    (ht : cl.ens = some t) (he : EvalTerm c σ t w) (hw : w ≠ some (bool true))
-    (ihreq : ∀ t, cl.req = some t → M4 c σ t (some (bool true)))
-    (ihpre : M6 c cl.vars.length σ cl.pre true)
-    (ihprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → M2 c vs cl')
-    (ihe : M4 c σ t w) : M1 c f vs none := by
-  have hnot : ¬ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) :=
-    fun h => hw (ihe.1 _ (h t ht))
-  have hed : ∀ t', cl.ens = some t' → HDet c σ t' := fun t' ht'' => by
-    rw [ht] at ht''; cases ht''; exact ihe.2
-  exact case_by hco hno hfn hmem hσ hmatch hreq hpre hprio ihreq ihpre ihprio (fun h => (hnot h).elim) hed
-    (.inl ⟨hex, .inr ⟨t, w, ht, he, hw, rfl⟩⟩)
-    fun cl' σ' r' _ hx' _ hee _ hve hres' => by
-      rcases (Clause.res_noExs hx').mp hres' with ⟨hens', -, -⟩ | ⟨_, _, _, _, _, rfl⟩
-      · exact (hnot fun t'' ht'' =>
-          EvalTerm.congr (hens' t'' (hee ▸ ht'')) fun i hi => (hve t'' ht'' i hi).symm).elim
-      · rfl
-
-/-- A derivation by `Eval.clauseEx`: its match is an instance that gives the value, so the terms of
-its right-hand side and `ensures` have one result there, and its result is a result of its clause
-at its match. -/
-theorem case_clauseEx (hco : CoherentAll c) (hno : c.FnsNoExs) {f : Sym} {fn : Fn} {vs : List GroundTerm}
-    {cl : Clause} {σ : Subst} {v : GroundTerm}
-    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses)
-    (hσ : c.WellSorted cl.vars σ) (hmatch : PatVals c σ cl.pats vs)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
-    (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (hne : cl.exs ≠ [])
-    (hrhs : EvalTerm c σ cl.rhs (some v))
-    (hens : ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)))
-    (hpost : Holds c cl.vars.length σ cl.post true)
-    (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl (some v))
-    (ihreq : ∀ t, cl.req = some t → M4 c σ t (some (bool true)))
-    (ihpre : M6 c cl.vars.length σ cl.pre true)
-    (ihprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → M2 c vs cl')
-    (ihrhs : M4 c σ cl.rhs (some v))
-    (ihens : ∀ t, cl.ens = some t → M4 c σ t (some (bool true))) : M1 c f vs (some v) :=
-  case_by hco hno hfn hmem hσ hmatch hreq hpre hprio ihreq ihpre ihprio (fun _ => ihrhs.2)
-    (fun t ht => (ihens t ht).2) (res_clauseEx hσ hne hrhs hens hpost hall)
-    fun _ _ _ hx _ _ _ _ _ _ => absurd hx hne
-
-/-- A derivation by `Eval.exNone` holds no derivation for its clause's right-hand side or
-`ensures`: where no clause has an existential variable there is none. -/
-theorem case_exNone (hno : c.FnsNoExs) {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
-    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hne : cl.exs ≠ []) : M1 c f vs none :=
-  absurd (hno.lookup hfn hmem) hne
+    (ihpre : M6 c cl.vars.length σ cl.pre true) (hf : Fails c vs cl) : False := by
+  cases hf with
+  | intro h =>
+    cases h σ hσ hmatch with
+    | intro ht he hr => exact hr ((ihreq _ ht).1 _ he).symm
+    | pre hf => exact absurd (ihpre _ hf) (by simp)
 
 theorem case_rest {f : Sym} {fn : Fn} {vs : List GroundTerm}
     (hfn : c.lookupFn f = some fn)
@@ -797,25 +436,59 @@ theorem caseH_all {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool} {g :
 end EvalFunctional
 
 open EvalFunctional in
-/-- **A function has one result at each argument list** when clauses of one priority are
-coherent and no clause has an existential variable. -/
-theorem Eval.functional {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs) {f : Sym}
+/-- **A function has one result at each argument list** when the clauses that compete are
+coherent. For a derivation by a clause with existential variables, what `Coherent` asks of each
+instance (`InstDet`) is the induction hypothesis on the derivation's instances; a derivation by
+`Eval.exNone` is read at one of its instances. -/
+theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
     {vs : List GroundTerm} {r r' : Option GroundTerm} (h : Eval c f vs r) (h' : Eval c f vs r') :
     r = r' :=
   Eval.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
     (motive_6 := fun n σ p b _ => M6 c n σ p b)
-    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens _ =>
-      case_clause hco hno hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens)
+    (motive_7 := fun σ cl _ => M7 c σ cl) (motive_8 := fun σ cl _ _ => InstDet c cl σ)
+    -- clause
+    (fun {f fn vs cl σ r} hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens _ =>
+      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+        (fun t ht => (ihreq t ht).2) (fun _ _ => ihrhs.2) (fun _ t ht => (ihens t ht).2) (fun hne => absurd hex hne)
+        (.inl ⟨hex, .inl ⟨hens, hpost, hrhs⟩⟩)
+        fun cl' σ' r' _ hx' he hee hv hve hres' => by
+          rcases (Clause.res_noExs hx').mp hres' with ⟨-, -, hrhs'⟩ | ⟨t', w', ht', he', hw', rfl⟩
+          · rw [← he] at hrhs'
+            exact ihrhs.1 r' (EvalTerm.congr hrhs' fun i hi => (hv i hi).symm)
+          · rw [← hee] at ht'
+            exact (hw' ((ihens t' ht').1 w' (EvalTerm.congr he' fun i hi => (hve t' ht' i hi).symm)).symm).elim)
     (fun hfn _ ihnone => case_rest hfn ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe =>
-      case_ensFails hco hno hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio ihrhs ihens _ _ =>
-      case_clauseEx hco hno hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio
-        ihrhs ihens)
-    (fun hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => case_exNone hno hfn hmem hne)
+    -- ensFails
+    (fun {f fn vs cl σ t w} hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe =>
+      have hnot : ¬ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := fun h => hw (ihe.1 _ (h t ht))
+      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+        (fun t ht => (ihreq t ht).2) (fun _ h => (hnot h).elim)
+        (fun _ t' ht'' => by rw [ht] at ht''; cases ht''; exact ihe.2) (fun hne => absurd hex hne)
+        (.inl ⟨hex, .inr ⟨t, w, ht, he, hw, rfl⟩⟩)
+        fun cl' σ' r' _ hx' _ hee _ hve hres' => by
+          rcases (Clause.res_noExs hx').mp hres' with ⟨hens', -, -⟩ | ⟨_, _, _, _, _, rfl⟩
+          · exact (hnot fun t'' ht'' =>
+              EvalTerm.congr (hens' t'' (hee ▸ ht'')) fun i hi => (hve t'' ht'' i hi).symm).elim
+          · rfl)
+    -- clauseEx: the premise on the instances is the induction hypothesis on `hall`
+    (fun {f fn vs cl σ v} hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio _ _ _ ihall =>
+      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+        (fun t ht => (ihreq t ht).2) (fun hx => absurd hx hne) (fun hx => absurd hx hne)
+        (fun _ σ₁ ha₁ hw₁ => ihall σ₁ ha₁ hw₁) (res_clauseEx hσ hne hrhs hens hpost hall)
+        fun _ _ _ hx _ _ _ _ _ _ => absurd hx hne)
+    -- exNone: at an instance, which is the match on the left side
+    (fun {f fn vs cl σ} hfn hmem hne _ hmatch hreq hpre hprio hsome hall ihreq ihpre ihprio ihall =>
+      let ⟨σ₁, ha₁, hw₁⟩ := hsome
+      have hx := at_ext ha₁ hw₁ hmatch hreq hpre
+      case_by hco hfn hmem hx.1 hprio
+        (not_fails_at (wellSortedAt_left_of_ext ha₁ hw₁) hmatch ihreq ihpre) ihprio
+        (fun t ht u hu => Fun.congr (fun i hi => hx.2 i (Clause.req_leftVarsRH ht i (varOccs_subterms hu i hi)))
+          ((ihreq t ht).2 u hu))
+        (fun hx => absurd hx hne) (fun hx => absurd hx hne)
+        (fun _ σ₂ ha₂ hw₂ => ihall σ₂ (ha₁.trans ha₂) hw₂) (res_exNone hne ha₁ hw₁ hall)
+        fun _ _ _ hx _ _ _ _ _ _ => absurd hx hne)
     (fun _ ih => fun σ hw hp hq hpre => ih σ hw hp hq hpre)
     (fun ht _ hr ihe => fun hall _ => hr (ihe.1 _ (hall _ ht)))
     (fun _ ih => fun _ hpre => absurd (ih _ hpre) (by simp))
@@ -844,134 +517,19 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs)
     (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
     (fun _ _ hr ihb => caseH_ex hr ihb)
     (fun _ _ hr ihb => caseH_all hr ihb)
-    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
-    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
+    -- InstFails
+    (fun ht he hw ihe => .inl ⟨_, _, ht, he, hw, ihe.2⟩)
+    (fun h ih => .inr (.inl ⟨h, ih⟩))
+    (fun h ih => .inr (.inr ⟨h, ih.2⟩))
+    -- InstIs
+    (fun hp _ ihp ih => ⟨⟨_, hp, ihp⟩, ih.elim .inl fun ih => ih.elim (fun x => .inr (.inl x.1)) fun x => .inr (.inr (.inl x))⟩)
+    (fun hrhs hens hpost ihrhs ihens ihpost =>
+      ⟨⟨true, hpost, ihpost⟩, .inr (.inr (.inr ⟨_, hrhs, ihrhs.2, fun t ht => ⟨hens t ht, (ihens t ht).2⟩, hpost⟩))⟩)
     h r' h'
 
-open EvalFunctional in
-/-- A term has one result under each substitution when clauses of one priority are coherent and no
-clause has an existential variable; so does every term inside it. -/
-theorem EvalTerm.functional_hdet {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {t : Term}
-    {r : Option GroundTerm} (h : EvalTerm c σ t r) : (∀ r', EvalTerm c σ t r' → r = r') ∧ HDet c σ t :=
-  EvalTerm.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
-    (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
-    (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
-    (motive_6 := fun n σ p b _ => M6 c n σ p b)
-    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens _ =>
-      case_clause hco hno hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens)
-    (fun hfn _ ihnone => case_rest hfn ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe =>
-      case_ensFails hco hno hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio ihrhs ihens _ _ =>
-      case_clauseEx hco hno hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio
-        ihrhs ihens)
-    (fun hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => case_exNone hno hfn hmem hne)
-    (fun _ ih => fun σ hw hp hq hpre => ih σ hw hp hq hpre)
-    (fun ht _ hr ihe => fun hall _ => hr (ihe.1 _ (hall _ ht)))
-    (fun _ ih => fun _ hpre => absurd (ih _ hpre) (by simp))
-    (leaf rfl fun r' h' => by cases h'; rfl)
-    (leaf rfl fun r' h' => by cases h'; rfl)
-    (fun _ ih => case_inj ih)
-    (fun hk _ ihts => case_ctor hk ihts)
-    (fun hk hhk _ hh hund ihts => case_hook hk hhk hh hund ihts)
-    (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
-    (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
-    (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
-    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
-    ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
-    (fun _ _ ih1 ih2 => case_cons ih1 ih2)
-    (fun b' h' => by cases h'; rfl)
-    (fun b' h' => by cases h'; rfl)
-    (fun _ ih => caseH_not ih)
-    (fun _ _ ih ih' => caseH_and ih ih')
-    (fun _ _ ih ih' => caseH_or ih ih')
-    (fun _ _ ih ih' => caseH_implies ih ih')
-    (fun _ ih => caseH_ceil ih)
-    (fun _ _ ih ih' => caseH_equals ih ih')
-    (fun _ _ ih ih' => caseH_mem ih ih')
-    (fun _ ih => caseH_exNone ih)
-    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
-    (fun _ _ hr ihb => caseH_ex hr ihb)
-    (fun _ _ hr ihb => caseH_all hr ihb)
-    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
-    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
-    h
-
-/-- A term has one result under each substitution when clauses of one priority are coherent and no
-clause has an existential variable. -/
-theorem EvalTerm.functional {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {t : Term}
-    {r r' : Option GroundTerm} (h : EvalTerm c σ t r) (h' : EvalTerm c σ t r') : r = r' :=
-  (EvalTerm.functional_hdet hco hno h).1 r' h'
-
-open EvalFunctional in
-/-- A condition has one truth value under each substitution when clauses of one priority are
-coherent and no clause has an existential variable. -/
-theorem Holds.functional {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs) {n : Nat} {σ : Subst} {p : Cond}
-    {b b' : Bool} (h : Holds c n σ p b) (h' : Holds c n σ p b') : b = b' :=
-  Holds.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
-    (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
-    (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
-    (motive_6 := fun n σ p b _ => M6 c n σ p b)
-    (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens _ =>
-      case_clause hco hno hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens)
-    (fun hfn _ ihnone => case_rest hfn ihnone)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe =>
-      case_ensFails hco hno hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe)
-    (fun hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio ihrhs ihens _ _ =>
-      case_clauseEx hco hno hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio
-        ihrhs ihens)
-    (fun hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => case_exNone hno hfn hmem hne)
-    (fun _ ih => fun σ hw hp hq hpre => ih σ hw hp hq hpre)
-    (fun ht _ hr ihe => fun hall _ => hr (ihe.1 _ (hall _ ht)))
-    (fun _ ih => fun _ hpre => absurd (ih _ hpre) (by simp))
-    (leaf rfl fun r' h' => by cases h'; rfl)
-    (leaf rfl fun r' h' => by cases h'; rfl)
-    (fun _ ih => case_inj ih)
-    (fun hk _ ihts => case_ctor hk ihts)
-    (fun hk hhk _ hh hund ihts => case_hook hk hhk hh hund ihts)
-    (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
-    (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
-    (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
-    (fun hk ho _ hnf ihts => case_ovl hk ho hnf ihts)
-    (fun hk ho _ hvs hlo hcov _ ihts ihf => case_ovlFn hk ho hvs hlo hcov ihts ihf)
-    ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
-    (fun _ _ ih1 ih2 => case_cons ih1 ih2)
-    (fun b' h' => by cases h'; rfl)
-    (fun b' h' => by cases h'; rfl)
-    (fun _ ih => caseH_not ih)
-    (fun _ _ ih ih' => caseH_and ih ih')
-    (fun _ _ ih ih' => caseH_or ih ih')
-    (fun _ _ ih ih' => caseH_implies ih ih')
-    (fun _ ih => caseH_ceil ih)
-    (fun _ _ ih ih' => caseH_equals ih ih')
-    (fun _ _ ih ih' => caseH_mem ih ih')
-    (fun _ ih => caseH_exNone ih)
-    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
-    (fun _ _ hr ihb => caseH_ex hr ihb)
-    (fun _ _ hr ihb => caseH_all hr ihb)
-    (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
-    (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
-    h b' h'
-
-/-- A function has at most one result at each argument list. -/
-def FnDet (c : Semantics) : Prop :=
-  ∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r'
-
-/-- **Evaluation solves the equations**: where a clause decides at argument values of its
-function's sorts, the values of the function there are the values of that clause's right-hand
-side where its `ensures` evaluates to `true`. -/
-def FnSolves (c : Semantics) : Prop :=
-  ∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
-    cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
-      EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))
-
-/-- Clauses that compete coherent and none with an existential variable, every function has at most
-one result. -/
-theorem fnDet_of_coherent {c : Semantics} (hco : CoherentAll c) (hno : c.FnsNoExs) : FnDet c :=
-  fun _ _ _ _ h h' => Eval.functional hco hno h h'
+/-- Clauses that compete coherent, every function has at most one result. -/
+theorem fnDet_of_coherent {c : Semantics} (hco : CoherentAll c) : FnDet c :=
+  fun _ _ _ _ h h' => Eval.functional hco h h'
 
 open EvalFunctional in
 /-- A term has one result under each substitution where every function has at most one result;
@@ -1080,5 +638,22 @@ theorem Holds.functional_of_fnDet {c : Semantics} (hd : FnDet c) {n : Nat} {σ :
     (fun _ _ _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial)
     (fun _ _ _ _ => trivial) (fun _ _ _ _ _ _ => trivial)
     h b' h'
+
+/-- A term has one result under each substitution when the clauses that compete are coherent; so
+does every term inside it. -/
+theorem EvalTerm.functional_hdet {c : Semantics} (hco : CoherentAll c) {σ : Subst} {t : Term}
+    {r : Option GroundTerm} (h : EvalTerm c σ t r) : (∀ r', EvalTerm c σ t r' → r = r') ∧ HDet c σ t :=
+  EvalTerm.functional_hdet_of_fnDet (fnDet_of_coherent hco) h
+
+/-- A term has one result under each substitution when the clauses that compete are coherent. -/
+theorem EvalTerm.functional {c : Semantics} (hco : CoherentAll c) {σ : Subst} {t : Term}
+    {r r' : Option GroundTerm} (h : EvalTerm c σ t r) (h' : EvalTerm c σ t r') : r = r' :=
+  (EvalTerm.functional_hdet hco h).1 r' h'
+
+/-- A condition has one truth value under each substitution when the clauses that compete are
+coherent. -/
+theorem Holds.functional {c : Semantics} (hco : CoherentAll c) {n : Nat} {σ : Subst} {p : Cond}
+    {b b' : Bool} (h : Holds c n σ p b) (h' : Holds c n σ p b') : b = b' :=
+  Holds.functional_of_fnDet (fnDet_of_coherent hco) h h'
 
 end KCore

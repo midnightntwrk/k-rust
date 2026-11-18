@@ -639,15 +639,16 @@ mutual
             cases h : hookSigs.any (·.name == f)
             · rfl
             · rw [← isHook_iff] at h; rw [hhk] at h; cases h
-          rcases hhead with (h1 | ⟨h1, _⟩) | ⟨⟨htc, _⟩, hnp⟩
+          rcases hhead with (h1 | ⟨h1, _⟩) | ⟨⟨⟨htc, _⟩, hnp⟩, hno⟩
           · rw [hnc'] at h1; cases h1
           · rw [hnh] at h1; cases h1
           have hpar : c.isParam f = false := isParam_false_of (by simpa using hnp)
           cases hov : c.isOvl f with
           | true =>
-            have := EvalTerm.ovl hct hov hts (fun vs _ => hc.ovl.fnCover_none f vs)
-            rw [hall] at this
-            exact ⟨_, this⟩
+            -- `totalTerm` admits no overloading symbol as a function of `tot`
+            have hsome := (c.isOvl_parts hov).2.2.2.2
+            rw [Option.isNone_iff_eq_none.mp hno] at hsome
+            exact absurd hsome (by simp)
           | false =>
           rw [lookupSig_append_of_none (lookupSig_hookSigs_of_not_isHook hhk),
             lookupSig_append_of_none (c.lookupSig_params_of_not hpar)] at hk'
@@ -659,7 +660,7 @@ mutual
           exact ⟨v, EvalTerm.call hct hhk hts hall hv hpar⟩
         · have hh : hookSigs.any (·.name == f) = true := (isHook_iff f).mp hhk
           have hhead : partialHooks.contains f = false := by
-            rcases hhead with (h1 | ⟨_, hpart⟩) | ⟨⟨_, h1⟩, _⟩
+            rcases hhead with (h1 | ⟨_, hpart⟩) | ⟨⟨⟨_, h1⟩, _⟩, _⟩
             · rw [hnc'] at h1; cases h1
             · simpa using hpart
             · rw [hh] at h1; cases h1
@@ -733,7 +734,7 @@ theorem req_resultN (hc : EvalCtxN c) (hterm : ∀ g, Terminates c g) {fn : Fn} 
   have hq := hreqs cl hcl
   rw [ht] at hq
   simp only [reqOK, beq_iff_eq] at hq
-  exact evalTerm_result hc.sort hL' hσ t hq
+  exact evalTerm_result hc.sort hL' hσ t hq (fun _ _ _ _ kg _ _ => hterm kg.name)
     fun g _ _ gfn hg _ vs' _ _ hsrt => hterm g gfn hg vs' hsrt
 
 /-- The `requires` of a clause have a result at each of its matches, every function terminating. -/
@@ -875,6 +876,7 @@ theorem total_of_totalOK (hok : c.sortedOK = true) (hsr : c.srReady = true) (hov
     (n := Semantics.coverFuel fn) hcov hrhs (fun cl hcl => by simpa using hne cl hcl) (fun g hg hgl => ?_)
   · have := hfok cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+    replace this := this.1
     exact ⟨this.1.1.1.1.1, (Semantics.sortedOK_clause hok hfn hcl).1⟩
   · simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
     rcases hg with (hg | ⟨p, hp, rfl⟩) | hg

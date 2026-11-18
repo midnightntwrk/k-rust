@@ -1,0 +1,41 @@
+id = "t194-registry-symbol-name"
+kind = "text"
+subject = "A constructor of a sort of the text's own declared under the symbol name of INT's _+Int_, with no module of INT imported: what the symbol is, and what the rule go(z +Int z) => done() states."
+retro = ["F7"]
+origin = "kcore-spec fixture e2-registry-symbol-name"
+rests_on = ["kk:t02-step-successors", "kk:t228-ctor-distinct"]
+
+[text]
+files = ["t194-registry-symbol-name.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "_+Int_ here is a constructor of Num, built by its production Num \"+Int\" Num, with no hook and no equation: z +Int z is a term of Num, no integer, and distinct from z. The rule states that go(z +Int z) steps to done(). The symbol's name carries no meaning of INT's addition."
+reason = """
+(1) The production Num ::= Num "+Int" Num [symbol(_+Int_)] declares a symbol of the text with the name _+Int_ (user_manual.md:331-332: symbol(_) controls the identifier the production has in the compiled definition). Its sort and arguments are Num; it has no function or hook attribute. A symbol's meaning comes from its sentences, and no sentence of the text, and no imported module, states anything of _+Int_ beyond its production.
+(2) So z +Int z is a term of sort Num built from two z by that production. z and _+Int_ are two constructor productions of Num, so z +Int z is not z (kk:t228-ctor-distinct). The rule states that go(z +Int z) has a successor in done() (kk:t02-step-successors, point (4))."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:331-332 (K 7.1.337)"
+quote = "The `symbol(_)` attribute can be applied to a production to control the precise identifier for a production that appears in a compiled definition."
+
+[ruling.kore]
+statement = "kompile writes Lbl'UndsPlus'Int'Unds' as a constructor of SortNum, functional and injective, with the no-confusion and no-junk axioms of Num's constructors (kore.txt:6, 26-30, 50) and no hook attribute."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:6"
+quote = '''symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("_+Int_")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:30"
+quote = '''axiom{}\not{SortNum{}} (\and{SortNum{}} (Lbl'UndsPlus'Int'Unds'{}(X0:SortNum{}, X1:SortNum{}), Lblz{}())) [constructor{}()]'''
+
+[[observe]]
+file = "kore.txt"
+absent = "hook{}(\"INT.add\")"

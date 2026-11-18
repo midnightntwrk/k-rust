@@ -1,0 +1,7 @@
+# Hand-written KORE: the kompiled text of fixture c3-fn-comm (K 7.1.337, sha256
+# 1cf6bf2e37b67ed1ea3a1eb0297d73429d1ead0fa7d1f9961ffa6eecd6a98f1d), BUILTIN/ and FIXTURE/ restored as paths,
+# and one attribute added: comm{}() first on the declaration of the function Lblpl. Kompile writes a
+# function production's comm as no sentence and not on the declaration (c3-fn-comm/kore.txt:4): only a
+# hand-written text carries the key there.
+# Expected: refused attrOutsideE2 (Lblpl: comm, Parse.fnDeclLawWhy), not openGenerator (Lblpl is a function).
+kore = "test/constructs/fixtures/hw-fn-decl-comm/hw-fn-decl-comm.kore"

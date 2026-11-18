@@ -257,7 +257,8 @@ example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy c
   have hr := hopenO
   have := sound_at_open cO coreO.1 hr x y r σ hs (fun r' hr' _ hw _ => hwO r' hr' hw) hcO
   have := @complete_at_open cO coreO.1 hr x hd os hval hfam hcO
-  have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2 hf.2.2.2.2.2 hr
+  have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
+    (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2 hr
   have := has_model_choice_open cO coreO.1 hf hr (Step cO)
   have := exact_open cO coreO.1 hf hr
   have := @famOpen_values_open cO coreO.1 hf x okB mB facts.2.1.1 facts.2.1.2.1 σ' hu
@@ -279,7 +280,8 @@ example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy c
   have := has_model_choice cO coreO.1 hf (Step cO)
   have := @famOpen_values cO coreO.1 hf x okB mB σ' hu (fun i hi => List.all_eq_true.mp conf.2.1 i hi) ys hys
   exact ⟨exact_hyp cO coreO.1 hf,
-    consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2 hf.2.2.2.2.2⟩
+    consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
+      (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2⟩
 
 /-- **`sound_at` at a step by each open rule of `cO`**, one per arm (`ok1` arm A, `okB` arm B, `ok2`
 arm C, `ok4` arms A and C with the competition conjunct by closed conditions), and `complete_at`
@@ -298,7 +300,8 @@ example (hf : FnHyp cO) (x : Config cO) (hdec : StepDecided cO x.val)
   have := sound_at cO coreO.1 x y2 ok2 σ2 h2 (hw ok2) hcO
   have := sound_at cO coreO.1 x y4 ok4 σ4 h4 (hw ok4) hcO
   have := @complete_at cO coreO.1 x hdec os hval hfam hcO
-  exact consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2 hf.2.2.2.2.2
+  exact consistent_of cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
+      (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2
 
 /-- info: 'OpenRulesCore.R.coreO' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms coreO
@@ -508,7 +511,7 @@ theorem factsOW : cOW.rightValued = true ∧ cOW.rankObligations [] ++ cOW.decOb
 
 /-- **`clW` is match independent**: its right side is the literal `1` under every match. -/
 theorem miW : MatchIndependent cOW clW :=
-  Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+  (matchIndependent_iff_noExs rfl).mpr <| Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
     change EvalTerm _ _ (.dv Srt.int (.int 1)) _ at h h'
     cases h; cases h'; rfl
 
@@ -535,7 +538,8 @@ theorem fnHypOW : FnHyp cOW :=
 theorem decidedOW (x : Config cOW) : StepDecided cOW x.val := stepDecided_of_fnHyp shapeOW.1 fnHypOW x
 theorem fnModelOW : FnDet cOW ∧ FnSolves cOW := fnModel_of_fnHyp shapeOW.1 fnHypOW
 theorem consOW : Consistent cOW :=
-  consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (openLaws_of_plain (by decide +kernel))
+  consistent_of cOW shapeOW.1 fnModelOW.1 fnModelOW.2 (clausePreDecided_of_fnHyp shapeOW.1 fnHypOW)
+    (openLaws_of_plain (by decide +kernel))
 
 /-- `complete_at` at `cOW` with `StepDecided` proved: only the outcomes `hval`, `hfam` are taken. -/
 example (x : Config cOW) (os : List Outcome)

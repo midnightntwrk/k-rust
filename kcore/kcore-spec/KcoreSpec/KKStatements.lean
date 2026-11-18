@@ -143,10 +143,10 @@ end
 
 /-! ## The facts the form rests on -/
 
-/-- `hco` and `hno` are the hypotheses `Eval.functional` takes at `d₀`, and `EvalTerm.functional`'s. -/
-example {d : Semantics} (hco : CoherentAll (d₀ d)) (hno : (d₀ d).FnsNoExs) {f : Sym} {vs : List GroundTerm}
+/-- `hco` is the hypothesis `Eval.functional` takes at `d₀`, and `EvalTerm.functional`'s. -/
+example {d : Semantics} (hco : CoherentAll (d₀ d)) {f : Sym} {vs : List GroundTerm}
     {r r' : Option GroundTerm} (h : Eval (d₀ d) f vs r) (h' : Eval (d₀ d) f vs r') : r = r' :=
-  Eval.functional hco hno h h'
+  Eval.functional hco h h'
 
 /-- At `d₀` no premise of `Eval`, `EvalTerm` reads an interpretation: a hook's result is `hook`'s,
 a function's rest is undefined, and a parameter without `impl` has no value unless it is an open

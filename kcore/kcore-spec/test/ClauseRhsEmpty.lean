@@ -187,7 +187,8 @@ theorem evalF : Eval c 388 [] (some (.ctor 386 [])) := by
   refine Eval.clause (cl := clA) (σ := []) lookupF (by rw [clauses_eq]; exact List.mem_cons_self)
     (fun i s h => by rw [hva] at h; cases h) (by rw [List.isEmpty_iff.mp hpa]; exact .nil)
     (fun t h => by rw [h] at hra; cases hra) (by rw [clA_pre]; exact .top) (fun cl' h _ hlt => ?_)
-    (by rw [clA_rhs]; exact evalConst hctor) (fun t h => by rw [h] at hea; cases hea)
+    (by rfl) (by rw [clA_rhs]; exact evalConst hctor) (fun t h => by rw [h] at hea; cases hea)
+    (Clause.holds_postTop (by rfl) _)
   rw [clauses_eq] at h
   simp only [List.mem_cons, List.not_mem_nil, or_false] at h
   rcases h with rfl | rfl
@@ -225,7 +226,8 @@ theorem agree : ClausesAgree c fF := by
   exact ⟨fun vs _ σ' _ ha => absurd ha (clY_not_applies σ' vs), fun vs σ _ ha => absurd ha (clY_not_applies σ vs)⟩
 
 /-- **`f() => g(Y)` is match independent**: it applies nowhere. -/
-theorem matchY : MatchIndependent c clY := fun vs σ _ ha => absurd ha (clY_not_applies σ vs)
+theorem matchY : MatchIndependent c clY :=
+  (matchIndependent_iff_noExs (by rfl)).mpr fun vs σ _ ha => absurd ha (clY_not_applies σ vs)
 
 /-- **The facts the deciders leave of `FnHyp`**: the two named ones. -/
 theorem obl : FnObligations c ord [] := by
@@ -350,8 +352,8 @@ theorem f1_is_a : Eval c 388 [one] (some (.ctor 386 [])) := by
   obtain ⟨-, -, -, -, -, -, -, hvx, hrx, hex, -, hpx', hctor, -⟩ := fF_shape
   refine Eval.clause (cl := clX) (σ := [(0, one)]) lookupF (by rw [clauses_eq]; simp)
     (fun i s h => ?_) (by rw [clX_pats]; exact .cons (.var rfl) .nil) (fun t h => by rw [h] at hrx; cases hrx)
-    (by rw [clX_pre]; exact .top) (fun cl' h ha hlt => ?_) (by rw [clX_rhs]; exact evalConst hctor)
-    (fun t h => by rw [h] at hex; cases hex)
+    (by rw [clX_pre]; exact .top) (fun cl' h ha hlt => ?_) (by rfl) (by rw [clX_rhs]; exact evalConst hctor)
+    (fun t h => by rw [h] at hex; cases hex) (Clause.holds_postTop (by rfl) _)
   · rw [hvx] at h
     cases i with
     | zero => cases h; exact ⟨one, rfl, sortOf_one⟩
@@ -387,13 +389,23 @@ theorem f0_none : ¬ ∃ r, Eval c 388 [zero] r := by
   | rest hfn hnone =>
     rw [lookupF] at hfn; cases hfn
     exact not_fails (hnone cl0 hmem0)
-  | ensFails hfn hmem _ _ _ _ _ ht _ _ =>
+  | ensFails hfn hmem _ _ _ _ _ _ ht _ _ =>
     rw [lookupF] at hfn; cases hfn
     rw [clauses_eq] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl
     · rw [ht] at h0e; cases h0e
     · rw [ht] at hex; cases hex
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [lookupF] at hfn; cases hfn
+    rw [clauses_eq] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd (by rfl) hne
+  | exNone hfn hmem hne =>
+    rw [lookupF] at hfn; cases hfn
+    rw [clauses_eq] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd (by rfl) hne
 
 /--
 info: 'ClauseRhsEmpty.Owise.f0_none' depends on axioms: [propext, Classical.choice, Quot.sound]

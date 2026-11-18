@@ -59,7 +59,7 @@ theorem projExp_value (H : HookParams) (e : GroundTerm) (he : c.sortOf e = some 
   have hk := kseq_ctor; have hd := dotk_ctor
   rw [← isCtor_withHooks c H] at hk hd
   refine Eval.clause (cl := eqnCl) (σ := [(0, e)]) hfnH (by rw [fn_clauses]; simp) ?_ ?_
-    (fun t ht => nomatch ht) .top ?_ .var (fun t ht => nomatch ht)
+    (fun t ht => nomatch ht) .top ?_ rfl .var (fun t ht => nomatch ht) .top
   · intro i s hs
     cases i with
     | zero => cases hs; exact ⟨e, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact he⟩

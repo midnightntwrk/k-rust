@@ -1,0 +1,48 @@
+id = "t215-simp-req-prio"
+kind = "text"
+subject = "A simplification with a requires, f(f(X)) => f(X) requires X >Int 0, beside an equation of priority 40, f(X) => X: what the simplification states, and whether it takes part in the priority order."
+retro = ["P8"]
+origin = "kcore-spec fixture c3-simp-req"
+rests_on = ["kk:t11-eq-applies", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t215-simp-req-prio.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The equation of priority 40 defines f: f(x) = x at every integer. The simplification is a rule outside the main semantics, not one of f's equations: it takes no part in the priority order, and it states f(f(x)) = f(x) where x > 0. That holds of the f the equation defines (f(f(x)) = x = f(x)), so the simplification adds nothing and the text has the model of the equation."
+reason = """
+(1) f(X) => X [priority(40)] states f(x) = x at every integer (kk:t11-eq-applies).
+(2) A simplification identifies a rule outside the main semantics, used to simplify function patterns (user_manual.md:1388-1389); its order is its own simplification priority, which differs from the priority attribute, and the author must make it sound whatever the order of application (user_manual.md:1405-1414). So it is no equation of f in the priority order.
+(3) Under its requires x > 0 (domains.md:1324-1325) it states f(f(x)) = f(x): with (1), f(f(x)) is f(x) (kk:t10-fn-innermost) and f(x) is x, so the statement is true of f. A sound simplification states what the main semantics already gives."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1388-1389 (K 7.1.337)"
+quote = "The simplification attribute identifies rules outside the main semantics that are used to simplify function patterns."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1409-1414 (K 7.1.337)"
+quote = "Because of this, users must ensure that simplification rules are sound regardless of their order of application. This differs from the `priority` attribute in that rules with the `priority` attribute _must_ be applied in their priority order by the backend."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "kompile writes the simplification as the axiom (X >Int 0 = true) -> f(f(X)) = f(X) with the attribute simplification (kore.txt:81-90), beside the equation f(X0) = X at X0 = X with priority 40 (kore.txt:63-78). As a sentence it is true in the model of the equation."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:90"
+quote = '''[UNIQUE'Unds'ID{}("6318baf5103153dbae5af66a56da66764cbb030a03cc04fb0a0bc1e2f356523c"), simplification{}("")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."

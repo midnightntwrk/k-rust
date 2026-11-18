@@ -42,9 +42,11 @@ theorem complete_hyp_of_at (c : Semantics) (ref : OutFn) (h : c.coreOK = true) (
     (fun y r σ hop hs => ((href x).1 y.val).mpr ⟨y.property, r, σ, hop, hs⟩) (href x).2.2
 
 /-- **Consistency** of a semantics that `coreOK` accepts and whose functions meet `FnHyp`:
-`consistent_of`, `FnHyp` giving `FnDet` and `FnSolves` (`fnModel_of_fnHyp`) and `OpenLaws`. -/
+`consistent_of`, `FnHyp` giving `FnDet` and `FnSolves` (`fnModel_of_fnHyp`), `ClausePreDecided`
+(`clausePreDecided_of_fnHyp`) and `OpenLaws`. -/
 theorem consistent_of_fnHyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : Consistent c :=
-  consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 hf.2.2.2.2.2
+  consistent_of c h (fnModel_of_fnHyp h hf).1 (fnModel_of_fnHyp h hf).2 (clausePreDecided_of_fnHyp h hf)
+    hf.2.2.2.2.2
 
 namespace CExec
 
@@ -57,13 +59,14 @@ def execReadyRest (c : Semantics) : Bool :=
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
     predAtoms r.pre && predAtoms r.post) &&
-  c.asideFree
+  c.asideFree &&
+  c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop)
 
 theorem execReady_of_rest (h : c.coreOK = true) (hsr : c.srReady = true) (hr : execReadyRest c = true) :
     execReady c = true := by
   simp only [execReadyRest, Bool.and_eq_true] at hr
   simp only [execReady, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨⟨(Semantics.coreOK_parts h).1, hsr⟩, hr.1.1.1⟩, hr.1.1.2⟩, hr.1.2⟩, hr.2⟩
+  exact ⟨⟨⟨⟨⟨⟨(Semantics.coreOK_parts h).1, hsr⟩, hr.1.1.1.1⟩, hr.1.1.1.2⟩, hr.1.1.2⟩, hr.1.2⟩, hr.2⟩
 
 kernel_rfl execReady_withHooks : ∀ (c : Semantics) (H : HookParams), execReady (c.withHooks H) = execReady c
 
@@ -83,6 +86,7 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
   have hok := (Semantics.coreOK_parts h).1
   have hready := hr
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  replace hr := hr.1
   obtain ⟨⟨⟨-, hfn⟩, -⟩, -⟩ := hr
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
   refine ⟨fun r hr' => ?_, fun fn hfn' => ?_⟩

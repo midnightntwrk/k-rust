@@ -51,12 +51,20 @@ example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧�
     extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩).pat :=
   transfer_idem hD hI hc k hn hf hSs h
 
+/-- The associativity sentence of an open generator. -/
+example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (k : ParamSig)
+    (hn : ¬ D (.sort ("Sort" ++ c.sortName k.sig.result))) (hf : ¬ D (.symbol (c.symName k.sig.name)))
+    (hSs : ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName k.sig.result)) a ↔ a = σ)
+    (h : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat) :
+    extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat :=
+  transfer_assoc hD hI hc k hn hf hSs h
+
 /-- A sentence at its sort variable. -/
 example (hD : ∀ σ, D σ → plainSym σ) (hI : KoreAML.DefOK I) (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat)
     {O : String → Prop}
     (hO : ∀ N, O N → ¬ D (.sort N) ∧ ∃ σ, KoreAML.IsSort I σ ∧ ∀ a, I.evalSymb (.sort N) a ↔ a = σ)
     {R : EVar} (hRt : R ≠ KoreAML.topVar) (hne : ∃ τ, KoreAML.IsSort I τ ∧ ∃ m, KoreAML.Inh I τ m)
-    {G : List (EVar × String)} (hG : ∀ p ∈ G, O p.2) (hR : R ∉ G.map (·.1)) {π : KoreAML.P}
+    {G : List (EVar × String)} (hG : ∀ p ∈ G, ¬ D (.sort p.2)) (hR : R ∉ G.map (·.1)) {π : KoreAML.P}
     (hπ : RPred D O R G π)
     (h : I ⊧ᴵ KoreAML.guarded (KoreAML.sortGuard R :: memGs (G.map fun p => (p.1, KoreAML.sym (.sort p.2))))
       (π ≡ KoreAML.inhOf (.evar R))) :
@@ -106,3 +114,6 @@ example {D : KoreAML.Sym → Prop} {O : String → Prop} {R x : EVar} {N N' : St
 #guard_msgs in #print axioms KCore.Cons.transfer_R
 /-- info: 'KCore.Cons.transfer_fnEq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Cons.transfer_fnEq
+
+/-- info: 'KCore.Cons.transfer_assoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.Cons.transfer_assoc

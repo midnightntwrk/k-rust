@@ -1,0 +1,17 @@
+command: kompile --backend haskell t227-all-path-module.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  kore-exec: [PID] Error (ErrorParse):
+      definition.kore:635:3: unexpected token TokenLeftBracket
+  
+  definition.kore:635:3: unexpected token TokenLeftBracket
+  
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T227-ALL-PATH-MODULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using T227-ALL-PATH-MODULE as default.

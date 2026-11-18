@@ -6,11 +6,11 @@
 # (test/relsource.py): ${kk} is written `krs/semantics/kore`.
 k_version = "7.1.337"
 source = "krs/semantics/kore/kore.k"
-source_sha256 = "273c2d8bb931a9d8a65865edeb1170a27e549583efc832c17de44ef9a3d97fba"
+source_sha256 = "8a00fadf27317e52333cc4fbdabfd04b0259a6cb4131bc83773099c75b84863b"
 argv = [
   "kompile", "${kk}/kore.k",
   "--backend", "haskell",
   "--output-definition", "${out}",
 ]
 text = "examples/ref-kk/RefKk/definition.kore"
-sha256 = "d4e22f144974b948715c8630fe4aaffba522a1704cb574768ec8d6a9469de439"
+sha256 = "d833ea3fa9792620b0bc9bfad8001490b2523ac166cc8535a785975182805dff"

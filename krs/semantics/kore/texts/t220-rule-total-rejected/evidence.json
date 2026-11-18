@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t220-rule-total-rejected.k": "45231638003b1d2126b3949ae4f217c20dbd7b71484989a722317a62f6561fa3"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t220-rule-total-rejected.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Rule cannot have the following attributes: [total]\n\tSource(t220-rule-total-rejected.k)\n\tLocation(7,8,7,29)\n\t7 |\t  rule <k> a(X) => b(X) </k> [total]\n\t  .\t       ^~~~~~~~~~~~~~~~~~~~~\n[Error] Compiler: Had 1 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT220-RULE-TOTAL-REJECTED-SYNTAX in definition.  Use --syntax-module to specify\none. Using T220-RULE-TOTAL-REJECTED as default.",
+  "release": "K v7.1.337"
+ }
+}

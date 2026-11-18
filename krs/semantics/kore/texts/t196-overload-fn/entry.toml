@@ -1,0 +1,42 @@
+id = "t196-overload-fn"
+kind = "text"
+subject = "Two overloaded productions that are both functions, neg at Exp and neg at Int: whether the text identifies neg at an injected integer with the injection of neg at Int, and what neg denotes there."
+retro = ["F9"]
+origin = "kcore-spec fixture e5-ovl-fn-fn"
+rests_on = ["kk:t11-eq-applies", "kk:t16-match-inj"]
+
+[text]
+files = ["t196-overload-fn.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "neg at Int (negInt) is the more specific overload of neg at Exp (negExp): a term negInt(i) is a restriction of negExp at the injected i, so negExp(i) at an injected integer i is the injection of negInt(i). With the equation neg(I:Int) => 0 -Int I, negInt(i) = -i, and negExp(i) is -i injected into Exp: negExp(5) = -5. neg(e) = e by the second equation."
+reason = """
+(1) The two productions carry overload(neg), and (Int, Int) is below (Exp, Exp) elementwise, Int being a subsort of Exp: negInt is a more specific overload of negExp, and a term from negInt is a restriction of one from negExp; when its arguments are more precise the result has a more precise sort (user_manual.md:381-390).
+(2) So at an integer i, negExp applied to i injected into Exp is negInt(i) injected into Exp (kk:t16-match-inj for the injection).
+(3) The equation neg(I:Int) => 0 -Int I is an equation of negInt, its argument being an Int: negInt(i) = 0 -Int i (kk:t11-eq-applies; domains.md:1238). With (2), negExp(5) = inj(-5). The equation neg(e) => e is one of negExp: negExp(e) = e."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:381-390 (K 7.1.337)"
+quote = "That is, a term from production `P` is a restriction of one from production `Q`; when its arguments are more precise, we can give the result a more precise sort."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[ruling.kore]
+statement = "kompile writes the overload axiom negExp(inj{Int,Exp}(K0)) = inj{Int,Exp}(negInt(K0)), with no premise (kore.txt:86), and no no-confusion axiom naming either symbol (both are functions, kore.txt:8, 10). It states what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:86"
+quote = '''axiom{R} \equals{SortExp{}, R} (LblnegExp{}(inj{SortInt{}, SortExp{}} (K0:SortInt{})), inj{SortInt{}, SortExp{}} (LblnegInt{}(K0:SortInt{}))) [symbol-overload{}(LblnegExp{}(),LblnegInt{}())]'''
+
+[[observe]]
+file = "kore.txt"
+absent = "LblnegExp{}(X0:SortExp{}), LblnegInt"

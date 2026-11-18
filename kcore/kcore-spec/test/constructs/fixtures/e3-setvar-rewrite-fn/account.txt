@@ -11,8 +11,8 @@ user module E3-SETVAR-REWRITE-FN: 253 sentences
   10 inert noJunk [generated]
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
-  1 setVariable
-      sentence 216 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS)
+  1 openRight
+      sentence 216 (Lbl'-LT-'generatedTop'-GT-'): openRight (VarS'Hash'R0:Exp: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's)
         [user] (no label) at e3-setvar-rewrite-fn.k:5: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(@VarS:SortExp{}, @VarS:SortExp{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortEx …
-finish: sentence 216 (Lbl'-LT-'generatedTop'-GT-'): setVariable (VarS)
+finish: sentence 216 (Lbl'-LT-'generatedTop'-GT-'): openRight (VarS'Hash'R0:Exp: bound by \exists on the right side, held there or in the ensures under no constructor, of a sort the text leaves unconfined: the successor is a value through an element that is no value's)
 (exit 0)

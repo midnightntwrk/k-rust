@@ -1,0 +1,46 @@
+id = "t203-int-powmod"
+kind = "text"
+subject = "^%Int at a zero modulus, and at a negative power the modulus does not divide: what the INT module states of A ^%Int B C."
+retro = ["H4"]
+rests_on = ["kk:t31-int-division", "kk:t30-hooks-strict", "kk:t202-int-pow-negative"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1.337)", quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity." }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) domains.md:1229-1231: A ^%Int B C is equal in value to (A ^Int B) %Int C. At C = 0 that term has no value, %Int at a zero divisor having none (kk:t31-int-division) where the power has a value, and an application to an argument that has none having none where it has none (kk:t30-hooks-strict): A ^%Int B 0 has no value.
+(2) At C not 0 and B >= 0, where A ^Int B >= 0 or C divides it, the truncating and the Euclidean remainder agree: 2 ^%Int 3 5 = 8 %Int 5 = 3.
+(3) At B < 0 the value is that of (A ^Int B) %Int C, and A ^Int B at B < 0 is kk:t202-int-pow-negative's question; this entry does not restate its readings.
+What the text does not determine:
+(4) At C not 0, B >= 0, A ^Int B < 0 and C not dividing it: the prose names %Int, the remainder of t-division, whose sign is that of the dividend (kk:t31-int-division), while the declaration's smt-hook names SMT-LIB's (mod (^ #1 #2) #3) (domains.md:1251), the attribute that gives the term encoding the production for the prover (user_manual.md:2387-2389). At (-2) ^%Int 3 5 the first gives -8 %Int 5 = -3 and the second the Euclidean remainder 2. No sentence says which governs the value."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1229-1231 (K 7.1.337)"
+quote = "* Compute the exponentiation of two integers modulo another integer (`^%Int`). `A ^%Int B C` is equal in value to `(A ^Int B) %Int C`, but has a better asymptotic complexity."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1251 (K 7.1.337)"
+quote = '| Int "^%Int" Int Int [function, symbol(_^%Int__), left, smt-hook((mod (^ #1 #2) #3)), hook(INT.powmod)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2387-2389 (K 7.1.337)"
+quote = "`smt-hook(...)` allows you to specify a term in SMTLIB2 format which should be used to encode that production, and assumes that all symbols appearing in the term are already declared by the SMT solver."
+
+[[reading]]
+name = "prose-tmod"
+statement = "The prose governs: the value is (A ^Int B) %Int C, the truncating remainder."
+answer = "(-2) ^%Int 3 5 = -3."
+consequence = "A negative power gives a remainder of its sign."
+
+[[reading]]
+name = "smt-emod"
+statement = "The smt-hook governs: the value is SMT-LIB's mod of the power by C, the Euclidean remainder."
+answer = "(-2) ^%Int 3 5 = 2."
+consequence = "The remainder is always in 0 to |C| - 1."

@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t210-eq-several-owise.k": "697359f55992efdbeec244d3cc2ebb5790907a1ad5d27c4026db9ab7ee53c8f6"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t210-eq-several-owise.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "5496526270338e66ec711a661a5ac5122ff5253d6ec88efe3f870af3197c1093",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

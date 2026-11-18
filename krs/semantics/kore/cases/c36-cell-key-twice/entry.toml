@@ -8,7 +8,7 @@ rests_on = ["kk:t02-step-successors", "kk:t03-applied-rule-blocks", "kk:t06-fina
 files = ["def.k", "pgm"]
 kompile = "accepts"
 frontend = "differs"
-frontend_difference = "The manual gives the configuration holding new(1, 20) ; end no successor by the rule for new (user_manual.md:1166-1173); the axiom kompile writes for that rule concatenates the new instance with the collection's rest by _AcctCellMap_, hooked MAP.concat (kore.txt:20, 62, 422), empty at a rest holding key 1, and read as a rewrite axiom it is false in every model where that configuration is an element: as written the text has no model holding it, rather than one where it has no successor by that rule."
+frontend_difference = "The manual gives the configuration holding new(1, 20) ; end no successor by the rule for new (user_manual.md:1166-1173); the axiom kompile writes for that rule concatenates the new instance with the collection's rest by _AcctCellMap_, hooked MAP.concat (kore.txt:20, 62, 422), empty at a rest holding key 1 under kk:t207-hook-result-sort's reading hook-carries, and read as a rewrite axiom it is false in every model where that configuration is an element: as written the text has no model holding it, rather than one where it has no successor by that rule."
 
 [ruling]
 status = "unsettled"
@@ -60,7 +60,7 @@ finals_canonical = ["Lbl'-LT-'t'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj{SortCmds,SortKIt
 consequence = "Beside the two of pick, the configuration holding new(1, 20) ; end in <k> and the instance of key 1 with <bal> 10 is final."
 
 [ruling.kore]
-statement = "The collection's sort is SortAcctCellMap, with the sort hook MAP.Map and its concatenation hooked MAP.concat (kore.txt:20, 62). The rule for new is one rewrite axiom (kore.txt:417-423) whose right side holds in <accts> the concatenation _AcctCellMap_ of the element of key I with the rest of the collection (kore.txt:422); at a rest holding key 1 that concatenation denotes nothing (kk:t36-map-concat), and so does the right side, so the axiom holds only where that instance of its left side has no element. The written sentences have no model in which the configuration holding new(1, 20) ; end and an instance of key 1 is an element."
+statement = "The collection's sort is SortAcctCellMap, with the sort hook MAP.Map and its concatenation hooked MAP.concat (kore.txt:20, 62). The rule for new is one rewrite axiom (kore.txt:417-423) whose right side holds in <accts> the concatenation _AcctCellMap_ of the element of key I with the rest of the collection (kore.txt:422); what that concatenation denotes at a rest holding key 1 is the question of kk:t207-hook-result-sort, which that entry leaves unsettled, and this statement is conditional on its reading. Under the reading hook-carries, domains.md's description of MAP.concat carries to SortAcctCellMap, so that concatenation denotes nothing (kk:t36-map-concat), and so does the right side: the axiom holds only where that instance of its left side has no element, and the written sentences have no model in which the configuration holding new(1, 20) ; end and an instance of key 1 is an element. Under the reading not-stated the written sentences do not say what the concatenation denotes there, and so do not say what the axiom gives that configuration."
 
 [[ruling.kore.basis]]
 source = "kompiled"

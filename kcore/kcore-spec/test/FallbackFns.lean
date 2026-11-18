@@ -199,6 +199,12 @@ theorem nc_noValue : ¬ ∃ v, Eval nc F [int 0] (some v) := by
   | ensFails hfn hmem _ _ _ _ _ _ _ _ =>
     rw [nc_lookup] at hfn; cases hfn
     simp [fnF] at hmem
+  | clauseEx hfn hmem =>
+    rw [nc_lookup] at hfn; cases hfn
+    simp [fnF] at hmem
+  | exNone hfn hmem =>
+    rw [nc_lookup] at hfn; cases hfn
+    simp [fnF] at hmem
   | rest hfn _ =>
     rw [nc_lookup] at hfn; cases hfn
     have : nc.fnRest fnF [int 0] = none := rfl
@@ -272,11 +278,16 @@ theorem et_noValue (H : HookParams) : ¬ ∃ v, Eval (et.withHooks H) G [int 0] 
   have hl : (et.withHooks H).lookupFn G = some fnG := by rw [Semantics.lookupFn_withHooks]; rfl
   generalize hr : some v = r at h
   cases h with
-  | clause hfn hmem _ _ _ _ _ _ hens =>
+  | clause hfn hmem _ _ _ _ _ _ _ hens _ =>
     rw [hl] at hfn; cases hfn
     simp only [fnG, List.mem_singleton] at hmem
     subst hmem
     cases hens _ rfl
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [hl] at hfn; cases hfn
+    simp only [fnG, List.mem_singleton] at hmem
+    subst hmem; exact absurd rfl hne
+  | exNone => cases hr
   | rest hfn hnone =>
     rw [hl] at hfn; cases hfn
     have hσ : (et.withHooks H).WellSorted [Srt.int] [(0, int 0)] := by

@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t222-rule-lhs-fun-rejected.k": "428bbd40d30d20e9bed62e632688977727f6002a3204531d3eb8161c32e7d03f"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t222-rule-lhs-fun-rejected.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Illegal function symbol f on LHS of rule. Consider adding\n`simplification` attribute to the rule if this is intended.\n\tSource(t222-rule-lhs-fun-rejected.k)\n\tLocation(9,14,9,22)\n\t9 |\t  rule <k> c(f(X:Int)) => d(X) ... </k>\n\t  .\t             ^~~~~~~~\n[Error] Compiler: Had 1 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT222-RULE-LHS-FUN-REJECTED-SYNTAX in definition.  Use --syntax-module to\nspecify one. Using T222-RULE-LHS-FUN-REJECTED as default.",
+  "release": "K v7.1.337"
+ }
+}

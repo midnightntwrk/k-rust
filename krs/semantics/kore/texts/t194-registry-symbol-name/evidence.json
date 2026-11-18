@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t194-registry-symbol-name.k": "475a9a78af22c4b01eee2a91158db4933d798b2db0fefd6085526a390297fd10"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t194-registry-symbol-name.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "e2edbd3a2dcecc13535230d2e726bceec53c43c18edca4d5f993a10833ef8b09",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

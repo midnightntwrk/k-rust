@@ -1,0 +1,41 @@
+id = "t210-eq-several-owise"
+kind = "text"
+subject = "Several [owise] equations of one function, two of which apply at some arguments and agree there: what f denotes."
+retro = ["P2"]
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t210-eq-several-owise.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The three [owise] equations have the one priority 200 and are not ordered among themselves; each applies where its requires is true and the equation of priority 50, f(0) => 0, does not apply. So f(0) = 0, f(x) = 1 for x > 0 (by the first [owise] equation, and for x > 10 by the second as well, which agrees), and f(x) = 2 for x < 0: f(5) = 1, f(20) = 1, f(-3) = 2. Two [owise] equations that both apply at an argument state both their right sides there, so a text whose [owise] equations disagree where both apply has no model there."
+reason = """
+(1) owise sets a rule's priority to 200, so several rules with owise have one priority and may apply in any order (user_manual.md:1739-1746); f(0) => 0 has 50 and is tried first (kk:t12-eq-priority-owise).
+(2) An equation states its right side at the arguments its patterns denote under a valuation at which its requires is true (kk:t11-eq-applies). At x not 0 the equation of 50 does not apply, and each [owise] equation whose requires is true there applies: at x > 10 both the first and the second, both giving 1; at 0 < x <= 10 the first alone; at x < 0 the third alone (domains.md:1324-1325).
+(3) Equations that apply at one argument state each their right side there; where they agree, as at x > 10, the application has that one value."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1746 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`. This has a couple of implications: 1. Multiple rules with the owise attribute all have the same priority and thus can apply in any order. 2. Rules with priority higher than `200` apply **after** all rules with the `owise` attribute have been tried."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "kompile writes each [owise] equation with a premise that negates the argument pattern of the equation f(0) => 0 only, not the other [owise] equations (kore.txt:81-116), so at x > 10 the first two [owise] axioms both hold and both state f(x) = 1. The written sentences state what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:116"
+quote = '''[UNIQUE'Unds'ID{}("5f1adc27e092bed01fa9efbbcdebd2142c7f7ae56729e27222da078468c30ad8"), owise{}()]'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''\and{SortInt{}}(\dv{SortInt{}}("0"),Var'Unds'Gen0:SortInt{})'''

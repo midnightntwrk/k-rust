@@ -7,8 +7,8 @@
   `Γstep`, `den`, `KoreAML.denB`, `Step`, `NotApplies`, `RuleApplies`, `Holds`, `Eval`, `confined`,
   `ruleRight`, `applies`, `prioRuleK`, `boolClosed`, the conjuncts of `coreOK`, and the `₀`
   declarations) is pinned by the review cones (test/ReviewCone.lean, cones (iv) to (vii)), not here.
-  `FnDet` and `FnSolves`, hypotheses of `consistent_of` and of `CExec.run_exact` that no cone root
-  reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
+  `FnDet`, `FnSolves` and `ClausePreDecided`, hypotheses of `consistent_of` and of `CExec.run_exact`
+  that no cone root reaches, are restated here, with `Clause.DecidesAt`. So are the statement definitions of the tie
   to a KORE text (`AtValues`, `EntailsAtValues`, `SetVarsAtValues`, `EntailsAtSetValues`,
   `SetVarsAtMostOne`, `symbolsOf`, `surplusItem`, `attrsAgree` with the
   checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
@@ -218,12 +218,36 @@ example (c : Semantics) : Consistent c =
 /-- `FnDet`: every function has at most one result at each argument list. -/
 example (c : Semantics) : FnDet c = (∀ f vs r r', Eval c f vs r → Eval c f vs r' → r = r') := rfl
 
-/-- `FnSolves`: where a clause decides, the function's values are that clause's. `Clause.DecidesAt`,
-which it reads, is in no review cone, so its text is here too. -/
+/-- `ClausePreDecided`: each clause's predicate has a truth value wherever its patterns match. -/
+example (c : Semantics) : ClausePreDecided c =
+    (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, ∀ σ vs, c.WellSortedAt cl.vars cl.leftVars σ → PatVals c σ cl.pats vs →
+      ∃ b, Holds c cl.vars.length σ cl.pre b) := rfl
+
+/-- `FnSolves`: where a clause decides, the function's values are the values the instances of that
+clause's right side give. `Clause.DecidesAt`, `Clause.Gives`, `AgreeOff` and `Clause.exsFree`,
+which it reads, are in no review cone, so their texts are here too. -/
 example (c : Semantics) : FnSolves c =
     (∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
       cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
-        EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) := rfl
+        ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v) := rfl
+
+/-- Where no clause has an existential variable and every right side's predicate is `\top`,
+`FnSolves` is: where a clause decides, the function's values are that clause's right-hand side's
+where its `ensures` evaluates to `true`. -/
+example : ∀ {c : Semantics}, (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top) →
+    (FnSolves c ↔
+      ∀ fn ∈ c.fns, ∀ vs, c.sortsOf vs = some fn.args → ∀ cl ∈ fn.clauses, ∀ σ,
+        cl.DecidesAt c fn σ vs → ∀ v, Eval c fn.label vs (some v) ↔
+          EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) :=
+  @fnSolves_iff_noExs
+
+example (c : Semantics) (cl : Clause) (σ : Subst) (v : GroundTerm) : cl.Gives c σ v =
+    (EvalTerm c σ cl.rhs (some v) ∧ (∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true))) ∧
+      Holds c cl.vars.length σ cl.post true) := rfl
+
+example (is : List Nat) (σ σ' : Subst) : AgreeOff is σ σ' = (∀ i, i ∉ is → σ'.lookup i = σ.lookup i) := rfl
+
+example (cl : Clause) : cl.exsFree = cl.exs.filter (!cl.leftVars.contains ·) := rfl
 
 example (c : Semantics) (fn : Fn) (cl : Clause) (σ : Subst) (vs : List GroundTerm) :
     cl.DecidesAt c fn σ vs =
@@ -531,7 +555,8 @@ example : ∀ (c : Semantics) (h : c.coreOK = true) (x : Config c) (hd : StepDec
     (Γc c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (os.map (Outcome.pat c)))) :=
   @complete_at
 
-example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → OpenLaws c → Consistent c :=
+example : ∀ (c : Semantics), c.coreOK = true → FnDet c → FnSolves c → ClausePreDecided c → OpenLaws c →
+    Consistent c :=
   @consistent_of
 
 example : ∀ (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)

@@ -720,7 +720,8 @@ theorem cL_laws : OpenLaws cL := openLaws_lawHooks CommCtor.c commCtor_coreOK Ho
 theorem cL_total : OpenTotal cL := openTotal_lawHooks CommCtor.c commCtor_coreOK HookParams.none
 theorem cL_fnHyp : FnHyp cL := commCtor_fnHyp _ cL_laws
 theorem cL_consistent : Consistent cL :=
-  consistent_of cL cL_coreOK (fnModel_of_fnHyp cL_coreOK cL_fnHyp).1 (fnModel_of_fnHyp cL_coreOK cL_fnHyp).2 cL_laws
+  consistent_of cL cL_coreOK (fnModel_of_fnHyp cL_coreOK cL_fnHyp).1 (fnModel_of_fnHyp cL_coreOK cL_fnHyp).2
+    (clausePreDecided_of_fnHyp cL_coreOK cL_fnHyp) cL_laws
 theorem cL_sound : SoundC cL := sound_hyp cL cL_coreOK cL_fnHyp
 theorem cL_complete (ref : OutFn) : CompleteC cL ref := complete_hyp cL ref cL_coreOK cL_fnHyp
 theorem cL_exact : ExactC cL := exact_hyp cL cL_coreOK cL_fnHyp
@@ -734,7 +735,8 @@ theorem cR_laws : OpenLaws cR := openLaws_lawHooks OpenRule.c openRule_coreOK Ho
 theorem cR_total : OpenTotal cR := openTotal_lawHooks OpenRule.c openRule_coreOK HookParams.none
 theorem cR_fnHyp : FnHyp cR := openRule_fnHyp _ cR_laws
 theorem cR_consistent : Consistent cR :=
-  consistent_of cR cR_coreOK (fnModel_of_fnHyp cR_coreOK cR_fnHyp).1 (fnModel_of_fnHyp cR_coreOK cR_fnHyp).2 cR_laws
+  consistent_of cR cR_coreOK (fnModel_of_fnHyp cR_coreOK cR_fnHyp).1 (fnModel_of_fnHyp cR_coreOK cR_fnHyp).2
+    (clausePreDecided_of_fnHyp cR_coreOK cR_fnHyp) cR_laws
 theorem cR_sound : SoundC cR := sound_hyp cR cR_coreOK cR_fnHyp
 theorem cR_complete (ref : OutFn) : CompleteC cR ref := complete_hyp cR ref cR_coreOK cR_fnHyp
 theorem cR_exact : ExactC cR := exact_hyp cR cR_coreOK cR_fnHyp
@@ -822,7 +824,7 @@ theorem headlines (H : HookParams) (hl : OpenLaws (c.withHooks H)) (_ht : OpenTo
       ExactC (c.withHooks H) :=
   have hc := (Semantics.coreOK_withHooks c H).trans commCtor_coreOK
   have hf := commCtor_fnHyp H hl
-  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 hl, sound_hyp _ hc hf,
+  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 (clausePreDecided_of_fnHyp hc hf) hl, sound_hyp _ hc hf,
     fun ref => complete_hyp _ ref hc hf, exact_hyp _ hc hf⟩
 
 theorem headlines_lawHooks (H : HookParams) :

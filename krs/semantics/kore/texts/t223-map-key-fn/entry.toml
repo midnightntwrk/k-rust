@@ -1,0 +1,43 @@
+id = "t223-map-key-fn"
+kind = "text"
+subject = "A function application as the key of a Map element pattern in a rule's left side, <k> get(X) => V ... </k> <m> key(X) |-> V ... </m>: at which configurations the rule applies."
+retro = ["R6"]
+origin = "kcore-spec fixture e3-map-key-fn"
+rests_on = ["kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t38-collection-patterns"]
+
+[text]
+files = ["t223-map-key-fn.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "key(X) in the element pattern denotes its value, X +Int 1: the left side matches a configuration with get(x) in <k> exactly where the map in <m> has a pair whose key is x + 1, with V its value, and the rule steps it to V in <k>. Where the map has no key x + 1 the rule does not match. With <m> 3 |-> 7, get(2) steps to 7, and get(5) has no successor by this rule."
+reason = """
+(1) A Map pattern may appear on a rule's left side (user_manual.md:2212-2216); its element patterns take one pair each and the frame the rest (kk:t38-collection-patterns). key's equation states key(x) = x +Int 1 at every integer (kk:t11-eq-applies; domains.md:1238).
+(2) A pattern denotes the elements its symbols' interpretations give at the values of its variables (kk:t10-fn-innermost): at X = x the element pattern key(x) |-> V denotes the pairs whose key is x + 1. So the left side denotes the configurations with get(x) in <k> and a pair of key x + 1 in <m>, and the rule states a successor with that pair's value in <k> for each (kk:t02-step-successors, point (4)).
+(3) At <m> 3 |-> 7: for get(2), 2 + 1 = 3 is a key, V = 7; for get(5), 6 is no key, so the left side does not denote that configuration."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2212-2216 (K 7.1.337)"
+quote = "It is allowed to write patterns on the left hand side of rules which refer to complex terms of sort Map, List, and Set"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[ruling.kore]
+statement = "kompile writes the left side with the application key(X) as the key of the element pattern, inside _Map_ with the frame (kore.txt:143): no separate condition on the key. Its denotation at X = x is the pair pattern at the key key(x) denotes, which is what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:143"
+quote = '''Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(Lblkey{}(VarX:SortInt{})),VarV:SortKItem{}),Var'Unds'DotVar2:SortMap{})'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727-730 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$'''

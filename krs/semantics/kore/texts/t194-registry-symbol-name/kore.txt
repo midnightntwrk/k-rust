@@ -1,0 +1,221 @@
+//@ 9
+  sort SortCmd{} []
+//@ 15
+  sort SortNum{} []
+//@ 38
+  symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("_+Int_")]
+//@ 50
+  symbol Lbldone{}() : SortCmd{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("done")]
+//@ 53
+  symbol Lblgo{}(SortNum{}) : SortCmd{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("go")]
+//@ 59
+  symbol LblisCmd{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 72
+  symbol LblisNum{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 80
+  symbol Lblproject'Coln'Cmd{}(SortK{}) : SortCmd{} [function{}()]
+//@ 92
+  symbol Lblproject'Coln'Num{}(SortK{}) : SortNum{} [function{}()]
+//@ 103
+  symbol Lblz{}() : SortNum{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("z")]
+//@ 104
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortCmd{}, SortKItem{}} (From:SortCmd{}))) [subsort{SortCmd{}, SortKItem{}}()] // subsort
+//@ 114
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortNum{}, SortKItem{}} (From:SortNum{}))) [subsort{SortNum{}, SortKItem{}}()] // subsort
+//@ 137
+  axiom{R} \exists{R} (Val:SortNum{}, \equals{SortNum{}, R} (Val:SortNum{}, Lbl'UndsPlus'Int'Unds'{}(K0:SortNum{}, K1:SortNum{}))) [functional{}()] // functional
+//@ 138
+  axiom{}\implies{SortNum{}} (\and{SortNum{}} (Lbl'UndsPlus'Int'Unds'{}(X0:SortNum{}, X1:SortNum{}), Lbl'UndsPlus'Int'Unds'{}(Y0:SortNum{}, Y1:SortNum{})), Lbl'UndsPlus'Int'Unds'{}(\and{SortNum{}} (X0:SortNum{}, Y0:SortNum{}), \and{SortNum{}} (X1:SortNum{}, Y1:SortNum{}))) [constructor{}()] // no confusion same constructor
+//@ 139
+  axiom{}\not{SortNum{}} (\and{SortNum{}} (Lbl'UndsPlus'Int'Unds'{}(X0:SortNum{}, X1:SortNum{}), Lblz{}())) [constructor{}()] // no confusion different constructors
+//@ 159
+  axiom{R} \exists{R} (Val:SortCmd{}, \equals{SortCmd{}, R} (Val:SortCmd{}, Lbldone{}())) [functional{}()] // functional
+//@ 160
+  axiom{}\not{SortCmd{}} (\and{SortCmd{}} (Lbldone{}(), Lblgo{}(Y0:SortNum{}))) [constructor{}()] // no confusion different constructors
+//@ 161
+  axiom{R} \exists{R} (Val:SortCmd{}, \equals{SortCmd{}, R} (Val:SortCmd{}, Lblgo{}(K0:SortNum{}))) [functional{}()] // functional
+//@ 162
+  axiom{}\implies{SortCmd{}} (\and{SortCmd{}} (Lblgo{}(X0:SortNum{}), Lblgo{}(Y0:SortNum{})), Lblgo{}(\and{SortNum{}} (X0:SortNum{}, Y0:SortNum{}))) [constructor{}()] // no confusion same constructor
+//@ 166
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisCmd{}(K0:SortK{}))) [functional{}()] // functional
+//@ 179
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisNum{}(K0:SortK{}))) [functional{}()] // functional
+//@ 190
+  axiom{R} \exists{R} (Val:SortNum{}, \equals{SortNum{}, R} (Val:SortNum{}, Lblz{}())) [functional{}()] // functional
+//@ 192
+  axiom{} \or{SortCmd{}} (Lbldone{}(), \exists{SortCmd{}} (X0:SortNum{}, Lblgo{}(X0:SortNum{})), \bottom{SortCmd{}}()) [constructor{}()] // no junk
+//@ 201
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortCmd{}, inj{SortCmd{}, SortKItem{}} (Val:SortCmd{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortNum{}, inj{SortNum{}, SortKItem{}} (Val:SortNum{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 202
+  axiom{} \or{SortNum{}} (\exists{SortNum{}} (X0:SortNum{}, \exists{SortNum{}} (X1:SortNum{}, Lbl'UndsPlus'Int'Unds'{}(X0:SortNum{}, X1:SortNum{}))), Lblz{}(), \bottom{SortNum{}}()) [constructor{}()] // no junk
+//@ 203
+// rule `<generatedTop>`(`<k>`(inj{Cmd,KItem}(go(`_+Int_`(z(.KList),z(.KList))))),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Cmd,KItem}(done(.KList))),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1a10a16a144ae68bee5308dd0fe03cec2c8a8b123b0146ddf9967556367004c8), label(T194-REGISTRY-SYMBOL-NAME.go), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblgo{}(Lbl'UndsPlus'Int'Unds'{}(Lblz{}(),Lblz{}()))),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lbldone{}()),dotk{}())),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("1a10a16a144ae68bee5308dd0fe03cec2c8a8b123b0146ddf9967556367004c8"), label{}("T194-REGISTRY-SYMBOL-NAME.go")]
+//@ 208
+// rule initKCell(Init)=>`<k>`(inj{Cmd,KItem}(`project:Cmd`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$PGM","KConfigVar")))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0621bd3a63fa3bde9badcce5ed184ef9bad057c4574e2aeb79884491c538f146), initializer]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortMap{}, R} (
+            X0:SortMap{},
+            VarInit:SortMap{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortKCell{},R} (
+      LblinitKCell{}(X0:SortMap{}),
+     \and{SortKCell{}} (
+       Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblproject'Coln'Cmd{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$PGM"))),dotk{}()))),dotk{}())),
+        \top{SortKCell{}}())))
+  [UNIQUE'Unds'ID{}("0621bd3a63fa3bde9badcce5ed184ef9bad057c4574e2aeb79884491c538f146")]
+//@ 211
+// rule isCmd(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(ba62baab596ec3b676e74d34ace3105c3174bc921f00dbb89b71996fa92f0c0c), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortCmd{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortCmd{}, SortKItem{}}(Var'Unds'Gen0:SortCmd{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisCmd{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("ba62baab596ec3b676e74d34ace3105c3174bc921f00dbb89b71996fa92f0c0c"), owise{}()]
+//@ 212
+// rule isCmd(inj{Cmd,KItem}(Cmd))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c2659497c0f1d1dcaebd5417239248dfcf8681d6b4aefd57d504a0af6637c9fc)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortCmd{}, SortKItem{}}(VarCmd:SortCmd{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisCmd{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("c2659497c0f1d1dcaebd5417239248dfcf8681d6b4aefd57d504a0af6637c9fc")]
+//@ 236
+// rule isNum(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(46334fc64c7e4293a4ae049f4967c61ed386f2a883780c9e2444a335499e2003), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortNum{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortNum{}, SortKItem{}}(Var'Unds'Gen0:SortNum{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisNum{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("46334fc64c7e4293a4ae049f4967c61ed386f2a883780c9e2444a335499e2003"), owise{}()]
+//@ 237
+// rule isNum(inj{Num,KItem}(Num))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(06b6cd2f732ee817e7fba3d19b96eea3555a5e01b75f605b6afccb250e9efd61)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortNum{}, SortKItem{}}(VarNum:SortNum{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisNum{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("06b6cd2f732ee817e7fba3d19b96eea3555a5e01b75f605b6afccb250e9efd61")]
+//@ 241
+// rule `project:Cmd`(inj{Cmd,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(28ac0095aef028dd02194e8624b62b2105c92f86b27ced851796217772709526), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortCmd{}, SortKItem{}}(VarK:SortCmd{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortCmd{},R} (
+      Lblproject'Coln'Cmd{}(X0:SortK{}),
+     \and{SortCmd{}} (
+       VarK:SortCmd{},
+        \top{SortCmd{}}())))
+  [UNIQUE'Unds'ID{}("28ac0095aef028dd02194e8624b62b2105c92f86b27ced851796217772709526")]
+//@ 253
+// rule `project:Num`(inj{Num,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(6813b31262d705d42f365bd8a809a304f5cc6d1d5115d6fc731f41db2de16f0c), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortNum{}, SortKItem{}}(VarK:SortNum{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortNum{},R} (
+      Lblproject'Coln'Num{}(X0:SortK{}),
+     \and{SortNum{}} (
+       VarK:SortNum{},
+        \top{SortNum{}}())))
+  [UNIQUE'Unds'ID{}("6813b31262d705d42f365bd8a809a304f5cc6d1d5115d6fc731f41db2de16f0c")]

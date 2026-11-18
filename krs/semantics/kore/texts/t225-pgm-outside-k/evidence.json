@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t225-pgm-outside-k.k": "d07bb9777aa950f29889352d32c308c628cff370f54ac01e0a0c67f4cea3cfdb"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t225-pgm-outside-k.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "3d1962c407a37e22b3c261266f7532adb54b305c9e72579315af551e79374e78",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

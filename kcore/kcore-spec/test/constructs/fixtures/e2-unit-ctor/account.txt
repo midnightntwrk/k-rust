@@ -19,6 +19,8 @@ law axioms of open generators, read as axioms of Γ (ParamSig.assoc, ParamSig.id
       sentence 187 (Lblplus): openLaw (assoc): OpenLaws owed
 functional axioms of open generators, stated at values under OpenTotal (no item of Γ; OpenTotal owed): 1
       sentence 188 (Lblplus): stated at values, under OpenTotal
+unit attributes of constructors and open generators, ignored (the text holds no unit sentence of the symbol; nothing read): 1
+      sentence 89 (Lblplus): unit (Lbl'Stop'E) ignored: no unit sentence of Lblplus
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
 rules and clauses applying a function symbol in their left side: 0

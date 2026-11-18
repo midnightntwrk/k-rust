@@ -1,0 +1,44 @@
+id = "t207-hook-result-sort"
+kind = "text"
+subject = "A symbol declared with a library hook name at a sort other than the library's, such as the concatenation of a cell collection declared with hook MAP.concat: whether its value is of its declared result sort, and which element it is."
+retro = ["H9"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:240 (K 7.1.337)", quote = "syntax Map ::= Map Map [left, function, hook(MAP.concat), symbol(_Map_), assoc, comm, unit(.Map), element(_|->_), index(0), format(%1%n%2)]" }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) A symbol of result sort S is interpreted as a function into the subsets of the carrier of S (introduction-to-matching-logic.tex:704-713): whatever an application denotes is a set of elements of S, and of at most one for a function (user_manual.md:540-544). So the value of a hooked symbol is an element of its declared result sort, or there is none: the concatenation of two cell maps declared (MCellMap, MCellMap) : MCellMap is a cell map or nothing, never a Map.
+(2) No K text says what a hook attribute states of a symbol: the manual's index has no reference for it (user_manual.md:3053). domains.md describes MAP.concat for the sort Map only (domains.md:227-229, 240).
+What the text does not determine:
+(3) Which element of the declared sort a symbol declared with the hook name MAP.concat denotes, at a sort that is not Map. The readings differ in whether domains.md's description of the hook name carries to the declared sort."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:3053 (K 7.1.337)"
+quote = "| `hook(_)` | prod | all | No reference yet"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:227-229 (K 7.1.337)"
+quote = "You can construct a new Map consisting of key/value pairs of two Maps. The result is `#False` if the maps have keys in common (in particular, this will yield an exception during concrete execution)."
+
+[[reading]]
+name = "hook-carries"
+statement = "The hook name carries domains.md's description to the declared sort: the cell-map concatenation is the union of two cell maps with no key in common, and has no value where they share a key."
+answer = "The concatenation of two cell maps with disjoint keys is the cell map of the pairs of both."
+consequence = "A cell collection behaves as a Map of its own sort."
+
+[[reading]]
+name = "not-stated"
+statement = "domains.md speaks of the sort Map only: at another sort the symbol's value is not stated, and each interpretation gives its own element of the declared sort, or none."
+answer = "The concatenation of two cell maps is a cell map the interpretation chooses, or nothing."
+consequence = "Nothing is concluded of a configuration built by the symbol beyond its sort."

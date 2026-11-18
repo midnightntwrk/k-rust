@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-PRED-RULE: 293 sentences
+  1 inert import [generated]
+  167 read [generated]
+  95 read [builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  1 generatedEquation
+      sentence 262 (LblisFoo): generatedEquation (LblisFoo: LblisFoo(_) = "false" [owise])
+        [generated] (no label) at :0: axiom{R} \implies{R}(\and{R}(\not{R}(\or{R}(\exists{R}(Var'Unds'Gen0:SortFoo{}, \exists{R}(Var'Unds'Gen1:SortFoo{}, \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortFoo{}, SortKItem{}}(Lblpair{}(Var'Unds'Gen0:SortFoo{}, Var'Unds'Gen1:SortFoo{})), dotk{}())), \top{R}())))), \or{R}(\exists{R}(Var'Unds'Gen3:SortFoo{}, \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}( …
+  1 unaccounted
+      sentence 264 (LblisFoo): unaccounted (equation of LblisFoo, which the definition reads from its sorts: LblisFoo(kseq(inj(Lblpair(_, _)), dotk)) = "true")
+        [user] (no label) at rdr-pred-rule.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortFoo{}, SortKItem{}}(Lblpair{}(Var'Unds'Gen0:SortFoo{}, Var'Unds'Gen1:SortFoo{})), dotk{}())), \top{R}())), \equals{SortBool{}, R}(LblisFoo{}(X0:SortK{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("36dd24750a037f8e3a9e9fd3b8b686053564d2a6952c7d73c78bca1a2e43714e"), org' …
+finish: sentence 262 (LblisFoo): generatedEquation (LblisFoo: LblisFoo(_) = "false" [owise])
+(exit 0)

@@ -1,0 +1,37 @@
+id = "t226-preserves-definedness"
+kind = "text"
+subject = "The attribute preserves-definedness on a rewrite rule, c(X) => b(X) [preserves-definedness]: whether it states anything."
+retro = ["R9"]
+rests_on = ["kk:t02-step-successors"]
+
+[text]
+files = ["t226-preserves-definedness.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "no-sentence"
+statement = "The attribute gives no sentence of its own: the rule states what it states without it, that every c(x) ~> K has a successor b(x) ~> K. No K text defines what the attribute promises, so no obligation and no refusal follows from it."
+reason = """
+(1) The manual has no sentence on preserves-definedness; it speaks of simplification rules that must preserve definedness (user_manual.md:1442-1446), a condition on simplification rules and not a definition of this attribute on a rewrite rule.
+(2) A KORE attribute is a hint; the semantic information it holds should correspond to axioms declared explicitly, and the meaning of particular attributes is implementation-defined (kore-syntax.md:222-228). No axiom is declared for this one.
+(3) So the rule's steps are those of its axiom (kk:t02-step-successors, point (4)), the same with or without the attribute."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1442-1446 (K 7.1.337)"
+quote = "In particular, rules with the simplification attribute must preserve definedness; that is, if the left-hand side refers to any partial function then: -   the right-hand side must be `#Bottom` when the left-hand side is `#Bottom`, or"
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
+
+[ruling.kore]
+statement = "kompile writes the rule as one rewrite axiom of the same form as a rule without the attribute, with preserves-definedness in its attribute list (kore.txt:90-97) and no other sentence."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:97"
+quote = '''[UNIQUE'Unds'ID{}("fae1e65288e35406cb399b88643aa8ae3469226cfe44c75b93474ada42cabc29"), preserves-definedness{}()]'''

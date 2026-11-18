@@ -172,6 +172,60 @@ theorem transfer_idem (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (k : ParamSig)
   · rw [hfr, hK]
     exact OwnSorted.toOld (.evar (List.mem_map.mpr ⟨_, List.mem_cons_self .., rfl⟩))
 
+/-- **The extension satisfies the associativity sentence of an open generator** where the model
+does: `axiom{R} \equals{S, R}(f(f(K1, K2), K3), f(K1, f(K2, K3)))`, for `f` and its result sort `S`
+outside `D`. -/
+theorem transfer_assoc (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (k : ParamSig)
+    (hn : ¬ D (.sort ("Sort" ++ c.sortName k.sig.result))) (hf : ¬ D (.symbol (c.symName k.sig.name)))
+    (hSs : ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName k.sig.result)) a ↔ a = σ)
+    (h : I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat) :
+    extModel c D I ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat := by
+  let S := KoreAML.srt (c.sortName k.sig.result)
+  let f := c.symName k.sig.name
+  have hfr : KoreAML.freeOf [] (KoreAML.ap f [KoreAML.ap f [KoreAML.ev "K1" S, KoreAML.ev "K2" S], KoreAML.ev "K3" S]) ++
+      KoreAML.freeOf [] (KoreAML.ap f [KoreAML.ev "K1" S, KoreAML.ap f [KoreAML.ev "K2" S, KoreAML.ev "K3" S]]) =
+      [.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S, .evar "K2" S, .evar "K3" S] := rfl
+  have hK : ∀ (t : KoreAML.VarTable) (x : String),
+      KoreAML.tr ⟨t, []⟩ (KoreAML.ev x S) = .evar (t.ev (.evar x S)) :=
+    fun t x => by unfold KoreAML.ev; rw [KoreAML.tr]; rfl
+  refine transfer_trAxiom_equals hD hI hc 0 "kernel" hn hSs ?_ ?_ ?_ h
+  · rw [hfr]
+    intro key hk
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+    rcases hk with rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals exact ⟨_, c.sortName k.sig.result, rfl, hn⟩
+  · rw [hfr]
+    generalize KoreAML.tableOf _ _ = t
+    have h1 : t.ev (.evar "K1" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev := List.mem_map.mpr ⟨_, List.mem_cons_self .., rfl⟩
+    have h2 : t.ev (.evar "K2" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev :=
+      List.mem_map.mpr ⟨_, List.mem_cons_of_mem _ (List.mem_cons_self ..), rfl⟩
+    have h3 : t.ev (.evar "K3" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev :=
+      List.mem_map.mpr ⟨_, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)), rfl⟩
+    unfold KoreAML.ap
+    rw [KoreAML.tr_app0, KoreAML.trArgs_cons, KoreAML.trArgs_cons, KoreAML.trArgs_nil,
+      KoreAML.tr_app0, KoreAML.trArgs_cons, KoreAML.trArgs_cons, KoreAML.trArgs_nil, hK, hK, hK]
+    exact (OwnSorted.appE (.appE (.symC hf)
+      (OwnSorted.appE (.appE (.symC hf) (OwnSorted.toOld (.evar h1))) (OwnSorted.toOld (.evar h2))).toOld)
+      (OwnSorted.toOld (.evar h3))).toOld
+  · rw [hfr]
+    generalize KoreAML.tableOf _ _ = t
+    have h1 : t.ev (.evar "K1" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev := List.mem_map.mpr ⟨_, List.mem_cons_self .., rfl⟩
+    have h2 : t.ev (.evar "K2" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev :=
+      List.mem_map.mpr ⟨_, List.mem_cons_of_mem _ (List.mem_cons_self ..), rfl⟩
+    have h3 : t.ev (.evar "K3" S) ∈ [KoreAML.VarKey.evar "K1" S, .evar "K2" S, .evar "K3" S, .evar "K1" S,
+        .evar "K2" S, .evar "K3" S].map t.ev :=
+      List.mem_map.mpr ⟨_, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)), rfl⟩
+    unfold KoreAML.ap
+    rw [KoreAML.tr_app0, KoreAML.trArgs_cons, KoreAML.trArgs_cons, KoreAML.trArgs_nil,
+      KoreAML.tr_app0, KoreAML.trArgs_cons, KoreAML.trArgs_cons, KoreAML.trArgs_nil, hK, hK, hK]
+    exact (OwnSorted.appE (.appE (.symC hf) (OwnSorted.toOld (.evar h1)))
+      (OwnSorted.appE (.appE (.symC hf) (OwnSorted.toOld (.evar h2))) (OwnSorted.toOld (.evar h3))).toOld).toOld
+
 /-- The pattern of the equation of the clause `f(A) = A`, `A` a variable of the sort `s`:
 `\implies{R}(\and{R}(\top{R}(), \and{R}(\in{s,R}(X0, A), \top{R}())), \equals{s,R}(f(X0), \and{s}(A, \top{s}())))`. -/
 def fnEqIdPat (f s : String) : Kore.Pattern :=
@@ -202,10 +256,10 @@ theorem transfer_fnEq (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (hne : ∃ τ, IsS
     intro key hk
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
     rcases hk with rfl | rfl | rfl | rfl
-    · exact ⟨"X0", s, rfl, rfl⟩
-    · exact ⟨"VarA", s, rfl, rfl⟩
-    · exact ⟨"X0", s, rfl, rfl⟩
-    · exact ⟨"VarA", s, rfl, rfl⟩
+    · exact ⟨"X0", _, rfl, hn⟩
+    · exact ⟨"VarA", _, rfl, hn⟩
+    · exact ⟨"X0", _, rfl, hn⟩
+    · exact ⟨"VarA", _, rfl, hn⟩
   · rw [hfr]
     generalize KoreAML.tableOf [KoreAML.Rv] (fnEqIdPat f s) = t
     have htr : KoreAML.tr ⟨t, []⟩ (fnEqIdPat f s) =

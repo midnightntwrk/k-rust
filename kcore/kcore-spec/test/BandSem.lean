@@ -152,7 +152,8 @@ theorem lawHooks_lib :
 theorem consistent (H : HookParams) (hd : FnDet (c.withHooks (lawHooks c H))) :
     Consistent (c.withHooks (lawHooks c H)) :=
   consistent_of _ ((Semantics.coreOK_withHooks c (lawHooks c H)).trans coreOK) hd
-    (fun _ (hfn : _ ∈ ([] : List Fn)) => nomatch hfn) (openLaws_lawHooks H)
+    (fun _ (hfn : _ ∈ ([] : List Fn)) => nomatch hfn) (fun _ (hfn : _ ∈ ([] : List Fn)) => nomatch hfn)
+    (openLaws_lawHooks H)
 
 /-! ## The fixture's expectations (CN-4b §7)
 
@@ -217,7 +218,7 @@ theorem headlines (H : HookParams) (hl : OpenLaws (c.withHooks H)) (_ht : OpenTo
       ExactC (c.withHooks H) :=
   have hc := (Semantics.coreOK_withHooks c H).trans coreOK
   have hf := fnHyp_of_laws H hl
-  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 hl, sound_hyp _ hc hf,
+  ⟨consistent_of _ hc (fnModel_of_fnHyp hc hf).1 (fnModel_of_fnHyp hc hf).2 (clausePreDecided_of_fnHyp hc hf) hl, sound_hyp _ hc hf,
     fun ref => complete_hyp _ ref hc hf, exact_hyp _ hc hf⟩
 
 /-- The same at `lawHooks c H` for every H, both obligations discharged. -/

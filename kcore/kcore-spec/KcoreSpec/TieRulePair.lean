@@ -351,7 +351,7 @@ theorem successorsN_sub_of_listed (hco : CoherentAll c) {n : Nat} {x : GroundTer
   have hagree : ∀ {r : Rule} {σ : Subst} {t : Term} {v w : Option GroundTerm} {s : Srt},
       c.WellSorted r.vars σ → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some s →
       evalT c n σ t = some v → evalT c m σ t = some w → v = w := fun hσw ht hv hw =>
-    EvalTerm.functional hco hcc.fnsNoExs (evalT_sound hsc hcc hmc n hv (headsOK_fns _) hσw ht)
+    EvalTerm.functional hco (evalT_sound hsc hcc hmc n hv (headsOK_fns _) hσw ht)
       (evalT_sound hsc hcc hmc m hw (headsOK_fns _) hσw ht)
   rcases Bool.or_eq_true_iff.mp (List.all_eq_true.mp h r hr) with hb | hl
   · -- a rule of a smaller priority applies at fuel n: at fuel m its `requires` is not `false`

@@ -1,6 +1,6 @@
 /-
   The witness of findings/R3-consistent-pp-shape-decision.md section 3.2: the hypotheses of the pinned `consistent_of` (`coreOK`, `FnDet`,
-  `FnSolves`, `OpenLaws`) do not give a condition over a function call a truth value under `Holds`.
+  `FnSolves`, `ClausePreDecided`, `OpenLaws`) do not give a condition over a function call a truth value under `Holds`.
   Run from the package root: `lake env lean -j1 test/WitPPUndecided.lean`.
 
   `c₀` is `FnSolvesWitness.c` with the one equation `f(X) => f(X)` (`f : Int → Int`) in place of its
@@ -22,8 +22,8 @@
   `rulesPlain` does not ask a rule's `pre` and `post` to be `⊤`, so `c₁` has `rulesPlain` and
   `coreOK` (`c₁_rulesPlain`, `c₁_coreOK`), and its rule's `pre` has no `Holds` derivation
   (`c₁_undecided`): under `coreOK` a rule's predicate need not have a truth value. `c₁` meets the
-  four hypotheses of the pinned `consistent_of` (`c₁_coreOK`, `c₁_fnDet`, `c₁_fnSolves`,
-  `c₁_openLaws`), so `Consistent c₁` (`c₁_consistent`), at that theorem's pinned type. `c₁` has no
+  hypotheses of the pinned `consistent_of` (`c₁_coreOK`, `c₁_fnDet`, `c₁_fnSolves`,
+  `c₁_openLaws`, and `ClausePreDecided`, its clauses' predicates being `⊤`), so `Consistent c₁` (`c₁_consistent`), at that theorem's pinned type. `c₁` has no
   `Step` and no `StepM` step at all (`c₁_no_step`, `c₁_no_stepM`): both ask `Holds … pre true`.
 -/
 import KcoreSpec
@@ -77,8 +77,8 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] →
       ∀ w, σ.lookup 0 = some w → (cR rs).sortOf w = some Srt.int → False)
     (motive_5 := fun _ _ _ _ => True)
-    (motive_6 := fun _ _ _ _ _ => True)
-    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ ihrhs _ => fun hf w hvs hw => by
+    (motive_6 := fun _ _ _ _ _ => True) (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+    (fun {_ _ _ cl' _ _} hfn hmem _ hmatch _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -96,12 +96,24 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
       cases h [(0, w)] hσ (.cons (.var rfl) .nil) with
       | intro ht _ _ => simp [cl] at ht
       | pre hp => exact absurd (Holds.top_eq hp) (by simp))
-    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ _ ht _ _ _ _ _ _ => fun hf w hvs _ => by
+    (fun {_ _ _ cl' _ _ _} hfn hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => fun hf w hvs _ => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
       simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
       subst hmem
       simp [cl] at ht)
+    (fun {_ _ _ cl' _ _} hfn hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => fun hf w hvs _ => by
+      subst hf; subst hvs
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      subst hmem
+      exact hne rfl)
+    (fun {_ _ _ cl' _} hfn hmem hne _ _ _ _ _ _ _ _ _ _ _ => fun hf w hvs _ => by
+      subst hf; subst hvs
+      rw [lookupF] at hfn; cases hfn
+      simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      subst hmem
+      exact hne rfl)
     (fun _ _ => trivial)
     (fun _ _ _ _ => trivial)
     (fun _ _ => trivial)
@@ -143,6 +155,7 @@ theorem f_none' {w : GroundTerm} (hw : (cR rs).sortOf w = some Srt.int) {res : O
     (by intros; trivial)
     (by intros; trivial)
     (by intros; trivial)
+    (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial)
     hv rfl w rfl hw
 
 /-- `f(t)` has no result where `t` has the one result `w`, an Int. -/
@@ -183,6 +196,7 @@ theorem fnSolves' : FnSolves (cR rs) := by
   subst hfn
   simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
   subst hcl'
+  refine Iff.trans ?_ (Clause.gives_iff_noExs rfl rfl hdec.1.1 v).symm
   obtain ⟨⟨hσ, hm, _, _⟩, _⟩ := hdec
   cases hm with
   | cons h1 h2 =>
@@ -278,9 +292,10 @@ theorem c₁_fnSolves : FnSolves c₁ := fnSolves' [r]
 
 theorem c₁_openLaws : OpenLaws c₁ := openLaws_of_plain (by decide +kernel)
 
-/-- **`Consistent c₁`**, by the pinned `consistent_of` at its four hypotheses: the rule's `pre` has no
+/-- **`Consistent c₁`**, by the pinned `consistent_of` at its hypotheses: the rule's `pre` has no
 truth value under `Holds`, and `Γc` with the step's closure has a model nevertheless. -/
-theorem c₁_consistent : Consistent c₁ := consistent_of c₁ c₁_coreOK c₁_fnDet c₁_fnSolves c₁_openLaws
+theorem c₁_consistent : Consistent c₁ := consistent_of c₁ c₁_coreOK c₁_fnDet c₁_fnSolves
+  (clausePreDecided_of_isTop (by decide +kernel)) c₁_openLaws
 
 /-- **No `Step` of `c₁`**: its one rule asks `Holds … pre true`. -/
 theorem c₁_no_step (x y : Config c₁) : ¬ Step c₁ x y := by

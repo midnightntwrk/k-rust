@@ -59,7 +59,7 @@ each Lean and `kcore` process under its own 12 GiB scope, one thread.
 | roundtrip | scoreboard | `test/roundtrip.sh` | `test/roundtrip.expected` |
 | corpus | scoreboard | `test/corpus.py`: the reference cache's kompiled texts, extracted once into `.lake/corpus/defs` (by sha256 prefix, `index.json` names the entries), each through `kcore gen TEXT PKG Cov --core`; `clean` when no refusal is printed, `coreOK` when `kcore gen` succeeds | `test/corpus.expected` (one line a text) |
 | agree | scoreboard | `test/agree.sh`: `kcore agree test/agree.jsonl` (after corpus: the cases' texts are its extraction) | `test/agree.expected` (one line a case) |
-| agree-kore-in-k | scoreboard | `test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected`: the kore-in-k corpus's cases (section "The kore-in-k corpus"); its kompiled texts in `.lake/kore-in-k`, built once by hand (that section); `skipped` (neither `ok` nor `red`) when `.lake/kore-in-k` is absent, the note `texts not built` | `test/agree-kore-in-k.expected` (one line a case and backend) |
+| agree-kore-in-k | scoreboard | `test/agree.sh kk/agree-kore-in-k.jsonl kk/agree-kore-in-k.expected`: the kore-in-k corpus's cases (section "The kore-in-k corpus"); its kompiled texts in `.lake/kore-in-k`, built once by hand (that section); `skipped` (neither `ok` nor `red`) when `.lake/kore-in-k` is absent, the note `texts not built` | `kk/agree-kore-in-k.expected` (one line a case and backend) |
 | member | scoreboard | `test/member.sh` | exits 0 |
 | not-plain | scoreboard | `test/not-plain.sh`: the generator's text for a definition that is not `plain`, on peano (`--core`) and prio (`--wf`) | builds |
 | pred-sorted | scoreboard | `test/PredSorted.lean` over `.lake/regen/peano` built without the tie (`gen/build.sh`) | compiles |
@@ -218,12 +218,38 @@ Traps: the cases' definitions are read from `.lake/corpus/defs`, so `test/corpus
 removed before comparing texts; the case file is 157 KB because the symbolic kore-exec results are
 large.
 
-## The kore-in-k corpus: `test/agree-kore-in-k.jsonl`
+## The `kk_step` artifact: `kk/`
 
-An external case file: the 49 cases of the kore-in-k corpus (`krs/semantics/kore` on the kore-in-k
+`kk/kk.k` is the K text the statement `kk_step` is about: `krs/semantics/kore/kore.k` (the Kore-in-K
+catalogue's interpreter) at the commit its first line names, with that line added. The catalogue may
+change its `kore.k`; `kk.k` changes only by a ticket of its own. `kk/PIN.toml` records `kk.k`'s
+SHA-256, the fixture that kompiles it (`kore-k`, whose `kompile.txt` must record that SHA-256 for
+`kk.k`), and the catalogue commit last compared; no hash of the kompiled text, which depends on the
+directory kompile runs in.
+`kk/COVERAGE.toml` holds the rows of what `kk.k` reads of KCore's `Clause`, `Rule`, `Term`, `Lit` and
+of the KORE `Pattern` (53 rows); the rows of the attributes the catalogue's encoder reads stay in the
+catalogue. The catalogue reads nothing of `kk/`.
+
+`python3 -I kk/compare.py CATALOGUE` (CATALOGUE `krs/semantics/kore` of a k-rust checkout; `KRUST`,
+and `kcore` built) makes two comparisons over the catalogue's cases (its docstring says how):
+`kk.k`, run by krust, against `kcore oracle` on the case's kompiled text, where a difference is a
+defect of `kk.k` or of KCore, or the case has no oracle with the oracle's reason; and `kk.k` and KCore
+each against the catalogue's ruling, where a side that is no ruling and no reading is a line of
+`kk/catalogue-differences.toml`, never a failure, and a line cannot outlive its difference.
+Measured on the catalogue at 8b8a15424 (52 cases), 2026-11-18: `kk.k` without its first line is the
+catalogue's `kore.k`; comparison 1 agrees on 50 cases, and c39 (the reader refuses the sort name
+`Id`, a name of K's `ID` module) and c46 (the evaluation runs out of fuel on the `requires` that does
+not terminate) have no oracle; comparison 2 has no difference: `kk.k` gives the ruling on the 43 settled
+cases and KCore on the 41 with an oracle, and on the 9 unsettled ones both give the same reading, the one the
+catalogue names for its `kore.k` (at c42 the finals of `value-false`, which the catalogue records
+its `kore.k` reaches by a route the text excludes). `catalogue-differences.toml` lists nothing.
+
+## The kore-in-k corpus: `kk/agree-kore-in-k.jsonl`
+
+An external case file: the 52 cases of the kore-in-k corpus (`krs/semantics/kore` on the kore-in-k
 branch, its README), each a small K definition chosen by mutation testing of a KORE interpreter to
 tell one wrong reading of K from the right one, with the final configurations of `krun --search`
-recorded for the haskell and the llvm backends (or the backend's error). `test/agree-kore-in-k.py DIR`
+recorded for the haskell and the llvm backends (or the backend's error). `kk/agree-kore-in-k.py DIR`
 (or `$KORE_IN_K`) builds it: one case per (case, backend), id `<case>/<backend>`; the kompiled texts
 are built into `.lake/kore-in-k/build/<case>/hs/definition.kore` by the corpus's own `tools/case.py`
 (`$K_KOMPILE`; about 3 s a case) on copies of the cases in `.lake/kore-in-k/cases`, never by rerunning
@@ -243,11 +269,11 @@ k-rust checkout) and K's `kompile`,
 
     K_KOMPILE=/path/to/k/bin/kompile LEAN_NUM_THREADS=1 systemd-run --user --scope -q \
       -p MemoryMax=12G -p MemorySwapMax=0 timeout 1800 \
-      python3 -I test/agree-kore-in-k.py CORPUS_DIR > .lake/kik.jsonl
+      python3 -I kk/agree-kore-in-k.py CORPUS_DIR > .lake/kik.jsonl
 
 49 kompiles of about 3 s (92 s wall for the first 33, 33 s for the 11 added, about 2 s each for the 5
-added from c45, 2026-11-14). The case file it prints equals the committed
-`test/agree-kore-in-k.jsonl` byte for byte when the corpus is unchanged (`cmp` it; the committed file
+added from c45, 2026-11-14; 52 kompiles in a workspace without texts, 2026-11-18). The case file it prints equals the committed
+`kk/agree-kore-in-k.jsonl` byte for byte when the corpus is unchanged (`cmp` it; the committed file
 is the one the row reads). Rerun without `K_KOMPILE`, the script reuses the texts whose stamp matches. A
 workspace whose `.lake/kore-in-k` holds only the first 33 texts must rerun it with `K_KOMPILE` (the
 11 texts added, about 33 s): the row is skipped only when the directory is absent, and a missing text
@@ -307,7 +333,18 @@ makes after reading: `uninduced`, `missingBuiltin`, `cellCollUnmatched`, `librar
 the text's there. The reader reads a rule's `ensures` as the rule's `ens` (`Rule.ens`, the right
 side's premise `Step.rule`'s `hens`), so the account does not refuse c43, c44 or the four krun cases
 of `trivial-result` in `test/agree.jsonl` (these stay `not-runnable`: their input is unread).
-`test/agree-kore-in-k.expected` carries, after `#`, the reason of each verdict that changed or is new.
+`kk/agree-kore-in-k.expected` carries, after `#`, the reason of each verdict that changed or is new.
+
+Verdicts, 52 cases (c50-c52 added; the first 49 cases' lines of the case file unchanged):
+haskell **agree 47, agree-at-none 2 (c11, c42), no-reference 1 (c33), not-runnable 2 (c39, c46)**;
+llvm **agree 29, differ 6 (c10, c28, c43, c44, c50, c51), no-reference 15, not-runnable 2 (c39,
+c46)**; in all 76 agree, 2 agree-at-none, 6 differ, 16 no-reference, 4 not-runnable. c50
+(`half(N) => N /Int 2 ensures N >=Int 0`, `run(N) => done(half(N))` from `run(4)` and `run(-4)`)
+and c51 (the same with `half(_) => 0 [owise]`): at -4 the equation applies (no `requires`) and its
+`ensures` is false, so `half(-4)` has no value (in c51 the `[owise]` equation does not apply, the
+first one applying), `run(-4)` is U, not compared, and `done(2)` is the one final; haskell agrees,
+llvm gives `done(-2)` too (it does not check the `ensures`), as at c43 and c44. c52 agrees on both.
+The text below is the 49-case state.
 
 Verdicts with the `ensures` as `Rule.ens`, 49 cases (c45-c49 added from the corpus's main line,
 merge 38cac354e): haskell **agree 46, differ 0, no-reference 1 (c33), not-runnable 2 (c39, c46)**;
@@ -506,8 +543,8 @@ and e3-mint). A row names its fixture and the sentences that carry it, or, where
 does, the class and the evidence: a pair of fixtures whose texts are equal (`same_as`, erased) or
 kompile's error (rejected). `kfix.py check` (run by `constructs.sh`) fails unless
 every pointer resolves in the committed files. The fixtures are evidence for TRIAGE; they set no
-status. Fixture `kore-k` kompiles `krs/semantics/kore/kore.k` of the k-rust checkout (copied in,
-sha256 in its `kompile.txt`); `extract.sh` then writes `uses-kore.E4` and `uses-kore.E6`, from which
+status. Fixture `kore-k` kompiles `kk/kk.k` (copied in, sha256 in its `kompile.txt`; main module
+`KORE`, syntax module `KORE-SYNTAX`, named on the command line since they are not the file's name); `extract.sh` then writes `uses-kore.E4` and `uses-kore.E6`, from which
 the E4 and E6 rows' `kore` marks are set. Kompile numbers its generated variables
 (`Var'Unds'GenN`) differently from run to run; `kfix.py` renumbers them before comparing texts.
 
@@ -1281,6 +1318,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieUnbound.lean`: the tie on `f2-examples/unbound.kompile.kore` (fixture e2-unbound, the rule
+  `<k> a() => b(X) ... </k> [unboundVariables(X)]`), whose theory is `Γc` (`readsConfined_c`): layer 1
+  (`wf_defn`, `not_reordered`: 430 emitted user-module sentences against the text's 402), the 29
+  sort-predicate equations (`fn_shape`, `fns_entailed`, `fns_from_text`; isExp's `[owise]` binder
+  `_Gen1` gives an equal pattern), no junk (`nojunk_trivial_entailed`, `nojunk_items`,
+  `nojunk_kitem_entailed`), the 29 constructor sentences (`cons_entailed`), set idempotence refuted
+  (`idem_refuted`), the account of the 261 sentences (`account`, `account_absent`), `attrs_agree`;
+  each over Γ for every H and over `Γc` by `Γ_sub_Γc` (the `_c` forms). About 80 s, 6.1 GiB.
 - `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
   (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
   of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
@@ -1288,6 +1333,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
   entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
   (`fns_from_text`). 7.6 GiB, 73 s.
+- `test/TieUnboundRule.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the rule
+  with the open variable X and the theory `Γc` it is read in, for every H: Γ's rule item is a
+  consequence of sentence 154 (`rule_from_text`: the item is the sentence with `⌈rhs⌉` added to its
+  left side, one variable table and free-variable list, X free in both); each premise of `Γc` is a
+  function sentence's translation, the rule's item, definedness, a family, or `boolClosed`, the one
+  item of `Γcl` (`gamma_origin`, `gammaCl_eq`, `gamma_from`); `Pre` (those premises as written)
+  has a model with the step's closure (`pre_model`, `consistent` by `FnHyp`); `a()` steps to `b(i)`
+  for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
+  `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
+  (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
@@ -1319,10 +1374,19 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/imp-tie.toml`, `test/imp-tie.sh`: row imp's tie, per class of the account of kimp's user
   module: the count, the direction, how many are kernel-checked in it on kimp's text (proved, at
   values, refuted, without direction) with the theorems, and the remainder with its reason (the
-  classes stated at values and the refuted ones are checked on other texts only; the function
-  `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
+  function `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
   `consistent`). The script checks the record by text against test/TieKimp.lean's `account_sizes`,
-  `tieClasses` and the files of the theorems it names.
+  `tieClasses` and `classes` (the indices a class ties and its remainder partition the class) and
+  the files of the theorems it names.
+- `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
+  .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
+  every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
+  `test/TieKimpAtValues.lean` (hooked functional 47 of 48, collection law 9, library 80 of 82 at
+  values or, for the 8 over set variables, at set values; 3.8 GiB, 42 s),
+  `test/TieKimpRefuted.lean` (set idempotence 573 and the set-variable lemmas 671 to 675, 904,
+  refuted; 2.1 GiB, 11 s), `test/TieKimpReach.lean` (no point where every clause of a function
+  fails, so every premise of `ΓFallback` is at a silent point; no rule or clause applies a symbol of
+  `silentTable`; 1.9 GiB, 2 s). Peaks are the process's maximum RSS.
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
@@ -1330,18 +1394,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`rules_from_text`); in a model of Γ, for every H, the sentence holds where its right side holds
   an element (W2, `rules_w2_all`, `rules_w2`). 4.9 GiB, 100 s.
 - `test/TieKk.lean`: layer 1 of the tie on kore.k's text as kompile wrote it
-  (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 833 sentences): `account`
-  partitions them into the tie's classes (`account_sizes`: function equation 301, rewrite rule 10,
+  (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 834 sentences): `account`
+  partitions them into the tie's classes (`account_sizes`: function equation 302, rewrite rule 10,
   constructor functional 52, subsort 32, injectivity 35, distinctness 115, no junk 28, function
-  functional 32, hooked functional 62, collection law 9, library 108, set idempotence 1, no
-  direction 48), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
+  functional 32, hooked functional 62, collection law 9, library 102, set idempotence 1,
+  set-variable lemma 6, no direction 48), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
 - `test/TieKkAttrs.lean`: `attrs_agree` on kore.k's text, from its five conjuncts, each one kernel
   decision. 9.2 GiB, 145 s.
 - `test/TieKkSig.lean`: `sig_origin` on kore.k's text (347 items: 277 declared, 70 surplus), by 17
   ranges joined by `tieAll_range`. 10.1 GiB, 486 s.
-- `test/TieKkFns.lean`: kore.k's function equations in the order of Γ's items (`fnText`): at 294
-  of the 301 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
-  `fn48_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
+- `test/TieKkFns.lean`: kore.k's function equations in the order of Γ's items (`fnText`): at 295
+  of the 302 positions item and sentence are one pattern up to renaming (`fns_same` by ranges,
+  `fn49_renamed`), so Γ entails the sentence for every H (`fns_entailed`) and the item is its
   consequence (`fns_from_text`); the 7 others are `[owise]` equations whose exclusion lists the
   other equations in another order, or binds with other keys, tied in `test/TieKkOwise.lean`.
   5.5 GiB, 202 s.
@@ -1396,6 +1460,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   the definition's (`badLaw_not_lawSorted`), whose sentence is the sentence of the same equation at
   the definition's sort of that name (`badLaw_pattern`), which `LawAt` refutes
   (`realLaw_not_lawAt`).
+- `test/FnUnitKompiled.lean`: the laws of a function on its kompiled text,
+  `f2-examples/e2-fn-assoc-unit.kompile.kore` (`pu(Int, Int) [function, total, assoc, unit(zero)]`,
+  `zero => 0`, `pu(A, B) => A +Int B`), on the literal `defn`, for every H: `defn.laws` is the
+  text's associativity law and its two unit laws (`laws_eq`), each `lawSorted`; by `pu`'s and
+  `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
+  `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
+  answering 1 the right unit law fails (`cOne_not_unitR`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
@@ -1485,6 +1556,21 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
+  is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
+  section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting
+  `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
+  `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
+  `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
+  `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
+  (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
+  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. Axioms guarded.
+- `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
+  (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
+  format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there
+  (`unpack_pack`), `round` keeps a value at its target exponent (`round_of_target`), `maxValue` is
+  `(2^p − 1)·2^(bias − (p − 1))` (`maxValue_eq`, `exact_maxValue`), and a datum is infinite exactly
+  when it lies above `maxValue` or below its negation (`isInf_unpack`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
@@ -1556,3 +1642,23 @@ table above, on the tree before String and Bytes). Not investigated here.
   item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`: `and_true`
   (`go(true)` steps to `done`), `and_false` (`go(false)` has no successor, with `Γstep`). About 5
   minutes.
+- `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
+  each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
+  `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for
+  every first clause; two definitions have every competing pair `CoherentPrem` and a function with
+  two results (`Fx.coherentAll_not_fnDet`: every instance fails by its predicate;
+  `Fx2.coherentAll_not_fnDet`: every instance fails by its right-hand side), with `FnTerminates`.
+  `refuses`: `CoherentAll` fails at both. `coherent_iff_prem`: for a first clause without
+  existential variables `Coherent` is `CoherentPrem`. `clB_coherent`: `f() => ?B ensures ?B` is
+  coherent with itself in every semantics.
+- `test/ExClauses.lean`: clauses with existential variables on the evaluation block, hand-built and
+  kernel-checked. `fl() => ?B ensures ?B` is `true` by `clauseEx` and has no other result
+  (`f1_some`, `f1_not_none`, `f1_fnDet`), is match independent and `FnSolves` holds (`f1_solves`);
+  `fl() => ?B` has no result (`f2_none`); `fl() => ?B ensures false` is `none` by `exNone`
+  (`f3_none`); `f() => g(?Z:Int)` with `post := Z ∈ lp()`, `lp() => lp()`, has no result at all
+  (`fC_none`); `fl() => true` beside `fl() => ?B`: coherent, the second clause not match independent,
+  `FnSolves` false (`k2_*`); `fl() => true` beside `fl() => false` with `post := ⊥`: match
+  independent, `FnSolves` false (`q_*`); `fl() => Y` with `post := ⊥`: no result, coherent with itself
+  (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
+  `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
+  `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.

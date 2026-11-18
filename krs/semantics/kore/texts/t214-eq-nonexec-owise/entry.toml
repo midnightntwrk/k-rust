@@ -1,0 +1,55 @@
+id = "t214-eq-nonexec-owise"
+kind = "text"
+subject = "A non-executable equation, choose(b, Y) => Y, beside an executable one, choose(a, Y) => Y, and an [owise] one, choose(X, _) => X: whether the [owise] equation applies at choose(b, a), and what choose(b, a) is."
+retro = ["P7"]
+origin = "kcore-spec fixture e5-owise-nonexec"
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t214-eq-nonexec-owise.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) Foo has the two constructors a and b. choose(a, Y) => Y, of priority 50, applies at every choose(a, y): choose(a, y) = y (kk:t11-eq-applies). The non-executable equation choose(b, Y) => Y is an equation of the text: it states choose(b, y) = y.
+(2) The [owise] equation, of priority 200, applies only where the other equations have been tried and failed (user_manual.md:1711-1713; kk:t12-eq-priority-owise).
+What the text does not determine:
+(3) Whether the non-executable equation is one of the other equations the [owise] one waits on. No sentence of the manual speaks of non-executable. If it is, the [owise] equation applies nowhere (every Foo is a or b) and choose(b, a) = a. If it is outside the order, the [owise] equation applies at choose(b, y) and states choose(b, a) = b, while the non-executable equation states choose(b, a) = a; a and b are two values, so the text has no model there."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[reading]]
+name = "in-order"
+statement = "The non-executable equation counts among the equations the [owise] one waits on."
+answer = "choose(b, a) = a, by the non-executable equation; the [owise] equation states nothing."
+consequence = "The text has a model; choose(x, y) = y at every x and y."
+
+[[reading]]
+name = "outside-order"
+statement = "The non-executable equation stands outside the priority order: the [owise] equation applies wherever the executable equations do not."
+answer = "No model: choose(b, a) = b by the [owise] equation and = a by the non-executable one."
+consequence = "Nothing is concluded about a configuration that needs choose(b, a)."
+
+[ruling.kore]
+statement = "kompile writes the [owise] equation with a premise that negates the argument patterns of choose(a, Y) only (kore.txt:29-70), and the non-executable equation as a plain equation axiom with the attribute non-executable (kore.txt:95-114). So the [owise] axiom states choose(b, a) = b and the other choose(b, a) = a; with a and b distinct by the no-confusion axiom (kore.txt:18), the written sentences have no model. They follow the reading outside-order."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:114"
+quote = '''[UNIQUE'Unds'ID{}("32a026766b3920974c06e780ec7596b83cdf29facfff6250bae08c4588d899ce"), non-executable{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:18"
+quote = '''axiom{}\not{SortFoo{}} (\and{SortFoo{}} (Lbla{}(), Lblb{}())) [constructor{}()]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."

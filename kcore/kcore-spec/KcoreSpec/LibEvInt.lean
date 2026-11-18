@@ -10,6 +10,9 @@
   - `addComm` (1415): `I +Int B => B +Int I`.
   - `subAsAdd` (1416): `A -Int I => A +Int (0 -Int I)`.
   - `tmodSmall` (1377): `X %Int N => X requires 0 <=Int X andBool X <Int N`.
+  - `shlZero`, `zeroShl`, `shrZero`, `zeroShr` (1380 to 1383): `X <<Int 0 => X`,
+    `0 <<Int Y => 0 requires 0 <=Int Y`, and the same for `>>Int`: off a negative shift the shifts
+    have their value, and the `requires` keeps the second pair off it.
 -/
 import KcoreSpec.LibEv
 import KcoreSpec.LazySound
@@ -361,6 +364,99 @@ theorem emodAsTmod_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = t
     (hp : ad.ax.pattern = emodAsTmod.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
     EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
   Eqn.entailed_reg h emodAsTmod (by decide) (by rfl) (emodAsTmod_holds hs) ad hp hsv
+
+/-! ## 1380 to 1383: the shifts at a zero operand -/
+
+theorem hv_intShl {c : Semantics} {x n : Int} (hn : 0 ≤ n) :
+    c.hv intShl [int x, int n] = some (int (x * 2 ^ n.toNat)) :=
+  hv_of_value (by
+    show hook intShl [int x, int n] = some (some (int (x * 2 ^ n.toNat)))
+    have : hook intShl [int x, int n] = some (if n < 0 then none else some (int (x * 2 ^ n.toNat))) := rfl
+    rw [this]; simp only [show ¬ n < 0 by omega, ↓reduceIte])
+
+theorem hv_intShr {c : Semantics} {x n : Int} (hn : 0 ≤ n) :
+    c.hv intShr [int x, int n] = some (int (x.fdiv (2 ^ n.toNat))) :=
+  hv_of_value (by
+    show hook intShr [int x, int n] = some (some (int (x.fdiv (2 ^ n.toNat))))
+    have : hook intShr [int x, int n] = some (if n < 0 then none else some (int (x.fdiv (2 ^ n.toNat)))) := rfl
+    rw [this]; simp only [show ¬ n < 0 by omega, ↓reduceIte])
+
+/-- 1380: `X <<Int 0 => X`. -/
+def shlZero : Eqn :=
+  ⟨[("VarX", Srt.int)], Srt.int, none, .app intShl [.var 0, intT 0], .var 0⟩
+
+/-- 1382: `X >>Int 0 => X`. -/
+def shrZero : Eqn :=
+  ⟨[("VarX", Srt.int)], Srt.int, none, .app intShr [.var 0, intT 0], .var 0⟩
+
+/-- 1381: `0 <<Int Y => 0 requires 0 <=Int Y`. -/
+def zeroShl : Eqn :=
+  ⟨[("VarY", Srt.int)], Srt.int, some (.app intLe [intT 0, .var 0]), .app intShl [intT 0, .var 0], intT 0⟩
+
+/-- 1383: `0 >>Int Y => 0 requires 0 <=Int Y`. -/
+def zeroShr : Eqn :=
+  ⟨[("VarY", Srt.int)], Srt.int, some (.app intLe [intT 0, .var 0]), .app intShr [intT 0, .var 0], intT 0⟩
+
+theorem shlZero_holds {c : Semantics} (hs : c.shapesOK = true) : shlZero.Holds c := by
+  intro σ hσ _
+  obtain ⟨x, hx⟩ := int_at hs hσ 0 (n := "VarX") rfl
+  simp only [shlZero, intT, val, valList, allSome, hx, Option.bind_some, Option.map_some, dv_int]
+  rw [hv_intShl (Int.le_refl 0)]
+  simp
+
+theorem shrZero_holds {c : Semantics} (hs : c.shapesOK = true) : shrZero.Holds c := by
+  intro σ hσ _
+  obtain ⟨x, hx⟩ := int_at hs hσ 0 (n := "VarX") rfl
+  simp only [shrZero, intT, val, valList, allSome, hx, Option.bind_some, Option.map_some, dv_int]
+  rw [hv_intShr (Int.le_refl 0)]
+  simp
+
+/-- The `requires` `0 <=Int Y` at a value of `Y`. -/
+theorem le0_of_req {c : Semantics} {σ : Subst} {y : Int} (hy : σ.lookup 0 = some (int y))
+    (hq : val c σ (.app intLe [intT 0, .var 0]) = some (bool true)) : 0 ≤ y := by
+  simp only [intT, val, valList, allSome, hy, Option.bind_some, Option.map_some, dv_int, hv_intLe,
+    Option.some.injEq] at hq
+  have hb : decide (0 ≤ y) = true := by
+    unfold bool at hq
+    injection hq with _ hq
+    injection hq
+  exact of_decide_eq_true hb
+
+theorem zeroShl_holds {c : Semantics} (hs : c.shapesOK = true) : zeroShl.Holds c := by
+  intro σ hσ hreq
+  obtain ⟨y, hy⟩ := int_at hs hσ 0 (n := "VarY") rfl
+  have h0 := le0_of_req hy (hreq _ rfl)
+  simp only [zeroShl, intT, val, valList, allSome, hy, Option.bind_some, Option.map_some, dv_int]
+  rw [hv_intShl h0]
+  simp
+
+theorem zeroShr_holds {c : Semantics} (hs : c.shapesOK = true) : zeroShr.Holds c := by
+  intro σ hσ hreq
+  obtain ⟨y, hy⟩ := int_at hs hσ 0 (n := "VarY") rfl
+  have h0 := le0_of_req hy (hreq _ rfl)
+  simp only [zeroShr, intT, val, valList, allSome, hy, Option.bind_some, Option.map_some, dv_int]
+  rw [hv_intShr h0]
+  simp
+
+theorem shlZero_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = shlZero.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
+  Eqn.entailed_reg h shlZero (by decide) (by rfl) (shlZero_holds hs) ad hp hsv
+
+theorem shrZero_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = shrZero.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
+  Eqn.entailed_reg h shrZero (by decide) (by rfl) (shrZero_holds hs) ad hp hsv
+
+theorem zeroShl_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = zeroShl.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
+  Eqn.entailed_reg h zeroShl (by decide) (by rfl) (zeroShl_holds hs) ad hp hsv
+
+theorem zeroShr_ev {c : Semantics} (h : c.coreOK = true) (hs : c.shapesOK = true) (ad : KoreAML.AxiomDecl)
+    (hp : ad.ax.pattern = zeroShr.patR) (hsv : ad.ax.sortVars = [KoreAML.Rv]) :
+    EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat :=
+  Eqn.entailed_reg h zeroShr (by decide) (by rfl) (zeroShr_holds hs) ad hp hsv
 
 end LibEv
 

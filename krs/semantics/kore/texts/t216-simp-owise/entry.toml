@@ -1,0 +1,48 @@
+id = "t216-simp-owise"
+kind = "text"
+subject = "A simplification, f(f(X)) => f(X), beside a function's equations, one of them [owise]: whether the simplification is one of the equations the [owise] premise names, and what it states."
+retro = ["P8"]
+origin = "kcore-spec fixture c3-owise-simp"
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t10-fn-innermost"]
+
+[text]
+files = ["t216-simp-owise.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "f(x) = x for x > 0 and f(x) = 0 for x <= 0, by the equation of priority 50 and the [owise] one. The simplification is no equation of f and has no part in the order the [owise] equation waits on; it states f(f(x)) = f(x) at every x, which holds of that f (at x > 0 both sides are x, at x <= 0 both are 0)."
+reason = """
+(1) f(X) => X requires X >Int 0 applies at x > 0, and the [owise] equation f(_) => 0 where it does not, at x <= 0 (kk:t11-eq-applies, kk:t12-eq-priority-owise; domains.md:1324-1325).
+(2) A simplification is a rule outside the main semantics, ordered by its own simplification priority and not by the priority attribute, and the author must make it sound (user_manual.md:1388-1389, 1405-1414): the [owise] equation does not wait on it.
+(3) f(f(x)) = f(x): at x > 0, f(x) = x and f(f(x)) = f(x) = x; at x <= 0, f(x) = 0 and f(f(x)) = f(0) = 0 (kk:t10-fn-innermost). The simplification is true of f."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1388-1389 (K 7.1.337)"
+quote = "The simplification attribute identifies rules outside the main semantics that are used to simplify function patterns."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1409-1414 (K 7.1.337)"
+quote = "Because of this, users must ensure that simplification rules are sound regardless of their order of application. This differs from the `priority` attribute in that rules with the `priority` attribute _must_ be applied in their priority order by the backend."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = "kompile writes the [owise] equation's premise as the negation of the first equation's pattern and requires only (kore.txt:83-118), not of the simplification, and the simplification as the unconditional axiom f(f(X)) = f(X) with the attribute simplification (kore.txt:121-128). The written sentences state what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:128"
+quote = '''[UNIQUE'Unds'ID{}("d3273684d102977f83c3de6eaaab600268d403c1085437460063e2f9bb5fbc96"), simplification{}("")]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."

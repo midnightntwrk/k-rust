@@ -1,4 +1,4 @@
-# The leaf conjuncts of coreOK and the hypotheses FnDet and FnSolves, each with the witness module
+# The leaf conjuncts of coreOK and the hypotheses FnDet, FnSolves and ClausePreDecided, each with the witness module
 # that shows it cannot be dropped (a semantics meeting the others whose Γ has no model), or `none`
 # with the reason. Keys and texts are computed by test/Witnesses.lean from the definitions:
 # coreOK, sortedOK, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK and itesApart are
@@ -235,3 +235,10 @@ evidence = "test/FnSolvesDet.lean"
 key = "FnSolves"
 text = "KCore.FnSolves"
 witness = "KcoreSpec.ModelFnSolvesWitness"
+
+[[conjunct]]
+key = "ClausePreDecided"
+text = "KCore.ClausePreDecided"
+witness = "none: every clause of a semantics coreOK accepts has the predicate ⊤ (clausesPlain), where the hypothesis holds (clausePreDecided_of_isTop), so no semantics meets coreOK and not the hypothesis; with clausesPlain's conjunct on the predicate set aside, the semantics d of test/ClausePreUndecided.lean meets the other conjuncts of coreOK, FnDet, FnSolves and OpenLaws and not ClausePreDecided (not_clausePreDecided), and Γ has no model there (argued in that file's header: the two clauses' sentences state h(x) = 1 and h(x) = 2 at every Int, the premise ⌈l(X)⌉ ∨ ¬⌈l(X)⌉ being ⊤ in every interpretation)"
+evidence = "test/ClausePreUndecided.lean"
+

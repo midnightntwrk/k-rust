@@ -2,7 +2,7 @@ id = "t18-as-pattern"
 kind = "text"
 subject = "An as-pattern in an equation's left side, f(a(_) #as E) => b(E), beside f(_) => a(0) [owise]: what the pattern matches and what it binds."
 retro = ["M3"]
-rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise", "kk:t228-ctor-distinct"]
 
 [text]
 files = ["t18-as-pattern.k"]
@@ -15,7 +15,7 @@ form = "means"
 statement = "P #as E matches what P matches and binds E to the matched term: f(a(1)) = b(a(1)). Where P does not match the pattern does not either: f(b(a(1))) = a(0), by the [owise] equation."
 reason = '''
 (1) In Pattern #as V the pattern is matched, its variables are bound if it matches, and the term it matched is bound to V (user_manual.md:2097-2099). So at a(1) the pattern a(_) matches and E is a(1); the equation applies (kk:t11-eq-applies) and gives b(a(1)).
-(2) At b(a(1)) the pattern a(_) does not match: a and b are distinct constructors of Exp (the kompiled text states it, [ruling.kore]). The first equation does not apply, and the owise equation gives a(0) (user_manual.md:1711-1713; kk:t12-eq-priority-owise).
+(2) At b(a(1)) the pattern a(_) does not match: a and b are constructors of Exp, and no element of Exp is both an a(m) and a b(n) (kk:t228-ctor-distinct). The first equation does not apply, and the owise equation gives a(0) (user_manual.md:1711-1713; kk:t12-eq-priority-owise).
 (3) The as-pattern is the intersection of the pattern with a variable, [ruling.kore]; this entry does not cover the intersection of two patterns neither of which is a variable.'''
 
 [[ruling.basis]]

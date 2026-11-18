@@ -1,0 +1,32 @@
+id = "c52-subsort-one-entry"
+kind = "case"
+subject = "One stated subsort, Int < Val, and a sort Other with none: an Int in the <k> cell matches a variable of sort Val through that subsort, and does not match a variable of sort Other."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t16-match-inj"]
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+finals = ["done(3)"]
+reason = """
+(1) The production Val ::= Int makes Int a subsort of Val. It is the one subsort the text states between its own sorts: Other is declared by o(Int) alone and S by done(Val) and other(Other), neither of which is a subsort production. A term of a smaller sort at a position of a larger one is its injection (kk:t16-match-inj). The program 3 is an Int at the sort Val of $PGM, and the <k> cell holds it injected into Val and then into the sort of the cell's items; the injection of an Int through Val is its direct injection (prelude.kore:50-51).
+(2) The two rules have priority 50 (user_manual.md:1748-1749) and no requires. The first rule's pattern V:Val in the cell matches the elements of Val injected there, and of the sorts below Val through Val (kk:t16-match-inj): 3 is one, with V = 3 at Val. The rule applies (kk:t01-rule-applies) and gives done(3).
+(3) The second rule's pattern X:Other matches the elements of Other injected into the cell, and of the sorts below Other (kk:t16-match-inj). 3 is an Int, and Int is neither Other nor below it: no subsort of Other is stated, so 3 is no Other (user_manual.md:1372-1374). The second rule does not match. So the initial configuration has the one successor done(3) (kk:t02-step-successors).
+(4) done(3) is built by done, a production of S. S is neither Val nor Other nor below either, the one subsort being Int < Val: neither rule's pattern matches it, and done(3) is final (kk:t06-final-configuration). The final configurations are done(3) alone: a configuration built by other would need the second rule to match, which (3) excludes."""
+
+[[ruling.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50-51 (K 7.1.337)"
+quote = "symbol inj{From, To}(From) : To [sortInjection{}()] axiom {S1, S2, S3, R} \\equals{S3, R}(inj{S2, S3}(inj{S1, S2}(T:S1)), inj{S1, S3}(T:S1)) [simplification{}()]"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1372-1374 (K 7.1.337)"
+quote = "Essentially, `isFoo` for some sort `Foo` will tell you whether a particular term of sort `K` is a `Foo`,"

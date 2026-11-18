@@ -295,7 +295,8 @@
   "killed_by": [
    "c13-inj-bool",
    "c37-keq",
-   "c39-tokens-preds"
+   "c39-tokens-preds",
+   "c52-subsort-one-entry"
   ],
   "status": "killed",
   "undecided": []
@@ -624,7 +625,8 @@
  "subsort-dropped": {
   "killed_by": [
    "c04-subsort",
-   "c39-tokens-preds"
+   "c39-tokens-preds",
+   "c52-subsort-one-entry"
   ],
   "status": "killed",
   "undecided": []
@@ -639,7 +641,8 @@
  "subsort-reversed": {
   "killed_by": [
    "c04-subsort",
-   "c39-tokens-preds"
+   "c39-tokens-preds",
+   "c52-subsort-one-entry"
   ],
   "status": "killed",
   "undecided": []
@@ -648,6 +651,15 @@
   "killed_by": [
    "c13-inj-bool",
    "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c52-subsort-one-entry"
+  ]
+ },
+ "subsort-walk-out-holds": {
+  "killed_by": [
+   "c52-subsort-one-entry"
   ],
   "status": "killed",
   "undecided": []

@@ -1,0 +1,73 @@
+id = "t211-eq-owise-prio250"
+kind = "text"
+subject = "A function equation of priority 250 beside an [owise] equation: f(X) => X [priority(250)] and f(_) => 0 [owise]. Which of the two gives f(3)."
+retro = ["P3"]
+origin = "kcore-spec fixture c3-eq-owise-sib-prio250"
+rests_on = ["kk:t11-eq-applies", "kk:t12-eq-priority-owise"]
+
+[text]
+files = ["t211-eq-owise-prio250.k"]
+kompile = "accepts"
+frontend = "differs"
+frontend_difference = "The manual tries the [owise] equation, of priority 200, before the equation of priority 250 (user_manual.md:1739-1746), so f(x) = 0 at every x; the [owise] axiom kompile writes has a premise that negates every other equation whatever its priority (kore.txt:81-114), here the pattern X, which every integer matches, so it states nothing, and the axiom of priority 250 states f(x) = x at every x (kore.txt:63-78)."
+
+[ruling]
+status = "unsettled"
+reason = """
+(1) The manual: owise sets the rule's priority to 200, and rules of a priority higher than 200 apply after all rules with owise have been tried (user_manual.md:1739-1746); rules are tried in increasing order of priority (user_manual.md:1722-1730). Here the [owise] equation, of 200, matches every integer and has no requires, so it applies everywhere: f(x) = 0, and the equation of 250 is never tried.
+(2) The manual's rough sentence says the [owise] rules apply only if all the other rules have been tried and failed (user_manual.md:1711-1713), and the kompiled premise of the [owise] equation is the negation of every other equation's pattern and requires, the one of priority 250 included ([ruling.kore]). Read so, the [owise] equation applies nowhere, every integer matching X, and the equation of 250 gives f(x) = x.
+(3) The two sentences of the manual and the written premise do not agree here, and no sentence says which governs an equation of priority above 200 beside an [owise] one. The readings are the two outcomes."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1739-1746 (K 7.1.337)"
+quote = "In fact, when you use the `owise` attribute, what you are doing is implicitly setting the priority of the rule to `200`. This has a couple of implications: 1. Multiple rules with the owise attribute all have the same priority and thus can apply in any order. 2. Rules with priority higher than `200` apply **after** all rules with the `owise` attribute have been tried."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1711-1713 (K 7.1.337)"
+quote = "Very roughly, rules without an attribute indicating their priority apply first, followed by rules with the `owise` attribute only if all the other rules have been tried and failed."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1722-1730 (K 7.1.337)"
+quote = "In particular, the second rule above will only be tried after the first rule has been shown not to apply. ... Rules are tried in increasing order of priority, starting at zero and trying each increasing numerical value successively."
+
+[[reading]]
+name = "priority-order"
+statement = "Priorities order the equations: the [owise] equation, of 200, is tried before the equation of 250 and applies at every integer (user_manual.md:1739-1746)."
+answer = "f(3) = 0; f(x) = 0 at every integer x."
+consequence = "The equation of priority 250 states nothing."
+
+[[reading]]
+name = "owise-last"
+statement = "The [owise] equation applies only where every other equation does not, whatever its priority (user_manual.md:1711-1713, and the kompiled premise)."
+answer = "f(3) = 3; f(x) = x at every integer x."
+consequence = "The [owise] equation states nothing."
+
+[ruling.kore]
+statement = "The equation of priority 250 is the axiom f(X0) = X at X0 = X, with priority 250 as an attribute and no premise (kore.txt:63-78); the [owise] equation is f(X0) = 0 under the premise that X0 is no instance of the pattern X (kore.txt:81-114), which no integer satisfies. The written sentences state f(x) = x at every x: they follow the reading owise-last."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:83-98"
+quote = '''\not{R} ( \or{R} ( \exists{R} (Var'Unds'Gen0:SortInt{}, \and{R} ( \top{R}(), \and{R} ( \in{SortInt{}, R} ( X0:SortInt{}, Var'Unds'Gen0:SortInt{} ), \top{R} () ) )), \bottom{R}() ) )'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:78"
+quote = '''[UNIQUE'Unds'ID{}("8ccac49a0098d59c265093c6cec6d897e48fed1c6209f481f071d8d00fafab2c"), priority{}("250")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:114"
+quote = '''[UNIQUE'Unds'ID{}("ffa19f6c87b632e253e9ebfea5001e866029d9e0e23f0fe4e591c3989b20d206"), owise{}()]'''
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "The meaning of particular attributes is implementation-defined."
+
+[[observe]]
+file = "kore.txt"
+contains = '''\exists{R} (Var'Unds'Gen0:SortInt{},'''

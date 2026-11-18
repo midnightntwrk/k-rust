@@ -1,0 +1,53 @@
+id = "t191-eq-rhs-unbound-var"
+kind = "text"
+subject = "A function equation whose right side holds a variable no argument binds, allowed by unboundVariables, under a constructor: f() => c(Y:Int) [unboundVariables(Y)]. What the equation states of f()."
+retro = ["F4"]
+origin = "kcore-spec fixture e2-clause-rhs-int"
+rests_on = ["kk:t11-eq-applies", "kk:t228-ctor-distinct"]
+
+[text]
+files = ["t191-eq-rhs-unbound-var.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "no-model"
+statement = "The equation has an instance for every integer y and states f() = c(y) at each. f, a function, has at most one value, and c(0) and c(1) are two values, so no model satisfies the instances at 0 and at 1: the text has no model. unboundVariables only lets the text past the check that every variable of the right side is bound; it adds and removes no sentence."
+reason = """
+(1) unboundVariables lists variables that may be unbound in the rule, so that it passes the unbound-variable check (user_manual.md:1513-1516); the manual describes such a rule as standing for an instance of the rule for every value of the variable (user_manual.md:2531-2538, rand() => I:Int for every integer).
+(2) An equation states its right side at the arguments its patterns denote (kk:t11-eq-applies): here, for every integer y, f() = c(y).
+(3) f is declared function: it has at most one value (user_manual.md:540-544). c is a constructor of T, and a constructor at different arguments builds different elements (kk:t228-ctor-distinct): c(0) and c(1) are two elements of T. So f() = c(0) and f() = c(1) cannot both hold, and the text has no model."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1513-1516 (K 7.1.337)"
+quote = "the `unboundVariables` attributes allows the user to specify a comma-separated list of names of variables which can be unbound in the rule."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2531-2538 (K 7.1.337)"
+quote = "Since we need an instance of the rule for __every__ integer, one could summarize the above infinitely many rules with the rule"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[ruling.kore]
+statement = "kompile writes the equation as f() = c(Y) with Y free in the axiom (kore.txt:82-93), so it holds at every integer Y; c is a constructor with the no-confusion axiom c(X0) and c(Y0) only where X0 and Y0 meet (kore.txt:62). At Y = 0 and Y = 1 f() equals c(0) and c(1), which have no element in common: no model, as the K text has none. kompile writes no axiom that f has at most one value; the injectivity of c alone gives the contradiction."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:88-92"
+quote = '''\equals{SortT{},R} ( Lblf{}(), \and{SortT{}} ( Lblc{}(VarY:SortInt{}), \top{SortT{}}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:62"
+quote = '''axiom{}\implies{SortT{}} (\and{SortT{}} (Lblc{}(X0:SortInt{}), Lblc{}(Y0:SortInt{})), Lblc{}(\and{SortInt{}} (X0:SortInt{}, Y0:SortInt{}))) [constructor{}()]'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:882-883 (K 7.1.337)"
+quote = '''$\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$'''

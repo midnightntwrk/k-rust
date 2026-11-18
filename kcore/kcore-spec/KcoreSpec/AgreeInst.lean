@@ -873,9 +873,13 @@ theorem fnExclusiveI_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   · exact pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 hl hprio
   · have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+    replace hc1' := hc1'.1
+    replace hc2' := hc2'.1
     exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
   · have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+    replace hc1' := hc1'.1
+    replace hc2' := hc2'.1
     exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi).symm
 
 theorem ovlClosure_self (f : Sym) : f ∈ c.ovlClosure f := by
@@ -970,6 +974,8 @@ theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   have hc2 := hcls cl' h2
   have hc1' := hc1; have hc2' := hc2
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+  replace hc1' := hc1'.1
+  replace hc2' := hc2'.1
   simp only [Semantics.pairAgreeO, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((((⟨⟨hf1, hf2⟩, hl⟩ | ⟨-, hi | hi⟩) | hne) | ha) | hh)
   · exact pairAgreeL_sound hmc hf1 hf2 hc1 hc2 hl hprio

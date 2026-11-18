@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t196-overload-fn.k": "0d6d42cc7c2602ea0d51c959ea466e4ea48deb199d5bd3d583f03fa255b00a42"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t196-overload-fn.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "9b3006c9e2c0399131c06e9b07105fad6bc3994f46d042f2cd313970949183a6",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

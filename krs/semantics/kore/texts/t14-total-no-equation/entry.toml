@@ -13,7 +13,7 @@ status = "unsettled"
 reason = """
 (1) The total attribute says that the symbol cannot be equal to bottom and has at least one value at every argument, and with the function attribute exactly one (user_manual.md:546-551). The pattern equation that states it is the one of introduction-to-matching-logic.tex:960-963: every even(x) is one element. So even(1) is a Bool value: having no value is excluded by the text.
 (2) The one equation states even(0) = true and nothing at 1 (kk:t11-eq-applies). No other sentence speaks of even(1).
-(3) So the text admits a model where even(1) is true and one where it is false, and states neither. Each value of the result sort is one reading."""
+(3) So the text admits a model where even(1) is true and one where it is false, and states neither. Each value of the result sort is one reading; the reading rest keeps the choice open, per interpretation."""
 
 [[ruling.basis]]
 source = "manual"
@@ -36,6 +36,12 @@ name = "value-false"
 statement = "The uncovered application is false."
 answer = "even(1) = false."
 consequence = "A rule whose requires is even(1) does not apply, and one of a larger priority number or [owise] beside it is tried."
+
+[[reading]]
+name = "rest"
+statement = "The text does not choose: in each interpretation even(1) is true or false, and the text holds of even(1) only what holds under both."
+answer = "even(1) is true in the interpretations where it is true and false in the others; the text names neither value."
+consequence = "Of a rule whose requires is even(1) the text states only that it applies in the interpretations where even(1) is true, and that a rule of a larger priority number or [owise] beside it is tried in the others."
 
 [ruling.kore]
 statement = '''The kompiled text holds even's functional axiom: for every integer K0 one Bool element equals even(K0) (kore.txt:50, the form of introduction-to-matching-logic.tex:960-964), and one equation, even(X0) = true where X0 is 0. So even(1) is one of the two Bool values, and no sentence says which.'''

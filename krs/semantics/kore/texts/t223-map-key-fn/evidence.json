@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t223-map-key-fn.k": "45b8f01bd219e9372fccecf9e3dec3808fbcd8fc2a8a6d1c0d42af48dec12f38"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t223-map-key-fn.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "4ad0bffb7a5233036571292569091452808c501fceb524feee673010e3869502",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

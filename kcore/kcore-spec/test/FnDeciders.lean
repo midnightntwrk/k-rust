@@ -165,12 +165,13 @@ theorem ls_S_not_independent : ¬ MatchIndependent ls clS := by
     cases h1; cases h2; rfl
   have hlow : ∀ cl' ∈ [clS], cl'.aside = false → cl'.prio < clS.prio → Fails ls [l1] cl' :=
     fun cl' h _ hlt => absurd hlt (by simp at h; subst h; decide)
-  rcases h [l1] _ _ ha hb (fun _ ht => by cases ht) (fun _ => hdet) (fun _ ht => by cases ht)
+  rcases h.1 [l1] _ _ ha hb (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨S, ⟨S, [Srt.list], Srt.list, [clS], false⟩, rfl, by simp, by simp, ⟨ha, hlow⟩, ⟨hb, hlow⟩⟩ with
-    ⟨-, -, hv, -⟩ | hr
+    ⟨-, -, -, -, hv, -⟩ | hr
   · have := hv 0 (by simp [clS, varOccs])
     simp [l1, l0] at this
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .var⟩) (.inl ⟨(fun _ ht => by cases ht), .var⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
     simp [l1, l0] at this
 
 /-! ## 4. Agreement: list patterns apart, and not apart -/
@@ -240,11 +241,12 @@ theorem ag_B_disagree : ¬ ClausesAgree ag fnB := by
     have : cl'.prio = 50 := by simp [fnB, clB0, clB1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
   rcases (h clB0 clB1 hp (.inl rfl)).1 [l1] _ _ ⟨hws0, hm0, (fun _ ht => by cases ht), .top⟩
-      ⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ => hdet) (fun _ ht => by cases ht)
+      ⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨B, fnB, rfl, by simp [fnB], by simp [fnB], ⟨⟨hws0, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
-        ⟨⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩⟩ with ⟨hr, -⟩ | hr
+        ⟨⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
   · simp [clB0, clB1] at hr
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .dv⟩) (.inl ⟨(fun _ ht => by cases ht), .dv⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
     simp at this
 
 def Cc : Sym := nRegSyms + 111

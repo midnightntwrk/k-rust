@@ -884,15 +884,15 @@ theorem iteParam_skipped_undef (hp : c.lookupParam f = some k) (hc : c.isCtor f 
   refine EvalTerm.param hc hh hpar (.cons hC (.cons hA (.cons hB .nil))) ?_
   cases rC <;> cases rA <;> rfl
 
-/-- With evaluation functional (`CoherentAll`, no clause with an existential variable), every strict result of `ite{S}(C, A, B)`
+/-- With evaluation functional (`CoherentAll`), every strict result of `ite{S}(C, A, B)`
 with C true is A's, B evaluated to a value. -/
-theorem iteParam_true_eq (hmi : CoherentAll c) (hno : c.FnsNoExs) (hp : c.lookupParam f = some k)
+theorem iteParam_true_eq (hmi : CoherentAll c) (hp : c.lookupParam f = some k)
     (hk : k.impl = some kIte) (hc : c.isCtor f = false) (hh : isHook f = false)
     {rA r : Option GroundTerm} {w : GroundTerm}
     (hC : EvalTerm c σ C (some (bool true))) (hA : EvalTerm c σ A rA)
     (hAs : ∀ a, rA = some a → c.sortOf a = some k.sig.result)
     (hB : EvalTerm c σ B (some w)) (h : EvalTerm c σ (.app f [C, A, B]) r) : r = rA :=
-  EvalTerm.functional hmi hno h (iteParam_true hp hk hc hh hC hA hAs hB)
+  EvalTerm.functional hmi h (iteParam_true hp hk hc hh hC hA hAs hB)
 
 /-- `A andBool B` with A false: the strict result is false, B evaluated to a Bool. -/
 theorem andBool_false (hc : c.isCtor boolAnd = false) {b : Bool}
@@ -924,11 +924,11 @@ theorem andBool_skipped_undef (hc : c.isCtor boolAnd = false) {rA : Option Groun
 
 /-- With evaluation functional, every strict result of `A andBool B` with A false is false, B
 evaluated to a Bool. -/
-theorem andBool_false_eq (hmi : CoherentAll c) (hno : c.FnsNoExs) (hc : c.isCtor boolAnd = false) {b : Bool}
+theorem andBool_false_eq (hmi : CoherentAll c) (hc : c.isCtor boolAnd = false) {b : Bool}
     {r : Option GroundTerm} (hA : EvalTerm c σ A (some (bool false)))
     (hB : EvalTerm c σ B (some (bool b))) (h : EvalTerm c σ (.app boolAnd [A, B]) r) :
     r = some (bool false) :=
-  EvalTerm.functional hmi hno h (andBool_false hc hA hB)
+  EvalTerm.functional hmi h (andBool_false hc hA hB)
 
 end Agree
 

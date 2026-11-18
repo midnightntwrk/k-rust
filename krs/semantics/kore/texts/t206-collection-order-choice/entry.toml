@@ -1,0 +1,68 @@
+id = "t206-collection-order-choice"
+kind = "text"
+subject = "The order of keys_list, values and Set2List, the item of Map:choice and Set:choice, and choice of an empty collection: what the MAP, SET and COLLECTIONS modules state."
+retro = ["H8"]
+
+[text]
+declaration = { source = "domains", locator = "k-distribution/include/kframework/builtin/domains.md:799-801 (K 7.1.337)", quote = "You can get an arbitrarily chosen element of a `Set` in O(1) time. The same element will always be returned for the same set, but no guarantee is given that two different sets will return the same element, even if they are similar." }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["MAP.choice", "SET.choice", "MAP.keys_list", "MAP.values", "SET.set2list"]
+statement = "choice of a set or map with a member is one of its elements or keys, the same at every occurrence, and which one is not stated. keys_list(M) holds all the keys of M and values(M) all its values, and Set2List(S) is a list whose set is S, the same for equal sets; no order of any of them is stated. choice of an empty collection is not stated: no sentence and no #False speaks of it."
+points = [
+  { at = "choice(SetItem(1) SetItem(2))", value = "1 or 2, the same at every occurrence; which is unstated" },
+  { at = "Set2List(SetItem(1) SetItem(2))", value = "ListItem(1) ListItem(2) or ListItem(2) ListItem(1); which is unstated" },
+  { at = "choice(.Set), choice(.Map)", value = "unstated" },
+]
+reason = """
+(1) choice of a set or a map gives an arbitrarily chosen element or key of it, the same for the same collection, with no other guarantee (domains.md:799-801, 388-390). The sentence fits a collection with a member only; a value it does not state is unstated, and the module writes no #False for the empty collection, and does not declare choice total (domains.md:393, 804). So choice of an empty collection is unstated, not without value: the reading that it has no value because there is nothing to choose would need a sentence saying so.
+(2) keys_list(M) holds all the keys of M and values(M) all its values (domains.md:346, 362); Set2List(S) is a list whose set is S, in an arbitrary order, the same for equal sets (domains.md:1050-1061), and has a value at every set (total, domains.md:1069). No order is stated; nor whether keys_list repeats a key, nor how values is ordered against keys_list.
+(3) These are statements of the admitted values, not of one value: at each point above the text admits the values listed and names none of them."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:799-801 (K 7.1.337)"
+quote = "You can get an arbitrarily chosen element of a `Set` in O(1) time. The same element will always be returned for the same set, but no guarantee is given that two different sets will return the same element, even if they are similar."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:388-390 (K 7.1.337)"
+quote = "You can get an arbitrarily chosen key of a `Map` in O(1) time. The same key will always be returned for the same map, but no guarantee is given that two different maps will return the same element, even if they are similar."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1055-1059 (K 7.1.337)"
+quote = "Note that because sets are unordered and lists are ordered, converting from a Set to a List will generate some arbitrary ordering of elements, which may be different from the natural ordering you might assume, or may not. Two equal sets are guaranteed to generate the same ordering, but no guarantee is otherwise provided about what the ordering will be."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:346 (K 7.1.337)"
+quote = "You can get a `List` of all the keys in a Map in O(N) time."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:362 (K 7.1.337)"
+quote = "You can get a `List` of all the values in a map in O(N) time."
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:393 (K 7.1.337)"
+quote = "syntax KItem ::= choice(Map) [function, hook(MAP.choice), symbol(Map:choice)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:804 (K 7.1.337)"
+quote = "syntax KItem ::= choice(Set) [function, hook(SET.choice), symbol(Set:choice)]"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1069 (K 7.1.337)"
+quote = "syntax List ::= Set2List(Set) [function, total, hook(SET.set2list)]"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1051-1053 (K 7.1.337)"
+quote = "Converting from a `Set` to a `List` and back will generate the same set."

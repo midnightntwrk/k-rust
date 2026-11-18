@@ -1,0 +1,35 @@
+id = "t225-pgm-outside-k"
+kind = "text"
+subject = "The configuration variable $PGM in a cell other than <k>: configuration <k> .K </k> <q> $PGM:Pgm </q>. Which cell $PGM initializes, and at which sort."
+retro = ["R8"]
+
+[text]
+files = ["t225-pgm-outside-k.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "$PGM initializes the cell it is written in, <q>, at the sort of its cast, Pgm; <k> starts empty. $PGM is special only as krun's positional argument and for the parsing module of its value; no sentence ties it to <k>, and a definition need not have it."
+reason = """
+(1) A configuration variable in a cell declares that at the start of rewriting the contents of that cell are initialized with the variable's value; configuration variables are inputs to krun, and $PGM by default uses the main syntax module (k-tutorial 15_configurations/README.md:27-32). The cast on the variable gives the sort used to parse it (README.md:34-38).
+(2) So $PGM:Pgm in <q> initializes <q> with a Pgm. The tutorial's own definition without a $PGM (README.md:109-110) shows that a definition need not have it, and no sentence of the manual or the tutorial ties $PGM to <k>."""
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/15_configurations/README.md:27-32 (K 7.1.337)"
+quote = "This configuration declaration declares a single cell, the `<k>` cell. It also declares that at the start of rewriting, the contents of that cell should be initialized with the value of the `$PGM` **configuration variable**. Configuration variables function as inputs to `krun`."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/15_configurations/README.md:34-38 (K 7.1.337)"
+quote = "The cast on the configuration variable also specifies the sort that is used as the entry point to the parser"
+
+[ruling.kore]
+statement = "kompile writes the initializer of <q> as <q>(project:Pgm(Map:lookup(Init, $PGM))) (kore.txt:199), and the initializer of <k> with no configuration variable. The written sentences state what the ruling states."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:199"
+quote = '''Lbl'-LT-'q'-GT-'{}(Lblproject'Coln'Pgm{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$PGM"))),dotk{}()))),'''

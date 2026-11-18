@@ -88,13 +88,15 @@ def mapItemHead (f : Sym) : Bool :=
 holding and the functions of `tot` total: a constructor, an interpreted symbol other than
 `partialHooks`, an Int division by a term `nonzeroIn fs`, `ite{S}`, a parameter of `tp` no registry
 hook implements (`totalParam`), a function of `tot`, a map collection's element symbol
-(`mapItemHead`), an overloading symbol (whose normal form is defined at every argument list). -/
+(`mapItemHead`), an overloading symbol that is not function-overloaded (its normal form is defined
+at every argument list; a function-overloaded one has, at arguments a function it overloads covers,
+that function's value, which may be undefined). -/
 def headTotalG (tot tp : List Sym) (fs : List (Term × Bool)) (f : Sym) (ts : List Term) : Bool :=
   c.isCtor f || (isHook f && !partialHooks.contains f) ||
   (divHooks.contains f && divArgOK fs ts) ||
   c.iteHead f || c.totalParam tp f ||
   (!isHook f && !c.isParam f && tot.contains f) || c.mapItemHead f ||
-  ((c.lookupOvl f).isSome && c.isOvl f)
+  ((c.lookupOvl f).isSome && c.isOvl f && !c.fnOvlSyms.contains f)
 
 mutual
   /-- A term whose value is defined wherever its variables have values, the literals `fs` hold and
@@ -206,7 +208,7 @@ theorem asInt_int_inv {w : GroundTerm} {x : Int} (h : asInt w = some x) : w = in
   | _ => simp [asInt] at h
 
 /-- A term `nonzeroIn fs` with a value, the literals `fs` holding: its value is not 0. -/
-theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {fs : List (Term × Bool)} {d : Term} {y : Int}
+theorem nonzeroIn_sound (hco : CoherentAll c) {σ : Subst} {fs : List (Term × Bool)} {d : Term} {y : Int}
     (hfs : ∀ l ∈ fs, EvalTerm c σ l.1 (some (bool l.2))) (h : Semantics.nonzeroIn fs d = true)
     (hd : EvalTerm c σ d (some (int y))) : y ≠ 0 := by
   simp only [Semantics.nonzeroIn, Bool.or_eq_true, List.any_eq_true] at h
@@ -233,7 +235,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
         have hu := Term.beq_sound hu
         subst hu
         obtain ⟨v, x, ev, hx, hlo, hhi⟩ := intBound_sound hb he
-        have := EvalTerm.functional hco hno ev hd
+        have := EvalTerm.functional hco ev hd
         cases this
         simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hx
         subst hx
@@ -259,7 +261,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
             obtain ⟨w', hw', hk⟩ := intLitOf_eval hy ew
             cases hw'
             rw [hY] at hk; cases hk
-            have := EvalTerm.functional hco hno ev hd
+            have := EvalTerm.functional hco ev hd
             cases this
             simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hX
             subst hX
@@ -269,7 +271,7 @@ theorem nonzeroIn_sound (hco : CoherentAll c) (hno : c.FnsNoExs) {σ : Subst} {f
             obtain ⟨w', hw', hk⟩ := intLitOf_eval hx ev
             cases hw'
             rw [hX] at hk; cases hk
-            have := EvalTerm.functional hco hno ew hd
+            have := EvalTerm.functional hco ew hd
             cases this
             simp only [asInt, int, beq_self_eq_true, ite_true, Option.some.injEq] at hY
             subst hY
@@ -345,7 +347,49 @@ theorem headTotalG_cases {tot tp : List Sym} {fs : List (Term × Bool)} {f : Sym
   · exact .inr (.inr (.inr (.inr (.inl h))))
   · exact .inr (.inr (.inr (.inr (.inr (.inl ⟨h.1.1, h.1.2, h.2⟩)))))
   · exact .inr (.inr (.inr (.inr (.inr (.inr (.inl h))))))
-  · exact .inr (.inr (.inr (.inr (.inr (.inr (.inr h.2))))))
+  · exact .inr (.inr (.inr (.inr (.inr (.inr (.inr h.1.2))))))
+
+/-- No label of `totalLabels` is the number of a symbol `lookupFn` finds no function under. -/
+theorem totalLabels_of_lookupFn_none {f : Sym} (h : c.lookupFn f = none) : c.totalLabels.contains f = false := by
+  rw [Semantics.lookupFn_eq] at h
+  have key : ∀ fn ∈ c.allFns, fn.label ≠ f := fun fn hfn he => by
+    have := List.find?_eq_none.mp h fn hfn
+    simp [he] at this
+  cases hc' : c.totalLabels.contains f with
+  | false => rfl
+  | true =>
+    have hm := List.contains_iff_mem.mp hc'
+    simp only [Semantics.totalLabels, List.mem_append, List.mem_map, List.mem_filter] at hm
+    rcases hm with ⟨fn, ⟨hfn, -⟩, rfl⟩ | ⟨fn, hfn, rfl⟩
+    · exact absurd rfl (key fn (List.mem_append_left _ hfn))
+    · exact absurd rfl (key fn (List.mem_append_right _ hfn))
+
+/-- An overloading symbol `headTotalG` admits over `totalLabels` is not function-overloaded: it is
+none of the other heads. -/
+theorem headTotalG_ovl {tp : List Sym} {fs : List (Term × Bool)} {f : Sym} {ts : List Term}
+    (h : c.headTotalG c.totalLabels tp fs f ts = true) (ho : c.isOvl f = true) :
+    c.fnOvlSyms.contains f = false := by
+  obtain ⟨hct, hhk, hp, hfn, -⟩ := c.isOvl_parts ho
+  have htl := totalLabels_of_lookupFn_none hfn
+  simp only [Semantics.headTotalG, Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
+  rcases h with ((((((h | h) | h) | h) | h) | h) | h) | h
+  · rw [hct] at h; cases h
+  · rw [hhk] at h; cases h.1
+  · rw [divHooks_isHook h.1] at hhk; cases hhk
+  · simp only [Semantics.iteHead, hhk, Bool.not_false, Bool.true_and] at h
+    cases hl : c.lookupParam f with
+    | none => rw [hl] at h; cases h
+    | some _ => simp [Semantics.isParam, hl] at hp
+  · simp only [Semantics.totalParam, Bool.and_eq_true] at h
+    cases hl : c.lookupParam f with
+    | none => rw [hl] at h; exact absurd h.2 (by simp)
+    | some _ => simp [Semantics.isParam, hl] at hp
+  · rw [htl] at h; cases h.2
+  · simp only [Semantics.mapItemHead, hhk, Bool.not_false, Bool.true_and] at h
+    cases hl : c.lookupParam f with
+    | none => rw [hl] at h; cases h
+    | some _ => simp [Semantics.isParam, hl] at hp
+  · exact h.2
 
 /-- A map collection's element symbol at a key and a value of the collection's sorts: the one-entry
 map of its result sort. -/
@@ -465,6 +509,7 @@ theorem clauseSorted_of_sortedOK (hok : c.sortedOK = true) {fn : Fn} (hfn : fn �
   simp only [Bool.and_eq_true, List.all_eq_true] at hok
   have := hok.1.2 fn hfn cl hcl
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+  replace this := this.1
   exact this.1.1.1.1.1
 
 section Induction
@@ -577,7 +622,7 @@ theorem tot_hookN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
       obtain ⟨r₁, r₂, he, _, e2⟩ := evalTerms_two hts
       simp only [List.map_cons, List.map_nil, List.cons.injEq] at he
       obtain ⟨-, rfl, -⟩ := he
-      have hy := nonzeroIn_sound hco (Semantics.fnsNoExs_of_sortedOK hok) hfs hnz e2
+      have hy := nonzeroIn_sound hco hfs hnz e2
       obtain ⟨v, hv⟩ := divHooks_value hdiv x y hy
       rw [Semantics.hookRes_of_value hv] at hr
       exact ⟨v, (Option.some.inj hr).symm⟩
@@ -670,7 +715,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact ⟨v, Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.clause hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost) hv⟩
+        exact ⟨v, Eval.functional hco (Eval.clause hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost) hv⟩
       · obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn (List.mem_append_left _ hfn')
         simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         refine ihrhs L hL cl.vars hσ _ (hrs cl hmem) (reqLits cl.req) (fun l hl => ?_) (hokG.1.2 cl hmem)
@@ -686,7 +731,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact ⟨v, Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.rest hfn hnone) hv⟩
+        exact ⟨v, Eval.functional hco (Eval.rest hfn hnone) hv⟩
       · exfalso
         simp only [Semantics.totalOKG, Bool.and_eq_true] at hokG
         replace hokG := hokG.1
@@ -731,7 +776,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
           have e1 := negT_true hnc (hft L₁ hL₁ hs1 hg1)
           have e2 := negT_true hnc (hft' L₁ hL₁ (hvv ▸ hs2) hg2)
           exact reqsExclusive_sound hex (.inl fun u hu => by
-              cases hu; exact (EvalTerm.functional_hdet hco (Semantics.fnsNoExs_of_sortedOK hok) e1).2)
+              cases hu; exact (EvalTerm.functional_hdet hco e1).2)
             (fun u hu => by cases hu; exact e1) (fun u hu => by cases hu; exact e2))
     -- a clause decides and its `ensures` is not `true`: no function `totalOKG` accepts has one
     (fun {f fn₀ vs cl σ t w} hfn hmem hσ hmatch hreq hpre hprio hex ht he hw _ _ _ _ => by
@@ -740,7 +785,7 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       subst e
       rcases hT with hT | ⟨hfn', hokG, hb⟩
       · obtain ⟨v, hv⟩ := hT fn hfn vs hvs
-        exact absurd (Eval.functional hco (Semantics.fnsNoExs_of_sortedOK hok) (Eval.ensFails hfn hmem hσ hmatch hreq hpre hprio hex ht he hw) hv) (by simp)
+        exact absurd (Eval.functional hco (Eval.ensFails hfn hmem hσ hmatch hreq hpre hprio hex ht he hw) hv) (by simp)
       · simp only [Semantics.totalOKG, Bool.and_eq_true, List.all_eq_true] at hokG
         have := hokG.2 cl hmem
         rw [ht] at this
@@ -805,8 +850,16 @@ theorem eval_value_of_GN {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
       obtain ⟨k, _, hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨ws, rfl⟩ := ihts L hL vars hσ _ hargs fs hfs htt.2
       exact ⟨_, by rw [allSome_map_some]; rfl⟩)
-    -- no function overload covers the arguments of an overloading symbol
-    (fun _ _ _ _ _ hcov _ _ _ => by rw [hc.sort.ovl.fnCover_none] at hcov; cases hcov)
+    -- a function overload covers the arguments: `headTotalG` admits no function-overloaded symbol
+    (fun {σ f ts rs vs o kg r} _ ho _ _ _ hcov _ _ _ => by
+      intro L hL vars hσ s ht fs hfs htt
+      simp only [Semantics.totalTermG, Bool.and_eq_true] at htt
+      obtain ⟨o', ho', hkg, hb, -⟩ := OvlLaws.fnCover_some_parts hcov
+      have hm := OvlLaws.fnOvlSyms_of_byFn (OvlLaws.mem_of_lookupOvl ho') hkg hb
+      rw [(OvlLaws.lookupOvl_spec ho').1] at hm
+      have := headTotalG_ovl htt.1 ho
+      rw [List.contains_iff_mem.mpr hm] at this
+      cases this)
     -- argument lists
     (fun _ _ _ _ _ _ _ _ _ => ⟨[], rfl⟩)
     (fun {σ t ts r rs} _ _ ih1 ih2 => by

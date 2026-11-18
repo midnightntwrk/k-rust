@@ -561,7 +561,12 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
+      | true =>
+        have hsc := sortCtx_of_all h.1 h.2.1 (OvlOK.ovlCase h.2.2.2.2.2.2.2.2)
+        obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk hov
+        exact EvalTerm.ovl_result (h.2.2.2.2.2.2.2.2.hyp hsc.trans).fnFacts hc' hov hrs hlo
+          (fun ws has => EvalTerms.sorted hsc hrs hL hσ hargs has)
+          (fun kg _ _ fn hfn _ hn vs hvs => hn ▸ hft fn hfn vs hvs)
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩
@@ -637,27 +642,41 @@ theorem prioDecided_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : PrioD
   exact evalTerm_total_atMP hs ht hL hσ' (Clause.req_leftVarsRH hq) (hreqs t hq)
 
 /-- Where every function has a result at arguments of its sorts, each clause instance has a result
-at each well-sorted match (`CoDefined`): its `ensures` has one, and where that is `true`, its
+under each well-sorted substitution: its `ensures` has one, and where that is `true`, its
 right-hand side. -/
-theorem coDefined_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : CoDefined c := by
-  intro fn hfn vs cl σ cl' σ' _ hcl' _ hdec' _
+theorem instRes_of_total (hs : HypSoundCore c) (ht : FnTerminates c) {fn : Fn} (hfn : fn ∈ c.fns)
+    {cl' : Clause} (hcl' : cl' ∈ fn.clauses) {σ' : Subst} (hσ' : c.WellSorted cl'.vars σ') :
+    ∃ r, cl'.InstRes c σ' r := by
   obtain ⟨-, -, L, hL, -, hrhs, hens⟩ := clause_ctxOccE hs.1 (List.mem_append_left _ hfn) hcl'
-  obtain ⟨r, hr⟩ := evalTerm_total hs ht hL hdec'.1.1 hrhs
+  obtain ⟨r, hr⟩ := evalTerm_total hs ht hL hσ' hrhs
   cases he : cl'.ens with
   | none => exact ⟨r, .inl ⟨fun t ht => (by rw [he] at ht; cases ht), hr⟩⟩
   | some t =>
-    obtain ⟨w, hw⟩ := evalTerm_total hs ht hL hdec'.1.1 (hens t he)
+    obtain ⟨w, hw⟩ := evalTerm_total hs ht hL hσ' (hens t he)
     by_cases hb : w = some (bool true)
     · subst hb
       exact ⟨r, .inl ⟨fun t' ht' => (by rw [he] at ht'; cases ht'; exact hw), hr⟩⟩
     · exact ⟨none, .inr ⟨t, w, he, hw, hb, rfl⟩⟩
 
+/-- Where every function has a result at arguments of its sorts, each clause instance has a result
+at each well-sorted match (`CoDefined`, `instRes_of_total`). -/
+theorem coDefined_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : CoDefined c :=
+  fun _ hfn _ _ _ _ _ _ hcl' _ hdec' _ => instRes_of_total hs ht hfn hcl' hdec'.1.1
+
 /-- **Evaluation solves the equations** where every function has at most one result and a result
-at arguments of its sorts. -/
-theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c) : FnSolves c :=
-  fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
-    (fun fn hfn => Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn))
-    (prioDecided_of_total hs ht) (coDefined_of_total hs ht)
+at arguments of its sorts, and each clause with existential variables has a result (`Clause.Res`)
+at each match under which it decides (`hex`; `MatchIndependent` holds it). A clause without
+existential variables has one by the termination, its right side's predicate being `\top`. -/
+theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c)
+    (hex : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.exs ≠ [] → ∀ vs σ, cl.Decides c fn σ vs → ∃ r, cl.Res c σ r) :
+    FnSolves c :=
+  fnSolves_of_res (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
+    (prioDecided_of_total hs ht) fun fn hfn cl hcl vs _ σ hdec => by
+      by_cases hx : cl.exs = []
+      · obtain ⟨r, hr⟩ := instRes_of_total hs ht hfn hcl hdec.1.1
+        exact ⟨r, Clause.res_of_instRes hx
+          (Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn) cl hcl).2 hr⟩
+      · exact hex fn hfn cl hcl hx vs σ hdec
 
 /-! ## `⌈req = true⌉` -/
 

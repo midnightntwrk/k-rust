@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t221-anywhere-rule-rejected.k": "08e59d55227ce90931f316429973fc37147505d5d0db6c86afd9edac82234c2b"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t221-anywhere-rule-rejected.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: anywhere is not supported by the haskell backend.\n\tSource(t221-anywhere-rule-rejected.k)\n\tLocation(5,8,5,20)\n\t5 |\t  rule a(X) => b(X) [anywhere]\n\t  .\t       ^~~~~~~~~~~~\n[Error] Compiler: Had 1 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT221-ANYWHERE-RULE-REJECTED-SYNTAX in definition.  Use --syntax-module to\nspecify one. Using T221-ANYWHERE-RULE-REJECTED as default.",
+  "release": "K v7.1.337"
+ }
+}

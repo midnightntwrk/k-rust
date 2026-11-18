@@ -55,10 +55,16 @@ statement = "even(3) is false (kk:t14-total-no-equation, reading value-false)."
 finals = ["no(3)"]
 consequence = "The rule of priority 50 does not apply at go(3), and the [owise] rule steps it to no(3) alone."
 
+[[reading]]
+name = "rest"
+statement = "The text does not choose: in each interpretation even(3) is true or false (kk:t14-total-no-equation, reading rest)."
+answer = "Per interpretation, yes(3) where even(3) is true and no(3) where it is false: each final configuration under the condition on even(3) that selects it."
+consequence = "Only what holds under both value-true and value-false is a consequence of the text: go(3) has exactly one successor, and that successor is final."
+
 [[disposition]]
 implementation = "haskell"
-is = "difference"
-reason = "It gives yes(3) under the condition even(3) = true and no(3) under its negation: each reading's final configuration under the condition that selects it, which is the finals of no one reading. The entry rests on a base entry that names one reading per value and none for the text's leaving the value open, so no reading:<name> fits this result."
+is = "reading:rest"
+reason = "It gives yes(3) under the condition even(3) = true and no(3) under its negation: each final configuration under the condition on even(3) that selects it, which is the reading rest and cannot be compared mechanically with a list of finals."
 
 [[disposition]]
 implementation = "llvm"

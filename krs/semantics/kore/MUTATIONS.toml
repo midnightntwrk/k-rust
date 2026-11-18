@@ -172,7 +172,7 @@ id = "subsort-not-transitive"
 misunderstanding = "only the stated subsorts hold: the subsort relation is not closed under transitivity [premise: matching]"
   [[mutation.edit]]
   rule = "KORE.above-hit"
-  find = "leq(Y, B, All)"
+  find = "Y ==Int B orBool above(Y, B, All, All, F)"
   replace = "Y ==Int B"
 
 [[mutation]]
@@ -190,6 +190,14 @@ misunderstanding = "the subsort relation is read backwards when matching an inje
   rule = "KORE.m-inj-sub"
   find = "leq(C, A, S)"
   replace = "leq(A, C, S)"
+
+[[mutation]]
+id = "subsort-walk-out-holds"
+misunderstanding = "a walk of the subsort table that has taken as many entries as the table holds is read as having reached the sort sought: a sort from which a path of the table's length starts is read as below every sort [premise: matching]"
+  [[mutation.edit]]
+  rule = "KORE.above-dry"
+  find = "=> false"
+  replace = "=> true"
 
 [[mutation]]
 id = "inj-not-composed"

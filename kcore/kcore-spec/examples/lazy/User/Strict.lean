@@ -49,8 +49,7 @@ theorem t3_none : CExec.successorsN (c.withHooks HookParams.none) 100 (cfg (cmd 
 there, so `false andBool p(0)` is. -/
 theorem t3_ends (hf : (c.withHooks HookParams.none).sortOf (cfg (cmd Sym.«t3»)) = some topCellSort) :
     ∀ y, ¬ Step (c.withHooks HookParams.none) ⟨_, hf⟩ y :=
-  CExec.noStep_at (by decide +kernel) (fnDet_of_coherent (coherent_withHooks HookParams.none)
-      (Semantics.fnsNoExs_of_ok ((Semantics.ok_withHooks c HookParams.none).trans ok))) t3_fuel t3_none
+  CExec.noStep_at (by decide +kernel) (fnDet_of_coherent (coherent_withHooks HookParams.none)) t3_fuel t3_none
 
 theorem t1_config : c.sortOf (cfg (cmd Sym.«t1»)) = some topCellSort := by decide +kernel
 
@@ -88,7 +87,7 @@ theorem inv_obligation_fails : ∃ o ∈ defn.sem.lazyObligations, ¬ o.Holds de
     have hundef : EvalTerm c σ (.app KCore.intTDiv [.dv KCore.Srt.int (.int 100), .var 0]) none :=
       EvalTerm.hook (by decide +kernel) rfl (.cons .dv (.cons .var .nil))
         (fun vs hv => by simp only [σ, allSome, List.lookup] at hv; cases hv; rfl) (fun hv => by cases hv)
-    cases EvalTerm.functional coherent (Semantics.fnsNoExs_of_ok ok) hv hundef
+    cases EvalTerm.functional coherent hv hundef
 
 /-- info: 'Lazy.Strict.inv_obligation_fails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

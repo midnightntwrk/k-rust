@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-axiom-shape/hw-axiom-shape.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-axiom-shape/hw-axiom-shape.kore` (cwd: kcore-spec)
+definition.kore bytes: 247498
+definition.kore sha256: 605e42a7d9104bd072e12f75af4cbfc9945b1bc7c754c87c3b8eca03cf9ac7c4

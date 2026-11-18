@@ -60,7 +60,15 @@ files = ["{id}.k"]
 kompile = "{kompile}"
 
 [ruling]
-status = "pending"
+status = "settled"
+form = "means"
+statement = "A hand-built statement."
+reason = "By the sentence quoted."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/manual.md:1 (K 7.1.337)"
+quote = "one"
 '''
 
 
@@ -156,7 +164,7 @@ class Build(Base):
                                                     "(cwd: a copy of the entry's directory)",
                                          'kore.txt': check.sha(os.path.join(d, 'kore.txt'))})
         self.assertNotIn('ruling_canonical', ev)
-        ok, line, _, _ = check.check_entry(d, {'t01-x': 'pending'}, None, True)
+        ok, line, _, _ = check.check_entry(d, {'t01-x': 'settled'}, None)
         self.assertTrue(ok, line)
 
     def test_text_refused_is_a_result(self):
@@ -172,7 +180,7 @@ class Build(Base):
             text = f.read()
         self.assertIn('exit: 113\n', text)
         self.assertNotIn(self.root, text + json.dumps(ev))
-        ok, line, _, _ = check.check_entry(d, {'t01-x': 'pending'}, None, True)
+        ok, line, _, _ = check.check_entry(d, {'t01-x': 'settled'}, None)
         self.assertTrue(ok, line)
 
     def test_unexpected_kompile_result_is_written_and_reported(self):
@@ -180,7 +188,7 @@ class Build(Base):
         _, ev, notes = self.build(d, FakeRunner(refuse=True))
         self.assertEqual(notes, ['UNEXPECTED: text.kompile is accepts and kompile exited 113'])
         self.assertEqual(ev['kompile']['exit'], 113)
-        ok, line, _, _ = check.check_entry(d, {'t01-x': 'pending'}, None, True)
+        ok, line, _, _ = check.check_entry(d, {'t01-x': 'settled'}, None)
         self.assertFalse(ok)
         self.assertIn('text.kompile is accepts and kompile exited 113', line)
 
@@ -275,7 +283,7 @@ class Quotes(Base):
                                 ('kore-syntax', 'haskell-backend/docs/kore.md:2', 'KORE line'),
                                 ('kompiled', 'kore.txt:2', 'axiom{} a'))
         self.assertEqual(code, 0, out)
-        self.assertIn('t01-x: ok, 4 quote(s)', out)
+        self.assertIn('t01-x: ok, 5 quote(s)', out)
 
     def test_quote_not_at_its_locator(self):
         for basis, why in ((('manual', 'docs/manual.md:3', 'A sentence that'), 'not at docs/manual.md:3'),

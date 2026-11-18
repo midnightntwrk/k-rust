@@ -1,7 +1,7 @@
 id = "c51-fn-ensures-owise"
 kind = "case"
 subject = "c50 with an [owise] equation half(_) => 0 beside the equation with an ensures: whether the [owise] equation applies where the ensures is false (half(-4)), and whether run(-4), whose rule's right side then has no value, is final."
-retro = ["R3"]
+retro = ["F3", "R1"]
 rests_on = ["kk:t02-step-successors", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t12-eq-priority-owise", "kk:t15-eq-ensures"]
 
 [text]

@@ -1,0 +1,15 @@
+command: kompile --backend haskell t222-rule-lhs-fun-rejected.k -o out  (cwd: a copy of the entry's directory)
+release: K v7.1.337
+exit: 113
+kore.txt: none, kompile wrote no definition
+messages:
+  [Error] Compiler: Illegal function symbol f on LHS of rule. Consider adding
+  `simplification` attribute to the rule if this is intended.
+  	Source(t222-rule-lhs-fun-rejected.k)
+  	Location(9,14,9,22)
+  	9 |	  rule <k> c(f(X:Int)) => d(X) ... </k>
+  	  .	             ^~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  T222-RULE-LHS-FUN-REJECTED-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using T222-RULE-LHS-FUN-REJECTED as default.

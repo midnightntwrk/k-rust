@@ -177,6 +177,8 @@ theorem plainH (H : HookParams) : (cH H).plain = true :=
 functional axiom of a function, so the text's `functional` sentence of `f` is not read here. -/
 theorem consistent (H : HookParams) : Consistent (cH H) :=
   consistent_of (cH H) (coreOKH H) (fnModelH H).1 (fnModelH H).2
+    (clausePreDecided_of_isTop (c := cH H)
+      (by decide +kernel : (c.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop) = true))
     (openLaws_of_plain (Semantics.plain_parts (plainH H)).2.2)
 
 /-! ## The expectations (C7 form (a)) -/
