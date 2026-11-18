@@ -1,0 +1,16 @@
+observed = """
+.RangeMap, <=RangeMap, removeAll(RangeMap, Set) and updateRangeMap applied in a rule's right side, at
+literal maps; kompile leaves each application unevaluated (kore.txt:146, the rule's right side
+res(Lbl'Stop'RangeMap{}(), Lbl'Unds-LT-Eqls'RangeMap... twice, LblremoveAll..., LblupdateRangeMap...)).
+The account reads the text (coreOK true).
+"""
+expectation = """
+domains.md (K 7.1.337): .RangeMap is the map with zero elements (513); M1 <=RangeMap M is true and
+M <=RangeMap M1 false for M1 = [0, 3) r|-> a, M = ([0, 3) r|-> a) ([5, 7) r|-> b) (665-671: M1 is a
+proper part of M and [5, 7) is no key of M1, so both hold under inclusion and strict inclusion
+alike); removeAll([0, 10) r|-> a, SetItem([3, 5))) is ([0, 3) r|-> a) ([5, 10) r|-> a) (611-613: every
+part of a range of the set present in the map is removed); updateRangeMap([0, 10) r|-> a,
+[3, 5) r|-> b) is ([0, 3) r|-> a) ([3, 5) r|-> b) ([5, 10) r|-> a) (596-605: the second map's value
+overwrites the first's where the ranges overlap). <k> go </k> steps to <k> res of those five values
+</k> (test/TieRangeMapRest.lean go_step, for every H).
+"""

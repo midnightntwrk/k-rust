@@ -337,17 +337,24 @@ theorem complete_hyp₀ (c : Semantics) (ref : StepFn) (h : c.coreOK = true) (hf
     (completeC_closed c ref hop).mp (complete_hyp c _ h hf) hs x
   rwa [hΓ] at this
 
+/-- No clause of a function of a plain definition binds a variable by `\exists`. -/
+theorem Semantics.fnsNoExs_of_plain {c : Semantics} (hp : c.plain = true) : c.FnsNoExs := by
+  simp only [Semantics.plain, Bool.and_eq_true, List.all_eq_true] at hp
+  exact fun fn hfn cl hcl => List.isEmpty_iff.mp (hp.1.1.1.2 fn hfn cl hcl).1.1.1.2
+
 /-- **The old theorems**, for a definition whose rules and clauses are plain. -/
 theorem sound₀ (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hp : d.sem.plain = true) (hc : d.sem.readsConfined = false) : SoundC₀ d.sem :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have hnoEx := Semantics.fnsNoExs_of_plain hp
   sound_hyp₀ d.sem (Definition.coreOK_of_wf hwf)
-    (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
+    (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
 theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : Obligations d)
     (hp : d.sem.plain = true) (hc : d.sem.readsConfined = false) : CompleteC₀ d.sem ref :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  have hnoEx := Semantics.fnsNoExs_of_plain hp
   complete_hyp₀ d.sem ref (Definition.coreOK_of_wf hwf)
-    (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
+    (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) (Semantics.rightHeld_of_binds (Semantics.plain_parts hp).2.1) hob) hp
 
 /-! ## The statements under the named obligations -/
 
@@ -356,15 +363,15 @@ theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : O
 the termination certificate `t`, hold: `sound_hyp`, the obligations giving `FnHyp`
 (`fnHyp_of_core`). -/
 theorem sound_core (c : Semantics) (t : Certificates) (h : c.coreOK = true) (hrh : c.RightHeld)
-    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : SoundC c :=
-  sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : SoundC c :=
+  sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 /-- **Completeness of a semantics** that `coreOK` accepts, whose clauses' variables are held
 (`RightHeld`) and whose named obligations, with the termination certificate `t`, hold:
 `complete_hyp`, the obligations giving `FnHyp` (`fnHyp_of_core`). -/
 theorem complete_core (c : Semantics) (t : Certificates) (ref : OutFn) (h : c.coreOK = true)
-    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : CompleteC c ref :=
-  complete_hyp c ref h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
+    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel)) | exact Semantics.fnsNoExs_of_all rfl) : CompleteC c ref :=
+  complete_hyp c ref h (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) h hrh hob)
 
 /-! ## The statements for a definition -/
 
@@ -382,7 +389,8 @@ giving `coreOK` (`Definition.coreOK_of_wf`). -/
 theorem sound (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Sound d :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  sound_core (hpreTop := hpreTop) d.sem d.cert (Definition.coreOK_of_wf hwf) hrh hob
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  sound_core (hpreTop := hpreTop) (hnoEx := hnoEx) d.sem d.cert (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `sound` for every interpretation of the parameters, under the obligations stated for that
 interpretation, of a definition without an open generator (`hr`, decided on the data). -/
@@ -398,7 +406,8 @@ theorem sound_withHooks (d : Definition) (hwf : wf d = true) (H : HookParams)
 theorem complete (d : Definition) (ref : OutFn) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Complete d ref :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  complete_core (hpreTop := hpreTop) d.sem d.cert ref (Definition.coreOK_of_wf hwf) hrh hob
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  complete_core (hpreTop := hpreTop) (hnoEx := hnoEx) d.sem d.cert ref (Definition.coreOK_of_wf hwf) hrh hob
 
 /-- `complete` for every interpretation of the parameters, under the obligations stated for that
 interpretation, of a definition without an open generator (`hr`, decided on the data). -/
@@ -415,6 +424,7 @@ obligations giving `FnHyp` (`fnHyp_of_core`). -/
 theorem exact (d : Definition) (hwf : wf d = true) (hob : Obligations d)
     (hrh : d.sem.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : Exact d :=
   have hpreTop := Semantics.preTop_of_okAll (NamesApart.wf_parts hwf).2.2.2
-  exact_hyp d.sem (Definition.coreOK_of_wf hwf) (fnHyp_of_core (hpreTop := hpreTop) (Definition.coreOK_of_wf hwf) hrh hob)
+  have hnoEx := Semantics.fnsNoExs_of_okAll (NamesApart.wf_parts hwf).2.2.2
+  exact_hyp d.sem (Definition.coreOK_of_wf hwf) (fnHyp_of_core (hpreTop := hpreTop) (hnoEx := hnoEx) (Definition.coreOK_of_wf hwf) hrh hob)
 
 end KCore

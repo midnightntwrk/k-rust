@@ -29,6 +29,11 @@
     another sort than their connective's, or with an operand of another sort than s; `\ceil{S1,s}`,
     `\floor{S1,s}`, `\in{S1,s}` of another result sort s, or with an operand of another sort than
     S1. Refused by `clauseBody`, `ruleBodyRead` and `frRead`; their twins are read.
+  - `\iff` and the operands of `\equals` (`iffIll`, `iffOpIll`, `eqOpIll`, `eqTrueIll`, `orEqIll`):
+    `\iff{s}` of another sort than its connective's or with an operand of another sort than s;
+    `\equals{S1,s}` with an operand of another sort than S1, among them the B of a lifted conjunct
+    `\equals{SortBool{},s}(B, \dv{SortBool{}}("true"))`. Refused by `clauseBody`, `ruleBodyRead`
+    and `frRead`; their twins are read.
   Kernel-checked (`decide +kernel`): the reasons, `rhsSorted` on each side, and that a read
   clause's, `frRead`'s, `exRead`'s, `ceRead`'s or `ruleBodyAnd`'s right side is `rhsSorted`
   (`clauseBody_rhsSorted`, `frRead_rhsSorted`, `exRead_rhsSorted`, `ceRead_rhsSorted`,
@@ -473,6 +478,71 @@ theorem connOp_hand :
     reasonOf (frRead N0 (eqn "Lblh" orNotOk)) = none := by
   decide +kernel
 
+/-! ## `\iff` and the operands of `\equals`
+
+`\iff{s}(φ, ψ)` is of the sort s and so are φ and ψ; `\equals{S1,s}(φ, ψ)` is of the sort s and φ
+and ψ of S1 (kore-syntax.md:330). Each stands beside `\bottom{SortInt{}}()` (`withBot`).
+- `iffIll`, `\iff{SortFoo{}}(f(X), f(X))`: of sort Foo. `iffOpIll`,
+  `\iff{SortInt{}}(f(X), \top{SortBool{}}())`: an operand of sort Bool; `iffOk` with
+  `\top{SortInt{}}()`.
+- `eqOpIll`, `\equals{SortBool{},SortInt{}}(B, \top{SortInt{}}())`: an operand of sort Int, not Bool;
+  `eqOk` with `\top{SortBool{}}()`.
+- `eqTrueIll`, `\equals{SortBool{},SortInt{}}(\top{SortInt{}}(), \dv{SortBool{}}("true"))`, the
+  shape `hoist` lifts out of a conjunction: its B is of sort Int, not Bool; `eqTrueOk` with
+  `\top{SortBool{}}()`.
+- `orEqIll`, `\or{SortInt{}}(eqTrueIll, f(X), g(X))` (h's equation): refused by `frRead`; `orEqOk`
+  with `eqTrueOk` is read. -/
+
+def iffIll : Kore.Pattern := withBot (.iff foo fX fX)
+def iffOpIll : Kore.Pattern := withBot (.iff int fX (.top bool))
+def iffOk : Kore.Pattern := withBot (.iff int fX (.top int))
+def eqOpIll : Kore.Pattern := withBot (.equals bool int B (.top int))
+def eqOk : Kore.Pattern := withBot (.equals bool int B (.top bool))
+def eqTrueIll : Kore.Pattern := withBot (isTrueAt int (.top int))
+def eqTrueOk : Kore.Pattern := withBot (isTrueAt int (.top bool))
+def orEqIll : Kore.Pattern := .or int [eqTrueIll, fX, gX]
+def orEqOk : Kore.Pattern := .or int [eqTrueOk, fX, gX]
+
+/-- The ill-sorted sides, each refused by `clauseBody`. -/
+def iffEqIll : List (String × Kore.Pattern) :=
+  [("iffIll", iffIll), ("iffOpIll", iffOpIll), ("eqOpIll", eqOpIll), ("eqTrueIll", eqTrueIll)]
+/-- Their twins, each read by `clauseBody`. -/
+def iffEqOk : List (String × Kore.Pattern) :=
+  [("iffOk", iffOk), ("eqOk", eqOk), ("eqTrueOk", eqTrueOk)]
+
+/--
+info: clauseBody iffIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \iff of sort SortFoo{})
+clauseBody iffOpIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\iff{SortInt{}}: an operand \top of sort SortBool{})
+clauseBody eqOpIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\equals{SortBool{},SortInt{}}: an operand \top of sort SortInt{})
+clauseBody eqTrueIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\equals{SortBool{},SortInt{}}: an operand \top of sort SortInt{})
+clauseBody iffOk: read
+clauseBody eqOk: read
+clauseBody eqTrueOk: read
+ruleBodyRead eqTrueIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\equals{SortBool{},SortInt{}}: an operand \top of sort SortInt{})
+ruleBodyRead eqOk: read
+frRead orEqIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\equals{SortBool{},SortInt{}}: an operand \top of sort SortInt{})
+frRead orEqOk: read
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for (n, r) in iffEqIll ++ iffEqOk do
+    showRd s!"clauseBody {n}" (clauseBody N0 "" (eqn "Lblf" r) none)
+  showRd "ruleBodyRead eqTrueIll" (ruleBodyRead N0 "" (rule eqTrueIll))
+  showRd "ruleBodyRead eqOk" (ruleBodyRead N0 "" (rule eqOk))
+  showRd "frRead orEqIll" (frRead N0 (eqn "Lblh" orEqIll))
+  showRd "frRead orEqOk" (frRead N0 (eqn "Lblh" orEqOk))
+
+/-- `rhsSorted` on `\iff` and on the operands of `\equals`, the refusals and the twins' readings. -/
+theorem iffEq_hand :
+    (∀ x ∈ iffEqIll, rhsSorted x.2 = false ∧
+      reasonOf (clauseBody N0 "" (eqn "Lblf" x.2) none) = some .rhsOperandSort) ∧
+    (∀ x ∈ iffEqOk, rhsSorted x.2 = true ∧ reasonOf (clauseBody N0 "" (eqn "Lblf" x.2) none) = none) ∧
+    reasonOf (ruleBodyRead N0 "" (rule eqTrueIll)) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (rule eqOk)) = none ∧
+    reasonOf (frRead N0 (eqn "Lblh" orEqIll)) = some .rhsOperandSort ∧
+    reasonOf (frRead N0 (eqn "Lblh" orEqOk)) = none := by
+  decide +kernel
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -491,5 +561,7 @@ end RhsSortCheck
 #guard_msgs in #print axioms RhsSortCheck.binder_hand
 /-- info: 'RhsSortCheck.connOp_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.connOp_hand
+/-- info: 'RhsSortCheck.iffEq_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.iffEq_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted

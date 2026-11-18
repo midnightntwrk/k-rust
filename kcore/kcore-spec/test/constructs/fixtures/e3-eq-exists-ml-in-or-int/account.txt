@@ -12,7 +12,7 @@ user module E3-EQ-EXISTS-ML-IN-OR-INT: 388 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 manyValuedRightSide
-      sentence 348 (Lblf): manyValuedRightSide (\or)
+      sentence 348 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
         [user] (no label) at e3-eq-exists-ml-in-or-int.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(\or{SortInt{}}(VarX:SortInt{}, \exists{SortInt{}}(VarB:SortInt{}, \and{SortInt{}}(VarB:SortInt{}, \equals{SortInt{}, SortInt{}}(VarB:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("1")))))), \top{SortInt{}}())) …
-finish: sentence 348 (Lblf): manyValuedRightSide (\or)
+finish: sentence 348 (Lblf): manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 (exit 0)

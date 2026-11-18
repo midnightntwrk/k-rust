@@ -103,7 +103,7 @@ theorem in_I : inst.agreeObligationsI = [] := by decide +kernel
 
 /-- So their equations agree. -/
 theorem in_agree : ∀ fn ∈ inst.fns, ClausesAgree inst fn :=
-  clausesAgree_of_I in_sorted.1 in_sorted.2.1 in_sorted.2.2 fun f hf => by
+  clausesAgree_of_I in_sorted.1 (Semantics.fnsNoExs_of_all (by decide +kernel)) in_sorted.2.1 in_sorted.2.2 fun f hf => by
     rw [in_I] at hf; exact absurd hf List.not_mem_nil
 
 /-! ## 5. A pair left named, whose equations disagree -/

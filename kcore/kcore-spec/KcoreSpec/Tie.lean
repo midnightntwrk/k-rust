@@ -373,17 +373,51 @@ theorem ruleSorted_lhs_nf {r : Rule} (h : c.ruleSorted r = true) :
 theorem ruleSorted_lhs_noFnOvl {r : Rule} (h : c.ruleSorted r = true) : c.NoFnOvlIn r.lhs :=
   (sortOfTerm_of_nf r.lhs (c.ruleSorted_lhs_nf h)).2
 
+/-- What `clausesPlain` gives of a clause's existential variables and right-side predicate: they are
+in scope, apart and outside the left side with the predicate sorted (`clauseExOK`), and the
+predicate is `\top` where the clause has no existential variable. -/
+theorem clausesPlain_clauseEx {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := by
+  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at h
+  have hx := List.isEmpty_iff.mp (h f hf cl hcl).1.1.1
+  have hp := Cond.eq_top_of_isTop (h f hf cl hcl).1.2
+  exact ⟨by simp [clauseExOK, hx, hp, nodup, condOK], fun _ => hp⟩
+
+/-- `clausesPlain_clauseEx` from `sortedOK`, which holds `clausesPlain`. -/
+theorem sortedOK_clauseEx {c : Semantics} (h : c.sortedOK = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) :=
+  clausesPlain_clauseEx (by simp only [sortedOK, Bool.and_eq_true] at h; exact h.1.2) hf hcl
+
+/-- A clause whose patterns bind every variable binds none by `\exists`: an existential variable
+is in scope and outside the left side (`clauseExOK`). -/
+theorem exs_nil_of_patBinds {c : Semantics} {cl : Clause} (hx : c.clauseExOK cl = true)
+    (hb : binds cl.vars.length (varOccsList cl.pats) = true) : cl.exs = [] := by
+  simp only [clauseExOK, Bool.and_eq_true, List.all_eq_true] at hx
+  obtain ⟨⟨⟨hlt, -⟩, hout⟩, -⟩ := hx
+  cases he : cl.exs with
+  | nil => rfl
+  | cons i l =>
+    have hi : i ∈ cl.exs := by rw [he]; exact List.mem_cons_self ..
+    have h1 : i ∉ cl.leftVars := by simpa using hout i hi
+    have h2 := List.all_eq_true.mp hb i (List.mem_range.mpr (by simpa using hlt i hi))
+    exact absurd (List.mem_append_left _ (List.contains_iff_mem.mp h2)) h1
+
+/-- A clause of a semantics with `clausesPlain` whose patterns bind every variable has no
+existential variable and the right-side predicate `\top`. -/
+theorem clausesPlain_plainCl_of_binds {c : Semantics} (h : c.clausesPlain = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) (hb : binds cl.vars.length (varOccsList cl.pats) = true) :
+    cl.exs = [] ∧ cl.post = .top :=
+  have hx := clausesPlain_clauseEx h hf hcl
+  have he := exs_nil_of_patBinds hx.1 hb
+  ⟨he, hx.2 he⟩
+
 /-- **`sortedOK` gives `ovlPatsOK`**: no pattern of a semantics `sortedOK` accepts applies a
 function-overloaded symbol. `ruleSorted` sorts a rule's left side, `clauseSorted` a clause's
 patterns and `condOK` each `exMatch` pattern of a rule's `pre` and `post` and of a clause's `pre`
-over `patCtxNF`, and `clausesPlain` asks a `\top` predicate on a clause's right side, which holds
-no pattern. -/
+and `post` (`clauseExOK`) over `patCtxNF`. -/
 theorem ovlPatsOK_of_sortedOK (h : c.sortedOK = true) : c.ovlPatsOK = true := by
   have hs := sortedOK_sorted h
   simp only [Bool.and_eq_true, List.all_eq_true] at hs
-  have hcp : c.clausesPlain = true := by
-    simp only [sortedOK, Bool.and_eq_true] at h; exact h.1.2
-  simp only [clausesPlain, Bool.and_eq_true, List.all_eq_true] at hcp
   simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true']
   refine ⟨fun r hr => ?_, fun f hf cl hcl => ?_⟩
   · have hr' := hs.2 r hr
@@ -396,15 +430,18 @@ theorem ovlPatsOK_of_sortedOK (h : c.sortedOK = true) : c.ovlPatsOK = true := by
     · exact c.condOK_pats_noFnOvl _ hpp.1 p hp
     · exact c.condOK_pats_noFnOvl _ hpp.2 p hp
   · have hcs := hs.1.2 f hf cl hcl
-    have hpost : cl.post = .top := Cond.eq_top_of_isTop (hcp f hf cl hcl).1.2
+    have hpost : c.condOK cl.vars cl.post = true := by
+      have h0 := (sortedOK_clauseEx h hf hcl).1
+      simp only [clauseExOK, Bool.and_eq_true] at h0
+      exact h0.2
     have hpre : c.condOK cl.vars cl.pre = true := by
       have h0 := hcs
       simp only [clauseSorted, Bool.and_eq_true] at h0
       exact h0.2
     refine ⟨NoFnOvlIn.mem (c.clauseSorted_pats_noFnOvl hcs), fun p hp => ?_⟩
-    rw [hpost] at hp
-    simp only [condPats, List.append_nil] at hp
-    exact c.condOK_pats_noFnOvl _ hpre p hp
+    rcases List.mem_append.mp hp with hp | hp
+    · exact c.condOK_pats_noFnOvl _ hpre p hp
+    · exact c.condOK_pats_noFnOvl _ hpost p hp
 
 /-- What `ruleSorted` says of a rule's left side, its `requires`, its `ensures` and its right side. -/
 theorem ruleSorted_parts {r : Rule} (h : c.ruleSorted r = true) :
@@ -469,6 +506,32 @@ theorem Semantics.okM_rule {c : Semantics} (h : c.okM = true) {r : Rule} (hr : r
   have hro := h.1.2 r hr
   simp only [Semantics.ruleOKM, Bool.and_eq_true] at hro
   exact ⟨List.isEmpty_iff.mp hro.2, hro.1.1.1.1.2⟩
+
+/-- No clause of a function of a core `okAll` accepts binds a variable by `\exists`
+(`clausesPlain`). -/
+theorem Semantics.fnsNoExs_of_okAll {c : Semantics} (h : c.okAll = true) : c.FnsNoExs := by
+  have hp := (Semantics.plain_of_okAll h).2.1
+  simp only [Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
+  exact fun fn hfn cl hcl => List.isEmpty_iff.mp (hp fn hfn cl hcl).1.1.1
+
+/-- The decided form of `FnsNoExs`. -/
+theorem Semantics.fnsNoExs_of_all {c : Semantics}
+    (h : (c.fns.all fun f => f.clauses.all fun cl => cl.exs.isEmpty) = true) : c.FnsNoExs :=
+  fun fn hfn cl hcl => List.isEmpty_iff.mp (List.all_eq_true.mp (List.all_eq_true.mp h fn hfn) cl hcl)
+
+/-- `FnsNoExs` does not read the interpretation of the parameters. -/
+theorem Semantics.fnsNoExs_withHooks (c : Semantics) (H : HookParams) : (c.withHooks H).FnsNoExs ↔ c.FnsNoExs :=
+  Iff.rfl
+
+/-- Where no clause of a function binds a variable by `\exists`, each clause of each function
+evaluation reads, in a semantics `sortedOK` accepts, has no existential variable and the right-side
+predicate `\top` (`sortedOK_clauseEx`; a sort predicate's clauses by their text). -/
+theorem Semantics.sortedOK_plainCl_of_noExs {c : Semantics} (h : c.sortedOK = true) (hx : c.FnsNoExs) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · exact ⟨hx fn hu cl hcl, (Semantics.sortedOK_clauseEx h hu hcl).2 (hx fn hu cl hcl)⟩
+  · exact ⟨Semantics.sortPreds_exs hp cl hcl, Semantics.sortPreds_post hp cl hcl⟩
 
 /-- `okAll` checks each condition of `sortedOK` but one: it sorts a rule's left side over
 `patCtxAll`, and `ovlPatsOK` says that it applies no function-overloaded symbol. -/

@@ -399,9 +399,10 @@ theorem fnDet_withHooks (hok : c.ok = true) (hsr : c.srReady = true) (hmr : c.ma
 
 open Det in
 /-- **`FnDet` and `FnSolves` without the totality facts**: from `coreOK`, the held variables' facts,
-and the termination, agreement and match-independence facts the deciders leave. No fact on a
-`[total]` function's values is read. -/
-theorem fnModel_noTotal (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h : c.coreOK = true)
+and the termination, agreement and match-independence facts the deciders leave, for clauses that
+bind no variable by `\exists` (`hnoEx`: the deciders read none). No fact on a `[total]` function's
+values is read. -/
+theorem fnModel_noTotal (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) {ord : List Sym} (h : c.coreOK = true)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
     (h1 : ∀ f ∈ c.rankObligations ord ++ c.decObligationsL, Terminates c f)
     (h3 : ∀ f ∈ c.agreeObligationsI, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn)
@@ -410,11 +411,11 @@ theorem fnModel_noTotal (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h :
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
-  have hterm := terminates_of_rankLN (hpreTop := hpreTop) hok hsr (Semantics.ovlCase_of_core h) ord hheld h1
+  have hterm := terminates_of_rankLN (hpreTop := hpreTop) (hnoEx := hnoEx) hok hsr (Semantics.ovlCase_of_core h) ord hheld h1
   have hmc : Exec.MatchCtxO c := ⟨NamesApart.subsorts_trans_of hids hok,
     NamesApart.subsorts_irrefl_of hids hok, NamesApart.patHooks_of hha hids, Semantics.coreOK_ovls h⟩
-  have hag := clausesAgree_of_IO hok hsr hmc h3
-  have hmi := matchIndependentAll_of_L hok hmc h4
+  have hag := clausesAgree_of_IO hok hnoEx hsr hmc h3
+  have hmi := matchIndependentAll_of_L hok hnoEx hmc h4
   have hco : CoherentAll c := coherentAll_of_parts hmi fun f fn hfn => by
     obtain ⟨hmem, -⟩ := lookupFn_spec hfn
     rcases List.mem_append.mp hmem with hu | hp
@@ -428,11 +429,11 @@ theorem fnModel_noTotal (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h :
 
 /-- `fnModel_noTotal` under an interpretation of the parameters, where the deciders name no
 function for termination, agreement or match independence. -/
-theorem fnModel_noTotal_withHooks (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
+theorem fnModel_noTotal_withHooks (hpreTop : c.clausesPreTop = true) (hnoEx : c.FnsNoExs) {ord : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
     (hr : ∀ k ∈ c.params, k.raw = false) (h1 : c.rankObligations ord ++ c.decObligationsL = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = []) (H : HookParams) :
     FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) :=
-  fnModel_noTotal (hpreTop := hpreTop) (ord := ord) ((Semantics.coreOK_withHooks c H).trans h)
+  fnModel_noTotal (hpreTop := hpreTop) (hnoEx := hnoEx) (ord := ord) ((Semantics.coreOK_withHooks c H).trans h)
     (fun f _ => (Semantics.rightHeld_withHooks hrh H hr).heldOwed f)
     (fun f hf => by
       rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, h1] at hf

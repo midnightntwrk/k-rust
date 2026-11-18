@@ -444,11 +444,11 @@ def MatchObligationsL (c : Semantics) : Prop :=
   ∀ p ∈ c.matchObligationsL, ∀ fn, c.lookupFn p.1 = some fn → ∀ cl, fn.clauses[p.2]? = some cl →
     MatchIndependent c cl
 
-/-- **Every clause is match independent** in a core that `sortedOK` accepts, with the matcher's
+/-- **Every clause is match independent** in a core that `sortedOK` accepts, whose clauses bind no variable by `\exists` (the deciders read none), with the matcher's
 facts `MatchCtxO` (overloading symbols admitted), given the obligations `matchObligationsL` names: a
 clause `clauseFixedL` confirms by `clauseFixedL_sound`, the others by their obligation; the sort
 predicates' clauses are fixed. -/
-theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
+theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hnoEx : c.FnsNoExs) (hmc : MatchCtxO c)
     (hob : MatchObligationsL c) : MatchIndependentAll c := by
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
@@ -459,7 +459,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
     | some t => simpa [reqOK, he] using hens t he
   rcases List.mem_append.mp hmem with hf | hp
   · cases hfx : c.clauseFixedL cl with
-    | true => exact clauseFixedL_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixedL_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (hnoEx.allFns fn hmem cl hcl)
     | false =>
       obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hcl
       refine hob (fn.label, i) ?_ fn (by rw [hlab]; exact hfn) _ (List.getElem?_eq_getElem hi)
@@ -468,7 +468,7 @@ theorem matchIndependentAll_of_L (hok : c.sortedOK = true) (hmc : MatchCtxO c)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx]
   · cases hfx : c.clauseFixed cl with
-    | true => exact clauseFixed_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    | true => exact clauseFixed_sound hmc (Semantics.pats_nf hmc.ovlHyp hmem hcl hpt) hrt hens' hfx (hnoEx.allFns fn hmem cl hcl)
     | false => exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
 
 kernel_rfl Semantics.matchObligationsL_withHooks :

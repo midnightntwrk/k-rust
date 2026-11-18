@@ -12,7 +12,7 @@ user module E3-ML-EQ-RHS-OR-MANY: 389 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 manyValuedRightSide
-      sentence 383 (Lblk): manyValuedRightSide (\or)
+      sentence 383 (Lblk): manyValuedRightSide (\or: 9 alternatives, more than 8)
         [user] (no label) at e3-ml-eq-rhs-or-many.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblk{}(X0:SortInt{}), \and{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\or{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2")), \dv{SortInt{}}("3")), \dv{SortInt{}}("4")), \dv{SortInt{}} …
-finish: sentence 383 (Lblk): manyValuedRightSide (\or)
+finish: sentence 383 (Lblk): manyValuedRightSide (\or: 9 alternatives, more than 8)
 (exit 0)

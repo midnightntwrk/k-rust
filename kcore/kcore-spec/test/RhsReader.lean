@@ -1,13 +1,13 @@
 /-
-  The reading functions of KcoreSpec/ReadFns.lean for an equation's right side that holds `\or`
-  (`Parse.frRead`) or one `\exists` over a Bool variable (`Parse.exRead`), run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337
+  The reading functions of KcoreSpec/Parse.lean for an equation's right side that holds `\or`
+  (`Parse.frRead`) or one `\exists` over a Bool variable (`Parse.exRead`), each by itself, run on the kompiled texts of the fixtures (test/constructs/fixtures; K 7.1.337
   kompile's KORE, from the cache `kfix.py` keeps: `$KCORE_KFIX_CACHE`, else
   `$XDG_CACHE_HOME/kcore-kfix`, else `~/.cache/kcore-kfix`, the text named by the sha256 of the
   fixture's kompile.txt) and on hand-written equations. Run from the package root:
   `lake env lean -j1 test/RhsReader.lean`.
 
-  `Parse.clauseBody` does not call these functions: the reader refuses each of these texts as
-  before (their accounts are unchanged). Each clause a function gives is put in the definition the
+  The reader calls them through `Parse.clausesBody` (test/ReaderWire.lean has the clauses it gives
+  and the definitions it builds from these texts). Here each clause a function gives is put in the definition the
   landed reader builds from the text with that equation's right side replaced by a plain term, and
   printed with `clauseSorted`, `condOK` of its predicates and `clauseE3`, the conjunct CN-4 §4.9
   gives `clausesPlain` for one clause (`clausesPlain` asks it, and admits a predicate other than

@@ -134,16 +134,16 @@ def SortDen (I : Interpretation KoreAML.Sym M) (tbl : VarTable) (e : Valuation M
 
 mutual
   /-- The pattern is of the sort s where it states its sort (`\or`, `\and`, `\exists`, `\top`,
-  `\bottom`, `\not`, `\implies`, `\forall`, and the result sort of `\equals`, `\ceil`, `\floor`,
-  `\in`), and its operands are of the sort the connective gives them: those of its `\or`s,
-  `\and`s, `\not`s and `\implies` and the body of its `\exists` and `\forall` of s, those of
-  `\ceil{S1,s}`, `\floor{S1,s}` and `\in{S1,s}` of S1. The sorting rule of KORE at those
-  connectives (kore-syntax.md:330). -/
+  `\bottom`, `\not`, `\implies`, `\forall`, `\iff`, and the result sort of `\equals`, `\ceil`,
+  `\floor`, `\in`), and its operands are of the sort the connective gives them: those of its
+  `\or`s, `\and`s, `\not`s, `\implies` and `\iff`s and the body of its `\exists` and `\forall` of
+  s, those of `\equals{S1,s}`, `\ceil{S1,s}`, `\floor{S1,s}` and `\in{S1,s}` of S1. The sorting
+  rule of KORE at those connectives (kore-syntax.md:330). -/
   def sortIs (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && sortIsList s ps
     | .and s' ps => decide (s' = s) && sortIsList s ps
     | .exist s' _ p => decide (s' = s) && sortIs s p
-    | .equals _ s' _ _ => decide (s' = s)
+    | .equals s1 s' p q => decide (s' = s) && sortIs s1 p && sortIs s1 q
     | .top s' => decide (s' = s)
     | .bottom s' => decide (s' = s)
     | .not s' p => decide (s' = s) && sortIs s p
@@ -152,6 +152,7 @@ mutual
     | .ceil s1 s' p => decide (s' = s) && sortIs s1 p
     | .floor s1 s' p => decide (s' = s) && sortIs s1 p
     | .in s1 s' p q => decide (s' = s) && sortIs s1 p && sortIs s1 q
+    | .iff s' p q => decide (s' = s) && sortIs s p && sortIs s q
     | _ => true
     termination_by structural p => p
   def sortIsList (s : Kore.KSort) : List Kore.Pattern → Bool
@@ -200,6 +201,8 @@ theorem rhsOpSort_eq_sortIs (s : Kore.KSort) (p : Kore.Pattern) : Parse.rhsOpSor
   | ceil s1 s' q ih => rw [Parse.rhsOpSort, sortIs, ih]
   | floor s1 s' q ih => rw [Parse.rhsOpSort, sortIs, ih]
   | «in» s1 s' q1 q2 ih1 ih2 => rw [Parse.rhsOpSort, sortIs, ih1, ih2]
+  | equals s1 s' q1 q2 ih1 ih2 => rw [Parse.rhsOpSort, sortIs, ih1, ih2]
+  | iff s' q1 q2 ih1 ih2 => rw [Parse.rhsOpSort, sortIs, ih1, ih2]
   | nil => rw [Parse.rhsOpSortList, sortIsList]
   | cons q qs ih1 ih2 => rw [Parse.rhsOpSortList, sortIsList, ih1, ih2]
   | _ => simp [Parse.rhsOpSort, sortIs]
@@ -209,6 +212,12 @@ theorem rhsOpSortList_iff_sortIs {s : Kore.KSort} : ∀ {ps : List Kore.Pattern}
   | [] => by simp [Parse.rhsOpSortList]
   | p :: ps => by
     simp [Parse.rhsOpSortList, rhsOpSort_eq_sortIs, rhsOpSortList_iff_sortIs (ps := ps)]
+
+/-- An `\equals{S1,s'}` of the sort s has the result sort s' = s. -/
+theorem sortIs_equals_result_rie {s s1 s' : Kore.KSort} {p q : Kore.Pattern}
+    (h : sortIs s (.equals s1 s' p q) = true) : s' = s := by
+  rw [sortIs, Bool.and_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1.1
 
 theorem rhsSortedList_iff : ∀ {ps : List Kore.Pattern},
     Parse.rhsSortedList ps = true ↔ ∀ p ∈ ps, Parse.rhsSorted p = true
@@ -902,7 +911,7 @@ theorem hoist_ok (p : Kore.Pattern) : HoistOK I tbl e p := by
         obtain ⟨bs, s'', bs', rfl, h1, h2⟩ := isTrueOf_spec heq
         have hs : s'' = s' := by
           have := (hin _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))).1
-          simpa [sortIs] using this
+          exact sortIs_equals_result_rie this
         subst hs
         obtain ⟨oT, o⟩ := ih t (List.mem_cons_self ..) _ _ _ (hT t (List.mem_cons_self ..)) rfl hall.1
         refine ⟨oT, fun a => ?_⟩
@@ -920,7 +929,7 @@ theorem hoist_ok (p : Kore.Pattern) : HoistOK I tbl e p := by
         obtain ⟨bs, s'', bs', rfl, h1, h2⟩ := isTrueOf_spec heq
         have hs : s'' = s' := by
           have := (hin _ (List.mem_cons_self ..)).1
-          simpa [sortIs] using this
+          exact sortIs_equals_result_rie this
         subst hs
         have hmu : u0 ∈ [Kore.Pattern.equals bs s'' b0 (.dv bs' "true"), u0] :=
           List.mem_cons_of_mem _ (List.mem_cons_self ..)
@@ -1577,8 +1586,8 @@ has, so that a tie of a text states only kernel decisions about its sentence:
   `\and` lie in their sorts and the sorts of its `\and`s denote sorts (`tightSem_of_ops`); such an
   operand is `\bottom` (`inSortK_bottom`), a lifted conjunct (`inSortK_isTrue`), a term
   (`inSortK_of_term`, from `TermsInSort`), or holds an `\or` whose alternatives are terms
-  (`inSortK_of_alts`); the operands `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall`
-  and `\floor` follow from the reader's sort check (`tightSem_of_termOps`).
+  (`inSortK_of_alts`); the operands `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall`,
+  `\floor` and `\iff` follow from the reader's sort check (`tightSem_of_termOps`).
 A clause with competitors (`prioEquation`'s `competingEquation`) has the premise `¬⋁ lower ∧ prem`
 for each clause `frClauses` writes, all of one priority: `readings_compete` adds the negation to
 the readings. -/
@@ -1710,9 +1719,10 @@ def opLeaf : Kore.Pattern → Bool
 
 /-- An operand whose elements lie in the sort its head states, by its connective alone: `\top{s'}`
 (all of s'), `\bottom{s'}` (nothing), and `\equals{S1,s'}`, `\not{s'}`, `\implies{s'}`,
-`\forall{s'}` and `\floor{S1,s'}`, each a complement in s' (`sNot` at s' heads its translation). -/
+`\forall{s'}` and `\floor{S1,s'}`, each a complement in s' (`sNot` at s' heads its translation),
+and `\iff{s'}`, a conjunction of two `\implies{s'}`. -/
 def opStatedK : Kore.Pattern → Bool
-  | .top _ | .bottom _ | .equals .. | .not .. | .implies .. | .forall .. | .floor .. => true
+  | .top _ | .bottom _ | .equals .. | .not .. | .implies .. | .forall .. | .floor .. | .iff .. => true
   | _ => false
 
 theorem mem_connOpsList {x : Kore.KSort × Kore.Pattern} : ∀ {ps : List Kore.Pattern},
@@ -1892,10 +1902,11 @@ theorem inSortK_bottom (s s' : Kore.KSort) : InSortK I tbl e s (.bottom s') := b
   rw [tr] at ha
   exact (InertEv.sBot_none hD (InertEv.trSort_topFresh tbl s') e a ha).elim
 
-/-- **An operand `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall` or `\floor` of the
-sort s lies in s** (`sortIs`): `\top{s}` is `inhOf s`; `\not{s}(φ)` is `¬φ ∧ inhOf s`; `\implies{s}`
-is an `\or{s}` (2.96), `\forall{s}` a `\not{s}` of an `\exists` (2.95), and `\floor{S1,s}` and
-`\equals{S1,s}` (a `\floor` at s) the complement in s of a `\ceil`, all at s. -/
+/-- **An operand `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall`, `\floor` or `\iff`
+of the sort s lies in s** (`sortIs`): `\top{s}` is `inhOf s`; `\not{s}(φ)` is `¬φ ∧ inhOf s`;
+`\implies{s}` is an `\or{s}` (2.96), `\forall{s}` a `\not{s}` of an `\exists` (2.95), `\floor{S1,s}`
+and `\equals{S1,s}` (a `\floor` at s) the complement in s of a `\ceil`, and `\iff{s}` the
+conjunction of two `\implies{s}` (2.96), all at s. -/
 theorem inSortK_of_stated {s : Kore.KSort} (q : Kore.Pattern) (hq : sortIs s q = true)
     (hk : opStatedK q = true) : InSortK I tbl e s q := by
   cases q with
@@ -1907,8 +1918,7 @@ theorem inSortK_of_stated {s : Kore.KSort} (q : Kore.Pattern) (hq : sortIs s q =
     exact (interp_sTop hD (InertEv.trSort_topFresh tbl s') a).mp ha
   | bottom s' => exact inSortK_bottom hD s s'
   | equals s1 s' p1 p2 =>
-    simp only [sortIs, decide_eq_true_eq] at hq
-    subst hq
+    obtain rfl := sortIs_equals_result_rie hq
     intro a ha
     rw [tr] at ha
     unfold sEquals sFloor at ha
@@ -1940,17 +1950,23 @@ theorem inSortK_of_stated {s : Kore.KSort} (q : Kore.Pattern) (hq : sortIs s q =
     rw [tr] at ha
     unfold sFloor at ha
     exact (interp_sNot.mp ha).2
+  | iff s' p1 p2 =>
+    simp only [sortIs, Bool.and_eq_true, decide_eq_true_eq] at hq
+    obtain ⟨⟨rfl, -⟩, -⟩ := hq
+    intro a ha
+    rw [tr] at ha
+    exact (interp_sIff.mp ha).1
   | _ => simp [opStatedK] at hk
 
 /-- **`TightSem` from the operands that are no `\or` or `\and` and not `opStatedK`.**
-`tightSem_of_ops` with its operands `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall` and
-`\floor` discharged from `rhsSorted` alone: the reader checks the sort each of them states at its
+`tightSem_of_ops` with its operands `\top`, `\bottom`, `\equals`, `\not`, `\implies`, `\forall`,
+`\floor` and `\iff` discharged from `rhsSorted` alone: the reader checks the sort each of them states at its
 head (`Parse.rhsOpSort`), and that sort holds its elements (`inSortK_of_stated`). What is left to
 show lies in its connective's sort is each operand of another kind: a term (`inSortK_of_term`, from
 `TermsInSort`), an operand whose alternatives are terms (`inSortK_of_alts`), an `\exists` (its body
 lies in the sort at the valuations that move its binder), a `\ceil{S1,s}` or `\in{S1,s}` (all of s
 or nothing where s denotes a sort, the model interprets `⌈_⌉` as definedness and the operand lies in
-S1: `interp_sCeil`), and the connectives `rhsOpSort` does not look at (`\iff`, `\next`, `\rewrites`,
+S1: `interp_sCeil`), and the connectives `rhsOpSort` does not look at (`\next`, `\rewrites`,
 `\mu`, `\nu`). A lifted conjunct is an `\equals` and is discharged here. -/
 theorem tightSem_of_termOps (p : Kore.Pattern) (hS : Parse.rhsSorted p = true)
     (hL : ∀ x ∈ connOps p, opLeaf x.2 = true → opStatedK x.2 = false → InSortK I tbl e x.1 x.2)

@@ -90,7 +90,7 @@ theorem successorsN_step_ready (hr : execReady c = true) {n : Nat} {x : Config c
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
-  exact successorsN_step (hpreTop := hpreTop) hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
+  exact successorsN_step (hpreTop := hpreTop) hr'.1.1.1.1.1 (plainCl_of_execReady hr) hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
     (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
 
 /-- **The executable step is sound** where `execReady` holds: every successor `CExec.successors`

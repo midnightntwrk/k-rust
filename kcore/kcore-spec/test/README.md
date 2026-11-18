@@ -909,9 +909,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
   value or both none (no value at a negative index or length, the sign extension also at length
   0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
-  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥), the remainder
-  `(A ^Int B) %Int C` at a non-negative exponent where the power is not negative or the modulus
-  divides it (Γ's statement under every interpretation), and is silent at the other points. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥), the
+  truncating remainder `(A ^Int B) %Int C` at a non-negative exponent and another modulus (Γ's
+  statement under every interpretation, `-2 ^%Int 3 5` = -3 among the points: the prose states the
+  value, the `smt-hook` is how a solver query encodes the production and states none), and is
+  silent at a negative exponent; there Γ does not entail the prose's equality of `A ^%Int B C` with
+  `(A ^Int B) %Int C`, and no statement says that relation is undetermined by the text. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
   interpretation; silent at a negative one (`2 ^Int -1`).
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
@@ -928,11 +931,22 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   point of each part of it where Γ over all interpretations entails neither ⊥ nor a value;
   `replaceFirst` against its equation; the header's findings (`substrString`'s two readings, code
   points, a search index above the length).
-- `test/RhsReader.lean`: the reading functions of `KcoreSpec/ReadFns.lean` for an equation's right
-  side (`Parse.dropEmptyAlts`: the alternatives of an `\or` that are `\bottom` left out; `Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable, a conjunction of terms with the variable among them read as the variable with its memberships), which `clauseBody` does not call. Each is run on the fixtures'
+- `test/RhsReader.lean`: the reading functions of `KcoreSpec/Parse.lean` for an equation's right
+  side (`Parse.dropEmptyAlts`: the alternatives of an `\or` that are `\bottom` left out; `Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable, a conjunction of terms with the variable among them read as the variable with its memberships), each by itself (the reader calls them through `Parse.clausesBody`, test/ReaderWire.lean). Each is run on the fixtures'
   kompiled texts from `kfix.py`'s cache (so the cache must hold them, as for `kfix.py accounts`) and
   on hand-written equations, the clauses printed with `clauseSorted`, `condOK` and CN-4 §4.9's
   clause conjunct; one instance of each function is checked by the kernel (`kernel_rfl`).
+- `test/ReaderWire.lean`: the reader's clauses of an equation whose right side holds `\or` or
+  `\exists` (`Parse.clausesBody`: the alternatives that are `\bottom` left out, `Parse.exRead`
+  where the text holds the function's `functional` sentence and gives Bool its literals only,
+  `Parse.frRead`, then `Parse.clauseBody`'s one clause). On the fixtures' kompiled texts from
+  `kfix.py`'s cache: the clauses, the notes (`orAsCases`, `existsAsCases`, `orBottom`) and
+  `coreOK` of `e3-ml-eq-rhs-or-total`, `e3-eq-exists-bool-ml` (`exRead`'s clauses though
+  `ceRead` reads the equation too) and `-loop`, the refusal of `e3-ml-eq-rhs-or`, and
+  `e3-eq-exists-bool-ml` with a subsort into Bool added, which `exRead` is not given. On
+  hand-written equations, by the kernel: the clauses are `frRead`'s and `exRead`'s; an equation
+  paired with an `[owise]` disjunct has `pre` over the reordered variables; an `[owise]` equation
+  read by cases; a cut pattern beside the binder clause; `clauseExcl` maps `exs`.
 - `test/PredContent.lean`: the text's equations of a sort's predicate against the clauses the
   reading gives it (`Semantics.sortPreds`): `Parse.predEqnOK`, `Parse.predProjOK?` and
   `Parse.predEqnFaults` on hand-written equations by the kernel (the two standard equations are the
@@ -1568,6 +1582,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   `LibEvFnBoolInt.lean`, `LibEvFnColl.lean`): sentences 174, 180, 246, 247; 173, 183, 184, 187, 188,
   192, 193, 198, 199, 202, 203, 204, 206, 209, 248, 249 (BOOL and INT); 207, 264 (`|Set`,
   `pushList`). Axioms guarded.
+- `test/LibEvFnBitRangeEns.lean`: the equations of `bitRangeInt` and `signExtendBitRangeInt`
+  (domains.md 1438, 1440) of `f2-examples/ens.kompile.kore`, sentences 208 and 265, entailed at
+  values for every H (`ev208`, `ev265`), from `LibEv.fnBitRange_ev` and `LibEv.fnSignExt_ev`
+  (`KcoreSpec/LibEvFnBitRange.lean`, through `LibEv.FnEqn.entailed_reg`). Axioms guarded.
 - `test/LibEvLawEns.lean`: the nine collection laws of `f2-examples/ens.kompile.kore` (sentences 53,
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
@@ -1854,7 +1872,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   seven hooked ones are parameters of no registry hook (`refl_hooks`, `refl_params`); expectation
   form (c), `refl_value`. The eight stream rules are the definition's rules at their sentences'
   priorities (`rule_texts`, `rule_prios`), each sentence the item of Γ's rule with the first two
-  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). About 40 s, 4.1 GiB.
+  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). `consistent` (the
+  semantics is `plain`, no fact named). Expectation from `Pre H` (the function equations as written,
+  `shape`, `append`'s two from the module KSEQ), by the executable step under `execReady`:
+  `out5_steps` (the rule `stdoutBufferInt` moves 5 from the `<out>` list into its buffer). About
+  2.5 minutes, 7.4 GiB.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
@@ -1875,6 +1897,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   and Γ's item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`, by the
   executable step under `execReady`: `and_true` (`go(true)` steps to `done`), `and_false`
   (`go(false)` has no successor, with `Γstep`). About 5 minutes.
+- `test/NoteMapKeyFn.lean`: the tie (C14) of the reading note `keyFunctionAsMember` on its construct
+  fixture's kompiled text (`f2-examples/mapkeyfn`, e3-map-key-fn: `<m> key(X) |-> V ... </m>`, `key`
+  a total function), for every H. Γ's rule item is the sentence with a variable K of Int in the
+  place of `key(X)` and the conjuncts `K ∈ key(X)` and `⌈r⌉` more (`rule_text`, the variables after
+  K renamed down by one); every element of its left side is one of the sentence's (`left_sub`: the
+  conjunct puts K's value in `key(X)`, and application contexts and conjunctions are monotone), so
+  the sentence with `ΓSig` entails it (`rule_from_text`). `defs_attrsAgree`, `fns_entailed`,
+  `cons_entailed`, `account`, `consistent`. Expectations from `Pre H`: `get_steps` (with the map
+  `2 |-> 7`, `get(1)` steps to 7) and `get_absent` (`get(0)` has no successor, with `Γstep`). About
+  2 minutes, 6.5 GiB.
 - `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
   each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
   `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for
