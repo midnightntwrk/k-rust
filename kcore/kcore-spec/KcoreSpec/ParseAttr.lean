@@ -353,8 +353,10 @@ a row's verdict would not be the reader's:
   another backend. -/
 def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   -- symbol
-  | .symbol, .alias => .inert (ruled "ALIAS(alias)@symbol")
-  | .symbol, .aliasRec => .inert (ruled "ALIAS_REC(alias-rec)@symbol")
+  -- a macro key: the reader reads it (`Parse.isMacroDecl`: the declaration is not read, and an
+  -- application of the symbol is refused)
+  | .symbol, .alias => .read
+  | .symbol, .aliasRec => .read
   | .symbol, .circularity | .symbol, .cool | .symbol, .depends
   | .symbol, .nonExecutable | .symbol, .owise | .symbol, .preservesDefinedness
   | .symbol, .simplification | .symbol, .smtLemma | .symbol, .syntactic | .symbol, .trusted =>
@@ -380,8 +382,8 @@ def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   | .symbol, .klabel => .inert (ruled "KLABEL(klabel)@symbol")
   | .symbol, .label => .inert (ruled "LABEL(label)@symbol")
   | .symbol, .left => .refused .outsideE2 (erased "LEFT_INTERNAL(left)@any")
-  | .symbol, .macroKey => .inert (ruled "MACRO(macro)@symbol")
-  | .symbol, .macroRec => .inert (ruled "MACRO_REC(macro-rec)@symbol")
+  | .symbol, .macroKey => .read
+  | .symbol, .macroRec => .read
   | .symbol, .memo => .inert (ruled "MEMO(memo)@symbol")
   | .symbol, .nat => .refused .outsideE2 (ruled "NAT(nat)@any")
   | .symbol, .noEvaluators => .inert (ruled "NO_EVALUATORS(no-evaluators)@symbol")
