@@ -51,7 +51,8 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       tie, theorems (the theorem that ties the row's sentence on a tied text); or the row's
                    `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
                    theorem declared in FILE, a tie file as above; on a module row "every ... row
-                   of MODULE (n) is tied"; an item "uncovered: ..." is missing evidence
+                   of MODULE (n) is tied"; an item "uncovered: ..." or "refuted: ..." (Γ refutes the
+                   sentence or entails it only partly) is missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
   inert
@@ -224,9 +225,12 @@ class Fixtures:
         if not self.fresh:
             return "not run"
         if name not in self._fresh:
-            import kfix
-            got = kfix.account_of(name, kfix.conf(name))
-            self._fresh[name] = "not in the cache" if got is None else got == self.read(name, "account.txt")
+            try:
+                import kfix
+                got = kfix.account_of(name, kfix.conf(name))
+                self._fresh[name] = "not in the cache" if got is None else got == self.read(name, "account.txt")
+            except (Exception, SystemExit) as err:  # no K installation, no kcore binary, ...
+                self._fresh[name] = f"not compared: {str(err)[:80]}"
         return self._fresh[name]
 
 
@@ -381,6 +385,10 @@ def evidence(fx, l, key, e, row):
         unc = [x for x in v if isinstance(x, str) and x.startswith("uncovered")]
         if unc or not v:
             miss.append("theorems (e6_tie: " + (unc[0][:80] if unc else "empty") + ")"); return False
+        ref = [x for x in v if isinstance(x, str) and x.startswith("refuted")]
+        if ref:
+            miss.append("theorems (e6_tie: " + ref[0].split(";")[0] + ": Γ refutes the sentence or entails it"
+                        " only partly, no tie; a finding for DONE-0 2.6)"); return False
         if all(isinstance(x, str) and re.match(r"every .* row of \S+ \(\d+\) is tied$", x) for x in v):
             have.append("tie: every row of the module tied (e6_tie)"); return True
         thms = [re.match(r"(\S+) \((test/[^;]+\.lean); .+\)$", x) if isinstance(x, str) else None for x in v]
@@ -649,6 +657,7 @@ def self_test():
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.C3EqReqEns.nope (test/C3EqReqEns.lean; t axiom 3)"]}, False),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["KCore.X.y (test/PrintNames.lean; t axiom 3)"]}, False),
             ("E6", "axiom:X", {"status": "supported", "e6_tie": ["uncovered: INT; no tied text holds the sentence"]}, False),
+            ("E6", "lemma:X", {"status": "inert", "e6_tie": ["refuted: M; no theorem entails the sentence"]}, False),
             ("E6", "module:M", {"status": "supported", "e6_tie": ["every axiom, lemma, sort and symbol row of M (3) is tied"]}, True),
             ("E6", "lemma:X", {"status": "inert",
                                "e6_tie": ["KCore.C3EqReqEns.f_5 (test/C3EqReqEns.lean; t axiom 3)"]}, True),
