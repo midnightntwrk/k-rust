@@ -19,7 +19,11 @@ The document holds, in this order:
              status of each `except` entry; then the manifest's not_core items.
   the lists  one table per list, one line per row in rows.toml's order, each nested entry on a line
              of its own after its row: status, class, reason (the row's `reason`, else its `note`),
-             cone, unit, fixture, kimp and kore marks, evidence.
+             cone, unit, fixture, kimp and kore marks, evidence. An erased entry's status is
+             followed by the letters of the forms it carries (P pair, S absent, O other_file, C
+             carried_by: rows-header.toml), or "no form"; P where it names `pair` or its
+             `no_sentence` is of class erased (the fixture's same_as pair, rows-header.toml); the
+             verdicts are rest.py's.
 Cells are escaped for Markdown (\\ ` * _ ~ | and < in text; a key is a code span) and cut at a fixed
 length (CUT characters for reason and evidence, NCUT for a case's text) ending in "…"; rows.toml
 holds the whole. The output has no date, commit or path of the machine, so equal inputs give equal
@@ -114,6 +118,14 @@ def counts_table(first, by_list, keys, total=True):
     if total:
         rows.append(["all", str(sum(tot.values()))] + [str(tot.get(k, 0)) for k in keys])
     return table([first, "entries"] + keys, rows)
+
+
+def erased_letters(e):
+    """The letters of the forms of erased an entry carries (rows-header.toml)."""
+    ns = e.get("no_sentence")
+    pair = "pair" in e or (isinstance(ns, str) and ns.split(":", 1)[0].strip() == "erased")
+    return [c for c, ok in [("P", pair), ("S", "absent" in e),
+                            ("O", "other_file" in e or "witness" in e), ("C", "carried_by" in e)] if ok]
 
 
 def generate(rows_path, manifest_path):
@@ -247,6 +259,9 @@ def generate(rows_path, manifest_path):
                 st = e.get("status", "")
                 if l == "C3" and e.get("core") is True:
                     st += " (core)"
+                if st == "erased":
+                    fs = erased_letters(e)
+                    st += f" ({', '.join(fs)})" if fs else " (no form)"
                 if no_model(e):
                     st += " (no model)"
                 lines.append([
