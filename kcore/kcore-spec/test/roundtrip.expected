@@ -132,8 +132,11 @@ differs f2-examples/openh.kompile.kore
 cannot f2-examples/openlinked.kompile.kore
 cannot f2-examples/openlinkedbool.kompile.kore
 differs f2-examples/openmixed.kompile.kore
+differs f2-examples/openmixedas.kompile.kore
+differs f2-examples/openmixedowise.kompile.kore
 cannot f2-examples/openmixedunheld.kompile.kore
 cannot f2-examples/openrec.kompile.kore
+differs f2-examples/openrecheld.kompile.kore
 differs f2-examples/openrule.kompile.kore
 differs f2-examples/optcell.kompile.kore
 differs f2-examples/ovlconf.kompile.kore
