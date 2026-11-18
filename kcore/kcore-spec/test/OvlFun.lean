@@ -751,6 +751,11 @@ theorem coreOK_chain_false : (Chain.c false).coreOK = false := by
   show (others (Chain.c false) && (Chain.c false).overloadsOK) = false
   rw [chain_false.1, Bool.and_false]
 
+/-- The witness module of this conjunct (`Faithful.OvlClosedWitness`, whose `Γ` has no model) is
+this chain with its function's clause taken away. -/
+theorem closed_witness_eq : Faithful.OvlClosedWitness.c =
+    { Chain.c false with fns := [⟨Chain.plusInt, [Srt.int, Srt.int], Srt.int, [], false⟩] } := rfl
+
 /-- The overload of `fS` by the result-keeping function `fB`. -/
 theorem ovls_conf : (Conf.c [Conf.fB]).overloadsOK = true := by decide +kernel
 theorem coreOK_conf : Conf.expect :=

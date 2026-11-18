@@ -772,6 +772,10 @@ and wasm 6 (also a pattern applying an overloading symbol, "a symbol of no known
 pattern"). 20 of the 343 texts hold a `symbol-overload` axiom; the one of them that meets
 `execReady` (evm-equivalence) has no overloading symbol in the reader's sense. No `mismatch` line
 (`readyWhy` and `readyP` agree on every clause and rule).
+Re-measured 2026-11-19, with `overloadsOK` admitting an overload by a function (`test/corpus.expected`
+and `grep -l symbol-overload` over `.lake/corpus/defs`): 359 texts are `clean coreOK`, 20 of them hold
+a `symbol-overload` axiom, and none of the 22 `unclean` texts holds one, so the admission changes no
+corpus line.
 
 ## The executable step reads overloading symbols (kcore-theory, 2026-11-14)
 
