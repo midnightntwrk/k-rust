@@ -348,3 +348,4 @@ import KcoreSpec.EvalCallsInduct
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
 import KcoreSpec.KKEncLemmas
+import KcoreSpec.ModelEmptyInhabited
