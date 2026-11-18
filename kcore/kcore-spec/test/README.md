@@ -1585,6 +1585,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
   and `shapesOK` (`KcoreSpec/LibEvInt.lean`, through `LibEv.Eqn.entailed_reg`): the text's axiom is
   compared with the equation's pattern over the registry's names. Axioms guarded.
+- `test/ParamE6Lib.lean`: on the kompiled texts of the fixtures e6-param-float, e6-param-string,
+  e6-param-map, e6-param-bytes, e6-param-set and e6-param-int (`f2-examples/e6-param-*.kompile.kore`),
+  every hooked function of FLOAT, STRING, MAP, BYTES, SET and INT the reader reads as a parameter no
+  hook implements (45): over all H, Γ entails neither that it has no value at a point nor that it is
+  a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undeterminedPL`).
+  `FnHyp` for every H: five texts have no function; INT's has K's `append`, declared total, which
+  the totality decider does not confirm (its cover check does not split K) and `fnHyp_appendPL`
+  shows total from the values of K being `kseq` and `dotk` terms. Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
