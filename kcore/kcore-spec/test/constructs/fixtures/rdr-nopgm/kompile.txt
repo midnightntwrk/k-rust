@@ -1,0 +1,9 @@
+command: kompile --backend haskell rdr-nopgm.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 82574
+definition.kore sha256: 6dcbb7ea441f1a57cb67114b678f7c74b2c9284243ac6b3db6b8d95c635b9fee
+stripped sha256: 4aac856f63ff2a99857bf58706dc050e9bb2229da0f32e445654f0c4378e4362
+main module: 241 sentences, 21 not in base's, in kore.txt
+output:
+  

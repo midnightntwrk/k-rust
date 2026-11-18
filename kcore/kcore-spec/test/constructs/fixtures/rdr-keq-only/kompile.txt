@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-keq-only.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.1
+definition.kore bytes: 128274
+definition.kore sha256: deb832ab33cbbd23cbb96a6113ec9b38b8d028ef0c84b41dc70be424c21c8b9f
+stripped sha256: 034ca11e12f0dc0c3103f04b7fdcca0a518b4322b0f2b2f440587140c0ecc790
+main module: 302 sentences, 33 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-KEQ-ONLY-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-KEQ-ONLY as default.

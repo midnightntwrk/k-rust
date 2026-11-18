@@ -1,0 +1,3 @@
+# Hand-written KORE: hw-base's kompiled text with the no-junk axiom of Cmd listing done only (run left out).
+# From: test/constructs/kfix.py run hw-base's definition.kore. kompile writes the no-junk axiom of a sort over all its constructors.
+kore = "test/constructs/fixtures/hw-nojunk-short/hw-nojunk-short.kore"

@@ -1,0 +1,17 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-CONFIG-DEEP: 2619 sentences
+  1 inert import [generated]
+  2164 read [generated]
+  51 read [builtin]
+  64 read [user]
+  130 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  198 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 configuration
+      sentence 337 (Lbl'-LT-'c63'-GT-'): configuration (KCell)
+        [user] (no label) at rdr-config-deep.k:3: symbol Lbl'-LT-'c63'-GT-'{}(SortKCell{}) : SortC63Cell{} [cell{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,380,3,408)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/rdr-config-deep.k)")]
+finish: sentence 337 (Lbl'-LT-'c63'-GT-'): configuration (KCell)
+(exit 0)
