@@ -14,7 +14,7 @@
   - `pMatch`: `∃ X:Int. C ∈ <generatedCounter>(X)`, C of the counter cell's sort, X held by the pattern
     under a constructor.
   `holds_stdI` at `pNot`, `pOr` and `pMatch`, the truth value from `holds_decided` under `FnHyp`.
-  `HoldsShape.holds_entails` at `pNot` in any model of `Γc`, with `holds_true`, `holds_false` and
+  `HoldsShape.holds_entailsCEx` at `pNot` in any model of `Γc`, with `holds_true`, `holds_false` and
   `holds_unique` there.
 -/
 import KcoreSpec
@@ -188,11 +188,11 @@ example : ∀ j ∈ ctorOccs c (.app 73 [.var 1]), j ∈ varOccs (.app 73 [.var 
 section
 open ML Faithful Faithful.Model HoldsShape
 
-/-- `holds_entails` at `pNot`, which holds no binder, in any model of `Γc`. -/
+/-- `holds_entailsCEx` at `pNot`, which holds no binder, in any model of `Γc`. -/
 theorem entailsNot {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     HoldsDen' c I pNot :=
-  holds_entails coreOK hIc hc pNot fun hb => absurd hb (by decide +kernel)
+  holds_entailsCEx (Semantics.coreOKEx_of_coreOK coreOK) hIc hc pNot fun hb => absurd hb (by decide +kernel)
 
 /-- Its two halves and the uniqueness of the truth value at `pNot`. -/
 example {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Γc c)

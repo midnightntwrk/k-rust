@@ -10,8 +10,7 @@
   - `stdI_modelOpen`: the value model satisfies `Γc c ∪ Γstep c`: `Γ` with the rules' axioms by
     `satRulesGoal_open`, the step's closure by `satStepGoal_open`, and the closure axiom
     `boolClosed`, which `Γcl` holds where Bool holds only its literals, by `boolClosed_model`.
-    Of the rules it reads `ruleSorted` and `rulePlainOpen`, given as a hypothesis
-    (`consistent_open`, Sound.lean, is its statement over `Consistent`).
+    Of the rules it reads `ruleSorted` and `rulePlainOpen`, given as a hypothesis.
 -/
 import KcoreSpec.OpenModel
 import KcoreSpec.ModelFnsCl

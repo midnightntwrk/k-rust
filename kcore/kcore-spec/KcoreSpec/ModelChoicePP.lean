@@ -1,6 +1,6 @@
 /-
-  KCore. The step's closure, the model and the choice among instances for rules with `pre` and
-  `post`: the value model at a transition T, its step read by `StepV`.
+  KCore. The step's closure and the model for rules with `pre` and `post`: the value model at a
+  transition T, its step read by `StepV`.
 
   - `freeOf_condKore`: a free variable of a well-sorted condition's pattern is a variable of the
     condition in scope, not among the bound keys (the converse of `condKore_keys`).
@@ -9,15 +9,14 @@
     and axiom are variables of the rule other than its existential ones.
   - `closureDisjunct_pp`, `satStepGoal_pp`: `closureDisjunct_T`, `satStepGoal_T` with `StepVAt` and
     `StepV` for `StepMAt` and `StepM`.
-  - `stdI_T_model_pp`: `stdI_T_model` with `StepV`, `StepVBy` and `rulePlainPP`.
-  - `consistent_pp`: `Γc c` with the step's closure has a model, `stdI_T c (StepV c)`, under
-    `coreOK`, `FnDet`, `FnSolves`, `OpenLaws` and the per-rule facts; no termination or decidedness asked.
+  - `stdI_T_model_pp_fns`: `stdI_T c T` is a model of `Γc` with the step's closure, for rules with
+    `rulePlainPP`, the functions' equations a hypothesis.
   - `stepVBy_of_stepBy` (`FnDet`) and `stepBy_of_stepVBy` (`coreOK`, `FnDet`, `FnTerminates`):
     the bridge between `StepBy` and `StepVBy` at configurations.
-  - `has_model_choice_pp`: `has_model_choice_ex`'s statement with `rulePlainPP`, under `FnHyp`.
 -/
 import KcoreSpec.SatRulePP
-import KcoreSpec.ExConsistent
+import KcoreSpec.ExChoice
+import KcoreSpec.SoundDefs
 import KcoreSpec.CondTwoTables
 import KcoreSpec.CondKoreVars
 import KcoreSpec.ModelFnsDecided
@@ -363,8 +362,8 @@ open ML Faithful Faithful.Model
 /-! ## The model -/
 
 /-- **The value model at a transition T is a model of `Γc` with the step's closure**, for rules with
-`ruleSorted` and `rulePlainPP`: `stdI_T_model` with `StepV` for `StepM` in `hsub` and `StepVBy` for
-`StepMBy` in `hall` and `hsome`, and `stdI_T_model`'s `hl` (the open generators' laws hold in the
+`ruleSorted` and `rulePlainPP`: `stdI_T_modelCEx` with `StepV` for `StepM` in `hsub` and `StepVBy` for
+`StepMBy` in `hall` and `hsome`, and `stdI_T_modelCEx`'s `hl` (the open generators' laws hold in the
 value model), where the value model satisfies the functions' equations (`hFns`). -/
 theorem stdI_T_model_pp_fns (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
@@ -389,36 +388,6 @@ theorem stdI_T_model_pp_fns (c : Semantics) (h : c.coreOK = true) (hm : HypModel
   · obtain ⟨-, hl, rfl⟩ := hφ
     exact hBool hl
   · exact satStepGoal_pp hm hrules T hsub φ hφ
-
-/-- `stdI_T_model_pp_fns` where each clause's predicate has a truth value wherever its patterns
-match (`ClausePreDecided`): the functions' equations by `AtT.satFnsGoal_decided`. -/
-theorem stdI_T_model_pp (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hp : ClausePreDecided c)
-    (hl : OpenLaws c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
-    (T : GroundTerm → GroundTerm → Prop)
-    (hsub : ∀ x y, c.sortOf x = some topCellSort → c.sortOf y = some topCellSort → T x y → StepV c x y)
-    (hall : ∀ r σ x y, StepVBy c r σ x y → r.exs = [] → T x y)
-    (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
-       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
-    stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model_pp_fns c h hm hl hrules T (AtT.satFnsGoal_decided hm (Semantics.fnsNoExs_of_coreOK h) hp) hsub hall hsome
-
-/-- **The theory of a definition whose rules have `pre` and `post` is consistent**: for a semantics
-that `coreOK` accepts, whose functions have at most one result (`FnDet`), whose evaluation
-solves the equations (`FnSolves`) and whose clauses' predicates have a truth value wherever their
-patterns match (`ClausePreDecided`), whose open generators' laws hold in the value model
-(`OpenLaws`, as `consistent_open` asks), and whose rules have `ruleSorted` and `rulePlainPP`,
-`Γc c` with the step's closure has a model: the value model at its own step,
-`stdI_T c (StepV c)`, which satisfies each clause's equation with its predicate in the premise
-(`AtT.satFnsGoal_decided`). No function is asked to terminate and no condition of a rule to have a truth
-value. -/
-theorem consistent_pp (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
-    (hp : ClausePreDecided c) (hl : OpenLaws c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true) : Consistent c :=
-  ⟨Elem, inferInstance, stdI_T c (StepV c),
-    stdI_T_model_pp c h (hypModel_of_fn h hd hs) hp hl hrules (StepV c)
-      (fun _ _ _ _ hT => hT)
-      (fun r σ _ _ hb _ => ⟨r, σ, hb⟩) (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, ⟨r, σ, hb⟩⟩)⟩
 
 /-! ## `StepBy` and `StepVBy` -/
 
@@ -461,38 +430,5 @@ theorem stepBy_of_stepVBy {c : Semantics} (h : c.coreOK = true) (hfd : FnDet c) 
         hq fun t ht => Classical.byContradiction fun hn => hc ⟨t, ht, hn⟩
     obtain ⟨v, hv⟩ := hdq t ht
     exact .intro ht hv fun he => hne (he ▸ hv)
-
-/-! ## The choice among instances -/
-
-/-- **The choice among instances is free, for rules with `pre` and `post`**: `has_model_choice_ex`'s
-statement with `rulePlainPP` for `rulePlainEx`, under `FnHyp`. The model is the value model at
-`liftT_ex c T`; `hsub` gives its closure through `stepVBy_of_stepBy`, `hall` and `hsome` its rules'
-axioms through `stepBy_of_stepVBy`. -/
-theorem has_model_choice_pp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainPP r = true)
-    (T : Config c → Config c → Prop)
-    (hsub : ∀ x y, T x y → Step c x y)
-    (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)
-    (hsome : ∀ x y r σ, StepBy c r σ x y → ∃ y' σ',
-       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
-    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
-      ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
-  have hm := hypModel_of_fnHyp h hf
-  have hfd := (fnModel_of_fnHyp h hf).1
-  have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
-  refine ⟨Elem, inferInstance, stdI_T c (liftT_ex c T), stdI_T_model_pp c h hm (clausePreDecided_of_fnHyp h hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_,
-    fun x y => (liftT_ex_iff T x y).symm.trans (step_iff_stdI_T c hm _ x y)⟩
-  · intro x y hx hy hT
-    obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))
-    exact ⟨r, σ, stepVBy_of_stepBy hfd hb⟩
-  · intro r σ x y hb hex hx hy
-    exact hall ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepVBy (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hfd hf.1 hsr hb) hex
-  · intro r σ x y hb _
-    by_cases hx : c.sortOf x = some topCellSort
-    · have hy := rhs_sorted_open hm (hrules r hb.1).1 hb.2.1 hb.2.2.2.2.2.1
-      obtain ⟨y', σ', hag, hb', hT⟩ :=
-        hsome ⟨x, hx⟩ ⟨y, hy⟩ r σ (stepBy_of_stepVBy (x := ⟨x, hx⟩) (y := ⟨y, hy⟩) h hfd hf.1 hsr hb)
-      exact ⟨y'.val, σ', hag, stepVBy_of_stepBy hfd hb', fun _ _ => hT⟩
-    · exact ⟨y, σ, fun _ _ => rfl, hb, fun hx' => absurd hx' hx⟩
 
 end KCore
