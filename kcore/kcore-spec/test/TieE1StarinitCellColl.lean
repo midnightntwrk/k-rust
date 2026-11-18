@@ -44,6 +44,10 @@ noncomputable def tr31 : KoreAML.P := (trS U.ax31).pat
 variables. -/
 noncomputable def trTri : KoreAML.P := (trS J.ax3).pat
 
+/-- The two sentences are the text's axioms 3 and 31 (`AxiomDecl.index`, counted from 1). -/
+theorem ax3_text : kore.axiomDecls[2]? = some J.ax3 := by kernel_rfl
+theorem ax31_text : kore.axiomDecls[30]? = some U.ax31 := by kernel_rfl
+
 /-- The module INJ has the one axiom, sentence 3, and sentence 31 is of the user module. -/
 theorem inj_module : J.all.map (·.index) = [3] ∧ J.ax3.module = "INJ" ∧ U.ax31.module = "STARINIT" := by
   decide +kernel
@@ -364,6 +368,8 @@ end KCore.TieE1Starinit
 
 #check @KCore.Faithful.inj_apart_of_incomparable
 #check @KCore.TieE1Starinit.cellcoll_subsort_refuted
+#print axioms KCore.TieE1Starinit.ax3_text
+#print axioms KCore.TieE1Starinit.ax31_text
 #print axioms KCore.Faithful.inj_apart_of_incomparable
 #print axioms KCore.Faithful.inj_apart_no_model
 #print axioms KCore.TieE1Starinit.text31
