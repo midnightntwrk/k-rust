@@ -209,7 +209,9 @@
 #             it on an entry whose fixture differs from a companion (fixture.toml differs_from) or that
 #             has attr_pairs. inert_class "attribute": an attribute of a read sentence or declaration to
 #             which K gives no meaning; its evidence (rest.py) is the tie of the fixture's own text (a
-#             file of `tie` other than test/InertSemPairs.lean that reads f2-examples/FIXTURE.kompile.kore),
+#             file of `tie` other than test/InertSemPairs.lean that reads f2-examples/FIXTURE.kompile.kore, or a
+#             text f2-examples/*.kore byte for byte the one the fixture's kompile.txt records, its paths
+#             restored as tiegen writes it),
 #             KCore.InertSemPairs.trS_attrs among tie_theorems, the fields below, and `reason` saying
 #             why K gives the attribute no meaning.
 #   attribute the attribute's head as KORE writes it (UNIQUE'Unds'ID, cool-like, unit).
