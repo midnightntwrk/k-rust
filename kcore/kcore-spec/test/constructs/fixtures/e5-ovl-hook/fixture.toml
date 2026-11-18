@@ -1,0 +1,3 @@
+# e5-ovl-param with the smaller symbol hooked to the registry's INT.add and declared total.
+expectation = "kompile delivers the symbol-overload axiom plusExp(inj K0, inj K1) = inj(plusInt(K0, K1)) beside plusInt as a hooked symbol; at covered arguments plusExp's application is the injected value of INT.add."
+observed = "kore.txt line 10: plusInt a hooked-symbol [function{}(), functional{}(), hook{}(\"INT.add\"), total{}()]; line 80: its functional axiom; line 88: the symbol-overload axiom; lines 76 and 78: plusExp's functional and no-confusion axioms. account.txt: the axiom is refused overloadForm (LblplusInt: neither a constructor, an overloading symbol nor a function of the definition); no other refusal."
