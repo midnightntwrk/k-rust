@@ -420,6 +420,7 @@ partial def cellGo (g : Ctx) (pre : String) : Cell → List String
   | .leaf nm _ ids => [s!"def {quoteId (nm ++ "Path")} : Path := {pre}.arg {g.sym ids.label} 1 0]",
       s!"def {quoteId ("get_" ++ nm)} (x : GroundTerm) : Option GroundTerm := x.atPath {quoteId (nm ++ "Path")}"]
   | .node _ cs ids => cs.zipIdx.flatMap fun (ch, i) => cellGo g (pre ++ s!".arg {g.sym ids.label} {cs.length} {i}, ") ch
+  | .coll _ => []
 
 def cellPathsOf (g : Ctx) : List String :=
   let p := g.d.pres

@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 6 | 2 | 0 | 0 | 0 | 4 | 0 | 0 |
-| E2 | 20 | 4 | 0 | 1 | 0 | 15 | 0 | 0 |
+| E2 | 21 | 4 | 0 | 1 | 0 | 16 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 256 | 103 | 2 | 18 | 1 | 131 | 0 | 1 |
+| all | 257 | 103 | 2 | 18 | 1 | 132 | 0 | 1 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 4 | 0 | 0 | 1 | 3 |
-| E2 | 15 | 3 | 0 | 3 | 9 |
+| E2 | 16 | 3 | 0 | 3 | 10 |
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 20 | 9 | 0 | 6 | 5 |
@@ -68,7 +68,7 @@ Refused nested entries by class:
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 131 | 45 | 11 | 45 | 30 |
+| all | 132 | 45 | 11 | 45 | 31 |
 
 ## Entries of class R-c (57)
 
@@ -335,7 +335,8 @@ Not core:
 | `ML_OP(mlOp)@frontend` | refused | R-c | Rule S1: the key marks the productions of kast.md 140-159 (#Not, #Ceil, #Floor, #Equals, #And, #Or, #Implies, #Exists, #Forall, #AG, #wEF, #wAF), and no sentence carries it; its effect is those productions' KORE, the matching-logic connectives of rule bodies, which are E3 rows. The row takes the sta… | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | the E3 row ML-SYNTAX:Sort2::="#Ceil" "(" Sort1 ")" (the production of the row's sentence in fixtures/e3-ml) and, for the key's other productions, the E3 rows named in split |
 | `MULTIPLICITY(multiplicity)=1@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-cells-attrs | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `MULTIPLICITY(multiplicity)=*@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
-| cases[0]: a cell of multiplicity \* beside another cell (&lt;t> &lt;k> $PGM:K &lt;/k> &lt;x multiplicity="\*" type="Set"> 0 &lt;/x> &lt;/t>) | supported |  | the text states &lt;t> as a cell constructor of two arguments, KCell and the collection sort XCellSet (kore.txt: \`symbol Lbl'-LT-'t'-GT-'{}(SortKCell{}, SortXCellSet{}) : SortTCell{}\`), XCellSet a hooked SET collection with unit .XCellSet, element XCellSetItem over XCell and concat, and initXCell() : X… | none (reader and presentation only: Parse.cellOf, Presentation's Cell, the cell sentences Emit writes, Presentation.cellsOK; Semantics.ctors and Semantics.colls state the sentences as they are) |  | rdr-cell-star-sibling |  |  | fixtures/rdr-cell-star-sibling/kompile.txt: exit 0; its account as reader\_today |
+| cases[0]: a cell of multiplicity \* beside another cell (&lt;t> &lt;k> $PGM:K &lt;/k> &lt;x multiplicity="\*" type="Set"> 0 &lt;/x> &lt;/t>) | supported |  | the text states &lt;t> as a cell constructor of two arguments, KCell and the collection sort XCellSet (kore.txt: \`symbol Lbl'-LT-'t'-GT-'{}(SortKCell{}, SortXCellSet{}) : SortTCell{}\`), XCellSet a hooked SET collection with unit .XCellSet, element XCellSetItem over XCell and concat, and initXCell() : X… | none (reader and presentation only: Parse.cellOf, Presentation's Cell (Cell.coll, a node's child that is a cell collection), the cell sentences Emit writes (Cell.initCall writes the collection's unit, Cell.fragCtor its sort), Presentation.cellsOK; Semantics.ctors and Semantics.colls state the senten… |  | rdr-cell-star-sibling |  |  | fixtures/rdr-cell-star-sibling/kompile.txt: exit 0; fixtures/rdr-cell-star-sibling/account.txt: \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
+| cases[1]: a cell constructor of two arguments neither of which is a cell or a collection, &lt;k>(K, Int) : KCell (hand-written: kompi… | refused | scope | a cell constructor takes its content (a leaf: one sort) or its children (a node: cell sorts, and the collection sorts of its cells of multiplicity \*); Presentation's Cell is one of those, and the cell sentences Emit writes are a leaf's or a node's. A cell constructor of several arguments of which no… |  | none (scope): never written |  |  |  | test/InitContent.lean: edit I of f2-examples/cells.kompile.kore (\`symbol Lbl'-LT-'k'-GT-'{}(SortK{}, SortInt{})\`): \`I: [cellShape Lbl'-LT-'k'-GT-']\` |
 | `MULTIPLICITY(multiplicity)=?@frontend` | supported |  | Rule S1. The KORE: constructors \`.OptCell\` and \`&lt;opt>\` of sort OptCell, \`unit{}(.OptCell)\` on the cell, the cell absent in the initial configuration; read. | none (reader only) |  | e2-cells | no | no | FX/e2-cells/kore.txt lines 74, 106, 740; account.txt: parse ok, wf true, \`inert constructor axioms not induced by the constructors: 0\`, \`refused by the account: 0\`; fixtures/c3-cells-opt (e2-cells-plain's text with &lt;one multiplicity="?"> 0 &lt;/one>): kompile.txt exit 0, K 7.1.337 with default options;… |
 | `NON_ASSOC(non-assoc)@frontend` | erased |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |
 | `NON_EXECUTABLE(non-executable)@rule` | refused | R-b | Rule S2: kompile 7.1.337 with default options and --backend haskell writes no definition.kore for the text (each row's no\_sentence quotes the message). | none (reader only) |  | e2-rule-nonexec | no | no | FX/e2-anywhere, e2-anywhere-eq, e2-anywhere-simp, e2-cells-bag, e2-rule-nonexec, e2-simp-owise, e2-simp-priority, e2-simp-on-rule, e2-syntactic-rule, e2-syntactic-eq: kompile.txt, exit 113. |

@@ -22,7 +22,9 @@
     variable no pattern holds, and its functional axiom. Two more edits leave the reader without a
     sentence its reading of the configuration needs: G the getter's equation removed, refused
     (`missingEquation`); H `<k>` declared over its own sort `KCell` (`<k>(KCell) : KCell`), a cell
-    below itself, which is no tree of cells, refused (`configuration`).
+    below itself, which is no tree of cells, refused (`configuration`); I `<k>` declared over two
+    sorts neither of which is a cell or a collection (`<k>(K, Int) : KCell`), neither a leaf nor a
+    node, refused (`cellShape`).
 -/
 import KcoreSpec
 
@@ -190,7 +192,7 @@ def dropGetter (t : String) : String :=
 /-- The edits: A the getter's right side another variable; B the getter `ensures false`; C
 `initOneCell() = <one>(1 /Int 0)` with its `functional` axiom; D a `functional` axiom of
 `initKCell`; E a second equation `initOneCell() = <one>(1)`; F `initOneCell() = <one>(N:Int)`; G
-no equation of the getter; H `<k>(KCell) : KCell`. -/
+no equation of the getter; H `<k>(KCell) : KCell`; I `<k>(K, Int) : KCell`. -/
 def edits (t : String) : List (String × String) :=
   [("0", t),
    ("A", t.replace getterRhs "       VarOther:SortGeneratedCounterCell{},\n        \\top{SortGeneratedCounterCell{}}())))"),
@@ -203,7 +205,8 @@ def edits (t : String) : List (String × String) :=
    ("E", t.replace oneFunctional (oneFunctional ++ oneEqn "Lbl'-LT-'one'-GT-'{}(\\dv{SortInt{}}(\"1\"))" "second")),
    ("F", t.replace oneRhs "       Lbl'-LT-'one'-GT-'{}(VarN:SortInt{}),\n        \\top{SortOneCell{}}())))"),
    ("G", dropGetter t),
-   ("H", t.replace "symbol Lbl'-LT-'k'-GT-'{}(SortK{})" "symbol Lbl'-LT-'k'-GT-'{}(SortKCell{})")]
+   ("H", t.replace "symbol Lbl'-LT-'k'-GT-'{}(SortK{})" "symbol Lbl'-LT-'k'-GT-'{}(SortKCell{})"),
+   ("I", t.replace "symbol Lbl'-LT-'k'-GT-'{}(SortK{})" "symbol Lbl'-LT-'k'-GT-'{}(SortK{}, SortInt{})")]
 
 /--
 info: 0: read, unaccounted []
@@ -215,6 +218,7 @@ E: [generatedEquation LblinitOneCell, generatedEquation LblinitOneCell, generate
 F: [generatedEquation LblinitOneCell, generatedEquation LblinitOneCell]
 G: [missingEquation E2-CELLS]
 H: [configuration Lbl'-LT-'k'-GT-']
+I: [cellShape Lbl'-LT-'k'-GT-']
 -/
 #guard_msgs in
 #eval show IO Unit from do
