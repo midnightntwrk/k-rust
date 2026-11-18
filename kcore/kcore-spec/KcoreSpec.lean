@@ -355,3 +355,4 @@ import KcoreSpec.KKEncLemmas
 import KcoreSpec.LibEvCollSym
 import KcoreSpec.LibEvCollSymK
 import KcoreSpec.ModelEmptyInhabited
+import KcoreSpec.GenEqsInitArm
