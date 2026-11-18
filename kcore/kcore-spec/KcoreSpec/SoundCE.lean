@@ -11,6 +11,7 @@
 import KcoreSpec.SoundCEx
 import KcoreSpec.CompleteCEx
 import KcoreSpec.CompleteHeld
+import KcoreSpec.OvlHeldBack
 
 set_option autoImplicit false
 
@@ -39,13 +40,23 @@ theorem Semantics.ruleFactsHeld_of_coreEx {c : Semantics} (h : c.coreOKEx = true
 open ML Faithful Faithful.Model
 
 /-- The symbols `Semantics.holds` names have `HeldBack` in every model of `Γc`, for a semantics
-`coreOKEx` accepts (`heldBackAll_holds`'s proof). -/
-theorem heldBackAll_holdsCEx {c : Semantics} (h : c.coreOKEx = true) : HeldBackAll c c.holds := by
+`coreOKEx` accepts. `hrc`: the definition reads a confined sort where an overload closure holds a
+function. -/
+theorem heldBackAll_holdsCEx {c : Semantics} (h : c.coreOKEx = true)
+    (hrc : c.ovls.any (fun o => !(c.fnOverloads o.sig.name).isEmpty) = true → c.readsConfined = true) :
+    HeldBackAll c c.holds := by
   intro M _ I hI f k hc hh hk
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSoundEx_of_coreEx h
   haveI : OvlOK c := hno
-  have hsc := sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)
-  exact collHeld_back (fun φ hφ => hI φ (Or.inl hφ)) hg hsc.trans hph hcs hcso hc hh hk
+  exact heldBack_collOvlCl (fun φ hφ => hI φ (Or.inl hφ)) (sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)) hg hph hcs
+    hcso (fun hany => confinedAt_valueCEx h (hrc hany) hI) f k hc hh hk
+
+/-- What `coreOKEx` gives the statements over a set of held symbols: some set at which the rules
+have `ruleSorted` and `rulePlainHeldH` and whose symbols have `HeldBack` in every model of `Γc`. -/
+theorem Semantics.heldFacts_of_coreEx {c : Semantics} (h : c.coreOKEx = true) :
+    ∃ H : Sym → Bool, (∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH H r = true) ∧
+      HeldBackAll c H :=
+  heldFacts_of_rules (Semantics.ruleFactsHeld_of_coreEx h) fun hr => heldBackAll_holdsCEx h fun _ => hr
 
 
 /-- **Soundness at a step by a rule with a `pre` and a `post`**: `sound_at`'s statement from the
@@ -138,7 +149,8 @@ theorem sound_at_ce (c : Semantics) (h : c.coreOKEx = true)
       (∃ σ', PatVal c σ' r'.lhs x.val) → r'.CondDecided c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     (Γc c ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :=
-  sound_at_heldCEx c h (Semantics.ruleFactsHeld_of_coreEx h) (heldBackAll_holdsCEx h) x y r σ hs hw hc
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_coreEx h
+  sound_at_heldCEx c h hrules hbk x y r σ hs hw hc
 
 /-- **Completeness at a configuration** of a semantics that `coreOKEx` accepts (`complete_at`'s
 statement with `coreOKEx` for `coreOK`), where the evaluations the step at x reads have results

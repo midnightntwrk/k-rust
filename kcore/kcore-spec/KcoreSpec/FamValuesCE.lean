@@ -12,7 +12,7 @@
   - `famOpen_stepPPCEx`, `famOpen_values_ppCEx`: the outcomes of a match are among any values
     that hold its steps, for a rule with `ruleSorted`.
   - `famEx_values_ce`, `famOpen_values_ce`: the rules' facts and `HeldBackAll` read from
-    `coreOKEx` (`Semantics.ruleFactsHeld_of_coreEx`, `heldBackAll_holdsCEx`,
+    `coreOKEx` (`Semantics.heldFacts_of_coreEx`,
     `Semantics.ruleFactsHO1_of_coreEx`).
 -/
 import KcoreSpec.FamExValuesHeld
@@ -480,7 +480,8 @@ theorem famEx_values_ce (c : Semantics) (h : c.coreOKEx = true) (hf : FnHyp c) (
     (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
     (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :
     ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
-  famEx_values_heldCEx c h hf (Semantics.ruleFactsHeld_of_coreEx h) (heldBackAll_holdsCEx h) x y r σ hs hy
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_coreEx h
+  famEx_values_heldCEx c h hf hrules hbk x y r σ hs hy
 
 /-- **The outcomes of a match are, in every model, among any values that hold its steps**:
 `famOpen_values`'s statement with `coreOKEx` for `coreOK`. -/

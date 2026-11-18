@@ -15,7 +15,9 @@
   - `memHeldH_not_closed`: a rule one of whose variables is `memHeldH` over its left side's
     variables has `reqClosed` false, so `needsWitness` false.
 -/
-import KcoreSpec.HeldValues
+import KcoreSpec.OccsUnder
+import KcoreSpec.OvlHeldDefs
+import KcoreSpec.OpenSuccessor
 
 set_option autoImplicit false
 set_option linter.unusedSectionVars false

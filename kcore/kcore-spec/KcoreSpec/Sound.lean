@@ -25,7 +25,7 @@
     exactness, the choice among instances and the consistency of the theory are those lemmas'
     instances (`sound_at_held`, `complete_at_held`, `exact_held`, `has_model_choice_held`,
     `famEx_values_held`, `consistent_held`; `famOpen_values_pp` reads `ruleSorted` only), the
-    symbols having `HeldBack` in every model (`heldBackAll_holds`).
+    set of symbols and its `HeldBack` in every model being `Semantics.heldFacts_of_core`'s.
   - At one step and one configuration (`sound_at`, `complete_at`), under `coreOK` and the condition
     on the closed open conditions the step reads. For a definition whose shapes are the plain ones
     the step and the theory are the plain ones (`step_plain`, `Γc_plain`), and the statements over
@@ -52,7 +52,7 @@ import KcoreSpec.SoundHeld
 import KcoreSpec.CompleteHeld
 import KcoreSpec.ExactHeld
 import KcoreSpec.FamExValuesHeld
-import KcoreSpec.HeldBackAll
+import KcoreSpec.OvlHeldBack
 
 set_option autoImplicit false
 
@@ -78,7 +78,8 @@ theorem sound_at (c : Semantics) (h : c.coreOK = true)
       (∃ σ', PatVal c σ' r'.lhs x.val) → r'.CondDecided c)
     (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
     (Γc c ⊧ (den c x.val ⇒ KoreAML.sNext (famEx c r σ))) ∧ (Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :=
-  sound_at_held c h (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h) x y r σ hs hw hc
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_core h
+  sound_at_held c h hrules hbk x y r σ hs hw hc
 
 /-- **Completeness at a configuration** of a semantics that `coreOK` accepts, where the evaluations
 the step at x reads have results (`StepDecided`): with the step's closure, every successor of x is
@@ -185,7 +186,8 @@ theorem exact_ex (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
 right in the value model, right to left in any model (`exact_held`, with the rules' facts `coreOK`
 gives). -/
 theorem exact_hyp (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) : ExactC c :=
-  exact_held c h hf (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h)
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_core h
+  exact_held c h hf hrules hbk
 
 /-! ## The lemmas that carry the strength -/
 
@@ -207,7 +209,8 @@ theorem famEx_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c) (x y :
     (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
     (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)) :
     ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
-  famEx_values_held c h hf (Semantics.ruleFactsHeld_of_core h) (heldBackAll_holds h) x y r σ hs hy
+  let ⟨_, hrules, hbk⟩ := Semantics.heldFacts_of_core h
+  famEx_values_held c h hf hrules hbk x y r σ hs hy
 
 /-- The outcomes of a match are, in every model, among any values that hold its steps. -/
 theorem famOpen_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)

@@ -340,8 +340,36 @@ sort. -/
 def Clause.needsWitness (c : Semantics) (cl : Clause) : Bool :=
   cl.reqOpen && cl.reqClosed && !cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false
 
-/-- HO-1: the unit, element and concatenation symbols of a map, list or set collection. -/
-def Semantics.holds (c : Semantics) (f : Sym) : Bool := patternHooks.contains f || c.isCollPat f
+namespace Semantics
+variable (c : Semantics)
+
+/-- The symbols f reaches along the overloads, f among them, in at most `n` steps. -/
+def ovlReach : Nat → Sym → List Sym
+  | 0, f => [f]
+  | n + 1, f => f :: match c.lookupOvl f with
+    | some o => o.over.flatMap (ovlReach n)
+    | none => []
+
+/-- The symbols f reaches along the overloads, f among them (f alone for a symbol that overloads
+none). -/
+def ovlClosure (f : Sym) : List Sym := c.ovlReach (c.ovls.length + 1) f
+
+end Semantics
+
+/-- The functions in the overload closure of f: those of `c.fns` labelled by a symbol of
+`ovlClosure f`. -/
+def Semantics.fnOverloads (c : Semantics) (f : Sym) : List Fn :=
+  (c.ovlClosure f).flatMap fun g => c.fns.filter (·.label == g)
+
+/-- An overloading symbol each function in whose overload closure takes arguments of confined sorts. -/
+def Semantics.ovlHeld (c : Semantics) (f : Sym) : Bool :=
+  c.isOvl f && (c.fnOverloads f).all fun fn => fn.args.all c.confined
+
+/-- The symbols under which a value's element has values' elements as arguments: the unit, element
+and concatenation symbols of a map, list or set collection, and an overloading symbol each function
+in whose overload closure takes arguments of confined sorts (`ovlHeld`). -/
+def Semantics.holds (c : Semantics) (f : Sym) : Bool :=
+  patternHooks.contains f || c.isCollPat f || c.ovlHeld f
 
 mutual
   /-- The variables a term holds under constructors, injections and the symbols under which a
@@ -507,17 +535,6 @@ def ovlCoherent (k1 k2 : CtorSig) : Bool :=
   ((c.ovlDown k1).filter fun h => (c.ovlDown k2).contains h).any fun h =>
     h.args.length == k1.args.length &&
       ((h.args.zip k1.args).zip k2.args).all fun ((H, A1), A2) => (lower A1 A2).all fun C => c.le C H
-
-/-- The symbols f reaches along the overloads, f among them, in at most `n` steps. -/
-def ovlReach : Nat → Sym → List Sym
-  | 0, f => [f]
-  | n + 1, f => f :: match c.lookupOvl f with
-    | some o => o.over.flatMap (ovlReach n)
-    | none => []
-
-/-- The symbols f reaches along the overloads, f among them (f alone for a symbol that overloads
-none). -/
-def ovlClosure (f : Sym) : List Sym := c.ovlReach (c.ovls.length + 1) f
 
 /-- **The overloading symbols are well formed**: each is an overloading symbol of no other kind
 (`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
