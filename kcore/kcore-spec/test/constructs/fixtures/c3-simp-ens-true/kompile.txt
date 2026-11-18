@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-simp-ens-true.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.7
+definition.kore bytes: 203363
+definition.kore sha256: 494b74c6aa0b01ea7d92b2b10da90914200d4934ce458f3674595a7c3d6213ea
+stripped sha256: 2a5afa8d1e88ba8c6f59fdd6902f2178716476a45ca5035e14c1b69048810c43
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-simp-prio: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-ENS-TRUE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SIMP-ENS-TRUE as default.

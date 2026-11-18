@@ -1,0 +1,1 @@
+# rows E2 NON_EXECUTABLE@simplification and SMT_LEMMA@simplification: a true simplification carrying each key (f(f(X)) => f(X) and sl(sl(X)) => sl(X) beside f(X) => X and sl(X) => X). Predicted: kompile exit 0, 2 inert simplification [user], coreOK true

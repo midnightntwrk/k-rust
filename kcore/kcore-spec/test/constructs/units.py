@@ -113,7 +113,9 @@ ALLOWANCE = [
     # ticket that reads it yet.
     ("ROWS-1.unit-rc", 31, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
-    ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
+    # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
+    # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).
+    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
 ]
 

@@ -60,8 +60,10 @@ if on ref-fprio; then gen f2-examples/fprio.kompile.kore ref-fprio RefFprio --wf
 # K's claim `sum-spec` (imp-semantics, examples/specs/imp-sum-spec.k) proved on the package: the
 # loop's run by induction, all-path through determinism, entailed by Γ through soundness (User.SumSpec);
 # `sum-N` (imp-simple-spec.k), the whole program from the empty store (User.SumN); each step `fire i`
+# the statement of `sum-spec` written from its text and from its KORE sentence (User.SumSpecStmt), and
+# the one `k2lean kcore-claims` writes from that sentence (User.SumSpecGen)
 if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
-  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.RunInstance; fi
+  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.SumSpecGen User.RunInstance; fi
 # kore.k (krs/semantics/kore), read from K 7.1.337 kompile's KORE of it (test/kk-kompile.toml records
 # the command), with `--core`: `coreOK_defn`, its conjuncts each decided on its own and those that
 # read names on the names' codes, and from it `sound_hyp` and `complete_hyp`. With `--wf` one module

@@ -318,6 +318,7 @@ import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
 import KcoreSpec.CondVarsCongr
 import KcoreSpec.CondKoreVars
@@ -345,3 +346,6 @@ import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.EvalCallsInduct
+import KcoreSpec.KKEnc
+import KcoreSpec.KKEncDef
+import KcoreSpec.KKEncLemmas
