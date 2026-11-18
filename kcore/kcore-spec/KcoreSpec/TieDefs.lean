@@ -299,7 +299,8 @@ inductive TieDir where
   /-- `tr s` holds in every model of `Γ` at the valuations that send its variables to values
   (`EntailsAtValues`). -/
   | atValues
-  /-- `Γ` does not hold `s`: it is owed as a hypothesis on the functions (`FnHyp`). -/
+  /-- `Γ` does not hold `s`: it is owed as a hypothesis (`FnHyp` for a function's `functional`
+  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence). -/
   | hypothesis
   /-- `Γ` with `s` has no model. -/
   | refuted
@@ -322,13 +323,19 @@ sentences under these names, in this order.
   a common member undefined;
 - set-variable lemma: a library lemma over set variables that `Γ` refutes at a valuation sending
   each free set variable to a set of values (`SetVarsAtValues`);
+- function law: a law sentence (`AttrsAgree.isLaw`) whose head is a function or a parameter that is
+  no open generator: the sentence of a law of the definition (`Definition.laws`), owed as `FnLaws`;
+- open generator law: the `assoc` or `idem` sentence of an open generator, of which `Γ`'s law item
+  is the translation;
+- open generator functional: the `functional` sentence of an open generator, owed as `OpenTotal`;
 - no direction: a sentence that applies a symbol `Γ` does not have. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
    ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
    ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
-   ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("no direction", .none)]
+   ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
+   ("open generator law", .equal), ("open generator functional", .hypothesis), ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/
 

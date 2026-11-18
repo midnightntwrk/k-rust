@@ -35,14 +35,16 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem), `plus`'s as `OpenTotal` (`open_functional_not_item`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); open generator functional: owed as `OpenTotal`
+    (`open_functional_not_item`); open generator law: Γ's law item (`openlaw_item`,
+    `openlaw_account`); no direction: `absent_closed`.
 
   Exp's no junk (87) is entailed (`nojunk_exp_entailed`): its item lists `.E`, `x` and `plus` in
   another order. The law sentence of `plus` (77) is Γ's law item as written and entailed
-  (`openlaw_item`, `openlaw_entailed`); the account holds it in `collection law`, the class of that
-  KORE form (`tieClasses` has no class for an open generator's law). `plus`'s functional sentence (78) is no item of
+  (`openlaw_item`, `openlaw_entailed`); the account holds it in `open generator law`, of the
+  direction `equal`. `plus`'s functional sentence (78) is no item of
   Γ and is owed at values as `OpenTotal` (`open_functional_not_item`); the account holds it in
-  `function functional`, the one class of the direction `hypothesis`.
+  `open generator functional`, of the direction `hypothesis`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (14);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -109,12 +111,15 @@ def classes : List (String × List Nat) :=
    ("injectivity", [25, 27, 29, 31]),
    ("distinctness", [20]),
    ("no junk", [86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96]),
-   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 78]),
+   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73]),
    ("hooked functional", [21, 22, 23, 32, 33, 34, 35, 36, 37, 40, 44, 52, 53, 54, 55, 56, 58, 74, 79, 80, 81, 82, 83]),
-   ("collection law", [41, 42, 43, 45, 46, 47, 48, 50, 51, 77]),
+   ("collection law", [41, 42, 43, 45, 46, 47, 48, 50, 51]),
    ("library", [97, 145]),
    ("set idempotence", [49]),
    ("set-variable lemma", [146]),
+   ("function law", []),
+   ("open generator law", [77]),
+   ("open generator functional", [78]),
    ("no direction", [38, 39, 57, 84, 98, 99, 100, 101, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142,
       143, 144])]
 
@@ -130,7 +135,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 16), ("hooked functional", 23), ("collection law", 10), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("no direction", 22)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 1), ("open generator functional", 1), ("no direction", 22)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -153,7 +158,7 @@ theorem absent_closed :
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
   [(14, "subsort"), (19, "constructor functional"), (20, "distinctness"),
-   (60, "function functional"), (77, "collection law"), (78, "function functional"),
+   (60, "function functional"), (77, "open generator law"), (78, "open generator functional"),
    (85, "constructor functional"), (87, "no junk"), (96, "no junk"), (101, "no direction"),
    (104, "function equation"), (105, "function equation"), (132, "no direction"),
    (146, "set-variable lemma")]
@@ -604,9 +609,9 @@ theorem openlaw_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax77).pat := by
   rw [← of_decide_eq_true he]
   exact sat_cons hI (Or.inl ⟨it, by rw [consItemsK_withHooks]; exact hit, rfl⟩)
 
-/-- The law sentence is in the account's class `collection law` (direction `atValues`, which the
-entailment gives at every valuation). -/
-theorem openlaw_account : (classOf "collection law").contains 77 = true := by decide +kernel
+/-- The law sentence is the account's class `open generator law` (direction `equal`: Γ's law item is
+its translation, `openlaw_item`, and Γ entails it, `openlaw_entailed`). -/
+theorem openlaw_account : classOf "open generator law" = [77] := by decide +kernel
 
 /-! ## The functional sentence of `plus` (78): owed as `OpenTotal` -/
 
@@ -614,7 +619,8 @@ theorem openlaw_account : (classOf "collection law").contains 77 = true := by de
 functionality of the generators that are no open generator only. The sentence is owed, at values,
 as `OpenTotal`, which `lawHooks c H` satisfies (`lawHooks_laws`). -/
 theorem open_functional_not_item : !(consItemsK c).any (·.pat == (trS U.ax78).pat) &&
-    !(fnItems c).any (·.pat == (trS U.ax78).pat) && (classOf "function functional").contains 78 = true := by
+    !(fnItems c).any (·.pat == (trS U.ax78).pat) &&
+    (classOf "open generator functional" == [78]) = true := by
   decide +kernel
 
 /-! ## The converse over Γ's content -/

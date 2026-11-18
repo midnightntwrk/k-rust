@@ -67,7 +67,8 @@ WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "
 
 CLASSES = ["function equation", "rewrite rule", "priority equation", "constructor functional", "subsort",
            "injectivity", "distinctness", "no junk", "function functional", "hooked functional",
-           "collection law", "library", "set idempotence", "set-variable lemma", "no direction"]
+           "collection law", "library", "set idempotence", "set-variable lemma", "function law",
+           "open generator law", "open generator functional", "no direction"]
 # the classes test/TieEns.lean states a theorem of, sentence by sentence
 THEOREM_CLASSES = {"function equation", "rewrite rule", "priority equation", "constructor functional",
                    "subsort", "injectivity", "distinctness", "no junk", "set idempotence"}

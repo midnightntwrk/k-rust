@@ -34,14 +34,13 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem), the law sentences as `FnLaws` (`law_account`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); function law: owed as `FnLaws` (`law_account`); no direction: `absent_closed`.
 
   The law sentences (101, 102, 103; the associativity of `pu` and its right and left unit `zero`) are neither a function equation's item nor a constructor item of Γ
   (`law_not_item`): the reader reads each as a
   law of the function stated at values (`Definition.laws`, `law_text`: the sentence as written is the
-  law's `lawPattern`), owed as `FnLaws`. The account holds them in the class `function functional`,
-  the one class of the direction `hypothesis` (Γ does not hold the sentence; it is owed): `tieClasses`
-  has no class for a law of a function.
+  law's `lawPattern`), owed as `FnLaws`. The account holds them in the class `function law`, of the
+  direction `hypothesis` (Γ does not hold the sentence; it is owed).
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (9);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -101,7 +100,7 @@ def classes : List (String × List Nat) :=
    ("injectivity", [22, 24, 26, 28]),
    ("distinctness", []),
    ("no junk", [113, 114, 115, 116, 117, 118, 119, 120, 121, 122]),
-   ("function functional", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 101, 102, 103, 104, 111]),
+   ("function functional", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 104, 111]),
    ("hooked functional", [18, 19, 20, 29, 30, 31, 32, 33, 34, 36, 37, 38, 40, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
       55, 63, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 79, 94, 95, 96, 97, 100, 105, 106,
       107, 108, 109]),
@@ -113,6 +112,9 @@ def classes : List (String × List Nat) :=
       202, 203, 204, 205, 237, 238, 239, 240, 241, 242, 257, 258]),
    ("set idempotence", [60]),
    ("set-variable lemma", [123, 124, 125, 126, 127, 260]),
+   ("function law", [101, 102, 103]),
+   ("open generator law", []),
+   ("open generator functional", []),
    ("no direction", [35, 39, 41, 72, 74, 78, 110, 112, 153, 185, 206, 207, 208, 209, 243, 244, 245, 246, 247, 248,
       249, 250, 251, 252, 253, 254, 255])]
 
@@ -128,7 +130,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 19), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 27)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 16), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 3), ("open generator law", 0), ("open generator functional", 0), ("no direction", 27)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -150,7 +152,7 @@ theorem absent_closed :
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
-  [(101, "function functional"), (102, "function functional"), (103, "function functional"),
+  [(101, "function law"), (102, "function law"), (103, "function law"),
    (104, "function functional"), (111, "function functional"), (122, "no junk"),
    (209, "no direction"), (256, "function equation"), (259, "function equation")]
 
@@ -688,9 +690,9 @@ theorem law_text : lawText.map (trS · |>.pat) = defn.laws.map (lawPattern c) :=
 theorem law_not_item : lawText.all (fun ad => !(fnItems c).any (·.pat == (trS ad).pat) &&
     !(consItemsK c).any (·.pat == (trS ad).pat)) = true := by decide +kernel
 
-/-- The law sentences are in the account's class of the direction `hypothesis` (Γ does not hold the
-sentence; it is owed, here as `FnLaws`). -/
-theorem law_account : lawText.all (fun ad => (classOf "function functional").contains ad.index) = true := by
+/-- The law sentences are the account's class `function law`, of the direction `hypothesis` (Γ does
+not hold the sentence; it is owed as `FnLaws`). -/
+theorem law_account : lawText.map (·.index) = classOf "function law" := by
   decide +kernel
 
 /-! ## The converse over Γ's content -/

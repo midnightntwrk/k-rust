@@ -111,6 +111,9 @@ def classes : List (String × List Nat) :=
       197, 198, 199, 203, 235, 236, 237, 238, 239, 240, 254, 255]),
    ("set idempotence", [60]),
    ("set-variable lemma", [118, 119, 120, 121, 122, 256]),
+   ("function law", []),
+   ("open generator law", []),
+   ("open generator functional", []),
    ("no direction", [35, 39, 41, 72, 74, 78, 106, 107, 148, 180, 204, 205, 206, 207, 241, 242, 243, 244, 245, 246,
       247, 248, 249, 250, 251, 252, 253])]
 
@@ -126,7 +129,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 30), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 27)] := by
+    [("function equation", 30), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 14), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 27)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/

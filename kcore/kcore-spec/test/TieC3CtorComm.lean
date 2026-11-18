@@ -36,12 +36,13 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem), `plus`'s as `OpenTotal` (`open_functional_not_item`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); open generator functional: owed as `OpenTotal`
+    (`open_functional_not_item`); no direction: `absent_closed`.
 
   Exp's no junk (86) is entailed (`nojunk_exp_entailed`): its item lists `.E`, `x` and `plus` in
   another order. `plus`'s functional sentence (77) is no item of
   Γ and is owed at values as `OpenTotal` (`open_functional_not_item`); the account holds it in
-  `function functional`, the one class of the direction `hypothesis`.
+  `open generator functional`, of the direction `hypothesis`.
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (13);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -108,12 +109,15 @@ def classes : List (String × List Nat) :=
    ("injectivity", [25, 27, 29, 31]),
    ("distinctness", [20]),
    ("no junk", [85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95]),
-   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 77]),
+   ("function functional", [59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73]),
    ("hooked functional", [21, 22, 23, 32, 33, 34, 35, 36, 37, 40, 44, 52, 53, 54, 55, 56, 58, 74, 78, 79, 80, 81, 82]),
    ("collection law", [41, 42, 43, 45, 46, 47, 48, 50, 51]),
    ("library", [96, 144]),
    ("set idempotence", [49]),
    ("set-variable lemma", [145]),
+   ("function law", []),
+   ("open generator law", []),
+   ("open generator functional", [77]),
    ("no direction", [38, 39, 57, 83, 97, 98, 99, 100, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
       142, 143])]
 
@@ -129,7 +133,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 16), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("no direction", 22)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 8), ("subsort", 15), ("injectivity", 4), ("distinctness", 1), ("no junk", 11), ("function functional", 15), ("hooked functional", 23), ("collection law", 9), ("library", 2), ("set idempotence", 1), ("set-variable lemma", 1), ("function law", 0), ("open generator law", 0), ("open generator functional", 1), ("no direction", 22)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -152,7 +156,7 @@ theorem absent_closed :
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
   [(14, "subsort"), (19, "constructor functional"), (20, "distinctness"),
-   (60, "function functional"), (77, "function functional"), (84, "constructor functional"),
+   (60, "function functional"), (77, "open generator functional"), (84, "constructor functional"),
    (86, "no junk"), (95, "no junk"), (100, "no direction"), (103, "function equation"),
    (104, "function equation"), (131, "no direction"), (145, "set-variable lemma")]
 
@@ -605,7 +609,8 @@ end Idem
 functionality of the generators that are no open generator only. The sentence is owed, at values,
 as `OpenTotal`, which `lawHooks c H` satisfies (`lawHooks_laws`). -/
 theorem open_functional_not_item : !(consItemsK c).any (·.pat == (trS U.ax77).pat) &&
-    !(fnItems c).any (·.pat == (trS U.ax77).pat) && (classOf "function functional").contains 77 = true := by
+    !(fnItems c).any (·.pat == (trS U.ax77).pat) &&
+    (classOf "open generator functional" == [77]) = true := by
   decide +kernel
 
 /-! ## The converse over Γ's content -/
