@@ -13,6 +13,8 @@
   `SetVarsAtMostOne`, `symbolsOf`, the heads `appHeadsOf`, `gammaHead`, `gammaHeads`,
   `gammaHasHead`, `surplusItem`, `attrsAgree` with the
   checks it is made of) and the classes of an account with their directions (`tieClasses`). So are
+  the registry family's two statements at the decided check (`RegistryConservative`, `ExactOwn`,
+  with `Γown`, `Detached`, `detachedB`, `DetachedB.names` and `Semantics.clausesPreTop`). So are
   the rows' statements: `kore.k`'s three (`KK.SuccsSound`, `KK.SuccsStuck`, `KK.SuccsComplete`, with
   `KK.SuccsAt`, `KK.d₀`, `KK.K₀`, `KK.Sig`, `KK.St` and `CoherentAll`), and the all-path claims the
   consumer's statement is made of (`Reachability.AllPath`, `CPath`, `Progress`); the consumer's
@@ -534,6 +536,40 @@ example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx,
     TieDir.hypothesis.ctorIdx, TieDir.refuted.ctorIdx, TieDir.none.ctorIdx) = (0, 1, 2, 3, 4, 5, 6) := rfl
 example (d : TieDir) : d.ctorIdx < 7 := by cases d <;> decide
 
+/-! ## The registry family at detached names (C14): the theory without the premises that name
+them, the two statements that removing them changes nothing, and the decided check the names pass -/
+
+example (c : Semantics) : c.clausesPreTop = c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop) :=
+  rfl
+
+example (c : Semantics) (D : KoreAML.Sym → Prop) (φ : KoreAML.P) : Γown c D φ =
+    ((Γc c ∪ Γstep c) φ ∧ ∀ σ ∈ psyms φ, ¬ D σ) := rfl
+
+example (c : Semantics) (D : KoreAML.Sym → Prop) : Detached c D =
+    ((∀ σ, D σ → (∃ s, s < nRegSorts ∧ σ = .sort ("Sort" ++ c.sortName s)) ∨
+                 (∃ k ∈ hookSigs, σ = .symbol (c.symName k.name))) ∧
+     (∀ k ∈ builtinColls, D (.sort ("Sort" ++ c.sortName k.sort)) → collAxioms c k = []) ∧
+     ∀ φ, (Γc c ∪ Γstep c) φ → (∃ σ ∈ psyms φ, D σ) → RegistryItem c D φ) := rfl
+
+example (c : Semantics) (D : KoreAML.Sym → Prop) : RegistryConservative c D =
+    ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP Γown c D) →
+      ∃ (M' : Type) (_ : Inhabited M') (I' : Interpretation KoreAML.Sym M') (ι : M → M'),
+        Function.Injective ι ∧ (I' ⊧ᴵP (Γc c ∪ Γstep c)) ∧
+        (∀ σ, ¬ D σ → ∀ m, ι m ∈ I'.evalSymb σ ↔ m ∈ I.evalSymb σ) ∧
+        (∀ a b m, ι m ∈ I'.evalApp (ι a) (ι b) ↔ m ∈ I.evalApp a b) := rfl
+
+example (c : Semantics) (D : KoreAML.Sym → Prop) : ExactOwn c D = ∀ x y : Config c,
+    Step c x y ↔ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP Γown c D) ∧ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := rfl
+
+example (c : Semantics) (ss : List Srt) (ks : List Sym) (σ : KoreAML.Sym) : DetachedB.names c ss ks σ =
+    ((∃ s ∈ ss, σ = .sort ("Sort" ++ c.sortName s)) ∨ (∃ k ∈ ks, σ = .symbol (c.symName k))) := rfl
+
+example (c : Semantics) (ss : List Srt) (ks : List Sym) : detachedB c ss ks =
+    (DetachedB.sortsB c ss ks && ks.all (fun k => hookSigs.any (·.name == k)) &&
+      builtinColls.all (fun k => DetachedB.sOK c ss ks k.sort || (collAxioms c k).isEmpty) &&
+      DetachedB.listsB c ss ks && DetachedB.valuesB c ss ks && DetachedB.graphsB c ss ks) := rfl
+
 /-! ## The rows' statements: `kore.k`'s step function (C10 part 2) and what the consumer's claim
 statement is built from (C9 part 5; the statement itself, about ref-kimp's semantics, is pinned in
 test/PinsKimp.lean) -/
@@ -734,6 +770,20 @@ example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n
     (hf : CExec.outOfFuel c n x.val = false), Step c x y ↔ y.val ∈ CExec.successorsN c n x.val :=
   @CExec.step_iff_at
 
+/-- The registry family is conservative at the names the decided check passes, in the model form. -/
+example : ∀ (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List Srt) (ks : List Sym)
+    (h : c.coreOK = true) (hf : FnHyp c) (hd : detachedB c ss ks = true),
+    RegistryConservative c (DetachedB.names c ss ks) := @registry_conservative
+
+/-- The same, in the step form: no step at values rests on the family at those names. -/
+example : ∀ (c : Semantics) (hpreTop : c.clausesPreTop = true) (ss : List Srt) (ks : List Sym)
+    (h : c.coreOK = true) (hf : FnHyp c) (hd : detachedB c ss ks = true),
+    ExactOwn c (DetachedB.names c ss ks) := @exact_own
+
+/-- The decided check gives `Detached` at its names. -/
+example : ∀ (c : Semantics) (ss : List Srt) (ks : List Sym) (h : c.coreOK = true)
+    (hd : detachedB c ss ks = true), Detached c (DetachedB.names c ss ks) := @detached_of_decided
+
 /-! ## Their axioms: `#guard_msgs in #print axioms`, the list exactly -/
 
 /-- info: 'KCore.sound_hyp' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -843,5 +893,14 @@ example : ∀ {c : Semantics} (hr : CExec.execReady c = true) (hfd : FnDet c) {n
 
 /-- info: 'KCore.CExec.step_iff_at' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.CExec.step_iff_at
+
+/-- info: 'KCore.registry_conservative' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.registry_conservative
+
+/-- info: 'KCore.exact_own' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.exact_own
+
+/-- info: 'KCore.detached_of_decided' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.detached_of_decided
 
 end KCore.Pins
