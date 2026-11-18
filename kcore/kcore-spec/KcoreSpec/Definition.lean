@@ -124,10 +124,14 @@ structure CellIds where
 
 /-- A configuration cell: a leaf `<name> content </name>` holding a value of sort `content`, or a
 node holding its children in order. Cell names are letters, digits and inner dashes
-(`Presentation.cellsOK`). -/
+(`Presentation.cellsOK`). A node's child may also be a cell collection (`coll`): the collection
+sort `content` of a cell of multiplicity `*` beside other children (`<t> <k/> <x multiplicity="*"/>
+</t>`, whose constructor `<t>` takes `KCell` and `XCellSet`); it is no cell, has no symbols of its
+own, and its initial value is the collection's unit. -/
 inductive Cell where
   | leaf (name : String) (content : Srt) (ids : CellIds)
   | node (name : String) (children : List Cell) (ids : CellIds)
+  | coll (content : Srt)
   deriving Repr, Inhabited
 
 namespace Cell
@@ -135,10 +139,15 @@ namespace Cell
 def name : Cell → String
   | .leaf n _ _ => n
   | .node n _ _ => n
+  | .coll _ => ""
 
+/-- A cell's ids; a cell collection has its sort and no other sort or symbol (its `label` is
+`default` and is read by nothing: `Cell.all`, which the per-cell sentences range over, holds no
+collection). -/
 def ids : Cell → CellIds
   | .leaf _ _ i => i
   | .node _ _ i => i
+  | .coll s => { sort := s, label := default }
 
 def sort (x : Cell) : Srt := x.ids.sort
 def optSort (x : Cell) : Option Srt := x.ids.opt
@@ -151,11 +160,18 @@ def noCtor (x : Cell) : Option CtorSig :=
   | some n, some o => some ⟨n, [], o⟩
   | _, _ => none
 
+/-- A child's argument of its parent's `<x>-fragment`: a cell's `Opt` sort, a cell collection's
+own sort; none for a cell without an `Opt` sort. -/
+def fragArg : Cell → Option Srt
+  | .coll s => some s
+  | x => x.optSort
+
 /-- A node's `<x>-fragment`, when it has the symbol and the sort: one argument for each child with
-an `Opt` sort, of that sort (a child without one has no place in the fragment). -/
+an `Opt` sort, of that sort, and for each cell collection, of its sort (a cell without an `Opt`
+sort has no place in the fragment). -/
 def fragCtor (cs : List Cell) (i : CellIds) : Option CtorSig :=
   match i.fragLabel, i.frag with
-  | some l, some s => some ⟨l, cs.filterMap Cell.optSort, s⟩
+  | some l, some s => some ⟨l, cs.filterMap Cell.fragArg, s⟩
   | _, _ => none
 
 /-- The generated counter cell `<generatedCounter> Int </generatedCounter>`. -/
@@ -175,6 +191,7 @@ mutual
     | .leaf n c i => [⟨i.label, [c], i.sort⟩] ++ (Cell.leaf n c i).noCtor.toList
     | .node n cs i => [⟨i.label, cs.map Cell.sort, i.sort⟩] ++ (Cell.node n cs i).noCtor.toList ++
         (fragCtor cs i).toList ++ sigsList cs
+    | .coll _ => []
     termination_by structural x => x
   def sigsList : List Cell → List CtorSig
     | [] => []
@@ -188,6 +205,7 @@ mutual
   def sorts : Cell → List Srt
     | .leaf _ _ i => [i.sort] ++ i.opt.toList
     | .node _ cs i => [i.sort] ++ i.opt.toList ++ i.frag.toList ++ sortsList cs
+    | .coll _ => []
     termination_by structural x => x
   def sortsList : List Cell → List Srt
     | [] => []
@@ -201,6 +219,7 @@ mutual
   def syms : Cell → List Sym
     | .leaf _ _ i => [i.label] ++ i.no.toList
     | .node _ cs i => [i.label] ++ i.no.toList ++ i.fragLabel.toList ++ symsList cs
+    | .coll _ => []
     termination_by structural x => x
   def symsList : List Cell → List Sym
     | [] => []
@@ -213,6 +232,7 @@ mutual
   def optSubs : Cell → List (Srt × Srt)
     | .leaf _ _ i => i.opt.toList.map (i.sort, ·)
     | .node _ cs i => i.opt.toList.map (i.sort, ·) ++ optSubsList cs
+    | .coll _ => []
     termination_by structural x => x
   def optSubsList : List Cell → List (Srt × Srt)
     | [] => []

@@ -8,8 +8,10 @@
   side: an instance at values that gives `v` puts `v`'s element in it, and an element in it is in an
   instance at elements; where each such instance is one at values (`Witnessed`, what `exs_values`
   concludes) and every instance at values is decided and gives `r` or nothing, the right side is
-  what `r` denotes. `clause_den_exCore` puts the two together with the readings as hypotheses, and
-  `eval_den_ex` discharges them from the soundness of `EvalTerm` in the model: `f(vs) = den v` for
+  what `r` denotes. `clause_den_exCore` puts the two together with the readings as hypotheses.
+  `eval_den_exRead` discharges the right side's at an instance, from the readings of the terms
+  each instance evaluates (`InstIsRead`) and of the left side at that instance; `eval_den_ex` is it
+  with the readings the soundness of `EvalTerm` in the model gives: `f(vs) = den v` for
   `Eval.clauseEx`'s premises and `f(vs) = ⊥` for `Eval.exNone`'s.
 -/
 import KcoreSpec.ExsValues
@@ -679,21 +681,22 @@ theorem subst_of_witnessedEx (hI : I ⊧ᴵP Γ c) [OvlOK c] (hg : genWf c = tru
     exact hags i v (by rw [canonVars_length]; exact hi) hv m
 
 open HoldsShape in
-/-- **A clause with existential variables that decides, read in a model of `Γc`** in which
-`EvalTerm` is sound. The clause matches `ws` under σ, the clauses of a smaller priority it negates
-fail, it has an instance (a well-sorted σ' that is σ off the existential variables the left side
-does not hold), and every instance is decided and gives `r` or nothing (`InstIs`), one of them
-giving `v` where `r` is `some v`. Then `f` applied to the arguments' elements is what `r` denotes:
-`f(ws) = den v` for the premises of `Eval.clauseEx`, `f(ws) = ⊥` for those of `Eval.exNone`.
+/-- **A clause with existential variables that decides, read in a model of `Γc`**, from the
+readings of the evaluations at hand. σ₀ is an instance under which the clause matches `ws` (well
+sorted on all the clause's variables); its `requires` and its predicate `pre` are read at σ₀
+(`ihreq`, `ihpre`); the clauses of a smaller priority it negates fail; every instance that is σ₀ off
+the existential variables is decided and gives `r` or nothing, with the readings of the terms it
+evaluates (`InstIsRead`); and where `r` is `some v` the instance at σ₀ gives `v`. Then `f` applied
+to the arguments' elements is what `r` denotes. The soundness of `EvalTerm` in the model is not
+asked.
 
-The clause's equation is read through `clauseRhs`: its right side is `∃ē. (rhs ∧ ens ∧ post)`. An
-instance at values that gives `v` puts `v`'s element in it. An element in it is in an instance at
+The clause's equation is read through `clauseRhs`: its right side is `∃ē. (rhs ∧ ens ∧ post)`. The
+instance at σ₀ that gives `v` puts `v`'s element in it. An element in it is in an instance at
 elements of the sorts of ē; `post` holding there, each existential variable is at a value's
-element (`exs_values`: confined, or fixed by `post`), so the instance is one at values, which gives
-`r` or nothing. -/
-theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
-    (hT : HoldsShape.TermSound c I)
-    {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ : Subst} {r : Option GroundTerm}
+element (`exs_values_hr`: confined, or fixed by `post`), so the instance is one at values, which
+gives `r` or nothing. -/
+theorem eval_den_exRead (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ₀ : Subst} {r : Option GroundTerm}
     (hfn : c.lookupFn f = some fn) (hcl : cl ∈ fn.clauses) (hws : c.sortsOf ws = some fn.args)
     (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
     (hpreOK : c.condOK cl.vars cl.pre = true)
@@ -704,17 +707,23 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
     (hreqs : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some Srt.bool)
     (hrhss : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars cl.rhs = some fn.result)
     (henss : ∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some Srt.bool)
-    (hpreR : cl.pre ≠ .top → PreRead c I cl)
-    (hmatch : PatVals c σ cl.pats ws)
-    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
-    (hpre : Holds c cl.vars.length σ cl.pre true)
+    (hσ₀ : c.WellSorted cl.vars σ₀) (hmatch0 : PatVals c σ₀ cl.pats ws)
+    (ihreq : ∀ t, cl.req = some t → ∀ (tbl : VarTable) (e' : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ₀ e' →
+      ∀ m', (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e' m' ↔
+        (den c (bool true)).interpret I e' m')
+    (ihpre : cl.pre.isTop = false → ∀ (tbl : VarTable) (e : Valuation M) (σr m0 : M),
+      Agrees c I tbl (canonVars c cl.vars) σ₀ e →
+      (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) KoreAML.R cl.pre), k ∈ tbl) →
+      VarKey.sortVar "R" ∈ tbl → (∀ a, (KoreAML.trSort tbl KoreAML.R).interpret I e a ↔ a = σr) → IsSort I σr →
+      Inh I σr m0 → (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c cl.vars) KoreAML.R cl.pre)).interpret I e m0)
     (hlow : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
       c.condOK cl'.vars cl'.pre = true ∧ sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
       (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
       ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws)
-    (hsome : ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ')
-    (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r)
-    (hgv : ∀ v, r = some v → ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v)
+    (hall0 : ∀ σ', AgreeOff cl.exs σ₀ σ' → c.WellSorted cl.vars σ' → InstIsRead c I σ' cl r)
+    (hgive0 : ∀ v, r = some v → EvalTerm c σ₀ cl.rhs (some v) ∧ TermAt c I σ₀ cl.rhs (some v) ∧
+      (∀ t, cl.ens = some t → TermAt c I σ₀ t (some (bool true))) ∧
+      HoldsRead c I cl.vars.length σ₀ cl.post true)
     (e : Valuation M) (m : M) :
     (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m := by
   have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
@@ -722,51 +731,34 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   have hD := defOK hI
-  have F : AtomFacts c I := atomFacts_of_core h hIc hT
+  have N : NodeFacts c I := nodeFacts_of_core h hIc
   have hfnm := (lookupFn_spec hfn).1
   have hS : fn.result < nRegSorts + c.sortNames.length := hnn.2.2 fn hfnm fn.result (List.mem_cons_self ..)
-  have HD : ∀ p : Cond, HoldsDen' c I p := fun p =>
-    holds_den_binders' F p fun _ => binderFacts_of_core h hrc hIc
+  have G : hasBinder cl.post = true → BinderFacts c I := fun _ => binderFacts_of_core h hrc hIc
   -- the clause's facts
   have hs' := hs
   simp only [Semantics.clauseExOK, Bool.and_eq_true] at hs'
   obtain ⟨⟨⟨hltB, hndB⟩, hleft⟩, hokQ⟩ := hs'
   have hlt : ∀ i ∈ cl.exs, i < cl.vars.length := fun i hi => of_decide_eq_true (List.all_eq_true.mp hltB i hi)
   have hnd : cl.exs.Nodup := (NamesApart.nodupB_iff _).mp hndB
-  have hfree : cl.exsFree = cl.exs := List.filter_eq_self.mpr fun i hi => List.all_eq_true.mp hleft i hi
   have hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (hreqs t ht)
   have hrhsv := varOccs_lt _ hrhss
   have hensv : ∀ t, cl.ens = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht => varOccs_lt t (henss t ht)
+  have hfreeF : cl.exs.filter (!cl.leftVars.contains ·) = cl.exs :=
+    List.filter_eq_self.mpr fun i hi => List.all_eq_true.mp hleft i hi
   have hsj : ∀ j, j < cl.vars.length → cl.vars[j]? = some (cl.vars.getD j 0) := fun j hj => by
     rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hj, Option.getD_some]
-  -- an instance, the one that gives `v` where `r` is `some v`
-  obtain ⟨σ₀, hag0, hσ₀, hgive0⟩ : ∃ σ₀, AgreeOff cl.exsFree σ σ₀ ∧ c.WellSorted cl.vars σ₀ ∧
-      ∀ v, r = some v → cl.Gives c σ₀ v := by
-    cases r with
-    | none =>
-      obtain ⟨σ₀, h1, h2⟩ := hsome
-      exact ⟨σ₀, h1, h2, fun v hv => by cases hv⟩
-    | some v =>
-      obtain ⟨σ₀, h1, h2, h3⟩ := hgv v rfl
-      exact ⟨σ₀, h1, h2, fun v' hv' => by cases hv'; exact h3⟩
-  -- the left side reads σ₀ as it reads σ
-  have hl : ∀ i ∈ cl.leftVars, σ₀.lookup i = σ.lookup i := fun i hi =>
-    hag0 i (by simp [Clause.exsFree, hi])
-  have hmatch0 : PatVals c σ₀ cl.pats ws :=
-    PatVals.congr_lookup hmatch fun j hj => hl j (List.mem_append_left _ hj)
-  have hreq0 : ∀ t, cl.req = some t → EvalTerm c σ₀ t (some (bool true)) := fun t ht =>
-    Exec.EvalTerm.congr (hreq t ht) fun i hi => (hl i (Clause.req_leftVars ht i hi)).symm
-  have hpre0 : Holds c cl.vars.length σ₀ cl.pre true :=
-    Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm
-  have hall0 : ∀ σ', AgreeOff cl.exs σ₀ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r := fun σ' ha hw =>
-    hall σ' (hag0.trans (hfree ▸ ha)) hw
   have hr : ∀ v, r = some v → c.sortOf v = some fn.result := fun v hv =>
     EvalTerm.sorted hsc (hgive0 v hv).1 fns_headsOK hσ₀ hrhss rfl
-  have holdsAt : ∀ {n : Nat} {σ' : Subst} {p : Cond} {b : Bool}, Holds c n σ' p b → HoldsAt c I n σ' p b :=
-    by
-      intro n σ' p b hH vars P tbl e S hn hok' hbd ho hrd hk hS' a ha
-      subst hn
-      exact HD _ hok' hbd ho hrd hk hS' hH a ha
+  -- a term's reading at a valuation that agrees with a well-sorted σ' and holds every key
+  have allOf : ∀ {σ' : Subst} {t : Term} {r' : Option GroundTerm} {s : Srt} {tbl : VarTable} {e : Valuation M},
+      TermAt c I σ' t r' → c.WellSorted cl.vars σ' → Agrees c I tbl (canonVars c cl.vars) σ' e →
+      (∀ i < cl.vars.length, canonKey c cl.vars i ∈ tbl) →
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some s →
+      ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r' m :=
+    fun {σ' t r' s tbl e} hTA hw hag hkeys ht m =>
+      hTA (fun i hi => hi) (reads_of_agrees hw hag (P := fun i => i ∈ varOccs t)
+        fun i hi => ⟨varOccs_lt t ht i hi, hkeys i (varOccs_lt t ht i hi)⟩) ht m
   -- the keys of the right side's predicate are keys of the body
   have hkQ : ∀ {tbl : VarTable}, (∀ k ∈ KoreAML.varsOf (clauseRhsBody c fn cl), k ∈ tbl) →
       ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) (srtOf c fn.result) cl.post), k ∈ tbl := by
@@ -807,26 +799,23 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
         | false => rfl
         | true => simp [Cond.conj, hpt] at hq
   refine clause_den_exCore hI hnn hsc hph hfn hcl hws hσ₀ hmatch0 hpats hpreOK hokQ hne hlt hnd hocc hreqv hrhsv hensv hr
-    (fun t ht tbl e' hag m' => hT (hreq0 t ht) hσ₀ (canonVars_length c cl.vars) hag (hreqs t ht) m')
-    (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
-      (preRead_agreesCl (hpreR (ne_top_of_isTop_false hpt)) hpreOK (holdsAt hpre0) hσ₀ hag hkp hRk hRv hσr hm0).mpr rfl)
-    hlow ?_ ?_ e m
+    ihreq ihpre hlow ?_ ?_ e m
   · -- the instance at σ₀ gives what `r` denotes
     intro tbl e hag hkeys hkB m hm
     cases r with
     | none => exact hm.elim
     | some v =>
-      obtain ⟨hrhs, hens, hpost⟩ := hgive0 v rfl
+      obtain ⟨hrhs, hrhsT, hensT, hpost⟩ := hgive0 v rfl
       have hmS : InS I (c.sortName fn.result) m := by
         have hsp := elemOf_spec hI (hr v rfl) e
         rw [(hsp.1 m).mp hm]
         exact (inS_iff e).mp hsp.2
       refine hbody.mpr ⟨(right_iff hI hnn hfnm hr
-        (fun m' => hT hrhs hσ₀ (canonVars_length c cl.vars) hag hrhss m')
-        (fun t ht m' => hT (hens t ht) hσ₀ (canonVars_length c cl.vars) hag (henss t ht) m') m).mpr hm, fun _ => ?_⟩
+        (fun m' => allOf hrhsT hσ₀ hag hkeys hrhss m')
+        (fun t ht m' => allOf (hensT t ht) hσ₀ hag hkeys (henss t ht) m') m).mpr hm, fun _ => ?_⟩
       have hrd := reads_of_agrees hσ₀ hag (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
         fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-      exact (HD cl.post hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS hpost m (hinSort hmS)).mpr rfl
+      exact (hpost.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
   · -- an instance at elements that holds `m` is one at values, which gives `r` or nothing
     intro tbl e hag hkeys hkB e'' m hoff hin hmS hb''
     obtain ⟨hR, hQ⟩ := hbody.mp hb''
@@ -840,14 +829,11 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
       | true =>
         have hrd : Reads c I cl.vars (fun i => i ∈ varOccsCond cl.vars.length cl.post) σ₀ tbl e'' := fun i hi => by
           rw [Cond.eq_top_of_isTop hpt] at hi; simp [varOccsCond] at hi
-        have hpT : Holds c cl.vars.length σ₀ cl.post true := by
-          rw [Cond.eq_top_of_isTop hpt]; exact Holds.top
-        exact (HD cl.post hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS hpT m (hinSort hmS)).mpr rfl
-    have hwit := CE.exs_values h hrc hIc hT hs hb hp (σ := σ₀) (hσ₀.at _) ⟨σ₀, AgreeOff.refl _ _, hσ₀⟩
-      (fun σ' ha hw => by
-        cases hall0 σ' (hfree ▸ ha) hw with
-        | fails hp' _ => exact ⟨_, hp'⟩
-        | gives _ _ hpost => exact ⟨true, hpost⟩)
+        have hpT : HoldsAt c I cl.vars.length σ₀ cl.post true := by
+          rw [Cond.eq_top_of_isTop hpt]; exact holdsAt_top N
+        exact (hpT rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mpr rfl
+    have hwit := CE.exs_values_hr h hrc hIc N hs hb hp (σ := σ₀) (hσ₀.at _) ⟨σ₀, AgreeOff.refl _ _, hσ₀⟩
+      (fun σ' ha hw => (hall0 σ' (hfreeF ▸ ha) hw).post)
       (tbl := tbl) (e := e'') (S := fn.result)
       (fun i hi v hv m' => by
         have hiu := List.mem_filter.mp hi
@@ -867,27 +853,106 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
     | fails hp' hf =>
       exfalso
       cases hf with
-      | ens ht he hw =>
+      | ens ht he hTe hw =>
         exact (right_empty hI hnn hfnm ht hw (fun v hv => EvalTerm.sorted hsc he fns_headsOK hw' (henss _ ht) hv)
-          (fun m' => hT he hw' (canonVars_length c cl.vars) hag' (henss _ ht) m') m).mp hR
+          (fun m' => allOf hTe hw' hag' hkeys (henss _ ht) m') m).mp hR
       | post hf' =>
         cases hpt : cl.post.isTop with
         | true =>
-          rw [Cond.eq_top_of_isTop hpt] at hf'
-          exact absurd hf'.top_eq (by simp)
+          have hf'' := hf'.holds
+          rw [Cond.eq_top_of_isTop hpt] at hf''
+          exact absurd hf''.top_eq (by simp)
         | false =>
           have hrd := reads_of_agrees hw' hag' (P := fun i => i ∈ varOccsCond cl.vars.length cl.post)
             fun i hi => ⟨varOccsCond_lt_twoT cl.post hokQ i hi, hkeys i (varOccsCond_lt_twoT cl.post hokQ i hi)⟩
-          exact absurd ((HD cl.post hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS hf' m (hinSort hmS)).mp (hQ hpt))
+          exact absurd ((hf'.holdsAt N G rfl hokQ hb (fun i hi _ => hi) hrd (hkQ hkB) hS m (hinSort hmS)).mp (hQ hpt))
             (by simp)
-      | rhs hn =>
+      | rhs hn hTn =>
         unfold clauseRight at hR
         rw [tr_and2, KoreAML.interp_sAnd] at hR
-        exact (hT hn hw' (canonVars_length c cl.vars) hag' hrhss m).mp hR.1
-    | gives hrhs hens hpost =>
+        exact (allOf hTn hw' hag' hkeys hrhss m).mp hR.1
+    | gives hrhs hrhsT _ _ =>
       unfold clauseRight at hR
       rw [tr_and2, KoreAML.interp_sAnd] at hR
-      exact (Res_closed _ e'' e m).mp ((hT hrhs hw' (canonVars_length c cl.vars) hag' hrhss m).mp hR.1)
+      exact (Res_closed _ e'' e m).mp ((allOf hrhsT hw' hag' hkeys hrhss m).mp hR.1)
+
+
+open HoldsShape in
+/-- **A clause with existential variables that decides, read in a model of `Γc`** in which
+`EvalTerm` is sound. The clause matches `ws` under σ, the clauses of a smaller priority it negates
+fail, it has an instance (a well-sorted σ' that is σ off the existential variables the left side
+does not hold), and every instance is decided and gives `r` or nothing (`InstIs`), one of them
+giving `v` where `r` is `some v`. Then `f` applied to the arguments' elements is what `r` denotes:
+`f(ws) = den v` for the premises of `Eval.clauseEx`, `f(ws) = ⊥` for those of `Eval.exNone`.
+
+The clause's equation is read through `clauseRhs`: its right side is `∃ē. (rhs ∧ ens ∧ post)`. An
+instance at values that gives `v` puts `v`'s element in it. An element in it is in an instance at
+elements of the sorts of ē; `post` holding there, each existential variable is at a value's
+element (`exs_values`: confined, or fixed by `post`), so the instance is one at values, which gives
+`r` or nothing. -/
+theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : I ⊧ᴵP Γc c)
+    (hT : HoldsShape.TermSound c I)
+    {f : Sym} {fn : Fn} {cl : Clause} {ws : List GroundTerm} {σ : Subst} {r : Option GroundTerm}
+    (hfn : c.lookupFn f = some fn) (hcl : cl ∈ fn.clauses) (hws : c.sortsOf ws = some fn.args)
+    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpreOK : c.condOK cl.vars cl.pre = true)
+    (hs : c.clauseExOK cl = true) (hb : Cond.bound c cl.vars.length cl.post = true)
+    (hp : c.clausePlainEx cl = true) (hne : cl.exs ≠ [])
+    (hocc : ∀ i < cl.vars.length, i ∈ cl.exs ∨ i ∈ varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
+      (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post)
+    (hreqs : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some Srt.bool)
+    (hrhss : sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars cl.rhs = some fn.result)
+    (henss : ∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) cl.vars t = some Srt.bool)
+    (hpreR : cl.pre ≠ .top → PreRead c I cl)
+    (hmatch : PatVals c σ cl.pats ws)
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true)
+    (hlow : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio →
+      c.condOK cl'.vars cl'.pre = true ∧ sortsOfTerms c.patCtxAll cl'.vars cl'.pats = some fn.args ∧
+      (∀ t, cl'.req = some t → ∀ i ∈ varOccs t, i < cl'.vars.length) ∧
+      ExclEmptyCl c I fn cl' ∧ Fails c ws cl' ∧ ModelFailsCl c I cl' ws)
+    (hsome : ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ')
+    (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r)
+    (hgv : ∀ v, r = some v → ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ' ∧ cl.Gives c σ' v)
+    (e : Valuation M) (m : M) :
+    (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m := by
+  have F : AtomFacts c I := atomFacts_of_core h hIc hT
+  have hfree : cl.exsFree = cl.exs := by
+    have hs' := hs
+    simp only [Semantics.clauseExOK, Bool.and_eq_true] at hs'
+    exact List.filter_eq_self.mpr fun i hi => List.all_eq_true.mp hs'.1.2 i hi
+  -- an instance, the one that gives `v` where `r` is `some v`
+  obtain ⟨σ₀, hag0, hσ₀, hgive0⟩ : ∃ σ₀, AgreeOff cl.exsFree σ σ₀ ∧ c.WellSorted cl.vars σ₀ ∧
+      ∀ v, r = some v → cl.Gives c σ₀ v := by
+    cases r with
+    | none =>
+      obtain ⟨σ₀, h1, h2⟩ := hsome
+      exact ⟨σ₀, h1, h2, fun v hv => by cases hv⟩
+    | some v =>
+      obtain ⟨σ₀, h1, h2, h3⟩ := hgv v rfl
+      exact ⟨σ₀, h1, h2, fun v' hv' => by cases hv'; exact h3⟩
+  -- the left side reads σ₀ as it reads σ
+  have hl : ∀ i ∈ cl.leftVars, σ₀.lookup i = σ.lookup i := fun i hi =>
+    hag0 i (by simp [Clause.exsFree, hi])
+  have hmatch0 : PatVals c σ₀ cl.pats ws :=
+    PatVals.congr_lookup hmatch fun j hj => hl j (List.mem_append_left _ hj)
+  have hreq0 : ∀ t, cl.req = some t → EvalTerm c σ₀ t (some (bool true)) := fun t ht =>
+    Exec.EvalTerm.congr (hreq t ht) fun i hi => (hl i (Clause.req_leftVars ht i hi)).symm
+  have hpre0 : Holds c cl.vars.length σ₀ cl.pre true :=
+    Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm
+  have hall0 : ∀ σ', AgreeOff cl.exs σ₀ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl r := fun σ' ha hw =>
+    hall σ' (hag0.trans (hfree ▸ ha)) hw
+  have HD : ∀ p : Cond, HoldsDen' c I p := fun p =>
+    holds_den_binders' F p fun _ => binderFacts_of_core h hrc hIc
+  exact eval_den_exRead h hrc hIc hfn hcl hws hpats hpreOK hs hb hp hne hocc hreqs hrhss henss hσ₀ hmatch0
+    (fun t ht tbl e' hag m' => hT (hreq0 t ht) hσ₀ (canonVars_length c cl.vars) hag (hreqs t ht) m')
+    (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
+      (preRead_agreesCl (hpreR (ne_top_of_isTop_false hpt)) hpreOK (holdsAt_of_den (HD _) hpre0) hσ₀ hag hkp hRk hRv hσr
+        hm0).mpr rfl)
+    hlow (fun σ' ha hw => InstIsRead.of_instIs F (hall0 σ' ha hw))
+    (fun v hv => by
+      obtain ⟨hrhs, hens, hpost⟩ := hgive0 v hv
+      exact ⟨hrhs, F.termAt hrhs, fun t ht => F.termAt (hens t ht), HoldsReadT.of_holds F.termAt _ hpost⟩) e m
 
 /-- **`Eval.clauseEx`, read in a model**: under its premises (the instance at σ gives `v`, every
 instance is decided and gives `v` or nothing), `f(ws) = den v`. -/

@@ -8,12 +8,15 @@
   `ExclEmptyCl` reads. The block is proved for clauses with a well-sorted predicate in the premise
   (`ClauseOpenFactsP`, the members named `…Pre`): a predicate that is not `\top` is read along the
   evaluation (`holds_den4ClPre`) and at the sort variable `R` of the clause's sentences by what is
-  asked of the model for that clause (`PreRead`, `hpreR`). The members without the suffix are those
+  asked of the model for that clause (`PreRead`, `hpreR`). A truth value of a condition and a decided
+  instance of a clause's right side come out of the block with the readings of the terms they
+  evaluate (`holdsRead_den4ClPre`, `instIs_den4ClPre`), for the lemmas that analyse them. The members without the suffix are those
   for clauses whose predicates are `\top`. `eval_den4`, and `eval_den2`, `eval_den3` (their scopes inside), for such
   semantics.
 -/
 import KcoreSpec.OpenClauseEval
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 
 set_option autoImplicit false
 
@@ -243,6 +246,58 @@ mutual
     | _, _, _, _, .all g hb hr, F, G => HoldsShape.holdsAt_all F (G rfl) g
         (fun σ' hx => holds_den4ClPre (hb σ' hx) F fun _ => G rfl) hr
   termination_by structural _ _ _ _ h => h
+  /-- **A truth value with the readings of its terms.** A truth value `Holds` gives a condition
+  comes with the reading in the model of each term the derivation evaluates (`HoldsRead`), which
+  `evalTerm_den4ClPreOcc` gives at that evaluation. Nothing is asked of the model. -/
+  theorem holdsRead_den4ClPre : ∀ {n : Nat} {σ : Subst} {p : Cond} {b : Bool}, Holds c n σ p b →
+      HoldsShape.HoldsRead c I n σ p b
+    | _, _, _, _, .top => .top
+    | _, _, _, _, .bot => .bot
+    | _, _, _, _, .not h => .not (holdsRead_den4ClPre h)
+    | _, _, _, _, .and h h' => .and (holdsRead_den4ClPre h) (holdsRead_den4ClPre h')
+    | _, _, _, _, .or h h' => .or (holdsRead_den4ClPre h) (holdsRead_den4ClPre h')
+    | _, _, _, _, .implies h h' => .implies (holdsRead_den4ClPre h) (holdsRead_den4ClPre h')
+    | _, _, _, _, .ceil h => .ceil h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .equals h h' => .equals
+        h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        h' (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .mem h h' => .mem
+        h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        h' (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .exNone h => .exNone h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+    | _, _, _, _, .exSome g h hb hr => .exSome g h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        (fun σ' hx hpv => holdsRead_den4ClPre (hb σ' hx hpv)) hr
+    | _, _, _, _, .ex g hb hr => .ex g (fun σ' hx => holdsRead_den4ClPre (hb σ' hx)) hr
+    | _, _, _, _, .all g hb hr => .all g (fun σ' hx => holdsRead_den4ClPre (hb σ' hx)) hr
+  termination_by structural _ _ _ _ h => h
+  /-- An instance of a clause's right side that gives nothing, with the readings of the terms it
+  evaluates. -/
+  theorem instFails_den4ClPre : ∀ {σ : Subst} {cl : Clause}, InstFails c σ cl → HoldsShape.InstFailsRead c I σ cl
+    | _, _, .ens ht he hw => .ens ht he (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc he fns_headsOK hσ (canonVars_length c _) hag ht m) hw
+    | _, _, .post h => .post (holdsRead_den4ClPre h)
+    | _, _, .rhs h => .rhs h (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
+  termination_by structural _ _ h => h
+  /-- **A decided instance of a clause's right side, with the readings of the terms it evaluates**
+  (`InstIsRead`): its right-hand side's and its `ensures`' by `evalTerm_den4ClPreOcc`, its predicate's
+  by `holdsRead_den4ClPre`. -/
+  theorem instIs_den4ClPre : ∀ {σ : Subst} {cl : Clause} {r : Option GroundTerm}, InstIs c σ cl r →
+      HoldsShape.InstIsRead c I σ cl r
+    | _, _, _, .fails hp h => .fails (holdsRead_den4ClPre hp) (instFails_den4ClPre h)
+    | _, _, _, .gives hrhs hens hpost => .gives hrhs (HoldsShape.termAt_of_all hI
+          fun hσ hag ht m => evalTerm_den4ClPreOcc hrhs fns_headsOK hσ (canonVars_length c _) hag ht m)
+        (fun t ht => ⟨hens t ht, HoldsShape.termAt_of_all hI
+          fun hσ hag ht' m => evalTerm_den4ClPreOcc (hens t ht) fns_headsOK hσ (canonVars_length c _) hag ht' m⟩)
+        (holdsRead_den4ClPre hpost)
+  termination_by structural _ _ _ h => h
   /-- **L3, terms, fourth stage.** A well-sorted right-hand side or `requires`, at a valuation that
   agrees with σ on the term's variables, σ well sorted on them, translates to what its result under
   σ denotes: the value's element, or nothing where it is undefined. -/

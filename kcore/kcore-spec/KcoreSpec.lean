@@ -317,6 +317,7 @@ import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
 import KcoreSpec.CondVarsCongr
 import KcoreSpec.CondKoreVars
@@ -334,6 +335,7 @@ import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
 import KcoreSpec.GenEqsWalk
+import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
@@ -342,4 +344,8 @@ import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
+import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
+import KcoreSpec.KKEnc
+import KcoreSpec.KKEncDef
+import KcoreSpec.KKEncLemmas

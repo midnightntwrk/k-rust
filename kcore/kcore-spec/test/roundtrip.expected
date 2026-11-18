@@ -31,12 +31,14 @@ differs f2-examples/c3-rule-req-prio-comp.kompile.kore
 differs f2-examples/c3-rule-req-prio.kompile.kore
 differs f2-examples/c3-simp-comm-base.kompile.kore
 differs f2-examples/c3-simp-comm.kompile.kore
+differs f2-examples/c3-simp-ens-true.kompile.kore
 differs f2-examples/c3-simp-ens.kompile.kore
 differs f2-examples/c3-simp-prio.kompile.kore
 differs f2-examples/c3-simp-req.kompile.kore
 differs f2-examples/c3-strict-alias.kompile.kore
 differs f2-examples/c3-strict-base.kompile.kore
 differs f2-examples/cells.kompile.kore
+differs f2-examples/cellsplain.kompile.kore
 differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
 exact f2-examples/colls-list.kore
@@ -52,6 +54,7 @@ differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
 differs f2-examples/e2-fn-assoc.kompile.kore
 differs f2-examples/e2-fn-idem.kompile.kore
+differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
@@ -90,6 +93,7 @@ cannot f2-examples/fprio-refused.kompile.kore
 cannot f2-examples/fprio-refused.kore
 differs f2-examples/fprio.kompile.kore
 exact f2-examples/fprio.kore
+differs f2-examples/freshcfg.kompile.kore
 differs f2-examples/hashsort.kompile.kore
 differs f2-examples/idemctor.kompile.kore
 cannot f2-examples/imp-programs.kore
