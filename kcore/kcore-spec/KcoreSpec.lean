@@ -373,3 +373,6 @@ import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
 import KcoreSpec.CoreOKEx
+import KcoreSpec.CoreOKExFacts
+import KcoreSpec.OpenClauseDenQ
+import KcoreSpec.ClauseExDenCEx

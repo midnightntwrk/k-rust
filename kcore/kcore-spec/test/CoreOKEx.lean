@@ -3,9 +3,13 @@
   `lp() => lp()` and `g(X:Int) => X` (in test/ExClauses.lean `g` is not declared, so that semantics is
   not well sorted). `coreOK` refuses the semantics (its clause binds `Z` by `\exists`) and `coreOKEx`
   accepts it; it reads confined sorts. With `f() => g(0)` in place of the clause, `coreOK` accepts it.
+  So in every model of `Γc` the clause has `ClauseExRead` (`clauseExRead_of_coreEx`) and every clause
+  `ClauseOpenFactsQ`: the hypotheses of OpenClauseDenQ.lean's block hold of a clause with an
+  existential variable.
 -/
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreDecide
+import KcoreSpec.ClauseExDenCEx
 
 set_option autoImplicit false
 
@@ -68,5 +72,16 @@ theorem cPl_coreOK : cPl.coreOK = true := by decide_cheap
 well sorted. -/
 theorem cCe_clausesPlainEx : cCe.clausesPlainEx = true := by decide +kernel
 theorem cCe_clauseSorted : cCe.clauseSorted fnCf (cCe.fns.map Fn.sig) clCf = false := by decide +kernel
+
+theorem fnCf_mem : fnCf ∈ cCeG.allFns := List.mem_append_left _ (by simp [cCeG])
+
+/-- **The reading of CE-1's clause holds in every model of `Γc`.** -/
+theorem cCeG_clauseExRead {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hIc : I ⊧ᴵP Faithful.Γc cCeG) :
+    Faithful.ClauseExRead cCeG I fnCf clCf :=
+  Faithful.clauseExRead_of_coreEx cCeG_coreOKEx cCeG_readsConfined hIc fnCf fnCf_mem clCf (by simp [fnCf]) clCf_exs
+
+theorem cCeG_factsQ : ∀ fn ∈ cCeG.allFns, ∀ cl ∈ fn.clauses,
+    ∃ L, HeadsOK cCeG L ∧ Faithful.ClauseOpenFactsQ cCeG fn L cl :=
+  Faithful.clauseOpenFactsQ_of_sortedOKEx (Semantics.coreOKEx_parts cCeG_coreOKEx).1
 
 end KCore.CoreOKExTest
