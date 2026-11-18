@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-simp-true-prio.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.4
+definition.kore bytes: 211637
+definition.kore sha256: 2217e6f1d9fbe86f9e56d2b5a25b4fd8d4c47dc544c8a9bf9f2a29dccd4b6877
+stripped sha256: abc5948f92f3845d7667976402fe7a457e76b21d8d8534472529c9c284b7c70c
+main module: 404 sentences, 47 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SIMP-TRUE-PRIO-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-SIMP-TRUE-PRIO as default.

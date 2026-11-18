@@ -8,8 +8,9 @@
   variable: the kernel evaluates the rule's match, `requires` and right-hand side under `H`
   without reading it, since kimp's text declares no symbol that `H` interprets. `loop_runs_withHooks`
   is the induction on `$n`, the claim's circularity, the rest of the k cell growing by the block's
-  `{}` each pass. The package's determinism for every `H` (`RefKimp.deterministic`) makes the run
-  the only complete path (`Reachability.allPath_of_star`). `sum_spec_kore` is the claim's KORE
+  `{}` each pass; `sum_spec_run_withHooks` is the run from the left side to the right side. The
+  package's determinism for every `H` (`RefKimp.deterministic`) makes the run the only complete
+  path (`Reachability.allPath_of_star`). `sum_spec_kore` is the claim's KORE
   sentence, `Claims.ExpectedKore.«sum-spec»`, from it: the target's counter taken to be the left
   side's. No hypothesis on the functions is used: the check below finds none of `FnHyp`,
   `fnHyp_defn`, `fnHyp_withHooks_defn` among the constants the proofs reach.
@@ -53,22 +54,30 @@ theorem loop_runs_withHooks (H : HookParams) : ∀ (n : Nat) (b : Int) (K C : Gr
     rw [tri_step]
     run_end
 
-/-- **K's claim `sum-spec`, as the consumer's statement states it**: for every interpretation `H`,
-`N ≥ 0`, `S`, rest `K` of the k cell and counter `C`, every complete path of the package's step
-from the left side passes through the right side. -/
-theorem sum_spec_holds : Expected.«sum-spec» := by
-  intro H N S ⟨K⟩ C hN
-  refine Reachability.allPath_of_star (r := Step (defn.sem.withHooks H))
-    (fun _ _ _ h h' => deterministic H h h') fun x hx => ?_
-  have hx' : x.val = init N S K («<generatedCounter>» (Tm.int C)).val := hx
-  config_sorts hx'
+/-- **The claim, one path, under every interpretation `H`**: from every configuration of the left
+side with `N ≥ 0`, a run of `Step (defn.sem.withHooks H)` reaches the right side. -/
+theorem sum_spec_run_withHooks (H : HookParams) (N S : Int) (K : Tm Srt.k) (C : Int) (hN : N ≥ 0)
+    (x : Config (defn.sem.withHooks H))
+    (hx : x.val = init N S K.val («<generatedCounter>» (Tm.int C)).val) :
+    ∃ y : Config (defn.sem.withHooks H),
+      y.val = cfg K 0 (S + ((N + 1) * N).tdiv 2) («<generatedCounter>» (Tm.int C)).val ∧
+        Star (Step (defn.sem.withHooks H)) x y := by
+  obtain ⟨K⟩ := K
+  config_sorts hx
   have hC : (defn.sem.withHooks H).sortOf («<generatedCounter>» (Tm.int C)).val
       = some KCore.Srt.counter := by ksort
   obtain ⟨n, rfl⟩ := Int.eq_ofNat_of_zero_le hN
-  obtain ⟨y, hy, hs⟩ := loop_runs_withHooks H n S K _ hK hC x hx'
-  refine ⟨y, ?_, hs⟩
-  rw [hy, tri_tdiv]
-  rfl
+  refine (loop_runs_withHooks H n S K _ hK hC).of_eq ?_ x hx
+  rw [tri_tdiv]
+
+/-- **K's claim `sum-spec`, as the consumer's statement states it**: for every interpretation `H`,
+`N ≥ 0`, `S`, rest `K` of the k cell and counter `C`, every complete path of the package's step
+from the left side passes through the right side. -/
+theorem sum_spec_holds : Expected.«sum-spec» := fun H N S K C hN =>
+  Reachability.allPath_of_star (r := Step (defn.sem.withHooks H))
+    (fun _ _ _ h h' => deterministic H h h') fun x hx =>
+      let ⟨y, hy, hs⟩ := sum_spec_run_withHooks H N S K C hN x hx
+      ⟨y, hy, hs⟩
 
 /-- **K's claim `sum-spec`, as its KORE sentence states it** (`ExpectedKore.«sum-spec»`, the
 target's counter existential), from `sum_spec_holds`: the target's counter is the left side's. -/
@@ -81,7 +90,7 @@ open Lean in
 #eval show CoreM Unit from do
   let env ← getEnv
   let banned := [``KCore.FnHyp, ``RefKimp.fnHyp_defn, ``RefKimp.fnHyp_withHooks_defn]
-  for n in [``sum_spec_holds, ``sum_spec_kore, ``loop_runs_withHooks] do
+  for n in [``sum_spec_holds, ``sum_spec_kore, ``sum_spec_run_withHooks, ``loop_runs_withHooks] do
     let axs ← collectAxioms n
     unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
       throwError "{n}: axioms {axs}"

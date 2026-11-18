@@ -4,33 +4,44 @@
 #
 # An entry is any table of rows.toml with a key `derived`: a row of a list (E1 to E8, C3) or a table
 # nested in one (`cases`, `also_refused`, `split`). `derived` is a list of tables, one per derivation:
-#   form       "a", "b" or "c" (C7: (a) a Lean proof from the translated text's sentences, Γ's items
-#              of a W-class sentence with their W1 theorem, and named families; (b) a derivation
+#   form       "a", "b", "c" or "r" (C7: (a) a Lean proof from the translated text's sentences, Γ's
+#              items of a W-class sentence with their W1 theorem, and named families; (b) a derivation
 #              written step by step, by hand; (c) "the text's sentences entail no value here", with
-#              the pair of models that shows it)
-#   kind       form (a) only: "from sentences" (a defined value, a step that exists) or "through the
-#              reading" (no value where an `ensures` fails, no successor, an exact successor set)
+#              the pair of models that shows it; (r) "the text's sentences have no model": a Lean
+#              proof that the premise set form (a) would use, built the same way, has no model)
+#   kind       form (a): "from sentences" (a defined value, a step that exists) or "through the
+#              reading" (no value where an `ensures` fails, no successor, an exact successor set);
+#              form (r), optional: "through the reading" (the refutation is of the reading's theory,
+#              the sentence-level statement owed)
 #   family     kind "through the reading": the family the expectation goes through (`Γstep`, the
-#              premise ⌈rhs ∧ ens⌉, ...)
-#   sentences  form (a): the indices of the text's sentences that determine the expectation
-#   theorem    the theorem's full name (namespaces included); required for forms (a) and (c)
+#              premise ⌈rhs ∧ ens⌉, ...); form (r): the families of the reading the refutation uses
+#              beside the sentences, each named (always required: no refutation is from sentences
+#              alone where a family carries a fact no sentence states)
+#   sentences  forms (a) and (r): the indices of the text's sentences that determine the
+#              expectation (that the refutation uses)
+#   theorem    the theorem's full name (namespaces included); required for forms (a), (c) and (r)
 #   file       the Lean file holding it, relative to kcore-spec; required with `theorem`
 #   derivation form (b): the file holding the derivation, relative to kcore-spec
+#   owed_refuted  form (r) only, optional: the full name of a theorem of `file` refuting the fact
+#              the package names as owed for the construct (it is false of this text)
 # The checks, each on the text of the named file (no Lean is run):
-# - `form` is one of the three, `kind` one of the two for form (a), `family` given for "through the
-#   reading", `sentences` a non-empty list of indices for form (a), `derivation` an existing file for
-#   form (b), `theorem` and `file` given for forms (a) and (c);
-# - the theorem is declared in the file, once, under that full name (`namespace`/`section`/`end`
-#   tracked; comments removed);
+# - `form` is one of the four, `kind` one of the two for form (a) and absent or "through the
+#   reading" for form (r), `family` given for "through the reading" and for form (r), `sentences` a
+#   non-empty list of indices for forms (a) and (r), `derivation` an existing file for form (b),
+#   `theorem` and `file` given for forms (a), (c) and (r), `owed_refuted` on form (r) only;
+# - the theorem (and `owed_refuted`) is declared in the file, once, under that full name
+#   (`namespace`/`section`/`end` tracked; comments removed);
 # - neither the file's path nor a namespace of the theorem's name contains `AtNone`: such a theorem
 #   may exist (a statement at the interpretation `HookParams.none`), and is never a row's evidence;
-# - its statement (the text from the name to the top-level `:=`) mentions H: a name bound in it at
+# - its statement (the text from the name to the top-level `:=`) mentions H, and so does that of
+#   `owed_refuted`: a name bound in it at
 #   type `HookParams` (by a binder, `∀` or `∃`) and used past its binder, or a `variable` of that
 #   type in scope that the statement mentions;
 # - a form (a) statement does not mention `FnShape` (C7: no form (a) theorem is stated under
 #   `FnShape` or a hypothesis of that kind).
-# Prints the entries by form and kind (the counts C7 asks for: forms (b) and "through the reading"
-# counted apart) and every failure. Exit 1 on a failure.
+# Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
+# reading" counted apart), the fixtures of the form (r) entries (texts without a model), and every
+# failure. Exit 1 on a failure.
 #
 # Usage (from anywhere): test/provenance.sh [ROWS.toml]   (default test/constructs/rows.toml)
 #                        test/provenance.sh --self-test   (the checks on cases written to a scratch
@@ -42,7 +53,7 @@ exec python3 -I - "$K" "${1:-test/constructs/rows.toml}" <<'PY'
 import os, re, sys, tempfile, tomllib
 
 K, arg = sys.argv[1], sys.argv[2]
-FORMS = {"a", "b", "c"}
+FORMS = {"a", "b", "c", "r"}
 KINDS = {"from sentences", "through the reading"}
 HP = r"(?:KCore\.)?HookParams"
 IDENT = r"[^\s(){}\[\]:,.⟨⟩]+"
@@ -150,7 +161,25 @@ def entries(node, where):
 
 def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
-    cache, bad, counts = {}, [], {}
+    cache, bad, counts, nomodel = {}, [], {}, []
+
+    def theorem_ok(at, th, fl, path, what, form):
+        """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
+        mentioning H (and, for form (a), not FnShape)."""
+        if path not in cache:
+            cache[path] = declarations(path)
+        found = cache[path].get(th, [])
+        if len(found) != 1:
+            bad.append(f"{at}: {len(found)} theorems named {th} in {fl}, not one"); return
+        ns, stmt, var = found[0]
+        if any("AtNone" in p for p in ns):
+            bad.append(f"{at}: {th} is in a namespace named AtNone: never a row's evidence")
+        names, rest = hook_binders(stmt)
+        if not (any(mentions(h, rest) for h in names) or any(mentions(v, stmt) for v in var)):
+            bad.append(f"{at}: the statement of {what}{th} does not mention H (no name of type HookParams it uses)")
+        if form == "a" and mentions("FnShape", stmt):
+            bad.append(f"{at}: the form (a) theorem {th} is stated under FnShape")
+
     for where, e in entries(t, ""):
         ds = e["derived"]
         if not isinstance(ds, list) or not ds:
@@ -161,25 +190,32 @@ def check(rows, base):
                 bad.append(f"{at}: not a table"); continue
             form, kind = d.get("form"), d.get("kind")
             if form not in FORMS:
-                bad.append(f"{at}: carries no form (form {form!r}, not one of a, b, c)"); continue
-            key = f"({form})" + (f" {kind}" if form == "a" else "")
+                bad.append(f"{at}: carries no form (form {form!r}, not one of a, b, c, r)"); continue
+            key = f"({form})" + (f" {kind}" if form == "a" or (form == "r" and kind is not None) else "")
             counts[key] = counts.get(key, 0) + 1
-            if form == "a":
-                if kind not in KINDS:
+            if form == "r":
+                nomodel.append((where, e.get("fixture"), d.get("theorem")))
+            if form in ("a", "r"):
+                if form == "a" and kind not in KINDS:
                     bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences' or 'through the reading'")
-                if kind == "through the reading" and not (isinstance(d.get("family"), str) and d["family"].strip()):
-                    bad.append(f"{at}: kind 'through the reading' names no family")
+                if form == "r" and kind not in (None, "through the reading"):
+                    bad.append(f"{at}: form (r) with kind {kind!r}, not absent or 'through the reading'")
+                if (form == "r" or kind == "through the reading") and not (isinstance(d.get("family"), str) and d["family"].strip()):
+                    bad.append(f"{at}: " + ("form (r)" if form == "r" else "kind 'through the reading'") + " names no family")
                 ss = d.get("sentences")
                 if not (isinstance(ss, list) and ss and all(isinstance(x, int) and x >= 0 for x in ss)):
-                    bad.append(f"{at}: form (a) without `sentences`, the indices of the sentences that determine it")
+                    bad.append(f"{at}: form ({form}) without `sentences`, the indices of the sentences that determine it")
             elif kind is not None:
-                bad.append(f"{at}: kind {kind!r} on form ({form}); kinds are form (a)'s")
+                bad.append(f"{at}: kind {kind!r} on form ({form}); kinds are forms (a) and (r)'s")
+            ow = d.get("owed_refuted")
+            if ow is not None and form != "r":
+                bad.append(f"{at}: `owed_refuted` on form ({form}); it is form (r)'s")
             if form == "b":
                 dv = d.get("derivation")
                 if not (isinstance(dv, str) and os.path.isfile(os.path.join(base, dv))):
                     bad.append(f"{at}: form (b) without an existing `derivation` file ({dv!r})")
             th, fl = d.get("theorem"), d.get("file")
-            if th is None and form in ("a", "c"):
+            if th is None and form in ("a", "c", "r"):
                 bad.append(f"{at}: form ({form}) names no theorem"); continue
             if th is None:
                 continue
@@ -190,26 +226,22 @@ def check(rows, base):
             path = os.path.join(base, fl)
             if not os.path.isfile(path):
                 bad.append(f"{at}: no file {fl}"); continue
-            if path not in cache:
-                cache[path] = declarations(path)
-            found = cache[path].get(th, [])
-            if len(found) != 1:
-                bad.append(f"{at}: {len(found)} theorems named {th} in {fl}, not one"); continue
-            ns, stmt, var = found[0]
-            if any("AtNone" in p for p in ns):
-                bad.append(f"{at}: {th} is in a namespace named AtNone: never a row's evidence")
-            names, rest = hook_binders(stmt)
-            if not (any(mentions(h, rest) for h in names) or any(mentions(v, stmt) for v in var)):
-                bad.append(f"{at}: the statement of {th} does not mention H (no name of type HookParams it uses)")
-            if form == "a" and mentions("FnShape", stmt):
-                bad.append(f"{at}: the form (a) theorem {th} is stated under FnShape")
-    return counts, bad
+            theorem_ok(at, th, fl, path, "", form)
+            if ow is not None and form == "r":
+                if not isinstance(ow, str):
+                    bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
+                else:
+                    theorem_ok(at, ow, fl, path, "owed_refuted ", form)
+    return counts, bad, nomodel
 
 
 def report(rows, base):
-    counts, bad = check(rows, base)
+    counts, bad, nomodel = check(rows, base)
     total = sum(counts.values())
     print(f"provenance: {total} derivations named" + (": " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) if total else ""))
+    if nomodel:
+        print(f"provenance: {len(nomodel)} of form (r), texts without a model: "
+              + "; ".join(f"{w} (fixture {fx or 'none'}, {th})" for w, fx, th in nomodel))
     for b in bad[:40]:
         print(f"  {b}")
     if len(bad) > 40:
@@ -227,6 +259,8 @@ theorem unused (H : HookParams) : Pre ⊧ φ := sorry
 theorem atNoneOnly : Eval (c.withHooks HookParams.none) e none := sorry
 theorem shape (hs : FnShape) (H : HookParams) : Pre H ⊧ φ := sorry
 theorem pair : ∃ H₁ H₂ : HookParams, Eval (cH H₁) e v ∧ Eval (cH H₂) e w := sorry
+theorem noModel (H : HookParams) : ¬ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M), I ⊧ᴵP Pre H := sorry
+theorem refuted (H : HookParams) : ¬ MatchIndependent (cH H) cl := sorry
 section S
 variable (H : HookParams)
 theorem viaVar : Eval (cH H) e v := sorry
@@ -257,6 +291,20 @@ end KCore.ProvT
         ({"form": "c", "theorem": "KCore.ProvT.commented", "file": f}, "0 theorems named"),
         ({"form": "c", "theorem": "KCore.ProvT.nested", "file": f}, "0 theorems named"),
         ({"form": "b", "derivation": "no/such/file"}, "without an existing `derivation`"),
+        ({"form": "r", "sentences": [216, 217, 344], "family": "ΓDomains", "theorem": "KCore.ProvT.noModel", "file": f,
+          "owed_refuted": "KCore.ProvT.refuted"}, None),
+        ({"form": "r", "kind": "through the reading", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f}, None),
+        ({"form": "r", "sentences": [344], "theorem": "KCore.ProvT.noModel", "file": f}, "form (r) names no family"),
+        ({"form": "r", "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f}, "form (r) without `sentences`"),
+        ({"form": "r", "kind": "from sentences", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f}, "form (r) with kind"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons"}, "form (r) names no theorem"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.unused", "file": f}, "does not mention H"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "owed_refuted": "KCore.ProvT.unused"}, "statement of owed_refuted"),
+        ({"form": "r", "sentences": [344], "family": "ΓCons", "theorem": "KCore.ProvT.noModel", "file": f,
+          "owed_refuted": "KCore.ProvT.missing"}, "0 theorems named KCore.ProvT.missing"),
+        ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.good", "file": f,
+          "owed_refuted": "KCore.ProvT.refuted"}, "`owed_refuted` on form (a)"),
     ]
     ok = True
     for i, (dt, want) in enumerate(cases):
@@ -265,7 +313,7 @@ end KCore.ProvT
             o.write("[E2]\n\"row\" = { status = \"supported\", derived = [{ "
                     + ", ".join(f"{k} = {v!r}".replace("'", '"') if not isinstance(v, list) else f"{k} = {v}" for k, v in dt.items())
                     + " }] }\n")
-        _, bad = check(rp, K)
+        _, bad, _ = check(rp, K)
         got = bad[0] if bad else None
         if (want is None and bad) or (want is not None and (len(bad) != 1 or want not in bad[0])):
             ok = False
