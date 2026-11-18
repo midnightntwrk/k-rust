@@ -1330,8 +1330,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   item of `Γcl` (`gamma_origin`, `gammaCl_eq`, `gamma_from`); `Pre` (those premises as written)
   has a model with the step's closure (`pre_model`, `consistent` by `FnHyp`); `a()` steps to `b(i)`
   for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
-  `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
-  (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
+  `c.withHooks H`; the expectations `b_step` (from sentences: 154 through Γ's item and its W1
+  theorem) and `a_succs` (through the step's closure), both from `Pre`, which has a model.
+  About 14 s, 2.6 GiB.
+- `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
+  classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
+  kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
+  collection laws (`laws_entailed`) and library 80 of 82 (`lib_entailed`, `libSet_entailed`) at
+  values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
+  (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
+  243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
