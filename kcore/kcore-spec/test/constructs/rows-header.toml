@@ -182,9 +182,14 @@
 #             every attribute of that head is removed (and kfix.py's stripped applied to both).
 #   reader_tests  theorems that test the reader on the entry (a pair's sem_eq: the reader builds one
 #             semantics from both texts); evidence of nothing about the text, never counted as such.
-#   removed   on a row whose option removes sentences of a reference text: per sentence (its index in
-#             the reference text's user module), its tie class and direction there, the theorem and
-#             its companion, and the file.
+#   removed   on a row whose option removes sentences of a reference text: per sentence (its index,
+#             counted from 1 over the reference text's axioms as AxiomDecl.index counts them, of a
+#             sentence of its user module), its tie class and direction there, the theorem and its
+#             companion, and the file. rest.py checks it against f2-examples/REFERENCE.kompile.kore
+#             (the fixture's differs_from) and the fixture's own text: each sentence is in the
+#             reference and absent from the fixture's text, every axiom of the reference the
+#             fixture's text lacks is listed, and the theorems are declared in a file reading the
+#             reference.
 # Field of an owed CondDecided (checked by test/constructs/rest.py check; DONE-0 C2, C7):
 #   owed_state  on a row or a nested table: a table from a fixture directory to the state of the
 #             CondDecided its account.txt prints as owed (`CondDecided open, over V`, for each clause

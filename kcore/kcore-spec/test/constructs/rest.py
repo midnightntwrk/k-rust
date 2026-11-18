@@ -52,6 +52,16 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
                    file of `tie`) and the `theorem` of each `derived` table (declared in its
                    `file`): at least one, each declared
+      removed      on an entry with `removed` (the sentences an option removes from a reference
+                   text; any status): the fixture's `differs_from` names the reference, and of the
+                   texts f2-examples/REFERENCE.kompile.kore and f2-examples/FIXTURE.kompile.kore,
+                   each `sentence` N (counted from 1 over the reference text's axioms, as
+                   AxiomDecl.index and `U.axN` count them) is an axiom of the reference's user
+                   module and none of the fixture's text, and every axiom of the reference absent
+                   from the fixture's text is listed (axioms compared with whitespace runs one
+                   space, Location, Source and UNIQUE'Unds'ID dropped and generated variables
+                   renumbered within each); each `theorem` and `companion` is declared in its
+                   `file`, which reads the reference text
   supported E4, E5
       fixture, clean, fresh, tie, theorems as above; node: the fixture's kompiled sentences (kore.txt,
       or the text of a `kore` fixture) hold the row's node or translation site, found by
@@ -228,6 +238,10 @@ class Fixtures:
 
     def exists(self, name):
         return isinstance(name, str) and name != "none" and os.path.isdir(os.path.join(self.fx, name))
+
+    def kompiled(self, name):
+        """The fixture's kompiled text as tiegen.py and the tie files read it."""
+        return os.path.join(K, "f2-examples", f"{name}.kompile.kore")
 
     def read(self, name, f):
         p = os.path.join(self.fx, name, f)
@@ -551,6 +565,8 @@ def evidence(fx, l, key, e, row):
         item(isinstance(ds, list) and len(ds) == 2, "declarations", "declarations (two)")
     else:
         miss.append(f"a status ({f!r} is none of DONE-0 C2's five)")
+    if "removed" in e:
+        removed_items(fx, e, own, item, miss)
     return have, miss
 
 
@@ -781,6 +797,57 @@ def attribute_items(fx, e, own, item, miss):
          + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
 
 
+# ------------------------------------------------------------------- the sentences an option removes
+
+def text_axioms(path):
+    """[(index, module, sentence)] of the text's axioms: index counted from 1 over the whole text,
+    the sentence with whitespace runs one space, the Location, Source and UNIQUE'Unds'ID attributes
+    dropped (tiegen.axioms) and kompile's generated variables renumbered within it (kfix.alpha)."""
+    import kfix, tiegen
+    return [(i, m, kfix.alpha("  " + s)) for i, m, s, _ in tiegen.axioms(open(path).read())]
+
+
+def removed_items(fx, e, own, item, miss):
+    """The items of an entry's `removed` (module docstring, form supported, item removed)."""
+    rs = e.get("removed")
+    if not (isinstance(rs, list) and rs and all(isinstance(r, dict) for r in rs)):
+        miss.append("removed (a list of tables)"); return
+    x = own[0] if own else None
+    ref = fx.conf(x).get("differs_from") if x else None
+    if not isinstance(ref, str):
+        miss.append("removed: the fixture names no reference text (differs_from)"); return
+    paths = {n: fx.kompiled(n) for n in (ref, x)}
+    gone = [n for n, p in paths.items() if not os.path.isfile(p)]
+    if gone:
+        miss.append(f"removed: no text {os.path.relpath(paths[gone[0]], K)}"); return
+    ra, xa = text_axioms(paths[ref]), text_axioms(paths[x])
+    user = ra[-1][1] if ra else None
+    held = collections.Counter(s for _, _, s in xa)
+    by_index = {i: (m, s) for i, m, s in ra}
+    ns = [r.get("sentence") for r in rs]
+    bad = [n for n in ns if not (isinstance(n, int) and n in by_index and by_index[n][0] == user)]
+    item(not bad, f"removed: {len(ns)} axioms of {ref}'s user module {user}",
+         f"removed: sentence {bad[0] if bad else ''!r} is no axiom of {ref}'s user module {user}")
+    kept = [n for n in ns if n in by_index and held[by_index[n][1]]]
+    item(not kept, f"removed: none in {x}'s text", f"removed: axiom {kept[0] if kept else ''} of {ref} is in {x}'s text")
+    want = collections.Counter(s for _, _, s in ra)
+    unlisted = [i for i, _, s in ra if i not in ns and want[s] > held[s]]
+    item(not unlisted, f"removed: every axiom of {ref} absent from {x}'s text listed",
+         f"removed: axiom {unlisted[0] if unlisted else ''} of {ref} is absent from {x}'s text and not listed"
+         f" ({len(unlisted)} such)")
+    lit = f"f2-examples/{ref}.kompile.kore"
+    for r in rs:
+        f = r.get("file")
+        thms = [r.get("theorem"), r.get("companion")]
+        undecl = [t for t in thms if not (isinstance(t, str) and isinstance(f, str) and declared(t, [f]))]
+        reads = isinstance(f, str) and os.path.isfile(os.path.join(K, f)) and lit in open(os.path.join(K, f)).read()
+        if undecl or not reads:
+            miss.append(f"removed: sentence {r.get('sentence')}: " + (f"{undecl[0]!r} not declared in {f}"
+                        if undecl else f"{f} does not read {lit}"))
+            return
+    item(True, f"removed: theorems ({2 * len(rs)}) declared, on {lit}", "")
+
+
 # ------------------------------------------------------------------------------- the reading owed
 
 # The reading an entry's status is owed by, while the reader does not do it (`reader_does_it =
@@ -974,7 +1041,7 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
-        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", "")):
+        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", ""), ("opt", 'differs_from = "e8-ref"\n')):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
             open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
@@ -987,6 +1054,18 @@ def self_test():
                         (tc, ("a1", 1, "cool-like{}()"))):
             open(os.path.join(K, n), "w").write(txt % args)
         sp = "test/InertSemPairs.lean"
+        # a reference text and an option's text without its axiom 4, generated variables and
+        # identifiers numbered otherwise
+        refx = ("module INJ\n  axiom{R} inj{}() []\nendmodule []\nmodule REF\n  axiom{R} a{}() [UNIQUE'Unds'ID{}(\"1\")]\n"
+                "  axiom{R} b{}(Var'Unds'Gen3:SortInt{}) []\n  axiom{R} c{}() []\nendmodule []\n")
+        optx = ("module INJ\n  axiom{R} inj{}() []\nendmodule []\nmodule REF\n  axiom{R} a{}() [UNIQUE'Unds'ID{}(\"9\")]\n"
+                "  axiom{R}  b{}(Var'Unds'Gen0:SortInt{}) []\nendmodule []\n")
+        for n, t in (("e8-ref", refx), ("opt", optx)):
+            open(os.path.join(d, f"{n}.kompile.kore"), "w").write(t)
+        fx.kompiled = lambda n: os.path.join(d, f"{n}.kompile.kore")
+        rm = lambda n, thm="KCore.LibEvCeilE8Ref.s153_refuted": {
+            "sentence": n, "theorem": thm, "companion": "KCore.LibEvCeilE8Ref.s153_one", "file": "test/LibEvCeilE8Ref.lean"}
+        opt = lambda rs, fixture="opt": {"status": "supported", "fixture": fixture, "tie": [tie], "derived": [thm], "removed": rs}
         attr = {"status": "inert", "inert_class": "attribute", "fixture": "e1-module", "attribute": "UNIQUE'Unds'ID",
                 "attr_pairs": [[ta, tb]], "tie": ["test/TieE1Module.lean", sp],
                 "tie_theorems": ["KCore.TieE1Module.fns_entailed", "KCore.InertSemPairs.trS_attrs"],
@@ -1089,6 +1168,16 @@ def self_test():
             ("E2", "A", {"status": "pending-fixture"}, False),
             ("E2", "A", {"status": "not-handled"}, False),
             ("C3", "A x B", {"status": "independent", "declarations": ["a", "b"]}, True),
+            # removed: axiom 4 of the reference, absent from the option's text and the only one
+            ("E8", "A", opt([rm(4)]), True),
+            ("E8", "A", opt([rm(3)]), False),
+            ("E8", "A", opt([rm(4), rm(3)]), False),
+            ("E8", "A", opt([rm(4), rm(9)]), False),
+            ("E8", "A", opt([rm(4), rm(1)]), False),
+            ("E8", "A", opt([]), False),
+            ("E8", "A", opt([rm(4, "KCore.LibEvCeilE8Ref.no_such")]), False),
+            ("E8", "A", opt([dict(rm(4), file=tie)]), False),
+            ("E8", "A", opt([rm(4)], fixture="ok"), False),
         ]
         bad = []
         for i, (l, key, e, want) in enumerate(cases):
