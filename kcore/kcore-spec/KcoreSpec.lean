@@ -316,6 +316,7 @@ import KcoreSpec.CondResort
 import KcoreSpec.CondResortModel
 import KcoreSpec.TieRhs
 import KcoreSpec.HoldsNode
+import KcoreSpec.HoldsRead
 import KcoreSpec.ClausePreTie
 import KcoreSpec.CondVarsCongr
 import KcoreSpec.CondKoreVars
