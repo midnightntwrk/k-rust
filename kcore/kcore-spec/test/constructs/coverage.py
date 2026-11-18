@@ -11,6 +11,10 @@ The document holds, in this order:
   R-c        every entry (row or nested) of class R-c: its notion, the cone declaration that
              changes (`cone`), the ticket or unit that supports it (`unit`) and the planned lane.
   undecided  the rows of status pending-fixture and not-handled, by list.
+  no model   every entry (row or nested) with a `derived` table of form (r), the text's sentences
+             having no model (DONE-0 C7, rows-header.toml): its fixture, the sentences and families
+             the refutation uses, the theorem, its kind where given, and `owed_refuted`. Such an
+             entry's status cell in its list reads "STATUS (no model)".
   teaches    every layer of the manifest in its order: id, status, `teaches`, declarations, and the
              status of each `except` entry; then the manifest's not_core items.
   the lists  one table per list, one line per row in rows.toml's order, each nested entry on a line
@@ -82,6 +86,12 @@ def nested(e):
                     yield f"{f}[{i}].{w}", d
 
 
+def no_model(e):
+    """The `derived` tables of form (r) of an entry."""
+    ds = e.get("derived")
+    return [d for d in ds if isinstance(d, dict) and d.get("form") == "r"] if isinstance(ds, list) else []
+
+
 def mark(v):
     return "" if v is None else ("yes" if v is True else "no" if v is False else text(v, 20))
 
@@ -114,7 +124,7 @@ def generate(rows_path, manifest_path):
         raise SystemExit(f"coverage: tables of rows.toml this script does not know: {extra}")
     st_rows, st_nest = {}, {}
     cl_rows, cl_nest = {}, {}
-    rc, undecided = [], collections.defaultdict(list)
+    rc, undecided, nomodel = [], collections.defaultdict(list), []
     for l in LISTS:
         st_rows[l], st_nest[l] = collections.Counter(), collections.Counter()
         cl_rows[l], cl_nest[l] = collections.Counter(), collections.Counter()
@@ -131,6 +141,8 @@ def generate(rows_path, manifest_path):
                         cl_nest[l][e.get("class")] += 1
                 if e.get("class") == "R-c":
                     rc.append((l, key, w, e))
+                for d in no_model(e):
+                    nomodel.append((l, key, w, e, d))
     seen_st = {s for c in list(st_rows.values()) + list(st_nest.values()) for s in c}
     stcols = STATUSES + sorted((s for s in seen_st if s not in STATUSES), key=str)
     seen_cl = {s for c in list(cl_rows.values()) + list(cl_nest.values()) for s in c}
@@ -188,6 +200,22 @@ def generate(rows_path, manifest_path):
             o.append(f"- {l} {code(key)}: {text(r.get('status'))}"
                      + (f"; pending: {text(r['pending'], CUT)}" if r.get("pending") else ""))
 
+    o += ["", f"## Entries whose text has no model, form (r) ({len(nomodel)})", "",
+          "A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) "
+          "would use has no model, from the sentences named (by index) and the families named "
+          "beside them; `owed_refuted` the theorem refuting the fact the package names as owed. "
+          "The entry's status is the reading's, and its list prints \"(no model)\" beside it.", ""]
+    if not nomodel:
+        o += ["None."]
+    else:
+        o += table(["list", "row", "entry", "status", "fixture", "sentences", "families", "kind",
+                    "theorem", "owed refuted"], [
+            [l, code(key), text(w) if w else "row", text(e.get("status", "")), text(e.get("fixture", "")),
+             text(", ".join(str(x) for x in d.get("sentences", [])) if isinstance(d.get("sentences"), list) else ""),
+             text(d.get("family", ""), CUT), text(d.get("kind", "")), text(d.get("theorem", "")),
+             text(d.get("owed_refuted", ""))]
+            for l, key, w, e, d in nomodel])
+
     o += ["", "## What the cone teaches", "",
           "The layers of `core-manifest.toml` in their order, each with its `teaches` field (DONE-0 "
           "C11: the release gate and the completion gate read each against the cone's "
@@ -219,6 +247,8 @@ def generate(rows_path, manifest_path):
                 st = e.get("status", "")
                 if l == "C3" and e.get("core") is True:
                     st += " (core)"
+                if no_model(e):
+                    st += " (no model)"
                 lines.append([
                     name, text(st), text(e.get("class", "")),
                     text(e.get("reason", e.get("note", "")), CUT)

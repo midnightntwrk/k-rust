@@ -138,6 +138,12 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 
 - C3 `simplification x ensures`: not-handled
 
+## Entries whose text has no model, form (r) (0)
+
+A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) would use has no model, from the sentences named (by index) and the families named beside them; `owed_refuted` the theorem refuting the fact the package names as owed. The entry's status is the reading's, and its list prints "(no model)" beside it.
+
+None.
+
 ## What the cone teaches
 
 The layers of `core-manifest.toml` in their order, each with its `teaches` field (DONE-0 C11: the release gate and the completion gate read each against the cone's definitions) and the declarations it names; then the `except` entries and what the manifest puts outside the core.
