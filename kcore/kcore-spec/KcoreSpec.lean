@@ -343,3 +343,4 @@ import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
+import KcoreSpec.KKEncLemmas
