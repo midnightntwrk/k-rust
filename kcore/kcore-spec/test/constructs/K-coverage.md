@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
-| E6 | 26 | 6 | 0 | 0 | 0 | 19 | 0 | 1 |
-| E7 | 7 | 1 | 1 | 2 | 0 | 3 | 0 | 0 |
+| E6 | 27 | 6 | 0 | 0 | 0 | 20 | 0 | 1 |
+| E7 | 7 | 2 | 1 | 1 | 0 | 3 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 311 | 106 | 2 | 18 | 1 | 183 | 0 | 1 |
+| all | 312 | 107 | 2 | 17 | 1 | 184 | 0 | 1 |
 
 Refused rows by class:
 
@@ -64,11 +64,11 @@ Refused nested entries by class:
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 20 | 9 | 0 | 6 | 5 |
-| E6 | 19 | 1 | 1 | 1 | 16 |
+| E6 | 20 | 2 | 1 | 1 | 16 |
 | E7 | 3 | 0 | 0 | 0 | 3 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 183 | 45 | 11 | 46 | 81 |
+| all | 184 | 46 | 11 | 46 | 81 |
 
 ## Entries of class R-c (58)
 
@@ -1561,6 +1561,7 @@ Not core:
 | `lemma:K-EQUAL-KORE:2341:8` | inert |  |  |  |  |  | yes | yes | K-coverage.md Part B simplification equation; BuiltinData.lean modules: K-EQUAL-KORE |
 | `lemma:K-EQUAL-KORE:2339:8` | inert |  |  |  |  |  | yes | yes | K-coverage.md Part B simplification equation; BuiltinData.lean modules: K-EQUAL-KORE |
 | cases[0]: a text importing K-EQUAL-SYNTAX and not K-EQUAL, a rule's requires B #And true | supported |  | the rule's requires is \\equals{SortBool{},R}(\\and{SortBool{}}(VarB:SortBool{}, \\dv{SortBool{}}("true")), \\dv{SortBool{}}("true")) (kore.txt): the intersection of B and true is {true}, which holds exactly where B is true (B an element variable). The text names no \_==K\_ there; the reader writes the co… | none (reader only: andAtBool's conjunction written into Rule.pre where Parse.hookEqE refuses \_==K\_; Rule.pre, Cond.equals, Rule.condK, Semantics.ruleSorted (condOK, Cond.bound) and rulesPlain admit it as they are) |  | rdr-keq-only |  |  | fixtures/rdr-keq-only/kompile.txt: exit 0; its account as reader\_today |
+| cases[1]: a text importing K-EQUAL-SYNTAX and not K-EQUAL, an equation's requires B #And true | refused | R-a | the equation's requires is \\equals{SortBool{},R}(\\and{SortBool{}}(VarB:SortBool{}, \\dv{SortBool{}}("true")), \\dv{SortBool{}}("true")) (kore.txt): the intersection of B and true is {true}, which holds exactly where B is true. A clause has one requires, a Bool term, so the reader writes the conjunctio… | none (reader only: Parse.hookEqE, Names.eqUnstated) | none (R-a): an equation's conjunction of conditions is read as one Bool term, the strict conjunction through \_==K\_ (Parse.conjTerms), which is the text's only with \_==K\_'s sentence ((K1 ==K K2) = true) = (K1 = K2); a text that declares \_==K\_ without it is refused (findings/REVIEW-hook-equality.md fi… | rdr-keq-only-eqn |  |  | fixtures/rdr-keq-only-eqn/kompile.txt: exit 0; its account as reader\_today; test/HookEqSentence.lean (f2-examples/ens.kompile.kore with an ensures #And, without \_==K\_'s sentence: refused hookEqualityUnstated, naming \_==K\_) |
 | `lemma:BOOL-KORE:1182:8` | inert |  |  |  |  |  | yes | yes | K-coverage.md Part B simplification equation; BuiltinData.lean modules: BOOL-KORE |
 | `lemma:MAP-KORE-SYMBOLIC:450:8` | inert |  |  |  |  |  | no | no | K-coverage.md Part B simplification equation; BuiltinData.lean modules: MAP-KORE-SYMBOLIC |
 | `lemma:MAP-KORE-SYMBOLIC:452:8` | inert |  |  |  |  |  | no | no | K-coverage.md Part B simplification equation; BuiltinData.lean modules: MAP-KORE-SYMBOLIC |
@@ -1837,7 +1838,7 @@ Not core:
 | `29:addCoolLikeAtt` | inert |  | \`cool-like{}()\` on a rule is a mark for a backend's rule ordering; it changes neither side, requires nor priority of the sentence, and the text states nothing by it. Class attribute: K gives the attribute no meaning: no sentence of the text states anything by it, and 'All semantic information contai… |  |  | e1-sentences |  |  | fixtures/e1-sentences: kore.txt \`cool-like{}()\` |
 | `30:removeAnywhereRules` | refused | R-b | The pass acts only under --allow-anywhere-haskell; its status, class and unit are those of the row E8 --allow-anywhere-haskell (refused R-b). With the option the anywhere rule leaves no sentence (the pair); under default options kompile refuses an anywhere rule for this backend (e2-anywhere). |  |  | e2-anywhere |  |  | the row E8 --allow-anywhere-haskell; fixtures/e8-allow-anywhere-norule same\_as e8-allow-anywhere (with the option the anywhere rule leaves no sentence); fixtures/e2-anywhere/kompile.txt exit 113 (default options: kompile refuses the rule) |
 | `31:generateSortPredicateRules` | supported |  | the pass's product is ordinary sentences (declarations, equations, rules, subsort axioms) that the reader reads as written; KCore's anchor is the text after the pass, and the pass itself is in the trusted base (DONE-0 section 0, trusted base 3). Cases the passes distinguish: constantFolding writes t… | none (reader already reads it) |  | e1-module |  |  | each row's fixture: account \`parse: ok; wf true\` (e3-k, e3-withconfig, e1-sentences, e3-casts, e1-module, e7-constfold, e7-freshconfig, e2-macro, e7-implicitk, e3-fresh, e3-cells, e7-removeunit, base, e3-kseq, e2-module-att) |
-| cases[0]: a rule of the text for a generated sort predicate (rule isFoo(pair(\_, \_)) => true) | inert |  | the text states two equations of the generated predicate beside the generated ones: the user's isFoo(pair(\_, \_)) = true and kompile's isFoo(K) = false [owise], whose exclusion names the user's pattern and the generated one (kore.txt). pair(\_, \_) is of sort Foo, so the user's equation is the generate… | none (reader and account only: Parse.predInstOK accepting an equation of the text that is a clause of Semantics.sortPreds at a constructor pattern, Parse.predOwiseInstOK an [owise] equation whose exclusion also names such instances, both beside Parse.predProjOK? as it is; Semantics.sortPreds as it i… |  | rdr-pred-rule |  |  | fixtures/rdr-pred-rule/kompile.txt: exit 0; its account as reader\_today |
+| cases[0]: a rule of the text for a generated sort predicate (rule isFoo(pair(\_, \_)) => true) | supported |  | the text states two equations of the generated predicate beside the generated ones: the user's isFoo(pair(\_, \_)) = true and kompile's isFoo(K) = false [owise], whose exclusion names the user's pattern and the generated one (kore.txt). pair(\_, \_) is of sort Foo, so the user's equation is the generate… | none (reader and account only: Parse.predInstOK accepting an equation of the text that is a clause of Semantics.sortPreds at a constructor pattern, Parse.predOwiseInstOK an [owise] equation whose exclusion also names such instances, both beside Parse.predProjOK? as it is; Semantics.sortPreds as it i… |  | rdr-pred-rule |  |  | fixtures/rdr-pred-rule/kompile.txt: exit 0; its account as reader\_today |
 | `32:numberSentences2` | inert |  | UNIQUE\_ID names a sentence by the hash of its text; it states nothing. The reader keeps it as the sentence's name (and refuses a rule or equation without one, RefusalReason.sentenceInfo, which only hand-written KORE can meet). Class attribute: K gives the attribute no meaning: no sentence of a text… |  |  | e1-module |  |  | fixtures/e1-module: kore.txt \`UNIQUE'Unds'ID{}(…)\` |
 | `emit1:AddSortInjections` | supported |  | the pass's product is ordinary sentences (declarations, equations, rules, subsort axioms) that the reader reads as written; KCore's anchor is the text after the pass, and the pass itself is in the trusted base (DONE-0 section 0, trusted base 3). Cases the passes distinguish: constantFolding writes t… | none (reader already reads it) |  | e1-module |  |  | each row's fixture: account \`parse: ok; wf true\` (e3-k, e3-withconfig, e1-sentences, e3-casts, e1-module, e7-constfold, e7-freshconfig, e2-macro, e7-implicitk, e3-fresh, e3-cells, e7-removeunit, base, e3-kseq, e2-module-att) |
 | cases[0]: an application of inj not to two sorts and one argument | refused | scope | the syntax admits inj at any sorts and arguments; the prelude declares inj{From, To}(From) : To, so another application is ill-sorted against it. kompile builds every injection with its two sorts (AddSortInjections.java:136, :199) over the one non-terminal of the injection production (ModuleToKORE.j… |  | none (scope): never written |  |  |  | k/k-frontend/src/main/java/org/kframework/compile/AddSortInjections.java:136 and :199; k/k-frontend/src/main/java/org/kframework/backend/kore/ModuleToKORE.java:1930-1934; 0 applications of inj at other than two sorts in the corpus texts; a production of the text labelled inj is no way to it: fixture… |
