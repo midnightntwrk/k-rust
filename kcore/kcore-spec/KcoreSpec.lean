@@ -388,3 +388,5 @@ import KcoreSpec.SoundCEx
 import KcoreSpec.SoundCE
 import KcoreSpec.FnModelCEx
 import KcoreSpec.TieFR
+import KcoreSpec.GenEqsProjInj
+import KcoreSpec.ExChoiceCEx
