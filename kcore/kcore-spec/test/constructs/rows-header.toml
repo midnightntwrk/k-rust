@@ -144,8 +144,9 @@
 #             entry's status stays the reading's (`supported` where the reading agrees with the
 #             text that it has no model); K-coverage.md prints "(no model)" beside it and lists
 #             such entries with their fixtures. An owed_refuted is the state "refuted" of an owed fact
-#             (owed_state below, one rule for both): K-coverage.md prints "(owed fact false)" beside
-#             the status and lists the entry with the refuted owed facts.
+#             (owed_state below, one rule for both): it puts the entry in the group false unless
+#             another of its owed facts is proved or open, K-coverage.md prints the group beside the
+#             status and lists the entry with the refuted owed facts.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
 #             files test/X.lean that test/integration.sh builds.
@@ -242,10 +243,21 @@
 #             so a false owed fact is no refusal and no class. Where it is false, the headline
 #             statements, whose hypothesis FnHyp holds OpenDecided, state nothing of Step at that
 #             text; the fixture is a recorded limit of the hypothesis, not the evidence of the status
-#             under them. K-coverage.md prints "(owed fact false)", "(owed fact open)" or "(owed fact
-#             proved)" beside the status (the first of the three that one of the entry's states, or an
-#             owed_refuted, gives) and lists the entries with a false or open owed fact, with their
-#             fixtures.
+#             under them.
+#             An entry is grouped by its best fixture: proved where one of its states is proved, else
+#             open where one is open, else false (an owed_refuted is a false state). An entry none of
+#             whose states is proved names, as a further key, a fixture of the same shape whose fact
+#             is proved (a companion its text names, with the theorem), or one of its states ends
+#             "; no fixture of this shape has it proved: REASON", REASON saying why none exists;
+#             rest.py check fails on an entry with neither, and on that ending beside a proved state
+#             (it reads owed_state: an entry whose only owed fact is an owed_refuted is grouped false
+#             and not checked).
+#             K-coverage.md prints "(owed fact proved)", "(owed fact open)" or "(owed fact false)",
+#             the entry's group, beside the status, counts the entries by group, names apart the
+#             supported entries of the group proved (those counted as supported under the headline
+#             statements; the groups open and false are counted apart), and lists every false or open
+#             owed fact with its fixture and its entry's group: a fixture with a false owed fact is a
+#             recorded limit of the hypothesis.
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
 #   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values) or a
