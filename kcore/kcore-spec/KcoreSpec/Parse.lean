@@ -661,8 +661,9 @@ inductive ReadingNote where
   sequences where there are several conjuncts); the `requires` read is the text's under that
   symbol's `functional` axiom and its sentence `((K1 σ K2) = true) = (K1 = K2)`, which a text
   declaring the symbol must hold (`hookEqualityUnstated`). No sentence is classified so (`classify`
-  reads a sentence alone, and which symbols are the definition's functions it does not know): the
-  account lists the rules read so (`keysAsRequires`). -/
+  reads one sentence and, of the names, only what decides the cut of a conjunction of terms
+  (`andCutTaken`), not which symbols are the definition's functions): the account lists the rules
+  read so (`keysAsRequires`). -/
   | keyFunctionAsRequires
   /-- A function equation of priority p (`priority{}("p")`, 50 without the attribute) read in `Γ`
   with the premise that no executable clause of the function of a smaller priority applies
@@ -706,9 +707,9 @@ inductive ReadingNote where
   (`KCore.owise_disjunct_narrower`, stated on the translated sentences with the disjunct as read,
   `svinExcl?`), and `Γ` leaves out what the text's states where the two arguments differ. There the
   text states the `[owise]` equation's value and the excluded equation's; where those differ the
-  text has no model, which `Γ` does not refute. No sentence is classified so (`classify` reads a
-  sentence alone, and the `[owise]` sentence alone is also the one written beside an equation whose
-  disjunct is exact): the account lists the `[owise]` equations read so (`owiseNarrowed`). -/
+  text has no model, which `Γ` does not refute. No sentence is classified so (`classify` reads one
+  sentence, and of the names only what decides the cut of a conjunction of terms, and the `[owise]`
+  sentence alone is also the one written beside an equation whose disjunct is exact): the account lists the `[owise]` equations read so (`owiseNarrowed`). -/
   | owiseDisjunctNarrower
   /-- A rewrite axiom whose right side is an application `σ{S}(φ)` of an alias of K's prelude
   (`preludeAliases`; kompile writes `weakAlwaysFinally{S}(\and(rhs, ens))` for a rule of a module
@@ -770,8 +771,9 @@ inductive ReadingNote where
   every other generator (Cons-Dist), and the text's sentence says it is in one of them, so the
   text's sentence with `Γ` has no model. The reading keeps the subsort that the text's application
   of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so
-  (`classify` reads a sentence alone, and which sorts the definition has it does not know): the
-  account lists the sentences and the sorts (`tokKItemOmitted`). -/
+  (`classify` reads one sentence and, of the names, only what decides the cut of a conjunction of
+  terms, not which sorts the definition has): the account lists the sentences and the sorts
+  (`tokKItemOmitted`). -/
   | tokKItem
   deriving Repr, DecidableEq, Inhabited
 
@@ -860,8 +862,8 @@ structure Names where
   /-- the overloading symbols one of whose own overloads is a function of the definition, each with
   its result sort's name: a rule's left side applying one is read through the cut (`ovlCut`) -/
   ovlCutSyms : List (Sym × String) := []
-  /-- the constructors of the definition: K's `kseq` and `dotk`, the configuration's cells and the
-  text's symbols declared `constructor` (`andCutOK`: a fresh variable of a right side's cut held
+  /-- the constructors of the definition: K's `kseq` and `dotk`, the top and counter cells, the
+  configuration's cells and the text's symbols declared `constructor` (`andCutOK`: a fresh variable of a right side's cut held
   under them is held under constructors of the built definition) -/
   ctorSyms : List Sym := []
 
@@ -3842,7 +3844,9 @@ def scanColl : Kore.Sentence → Option (String × CollKind × String × String 
 
 /-! ## The class of a sentence
 
-`classify` reads one sentence. A sentence is read when `parse` reads it: a declaration, a
+`classify` reads one sentence, and of the definition's names (the scan's, from the text's
+declarations) only what decides the cut of a conjunction of terms on a rule's right side
+(`andCutTaken`, the one test `ruleBody` takes it by). A sentence is read when `parse` reads it: a declaration, a
 rewrite axiom, a function equation, a `subsort` or `functional` axiom, KItem's no-junk axiom
 (whose order the presentation keeps), or a sentence of a builtin module (whose source and line
 name the module the definition imports). It is inert when the semantics does not read it, for
@@ -4651,7 +4655,8 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
     | true, some g, some X => some (g, X)
     | _, _, _ => none
   let N : Names := { N with ovlCutSyms := ovlCutSyms,
-                             ctorSyms := (["kseq", "dotk"] ++ RCell.symsList rconfig ++ ctorNames).filterMap N.sym? }
+                             ctorSyms := [kseq, dotk, topLabel, counterLabel] ++
+                               (RCell.symsList rconfig ++ ctorNames).filterMap N.sym? }
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))

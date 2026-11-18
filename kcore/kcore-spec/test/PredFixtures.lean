@@ -1182,16 +1182,19 @@ theorem hooks_ok : patternHooks.contains topLabel = false ∧ patternHooks.conta
 
 /-! #### The evaluation of the conjuncts -/
 
-/-- The rule has a predicate, so `ok` (which asks `\top` predicates) is false; `okM` holds. -/
-theorem okL : defL.sem.okM = true := by decide +kernel
+/-- The definition without its rule: the rule has a predicate and an existential variable, which
+`ok` and `okM` refuse; the clauses' context does not read the rules. -/
+noncomputable abbrev cNoRules : Semantics := { defL.sem with rules := [] }
+theorem okL : cNoRules.ok = true := by decide +kernel
 theorem sortedOK : c.sortedOK = true := by decide +kernel
 theorem srReady : c.srReady = true := by decide +kernel
 theorem matchReady : c.matchReady = true := by decide +kernel
 
 theorem hsc : SortCtx c := sortCtx_of_all sortedOK srReady (Exec.ovlCase_of matchReady)
-/-- The clauses are the landed definition's: its `okM` gives their context. -/
+/-- The clauses are the landed definition's: `ok` of the definition without its rule gives their
+context. -/
 theorem hcc : Exec.ClauseCtx c :=
-  have h : Exec.ClauseCtx defL.sem := Exec.clauseCtx_of_okM okL
+  have h : Exec.ClauseCtx cNoRules := Exec.clauseCtx_of okL
   h
 theorem hmc : Exec.MatchCtx c := Exec.matchCtx_of matchReady
 

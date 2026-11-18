@@ -28,7 +28,8 @@
   Kernel: `cut_right`, `cut_left` (the cut of a pattern), `parseWith_ruleOf`.
 
   ## rhs-and
-  `Parse.andRuleOf` (`ruleBody` does not call it) reads a right side's conjunction of terms at a
+  `Parse.andRuleOf` (which `ruleBody` takes where `Parse.andCutOK` holds) reads a right side's
+  conjunction of terms at a
   position under applications with the position cut (`Parse.andCut`). `showAnd` prints the rules
   `parseWith andRuleOf` builds, as `showDef` does, with whether the rule has an `ensures`.
   - `mlandt` (e3-ml-rule-rhs-and-term, `go(X) => f(X) #And g(X)` at Int): no conjunct is a
