@@ -493,10 +493,10 @@ inductive InertReason where
 inductive UnreadReason where
   /-- The subsort of a cell into its cell collection's sort (`XCell < XCellMap`, a set's or a
   list's), its subsort axiom, and the collection sort's no-junk axiom, which says every
-  collection is an injected cell. Read as a subsort it gives a second value, `inj(cell)`, for what
-  the collection denotes as a one-entry collection, and the no-junk axiom is false of the empty
-  collection and of two entries: the collection sort holds collections and nothing else. A read
-  sentence that applies the injection is refused (`cellCollectionInjection`). -/
+  collection is some cell's injection; with the subsort read as the one-entry collection it is
+  false of the empty collection and of two entries. Read as a subsort it gives a second value,
+  `inj(cell)`, for a one-entry collection: the collection sort holds collections and nothing
+  else. A read sentence that applies the injection is refused (`cellCollectionInjection`). -/
   | cellCollectionInjection
   /-- A macro or alias symbol: its applications stand for the macro's expansion, which kompile has
   done. It is part of the reading only through an application, which is refused (`macroSymbol`,

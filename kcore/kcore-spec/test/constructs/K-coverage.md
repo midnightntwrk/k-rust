@@ -134,12 +134,13 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 
 None: every row has one of the five statuses.
 
-## Entries whose text has no model, form (r) (1)
+## Entries whose text has no model, form (r) (2)
 
 A `derived` table of form (r): a kernel-checked theorem that the premise set form (a) would use has no model, from the sentences named (by index) and the families named beside them; `owed_refuted` the theorem refuting the fact the package names as owed. The entry's status is the reading's, and its list prints "(no model)" beside it.
 
 | list | row | entry | status | fixture | sentences | families | kind | theorem | owed refuted |
 |---|---|---|---|---|---|---|---|---|---|
+| E5 | `functionalPattern:axiom#1` | cases[1] | supported | e1-starinit | 3, 31 | sentence 3 is the prelude's INJ axiom over its sort variables, read at S1 = TCell, S2 = TCellSet, S3 = KItem; ΓCons: Cons-Dist of inj{TCell,KItem} and inj{TCellSet,KItem} (the order subsorts reads compares TCell and TCellSet in neither direction and puts no sort below both) and Cons-Fun of both inje… |  | KCore.TieE1Starinit.cellcoll\_subsort\_refuted |  |
 | C3 | `unboundVariables x right-side variable` | cases[0] | supported | e2-clause-rhs-int | 78, 79, 205 | ΓCons: the constructor items of c (Cons-Fun and Cons-Inj, what sentences 78 and 79 state; Γ entails both, cons\_entailed), present in Pre as Γ's items, not as the sentences written; ΓDomains: the distinct domain values of Int (0 and 1 are distinct elements), which no sentence of the text states; with… |  | KCore.TieClauseRhsInt.no\_model | KCore.TieClauseRhsInt.owed\_refuted |
 
 ## Entries with an owed fact (18: false 5, open 1, proved 12)
@@ -962,7 +963,7 @@ Not core:
 | `genPriorityGroups:alias#1` | refused | R-b | Written only under --enable-kore-antileft, outside R-12. |  |  |  |  |  | fixture e8-enable-kore-antileft; Parse.lean:1761 |
 | `functionalPattern:axiom#1` | supported |  | The site writes \`\\exists(V, \\equals(V, t))\` for a subsort (t an injection) and for a total symbol (t its application). The first states the injection is total, the second that the symbol is. Read as a subsort (scanEvent) and as Fn.total / ParamPres.total / a constructor. | none (reader only) |  | base |  |  | Parse.lean:1610-1617 (scanEvent), :1672 (isParametricFunctional), :1727 (isCellCollAxiom) |
 | cases[0]: B16 B19 | supported |  |  |  |  |  |  |  |  |
-| cases[1]: B17 subsort of a cell into its collection sort | supported |  | the subsort sentence applies the cell-collection injection inj{SortTCell{}, SortTCellSet{}}, a symbol Γ lacks: the tie class no direction (sentence 31 of the fixture's text), and every other sentence of the text applies only symbols Γ has (absent\_closed) |  |  | e1-starinit |  |  | fixtures/e1-starinit/account.txt \`2 unread cellCollectionInjection [generated]\` |
+| cases[1]: B17 subsort of a cell into its collection sort | supported (no model) |  | the text states the cell's sort a subsort of its collection's sort: the subsort sentence (sentence 31 of the fixture's text, the tie's numbering; kore.txt line 170) and the collection sort's no-junk sentence (sentence 183; kore.txt line 340) apply inj{SortTCell{}, SortTCellSet{}}, a head Γ lacks (th… |  |  | e1-starinit |  |  | fixtures/e1-starinit/account.txt \`2 unread cellCollectionInjection [generated]\` |
 | cases[2]: B18 subsort of a cell sort into a user sort | supported |  | a cell sort is a sort of the definition and scanEvent reads any subsort attribute pair that is not a cell-collection pair; to run: account on a text with such a subsort |  |  |  |  |  |  |
 | cases[3]: B20 functional axiom of a sort-parametric symbol | inert |  | Stated per instance at values: for every semantics with coreOK and shapesOK, every H and every sort at which the definition has ite implemented by kIte, the sentence at that sort holds at values (inertIteFunctional\_everyH); on f2-examples/lazy.kore, sentence 39 at SortInt{} (ax39\_text, ax39\_class, i… |  |  |  |  |  | fixtures/hw-base/account.txt \`1 inert parametricFunctional [generated]\` (the functional axiom of ite) |
 | cases[4]: B21 functional axiom of a function not read total | supported |  | kompile writes the axiom only for a symbol declared total/functional, and every function symbol the reader numbers can carry total (Fn.total, ParamPres.total). If \`unaccounted\` is reachable here it is a reader defect, not a refusal |  |  |  |  |  |  |
