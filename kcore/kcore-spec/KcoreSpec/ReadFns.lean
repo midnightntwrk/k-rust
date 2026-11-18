@@ -150,11 +150,13 @@ over applications), each read through `hoist`, the equation's `ensures` and the
 (fewer than two alternatives are not empty): the sentence is then a plain equation or
 `f(X̄) = ⊥`, and the reading is not this function's, whether or not the text holds the function's
 `functional` sentence.
-Refused `manyValuedRightSide`, the right side having two alternatives or more: the text does not
+Refused `rhsOperandSort` where the right side is not `rhsSorted`, whether or not it is this
+function's. Refused `manyValuedRightSide`, the right side having two alternatives or more: the text does not
 hold the function's `functional` sentence; more than 8 alternatives; an alternative, a lifted
 conjunct or the `ensures` holds a variable the arguments do not bind; an alternative holds
 `\top`, `\not` or `\exists`. -/
 def frRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := do
+  rhsSortGuard e.rhs
   let (r, conds, empty) := hoist (dropEmptyAlts e.rhs)
   if empty || !hasOr r then pure none else
   let as := orAlts r
@@ -173,6 +175,12 @@ def frRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := d
   let s ← resSort N e
   let alts := alts.map fun a => (a.1, common.map isTrueC ++ a.2)
   pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+
+/-- `frRead` reads only a right side that is `rhsSorted`. -/
+theorem frRead_rhsSorted {N : Names} {e : RawEqn} {x : Option (List Clause × List Var)}
+    (h : frRead N e = .ok x) : rhsSorted e.rhs = true := by
+  obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := e.rhs) h
+  exact rhsSortGuard_ok hu
 
 /-! ## Predicates as conditions -/
 

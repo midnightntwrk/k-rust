@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 7 | 3 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E2 | 58 | 7 | 0 | 1 | 0 | 50 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
-| E4 | 48 | 20 | 0 | 4 | 0 | 24 | 0 | 0 |
+| E4 | 50 | 20 | 0 | 4 | 0 | 26 | 0 | 0 |
 | E5 | 59 | 35 | 1 | 2 | 0 | 21 | 0 | 0 |
 | E6 | 30 | 9 | 0 | 0 | 0 | 21 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 327 | 125 | 2 | 11 | 1 | 188 | 0 | 0 |
+| all | 329 | 125 | 2 | 11 | 1 | 190 | 0 | 0 |
 
 Refused rows by class:
 
@@ -62,13 +62,13 @@ Refused nested entries by class:
 | E1 | 4 | 0 | 0 | 1 | 3 |
 | E2 | 50 | 3 | 0 | 3 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
-| E4 | 24 | 14 | 4 | 0 | 6 |
+| E4 | 26 | 14 | 6 | 0 | 6 |
 | E5 | 21 | 10 | 1 | 5 | 5 |
 | E6 | 21 | 2 | 1 | 2 | 16 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 188 | 49 | 12 | 45 | 82 |
+| all | 190 | 49 | 14 | 45 | 82 |
 
 ## Entries of class R-c (57)
 
@@ -778,7 +778,9 @@ Not core:
 | `grammar:<matching-logic-pattern>::="\bottom" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\bottom |
 | `grammar:<matching-logic-pattern>::="\not" "{" <sort> "}" "(" <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\not |
 | `grammar:<matching-logic-pattern>::="\and" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\and |
+| cases[0]: an operand of \\and{s} of another sort on an equation's right side | refused | R-b | An equation's right side with an operand of \`\\and{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\` or \`\\or\` of another sort, or an \`\\equals{S1,S2}\` whose result sort S2 is not s. In a valid KORE pattern each argument of a connective has t… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
 | `grammar:<matching-logic-pattern>::="\or" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\or |
+| cases[0]: an operand of \\or{s} of another sort on an equation's right side | refused | R-b | An equation's right side with an operand of \`\\or{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\` or \`\\or\` of another sort, or an \`\\equals{S1,S2}\` whose result sort S2 is not s. In a valid KORE pattern each argument of a connective has th… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
 | `grammar:<matching-logic-pattern>::="\implies" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
 | `grammar:<matching-logic-pattern>::="\iff" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-iff/account.txt: \`unkompiledForm (\\iff)\`; fixtures/hw-scope-iff-top/account.txt: \`1 refused unkompiledForm [user]\` (\\iff at the axiom's top, classif… |
 | `grammar:<matching-logic-pattern>::="\exists" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\exists |

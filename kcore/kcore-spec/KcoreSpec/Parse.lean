@@ -390,6 +390,17 @@ inductive RefusalReason where
   declaration with it dropped states no more than the text cannot be shown (`attrFault?`). The
   detail names the attribute. -/
   | symbolAttrUnkeyed
+  /-- An equation whose right side holds, under applications, conjunctions and disjunctions, an
+  `\and{s}` or `\or{s}` with an operand that states a sort other than s at its head
+  (`rhsSorted`): an `\and` or `\or` at another sort, or an `\equals{S1,S2}` whose result sort S2
+  is not s. In a valid KORE pattern the sort of each argument of a connective is the connective's
+  sort parameter (kore-syntax.md:330: "In any matching logic pattern, the sort of pattern
+  arguments agrees with the specified argument sort parameter"), so the sentence is no valid KORE
+  axiom. The reader drops these sorts when it lifts a conjunct `\equals(B, true)` out of a
+  conjunction and distributes a disjunction over applications, and that keeps the right side's
+  elements only where they agree; it checks them before it reads the right side. The detail names
+  the connective, its sort and the operand's. -/
+  | rhsOperandSort
   deriving Repr, DecidableEq, Inhabited
 
 /-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
@@ -1692,6 +1703,87 @@ mutual
 end
 
 mutual
+  /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}` or
+  `\and{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the operands of such
+  an `\or` and `\and`. An application, a variable, a domain value and the other connectives are
+  not looked at. -/
+  def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
+    | .or s' ps => decide (s' = s) && rhsOpSortList s ps
+    | .and s' ps => decide (s' = s) && rhsOpSortList s ps
+    | .equals _ s' _ _ => decide (s' = s)
+    | _ => true
+    termination_by structural p => p
+  def rhsOpSortList (s : Kore.KSort) : List Kore.Pattern → Bool
+    | [] => true
+    | p :: ps => rhsOpSort s p && rhsOpSortList s ps
+    termination_by structural ps => ps
+end
+
+mutual
+  /-- Each `\and{s}` and `\or{s}` of a right side under applications, conjunctions and
+  disjunctions has operands of the sort s (`rhsOpSort`), the sorting rule of KORE at those
+  connectives (kore-syntax.md:330). These are the connectives `hoist`, `orAlts` and
+  `dropEmptyAlts` rewrite, dropping their sorts. -/
+  def rhsSorted : Kore.Pattern → Bool
+    | .app _ _ ps => rhsSortedList ps
+    | .and s ps => rhsOpSortList s ps && rhsSortedList ps
+    | .or s ps => rhsOpSortList s ps && rhsSortedList ps
+    | _ => true
+    termination_by structural p => p
+  def rhsSortedList : List Kore.Pattern → Bool
+    | [] => true
+    | p :: ps => rhsSorted p && rhsSortedList ps
+    termination_by structural ps => ps
+end
+
+/-- The connective and the sort an operand states at its head, as `rhsOpSort` reads it. -/
+def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
+  | .or s _ => some ("\\or", s)
+  | .and s _ => some ("\\and", s)
+  | .equals _ s _ _ => some ("\\equals", s)
+  | _ => none
+
+/-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
+def rhsOpFault? (conn : String) (s : Kore.KSort) (ps : List Kore.Pattern) : Option String :=
+  ps.findSome? fun q => match rhsHeadSort? q with
+    | some (c, s') => if s' = s then none else
+        some s!"{conn}\{{Kore.Printer.sort s}}: an operand {c} of sort {Kore.Printer.sort s'}"
+    | none => none
+
+mutual
+  /-- Where `rhsSorted` fails, the first connective (outermost first) with an operand of another
+  sort, named (`rhsOpFault?`). -/
+  def rhsSortFault? : Kore.Pattern → Option String
+    | .app _ _ ps => rhsSortFaultList? ps
+    | .and s ps => (rhsOpFault? "\\and" s ps).orElse fun _ => rhsSortFaultList? ps
+    | .or s ps => (rhsOpFault? "\\or" s ps).orElse fun _ => rhsSortFaultList? ps
+    | _ => none
+    termination_by structural p => p
+  def rhsSortFaultList? : List Kore.Pattern → Option String
+    | [] => none
+    | p :: ps => (rhsSortFault? p).orElse fun _ => rhsSortFaultList? ps
+    termination_by structural ps => ps
+end
+
+/-- An equation's right side is read only where it is `rhsSorted`; refused `rhsOperandSort`
+otherwise. -/
+def rhsSortGuard (p : Kore.Pattern) : Rd Unit :=
+  if rhsSorted p then pure () else fail .rhsOperandSort ((rhsSortFault? p).getD "")
+
+theorem rhsSortGuard_ok {p : Kore.Pattern} {u : Unit} (h : rhsSortGuard p = .ok u) : rhsSorted p = true := by
+  unfold rhsSortGuard at h
+  cases hs : rhsSorted p
+  · simp [hs, fail] at h
+  · rfl
+
+/-- A reading that starts with `rhsSortGuard p` and succeeds passed the guard. -/
+theorem rhsSortGuard_bind {β : Type} {p : Kore.Pattern} {f : Unit → Rd β} {y : β}
+    (h : (rhsSortGuard p >>= f) = .ok y) : ∃ u, rhsSortGuard p = .ok u := by
+  cases hg : rhsSortGuard p with
+  | error e => rw [hg] at h; cases h
+  | ok u => exact ⟨u, rfl⟩
+
+mutual
   /-- The first connective under applications of a pattern that has several elements or none at a
   point: `\or`, `\top`, `\not`, `\exists` (`manyValuedRightSide`). -/
   def manyValued? : Kore.Pattern → Option String
@@ -2492,6 +2584,7 @@ def svinPats (N : Names) (e : RawEqn) : Rd (List Term × List Var) :=
     pure (.var 0 :: .var 1 :: ts, vs)
 
 def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) := do
+  rhsSortGuard e.rhs
   if let some d := eqnAttrFault? e.attrs then fail .equationAttribute d
   let (pats, vs) ← svinPats N e
   let np := vs.length
@@ -2562,6 +2655,12 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
 /-- A function's clause from its equation (and the `[owise]` equation's exclusion of it). -/
 def clause? (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Pattern) : Rd (Clause × ClausePres) :=
   Rd.within (.attrs e.attrs) (clauseBody N msrc e excl)
+
+/-- A clause is read only from an equation whose right side is `rhsSorted`. -/
+theorem clauseBody_rhsSorted {N : Names} {msrc : String} {e : RawEqn} {excl : Option Kore.Pattern}
+    {x : Clause × ClausePres} (h : clauseBody N msrc e excl = .ok x) : rhsSorted e.rhs = true := by
+  obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := e.rhs) h
+  exact rhsSortGuard_ok hu
 
 /-- The equations of the function `label` that become clauses, each with the disjunct of the
 `owise` equation's exclusion that excludes it (if the function has an `owise` equation): matched
