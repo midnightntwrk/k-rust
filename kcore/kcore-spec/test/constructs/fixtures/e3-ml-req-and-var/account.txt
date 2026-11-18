@@ -21,6 +21,8 @@ law axioms of no collection's concatenation: 0
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 1
 rules and clauses applying a function symbol in their left side: 0
+rules read with conjuncts B = true of pre or post, the conjuncts of a requires or of the right side's conditions after the first (andAtBool): 1
+      rule 0: 1 in pre, 0 in post
 sentences the library's data induces that the text does not hold: 0
 library sentences of the modules held that the text does not hold: 0
 sentences every definition holds (kernelText) that the text does not: 4

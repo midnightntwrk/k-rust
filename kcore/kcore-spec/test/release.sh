@@ -11,7 +11,13 @@
 #                regenerates and compares it), User.RunInstance (run_exact at
 #                one configuration), User.SumSpecHolds (the statement proved at every H) and
 #                User.SumSpecML (its matching-logic corollaries), User.SumSpecInstance (the claim
-#                at N = 3, S = 0);
+#                at N = 3, S = 0). Building SumSpecHolds, SumSpecML and SumSpecInstance runs each
+#                module's own check of its theorems: axioms within propext, Classical.choice,
+#                Quot.sound, and no hypothesis on the functions among their constants (`FnHyp`,
+#                `fnHyp_defn`, `fnHyp_withHooks_defn`: through every definition and proof below
+#                sum_spec_holds, sum_spec_kore and sum_spec_instance; named by the proofs of
+#                stepDecided_all and the sum_spec_ml theorems, whose route through consistent,
+#                sound_at and complete_at proves FnHyp as a theorem); a failing check fails the build;
 #                kimp-ni's noninterference modules
 #   axioms-*     `#print axioms` of the examples' statements: peano's tie, sound_hyp, complete_hyp,
 #                sound, complete; ref-kimp's sum_spec, sum_spec_entailed, sum_N, run_instance,

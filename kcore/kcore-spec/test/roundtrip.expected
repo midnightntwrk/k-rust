@@ -70,6 +70,7 @@ differs f2-examples/e2-module-att.kompile.kore
 differs f2-examples/e2-simp-true-prio.kompile.kore
 differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
+differs f2-examples/e2-unit-ctor.kompile.kore
 differs f2-examples/e3-casts.kompile.kore
 differs f2-examples/e3-cells-dotbag.kompile.kore
 differs f2-examples/e3-cells.kompile.kore
