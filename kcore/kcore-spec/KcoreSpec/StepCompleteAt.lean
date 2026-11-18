@@ -83,6 +83,7 @@ rule's predicates to be conjunctions of atoms, which hold no binder, and `coreOK
 asks every clause's to be `top`. -/
 theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = true) :
     c.readsConfined = false := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   have hok := (Semantics.coreOK_parts h).1
   have hready := hr
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
@@ -94,7 +95,8 @@ theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = tru
     simp [Rule.opens_of_binds hb, hasBinder_of_predAtoms hpre, hasBinder_of_predAtoms hpost]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl
-    obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_clause hok hfn' hcl
+    have hpre := Semantics.clausesPreTop_spec hpreTop hfn' hcl
+    have hpost := Semantics.sortedOK_clausePost hok hfn' hcl
     have hb := (hfn fn (by simp [Semantics.allFns, hfn']) cl hcl).2
     simp [Clause.opens_of_binds hb, hpre, hpost, Cond.hasBinder]
 
@@ -106,6 +108,7 @@ theorem run_exact (h : c.coreOK = true) (hr : execReady c = true) (hfd : FnDet c
     ((Γ c ∪ Γstep c) ⊧
         (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList ((successorsN c n x.val).map (den c))))) ∧
       ∀ y ∈ successorsN c n x.val, Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y)) := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   have hrc := readsConfined_of_execReady h hr
   refine ⟨complete_at_step c h hrc x (stepDecided_of_fuel hr hfd hf) _
     fun y hy => (step_iff_at hr hfd hf).mp hy, fun y hy => ?_⟩

@@ -974,7 +974,7 @@ negated premise over a map pattern, a competitor's exclusion or `applies`, is em
 kernel says the competitor does not apply (`exclusion_empty4`, `applies_empty4`): a value's element
 lies in a map pattern's translation only where the pattern matches the value (`patVal_back4`),
 which the map axioms of `ΓColls` give. -/
-theorem step_sound_stage4 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage4 (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hy : HypCore c := hy.core
@@ -983,10 +983,10 @@ theorem step_sound_stage4 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
   intro x y hstep M _ I hI e m hm
   have hC : I ⊧ᴵP ΓColls c := sat_colls hI
   obtain ⟨hg, hph, hmo, hr4, hc4⟩ := hs
-  refine step_at4 hI hnn hsc hy.1 hbc hph (fun fn hfn cl hcl hn => ?_) hb htop (fun r hr hn => ?_) hstep e m hm
+  refine step_at4 (hpreTop := hpreTop) hI hnn hsc hy.1 hbc hph (fun fn hfn cl hcl hn => ?_) hb htop (fun r hr hn => ?_) hstep e m hm
   · obtain ⟨hp', hb', -⟩ := clause_ctx hy.1 hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_empty4 hI hC hph hmo hg hsc.trans hnn.1 (clause_preTop hy.1 hfn hcl) hp' hb' (hc4 fn hfn cl hcl hn) hws hkeys hXkeys hRkey hX hR hσR
+      exclusion_empty4 hI hC hph hmo hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hy.1 hfn hcl) hp' hb' (hc4 fn hfn cl hcl hn) hws hkeys hXkeys hRkey hX hR hσR
         hfail m
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
     exact fun hx _ hkeys e hfail =>

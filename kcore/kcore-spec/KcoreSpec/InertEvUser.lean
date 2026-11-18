@@ -130,7 +130,7 @@ mutual
   /-- **A term denotes its value.** In a model of `Γ c`, at a valuation that gives each variable
   the element of its value under σ, the translation of a term of the sort `s` denotes the element
   of its value under `valU`, or nothing where it has none; and its value is of the sort `s`. -/
-  theorem den_valU : ∀ (t : Term) {s : Srt}, srtU? c F vars t = some s →
+  theorem den_valU (hpreTop : c.clausesPreTop = true) : ∀ (t : Term) {s : Srt}, srtU? c F vars t = some s →
       (∀ m, (KoreAML.tr ⟨tbl, []⟩ (kore c vars t)).interpret I e m ↔ Res c I e (valU c F σ t) m) ∧
       (∀ v, valU c F σ t = some v → c.sortOf v = some s)
     | .var i, s, ht => by
@@ -169,7 +169,7 @@ mutual
         · simp only [hargs, beq_self_eq_true, ite_true, Option.some.injEq] at ht
           subst ht
           obtain ⟨hks, hkn⟩ := lookupSig_spec hk
-          have hih := den_valsU ts hargs
+          have hih := den_valsU (hpreTop := hpreTop) ts hargs
           have hhook : isHook f = true := by
             cases hh : isHook f with
             | true => rfl
@@ -205,7 +205,7 @@ mutual
         · simp [hargs] at ht
       | none =>
         obtain ⟨g, fn, hg, hfn, hargs, rfl⟩ := srtAppU_fn hk ht
-        have hih := den_valsU ts hargs
+        have hih := den_valsU (hpreTop := hpreTop) ts hargs
         have hsc := hypSound_of_core h
         have hbc := Semantics.ok_clauseBinds hok
         refine ⟨fun m => ?_, fun w hw => ?_⟩
@@ -223,7 +223,7 @@ mutual
             | none =>
               rw [hgw] at hE
               have hgr := (KoreAML.interp_equal (defOK hI)).mp
-                (eval_none_sound_core c hsc hbc hE hfn hws hI e default) m
+                (eval_none_sound_core (hpreTop := hpreTop) c hsc hbc hE hfn hws hI e default) m
               unfold KoreAML.den at hgr
               rw [tr_symApp] at hgr
               rw [hgr]
@@ -231,7 +231,7 @@ mutual
             | some v =>
               rw [hgw] at hE
               have hgr := (KoreAML.interp_equal (defOK hI)).mp
-                (TiePair.eval_some_sound c hsc hbc hE hfn hws hI e default) m
+                (TiePair.eval_some_sound (hpreTop := hpreTop) c hsc hbc hE hfn hws hI e default) m
               unfold KoreAML.den at hgr
               rw [tr_symApp] at hgr
               rw [hgr]
@@ -253,7 +253,7 @@ mutual
   /-- The arguments of an application: where each has a value, the values are of the argument
   sorts and the application of any head to the translated arguments is its application to the
   values' patterns; where one has none, the application denotes nothing. -/
-  theorem den_valsU : ∀ (ts : List Term) {ss : List Srt}, srtsU? c F vars ts = some ss →
+  theorem den_valsU (hpreTop : c.clausesPreTop = true) : ∀ (ts : List Term) {ss : List Srt}, srtsU? c F vars ts = some ss →
       (∀ ws, allSome (valUList c F σ ts) = some ws → c.sortsOf ws = some ss ∧
         ∀ (acc acc' : KoreAML.P), (∀ m, acc.interpret I e m ↔ acc'.interpret I e m) →
           ∀ m, (KoreAML.trArgs ⟨tbl, []⟩ acc (koreList c vars ts)).interpret I e m ↔
@@ -273,8 +273,8 @@ mutual
       simp only [srtsU?] at ht
       obtain ⟨s, h1, hrest⟩ := Option.bind_eq_some_iff.mp ht
       obtain ⟨ss', h2, rfl⟩ := Option.map_eq_some_iff.mp hrest
-      have ih1 := den_valU t h1
-      have ih2 := den_valsU ts h2
+      have ih1 := den_valU (hpreTop := hpreTop) t h1
+      have ih2 := den_valsU (hpreTop := hpreTop) ts h2
       constructor
       · intro ws hws
         simp only [valUList, allSome, Option.bind_eq_some_iff, Option.map_eq_some_iff] at hws
@@ -334,6 +334,7 @@ theorem EqnU.entailed {c : Semantics} (h : c.coreOK = true) (hok : c.ok = true) 
     (ad : KoreAML.AxiomDecl) (hp : ad.ax.pattern = E.pattern c) (hsv : ad.ax.sortVars = [KoreAML.Rv])
     (hfv : ∀ i, i < E.vars.length → vkey c E.vars i ∈ KoreAML.freeOf [] ad.ax.pattern) :
     EntailsAtValues c ad (KoreAML.trAxiom [] [] ad).pat := by
+  have hpreTop := Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)
   intro M _ I hI e hat m
   haveI : OvlOK c := ovlOK_of_core h
   have hD := defOK hI
@@ -390,7 +391,7 @@ theorem EqnU.entailed {c : Semantics} (h : c.coreOK = true) (hok : c.ok = true) 
     obtain ⟨h1, h2⟩ := pick_spec (hval i hi)
     rw [(elemOf_spec hI h1 e).1 m', h2]
   have hDV := fun (u : Term) (s : Srt) (hu : srtU? c F E.vars u = some s) =>
-    den_valU (tbl := t) (e := e) h hok hF hI hσ hag u hu
+    den_valU (hpreTop := hpreTop) (tbl := t) (e := e) h hok hF hI hσ hag u hu
   -- the sorts
   obtain ⟨τ, hτsort, hτ⟩ := srt_den hI (hnum hsR)
   obtain ⟨τb, hτbsort, hτb⟩ := srt_den hI (hnum (show Srt.bool < nRegSorts by decide))

@@ -963,13 +963,14 @@ statement of
 `Exec.step_iff_of_ok` for `CExec.successorsN`. -/
 theorem step_iff (hr : execReady c = true) (hfd : FnDet c) (x y : Config c) :
     Step c x y ↔ ∃ n, (CExec.successorsN c n x.val).any (same · y.val) = true := by
+  have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr
   have hready := hr
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
   replace hr' := hr'.1
   have hok := hr'.1.1.1.1.1
   have hsc := sortCtx_of_all hok hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
-  have hcc := cclauseCtx_of hok
+  have hcc := cclauseCtx_of (hpreTop := hpreTop) hok
   have hcm := clauseComplete_of_ready hr
   have hrc := ruleComplete_of_ready hr
   have hna : c.AsideFree := asideFree_of_ready hr

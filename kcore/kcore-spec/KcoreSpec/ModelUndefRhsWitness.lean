@@ -254,7 +254,7 @@ theorem stage1 : Stage1 c := by
 
 /-- **`ΓText c` has no model**: read without `⌈rhs⌉`, the rule's axiom says that `x`, which its
 left-hand side matches, is in `•rhs`, and `rhs` (`N /Int 0`) denotes nothing. -/
-theorem not_model_text : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP ΓText c) := by
+theorem not_model_text (hpreTop : c.clausesPreTop = true) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP ΓText c) := by
   intro M _ I hI
   have hΓ := gamma_of_text hI
   have hD := defOK hΓ
@@ -337,7 +337,7 @@ theorem not_model_text : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation Ko
     exact (KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσC1).mp has)
   obtain ⟨n, b, -, hb, -⟩ := KoreAML.interp_app.mp hL
   rw [tr_and2, KoreAML.interp_sAnd] at hb
-  exact (evalTerm_den hΓ hnn hsc hs hy.1 hbc hmi (normDen_of hΓ hsc.trans) heval fns_headsOK hσ
+  exact (evalTerm_den (hpreTop := hpreTop) hΓ hnn hsc hs hy.1 hbc hmi (normDen_of hΓ hsc.trans) heval fns_headsOK hσ
     (canonVars_length c rule.vars) hag hrhss (fun g hg => hcalls g (List.mem_append_left _ hg)) b).mp hb.1
 
 end UndefRhsWitness

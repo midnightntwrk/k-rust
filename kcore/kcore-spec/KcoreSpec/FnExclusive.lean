@@ -1175,8 +1175,9 @@ theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = t
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
     exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)
-        (c.clausePreOK_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl))
+        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1
+          (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) hfn hcl)
+        (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) hfn hcl))
       (Semantics.fnsNoExs_of_ok hok fn hfn) hx).agree
       (Semantics.fnsNoExs_of_ok hok fn hfn)
   · refine hob fn.label ?_ fn ?_

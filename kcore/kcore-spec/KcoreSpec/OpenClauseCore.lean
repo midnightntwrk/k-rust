@@ -20,7 +20,7 @@ open Faithful
 
 /-- **A semantics `coreOK` accepts, none of whose clauses has a variable its patterns do not bind,
 reads no confined sort.** -/
-theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem Semantics.readsConfined_of_coreCl {c : Semantics} (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) : c.readsConfined = false := by
   have hok := (Semantics.coreOK_parts h).1
   simp only [Semantics.readsConfined, Bool.or_eq_false_iff, List.any_eq_false]
@@ -29,13 +29,14 @@ theorem Semantics.readsConfined_of_coreCl {c : Semantics} (h : c.coreOK = true) 
     simp [Rule.opens_of_binds (hb r hr), hpre, hpost, Cond.hasBinder]
   · simp only [List.any_eq_true, not_exists, not_and]
     intro cl hcl'
-    obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_clause hok hfn hcl'
+    have hpre := Semantics.clausesPreTop_spec hpreTop hfn hcl'
+    have hpost := Semantics.sortedOK_clausePost hok hfn hcl'
     simp [hcl fn hfn cl hcl', hpre, hpost, Cond.hasBinder]
 
 /-- **The theory of such a semantics is `Γ`.** -/
-theorem Γc_coreCl {c : Semantics} (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) :
+theorem Γc_coreCl {c : Semantics} (hpreTop : c.clausesPreTop = true) (h : c.coreOK = true) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hcl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) :
     Γc c = Γ c :=
-  Γc_plain (Semantics.readsConfined_of_coreCl h hb htop hcl)
+  Γc_plain (Semantics.readsConfined_of_coreCl (hpreTop := hpreTop) h hb htop hcl)
 
 /-- **`OpenDecided` of a semantics `sortedOK` accepts, where each clause's conditions are decided
 when `needsWitness` holds**: no rule has an open variable. -/

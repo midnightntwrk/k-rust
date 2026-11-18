@@ -313,7 +313,7 @@ theorem defOK_texts {M : Type} {I : Interpretation KoreAML.Sym M} {T : List P} (
 
 /-- **A defined result is a theorem of Γ**, for a semantics with `HypSoundCore`: where `f` has the
 value `v` at `vs`, Γ entails `f(vs) = v`. -/
-theorem eval_some_sound (c : Semantics) (h : HypSoundCore c)
+theorem eval_some_sound (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSoundCore c)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) {f : Sym} {fn : Fn}
     {vs : List GroundTerm} {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn)
     (hvs : c.sortsOf vs = some fn.args) :
@@ -325,11 +325,11 @@ theorem eval_some_sound (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb'
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := hpreTop) hok hfn hcl) hp' hb'
         (collPats_of_sorted hph' hp') hws hkeys hXkeys hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := hpreTop) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 /-- `⟦f(vs)⟧`. -/
@@ -340,13 +340,15 @@ noncomputable def app (c : Semantics) (f : Sym) (vs : List GroundTerm) : P :=
 theorem value (h : shapeB (gammaPats c) T = true) (hc : c.coreOK = true) (hok : c.ok = true) {f : Sym} {fn : Fn}
     {vs : List GroundTerm} {v : GroundTerm} (hE : Eval c f vs (some v)) (hfn : c.lookupFn f = some fn)
     (hvs : c.sortsOf vs = some fn.args) : Pre c T ⊧ (app c f vs ≡ den c v) :=
-  cut h (eval_some_sound c (hypSound_of_core hc) (Semantics.ok_clauseBinds hok) hE hfn hvs)
+  have hpreTop := Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)
+  cut h (eval_some_sound (hpreTop := hpreTop) c (hypSound_of_core hc) (Semantics.ok_clauseBinds hok) hE hfn hvs)
 
 /-- **That `Eval` gives no value is derived from `Pre c T`.** -/
 theorem noValue (h : shapeB (gammaPats c) T = true) (hc : c.coreOK = true) (hok : c.ok = true) {f : Sym} {fn : Fn}
     {vs : List GroundTerm} (hE : Eval c f vs none) (hfn : c.lookupFn f = some fn)
     (hvs : c.sortsOf vs = some fn.args) : Pre c T ⊧ (app c f vs ≡ ⊥) :=
-  cut h (eval_none_sound_core c (hypSound_of_core hc) (Semantics.ok_clauseBinds hok) hE hfn hvs)
+  have hpreTop := Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)
+  cut h (eval_none_sound_core (hpreTop := hpreTop) c (hypSound_of_core hc) (Semantics.ok_clauseBinds hok) hE hfn hvs)
 
 /-! ## Evaluation under every interpretation -/
 
@@ -376,7 +378,7 @@ open Det in
 /-- **`FnDet` and `FnSolves` without the totality facts**: from `coreOK`, the held variables' facts,
 and the termination, agreement and match-independence facts the deciders leave. No fact on a
 `[total]` function's values is read. -/
-theorem fnModel_noTotal {ord : List Sym} (h : c.coreOK = true)
+theorem fnModel_noTotal (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h : c.coreOK = true)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f)
     (h1 : ∀ f ∈ c.rankObligations ord ++ c.decObligationsL, Terminates c f)
     (h3 : ∀ f ∈ c.agreeObligationsI, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn)
@@ -385,7 +387,7 @@ theorem fnModel_noTotal {ord : List Sym} (h : c.coreOK = true)
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
-  have hterm := terminates_of_rankLN hok hsr (Semantics.ovlCase_of_core h) ord hheld h1
+  have hterm := terminates_of_rankLN (hpreTop := hpreTop) hok hsr (Semantics.ovlCase_of_core h) ord hheld h1
   have hmc : Exec.MatchCtxO c := ⟨NamesApart.subsorts_trans_of hids hok,
     NamesApart.subsorts_irrefl_of hids hok, NamesApart.patHooks_of hha hids, Semantics.coreOK_ovls h⟩
   have hag := clausesAgree_of_IO hok hsr hmc h3
@@ -403,11 +405,11 @@ theorem fnModel_noTotal {ord : List Sym} (h : c.coreOK = true)
 
 /-- `fnModel_noTotal` under an interpretation of the parameters, where the deciders name no
 function for termination, agreement or match independence. -/
-theorem fnModel_noTotal_withHooks {ord : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
+theorem fnModel_noTotal_withHooks (hpreTop : c.clausesPreTop = true) {ord : List Sym} (h : c.coreOK = true) (hrh : c.RightHeld)
     (hr : ∀ k ∈ c.params, k.raw = false) (h1 : c.rankObligations ord ++ c.decObligationsL = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = []) (H : HookParams) :
     FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) :=
-  fnModel_noTotal (ord := ord) ((Semantics.coreOK_withHooks c H).trans h)
+  fnModel_noTotal (hpreTop := hpreTop) (ord := ord) ((Semantics.coreOK_withHooks c H).trans h)
     (fun f _ => (Semantics.rightHeld_withHooks hrh H hr).heldOwed f)
     (fun f hf => by
       rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, h1] at hf

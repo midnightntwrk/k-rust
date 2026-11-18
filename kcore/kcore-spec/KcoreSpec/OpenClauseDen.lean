@@ -35,11 +35,13 @@ def ClauseOpenFacts (c : Semantics) (fn : Fn) (L : List CtorSig) (cl : Clause) :
     sortOfTerm (c.rhsCtx L) cl.vars cl.rhs = some fn.result ∧
     (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool) ∧ cl.exs = []
 
-/-- `clauseSortedOpen` and `clausePlainOpen` give `ClauseOpenFacts`. -/
-theorem clauseOpenFacts_of {c : Semantics} {fn : Fn} {L : List CtorSig} {cl : Clause}
-    (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) : ClauseOpenFacts c fn L cl := by
+/-- `clauseSortedOpen` and `clausePlainOpen` give `ClauseOpenFacts`, for a clause whose premise's
+predicate is `\top`. -/
+theorem clauseOpenFacts_of {c : Semantics} (hpreTop : c.clausesPreTop = true) {fn : Fn} {L : List CtorSig} {cl : Clause}
+    (hs : c.clauseSortedOpen fn L cl = true) (hp : c.clausePlainOpen cl = true) (hpre : cl.pre = .top) :
+    ClauseOpenFacts c fn L cl := by
   obtain ⟨h1, h2, h3, h4, h5⟩ := Semantics.clauseSortedOpen_parts hs
-  obtain ⟨hexs, hpre, hpost, -⟩ := Semantics.clausePlainOpen_parts hp
+  obtain ⟨hexs, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hp
   exact ⟨h1, hpre, hpost, h2, h3, h4, h5, hexs⟩
 
 /-- The generated sort predicates' clauses have `\top` predicates. -/
@@ -55,13 +57,13 @@ theorem sortPreds_topCl {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) :
 
 /-- **`sortedOK` gives `ClauseOpenFacts` of every clause of every function** (the user's and the sort
 predicates'). -/
-theorem clauseOpenFacts_of_sortedOK {c : Semantics} (hok : c.sortedOK = true) :
+theorem clauseOpenFacts_of_sortedOK {c : Semantics} (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∃ L, HeadsOK c L ∧ ClauseOpenFacts c fn L cl := by
   intro fn hfn cl hcl
   obtain ⟨hpats, hbinds, L, hL, hreqs, hrhss, henss⟩ := clause_ctxOccE hok hfn hcl
   have hpp : cl.pre = .top ∧ cl.post = .top := by
     rcases List.mem_append.mp hfn with hu | hp
-    · exact Semantics.sortedOK_clause hok hu hcl
+    · exact ⟨Semantics.clausesPreTop_spec hpreTop hu hcl, Semantics.sortedOK_clausePost hok hu hcl⟩
     · exact sortPreds_topCl hp cl hcl
   exact ⟨L, hL, hpats, hpp.1, hpp.2, hbinds, hreqs, hrhss, henss, clause_exsNil hok hfn hcl⟩
 

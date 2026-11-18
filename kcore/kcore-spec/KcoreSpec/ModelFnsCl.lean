@@ -35,7 +35,7 @@ variable {c : Semantics}
 predicate's): its patterns have the argument sorts, each variable occurs in its patterns, its
 `requires`, its right side or its `ensures`, and its `requires`, right side and `ensures` are
 sorted over some functions' signatures `L`. -/
-theorem clause_factsCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem clause_factsCl (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args ∧
       (∀ i < cl.vars.length, i ∈ varOccsList cl.pats ∨ (∃ t, cl.req = some t ∧ i ∈ varOccs t) ∨
         i ∈ varOccs cl.rhs ∨ ∃ t, cl.ens = some t ∧ i ∈ varOccs t) ∧
@@ -46,7 +46,8 @@ theorem clause_factsCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {c
   · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
     obtain ⟨hs, hpl⟩ := hfns fn hu cl hcl
     obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
-    obtain ⟨-, hpre, hpost, -⟩ := Semantics.clausePlainOpen_parts hpl
+    obtain ⟨-, hpost, -, -⟩ := Semantics.clausePlainOpen_partsP hpl
+    have hpre := Semantics.clausesPreTop_spec hpreTop hu hcl
     refine ⟨hpats, fun i hi => ?_, c.fns.map Fn.sig, fun k hk => ?_, hreq, hrhs, hens⟩
     · have h1 := hocc i hi
       simp only [List.mem_append] at h1
@@ -75,11 +76,11 @@ theorem clause_factsCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {c
 
 /-- A clause of a function of the semantics (the user's or a sort predicate's) has the premise
 predicate `\top`: the user's by `sortedOKCl` (`clausePlainOpen`), a sort predicate's by its text. -/
-theorem clause_preCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem clause_preCl (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     cl.pre = .top := by
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-    exact (Semantics.clausePlainOpen_parts (hfns fn hu cl hcl).2).2.1
+    exact Semantics.clausesPreTop_spec hpreTop hu hcl
   · exact Semantics.sortPreds_pre hp cl hcl
 
 /-- A clause of a function of the semantics (the user's or a sort predicate's) has no existential
@@ -88,14 +89,14 @@ theorem clause_exsCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl 
     cl.exs = [] := by
   rcases List.mem_append.mp hfn with hu | hp
   · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
-    exact (Semantics.clausePlainOpen_parts (hfns fn hu cl hcl).2).1
+    exact (Semantics.clausePlainOpen_partsP (hfns fn hu cl hcl).2).1
   · exact Semantics.sortPreds_exs hp cl hcl
 
 /-- A clause's variables have numbered sorts: each occurs in its patterns, of the function's
 argument sorts, or in its `requires`, right side or `ensures`, of numbered sorts. -/
-theorem clause_vars_num (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem clause_vars_num (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     ∀ i < cl.vars.length, cl.vars.getD i 0 < nRegSorts + c.sortNames.length := by
-  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl h hfn hcl
+  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl (hpreTop := hpreTop) h hfn hcl
   intro i hi
   have hg : cl.vars[i]? = some (cl.vars.getD i 0) := by
     rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]; rfl
@@ -203,7 +204,7 @@ valuation giving the formal arguments the values `w̄`, the clause's exclusion
 `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄`, ȳ the variables of its patterns and conditions, holds exactly where
 the patterns match `w̄` and the `requires` is `true` under a substitution well sorted on those
 variables. -/
-theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
+theorem exclusion_iffCl (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
     {tbl : KoreAML.VarTable} (hkeys : ∀ i < cl.vars.length, i ∈ cl.leftVars → canonKey c cl.vars i ∈ tbl)
     (hRkey : KoreAML.VarKey.sortVar "R" ∈ tbl)
     (hXkeys : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
@@ -215,8 +216,8 @@ theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
       ∃ σ, c.WellSortedAt cl.vars cl.leftVars σ ∧ PatVals c σ cl.pats ws ∧
         ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)) := by
   have hn := h.namesK
-  obtain ⟨hpats, -, L, hL, hreqs, -⟩ := clause_factsCl h hfn hcl
-  have hnum := clause_vars_num h hfn hcl
+  obtain ⟨hpats, -, L, hL, hreqs, -⟩ := clause_factsCl (hpreTop := hpreTop) h hfn hcl
+  have hnum := clause_vars_num (hpreTop := hpreTop) h hfn hcl
   have hlen : cl.pats.length = fn.args.length := sortsOfTerms_length hpats
   let vs := canonVars c cl.vars
   let n := cl.vars.length
@@ -251,7 +252,7 @@ theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     exact hne i (hl i hi) (ev_inj hk (hkeys i (hl i hi) (hlm i hi)) heq)
   have hRne : ∀ i < n, KoreAML.VarKey.sortVar "R" ≠ canonKey c cl.vars i := fun i hi he => by
     rw [canonKey_eq c hi] at he; cases he
-  rw [exclusion_canon_mapCl _ _ _ (clause_preCl h hfn hcl)]
+  rw [exclusion_canon_mapCl _ _ _ (clause_preCl (hpreTop := hpreTop) h hfn hcl)]
   constructor
   · intro hm
     obtain ⟨e', hag, hguard, hbody⟩ := existsAll_elim defOK_std _ e a hnd hsrt hm
@@ -330,7 +331,7 @@ valuation giving the formal arguments the values `w̄`, the clause's exclusion
 `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄`, ȳ the variables of its patterns and conditions, holds exactly where
 the patterns match `w̄` and the `requires` is `true` under a substitution well sorted on those
 variables. -/
-theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
+theorem exclusion_iffCl (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
     {tbl : KoreAML.VarTable} (hkeys : ∀ i < cl.vars.length, i ∈ cl.leftVars → canonKey c cl.vars i ∈ tbl)
     (hRkey : KoreAML.VarKey.sortVar "R" ∈ tbl)
     (hXkeys : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
@@ -341,7 +342,7 @@ theorem exclusion_iffCl (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     (KoreAML.tr ⟨tbl, []⟩ (exclusion c fn cl (canonClausePres cl))).interpret (stdI c) e a ↔
       ∃ σ, c.WellSortedAt cl.vars cl.leftVars σ ∧ PatVals c σ cl.pats ws ∧
         ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)) :=
-  AtT.exclusion_iffCl (c := c) (T := StepM c) (h := h) (fn := fn) (hfn := hfn) (cl := cl) (hcl := hcl) (tbl := tbl) (hkeys := hkeys) (hRkey := hRkey) (hXkeys := hXkeys) (e := e) (hRs := hRs) (ws := ws) (hX := hX) (a := a) (ha := ha)
+  AtT.exclusion_iffCl (hpreTop := hpreTop) (c := c) (T := StepM c) (h := h) (fn := fn) (hfn := hfn) (cl := cl) (hcl := hcl) (tbl := tbl) (hkeys := hkeys) (hRkey := hRkey) (hXkeys := hXkeys) (e := e) (hRs := hRs) (ws := ws) (hX := hX) (a := a) (ha := ha)
 
 /-! ## The variables of a clause's equation -/
 
@@ -447,22 +448,22 @@ namespace AtT
 variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **The equation of a clause with no clause of a smaller priority holds.** -/
-theorem sat_clauseEq {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
+theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
     stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
         (Term.koreList c (canonVars c cl.vars) cl.pats))
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat := by
-  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl h hfn hcl
+  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl (hpreTop := hpreTop) h hfn hcl
   have hlen : cl.pats.length = fn.args.length := sortsOfTerms_length hpats
-  refine sat_eqnCl h hfn (clause_vars_num h hfn hcl) (termOK_of_sorted h hL hrhs)
+  refine sat_eqnCl h hfn (clause_vars_num (hpreTop := hpreTop) h hfn hcl) (termOK_of_sorted h hL hrhs)
     (fun t ht => termOK_of_sorted h hL (hens t ht))
     (clause_keys_freeCl hlen hocc fun _ hk => hk) (clause_keys_varsCl hlen hocc fun _ hk => hk)
     fun tbl e ws a hEq _ ha hprem => ?_
   obtain ⟨hσ, hvar⟩ := substE_ok (T := T) hEq.vin
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
     (patOKs_of_sorted h hpats) hlen hEq.args a).mp hprem
-  refine eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
+  refine eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
   have : cl' ∈ lowerClauses fn cl := by simp [lowerClauses, hcl', hna, hlt]
   rw [hlow] at this
   exact absurd this List.not_mem_nil
@@ -470,13 +471,13 @@ theorem sat_clauseEq {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClause
 end AtT
 
 /-- **The equation of a clause with no clause of a smaller priority holds.** -/
-theorem sat_clauseEq {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
+theorem sat_clauseEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClauses fn cl = []) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
         (Term.koreList c (canonVars c cl.vars) cl.pats))
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_clauseEq (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (hlow := hlow) (h := h) (hfn := hfn)
+  AtT.sat_clauseEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (hlow := hlow) (h := h) (hfn := hfn)
 
 namespace AtT
 
@@ -484,7 +485,7 @@ variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- Where a negated disjunction of exclusions holds, none of their clauses matches with a `true`
 `requires` under a substitution well sorted on its patterns' and conditions' variables. -/
-theorem fails_of_not_exclCl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
+theorem fails_of_not_exclCl (hpreTop : c.clausesPreTop = true) {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
     {tbl : KoreAML.VarTable} {e : Valuation Elem} {ws : List GroundTerm} (hEqR : KoreAML.VarKey.sortVar "R" ∈ tbl)
     (hXk : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
       KoreAML.VarKey.evar ("X" ++ toString j) (KoreAML.srt s) ∈ tbl)
@@ -499,13 +500,13 @@ theorem fails_of_not_exclCl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ f
     at hnot
   obtain ⟨hn1, hi⟩ := hnot
   refine ⟨hi, fun cl hcl σ hap => hn1 ⟨hi, _, List.mem_map.mpr ⟨cl, hcl, rfl⟩, ?_⟩⟩
-  exact (exclusion_iffCl h hfn (hcls cl hcl) (hkeys cl hcl) hEqR hXk hRs hX hi).mpr ⟨σ, hap⟩
+  exact (exclusion_iffCl (hpreTop := hpreTop) h hfn (hcls cl hcl) (hkeys cl hcl) hEqR hXk hRs hX hi).mpr ⟨σ, hap⟩
 
 end AtT
 
 /-- Where a negated disjunction of exclusions holds, none of their clauses matches with a `true`
 `requires` under a substitution well sorted on its patterns' and conditions' variables. -/
-theorem fails_of_not_exclCl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
+theorem fails_of_not_exclCl (hpreTop : c.clausesPreTop = true) {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
     {tbl : KoreAML.VarTable} {e : Valuation Elem} {ws : List GroundTerm} (hEqR : KoreAML.VarKey.sortVar "R" ∈ tbl)
     (hXk : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
       KoreAML.VarKey.evar ("X" ++ toString j) (KoreAML.srt s) ∈ tbl)
@@ -516,10 +517,10 @@ theorem fails_of_not_exclCl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ f
     KoreAML.Inh (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) a ∧ ∀ cl ∈ cls, ∀ σ,
       ¬ (c.WellSortedAt cl.vars cl.leftVars σ ∧ PatVals c σ cl.pats ws ∧
         ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) :=
-  AtT.fails_of_not_exclCl (c := c) (T := StepM c) (cls := cls) (hcls := hcls) (tbl := tbl) (e := e) (ws := ws) (hEqR := hEqR) (hXk := hXk) (hRs := hRs) (hX := hX) (hkeys := hkeys) (a := a) (hnot := hnot) (h := h) (hfn := hfn)
+  AtT.fails_of_not_exclCl (hpreTop := hpreTop) (c := c) (T := StepM c) (cls := cls) (hcls := hcls) (tbl := tbl) (e := e) (ws := ws) (hEqR := hEqR) (hXk := hXk) (hRs := hRs) (hX := hX) (hkeys := hkeys) (a := a) (hnot := hnot) (h := h) (hfn := hfn)
 
 /-- `fails_of_not_exclCl` at a table holding every variable's key: none of the clauses applies. -/
-theorem fails_of_not_excl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
+theorem fails_of_not_excl (hpreTop : c.clausesPreTop = true) {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.clauses)
     {tbl : KoreAML.VarTable} {e : Valuation Elem} {ws : List GroundTerm} (hEqR : KoreAML.VarKey.sortVar "R" ∈ tbl)
     (hXk : ∀ (j : Nat) (s : String), (fn.args.map c.sortName)[j]? = some s →
       KoreAML.VarKey.evar ("X" ++ toString j) (KoreAML.srt s) ∈ tbl)
@@ -528,7 +529,7 @@ theorem fails_of_not_excl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.
     (hnot : (KoreAML.tr ⟨tbl, []⟩ (.not KoreAML.R (KoreAML.anyOf
       (cls.map fun cl => exclusion c fn cl (canonClausePres cl))))).interpret (stdI c) e a) :
     KoreAML.Inh (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) a ∧ ∀ cl ∈ cls, ∀ σ, ¬ cl.AppliesAt c σ ws :=
-  let ⟨hi, hf⟩ := fails_of_not_exclCl h hfn hcls hEqR hXk hRs hX (fun cl hcl i hi _ => hkeys cl hcl i hi) hnot
+  let ⟨hi, hf⟩ := fails_of_not_exclCl (hpreTop := hpreTop) h hfn hcls hEqR hXk hRs hX (fun cl hcl i hi _ => hkeys cl hcl i hi) hnot
   ⟨hi, fun cl hcl σ hap => hf cl hcl σ ⟨((wellSortedAt_univ (clause_exsCl h hfn (hcls cl hcl))).mp hap.1).at _, hap.2.1, hap.2.2.1⟩⟩
 
 omit h hfn in
@@ -546,7 +547,7 @@ variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **The equation of a clause with clauses of a smaller priority holds**: where they all fail and
 it applies. -/
-theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem sat_competingEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (competingPremise (fn.args.map c.sortName)
         ((lowerClauses fn cl).map fun cl' => exclusion c fn cl' (canonClausePres cl'))
@@ -554,9 +555,9 @@ theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat := by
   have hdl : ∀ cl' ∈ lowerClauses fn cl, cl' ∈ fn.clauses := fun cl' h' => (List.mem_filter.mp h').1
-  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl h hfn hcl
+  obtain ⟨hpats, hocc, L, hL, hreqs, hrhs, hens⟩ := clause_factsCl (hpreTop := hpreTop) h hfn hcl
   have hlen : cl.pats.length = fn.args.length := sortsOfTerms_length hpats
-  refine sat_eqnCl h hfn (clause_vars_num h hfn hcl) (termOK_of_sorted h hL hrhs)
+  refine sat_eqnCl h hfn (clause_vars_num (hpreTop := hpreTop) h hfn hcl) (termOK_of_sorted h hL hrhs)
     (fun t ht => termOK_of_sorted h hL (hens t ht))
     (clause_keys_freeCl hlen hocc fun _ hk => ?_) (clause_keys_varsCl hlen hocc fun _ hk => ?_)
     fun tbl e ws a hEq hvT ha hprem => ?_
@@ -569,27 +570,27 @@ theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
     unfold competingPremise at hprem
     rw [tr_and2, KoreAML.interp_sAnd] at hprem
     obtain ⟨hnot, hp⟩ := hprem
-    obtain ⟨-, hfails⟩ := fails_of_not_exclCl (T := T) h hfn hdl hEq.R hEq.Xk hEq.Rs hEq.args
+    obtain ⟨-, hfails⟩ := fails_of_not_exclCl (hpreTop := hpreTop) (T := T) h hfn hdl hEq.R hEq.Xk hEq.Rs hEq.args
       (fun cl' hcl' i hi hil => hvT _ (by
         unfold competingPremise
-        exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl h hfn (hdl cl' hcl')) hi hil))) hnot
+        exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl (hpreTop := hpreTop) h hfn (hdl cl' hcl')) hi hil))) hnot
     obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
       (patOKs_of_sorted h hpats) hlen hEq.args a).mp hp
-    exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
+    exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl (hpreTop := hpreTop) h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
       hfails cl' (List.mem_filter.mpr ⟨hcl', by simp [hna, hlt]⟩) σ' ⟨hw, hp', hq'.1⟩⟩
 
 end AtT
 
 /-- **The equation of a clause with clauses of a smaller priority holds**: where they all fail and
 it applies. -/
-theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
+theorem sat_competingEq (hpreTop : c.clausesPreTop = true) {cl : Clause} (hcl : cl ∈ fn.clauses) :
     stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", (⟨[KoreAML.Rv], .implies KoreAML.R
       (competingPremise (fn.args.map c.sortName)
         ((lowerClauses fn cl).map fun cl' => exclusion c fn cl' (canonClausePres cl'))
         (cl.req.map (Term.kore c (canonVars c cl.vars))) (Term.koreList c (canonVars c cl.vars) cl.pats))
       (fnConcl c fn (Term.kore c (canonVars c cl.vars) cl.rhs)
         (reqPat (srtOf c fn.result) (cl.ens.map (Term.kore c (canonVars c cl.vars))))), []⟩ : Kore.Axiom)⟩).pat :=
-  AtT.sat_competingEq (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (h := h) (hfn := hfn)
+  AtT.sat_competingEq (hpreTop := hpreTop) (c := c) (T := StepM c) (cl := cl) (hcl := hcl) (h := h) (hfn := hfn)
 
 end
 
@@ -622,7 +623,7 @@ namespace AtT
 variable {T : GroundTerm → GroundTerm → Prop}
 
 /-- **`SatFnsGoal`**: the value model satisfies the functions' equations. -/
-theorem satFnsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
+theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
   refine sat_itemsPremises c fun it hit => ?_
   obtain ⟨fn, hfn, hit⟩ := List.mem_flatMap.mp hit
   obtain ⟨s, hs, hit⟩ := List.mem_filterMap.mp hit
@@ -630,16 +631,16 @@ theorem satFnsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓFns c) := by
   obtain ⟨cl, hcl, rfl⟩ := List.mem_map.mp hs
   by_cases hlow : (lowerClauses fn cl).isEmpty = true
   · rw [show prioEquation c fn cl = clauseEquation c fn cl from if_pos hlow] at hit
-    exact sat_kernelItem_of hit (clauseEquation_top (clause_preCl h hfn hcl) (clause_exsCl h hfn hcl))
-      (sat_clauseEq h hfn hcl (List.isEmpty_iff.mp hlow))
+    exact sat_kernelItem_of hit (clauseEquation_top (clause_preCl (hpreTop := hpreTop) h hfn hcl) (clause_exsCl h hfn hcl))
+      (sat_clauseEq (hpreTop := hpreTop) h hfn hcl (List.isEmpty_iff.mp hlow))
   · rw [show prioEquation c fn cl = competingEquation c fn (lowerClauses fn cl) cl from if_neg hlow] at hit
-    exact sat_kernelItem_of hit (competingEquation_top (clause_preCl h hfn hcl) (clause_exsCl h hfn hcl)) (sat_competingEq h hfn hcl)
+    exact sat_kernelItem_of hit (competingEquation_top (clause_preCl (hpreTop := hpreTop) h hfn hcl) (clause_exsCl h hfn hcl)) (sat_competingEq (hpreTop := hpreTop) h hfn hcl)
 
 end AtT
 
 /-- **`SatFnsGoal`**: the value model satisfies the functions' equations. -/
-theorem satFnsGoal (h : HypModelCore c) : SatFnsGoal c :=
-  AtT.satFnsGoal (c := c) (T := StepM c) (h := h)
+theorem satFnsGoal (hpreTop : c.clausesPreTop = true) (h : HypModelCore c) : SatFnsGoal c :=
+  AtT.satFnsGoal (hpreTop := hpreTop) (c := c) (T := StepM c) (h := h)
 
 end Model
 

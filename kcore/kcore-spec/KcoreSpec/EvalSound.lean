@@ -96,14 +96,13 @@ theorem agree_of_ext {σ τ : Subst} {is : List Nat} (hx : Ext σ τ) (hb : Bind
 
 /-! ## What evaluation reads of a well-formed core -/
 
-/-- Where the clauses are plain (`clausesPlain`), each clause of each function evaluation reads
-(the definition's and the generated sort predicates) has the predicate `\top`. -/
-theorem _root_.KCore.Semantics.allFns_preTop {c : Semantics} (hp : c.clausesPlain = true) :
+/-- Where every clause of the definition has the predicate `\top` (`clausesPreTop`), each clause of
+each function evaluation reads (the definition's and the generated sort predicates) has it. -/
+theorem _root_.KCore.Semantics.allFns_preTop {c : Semantics} (hp : c.clausesPreTop = true) :
     ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
   intro fn hfn' cl hcl
   rcases List.mem_append.mp hfn' with hfn | hfn
-  · simp only [Semantics.clausesPlain, Bool.and_eq_true, List.all_eq_true] at hp
-    exact Cond.eq_top_of_isTop (hp fn hfn cl hcl).1.1.2
+  · exact Semantics.clausesPreTop_spec hp hfn hcl
   · exact Semantics.sortPreds_pre hfn cl hcl
 
 /-- Where the clauses are plain (`clausesPlain`), each clause of each function evaluation reads has
@@ -132,12 +131,6 @@ theorem _root_.KCore.Semantics.fnsNoExs_of_clausesPlain {c : Semantics} (hp : c.
 theorem _root_.KCore.Semantics.fnsNoExs_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.FnsNoExs := by
   simp only [Semantics.sortedOK, Bool.and_eq_true] at h
   exact Semantics.fnsNoExs_of_clausesPlain h.1.2
-
-/-- `allFns_preTop` from `sortedOK`, which holds `clausesPlain`. -/
-theorem _root_.KCore.Semantics.sortedOK_preTop {c : Semantics} (h : c.sortedOK = true) :
-    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
-  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
-  exact Semantics.allFns_preTop h.1.2
 
 /-- A clause whose right side's predicate is `\top` has it true under every substitution. -/
 theorem _root_.KCore.Clause.holds_postTop {c : Semantics} {cl : Clause} (h : cl.post = .top) (σ : Subst) :
@@ -190,9 +183,9 @@ theorem clauseCtx_of_okM (hok : c.okM = true) : ClauseCtx c := by
     exact ⟨g, List.mem_append_left _ hg, rfl⟩
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
-    have htop : cl.pre = .top := Semantics.allFns_preTop hpl fn hfn' cl hcl
+    have htop : cl.pre = .top := Semantics.allFns_preTop hpl.2 fn hfn' cl hcl
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2, htop,
-      Semantics.allFns_plainCl hpl fn hfn' cl hcl⟩
+      Semantics.allFns_plainCl hpl.1 fn hfn' cl hcl⟩
 
 theorem clauseCtx_of (hok : c.ok = true) : ClauseCtx c := clauseCtx_of_okM (Semantics.okM_of_ok hok)
 

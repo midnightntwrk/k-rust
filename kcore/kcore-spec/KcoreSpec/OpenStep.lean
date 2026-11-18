@@ -48,11 +48,6 @@ theorem Semantics.rulePlainOpen_top {c : Semantics} {r : Rule} (h : c.rulePlainO
   obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, -⟩ := h
   exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost⟩
 
-/-- σ that gives each variable of a list a value gives each variable of a part of it one. -/
-theorem Semantics.WellSortedAt.mono {c : Semantics} {vars : List Srt} {is is' : List Nat} {σ : Subst}
-    (h : c.WellSortedAt vars is σ) (hsub : ∀ i ∈ is', i ∈ is) : c.WellSortedAt vars is' σ :=
-  fun i hi => h i (hsub i hi)
-
 /-- The variables of a rule's `requires` are among those of its left side and its conditions. -/
 theorem Rule.req_leftVars {r : Rule} {t : Term} (ht : r.req = some t) : ∀ i ∈ varOccs t, i ∈ r.leftVars :=
   fun i hi => List.mem_append_right _ (List.mem_append_left _ (by rw [ht]; exact hi))

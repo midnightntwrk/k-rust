@@ -3102,7 +3102,7 @@ end
 
 /-- **L4.** In the first stage, every step of `Step` is a consequence of `Γ`: in every model, the
 configuration `x` has the configuration `y` as a successor. -/
-theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage1 (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage1 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hy : HypCore c := hy.core
@@ -3192,10 +3192,10 @@ theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
           reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs))])])
       (.and (srtOf c topCellSort) [Term.kore c vs r.rhs,
         reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs))]))).interpret I e' a := hP
-  have hrhsR := fun b => evalTerm_den hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss
+  have hrhsR := fun b => evalTerm_den (hpreTop := hpreTop) hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) heval fns_headsOK hσ (canonVars_length c r.vars) hag hrhss
     (fun g hg => hcalls g (List.mem_append_left _ (List.mem_append_left _ hg))) b
   have hrightR := right_den hI hrhsR (fun a' ha' => reqPat_holds hI (fun t ht b =>
-    evalTerm_den hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag
+    evalTerm_den (hpreTop := hpreTop) hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) (hens t ht) fns_headsOK hσ (canonVars_length c r.vars) hag
       (hensS t ht) (fun g hg => hcalls g (List.mem_append_right _ (by rw [ht]; exact hg))) b) ha')
   rw [KoreAML.tr] at hP'
   unfold KoreAML.sRewrites at hP'
@@ -3219,7 +3219,7 @@ theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
       simp only [Option.map_some, reqPat]
       rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (by rw [trSort_srt]; exact hσB1) hSC hσB2 hσC2]
       refine ⟨haC, fun b _ => ?_⟩
-      rw [evalTerm_den hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq)
+      rw [evalTerm_den (hpreTop := hpreTop) hI hnn hsc hs hy.1 hbc hmi (normDen_of hI hsc.trans) (hreq t hq) fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t hq)
         (fun g hg => hcalls g (List.mem_append_left _ (List.mem_append_right _ (by rw [hq]; exact hg)))) b, KoreAML.tr_dv]
       show (den c (bool true)).interpret I e' b ↔ _
       unfold den KoreAML.den bool
