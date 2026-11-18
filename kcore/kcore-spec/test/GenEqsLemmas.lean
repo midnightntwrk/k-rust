@@ -318,6 +318,97 @@ theorem eqns :
 
 end Prio
 
+/-! ## A constructor argument's projection (G8)
+
+A hand-built semantics of kompile's shape: the configuration `<k> K </k>` with the generated
+counter, and an own sort `Foo ::= leaf() | pair(left: Foo, right: Foo)`, whose named arguments kompile
+gives the projections `project:pair:left` and `project:pair:right` with the equations
+`project:pair:left(pair(K0, K1)) = K0` and the like (as it does for K-IO's `#tempFile` and
+`#unknownIOError`; the corpus texts that hold such projections are the K-IO ones, 785 KB and up). Neither name is a registry name or one of the
+semantics' own, so each resolves to no constant (`GenEqs.spareSymB_of_argProj`), and no premise of
+the theory holds one (`free`, `GenEqs.nameFreeB`). Under `FnHyp` (no function), one model of the
+theory whose steps are `Step`'s holds both projections' equations at `pair(leaf, pair(leaf, leaf))`
+(`eqns`, `GenEqs.model_with_eqns_step` with `GenEqs.argFn`). -/
+
+namespace HandArg
+
+open KCore.Faithful.SortsWitness (cellSorts cellCtors cellSubsorts)
+
+/-- The own sort Foo, after the `k` cell's two sorts; its predicate beside theirs, `leaf` and `pair` after the
+four cell symbols. -/
+def Foo : Srt := nRegSorts + 2
+def leafS : Sym := nRegSyms + 5
+def pairS : Sym := nRegSyms + 6
+
+/-- The configuration `<k> K </k>` with the generated counter, and the own sort
+`Foo ::= leaf() | pair(left: Foo, right: Foo)`. -/
+def c : Semantics :=
+  { lib := {}, sortNames := ["KCell", "KCellOpt", "Foo"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "LblisFoo", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblleaf", "Lblpair"]
+    userSorts := cellSorts ++ [Foo]
+    ctors := cellCtors ++ [⟨leafS, [], Foo⟩, ⟨pairS, [Foo, Foo], Foo⟩], fns := []
+    userSubsorts := cellSubsorts, pgmSort := Srt.k, rules := [] }
+
+theorem coreOK : c.coreOK = true := by decide_coreOK
+
+theorem rooted : rootedListsB c = true := by decide +kernel
+
+def left : String := "Lblproject'Coln'pair'Coln'left"
+def right : String := "Lblproject'Coln'pair'Coln'right"
+def names : List String := [left, right]
+
+theorem free : nameFreeB c names = true := by decide +kernel
+
+def argNames : String → Prop := fun n => n ∈ names
+
+theorem arg_free : ∀ n, argNames n → ∀ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ → KoreAML.Sym.symbol n ∉ psyms φ :=
+  nameFree_of_decided c names coreOK free
+
+theorem arg_spare : ∀ n, argNames n → spareSymB c n = true := by
+  intro n hn
+  simp only [argNames, names, List.mem_cons, List.not_mem_nil, or_false] at hn
+  rcases hn with rfl | rfl <;>
+    exact spareSymB_of_argProj c (by decide) (by decide +kernel) (by decide +kernel)
+
+def argG : String → GroundTerm → Option GroundTerm := fun n =>
+  if n = left then argFn pairS 0 else if n = right then argFn pairS 1 else fun _ => none
+
+def leafV : GroundTerm := .ctor leafS []
+def pairV : GroundTerm := .ctor pairS [leafV, .ctor pairS [leafV, leafV]]
+
+theorem sorts : c.sortOf leafV = some Foo ∧ c.sortOf pairV = some Foo ∧
+    c.sortOf (.ctor pairS [leafV, leafV]) = some Foo := by decide +kernel
+
+theorem fns_nil : c.fns = [] := rfl
+theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem noWitness : ∀ r ∈ c.rules, r.needsWitness c = false := by decide +kernel
+
+theorem fnHyp : FnHyp c :=
+  have hn : ∀ fn, fn ∈ c.fns → False := fun fn hfn => by rw [fns_nil] at hfn; cases hfn
+  ⟨fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim, fun fn hfn => (hn fn hfn).elim,
+    fun fn hfn => (hn fn hfn).elim,
+    openDecided_of_plain noWitness (fun fn hfn => (hn fn hfn).elim),
+    openLaws_of_plain noRaw⟩
+
+/-- **One model of the theory, whose steps are the semantics' steps, holds both projections'
+equations** at `pair(leaf, pair(leaf, leaf))`. -/
+theorem eqns :
+    ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem, (I ⊧ᴵP (Faithful.Γc c ∪ Faithful.Γstep c)) ∧
+      (I ⊧ᴵ (symP left ⬝ den c pairV ≡ den c leafV)) ∧
+      (I ⊧ᴵ (symP right ⬝ den c pairV ≡ den c (.ctor pairS [leafV, leafV]))) ∧
+      ∀ x y : Config c, Step c x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
+  obtain ⟨hl, hp, hp2⟩ := sorts
+  obtain ⟨I, h1, h2, h3⟩ := model_with_eqns_step c coreOK fnHyp argNames argG rooted arg_free arg_spare
+  refine ⟨I, h1, h2 _ (by simp [argNames, names]) _ _ _ _ hp hl ?_,
+    h2 _ (by simp [argNames, names]) _ _ _ _ hp hp2 ?_, h3⟩
+  · simp only [argG, ↓reduceIte, pairV, argFn_ctor]
+    rfl
+  · have h : right ≠ left := by decide
+    simp only [argG, h, ↓reduceIte, pairV, argFn_ctor]
+    rfl
+
+end HandArg
+
 /-- info: 'GenEqsLemmas.Hand.std_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.std_in_Γ
 /-- info: 'GenEqsLemmas.Hand.ow_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -340,5 +431,8 @@ end Prio
 #guard_msgs in #print axioms Prio.fnHyp
 /-- info: 'GenEqsLemmas.Prio.eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Prio.eqns
+
+/-- info: 'GenEqsLemmas.HandArg.eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandArg.eqns
 
 end GenEqsLemmas

@@ -52,6 +52,29 @@
   (`shl_gamma`, `shr_gamma`, `log2_gamma`); the points (`shiftVals`, `shiftBots`); every argument
   list of the signatures is covered (`covered_shift`, `covered_log2`); none of the three is a
   parameter symbol of a library module (`shift_not_param`).
+
+  The three rows `INT.powmod`, `INT.bitRange`, `INT.signExtendBitRange` (`bitRows`), none declared
+  `total` (DOM 1251, 1318, 1319). The prose of the bit ranges (DOM 1309-1315) states no edge; their
+  equations do: `bitRangeInt(I, IDX, LEN) => (I >>Int IDX) modInt (1 <<Int LEN)` (DOM 1438) and
+  `signExtendBitRangeInt(I, IDX, LEN) => (bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1)))
+  modInt (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1))` (DOM 1440), unconditional equations of the
+  functions. An equation equates the application with its right side, and a symbol applied to an
+  argument with no value has none, so at a negative index or length (and for the sign extension at
+  length 0, the subterm `1 <<Int (0 -Int 1)`) there is no value, through the shifts' `#False`.
+  Statements: each equation holds of `hook` at every three integers, both sides having the same
+  value or both none (`bitRange_eq`, `signExt_eq`); the points (`bitVals`, `bitBots`, Γ's statement
+  under every interpretation); every argument list of the signature is covered (`covered_bitRange`).
+  `A ^%Int B C` is "equal in value to `(A ^Int B) %Int C`" (DOM 1229-1231): at `C = 0` there is no
+  value (DOM 1233-1234), and Γ states ⊥ under every interpretation (`powmod_zero_gamma`); elsewhere
+  `hook` gives none and every point is silent (`powmod_silent`): the prose's truncating `%Int` and
+  the `smt-hook`'s Euclidean `mod` (DOM 1251) differ at a negative power the modulus does not
+  divide, and DOM 1228 says nothing of a negative exponent. None of the three is a parameter symbol
+  of a library module (`bit_not_param`).
+
+  The row `INT.pow` (the last section), not declared `total` (DOM 1250): "Compute the
+  exponentiation `^Int` of two integers" (DOM 1228). At `b ≥ 0` the one value is `a` to the power
+  `b` (`pow_at`, `pow_gamma`, `powVals`); at `b < 0` the sentence names no integer and writes no
+  `#False`, so `hook` gives none and the point is silent (`pow_neg`, `2 ^Int -1` among them).
 -/
 import KcoreSpec
 
@@ -107,10 +130,12 @@ def binTotals : List Sym :=
   [intAdd, intSub, intMul, intMin, intMax, intLt, intLe, intGt, intGe, intEq, intNe]
 
 /-- The rows are the registry's entries with an `INT.` hook, each with its hook name, before the
-three of `shiftRows` (the last section). -/
+three of `shiftRows`, the three of `bitRows` and `^Int` (the last three sections). -/
 theorem intRows_registry :
     regHookNames.filter (fun e => e.2.toList.take 4 == "INT.".toList) =
-      intRows ++ [(intShr, "INT.shr"), (intShl, "INT.shl"), (intLog2, "INT.log2")] := by
+      intRows ++ [(intShr, "INT.shr"), (intShl, "INT.shl"), (intLog2, "INT.log2"),
+        (intPowMod, "INT.powmod"), (intBitRange, "INT.bitRange"), (intSignExtBitRange, "INT.signExtendBitRange"),
+        (intPow, "INT.pow")] := by
   decide +kernel
 
 /-- Each row's symbol has a signature among `hookSigs`, of Int arguments: two, and a result Int
@@ -733,6 +758,264 @@ theorem shift_rules (x : Int) {y : Int} (hy : 0 ≤ y) :
   · rw [shl_at 0 hy]; simp
   · rw [hook_shr, int2_at, if_neg (by omega)]; simp [Int.fdiv_one]
   · rw [hook_shr, int2_at, if_neg (by omega)]; simp [Int.zero_fdiv]
+
+/-! ## The bit ranges and `^%Int` -/
+
+/-- The three rows: the symbol and its `hook` attribute in the prose's productions (DOM 1251
+`INT.powmod`, 1318 `INT.bitRange`, 1319 `INT.signExtendBitRange`), none with `total`. -/
+def bitRows : List (Sym × String) :=
+  [(intPowMod, "INT.powmod"), (intBitRange, "INT.bitRange"), (intSignExtBitRange, "INT.signExtendBitRange")]
+
+/-- Their KORE names (the symbols of `_^%Int__`, `bitRangeInt`, `signExtendBitRangeInt`). -/
+theorem bitRows_names :
+    (regSymNames.getD intPowMod "", regSymNames.getD intBitRange "", regSymNames.getD intSignExtBitRange "") =
+      ("Lbl'UndsXor-Perc'Int'UndsUnds'",
+       "LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int",
+       "LblsignExtendBitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int") := by
+  decide +kernel
+
+/-- Each has the signature Int, Int, Int : Int among `hookSigs`, is among `partialHooks`, and is the
+registry's symbol of its `hook` attribute. -/
+theorem bitRows_sig : bitRows.all (fun r => decide (sig r.1 ∈ hookSigs) && (sig r.1).name == r.1 &&
+    (sig r.1).args == [Srt.int, Srt.int, Srt.int] && (sig r.1).result == Srt.int && partialHooks.contains r.1 &&
+    regHookOf r.2 == some r.1) = true := by
+  decide +kernel
+
+/-- No library module has one of the three among its parameter symbols. -/
+theorem bit_not_param : (List.range library.length).all (fun i =>
+    (libParams [i]).all fun p => !(bitRows.map (·.1)).contains p.sig.name) = true := by
+  decide +kernel
+
+/-- The two bit ranges have no silent point: where `hook` gives no value, the text states none. -/
+theorem bitRange_not_silentKey : silentKey intBitRange = false ∧ silentKey intSignExtBitRange = false := by
+  decide +kernel
+
+theorem intArgs3_at (x y z : Int) (f : Int → Int → Int → Option GroundTerm) :
+    intArgs3 [int x, int y, int z] f = f x y z := by
+  simp [intArgs3, asInt, int]
+
+theorem hook_bitRange (x i l : Int) : hook intBitRange [int x, int i, int l] =
+    some (if i < 0 ∨ l < 0 then none else some (int (bitRangeVal x i l))) := by
+  rw [show hook intBitRange [int x, int i, int l] = some (intArgs3 [int x, int i, int l] fun x i l =>
+    if i < 0 ∨ l < 0 then none else some (int (bitRangeVal x i l))) from rfl, intArgs3_at]
+
+theorem hook_signExt (x i l : Int) : hook intSignExtBitRange [int x, int i, int l] =
+    some (if i < 0 ∨ l < 1 then none else some (int (signExtVal x i l))) := by
+  rw [show hook intSignExtBitRange [int x, int i, int l] = some (intArgs3 [int x, int i, int l] fun x i l =>
+    if i < 0 ∨ l < 1 then none else some (int (signExtVal x i l))) from rfl, intArgs3_at]
+
+theorem hook_powmod (vs : List GroundTerm) : hook intPowMod vs = some none := rfl
+
+/-- `hook`'s value of an interpreted symbol at values, none where it has none: what Γ states of the
+application where the point is not silent. -/
+def hv (f : Sym) (vs : List GroundTerm) : Option GroundTerm := (hook f vs).join
+
+theorem hv_shr (x n : Int) :
+    hv intShr [int x, int n] = if n < 0 then none else some (int (x.fdiv (2 ^ n.toNat))) := by
+  simp only [hv, hook_shr, int2_at, Option.join_some]
+
+theorem hv_shl (x n : Int) : hv intShl [int x, int n] = if n < 0 then none else some (int (x * 2 ^ n.toNat)) := by
+  simp only [hv, hook_shl, int2_at, Option.join_some]
+
+theorem hv_emod (x y : Int) : hv intEMod [int x, int y] = nonzero y (x.emod y) := by
+  simp only [hv, hook_emod, int2_at, Option.join_some]
+
+theorem hv_add (x y : Int) : hv intAdd [int x, int y] = some (int (x + y)) := by
+  simp only [hv, hook_add, int2_at, Option.join_some]
+
+theorem hv_sub (x y : Int) : hv intSub [int x, int y] = some (int (x - y)) := by
+  simp only [hv, hook_sub, int2_at, Option.join_some]
+
+theorem pow2_ne (n : Nat) : (1 : Int) * 2 ^ n ≠ 0 := by
+  rw [Int.one_mul]; exact Int.ne_of_gt (Int.pow_pos (by decide))
+
+/-- **DOM 1438 holds of `hook` at every three integers**: `bitRangeInt(I, IDX, LEN)` and
+`(I >>Int IDX) modInt (1 <<Int LEN)` have the same value, or both none (a symbol applied to an
+argument with no value has none). -/
+theorem bitRange_eq (x i l : Int) :
+    hv intBitRange [int x, int i, int l] =
+      (hv intShr [int x, int i]).bind fun a => (hv intShl [int 1, int l]).bind fun b => hv intEMod [a, b] := by
+  rw [hv_shr, hv_shl]
+  simp only [hv, hook_bitRange, Option.join_some]
+  by_cases hi : i < 0
+  · simp [hi]
+  · by_cases hl : l < 0
+    · simp [hi, hl]
+    · simp only [hi, hl, or_self, if_false, Option.bind_some, hook_emod, int2_at, Option.join_some, nonzero,
+        pow2_ne, ite_false]
+      simp [bitRangeVal]
+
+/-- **DOM 1440 holds of `hook` at every three integers**: `signExtendBitRangeInt(I, IDX, LEN)` and
+`(bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1))) modInt (1 <<Int LEN) -Int
+(1 <<Int (LEN -Int 1))` have the same value, or both none; the subterm `1 <<Int (LEN -Int 1)`
+(both of its occurrences have its one value) has none at `LEN = 0`. -/
+theorem signExt_eq (x i l : Int) :
+    hv intSignExtBitRange [int x, int i, int l] =
+      (hv intSub [int l, int 1]).bind fun m => (hv intBitRange [int x, int i, int l]).bind fun r =>
+      (hv intShl [int 1, m]).bind fun h => (hv intAdd [r, h]).bind fun s =>
+      (hv intShl [int 1, int l]).bind fun p => (hv intEMod [s, p]).bind fun q => hv intSub [q, h] := by
+  rw [hv_sub l 1]
+  simp only [Option.bind_some]
+  rw [hv_shl 1 (l - 1), hv_shl 1 l]
+  simp only [hv, hook_signExt, hook_bitRange, Option.join_some]
+  by_cases hi : i < 0
+  · simp [hi]
+  · by_cases hl : l < 1
+    · by_cases hl0 : l < 0
+      · simp [hi, hl, hl0]
+      · have : l - 1 < 0 := by omega
+        simp [hi, hl, hl0, this]
+    · have h1 : ¬ l < 0 := by omega
+      have h2 : ¬ l - 1 < 0 := by omega
+      simp only [hi, hl, h1, h2, or_self, if_false, Option.bind_some, hook_add, hook_emod, hook_sub, int2_at,
+        Option.join_some, nonzero, pow2_ne, ite_false]
+      simp [signExtVal]
+
+/-- Points, each derived from the equations: `bitRangeInt(13, 1, 2)`: 13 >>Int 1 is 6, 6 modInt 4
+is 2; `signExtendBitRangeInt(13, 1, 2)`: (2 + 2) modInt 4 - 2 = -2; `bitRangeInt(-1, 0, 8)`:
+-1 modInt 256 = 255; `signExtendBitRangeInt(255, 0, 8)`: (255 + 128) modInt 256 - 128 = -1;
+`signExtendBitRangeInt(127, 0, 8)`: (127 + 128) modInt 256 - 128 = 127. -/
+def bitVals : List SPt :=
+  [⟨intBitRange, [13, 1, 2], int 2⟩, ⟨intSignExtBitRange, [13, 1, 2], int (-2)⟩,
+   ⟨intBitRange, [-1, 0, 8], int 255⟩, ⟨intSignExtBitRange, [255, 0, 8], int (-1)⟩,
+   ⟨intSignExtBitRange, [127, 0, 8], int 127⟩]
+
+theorem bitVals_ok : bitVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some (some p.v)) = true := by
+  decide +kernel
+
+/-- **At each, Γ of every semantics states the value under every interpretation.** -/
+theorem bitVals_gamma : ∀ p ∈ bitVals, ∀ (c : Semantics) (H : HookParams),
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map int) ≡ den (c.withHooks H) p.v) := by
+  intro p hp c H
+  have h := List.all_eq_true.mp bitVals_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨hk, hname⟩, hargs⟩, hh⟩ := h
+  exact gamma_val _ hk (by rw [hargs]; exact sortsOf_ints _ _) (by rw [hname]; exact hh)
+
+/-- The points without a value: `bitRangeInt(1, -1, 1)` (`1 >>Int -1`), `bitRangeInt(1, 0, -1)`
+(`1 <<Int -1`), `signExtendBitRangeInt(1, 0, 0)` (`1 <<Int (0 -Int 1)`), `2 ^%Int 3 0`
+(`(2 ^Int 3) %Int 0`, DOM 1233-1234). The last component of a point is not read. -/
+def bitBots : List SPt :=
+  [⟨intBitRange, [1, -1, 1], int 0⟩, ⟨intBitRange, [1, 0, -1], int 0⟩, ⟨intSignExtBitRange, [1, 0, 0], int 0⟩,
+   ⟨intPowMod, [2, 3, 0], int 0⟩]
+
+/-- At each, `hook` gives no value and the point is not silent. -/
+theorem bitBots_ok : bitBots.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some none &&
+    !silent p.f (p.xs.map int)) = true := by
+  decide +kernel
+
+/-- **At each, Γ of every semantics states ⊥ under every interpretation.** -/
+theorem bitBots_gamma : ∀ p ∈ bitBots, ∀ (c : Semantics) (H : HookParams),
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig p.f) (p.xs.map int) ≡ ⊥) := by
+  intro p hp c H
+  have h := List.all_eq_true.mp bitBots_ok p hp
+  simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨⟨hk, hname⟩, hargs⟩, hh⟩, hs⟩ := h
+  exact gamma_bot _ hk (by rw [hargs]; exact sortsOf_ints _ _) (by rw [hname]; exact hh) (by rw [hname]; exact hs)
+
+theorem bit_sigs : sig intPowMod = ⟨intPowMod, [Srt.int, Srt.int, Srt.int], Srt.int⟩ ∧
+    sig intPowMod ∈ hookSigs := by
+  decide +kernel
+
+/-- **At a zero modulus Γ states ⊥ for every base and exponent, in every semantics under every
+interpretation**: the point is not silent. -/
+theorem powmod_zero_gamma (c : Semantics) (H : HookParams) (a b : Int) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intPowMod) [int a, int b, int 0] ≡ ⊥) := by
+  obtain ⟨e, m⟩ := bit_sigs
+  have hs : silent intPowMod [int a, int b, int 0] = false := rfl
+  exact gamma_bot _ m (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b, 0]) (by rw [e]; exact hook_powmod _)
+    (by rw [e]; exact hs)
+
+/-- **Off a zero modulus every point is silent** (`2 ^%Int 3 5` among them): `hook` gives no value
+there, and Γ states the interpretation's. -/
+theorem powmod_silent (a b : Int) {m : Int} (hm : m ≠ 0) :
+    hook intPowMod [int a, int b, int m] = some none ∧ silent intPowMod [int a, int b, int m] = true := by
+  refine ⟨rfl, ?_⟩
+  show (asInt (int m)).any (· != 0) = true
+  simp [asInt, int, hm]
+
+example : hook intPowMod [int 2, int 3, int 5] = some none ∧ silent intPowMod [int 2, int 3, int 5] = true := by
+  decide +kernel
+
+/-- **The bit ranges at every argument list of their signature**: three integers, with a value
+where the index and the length are not negative (and, for `signExtendBitRangeInt`, the length not
+0), and none elsewhere. -/
+theorem covered_bitRange {c : Semantics} (hs : c.shapesOK = true) {vs : List GroundTerm}
+    (hvs : c.sortsOf vs = some [Srt.int, Srt.int, Srt.int]) :
+    ∃ x i l, vs = [int x, int i, int l] ∧
+      hook intBitRange vs = some (if i < 0 ∨ l < 0 then none else some (int (bitRangeVal x i l))) ∧
+      hook intSignExtBitRange vs = some (if i < 0 ∨ l < 1 then none else some (int (signExtVal x i l))) := by
+  obtain ⟨w₁, w₂, w₃, rfl, h₁, h₂, h₃⟩ := sortsOf_three hvs
+  obtain ⟨x, rfl⟩ := shape_int hs h₁
+  obtain ⟨i, rfl⟩ := shape_int hs h₂
+  obtain ⟨l, rfl⟩ := shape_int hs h₃
+  exact ⟨x, i, l, rfl, hook_bitRange x i l, hook_signExt x i l⟩
+
+#print axioms bitRange_eq
+#print axioms signExt_eq
+#print axioms bitVals_gamma
+#print axioms bitBots_gamma
+#print axioms powmod_zero_gamma
+#print axioms powmod_silent
+#print axioms covered_bitRange
+#print axioms bit_not_param
+
+/-! ## `^Int` -/
+
+/-- The row `INT.pow` (DOM 1250, not declared `total`): its KORE name, its signature Int, Int : Int
+among `hookSigs`, among `partialHooks`, the registry's symbol of its `hook` attribute, and no
+parameter symbol of a library module. -/
+theorem pow_row : regSymNames.getD intPow "" = "Lbl'UndsXor-'Int'Unds'" ∧
+    sig intPow = ⟨intPow, [Srt.int, Srt.int], Srt.int⟩ ∧ sig intPow ∈ hookSigs ∧
+    partialHooks.contains intPow = true ∧ regHookOf "INT.pow" = some intPow ∧
+    (List.range library.length).all (fun i => (libParams [i]).all fun p => p.sig.name != intPow) = true := by
+  decide +kernel
+
+theorem hook_pow (vs : List GroundTerm) :
+    hook intPow vs = some (int2 vs fun a b => if b < 0 then none else some (int (a ^ b.toNat))) := rfl
+
+/-- "Compute the exponentiation `^Int` of two integers" (DOM 1228), at `b ≥ 0`: `a` to the power `b`,
+the product of `b` factors `a` (1 at `b = 0`, the empty product). -/
+theorem pow_at (a : Int) {b : Int} (hb : 0 ≤ b) :
+    hook intPow [int a, int b] = some (some (int (a ^ b.toNat))) := by
+  rw [hook_pow, int2_at, if_neg (by omega)]
+
+/-- At a negative exponent the sentence names no integer and writes no `#False`: `hook` gives no
+value, and the point is silent (Γ states the interpretation's value). -/
+theorem pow_neg (a : Int) {b : Int} (hb : b < 0) :
+    hook intPow [int a, int b] = some none ∧ silent intPow [int a, int b] = true :=
+  ⟨by rw [hook_pow, int2_at, if_pos hb], rfl⟩
+
+/-- `2 ^Int -1`: silent, not without value. -/
+example : hook intPow [int 2, int (-1)] = some none ∧ silent intPow [int 2, int (-1)] = true := by
+  decide +kernel
+
+/-- Points, each derived from the sentence: `2 ^Int 10` is 1024, `-2 ^Int 3` is -8, `7 ^Int 0` is 1,
+`0 ^Int 2` is 0. -/
+def powVals : List SPt :=
+  [⟨intPow, [2, 10], int 1024⟩, ⟨intPow, [-2, 3], int (-8)⟩, ⟨intPow, [7, 0], int 1⟩, ⟨intPow, [0, 2], int 0⟩]
+
+theorem powVals_ok : powVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some (some p.v)) = true := by
+  decide +kernel
+
+/-- **At a non-negative exponent Γ of every semantics states the power under every
+interpretation.** -/
+theorem pow_gamma (c : Semantics) (H : HookParams) (a : Int) {b : Int} (hb : 0 ≤ b) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intPow) [int a, int b] ≡ den (c.withHooks H) (int (a ^ b.toNat))) := by
+  obtain ⟨-, e, m, -⟩ := pow_row
+  exact gamma_val _ m (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b]) (by rw [e]; exact pow_at a hb)
+
+/-- `HookParams.lib` (LibAdmitted.lean) gives `^Int` no value at any point, as it gave none while
+`^Int` was a parameter symbol: at `b ≥ 0` the value is `hook`'s, and at `b < 0` it gives none still. -/
+theorem lib_pow_none (vs : List GroundTerm) : HookParams.lib.app intPow vs = none := rfl
+
+#print axioms pow_at
+#print axioms pow_neg
+#print axioms pow_gamma
+#print axioms lib_pow_none
 
 /-- info: 'KCore.HooksIntTest.shiftBots_entails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms shiftBots_entails

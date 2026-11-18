@@ -884,7 +884,7 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
-- `test/HooksInt.lean`: the 20 supported hook rows of INT (the sort, sixteen operations and, in the last section, three more) against
+- `test/HooksInt.lean`: the 24 supported hook rows of INT (the sort, sixteen operations and, in the last three sections, seven more) against
   domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
   result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
   `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
@@ -896,6 +896,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   highest set bit, each by a property with one solution; at a negative amount and at x ≤ 0 the
   prose says `#False`, `hook` gives no value, the point is not silent and Γ states ⊥ under every
   interpretation; none of the three is a parameter symbol of a library module.
+  The three rows `INT.bitRange`, `INT.signExtendBitRange`, `INT.powmod`: the equations of the bit
+  ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
+  value or both none (no value at a negative index or length, the sign extension also at length
+  0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥) and is silent
+  everywhere else. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
+  interpretation; silent at a negative one (`2 ^Int -1`).
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
   cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under
@@ -1089,7 +1096,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   elements than the list has), where over all interpretations Γ entails neither ⊥ nor a value
   (the schema of test/SilentPoints.lean, at points of a semantics with `coreOK`). `range` at more
   elements than the list has is written with two readings in its header (unstated, taken; or the
-  removal's `.List`).
+  removal's `.List`). The four rows `LIST.update`, `LIST.make`, `LIST.updateAll`, `LIST.fill` (last
+  section): `hook` at every argument list, the one value the prose names on its region (by the
+  elements of the result for `L[I <- V]` and `updateList`) and Γ's statement of it under every
+  interpretation; off the region no value and silent (a negative index of `L[I <- V]` among them);
+  `HookParams.lib` gives none of them a value.
 - `test/HooksRangeMap.lean`: the 16 interpreted hook rows of RANGEMAP (the sort and the fifteen
   operations of `regHookNames`) against domains.md's prose, cited by line: each operation at every
   argument list by the function of its result (a range map is its partial function from Int to
@@ -1551,8 +1562,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
   `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
   `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
-  `exponentBitsFloat` for every H. The header lists 321 (1673) and 380 (1671) and why they are not
-  tied. 1.9 GiB, 6 s. Axioms guarded.
+  `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
+  (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
+  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. Axioms guarded.
+- `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
+  (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
+  format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there
+  (`unpack_pack`), `round` keeps a value at its target exponent (`round_of_target`), `maxValue` is
+  `(2^p − 1)·2^(bias − (p − 1))` (`maxValue_eq`, `exact_maxValue`), and a datum is infinite exactly
+  when it lies above `maxValue` or below its negation (`isInf_unpack`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
