@@ -351,6 +351,7 @@ import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
+import KcoreSpec.GenEqsInst
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
 import KcoreSpec.KKEncLemmas
