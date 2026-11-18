@@ -1056,6 +1056,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
   `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
   configuration, the counter's initial value 1.
+- `test/GenEqsInitAcctSortLabel.lean`, `test/GenEqsInitAcctVars.lean`, `test/GenEqsInitAcctFresh.lean`:
+  the texts of `test/GenEqsInitArm.lean`'s `SortLabel`, `Vars` and `Fresh` through the same arm, read
+  as the account reads each text: the user module's scan `S = scan m.sentences` and names `E`
+  (`envOf m S = .ok E`), computed by `parse_stages` and checked by the kernel (`scan_eq` in
+  `ScanIs` blocks, `env_eq`); the arm, the names (`armNameB`, the registry's `project:KItem` and
+  `project:Int` through `predProjAcc`) and the right sides at `E.N`, `E.src`, `S.eqs` and the text's
+  `functional` symbols `functionalSyms S.events`. Each `eqns` holds, in one model of the theory whose
+  steps are the semantics' (`GenEqs.model_of_arm`), the equations of `GenEqsInitArm.lean`'s instance
+  and the counter's equation and `functional` axiom (which the text holds). In `Fresh`, the text
+  holds no `functional` axiom of `initIdCell` (`noIdFunctional`, a conjunct of `eqns`); the one
+  instanced is supplied, taken by `initFunctionalOK` at the text's own `functional` symbols.
 - `test/GenEqsInitArm.lean`: instances of `KcoreSpec/GenEqsInitArm.lean`, the account's arm for the
   cell tree's initializers (`Parse.initEqnOK`, `Parse.initFunctionalOK`) against the model of
   `GenEqsInit.lean`, with nothing written by hand: the equations are `Parse.rawEqn?` of the user
