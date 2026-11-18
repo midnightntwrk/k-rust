@@ -14,6 +14,9 @@
   - `decls_entailed`: so Γ entails the item of each sort declaration without sort parameters and of
     each symbol declaration without sort parameters that names a symbol of Γ, for every H.
     G-nonempty and G-sorts are not items of Γ.
+  - `lib_decls_entailed`: the library's symbol declarations named in `libDeclNames` (INT's
+    `freshInt`, STRING-COMMON's `Bool2String` and `String2Bool`) each name a symbol of Γ
+    (`libDeclNames_has`), so Γ entails the item of each one without sort parameters, for every H.
 -/
 import KcoreSpec
 
@@ -134,7 +137,23 @@ theorem decls_entailed (H : HookParams) :
     rw [← of_decide_eq_true h]
     exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hmem)
 
+/-- Library symbol declarations of the text, by name. -/
+def libDeclNames : List String :=
+  ["LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int",
+   "LblBool2String'LParUndsRParUnds'STRING-COMMON'Unds'String'Unds'Bool",
+   "LblString2Bool'LParUndsRParUnds'STRING-COMMON'Unds'Bool'Unds'String"]
+
+/-- Each names a symbol of Γ. -/
+theorem libDeclNames_has : libDeclNames.all hasSym = true := by decide +kernel
+
+/-- **E for the library's symbol declarations named in `libDeclNames`**: Γ entails the G-arity
+item of each such declaration without sort parameters, for every H. -/
+theorem lib_decls_entailed (H : HookParams) :
+    ∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈ libDeclNames → Γ (cH H) ⊧ (arityItem sd).pat :=
+  fun sd hsd hp hn => (decls_entailed H).2 sd hsd hp (List.all_eq_true.mp libDeclNames_has _ hn)
+
 end KCore.TieKk
 
 #check @KCore.TieKk.decls_entailed
 #print axioms KCore.TieKk.decls_entailed
+#print axioms KCore.TieKk.lib_decls_entailed

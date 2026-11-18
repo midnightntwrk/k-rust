@@ -12,6 +12,10 @@
     items `sigItems c` holds for it (G-arity, E); `choice`, `keys_list` and `values` name none: the
     text applies none of the three and the reading has no parameter (`params_nil`), so their
     declarations have no direction, as the sentences that would apply them.
+  - `lib_decls_entailed`: the library's symbol declarations named in `libDeclNames` (RANGEMAP's
+    `RangeMap:Range`, DEFAULT-CONFIGURATION's `<k>`, INT's `freshInt`) each name a symbol of Γ, and
+    their items are the arity items `sigItems c` holds for it (`lib_syms`), so Γ entails the item of
+    each one without sort parameters, for every H.
   - `fun_entailed` (direction Ev): the `functional` sentences of the eight interpreted RANGEMAP
     symbols that are not partial (`.RangeMap` 22, `lookupOrDefault` 37, `-RangeMap` 46,
     `<=RangeMap` 49, `in_keys` 80, `keys` 124, `size` 138, `updateRangeMap` 140) hold in every model
@@ -127,6 +131,34 @@ theorem decls_entailed (H : HookParams) :
     rw [← of_decide_eq_true h]
     exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hmem)
 
+/-- Library symbol declarations of the text, by name. -/
+def libDeclNames : List String :=
+  ["LblRangeMap'Coln'Range", "Lbl'-LT-'k'-GT-'", "LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int"]
+
+/-- The text's symbol declarations named in `libDeclNames`. -/
+noncomputable def libSyms : List SymbolDecl := kore.symbolDecls.filter (libDeclNames.contains ·.name)
+
+/-- Each names a symbol of Γ, and its item is the arity item of the first of Γ's symbols under its
+name. -/
+theorem lib_syms : libSyms.all (fun sd => hasSym sd.name && symOK sd) = true := by decide +kernel
+
+/-- **E for the library's symbol declarations named in `libDeclNames`**: Γ entails the G-arity
+item of each such declaration without sort parameters, for every H. -/
+theorem lib_decls_entailed (H : HookParams) :
+    ∀ sd ∈ kore.symbolDecls, sd.params = [] → sd.name ∈ libDeclNames → Γ (cH H) ⊧ (arityItem sd).pat := by
+  intro sd hsd _ hn
+  have h := List.all_eq_true.mp lib_syms sd (List.mem_filter.mpr ⟨hsd, List.elem_eq_true_of_mem hn⟩)
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨k, hk⟩ := Option.isSome_iff_exists.mp h.1
+  have h2 := h.2
+  simp only [symOK, hk] at h2
+  have hmem : symArityItem c k ∈ sigItems c := by
+    unfold sigItems
+    exact List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_find?_eq_some hk)))
+  intro M _ I hI
+  rw [← of_decide_eq_true h2]
+  exact sat_sigItem hI (by rw [sigItems_withHooks]; exact hmem)
+
 /-! ## The `functional` sentences of the interpreted symbols (row 9, direction Ev) -/
 
 /-- The indices of the sentences. -/
@@ -203,3 +235,4 @@ end KCore.TieRangeMapDecls
 #print axioms KCore.TieRangeMapDecls.fun_heads
 #print axioms KCore.TieRangeMapDecls.fun_all
 #print axioms KCore.TieRangeMapDecls.fun_entailed
+#print axioms KCore.TieRangeMapDecls.lib_decls_entailed

@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-ml-eq-rhs-top.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.0
+definition.kore bytes: 202353
+definition.kore sha256: 7c0cfabf50a574d779db7f393430349d28c7c2fa432a4166ce0ffc8135ab3bed
+stripped sha256: f03239125234c60f6f8fbd8518208b3b04d69b16505b63978ff2f5e9eced7b22
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-eq-rhs-top.k)
+  	Location(4,10,4,11)
+  	4 |	  rule f(X) => #Top
+  	  .	         ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-TOP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-EQ-RHS-TOP as default.

@@ -1,0 +1,6 @@
+# Hand-written KORE: e2-band-ctor's kompiled text (Exp ::= Exp "|" Exp [assoc, idem, symbol(or)], an
+# open generator with its associativity and idempotency axioms) with one more law axiom of the same
+# symbol, the right unit or(K, x) = K, in the form kompile writes a collection's unit axiom.
+# kompile writes no unit axiom for a production that is no function and no collection's concatenation
+# (E2 UNIT(unit)@symbol), so no kompiled text holds this sentence.
+kore = "test/constructs/fixtures/hw-open-unit/hw-open-unit.kore"
