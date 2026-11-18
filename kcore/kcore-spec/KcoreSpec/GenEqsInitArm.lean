@@ -8,10 +8,13 @@
     value there, or a name whose `G` has none, or an application with an argument that denotes
     nothing), or not read (`none`: any other symbol, a sort argument, a literal that is not a
     value's own text, a result of no sort). Variables, literals, `inj`, constructors of the
-    semantics, interpreted hooks and the names are read.
+    semantics, interpreted hooks and the names are read. `inj{A, B}` over a value of `A` is its
+    normalised injection into `B` (`injNormal`: over a value that is itself an injection, the
+    inner value injected into `B`).
   - **What it reads holds (`armVal_sound`).** In a model `InitModel c N ar G`, the translation of
     the right side with its variables replaced by the values' KORE terms (`armSubst`) denotes the
-    value read, or nothing: by `InitModel.ctor`, `inj`, `hookV`, `hookE`, `name`, `name_none`.
+    value read, or nothing: by `InitModel.ctor`, `injN`, `hookV`, `hookE`, `name`, `name_none`,
+    in a semantics with `coreOK` (`injN` reads the theory's injection coherence).
   - **`G` from the text (`armG`, `armG_fix`).** The names of `order` are given their equation's
     right side read through `G` itself, by recursion on the position in `order`, which lists every
     name before the names whose right side applies it (`armRankB`); the other names are given
@@ -36,6 +39,7 @@
   at arguments of its sorts and arity.
 -/
 import KcoreSpec.GenEqsInit
+import KcoreSpec.InjValue
 
 set_option autoImplicit false
 
@@ -118,12 +122,13 @@ def armApp (c : Semantics) (isN : String → Bool) (ar : String → Nat) (G : St
     | some ws => armHead c isN ar G h ws
     | none => none
 
-/-- `inj{A, B}` applied to one argument read as `r`: the injected value, or nothing. -/
+/-- `inj{A, B}` applied to one argument read as `r`: where `r` is a value of `A` and `A` a subsort
+of `B`, its normalised injection into `B` (`injNormal`); nothing where `r` is nothing. -/
 def armInj (c : Semantics) (ss : List Kore.KSort) (rs : List (Option (Option GroundTerm))) : Option (Option GroundTerm) :=
   match ss, rs with
   | [A, B], [r] => match armSrt c A, armSrt c B, r with
     | some a, some b, some (some w) =>
-      if (c.sortOf (.inj a b w)).isSome then some (some (.inj a b w)) else none
+      if decide (c.sortOf w = some a) && c.subsorts.contains (a, b) then some (some (injNormal a b w)) else none
     | some _, some _, some none => some none
     | _, _, _ => none
   | _, _ => none
@@ -259,6 +264,24 @@ theorem armVals_eq (c : Semantics) (isN : String → Bool) (ar : String → Nat)
   | [] => by rw [armVals]; rfl
   | p :: ps => by rw [armVals, armVals_eq c isN ar G σ ps]; rfl
 
+/-- **An injection over a value of a subsort denotes its normalised injection** (`injNormal`), the
+value itself an injection or not: the theory's injection coherence (`den_inj_gs`,
+`den_injNormal_gs`). -/
+theorem InitModel.injN {c : Semantics} {N : String → Prop} {ar : String → Nat}
+    {G : String → List GroundTerm → Option GroundTerm} {I : Interpretation KoreAML.Sym Elem}
+    (hM : InitModel c N ar G I) (hc : c.coreOK = true) {a b : Srt} {ψ : KoreAML.P} {w : GroundTerm}
+    (h : DenV c I ψ w) (hw : c.sortOf w = some a) (hab : (a, b) ∈ c.subsorts) :
+    DenV c I (KoreAML.appList (KoreAML.sym (.symbol "inj"))
+      [KoreAML.Cons.sortP (c.sortName a), KoreAML.Cons.sortP (c.sortName b), ψ]) (injNormal a b w) := by
+  haveI : OvlOK c := ovlOK_of_core hc
+  have hI : I ⊧ᴵP Γ c := fun φ hφ => hM.sat φ (Or.inl (Or.inl hφ))
+  have htr := CE.injValue_subsorts_trans hc
+  have hs := sortOf_injNormal htr hab hw
+  refine ⟨⟨b, hs⟩, fun ρ m => ?_⟩
+  rw [inj_den a b (fun m => (h.2 ρ m).trans (hM.vals w a hw ρ m).symm) m]
+  rw [Faithful.den_inj_gs hI hw ρ m, ← Faithful.den_injNormal_gs hI htr hab hw ρ m]
+  exact hM.vals _ b hs ρ m
+
 section Sound
 
 variable {c : Semantics} {N : String → Prop} {ar : String → Nat} {G : String → List GroundTerm → Option GroundTerm}
@@ -339,7 +362,7 @@ theorem armApp_sound {h : String} {rs : List (Option (Option GroundTerm))} {ψs 
 
 omit hN in
 /-- **`armInj` holds** of `inj` applied to patterns its reading holds of. -/
-theorem armInj_sound {ss : List Kore.KSort} {rs : List (Option (Option GroundTerm))} {ψs : List Kore.Pattern}
+theorem armInj_sound (hc : c.coreOK = true) {ss : List Kore.KSort} {rs : List (Option (Option GroundTerm))} {ψs : List Kore.Pattern}
     (hrs : ArmDens c I rs (ψs.map KoreAML.den)) :
     ArmDen c I (armInj c ss rs) (KoreAML.den (.app ⟨⟨"inj"⟩⟩ ss ψs)) := by
   match ss, rs, ψs, hrs with
@@ -364,9 +387,10 @@ theorem armInj_sound {ss : List Kore.KSort} {rs : List (Option (Option GroundTer
           cases r with
           | some w =>
             dsimp only
-            by_cases hs : (c.sortOf (.inj a b w)).isSome = true
+            by_cases hs : (decide (c.sortOf w = some a) && c.subsorts.contains (a, b)) = true
             · rw [if_pos_walk hs]
-              exact hM.inj a b ih (Option.some_get hs).symm
+              simp only [Bool.and_eq_true, decide_eq_true_eq] at hs
+              exact hM.injN hc ih hs.1 (List.contains_iff_mem.mp hs.2)
             · rw [if_neg_arm hs]; trivial
           | none =>
             exact DenE.app _ ⟨_, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)), ih⟩
@@ -383,7 +407,7 @@ mutual
   the values' KORE terms denotes the value read, or nothing. -/
   theorem armVal_sound {c : Semantics} {N : String → Prop} {ar : String → Nat}
       {G : String → List GroundTerm → Option GroundTerm} {I : Interpretation KoreAML.Sym Elem}
-      (hM : InitModel c N ar G I) {isN : String → Bool} (hN : ∀ n, isN n = true → N n)
+      (hM : InitModel c N ar G I) (hc : c.coreOK = true) {isN : String → Bool} (hN : ∀ n, isN n = true → N n)
       {σ : List (Kore.EVar × GroundTerm)} (hσ : ∀ x w, armLookup σ x = some w → ∃ s, c.sortOf w = some s) :
       ∀ p : Kore.Pattern,
       ArmDen c I (armVal c isN ar G σ p) (KoreAML.den (armSubst c σ p))
@@ -420,7 +444,7 @@ mutual
               exact hM.val (Option.some_get hc.2).symm
             · rw [if_neg_arm hc] at hd; cases hd
     | .app h ss ps => by
-      have ihs := armVals_sound hM hN hσ ps
+      have ihs := armVals_sound hM hc hN hσ ps
       rw [armVal, armSubst]
       rw [armVals_eq, armSubsts_eq] at ihs ⊢
       by_cases hi : (h.ident.name == "inj") = true
@@ -430,7 +454,7 @@ mutual
           rw [beq_iff_eq] at hi
           cases hi; rfl
         rw [hh]
-        exact armInj_sound hM ihs
+        exact armInj_sound hM hc ihs
       · rw [if_neg_arm hi]
         by_cases hs : ss.isEmpty = true
         · rw [if_pos_walk hs]
@@ -462,14 +486,14 @@ mutual
     termination_by structural p => p
   theorem armVals_sound {c : Semantics} {N : String → Prop} {ar : String → Nat}
       {G : String → List GroundTerm → Option GroundTerm} {I : Interpretation KoreAML.Sym Elem}
-      (hM : InitModel c N ar G I) {isN : String → Bool} (hN : ∀ n, isN n = true → N n)
+      (hM : InitModel c N ar G I) (hc : c.coreOK = true) {isN : String → Bool} (hN : ∀ n, isN n = true → N n)
       {σ : List (Kore.EVar × GroundTerm)} (hσ : ∀ x w, armLookup σ x = some w → ∃ s, c.sortOf w = some s) :
       ∀ ps : List Kore.Pattern,
       ArmDens c I (armVals c isN ar G σ ps) ((armSubsts c σ ps).map KoreAML.den)
     | [] => by rw [armVals, armSubsts]; trivial
     | p :: ps => by
       rw [armVals, armSubsts]
-      exact ⟨armVal_sound hM hN hσ p, armVals_sound hM hN hσ ps⟩
+      exact ⟨armVal_sound hM hc hN hσ p, armVals_sound hM hc hN hσ ps⟩
     termination_by structural ps => ps
 end
 
@@ -917,6 +941,7 @@ of a name of `order`, an equation `e` of the text that `initEqnOK` takes, and va
 for its patterns' variables `xs` at which its right side is read as `r`: `G` at `ws` is `r`, and
 the equation `L(ws) = rhs[ws/xs]` holds in the model. -/
 theorem init_arm_eqn (hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order base) I)
+    (hc : c.coreOK = true)
     (hR : armRankB order eqs = true) (hord : order.all names.contains = true)
     {x : Cell} {e : Parse.RawEqn} (he : e ∈ eqs) (hok : Parse.initEqnOK Nm msrc eqs c x e = true)
     (hL : order.contains (x.initLabel c) = true) :
@@ -941,7 +966,7 @@ theorem init_arm_eqn (hM : InitModel c (fun n => names.contains n = true) (armAr
     rw [hl, (armDistinct_spec hx).1, List.length_map]
   have hσ : ∀ y w, armLookup (armZip xs ws) y = some w → ∃ s, c.sortOf w = some s :=
     fun _ w hy => hws w (List.of_mem_zip (armLookup_mem hy)).2
-  have hs := armVal_sound hM (fun n hn => hn) hσ e.rhs
+  have hs := armVal_sound hM hc (fun n hn => hn) hσ e.rhs
   rw [hr] at hs
   have hws' := armVals_den hM hws
   rw [armLhs_den c hx hl]
@@ -958,7 +983,8 @@ patterns' variables at which the right side is read as the value `v`, of sort `s
 instance `∃y:s. y = L(ws)` holds. -/
 theorem init_arm_functional
     (hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order base) I)
-    (hR : armRankB order eqs = true) (hord : order.all names.contains = true) {funcs : List String} {x : Cell}
+    (hc : c.coreOK = true) (hR : armRankB order eqs = true) (hord : order.all names.contains = true)
+    {funcs : List String} {x : Cell}
     (hok : Parse.initFunctionalOK Nm msrc eqs funcs c x = true) (hL : order.contains (x.initLabel c) = true) :
     ∃ e xs, eqs.find? (·.fn == x.initLabel c) = some e ∧ Parse.distinctEVars? e.pats = some xs ∧
       ∀ ws : List GroundTerm, ws.length = xs.length → (∀ w ∈ ws, ∃ s, c.sortOf w = some s) →
@@ -971,7 +997,7 @@ theorem init_arm_functional
   | some e =>
     rw [hfe] at hok
     simp only [Bool.and_eq_true] at hok
-    obtain ⟨xs, hx, hall⟩ := init_arm_eqn (base := base) hM hR hord (List.mem_of_find?_eq_some hfe) hok.1 hL
+    obtain ⟨xs, hx, hall⟩ := init_arm_eqn (base := base) hM hc hR hord (List.mem_of_find?_eq_some hfe) hok.1 hL
     refine ⟨e, xs, rfl, hx, fun ws hl hws v s hr hs y => ?_⟩
     obtain ⟨hG, -⟩ := hall ws hl hws _ hr
     have hf := (armInitEqnOK_parts hok.1).1
@@ -1009,6 +1035,7 @@ def armAccB (Nm : Parse.Names) (msrc : String) (eqs : List Parse.RawEqn) (c : Se
 read at the values `ws` (of a sort, as many as its patterns) as `r`, `G L ws` is `r` and the
 equation `L(ws) = rhs[ws/xs]` holds. -/
 theorem init_arm_at (hM : InitModel c (fun n => names.contains n = true) (armAr eqs) (armGOf c eqs names order base) I)
+    (hc : c.coreOK = true)
     (hR : armRankB order eqs = true) (hord : order.all names.contains = true) {cells : List Cell} {L : String}
     (hacc : armAccB Nm msrc eqs c cells L = true) (hL : order.contains L = true) {ws : List GroundTerm}
     (hl : ws.length = armAr eqs L) (hws : ∀ w ∈ ws, ∃ s, c.sortOf w = some s) {r : Option GroundTerm}
@@ -1026,7 +1053,7 @@ theorem init_arm_at (hM : InitModel c (fun n => names.contains n = true) (armAr 
       rw [hx, he] at hacc
       have hxL : x.initLabel c = L := by have := List.find?_some hx; exact beq_iff_eq.mp this
       have heL : e.fn = L := by have := List.find?_some he; exact beq_iff_eq.mp this
-      obtain ⟨xs, hxs, hall⟩ := init_arm_eqn (base := base) hM hR hord (List.mem_of_find?_eq_some he) hacc (hxL ▸ hL)
+      obtain ⟨xs, hxs, hall⟩ := init_arm_eqn (base := base) hM hc hR hord (List.mem_of_find?_eq_some he) hacc (hxL ▸ hL)
       have hlx : ws.length = xs.length := by
         rw [hl]; unfold armAr; rw [he]
         show e.pats.length = xs.length

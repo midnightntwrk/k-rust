@@ -6,14 +6,16 @@
 
   - **The sorts of a right side (`nodTy`).** A KORE right side, its variables given sorts, is given
     a sort and whether it has a value at every list of values of those sorts: a variable, a
-    literal, `inj` over a sort with no subsort (whose values are no injections), a constructor of
+    literal, `inj{A, B}` over an argument of `A`, a subsort of `B`, a constructor of
     the semantics at arguments of its argument sorts, an interpreted hook at arguments of its
     argument sorts with no silent point, a name at arguments of its argument sorts (`nA`), with the
     sort and totality given it (`nR`). Computed from the text; nothing is written by hand.
   - **What the sorts give (`nodTy_sound`).** Where every name applied gives, at values of its
     argument sorts, a value of its sort or nothing (and a value where total), the arm's reading
     (`armVal`) of the right side at values of the variables' sorts is never `none` (not read): it
-    is a value of the sort, or nothing, and a value where total.
+    is a value of the sort, or nothing, and a value where total. In a semantics with `coreOK`: the
+    arm's injection of a value of `A` into `B` is of `B` (`sortOf_injNormal`, the subsorts being
+    transitive).
   - **The names' `G` (`nod_G_ok`).** The arm's `G` read from the text (`armGOf`) gives each name a
     value of its sort or nothing: a name of `order` by its equation's right side (`armG_fix`, by
     induction along `order`, `armRankB`), the getter and the projections by `armBase` (`argFn`,
@@ -82,12 +84,11 @@ def nodHead (c : Semantics) (isN : String → Bool) (ar : String → Nat) (nA : 
       else none
     | none => none
 
-/-- `inj{A, B}` over an argument of the sort `A`, a sort with no subsort (no value of it is an
-injection), and a subsort of `B`: of the sort `B`. -/
+/-- `inj{A, B}` over an argument of the sort `A`, a subsort of `B`: of the sort `B`. -/
 def nodInjTy (c : Semantics) : List Kore.KSort → Option (List (Srt × Bool)) → Option (Srt × Bool)
   | sA :: sB :: [], some (st :: []) => match armSrt c sA, armSrt c sB with
     | some a, some b =>
-      if decide (st.1 = a) && c.subsorts.contains (a, b) && c.subsorts.all (·.2 != a) then some (b, st.2)
+      if decide (st.1 = a) && c.subsorts.contains (a, b) then some (b, st.2)
       else none
     | _, _ => none
   | _, _ => none
@@ -291,10 +292,10 @@ theorem nodDv_sound {S : Kore.KSort} {text : String} {s : Srt} (h : nodDv c S te
         exact ⟨_, rfl, hs⟩
       · rw [if_neg_arm hc] at h; cases h
 
-/-- The inj of a reading of a sort with no subsort. -/
-theorem nodInj_sound {A B : Kore.KSort} {a b : Srt} (hA : armSrt c A = some a) (hB : armSrt c B = some b)
-    {r : Option (Option GroundTerm)} {st : Srt × Bool} (hr : NodOK c r st) (hsa : st.1 = a)
-    (hab : c.subsorts.contains (a, b) = true) (hno : c.subsorts.all (·.2 != a) = true) :
+/-- The inj of a reading of a subsort: its normalised injection, of the upper sort. -/
+theorem nodInj_sound (hc : c.coreOK = true) {A B : Kore.KSort} {a b : Srt} (hA : armSrt c A = some a)
+    (hB : armSrt c B = some b) {r : Option (Option GroundTerm)} {st : Srt × Bool} (hr : NodOK c r st)
+    (hsa : st.1 = a) (hab : c.subsorts.contains (a, b) = true) :
     NodOK c (armInj c [A, B] [r]) (b, st.2) := by
   obtain ⟨o, rfl, hv, ht⟩ := hr
   cases o with
@@ -304,18 +305,15 @@ theorem nodInj_sound {A B : Kore.KSort} {a b : Srt} (hA : armSrt c A = some a) (
   | some w =>
     have hw := hv w rfl
     rw [hsa] at hw
-    have hni : w.isInj = false := by
-      cases w with
-      | inj a' b' u =>
-        obtain ⟨hmem, -, -, rfl⟩ := sortOf_inj.mp hw
-        have := List.all_eq_true.mp hno _ hmem
-        simp at this
-      | _ => rfl
-    have hs : c.sortOf (.inj a b w) = some b := sortOf_inj.mpr ⟨List.contains_iff_mem.mp hab, hni, hw, rfl⟩
-    simp only [armInj, hA, hB, hs, Option.isSome_some, ↓reduceIte]
+    have hs : c.sortOf (injNormal a b w) = some b :=
+      sortOf_injNormal (CE.injValue_subsorts_trans hc) (List.contains_iff_mem.mp hab) hw
+    have hck : (decide (c.sortOf w = some a) && c.subsorts.contains (a, b)) = true := by
+      simp only [hw, hab, decide_true, Bool.and_self]
+    simp only [armInj, hA, hB]
+    rw [if_pos_walk hck]
     exact nodOK_some hs
 
-theorem nodInjTy_sound {ss : List Kore.KSort} {tys : Option (List (Srt × Bool))}
+theorem nodInjTy_sound (hc : c.coreOK = true) {ss : List Kore.KSort} {tys : Option (List (Srt × Bool))}
     {rs : List (Option (Option GroundTerm))} (hrs : ∀ sts, tys = some sts → All2 (NodOK c) rs sts)
     {st : Srt × Bool} (h : nodInjTy c ss tys = some st) : NodOK c (armInj c ss rs) st := by
   unfold nodInjTy at h
@@ -331,12 +329,12 @@ theorem nodInjTy_sound {ss : List Kore.KSort} {tys : Option (List (Srt × Bool))
         | none => rw [hA, hB] at h; cases h
         | some b =>
           rw [hA, hB] at h; dsimp only at h
-          by_cases hc : (decide (st0.1 = a) && c.subsorts.contains (a, b) && c.subsorts.all (·.2 != a)) = true
-          · rw [if_pos_walk hc] at h
+          by_cases hck : (decide (st0.1 = a) && c.subsorts.contains (a, b)) = true
+          · rw [if_pos_walk hck] at h
             cases h
-            simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-            exact nodInj_sound hA hB h1 hc.1.1 hc.1.2 hc.2
-          · rw [if_neg_arm hc] at h; cases h
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at hck
+            exact nodInj_sound hc hA hB h1 hck.1 hck.2
+          · rw [if_neg_arm hck] at h; cases h
   · cases h
 
 end Sound
@@ -347,7 +345,7 @@ mutual
   as a value where total. -/
   theorem nodTy_sound {c : Semantics} {isN : String → Bool} {ar : String → Nat} {nA : String → List Srt}
       {nR : String → Option (Srt × Bool)} {G : String → List GroundTerm → Option GroundTerm}
-      {vs : List (Kore.EVar × Srt)} {σ : List (Kore.EVar × GroundTerm)}
+      {vs : List (Kore.EVar × Srt)} {σ : List (Kore.EVar × GroundTerm)} (hc : c.coreOK = true)
       (hσ : ∀ x s, nodLook vs x = some s → ∃ w, armLookup σ x = some w ∧ c.sortOf w = some s) :
       ∀ p : Kore.Pattern, (∀ n ∈ armHeads p, isN n = true → NodGOK c nA nR G n) → ∀ st,
         nodTy c isN ar nA nR vs p = some st → NodOK c (armVal c isN ar G σ p) st
@@ -372,12 +370,12 @@ mutual
       by_cases hi : (h.ident.name == "inj") = true
       · rw [if_pos_walk hi] at ht ⊢
         rw [armVals_eq]
-        exact nodInjTy_sound (fun sts h => nodTys_sound hσ ps hGs sts h) ht
+        exact nodInjTy_sound hc (fun sts h => nodTys_sound hc hσ ps hGs sts h) ht
       · rw [if_neg_arm hi] at ht ⊢
         by_cases hs : ss.isEmpty = true
         · rw [if_pos_walk hs] at ht ⊢
           obtain ⟨sts, hts, hh⟩ := Option.bind_eq_some_iff.mp ht
-          have hall := nodTys_sound hσ ps hGs sts hts
+          have hall := nodTys_sound hc hσ ps hGs sts hts
           rw [← armVals_eq] at *
           unfold armApp
           rcases nod_args hall with ⟨he, htot⟩ | ⟨he, ws, hws, hss⟩
@@ -435,7 +433,7 @@ mutual
     termination_by structural p => p
   theorem nodTys_sound {c : Semantics} {isN : String → Bool} {ar : String → Nat} {nA : String → List Srt}
       {nR : String → Option (Srt × Bool)} {G : String → List GroundTerm → Option GroundTerm}
-      {vs : List (Kore.EVar × Srt)} {σ : List (Kore.EVar × GroundTerm)}
+      {vs : List (Kore.EVar × Srt)} {σ : List (Kore.EVar × GroundTerm)} (hc : c.coreOK = true)
       (hσ : ∀ x s, nodLook vs x = some s → ∃ w, armLookup σ x = some w ∧ c.sortOf w = some s) :
       ∀ ps : List Kore.Pattern, (∀ n ∈ armHeadsL ps, isN n = true → NodGOK c nA nR G n) → ∀ sts,
         nodTys c isN ar nA nR vs ps = some sts → All2 (NodOK c) (ps.map (armVal c isN ar G σ)) sts
@@ -449,8 +447,8 @@ mutual
         | none => rw [h1, h2] at h; cases h
         | some sts' =>
           rw [h1, h2] at h; cases h
-          exact .cons (nodTy_sound hσ p (fun n hn => hG n (by rw [armHeadsL]; exact List.mem_append_left _ hn)) st h1)
-            (nodTys_sound hσ ps (fun n hn => hG n (by rw [armHeadsL]; exact List.mem_append_right _ hn)) sts' h2)
+          exact .cons (nodTy_sound hc hσ p (fun n hn => hG n (by rw [armHeadsL]; exact List.mem_append_left _ hn)) st h1)
+            (nodTys_sound hc hσ ps (fun n hn => hG n (by rw [armHeadsL]; exact List.mem_append_right _ hn)) sts' h2)
     termination_by structural ps => ps
 end
 
@@ -741,7 +739,7 @@ theorem nodR_nodist {c : Semantics} {names : List String} {eqs : List Parse.RawE
   simp only [nodRAt, he, hx]
 
 /-- **The names' `G` read from the text is of the names' sorts**, for every name. -/
-theorem nod_G_ok {c : Semantics} {eqs : List Parse.RawEqn} {names order : List String}
+theorem nod_G_ok {c : Semantics} {eqs : List Parse.RawEqn} {names order : List String} (hc : c.coreOK = true)
     (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩) (hR : armRankB order eqs = true)
     (hchk : nodOrderB c names eqs order = true) :
     ∀ n, NodGOK c (nodA c eqs order) (nodR c names eqs order) (armGOf c eqs names order (armBase c eqs)) n := by
@@ -765,10 +763,10 @@ theorem nod_G_ok {c : Semantics} {eqs : List Parse.RawEqn} {names order : List S
         rw [nodR_nodist hl hx] at hst; cases hst
       | some xs =>
         intro ws hws st hst
-        have hc := List.all_eq_true.mp hchk n (List.contains_iff_mem.mp hn)
-        rw [hl] at hc; dsimp only at hc; rw [hx] at hc; dsimp only at hc; rw [hst] at hc; dsimp only at hc
-        simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-        obtain ⟨hlen, hty⟩ := hc
+        have hck := List.all_eq_true.mp hchk n (List.contains_iff_mem.mp hn)
+        rw [hl] at hck; dsimp only at hck; rw [hx] at hck; dsimp only at hck; rw [hst] at hck; dsimp only at hck
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at hck
+        obtain ⟨hlen, hty⟩ := hck
         have hfix := armG_fix c names.contains (armAr eqs) order eqs (armBase c eqs) hR hl hx ws
         have hA : nodA c eqs order n = xs.filterMap fun x => armSrt c x.sort := by simp only [nodA, hl, hx]
         have hσ := nod_zip_look (c := c) (xs := xs) (ws := ws) (by rw [hA, hlen]) hws
@@ -779,30 +777,11 @@ theorem nod_G_ok {c : Semantics} {eqs : List Parse.RawEqn} {names order : List S
           | none => exact hnone h hl'
           | some _ =>
             exact ih _ (by rw [← hm]; exact armRank_of order eqs hR hl hh (armLook_order order eqs hl')) h rfl
-        obtain ⟨o, ho, hv, ht⟩ := nodTy_sound hσ e.rhs hG st (by rw [hty])
+        obtain ⟨o, ho, hv, ht⟩ := nodTy_sound hc hσ e.rhs hG st (by rw [hty])
         have hGn : armGOf c eqs names order (armBase c eqs) n ws = o := by
           rw [armGOf, hfix, ho]; rfl
         rw [hGn]
         exact ⟨hv, ht⟩
-
-/-! ## The model, and an injection over an injection -/
-
-/-- **An injection over a value of a subsort denotes its normalised injection** (`injNormal`), by
-the theory's injection coherence (`den_inj_gs`, `den_injNormal_gs`), the value itself an
-injection or not. -/
-theorem nod_injN {c : Semantics} {N : String → Prop} {ar : String → Nat} {G : String → List GroundTerm → Option GroundTerm}
-    {I : Interpretation KoreAML.Sym Elem} (hM : InitModel c N ar G I) (hc : c.coreOK = true) {a b : Srt}
-    {ψ : KoreAML.P} {w : GroundTerm} (h : DenV c I ψ w) (hw : c.sortOf w = some a) (hab : (a, b) ∈ c.subsorts) :
-    DenV c I (KoreAML.appList (KoreAML.sym (.symbol "inj"))
-      [KoreAML.Cons.sortP (c.sortName a), KoreAML.Cons.sortP (c.sortName b), ψ]) (injNormal a b w) := by
-  haveI : OvlOK c := ovlOK_of_core hc
-  have hI : I ⊧ᴵP Γ c := fun φ hφ => hM.sat φ (Or.inl (Or.inl hφ))
-  have htr := CE.injValue_subsorts_trans hc
-  have hs := sortOf_injNormal htr hab hw
-  refine ⟨⟨b, hs⟩, fun ρ m => ?_⟩
-  rw [inj_den a b (fun m => (h.2 ρ m).trans (hM.vals w a hw ρ m).symm) m]
-  rw [Faithful.den_inj_gs hI hw ρ m, ← Faithful.den_injNormal_gs hI htr hab hw ρ m]
-  exact hM.vals _ b hs ρ m
 
 /-! ## The equations at every list of values -/
 
@@ -892,13 +871,13 @@ include hM
 
 /-- **An initializer's equation the arm takes holds at every list of values of its variables'
 sorts.** -/
-theorem nod_init_eqn (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩)
+theorem nod_init_eqn (hc : c.coreOK = true) (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩)
     (hR : armRankB order eqs = true) (hord : order.all names.contains = true) (hchk : nodOrderB c names eqs order = true)
     {Nm : Parse.Names} {msrc : String} {x : Cell} {e : Parse.RawEqn} (he : e ∈ eqs)
     (hok : Parse.initEqnOK Nm msrc eqs c x e = true) (hL : order.contains (x.initLabel c) = true)
     (hsome : (nodR c names eqs order e.fn).isSome = true) : NodEqn c I e := by
   obtain ⟨hf, h1, xs, hx⟩ := armInitEqnOK_parts hok
-  obtain ⟨xs', hx', hall⟩ := init_arm_eqn (base := armBase c eqs) hM hR hord he hok hL
+  obtain ⟨xs', hx', hall⟩ := init_arm_eqn (base := armBase c eqs) hM hc hR hord he hok hL
   rw [hx] at hx'; cases hx'
   have hv : armVarsL e.pats = xs := by rw [(armDistinct_spec hx).1, nod_armVarsL_vars]
   intro ws hws
@@ -907,16 +886,16 @@ theorem nod_init_eqn (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem,
   have hn : order.contains e.fn = true := hf ▸ hL
   have hlook : armLook order eqs e.fn = some e := by
     unfold armLook; rw [if_pos_walk hn, armFind_of_unique rfl he (hf ▸ h1)]
-  have hc := List.all_eq_true.mp hchk e.fn (List.contains_iff_mem.mp hn)
+  have hck := List.all_eq_true.mp hchk e.fn (List.contains_iff_mem.mp hn)
   obtain ⟨st, hst⟩ := Option.isSome_iff_exists.mp hsome
-  rw [hlook] at hc; dsimp only at hc; rw [hx] at hc; dsimp only at hc; rw [hst] at hc; dsimp only at hc
-  simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-  obtain ⟨hlen, hty⟩ := hc
+  rw [hlook] at hck; dsimp only at hck; rw [hx] at hck; dsimp only at hck; rw [hst] at hck; dsimp only at hck
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hck
+  obtain ⟨hlen, hty⟩ := hck
   have hA : nodA c eqs order e.fn = xs.filterMap fun x => armSrt c x.sort := by simp only [nodA, hlook, hx]
   have hσ := nod_zip_look (c := c) (xs := xs) (ws := ws) (ss := nodA c eqs order e.fn) (by rw [hA, hlen])
     (by rw [hA]; exact hso)
-  have hG := nod_G_ok (names := names) hk hR hchk
-  obtain ⟨o, ho, -, -⟩ := nodTy_sound hσ e.rhs (fun n _ _ => hG n) st (by rw [hty])
+  have hG := nod_G_ok (names := names) hc hk hR hchk
+  obtain ⟨o, ho, -, -⟩ := nodTy_sound hc hσ e.rhs (fun n _ _ => hG n) st (by rw [hty])
   exact (hall ws hl (nodVals_sorted hws) o ho).2
 
 omit hM in
@@ -969,7 +948,7 @@ theorem nod_proj_eqn (hc : c.coreOK = true) (hfix : nodFixedB c = true) {e : Par
           have htr := CE.injValue_subsorts_trans hc
           have hsub' : (x', Srt.kitem) ∈ c.subsorts := List.contains_iff_mem.mp hsub
           have d1 : DenV c I (KoreAML.den (w.kore c)) w := hM.val hws1
-          have d2 := nod_injN hM hc d1 hws1 hsub'
+          have d2 := hM.injN hc d1 hws1 hsub'
           have hdot : c.sortOf (.ctor dotk []) = some Srt.k := nod_sortOf_ctor hds rfl
           have d3 : DenV c I (KoreAML.appList (symP (c.symName dotk)) []) (.ctor dotk []) := hM.ctor .nil hdot
           have hsK : c.sortOf (.ctor kseq [injNormal x' Srt.kitem w, .ctor dotk []]) = some Srt.k :=
@@ -1129,13 +1108,13 @@ theorem nod_getter_eqn {e e' : Parse.RawEqn} (hnm : names.contains e.fn = true) 
 
 /-- **A constant initializer's `functional` axiom holds**, where its right side is of a sort and
 always has a value. -/
-theorem nod_const_functional (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩)
+theorem nod_const_functional (hc : c.coreOK = true) (hk : lookupSig c.ctorSigs kseq = some ⟨kseq, [Srt.kitem, Srt.k], Srt.k⟩)
     (hR : armRankB order eqs = true) (hchk : nodOrderB c names eqs order = true) {L : String} {e : Parse.RawEqn}
     (hn : names.contains L = true) (hlk : armLook order eqs L = some e) (hx : Parse.distinctEVars? e.pats = some [])
     (har : armAr eqs L = 0) {s : Srt} (hs : nodR c names eqs order L = some (s, true)) (y : EVar) :
     I ⊧ᴵ KoreAML.sExists y (KoreAML.Cons.sortP (c.sortName s)) (.evar y ≡ KoreAML.appList (symP L) []) := by
   have hA : nodA c eqs order L = [] := by simp only [nodA, hlk, hx, List.filterMap_nil]
-  obtain ⟨hv, ht⟩ := nod_G_ok (names := names) hk hR hchk L [] (by rw [hA]; rfl) (s, true) hs
+  obtain ⟨hv, ht⟩ := nod_G_ok (names := names) hc hk hR hchk L [] (by rw [hA]; rfl) (s, true) hs
   obtain ⟨v, hgv⟩ := Option.isSome_iff_exists.mp (ht rfl)
   have hsv := hv v hgv
   exact hM.functional (hM.name hn .nil har.symm hgv hsv) hsv y
@@ -1231,7 +1210,7 @@ theorem nod_eqB {c : Semantics} {Nm : Parse.Names} {msrc : String} {eqs : List P
       | some x =>
         rw [hx, hf] at hacc
         have hxL : x.initLabel c = e.fn := by have := List.find?_some hx; exact beq_iff_eq.mp this
-        exact nodEqn_congr hfn hpa hrh (nod_init_eqn hM hk hR hord hchk he' hacc (by rw [hxL]; exact hin) (by rw [hfn]; exact hsome))
+        exact nodEqn_congr hfn hpa hrh (nod_init_eqn hM hc hk hR hord hchk he' hacc (by rw [hxL]; exact hin) (by rw [hfn]; exact hsome))
     · have hnl' : armLook order eqs e.fn = none := Option.isNone_iff_eq_none.mp hnl
       rcases hsh with ((hp | hp) | hp) | hp
       · obtain ⟨⟨v, x⟩, hvx⟩ := Option.isSome_iff_exists.mp hp
@@ -1300,7 +1279,7 @@ theorem nod_instance (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (Nm :
             cases hs'
             have : s0 = s := of_decide_eq_true hsr
             subst this
-            exact nod_const_functional hM hk hR hchk hn hl hx har hR0 y
+            exact nod_const_functional hM hc hk hR hchk hn hl hx har hR0 y
           · cases hsr
 
 /-! ## Under every interpretation of the parameters -/
