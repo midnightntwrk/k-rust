@@ -32,7 +32,7 @@
   clauses of those 19 sentences (`c19_items`: its equations are those 19 sentences and the sort
   predicates' 31, as written), evaluates maxRat(<1,1>Rat, 1) to <1,1>Rat and `_>=Rat_`(1, <1,1>Rat)
   to `true`, the second equation's `requires` (`c19_evals`). That is a computation: `c19` is not
-  `ok`, and `no_model_text` is stated of the premise set with all 74 sentences, not of the 19 alone.
+  `ok` (`c19_not_ok`), and `no_model_text` is stated of the premise set with all 74 sentences, not of the 19 alone.
 
   Run from the package root: `lake env lean -j1 test/TieE6ParamRatNoModel.lean` (peak 5.7 GiB under
   a 12 GiB scope, about 80 s).
@@ -282,6 +282,10 @@ second equation's `requires` `_>=Rat_`(1, <1,1>Rat) the value `true`.** -/
 theorem c19_evals : Cert.evalFC c19 60 maxRat [pair 1, one] = some (some (pair 1)) ∧
     Cert.evalFC c19 60 geRat [one, pair 1] = some (some (bool true)) := by decide +kernel
 
+/-- `c19` is not `ok`: what `Eval` and the evaluator's soundness ask of a reading does not hold of it,
+so `c19_evals` is a computation only. -/
+theorem c19_not_ok : c19.ok = false := by decide +kernel
+
 end KCore.TieE6ParamRatNoModel
 
 #check @KCore.TieE6ParamRatNoModel.coreOK
@@ -300,6 +304,7 @@ end KCore.TieE6ParamRatNoModel
 #check @KCore.TieE6ParamRatNoModel.heads19
 #check @KCore.TieE6ParamRatNoModel.c19_items
 #check @KCore.TieE6ParamRatNoModel.c19_evals
+#check @KCore.TieE6ParamRatNoModel.c19_not_ok
 #print axioms KCore.TieE6ParamRatNoModel.coreOK
 #print axioms KCore.TieE6ParamRatNoModel.maxRat_first
 #print axioms KCore.TieE6ParamRatNoModel.maxRat_second
@@ -314,3 +319,4 @@ end KCore.TieE6ParamRatNoModel
 #print axioms KCore.TieE6ParamRatNoModel.heads19
 #print axioms KCore.TieE6ParamRatNoModel.c19_items
 #print axioms KCore.TieE6ParamRatNoModel.c19_evals
+#print axioms KCore.TieE6ParamRatNoModel.c19_not_ok
