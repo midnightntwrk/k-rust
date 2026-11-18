@@ -1,0 +1,2 @@
+# a production of the text labelled inj: kompile's frontend fails (IndexOutOfBoundsException)
+expect = "error"
