@@ -1,8 +1,8 @@
 /-
   Overloads by functions: semantics built by hand from the fixtures' kompiled sentences, the facts
-  that hold of them now, and the expectations the function-overload construct is to meet, as
-  propositions to prove (`expect`, `expectOvlfun`, `expectLhs` in each namespace, elaborated here, proved by the tickets that build the
-  construct). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
+  that hold of them now, and the expectations the function-overload construct meets, as
+  propositions (`expect`, `expectOvlfun`, `expectLhs` in each namespace), each proved here
+  (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
 
   Each semantics has the configuration `<generatedTop>(<k>(K), C)`, its own sorts numbered from
   `nRegSorts` and its own symbols from `nRegSyms` (the sort predicates first, then constructors,
@@ -28,13 +28,19 @@
     `Γ`, and the account's note states it only as a condition.
   - `ovlfun` (f2-examples/ovlfun.k): `capGas : Gas → Gas` overloads the total function
     `capN : N → N`, N < Gas, `capN(z #as G0) = G0`, and the rule `run(G) => done(cap(G))`. Expected:
-    `capGas(inj z)` evaluates to `inj z`; `coreOK`, `FnHyp`, `Consistent`.
+    `capGas(inj z)` evaluates to `inj z`; `coreOK`, `FnHyp`, `Consistent` (`Cap.expect_ovlfun`; the
+    one fact `FnHyp` names is the totality of `capN`, proved from N holding `z` only). Argued, not
+    kernel-checked: the text has a model, `capN` being total, injective on the one value of N and
+    `inj z` being no application of the constructor `inf`; kernel-checked is that `Γ` has one
+    (`Consistent`), with the items of `capGas` at uncovered arguments (`Cap.model_capGas_items`).
   - `keep` (e5-ovl-fun-keep): the overload keeps the result sort: `capN : N → Gas` total,
     `capN(z) = inf`, the overload equation `capGas(inj X0) = capN(X0)` (no injection on the right).
-    Expected: `capGas(inj z)` evaluates to `inf`; `coreOK`, `FnHyp`, `Consistent`.
+    Expected: `capGas(inj z)` evaluates to `inf`; `coreOK`, `FnHyp`, `Consistent` (`Keep.expect_keep`).
   - `lhs` (e5-ovl-fun-lhs): `ovlfun`'s signature with the rule `run(cap(G)) => done(G)`: `capGas`
     in a left side. The left side is not sorted over `patCtxNF`, so `sortedOK` is false
-    (`sorted_lhs`), and `ovlPatsOK` is false (`fnOvl_facts`); expected: `coreOK` false.
+    (`sorted_lhs`), and `ovlPatsOK` is false (`fnOvl_facts`); expected: `coreOK` false (`Admit.coreOK_lhs`). The
+    fixture's kompiled text is not this semantics: its rule is read with a variable in place of the
+    application and the membership as its predicate.
   - `chain b` (REVIEW-CN4 finding B): `plusExp : Exp Exp → Exp` over the function `plusInt`,
     `plusBig : Big Big → Big` over `plusExp` (and `plusInt` where `b`), Int < Exp < Big. Without
     `plusInt` in `plusBig`'s list, `plusBig` is not function-overloaded (`fnOvlSyms`); with it,
@@ -917,5 +923,182 @@ theorem expect_chain : expect :=
 #guard_msgs in #print axioms expect_chain
 
 end Chain
+
+/-! ## ovlfun and e5-ovl-fun-keep: the functions' hypotheses, and what was expected -/
+
+/-- A sort whose one generator is a constant holds that constant only: no other constructor, no
+overloading symbol and no raw parameter ends at it, nothing is below it, and it has neither
+literals nor collections. -/
+theorem onlyConst_ftf {c : Semantics} {s : Srt} {k0 : CtorSig} (ha : k0.args = [])
+    (hk : ∀ k ∈ c.ctorSigs, k.result = s → k = k0)
+    (ho : ∀ o ∈ c.ovls, o.sig.result ≠ s)
+    (hp : ∀ k ∈ c.params, k.raw = false)
+    (hsub : ∀ p ∈ c.subsorts, p.2 ≠ s)
+    (hdv : ∀ lit, dvOK c.lib s lit = false)
+    (hcoll : c.collOf s = none)
+    {v : GroundTerm} (h : c.sortOf v = some s) : v = .ctor k0.name [] := by
+  cases v with
+  | ctor f ts =>
+    rcases c.sortOf_ctor_iff.mp h with ⟨k, hk', hs, hr⟩ | ⟨-, o, hlo, -, -, hr⟩ | ⟨-, -, k, hko, -⟩
+    · obtain ⟨hm, hn⟩ := lookupSig_spec hk'
+      have := hk k hm hr.symm
+      subst this
+      rw [ha] at hs
+      rw [sortsOf_inv_nil hs, hn]
+    · obtain ⟨-, i, hi, he, -⟩ := OvlLaws.lookupOvl_spec hlo
+      exact absurd hr.symm (ho o (he ▸ List.getElem_mem hi))
+    · obtain ⟨hm, hraw, -⟩ := Semantics.lookupOpen_spec _ hko
+      rw [hp k hm] at hraw; cases hraw
+  | inj a b t =>
+    simp only [Semantics.sortOf] at h
+    split at h
+    · rename_i hc
+      cases h
+      simp only [Bool.and_eq_true] at hc
+      exact absurd rfl (hsub _ (List.contains_iff_mem.mp hc.1.1))
+    · cases h
+  | dv s' lit =>
+    simp only [Semantics.sortOf] at h
+    split at h
+    · rename_i hc; cases h; rw [hdv lit] at hc; cases hc
+    · cases h
+  | map s' es =>
+    obtain ⟨rfl, hc⟩ := sortOf_map_sort h
+    rw [hcoll] at hc; cases hc
+  | set s' es =>
+    obtain ⟨rfl, hc⟩ := sortOf_set_sort h
+    rw [hcoll] at hc; cases hc
+  | list s' es =>
+    obtain ⟨rfl, hc⟩ := sortOf_list_sort h
+    rw [hcoll] at hc; cases hc
+
+/-- A sort that is no carrier of literals has none. -/
+theorem noLit_ftf {l : Lib} {s : Srt}
+    (h : (l.carrier s == Srt.int || l.carrier s == Srt.bool || l.carrier s == Srt.kconfigVar ||
+      l.carrier s == Srt.string || l.tokenSorts.contains (l.carrier s) || l.carrier s == Srt.bytes ||
+      l.byteSorts.contains (l.carrier s) || l.carrier s == Srt.float) = false) (lit : Lit) :
+    dvOK l s lit = false := by
+  simp only [Bool.or_eq_false_iff] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
+  cases lit <;> simp only [dvOK, h1, h2, h3, h4, h5, h6, h7, h8, Bool.false_and, Bool.or_self]
+
+namespace Cap
+
+open Det
+
+theorem noRaw_ovlfun : ∀ k ∈ ovlfun.params, k.raw = false := by decide +kernel
+theorem confined_ovlfun : ovlfun.readsConfined = false := by decide +kernel
+theorem valued_ovlfun : ovlfun.rightValued = true := by decide +kernel
+theorem term_ovlfun : ovlfun.rankObligations [capN] ++ ovlfun.decObligationsL = [] := by decide +kernel
+theorem total_ovlfun : ovlfun.totalObligationsRP [capN] [] = [capN] := by decide +kernel
+theorem agree_ovlfun : ovlfun.agreeObligationsI = [] := by decide +kernel
+theorem match_ovlfun : ovlfun.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+/-- N holds `z` only. -/
+theorem val_N {v : GroundTerm} (h : ovlfun.sortOf v = some nS) : v = .ctor z [] :=
+  onlyConst_ftf (k0 := ⟨z, [], nS⟩) rfl (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (noLit_ftf (by decide +kernel)) (by decide +kernel) h
+
+/-- **`capN` is `Total`**: its one clause decides at `z`, the one value of N. -/
+theorem total_capN : Total ovlfun capN := fun fn' hfn' vs hvs => by
+  have hfn : ovlfun.lookupFn capN = some capNFn := by rw [Semantics.lookupFn_eq]; rfl
+  obtain rfl : fn' = capNFn := Option.some.inj (hfn'.symm.trans hfn)
+  obtain ⟨w, ws', rfl, hw, hws⟩ := sortsOf_inv_cons (show ovlfun.sortsOf vs = some [nS] from hvs)
+  cases sortsOf_inv_nil hws
+  cases val_N hw
+  exact ⟨_, eval_capN_z⟩
+
+/-- **`FnHyp`**: the one fact named is the totality of `capN`. -/
+theorem fnHyp_ovlfun : FnHyp ovlfun :=
+  fnHyp_of_fnObligations (ord := [capN]) (tp := []) Admit.coreOK_ovlfun
+    (Semantics.rightHeld_of_valued valued_ovlfun) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_ovlfun] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_ovlfun] at hf; rw [List.mem_singleton.mp hf]; exact total_capN,
+     fun f hf => by rw [agree_ovlfun] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_ovlfun] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_readsConfined confined_ovlfun, openLaws_of_plain noRaw_ovlfun⟩
+
+/-- **`Consistent`.** -/
+theorem consistent_ovlfun : Consistent ovlfun := consistent_of_fnHyp _ Admit.coreOK_ovlfun fnHyp_ovlfun
+
+/-- **What was expected of ovlfun.** -/
+theorem expect_ovlfun : expectOvlfun := ⟨Admit.coreOK_ovlfun, fnHyp_ovlfun, consistent_ovlfun, evalTerm_capZ⟩
+
+/-- info: 'OvlFun.Cap.expect_ovlfun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms expect_ovlfun
+
+end Cap
+
+namespace Keep
+
+open Det
+
+theorem noRaw_keep : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem confined_keep : c.readsConfined = false := by decide +kernel
+theorem valued_keep : c.rightValued = true := by decide +kernel
+theorem term_keep : c.rankObligations [capN] ++ c.decObligationsL = [] := by decide +kernel
+theorem total_keep : c.totalObligationsRP [capN] [] = [capN] := by decide +kernel
+theorem agree_keep : c.agreeObligationsI = [] := by decide +kernel
+theorem match_keep : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+def capGasO : OvlSig := ⟨⟨capGas, [gasS], gasS⟩, [capN]⟩
+def capNSig : CtorSig := ⟨capN, [nS], gasS⟩
+def capNCl : Clause := { vars := [], pats := [.app z []], req := none, rhs := .app inf [], ens := none }
+
+/-- **`capN(z)` evaluates to `inf`**, by its one clause. -/
+theorem eval_capN_z : Eval c capN [.ctor z []] (some (.ctor inf [])) :=
+  .clause (fn := capNFn) (cl := capNCl) (σ := [])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by simp [capNCl] at h)
+    (.cons (.ctor (by decide +kernel) .nil) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNCl := by simpa [capNFn, capNCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    rfl (.ctor (f := inf) (rs := []) (by decide +kernel) .nil) (fun t ht => by cases ht) .top
+
+/-- N holds `z` only. -/
+theorem val_N {v : GroundTerm} (h : c.sortOf v = some nS) : v = .ctor z [] :=
+  onlyConst_ftf (k0 := ⟨z, [], nS⟩) rfl (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (noLit_ftf (by decide +kernel)) (by decide +kernel) h
+
+/-- **`capN` is `Total`**: its one clause decides at `z`, the one value of N. -/
+theorem total_capN : Total c capN := fun fn' hfn' vs hvs => by
+  have hfn : c.lookupFn capN = some capNFn := by rw [Semantics.lookupFn_eq]; rfl
+  obtain rfl : fn' = capNFn := Option.some.inj (hfn'.symm.trans hfn)
+  obtain ⟨w, ws', rfl, hw, hws⟩ := sortsOf_inv_cons (show c.sortsOf vs = some [nS] from hvs)
+  cases sortsOf_inv_nil hws
+  cases val_N hw
+  exact ⟨_, eval_capN_z⟩
+
+/-- **`FnHyp`**: the one fact named is the totality of `capN`. -/
+theorem fnHyp_keep : FnHyp c :=
+  fnHyp_of_fnObligations (ord := [capN]) (tp := []) Admit.coreOK_keep
+    (Semantics.rightHeld_of_valued valued_keep) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_keep] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_keep] at hf; rw [List.mem_singleton.mp hf]; exact total_capN,
+     fun f hf => by rw [agree_keep] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_keep] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_readsConfined confined_keep, openLaws_of_plain noRaw_keep⟩
+
+/-- **`Consistent`.** -/
+theorem consistent_keep : Consistent c := consistent_of_fnHyp _ Admit.coreOK_keep fnHyp_keep
+
+/-- **A covered application evaluates to the function's value, in its own sort** (`EvalTerm.ovlFn`):
+`capGas(inj{N,Gas}(z))` evaluates to `inf`, the value of `capN(z)`, which is of Gas. -/
+theorem evalTerm_capZ : EvalTerm c [] capZ (some (.ctor inf [])) :=
+  EvalTerm.ovlFn (rs := [some (.inj nS gasS (.ctor z []))]) (vs := [.inj nS gasS (.ctor z [])])
+    (o := capGasO) (kg := capNSig) (r := some (.ctor inf []))
+    (by decide +kernel) (by decide +kernel)
+    (.cons (.inj (.ctor (f := z) (rs := []) (by decide +kernel) .nil)) .nil) rfl
+    (by decide +kernel) (by decide +kernel) eval_capN_z
+
+/-- **What was expected of e5-ovl-fun-keep.** -/
+theorem expect_keep : expect := ⟨Admit.coreOK_keep, fnHyp_keep, consistent_keep, evalTerm_capZ⟩
+
+/-- info: 'OvlFun.Keep.expect_keep' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms expect_keep
+
+end Keep
 
 end OvlFun
