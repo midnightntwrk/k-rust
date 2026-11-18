@@ -1,8 +1,11 @@
 /-
   An equation with `\or` on its right side, of a function declared `total`: the expectations of
   fixture `e3-ml-eq-rhs-or-total` (test/constructs/fixtures), derived from its sentence, written as
-  propositions on semantics built by hand (`expect…`, elaborated here, to be proved; their
-  `coreOK` conjunct is `coreOK_now`). Run from the package root:
+  propositions on semantics built by hand (`expect…`) and proved (`Fx.expect_holds`,
+  `Pt.expectCore_holds`, `Pt.expectAgree_holds`, `Pt.expectOneUndefined_holds`,
+  `Pt.expectDiffer_holds`, `Pt.expectNeither_holds`): h's results at x are f's and g's there
+  (`evalH_inv`, `evalH_f`, `evalH_g`, `evalH_none`), and where two differ `Γc` has no model
+  (`Fx.no_model`, `Pt.no_model`: h(1) would denote the elements of 1 and -1, which are apart). Run from the package root:
   `lake env lean -j1 test/EqRhsOr.lean`. Kernel-checked (`decide +kernel`): for `Fx` and `Pt`, every
   condition of `coreOK` but `clausesPlain` (`sortedRest_ok`, `coreRest_ok`), CN-4 §4.9's final
   clause conjunct (`clauseE3_ok`), `clausesPlain` itself, which admits h's predicates since no
@@ -47,8 +50,12 @@
   Bool, which is confined (`DB`, the shape `k(X) => (X andBool Z) #Or X`), the final conjunct
   admits the three clauses (`DB.clauseE3_ok`) and so does `clausesPlain` (`DB.clausesPlain_now`).
 
-  Reader expectations, to run on the fixtures with that reader: `e3-ml-eq-rhs-or-total` read as
-  `Fx`'s clauses of h; `e3-ml-eq-rhs-or` (h not `total`) refused `manyValuedRightSide`.
+  The reader (`runOr`, on the kompiled texts): `e3-ml-eq-rhs-or-total` is read with h's clauses
+  `hCl1`, `hCl2`, `hCl3` and `Fx`'s functions (the text's numbering of f, g, h is `sem`'s);
+  `e3-ml-eq-rhs-or` (h not `total`) and `e3-ml-eq-rhs-or-many` (nine alternatives) are refused
+  `manyValuedRightSide`, with their whole details. By the kernel, the reader's clauses of h on that
+  text are `Parse.frClauses`' (test/ReaderWire.lean `Stages.cls2_frClauses`), which `frClauses_h`
+  equates with `hCl1`, `hCl2`, `hCl3`.
 -/
 import KcoreSpec
 
@@ -321,6 +328,548 @@ theorem clausesPlain_now : c.clausesPlain = true := by decide +kernel
 
 end DB
 
+
+/-! ## The expectations, proved
+
+h's results at an integer x are read from f's and g's there (`evalH_inv`, `evalH_f`, `evalH_g`,
+`evalH_none`), each of f and g having one result at x (`Uniq`); f's and g's from their one clause
+(`eval1_iff`). -/
+
+section Results
+
+variable {c : Semantics}
+
+/-- The substitution that gives X the value v. -/
+def sg (v : GroundTerm) : Subst := [(0, v)]
+
+theorem sg_sorted (x : Int) : c.WellSorted [Srt.int] (sg (iv x)) := by
+  intro i s hs
+  cases i with
+  | zero =>
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hs
+    subst hs
+    exact ⟨iv x, rfl, rmS_sortOf_int c x⟩
+  | succ i => simp at hs
+
+theorem sg_sortedAt (x : Int) (is : List Nat) : c.WellSortedAt [Srt.int] is (sg (iv x)) :=
+  fun i _ s hs => sg_sorted x i s hs
+
+theorem sg_match (v : GroundTerm) : PatVals c (sg v) [.var 0] [v] := .cons (.var rfl) .nil
+
+theorem match0 {σ : Subst} {vs : List GroundTerm} (h : PatVals c σ [.var 0] vs) :
+    ∃ v, vs = [v] ∧ σ.lookup 0 = some v := by
+  obtain ⟨v, vs', rfl, hv, hs⟩ := PatVals.cons_inv h
+  rw [PatVals.nil_inv hs]
+  exact ⟨v, rfl, PatVal.var_inv hv⟩
+
+/-- f, g or h's symbol is a function's: no constructor, hook, parameter or overloading symbol. -/
+def IsFn (c : Semantics) (k : Sym) : Prop :=
+  c.isCtor k = false ∧ isHook k = false ∧ c.isParam k = false ∧ c.isOvl k = false
+
+/-- The one result of a term under σ, X being x. -/
+def Uniq (c : Semantics) (σ : Subst) (t : Term) (r : Option GroundTerm) : Prop :=
+  ∀ w, EvalTerm c σ t w ↔ w = r
+
+theorem uniq_var {σ : Subst} {x : Int} (hl : σ.lookup 0 = some (iv x)) : Uniq c σ (.var 0) (some (iv x)) :=
+  fun _ => ⟨fun h => (EvalTerm.var_inv h).trans hl, fun h => h ▸ hl ▸ .var⟩
+
+theorem uniq_dv {σ : Subst} (s : Srt) (l : Lit) : Uniq c σ (.dv s l) (some (.dv s l)) :=
+  fun _ => ⟨fun h => EvalTerm.dv_inv h, fun h => h ▸ .dv⟩
+
+/-- A hooked symbol of two arguments, each with one result: the hook's result. -/
+theorem uniq_hook2 {f : Sym} (hc : c.isCtor f = false) (hh : isHook f = true) (ho : c.isOvl f = false)
+    {σ : Subst} {t u : Term} {a b : GroundTerm} {r : Option GroundTerm}
+    (ht : Uniq c σ t (some a)) (hu : Uniq c σ u (some b)) (hr : c.hookRes f [a, b] = some r) :
+    Uniq c σ (.app f [t, u]) r := by
+  intro w
+  constructor
+  · intro h
+    cases h with
+    | ctor hk _ => exact absurd (hc.symm.trans hk) (by simp)
+    | hook _ _ hts hres _ =>
+      cases hts with
+      | cons h1 hs =>
+        cases hs with
+        | cons h2 hs' =>
+          cases hs'
+          obtain rfl := (ht _).mp h1
+          obtain rfl := (hu _).mp h2
+          exact Option.some.inj ((hres [a, b] rfl).symm.trans hr)
+    | param _ hhk _ _ _ => exact absurd (hh.symm.trans hhk) (by simp)
+    | call _ hhk _ _ _ _ => exact absurd (hh.symm.trans hhk) (by simp)
+    | callUndef _ hhk _ _ _ => exact absurd (hh.symm.trans hhk) (by simp)
+    | ovl _ hov _ _ => exact absurd (ho.symm.trans hov) (by simp)
+    | ovlFn _ hov _ _ _ _ _ => exact absurd (ho.symm.trans hov) (by simp)
+  · rintro rfl
+    exact .hook hc hh (.cons ((ht _).mpr rfl) (.cons ((hu _).mpr rfl) .nil))
+      (fun vs hvs => by
+        have : vs = [a, b] := Option.some.inj hvs.symm
+        subst this; exact hr)
+      (fun hn => nomatch hn)
+
+/-- A function applied to X: the function's result at x. -/
+theorem app_mk {k : Sym} (hk : IsFn c k) {σ : Subst} {x : Int} {r : Option GroundTerm}
+    (hl : σ.lookup 0 = some (iv x)) (he : Eval c k [iv x] r) : EvalTerm c σ (.app k [.var 0]) r :=
+  .call hk.1 hk.2.1 (.cons .var .nil) (by rw [hl]; rfl) he hk.2.2.1
+
+theorem app_inv {k : Sym} (hk : IsFn c k) {σ : Subst} {x : Int} {r : Option GroundTerm}
+    (hl : σ.lookup 0 = some (iv x)) (h : EvalTerm c σ (.app k [.var 0]) r) : Eval c k [iv x] r := by
+  cases h with
+  | ctor hc _ => exact absurd (hk.1.symm.trans hc) (by simp)
+  | hook _ hh _ _ _ => exact absurd (hk.2.1.symm.trans hh) (by simp)
+  | param _ _ hp _ _ => exact absurd (hk.2.2.1.symm.trans hp) (by simp)
+  | call _ _ hts hvs hf _ =>
+    cases hts with
+    | cons h1 hs =>
+      cases hs; cases h1
+      rw [hl] at hvs
+      obtain rfl := Option.some.inj hvs.symm
+      exact hf
+  | callUndef _ _ hts hvs _ =>
+    cases hts with
+    | cons h1 hs =>
+      cases hs; cases h1
+      rw [hl] at hvs
+      exact nomatch hvs
+  | ovl _ ho _ _ => exact absurd (hk.2.2.2.symm.trans ho) (by simp)
+  | ovlFn _ ho _ _ _ _ _ => exact absurd (hk.2.2.2.symm.trans ho) (by simp)
+
+/-- `⌈k(X)⌉` is whether k has a value at x. -/
+theorem ceil_inv {k : Sym} (hk : IsFn c k) {σ : Subst} {x : Int} {rk : Option GroundTerm}
+    (hl : σ.lookup 0 = some (iv x)) (hu : ∀ r, Eval c k [iv x] r ↔ r = rk) {n : Nat} {s : Srt} {b : Bool}
+    (h : Holds c n σ (.ceil s (.app k [.var 0])) b) : b = rk.isSome := by
+  cases h with
+  | ceil e => rw [(hu _).mp (app_inv hk hl e)]
+
+theorem ceil_mk {k : Sym} (hk : IsFn c k) {σ : Subst} {x : Int} {rk : Option GroundTerm}
+    (hl : σ.lookup 0 = some (iv x)) (hu : ∀ r, Eval c k [iv x] r ↔ r = rk) (n : Nat) (s : Srt) :
+    Holds c n σ (.ceil s (.app k [.var 0])) rk.isSome :=
+  .ceil (app_mk hk hl ((hu rk).mpr rfl))
+
+/-- `¬p ∧ ¬q` has the truth value of its two negations. -/
+theorem andNot_inv {n : Nat} {σ : Subst} {p q : Cond} {b : Bool} (h : Holds c n σ (.and (.not p) (.not q)) b) :
+    ∃ b1 b2, Holds c n σ p b1 ∧ Holds c n σ q b2 ∧ b = (!b1 && !b2) := by
+  cases h with
+  | and h1 h2 =>
+    cases h1 with
+    | not h1 =>
+      cases h2 with
+      | not h2 => exact ⟨_, _, h1, h2, rfl⟩
+
+/-- A function's one clause over the Int variable X: `X => rhs ensures ens`, of priority 50. -/
+def cl1 (rhs : Term) (ens : Option Term) : Clause := ⟨[Srt.int], [.var 0], none, rhs, ens, 50, false, [], .top, .top⟩
+
+/-- **A function of one clause** has, at x, the right side's result where the `ensures` is true
+(or absent), and no value where it is false. -/
+theorem eval1_iff {k : Sym} {fn : Fn} (hk : c.lookupFn k = some fn) {rhs : Term} {ens : Option Term}
+    (hcls : fn.clauses = [cl1 rhs ens]) {x : Int} {rr : Option GroundTerm} {ok : Bool}
+    (hrhs : ∀ σ : Subst, σ.lookup 0 = some (iv x) → Uniq c σ rhs rr)
+    (hens : ∀ σ : Subst, σ.lookup 0 = some (iv x) → ∀ t, ens = some t → Uniq c σ t (some (bool ok)))
+    (hnone : ens = none → ok = true) :
+    ∀ r, Eval c k [iv x] r ↔ r = (if ok then rr else none) := by
+  have hmem : cl1 rhs ens ∈ fn.clauses := by rw [hcls]; exact List.mem_singleton_self _
+  have hcl : ∀ {cl}, cl ∈ fn.clauses → cl = cl1 rhs ens := fun h => by rw [hcls] at h; exact List.mem_singleton.mp h
+  have hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < (cl1 rhs ens).prio → Fails c [iv x] cl' :=
+    fun cl' h _ hlt => by rw [hcl h] at hlt; exact absurd hlt (Nat.lt_irrefl _)
+  intro r
+  constructor
+  · intro h
+    cases h with
+    | clause hfn hc _ hm _ _ _ _ hr hen _ =>
+      obtain rfl := Option.some.inj (hk.symm.trans hfn)
+      obtain rfl := hcl hc
+      obtain ⟨w, hw, hl⟩ := match0 hm
+      cases hw
+      have hok : ok = true := by
+        cases he : ens with
+        | none => exact hnone he
+        | some t =>
+          have := ((hens _ hl t he) _).mp (hen t he)
+          cases ok
+          · exact absurd this (by decide)
+          · rfl
+      subst hok
+      exact (hrhs _ hl _).mp hr
+    | rest hfn hn =>
+      obtain rfl := Option.some.inj (hk.symm.trans hfn)
+      cases hn _ hmem with
+      | intro hf =>
+        cases hf (sg (iv x)) (sg_sortedAt x _) (sg_match _) with
+        | intro ht _ _ => exact nomatch ht
+        | pre hp => cases hp
+    | ensFails hfn hc _ hm _ _ _ _ ht he hw =>
+      obtain rfl := Option.some.inj (hk.symm.trans hfn)
+      obtain rfl := hcl hc
+      obtain ⟨w, hw', hl⟩ := match0 hm
+      cases hw'
+      have := ((hens _ hl _ ht) _).mp he
+      subst this
+      cases ok
+      · rfl
+      · exact absurd rfl hw
+    | clauseEx hfn hc _ _ _ _ _ hne _ _ _ _ =>
+      obtain rfl := Option.some.inj (hk.symm.trans hfn)
+      obtain rfl := hcl hc
+      exact absurd rfl hne
+    | exNone hfn hc hne _ _ _ _ _ _ _ =>
+      obtain rfl := Option.some.inj (hk.symm.trans hfn)
+      obtain rfl := hcl hc
+      exact absurd rfl hne
+  · rintro rfl
+    cases ok with
+    | true =>
+      exact .clause hk hmem (sg_sorted x) (sg_match _) (fun t ht => nomatch ht) .top hprio rfl
+        ((hrhs _ rfl _).mpr rfl) (fun t ht => ((hens _ rfl t ht) _).mpr rfl) .top
+    | false =>
+      cases he : ens with
+      | none => exact absurd (hnone he) (by decide)
+      | some t =>
+        exact .ensFails (cl := cl1 rhs ens) hk hmem (sg_sorted x) (sg_match _) (fun t ht => nomatch ht) .top hprio rfl
+          he (((hens _ rfl t he) _).mpr rfl) (by decide)
+
+/-- h's clauses. -/
+theorem hFn_clauses : hFn.clauses = [hCl1, hCl2, hCl3] := rfl
+
+theorem hprio {x : Int} {cl : Clause} (hcl : cl ∈ hFn.clauses) :
+    ∀ cl' ∈ hFn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c [iv x] cl' := by
+  intro cl' hcl' _ hlt
+  simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl hcl'
+  rcases hcl with rfl | rfl | rfl <;> rcases hcl' with rfl | rfl | rfl <;> exact absurd hlt (by decide)
+
+variable (hH : c.lookupFn H = some hFn) (hF : IsFn c F) (hG : IsFn c G) {x : Int} {rf rg : Option GroundTerm}
+  (hf : ∀ r, Eval c F [iv x] r ↔ r = rf) (hg : ∀ r, Eval c G [iv x] r ↔ r = rg)
+include hH hF hG hf hg
+
+/-- **h's results at x**: f's value where f has one, g's where g has one, and none where neither
+has one. -/
+theorem evalH_inv {r : Option GroundTerm} (h : Eval c H [iv x] r) :
+    (rf.isSome ∧ r = rf) ∨ (rg.isSome ∧ r = rg) ∨ (rf = none ∧ rg = none ∧ r = none) := by
+  cases h with
+  | clause hfn hcl _ hm _ hpre _ _ hrhs hens _ =>
+    obtain rfl := Option.some.inj (hH.symm.trans hfn)
+    simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl
+    rcases hcl with rfl | rfl | rfl <;> obtain ⟨w, hw, hl⟩ := match0 hm <;> cases hw
+    · exact .inl ⟨(ceil_inv hF hl hf hpre).symm, (hf _).mp (app_inv hF hl hrhs)⟩
+    · exact .inr (.inl ⟨(ceil_inv hG hl hg hpre).symm, (hg _).mp (app_inv hG hl hrhs)⟩)
+    · exact absurd (EvalTerm.dv_inv (hens _ rfl)) (by decide)
+  | rest hfn hn =>
+    obtain rfl := Option.some.inj (hH.symm.trans hfn)
+    have f1 : ReqFails c (sg (iv x)) hCl1 :=
+      match hn hCl1 (by simp [hFn_clauses]) with | .intro hf' => hf' _ (sg_sortedAt x _) (sg_match _)
+    have f2 : ReqFails c (sg (iv x)) hCl2 :=
+      match hn hCl2 (by simp [hFn_clauses]) with | .intro hf' => hf' _ (sg_sortedAt x _) (sg_match _)
+    have f3 : ReqFails c (sg (iv x)) hCl3 :=
+      match hn hCl3 (by simp [hFn_clauses]) with | .intro hf' => hf' _ (sg_sortedAt x _) (sg_match _)
+    have h1 : rf.isSome = false := by
+      cases f1 with
+      | intro ht _ _ => exact nomatch ht
+      | pre hp => exact (ceil_inv hF rfl hf hp).symm
+    have h2 : rg.isSome = false := by
+      cases f2 with
+      | intro ht _ _ => exact nomatch ht
+      | pre hp => exact (ceil_inv hG rfl hg hp).symm
+    cases f3 with
+    | intro ht _ _ => exact nomatch ht
+    | pre hp =>
+      obtain ⟨b1, b2, hp1, hp2, hb⟩ := andNot_inv hp
+      rw [ceil_inv hF rfl hf hp1, ceil_inv hG rfl hg hp2, h1, h2] at hb
+      exact absurd hb (by decide)
+  | ensFails hfn hcl _ hm _ hpre _ _ ht _ _ =>
+    obtain rfl := Option.some.inj (hH.symm.trans hfn)
+    simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl
+    rcases hcl with rfl | rfl | rfl
+    · exact nomatch ht
+    · exact nomatch ht
+    · obtain ⟨w, hw, hl⟩ := match0 hm
+      cases hw
+      obtain ⟨b1, b2, hp1, hp2, hb⟩ := andNot_inv hpre
+      rw [ceil_inv hF hl hf hp1, ceil_inv hG hl hg hp2] at hb
+      cases hrf : rf <;> cases hrg : rg <;> rw [hrf, hrg] at hb <;>
+        first | exact .inr (.inr ⟨rfl, rfl, rfl⟩) | simp at hb
+  | clauseEx hfn hcl _ _ _ _ _ hne _ _ _ _ =>
+    obtain rfl := Option.some.inj (hH.symm.trans hfn)
+    simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl
+    rcases hcl with rfl | rfl | rfl <;> exact absurd rfl hne
+  | exNone hfn hcl hne _ _ _ _ _ _ _ =>
+    obtain rfl := Option.some.inj (hH.symm.trans hfn)
+    simp only [hFn_clauses, List.mem_cons, List.not_mem_nil, or_false] at hcl
+    rcases hcl with rfl | rfl | rfl <;> exact absurd rfl hne
+
+omit hG hg in
+/-- Where f has the value a at x, h has it, by the first clause. -/
+theorem evalH_f {a : GroundTerm} (ha : rf = some a) : Eval c H [iv x] (some a) := by
+  have hp := ceil_mk hF (σ := sg (iv x)) rfl hf 1 Srt.int
+  rw [ha] at hp
+  exact .clause (cl := hCl1) hH (by simp [hFn_clauses]) (sg_sorted x) (sg_match _) (fun t ht => nomatch ht) hp
+    (hprio (by simp [hFn_clauses])) rfl (app_mk hF rfl ((hf _).mpr ha.symm)) (fun t ht => nomatch ht) .top
+
+omit hF hf in
+/-- Where g has the value b at x, h has it, by the second clause. -/
+theorem evalH_g {b : GroundTerm} (hb : rg = some b) : Eval c H [iv x] (some b) := by
+  have hp := ceil_mk hG (σ := sg (iv x)) rfl hg 1 Srt.int
+  rw [hb] at hp
+  exact .clause (cl := hCl2) hH (by simp [hFn_clauses]) (sg_sorted x) (sg_match _) (fun t ht => nomatch ht) hp
+    (hprio (by simp [hFn_clauses])) rfl (app_mk hG rfl ((hg _).mpr hb.symm)) (fun t ht => nomatch ht) .top
+
+/-- Where neither has a value at x, h has none, by the last clause's `ensures` false. -/
+theorem evalH_none (h1 : rf = none) (h2 : rg = none) : Eval c H [iv x] none := by
+  have hp := Holds.and (Holds.not (ceil_mk hF (σ := sg (iv x)) rfl hf 1 Srt.int))
+    (Holds.not (ceil_mk hG (σ := sg (iv x)) rfl hg 1 Srt.int))
+  rw [h1, h2] at hp
+  exact .ensFails (cl := hCl3) hH (by simp [hFn_clauses]) (sg_sorted x) (sg_match _) (fun t ht => nomatch ht) hp
+    (hprio (by simp [hFn_clauses])) rfl rfl .dv (by decide)
+
+end Results
+
+/-! ### `Fx` -/
+
+namespace Fx
+
+theorem lookupH : c.lookupFn H = some hFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupF : c.lookupFn F = some fFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupG : c.lookupFn G = some gFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem isFnF : IsFn c F := by unfold IsFn; decide +kernel
+theorem isFnG : IsFn c G := by unfold IsFn; decide +kernel
+theorem kindsSub : c.isCtor intSub = false ∧ isHook intSub = true ∧ c.isOvl intSub = false := by decide +kernel
+
+/-- f(x) is x. -/
+theorem evalF (x : Int) : ∀ r, Eval c F [iv x] r ↔ r = some (iv x) := fun r => by
+  simpa using eval1_iff (ok := true) lookupF rfl (fun σ hl => uniq_var hl) (fun _ _ t ht => nomatch ht) (fun _ => rfl) r
+
+/-- g(x) is 0 - x. -/
+theorem evalG (x : Int) : ∀ r, Eval c G [iv x] r ↔ r = some (iv (0 - x)) := fun r => by
+  simpa using eval1_iff (ok := true) (rr := some (iv (0 - x))) lookupG rfl
+    (fun σ hl => uniq_hook2 kindsSub.1 kindsSub.2.1 kindsSub.2.2 (uniq_dv _ _) (uniq_var hl) rfl)
+    (fun _ _ t ht => nomatch ht) (fun _ => rfl) r
+
+theorem evalH_inv' {x : Int} {r : Option GroundTerm} (h : Eval c H [iv x] r) :
+    r = some (iv x) ∨ r = some (iv (-x)) := by
+  rcases evalH_inv lookupH isFnF isFnG (evalF x) (evalG x) h with ⟨-, rfl⟩ | ⟨-, rfl⟩ | ⟨h1, -, -⟩
+  · exact .inl rfl
+  · exact .inr (by rw [Int.zero_sub])
+  · exact absurd h1 (by simp)
+
+theorem evalH_x (x : Int) : Eval c H [iv x] (some (iv x)) := evalH_f lookupH isFnF (evalF x) rfl
+theorem evalH_negx (x : Int) : Eval c H [iv x] (some (iv (-x))) := by
+  rw [← Int.zero_sub]; exact evalH_g lookupH isFnG (evalG x) rfl
+
+theorem not_fnDet : ¬ FnDet c := fun h => absurd (h H [iv 1] _ _ (evalH_x 1) (evalH_negx 1)) (by decide)
+
+theorem not_fnHyp : ¬ FnHyp c := fun h => not_fnDet (fnModel_of_fnHyp coreOK_now h).1
+
+theorem noWitCl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = false := by decide +kernel
+
+open ML Faithful in
+/-- **`Γc` has no model**: h(1) would denote the element of 1, its result by the first clause, and
+the element of -1, its result by the second, which are apart. -/
+theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γc c) := by
+  intro M _ I hIc
+  obtain ⟨hok, hsr, -, -, hph, -, -, -, hno⟩ := hypSound_of_core coreOK_now
+  haveI : OvlOK c := hno
+  have F := HoldsShape.nodeFacts_of_core coreOK_now hIc
+  have hden := fun (r : Option GroundTerm) (hev : Eval c H [iv 1] r) (e : Valuation M) (m : M) =>
+    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
+      (fun fn hfn cl hcl hw => absurd hw (by rw [noWitCl fn hfn cl hcl]; decide))
+      (HoldsShape.preReadAll_of_core coreOK_now hIc) hev lookupH (by decide +kernel) e m
+  let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
+  obtain ⟨a, ha, -⟩ := F.val (rmS_sortOf_int c 1) [] e
+  have h1 := (hden _ (evalH_x 1) e a).mpr ((ha a).mpr rfl)
+  have h2 := (hden _ (evalH_negx 1) e a).mp h1
+  have := F.apart (rmS_sortOf_int c 1) (rmS_sortOf_int c (-1)) e a ((ha a).mpr rfl) h2
+  simp [int] at this
+
+theorem not_consistent : ¬ Consistent c := fun ⟨M, hM, I, hI⟩ =>
+  no_model M hM I (fun φ hφ => hI φ (Or.inl hφ))
+
+/-- **`expect` holds.** -/
+theorem expect_holds : expect := by
+  refine ⟨coreOK_now, ⟨evalH_x 0, fun r h => ?_⟩, fun x _ => ⟨evalH_x x, evalH_negx x, fun r h => evalH_inv' h⟩,
+    not_fnDet, not_fnHyp, not_consistent⟩
+  rcases evalH_inv' h with rfl | rfl <;> simp
+
+end Fx
+
+/-! ### `Pt` -/
+
+namespace Pt
+
+theorem lookupH : c.lookupFn H = some hFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupF : c.lookupFn F = some fFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem lookupG : c.lookupFn G = some gFn := by rw [Semantics.lookupFn_eq]; rfl
+theorem isFnF : IsFn c F := by unfold IsFn; decide +kernel
+theorem isFnG : IsFn c G := by unfold IsFn; decide +kernel
+theorem kinds2 (f : Sym) (hf : f = intSub ∨ f = intGe ∨ f = intLe ∨ f = boolAnd) :
+    c.isCtor f = false ∧ isHook f = true ∧ c.isOvl f = false := by
+  rcases hf with rfl | rfl | rfl | rfl <;> decide +kernel
+
+/-- f(x) is x where x ≥ 0, and has no value elsewhere. -/
+theorem evalF (x : Int) : ∀ r, Eval c F [iv x] r ↔ r = if decide (x ≥ 0) then some (iv x) else none :=
+  eval1_iff lookupF rfl (fun σ hl => uniq_var hl)
+    (fun σ hl t ht => by
+      cases ht
+      have k := kinds2 intGe (by simp)
+      exact uniq_hook2 k.1 k.2.1 k.2.2 (uniq_var hl) (uniq_dv _ _) rfl)
+    (fun h => nomatch h)
+
+/-- g(x) is -x where -1 ≤ x ≤ 1, and has no value elsewhere. -/
+theorem evalG (x : Int) : ∀ r, Eval c G [iv x] r ↔
+    r = if (decide (x ≤ 1) && decide (-1 ≤ x)) then some (iv (0 - x)) else none :=
+  eval1_iff lookupG rfl
+    (fun σ hl => by
+      have k := kinds2 intSub (by simp)
+      exact uniq_hook2 k.1 k.2.1 k.2.2 (uniq_dv _ _) (uniq_var hl) rfl)
+    (fun σ hl t ht => by
+      cases ht
+      have ka := kinds2 boolAnd (by simp)
+      have kl := kinds2 intLe (by simp)
+      exact uniq_hook2 ka.1 ka.2.1 ka.2.2 (uniq_hook2 kl.1 kl.2.1 kl.2.2 (uniq_var hl) (uniq_dv _ _) rfl)
+        (uniq_hook2 kl.1 kl.2.1 kl.2.2 (uniq_dv _ _) (uniq_var hl) rfl) rfl)
+    (fun h => nomatch h)
+
+theorem expectCore_holds : expectCore := coreOK_now
+
+theorem res (x : Int) {r : Option GroundTerm} (h : Eval c H [iv x] r) :
+    ((if decide (x ≥ 0) then some (iv x) else none).isSome ∧ r = if decide (x ≥ 0) then some (iv x) else none) ∨
+    ((if (decide (x ≤ 1) && decide (-1 ≤ x)) then some (iv (0 - x)) else none).isSome ∧
+      r = if (decide (x ≤ 1) && decide (-1 ≤ x)) then some (iv (0 - x)) else none) ∨
+    ((if decide (x ≥ 0) then some (iv x) else none) = none ∧
+      (if (decide (x ≤ 1) && decide (-1 ≤ x)) then some (iv (0 - x)) else none) = none ∧ r = none) :=
+  evalH_inv lookupH isFnF isFnG (evalF x) (evalG x) h
+
+theorem expectAgree_holds : expectAgree := by
+  refine ⟨evalH_f lookupH isFnF (evalF 0) (by decide), fun r h => ?_⟩
+  rcases res 0 h with ⟨-, rfl⟩ | ⟨-, rfl⟩ | ⟨h1, -, -⟩
+  · decide
+  · decide
+  · exact absurd h1 (by decide)
+
+theorem expectOneUndefined_holds : expectOneUndefined := by
+  refine ⟨⟨evalH_f lookupH isFnF (evalF 2) (by decide), fun r h => ?_⟩,
+    ⟨evalH_g lookupH isFnG (evalG (-1)) (by decide), fun r h => ?_⟩⟩
+  · rcases res 2 h with ⟨-, rfl⟩ | ⟨h1, -⟩ | ⟨h1, -, -⟩
+    · decide
+    · exact absurd h1 (by decide)
+    · exact absurd h1 (by decide)
+  · rcases res (-1) h with ⟨h1, -⟩ | ⟨-, rfl⟩ | ⟨-, h2, -⟩
+    · exact absurd h1 (by decide)
+    · decide
+    · exact absurd h2 (by decide)
+
+theorem eval1 : Eval c H [iv 1] (some (iv 1)) := evalH_f lookupH isFnF (evalF 1) (by decide)
+theorem evalm1 : Eval c H [iv 1] (some (iv (-1))) := evalH_g lookupH isFnG (evalG 1) (by decide)
+
+theorem noWitCl : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = false := by decide +kernel
+
+open ML Faithful in
+/-- **`Γc` has no model**: h(1) would denote the elements of 1 and of -1. -/
+theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γc c) := by
+  intro M _ I hIc
+  obtain ⟨hok, hsr, -, -, hph, -, -, -, hno⟩ := hypSound_of_core coreOK_now
+  haveI : OvlOK c := hno
+  have F := HoldsShape.nodeFacts_of_core coreOK_now hIc
+  have hden := fun (r : Option GroundTerm) (hev : Eval c H [iv 1] r) (e : Valuation M) (m : M) =>
+    Faithful.eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK_now).2.1 hph
+      (fun fn hfn cl hcl hw => absurd hw (by rw [noWitCl fn hfn cl hcl]; decide))
+      (HoldsShape.preReadAll_of_core coreOK_now hIc) hev lookupH (by decide +kernel) e m
+  let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
+  obtain ⟨a, ha, -⟩ := F.val (rmS_sortOf_int c 1) [] e
+  have h1 := (hden _ eval1 e a).mpr ((ha a).mpr rfl)
+  have h2 := (hden _ evalm1 e a).mp h1
+  have := F.apart (rmS_sortOf_int c 1) (rmS_sortOf_int c (-1)) e a ((ha a).mpr rfl) h2
+  simp [int] at this
+
+theorem expectDiffer_holds : expectDiffer := by
+  refine ⟨eval1, evalm1, fun r h => ?_, fun h => absurd (h H [iv 1] _ _ eval1 evalm1) (by decide),
+    fun ⟨M, hM, I, hI⟩ => no_model M hM I (fun φ hφ => hI φ (Or.inl hφ))⟩
+  rcases res 1 h with ⟨-, rfl⟩ | ⟨-, rfl⟩ | ⟨h1, -, -⟩
+  · exact .inl (by decide)
+  · exact .inr (by decide)
+  · exact absurd h1 (by decide)
+
+theorem expectNeither_holds : expectNeither := by
+  have hn : Eval c H [iv (-2)] none := evalH_none lookupH isFnF isFnG (evalF (-2)) (evalG (-2)) (by decide) (by decide)
+  have honly : ∀ r, Eval c H [iv (-2)] r → r = none := fun r h => by
+    rcases res (-2) h with ⟨h1, -⟩ | ⟨h1, -⟩ | ⟨-, -, rfl⟩
+    · exact absurd h1 (by decide)
+    · exact absurd h1 (by decide)
+    · rfl
+  refine ⟨⟨hn, honly⟩, fun ht => ?_⟩
+  obtain ⟨v, hv⟩ := ht hFn (by simp [c, sem]) rfl [iv (-2)] (by decide +kernel)
+  exact absurd (honly _ hv) (by simp)
+
+end Pt
+
+
+/-! ## The fixtures through the reader
+
+On the kompiled texts (from the cache `kfix.py` keeps): `e3-ml-eq-rhs-or-total` gives h the clauses
+`hCl1`, `hCl2`, `hCl3` (`Parse.clauses?`), and the definition `parse` reads from it has `Fx`'s three
+functions (f, g and h, in the text's numbering, which is `sem`'s); `e3-ml-eq-rhs-or` (h without its
+`functional` sentence) and `e3-ml-eq-rhs-or-many` (nine alternatives) are refused
+`manyValuedRightSide`, each with its whole detail. The reader's clauses of h are `Parse.frClauses`'
+by the kernel in test/ReaderWire.lean (`Stages.cls2_frClauses`, on `f2-examples/mleqort`, the same
+text). -/
+
+section Fixtures
+
+/-- The cache of kompiled fixture texts, as test/constructs/kfix.py names it. -/
+def cacheDir : IO String := do
+  let get := fun (n : String) => do
+    match ← IO.getEnv n with
+    | some d => pure (if d.isEmpty then none else some d)
+    | none => pure none
+  if let some d ← get "KCORE_KFIX_CACHE" then return d
+  if let some d ← get "XDG_CACHE_HOME" then return s!"{d}/kcore-kfix"
+  let home := (← get "HOME").getD "."
+  return s!"{home}/.cache/kcore-kfix"
+
+/-- The kompiled text of fixture `n`, its `BUILTIN/` and `FIXTURE/` paths restored to made-up
+directories (as `kfix.py accounts` restores them before reading). -/
+def load (n : String) : IO Kore.Definition := do
+  let t ← IO.FS.readFile s!"test/constructs/fixtures/{n}/kompile.txt"
+  let some l := (t.splitOn "\n").find? (·.startsWith "definition.kore sha256: ")
+    | throw (IO.userError s!"{n}: kompile.txt names no sha256")
+  let sha := (l.splitOn ": ").getD 1 ""
+  let raw ← IO.FS.readFile s!"{← cacheDir}/{sha}.kore"
+  let raw := ((raw.replace "BUILTIN/" "/made-up-k/include/kframework/builtin/").replace "FIXTURE/" "/made-up-fx/").replace
+    "FIXTURE" "/made-up-fx"
+  match Kore.parseDefinition raw with
+  | .ok k => pure k
+  | .error e => throw (IO.userError s!"{n}: KORE read error {e}")
+
+/-- The reader on fixture `n`: the clauses of `fn`'s equations, whether they are h's three, and
+`parse`'s verdict, with whether the functions read are `Fx`'s. -/
+def runOr (n fn : String) : IO Unit := do
+  let k ← load n
+  let some m := k.modules.getLast? | IO.println s!"{n}: no module"
+  let S := Parse.scan m.sentences
+  match Parse.envOf m S with
+  | .error f => IO.println s!"{n}: envOf fails {f.reason.name}"
+  | .ok E =>
+    for e in S.eqs.filter (·.fn == fn) do
+      match Parse.clauses? E.N E.src e none with
+      | .ok xs => IO.println s!"{n} {fn}: {xs.length} clauses; hCl1, hCl2, hCl3: {reprStr (xs.map (·.1)) == reprStr [hCl1, hCl2, hCl3]}"
+      | .error f => IO.println s!"{n} {fn}: refused {f.reason.name} ({f.detail})"
+  match Parse.parse k with
+  | .error r => IO.println s!"  parse: refused {r.reason.name} ({r.detail})"
+  | .ok d => IO.println s!"  parse: read; coreOK {d.sem.coreOK}; the functions are Fx's: {reprStr d.sem.fns == reprStr Fx.c.fns}"
+
+/--
+info: e3-ml-eq-rhs-or-total Lblh: 3 clauses; hCl1, hCl2, hCl3: true
+  parse: read; coreOK true; the functions are Fx's: true
+e3-ml-eq-rhs-or Lblh: refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+  parse: refused manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
+e3-ml-eq-rhs-or-many Lblk: refused manyValuedRightSide (\or: 9 alternatives, more than 8)
+  parse: refused manyValuedRightSide (\or: 9 alternatives, more than 8)
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  runOr "e3-ml-eq-rhs-or-total" "Lblh"
+  runOr "e3-ml-eq-rhs-or" "Lblh"
+  runOr "e3-ml-eq-rhs-or-many" "Lblk"
+
+end Fixtures
+
 end EqRhsOr
 
 end KCore
@@ -363,3 +912,15 @@ end KCore
 #guard_msgs in #print axioms KCore.EqRhsOr.DB.clauseE3_ok
 /-- info: 'KCore.EqRhsOr.DB.clausesPlain_now' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.EqRhsOr.DB.clausesPlain_now
+/-- info: 'KCore.EqRhsOr.Fx.expect_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Fx.expect_holds
+/-- info: 'KCore.EqRhsOr.Fx.no_model' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Fx.no_model
+/-- info: 'KCore.EqRhsOr.Pt.expectAgree_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Pt.expectAgree_holds
+/-- info: 'KCore.EqRhsOr.Pt.expectOneUndefined_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Pt.expectOneUndefined_holds
+/-- info: 'KCore.EqRhsOr.Pt.expectDiffer_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Pt.expectDiffer_holds
+/-- info: 'KCore.EqRhsOr.Pt.expectNeither_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.EqRhsOr.Pt.expectNeither_holds
