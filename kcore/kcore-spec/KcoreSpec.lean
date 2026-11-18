@@ -376,3 +376,8 @@ import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseDenQ
 import KcoreSpec.ClauseExDenCEx
+import KcoreSpec.TermSoundCEx
+import KcoreSpec.FamExCEx
+import KcoreSpec.CompleteCEx
+import KcoreSpec.SoundCEx
+import KcoreSpec.SoundCE
