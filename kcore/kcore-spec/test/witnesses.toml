@@ -234,7 +234,8 @@ evidence = "test/WitRestOvlB.lean"
 [[conjunct]]
 key = "FnDet"
 text = "KCore.FnDet"
-witness = "none: derivable from coreOK and FnSolves at the current Eval block where every clause's predicate is top (clausesPreTop; test/FnSolvesDet.lean); open where coreOK admits another predicate; reopened after CE.flip"
+witness = "KcoreSpec.ModelFnDetWitness"
+note = "the witness has a clause whose predicate is not ⊤ (u(X) => true where ¬⌈a(X)⌉, beside a(X) => 1 and a(X) => 1 ensures u(X)): it meets coreOK, FnSolves, ClausePreDecided and OpenLaws, a(0) has the results 1 and none, and Γ has no model. Where every clause's predicate is ⊤ (clausesPreTop) there is no witness: coreOK and FnSolves give FnDet (fnDet_of_fnSolves, test/FnSolvesDet.lean)"
 evidence = "test/FnSolvesDet.lean"
 
 [[conjunct]]
