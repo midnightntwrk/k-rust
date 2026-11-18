@@ -17,11 +17,15 @@
     `symbol LblplusExp`), the function `plusInt : Int Int → Int` (`function`, not total) with the
     equation `plusInt(X0, X1) = X0 +Int X1`, Int < Exp, and the overload equation
     `plusExp(inj X0, inj X1) = inj(plusInt(X0, X1))` (`symbol-overload`). Expected: `coreOK`,
-    `FnHyp`, `Consistent`, and `plusExp(inj 1, inj 2)` evaluates to `inj 3`. Also to settle (prove,
-    or record as argued): the text's no-confusion sentence of `plusExp` and its overload equation,
-    with the injectivity of `inj{Int,Exp}` and `1 ≠ 2`, have no model (`plusExp(inj 1, inj 2)` and
-    `plusExp(inj 2, inj 1)` are both `inj 3`); this is a fact of the text, not of `Γ`, and the
-    account's note states it only as a condition.
+    `FnHyp`, `Consistent`, and `plusExp(inj 1, inj 2)` evaluates to `inj 3` (`E5.expect_e5`). Argued, not
+    kernel-checked: the text has no model. Its no-confusion sentence of `plusExp` (kore.txt line 78)
+    and its overload equation (line 86), with `inj{Int,Exp}` functional and injective and `1 ≠ 2`,
+    are not enough: they hold where `plusInt` is empty or injective. With `plusInt(1, 2)` and
+    `plusInt(2, 1)` both `3` (the text's equation of `plusInt` and the value of `+Int`), the
+    overload equation makes `plusExp(inj 1, inj 2)` and `plusExp(inj 2, inj 1)` both `inj 3`, so
+    their conjunction is `inj 3`, while the no-confusion sentence puts it inside
+    `plusExp(inj 1 ∧ inj 2, inj 2 ∧ inj 1)`, which is empty. This is a fact of the text, not of
+    `Γ`, and the account's note states it only as a condition.
   - `ovlfun` (f2-examples/ovlfun.k): `capGas : Gas → Gas` overloads the total function
     `capN : N → N`, N < Gas, `capN(z #as G0) = G0`, and the rule `run(G) => done(cap(G))`. Expected:
     `capGas(inj z)` evaluates to `inj z`; `coreOK`, `FnHyp`, `Consistent`.
@@ -798,4 +802,79 @@ theorem fnFacts_e5 : OvlLaws.OvlFnFacts E5.c :=
 
 end Admit
 
+/-! ## e5-ovl-fun: the functions' hypotheses, the covered application, and what was expected -/
+
+namespace E5
+
+open Det
+
+theorem noRaw_e5 : ∀ k ∈ c.params, k.raw = false := by decide +kernel
+theorem confined_named : c.readsConfined = false := by decide +kernel
+theorem valued_e5 : c.rightValued = true := by decide +kernel
+theorem term_named : c.rankObligations [plusInt] ++ c.decObligationsL = [] := by decide +kernel
+theorem total_named : c.totalObligationsRP [plusInt] [] = [] := by decide +kernel
+theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
+theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+/-- **`FnHyp` of e5-ovl-fun**: no fact is named; `plusInt` is not `[total]` and calls `+Int` only. -/
+theorem fnHyp_e5 : FnHyp c :=
+  fnHyp_of_fnObligations (ord := [plusInt]) (tp := []) Admit.coreOK_e5 (Semantics.rightHeld_of_valued valued_e5) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_named] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_named] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [agree_named] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_named] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_readsConfined confined_named, openLaws_of_plain noRaw_e5⟩
+
+/-- **`Consistent`** of e5-ovl-fun. -/
+theorem consistent_e5 : Consistent c := consistent_of_fnHyp _ Admit.coreOK_e5 fnHyp_e5
+
+def plusIntSig : CtorSig := ⟨plusInt, [Srt.int, Srt.int], Srt.int⟩
+def plusExpO : OvlSig := ⟨⟨plusExp, [expS, expS], expS⟩, [plusInt]⟩
+def plusIntCl : Clause :=
+  { vars := [Srt.int, Srt.int], pats := [.var 0, .var 1], req := none, rhs := .app intAdd [.var 0, .var 1], ens := none }
+
+/-- **`plusInt(1, 2)` evaluates to `3`**, by its one clause and the value of `+Int`. -/
+theorem eval_plusInt_12 : Eval c plusInt [.dv Srt.int (.int 1), .dv Srt.int (.int 2)] (some (.dv Srt.int (.int 3))) :=
+  .clause (fn := plusIntFn) (cl := plusIntCl) (σ := [(0, .dv Srt.int (.int 1)), (1, .dv Srt.int (.int 2))])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by
+      match i, h with
+      | 0, h => cases h; exact ⟨_, rfl, by decide +kernel⟩
+      | 1, h => cases h; exact ⟨_, rfl, by decide +kernel⟩
+      | i + 2, h => simp [plusIntCl] at h)
+    (.cons (.var rfl) (.cons (.var rfl) .nil)) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = plusIntCl := by simpa [plusIntFn, plusIntCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    rfl
+    (.hook (rs := [some (.dv Srt.int (.int 1)), some (.dv Srt.int (.int 2))]) (by decide +kernel) (by decide +kernel)
+      (.cons .var (.cons .var .nil))
+      (fun vs h => by cases h; exact Semantics.hookRes_of_value (by decide +kernel))
+      (fun h => by cases h))
+    (fun t ht => by cases ht) .top
+
+/-- **The covered application evaluates to the function's value, injected** (`EvalTerm.ovlFn`):
+`plusExp(inj{Int,Exp}(1), inj{Int,Exp}(2))` evaluates to `inj{Int,Exp}(3)`. -/
+theorem evalTerm_app12 : EvalTerm c [] app12 (some (.inj Srt.int expS (.dv Srt.int (.int 3)))) :=
+  EvalTerm.ovlFn (rs := [some (.inj Srt.int expS (.dv Srt.int (.int 1))), some (.inj Srt.int expS (.dv Srt.int (.int 2)))])
+    (vs := [.inj Srt.int expS (.dv Srt.int (.int 1)), .inj Srt.int expS (.dv Srt.int (.int 2))])
+    (o := plusExpO) (kg := plusIntSig) (r := some (.dv Srt.int (.int 3)))
+    (by decide +kernel) (by decide +kernel)
+    (.cons (.inj .dv) (.cons (.inj .dv) .nil)) rfl
+    (by decide +kernel) (by decide +kernel) eval_plusInt_12
+
+/-- **What was expected of e5-ovl-fun.** -/
+theorem expect_e5 : expect := ⟨Admit.coreOK_e5, fnHyp_e5, consistent_e5, evalTerm_app12⟩
+
+/-- info: 'OvlFun.E5.fnHyp_e5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnHyp_e5
+/-- info: 'OvlFun.E5.consistent_e5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms consistent_e5
+/-- info: 'OvlFun.E5.evalTerm_app12' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms evalTerm_app12
+/-- info: 'OvlFun.E5.expect_e5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms expect_e5
+
+end E5
 end OvlFun
