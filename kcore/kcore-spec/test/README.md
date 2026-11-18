@@ -818,7 +818,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  instance at a sort without a constructor). G1 for a clause with existential variables
+  (`eval_noValue_of_exs_none`, every semantics; on a hand-built clause for every H,
+  `G1Ex.g1x_noValue_everyH`, with `G1Ex.g1x_reached_everyH` where one instance gives a value).
+  REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
   G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
   H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
   `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
@@ -1055,20 +1058,27 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
   (`GenEqs.sortPredEqn_in_Γ`), the `[owise]` one's disjunct read back as the clause it negates
-  (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
-  `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
-  `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
-  Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every semantics'
-  lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by a symbol
-  of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s model
-  follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
-  argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
-  `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
-  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`. A
+  (`GenEqs.predEqnOK_clause`). A constructor argument's projections on a hand-built semantics
+  (`HandArg`). Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every
+  semantics' lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by
+  a symbol of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s
+  model follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A
   registry-numbered projection (`RegProj`, a hand-built semantics with a parameter numbered as the
   registry's `project:Int`): `coreOK`, `predProjOK?` accepts `project:Int`'s selector-domain axiom,
   a premise of the theory names the symbol (`GenEqs.kernelSym_named`), and the arm refuses it
-  (`Parse.predProjAcc`).
+  (`Parse.predProjAcc`). The instances on the texts of f2-examples are in three files beside it,
+  each run alone:
+  - `test/GenEqsLemmasNx.lean`: registry projections (`Nx`, `f2-examples/owisenx.kompile.kore`):
+    `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
+    `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`), and
+    one model of the theory holds the three projections' equations at the item of `0`.
+  - `test/GenEqsLemmasPrio.lean`: names the semantics does not number and the kconfig equation
+    (`Prio`, `f2-examples/prio.kore`): one model of the theory whose steps are the semantics' holds
+    the four equations.
+  - `test/GenEqsLemmasNamedArg.lean`: a named argument's projections on a kompiled text
+    (`NamedArg`, `f2-examples/namedarg.kompile.kore`): `coreOK`, the arm's conditions on
+    `project:pair:fst` and `project:pair:snd`, and one model of the theory whose steps are the
+    semantics' in which both equations hold at `pair(leaf, leaf)`.
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
@@ -1505,6 +1515,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
   (`KcoreSpec/LibEvLaw.lean`, through `LibEv.Law.entailed_reg`). Axioms guarded.
+- `test/LibEvRangeMapEns.lean`: on `f2-examples/e6rm.kompile.kore` (fixture e6-rangemap), the
+  collection laws of `_RangeMap_` (sentences 67 to 69) entailed at values from the library's
+  statements (`KcoreSpec/LibEvLawRm.lean`): the two units for every H (`law68`, `law69`), the
+  associativity for every H meeting `rangeMapAssocEq` (`law67`; `_RangeMap_` is silent at two maps
+  with a key in common), at `HookParams.none` and `HookParams.lib` (`law67_none`, `law67_lib`); and
+  Range's no-junk sentence (152), Γ's no-junk item of Range, entailed (`nojunk152_entailed`).
+- `test/ParamRangeMap.lean`: on `f2-examples/e6-param-rangemap.kompile.kore` (fixture
+  e6-param-rangemap), RANGEMAP's `choice`, `keys_list` and `values`, parameters no hook implements:
+  over all H, Γ entails neither that each has no value at `[0, 3) ↦ 7` nor that it is a given value
+  of its result sort (`choice_undetermined`, `keysList_undetermined`, `values_undetermined`, from the
+  schema `param_undeterminedPR`: ⊥ under `HookParams.none`, the value under the interpretation that
+  gives it, both theories with models).
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
@@ -1524,7 +1546,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   text's associativity law and its two unit laws (`laws_eq`), each `lawSorted`; by `pu`'s and
   `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
   `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
-  answering 1 the right unit law fails (`cOne_not_unitR`).
+  answering 1 the right unit law fails (`cOne_not_unitR`). The theory with the laws' sentences has
+  a model under every H (`consistent`, `consistent_with_laws`).
 - `test/FnLawFixtures.lean`: the law axioms of functions in the kompiled texts of the fixtures
   e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest, e2-fn-idem and e2-fn-assoc-unit
   (`f2-examples/NAME.kompile.kore`), through the reader: the account's `fnLaw` lines of each, no law
@@ -1533,6 +1556,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   whose `pk` is a parameter no hook implements). On e2-fn-assoc, `FnLaws` of `defn.laws` and
   `consistent_with_laws` under every H (`Assoc.consistent`); on e2-fn-assoc-bad, `LawAt` fails at
   (1, 2, 3) under every H (`Bad.not_lawAt`).
+- `test/FnLawFixturesAt.lean`: the laws at values on the reader's semantics of e2-fn-assoc-rest and
+  e2-fn-idem's kompiled texts. On e2-fn-assoc-rest `pk` is a parameter no hook implements, its value
+  the interpretation's (`Rest.paramVal_pk`): the law holds at `HookParams.none` and where `pk` is Int
+  addition, and fails where it is Int subtraction (`Rest.lawAt_none`, `Rest.lawAt_add`,
+  `Rest.not_lawAt_sub`). On e2-fn-idem, `FnLaws` of `defn.laws` and `consistent_with_laws` under
+  every H (`Idem.fnLaws`, `Idem.consistent`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
