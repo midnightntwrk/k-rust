@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-subst-poly.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 274322
+definition.kore sha256: bf67ac45db45cc10c6a49f7e0379696ea89e73e5c333a3c400122c2bc906e42e
+stripped sha256: 2024fef16282e9adfbd9f5af96e02c8c8abca145c2c70cdcb29a90efbdd4b2bc
+main module: 494 sentences, 79 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-SUBST-POLY-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-PARAM-SUBST-POLY as default.

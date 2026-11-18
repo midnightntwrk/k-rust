@@ -1,0 +1,2 @@
+param	LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String	args=[String]	result=KVar	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
