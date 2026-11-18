@@ -99,7 +99,9 @@ ALLOWANCE = [
     # left side (the corpus text list-set), R-c with no ticket that reads a parameter symbol there.
     # 38 -> 34 with P3.rows-setvar-cut: the four set-variable rows of E4 are R-a with their reason,
     # each shape a case with its fixture, class and unit.
-    ("ROWS-1.unit-rc", 34, "entries of class R-c without unit",
+    # 34 -> 33 with P3.rows-ksym-setvar: E3's KSEQ-SYMBOLIC #set-@ row, R-c without unit, is R-a
+    # with its reason and the E4 rows' cases.
+    ("ROWS-1.unit-rc", 33, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
