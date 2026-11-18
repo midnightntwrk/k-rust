@@ -4739,7 +4739,9 @@ def unheldRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) : Option (Refusal
 where it is read. A variable the arguments do not bind is read where the values decide the clause:
 in its conditions, where they are closed or each such variable of them is of a confined sort
 (`clausesPlain`'s conjunct, else `openRequires`: the condition's truth at given arguments differs
-between models of the text). One held only by the right side or the `ensures` is read at every
+between models of the text); and where the clause has a predicate in its premise, its conditions
+are not closed over such a variable of a sort that is not confined (`Clause.needsWitness`, which
+`clausesPlain` refuses beside a predicate, with `openRequires`). One held only by the right side or the `ensures` is read at every
 sort: it is universal over the elements of its sort, so on values the clause has an instance for
 each value of the sort and none where the sort has no value; the function is then named
 (`Semantics.heldObligations`) where the sort has no exhibited value. -/
@@ -4750,6 +4752,10 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
       s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
+  else if !cl.pre.isTop && cl.needsWitness c then
+    let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
+    some (.openRequires,
+      s!"{what i}: in a closed condition of a clause with a predicate in its premise, not bound by the arguments, of a sort the text leaves unconfined (the condition is neither witnessed nor refuted where the predicate is read)")
   else none
 
 /-- The memberships `V ∈ g(P̄)` among the top-level conjuncts of a condition, V a variable: each

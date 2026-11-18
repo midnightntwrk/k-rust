@@ -79,8 +79,8 @@ theorem hasBinder_of_predAtoms : ∀ {p : Cond}, predAtoms p = true → p.hasBin
 
 /-- A semantics `coreOK` accepts and `execReady` makes ready reads no confined sort: `execReady`
 asks every rule's left side and every clause's patterns to bind each of its variables and every
-rule's predicates to be conjunctions of atoms, which hold no binder, and `coreOK`'s `sortedOK`
-asks every clause's to be `top`. -/
+rule's predicates to be conjunctions of atoms, which hold no binder, and every clause's predicate
+to be `\top`; `coreOK`'s `sortedOK` asks every clause's right side's predicate to be `\top`. -/
 theorem readsConfined_of_execReady (h : c.coreOK = true) (hr : execReady c = true) :
     c.readsConfined = false := by
   have hpreTop := KCore.CExec.clausesPreTop_of_execReady hr

@@ -337,8 +337,9 @@ theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : O
 /-! ## The statements under the named obligations -/
 
 /-- **Soundness of a semantics** that `coreOK` accepts, whose clauses' variables are held
-(`RightHeld`) and whose named obligations, with the termination certificate `t`, hold: `sound_hyp`,
-the obligations giving `FnHyp` (`fnHyp_of_core`). -/
+(`RightHeld`), whose clauses' predicates are `\top` (`hpreTop`) and whose named obligations, with
+the termination certificate `t`, hold: `sound_hyp`, the obligations giving `FnHyp`
+(`fnHyp_of_core`). -/
 theorem sound_core (c : Semantics) (t : Certificates) (h : c.coreOK = true) (hrh : c.RightHeld)
     (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : SoundC c :=
   sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)

@@ -56,11 +56,6 @@ def Semantics.rulesPlain (c : Semantics) : Bool := c.rules.all fun r =>
   r.opens.all (fun i => (heldOccs c r.rhs).contains i || conf i || (r.condVars.contains i && condApart)) &&
   (!r.reqOpen || !c.rules.any (fun r' => r.prio < r'.prio) || r.openCondVars.all conf || r.reqClosed)
 
-/-- The clause's conditions are closed over open variables of which one is not of a confined
-sort. -/
-def Clause.needsWitness (c : Semantics) (cl : Clause) : Bool :=
-  cl.reqOpen && cl.reqClosed && !cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false
-
 /-- Clauses bind no variable by `\exists` and have no predicate on the right side; a clause with a
 predicate in its premise is not one whose conditions need a witness (`needsWitness`); and a clause's
 open condition variables are of confined sorts, or its conditions are closed (`OpenDecided`). -/

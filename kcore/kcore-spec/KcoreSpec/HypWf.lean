@@ -180,7 +180,8 @@ named obligations (all of them named where there is an overloading symbol, which
 does not read) (`CoreObligations`' third and fourth conjuncts). Its last conjunct, the lazy
 occurrences, is not read; its two last, `OpenDecided` and `OpenLaws`, are `FnHyp`'s. Termination
 and totality read `hrh`: each clause variable the patterns and conditions do not hold is of a sort
-with a value. -/
+with a value; and `hpreTop`: every clause's predicate is `\top` (the certificates read no call of
+a predicate). -/
 theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : FnHyp c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok

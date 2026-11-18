@@ -300,7 +300,8 @@ theorem fnModel_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = 
 
 /-- **Every function has a result at arguments of its sorts, from `FnFacts`** with the held
 variables asked of the held-named functions only: termination by the rank and the self calls'
-decrease in weight. -/
+decrease in weight. The rank reads the calls of a clause's patterns, conditions and right side, not
+those of a predicate in its premise: every clause's predicate is `\top` (`hpreTop`). -/
 theorem fnTerminates_of_fnFactsN {c : Semantics} {ord tp : List Sym} (h : c.coreOK = true)
     (hheld : ∀ f ∈ c.heldObligations, HeldOwed c f) (hob : FnFacts c ord tp) (hpreTop : c.clausesPreTop = true := by decide +kernel) : FnTerminates c := by
   obtain ⟨hok, -, -, hp, hids⟩ := Semantics.coreOK_parts h
