@@ -1782,10 +1782,13 @@ end
 
 mutual
   /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
-  `\and{s'}`, `\exists{s'}`, `\top{s'}` or `\bottom{s'}` or as the result sort of
-  `\equals{S1,s'}` (s' = s), and so are the operands of such an `\or` and `\and` and the body of
-  such an `\exists`. An application, a variable, a domain value and the other connectives are not
-  looked at. -/
+  `\and{s'}`, `\exists{s'}`, `\top{s'}`, `\bottom{s'}`, `\not{s'}`, `\implies{s'}` or `\forall{s'}`
+  or as the result sort of `\equals{S1,s'}`, `\ceil{S1,s'}`, `\floor{S1,s'}` or `\in{S1,s'}`
+  (s' = s), and its operands are of the sort the connective gives them (kore-syntax.md:330): the
+  operands of such an `\or`, `\and`, `\not` and `\implies` and the body of such an `\exists` and
+  `\forall` are of the sort s, the operand of such a `\ceil` and `\floor` and the two of such an
+  `\in` of the sort S1. An application, a variable, a domain value, the operands of `\equals` and
+  the other connectives are not looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
@@ -1793,6 +1796,12 @@ mutual
     | .equals _ s' _ _ => decide (s' = s)
     | .top s' => decide (s' = s)
     | .bottom s' => decide (s' = s)
+    | .not s' p => decide (s' = s) && rhsOpSort s p
+    | .implies s' p q => decide (s' = s) && rhsOpSort s p && rhsOpSort s q
+    | .forall s' _ p => decide (s' = s) && rhsOpSort s p
+    | .ceil s1 s' p => decide (s' = s) && rhsOpSort s1 p
+    | .floor s1 s' p => decide (s' = s) && rhsOpSort s1 p
+    | .in s1 s' p q => decide (s' = s) && rhsOpSort s1 p && rhsOpSort s1 q
     | _ => true
     termination_by structural p => p
   def rhsOpSortList (s : Kore.KSort) : List Kore.Pattern → Bool
@@ -1826,23 +1835,47 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .exist s _ _ => some ("\\exists", s)
   | .top s => some ("\\top", s)
   | .bottom s => some ("\\bottom", s)
+  | .not s _ => some ("\\not", s)
+  | .implies s _ _ => some ("\\implies", s)
+  | .forall s _ _ => some ("\\forall", s)
+  | .ceil _ s _ => some ("\\ceil", s)
+  | .floor _ s _ => some ("\\floor", s)
+  | .in _ s _ _ => some ("\\in", s)
   | _ => none
+
+/-- The first operand of the connective `head` (as printed) whose head states another sort than
+the operands' sort s, named. -/
+def rhsOpFaultAt? (head : String) (s : Kore.KSort) (ps : List Kore.Pattern) : Option String :=
+  ps.findSome? fun q => match rhsHeadSort? q with
+    | some (c, s') => if s' = s then none else
+        some s!"{head}: an operand {c} of sort {Kore.Printer.sort s'}"
+    | none => none
 
 /-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
 def rhsOpFault? (conn : String) (s : Kore.KSort) (ps : List Kore.Pattern) : Option String :=
-  ps.findSome? fun q => match rhsHeadSort? q with
-    | some (c, s') => if s' = s then none else
-        some s!"{conn}\{{Kore.Printer.sort s}}: an operand {c} of sort {Kore.Printer.sort s'}"
-    | none => none
+  rhsOpFaultAt? s!"{conn}\{{Kore.Printer.sort s}}" s ps
+
+/-- `conn{s1,s2}`, printed. -/
+def rhsHead2 (conn : String) (s1 s2 : Kore.KSort) : String :=
+  s!"{conn}\{{Kore.Printer.sort s1},{Kore.Printer.sort s2}}"
 
 mutual
   /-- Where `rhsSorted` fails, the first connective (outermost first) with an operand of another
-  sort, or an `\exists` whose body states another sort, named (`rhsOpFault?`). -/
+  sort than the one the connective gives it, or an `\exists` or `\forall` whose body states
+  another sort, named (`rhsOpFault?`, `rhsOpFaultAt?`). -/
   def rhsSortFault? : Kore.Pattern → Option String
     | .app _ _ ps => rhsSortFaultList? ps
     | .and s ps => (rhsOpFault? "\\and" s ps).orElse fun _ => rhsSortFaultList? ps
     | .or s ps => (rhsOpFault? "\\or" s ps).orElse fun _ => rhsSortFaultList? ps
     | .exist s _ p => (rhsOpFault? "\\exists" s [p]).orElse fun _ => rhsSortFault? p
+    | .not s p => (rhsOpFault? "\\not" s [p]).orElse fun _ => rhsSortFault? p
+    | .implies s p q => (rhsOpFault? "\\implies" s [p, q]).orElse fun _ =>
+        (rhsSortFault? p).orElse fun _ => rhsSortFault? q
+    | .forall s _ p => (rhsOpFault? "\\forall" s [p]).orElse fun _ => rhsSortFault? p
+    | .ceil s1 s2 p => (rhsOpFaultAt? (rhsHead2 "\\ceil" s1 s2) s1 [p]).orElse fun _ => rhsSortFault? p
+    | .floor s1 s2 p => (rhsOpFaultAt? (rhsHead2 "\\floor" s1 s2) s1 [p]).orElse fun _ => rhsSortFault? p
+    | .in s1 s2 p q => (rhsOpFaultAt? (rhsHead2 "\\in" s1 s2) s1 [p, q]).orElse fun _ =>
+        (rhsSortFault? p).orElse fun _ => rhsSortFault? q
     | _ => none
     termination_by structural p => p
   def rhsSortFaultList? : List Kore.Pattern → Option String
