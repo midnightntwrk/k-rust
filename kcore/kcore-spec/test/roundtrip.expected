@@ -93,6 +93,7 @@ differs f2-examples/e6cfg.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
+differs f2-examples/e7-guardors.kompile.kore
 differs f2-examples/e7-implicitk.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
