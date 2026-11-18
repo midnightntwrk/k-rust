@@ -101,12 +101,12 @@ def classes : List (String × List Nat) :=
       404, 405, 406, 407, 418, 419, 420, 421, 422, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435,
       436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455, 456,
       457, 458, 459, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477, 478,
-      521, 522, 550, 558, 733, 734, 748, 749, 788, 793, 794, 795, 796, 797, 802, 803]),
+      496, 521, 522, 550, 558, 733, 734, 748, 749, 788, 793, 794, 795, 796, 797, 802, 803, 805]),
    ("set idempotence", [104]),
    ("set-variable lemma", [379, 380, 381, 382, 383, 837]),
-   ("no direction", [62, 70, 75, 79, 116, 118, 247, 281, 345, 350, 423, 460, 496, 549, 559, 596, 597, 598, 686,
+   ("no direction", [62, 70, 75, 79, 116, 118, 247, 281, 345, 350, 423, 460, 549, 559, 596, 597, 598, 686,
       687, 757, 758, 759, 760, 761, 762, 763, 764, 765, 766, 767, 768, 769, 770, 771, 772, 773, 774, 775, 776,
-      777, 778, 779, 780, 781, 782, 783, 784, 785, 786, 787, 805])]
+      777, 778, 779, 780, 781, 782, 783, 784, 785, 786, 787])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -124,7 +124,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 302), ("rewrite rule", 10), ("priority equation", 0), ("constructor functional", 52), ("subsort", 32), ("injectivity", 35), ("distinctness", 115), ("no junk", 28), ("function functional", 32), ("hooked functional", 61), ("collection law", 9), ("library", 99), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 52)] := by
+    [("function equation", 302), ("rewrite rule", 10), ("priority equation", 0), ("constructor functional", 52), ("subsort", 32), ("injectivity", 35), ("distinctness", 115), ("no junk", 28), ("function functional", 32), ("hooked functional", 61), ("collection law", 9), ("library", 101), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 50)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
