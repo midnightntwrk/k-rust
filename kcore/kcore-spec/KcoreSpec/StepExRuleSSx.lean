@@ -7,7 +7,7 @@
   for `coreOKEx`: what they read of it is `HypSoundCoreEx` (`hypSoundEx_of_coreEx`), the
   constructors' and confined sorts' values (`confined_valueCEx`), each term's result having a
   result where every function has one (`evalTerm_totalCl`, from `SortCtx` and `OvlOK`), and each
-  term's result being what it denotes in the model (`termSound_of_coreExSSx`), where a clause with
+  term's result being what it denotes in the model (`HoldsShape.termSoundEx`), where a clause with
   existential variables is read by `ClauseExRead`.
 
   - A valuation of a rule's variables in their sorts gives the element of a value of its sort to
@@ -20,7 +20,7 @@
     `requires` has a result at each match, `¬applies` at a valuation gives `NotApplies`
     (`notApplies_of_not_appliesSSx`).
 -/
-import KcoreSpec.StepExTermSSx
+import KcoreSpec.TermSoundCEx
 import KcoreSpec.OpenRuleStepCl
 import KcoreSpec.RightHeldStep
 
@@ -204,7 +204,7 @@ theorem evalTrue_of_modelSSx (h : c.coreOKEx = true) (hft : FnTerminates c) (hI 
   · exact absurd hm (reqFalse_empty hIΓ (S' := srtOf c topCellSort)
       (fun a => by unfold srtOf; rw [trSort_srt]; exact hσC1 a) hσC2 hvt
       (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ ht hu)
-      (HoldsShape.termSound_of_coreExSSx h hI hcw hv hσ (canonVars_length c vars) hag ht) m)
+      (HoldsShape.termSoundEx h hI hcw hv hσ (canonVars_length c vars) hag ht) m)
 
 /-- **The step a valuation gives, where it gives every variable a value.** For a well-sorted rule
 with `rulePlainOpen`, in a model of `Γc`, at a valuation that gives every variable of the rule the
@@ -244,7 +244,7 @@ theorem rule_step_of_witnessedSSx (h : c.coreOKEx = true) (hft : FnTerminates c)
   refine ⟨hσ, hmatch, hreq, hpre ▸ .top, ?_, fun t ht => evalTrue_of_modelSSx h hft hI hcw hσ hag (hensS t ht) (hens t ht),
     hpost ▸ .top⟩
   obtain ⟨v, hv⟩ := Model.evalTerm_totalCl hsc hno hft fns_headsOK hσ hrhs
-  have hbR := (HoldsShape.termSound_of_coreExSSx h hI hcw hv hσ (canonVars_length c r.vars)
+  have hbR := (HoldsShape.termSoundEx h hI hcw hv hσ (canonVars_length c r.vars)
     hag hrhs _).mp hy
   cases v with
   | none => exact hbR.elim
@@ -592,7 +592,7 @@ theorem applies_of_valuesSSx (h : c.coreOKEx = true) (hI : I ⊧ᴵP Γc c)
   have hlx4 := ((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ' hvsl hag hpv' hlhsN').2 _).mpr ((hxs.1 _).mpr rfl)
   obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
   have hreq4 := reqPat_holds hIΓ (vs := vs) (q := r.req) (fun t ht b =>
-    HoldsShape.termSound_of_coreExSSx h hI hcw (hreq' t ht) hσ' hvsl hag (hreqS' t ht) b)
+    HoldsShape.termSoundEx h hI hcw (hreq' t ht) hσ' hvsl hag (hreqS' t ht) b)
     (by have := hxs.2; unfold srtOf; rw [trSort_srt]; exact this)
   -- e3 agrees with e4 at the left side's and conditions' variables, and with e off the binders
   have h34 : ∀ i < n, i ∈ r.leftVars → e4.evalEvar (tbl.ev (keyAt vs i)) = e3.evalEvar (tbl.ev (keyAt vs i)) :=
