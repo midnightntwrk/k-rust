@@ -337,7 +337,7 @@ theorem termRT_all (p : Kore.Pattern) : TermRT N c tbl tblT vars vsF p := by
       simp only at hrd
       obtain ⟨a, ha, hrd⟩ := bind_ok hrd
       obtain ⟨b, hb, hrd⟩ := bind_ok hrd
-      by_cases hcc : Parse.isCellCollPair a b = true
+      by_cases hcc : N.cellPairs.contains (a, b) = true
       · rw [ifP hcc] at hrd; cases hrd
       rw [ifN hcc] at hrd
       obtain ⟨⟨t1, vs1⟩, h1, hrd⟩ := bind_ok hrd
