@@ -190,6 +190,7 @@ import KcoreSpec.OpenClauseEval
 import KcoreSpec.ModelFnsCl
 import KcoreSpec.OpenClauseCore
 import KcoreSpec.OpenClauseDen
+import KcoreSpec.Exhibit
 import KcoreSpec.RightHeld
 import KcoreSpec.RightHeldHooks
 import KcoreSpec.RightHeldExtend
@@ -309,6 +310,7 @@ import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
 import KcoreSpec.ClauseExDen
+import KcoreSpec.ClauseExModel
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -332,6 +334,8 @@ import KcoreSpec.TieOvlConf
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
+import KcoreSpec.GenEqsWalk
+import KcoreSpec.GenEqsInit
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
@@ -340,3 +344,4 @@ import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
+import KcoreSpec.EvalCallsInduct

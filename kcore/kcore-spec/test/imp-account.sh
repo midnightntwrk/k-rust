@@ -14,7 +14,7 @@
 #     sentences below, no constructor).
 # Prints the readings the text uses: the reading notes (sentences classified `read NOTE`, the
 # connective readings, and the counts of the readings no sentence is classified as:
-# ruleRightDefined, keyFunctionAsRequires, equationPriority, owiseAsPriority,
+# ruleRightDefined, keyFunctionAsMember, equationPriority, owiseAsPriority,
 # owiseDisjunctNarrower), then the inert and unread classes. Run after `lake build kcore`.
 # Usage: test/imp-account.sh
 set -u
@@ -43,7 +43,7 @@ fi
 echo "reading notes the text uses:"
 grep -E '^  [0-9]+ read [a-zA-Z]+ ' "$out" | sed 's/^ */  /'
 sed -n '/^connective readings per sentence/p' "$out" | sed 's/^/  /'
-grep -E '\((ruleRightDefined|keyFunctionAsRequires|equationPriority|owiseAsPriority|owiseDisjunctNarrower)\)' "$out" \
+grep -E '\((ruleRightDefined|keyFunctionAsMember|equationPriority|owiseAsPriority|owiseDisjunctNarrower)\)' "$out" \
   | sed -E 's/^(.*) \(([A-Za-z]+)\): ([0-9]+)$/  \2: \3  (\1)/'
 echo "inert and unread classes:"
 grep -E '^  [0-9]+ (inert|unread) ' "$out" | sed 's/^ */  /'

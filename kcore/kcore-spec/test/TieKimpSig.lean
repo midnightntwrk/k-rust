@@ -3,7 +3,7 @@
   (`examples/ref-kimp/RefKimp/definition.kore`), on the literals `kore` and `defn`. Nothing here
   reads `Parse.parse` or `emit`. Run from the package root: `lake env lean test/TieKimpSig.lean`.
 
-  - `sig_origin`: each of the 255 items of `sigItems c` is the item of a declaration of the text
+  - `sig_origin`: each of the 263 items of `sigItems c` is the item of a declaration of the text
     (`Theory.ofDefinition kore`'s signature, 240 items), or is about a registry name the text does
     not declare at that shape (`surplusItem`).
 
@@ -13,7 +13,7 @@
   item, the text's signature up to the item's place in it; for a surplus item, `surplusItem`'s
   search through the registry's sorts and interpreted hooked symbols up to its own. So a range of
   surplus items is cut shorter than one of declared items. Items 9, 11 to 17, 21 to 30 (registry
-  sorts) and 174 to 251 (interpreted hooked symbols) are surplus; the other 159 are declared.
+  sorts) and 182 to 259 (interpreted hooked symbols) are surplus; the other 167 are declared.
   test/TieKimpHints.lean prints the places of the surplus items.
 -/
 import KcoreSpec
@@ -39,14 +39,14 @@ theorem sig_31 : (((sigItems c).drop 31).take 35).all sigFrom = true := by decid
 theorem sig_66 : (((sigItems c).drop 66).take 35).all sigFrom = true := by decide +kernel
 theorem sig_101 : (((sigItems c).drop 101).take 35).all sigFrom = true := by decide +kernel
 theorem sig_136 : (((sigItems c).drop 136).take 35).all sigFrom = true := by decide +kernel
-theorem sig_171 : (((sigItems c).drop 171).take 3).all sigFrom = true := by decide +kernel
-theorem sig_174 : (((sigItems c).drop 174).take 13).all sigFrom = true := by decide +kernel
-theorem sig_187 : (((sigItems c).drop 187).take 13).all sigFrom = true := by decide +kernel
-theorem sig_200 : (((sigItems c).drop 200).take 13).all sigFrom = true := by decide +kernel
-theorem sig_213 : (((sigItems c).drop 213).take 13).all sigFrom = true := by decide +kernel
-theorem sig_226 : (((sigItems c).drop 226).take 13).all sigFrom = true := by decide +kernel
-theorem sig_239 : (((sigItems c).drop 239).take 13).all sigFrom = true := by decide +kernel
-theorem sig_252 : ((sigItems c).drop 252).all sigFrom = true := by decide +kernel
+theorem sig_171 : (((sigItems c).drop 171).take 11).all sigFrom = true := by decide +kernel
+theorem sig_182 : (((sigItems c).drop 182).take 13).all sigFrom = true := by decide +kernel
+theorem sig_195 : (((sigItems c).drop 195).take 13).all sigFrom = true := by decide +kernel
+theorem sig_208 : (((sigItems c).drop 208).take 13).all sigFrom = true := by decide +kernel
+theorem sig_221 : (((sigItems c).drop 221).take 13).all sigFrom = true := by decide +kernel
+theorem sig_234 : (((sigItems c).drop 234).take 13).all sigFrom = true := by decide +kernel
+theorem sig_247 : (((sigItems c).drop 247).take 13).all sigFrom = true := by decide +kernel
+theorem sig_260 : ((sigItems c).drop 260).all sigFrom = true := by decide +kernel
 
 /-- **Every item of Γ's signature has its origin**: it is the item of a declaration of the text,
 or it states the sort constant of a registry sort or the arity of an interpreted hooked symbol
@@ -59,17 +59,17 @@ theorem sig_origin : (sigItems c).all (fun it =>
     tieAll_range (a := 66) (n := 35) sig_66 <|
     tieAll_range (a := 101) (n := 35) sig_101 <|
     tieAll_range (a := 136) (n := 35) sig_136 <|
-    tieAll_range (a := 171) (n := 3) sig_171 <|
-    tieAll_range (a := 174) (n := 13) sig_174 <|
-    tieAll_range (a := 187) (n := 13) sig_187 <|
-    tieAll_range (a := 200) (n := 13) sig_200 <|
-    tieAll_range (a := 213) (n := 13) sig_213 <|
-    tieAll_range (a := 226) (n := 13) sig_226 <|
-    tieAll_range (a := 239) (n := 13) sig_239 <|
-    sig_252
+    tieAll_range (a := 171) (n := 11) sig_171 <|
+    tieAll_range (a := 182) (n := 13) sig_182 <|
+    tieAll_range (a := 195) (n := 13) sig_195 <|
+    tieAll_range (a := 208) (n := 13) sig_208 <|
+    tieAll_range (a := 221) (n := 13) sig_221 <|
+    tieAll_range (a := 234) (n := 13) sig_234 <|
+    tieAll_range (a := 247) (n := 13) sig_247 <|
+    sig_260
 
-/-- The counts: Γ's signature has 255 items, the text's 240. -/
-theorem sig_sizes : (sigItems c).length = 255 ∧ (Theory.ofDefinition kore).signature.length = 240 := by
+/-- The counts: Γ's signature has 263 items, the text's 240. -/
+theorem sig_sizes : (sigItems c).length = 263 ∧ (Theory.ofDefinition kore).signature.length = 240 := by
   decide +kernel
 
 end KCore.TieKimp

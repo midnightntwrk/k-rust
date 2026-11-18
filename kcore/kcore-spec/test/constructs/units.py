@@ -104,10 +104,14 @@ ALLOWANCE = [
     # 33 -> 35 with R2-release.fixrest-pending-rows: E2 ML_BINDER(mlBinder)@frontend and
     # ML_OP(mlOp)@frontend take, by rule S1, the status and class of the E3 rows of #Exists and #Ceil
     # (refused R-c without unit), the productions whose KORE their fixture's sentences show.
-    # 35 -> 36 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
+    # 35 -> 34 with ROWS-1.refresh-k: E3 #Bottom is supported, every shape of it read or inert
+    # with its fixture.
+    # 34 -> 30 with ROWS-1.refresh-kore: the four E4 \forall and \floor rows are R-a openExtent
+    # with their unit (CN-3 section 5), the predicate in a condition a supported case.
+    # 30 -> 31 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
     # collection (fixture e2-initial-coll), refused R-c by the reader's initializer decision, with no
     # ticket that reads it yet.
-    ("ROWS-1.unit-rc", 36, "entries of class R-c without unit",
+    ("ROWS-1.unit-rc", 31, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
