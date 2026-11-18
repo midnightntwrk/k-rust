@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 7 | 3 | 0 | 0 | 0 | 4 | 0 | 0 |
-| E2 | 59 | 7 | 0 | 1 | 0 | 51 | 0 | 0 |
+| E2 | 59 | 8 | 0 | 1 | 0 | 50 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 51 | 20 | 0 | 4 | 0 | 27 | 0 | 0 |
 | E5 | 59 | 36 | 1 | 2 | 0 | 20 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 331 | 126 | 2 | 11 | 1 | 191 | 0 | 0 |
+| all | 331 | 127 | 2 | 11 | 1 | 190 | 0 | 0 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 4 | 0 | 0 | 1 | 3 |
-| E2 | 51 | 3 | 0 | 3 | 45 |
+| E2 | 50 | 3 | 0 | 2 | 45 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 27 | 14 | 7 | 0 | 6 |
 | E5 | 20 | 10 | 1 | 4 | 5 |
@@ -68,9 +68,9 @@ Refused nested entries by class:
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 191 | 49 | 15 | 44 | 83 |
+| all | 190 | 49 | 15 | 43 | 83 |
 
-## Entries of class R-c (56)
+## Entries of class R-c (55)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -78,7 +78,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 |---|---|---|---|---|---|---|---|
 | E1 | `Sentence:kw:syntax` | cases[0] | refused |  | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b) (findings/REVIEW-TIE-cons.md finding 9 and its amended §0 item 4): sigItems, ΓDomains, ΓFallback guarded by 'declared in c', a Semantics field of declared registry names and a coreOK conjunct that every applied ho… | no unit |  |
 | E2 | `COMM(comm)@symbol` | cases[5] | refused |  | none: KCore.Semantics.clausesPlain and coreOK admit the clause; wf's checks outside coreOK (KCore.Semantics.ok, clausesPreTop) ask every clause's premise predicate to be \\top | FIX-core.wave-C |  |
-| E2 | `COMM(comm)@symbol` | cases[7] | refused |  |  | P3 |  |
 | E2 | `HYBRID(hybrid)@frontend` | row | refused | a sort predicate whose equations are the text's: a function read from its equations, in place of the one KCore builds from the sorts | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `ML_OP(mlOp)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
@@ -305,7 +304,7 @@ Not core:
 | cases[4]: an open generator applied in a function clause's pattern, its sort confined (syntax A ::= first(B) [function]; rule firs… | refused | scope | The text states first(and(x, g)) = x for all elements x and g of A: an equation of first whose argument applies the open generator, which holds where first's argument is the generator's value at (x, g) (C[g(P̄)] is ∃V. C[V] ∧ V ∈ g(P̄) in every interpretation), A confined. Nothing in K's documentati… |  | none (scope): option | e2-open-mixed-clause |  |  | fixtures/e2-open-mixed-clause/kompile.txt: exit 113, kore-exec 0.1.155 ErrorVerify at definition.kore 303:13: Found invalid subterm in argument of function equation: Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{}), the equation's argument \\in{SortB{}, \_}(X0:SortB{}, Lbland{}(VarX:SortA{}, Var'Unds'Gen… |
 | cases[5]: the equation of first whose argument applies the open generator, in the text kompiled with --backend llvm | refused | R-c | The equation states first(and(x, g)) = x for all elements x, g of A. The reader reads it as the cut, a fresh variable Open0 of B in the pattern and Open0 ∈ and(X, G) a conjunct of Clause.pre; X and G are open variables of the confined sort A (findings/KPROV-reopen-decision.md H10), and clausesPlain… | none: KCore.Semantics.clausesPlain and coreOK admit the clause; wf's checks outside coreOK (KCore.Semantics.ok, clausesPreTop) ask every clause's premise predicate to be \\top | FIX-core.wave-C | e8-llvm-e2-open-mixed-clause |  |  | fixtures/e8-llvm-e2-open-mixed-clause/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying an open generator in their left side: 0\`, \`parse: ok; wf false; failing: [clauses' premise predicates \\top (clausesPreTop): the checks outside coreOK read no clause pred… |
 | cases[6]: an open generator applied in a rule's left side, its sort recursive, every variable of its arguments held by another par… | supported |  | B is not confined, but the cut leaves no variable open: the values of X and Y are those the left side matches, so the membership's truth at them is the interpretation's value of and at those values, which every reading at values states. |  |  | e2-open-rec-held |  |  | fixtures/e2-open-rec-held/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/OpenGenerator.lean (openrecheld: c(Open0, X, Y), pre in[B](Open0, Lbland(X, Y)), confined false, coreOK true) |
-| cases[7]: an open generator applied in a rule's left side to arguments holding #as (syntax A ::= "x" \| "y"; syntax B ::= A "&" A [… | refused | R-c | An #as names the subterm a pattern matches, and the cut's term is evaluated, not matched, so the cut alone gives Z no value. The text's meaning is the cut's with Z the value of X (X #as Z holds of the element both denote), an equation between variables the kernel's conditions state (Cond.equals); th… |  | P3 | e2-open-mixed-as |  |  | fixtures/e2-open-mixed-as/account.txt: \`sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)\`, \`parse: ok; wf false; failing… |
+| cases[7]: an open generator applied in a rule's left side to arguments holding #as (syntax A ::= "x" \| "y"; syntax B ::= A "&" A [… | supported |  | X #as Z is X ∧ Z, which denotes Z's element where it is X's and nothing elsewhere. An application is pointwise over the elements its arguments hold and empty where one of them is empty, so c(and(X ∧ Z, Y)) is c(and(Z, Y)) ∧ Z ∈ X in every interpretation, and the cut (C[g(P̄)] is ∃V. C[V] ∧ V ∈ g(P̄)… |  |  | e2-open-mixed-as |  |  | fixtures/e2-open-mixed-as/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/OpenGenerator.lean (openmixedas: the rule's left side c(Open0) with pre and(in[B](Open0, Lbland(Z, Y)), in[A](Z… |
 | cases[8]: a production that is no function, with comm (syntax Exp ::= Exp "&" Exp [symbol(and), comm]), as kompile writes it: the… | supported |  | For a production that is no function, comm makes kompile drop \`constructor\` and \`injective\`, write no comm key on the declaration and no axiom at all. The text says \`and\` is total and one of Exp's generators, nothing of commutativity, injectivity or distinctness; the reader reads that (an open gener… |  |  | e2-comm-ctor |  |  | FX/e2-comm-ctor/kore.txt line 6: \`symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), …]\`; no axiom carries comm; FX/e2-comm-ctor/account.txt \`stage refusals (of sentences classified read): 0\`, \`sentence 165 (Lbland): stated at values, under OpenTotal\`, \`coreOK: true; failing: []\`, \`r… |
 | `COMM(comm)@rule` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-rule | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@equation` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-eq | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |

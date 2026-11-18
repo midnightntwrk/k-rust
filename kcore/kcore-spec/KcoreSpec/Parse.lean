@@ -254,8 +254,9 @@ inductive RefusalReason where
   application a fresh variable and its membership in the application a conjunct of `pre`: there
   the reason is printed where S is not confined and a variable of the arguments is held by no other
   part of the left side (`openCutRefusal`); a clause's argument patterns are read the same way
-  (`ovlCutList`, `openCutRefusalCl`); the account's row remains for an application whose arguments
-  hold `#as`, which is not cut. -/
+  (`ovlCutList`, `openCutRefusalCl`). The cut takes every outermost application of an open
+  generator, its arguments' `#as` bindings read as conditions (`cutOvlApps`), so the account's row
+  names no pattern the cut has read. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -1365,10 +1366,16 @@ arguments hold (the cut, `KCore.cut_identity`). With V not in the right side or 
 application as a fresh variable V and conjoins `V ∈ g(P̄)` to the rule's `pre` (`Cond.mem`, whose
 term is evaluated, not matched): the left side so read applies no function-overloaded symbol.
 Outermost applications are cut, left to right; an inner one stays in the term. An application whose
-arguments hold `#as` is not cut, since an `#as` names a matched subterm and the cut's term is not
-matched: it stays in the left side, refused (`functionInPattern`). The variables of P̄ that the rest of
-the left side does not hold are then variables the left side does not bind, decided as any such
-(`rulesPlain`; `openRefusal` names the symbol).
+arguments hold `#as` is cut too. `p #as Z` is `p ∧ Z`, which denotes Z's element where that element
+is in p and nothing elsewhere; an application is pointwise over the elements its arguments hold and
+empty where one of them is empty, and so is an injection, so `g(…, D[p ∧ Z], …)`, D the hole under
+applications and injections, is `g(…, D[Z], …) ∧ Z ∈ p` in every interpretation. Z is a variable of
+the rule already, universally quantified with the others, so no binder is added: the membership's
+term holds Z in the alias's place and `Z ∈ p` (`Cond.mem` at Z's sort) is a further conjunct of
+`pre`, after the cut's membership; p is read the same way, so a nested `#as` gives its own conjunct
+after the one whose term holds it (`cutAsBinds`). The term of each membership then holds no `#as`.
+The variables of P̄ that the rest of the left side does not hold are then variables the left side
+does not bind, decided as any such (`rulesPlain`; `openRefusal` names the symbol).
 
 An open generator g (`Names.openCutSyms`, a `raw` parameter) is cut the same way: `C[g(P̄)]` is
 `∃V. C[V] ∧ V ∈ g(P̄)` in every interpretation, and the membership's term is evaluated through the
@@ -1381,13 +1388,35 @@ element that is no value's which the interpretation sends to a value, and which 
 the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`). -/
 
 mutual
-  /-- `t` with each outermost application of a symbol of `cs` whose arguments hold no `#as`
-  replaced by a fresh variable numbered from `n`: the term, the next number, and each fresh
-  variable with the symbol's result sort's name and the application it stands for, left to
-  right. -/
-  def cutOvlApps (cs : List (Sym × String)) (n : Nat) : Term → Term × Nat × List (Nat × String × Term)
+  /-- `t` with each `#as` binding `p #as V` replaced by its variable V: the term, and each
+  binding's variable with its pattern, itself so read, the binding before those its pattern holds,
+  left to right. -/
+  def cutAsBinds : Term → Term × List (Nat × Term)
+    | .var i => (.var i, [])
+    | .app f ts => let (ts', bs) := cutAsBindsList ts; (.app f ts', bs)
+    | .inj a b t => let (t', bs) := cutAsBinds t; (.inj a b t', bs)
+    | .as t i => let (t', bs) := cutAsBinds t; (.var i, (i, t') :: bs)
+    | .dv s lit => (.dv s lit, [])
+    termination_by structural t => t
+  /-- `cutAsBinds` on each term of `ts`. -/
+  def cutAsBindsList : List Term → List Term × List (Nat × Term)
+    | [] => ([], [])
+    | t :: ts =>
+      let (t', bs) := cutAsBinds t
+      let (ts', bs') := cutAsBindsList ts
+      (t' :: ts', bs ++ bs')
+    termination_by structural ts => ts
+end
+
+mutual
+  /-- `t` with each outermost application of a symbol of `cs` replaced by a fresh variable
+  numbered from `n`: the term, the next number, and each fresh variable with the symbol's result
+  sort's name, the application it stands for with its arguments' `#as` bindings replaced by their
+  variables, and those bindings (`cutAsBinds`), left to right. -/
+  def cutOvlApps (cs : List (Sym × String)) (n : Nat) :
+      Term → Term × Nat × List (Nat × String × Term × List (Nat × Term))
     | .app f ts => match cs.lookup f with
-      | some X => if asFreeList ts then (.var n, n + 1, [(n, X, .app f ts)]) else (.app f ts, n, [])
+      | some X => let (ts', bs) := cutAsBindsList ts; (.var n, n + 1, [(n, X, .app f ts', bs)])
       | none => let (ts', m, xs) := cutOvlAppsList cs n ts; (.app f ts', m, xs)
     | .inj a b t => let (t', m, xs) := cutOvlApps cs n t; (.inj a b t', m, xs)
     | .as t i => let (t', m, xs) := cutOvlApps cs n t; (.as t' i, m, xs)
@@ -1395,7 +1424,7 @@ mutual
     termination_by structural t => t
   /-- `cutOvlApps` on each term of `ts`, the numbers continuing. -/
   def cutOvlAppsList (cs : List (Sym × String)) (n : Nat) :
-      List Term → List Term × Nat × List (Nat × String × Term)
+      List Term → List Term × Nat × List (Nat × String × Term × List (Nat × Term))
     | [] => ([], n, [])
     | t :: ts =>
       let (t', m, xs) := cutOvlApps cs n t
@@ -1410,25 +1439,39 @@ def ovlCutConj : List Cond → Cond
   | [p] => p
   | p :: ps => .and p (ovlCutConj ps)
 
+/-- The cut `xs` (`cutOvlApps`) of a term over the variables `vs`: the variables with the fresh
+ones after them (`Ovl0`, `Ovl1`, … for a function-overloaded symbol, `Open0`, `Open1`, … for an open
+generator, numbered by position among the fresh ones, primed until new), and the conjunction of
+the memberships, each fresh variable's `V ∈ g(P̄)` (`Cond.mem` at g's result sort) followed by
+each binding's `Z ∈ p` of its arguments (at Z's sort). -/
+def ovlCutMemsAs (N : Names) (vs : List Var) (xs : List (Nat × String × Term × List (Nat × Term))) :
+    Rd (List Var × Cond) := do
+  let pfx := fun (app : Term) => match app with
+    | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+    | _ => "Ovl"
+  let vs' := xs.foldl (fun acc (_, X, app, _) =>
+    acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
+  let mems ← xs.mapM fun (i, X, app, bs) => do
+    let m := Cond.mem (← N.srtE X) (.var i) app
+    let ms ← bs.mapM fun (j, p) => do pure (Cond.mem (← N.srtE (vs.getD j default).sort) (.var j) p)
+    pure (m :: ms)
+  pure (vs', ovlCutConj mems.flatten)
+
 /-- A rule's left side `lhs` and its variables `vs`, read with each application of a
 function-overloaded symbol (`Names.ovlCutSyms`) or of an open generator (`Names.openCutSyms`) cut
 (`cutOvlApps`): the left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for
 the first, `Open0`, `Open1`, … for the second, numbered by position among the fresh ones, primed until
 new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
-applications, `\top` where nothing is cut. -/
+applications, each followed by the memberships `Z ∈ p` of its arguments' `#as` bindings
+(`ovlCutMemsAs`), `\top` where nothing is cut. -/
 def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
   match N.ovlCutSyms ++ N.openCutSyms with
   | [] => pure (lhs, vs, .top)
   | cs => match cutOvlApps cs vs.length lhs with
     | (_, _, []) => pure (lhs, vs, .top)
     | (lhs', _, xs) => do
-      let pfx := fun (app : Term) => match app with
-        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
-        | _ => "Ovl"
-      let vs' := xs.foldl (fun acc (_, X, app) =>
-        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
-      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
-      pure (lhs', vs', ovlCutConj mems)
+      let (vs', pre) ← ovlCutMemsAs N vs xs
+      pure (lhs', vs', pre)
 
 /-- A clause's argument patterns `pats` and its variables `vs`, read with each application of a
 function-overloaded symbol or of an open generator cut, as `ovlCut` reads a rule's left side
@@ -1442,7 +1485,9 @@ over the elements its arguments hold, and `Xᵢ ∈ _` distributes over the unio
 `(∃V. φ) → ψ` is `∀V. (φ → ψ)` for V not in ψ. So the equation read with V a variable of the
 clause, the application a fresh variable of the pattern and the membership a conjunct of the
 clause's premise predicate (`Clause.pre`, whose term is evaluated, not matched) is the text's
-equation, with no premise. The variables of P̄ that the other patterns do not hold are then
+equation, with no premise. An application whose arguments hold `#as` is cut as in a rule's left
+side: `Xᵢ ∈ (φ ∧ Z ∈ p)` is `Xᵢ ∈ φ ∧ Z ∈ p`, the membership being a predicate. The variables of P̄ that the
+other patterns do not hold are then
 variables the arguments do not bind, in a condition with one they bind (V): decided as any such
 (`clausesPlain`, `clauseRefusal`). -/
 def ovlCutList (N : Names) (pats : List Term) (vs : List Var) : Rd (List Term × List Var × Cond) :=
@@ -1451,13 +1496,8 @@ def ovlCutList (N : Names) (pats : List Term) (vs : List Var) : Rd (List Term ×
   | cs => match cutOvlAppsList cs vs.length pats with
     | (_, _, []) => pure (pats, vs, .top)
     | (pats', _, xs) => do
-      let pfx := fun (app : Term) => match app with
-        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
-        | _ => "Ovl"
-      let vs' := xs.foldl (fun acc (_, X, app) =>
-        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
-      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
-      pure (pats', vs', ovlCutConj mems)
+      let (vs', pre) ← ovlCutMemsAs N vs xs
+      pure (pats', vs', pre)
 
 /-! ## Connectives with a term's reading
 
