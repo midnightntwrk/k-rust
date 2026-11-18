@@ -12,7 +12,8 @@
     right side over `inj`, the definition's symbols, initializers strictly below and accounted
     projections (I5); for its `functional` axiom a right side of constructors, total interpreted
     symbols and initializers below that have the axiom, or a ground right side whose value is
-    computed, a function without argument read as its one unconditional clause's right side (I6).
+    computed, a function without argument read as its one unconditional clause's right side, read the
+    same way in turn, and kept inside its own right side (I6).
   - By evaluation, on K 7.1.337 kompile's text of fixture e2-cells (`f2-examples/cells.kompile.kore`)
     and six edits of it, each stating something the definition's theory refutes or does not state:
     the unedited text is read with nothing refused or unaccounted; each edit is refused
@@ -172,6 +173,27 @@ example : initGroundOK N (cConst [{ fZero with req := some (.dv Srt.bool (.bool 
   decide +kernel
 example : initGroundOK N (cConst [fZero, fZero]) initXf = false := by decide +kernel
 example : initGroundOK N (cConst []) initXf = false := by decide +kernel
+
+/-- `c` with functions without argument: `f` of the clauses `fs`, `u` (no parameter here) of `us`,
+and a third, `h`, of `hs`. -/
+def hL : Sym := nRegSyms + 4
+def cConstN (fs us hs : List Clause) : Semantics :=
+  { c with
+    fns := [{ label := fL, args := [], result := Srt.int, clauses := fs },
+      { label := uL, args := [], result := Srt.int, clauses := us },
+      { label := hL, args := [], result := Srt.int, clauses := hs }]
+    params := [] }
+def fRhs (r : Term) : Clause := { fZero with rhs := r }
+
+/-- I6, functions without argument read in turn: `f() = u()`, `u() = 0` gives `<x>(0)`, and
+`f() = u()`, `u() = h()`, `h() = 0` likewise. An `f()` inside its own right side, directly or
+through `u`, is kept, and so is a `u()` whose clause has a `requires`: no value is computed. -/
+example : initGroundOK N (cConstN [fRhs (.app uL [])] [fZero] []) initXf = true := by decide +kernel
+example : initGroundOK N (cConstN [fRhs (.app uL [])] [fRhs (.app hL [])] [fZero]) initXf = true := by decide +kernel
+example : initGroundOK N (cConstN [fRhs (.app fL [])] [] []) initXf = false := by decide +kernel
+example : initGroundOK N (cConstN [fRhs (.app uL [])] [fRhs (.app fL [])] []) initXf = false := by decide +kernel
+example : initGroundOK N (cConstN [fRhs (.app uL [])] [{ fZero with req := some (.dv Srt.bool (.bool true)) }] []) initXf =
+    false := by decide +kernel
 /-- A `functional` axiom of `initKCell`, whose equation's right side applies a projection, is a failure. -/
 example : ((initFaults N "" [] eqs ["LblinitKCell"] c topCell).map (·.detail)) =
     ["LblinitKCell: functional axiom of a cell's initializer whose equation's right side the definition does not give exactly one value at every argument"] := by
