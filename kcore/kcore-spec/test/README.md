@@ -1527,6 +1527,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
+  is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
+  section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting
+  `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
+  `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
+  `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
+  `exponentBitsFloat` for every H. The header lists 321 (1673) and 380 (1671) and why they are not
+  tied. 1.9 GiB, 6 s. Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
