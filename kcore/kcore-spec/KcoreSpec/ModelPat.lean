@@ -661,7 +661,8 @@ theorem instRes_of_total (hs : HypSoundCore c) (ht : FnTerminates c) {fn : Fn} (
 /-- Where every function has a result at arguments of its sorts, each clause instance has a result
 at each well-sorted match (`CoDefined`, `instRes_of_total`). -/
 theorem coDefined_of_total (hs : HypSoundCore c) (ht : FnTerminates c) : CoDefined c :=
-  fun _ hfn _ _ _ _ _ _ hcl' _ hdec' _ => instRes_of_total hs ht hfn hcl' hdec'.1.1
+  fun fn hfn _ cl _ cl' _ _ hcl' _ hdec' _ => instRes_of_total hs ht hfn hcl'
+    ((wellSortedAt_univ (Semantics.fnsNoExs_of_sortedOK hs.1 fn hfn cl' hcl')).mp hdec'.1.1)
 
 /-- **Evaluation solves the equations** where every function has at most one result and a result
 at arguments of its sorts, and each clause with existential variables has a result (`Clause.Res`)
@@ -673,7 +674,7 @@ theorem fnSolves_of_total (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminate
   fnSolves_of_res (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
     (prioDecided_of_total hs ht) fun fn hfn cl hcl vs _ σ hdec => by
       by_cases hx : cl.exs = []
-      · obtain ⟨r, hr⟩ := instRes_of_total hs ht hfn hcl hdec.1.1
+      · obtain ⟨r, hr⟩ := instRes_of_total hs ht hfn hcl ((wellSortedAt_univ hx).mp hdec.1.1)
         exact ⟨r, Clause.res_of_instRes hx
           (Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn) cl hcl).2 hr⟩
       · exact hex fn hfn cl hcl hx vs σ hdec

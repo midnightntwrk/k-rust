@@ -119,7 +119,7 @@ theorem at_ext {cl : Clause} {σ σ₁ : Subst} {vs : List GroundTerm}
     (hpre : Holds c cl.vars.length σ cl.pre true) :
     cl.AppliesAt c σ₁ vs ∧ ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := by
   have hl : ∀ i ∈ cl.leftVars, σ₁.lookup i = σ.lookup i := fun i hi => ha i (by simp [Clause.exsFree, hi])
-  exact ⟨⟨hw, PatVals.congr_varsRH hm fun j hj => hl j (List.mem_append_left _ hj),
+  exact ⟨⟨hw.at _, PatVals.congr_varsRH hm fun j hj => hl j (List.mem_append_left _ hj),
     fun t ht => EvalTerm.congr (hq t ht) fun i hi => (hl i (Clause.req_leftVarsRH ht i hi)).symm,
     Holds.congr_NI hpre fun j hj => (hl j (Clause.pre_leftVarsRH j hj)).symm⟩, hl⟩
 
@@ -153,35 +153,35 @@ theorem case_by {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause} {σ : S
       (∀ t, cl.ens = some t → ∀ i ∈ varOccs t, σ.lookup i = σ'.lookup i) →
       cl'.Res c σ' r' → r = r') : M1 c f vs r := by
   have key : ∀ (cl' : Clause) (σ' : Subst) (r' : Option GroundTerm), cl' ∈ fn.clauses →
-      cl'.AppliesAt c σ' vs →
+      cl'.AppliesAt c σ' vs → c.WellSortedAt cl'.vars cl'.leftVars σ' →
       (∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'') →
       cl'.Res c σ' r' → r = r' := by
-    intro cl' σ' r' hmem' ha' hprio' hres'
+    intro cl' σ' r' hmem' ha' hl' hprio' hres'
     rcases compete_or_blocks cl cl' with hcomp | ⟨hna, hlt⟩ | ⟨hna, hgt⟩
     · rcases hco f fn hfn cl hmem cl' hmem' hcomp vs σ σ' ha ha' hqd hrd hed hid
           ⟨f, fn, hfn, hmem, hmem', ⟨ha, hprio⟩, ⟨ha', hprio'⟩⟩ with ⟨hx, hx', he, hee, hv, hve⟩ | hr
       · exact hsame cl' σ' r' hx hx' he hee hv hve hres'
       · exact hr _ _ hres hres'
     · exact (hnf (hprio' _ hmem hna hlt)).elim
-    · exact (ihprio _ hmem' hna hgt _ (ha'.1.at _) ha'.2.1 ha'.2.2.1 ha'.2.2.2).elim
+    · exact (ihprio _ hmem' hna hgt _ hl' ha'.2.1 ha'.2.2.1 ha'.2.2.2).elim
   intro r' h'
   cases h' with
   | @clause _ _ _ cl' σ' _ hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hex' hrhs' hens' hpost' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' r' hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (.inl ⟨hex', .inl ⟨hens', hpost', hrhs'⟩⟩)
+    exact key cl' σ' r' hmem' ⟨hσ'.at _, hmatch', hreq', hpre'⟩ (hσ'.at _) hprio' (.inl ⟨hex', .inl ⟨hens', hpost', hrhs'⟩⟩)
   | rest hfn' hnone' =>
     rw [hfn] at hfn'; cases hfn'
     exact (hnf (hnone' _ hmem)).elim
   | @ensFails _ _ _ cl' σ' t' w' hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hex' ht' he' hw' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' none hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (.inl ⟨hex', .inr ⟨t', w', ht', he', hw', rfl⟩⟩)
+    exact key cl' σ' none hmem' ⟨hσ'.at _, hmatch', hreq', hpre'⟩ (hσ'.at _) hprio' (.inl ⟨hex', .inr ⟨t', w', ht', he', hw', rfl⟩⟩)
   | @clauseEx _ _ _ cl' σ' v' hfn' hmem' hσ' hmatch' hreq' hpre' hprio' hne' hrhs' hens' hpost' hall' =>
     rw [hfn] at hfn'; cases hfn'
-    exact key cl' σ' (some v') hmem' ⟨hσ', hmatch', hreq', hpre'⟩ hprio' (res_clauseEx hσ' hne' hrhs' hens' hpost' hall')
+    exact key cl' σ' (some v') hmem' ⟨hσ'.at _, hmatch', hreq', hpre'⟩ (hσ'.at _) hprio' (res_clauseEx hσ' hne' hrhs' hens' hpost' hall')
   | @exNone _ _ _ cl' σ' hfn' hmem' hne' _ hmatch' hreq' hpre' hprio' hsome' hall' =>
     rw [hfn] at hfn'; cases hfn'
     obtain ⟨σ₁, ha₁, hw₁⟩ := hsome'
-    exact key cl' σ₁ none hmem' (at_ext ha₁ hw₁ hmatch' hreq' hpre').1 hprio' (res_exNone hne' ha₁ hw₁ hall')
+    exact key cl' σ₁ none hmem' (at_ext ha₁ hw₁ hmatch' hreq' hpre').1 (hw₁.at _) hprio' (res_exNone hne' ha₁ hw₁ hall')
 
 /-- A clause that applies under σ, well sorted on the left side's variables, its `requires` and
 predicate having one result there, does not fail. -/
@@ -450,7 +450,7 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
     (motive_7 := fun σ cl _ => M7 c σ cl) (motive_8 := fun σ cl _ _ => InstDet c cl σ)
     -- clause
     (fun {f fn vs cl σ r} hfn hmem hσ hmatch hreq hpre hprio hex hrhs hens hpost ihreq ihpre ihprio ihrhs ihens _ =>
-      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+      case_by hco hfn hmem ⟨hσ.at _, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
         (fun t ht => (ihreq t ht).2) (fun _ _ => ihrhs.2) (fun _ t ht => (ihens t ht).2) (fun hne => absurd hex hne)
         (.inl ⟨hex, .inl ⟨hens, hpost, hrhs⟩⟩)
         fun cl' σ' r' _ hx' he hee hv hve hres' => by
@@ -463,7 +463,7 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
     -- ensFails
     (fun {f fn vs cl σ t w} hfn hmem hσ hmatch hreq hpre hprio hex ht he hw ihreq ihpre ihprio ihe =>
       have hnot : ¬ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := fun h => hw (ihe.1 _ (h t ht))
-      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+      case_by hco hfn hmem ⟨hσ.at _, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
         (fun t ht => (ihreq t ht).2) (fun _ h => (hnot h).elim)
         (fun _ t' ht'' => by rw [ht] at ht''; cases ht''; exact ihe.2) (fun hne => absurd hex hne)
         (.inl ⟨hex, .inr ⟨t, w, ht, he, hw, rfl⟩⟩)
@@ -474,7 +474,7 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
           · rfl)
     -- clauseEx: the premise on the instances is the induction hypothesis on `hall`
     (fun {f fn vs cl σ v} hfn hmem hσ hmatch hreq hpre hprio hne hrhs hens hpost hall ihreq ihpre ihprio _ _ _ ihall =>
-      case_by hco hfn hmem ⟨hσ, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
+      case_by hco hfn hmem ⟨hσ.at _, hmatch, hreq, hpre⟩ hprio (not_fails hσ hmatch ihreq ihpre) ihprio
         (fun t ht => (ihreq t ht).2) (fun hx => absurd hx hne) (fun hx => absurd hx hne)
         (fun _ σ₁ ha₁ hw₁ => ihall σ₁ ha₁ hw₁) (res_clauseEx hσ hne hrhs hens hpost hall)
         fun _ _ _ hx _ _ _ _ _ _ => absurd hx hne)

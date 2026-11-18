@@ -333,12 +333,14 @@ theorem clausesAgree_of_apart {c : Semantics} (hmc : Exec.MatchCtxO c) {heads : 
   · simp only [Bool.or_eq_true, Bool.and_eq_true] at hpair
     have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+    replace hc1' := hc1'.1
+    replace hc2' := hc2'.1
     rcases hpair with hl | ⟨-, hi | hi⟩
-    · have := pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 hl hprio
+    · have := pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 (hx cl h1) (hx cl' h2) hl hprio
       exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.1, Coherent.of_plain (hx cl' h2) (hx cl h1) this.2⟩
-    · have := instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
+    · have := instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 (hx cl h1) (hx cl' h2) hi
       exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.1, Coherent.of_plain (hx cl' h2) (hx cl h1) this.2⟩
-    · have := instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi
+    · have := instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 (hx cl' h2) (hx cl h1) hi
       exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.2, Coherent.of_plain (hx cl' h2) (hx cl h1) this.1⟩
   · exact ha.coherent
 
@@ -372,8 +374,8 @@ theorem isElem_true {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool true))) 
     subst hfn
     simp only [fnIsElem, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl
-    · exact ⟨_, .inl ⟨hσ, hmatch, hreq, hpre⟩⟩
-    · exact ⟨_, .inr ⟨hσ, hmatch, hreq, hpre⟩⟩
+    · exact ⟨_, .inl ⟨hσ.at _, hmatch, hreq, hpre⟩⟩
+    · exact ⟨_, .inr ⟨hσ.at _, hmatch, hreq, hpre⟩⟩
     · rw [EvalTerm.dv_inv hrhs] at hr
       cases hr
   | rest _ _ => rw [fnRest_none] at hr; cases hr
@@ -401,12 +403,14 @@ theorem isElem_false {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool false))
     exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
   | exNone => cases hr
 
-/-- A clause without a `requires` and with the predicate `\top` that applies does not fail. -/
+/-- A clause without a `requires`, with the predicate `\top` and without existential variables that
+applies does not fail. -/
 theorem not_fails {c : Semantics} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
-    (hq : cl.req = none) (hp : cl.pre = .top) (ha : cl.AppliesAt c σ vs) (hf : Fails c vs cl) : False := by
+    (hq : cl.req = none) (hp : cl.pre = .top) (hx : cl.exs = []) (ha : cl.AppliesAt c σ vs)
+    (hf : Fails c vs cl) : False := by
   cases hf with
   | intro h =>
-    cases h σ (ha.1.at _) ha.2.1 with
+    cases h σ (((wellSortedAt_univ hx).mp ha.1).at _) ha.2.1 with
     | intro ht _ _ => rw [hq] at ht; cases ht
     | pre hf => rw [hp] at hf; cases hf
 
@@ -414,8 +418,8 @@ theorem not_fails {c : Semantics} {vs : List GroundTerm} {cl : Clause} {σ : Sub
 theorem isElem_det {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool true)))
     (h' : Eval c₀ 478 [v] (some (bool false))) : False := by
   obtain ⟨σ, ha | ha⟩ := isElem_true h
-  · exact not_fails rfl rfl ha (isElem_false h').1
-  · exact not_fails rfl rfl ha (isElem_false h').2
+  · exact not_fails rfl rfl rfl ha (isElem_false h').1
+  · exact not_fails rfl rfl rfl ha (isElem_false h').2
 
 /-- `isElem` is not `true` at a collection value `co(K, C, Es)`. -/
 theorem isElem_co {us : List GroundTerm} (h : Eval c₀ 478 [.ctor 416 us] (some (bool true))) : False := by
