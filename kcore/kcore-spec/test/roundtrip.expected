@@ -39,6 +39,7 @@ differs f2-examples/c3-strict-alias.kompile.kore
 differs f2-examples/c3-strict-base.kompile.kore
 differs f2-examples/cells.kompile.kore
 differs f2-examples/cellsplain.kompile.kore
+differs f2-examples/cellsstream.kompile.kore
 differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
 exact f2-examples/colls-list.kore

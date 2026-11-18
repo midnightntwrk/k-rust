@@ -1454,8 +1454,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`examples/ref-kk/RefKk/definition.kore`, user module `KORE`, 834 sentences): `account`
   partitions them into the tie's classes (`account_sizes`: function equation 302, rewrite rule 10,
   constructor functional 52, subsort 32, injectivity 35, distinctness 115, no junk 28, function
-  functional 32, hooked functional 62, collection law 9, library 102, set idempotence 1,
-  set-variable lemma 6, no direction 48), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
+  functional 32, hooked functional 61, collection law 9, library 99, set idempotence 1,
+  set-variable lemma 6, no direction 52), `account_classes`, `account_absent`, `absent_closed`. 10.5 GiB, 108 s.
 - `test/TieKkAttrs.lean`: `attrs_agree` on kore.k's text, from its five conjuncts, each one kernel
   decision. 9.2 GiB, 145 s.
 - `test/TieKkSig.lean`: `sig_origin` on kore.k's text (347 items: 277 declared, 70 surplus), by 17
@@ -1714,6 +1714,23 @@ table above, on the tree before String and Bytes). Not investigated here.
   on this text (`attrsAgree_p`: `p`, a function without equations, is read as a parameter symbol),
   its constructor, collection and priority parts hold (`defs_attrsAgree_parts`). Expectations from
   `Pre H`: `f_1`, `f_3`, `f_5` (`f(5) = 9`, the `[owise]` equation), `h_4`. About 3 minutes.
+- `test/NoteProjDom.lean`: the tie (C14) of the reading note `projectionDomainAsClause` on krust's
+  `f2-examples/projapp.kore` (fixture kore-projapp), for every H. `project:Int`'s selector-domain
+  axiom (sentence 179) with the signature entails Γ's item of the clause read from it (`w1`: where
+  X0 is no injected Int the axiom's right side is empty, so `project:Int(X0)` holds no element of
+  Int); the other function equations are Γ's items (`shape`, `fns_entailed`, `fns_from_text`);
+  `cons_entailed`; `account`, with the 13 other selector-domain axioms about projections that are
+  no symbol of the definition (`other_domains`). `attrsAgree` is false here by its priorities part
+  (`prios_read_clause`: no equation states the read clause's 200). `Consistent` is not derived: the
+  deciders name `project:Int`'s termination (`dec_named`). Derivations from `Pre H`: `proj_5`,
+  `proj_dotk`. About 2.5 minutes, 6.3 GiB.
+- `test/NoteStream.lean`: the tie (C14) of the reading notes `reflectionAsOwn` and `streamRule` on
+  e2-cells-stream's kompiled text (`f2-examples/cellsstream`), for every H. The eight K-REFLECTION
+  declarations are of symbols of Γ whose arity items are Γ's (`refl_arity`, `refl_entailed`); the
+  seven hooked ones are parameters of no registry hook (`refl_hooks`, `refl_params`); expectation
+  form (c), `refl_value`. The eight stream rules are the definition's rules at their sentences'
+  priorities (`rule_texts`, `rule_prios`), each sentence the item of Γ's rule with the first two
+  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). About 40 s, 4.1 GiB.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
