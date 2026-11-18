@@ -534,7 +534,7 @@ theorem plain_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : NamesNu
     (clause_keys_inAx hpats hreqv hpost hocc (fun _ h => h)) (fun k hk => freeOf_withPreCl hpreOK hpats hreqv hk)
     hrhsv hensv hr
     (fun tbl e σr m0 hk hag hX hRv hσr2 hm0 =>
-      withPre_holdsCl (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
+      withPre_holdsCl (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq tbl e hag))
         hk (fun hpt hkp hRk => ihpre hpt tbl e σr m0 hag hkp hRk hRv hσr2 hm0))
     ihrhs e0 m
 
@@ -608,7 +608,7 @@ theorem compete_eq4Cl [Inhabited M] (hI : I ⊧ᴵP Γ c) [OvlOK c] (hnn : Names
     show (KoreAML.tr ⟨tbl, []⟩ (Kore.Pattern.and KoreAML.R [.not KoreAML.R (KoreAML.anyOf comps), P])).interpret I e m0
     rw [tr_and2, KoreAML.interp_sAnd]
     refine ⟨?_, withPre_holdsCl
-      (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch hpats hag hX hRv hσr2 hm0 (ihreq tbl e hag))
+      (premise_holds4 hI hnn hph htr hfnm hws hσ' hmatch (OvlOK.nfs_bridge inferInstance hpats) hag hX hRv hσr2 hm0 (ihreq tbl e hag))
       (fun k hk => hkeys k (hP k hk)) (fun hpt hkp hRk => ihpre hpt tbl e σr m0 hag hkp hRk hRv hσr2 hm0)⟩
     rw [KoreAML.tr, KoreAML.interp_sNot]
     refine ⟨?_, (KoreAML.interp_inhOf_of hRv).mpr hm0⟩

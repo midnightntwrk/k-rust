@@ -548,7 +548,7 @@ name has among the constructors and the overloading symbols. -/
 theorem ovlOver_known_of_ok (hok : c.overloadsOK = true) {f : Sym} {o : OvlSig}
     (ho : c.lookupOvl f = some o) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := by
   obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, List.all_eq_true] at hoi
   obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
@@ -603,7 +603,7 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
     | some o =>
       obtain ⟨hn, i, hi, he, -⟩ := lookupOvl_spec ho
       have hok := H.ok
-      simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+      simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
       have := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
       simp only [Bool.and_eq_true] at this
       have hio := this.1.1.1.1.1.1.1
@@ -632,7 +632,7 @@ theorem ovl_facts {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
       (∀ k1 ∈ c.ovlOver o, ∀ k2 ∈ c.ovlOver o, c.ovlCoherent k1 k2 = true) := by
   obtain ⟨hn, i, hi, he, hr⟩ := lookupOvl_spec ho
   have hok := H.ok
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, List.all_eq_true] at hoi
   obtain ⟨⟨⟨⟨⟨⟨⟨hio, -⟩, -⟩, -⟩, hover⟩, -⟩, hpair⟩, hcoh⟩ := hoi
@@ -663,7 +663,7 @@ end
 theorem lookupOvl_of_mem (H : OvlHyp c) {o : OvlSig} (ho : o ∈ c.ovls) : c.lookupOvl o.sig.name = some o := by
   obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho
   have hok := H.ok
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, beq_iff_eq] at hoi
   exact hoi.1.1.1.1.1.1.2
@@ -673,7 +673,7 @@ theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl 
     o.sig.result ∈ Faithful.consSorts c := by
   obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
   have hok := H.ok
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true] at hoi
   exact List.contains_iff_mem.mp hoi.1.1.1.1.2
@@ -685,7 +685,7 @@ theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lo
     o ∈ c.ovls ∧ o.sig.name = f ∧ c.isOvl f = true ∧ iteSort? (c.symName f) = none ∧
       o.sig.result ∈ Faithful.consSorts c := by
   obtain ⟨hn, i, hi, he, -⟩ := lookupOvl_spec ho
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
   refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.2⟩
@@ -1155,7 +1155,7 @@ theorem fnOvlSyms_nil_of_apart {c : Semantics} (hok : c.overloadsOK = true)
   have hl : fn.label = g := by simpa using hl
   have hmem : fn ∈ c.allFns := List.mem_append_left _ hfnm
   have hok' := hok
-  simp only [Semantics.overloadsOK, List.all_eq_true] at hok'
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok'; replace hok' := hok'.1; simp only [List.all_eq_true] at hok'
   have hat : ∀ o' ∈ c.ovls, ∃ i, (o', i) ∈ c.ovls.zipIdx := fun o' ho' => by
     obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
     exact ⟨i, by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he⟩
@@ -1196,7 +1196,7 @@ class OvlOK (c : Semantics) : Prop where
 /-- `OvlOK` of a semantics without overloading symbols and with irreflexive subsorts. -/
 theorem OvlOK.of_nil {c : Semantics} (hno : c.ovls = []) (hirr : c.subsorts.all (fun p => p.1 != p.2) = true) :
     OvlOK c :=
-  ⟨by simp [Semantics.overloadsOK, hno], fun a ha => by have := List.all_eq_true.mp hirr _ ha; simp at this,
+  ⟨by simp [Semantics.overloadsOK, Semantics.ovlPatsOK, Semantics.fnOvlSyms, hno], fun a ha => by have := List.all_eq_true.mp hirr _ ha; simp at this,
     fun o ho => (by rw [hno] at ho; cases ho), by simp [Semantics.fnOvlSyms, hno]⟩
 
 /-- `idsOK` numbers each overloading symbol once: their names are without repetition. -/

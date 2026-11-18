@@ -89,7 +89,7 @@ theorem patReading_of_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) : PatRe
   constructor
   · intro hpm
     have hpm1 := (tr_kore_congr p hoff _).mp hpm
-    obtain ⟨hpv, hwit⟩ := patVal_backC hI hph hcs hcso hg hsc.trans hnn.1 hvsl hin' hpc hpS' hw hpm1
+    obtain ⟨hpv, hwit⟩ := patVal_backC hI hph hcs hcso hg hsc.trans hnn.1 hvsl hin' hpc (OvlOK.nf_bridge inferInstance hpS') hw hpm1
     refine ⟨_, hpv, fun i hi => ?_⟩
     obtain ⟨v, hsv, hev⟩ := hwit i hi
     have hgi : vars'.getD i 0 = vars.getD i 0 := by
@@ -130,7 +130,7 @@ theorem patReading_of_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) : PatRe
         simp only [f, hio, ite_false]
         exact ((elemOf_spec hI (sortOf_bool true) e1).1 m').symm
     have hpv'' : PatVal c σ'' p w := Faithful.PatVal.congr_lookup hpv hcong
-    have := (patVal_den4 hI hnn.1 hph hsc.trans hσ hvsl hag hpv'' hpS').2 (elemOf c I w)
+    have := (patVal_den4 hI hnn.1 hph hsc.trans hσ hvsl hag hpv'' (OvlOK.nf_bridge inferInstance hpS')).2 (elemOf c I w)
       |>.mpr (((elemOf_spec hI hw e1).1 _).mpr rfl)
     exact (tr_kore_congr p hoff _).mpr this
 

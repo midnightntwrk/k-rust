@@ -445,7 +445,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
   have hpats' : sortsOfTerms c.patCtxAll cl.leftSortsB cl.pats = some fn.args := by
     rw [sortsOfTerms_congr cl.pats (fun i hi => Clause.leftSortsB_getElem? (hpl i hi) (hpL i hi))]; exact hpats
   obtain ⟨hpv, hwitP⟩ := patVals_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPats_of_sorted hph' hpats')
-    hpats' hws hall
+    (OvlOK.nfs_bridge inferInstance hpats') hws hall
   -- the `requires`, at e1
   have hreq1 : ∀ t, cl.req = some t →
       (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (some (Term.kore c vs t)))).interpret I e1 m := fun t ht => by

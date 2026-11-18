@@ -666,7 +666,7 @@ theorem floatShapeOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.floatSh
     obtain ⟨o, ho', rfl⟩ := List.mem_map.mp hk
     obtain ⟨i, hi⟩ := List.mem_iff_getElem.mp ho'
     unfold Semantics.overloadsOK at ho
-    have := List.all_eq_true.mp ho (o, i) (by
+    have := List.all_eq_true.mp (Bool.and_eq_true_iff.mp ho).1 (o, i) (by
       rw [List.mem_iff_getElem]
       exact ⟨i, by simpa using hi.1, by simp [List.getElem_zipIdx, hi.2]⟩)
     simp only [Bool.and_eq_true] at this

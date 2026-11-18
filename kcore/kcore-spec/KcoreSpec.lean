@@ -115,6 +115,7 @@ import KcoreSpec.NatMap
 import KcoreSpec.OrderLaws
 import KcoreSpec.OvlLaws
 import KcoreSpec.OvlLawsFn
+import KcoreSpec.PatCtxNF
 import KcoreSpec.Params
 import KcoreSpec.Parse
 import KcoreSpec.Prelude

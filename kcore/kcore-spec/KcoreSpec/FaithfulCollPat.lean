@@ -18,6 +18,7 @@
   (`exclusion_emptyC`, `applies_emptyC`).
 -/
 import KcoreSpec.FaithfulColl
+import KcoreSpec.PatCtxNF
 
 set_option autoImplicit false
 
@@ -1929,7 +1930,7 @@ include hI hph hcs hcso hg htr hnm hvs hin
 mutual
   /-- The elements of a pattern's translation, collection pattern symbols included, at a valuation
   of its variables in their sorts, lie in the pattern's sort (the G-arity of the symbols). -/
-  theorem patSortC : ∀ {p : Term} {s : Srt}, collPat c p = true → sortOfTerm c.patCtxAll vars p = some s →
+  theorem patSortC : ∀ {p : Term} {s : Srt}, collPat c p = true → sortOfTerm c.patCtxNF vars p = some s →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs p)).interpret I e m → InS I (c.sortName s) m
     | .var i, s, _, ht, m, hm => by
       have hi := sortOfTerm_var.mp ht
@@ -1946,6 +1947,8 @@ mutual
       exact (inS_iff _).mp hs.2
     | .app f ps, s, hp, ht, m, hm => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      have hnfo := (patCtxNF_lookup.mp hk').2
+      replace hk' := (patCtxNF_lookup.mp hk').1
       rw [collPat] at hp
       simp only [Bool.and_eq_true, Bool.or_eq_true] at hp
       obtain ⟨hhd, hps⟩ := hp
@@ -1993,7 +1996,7 @@ mutual
       rw [tr_kore_as hI hg htr hnm hvs hin] at hm
       exact patSortC hp ht' m hm.1
   theorem patSortsC : ∀ {ps : List Term} {ss : List Srt} {bs : List M}, collPats c ps = true →
-      sortsOfTerms c.patCtxAll vars ps = some ss →
+      sortsOfTerms c.patCtxNF vars ps = some ss →
       All2 (fun φ b => φ.interpret I e b) ((Term.koreList c vs ps).map (KoreAML.tr ⟨tbl, []⟩)) bs →
       bs.length = (ss.map c.sortName).length ∧
         ∀ (i : Nat) x s, bs[i]? = some x → (ss.map c.sortName)[i]? = some s → InS I s x
@@ -2037,7 +2040,7 @@ mutual
   collection pattern symbol is read through `head_back`: the parts of a value's element under it are
   values' elements, on which the symbol's hook gives the value. -/
   theorem patVal_backC : ∀ {p : Term} {s : Srt} {w : GroundTerm}, collPat c p = true →
-      sortOfTerm c.patCtxAll vars p = some s → c.sortOf w = some s →
+      sortOfTerm c.patCtxNF vars p = some s → c.sortOf w = some s →
       (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs p)).interpret I e (elemOf c I w) →
       PatVal c (substOf c I tbl vs vars e) p w ∧ ∀ i ∈ varOccs p, Witnessed c I tbl vs vars e i
     | .var i, s, w, _, ht, hw, hm => by
@@ -2056,6 +2059,8 @@ mutual
       exact ⟨.dv, fun j hj => by rw [varOccs] at hj; cases hj⟩
     | .app f ps, s, w, hp, ht, hw, hm => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      have hnfo := (patCtxNF_lookup.mp hk').2
+      replace hk' := (patCtxNF_lookup.mp hk').1
       rw [collPat] at hp
       simp only [Bool.and_eq_true, Bool.or_eq_true] at hp
       obtain ⟨hhd, hps⟩ := hp
@@ -2083,7 +2088,8 @@ mutual
           have hsorts := patSortsC hI hph hcs hcso hg htr hnm hvs hin hps hargs hbs
           have H := (inferInstance : OvlOK c).hyp htr
           obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
-          obtain ⟨ws, hws, rfl, hv⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) (OvlOK.noFnOver _) hw hsorts.1 hsorts.2
+          obtain ⟨ws, hws, rfl, hv⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _)
+            (by rw [hn]; exact OvlLaws.noFnOver_of_not_fnOvl hnfo) hw hsorts.1 hsorts.2
             ⟨a, by rw [← hn] at ha; exact ha, hm⟩
           have ih := patVals_backC hps hargs hws hbs
           refine ⟨.ovl hc hov ih.1 (by rw [← hn]; exact hv), fun j hj => ih.2 j (by rw [varOccs] at hj; exact hj)⟩
@@ -2119,7 +2125,7 @@ mutual
       · exact ih.2 j hj
       · rw [mem_one hj]; exact witnessed_of hvi hw hm.2
   theorem patVals_backC : ∀ {ps : List Term} {ss : List Srt} {ws : List GroundTerm}, collPats c ps = true →
-      sortsOfTerms c.patCtxAll vars ps = some ss → c.sortsOf ws = some ss →
+      sortsOfTerms c.patCtxNF vars ps = some ss → c.sortsOf ws = some ss →
       All2 (fun φ b => φ.interpret I e b) ((Term.koreList c vs ps).map (KoreAML.tr ⟨tbl, []⟩)) (ws.map (elemOf c I)) →
       PatVals c (substOf c I tbl vs vars e) ps ws ∧ ∀ i ∈ varOccsList ps, Witnessed c I tbl vs vars e i
     | [], ss, ws, _, ht, hws, _ => by
@@ -2164,7 +2170,7 @@ arguments where a clause fails in the model, its exclusion
 `∃ȳ. ⌈req = true⌉ ∧ X̄ ∈ p̄` is empty, at a valuation that gives each formal argument `Xⱼ` the
 element of the argument and the sort variable `R` a sort. -/
 theorem exclusion_emptyC {fn : Fn} {cl : Clause} (hpre : cl.pre = .top)
-    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpats : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args)
     (hbinds : ∀ i < cl.vars.length, i ∈ varOccsList cl.pats) (hplain : collPats c cl.pats = true)
     {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args)
     {tbl : VarTable} (hkeys : ∀ i < cl.vars.length, canonKey c cl.vars i ∈ tbl)
@@ -2233,7 +2239,7 @@ include hnm in
 /-- **The core lemma for rules, collection patterns included**, in a model of `Γ`. If a rule
 does not apply to a configuration in the model, the
 configuration's element is not in the rule's `applies` pattern `∃x̄. (lhs ∧ ⌈req = true⌉)`. -/
-theorem applies_emptyC {r : Rule} (hlhs : sortOfTerm c.patCtxAll r.vars r.lhs = some topCellSort)
+theorem applies_emptyC {r : Rule} (hlhs : sortOfTerm c.patCtxNF r.vars r.lhs = some topCellSort)
     (hbinds : ∀ i < r.vars.length, i ∈ varOccs r.lhs) (hplain : collPat c r.lhs = true)
     (hpre : r.pre = .top) {x : GroundTerm} (hx : c.sortOf x = some topCellSort)
     {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl) (e : Valuation M)
