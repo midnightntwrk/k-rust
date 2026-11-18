@@ -79,12 +79,16 @@ theorem sortsOfH (H : HookParams) : (cH H).sortsOf = c.sortsOf := Semantics.sort
 /-! ## The function equations -/
 
 /-- The text sentences of Γ's equations, in `fnItems`'s order: `f`'s two (209, `f() => a`, and
-210, `f() => g(Y)`, as `f`'s clauses), then the sort predicates' (`TiePair.fnTextOf`). -/
-noncomputable def fnText : List AxiomDecl := [U.ax209, U.ax210] ++ (TiePair.fnTextOf c U.all).drop 2
+210, `f() => g(Y)`, its two clauses of one priority, each its own sentence), then the sort
+predicates' (`TiePair.fnTextOf`). -/
+noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all
 
 theorem fnText_index : fnText.map (·.index) = [209, 210, 230, 238, 237, 236, 235, 242, 241, 244, 243, 240, 239,
     217, 216, 229, 228, 225, 224, 227, 226, 232, 231, 234, 233, 221, 220, 223, 222, 246, 245, 219, 218] := by
   decide +kernel
+
+/-- `f() => a` (209) is the first. -/
+theorem fnText_at0 : fnText[0]? = some U.ax209 := by kernel_rfl
 
 /-- The translations of the text's sentences, in that order. -/
 noncomputable def textPats : List P := fnText.map (trS · |>.pat)
@@ -348,7 +352,7 @@ theorem f_is_a (H : HookParams) : Pre H ⊧ (TiePair.app (cH H) fS [] ≡ den (c
   have hD := defOK hΓ
   have h209 : I ⊧ᴵ (trS U.ax209).pat :=
     hI _ (Or.inl (Or.inl (Or.inl (by
-      unfold textPats; exact List.mem_map.mpr ⟨U.ax209, by simp [fnText], rfl⟩))))
+      unfold textPats; exact List.mem_map.mpr ⟨U.ax209, List.mem_of_getElem? fnText_at0, rfl⟩))))
   have hax : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", clauseAxiom (cH H) fF clA⟩).pat := by
     rw [clauseAxiom_withHooks]; exact (TiePair.sameB_iff written_clA).mp h209
   obtain ⟨-, -, -, -, hva, hpa, hra, hea, -, -, -, hctor⟩ := fF_shape

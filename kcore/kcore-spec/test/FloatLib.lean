@@ -320,15 +320,15 @@ example : hook int2Float [int 9007199254740993, int 53, int 11] = some none ∧
     hook floatRem [f64 0x4014000000000000, f64 0x4008000000000000] = some (some (f64 0xBFF0000000000000)) ∧
     hook int2Float [int 1, int 1, int 8] = some none := by decide +kernel
 /-- `sqrtFloat` where the format holds the root: `sqrtFloat(4.0) = 2.0`, `sqrtFloat(2.25) = 1.5`,
-binary32's `sqrtFloat(9.0f) = 3.0f`, the least subnormal `2^-1074` to the normal `2^-537`,
-`sqrtFloat(+0.0) = +0.0`. No value at a root the format does not hold (`sqrtFloat(2.0)`, the
-subnormal `2^-1073`), at NaN, at `-1.0` and `-Infinity`, at `+Infinity`, and at `-0.0` (squareRoot
-gives −0, rootn(−0, 2) +0). -/
+binary32's `sqrtFloat(9.0f) = 3.0f`, the least subnormal `2^-1074` to the normal `2^-537`. No value
+at a root the format does not hold (`sqrtFloat(2.0)`, the subnormal `2^-1073`), at NaN, at `-1.0`
+and `-Infinity`, at `+Infinity`, and at `+0.0` and `-0.0` (a zero of a sign the text does not
+give). -/
 example : hook floatSqrt [f64 0x4010000000000000] = some (some (f64 0x4000000000000000)) ∧
     hook floatSqrt [f64 0x4002000000000000] = some (some (f64 0x3FF8000000000000)) ∧
     hook floatSqrt [f32 0x41100000] = some (some (f32 0x40400000)) ∧
     hook floatSqrt [f64 1] = some (some (f64 0x1E60000000000000)) ∧
-    hook floatSqrt [f64 0] = some (some (f64 0)) ∧
+    hook floatSqrt [f64 0] = some none ∧
     hook floatSqrt [f64 0x4000000000000000] = some none ∧
     hook floatSqrt [f64 2] = some none ∧
     hook floatSqrt [f64 0x7FF8000000000000] = some none ∧

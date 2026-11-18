@@ -9,7 +9,7 @@ user module E2-COOL-EQ: 399 sentences
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   10 inert noJunk [generated]
-  1 inert simplification [user]
+  1 inert simplification [user]: owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 0
 read and not accounted for: 0

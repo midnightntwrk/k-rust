@@ -121,13 +121,26 @@
 #             at <location>: <the sentence>" and the hand-written fixture's account line
 #             ("fixtures/<dir>/account.txt: ...").
 # Field of DONE-0 C7 (checked by test/provenance.sh), on a row or a nested table:
-#   derived   the row's evidence theorems, a list of tables: form ("a", "b" or "c": a Lean proof
-#             from the translated text, a derivation written by hand, or the pair of models showing
-#             the text entails no value), for form (a) kind ("from sentences" or "through the
-#             reading"; the second with family, the family it goes through) and sentences (the
-#             indices of the sentences that determine it), theorem (full name) and file (relative to
-#             kcore-spec) for forms (a) and (c), derivation (a file) for form (b). The theorem's
-#             statement mentions H (a name of type HookParams) and no AtNone file or namespace holds it.
+#   derived   the row's evidence theorems, a list of tables: form ("a", "b", "c" or "r": a Lean
+#             proof from the translated text, a derivation written by hand, the pair of models
+#             showing the text entails no value, or a Lean proof that the text's sentences have no
+#             model), for form (a) kind ("from sentences" or "through the reading"; the second with
+#             family, the family it goes through) and sentences (the indices of the sentences that
+#             determine it), theorem (full name) and file (relative to kcore-spec) for forms (a), (c)
+#             and (r), derivation (a file) for form (b). The theorem's statement mentions H (a name of
+#             type HookParams) and no AtNone file or namespace holds it.
+#             Form (r), for a text without a model (it is not a substitute for (a) where a model
+#             exists): theorem states, for every H, that the premise set form (a) would use (each
+#             sentence as written where its class is E by equality, Γ's item with its W1 theorem
+#             otherwise, the named families) has no model; sentences the indices of the sentences
+#             the refutation uses; family (required) the families of the reading it uses beside them,
+#             each named, so that it is not read as "from sentences alone"; kind optional, "through
+#             the reading" where only the reading's theory is refuted (the sentence-level statement
+#             then owed, named in the row); owed_refuted optional, the full name of a theorem of the
+#             same file refuting the fact the package names as owed (stated for every H). The
+#             entry's status stays the reading's (`supported` where the reading agrees with the
+#             text that it has no model); K-coverage.md prints "(no model)" beside it and lists
+#             such entries with their fixtures.
 # Fields of DONE-0 C2's evidence (test/constructs/rest.py, whose docstring gives each form's items):
 #   tie       on a row or a nested table: the C14 tie modules of the entry's fixture, a list of
 #             files test/X.lean that test/integration.sh builds.
@@ -170,6 +183,25 @@
 #   removed   on a row whose option removes sentences of a reference text: per sentence (its index in
 #             the reference text's user module), its tie class and direction there, the theorem and
 #             its companion, and the file.
+# The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
+# findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
+#   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values) or a
+#      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law;
+#      direction hypothesis);
+#   2. the reader neither claims it true nor refuses it for being false (in general it can decide
+#      neither); the account's word for it is "owed";
+#   3. the tie on the text (C14, per text, for every H) proves it or fails on it; a failure on a
+#      user's sentence means the text has no model: the text is not tied and nothing is stated of it.
+#      Only trusted base (4)'s refuted library sentences are recorded instead of failing;
+#   4. a row's status is shown on a fixture where the owed sentence holds; a fixture where it fails is
+#      a test of the check (DONE-0 C8), named so (note, reader_tests), never the row's evidence and
+#      never a reason for not-handled;
+#   5. sem_eq with a companion text is a reader test (reader_tests), evidence of nothing about the text.
+#   Its scope is the sentences the reader leaves out of Γ. A sentence the reader reads into Γ (a
+#   function equation, a rule) is Γ's own; a text whose read sentences have no model is form (r)
+#   (findings/work/decision-nomodel-form.md), status supported. Not recorded: refusing a sentence the
+#   reader can decide contradicts what the semantics states of a generated symbol (section 15 item 6,
+#   proposed R-a); until it is recorded, such a case keeps the status it has and claims no class.
 # Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
 # checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
