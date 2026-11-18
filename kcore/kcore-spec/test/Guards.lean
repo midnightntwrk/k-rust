@@ -214,7 +214,7 @@ theorem gamma_bot_everyH {c : Semantics} (hcore : c.coreOK = true) (hr : ∀ k �
     (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) (H : HookParams)
     (hE : Eval (c.withHooks H) f vs none) :
     Γ (c.withHooks H) ⊧ (KoreAML.den (symApp (c.withHooks H) f (GroundTerm.koreList (c.withHooks H) vs)) ≡ ⊥) :=
-  eval_none_sound_core _ (hypSound_of_core ((Semantics.coreOK_withHooks c H).trans hcore)) hbc hE
+  eval_none_sound_core (hpreTop := by decide +kernel) _ (hypSound_of_core ((Semantics.coreOK_withHooks c H).trans hcore)) hbc hE
     (by rw [Semantics.lookupFn_withHooks]; exact hfn) (by rw [Semantics.sortsOf_withHooks _ _ hr]; exact hvs)
 
 namespace Ens

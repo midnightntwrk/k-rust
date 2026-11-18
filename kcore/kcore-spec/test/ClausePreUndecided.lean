@@ -15,9 +15,9 @@
   - `fnDet`: every function of `d` has at most one result;
   - `fnSolves`: `FnSolves d` (no clause of `h` decides anywhere; where `l`'s clause decides, both
     sides are without a value);
-  - `rest_ok`, `clause_ok`, `pre_ok`, `openLaws`: `d` meets every conjunct of `coreOK` but
-    `clausesPlain`, meets CN-4 §4.9's final text of `clausesPlain` (`clauseE3`), its predicates have
-    `condOK` and `Cond.bound`, and `OpenLaws d` holds;
+  - `coreOK_ok`, `pre_ok`, `openLaws`: `coreOK` accepts `d` (`clausesPlain` admits its predicates:
+    no clause's conditions need a witness), its predicates have `condOK` and `Cond.bound`, and
+    `OpenLaws d` holds;
   - `trueV`: the reading of `preU` that takes a term without a result as the empty set (`TrueV`) is
     true at every σ;
   - `sentences`: `Γ`'s sentences for the two clauses are `((⊤ ∧ X0 ∈ X) ∧ preU) → h(X0) = 1` and
@@ -29,8 +29,7 @@
   in which `h(x)` is the set of `Eval`'s values of `h` at x (none), satisfies neither sentence; and
   Int is one of `distinctSorts`, whose distinct values are distinct elements in a model of `Γ`
   (`values_apart`), so no interpretation satisfies both. A statement that gives a model of `Γ` from
-  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d` once
-  `clausesPlain` admits `preU`: with a predicate in the premise it needs that each clause's own
+  `coreOK`, `FnDet`, `FnSolves` and `OpenLaws` alone is therefore false at `d`: with a predicate in the premise it needs that each clause's own
   predicate has a truth value where its patterns match (as `holds_decided` gives where every
   function has a result, `FnTerminates`), which `PrioDecided` asks of the clauses of a smaller
   priority only. `consistent_of` asks it (`ClausePreDecided`), and `d` does not meet it
@@ -113,8 +112,11 @@ theorem clause_ok : d.fns.all (fun f => f.clauses.all (clauseE3 d)) = true := by
 /-- Each predicate is well sorted over its clause's variables and holds no binder. -/
 theorem pre_ok : d.fns.all (fun f => f.clauses.all fun cl =>
     d.condOK cl.vars cl.pre && Cond.bound d cl.vars.length cl.pre) = true := by decide +kernel
-/-- `clausesPlain` refuses `d` at the predicates only. -/
-theorem clausesPlain_now : d.clausesPlain = false := by decide +kernel
+/-- `clausesPlain` admits `d`: its clauses with a predicate need no witness. -/
+theorem clausesPlain_ok : d.clausesPlain = true := by decide +kernel
+/-- `coreOK` accepts `d`. -/
+theorem coreOK_ok : d.coreOK = true := by
+  rw [coreOK_eq, clausesPlain_ok, rest_ok.1, rest_ok.2]; rfl
 
 theorem openLaws : OpenLaws d := openLaws_of_plain (by decide +kernel)
 

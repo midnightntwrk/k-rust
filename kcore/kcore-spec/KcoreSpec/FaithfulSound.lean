@@ -122,9 +122,10 @@ theorem eval_none_sound_core (c : Semantics) (hpreTop : c.clausesPreTop = true) 
   exact ⟨fun h => h.elim, fun h => by simp [Pattern.interpret] at h⟩
 
 /-- **Step soundness** under `HypSound`: `step_sound_core`. -/
-theorem step_sound (c : Semantics) (hpreTop : c.clausesPreTop = true) (h : HypSound c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound (c : Semantics) (h : HypSound c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
+  have hpreTop := Semantics.preTop_of_okAll h.1
   step_sound_core (hpreTop := hpreTop) c h.core hb htop hbc
 
 end Faithful

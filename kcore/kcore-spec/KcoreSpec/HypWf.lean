@@ -182,7 +182,7 @@ occurrences, is not read; its two last, `OpenDecided` and `OpenLaws`, are `FnHyp
 and totality read `hrh`: each clause variable the patterns and conditions do not hold is of a sort
 with a value; and `hpreTop`: every clause's predicate is `\top` (the certificates read no call of
 a predicate). -/
-theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : FnHyp c := by
+theorem fnHyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : FnHyp c := by
   obtain ⟨hok, -, hha, hp, hids⟩ := Semantics.coreOK_parts h
   have hsr := NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h)
@@ -214,7 +214,7 @@ theorem hyp_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypCore c := by
 
 /-- **What the statements assume, from `coreOK` and `CoreObligations`**: `hyp_of_fnHyp` with
 `fnHyp_of_core`. -/
-theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : HypCore c :=
+theorem hyp_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypCore c :=
   hyp_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 /-- **What the existence of a model reads, from `coreOK`, `FnDet` and `FnSolves`**: `sortedOK`,
@@ -275,7 +275,7 @@ theorem hypModel_of_fnHyp (h : c.coreOK = true) (hf : FnHyp c) : HypModelCore c 
 
 /-- **What the existence of a model reads, from `coreOK` and `CoreObligations`**:
 `hypModel_of_fnHyp` with `fnHyp_of_core`. -/
-theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : HypModelCore c :=
+theorem hypModel_of_core (h : c.coreOK = true) (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : HypModelCore c :=
   hypModel_of_fnHyp h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 end Core

@@ -485,7 +485,7 @@ theorem matchIndI : ∀ fn ∈ cI.fns, ∀ cl ∈ fn.clauses, MatchIndependent c
         (evalTerm_gY ((wellSortedAt_univ rfl).mp ha.1) h).trans (evalTerm_gY ((wellSortedAt_univ rfl).mp ha'.1) h').symm
 
 theorem fnModelI : FnDet cI ∧ FnSolves cI :=
-  Faithful.fnModel_ofCl decidedI.1 decidedI.2.1 ovlI fnTerminatesI agreeI matchIndI
+  Faithful.fnModel_ofCl (hpreTop := by decide +kernel) decidedI.1 decidedI.2.1 ovlI fnTerminatesI agreeI matchIndI
 
 /-- **`consistent_ofCl` at `cI`**: the theory of `cI` with the step's closure has a model. -/
 theorem consistentI : Consistent cI :=

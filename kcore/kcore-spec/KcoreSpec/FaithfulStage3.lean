@@ -485,9 +485,10 @@ third stage: in every model, the configuration `x` has the configuration `y` as 
 functions a step reads may be partial: where one is undefined, `Γ` makes its application empty
 (its equations where a clause applies, its rest's graph where none does, `eval_den3`), so a
 `requires` that calls it there denotes nothing, as `Step` reads it. -/
-theorem step_sound_stage3 (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage3 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
+  have hpreTop := Semantics.preTop_of_okAll hy.1
   have hy : HypCore c := hy.core
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   intro x y hstep M _ I hI e m hm
@@ -586,10 +587,11 @@ theorem step_sound_stage3 (c : Semantics) (hpreTop : c.clausesPreTop = true) [Ov
 
 /-- **The second stage as a corollary of the third**: `Stage2` is `Stage3` with every called
 function total (`stage3_of_stage2`). -/
-theorem step_sound_stage2_of_stage3 (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage2_of_stage3 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage2 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) :=
-  step_sound_stage3 (hpreTop := hpreTop) c hy hb htop hbc (stage3_of_stage2 hs)
+  have hpreTop := Semantics.preTop_of_okAll hy.1
+  step_sound_stage3 c hy hb htop hbc (stage3_of_stage2 hs)
 
 end Faithful
 

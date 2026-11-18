@@ -1140,9 +1140,10 @@ def Stage4a (c : Semantics) : Prop :=
 as a successor. Its rules' left-hand sides and its clauses' patterns may hold map and collection
 patterns where no negated premise reads them; those are read through the collection symbols'
 graphs on values (`patVal_den4`). -/
-theorem step_sound_stage4a (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4a c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
+  have hpreTop := Semantics.preTop_of_okAll hy.1
   have hy : HypCore c := hy.core
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)

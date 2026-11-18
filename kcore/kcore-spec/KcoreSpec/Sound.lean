@@ -341,14 +341,14 @@ theorem complete₀ (d : Definition) (ref : StepFn) (hwf : wf d = true) (hob : O
 the termination certificate `t`, hold: `sound_hyp`, the obligations giving `FnHyp`
 (`fnHyp_of_core`). -/
 theorem sound_core (c : Semantics) (t : Certificates) (h : c.coreOK = true) (hrh : c.RightHeld)
-    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : SoundC c :=
+    (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : SoundC c :=
   sound_hyp c h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 /-- **Completeness of a semantics** that `coreOK` accepts, whose clauses' variables are held
 (`RightHeld`) and whose named obligations, with the termination certificate `t`, hold:
 `complete_hyp`, the obligations giving `FnHyp` (`fnHyp_of_core`). -/
 theorem complete_core (c : Semantics) (t : Certificates) (ref : OutFn) (h : c.coreOK = true)
-    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by decide +kernel) : CompleteC c ref :=
+    (hrh : c.RightHeld) (hob : CoreObligations c t) (hpreTop : c.clausesPreTop = true := by first | decide +kernel | (simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) | exact rfl) : CompleteC c ref :=
   complete_hyp c ref h (fnHyp_of_core (hpreTop := hpreTop) h hrh hob)
 
 /-! ## The statements for a definition -/

@@ -79,6 +79,10 @@ theorem Semantics.plain_parts {c : Semantics} (h : c.plain = true) :
   exact ⟨fun r hr' => (hr r hr').2, fun fn hfn cl hcl => (hf fn hfn cl hcl).2,
     fun k hk' => by simpa using hk k hk'⟩
 
+/-- `clausesPreTop` does not read the interpretation of the parameters. -/
+theorem Semantics.clausesPreTop_withHooks (c : Semantics) (H : HookParams) :
+    (c.withHooks H).clausesPreTop = c.clausesPreTop := rfl
+
 /-- `plain` does not read the interpretation of the parameters. -/
 theorem Semantics.plain_withHooks (c : Semantics) (H : HookParams) : (c.withHooks H).plain = c.plain := rfl
 

@@ -3102,9 +3102,10 @@ end
 
 /-- **L4.** In the first stage, every step of `Step` is a consequence of `Γ`: in every model, the
 configuration `x` has the configuration `y` as a successor. -/
-theorem step_sound_stage1 (c : Semantics) (hpreTop : c.clausesPreTop = true) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
+theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage1 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
+  have hpreTop := Semantics.preTop_of_okAll hy.1
   have hy : HypCore c := hy.core
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   intro x y hstep M _ I hI e m hm

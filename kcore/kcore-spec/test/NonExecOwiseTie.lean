@@ -298,11 +298,11 @@ theorem eval_some_sound_core (c : Semantics) (h : HypSoundCore c)
   have hex : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ExclEmpty c I fn cl := fun fn hfn cl hcl => by
     obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
     exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+      exclusion_emptyC hI hph hcs hcso hg hsc.trans hnn.1 (clause_preTop (hpreTop := by decide +kernel) hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
         hRkey hX hR hσR hfail m
   rw [KoreAML.interp_equal (defOK hI)]
   intro a
-  rw [eval_den4 hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
+  rw [eval_den4 (hpreTop := by decide +kernel) hI hnn hsc hok hbc hph (fun fn hfn cl hcl _ => hex fn hfn cl hcl) hE hfn hvs e a]
   rfl
 
 /-- **Two values of one sort that a function has at one argument list in a model of Γ are one

@@ -18,7 +18,7 @@
   Ev, P and A calls a function placed after it (`cg_unranked`); `rankObligations` names only P
   (`cg_rank`). With a rank that interleaves the cycles of Ev and P, their intervals merge into one,
   which P's cycle spoils: Ev is named too (`cg_rankInterleaved`), a wrong rank only names more.
-  Every function terminates given P's termination (`cg_terminates`).
+  Every function terminates (hpreTop := by decide +kernel) given P's termination (`cg_terminates`).
 -/
 import KcoreSpec.FnObligations
 import KcoreSpec.CoreDecide
@@ -94,7 +94,7 @@ theorem cg_rankInterleaved : cg.rankObligations [Ev, P, Od, Q, A, B] = [Ev, P] :
 /-- **Every function terminates, given P's termination.** -/
 theorem cg_terminates (H : HookParams) (hP : Terminates (cg.withHooks H) P) :
     ∀ f, Terminates (cg.withHooks H) f :=
-  terminates_of_rankL (c := cg.withHooks H) cg_sorted.1 cg_sorted.2
+  terminates_of_rankL (hpreTop := by decide +kernel) (c := cg.withHooks H) cg_sorted.1 cg_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := cg) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) ord fun g hg => by
     rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, cg_rank.1, cg_rank.2] at hg
