@@ -689,8 +689,11 @@ theorem fnHyp_of_laws {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued
     (h1 : c.rankObligations [] ++ c.decObligationsL = []) (h2 : c.totalObligationsRP [] [] = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
     (h5 : c.owedRules = []) (h6 : c.owedClauses = []) (hpreTop : c.clausesPreTop = true)
-    (H : HookParams) (hl : OpenLaws (c.withHooks H)) : FnHyp (c.withHooks H) :=
-  fnHyp_of_fnObligations (ord := []) (tp := []) (hpreTop := (Semantics.clausesPreTop_withHooks c H).trans hpreTop) ((Semantics.coreOK_withHooks c H).trans hc)
+    (H : HookParams) (hl : OpenLaws (c.withHooks H))
+    (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact Semantics.fnsNoExs_of_all rfl) :
+    FnHyp (c.withHooks H) :=
+  fnHyp_of_fnObligations (ord := []) (tp := []) (hpreTop := (Semantics.clausesPreTop_withHooks c H).trans hpreTop)
+    (hnoEx := (Semantics.fnsNoExs_withHooks c H).mpr hnoEx) ((Semantics.coreOK_withHooks c H).trans hc)
     (Semantics.rightHeld_withHooks_of_valued hv H) ParamsTotal.nil
     ((FnFacts.of_nil_laws
       (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)

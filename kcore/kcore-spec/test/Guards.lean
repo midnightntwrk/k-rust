@@ -2114,6 +2114,16 @@ def readingNote : ReadingNote → GuardEntry
       companion := [.decl ``KCore.Guards.DevOrBot.orBot_unread_H7],
       invariant := [``KCore.Semantics.fnRest, ``KCore.Cert.evalFC_withHooks],
       note := "on e3-ml-eq-rhs-or-bottom's text (f(X) = X ∨ ⊥), every H: f(3) = 3; the companion is the equation not read, where f has no clause and f(3) is the interpretation's, 7 under H7" }
+  | .orAsCases =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/ReaderWire.lean" "orAsCases", .test "test/RhsReader.lean" "fr", .test "test/EqRhsOr.lean" "eval",
+        .decl ``KCore.Parse.frClauses],
+      note := "an equation's right side with \\or, of a function with its functional sentence, read as a clause for each alternative and one where none has an element (Parse.frRead through Parse.clausesBody); the clauses on e3-ml-eq-rhs-or-total's text and their values at the parsed semantics are the tests'; no statement over c.withHooks H, no companion" }
+  | .existsAsCases =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/ReaderWire.lean" "existsAsCases", .test "test/RhsReader.lean" "ex", .test "test/ExTwoResults.lean" "no_model",
+        .decl ``KCore.Parse.exClauses],
+      note := "an equation's right side \\exists B:Bool, of a function with its functional sentence in a text whose Bool has its literals only, read as the clauses of its two instances and one whose pre keeps the binder (Parse.exRead through Parse.clausesBody); the clauses on e3-eq-exists-bool-ml's text are the tests', and where the instances differ the text has no model (test/ExTwoResults.lean); no statement over c.withHooks H, no companion" }
   | .predicateAtBool =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevCeil.ceil_steps, .test "test/Connectives.lean" "predicateAtBool"],
@@ -2268,7 +2278,7 @@ def unreadReason : UnreadReason → GuardEntry
 
 def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
-   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .andTermsCut, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
+   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .andTermsCut, .bottomAsEnsures, .orBottom, .orAsCases, .existsAsCases, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem]

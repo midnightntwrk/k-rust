@@ -94,7 +94,7 @@ theorem cg_rankInterleaved : cg.rankObligations [Ev, P, Od, Q, A, B] = [Ev, P] :
 /-- **Every function terminates, given P's termination.** -/
 theorem cg_terminates (H : HookParams) (hP : Terminates (cg.withHooks H) P) :
     ∀ f, Terminates (cg.withHooks H) f :=
-  terminates_of_rankL (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (c := cg.withHooks H) cg_sorted.1 cg_sorted.2
+  terminates_of_rankL (hpreTop := by rw [Semantics.clausesPreTop_withHooks]; decide +kernel) (hnoEx := (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))) (c := cg.withHooks H) cg_sorted.1 cg_sorted.2
     (Semantics.ovlCase_withHooks (Semantics.ovlCase_of (by decide +kernel)) H)
     (Semantics.rightHeld_withHooks (c := cg) (Semantics.rightHeld_of_valued (by decide +kernel)) H (by decide +kernel)) ord fun g hg => by
     rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks, cg_rank.1, cg_rank.2] at hg

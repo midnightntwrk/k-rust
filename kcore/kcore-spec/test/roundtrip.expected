@@ -200,6 +200,7 @@ differs f2-examples/mleqbotc.kompile.kore
 differs f2-examples/mleqbotn.kompile.kore
 cannot f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
+differs f2-examples/mleqort.kompile.kore
 differs f2-examples/mlex.kompile.kore
 differs f2-examples/mlmacro.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
@@ -249,6 +250,7 @@ exact f2-examples/ph.kore
 exact f2-examples/prio.kore
 differs f2-examples/projapp.kore
 differs f2-examples/projuser.kompile.kore
+differs f2-examples/rdr-cell-star-sibling.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
 differs f2-examples/rdr-ite-own-hook.kompile.kore

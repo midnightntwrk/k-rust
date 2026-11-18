@@ -185,6 +185,8 @@ def classes : List (String × List Nat) :=
    ("open generator law", []),
    ("open generator functional", []),
    ("parameter lemma", []),
+   ("user lemma", []),
+   ("user lemma at values", []),
    ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 210, 213, 214, 215, 245, 246, 251, 252,
       253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264])]
 

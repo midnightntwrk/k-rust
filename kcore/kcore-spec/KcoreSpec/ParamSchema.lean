@@ -188,7 +188,7 @@ theorem fnHyp_decided (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.
     {ord : List Sym} (h1 : c.rankObligations ord ++ c.decObligationsL = [])
     (h2 : c.totalObligationsRP ord [] = []) (h3 : c.agreeObligationsI = [])
     (h4 : c.matchObligationsL = ([] : List (Nat × Nat))) (H : HookParams) : FnHyp (c.withHooks H) :=
-  fnHyp_withHooks hok (Semantics.rightHeld_of_valued hrv) H ParamsTotal.nil
+  fnHyp_withHooks (hnoEx := Semantics.fnsNoExs_of_plain hplain) hok (Semantics.rightHeld_of_valued hrv) H ParamsTotal.nil
     (FnObligations.of_nil
       (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
       ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)
@@ -308,7 +308,7 @@ theorem fnHyp_decided_total (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k 
     (h2 : c.totalObligationsRP ord tp = []) (h3 : c.agreeObligationsI = [])
     (h4 : c.matchObligationsL = ([] : List (Nat × Nat))) {H : HookParams} (hH : ParamsTotal c tp H) :
     FnHyp (c.withHooks H) :=
-  fnHyp_withHooks hok (Semantics.rightHeld_of_valued hrv) H hH
+  fnHyp_withHooks (hnoEx := Semantics.fnsNoExs_of_plain hplain) hok (Semantics.rightHeld_of_valued hrv) H hH
     (FnObligations.of_nil
       (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
       ((Semantics.totalObligationsRP_withHooks _ H _ _).trans h2)

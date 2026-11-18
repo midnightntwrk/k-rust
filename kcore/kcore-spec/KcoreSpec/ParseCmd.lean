@@ -231,7 +231,7 @@ file and added as terms; nothing is trusted (a wrong one makes its check fail). 
       a := 0
       for (n, j) in lens.zipIdx do
         let .ok r := ((pairs.drop a).take n).mapM (Parse.clauseOf E.N E.src) | throwError "parse_stages: clauses {sym} {j} fail"
-        add (Name.mkSimple s!"cls{sym}_{j}") (toTypeExpr (List (Clause × ClausePres))) (toExpr r)
+        add (Name.mkSimple s!"cls{sym}_{j}") (toTypeExpr (List (List (Clause × ClausePres)))) (toExpr r)
         a := a + n
     a := 0
     for (n, i) in (nums rs).zipIdx do

@@ -122,7 +122,8 @@ predicates are `\top` and which has no open generator. -/
 theorem model_of_nilFL {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued = true)
     (h1 : c.rankObligations [] ++ c.decObligationsL = []) (h2 : c.totalObligationsRP [] [] = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
-    (h5 : c.params.all (fun k => !k.raw) = true) (hpreTop : c.clausesPreTop = true) (H : HookParams) :
+    (h5 : c.params.all (fun k => !k.raw) = true) (hpreTop : c.clausesPreTop = true) (H : HookParams)
+    (hnoEx : c.FnsNoExs := by first | assumption | exact Semantics.fnsNoExs_of_all (by decide +kernel) | exact Semantics.fnsNoExs_of_all rfl) :
     (c.withHooks H).coreOK = true ∧ FnDet (c.withHooks H) ∧ FnSolves (c.withHooks H) ∧
       ClausePreDecided (c.withHooks H) ∧ OpenLaws (c.withHooks H) := by
   have hcH : (c.withHooks H).coreOK = true := (Semantics.coreOK_withHooks _ H).trans hc
@@ -134,6 +135,7 @@ theorem model_of_nilFL {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValue
       ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4) h5
   have hrh := Semantics.rightHeld_withHooks_of_valued hv H
   have hpH := (Semantics.clausesPreTop_withHooks _ H).trans hpreTop
+  have hnoExH : (c.withHooks H).FnsNoExs := hnoEx
   have hm := fnModel_of_fnFacts hcH hrh hob hpH
   exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob hpH, hob.2.2.2.2⟩
 

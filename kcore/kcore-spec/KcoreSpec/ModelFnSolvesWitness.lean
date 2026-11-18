@@ -233,10 +233,10 @@ theorem fnDet : FnDet c := by
   have hag : c.agreeObligations = [] := by decide +kernel
   have hcf : c.clausesFixed = true := by decide +kernel
   refine fnDet_of_coherent (coherentAll_of_parts
-    (matchIndependentAll_of_sortedOK hok hmr (.of_fixed hcf (Exec.matchCtx_of hmr).noOvl)) fun f fn hfn => ?_)
+    (matchIndependentAll_of_sortedOK hok (Semantics.fnsNoExs_of_all (by decide +kernel)) hmr (.of_fixed hcf (Exec.matchCtx_of hmr).noOvl)) fun f fn hfn => ?_)
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with h | h
-  · exact clausesAgree_of_sortedOK hok hsr hmr (fun f hf => by rw [hag] at hf; nomatch hf) fn h
+  · exact clausesAgree_of_sortedOK hok (Semantics.fnsNoExs_of_all (by decide +kernel)) hsr hmr (fun f hf => by rw [hag] at hf; nomatch hf) fn h
   · exact sortPreds_agree h
 
 def i0 : GroundTerm := .dv Srt.int (.int 0)

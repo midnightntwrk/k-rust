@@ -2883,6 +2883,15 @@ def account (koreFile : String) : IO UInt32 := do
         IO.println s!"overloading symbols that overload a function, their functional, injectivity and distinctness axioms read at the arguments no overload covers (overloadFunction): {ofn.length}"
         for (f, gs) in ofn.take 10 do IO.println s!"      {f} over {", ".intercalate gs}"
         IO.println "      at arguments an overload covers these axioms hold in a model only if the covering function is total there, injective there and apart from the other generators of the sort; if it is not, the text has no model (not decided here)"
+    -- printed only when some equation is read by cases
+    let byCases := (Parse.connReadings k).filter fun (_, ns) => ns.contains .orAsCases || ns.contains .existsAsCases
+    unless byCases.isEmpty do
+      IO.println s!"equations read by cases, a clause for each alternative of the right side and one where none has an element (orAsCases, existsAsCases): {byCases.length}"
+      for (i, ns) in byCases.take 10 do
+        IO.println s!"      sentence {i}: {", ".intercalate ((ns.filter fun n => n == .orAsCases || n == .existsAsCases).map (·.name))}"
+      IO.println "      where two alternatives of one equation have different elements at one point the text has no model: the sentence gives the function both, its functional sentence one (not decided here)"
+      if byCases.any (·.2.contains .existsAsCases) then
+        IO.println s!"      existsAsCases reads the elements of Bool as its two literals, which the definition's theory states (boolClosed, an axiom of Γcl): readsConfined {d.sem.readsConfined}, litSort Bool {d.sem.litSort Srt.bool}"
     let cu := Parse.cellCollUnmatched k d
     IO.println s!"cell collection injections not of a collection of the definition: {cu.length}"
     for r in cu.take 5 do IO.println s!"      {r.toText}"

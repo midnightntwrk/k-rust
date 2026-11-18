@@ -83,7 +83,7 @@ theorem hypModelCore_of_coreEx (h : c.coreOKEx = true) (hd : FnDet c) (hs : FnSo
 /-- **`HypModel` asks every clause to bind no variable by `\exists`**: it holds `okAll`, which with
 the overloading symbols' patterns gives `sortedOK` (`Hyp.core`), whose `clausesPlain` asks it. -/
 theorem HypModel.fnsNoExs (h : HypModel c) : c.FnsNoExs :=
-  Semantics.fnsNoExs_of_sortedOK (h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)).1
+  Semantics.fnsNoExs_of_okAll h.hyp.1
 
 /-- No semantics with a clause that binds a variable by `\exists` meets `HypModel`. -/
 theorem not_hypModel_of_exs {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl ∈ fn.clauses)

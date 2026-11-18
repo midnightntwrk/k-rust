@@ -20,11 +20,17 @@ Usage (from kcore-spec):
       with --gate (the completion gate), on every one
       Then the owed CondDecided (`owed_state`, rows-header.toml): exit 1 (--report or not) on an
       entry whose `fixture` or `also_fixtures` has an account.txt printing `CondDecided open` and
-      that names no state for it; on a key whose account prints no `CondDecided open`, or that is
-      neither a fixture of the entry nor named in its text; on a state of no known form; on a
+      that names no state for it; on a key that is neither a fixture of the entry nor named in its
+      text; on a key whose account prints no `CondDecided open` unless its state is 'proved:
+      THEOREM (FILE)' with THEOREM stated as a MatchIndependent and every text FILE reads
+      (`definition_of`) that fixture's (f2-examples/FIXTURE.kompile.kore, or a text whose Source
+      is fixtures/FIXTURE's .k file); on a state of no known form; on a
       theorem not declared, under its full name, in the state's FILE (a test/X.lean that
-      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; and on a
-      fixture printing `CondDecided open` that no entry's `owed_state` keys
+      test/integration.sh builds) or, without FILE, in a file of the entry's `tie`; on a
+      fixture printing `CondDecided open` that no entry's `owed_state` keys; and on an entry none
+      of whose states is proved where no state ends `; no fixture of this shape has it proved:
+      REASON` (rows-header.toml: why no fixture of the entry's shape has the fact proved), or where
+      one does beside a proved state. Prints the entries by their best fixture (proved, else open, else false)
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -97,6 +103,9 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    sentence or entails it only partly) is missing evidence
   parameter
       derived      a `derived` table of form (c): the param_undetermined instance
+  parameter (no model) (a parameter entry with a `derived` table of form (r): its fixture's text
+  has no model, so no param_undetermined instance exists there; counted apart)
+      derived      a `derived` table of form (r)
   inert
       class        `inert_class` or a `reasons` item InertReason.X: a constructor of InertReason
                    (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
@@ -138,6 +147,12 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    `reasons` is not needed; or, for an option that writes no definition (unit
                    "none (scope): option", `shape` "none: ..."), a fixture of the entry whose
                    kompile.txt holds `definition.kore: none written`, and `reasons` is not needed
+      scope        instead of a RefusalReason, on an E8 option row of class R-b or scope (the row's
+                   key the option): `reasons` holds SCOPE_OPTION ("none (scope): option"), and a
+                   fixture of the entry has kompile.txt's `command:` passing the option outside R-12's
+                   option set (an argument other than `--backend haskell`, or `--backend` with another
+                   value); RefusalReason items beside it are checked as above (what the reader answers
+                   on the text the option gives); the item on another entry is missing evidence
       fresh        as above, for a fixture that has an account
       reason       a reason sentence (`reason`, `reader_reason` or `refused_by`)
   independent (a [C3] pair)
@@ -157,6 +172,12 @@ LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
 KLEVEL = {"E1", "E2", "E3", "E7", "E8", "C3"}
 WAVE = re.compile(r"^(e2-unbound|e2-rule|e2-clause-.*|e6-rangemap)$")
 ERASED_FORMS = ["P", "S", "O", "C"]
+# The `reasons` item of an E8 option row refused for scope: the option is outside R-12's option set,
+# whatever the reader answers on the text it gives (closed.py admits it beside the constructors).
+SCOPE_OPTION = "none (scope): option"
+# R-12's option set: `kompile --backend haskell MAIN`; every other option, or another value of this
+# one, is outside it.
+R12_OPTIONS = {"--backend": "haskell"}
 STATUSES = ["supported", "parameter", "inert", "erased", "refused", "independent",
             "pending-fixture", "not-handled"]
 
@@ -242,6 +263,8 @@ def form(l, key, e, row=None, fx=None):
             return "supported function of the text"
         return ("supported" if l in KLEVEL else "supported E4/E5" if l in ("E4", "E5") else
                 "supported hook" if key.startswith("hook:") else "supported E6")
+    if s == "parameter" and any(isinstance(d, dict) and d.get("form") == "r" for d in (e.get("derived") or [])):
+        return "parameter (no model)"
     if s == "inert" and e.get("inert_class") == "use":
         return "inert (use)"
     if s == "inert" and e.get("inert_class") == "attribute":
@@ -581,6 +604,17 @@ def declared(name, files):
 
 # ------------------------------------------------------------------------------------- evidence
 
+def option_passed(fx, x, opt):
+    """The fixture's kompile.txt `command:` line passes the option `opt` outside R-12's option set:
+    `opt` is an argument of the command, with a value other than R-12's where R-12 sets one."""
+    m = re.search(r"^command: kompile (.*?)(?:  \(cwd: [^)]*\))?$", fx.read(x, "kompile.txt") or "", re.M)
+    args = m[1].split() if m else []
+    if opt not in args:
+        return False
+    i = args.index(opt)
+    return opt not in R12_OPTIONS or args[i + 1:i + 2] != [R12_OPTIONS[opt]]
+
+
 def evidence(fx, l, key, e, row):
     """(present, missing): two lists of strings, the items of the entry's form (module docstring)."""
     f = form(l, key, e, row, fx)
@@ -691,6 +725,8 @@ def evidence(fx, l, key, e, row):
         ties()
     elif f == "parameter":
         derived(["c"])
+    elif f == "parameter (no model)":
+        derived(["r"])
     elif f == "inert (use)":
         reason_sentence(["reason"])
         comp = [x for x in own if fx.conf(x).get("differs_from")]
@@ -729,15 +765,26 @@ def evidence(fx, l, key, e, row):
         nodef = [x for x in own if re.search(r"^definition\.kore: none written$", fx.read(x, "kompile.txt") or "", re.M)]
         option = (e.get("unit") == "none (scope): option" and isinstance(e.get("shape"), str)
                   and e["shape"].startswith("none: "))
+        scope = SCOPE_OPTION in (e.get("reasons") or [])
         if kompile_refuses:
             have.append(f"kompile refuses ({err[0]})")
         elif option and nodef:
             have.append(f"kompile writes no definition ({nodef[0]})")
+        elif scope and not (l == "E8" and e.get("class") in ("R-b", "scope")):
+            miss.append(f"{SCOPE_OPTION!r} (only on an E8 option row of class R-b or scope)")
         else:
-            item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
+            passed = [x for x in own if option_passed(fx, x, key)] if scope else []
+            if scope:
+                item(bool(passed), f"scope: option {key} outside R-12 ({passed[0] if passed else ''} kompile.txt)",
+                     f"scope: no fixture of the entry whose kompile.txt command passes {key} outside R-12"
+                     + (f" ({', '.join(own)})" if own else " (no fixture)"))
+            else:
+                item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
             accs = [(x, fx.account(x)) for x in own if fx.account(x) is not None]
-            if not accs:
+            if not accs and not scope:
                 miss.append("fixture whose account prints the reason" + ("" if own else " (no fixture)"))
+            elif not accs and rs:
+                miss.append(f"fixture whose account prints {', '.join(rs)}")
             elif rs:
                 hit = [x for x, a in accs if all(r in a[1] for r in rs)]
                 item(bool(hit), f"account {hit[0] if hit else ''} prints the reason",
@@ -1108,6 +1155,10 @@ def print_reader_owed(t, gate):
 OWED_OPEN = re.compile(r"^\s+(.+): CondDecided open, over (\S+)$", re.M)
 # A state of `owed_state` (rows-header.toml): proved or refuted by a theorem, or open with a reason.
 OWED_STATE = re.compile(r"^(proved|refuted): (\S+)(?: \((test/[^()\s]+\.lean)\))?$|^(open): (\S.*)$")
+# The ending of a state saying that no fixture of the entry's shape has its owed fact proved, and why
+# (rows-header.toml); the state before it is read as OWED_STATE.
+NONE_PROVED = "no fixture of this shape has it proved:"
+NONE_PROVED_END = re.compile(r"; " + re.escape(NONE_PROVED) + r" (\S.*)$")
 # The fields whose text may name a companion fixture of the entry (its same_as pair, its evidence).
 OWED_NAMING = ("evidence", "reader_today", "refused_by", "place", "note", "reading", "no_sentence", "reason")
 
@@ -1116,6 +1167,81 @@ def owed_open(fx, name):
     """The clauses and rules whose CondDecided fixtures/NAME/account.txt prints open: [(item, over)]."""
     a = fx.read(name, "account.txt") if fx.exists(name) else None
     return OWED_OPEN.findall(a) if a else []
+
+
+def lean_source(f):
+    """The file's text without its comments, or None where it is no file."""
+    p = os.path.join(K, f) if isinstance(f, str) else None
+    if not p or not os.path.isfile(p):
+        return None
+    src = re.sub(r"/-.*?-/", "", open(p).read(), flags=re.S)
+    return re.sub(r"--.*", "", src)
+
+
+def decl_type(f, full):
+    """The stated type of the theorem `full` in the file (the text after its binders' top-level `:`
+    up to its `:=`, whitespace collapsed; textual, as file_decls), or None where it is not found."""
+    src = lean_source(f)
+    if src is None:
+        return None
+    lines, stack = src.split("\n"), []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        m = re.match(r"namespace (\S+)", s)
+        if m:
+            stack.append(m[1]); continue
+        m = re.match(r"end (\S+)$", s)
+        if m and stack and stack[-1] == m[1]:
+            stack.pop(); continue
+        m = re.match(r"(?:@\[[^\]]*\]\s*)?(?:private |protected |noncomputable )*"
+                     r"(?:theorem|lemma) ([^\s:({\[]+)", s)
+        if not m:
+            continue
+        d = m[1].strip("«»")
+        if (".".join(stack + [d]) if not d.startswith("_root_.") else d[7:]) != full:
+            continue
+        rest, depth, colon = " ".join([s[m.end():]] + lines[i + 1:]), 0, None
+        for j, ch in enumerate(rest):
+            if ch in "([{⦃⟨":
+                depth += 1
+            elif ch in ")]}⦄⟩":
+                depth -= 1
+            elif depth == 0 and rest[j:j + 2] == ":=":
+                return " ".join(rest[colon + 1:j].split()) if colon is not None else None
+            elif depth == 0 and ch == ":" and colon is None:
+                colon = j
+        return None
+    return None
+
+
+_text_sources = {}
+
+
+def text_of_fixture(path, x):
+    """Whether the kompiled text at path (relative to kcore-spec) is fixture x's: it is
+    f2-examples/X.kompile.kore, or a declaration of it carries the Source of fixtures/X's own .k file."""
+    if path == f"f2-examples/{x}.kompile.kore":
+        return True
+    if path not in _text_sources:
+        p = os.path.join(K, path)
+        body = open(p).read() if os.path.isfile(p) else ""
+        _text_sources[path] = set(re.findall(r'Source\((?:[^()"]*/)?fixtures/([^/()"]+)/\1\.k\)', body))
+    return x in _text_sources[path]
+
+
+def owed_match_elsewhere(th, fl, x):
+    """Why THEOREM of FILE is not a MatchIndependent stated of fixture x's text, or None: its stated
+    type is `MatchIndependent ...`, and every text FILE reads (`definition_of ... from "PATH"`) is x's."""
+    ty = decl_type(fl, th)
+    if not ty or not re.match(r"MatchIndependent\b", ty):
+        return f"{th} is not stated as a MatchIndependent in {fl} (its type: {(ty or 'not found')[:60]!r})"
+    reads = re.findall(r'definition_of\s+\S+\s+from\s+"([^"]+)"', lean_source(fl) or "")
+    if not reads:
+        return f"{fl} reads no kompiled text (no `definition_of ... from`)"
+    other = [r for r in reads if not text_of_fixture(r, x)]
+    if other:
+        return f"{fl} reads {', '.join(other)}, which is not fixtures/{x}'s text"
+    return None
 
 
 def owed_state(t, fx):
@@ -1136,18 +1262,27 @@ def owed_state(t, fx):
         out += [(where, x, None, "owed_state has no key for its fixture, whose account prints"
                  " `CondDecided open`") for x in need if x not in st]
         prose = " ".join(str(e.get(f, "")) for f in OWED_NAMING)
+        words, none_proved = set(), False
         for x, v in st.items():
             keyed.add(x)
+            if isinstance(v, str) and NONE_PROVED_END.search(v):
+                none_proved, v = True, NONE_PROVED_END.sub("", v)
             m = OWED_STATE.match(v) if isinstance(v, str) else None
             word = m and (m[1] or m[4])
             why = None
-            if not owed_open(fx, x):
-                why = f"fixtures/{x}'s account prints no `CondDecided open`"
+            # a fixture whose account owes no CondDecided is admitted only with its owed fact of the
+            # clause, MatchIndependent, proved on its own text by a theorem of a named file
+            unowed = not owed_open(fx, x)
+            if unowed and fx.read(x, "account.txt") is None:
+                why = f"{x} is no fixture with an account.txt (fixtures/{x})"
             elif x not in own and not re.search(rf"(?<![\w-]){re.escape(x)}(?![\w-])", prose):
                 why = f"{x} is no fixture of the entry and its text does not name it"
             elif not m:
                 why = (f"state {str(v)[:60]!r} is not 'proved: THEOREM[ (FILE)]', 'refuted: THEOREM[ (FILE)]'"
                        " or 'open: REASON'")
+            elif unowed and (word != "proved" or not m[3]):
+                why = (f"fixtures/{x}'s account prints no `CondDecided open`, and its state is not"
+                       " 'proved: THEOREM (FILE)' with THEOREM a MatchIndependent of its text")
             elif word != "open":
                 th, fl = m[2], m[3]
                 ts = e.get("tie")
@@ -1158,7 +1293,15 @@ def owed_state(t, fx):
                     why = tie_file_ok(fl)
                 elif not any(th in (file_decls(f) or ()) for f in files):
                     why = f"{th} is not declared in {', '.join(map(str, files))}"
+                elif unowed:
+                    why = owed_match_elsewhere(th, fl, x)
             out.append((where, x, word, why))
+            words.add(word)
+        if "proved" not in words and not none_proved:
+            out.append((where, None, None, "no fixture of the entry has its owed fact proved, and no state"
+                        f" ends `; {NONE_PROVED} REASON`"))
+        elif "proved" in words and none_proved:
+            out.append((where, None, None, f"a state ends `; {NONE_PROVED} ...` beside a proved state"))
     for x in sorted(os.listdir(fx.fx)):
         if x not in keyed and owed_open(fx, x):
             out.append(("fixtures", x, None, "its account prints `CondDecided open` and no entry's owed_state"
@@ -1171,9 +1314,15 @@ def print_owed_state(t, fx):
     rs = owed_state(t, fx)
     bad = [r for r in rs if r[3]]
     states = collections.Counter(r[2] for r in rs if r[2])
-    print(f"owed-state: {len({r[0] for r in rs if r[2]})} entries name the state of an owed CondDecided"
+    print(f"owed-state: {len({r[0] for r in rs if r[2]})} entries name the state of an owed fact"
           f" at {len({r[1] for r in rs if r[2]})} fixtures: "
           + ", ".join(f"{k} {states[k]}" for k in ("proved", "refuted", "open")) + f"; {len(bad)} failing")
+    best = {}
+    for where, _, word, _ in rs:
+        if word:
+            best[where] = min(best.get(where, 2), {"proved": 0, "open": 1}.get(word, 2))
+    groups = collections.Counter(best.values())
+    print(f"owed-state: entries by their best fixture: proved {groups[0]}, open {groups[1]}, false {groups[2]}")
     for where, x, word, why in rs:
         if why or word != "proved":
             print(f"    {where}: {x or ''} {word or ''}".rstrip() + (f"; FAILS: {why}" if why else ""))
@@ -1210,6 +1359,16 @@ def self_test():
             "// other_file macros.kore: 9 lines, sha256 0\n  axiom{R} \\equals{SortExp{},R} (\n"
             "    Lblm{}(VarX:SortExp{}),\n    Lblg{}(VarX:SortExp{}))\n  [macro{}()]\n")
         open(os.path.join(fxd, "nodef", "kompile.txt"), "w").write("exit: 0\ndefinition.kore: none written\n")
+        # option fixtures: kompile.txt's command passes --opt, --backend llvm, R-12's set only; one
+        # with --opt whose account refuses (setVariable)
+        for name, args, acc in (("optk", "--backend haskell --opt ref.k", clean),
+                                ("optllvm", "--backend llvm --no-llvm-kompile ref.k", clean),
+                                ("opthask", "--backend haskell ref.k", clean),
+                                ("optref", "--backend haskell --opt ref.k", refusing)):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write(
+                f"command: kompile {args} -o out  (cwd: the fixture directory)\nexit: 0\n")
+            open(os.path.join(fxd, name, "account.txt"), "w").write(acc)
         rows = {"E3": {"U": {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "ok"},
                        "V": {"status": "inert", "inert_class": "use", "fixture": "ok"},
                        "E": {"status": "erased", "fixture": "eq"}}}
@@ -1386,6 +1545,33 @@ def self_test():
                          "reason": "r"}, False),
             ("E8", "A", {"status": "refused", "fixture": "nodef", "class": "scope", "unit": "none (scope): option",
                          "shape": "E8 X", "reason": "r"}, False),
+            # an option outside R-12's set, refused for scope without a RefusalReason
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            ("E8", "--backend", {"status": "refused", "fixture": "optllvm", "class": "R-b",
+                                 "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "scope",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            # with the reader's refusal beside it: checked against the account
+            ("E8", "--opt", {"status": "refused", "fixture": "optref", "class": "R-b",
+                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, True),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, False),
+            # R-12's value of --backend; an option the command does not pass; no fixture; no reason
+            ("E8", "--backend", {"status": "refused", "fixture": "opthask", "class": "R-b",
+                                 "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--other", {"status": "refused", "fixture": "optk", "class": "R-b",
+                               "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "none", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION]}, False),
+            # without the item, or off an E8 option row of class R-b or scope
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b", "reason": "r"}, False),
+            ("E2", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-a",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "simplification", "tie": [tie],
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "claim", "tie": [tie],
@@ -1403,6 +1589,8 @@ def self_test():
             ("E7", "A", {k: v for k, v in attr.items() if k != "reason"}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "c", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}]}, True),
+            ("E6", "x", {"status": "parameter", "derived": [{"form": "r", "theorem": "T", "file": tie}, thm]}, True),
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
             ("E6", "hook:X", {"status": "supported"}, False),
             ("E6", "symbol:X", {"status": "supported", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
@@ -1504,30 +1692,62 @@ def self_test():
         ofx = os.path.join(d, "fixtures-owed")
         for name, acc in (("ow", "      rule 0: CondDecided open, over VarX:S\n"),
                           ("ow2", "      function f, clause 0 at ow2.k:3: CondDecided open, over VarH:S\n"),
-                          ("no", clean)):
+                          ("no", clean), ("e2-clause-rhs-unit", clean), ("e2-clause-rhs-int", clean)):
             os.makedirs(os.path.join(ofx, name))
             open(os.path.join(ofx, name, "account.txt"), "w").write(acc)
         ofix = Fixtures(ofx, False)
-        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r"}}
+        np = "; no fixture of this shape has it proved: s"
+        b = {"status": "supported", "fixture": "ow2", "owed_state": {"ow2": "open: r" + np}}
         a = lambda **kw: {"status": "supported", "fixture": "ow", **kw}
         f5 = "KCore.C3EqReqEns.f_5"
+        my, uf = "KCore.TieClauseRhsUnit.matchY", "test/TieClauseRhsUnit.lean"
+        nop ="no fixture of the entry has its owed fact proved"
         ocases = [  # ({row key: entry} of E2, the failures expected, each named by a substring)
             ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r"}, evidence="fixtures/ow2",
-                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}"}}])}, []),
+                     cases=[{"case": "c", "fixture": "ow2", "tie": [tie], "owed_state": {"ow2": f"refuted: {f5}" + np}}])}, []),
             ({"A": a(), "B": b}, ["the entry has no owed_state", "no entry's owed_state names"]),
-            ({"A": a(owed_state={"ow": "open: r", "no": "open: r"}, evidence="fixtures/no"), "B": b},
+            ({"A": a(owed_state={"ow": "open: r", "no": "open: r" + np}, evidence="fixtures/no"), "B": b},
              ["prints no `CondDecided open`"]),
             ({"A": a(owed_state={"ow": f"proved: KCore.C3EqReqEns.nope ({tie})"}), "B": b},
              [f"KCore.C3EqReqEns.nope is not declared in {tie}"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}, tie=["test/TieE1Module.lean"]), "B": b},
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}, tie=["test/TieE1Module.lean"]), "B": b},
              ["is not declared in test/TieE1Module.lean"]),
-            ({"A": a(owed_state={"ow": f"refuted: {f5}"}), "B": b}, ["names no file and the entry has no tie"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5}" + np}), "B": b}, ["names no file and the entry has no tie"]),
             ({"A": a(owed_state={"ow": f"proved: {f5} (test/PrintNames.lean)"}), "B": b}, ["skip list"]),
-            ({"A": a(owed_state={"ow": "witnessed"}), "B": b}, ["is not 'proved: THEOREM"]),
-            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r"})}, ["ow2 is no fixture of the entry"]),
-            ({"A": a(owed_state={"ow2": "open: r"}, evidence="fixtures/ow2")},
+            ({"A": a(owed_state={"ow": "witnessed" + np}), "B": b}, ["is not 'proved: THEOREM"]),
+            ({"A": a(owed_state={"ow": "open: r", "ow2": "open: r" + np})}, ["ow2 is no fixture of the entry"]),
+            ({"A": a(owed_state={"ow2": "open: r" + np}, evidence="fixtures/ow2")},
              ["has no key for its fixture", "no entry's owed_state names"]),
             ({"A": a(owed_state="open: r"), "B": b}, ["not a table", "no entry's owed_state names"]),
+            # no proved fixture: accepted with the ending on a refuted or an open state, refused without it
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})" + np}), "B": b}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": b}, [nop]),
+            ({"A": a(owed_state={"ow": "open: r"}), "B": {**b, "owed_state": {"ow2": "open: r"}}}, [nop, nop]),
+            # the ending beside a proved state, or on the proved state itself
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})", "ow2": "open: r" + np},
+                     evidence="fixtures/ow2")}, ["beside a proved state"]),
+            ({"A": a(owed_state={"ow": f"proved: {f5} ({tie})" + np}), "B": b}, ["beside a proved state"]),
+            # a fixture the entry's text names whose account owes no CondDecided: admitted only with a
+            # MatchIndependent proved on that fixture's own text, by a theorem of a named file
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "e2-clause-rhs-unit": f"proved: {my} ({uf})"},
+                     evidence="fixtures/e2-clause-rhs-unit"), "B": b}, []),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})",
+                                 "e2-clause-rhs-unit": f"proved: KCore.TieClauseRhsUnit.named ({uf})"},
+                     evidence="fixtures/e2-clause-rhs-unit"), "B": b}, ["is not stated as a MatchIndependent"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})" + np, "e2-clause-rhs-unit": "open: r"},
+                     evidence="fixtures/e2-clause-rhs-unit"), "B": b}, ["prints no `CondDecided open`, and its state"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "e2-clause-rhs-unit": f"proved: {my}"},
+                     tie=[tie, uf], evidence="fixtures/e2-clause-rhs-unit"), "B": b},
+             ["prints no `CondDecided open`, and its state"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "e2-clause-rhs-int": f"proved: {my} ({uf})"},
+                     evidence="fixtures/e2-clause-rhs-int"), "B": b}, ["not fixtures/e2-clause-rhs-int's text"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "e2-clause-rhs-unit": f"proved: {my} ({uf})"}),
+              "B": b}, ["its text does not name it"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "rhsunit": f"proved: {my} ({uf})"},
+                     evidence="f2-examples/rhsunit.kompile.kore"), "B": b}, ["rhsunit is no fixture with an account.txt"]),
         ]
         for i, (rows, want) in enumerate(ocases):
             got = [why for _, _, _, why in owed_state({"E2": rows}, ofix) if why]
