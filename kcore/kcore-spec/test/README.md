@@ -1598,3 +1598,6 @@ table above, on the tree before String and Bytes). Not investigated here.
   `refuses`: `CoherentAll` fails at both. `coherent_iff_prem`: for a first clause without
   existential variables `Coherent` is `CoherentPrem`. `clB_coherent`: `f() => ?B ensures ?B` is
   coherent with itself in every semantics.
+- `test/DetOkM.lean`: coherence and the decider's soundness over `okM` (`Det.coherentAll_of_nil_okM`,
+  `Det.detCond_sound_okM`) at e3-ml-rule-rhs-and-ctor's core with its rule read by `Parse.andRuleOf`
+  (`post := mem X a`), where `ok` is false and `okM` holds.
