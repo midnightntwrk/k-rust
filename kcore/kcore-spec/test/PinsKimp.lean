@@ -11,16 +11,20 @@
   from K's claim `sum-spec` before any generator ran (examples/ref-kimp/User/SumSpecStmt.lean,
   which pins-kimp.sh builds over the generated package), is pinned by its body, and so is
   `Claims.ExpectedKore.«sum-spec»`, the statement of the claim's KORE sentence (the same with the
-  target's counter existential). test/pins-kimp.sh generates the package under the namespace
+  target's counter existential). The statement `k2lean kcore-claims` writes from that sentence,
+  `Claims.Generated.«sum-spec»` (examples/ref-kimp/User/SumSpecGen.lean), is `ExpectedKore.«sum-spec»`
+  by `rfl`, and `Expected.«sum-spec»` implies `ExpectedKore.«sum-spec»` (`AllPath.mono`, the target's
+  counter taken to be the left side's). test/pins-kimp.sh generates the package under the namespace
   `RefKimp` into .lake/pins/kimp, builds it and checks this file against it:
 
       gen/gen.sh examples/ref-kimp/RefKimp/definition.kore .lake/pins/kimp RefKimp --wf
-      gen/build.sh .lake/pins/kimp
+      gen/build.sh .lake/pins/kimp User.SumSpecStmt User.SumSpecGen
       LEAN_PATH=.lake/pins/kimp/.lake/build/lib/lean:$(lake env printenv LEAN_PATH) lean test/PinsKimp.lean
 -/
 import RefKimp.Sound
 import RefKimp.FnHyp
 import User.SumSpecStmt
+import User.SumSpecGen
 
 set_option autoImplicit false
 
@@ -106,6 +110,14 @@ example : Claims.ExpectedKore.«sum-spec» =
             («<env>» (Tm.map [(Tm.ident "$n", Tm.int 0),
               (Tm.ident "$s", Tm.int (S + ((N + 1) * N).tdiv 2))]))
             («<generatedCounter>» (Tm.int C'))).val) := rfl
+
+/-- The generated statement is the statement of the claim's KORE sentence. -/
+example : Claims.Generated.«sum-spec» = Claims.ExpectedKore.«sum-spec» := rfl
+
+/-- The pinned statement implies the statement of the claim's KORE sentence: the target's counter is
+the left side's. -/
+example : Claims.Expected.«sum-spec» → Claims.ExpectedKore.«sum-spec» :=
+  fun h H N S K C hreq => (h H N S K C hreq).mono (fun _ hx => hx) (fun _ hz => ⟨C, hz⟩)
 
 /-- info: 'RefKimp.consistent' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RefKimp.consistent
