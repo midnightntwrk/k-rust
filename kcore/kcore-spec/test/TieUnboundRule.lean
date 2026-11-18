@@ -22,6 +22,9 @@
     successor is some `b(i)` (`step_inv`); `refU` lists the outcomes (`outIs`), one family at
     `<k> a() </k>` (`refU_A`), and `complete_A` is `complete_hyp` there; `exact_b`: y is a successor
     of `<k> a() </k>` in some model of `Γc` with the step's closure exactly where y is some `b(i)`.
+  - The expectations (C7 form (a)), by the cut: `b_step`, `a()` steps to `b(i)` for every i, from
+    `PreS` (the sentences as written, 154 among them, the families and `Γcl`; `gamma_fromS` by W1);
+    `a_succs`, every successor of `a()` is in the rule's family, from `Pre` with the step's closure.
 -/
 import KcoreSpec
 
@@ -549,6 +552,45 @@ theorem exact_b (y : Config (cH H)) :
 
 end Steps
 
+/-! ## The fixture's expectations (C7 form (a)) -/
+
+/-- The function sentences as written, the rule's sentence 154 as written, the families, and the
+closure of Bool. -/
+def PreS (H : HookParams) : Premises KoreAML.Sym :=
+  TextFns ∪ (fun φ => φ = (trS U.ax154).pat) ∪ Families H ∪ Γcl (cH H)
+
+/-- Every premise of `Γc` is a consequence of `PreS`: the rule's item by W1 (`rule_from_text`). -/
+theorem gamma_fromS (H : HookParams) : ∀ φ, Γc (cH H) φ → PreS H ⊧ φ := by
+  intro φ h M _ I hI
+  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨-, hent⟩ | hf | hx | hb
+  · exact hI _ (Or.inl (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩))))
+  · exact hent fun ψ hψ => by
+      rcases hψ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
+      · rw [List.mem_singleton] at hit
+        subst hit
+        exact hI _ (Or.inl (Or.inl (Or.inr rfl)))
+      · exact hI _ (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))
+  · exact hI _ (Or.inl (Or.inr hf))
+  · exact hI _ (Or.inl (Or.inl (Or.inl (Or.inr hx))))
+  · exact hI _ (Or.inr ((gammaCl_eq H φ).mpr hb))
+
+/-- **`a()` steps to `b(i)`, from the rule's sentence as written**, for every H and every Int i:
+derived from `PreS` (sentence 154 among the sentences as written) by the cut from `sound_b`. -/
+theorem b_step (H : HookParams) (i : Int) :
+    PreS H ⊧ (den (cH H) (A H).val ⇒ KoreAML.sNext (den (cH H) (B H i).val)) :=
+  cutΓ (gamma_fromS H) (sound_b H i)
+
+/-- **Every successor of `a()` is in the rule's one family** (some `b(X)`), for every H: derived
+from `Pre` with the step's closure; `Pre` with it has a model (`pre_model`). -/
+theorem a_succs (H : HookParams) :
+    (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (A H).val ⇒
+      KoreAML.allNext (KoreAML.disjList ((refU H (A H).val).map (Outcome.pat (cH H))))) :=
+  cutΓ (fun φ h => by
+      rcases h with h | h
+      · exact fun hT => gamma_from H φ h (fun ψ hψ => hT ψ (Or.inl hψ))
+      · exact fun hT => hT φ (Or.inr h))
+    (complete_A H)
+
 end KCore.TieUnboundRule
 
 #print axioms KCore.TieUnboundRule.fn_shape
@@ -564,3 +606,6 @@ end KCore.TieUnboundRule
 #print axioms KCore.TieUnboundRule.outIs
 #print axioms KCore.TieUnboundRule.complete_A
 #print axioms KCore.TieUnboundRule.exact_b
+#print axioms KCore.TieUnboundRule.gamma_fromS
+#print axioms KCore.TieUnboundRule.b_step
+#print axioms KCore.TieUnboundRule.a_succs

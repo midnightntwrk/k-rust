@@ -1307,6 +1307,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
+  (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
+  of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
+  equations (838 to 876): each of Γ's 39 items is its text sentence's translation, pattern for
+  pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
+  entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
+  (`fns_from_text`). 7.6 GiB, 73 s.
 - `test/TieUnboundRule.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the rule
   with the open variable X and the theory `Γc` it is read in, for every H: Γ's rule item is a
   consequence of sentence 154 (`rule_from_text`: the item is the sentence with `⌈rhs⌉` added to its
@@ -1315,14 +1322,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   item of `Γcl` (`gamma_origin`, `gammaCl_eq`, `gamma_from`); `Pre` (those premises as written)
   has a model with the step's closure (`pre_model`, `consistent` by `FnHyp`); `a()` steps to `b(i)`
   for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
-  `c.withHooks H`. About 10 s, 2.9 GiB.
-- `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
-  (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
-  of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
-  equations (838 to 876): each of Γ's 39 items is its text sentence's translation, pattern for
-  pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
-  entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
-  (`fns_from_text`). 7.6 GiB, 73 s.
+  `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
+  (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
