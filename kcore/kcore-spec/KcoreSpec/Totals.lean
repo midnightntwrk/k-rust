@@ -4,9 +4,9 @@
   - `covers_sound`: rows `covers` accepts at the sorts `ss` match, as rows (`RowMatch`: a variable
     matches anything, a constructor application a constructor term of that constructor, an
     injection an injection of the same sorts, an alias what its pattern matches), some row at every
-    argument list of those sorts. At an enumerable sort a value is a constructor term or an
-    injection (`enumerable_value`), each the application of one of the sort's generators, so the
-    rows specialised to that generator cover its arguments; elsewhere the variable rows cover.
+    argument list of those sorts. At an enumerable sort (a user sort or K) a value is a constructor
+    term or an injection (`enumerable_value`), each the application of one of the sort's generators,
+    so the rows specialised to that generator cover its arguments; elsewhere the variable rows cover.
   - `rowMatches_subst`: a row of a clause's patterns, its variables apart (`coverRows`), that
     matches an argument list of the clause's sorts as a row, matches it as `PatVal` reads it,
     under a substitution of the clause's variable sorts: each variable is bound at its one
