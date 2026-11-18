@@ -598,14 +598,15 @@ theorem holds_mem' (F : AtomFacts c I) (s : Srt) (t u : Term) : HoldsDen' c I (.
 
 /-! ### The sort binders: `ex` and `all` -/
 
-/-- The reading of a pattern at a value's element: for a pattern sorted over a left side's context,
+/-- The reading of a pattern at a value's element: for a pattern sorted over the context of
+the patterns that apply no function-overloaded symbol (`patCtxNF`, as `condOK` sorts an `exMatch`'s),
 at a valuation that gives each of its variables an element of the variable's sort (its key in the
 table), the element of a value of the pattern's sort lies in the pattern's translation exactly where
 the pattern denotes the value under a substitution that gives each of its variables a value of its
 sort whose element the valuation gives it. -/
 def PatReading (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) : Prop :=
   ∀ {vars : List Srt} {p : Term} {s : Srt} {w : GroundTerm} {tbl : KoreAML.VarTable} {e : Valuation M},
-    sortOfTerm c.patCtxAll vars p = some s → c.sortOf w = some s →
+    sortOfTerm c.patCtxNF vars p = some s → c.sortOf w = some s →
     (∀ i ∈ varOccs p, canonKey c vars i ∈ tbl ∧
       (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c (vars.getD i 0)))).interpret I e
         (e.evalEvar (tbl.ev (canonKey c vars i)))) →
@@ -989,7 +990,7 @@ theorem holds_exMatchB (F : AtomFacts c I) (G : BinderFacts c I) {bd : Nat → C
           rw [(ha0 _).mp ((hd _).mp rfl)]
           exact hin
         · exact ⟨hBk i h1 h2, hinB i h1 h2⟩
-      obtain ⟨σp, hpvp, hwp⟩ := (G.pat (sortOfTerm_all_of_nf hpS) hsv hpin m hmv).mp hpm
+      obtain ⟨σp, hpvp, hwp⟩ := (G.pat hpS hsv hpin m hmv).mp hpm
       have hval : ∀ i, ∃ w : GroundTerm, vars.length ≤ i → i < vars.length + ys.length →
           c.sortOf w = some ((vars ++ ys).getD i 0) ∧
             ∀ m', (den c w).interpret I e' m' ↔ m' = e'.evalEvar (tbl.ev (canonKey c (vars ++ ys) i)) := by
@@ -1090,7 +1091,7 @@ theorem holds_exMatchB (F : AtomFacts c I) (G : BinderFacts c I) {bd : Nat → C
           exact (this.trans Iff.rfl).symm.trans ((den_closed c w).interp e e' m')
       obtain ⟨m0, hm0, -⟩ := F.val hsv tbl e'
       have hpm : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c (vars ++ ys)) p)).interpret I e' m0 := by
-        refine (G.pat (sortOfTerm_all_of_nf hpS) hsv (fun i hi => ⟨(hr'' i (hPp i hi)).2.1, Reads.inSort F hr'' (hPp i hi)⟩) m0
+        refine (G.pat hpS hsv (fun i hi => ⟨(hr'' i (hPp i hi)).2.1, Reads.inSort F hr'' (hPp i hi)⟩) m0
           ((hm0 m0).mpr rfl)).mpr ⟨σ', hpv, fun i hi => ?_⟩
         obtain ⟨-, -, u, hu, hsu, hdu⟩ := hr'' i (hPp i hi)
         exact ⟨u, hu, hsu, fun m' => (hdu m').symm⟩

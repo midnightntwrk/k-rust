@@ -702,7 +702,8 @@ theorem patReading_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c) : P
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSoundEx_of_coreEx h
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_allCEx hok hsr (OvlOK.ovlCase hno)
-  intro vars p s w tbl e hpS hw hin m hm
+  intro vars p s w tbl e hpSN hw hin m hm
+  have hpS := sortOfTerm_all_of_nf hpSN
   classical
   have hmw : m = elemOf c I w := ((elemOf_spec hI hw e).1 m).mp hm
   subst hmw
@@ -716,6 +717,9 @@ theorem patReading_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c) : P
     intro i hi; simp [vars', hi]
   have hpS' : sortOfTerm c.patCtxAll vars' p = some s := by
     rw [sortOfTerm_congr p fun i hi => ?_]; exact hpS
+    rw [hget? i (hl i hi), if_pos hi, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (hl i hi)]; rfl
+  have hpSN' : sortOfTerm c.patCtxNF vars' p = some s := by
+    rw [sortOfTerm_congr p fun i hi => ?_]; exact hpSN
     rw [hget? i (hl i hi), if_pos hi, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (hl i hi)]; rfl
   have hvsl : (canonVars c vars).length = vars'.length := by rw [canonVars_length, hlen]
   have hoff : ∀ i ∈ varOccs p, e.evalEvar (tbl.ev (keyAt (canonVars c vars) i)) =
@@ -737,7 +741,7 @@ theorem patReading_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c) : P
   constructor
   · intro hpm
     have hpm1 := (tr_kore_congr p hoff _).mp hpm
-    obtain ⟨hpv, hwit⟩ := patVal_backC hI hph hcs hcso hg hsc.trans hnn.1 hvsl hin' hpc (OvlOK.nf_bridge inferInstance hpS') hw hpm1
+    obtain ⟨hpv, hwit⟩ := patVal_backC hI hph hcs hcso hg hsc.trans hnn.1 hvsl hin' hpc hpSN' hw hpm1
     refine ⟨_, hpv, fun i hi => ?_⟩
     obtain ⟨v, hsv, hev⟩ := hwit i hi
     have hgi : vars'.getD i 0 = vars.getD i 0 := by
@@ -778,7 +782,7 @@ theorem patReading_of_coreEx (h : c.coreOKEx = true) (hIc : I ⊧ᴵP Γc c) : P
         simp only [f, hio, ite_false]
         exact ((elemOf_spec hI (sortOf_bool true) e1).1 m').symm
     have hpv'' : PatVal c σ'' p w := Faithful.PatVal.congr_lookup hpv hcong
-    have := (patVal_den4 hI hnn.1 hph hsc.trans hσ hvsl hag hpv'' (OvlOK.nf_bridge inferInstance hpS')).2 (elemOf c I w)
+    have := (patVal_den4 hI hnn.1 hph hsc.trans hσ hvsl hag hpv'' hpSN').2 (elemOf c I w)
       |>.mpr (((elemOf_spec hI hw e1).1 _).mpr rfl)
     exact (tr_kore_congr p hoff _).mpr this
 

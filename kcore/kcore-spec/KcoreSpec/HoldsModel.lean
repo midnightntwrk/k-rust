@@ -201,7 +201,8 @@ theorem atomFacts_stdI (h : HypModelCore c) : HoldsShape.AtomFacts c (stdI_T c T
 /-- **The value model at T reads a pattern at a value's element**: an element of a numbered sort is a
 value, and the pattern denotes what `tr_pat` gives. -/
 theorem patReading_stdI (h : HypModelCore c) : HoldsShape.PatReading c (stdI_T c T) := by
-  intro vars p s w tbl e hpS hw hin m hm
+  intro vars p s w tbl e hpSN hw hin m hm
+  have hpS := sortOfTerm_all_of_nf hpSN
   have hmw : m = .val w := (den_val_T h T w hw e m).mp hm
   subst hmw
   have hsn := sortOf_numbered h hw
@@ -213,7 +214,7 @@ theorem patReading_stdI (h : HypModelCore c) : HoldsShape.PatReading c (stdI_T c
     have hnum := varOccs_num h p hpS hsn i hi _ (List.getElem?_eq_getElem hl)
     rw [← hg] at hnum
     exact inSort_val ((inhOf_srtOf_stdI h hnum e _).mp (hin i hi).2)
-  have hPO := (patOK_of_sorted h (h.ovlOKI.nf_bridge hpS)).monoOpen (Q := (· ∈ varOccs p)) fun i hi => hi
+  have hPO := (patOK_of_sorted h hpSN).monoOpen (Q := (· ∈ varOccs p)) fun i hi => hi
   constructor
   · intro hp
     let σ' : Subst := (varOccs p).map fun i => (i, toVal (e.evalEvar (tbl.ev (canonKey c vars i))))
