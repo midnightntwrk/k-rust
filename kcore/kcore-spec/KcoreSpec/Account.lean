@@ -336,6 +336,22 @@ def rulesWithEnsures (d : Definition) : Nat :=
 (`ReadingNote.ruleRightDefined`). -/
 def rulesRightDefined (d : Definition) : Nat := d.sem.rules.length
 
+/-- The number of conjuncts `B = true` (`Cond.equals` at Bool with the literal `true`) of a
+condition's conjunction. -/
+def eqTrueConjunctsCnj : Cond → Nat
+  | .and p q => eqTrueConjunctsCnj p + eqTrueConjunctsCnj q
+  | .equals s _ (.dv s' (.bool true)) => if s == Srt.bool && s' == Srt.bool then 1 else 0
+  | _ => 0
+
+/-- The definition's rules read with conjuncts `B = true` in `pre` or `post`
+(`ReadingNote.andAtBool`: the conjuncts after the first of a `requires`, or of the right side's
+conditions): each one's index and its numbers of such conjuncts in `pre` and in `post`. -/
+def rulesCondConjCnj (d : Definition) : List (Nat × Nat × Nat) :=
+  d.sem.rules.zipIdx.filterMap fun (r, i) =>
+    let np := eqTrueConjunctsCnj r.pre
+    let nq := eqTrueConjunctsCnj r.post
+    if np + nq == 0 then none else some (i, np, nq)
+
 /-- The number of the definition's function clauses, other than those written `[owise]`
 (`Emit.writtenOwise`: priority 200 without a `priority` attribute, `ReadingNote.owiseAsPriority`),
 that `Γ` reads with the premise that no executable clause of a smaller priority applies

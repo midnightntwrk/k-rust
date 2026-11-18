@@ -1,8 +1,8 @@
 /-
   The tie (C14) of the reading `andAtBool` on its construct fixture e3-ml-req-and-var:
   `rule <k> go(B) => done ... </k> requires true #And B`, a `requires` that is the conjunction
-  `\and{SortBool{}}(true, B)` of two Bool terms, equated with `true`, read as their strict
-  conjunction: Γ's `requires` is `true ~> B ~> . ==K true ~> true ~> .`. The text is
+  `\and{SortBool{}}(true, B)` of two Bool terms, equated with `true`, read conjunct by conjunct:
+  Γ's `requires` is `true = true` and its `pre` the conjunct `B = true`. The text is
   `f2-examples/mlreqv.kompile.kore` (as test/Guards.lean's `DevAndBool` reads it). Run from the
   package root: `lake env lean -j1 test/NoteAndBool.lean`. Every statement is on the literal
   `defn`, for every interpretation H; nothing reads `Parse.parse` or `emit`.
@@ -18,18 +18,18 @@
   that sends B, the rest of the K cell and the counter cell to values (`AtValues`), the sentence
   holds in every model of Γ. Where B is `false`, `{true} ∩ {false}` is empty, so the text's
   `requires` and left side hold nothing (`TieReqBool.eqTrue_empty`). Where B is `true`, every
-  element of the text's left side is one of Γ's (`ltext_sub`): Γ's `==K` denotes `true` there
-  (`eqK_den`, the graph of `==K` in `ΓDomains`, at the value `true ~> true ~> .` twice), and Γ's
-  `⌈r⌉` is all of the configuration sort, the right side denoting the element of the value
-  `<generatedTop>(<k>(done ~> v1), v2)` at the values `v1`, `v2` of the two variables; Γ's item
-  then gives the sentence (`TieRuleLhs.lhs_entails`). At an element of Bool that is no value
-  nothing constrains `==K`, so the sentence is not entailed at every valuation: the class takes
-  the weakening at values. `consistent` for every H.
+  element of the text's left side is one of Γ's (`ltext_sub`): Γ's `requires` `true = true` holds,
+  its `pre` `B = true` holds at B's element, `true`'s, and Γ's `⌈r⌉` is all of the configuration
+  sort, the right side denoting the element of the value `<generatedTop>(<k>(done ~> v1), v2)` at
+  the values `v1`, `v2` of the two variables; Γ's item then gives the sentence
+  (`TieRuleLhs.lhs_entails`). The valuations are those that send the variables to values
+  (`AtValues`), at which the two cases are all. `consistent` for every H.
 
   The expectations (C7 form (a), through the reading), from `Pre H`
   (the function equations as written, Γ's rule item, the families; it has a model, `pre_model`):
   `and_true`: `go(true)` steps to `done`; `and_false`: `go(false)` has no successor (with the
-  step's closure).
+  step's closure). The steps are decided by the executable step (`CExec.successorsN`), which
+  evaluates `pre`, under `execReady`.
 -/
 import KcoreSpec
 
@@ -128,18 +128,18 @@ def xB : Kore.EVar := KoreAML.evar "VarV0" (KoreAML.srt "Bool")
 def xK : Kore.EVar := KoreAML.evar "VarV1" (KoreAML.srt "K")
 def xC : Kore.EVar := KoreAML.evar "VarV2" (KoreAML.srt "GeneratedCounterCell")
 
-/-- Γ's `requires` and the definedness of its right side, the conjuncts after the term. -/
+/-- Γ's `requires`, its `pre` and the definedness of its right side, the conjuncts after the term. -/
 noncomputable def reqG : Kore.Pattern := (TieRuleLhs.andTail q0.2.1).headD (.top KoreAML.R)
-noncomputable def defG : Kore.Pattern := ((TieRuleLhs.andTail q0.2.1).drop 1).headD (.top KoreAML.R)
+noncomputable def preG : Kore.Pattern := ((TieRuleLhs.andTail q0.2.1).drop 1).headD (.top KoreAML.R)
+noncomputable def defG : Kore.Pattern := ((TieRuleLhs.andTail q0.2.1).drop 2).headD (.top KoreAML.R)
 
-kernel_rfl l0_eq : q0.2.1 = .and q0.1 [TieRuleLhs.andHead q0.2.1, reqG, defG]
+kernel_rfl l0_eq : q0.2.1 = .and q0.1 [TieRuleLhs.andHead q0.2.1, reqG, preG, defG]
 
-/-- The Bool term of Γ's `requires`. -/
-noncomputable def kq : Kore.Pattern := match reqG with
-  | .equals _ _ p _ => p
-  | _ => .top KoreAML.R
+-- Γ's `requires` is `true = true`, the first conjunct.
+kernel_rfl req_eq : reqG = .equals (KoreAML.srt "Bool") q0.1 (.dv (KoreAML.srt "Bool") "true") (.dv (KoreAML.srt "Bool") "true")
 
-kernel_rfl req_eq : reqG = .equals (KoreAML.srt "Bool") q0.1 kq (.dv (KoreAML.srt "Bool") "true")
+-- Γ's `pre` is `B = true`, the second conjunct.
+kernel_rfl pre_eq : preG = .equals (KoreAML.srt "Bool") q0.1 (.var (.evar xB)) (.dv (KoreAML.srt "Bool") "true")
 
 /-- `<generatedTop>(<k>(done ~> q1), q2)`. -/
 def rForm (q1 q2 : Kore.Pattern) : Kore.Pattern :=
@@ -231,20 +231,6 @@ def ρK (q1 q2 : Kore.Pattern) : Kore.EVar → Option Kore.Pattern :=
 theorem rForm_subst : (fun q1 q2 => TieReqBool.substAt (ρK q1 q2) (rForm (.var (.evar xK)) (.var (.evar xC)))) = rForm := by
   kernel_rfl
 
-/-- B replaced by `true`. -/
-def ρB : Kore.EVar → Option Kore.Pattern := fun y => if y = xB then some (.dv (KoreAML.srt "Bool") "true") else none
-
-/-- `true ~> true ~> .`. -/
-def uTT : GroundTerm := .ctor kseq [.inj Srt.bool Srt.kitem (KCore.bool true), .ctor kseq [.inj Srt.bool Srt.kitem (KCore.bool true), .ctor dotk []]]
-
-kernel_rfl kq_subst : TieReqBool.substAt ρB kq = GroundTerm.kore c (.ctor kEq [uTT, uTT])
-theorem kEq_den : (fun H : HookParams => KoreAML.den (symApp (cH H) kEq (GroundTerm.koreList (cH H) [uTT, uTT]))) =
-    fun _ => den c (.ctor kEq [uTT, uTT]) := by
-  kernel_rfl
-
-theorem uTT_sort (H : HookParams) : (cH H).sortOf uTT = some Srt.k := by
-  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
-
 kernel_rfl C_eq : q0.1 = KoreAML.srt "GeneratedTopCell"
 theorem top_name (H : HookParams) : (cH H).sortName topCellSort = "GeneratedTopCell" :=
   (by decide +kernel : c.sortName topCellSort = "GeneratedTopCell")
@@ -311,25 +297,16 @@ theorem ltext_sub (e : Valuation M) {v1 v2 : GroundTerm} (h1 : c.sortOf v1 = som
   rcases List.mem_cons.mp hp with rfl | hp
   · exact hterm
   rcases List.mem_cons.mp hp with rfl | hp
-  · -- Γ's `requires`: its `==K` denotes `true`
+  · -- Γ's `requires`: `true = true`
     rw [req_eq, hTe, interp_sEquals hD hc hSB hSC hσB hσC2]
+    exact ⟨haC, fun _ _ => Iff.rfl⟩
+  rcases List.mem_cons.mp hp with rfl | hp
+  · -- Γ's `pre`: B's element is `true`'s
+    rw [pre_eq, hTe, interp_sEquals hD hc hSB hSC hσB hσC2]
     refine ⟨haC, fun x _ => ?_⟩
-    have hρ : ∀ y q, ρB y = some q → ∀ m, (tr ⟨tableOf [] p0, []⟩ q).interpret I e m ↔
-        m = e.evalEvar ((tableOf [] p0).ev (evarKey y)) := by
-      intro y q hy m
-      unfold ρB at hy
-      split at hy
-      · next hyB =>
-        cases hy; subst hyB
-        rw [tr_dv, ← den_true H]
-        obtain ⟨a0, ha0, -⟩ := den_single hI (sortOf_true H) e
-        rw [ha0 m, (ha0 _).mp hB]
-      · cases hy
-    rw [← TieReqBool.substAt_iff hρ kq x, kq_subst, tr_ground_den, tr_dv, ← den_true H]
-    have hk := eqK_den (c := cH H) hI (uTT_sort H) (uTT_sort H) e x
-    have hcmp : (GroundTerm.cmp uTT uTT == .eq) = true := by decide +kernel
-    rw [hcmp, congrFun kEq_den H] at hk
-    exact hk
+    obtain ⟨a0, ha0, -⟩ := den_single hI (sortOf_true H) e
+    rw [tr_dv, ← den_true H, ha0 x, ← (ha0 _).mp hB]
+    exact Iff.rfl
   rw [List.mem_singleton.mp hp]
   · -- Γ's `⌈r⌉`: the right side denotes the element of a value of the configuration sort
     have hyH : (cH H).sortOf (yOf v1 v2) = some topCellSort := by
@@ -435,10 +412,14 @@ theorem account : tiedIdx.Nodup ∧ tiedIdx.all (fun i => (U.all.map (·.index))
 
 /-! ## The facts the deciders leave -/
 
-theorem hok : c.ok = true := by decide +kernel
-theorem hsr : c.srReady = true := by decide +kernel
-theorem hmr : c.matchReady = true := by decide +kernel
-theorem hokH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans hok
+/-- The executable step is ready (`execReady`): it evaluates the rule's `pre`. -/
+theorem hready : CExec.execReady c = true := by decide +kernel
+theorem hreadyH (H : HookParams) : CExec.execReady (cH H) = true := (CExec.execReady_withHooks c H).trans hready
+theorem noFns : c.fns = [] := by decide +kernel
+/-- The semantics has no function of its own: `Eval` has one result at most, for every H. -/
+theorem fnDetH (H : HookParams) : FnDet (cH H) :=
+  fnDet_of_agree (fun _ h => by rw [show (cH H).fns = c.fns from rfl, noFns] at h; cases h)
+    (fun _ h => by rw [show (cH H).fns = c.fns from rfl, noFns] at h; cases h)
 
 def callOrder : List Nat := []
 
@@ -447,12 +428,24 @@ theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
 theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
 theorem total_named : c.totalObligationsRP callOrder [] = [] := by decide +kernel
 
-theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] :=
-  FnObligations.of_nil
-    (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named)
-    ((Semantics.totalObligationsRP_withHooks _ H _ _).trans total_named)
-    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)
-    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named)
+/-- The rule's `pre` holds no binder: the semantics reads no confined sort. -/
+theorem readsConfined_c : c.readsConfined = false := by decide +kernel
+theorem hrcH (H : HookParams) : (cH H).readsConfined = false := (Semantics.readsConfined_withHooks c H).trans readsConfined_c
+
+/-- None named; `OpenDecided` as the semantics reads no confined sort (the rule has a `pre`, so the
+semantics is not `plain`), `OpenLaws` as no parameter is raw. -/
+theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] := by
+  have h1 : (cH H).rankObligations callOrder ++ (cH H).decObligationsL = [] := by
+    rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named
+  have h2 := (Semantics.totalObligationsRP_withHooks _ H callOrder []).trans total_named
+  have h3 := (Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named
+  have h4 := (Det.Semantics.matchObligationsL_withHooks _ H).trans match_named
+  refine ⟨fun f hf => ?_, fun f hf => ?_, fun f hf => ?_, fun p hp => ?_,
+    openDecided_of_readsConfined (hrcH H), openLaws_of_plain fun k hk => noRaw k hk⟩
+  · rw [h1] at hf; exact absurd hf List.not_mem_nil
+  · rw [h2] at hf; exact absurd hf List.not_mem_nil
+  · rw [h3] at hf; exact absurd hf List.not_mem_nil
+  · rw [h4] at hp; exact absurd hp List.not_mem_nil
 
 theorem fnHypH (H : HookParams) : FnHyp (cH H) :=
   fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil (obl_nil H)
@@ -471,42 +464,41 @@ theorem pre_model (H : HookParams) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) :=
   TiePair.pre_model (shapeH H) (consistent H)
 
-theorem readsConfined_c : c.readsConfined = false := by decide +kernel
-theorem hrcH (H : HookParams) : (cH H).readsConfined = false := (Semantics.readsConfined_withHooks c H).trans readsConfined_c
 
 /-- The configuration with `it` of sort Exp in the k cell and the counter at 0. -/
 def cfg (it : GroundTerm) : GroundTerm :=
   .ctor topLabel [.ctor 383 [.ctor kseq [.inj 32 Srt.kitem it, .ctor dotk []]], .ctor counterLabel [.dv Srt.int (.int 0)]]
 
-/-- A step the rules' check accepts on the data, as a consequence of `Pre H`: `⟦x⟧ → •⟦y⟧`. -/
-theorem step_from {x y : Config c} (h : c.rules.any (fun r => Cert.checkStep c 50 r x.val y.val) = true) (H : HookParams) :
-    Pre H ⊧ (den (cH H) x.val ⇒ KoreAML.sNext (den (cH H) y.val)) :=
-  TiePair.cut (shapeH H) (sound_at_step _ (coreOKH H) (hrcH H) _ _ (TieRuleLhs.step_everyH hok hsr hmr noRaw h H))
-
-theorem clausesFixed_c : c.clausesFixed = true := by decide +kernel
-theorem agreeObligations_c : c.agreeObligations = [] := by decide +kernel
-theorem asideFree_c : c.asideFree = true := by decide +kernel
-
-/-- A configuration `stuckCheck` accepts on the data has no successor, as a consequence of `Pre H`
-with the step's closure: `⟦x⟧ → ◦⊥`. -/
-theorem stuck_from {x : Config c} (h : Cert.stuckCheck c 50 x.val = true) (H : HookParams) :
-    (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) x.val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
-  TiePair.cutStep (shapeH H) (complete_at_step _ (coreOKH H) (hrcH H) (TieRuleLhs.cfgH noRaw x H)
-    (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) []
-    fun y hy => absurd hy (TieRuleLhs.stuck_everyH hok hsr hmr noRaw clausesFixed_c agreeObligations_c asideFree_c h H y))
-
 def GoT : Config c := ⟨cfg (.ctor 386 [.dv Srt.bool (.bool true)]), by decide +kernel⟩
 def GoF : Config c := ⟨cfg (.ctor 386 [.dv Srt.bool (.bool false)]), by decide +kernel⟩
 def Done : Config c := ⟨cfg (.ctor 385 []), by decide +kernel⟩
 
+-- The executable step at `go(true)` and at `go(false)` reads no interpretation of the parameters:
+-- the rule's `requires` and `pre` apply no function.
+kernel_rfl got_withHooks : ∀ H : HookParams,
+  CExec.successorsN (cH H) 50 GoT.val = CExec.successorsN c 50 GoT.val
+kernel_rfl gof_withHooks : ∀ H : HookParams,
+  CExec.successorsN (cH H) 50 GoF.val = CExec.successorsN c 50 GoF.val
+kernel_rfl gof_fuel_withHooks : ∀ H : HookParams,
+  CExec.outOfFuel (cH H) 50 GoF.val = CExec.outOfFuel c 50 GoF.val
+
+/-- `go(true)` steps to `done`, for every H: the executable step lists it. -/
+theorem step_got (H : HookParams) : Step (cH H) (TieRuleLhs.cfgH noRaw GoT H) (TieRuleLhs.cfgH noRaw Done H) := by
+  have hy : Done.val ∈ CExec.successorsN (cH H) 50 GoT.val := by rw [got_withHooks]; decide +kernel
+  obtain ⟨_, hs⟩ := CExec.successorsN_step_ready (hreadyH H) (x := TieRuleLhs.cfgH noRaw GoT H) hy
+  exact hs
+
 /-- **`go(true)` steps to `done`, derived from `Pre`**, for every H. -/
 theorem and_true (H : HookParams) : Pre H ⊧ (den (cH H) GoT.val ⇒ KoreAML.sNext (den (cH H) Done.val)) :=
-  step_from (x := GoT) (y := Done) (by decide +kernel) H
+  TiePair.cut (shapeH H) (sound_at_step _ (coreOKH H) (hrcH H) _ _ (step_got H))
 
 /-- **`go(false)` has no successor, derived from `Pre` with the step's closure**, for every H. -/
 theorem and_false (H : HookParams) :
     (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) GoF.val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
-  stuck_from (x := GoF) (by decide +kernel) H
+  TiePair.cutStep (shapeH H) (complete_at_step _ (coreOKH H) (hrcH H) (TieRuleLhs.cfgH noRaw GoF H)
+    (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) []
+    fun y hy => absurd hy (CExec.noStep_at (hreadyH H) (fnDetH H) (n := 50) (x := TieRuleLhs.cfgH noRaw GoF H)
+      ((gof_fuel_withHooks H).trans (by decide +kernel)) ((gof_withHooks H).trans (by decide +kernel)) y))
 
 end KCore.NoteAndBool
 
