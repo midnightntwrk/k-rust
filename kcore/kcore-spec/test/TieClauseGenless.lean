@@ -19,6 +19,13 @@
     `Witnessed` (H must be a value of S, and `isC` is `true` at none: `not_witnessed`), and it is
     not `Refuted`: were it decided, every model of Γc would read `f(0)` as `Eval` gives it, 0,
     while the model of `cP` makes it 1.
+  - Soundness fails on this text (`step_not_sound`). The rule `<k> go </k> => <k> f(0) </k>` takes
+    `<k> go </k>` to `<k> 0 </k>` (`stepBy_go`, by `eval_f0`). In the model of `cP`, a model of c's
+    theory, the instances of that application (`famEx`) are the same pattern's in `cP`
+    (`famEx_plusG`), where the rule gives `<k> 1 </k>` (`stepByP_go`) and no clause owes a fact, so
+    they hold `<k> 1 </k>` alone, and `<k> 0 </k>` is apart from it: `den y ⇒ famEx` is not valid
+    (`famEx_not_valid`). With `coreOK`, `fnDet`, `fnSolves` and the model, only the clause's
+    `CondDecided` fails (`clause_hyp_needed`): the statements' hypothesis on the clauses is necessary.
 
   The clauses are written by hand and shown to be the reader's (`text`). The hypotheses of
   `EmptyInh.premises_sub` and `FnHyp cP` are those of `test/ModelEmptyInhabited.lean` (namespace
@@ -467,6 +474,172 @@ theorem owed_false : ¬ clG.CondDecided c := by
     (sortOf_plus i0_sort) heq
   simp [i0, i1] at this
 
+/-! ## Soundness fails at the step of `go` -/
+
+/-- `<k>`, the k cell. -/
+def kC : Sym := 384
+/-- `go`. -/
+def goS : Sym := 388
+
+/-- `<k> go ~> .K </k> V0 => <k> f(0) ~> .K </k> V0`, the text's rule, V0 the counter cell. -/
+def rG : Rule :=
+  { vars := [Srt.counter],
+    lhs := .app topLabel [.app kC [.app kseq [.app goS [], .app dotk []]], .var 0], req := none,
+    rhs := .app topLabel [.app kC [.app kseq [.inj Srt.int Srt.kitem (.app 389 [.dv Srt.int (.int 0)]),
+      .app dotk []]], .var 0],
+    ens := none, prio := 50 }
+
+theorem rules_eq : c.rules = [rG] := by rfl
+
+theorem names_go : c.symName kC = "Lbl'-LT-'k'-GT-'" ∧ c.symName goS = "Lblgo" := by
+  decide +kernel
+
+/-- `<k> t ~> .K </k>` with the counter cell at 0. -/
+def cfgG (t : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor kC [.ctor kseq [t, .ctor dotk []]], .ctor counterLabel [.dv Srt.int (.int 0)]]
+
+/-- The counter cell at 0. -/
+def u0 : GroundTerm := .ctor counterLabel [.dv Srt.int (.int 0)]
+def xv : GroundTerm := cfgG (.ctor goS [])
+def y0v : GroundTerm := cfgG (injNormal Srt.int Srt.kitem i0)
+def y1v : GroundTerm := cfgG (injNormal Srt.int Srt.kitem i1)
+
+theorem cfg_sorts : c.sortOf xv = some topCellSort ∧ c.sortOf y0v = some topCellSort ∧
+    c.sortOf y1v = some topCellSort ∧ c.sortOf u0 = some Srt.counter := by
+  decide +kernel
+
+/-- `<k> go </k>`. -/
+def xG : Config c := ⟨xv, cfg_sorts.1⟩
+/-- `<k> 0 </k>`. -/
+def y0 : Config c := ⟨y0v, cfg_sorts.2.1⟩
+/-- `<k> go </k>` in `cP`. -/
+def xP : Config cP := ⟨xv, sortOf_plus cfg_sorts.1⟩
+/-- `<k> 1 </k>` in `cP`. -/
+def y1P : Config cP := ⟨y1v, sortOf_plus cfg_sorts.2.2.1⟩
+
+/-- `V0 ↦ <generatedCounter> 0 </generatedCounter>`. -/
+def σG : Subst := [(0, u0)]
+
+theorem syms_go : c.isCtor topLabel = true ∧ c.isCtor kC = true ∧ c.isCtor kseq = true ∧
+    c.isCtor goS = true ∧ c.isCtor dotk = true ∧ c.isCtor 389 = false ∧ isHook 389 = false ∧
+    c.isParam 389 = false := by
+  decide +kernel
+
+theorem syms_goP : cP.isCtor topLabel = true ∧ cP.isCtor kC = true ∧ cP.isCtor kseq = true ∧
+    cP.isCtor goS = true ∧ cP.isCtor dotk = true ∧ cP.isCtor 389 = false ∧ cP.isParam 389 = false := by
+  decide +kernel
+
+/-- **`f(0)` is 1 in `cP`**, by the first clause at `H = c(e)`. -/
+theorem evalP_f0 : Eval cP 389 [i0] (some i1) :=
+  .clause (cl := clG) (σ := σce) lookupFP (by simp [fG]) ws_ce (.cons (.var rfl) .nil)
+    (fun t ht => by cases ht; exact req_ce) .top
+    (fun cl' hcl' _ hlt => by
+      simp only [fG, List.mem_cons, List.not_mem_nil, or_false] at hcl'
+      rcases hcl' with rfl | rfl
+      · exact absurd hlt (by decide)
+      · exact absurd hlt (by decide))
+    rfl .dv (fun _ ht => by cases ht) .top
+
+/-- **The step of `go`**: the rule takes `<k> go </k>` to `<k> 0 </k>` under `σG`, `f(0)` being 0
+(`eval_f0`). -/
+theorem stepBy_go : StepBy c rG σG xG y0 where
+  mem := by rw [rules_eq]; exact List.mem_singleton_self _
+  hσ := fun i s hs => by
+    match i, hs with
+    | 0, hs => cases (show some Srt.counter = some s from hs); exact ⟨u0, rfl, cfg_sorts.2.2.2⟩
+    | _ + 1, hs => cases (show (none : Option Srt) = some s from hs)
+  hmatch := .ctor syms_go.1 (.cons (.ctor syms_go.2.1 (.cons (.ctor syms_go.2.2.1
+    (.cons (.ctor syms_go.2.2.2.1 .nil) (.cons (.ctor syms_go.2.2.2.2.1 .nil) .nil))) .nil)) (.cons (.var rfl) .nil))
+  hreq := fun _ h => nomatch h
+  hpre := .top
+  heval := .ctor syms_go.1 (.cons (.ctor syms_go.2.1 (.cons (.ctor syms_go.2.2.1
+    (.cons (.inj (.call (vs := [i0]) syms_go.2.2.2.2.2.1 syms_go.2.2.2.2.2.2.1 (.cons .dv .nil) rfl eval_f0
+      syms_go.2.2.2.2.2.2.2)) (.cons (.ctor syms_go.2.2.2.2.1 .nil) .nil))) .nil)) (.cons .var .nil))
+  hens := fun _ h => nomatch h
+  hpost := .top
+  hprio := fun r' hr' hlt => by
+    rw [rules_eq, List.mem_singleton] at hr'
+    subst hr'
+    exact absurd hlt (Nat.lt_irrefl _)
+
+theorem step_go : Step c xG y0 := step_iff_by.mpr ⟨rG, σG, stepBy_go⟩
+
+/-- The same rule in `cP` takes `<k> go </k>` to `<k> 1 </k>`, `f(0)` being 1 there (`evalP_f0`). -/
+theorem stepByP_go : StepBy cP rG σG xP y1P where
+  mem := by
+    show rG ∈ c.rules
+    rw [rules_eq]; exact List.mem_singleton_self _
+  hσ := fun i s hs => by
+    match i, hs with
+    | 0, hs => cases (show some Srt.counter = some s from hs); exact ⟨u0, rfl, sortOf_plus cfg_sorts.2.2.2⟩
+    | _ + 1, hs => cases (show (none : Option Srt) = some s from hs)
+  hmatch := .ctor syms_goP.1 (.cons (.ctor syms_goP.2.1 (.cons (.ctor syms_goP.2.2.1
+    (.cons (.ctor syms_goP.2.2.2.1 .nil) (.cons (.ctor syms_goP.2.2.2.2.1 .nil) .nil))) .nil)) (.cons (.var rfl) .nil))
+  hreq := fun _ h => nomatch h
+  hpre := .top
+  heval := .ctor syms_goP.1 (.cons (.ctor syms_goP.2.1 (.cons (.ctor syms_goP.2.2.1
+    (.cons (.inj (.call (vs := [i0]) syms_goP.2.2.2.2.2.1 syms_go.2.2.2.2.2.2.1 (.cons .dv .nil) rfl evalP_f0
+      syms_goP.2.2.2.2.2.2)) (.cons (.ctor syms_goP.2.2.2.2.1 .nil) .nil))) .nil)) (.cons .var .nil))
+  hens := fun _ h => nomatch h
+  hpost := .top
+  hprio := fun r' hr' hlt => by
+    change r' ∈ c.rules at hr'
+    rw [rules_eq, List.mem_singleton] at hr'
+    subst hr'
+    exact absurd hlt (Nat.lt_irrefl _)
+
+/-- The instances of the application read names only: the same pattern in c and `cP`. -/
+theorem famEx_plusG : famEx cP rG σG = famEx c rG σG := by
+  simp only [famEx, fixK, ruleRight, Cond.conj, termKore_plus_fun, condKore_plus_fun, gKore_plus]
+  rfl
+
+/-- What `famEx_denCl_exNil` asks of `cP` beside the model and the step, decided. -/
+theorem decidedP : cP.clausesPreTop = true ∧ cP.sortedOKCl = true ∧ cP.srReady = true ∧
+    cP.faithCoreOK = true ∧ patHooksApart cP = true ∧ cP.overloadsOK = true := by
+  decide_cheap
+
+/-- **The conjunct `den y ⇒ famEx` of soundness is not valid at the step of `go`.** In the model of
+`cP` (`model`), a model of c's theory through `sub`, the instances of the application are those of
+the same rule in `cP` (`famEx_plusG`), where no clause owes a fact and the rule gives `<k> 1 </k>`
+(`stepByP_go`, `famEx_denCl_exNil`); `<k> 0 </k>`, which `Step` gives, is apart from it. -/
+theorem famEx_not_valid : ¬ (Γc c ⊧ (den c y0.val ⇒ famEx c rG σG)) := by
+  intro h
+  obtain ⟨M, hM, I, hP, hc⟩ := model
+  have hIc : I ⊧ᴵP Γc c := fun φ hφ => hc φ (Or.inl hφ)
+  have hΓcP : I ⊧ᴵP Γc cP := fun φ hφ => hP φ (Or.inl hφ)
+  have hΓP : I ⊧ᴵP Γ cP := fun φ hφ => hP φ (Or.inl (Or.inl hφ))
+  obtain ⟨hsokP, hsrP, -, hgP, -, -, -, -, hnoP⟩ := hypSound_of_core coreP
+  haveI : OvlOK cP := hnoP
+  have htrP := (sortCtx_of_all hsokP hsrP (OvlOK.ovlCase hnoP)).trans
+  have hs0 : cP.sortOf y0v = some topCellSort := sortOf_plus cfg_sorts.2.1
+  have hs1 : cP.sortOf y1v = some topCellSort := sortOf_plus cfg_sorts.2.2.1
+  have hspec0 := elemOf_spec hΓP hs0 KoreAML.val0
+  have hspec1 := elemOf_spec hΓP hs1 KoreAML.val0
+  have hy0 : (den c y0v).interpret I KoreAML.val0 (elemOf cP I y0v) := by
+    rw [← den_plus (E := 33)]; exact (hspec0.1 _).mpr rfl
+  have hfam : (famEx c rG σG).interpret I KoreAML.val0 (elemOf cP I y0v) := h hIc KoreAML.val0 _ hy0
+  rw [← famEx_plusG] at hfam
+  have hcP : ∀ fn ∈ cP.fns, ∀ cl ∈ fn.clauses, cl.needsWitness cP = true → cl.CondDecided cP :=
+    openClauses_of_owed (by rw [namedP.2.2.2.2.2.2.2]; intro p hp; cases hp)
+  obtain ⟨hpt, hok, hsr, hfa, hph, hov⟩ := decidedP
+  have hy1 := (famEx_denCl_exNil (hpreTop := hpt) hΓcP hok hsr hfa hph hov hcP stepByP_go rfl rfl
+    KoreAML.val0 _).mp hfam
+  have heq : elemOf cP I y0v = elemOf cP I y1v := (hspec1.1 _).mp hy1
+  have := values_apart hΓP hgP htrP (apartSort_of_sorted hgP hs0) hs0 hs1 heq
+  simp [y0v, y1v, cfgG, injNormal, i0, i1] at this
+
+/-- **Soundness fails on this text.** -/
+theorem step_not_sound : ¬ SoundC c := fun h => famEx_not_valid (h.2 xG y0 rG σG stepBy_go).2
+
+/-- **The clause side of the functions' hypothesis is necessary**: c meets `coreOK`, its functions
+have one result, evaluation solves their equations, its theory with the step's closure has a model,
+and `Step` takes `<k> go </k>` to `<k> 0 </k>`; still soundness fails (`step_not_sound`), the
+clause's `CondDecided` being false (`owed_false`). -/
+theorem clause_hyp_needed : c.coreOK = true ∧ FnDet c ∧ FnSolves c ∧ Consistent c ∧ Step c xG y0 ∧
+    ¬ clG.CondDecided c ∧ ¬ SoundC c := by
+  obtain ⟨M, hM, I, -, hc⟩ := model
+  exact ⟨by decide_cheap, fnDet, fnSolves, ⟨M, hM, I, hc⟩, step_go, owed_false, step_not_sound⟩
+
 end KCore.TieClauseGenless
 
 /-- info: 'KCore.TieClauseGenless.f0_undetermined' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -475,3 +648,7 @@ end KCore.TieClauseGenless
 #guard_msgs in #print axioms KCore.TieClauseGenless.owed_false
 /-- info: 'KCore.TieClauseGenless.eval_f0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.TieClauseGenless.eval_f0
+/-- info: 'KCore.TieClauseGenless.step_not_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieClauseGenless.step_not_sound
+/-- info: 'KCore.TieClauseGenless.clause_hyp_needed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieClauseGenless.clause_hyp_needed
