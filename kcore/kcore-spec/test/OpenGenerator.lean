@@ -173,3 +173,40 @@ coreOK: true
 #guard_msgs in
 #eval show IO Unit from do
   for l in ← patternsOf "f2-examples/openmixed.kompile.kore" do IO.println l
+
+/-! The other branches of the cut, each on a kompiled text with e2-open-mixed's or e2-open-rec's
+sorts:
+- `f2-examples/openmixedowise.kompile.kore` (fixture e2-open-mixed-owise): e2-open-mixed's rule beside
+  `<k> c(_) => d(y) </k> [owise]`. Both rules are read, the cut one as in e2-open-mixed with the
+  membership its `pre`, and the text has `coreOK`: X and Y are of the confined sort A, so the rule the
+  `[owise]` one competes with is still admitted.
+- `f2-examples/openrecheld.kompile.kore` (fixture e2-open-rec-held): e2-open-rec's recursive B and
+  `<k> c(X & Y, X, Y) => d(X) </k>`. B is not confined, but X and Y are held by the left side outside
+  the application, so `Parse.openCutRefusal` refuses nothing: the membership is a condition over
+  variables the left side binds, and the text has `coreOK`.
+- `f2-examples/openmixedas.kompile.kore` (fixture e2-open-mixed-as): `<k> c((X #as Z) & Y) => d(Z)
+  </k>`. An application whose arguments hold `#as` is not cut: the left side keeps `&`, the account
+  refuses it `openGeneratorPattern`, and the rule is not sorted (`coreOK` false). -/
+
+/--
+info: open generators: [Lbland : [A, A] → B assoc false idem false confined true]
+rules: [[['Unds'Gen0, 'Unds'DotVar0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc('Unds'Gen0), dotk())), 'Unds'DotVar0) pre top, [[X, Y, 'Unds'DotVar0, Open0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc(Open0), dotk())), 'Unds'DotVar0) pre in[B](Open0, Lbland(X, Y))]
+functionInPattern: []
+openGeneratorInPattern: []
+coreOK: true
+open generators: [Lbland : [B, B] → B assoc false idem false confined false]
+rules: [[[X, Y, 'Unds'DotVar0, Open0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc(Open0, X, Y), dotk())), 'Unds'DotVar0) pre in[B](Open0, Lbland(X, Y))]
+functionInPattern: []
+openGeneratorInPattern: []
+coreOK: true
+open generators: [Lbland : [A, A] → B assoc false idem false confined true]
+rules: [[[X, Z, Y, 'Unds'DotVar0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(Lblc(Lbland((X as Z), Y)), dotk())), 'Unds'DotVar0) pre top]
+functionInPattern: []
+openGeneratorInPattern: [sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)]
+coreOK: false
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  for f in ["f2-examples/openmixedowise.kompile.kore", "f2-examples/openrecheld.kompile.kore",
+      "f2-examples/openmixedas.kompile.kore"] do
+    for l in ← patternsOf f do IO.println l

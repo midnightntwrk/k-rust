@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 |
-| E2 | 18 | 3 | 0 | 1 | 0 | 14 | 0 | 0 |
+| E2 | 20 | 4 | 0 | 1 | 0 | 15 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 44 | 16 | 0 | 4 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 247 | 100 | 2 | 16 | 1 | 127 | 0 | 1 |
+| all | 249 | 101 | 2 | 16 | 1 | 128 | 0 | 1 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
-| E2 | 14 | 3 | 0 | 2 | 9 |
+| E2 | 15 | 3 | 0 | 3 | 9 |
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
 | E5 | 20 | 9 | 0 | 6 | 5 |
@@ -68,9 +68,9 @@ Refused nested entries by class:
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 127 | 45 | 11 | 44 | 27 |
+| all | 128 | 45 | 11 | 45 | 27 |
 
-## Entries of class R-c (56)
+## Entries of class R-c (57)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -78,6 +78,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 |---|---|---|---|---|---|---|---|
 | E1 | `Sentence:kw:syntax` | cases[0] | refused |  | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b) (findings/REVIEW-TIE-cons.md finding 9 and its amended §0 item 4): sigItems, ΓDomains, ΓFallback guarded by 'declared in c', a Semantics field of declared registry names and a coreOK conjunct that every applied ho… | no unit |  |
 | E2 | `COMM(comm)@symbol` | cases[5] | refused |  |  | P3.cut-clause |  |
+| E2 | `COMM(comm)@symbol` | cases[8] | refused |  |  | P3 |  |
 | E2 | `HYBRID(hybrid)@frontend` | row | refused | a sort predicate whose equations are the text's: a function read from its equations, in place of the one KCore builds from the sorts | KCore.Semantics.sortPreds (reached through KCore.Semantics.allFns) | C3.pred-read-design |  |
 | E2 | `ML_BINDER(mlBinder)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
 | E2 | `ML_OP(mlOp)@frontend` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit |  |
@@ -127,7 +128,7 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |
 | E5 | `convertRule:axiom#2` | cases[11] | refused |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit |  |
 | E5 | `convertRule:axiom#2` | cases[13] | refused |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip |  |
-| E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the values a parameter symbol takes at some arguments) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a parameter symbol in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built for a function-overloaded symbol onl… | no unit |  |
+| E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the arguments at which an interpreted hooked symbol takes a value) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a hooked symbol the registry interprets (LIST.update) in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built f… | no unit |  |
 | C3 | `hook x equation` | row | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[0] | refused | a premise about a symbol whose graph at values Γ states from the registry, with the obligation (HookEqsHold) that the graph satisfies it | KCore.Semantics (a field holding such equations as clauses), KCore.Faithful.fnItems (their sentences, and so KCore.Faithful.ΓFns and KCore.Faithful.Γ), KCore.FnHyp (the conjunct HookEqsHold), KCore.consistent\_of (a pinned statement, not a cone line: the hypothesis HookEqsHold), KCore.Semantics.coreO… | no unit |  |
 | C3 | `hook x equation` | cases[2] | refused | as the row's (class R-c inherited from the row, TRIAGE-hook-eq-premise section 0 item 2 and section 2.3): a premise about the symbol beside what Γ states of it, with the obligation that Γ's statement satisfies the equation | as the row's: the declarations its cone names (KCore.Semantics, KCore.Faithful.fnItems, KCore.FnHyp, KCore.consistent\_of, KCore.Semantics.coreOK) | no unit |  |
@@ -277,6 +278,8 @@ Not core:
 | cases[4]: an open generator applied in a function clause's pattern, its sort confined (syntax A ::= first(B) [function]; rule firs… | refused | scope | The text states first(and(x, g)) = x for all elements x and g of A: an equation of first whose argument applies the open generator, which holds where first's argument is the generator's value at (x, g) (C[g(P̄)] is ∃V. C[V] ∧ V ∈ g(P̄) in every interpretation), A confined. Nothing in K's documentati… |  | none (scope): option | e2-open-mixed-clause |  |  | fixtures/e2-open-mixed-clause/kompile.txt: exit 113, kore-exec 0.1.155 ErrorVerify at definition.kore 303:13: Found invalid subterm in argument of function equation: Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{}), the equation's argument \\in{SortB{}, \_}(X0:SortB{}, Lbland{}(VarX:SortA{}, Var'Unds'Gen… |
 | cases[5]: the equation of first whose argument applies the open generator, in the text kompiled with --backend llvm | refused | R-c | The equation states first(and(x, g)) = x for all elements x, g of A. Read as the cut, a fresh variable V of B in the pattern and V ∈ and(X, G) a conjunct of Clause.pre, X and G become open variables of the confined sort A (findings/KPROV-reopen-decision.md H10). A clause's cut is a conjunct of Claus… |  | P3.cut-clause | e8-llvm-e2-open-mixed-clause |  |  | fixtures/e8-llvm-e2-open-mixed-clause/account.txt: \`sentence 214 (Lblfirst): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)\`, \`coreOK: false; failing: [clauses so… |
 | cases[6]: comm on an open generator's declaration (a key only a hand-written text carries there) | refused | scope | kompile writes comm on a production that is no function as nothing: no key on the declaration and no axiom (FX/e2-comm-ctor/kore.txt line 6), so the key on a declaration is only a hand-written text's, and no text gives it a meaning there: the attribute corresponds to no axiom. The reader refuses the… |  | none (scope): never written | hw-open-decl-laws |  |  | fixtures/hw-open-decl-laws/account.txt: \`2 refused openGenerator [user]\` (e2-comm-ctor's kompiled text with comm{}() on Lbland's declaration and assoc{}() on Lblor's) |
+| cases[7]: an open generator applied in a rule's left side, its sort recursive, every variable of its arguments held by another par… | supported |  | B is not confined, but the cut leaves no variable open: the values of X and Y are those the left side matches, so the membership's truth at them is the interpretation's value of and at those values, which every reading at values states. |  |  | e2-open-rec-held |  |  | fixtures/e2-open-rec-held/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`; test/OpenGenerator.lean (openrecheld: c(Open0, X, Y), pre in[B](Open0, Lbland(X, Y)), confined false, coreOK true) |
+| cases[8]: an open generator applied in a rule's left side to arguments holding #as (syntax A ::= "x" \| "y"; syntax B ::= A "&" A [… | refused | R-c | An #as names the subterm a pattern matches, and the cut's term is evaluated, not matched, so the cut alone gives Z no value. The text's meaning is the cut's with Z the value of X (X #as Z holds of the element both denote), an equation between variables the kernel's conditions state (Cond.equals); th… |  | P3 | e2-open-mixed-as |  |  | fixtures/e2-open-mixed-as/account.txt: \`sentence 219 (Lbl'-LT-'generatedTop'-GT-'): openGeneratorPattern (Lbland: its sort B is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build)\`, \`parse: ok; wf false; failing… |
 | `COMM(comm)@rule` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-rule | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@equation` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-comm-eq | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")). |
 | `COMM(comm)@simplification` | inert |  | kompile consumes the key: it writes the simplification again with the comm symbol's arguments swapped on the left side and removes comm from both (ResolveComm.java:28-51). The sentences are simplification axioms: InertReason.simplification, whose standing is node SIMP's. | none |  | e2-simplification | no | no | FX/e2-simplification: the row's sentence; no simplification axiom of the fixture carries comm. |
@@ -1202,7 +1205,7 @@ Not core:
 | `hook:LIST.getMInt:LblList'Coln'getMInt` | refused | R-a |  |  |  |  | yes | yes | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:LIST.range:LblList'Coln'range` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: LIST.range |
 | `hook:LIST.update:LblList'Coln'set` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: LIST.update |
-| cases[0]: List:set applied in a rewrite rule's left side (K's regression test list-set: a rule whose list cell's left side is \`Lis… | refused | R-c | the left side is a pattern over a function's values: the rule applies at a list value v where some list L gives v = L[I &lt;- J], so matching it needs what the function's inverse says (that I is an index of v and the element there is J), and the matcher (PatVal, over the pattern context patCtxAll) read… | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a parameter symbol in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built for a function-overloaded symbol onl… |  |  |  |  | the corpus (test/corpus.py over K-rust's reference cache, read by closed.py corpus): 8 texts labelled list-set:haskell/rust, kompiled by kompile (sha16 01408fc54a6a3e2b, 11c8ddde6de8adc2, 14fe547737014101, 2c65a56d45497f6d, 51c658cd4ae23bc7, 59882071adfc115f, 678dd40104b6bf48, db6e786d6466d578), eac… |
+| cases[0]: List:set applied in a rewrite rule's left side (K's regression test list-set: a rule whose list cell's left side is \`Lis… | refused | R-c | the left side is a pattern over a function's values: the rule applies at a list value v where some list L gives v = L[I &lt;- J], so matching it needs what the function's inverse says (that I is an index of v and the element there is J), and the matcher (PatVal, over the pattern context patCtxAll) read… | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a hooked symbol the registry interprets (LIST.update) in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built f… |  |  |  |  | the corpus (test/corpus.py over K-rust's reference cache, read by closed.py corpus): 8 texts labelled list-set:haskell/rust, kompiled by kompile (sha16 01408fc54a6a3e2b, 11c8ddde6de8adc2, 14fe547737014101, 2c65a56d45497f6d, 51c658cd4ae23bc7, 59882071adfc115f, 678dd40104b6bf48, db6e786d6466d578), eac… |
 | `hook:LIST.updateMInt:LblList'Coln'setMInt` | refused | R-a |  |  |  |  | yes | yes | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
 | `hook:LIST.element:LblListItem` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: LIST.element |
 | `hook:MINT.MInt2bytes:LblMInt2Bytes'LParUndsRParUnds'MINT'Unds'Bytes'Unds'MInt` | refused | R-a |  |  |  |  | no | no | K-coverage.md Part C: sort-parametric MInt, KCORE-SPEC.md Q11 |
