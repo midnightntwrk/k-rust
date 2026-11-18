@@ -2,9 +2,8 @@
   KCore. `famEx_values`'s and `famOpen_values`'s statements with `coreOKEx` for `coreOK`
   (`famEx_values_ce`, `famOpen_values_ce`): a function's clauses may bind variables by `\exists`.
 
-  - `holdsTrue_of_memPPFv`, `holds_of_conjPPFv`: a predicate whose patterns hold at an element of
-    the configuration sort holds, read by `HoldsShape.holds_entailsCEx` and decided by
-    `holds_decidedCEx`.
+  - A predicate whose patterns hold at an element of the configuration sort holds
+    (`holds_of_conjPPCEx`, KcoreSpec/ExactHeldCEx.lean).
   - `famEx_value_heldCEx`, `famEx_values_heldCEx`: a value in the instances of an application is a
     step, for rules with `rulePlainHeldH` under `HeldBackAll`; the right side is read by
     `HoldsShape.termSoundEx`, and the model of `Γc` is `Faithful.Model.consistent_of_coreEx`'s,
@@ -22,6 +21,7 @@ import KcoreSpec.SoundCE
 import KcoreSpec.FnModelCEx
 import KcoreSpec.HypModelCoreEx
 import KcoreSpec.StepExRuleSSx
+import KcoreSpec.ExactHeldCEx
 
 set_option autoImplicit false
 set_option linter.unusedSectionVars false
@@ -39,43 +39,6 @@ section
 variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
 
 variable {H : Sym → Bool}
-
-/-- **A predicate that holds at an element is `true`**, in a model of `Γc` of a semantics
-`coreOKEx` accepts, at a σ that gives its free variables values whose elements the valuation gives
-them. -/
-theorem holdsTrue_of_memPPFv (h : c.coreOKEx = true) (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    {vars : List Srt} {p : Cond} (hok : c.condOK vars p = true) (hbd : Cond.bound c vars.length p = true)
-    (hrc : hasBinder p = true → c.readsConfined = true) {σ : Subst}
-    (hσ : c.WellSortedAt vars (varOccsCond vars.length p) σ) {tbl : VarTable} {e : Valuation M}
-    (hr : Reads c I vars (fun i => i ∈ varOccsCond vars.length p) σ tbl e)
-    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c topCellSort) p), k ∈ tbl)
-    {a : M} (ha : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a)
-    (hm : (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c topCellSort) p)).interpret I e a) :
-    Holds c vars.length σ p true := by
-  obtain ⟨b, hb⟩ := holds_decidedCEx (hypSoundEx_of_coreEx h) hft p hok hσ
-  have hiff := HoldsShape.holds_entailsCEx h hI hcw p hrc hok hbd (fun i hi _ => hi) hr hk top_numbered hb a ha
-  rw [hiff.mp hm] at hb
-  exact hb
-
-/-- `holdsTrue_of_memPPFv` over the conjuncts a predicate adds to a sentence (none for `\top`), at a
-σ well sorted on every variable that agrees with the valuation. -/
-theorem holds_of_conjPPFv (h : c.coreOKEx = true) (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
-    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    {vars : List Srt} {p : Cond} (hok : c.condOK vars p = true) (hbd : Cond.bound c vars.length p = true)
-    (hrc : hasBinder p = true → c.readsConfined = true) {σ : Subst} (hσ : c.WellSorted vars σ)
-    {tbl : VarTable} {e : Valuation M} (hag : Agrees c I tbl (canonVars c vars) σ e)
-    (hkeys : ∀ i < vars.length, canonKey c vars i ∈ tbl)
-    (hk : ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c topCellSort) p), k ∈ tbl)
-    {a : M} (ha : (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c topCellSort))).interpret I e a)
-    (hm : ∀ φ ∈ Cond.conj c (canonVars c vars) (srtOf c topCellSort) p, (KoreAML.tr ⟨tbl, []⟩ φ).interpret I e a) :
-    Holds c vars.length σ p true := by
-  by_cases hT : p.isTop = true
-  · rw [Cond.eq_top_of_isTop hT]; exact .top
-  · refine holdsTrue_of_memPPFv h hft hI hcw hok hbd hrc (hσ.at _)
-      (reads_of_agrees hσ hag fun i hi => ⟨varOccsCond_lt_twoT p hok i hi, hkeys i (varOccsCond_lt_twoT p hok i hi)⟩)
-      hk ha (hm _ ?_)
-    simp [Cond.conj, hT]
 
 /-- **An instance's value gives a substitution**, in a model of `Γc` of a semantics `coreOKEx`
 accepts, for a rule with `rulePlainHeldH c H` where each symbol of H that is no constructor has
@@ -266,7 +229,7 @@ theorem famEx_value_heldCEx (h : c.coreOKEx = true) (hft : FnTerminates c) (hI :
     have hyy : y.val = yv := values_apart hIΓ hg hsc.trans (apartSort_of_sorted hg y.property) y.property hyv h2
     rw [← hyy] at hv
     exact ⟨σ', hagree, hσ', hv, hensT,
-      holds_of_conjPPFv h hft hI hcw hokQ hbdQ hrcQ hσ' hag' hkeys hkQ (elemOf_top hIΓ y tbl e'') hpostR⟩
+      holds_of_conjPPCEx h hft hI hcw hokQ hbdQ hrcQ hσ' hag' hkeys hkQ (elemOf_top hIΓ y tbl e'') hpostR⟩
 
 /-- **An element of an open family is a successor's**, in a model of `Γc` of a semantics
 `coreOKEx` accepts, for a rule with `ruleSorted` whose open variables are of confined sorts,
@@ -432,9 +395,9 @@ theorem famOpen_stepPPCEx (h : c.coreOKEx = true) (hft : FnTerminates c) (hI : I
     conj_congrPP hD hokP hkP (fun i hi => hkeys i (hnxP i hi).1)
       (fun i hi => (hoffE i (hnxP i hi).1 (hnxP i hi).2).symm) hprem
   have hpreT : Holds c r.vars.length σ' r.pre true :=
-    holds_of_conjPPFv h hft hI hcw hokP hbdP hrcP hσ' hag hkeys hkP hinC hpreR
+    holds_of_conjPPCEx h hft hI hcw hokP hbdP hrcP hσ' hag hkeys hkP hinC hpreR
   have hpostT : Holds c r.vars.length σ' r.post true :=
-    holds_of_conjPPFv h hft hI hcw hokQ hbdQ hrcQ hσ' hag hkeys hkQ hinC hpostR
+    holds_of_conjPPCEx h hft hI hcw hokQ hbdQ hrcQ hσ' hag hkeys hkQ hinC hpostR
   -- the right side evaluates to a value whose element is m
   obtain ⟨v, hv⟩ := Model.evalTerm_totalCl hsc hno hft fns_headsOK hσ' hrhss
   have hbR := (HoldsShape.termSoundEx h hI hcw hv hσ' (canonVars_length c r.vars) hag hrhss m).mp hyR
