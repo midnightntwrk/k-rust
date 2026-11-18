@@ -469,6 +469,7 @@ mutual
   def cellNames : Cell → List String
     | .leaf n _ _ => [n]
     | .node n cs _ => n :: cellNamesList cs
+    | .coll _ => []
     termination_by structural x => x
   def cellNamesList : List Cell → List String
     | [] => []
@@ -477,20 +478,35 @@ mutual
   def cellLeaves : Cell → List (String × Srt)
     | .leaf n s _ => [(n, s)]
     | .node _ cs _ => cellLeavesList cs
+    | .coll _ => []
     termination_by structural x => x
   def cellLeavesList : List Cell → List (String × Srt)
     | [] => []
     | x :: xs => cellLeaves x ++ cellLeavesList xs
     termination_by structural xs => xs
+  /-- The sorts of the cell collections among a cell's descendants. -/
+  def cellCollSortsR : Cell → List Srt
+    | .leaf _ _ _ => []
+    | .node _ cs _ => cellCollSortsListR cs
+    | .coll s => [s]
+    termination_by structural x => x
+  def cellCollSortsListR : List Cell → List Srt
+    | [] => []
+    | x :: xs => cellCollSortsR x ++ cellCollSortsListR xs
+    termination_by structural xs => xs
 end
 
 mutual
   /-- A user cell has the sorts and symbols of its kind: its `Opt` sort and `noXCell`, and for a
-  node its fragment sort and `<x>-fragment`, which a leaf has not; and so have its children. -/
+  node its fragment sort and `<x>-fragment`, which a leaf has not; and so have its children. A
+  cell collection, which has none of them, is a node's child beside a cell (`Presentation.cellsOK`
+  asks its sort to be a collection of the definition). -/
   def cellIdsShaped : Cell → Bool
     | .leaf _ _ i => i.opt.isSome && i.no.isSome && i.frag.isNone && i.fragLabel.isNone
     | .node _ cs i =>
-      i.opt.isSome && i.no.isSome && i.frag.isSome && i.fragLabel.isSome && cellIdsShapedList cs
+      i.opt.isSome && i.no.isSome && i.frag.isSome && i.fragLabel.isSome && cellIdsShapedList cs &&
+      cs.any (fun | .coll _ => false | _ => true)
+    | .coll _ => true
     termination_by structural x => x
   def cellIdsShapedList : List Cell → Bool
     | [] => true
@@ -1153,17 +1169,21 @@ def sortedNat : List Nat → Bool
   | _ => true
 
 /-- The configuration's cell tree: its cells named apart (from each other and the generated ones),
-alphanumerically, the leaf holding `$PGM` (`pgmCell`) a leaf of content K or `$PGM`'s sort (the
-two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
-(`cellIdsShaped`); and the sorts, constructors and subsorts it derives (`Presentation.cellSorts`,
+alphanumerically, the leaf holding `$PGM` (`pgmCell`, where one does) a leaf of content K or
+`$PGM`'s sort (the two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
+(`cellIdsShaped`), each cell collection among a node's children a collection of the core
+(`colls`, whose unit `emit` writes as its initial value); and the sorts, constructors and subsorts it derives (`Presentation.cellSorts`,
 `cellCtors`, `cellSubsorts`) are the first of the core's (`userSorts`, `ctors`, `userSubsorts`),
 which `emit` writes from the tree and the rest from the core. -/
 def Presentation.cellsOK (p : Presentation) (c : Semantics) : Bool :=
   let ns := Semantics.cellNamesList p.config
   nodup (ns ++ ["generatedTop", "generatedCounter"]) && ns.all Semantics.cellNameOK &&
-  (Semantics.cellLeavesList p.config).any (fun l => l.1 == p.pgmCell && (l.2 == Srt.k || l.2 == c.pgmSort)) &&
+  (match p.pgmCell with
+   | some n => (Semantics.cellLeavesList p.config).any (fun l => l.1 == n && (l.2 == Srt.k || l.2 == c.pgmSort))
+   | none => true) &&
   !p.config.isEmpty &&
   Semantics.cellIdsShapedList p.config &&
+  (Semantics.cellCollSortsListR p.config).all (fun s => c.colls.any (·.sort == s)) &&
   p.cellSorts.isPrefixOf c.userSorts && p.cellCtors.isPrefixOf c.ctors &&
   p.cellSubsorts.isPrefixOf c.userSubsorts
 

@@ -10,8 +10,12 @@
   - `f2-examples/pgmtk.kompile.kore` (`pgmtk.k`, `<T> <k> .K </k> <p> $PGM:Pgm </p> </T>`): `initKCell`
     projects nothing, `initPCell` projects `$PGM` to Pgm. Read likewise; the configuration's place is
     `<k>`'s declaration's, as for every text with a `<k>` cell.
-  - `pgmtk` with `$PGM` renamed `$X` in its initializer: no initializer projects `$PGM`, refused
-    (`pgmSort`).
+  - `pgmtk` with `$PGM` renamed `$X` in its initializer: no initializer holds `$PGM`, so no cell
+    holds it (`Presentation.pgmCell` is `none`) and `$X` is a configuration variable as `$ENV` is:
+    read, with nothing unaccounted (the sort of `$PGM` K, which no sentence `emit` writes reads).
+  - `pgmt` with the projection around `$PGM` removed from `initTCell`'s right side
+    (`<T>(kseq(Map:lookup(Init, $PGM), dotk))`): an initializer holds `$PGM` and none states its
+    sort, refused (`pgmSort`).
   - The tie, natively: both are `wf` (no cell named `k` is asked for: the leaf the text's
     initializer gives `$PGM`, `Presentation.pgmCell`, is `<T>` and `<p>`), and `emit` writes the
     cells' initializer declarations and equations as the text states them: `$PGM`'s projection in
@@ -42,6 +46,7 @@ def verdict (path : String) (edit : String → String := id) : IO String := do
 /--
 info: read; pgm Pgm; configLoc 11:17; unaccounted or uninduced 0; functionInPattern 0; coreOK true
 read; pgm Pgm; configLoc 11:21; unaccounted or uninduced 0; functionInPattern 0; coreOK true
+read; pgm K; configLoc 11:21; unaccounted or uninduced 0; functionInPattern 0; coreOK true
 pgmSort no cell initializer projects $PGM
 -/
 #guard_msgs in
@@ -49,6 +54,9 @@ pgmSort no cell initializer projects $PGM
   IO.println (← verdict "f2-examples/pgmt.kompile.kore")
   IO.println (← verdict "f2-examples/pgmtk.kompile.kore")
   IO.println (← verdict "f2-examples/pgmtk.kompile.kore" fun s => s.replace "(\"$PGM\")" "(\"$X\")")
+  IO.println (← verdict "f2-examples/pgmt.kompile.kore" fun s => s.replace
+    "Lbl'-LT-'T'-GT-'{}(Lblproject'Coln'Pgm{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\\dv{SortKConfigVar{}}(\"$PGM\"))),dotk{}())))"
+    "Lbl'-LT-'T'-GT-'{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\\dv{SortKConfigVar{}}(\"$PGM\"))),dotk{}()))")
 
 /-- `pgmt`'s rule by the compiled step function: the successors of `<T> go(1) </T>`. -/
 def steps : IO String := do
@@ -86,7 +94,7 @@ def initCells (k : Kore.Definition) (d : Definition) : Nat × Nat := Id.run do
 def tie (path : String) : IO String := do
   let .ok k := Kore.parseDefinition (← IO.FS.readFile path) | return "KORE read error"
   let .ok d := Parse.parse k | return "refused"
-  return s!"wf {wf d}; pgmCell {d.pres.pgmCell}; cellsOK {d.pres.cellsOK d.sem}; initializer sentences emitted only, in the text only {initCells k d}; reordered {decide (KoreAML.Reordered d.emit k)}"
+  return s!"wf {wf d}; pgmCell {d.pres.pgmCell.getD "none"}; cellsOK {d.pres.cellsOK d.sem}; initializer sentences emitted only, in the text only {initCells k d}; reordered {decide (KoreAML.Reordered d.emit k)}"
 
 /--
 info: wf true; pgmCell T; cellsOK true; initializer sentences emitted only, in the text only (0, 0); reordered false
@@ -100,9 +108,10 @@ wf true; pgmCell p; cellsOK true; initializer sentences emitted only, in the tex
 /-- `pgmt`'s cell tree with the `$PGM` leaf's content `s`, and its constructor's argument `s`. -/
 def withContent (d : Definition) (s : Srt) : Definition :=
   let rec go : Cell → Cell
-    | .leaf n t i => if n == d.pres.pgmCell then .leaf n s i else .leaf n t i
+    | .leaf n t i => if d.pres.pgmCell == some n then .leaf n s i else .leaf n t i
     | .node n cs i => .node n (cs.attach.map fun ⟨x, _⟩ => go x) i
-  let lbl := ((Cell.all (Cell.top d.pres.config)).find? (·.name == d.pres.pgmCell)).map Cell.label
+    | .coll s => .coll s
+  let lbl := ((Cell.all (Cell.top d.pres.config)).find? (some ·.name == d.pres.pgmCell)).map Cell.label
   { d with pres := { d.pres with config := d.pres.config.map go }
            sem := { d.sem with ctors := d.sem.ctors.map fun k => if some k.name == lbl then { k with args := [s] } else k } }
 

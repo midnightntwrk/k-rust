@@ -11,8 +11,9 @@
     `#Tok` below KItem: the reading adds `#Tok < KItem` (`ReadingNote.tokKItem`, listed by
     `Parse.tokKItemOmitted` with the subsort not stated; its guards: test/TokKItem.lean).
   - with `project:#Tok` declared (`symbol Lblproject'Coln''Hash'Tok{}(SortK{}) : Sort'Hash'Tok{}
-    [function{}()]`, as kompile declares a projection) and no equation: refused
-    (`missingEquation`).
+    [function{}()]`, as kompile declares a projection) and no equation: a function of which the text
+    states its declaration only, a parameter symbol (`Parse.isGenFn`); the sort still has no
+    projection equation (its id empty), nothing unaccounted.
 -/
 import KcoreSpec
 
@@ -47,7 +48,7 @@ def verdict (path : String) (edit : Kore.Definition → Kore.Definition := id) :
 
 /--
 info: read; #Tok's projection id [""]; unaccounted []; coreOK true; tokKItem [(278, [('Hash'Tok, false)])]
-missingEquation Lblproject'Coln''Hash'Tok
+read; #Tok's projection id [""]; unaccounted []; coreOK true; tokKItem [(279, [('Hash'Tok, false)])]
 -/
 #guard_msgs in
 #eval show IO Unit from do

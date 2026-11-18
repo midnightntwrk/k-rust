@@ -116,4 +116,5 @@ def main():
         print(f'corpus: as expected ({os.path.relpath(expected, K)})')
 
 
-main()
+if __name__ == "__main__":
+    main()

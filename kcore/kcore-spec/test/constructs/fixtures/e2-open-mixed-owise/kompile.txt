@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-open-mixed-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.8
+definition.kore bytes: 90492
+definition.kore sha256: 04c8e5db4cf0640e07d506970440ec9316f5e3403e136f23ca45faf23fc741f9
+stripped sha256: cf57b1034027f2b9b1ce257f56792538cfcd8d9a6c369d46a37956f77d1fa18d
+main module: 262 sentences, 37 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-open-mixed-owise.k)
+  	Location(5,18,5,19)
+  	5 |	  rule <k> c(X & Y) => d(X) </k>
+  	  .	                 ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-MIXED-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-MIXED-OWISE as default.

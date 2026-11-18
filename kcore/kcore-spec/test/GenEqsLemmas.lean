@@ -517,6 +517,56 @@ theorem eqns :
 
 end NamedArg
 
+/-! ## A registry-numbered projection the arm refuses (`RegProj`)
+
+`HandArg`'s shape without `pair`, with a parameter symbol numbered as the registry's `project:Int`.
+`coreOK` holds and the name is none of the semantics' own, so `predProjOK?` accepts the selector-domain
+axiom of `project:Int`; but the parameter's arity item, a premise of the theory, names it
+(`GenEqs.kernelSym_named`), so the equation's symbol is not free. The arm's decided check refuses it
+(`Parse.predProjAcc`, `Parse.regProjFree`). -/
+
+namespace RegProj
+
+open KCore.Faithful.SortsWitness (cellSorts cellCtors cellSubsorts)
+
+def Foo : Srt := nRegSorts + 2
+def leafS : Sym := nRegSyms + 5
+def projK : CtorSig := ⟨projectSym Srt.int, [Srt.k], Srt.int⟩
+
+def c : Semantics :=
+  { lib := {}, sortNames := ["KCell", "KCellOpt", "Foo"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "LblisFoo", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblleaf"]
+    userSorts := cellSorts ++ [Foo]
+    ctors := cellCtors ++ [⟨leafS, [], Foo⟩], fns := []
+    params := [{ sig := projK }]
+    userSubsorts := cellSubsorts, pgmSort := Srt.k, rules := [] }
+
+theorem coreOK : c.coreOK = true := by decide_coreOK
+
+def projInt : String := "Lblproject'Coln'Int"
+
+theorem name : c.symName projK.name = projInt := by decide +kernel
+
+/-- `project:Int`'s selector-domain axiom, as the reader reads it. -/
+def e : Parse.RawEqn :=
+  { fn := projInt, pats := [], req := none, competitors := none, rhs := .top KoreAML.R, attrs := [], ens := none,
+    dom := true }
+
+def N : Parse.Names := { sorts := [], syms := [] }
+
+/-- `predProjOK?` accepts it: Int is a registry sort and the name is none of the semantics' own. -/
+theorem pred_ok : Parse.predProjOK? N "" [e] c e = some true := by decide +kernel
+
+/-- **A premise of the theory names `project:Int`**: the parameter's arity item. -/
+theorem named : ∃ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ ∧ KoreAML.Sym.symbol projInt ∈ psyms φ := by
+  have := kernelSym_named (c := c) (k := projK) (by decide +kernel) (by decide +kernel)
+  rwa [name] at this
+
+/-- **The arm refuses it**: `freeB c [projectSym Int]` is false. -/
+theorem refused : Parse.predProjAcc N "" [e] c e = false := by decide +kernel
+
+end RegProj
+
 /-- info: 'GenEqsLemmas.Hand.std_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.std_in_Γ
 /-- info: 'GenEqsLemmas.Hand.ow_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -551,6 +601,10 @@ end NamedArg
 #guard_msgs in #print axioms argProj_free_of_genEqClassOK
 /-- info: 'KCore.GenEqs.sortProj_free_of_predProjOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sortProj_free_of_predProjOK
+/-- info: 'KCore.GenEqs.sortProj_free_of_predProjAcc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms sortProj_free_of_predProjAcc
+/-- info: 'GenEqsLemmas.RegProj.named' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RegProj.named
 /-- info: 'GenEqsLemmas.General.handArg_eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms General.handArg_eqns
 /-- info: 'GenEqsLemmas.NamedArg.eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
