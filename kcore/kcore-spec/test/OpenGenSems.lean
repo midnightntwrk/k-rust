@@ -678,8 +678,8 @@ theorem idemCtor_lawHooks_lib_core :
 
 /-! ## The headlines at a semantics with an open generator
 
-`FnHyp` of a semantics none of whose lists names a fact, under an interpretation H that satisfies
-its open generators' laws: the deciders' lists are those of the data (they do not read H), and
+`FnHyp` of a semantics none of whose lists names a fact and whose clauses' predicates are `\top`,
+under an interpretation H that satisfies its open generators' laws: the deciders' lists are those of the data (they do not read H), and
 `OpenLaws` is the hypothesis. With it `consistent_of`, `sound_hyp`, `complete_hyp` and `exact_hyp`
 apply, every hypothesis discharged: at CommCtor (two open generators, one with a law; no rule, no
 function) and at OpenRule (an open generator, a rule and a function), each at `lawHooks c
@@ -688,9 +688,9 @@ HookParams.none`, whose laws `openLaws_lawHooks` gives. -/
 theorem fnHyp_of_laws {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued = true)
     (h1 : c.rankObligations [] ++ c.decObligationsL = []) (h2 : c.totalObligationsRP [] [] = [])
     (h3 : c.agreeObligationsI = []) (h4 : c.matchObligationsL = [])
-    (h5 : c.owedRules = []) (h6 : c.owedClauses = [])
+    (h5 : c.owedRules = []) (h6 : c.owedClauses = []) (hpreTop : c.clausesPreTop = true)
     (H : HookParams) (hl : OpenLaws (c.withHooks H)) : FnHyp (c.withHooks H) :=
-  fnHyp_of_fnObligations (ord := []) (tp := []) ((Semantics.coreOK_withHooks c H).trans hc)
+  fnHyp_of_fnObligations (ord := []) (tp := []) (hpreTop := (Semantics.clausesPreTop_withHooks c H).trans hpreTop) ((Semantics.coreOK_withHooks c H).trans hc)
     (Semantics.rightHeld_withHooks_of_valued hv H) ParamsTotal.nil
     ((FnFacts.of_nil_laws
       (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact h1)
@@ -703,12 +703,12 @@ theorem fnHyp_of_laws {c : Semantics} (hc : c.coreOK = true) (hv : c.rightValued
 theorem commCtor_fnHyp (H : HookParams) (hl : OpenLaws (CommCtor.c.withHooks H)) :
     FnHyp (CommCtor.c.withHooks H) :=
   fnHyp_of_laws commCtor_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
 
 theorem openRule_fnHyp (H : HookParams) (hl : OpenLaws (OpenRule.c.withHooks H)) :
     FnHyp (OpenRule.c.withHooks H) :=
   fnHyp_of_laws openRule_coreOK (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) H hl
 
 /-- CommCtor at `lawHooks c HookParams.none`. -/
 abbrev cL : Semantics := CommCtor.c.withHooks (lawHooks CommCtor.c HookParams.none)
