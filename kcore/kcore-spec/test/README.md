@@ -1494,6 +1494,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
   `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
   answering 1 the right unit law fails (`cOne_not_unitR`).
+- `test/FnLawFixtures.lean`: the law axioms of functions in the kompiled texts of the fixtures
+  e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest, e2-fn-idem and e2-fn-assoc-unit
+  (`f2-examples/NAME.kompile.kore`), through the reader: the account's `fnLaw` lines of each, no law
+  sentence left unmatched; for the first four, `defn.laws` is the text's law, `lawSorted`, and the
+  account's entry is "owed, open" (assoc, bad, idem) or "a condition on the interpretation" (rest,
+  whose `pk` is a parameter no hook implements). On e2-fn-assoc, `FnLaws` of `defn.laws` and
+  `consistent_with_laws` under every H (`Assoc.consistent`); on e2-fn-assoc-bad, `LawAt` fails at
+  (1, 2, 3) under every H (`Bad.not_lawAt`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
