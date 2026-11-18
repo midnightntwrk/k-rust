@@ -19,6 +19,11 @@
   - An `\exists` as an operand (`exOpIll`, `exBodyIll`, `orIll`): of another sort than the
     connective's, or with a body of another sort than its own, refused by `clauseBody`,
     `ruleBodyRead` and `frRead`, where the readers drop it unread.
+  - A `\top` or `\bottom` as an operand (`topIll`, `botIll`, `orTopIll`): of another sort than the
+    connective's, refused by `clauseBody`, `ruleBodyRead` and `frRead`.
+  - A binder heading the right side (`ruleEx`, `ruleEx2`, `ruleExX`, `exEqnT`) of another sort than
+    the rewrite axiom's or the function's result: refused by `ruleBodyRead`, `exRead` and `ceRead`,
+    the binder named.
   Kernel-checked (`decide +kernel`): the reasons, `rhsSorted` on each side, and that a read
   clause's, `frRead`'s, `exRead`'s, `ceRead`'s or `ruleBodyAnd`'s right side is `rhsSorted`
   (`clauseBody_rhsSorted`, `frRead_rhsSorted`, `exRead_rhsSorted`, `ceRead_rhsSorted`,
@@ -254,6 +259,124 @@ theorem exOp_hand :
     reasonOf (frRead N0 (eqn "Lblh" orOk)) = none := by
   decide +kernel
 
+/-! ## A `\top` or `\bottom` as an operand
+
+`\top{s'}()` and `\bottom{s'}()` state their sort s' at their head (kore-syntax.md:330), so
+`rhsOpSort` checks it as it checks an `\and`'s. Where the conjunction holds `\bottom` (`hoist`
+marks it empty) or the alternative is empty (`dropEmptyAlts` leaves it out), the readers drop the
+operand without reading it, so the guard is what refuses its sort.
+- `topIll`, `\and{SortInt{}}(\bottom{SortInt{}}(), \top{SortBool{}}())`: an operand `\top` of sort
+  Bool. Refused by `clauseBody` and `ruleBodyRead`; its twin `topOk` at `\top{SortInt{}}` is read
+  by both (the empty clause and the empty rule).
+- `botIll`, `\and{SortInt{}}(f(X), \bottom{SortFoo{}}())`: an operand `\bottom` of sort Foo.
+- `orTopIll`, `\or{SortInt{}}(topIll, f(X), g(X))` (h's equation): the empty alternative, refused by
+  `frRead`; its twin `orTopOk` with `topOk` is read. -/
+
+def topIll : Kore.Pattern := .and (srt "Int") [.bottom (srt "Int"), .top (srt "Bool")]
+def topOk : Kore.Pattern := .and (srt "Int") [.bottom (srt "Int"), .top (srt "Int")]
+def botIll : Kore.Pattern := .and (srt "Int") [fX, .bottom (srt "Foo")]
+def botOk : Kore.Pattern := .and (srt "Int") [fX, .bottom (srt "Int")]
+def orTopIll : Kore.Pattern := .or (srt "Int") [topIll, fX, gX]
+def orTopOk : Kore.Pattern := .or (srt "Int") [topOk, fX, gX]
+
+/--
+info: clauseBody topIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+clauseBody topOk: read
+clauseBody botIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \bottom of sort SortFoo{})
+clauseBody botOk: read
+ruleBodyRead topIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+ruleBodyRead topOk: read
+frRead orTopIll: refused KCore.Parse.RefusalReason.rhsOperandSort (\and{SortInt{}}: an operand \top of sort SortBool{})
+frRead orTopOk: read
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  showRd "clauseBody topIll" (clauseBody N0 "" (eqn "Lblf" topIll) none)
+  showRd "clauseBody topOk" (clauseBody N0 "" (eqn "Lblf" topOk) none)
+  showRd "clauseBody botIll" (clauseBody N0 "" (eqn "Lblf" botIll) none)
+  showRd "clauseBody botOk" (clauseBody N0 "" (eqn "Lblf" botOk) none)
+  showRd "ruleBodyRead topIll" (ruleBodyRead N0 "" (rule topIll))
+  showRd "ruleBodyRead topOk" (ruleBodyRead N0 "" (rule topOk))
+  showRd "frRead orTopIll" (frRead N0 (eqn "Lblh" orTopIll))
+  showRd "frRead orTopOk" (frRead N0 (eqn "Lblh" orTopOk))
+
+/-- `rhsSorted` on the `\top` and `\bottom` operands, the refusals and the twins' readings. -/
+theorem topOp_hand :
+    rhsSorted topIll = false ∧ rhsSorted topOk = true ∧ rhsSorted botIll = false ∧
+    rhsSorted botOk = true ∧ rhsSorted orTopIll = false ∧ rhsSorted orTopOk = true ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" topIll) none) = some .rhsOperandSort ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" topOk) none) = none ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" botIll) none) = some .rhsOperandSort ∧
+    reasonOf (clauseBody N0 "" (eqn "Lblf" botOk) none) = none ∧
+    reasonOf (ruleBodyRead N0 "" (rule topIll)) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (rule topOk)) = none ∧
+    reasonOf (frRead N0 (eqn "Lblh" orTopIll)) = some .rhsOperandSort ∧
+    reasonOf (frRead N0 (eqn "Lblh" orTopOk)) = none := by
+  decide +kernel
+
+/-! ## The binders heading a right side
+
+A binder `\exists{T}(x, φ)` is of the sort T, and so is φ (kore-syntax.md:195, 330): the binders
+heading the right side of `\rewrites{s}` are of the sort s, and those heading an equation's right
+side of the function's result sort. `peelExists` removes them before the readers look at the body.
+- `ruleEx T`, `\rewrites{SortInt{}}(\and(X, \top), \exists{T}(Y:Int, \and{SortInt{}}(f(Y), \top)))`:
+  refused by `ruleBodyRead` at T = Foo, the binder named; read at T = Int.
+- `ruleEx2 T`, the binder `\exists{T}(Z, …)` under `\exists{SortInt{}}(Y, …)`: the inner one named.
+- `ruleExX`, a binder `\exists{SortFoo{}}(X:Int, …)` whose name the left side holds: named as the
+  text writes it, not as `rhsApart` renames it.
+- `exEqnT T`, `f(X) = \exists{T}(B:Bool, \and{SortBool{}}(B, \equals{SortBool{},SortBool{}}(B,
+  notBool X)))` for f : Bool → Bool: refused by `exRead` and `ceRead` at T = Foo; at T = Bool it is
+  `exOk`, read by both. -/
+
+def zv : Kore.EVar := KoreAML.evar "VarZ" (srt "Int")
+def xv : Kore.EVar := KoreAML.evar "VarX" (srt "Int")
+def topI : Kore.Pattern := .top (srt "Int")
+
+def ruleOf (rx : Kore.Pattern) : Kore.Axiom :=
+  ⟨[], .rewrites (srt "Int") (.and (srt "Int") [X, topI]) rx, [uid, loc]⟩
+def ruleEx (T : Kore.KSort) : Kore.Axiom := ruleOf (.exist T yv (.and (srt "Int") [fY, topI]))
+def ruleEx2 (T : Kore.KSort) : Kore.Axiom :=
+  ruleOf (.exist (srt "Int") yv (.exist T zv (.and (srt "Int") [ap "Lblg" [fY, ev "VarZ" (srt "Int")], topI])))
+def ruleExX : Kore.Axiom := ruleOf (.exist (srt "Foo") xv (.and (srt "Int") [fX, topI]))
+
+def exEqnT (T : Kore.KSort) : RawEqn :=
+  ⟨"Lblf", [XB], none, none,
+   .exist T (KoreAML.evar "VarB" bool) (.and bool [B, .equals bool bool B (notB XB)]), [], none, false⟩
+
+/--
+info: ruleBodyRead ruleEx Foo: refused KCore.Parse.RefusalReason.rhsOperandSort (\rewrites{SortInt{}}: a binder \exists{SortFoo{}}(VarY:SortInt{}, …) heading its right side)
+ruleBodyRead ruleEx Int: read
+ruleBodyRead ruleEx2 Foo: refused KCore.Parse.RefusalReason.rhsOperandSort (\rewrites{SortInt{}}: a binder \exists{SortFoo{}}(VarZ:SortInt{}, …) heading its right side)
+ruleBodyRead ruleEx2 Int: read
+ruleBodyRead ruleExX: refused KCore.Parse.RefusalReason.rhsOperandSort (\rewrites{SortInt{}}: a binder \exists{SortFoo{}}(VarX:SortInt{}, …) heading its right side)
+exRead exEqnT Foo: refused KCore.Parse.RefusalReason.rhsOperandSort (Lblf: a binder \exists{SortFoo{}}(VarB:SortBool{}, …) heading its right side, not of the function's result sort Bool)
+ceRead exEqnT Foo: refused KCore.Parse.RefusalReason.rhsOperandSort (Lblf: a binder \exists{SortFoo{}}(VarB:SortBool{}, …) heading its right side, not of the function's result sort Bool)
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  showRd "ruleBodyRead ruleEx Foo" (ruleBodyRead N0 "" (ruleEx (srt "Foo")))
+  showRd "ruleBodyRead ruleEx Int" (ruleBodyRead N0 "" (ruleEx (srt "Int")))
+  showRd "ruleBodyRead ruleEx2 Foo" (ruleBodyRead N0 "" (ruleEx2 (srt "Foo")))
+  showRd "ruleBodyRead ruleEx2 Int" (ruleBodyRead N0 "" (ruleEx2 (srt "Int")))
+  showRd "ruleBodyRead ruleExX" (ruleBodyRead N0 "" ruleExX)
+  showRd "exRead exEqnT Foo" (exRead N1 (exEqnT (srt "Foo")))
+  showRd "ceRead exEqnT Foo" (ceRead N1 (exEqnT (srt "Foo")))
+
+/-- The binders' refusals, and the readings at the right sort. -/
+theorem binder_hand :
+    reasonOf (ruleBodyRead N0 "" (ruleEx (srt "Foo"))) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (ruleEx (srt "Int"))) = none ∧
+    reasonOf (ruleBodyRead N0 "" (ruleEx2 (srt "Foo"))) = some .rhsOperandSort ∧
+    reasonOf (ruleBodyRead N0 "" (ruleEx2 (srt "Int"))) = none ∧
+    reasonOf (ruleBodyRead N0 "" ruleExX) = some .rhsOperandSort ∧
+    rhsSorted (peelExists (exEqnT (srt "Foo")).rhs).2 = true ∧
+    reasonOf (exRead N1 (exEqnT (srt "Foo"))) = some .rhsOperandSort ∧
+    reasonOf (ceRead N1 (exEqnT (srt "Foo"))) = some .rhsOperandSort := by
+  decide +kernel
+
+/-- At T = Bool the equation is `exOk`, read by `exRead` and `ceRead` (`ex_hand`). -/
+example : exEqnT bool = exOk := rfl
+
 end RhsSortCheck
 
 /-- info: 'RhsSortCheck.refused_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -266,5 +389,9 @@ end RhsSortCheck
 #guard_msgs in #print axioms RhsSortCheck.ex_hand
 /-- info: 'RhsSortCheck.exOp_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RhsSortCheck.exOp_hand
+/-- info: 'RhsSortCheck.topOp_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.topOp_hand
+/-- info: 'RhsSortCheck.binder_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RhsSortCheck.binder_hand
 /-- info: 'KCore.Parse.clauseBody_rhsSorted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms clauseBody_rhsSorted

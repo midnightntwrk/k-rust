@@ -83,6 +83,12 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
   supported hook (E6, key hook:)
       derived      a `derived` table of form (a) (the in-domain value; FIX-core.rows-evidence names
                    the hook's three statements there)
+  supported function of the text (a table nested in an E6 `hook:` row, whose fixture's reading
+  takes the row's symbol for no hook: the fixture's params.txt, the `param` lines of `kcore
+  sem-fields`, lists no parameter implemented by it, `impl=SYMBOL` with SYMBOL the key's last part;
+  the entry reads a symbol of the text of that name, so the hook's in-domain value is not its
+  evidence)
+      fixture, sentence, clean, fresh, no direction, tie, theorems as for supported (E1, ...)
   supported E6 (other keys)
       tie, theorems (the theorem that ties the row's sentence on a tied text); or the row's
                    `e6_tie` (test/constructs/e6map.py): each "THEOREM (FILE; TEXT axiom N)" a
@@ -208,12 +214,32 @@ def core(t, l, key, r):
     return None
 
 
-def form(l, key, e):
-    """The evidence form of DONE-0 C2's table for the entry's status, or None without a status."""
+def hook_own(fx, key, e, row):
+    """Whether a table nested in an E6 `hook:` row reads the row's symbol as a function of the text,
+    not as the hook: its fixture's params.txt (the `param` lines of `kcore sem-fields`) lists no
+    parameter implemented by the symbol (`impl=SYMBOL`, SYMBOL the key's last part). False for the
+    row itself and where the fixture has no params.txt (the reading is not shown)."""
+    if fx is None or e is row or not key.startswith("hook:") or key.count(":") < 2:
+        return False
+    x = e.get("fixture")
+    p = fx.read(x, "params.txt") if fx.exists(x) else None
+    if p is None:
+        return False
+    sym = key.split(":", 2)[2]
+    return not any(len(c) > 1 and c[0] == "param" and f"impl={sym}" in c[1:]
+                   for c in (ln.split("\t") for ln in p.splitlines()))
+
+
+def form(l, key, e, row=None, fx=None):
+    """The evidence form of DONE-0 C2's table for the entry's status, or None without a status.
+    With the entry's row and the fixtures, a table nested in an E6 `hook:` row whose reading takes
+    the symbol for a function of the text has that form (`hook_own`)."""
     s = e.get("status")
     if s is None:
         return None
     if s == "supported":
+        if l == "E6" and hook_own(fx, key, e, row):
+            return "supported function of the text"
         return ("supported" if l in KLEVEL else "supported E4/E5" if l in ("E4", "E5") else
                 "supported hook" if key.startswith("hook:") else "supported E6")
     if s == "inert" and e.get("inert_class") == "use":
@@ -557,7 +583,7 @@ def declared(name, files):
 
 def evidence(fx, l, key, e, row):
     """(present, missing): two lists of strings, the items of the entry's form (module docstring)."""
-    f = form(l, key, e)
+    f = form(l, key, e, row, fx)
     have, miss = [], []
     item = lambda ok, yes, no: (have if ok else miss).append(yes if ok else no)
     own = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if fx.exists(x)]
@@ -658,6 +684,9 @@ def evidence(fx, l, key, e, row):
         nodir_items(fx, e, x, have, miss)
     elif f == "supported hook":
         derived(["a"])
+    elif f == "supported function of the text":
+        x = fixture_items(True); ties()
+        nodir_items(fx, e, x, have, miss)
     elif f == "supported E6":
         ties()
     elif f == "parameter":
@@ -811,7 +840,7 @@ def run(t, fx):
             pass                # each entry's check reports it
     for l, key, where, e, row in entries(t):
         c = core(t, l, key, row)
-        f = form(l, key, e)
+        f = form(l, key, e, row, fx)
         if f is None:
             continue
         have, miss = evidence(fx, l, key, e, row)
@@ -1407,6 +1436,41 @@ def self_test():
             if (not miss) != want:
                 bad.append(f"case {i} ({l} {e.get('status')}): {'refused' if miss else 'accepted'}, expected "
                            f"{'accepted' if want else 'refused'}; missing {miss}")
+        # a table nested in a hook: row: the hook's form where its fixture's reading implements the
+        # symbol by the hook (or shows no reading), the form of a function of the text otherwise
+        for name, prm in (("hk", "param\tLblx{Foo}\targs=[Foo]\tresult=Foo\timpl=Lblx\traw=false\n(exit 0)\n"),
+                          ("own", "param\tLbly\targs=[]\tresult=Foo\timpl=none\traw=false\n(exit 0)\n")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
+            open(os.path.join(fxd, name, "params.txt"), "w").write(prm)
+        hrow = {"status": "supported", "derived": [thm]}
+        ncases = [  # (entry nested in the row hook:K.x:Lblx, the form expected, accepted)
+            ({"status": "supported", "fixture": "hk", "derived": [thm]}, "supported hook", True),
+            ({"status": "supported", "fixture": "hk"}, "supported hook", False),
+            ({"status": "supported", "fixture": "ok", "derived": [thm]}, "supported hook", True),
+            ({"status": "supported", "fixture": "own", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.f_5"]},
+             "supported function of the text", True),
+            ({"status": "supported", "fixture": "own", "derived": [thm]}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own"}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "tie": [tie], "tie_theorems": ["KCore.C3EqReqEns.nope"]},
+             "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "tie": ["test/PrintNames.lean"],
+              "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, "supported function of the text", False),
+            ({"status": "supported", "fixture": "own", "derived": [thm], "tie": [tie]},
+             "supported function of the text", True),
+            ({"status": "supported", "derived": [thm]}, "supported hook", True),
+        ]
+        for i, (e, fwant, want) in enumerate(ncases):
+            row = dict(hrow, cases=[e])
+            fgot = form("E6", "hook:K.x:Lblx", e, row, fx)
+            have, miss = evidence(fx, "E6", "hook:K.x:Lblx", e, row)
+            if fgot != fwant or (not miss) != want:
+                bad.append(f"nested hook case {i}: form {fgot!r} ({'refused' if miss else 'accepted'}), expected "
+                           f"{fwant!r} ({'accepted' if want else 'refused'}); missing {miss}")
+        rown = dict(hrow, fixture="own")
+        if form("E6", "hook:K.x:Lblx", rown, rown, fx) != "supported hook":
+            bad.append("the hook: row itself is given the form of a function of the text")
         t = {"C3": {"p": {"status": "supported", "core": True}}, "E6": {"hook:Y": {"status": "supported"}},
              "E2": {"N": {"status": "inert", "notes": {"x": "y"}}, "W": {"status": "supported", "fixture": "e2-clause-1"},
                     "R": {"status": "refused", "cone": "KCore.Term"}, "Q": {"status": "refused", "cone": "as R"},
@@ -1471,7 +1535,8 @@ def self_test():
                 bad.append(f"owed_state case {i}: failures {got}, expected {want}")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
-        print(f"rest self-test: {len(cases)} entries, the core predicate and {len(ocases)} owed_state tables,"
+        print(f"rest self-test: {len(cases)} entries, {len(ncases)} nested in a hook: row, the core predicate and"
+              f" {len(ocases)} owed_state tables,"
               f" {len(bad)} failing")
         return 1 if bad else 0
     finally:

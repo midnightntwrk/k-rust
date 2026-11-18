@@ -240,6 +240,7 @@ import KcoreSpec.OccurrenceOrder
 import KcoreSpec.RuleAndIn
 import KcoreSpec.RuleConnIn
 import KcoreSpec.SetVarRewrite
+import KcoreSpec.BoolClosedCl
 import KcoreSpec.OpenClauseConsistent
 import KcoreSpec.SetVarIn
 import KcoreSpec.RangeMapLaws
@@ -374,6 +375,9 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.KKMatchF
 import KcoreSpec.KKMatchFSpec
 import KcoreSpec.KKMatchColSpec
+import KcoreSpec.KKMatchTotal
+import KcoreSpec.KKDenPatVal
+import KcoreSpec.KKPatValDen
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
@@ -397,7 +401,10 @@ import KcoreSpec.GenEqsProjInj
 import KcoreSpec.ExChoiceCEx
 import KcoreSpec.GenEqsNodir
 import KcoreSpec.TieFRRead
+import KcoreSpec.TermRoundTrip
+import KcoreSpec.TieFRTermRT
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
 import KcoreSpec.TieEX
+import KcoreSpec.TieFRGamma

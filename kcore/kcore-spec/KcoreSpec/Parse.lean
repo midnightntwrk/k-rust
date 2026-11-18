@@ -28,6 +28,7 @@ import KcoreSpec.Emit
 import KcoreSpec.Kore.Read
 import KcoreSpec.FaithOK
 import KcoreSpec.RightHeld
+import KcoreSpec.OvlHeldDefs
 import KcoreSpec.ParseAttr
 
 set_option autoImplicit false
@@ -397,9 +398,12 @@ inductive RefusalReason where
   | symbolAttrUnkeyed
   /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
   applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
-  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or` or `\exists` at another
-  sort, an `\exists{s}` whose body states another sort than s (its pattern argument is of the
-  sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result sort S2 is not s.
+  states a sort other than s at its head (`rhsSorted`): an `\and`, `\or`, `\exists`, `\top` or
+  `\bottom` at another sort, an `\exists{s}` whose body states another sort than s (its pattern
+  argument is of the sort parameter, kore-syntax.md:195, 330), or an `\equals{S1,S2}` whose result
+  sort S2 is not s; or a binder `\exists{T}` heading the right side of a rewrite axiom
+  `\rewrites{s}` (`ruleBodyRead`) or of an equation of a function of result sort s
+  (`eqnBinderSortGuard`) with T not s.
   In a valid KORE pattern the sort of each
   argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
   matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
@@ -1738,14 +1742,17 @@ end
 
 mutual
   /-- The pattern is of the sort s where its head states its sort as a connective `\or{s'}`,
-  `\and{s'}` or `\exists{s'}` or as the result sort of `\equals{S1,s'}` (s' = s), and so are the
-  operands of such an `\or` and `\and` and the body of such an `\exists`. An application, a
-  variable, a domain value and the other connectives are not looked at. -/
+  `\and{s'}`, `\exists{s'}`, `\top{s'}` or `\bottom{s'}` or as the result sort of
+  `\equals{S1,s'}` (s' = s), and so are the operands of such an `\or` and `\and` and the body of
+  such an `\exists`. An application, a variable, a domain value and the other connectives are not
+  looked at. -/
   def rhsOpSort (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && rhsOpSortList s ps
     | .and s' ps => decide (s' = s) && rhsOpSortList s ps
     | .exist s' _ p => decide (s' = s) && rhsOpSort s p
     | .equals _ s' _ _ => decide (s' = s)
+    | .top s' => decide (s' = s)
+    | .bottom s' => decide (s' = s)
     | _ => true
     termination_by structural p => p
   def rhsOpSortList (s : Kore.KSort) : List Kore.Pattern → Bool
@@ -1777,6 +1784,8 @@ def rhsHeadSort? : Kore.Pattern → Option (String × Kore.KSort)
   | .and s _ => some ("\\and", s)
   | .equals _ s _ _ => some ("\\equals", s)
   | .exist s _ _ => some ("\\exists", s)
+  | .top s => some ("\\top", s)
+  | .bottom s => some ("\\bottom", s)
   | _ => none
 
 /-- The first operand of `conn{s}(ps)` whose head states another sort than s, named. -/
@@ -2813,6 +2822,14 @@ def peelExists : Kore.Pattern → List Kore.EVar × Kore.Pattern
   | .exist _ x p => (x :: (peelExists p).1, (peelExists p).2)
   | p => ([], p)
 
+/-- The first `\exists{T}(x, …)` binder heading a pattern (outermost first, the binders
+`peelExists` removes) whose sort T `ok` does not accept, named with its sort and its variable. -/
+def peelSortFault? (ok : Kore.KSort → Bool) : Kore.Pattern → Option String
+  | .exist T x p =>
+    if ok T then peelSortFault? ok p
+    else some s!"\\exists\{{Kore.Printer.sort T}}({x.var.ident.name}:{Kore.Printer.sort x.sort}, …)"
+  | _ => none
+
 /-- The `\exists` binders heading a rewrite axiom's right side renamed apart: each binder whose
 name is one of `outer` (the names the left side and the `requires` hold) gets, with the occurrences
 it binds, its name primed until no name of `used` is it (`freshIn`, as `lhsBind` names its
@@ -2994,12 +3011,18 @@ The right side's `\exists` binders are peeled before the form is chosen: the lef
 body under the binders are read, or refused, as those of the axiom without binders. A binder is
 read by the sentence's scoping: one whose name the left side or the `requires` holds is renamed
 apart (`rhsApart`, `ReadingNote.existsRenamedApart`), and one that binds nothing is dropped
-(`exKept`, `ReadingNote.existsDropped`); no binder is refused. -/
+(`exKept`, `ReadingNote.existsDropped`). A binder `\exists{T}` is of the sort T and its body of T,
+and the right side of `\rewrites{s}` is of the sort s (kore-syntax.md:195, 330), so a binder with
+T not s is no valid KORE axiom: refused `rhsOperandSort` before the body is read, the binder named
+as the text writes it (`peelSortFault?`). -/
 def ruleBodyRead (N : Names) (msrc : String) (a : Kore.Axiom) : Rd (Rule × RulePres) :=
   match a.pattern with
   | .rewrites s (.and s' [l, r0]) rx =>
     match peelExists (rhsApart a.pattern l r0 rx) with
-    | (xs, .and _ [r, en]) => ruleBodyAnd N msrc a l r0 xs r en
+    | (xs, .and _ [r, en]) => do
+      if let some d := peelSortFault? (fun T => decide (T = s)) rx then
+        fail .rhsOperandSort s!"\\rewrites\{{Kore.Printer.sort s}}: a binder {d} heading its right side"
+      ruleBodyAnd N msrc a l r0 xs r en
     | (_, b) => ruleBodyOther N (.rewrites s (.and s' [l, r0]) b)
   | .rewrites s l rx => ruleBodyOther N (.rewrites s l (peelExists rx).2)
   | p => ruleBodyOther N p
@@ -5348,15 +5371,20 @@ def openRefusalCutSym (bound : List Nat) (i : Nat) : Cond → Option Sym
 where it occurs; `none` where it is read. A variable the left side does not bind is read where the
 values decide it (`rulesPlain`, Tie.lean): held by the right side under constructors, injections
 the unit, element and concatenation symbols of a map, list or set collection and the overloading
-symbols whose function overloads take arguments of confined sorts (`heldOccs`), of a confined sort, or held by closed conditions no variable of which the right side, the `ensures` or
-`post` holds; and a rule that competes with a larger one has open condition variables of confined sorts,
-or closed conditions. Otherwise the truth of a condition (`openRequires`) or the successor
+symbols whose function overloads take arguments of confined sorts (`heldOccs`), of a confined sort,
+held by a cut, or held by closed conditions no variable of which the right side, the `ensures` or
+`post` holds; and a rule that competes with a larger one has open condition variables of confined
+sorts or held by a cut, or closed conditions. A cut is a top-level conjunct `V ∈ t` of `pre` with V
+bound by the left side, and it holds the variables of t under those same symbols (`memHeld`): where
+the left side matches a value, V is a value's element, the conjunct puts that element in t, and an
+application of such a symbol that is a value's element has values' elements as its arguments, so
+the variable ranges over values' elements only, as one of a confined sort does. Otherwise the truth of a condition (`openRequires`) or the successor
 (`openRight`) at given values differs between models of the text. For a variable in closed
 conditions the detail names the first variable of the conditions that the rest of the rule holds;
-for a variable in the term of a membership `V ∈ f(…)` of `pre`, V bound by the left side (a cut),
-it names the symbol f (`openRefusalCutSym`). -/
+for a variable in the term of a membership `V ∈ f(…)` of `pre`, V bound by the left side (a cut)
+that does not hold it, it names the symbol f (`openRefusalCutSym`). -/
 def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (RefusalReason × String) :=
-  let conf := fun i => (r.vars[i]?.map c.confined).getD false
+  let conf := fun i => (r.vars[i]?.map c.confined).getD false || memHeld c (varOccs r.lhs) r.pre i
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}"
   let rest := varOccs r.rhs ++ (r.ens.map varOccs).getD [] ++ varOccsCond r.vars.length r.post
   let condApart := r.reqClosed && r.condVars.all fun j => !rest.contains j
