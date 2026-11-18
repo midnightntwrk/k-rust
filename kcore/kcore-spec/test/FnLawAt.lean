@@ -227,8 +227,8 @@ theorem eval_pl {op : Sym} (hr : Ready (fnPl op)) (hk : (mkSem (fnPl op)).isCtor
     (fun cl' hcl' _ hlt => by
       change cl' ∈ [clPl op] at hcl'
       rw [List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
-    (evHook2 (c := (mkSem (fnPl op)).withHooks H) (σ := σ2 a b) (i := 0) (j := 1) hk hh rfl rfl hv)
-    (fun _ h => nomatch h)
+    rfl (evHook2 (c := (mkSem (fnPl op)).withHooks H) (σ := σ2 a b) (i := 0) (j := 1) hk hh rfl rfl hv)
+    (fun _ h => nomatch h) .top
 
 theorem eval_plAdd (H : HookParams) (a b : Int) : Eval (pl.withHooks H) F [int a, int b] (some (int (a + b))) :=
   eval_pl ready_pl (by decide +kernel) (by decide +kernel) H a b rfl

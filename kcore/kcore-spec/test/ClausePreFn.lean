@@ -111,15 +111,16 @@ theorem sg_match (x : Int) : PatVals c (sg x) [.var 0] [iv x] := .cons (.var rfl
 theorem mem_fns {fn : Fn} (h : fn ∈ c.fns) : fn = uFn ∨ fn = gFn := by
   simpa [c] using h
 
-theorem coherent_lit {cl : Clause} (hr : varOccs cl.rhs = []) (he : cl.ens = none) : Coherent c cl cl := by
-  intro vs σ σ' _ _ _ _ _ _
-  exact .inl ⟨rfl, rfl, (fun i hi => by rw [hr] at hi; cases hi), (fun t ht => by rw [he] at ht; cases ht)⟩
+theorem coherent_lit {cl : Clause} (hr : varOccs cl.rhs = []) (he : cl.ens = none) (hx : cl.exs = []) :
+    MatchIndependent c cl := by
+  refine (matchIndependent_iff_noExs hx).mpr fun vs σ σ' _ _ _ _ _ _ _ => ?_
+  exact .inl ⟨hx, hx, rfl, rfl, (fun i hi => by rw [hr] at hi; cases hi), (fun t ht => by rw [he] at ht; cases ht)⟩
 
 theorem coherent_u : Coherent c uCl uCl := by
-  intro vs σ σ' ha ha' _ _ _ _
+  intro vs σ σ' ha ha' _ _ _ _ _
   obtain ⟨v, rfl, hl⟩ := match0 ha.2.1
   have hl' := match_at ha'.2.1
-  refine .inl ⟨rfl, rfl, fun i hi => ?_, fun t ht i hi => ?_⟩
+  refine .inl ⟨rfl, rfl, rfl, rfl, fun i hi => ?_, fun t ht i hi => ?_⟩
   · have : i = 0 := by simpa [uCl, varOccs] using hi
     subst this; rw [hl, hl']
   · have ht' : t = .app intGt [.var 0, iT 0] := by simpa [uCl] using ht.symm
@@ -140,11 +141,11 @@ theorem coherent : CoherentAll c :=
     (fun fn hfn cl hcl => by
       rcases mem_fns hfn with rfl | rfl
       · have : cl = uCl := by simpa [uFn] using hcl
-        subst this; exact coherent_u
+        subst this; exact (matchIndependent_iff_noExs rfl).mpr coherent_u
       · have : cl = gCl1 ∨ cl = gCl2 := by simpa [gFn] using hcl
         rcases this with rfl | rfl
-        · exact coherent_lit rfl rfl
-        · exact coherent_lit rfl rfl)
+        · exact coherent_lit rfl rfl rfl
+        · exact coherent_lit rfl rfl rfl)
 
 /-- **Every function of `c` has at most one result**, `gCl1`'s predicate being `⌈u(X)⌉`. -/
 theorem fnDet : FnDet c := fnDet_of_coherent coherent
@@ -166,7 +167,7 @@ theorem uAt0 : Eval c U [iv 0] none :=
     (fun cl' hcl' _ hlt => by
       have : cl' = uCl := by simpa [uFn] using hcl'
       subst this; exact absurd hlt (Nat.lt_irrefl _))
-    rfl (gt_eval rfl gt_at.1) (by decide)
+    rfl rfl (gt_eval rfl gt_at.1) (by decide)
 
 /-- `u(2)` is 2. -/
 theorem uAt2 : Eval c U [iv 2] (some (iv 2)) :=
@@ -175,9 +176,9 @@ theorem uAt2 : Eval c U [iv 2] (some (iv 2)) :=
     (fun cl' hcl' _ hlt => by
       have : cl' = uCl := by simpa [uFn] using hcl'
       subst this; exact absurd hlt (Nat.lt_irrefl _))
-    .var (fun t ht => by
+    rfl .var (fun t ht => by
       have ht' : t = .app intGt [.var 0, iT 0] := by simpa [uCl] using ht.symm
-      subst ht'; exact gt_eval rfl gt_at.2)
+      subst ht'; exact gt_eval rfl gt_at.2) .top
 
 /-! ## The predicate `⌈u(X)⌉` at 0 and at 2 -/
 
@@ -216,7 +217,7 @@ theorem gAt0 : OnlyResult G 0 (some (iv 0)) := by
         rcases mem_g hcl' with rfl | rfl
         · exact fails1_at0
         · exact absurd hlt (Nat.lt_irrefl _))
-      .dv (fun _ h => nomatch h)
+      rfl .dv (fun _ h => nomatch h) .top
   exact ⟨h, fun r' h' => fnDet _ _ _ _ h' h⟩
 
 /-- **`g(2)` is 1 and nothing else**: the first clause's predicate is true, so it decides. -/
@@ -228,7 +229,7 @@ theorem gAt2 : OnlyResult G 2 (some (iv 1)) := by
         rcases mem_g hcl' with rfl | rfl
         · exact absurd hlt (Nat.lt_irrefl _)
         · exact absurd hlt (by decide))
-      .dv (fun _ h => nomatch h)
+      rfl .dv (fun _ h => nomatch h) .top
   exact ⟨h, fun r' h' => fnDet _ _ _ _ h' h⟩
 
 /-! ## Where a clause of `g` decides -/
@@ -260,6 +261,7 @@ theorem solves_at {x : Int} {b : Bool} (hb : ∀ σ, σ.lookup 0 = some (iv x) �
     Eval c G [iv x] (some v) ↔
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) :=
   solves_of_parts (fn := gFn) lookups.2 fnDet
+    (fun cl hcl => by rcases mem_g hcl with rfl | rfl <;> exact ⟨rfl, rfl⟩)
     (fun _ _ _ _ cl' hcl' _ _ σ' _ hp' => by
       rcases mem_g hcl' with rfl | rfl
       · exact ⟨(fun _ h => nomatch h), b, hb σ' (match_at hp')⟩

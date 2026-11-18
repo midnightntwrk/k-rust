@@ -28,8 +28,8 @@ set_option maxRecDepth 1000000
 
 open KCore
 
-/-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top` from
-`clausesPlain`. -/
+/-- The functions' clauses as `fnOK` checks them, from `fnsOK`; their precondition `.top`, their
+having no existential variable and their right sides' predicate `.top` from `clausesPlain`. -/
 theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clausesPlain = true) :
     Exec.ClauseCtx c := by
   intro fn hfn'
@@ -38,7 +38,8 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clauses
   · exact ⟨[], fun k hk => (nomatch hk), fun cl hcl =>
       ⟨(sortPreds_ctx hfn cl hcl).1, (sortPreds_ctx hfn cl hcl).2.1, (sortPreds_ctx hfn cl hcl).2.2.1,
         (sortPreds_ctx hfn cl hcl).2.2.2.1, (sortPreds_ctx hfn cl hcl).2.2.2.2.1,
-        (sortPreds_ctx hfn cl hcl).2.2.2.2.2, Semantics.sortPreds_pre hfn cl hcl⟩⟩
+        (sortPreds_ctx hfn cl hcl).2.2.2.2.2, Semantics.sortPreds_pre hfn cl hcl,
+        Semantics.sortPreds_exs hfn cl hcl, Semantics.sortPreds_post hfn cl hcl⟩⟩
   have hok := (List.all_eq_true.mp hfns) fn hfn
   simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hok
   obtain ⟨hcls, _⟩ := hok
@@ -48,7 +49,7 @@ theorem clauseCtx_of_fns {c : Semantics} (hfns : c.fnsOK = true) (hp : c.clauses
   · have := hcls cl hcl
     simp only [Semantics.clauseOK, Bool.and_eq_true, beq_iff_eq] at this
     exact ⟨this.1.1.1.1.1, this.1.1.1.1.2, this.1.1.1.2, this.1.1.2, this.1.2, this.2,
-      Semantics.allFns_preTop hp fn hfn' cl hcl⟩
+      Semantics.allFns_preTop hp fn hfn' cl hcl, Semantics.allFns_plainCl hp fn hfn' cl hcl⟩
 
 /-- **A step by the rule `r`** under the substitution `sub vs` (as test/SetItem.lean). -/
 theorem step_of {c : Semantics} (hsc : SortCtx c) (hcc : Exec.ClauseCtx c) (hmc : Exec.MatchCtx c)

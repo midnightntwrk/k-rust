@@ -78,7 +78,7 @@ theorem append_dotk (H : HookParams) (t : GroundTerm) (ht : c.sortOf t = some Sr
   have hd := dotk_ctor
   rw [← isCtor_withHooks c H] at hd
   refine Eval.clause (cl := cl1) (σ := [(0, t)]) hfnH (by rw [fn_clauses]; simp) ?_ ?_
-    (fun t ht => nomatch ht) .top ?_ .var (fun t ht => nomatch ht)
+    (fun t ht => nomatch ht) .top ?_ rfl .var (fun t ht => nomatch ht) .top
   · intro i s hs
     cases i with
     | zero => cases hs; exact ⟨t, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact ht⟩
@@ -127,7 +127,7 @@ theorem init_value (H : HookParams) :
   have hk := counter_ctor
   rw [← isCtor_withHooks c H] at hk
   refine Eval.clause (cl := cl) (σ := []) hfnH (by rw [fn_clauses]; simp)
-    (fun i s hs => by simp [cl] at hs) .nil (fun t ht => nomatch ht) .top ?_ ?_ (fun t ht => nomatch ht)
+    (fun i s hs => by simp [cl] at hs) .nil (fun t ht => nomatch ht) .top ?_ rfl ?_ (fun t ht => nomatch ht) .top
   · intro cl' hcl' _ hlt
     rw [fn_clauses] at hcl'
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl'
