@@ -19,7 +19,9 @@
     whose right side `<one>(1 /Int 0)` applies a partial hook; D the added functional axiom of
     `initKCell`, whose right side applies a projection and `Map:lookup`; E both equations of
     `initOneCell` and, with them, its functional axiom; F the equation of `initOneCell`, a right-side
-    variable no pattern holds, and its functional axiom.
+    variable no pattern holds, and its functional axiom. One more edit leaves the reader without a
+    tree of cells: H `<k>` declared over its own sort `KCell` (`<k>(KCell) : KCell`), a cell below
+    itself, refused (`configuration`).
 -/
 import KcoreSpec
 
@@ -177,7 +179,8 @@ def oneEqn (rhs uid : String) : String :=
 
 /-- The edits: A the getter's right side another variable; B the getter `ensures false`; C
 `initOneCell() = <one>(1 /Int 0)` with its `functional` axiom; D a `functional` axiom of
-`initKCell`; E a second equation `initOneCell() = <one>(1)`; F `initOneCell() = <one>(N:Int)`. -/
+`initKCell`; E a second equation `initOneCell() = <one>(1)`; F `initOneCell() = <one>(N:Int)`; H
+`<k>(KCell) : KCell`. -/
 def edits (t : String) : List (String × String) :=
   [("0", t),
    ("A", t.replace getterRhs "       VarOther:SortGeneratedCounterCell{},\n        \\top{SortGeneratedCounterCell{}}())))"),
@@ -188,7 +191,8 @@ def edits (t : String) : List (String × String) :=
    ("D", t.replace oneFunctional (oneFunctional ++
       "  axiom{R} \\exists{R} (Val:SortKCell{}, \\equals{SortKCell{}, R} (Val:SortKCell{}, LblinitKCell{}(K0:SortMap{}))) [functional{}()] // functional\n")),
    ("E", t.replace oneFunctional (oneFunctional ++ oneEqn "Lbl'-LT-'one'-GT-'{}(\\dv{SortInt{}}(\"1\"))" "second")),
-   ("F", t.replace oneRhs "       Lbl'-LT-'one'-GT-'{}(VarN:SortInt{}),\n        \\top{SortOneCell{}}())))")]
+   ("F", t.replace oneRhs "       Lbl'-LT-'one'-GT-'{}(VarN:SortInt{}),\n        \\top{SortOneCell{}}())))"),
+   ("H", t.replace "symbol Lbl'-LT-'k'-GT-'{}(SortK{})" "symbol Lbl'-LT-'k'-GT-'{}(SortKCell{})")]
 
 /--
 info: 0: read, unaccounted []
@@ -198,6 +202,7 @@ C: [generatedEquation LblinitOneCell]
 D: [generatedEquation LblinitKCell]
 E: [generatedEquation LblinitOneCell, generatedEquation LblinitOneCell, generatedEquation LblinitOneCell]
 F: [generatedEquation LblinitOneCell, generatedEquation LblinitOneCell]
+H: [configuration Lbl'-LT-'k'-GT-']
 -/
 #guard_msgs in
 #eval show IO Unit from do

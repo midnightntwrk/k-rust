@@ -2985,7 +2985,8 @@ mutual
 end
 end RCell
 
-/-- The cell tree below the cell of sort `X` (fuel: the depth). -/
+/-- The cell tree below the cell of sort `X` (fuel: the depth; `cellFuelOfR` for the text's
+configuration). -/
 def cellOf (syms : List Kore.SentenceSymbol) : Nat → String → Rd RCell
   | 0, X => fail .configuration X
   | fuel + 1, X => do
@@ -2999,9 +3000,15 @@ def cellOf (syms : List Kore.SentenceSymbol) : Nat → String → Rd RCell
         | [a] => pure (.leaf n a)
         | _ => fail .cellShape
 
+/-- `cellOf`'s fuel for the text's configuration: the number of its cell symbols, plus one. Each
+step of `cellOf` descends from a cell to a cell symbol's argument sort, so a tree of distinct cells
+is read to its full depth; a cell sort below itself (no tree) exhausts it (`configuration`). -/
+def cellFuelOfR (syms : List Kore.SentenceSymbol) : Nat :=
+  (syms.filter fun s => hasKey s.attributes .cell).length + 1
+
 /-- The user's configuration: the children of `<generatedTop>` before the counter. -/
 def configOf (syms : List Kore.SentenceSymbol) : Rd (List RCell) := do
-  match ← cellOf syms 64 "GeneratedTopCell" with
+  match ← cellOf syms (cellFuelOfR syms) "GeneratedTopCell" with
   | .node _ cs => match cs.getLast? with
     | some (.leaf "generatedCounter" "Int") => if cs.length ≥ 2 then pure cs.dropLast else fail .configuration
     | _ => fail .configuration "GeneratedCounterCell"
@@ -4249,7 +4256,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let isCtorDecl := fun (s : Kore.SentenceSymbol) => isFreezer s || hasAttr s.attributes "constructor"
   let ownSortNames := cellSortNames ++ userSortNames
   -- the configuration's cells, the generated top and counter cells included
-  let configSyms := match cellOf S.syms 64 "GeneratedTopCell" with
+  let configSyms := match cellOf S.syms (cellFuelOfR S.syms) "GeneratedTopCell" with
     | .ok t => RCell.symsList [t]
     | .error _ => RCell.symsList rconfig
   let collCells := S.syms.filter fun s => hasAttr s.attributes "cell" && isUserSource s.attributes &&

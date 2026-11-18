@@ -29,7 +29,7 @@ Nested entries by status:
 
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
-| E1 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 |
+| E1 | 4 | 2 | 0 | 0 | 0 | 2 | 0 | 0 |
 | E2 | 11 | 2 | 0 | 0 | 0 | 9 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 40 | 12 | 0 | 4 | 0 | 24 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 234 | 95 | 2 | 15 | 1 | 120 | 0 | 1 |
+| all | 235 | 95 | 2 | 15 | 1 | 121 | 0 | 1 |
 
 Refused rows by class:
 
@@ -59,7 +59,7 @@ Refused nested entries by class:
 
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
-| E1 | 1 | 0 | 0 | 1 | 0 |
+| E1 | 2 | 0 | 0 | 1 | 1 |
 | E2 | 9 | 2 | 0 | 1 | 6 |
 | E3 | 45 | 10 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
@@ -68,7 +68,7 @@ Refused nested entries by class:
 | E7 | 2 | 0 | 0 | 0 | 2 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 120 | 42 | 11 | 43 | 24 |
+| all | 121 | 42 | 11 | 43 | 25 |
 
 ## Entries of class R-c (60)
 
@@ -206,7 +206,8 @@ Not core:
 | `Sentence:kw:context` | supported |  | each becomes sentences the reader reads as written: a production a symbol declaration (constructor or function), a rule a \\rewrites or an equation, a context and a context alias heating and cooling rules with a freezer constructor, a configuration cell symbols and initializer equations. Nothing is s… | none (reader already reads it) |  | e1-sentences | no | no | fixtures/e1-sentences, e1-syntax: account.txt \`stage refusals: 0\`, \`parse: ok; wf true\`; the row's \`sentence\` in kore.txt |
 | `Sentence:kw:configuration` | supported |  | each becomes sentences the reader reads as written: a production a symbol declaration (constructor or function), a rule a \\rewrites or an equation, a context and a context alias heating and cooling rules with a freezer constructor, a configuration cell symbols and initializer equations. Nothing is s… | none (reader already reads it) |  | e1-sentences | yes | yes | fixtures/e1-sentences, e1-syntax: account.txt \`stage refusals: 0\`, \`parse: ok; wf true\`; the row's \`sentence\` in kore.txt |
 | cases[0]: a configuration whose cells project no configuration variable $PGM (configuration &lt;k> foo &lt;/k>) | supported |  | the text states the configuration's initializers as functions of no argument (kore.txt: \`symbol LblinitKCell{}() : SortKCell{} [function{}(), functional{}(), total{}()]\`, \`rule initKCell(.KList)=>\`&lt;k>\`(inj{Foo,KItem}(foo(.KList)))\`, initGeneratedTopCell() likewise): no sentence names $PGM, and each… | none (reader and presentation only: Parse.pgmSortOf, Presentation.pgmCell, DefinitionWf's declsOK and Presentation.cellsOK, Emit.initAx; no cone declaration reads Semantics.pgmSort) |  | rdr-nopgm |  |  | fixtures/rdr-nopgm/kompile.txt: exit 0 (K 7.1.337, --backend haskell); its account as reader\_today |
-| cases[1]: a configuration of 63 nested cells around &lt;k> | supported |  | the text states 63 nested cells around &lt;k>: for each a cell constructor, its fragment and Opt symbols and its initializer, sentences of the kinds a shallower configuration has (kore.txt). Depth is a property of no sentence; the refusal is the bound of the reader's search (Parse.configOf calls cellOf… | none (reader only: the fuel of Parse.cellOf in Parse.configOf and in the presentation's reading of the cell symbols) |  | rdr-config-deep |  |  | fixtures/rdr-config-deep/kompile.txt: exit 0; its account as reader\_today |
+| cases[1]: a configuration of 63 nested cells around &lt;k> | supported |  | the text states 63 nested cells around &lt;k>: for each a cell constructor, its fragment and Opt symbols and its initializer, sentences of the kinds a shallower configuration has (kore.txt). Depth is a property of no sentence; the refusal is the bound of the reader's search (Parse.configOf calls cellOf… | none (reader only: the fuel of Parse.cellOf in Parse.configOf and in the presentation's reading of the cell symbols) |  | rdr-config-deep |  |  | fixtures/rdr-config-deep/kompile.txt: exit 0; fixtures/rdr-config-deep/account.txt: \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` (Parse.cellFuelOfR: the text's cell symbols plus one) |
+| cases[2]: a cell constructor whose argument is its own cell sort, &lt;k>(KCell) : KCell (hand-written: kompile declares a cell over i… | refused | scope | a configuration is a tree of cells: each cell's constructor takes its content's sort or its children's cell sorts. A cell sort below itself is no tree; Presentation's Cell tree and the cell sentences Emit writes are a tree's. Parse.cellOf descends from a cell to the cells of its arguments at most as… |  | none (scope): never written |  |  |  | test/InitContent.lean: edit H of f2-examples/cells.kompile.kore (\`symbol Lbl'-LT-'k'-GT-'{}(SortKCell{})\`): \`H: [configuration Lbl'-LT-'k'-GT-']\` |
 | `Sentence:kw:syntax` | supported |  | each becomes sentences the reader reads as written: a production a symbol declaration (constructor or function), a rule a \\rewrites or an equation, a context and a context alias heating and cooling rules with a freezer constructor, a configuration cell symbols and initializer equations. Nothing is s… | none (reader already reads it) |  | e1-syntax | yes | yes | fixtures/e1-sentences, e1-syntax: account.txt \`stage refusals: 0\`, \`parse: ok; wf true\`; the row's \`sentence\` in kore.txt |
 | cases[0]: a sort declared under a library module's sort name without importing the module | refused | R-c | the builtin library's names are reserved: every theory Γ c holds K's interpreted library, whether or not the text imports its module (the registry family; findings/TIE-ens-2-conservativity-decision.md §0, option (c), as amended by findings/REVIEW-TIE-cons.md), so a library name always denotes the li… | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b) (findings/REVIEW-TIE-cons.md finding 9 and its amended §0 item 4): sigItems, ΓDomains, ΓFallback guarded by 'declared in c', a Semantics field of declared registry names and a coreOK conjunct that every applied ho… |  | e1-registry-sort-name |  |  | fixtures/e1-registry-sort-name (f2-examples/rsn.k's text, modules renamed): kompile.txt exit 0, K 7.1.337 accepts the text (\`syntax Bytes ::= ".Bytes"\`, INT-SYNTAX and INT imported, no module declaring Bytes) and writes the plain sort \`sort SortBytes{} []\` (kore.txt); account.txt \`sentence 23 (SortB… |
 | `Sentence:lit:{` | parameter |  | \`syntax {S} S ::= pick(Bool, S, S) [function]\` becomes \`symbol Lblpick{SortS}(…)\`, and its rules become equations of the one instance \`Lblpick{SortK{}}\`. The text states nothing of another instance, so an instance applied at sorts where the text has no equation is a symbol with no stated value: read… | none |  | e1-param | no | no | fixtures/e1-param: kore.txt:4 \`symbol Lblpick{SortS}\`, :46 \`Lblpick{SortK{}}(X0:SortBool{},X1:SortK{},X2:SortK{})\`; fixtures/e3-param-cases kore.txt:100 \`Lblpick{SortInt{}}(\\dv{SortBool{}}("true"),VarX:SortInt{},\\dv{SortInt{}}("0"))\`; account \`2 unread parametricUnused\` |
