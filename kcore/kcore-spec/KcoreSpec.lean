@@ -343,6 +343,7 @@ import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
 import KcoreSpec.TieHeads
 import KcoreSpec.TieHeadsWalk
+import KcoreSpec.TieHeadsKore
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
@@ -353,6 +354,8 @@ import KcoreSpec.EvalCallsInduct
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
 import KcoreSpec.KKEncLemmas
+import KcoreSpec.KKEncCanon
+import KcoreSpec.KKLitsVEval
 import KcoreSpec.LibEvCollSym
 import KcoreSpec.LibEvCollSymK
 import KcoreSpec.ModelEmptyInhabited
