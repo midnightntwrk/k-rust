@@ -11,6 +11,11 @@
     (`builtinText`); a sort-parametric hooked symbol of a name of its own (MINT's `MInt2Unsigned`)
     is not read (`unread parametricUnused`), as K-REFLECTION's `#unparseKORE`; a user's file's
     sort declaration is not affected.
+  - Each kind of axiom, from a K installation's `domains.md` and from a user's file: an own sort's
+    subsort axiom, no-junk, no-confusion, injectivity and functional axiom, an own function's
+    equation (hand-written forms, each refused `axiomShape` in a user's file), each classified as
+    the same sentence of a user's file; a subsort axiom into a library
+    sort, a no-junk axiom of a library sort, an equation of a library symbol refused (`builtinText`).
   - Fixtures (test/constructs/fixtures): e6-mod-array, e6-mod-kvar, e3-mint, e2-binder and their
     accounts (`read [own builtin]`), and the parameter symbols of e6-param-ffi,
     e6-param-unification, e6-param-timer and e6-param-rat (params.txt).
@@ -71,3 +76,47 @@ info: [(read, true), (read, true), (refused builtinText, false), (unread paramet
   let ss := [sortDecl "SortArray" (placeAt "domains.md"), arrDecl, sortDecl "SortInt" (placeAt "domains.md"),
     mintDecl, sortDecl "SortArray" userPlace]
   IO.println (ss.map fun s => ((Parse.classify s).name, Parse.isOwnBuiltin s))
+
+/-- Axioms of each kind, with the `Source` `src`, in a module of a KORE text. -/
+def axiomsText (src : String) : String :=
+  let P := s!"org'Stop'kframework'Stop'attributes'Stop'Source\{}(\"Source({src})\")"
+  "[]\nmodule M\n" ++
+  -- subsort Foo < Array; subsort Array < KItem (a library sort)
+  s!"  axiom\{R} \\exists\{R}(Val:SortArray\{}, \\equals\{SortArray\{}, R}(Val:SortArray\{}, inj\{SortFoo\{}, SortArray\{}}(From:SortFoo\{}))) [subsort\{SortFoo\{}, SortArray\{}}(), {P}]\n" ++
+  s!"  axiom\{R} \\exists\{R}(Val:SortKItem\{}, \\equals\{SortKItem\{}, R}(Val:SortKItem\{}, inj\{SortArray\{}, SortKItem\{}}(From:SortArray\{}))) [subsort\{SortArray\{}, SortKItem\{}}(), {P}]\n" ++
+  -- no-junk of Array; of Int (a library sort)
+  s!"  axiom\{} \\or\{SortArray\{}}(\\exists\{SortArray\{}}(X0:SortInt\{}, Lblarr\{}(X0:SortInt\{})), \\bottom\{SortArray\{}}()) [constructor\{}(), {P}]\n" ++
+  s!"  axiom\{} \\or\{SortInt\{}}(\\exists\{SortInt\{}}(X0:SortInt\{}, Lblarr\{}(X0:SortInt\{})), \\bottom\{SortInt\{}}()) [constructor\{}(), {P}]\n" ++
+  -- no-confusion, injectivity, functional of own constructors
+  s!"  axiom\{} \\not\{SortArray\{}}(\\and\{SortArray\{}}(Lblarr\{}(X0:SortInt\{}), Lblnil\{}())) [constructor\{}(), {P}]\n" ++
+  s!"  axiom\{} \\implies\{SortArray\{}}(\\and\{SortArray\{}}(Lblarr\{}(X0:SortInt\{}), Lblarr\{}(Y0:SortInt\{})), Lblarr\{}(\\and\{SortInt\{}}(X0:SortInt\{}, Y0:SortInt\{}))) [constructor\{}(), {P}]\n" ++
+  s!"  axiom\{R} \\exists\{R}(Val:SortArray\{}, \\equals\{SortArray\{}, R}(Val:SortArray\{}, Lblarr\{}(K0:SortInt\{}))) [functional\{}(), {P}]\n" ++
+  -- an equation of an own function; of a library symbol
+  s!"  axiom\{R} \\implies\{R}(\\top\{R}(), \\equals\{SortInt\{}, R}(Lblsz\{}(X0:SortArray\{}), \\and\{SortInt\{}}(\\dv\{SortInt\{}}(\"0\"), \\top\{SortInt\{}}()))) [{P}]\n" ++
+  s!"  axiom\{R} \\implies\{R}(\\top\{R}(), \\equals\{SortInt\{}, R}(LblsizeList\{}(X0:SortList\{}), \\and\{SortInt\{}}(\\dv\{SortInt\{}}(\"0\"), \\top\{SortInt\{}}()))) [{P}]\n" ++
+  "endmodule\n[]\n"
+
+def axiomsOf (src : String) : List Kore.Sentence :=
+  match Kore.parseDefinition (axiomsText src) with
+  | .ok k => ((k.modules.getLast?.map (·.sentences)).getD [])
+  | .error _ => []
+
+/--
+info: 9 sentences
+(refused axiomShape, (refused axiomShape, true))
+(refused builtinText, (refused axiomShape, false))
+(refused axiomShape, (refused axiomShape, true))
+(refused builtinText, (refused axiomShape, false))
+(refused axiomShape, (refused axiomShape, true))
+(refused axiomShape, (refused axiomShape, true))
+(refused axiomShape, (refused axiomShape, true))
+(refused axiomShape, (refused axiomShape, true))
+(refused builtinText, (refused axiomShape, false))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  let b := axiomsOf "/k/include/kframework/builtin/domains.md"
+  let u := axiomsOf "/home/u/a.k"
+  IO.println s!"{b.length} sentences"
+  for (x, y) in b.zip u do
+    IO.println ((Parse.classify x).name, (Parse.classify y).name, Parse.isOwnBuiltin x)

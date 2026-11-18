@@ -3301,9 +3301,28 @@ def ownBuiltinAxiomHead? (a : Kore.Axiom) : Option String :=
   | .implies _ _ c => concl c
   | p => concl p
 
+/-- The sorts and symbols an axiom without a defined head constrains: a subsort axiom's two sorts
+(`subsort{A, B}`), a no-junk axiom's sort and the symbols heading its disjuncts but `inj`
+(`\or{S}(…)`), a no-confusion axiom's two symbols (`¬(f(…) ∧ g(…))`), an injectivity axiom's
+symbol (`f(…) ∧ f(…) → …`); none for any other shape. -/
+def ownBuiltinConstrained? (a : Kore.Axiom) : Option (List String) :=
+  let srtName := fun (s : Kore.KSort) => (sortName? s).map ("Sort" ++ ·)
+  match a.attributes.find? (·.head.ident.name == "subsort"), a.pattern with
+  | some ⟨_, [A, B], _⟩, _ => do pure [← srtName A, ← srtName B]
+  | some _, _ => none
+  | none, .or s ds => do
+    pure ((← srtName s) :: ds.filterMap fun d => match (binders eqnFuel d).2 with
+      | .app h _ _ => if h.ident.name == "inj" then none else some h.ident.name
+      | _ => none)
+  | none, .not _ (.and _ [.app f _ _, .app g _ _]) => some [f.ident.name, g.ident.name]
+  | none, .implies _ (.and _ [.app f _ _, .app g _ _]) _ => some [f.ident.name, g.ident.name]
+  | none, _ => none
+
 /-- A sentence of a K installation's builtin file about names of its own: a declaration of a name
-none of the texts the reader holds for those files declares (`ownBuiltinLibNames`), or an axiom
-whose head (`ownBuiltinAxiomHead?`) is no such name. -/
+none of the texts the reader holds for those files declares (`ownBuiltinLibNames`); an axiom
+without a defined head every sort and symbol of which it constrains (`ownBuiltinConstrained?`) is
+no such name (a subsort axiom into a library sort, a no-junk axiom of a library sort are not); any
+other axiom whose head (`ownBuiltinAxiomHead?`) is no such name and not `inj`. -/
 def ownBuiltinNamed (s : Kore.Sentence) : Bool :=
   let as := match s with
     | .sort x => x.attributes
@@ -3315,7 +3334,9 @@ def ownBuiltinNamed (s : Kore.Sentence) : Bool :=
     | _ => []
   isKBuiltin as &&
   match s with
-  | .axiom a => (ownBuiltinAxiomHead? a).any (!ownBuiltinLibNames.contains ·)
+  | .axiom a => match ownBuiltinConstrained? a with
+    | some ns => !ns.isEmpty && ns.all (!ownBuiltinLibNames.contains ·)
+    | none => (ownBuiltinAxiomHead? a).any fun h => h != "inj" && !ownBuiltinLibNames.contains h
   | _ => (ownBuiltinDeclName? s).any (!ownBuiltinLibNames.contains ·)
 
 /-- A sentence of a K installation's builtin file read as the definition's own, as a sentence of a
