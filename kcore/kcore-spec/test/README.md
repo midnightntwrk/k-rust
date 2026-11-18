@@ -1352,7 +1352,7 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
   .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
   every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
-  `test/TieKimpAtValues.lean` (hooked functional 47 of 48, collection law 9, library 76 of 82 at
+  `test/TieKimpAtValues.lean` (hooked functional 47 of 48, collection law 9, library 80 of 82 at
   values or, for the 8 over set variables, at set values; 3.8 GiB, 42 s),
   `test/TieKimpRefuted.lean` (set idempotence 573 and the set-variable lemmas 671 to 675, 904,
   refuted; 2.1 GiB, 11 s), `test/TieKimpReach.lean` (no point where every clause of a function

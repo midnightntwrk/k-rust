@@ -15,14 +15,13 @@
     which the text states once over a sort variable and which is not of the form `funPatR k`.
   - Collection law (`laws_entailed`, `law_indices`): associativity and the two units of `_List_`,
     `_Map_`, `_Set_` (LibEvLaw.lean), the nine sentences of the class.
-  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): 76 of the class's 82. The sixteen
-    predicate equations of `==Int`, `=/=Int`, `==K`, `=/=K` (`pred_entailed`); 52 term and function
-    equations, each by its own theorem (`evN`); the eight Bool predicate sentences over set
+  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): 80 of the class's 82. The sixteen
+    predicate equations of `==Int`, `=/=Int`, `==K`, `=/=K` (`pred_entailed`); 56 term and function
+    equations, each by its own theorem (`evN`), the shift simplifications 794, 795, 801, 802
+    (`X <<Int 0`, `0 <<Int Y`, `X >>Int 0`, `0 >>Int Y`) among them; the eight Bool predicate sentences over set
     variables (684 to 687, 692, 693, 698, 699), entailed at set values (`EntailsAtSetValues`: each
     free set variable at a set of values of its sort), which `libSet_entailed` states. Not among
-    them: the shift simplifications 794, 795, 801, 802 (`X <<Int 0`, `0 <<Int Y`, `X >>Int 0`,
-    `0 >>Int Y`), of which the library states no equation, and 877, 878 (`ite{SortK}` at a
-    condition), whose symbol is `ite` at the sort K.
+    them: 877, 878 (`ite{SortK}` at a condition), whose symbol is `ite` at the sort K.
 -/
 import RefKimp.Sound
 
@@ -197,7 +196,7 @@ theorem pred_entailed (H : HookParams) : ∀ ad ∈ predText, EntailsAtValues (c
     obtain ⟨x, -, rfl⟩ := hE
     exact LibEv.kEqPred_ev (coreOKH H) x.1 x.2.1 x.2.2 ad hp hsv
 
-/-! ## Library: term and function equations (52) -/
+/-! ## Library: term and function equations (56) -/
 
 theorem ev779 (H : HookParams) : EntailsAtValues (cH H) U.ax779 (trS U.ax779).pat := by
   rw [(by decide +kernel : (trS U.ax779).pat = (trAxiom [] [] U.ax779).pat)]
@@ -409,17 +408,34 @@ theorem ev902 (H : HookParams) : EntailsAtValues (cH H) U.ax902 (trS U.ax902).pa
   rw [(by decide +kernel : (trS U.ax902).pat = (trAxiom [] [] U.ax902).pat)]
   exact LibEv.fnPushList_ev (coreOKH H) (shapesOKH H) U.ax902 (by decide +kernel) (by decide +kernel)
 
-/-- The 52 sentences of `evN`. -/
+theorem ev794 (H : HookParams) : EntailsAtValues (cH H) U.ax794 (trS U.ax794).pat := by
+  rw [(by decide +kernel : (trS U.ax794).pat = (trAxiom [] [] U.ax794).pat)]
+  exact LibEv.shlZero_ev (coreOKH H) (shapesOKH H) U.ax794 (by decide +kernel) (by decide +kernel)
+
+theorem ev795 (H : HookParams) : EntailsAtValues (cH H) U.ax795 (trS U.ax795).pat := by
+  rw [(by decide +kernel : (trS U.ax795).pat = (trAxiom [] [] U.ax795).pat)]
+  exact LibEv.zeroShl_ev (coreOKH H) (shapesOKH H) U.ax795 (by decide +kernel) (by decide +kernel)
+
+theorem ev801 (H : HookParams) : EntailsAtValues (cH H) U.ax801 (trS U.ax801).pat := by
+  rw [(by decide +kernel : (trS U.ax801).pat = (trAxiom [] [] U.ax801).pat)]
+  exact LibEv.shrZero_ev (coreOKH H) (shapesOKH H) U.ax801 (by decide +kernel) (by decide +kernel)
+
+theorem ev802 (H : HookParams) : EntailsAtValues (cH H) U.ax802 (trS U.ax802).pat := by
+  rw [(by decide +kernel : (trS U.ax802).pat = (trAxiom [] [] U.ax802).pat)]
+  exact LibEv.zeroShr_ev (coreOKH H) (shapesOKH H) U.ax802 (by decide +kernel) (by decide +kernel)
+
+/-- The 56 sentences of `evN`. -/
 noncomputable def evText : List AxiomDecl :=
   [U.ax779, U.ax781, U.ax782, U.ax783, U.ax784, U.ax785, U.ax786, U.ax787, U.ax788, U.ax789,
    U.ax790, U.ax791, U.ax792, U.ax793, U.ax796, U.ax797, U.ax798, U.ax799, U.ax800, U.ax803,
    U.ax804, U.ax805, U.ax806, U.ax807, U.ax808, U.ax809, U.ax810, U.ax811, U.ax813, U.ax814,
    U.ax815, U.ax816, U.ax817, U.ax818, U.ax819, U.ax820, U.ax821, U.ax822, U.ax823, U.ax824,
    U.ax825, U.ax826, U.ax827, U.ax828, U.ax829, U.ax830, U.ax832, U.ax879, U.ax880, U.ax881,
-   U.ax882, U.ax902]
+   U.ax882, U.ax902,
+   U.ax794, U.ax795, U.ax801, U.ax802]
 
 theorem ev_entailed (H : HookParams) : ∀ ad ∈ evText, EntailsAtValues (cH H) ad (trS ad).pat :=
-  List.forall_mem_cons.mpr ⟨ev779 H, List.forall_mem_cons.mpr ⟨ev781 H, List.forall_mem_cons.mpr ⟨ev782 H, List.forall_mem_cons.mpr ⟨ev783 H, List.forall_mem_cons.mpr ⟨ev784 H, List.forall_mem_cons.mpr ⟨ev785 H, List.forall_mem_cons.mpr ⟨ev786 H, List.forall_mem_cons.mpr ⟨ev787 H, List.forall_mem_cons.mpr ⟨ev788 H, List.forall_mem_cons.mpr ⟨ev789 H, List.forall_mem_cons.mpr ⟨ev790 H, List.forall_mem_cons.mpr ⟨ev791 H, List.forall_mem_cons.mpr ⟨ev792 H, List.forall_mem_cons.mpr ⟨ev793 H, List.forall_mem_cons.mpr ⟨ev796 H, List.forall_mem_cons.mpr ⟨ev797 H, List.forall_mem_cons.mpr ⟨ev798 H, List.forall_mem_cons.mpr ⟨ev799 H, List.forall_mem_cons.mpr ⟨ev800 H, List.forall_mem_cons.mpr ⟨ev803 H, List.forall_mem_cons.mpr ⟨ev804 H, List.forall_mem_cons.mpr ⟨ev805 H, List.forall_mem_cons.mpr ⟨ev806 H, List.forall_mem_cons.mpr ⟨ev807 H, List.forall_mem_cons.mpr ⟨ev808 H, List.forall_mem_cons.mpr ⟨ev809 H, List.forall_mem_cons.mpr ⟨ev810 H, List.forall_mem_cons.mpr ⟨ev811 H, List.forall_mem_cons.mpr ⟨ev813 H, List.forall_mem_cons.mpr ⟨ev814 H, List.forall_mem_cons.mpr ⟨ev815 H, List.forall_mem_cons.mpr ⟨ev816 H, List.forall_mem_cons.mpr ⟨ev817 H, List.forall_mem_cons.mpr ⟨ev818 H, List.forall_mem_cons.mpr ⟨ev819 H, List.forall_mem_cons.mpr ⟨ev820 H, List.forall_mem_cons.mpr ⟨ev821 H, List.forall_mem_cons.mpr ⟨ev822 H, List.forall_mem_cons.mpr ⟨ev823 H, List.forall_mem_cons.mpr ⟨ev824 H, List.forall_mem_cons.mpr ⟨ev825 H, List.forall_mem_cons.mpr ⟨ev826 H, List.forall_mem_cons.mpr ⟨ev827 H, List.forall_mem_cons.mpr ⟨ev828 H, List.forall_mem_cons.mpr ⟨ev829 H, List.forall_mem_cons.mpr ⟨ev830 H, List.forall_mem_cons.mpr ⟨ev832 H, List.forall_mem_cons.mpr ⟨ev879 H, List.forall_mem_cons.mpr ⟨ev880 H, List.forall_mem_cons.mpr ⟨ev881 H, List.forall_mem_cons.mpr ⟨ev882 H, List.forall_mem_cons.mpr ⟨ev902 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩
+  List.forall_mem_cons.mpr ⟨ev779 H, List.forall_mem_cons.mpr ⟨ev781 H, List.forall_mem_cons.mpr ⟨ev782 H, List.forall_mem_cons.mpr ⟨ev783 H, List.forall_mem_cons.mpr ⟨ev784 H, List.forall_mem_cons.mpr ⟨ev785 H, List.forall_mem_cons.mpr ⟨ev786 H, List.forall_mem_cons.mpr ⟨ev787 H, List.forall_mem_cons.mpr ⟨ev788 H, List.forall_mem_cons.mpr ⟨ev789 H, List.forall_mem_cons.mpr ⟨ev790 H, List.forall_mem_cons.mpr ⟨ev791 H, List.forall_mem_cons.mpr ⟨ev792 H, List.forall_mem_cons.mpr ⟨ev793 H, List.forall_mem_cons.mpr ⟨ev796 H, List.forall_mem_cons.mpr ⟨ev797 H, List.forall_mem_cons.mpr ⟨ev798 H, List.forall_mem_cons.mpr ⟨ev799 H, List.forall_mem_cons.mpr ⟨ev800 H, List.forall_mem_cons.mpr ⟨ev803 H, List.forall_mem_cons.mpr ⟨ev804 H, List.forall_mem_cons.mpr ⟨ev805 H, List.forall_mem_cons.mpr ⟨ev806 H, List.forall_mem_cons.mpr ⟨ev807 H, List.forall_mem_cons.mpr ⟨ev808 H, List.forall_mem_cons.mpr ⟨ev809 H, List.forall_mem_cons.mpr ⟨ev810 H, List.forall_mem_cons.mpr ⟨ev811 H, List.forall_mem_cons.mpr ⟨ev813 H, List.forall_mem_cons.mpr ⟨ev814 H, List.forall_mem_cons.mpr ⟨ev815 H, List.forall_mem_cons.mpr ⟨ev816 H, List.forall_mem_cons.mpr ⟨ev817 H, List.forall_mem_cons.mpr ⟨ev818 H, List.forall_mem_cons.mpr ⟨ev819 H, List.forall_mem_cons.mpr ⟨ev820 H, List.forall_mem_cons.mpr ⟨ev821 H, List.forall_mem_cons.mpr ⟨ev822 H, List.forall_mem_cons.mpr ⟨ev823 H, List.forall_mem_cons.mpr ⟨ev824 H, List.forall_mem_cons.mpr ⟨ev825 H, List.forall_mem_cons.mpr ⟨ev826 H, List.forall_mem_cons.mpr ⟨ev827 H, List.forall_mem_cons.mpr ⟨ev828 H, List.forall_mem_cons.mpr ⟨ev829 H, List.forall_mem_cons.mpr ⟨ev830 H, List.forall_mem_cons.mpr ⟨ev832 H, List.forall_mem_cons.mpr ⟨ev879 H, List.forall_mem_cons.mpr ⟨ev880 H, List.forall_mem_cons.mpr ⟨ev881 H, List.forall_mem_cons.mpr ⟨ev882 H, List.forall_mem_cons.mpr ⟨ev902 H, List.forall_mem_cons.mpr ⟨ev794 H, List.forall_mem_cons.mpr ⟨ev795 H, List.forall_mem_cons.mpr ⟨ev801 H, List.forall_mem_cons.mpr ⟨ev802 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩
 
 /-! ## Library: the Bool predicate sentences over set variables (8), at set values -/
 
@@ -461,7 +477,7 @@ noncomputable def setText : List AxiomDecl :=
 
 /-! ## The class -/
 
-/-- **Ev for the library sentences over element variables**: the 16 predicate equations and the 52
+/-- **Ev for the library sentences over element variables**: the 16 predicate equations and the 56
 term and function equations, for every H. -/
 theorem lib_entailed (H : HookParams) : ∀ ad ∈ predText ++ evText, EntailsAtValues (cH H) ad (trS ad).pat :=
   fun ad had => (List.mem_append.mp had).elim (pred_entailed H ad) (ev_entailed H ad)
@@ -470,12 +486,12 @@ theorem lib_entailed (H : HookParams) : ∀ ad ∈ predText ++ evText, EntailsAt
 theorem libSet_entailed (H : HookParams) : ∀ ad ∈ setText, EntailsAtSetValues (cH H) ad (trS ad).pat :=
   List.forall_mem_cons.mpr ⟨ev684 H, List.forall_mem_cons.mpr ⟨ev685 H, List.forall_mem_cons.mpr ⟨ev686 H, List.forall_mem_cons.mpr ⟨ev687 H, List.forall_mem_cons.mpr ⟨ev692 H, List.forall_mem_cons.mpr ⟨ev693 H, List.forall_mem_cons.mpr ⟨ev698 H, List.forall_mem_cons.mpr ⟨ev699 H, fun _ h => nomatch h⟩⟩⟩⟩⟩⟩⟩⟩
 
-/-- The 76 library sentences tied here. -/
+/-- The 80 library sentences tied here. -/
 theorem lib_indices : (predText ++ evText ++ setText).map (·.index) =
     [676, 677, 678, 679, 680, 681, 682, 683, 688, 689, 690, 691, 694, 695, 696, 697, 779, 781, 782, 783,
    784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 796, 797, 798, 799, 800, 803, 804, 805, 806, 807,
    808, 809, 810, 811, 813, 814, 815, 816, 817, 818, 819, 820, 821, 822, 823, 824, 825, 826, 827, 828,
-   829, 830, 832, 879, 880, 881, 882, 902, 684, 685, 686, 687, 692, 693, 698, 699] := by
+   829, 830, 832, 879, 880, 881, 882, 902, 794, 795, 801, 802, 684, 685, 686, 687, 692, 693, 698, 699] := by
   decide +kernel
 
 end KCore.TieKimpAtValues
