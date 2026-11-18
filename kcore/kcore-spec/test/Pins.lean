@@ -478,7 +478,8 @@ example (k : Kore.Definition) (c : Semantics) : fns k c =
       let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
       let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
         (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
-      (!isFn || fn) && (!(fn && own) || isFn || par)) := rfl
+      (!isFn || (has as "function" && (!has as "hook" || (strArg as "hook").any (regHookOf · == none)))) &&
+        (!(fn && own) || isFn || par)) := rfl
 
 example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 

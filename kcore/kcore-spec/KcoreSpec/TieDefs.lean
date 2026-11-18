@@ -224,18 +224,21 @@ def eqnsOf (k : Kore.Definition) (n : String) : List Kore.Axiom :=
   (k.axiomDecls.map (·.ax)).filter fun a =>
     eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification"
 
-/-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
-that the theory has as a constructor, function, parameter or overloading symbol is a function of
-the semantics, or a function without equations: a symbol the theory has only as a parameter that
-no registry hook interprets (`impl = none`) and that is no open generator (`raw = false`), of
-which the text states no equation (`eqnsOf`; a law sentence is no equation, and neither is a
-`simplification` sentence, a lemma that a tie's account holds as a parameter lemma, a hypothesis on
-the interpretation). Such a parameter's value is the interpretation's, as is the value of a
-function where no clause applies, which with no clause is everywhere. Two kinds of symbol declared so are not compared here: one the theory does
-not have (its sentences have no direction), and one the registry interprets (`hookSigs`), which
-`hooks` admits only where the registry holds it under no hook name (a library function such as
-`freshInt`, which the text defines by an equation and the theory states by its graph; the equation
-is a library sentence of the tie, entailed at values). -/
+/-- A function of the semantics is declared `function{}`, without a hook or with a `hook`
+attribute that names no registry hook (`regHookOf`): of such a symbol the registry states nothing,
+so what the theory holds of it is what the text states, its equations. A symbol declared
+`function{}` without a hook that the theory has as a constructor, function, parameter or
+overloading symbol is a function of the semantics, or a function without equations: a symbol the
+theory has only as a parameter that no registry hook interprets (`impl = none`) and that is no
+open generator (`raw = false`), of which the text states no equation (`eqnsOf`; a law sentence is
+no equation, and neither is a `simplification` sentence, a lemma that a tie's account holds as a
+parameter lemma, a hypothesis on the interpretation). Such a parameter's value is the
+interpretation's, as is the value of a function where no clause applies, which with no clause is
+everywhere. Two kinds of symbol declared `function{}` without a hook are not compared here: one
+the theory does not have (its sentences have no direction), and one the registry interprets
+(`hookSigs`), which `hooks` admits only where the registry holds it under no hook name (a library
+function such as `freshInt`, which the text defines by an equation and the theory states by its
+graph; the equation is a library sentence of the tie, entailed at values). -/
 def fns (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all fun (n, as) =>
     let fn := has as "function" && !has as "hook"
@@ -243,7 +246,8 @@ def fns (k : Kore.Definition) (c : Semantics) : Bool :=
     let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
     let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
       (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
-    (!isFn || fn) && (!(fn && own) || isFn || par)
+    (!isFn || (has as "function" && (!has as "hook" || (strArg as "hook").any (regHookOf · == none)))) &&
+      (!(fn && own) || isFn || par)
 
 /-- The interpreted hooked symbol `g` is one the registry holds under no hook name
 (`regHookNames`): a function of the library's text with equations and no `hook` attribute. -/
@@ -251,7 +255,8 @@ def libFn (g : CtorSig) : Bool := !regHookNames.any (·.1 == g.name)
 
 /-- A symbol declared with `hook{}("h")` that the theory has as an interpreted hooked symbol is the
 one of `h`'s registry hook (`regHookOf`), and one it has as a parameter symbol has `impl` `h`'s
-registry hook. A symbol declared without a hook is an interpreted hooked symbol only where the
+registry hook. One it has as a function is compared by `fns`, which admits it where `h` names
+no registry hook. A symbol declared without a hook is an interpreted hooked symbol only where the
 registry holds it under no hook name (`libFn`) and the text declares it `function{}`; it is a
 parameter symbol only where no registry hook interprets the parameter (`impl = none`), the text
 states no equation of it (`eqnsOf`, which leaves out a `simplification` sentence: a lemma with the

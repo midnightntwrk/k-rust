@@ -10,6 +10,12 @@
     wherever the variants over `formerEqnsOf` hold (`fns_of_former`, `hooks_of_former`).
   On `hw-simp-owise` and `hw-simp-priority` (the one equation of `half` carries `simplification`,
   so `half` is a parameter without implementation) the five parts are true.
+  A function of the semantics may be declared with a `hook` attribute that names no registry hook:
+  - `fns` holds wherever the variant that asks a function to be declared without `hook` holds
+    (`fns_of_hookless`), and wherever the one over `formerEqnsOf` does (`fns_of_former`);
+  - on `f2-examples/ens.kompile.kore` with `half` declared `hooked-symbol … hook{}("INT.rand")`,
+    a hook the registry does not have, `half` is a function with its equation and the five parts
+    are true.
 -/
 import KcoreSpec
 
@@ -67,15 +73,35 @@ def formerHooks (k : Kore.Definition) (c : Semantics) : Bool :=
       c.params.all fun p => c.symName p.sig.name != n ||
         (p.impl.isNone && (p.raw != has as "function") && (formerEqnsOf k n).isEmpty))
 
-theorem fnRow_mono (x y z p a b : Bool) (e : a = true → b = true)
-    (h : (x && (y || z || (p && a))) = true) : (x && (y || z || (p && b))) = true := by
-  revert e h; cases a <;> cases b <;> cases x <;> cases y <;> cases z <;> cases p <;> decide
+/-- `fns`'s comparison at the text's declarations, with a function of the semantics declared
+without `hook`. -/
+def fnsHookless (k : Kore.Definition) (c : Semantics) : Bool :=
+  (symDecls k).all fun (n, as) =>
+    let fn := has as "function" && !has as "hook"
+    let isFn := c.allFns.any (c.symName ·.label == n)
+    let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
+    let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
+      (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
+    (!isFn || fn) && (!(fn && own) || isFn || par)
+
+theorem fnRow_mono (i f hk u y z p a b : Bool) (e : a = true → b = true)
+    (h : ((!i || (f && !hk)) && (y || z || (p && a))) = true) :
+    ((!i || (f && (!hk || u))) && (y || z || (p && b))) = true := by
+  revert e h
+  cases a <;> cases b <;> cases i <;> cases f <;> cases hk <;> cases u <;> cases y <;> cases z <;>
+    cases p <;> decide
+
+theorem fns_of_hookless {k : Kore.Definition} {c : Semantics} (h : fnsHookless k c = true) :
+    fns k c = true := by
+  simp only [fnsHookless, fns, List.all_eq_true] at h ⊢
+  rintro ⟨n, as⟩ hx
+  exact fnRow_mono _ _ _ _ _ _ _ _ _ id (h (n, as) hx)
 
 theorem fns_of_former {k : Kore.Definition} {c : Semantics} (h : formerFns k c = true) :
     fns k c = true := by
   simp only [formerFns, fns, List.all_eq_true] at h ⊢
   rintro ⟨n, as⟩ hx
-  exact fnRow_mono _ _ _ _ _ _ (@eqnsOf_isEmpty_of_former k n) (h (n, as) hx)
+  exact fnRow_mono _ _ _ _ _ _ _ _ _ (@eqnsOf_isEmpty_of_former k n) (h (n, as) hx)
 
 theorem hooks_of_former {k : Kore.Definition} {c : Semantics} (h : formerHooks k c = true) :
     hooks k c = true := by
@@ -110,3 +136,12 @@ info: [true, true, true, true, true]; fns []; params without impl [(Lblhalf, fal
 #eval show IO Unit from do
   IO.println (← attrsParts "test/constructs/fixtures/hw-simp-owise/hw-simp-owise.kore")
   IO.println (← attrsParts "test/constructs/fixtures/hw-simp-priority/hw-simp-priority.kore")
+
+/--
+info: [true, true, true, true, true]; fns [(Lblhalf, 1)]; params without impl []
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  IO.println (← attrsParts "f2-examples/ens.kompile.kore" fun s =>
+    s.replace "  symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), "
+      "  hooked-symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), hook{}(\"INT.rand\"), ")
