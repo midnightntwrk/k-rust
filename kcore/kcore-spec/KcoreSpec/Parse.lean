@@ -1108,6 +1108,11 @@ no other symbol's. (K's `ite`'s instances keep their own reading, `iteName`, imp
 registry's `kIte`.) -/
 def instName (f : String) (xs : List String) : String := f ++ "{" ++ ",".intercalate xs ++ "}"
 
+/-- `n` is the name `instName` gives an instance of the sort-parametric symbol `f`, `f{…}`: the
+symbol the text applies is `f`, at sort arguments. KORE's identifiers hold no brace, so `n` is no
+other symbol's name. -/
+def instNameOf (f n : String) : Bool := n.startsWith (f ++ "{") && n.endsWith "}"
+
 /-- The functions kompile generates and a user axiom may apply: K's `append`, the projections
 `project:X`, a collection cell's initializer `initXCell`. `envOf` numbers those its axioms apply. A
 projection the text gives an equation, a library sort's or a user sort's, is a function with the
@@ -4907,7 +4912,9 @@ def hookFnDecls (S : Scan) : List Kore.SentenceSymbol :=
   (S.userHooked.filter (hookFnSym S)).map fun h => ⟨h.symbol, h.sorts, h.sort, h.attributes⟩
 
 /-- The refusal of an equation by the symbol heading its left side, with its detail: a hooked
-symbol of the text not read as a function (`hookFnSym`), or a registry symbol where the equation is written in a user's file
+symbol of the text not read as a function (`hookFnSym`), applied at no sort argument or, where it is
+sort-parametric, at sort arguments (the equation then named by the instance, `instNameOf`: the
+symbol the text applies is the declared one), or a registry symbol where the equation is written in a user's file
 (`hookEquation`), a constructor (`constructorEquation`) or an open generator
 (`openGeneratorEquation`); none for an equation of any other symbol, a symbol-overload axiom or a
 selector-domain axiom. -/
@@ -4916,9 +4923,12 @@ def eqnHeadFault? (S : Scan) (e : RawEqn) : Option (RefusalReason × String) :=
   else
     let isCtor := fun (n : String) =>
       S.syms.any fun s => s.symbol.ident.ident.name == n && hasAttr s.attributes "constructor"
-    let hooked := ((S.userHooked.filter (!hookFnSym S ·)).find? (·.symbol.ident.ident.name == e.fn)).map fun h =>
+    let hooked := ((S.userHooked.filter (!hookFnSym S ·)).find? fun h =>
+        h.symbol.ident.ident.name == e.fn ||
+          (!h.symbol.sortVars.isEmpty && instNameOf h.symbol.ident.ident.name e.fn)).map fun h =>
       let hk := (attrStr? h.attributes "hook").getD ""
-      (RefusalReason.hookEquation, s!"{e.fn}: a hooked symbol of the text, " ++
+      let inst := if h.symbol.ident.ident.name == e.fn then "" else s!"an instance of {h.symbol.ident.ident.name}, "
+      (RefusalReason.hookEquation, s!"{e.fn}: {inst}a hooked symbol of the text, " ++
         if (attrStr? h.attributes "hook").isNone then "without a hook attribute"
         else if (regHookOf hk).isSome then s!"hook {hk} interpreted by the registry"
         else s!"hook {hk}, a unit, element or concatenation symbol of a collection sort")

@@ -1,0 +1,2 @@
+out/definition.kore: refused: sentence 100 (Lblpick): parametricSort
+(exit 1)

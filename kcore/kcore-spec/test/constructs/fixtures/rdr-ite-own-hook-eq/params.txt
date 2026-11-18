@@ -1,2 +1,2 @@
-param	Lblite{Foo}	args=[Bool, Foo, Foo]	result=Foo	impl=Lblite	raw=false	assoc=false	idem=false
-(exit 0)
+out/definition.kore: refused: sentence 291 (Lblite{Foo}): hookEquation (Lblite{Foo}: an instance of Lblite, a hooked symbol of the text, hook KEQUAL.ite interpreted by the registry)
+(exit 1)
