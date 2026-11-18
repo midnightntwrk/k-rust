@@ -23,6 +23,12 @@
     texts differ in the `UNIQUE'Unds'ID` of `f`'s equation alone; the macro's rule has no sentence in
     either.
 
+  - `SimpEns`: fixture c3-simp-ens (`rule f(f(X)) => f(X) ensures X >=Int 0 [simplification]`
+    beside `rule f(X) => X [priority(40)]`) against c3-simp-prio (the simplification without the
+    `ensures`): one semantics. This is not evidence that the sentence is inert: with `f(X) = X`, at
+    X = -1 its left side is -1 and its right side `f(-1) ∧ (-1 >=Int 0 = true)` is empty, so Γ does not
+    entail it; it shows only that the reader drops it.
+
   With `StrictAlias` and `MacroUse`, the reading of a rewrite axiom and of an equation does not
   depend on the value of its `UNIQUE'Unds'ID`. `trS_attrs` states that the translation of a sentence
   does not read its attributes at all.
@@ -105,6 +111,18 @@ theorem gamma_eq (H : HookParams) : Γ (Macro.defn.sem.withHooks H) = Γ (Expand
   rw [withHooks_eq]
 end MacroUse
 
+namespace SimpEns
+namespace Ens
+definition_of defn from "f2-examples/c3-simp-ens.kompile.kore"
+end Ens
+namespace Prio
+definition_of defn from "f2-examples/c3-simp-prio.kompile.kore"
+end Prio
+
+/-- The reader reads the simplification with its `ensures` as the same nothing as without it. -/
+theorem sem_eq : Ens.defn.sem = Prio.defn.sem := rfl
+end SimpEns
+
 end KCore.InertSemPairs
 
 #check @KCore.InertSemPairs.trS_attrs
@@ -121,3 +139,5 @@ end KCore.InertSemPairs
 #print axioms KCore.InertSemPairs.StrictAlias.gamma_eq
 #print axioms KCore.InertSemPairs.MacroUse.withHooks_eq
 #print axioms KCore.InertSemPairs.MacroUse.gamma_eq
+#check @KCore.InertSemPairs.SimpEns.sem_eq
+#print axioms KCore.InertSemPairs.SimpEns.sem_eq
