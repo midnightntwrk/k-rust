@@ -956,6 +956,16 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   and e2-frontend-effect and of the first with its standard equation moved first, c3-strict-base
   read; the account's arm alone, the definition of c3-strict-base against the sentences of
   c3-strict-hybrid.
+- `test/PredFnCone.lean`: a sort predicate held as a function of `c.fns`, by the kernel: every
+  semantics `idsOK` accepted with `ownSyms` listing every function is accepted
+  (`idsOK_of_before`); a function under an own sort's predicate number replaces the one
+  `sortPreds` builds and `coreOK` holds; two such functions fail `predsApart` alone; a function
+  labelled `isK` fails `predsApart` and `idsOK`; one labelled as a registry sort's predicate fails
+  only `idsOK`'s conjunct on the functions' labels (test/witnesses.toml, predsApart.1, idsOK.4).
+- `test/PredHybrid.lean`: a hand-built semantics whose predicate isKResult is a function of
+  `c.fns` of three clauses (the pair clause under a `requires`, the standard one, `false`
+  otherwise): `coreOK` holds, `isKResult(pair(1, 2))` and `isKResult(pair(pair(1, 2), 1))` evaluate
+  to true by the kernel, and its totality is owed.
 - `test/ExClauseReader.lean`: `Parse.ceRead` (`KcoreSpec/ReadFns.lean`, not called by `clauseBody`):
   an equation's right side under `\exists` as one clause with `exs` and `post`, and a conjunction
   of terms at a term position as its `\exists` variable conjunct or a fresh existential variable,
