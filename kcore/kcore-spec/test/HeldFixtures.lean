@@ -7,7 +7,7 @@
   ## openRefusal
   The reader's `Parse.openRefusal` reads the variables the right side holds under constructors,
   injections and the unit, element and concatenation symbols of a map, list or set collection
-  (`heldOccs`), as `rulesPlain`'s conjunct for one rule does (`Semantics.rulePlainHO1`). For each
+  (`heldOccs`), as `rulesPlain`'s conjunct for one rule does (`Semantics.rulePlainHO2`; `rulePlainHO1` is it with no variable counted as held by a cut, and no rule here has a cut). For each
   text: the reader's verdict, and on its reading before the rules are checked (`Parse.coreBase`)
   each rule's `openRefusal` and `rulePlainHO1`, which agree (`agree true`):
   - e3-vars-map (`<m> .Map => K |-> ?V:Int </m>`), e3-vars-map-rest (`<m> M => (?K:Int |-> 0) M </m>`),

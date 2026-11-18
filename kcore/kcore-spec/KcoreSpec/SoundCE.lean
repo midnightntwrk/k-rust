@@ -17,25 +17,25 @@ set_option autoImplicit false
 
 namespace KCore
 
-/-- What `sortedOKEx` gives of each rule: `ruleSorted` and `rulePlainHO1`
-(`ruleFactsHO1_of_sortedOK`'s proof; the rules' conjuncts of `sortedOKEx` are `sortedOK`'s). -/
-theorem Semantics.ruleFactsHO1_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHO1 r = true := by
+/-- What `sortedOKEx` gives of each rule: `ruleSorted` and `rulePlainHO2`
+(`ruleFactsHO2_of_sortedOK`'s proof; the rules' conjuncts of `sortedOKEx` are `sortedOK`'s). -/
+theorem Semantics.ruleFactsHO2_of_sortedOKEx {c : Semantics} (h : c.sortedOKEx = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHO2 r = true := by
   intro r hr
   obtain ⟨-, -, hs, hp, -, -⟩ := Semantics.sortedOKEx_parts h
-  exact ⟨List.all_eq_true.mp hs r hr, Semantics.rulesPlain_iff_held.mp hp r hr⟩
+  exact ⟨List.all_eq_true.mp hs r hr, Semantics.rulesPlain_iff_memHeld.mp hp r hr⟩
 
-/-- What `coreOKEx` gives of each rule: `ruleSorted` and `rulePlainHO1`. -/
-theorem Semantics.ruleFactsHO1_of_coreEx {c : Semantics} (h : c.coreOKEx = true) :
-    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHO1 r = true :=
-  Semantics.ruleFactsHO1_of_sortedOKEx (Semantics.coreOKEx_parts h).1
+/-- What `coreOKEx` gives of each rule: `ruleSorted` and `rulePlainHO2`. -/
+theorem Semantics.ruleFactsHO2_of_coreEx {c : Semantics} (h : c.coreOKEx = true) :
+    ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHO2 r = true :=
+  Semantics.ruleFactsHO2_of_sortedOKEx (Semantics.coreOKEx_parts h).1
 
 /-- What `coreOKEx` gives of each rule: `ruleSorted`, and `rulePlainHeldH` at the symbols
 `Semantics.holds` names. -/
 theorem Semantics.ruleFactsHeld_of_coreEx {c : Semantics} (h : c.coreOKEx = true) :
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainHeldH c.holds r = true := fun r hr =>
-  ⟨(Semantics.ruleFactsHO1_of_coreEx h r hr).1,
-    Semantics.rulePlainHeldH_of_HO1 (Semantics.ruleFactsHO1_of_coreEx h r hr).2⟩
+  ⟨(Semantics.ruleFactsHO2_of_coreEx h r hr).1,
+    Semantics.rulePlainHeldH_of_HO2 (Semantics.ruleFactsHO2_of_coreEx h r hr).2⟩
 
 open ML Faithful Faithful.Model
 
@@ -126,7 +126,7 @@ theorem famEx_closed_postCEx (c : Semantics) (h : c.coreOKEx = true) {x y : Conf
     Γc c ⊧ (famEx c r σ ≡ den c y.val) := by
   intro M _ I hI e m
   rw [KoreAML.interp_equal (defOK fun φ hφ => hI φ (Or.inl hφ))]
-  exact fun a => famEx_denPPCEx h (Semantics.ruleFactsHO1_of_coreEx h r hs.mem).1 hex
+  exact fun a => famEx_denPPCEx h (Semantics.ruleFactsHO2_of_coreEx h r hs.mem).1 hex
     (readsConfined_of_post hs.mem) hs.hσ hs.heval hs.hens hs.hpost hI hc e a
 
 /-! ## The statements at a step and at a configuration over `coreOKEx` -/

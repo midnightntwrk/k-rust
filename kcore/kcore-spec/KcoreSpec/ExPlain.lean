@@ -9,7 +9,7 @@
   variables of confined sorts or closed conditions. An existential variable is in no condition of the
   left side, so it passes by the first two arms only. `rulePlainOpen` is `rulePlainEx` with no
   existential variable (`rulePlainOpen_iff_ex`); the predicates of a rule with `rulePlainEx` are
-  `\top` (`rulePlainEx_top`). `rulesPlain` asks less of a rule: `rulePlainHO1` (PredPlain.lean).
+  `\top` (`rulePlainEx_top`). `rulesPlain` asks less of a rule: `rulePlainHO2` (PredPlain.lean).
 -/
 import KcoreSpec.OpenStep
 

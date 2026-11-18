@@ -220,7 +220,7 @@ theorem famOpen_values (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     (hys : ∀ y : Config c, (∃ σ', (∀ i ∈ varOccs r.lhs, σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y) →
       y.val ∈ ys) :
     Γc c ⊧ (famOpen c r σ ⇒ KoreAML.disjList (ys.map (den c))) :=
-  famOpen_values_pp c h hf x r hr (Semantics.ruleFactsHO1_of_core h r hr).1 σ hu hcf ys hys
+  famOpen_values_pp c h hf x r hr (Semantics.ruleFactsHO2_of_core h r hr).1 σ hu hcf ys hys
 
 /-- Where every rule's left side binds every variable, completeness lists values. -/
 theorem completeC_closed (c : Semantics) (ref : StepFn) (hop : ∀ r ∈ c.rules, r.opens = []) :
@@ -259,7 +259,7 @@ theorem sound_at_step (c : Semantics) (h : c.coreOK = true) (hrc : c.readsConfin
   obtain ⟨r, σ, hb⟩ := step_iff_by.mp hs
   obtain ⟨h1, -⟩ := sound_at c h x y r σ hb (fun r' hr' _ hn _ => hod.1 r' hr' hn) hod.2
   have hcl : Γc c ⊧ (famEx c r σ ≡ den c y.val) :=
-    famEx_closed c h hb (Semantics.exs_nil_of_opens (Semantics.ruleFactsHO1_of_core h r hb.mem).1
+    famEx_closed c h hb (Semantics.exs_nil_of_opens (Semantics.ruleFactsHO2_of_core h r hb.mem).1
       ((Semantics.opens_of_readsConfined hrc).1 r hb.mem)) hod.2
   rw [Γc_plain hrc] at h1 hcl
   intro M _ I hI e m
