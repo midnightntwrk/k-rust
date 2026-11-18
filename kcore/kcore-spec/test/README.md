@@ -1037,7 +1037,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `KCore.EmptyInh` in which Empty holds an element e, where `isMk(mk(e))` is true. Over all H the
   theory with the step's closure entails neither that `<k> b() </k>` is a successor of
   `<k> a() </k>` nor that it is not (`Genless.succ_undetermined`: soundness at `EmptyInh.plus` and
-  the value model of c).
+  the value model of c). The same proof at hw-ex-unused-empty's text (`HwEmpty`).
+- `test/OwedReqOrWitness.lean`: at e3-ml-req-or-unheld, the rule of the disjunct `Y >Int 2` is
+  `Witnessed` at Y := 3 (`witnessed1`), so `OpenDecided` holds (`owed`) and with it the pinned
+  `sound_at` (`sound_at_owed`) and `SoundC` (`sound`).
 - `test/NonExecOwiseTie.lean`, `test/nonexec-owise-gen.sh`: the tie on the two texts of a
   `non-executable` equation beside an `[owise]` one, their own kompiled texts
   (`f2-examples/owisenx.kompile.kore`, `owisenxagree.kompile.kore`), for every H. e5-owise-nonexec:
