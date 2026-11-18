@@ -119,7 +119,7 @@ COUNTED = [
 ]
 
 # `reasons` names that the fixtures their entry's evidence names do not print: (ticket, pinned count).
-UNSHOWN = ("R2-release.C4", 7)
+UNSHOWN = ("R2-release.C4", 3)
 
 # Constructors no entry names, each with the ticket that owes the entry: ("Inductive.x", ticket).
 # One holds only while its ticket is in PROGRESS and not done, and while no entry names it.
