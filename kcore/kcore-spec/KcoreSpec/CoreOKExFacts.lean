@@ -11,6 +11,7 @@
   clauses that they are sorted (`clauseSorted`), never `clausesPlain`.
 -/
 import KcoreSpec.CoreOKEx
+import KcoreSpec.ExsValues
 import KcoreSpec.OpenClauseFam
 import KcoreSpec.HoldsFactsCore
 import KcoreSpec.ClausePreTie

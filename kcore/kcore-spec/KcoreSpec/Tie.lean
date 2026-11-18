@@ -10,6 +10,7 @@ import KcoreSpec.Kore.Translate
 import KcoreSpec.Kore.Blocks
 import KcoreSpec.Kore.Distinct
 import KcoreSpec.FaithOK
+import KcoreSpec.ClausePlainEx
 import KcoreSpec.OvlHeldDefs
 
 set_option autoImplicit false
@@ -130,6 +131,12 @@ def condOK (vars : List Srt) : Cond → Bool
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t == some s && condOK (vars ++ ys) body) &&
       decide (s < nRegSorts + c.sortNames.length)
   | .ex s body | .all s body => condOK (vars ++ [s]) body
+
+/-- The existential variables of a clause are in scope, apart and in no pattern or condition of
+the left side, and its right-side predicate is sorted. -/
+def clauseExOK (cl : Clause) : Bool :=
+  cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
+    c.condOK cl.vars cl.post
 
 /-- A clause of `f` is well sorted over the function signatures `rhsHeads`: its patterns have the
 argument sorts in the context of a pattern that applies no function-overloaded symbol (`patCtxNF`),
