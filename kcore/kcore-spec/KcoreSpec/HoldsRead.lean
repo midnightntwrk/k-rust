@@ -183,6 +183,20 @@ theorem InstIsRead.post {σ : Subst} {cl : Clause} {r : Option GroundTerm} (h : 
   | fails hp _ => exact ⟨_, hp⟩
   | gives _ _ _ hpost => exact ⟨true, hpost⟩
 
+/-- With the atoms' facts, a decided instance comes with the readings of its terms. -/
+theorem InstIsRead.of_instIs (F : AtomFacts c I) {σ : Subst} {cl : Clause} {r : Option GroundTerm}
+    (h : InstIs c σ cl r) : InstIsRead c I σ cl r := by
+  cases h with
+  | fails hp hf =>
+    refine .fails (HoldsReadT.of_holds F.termAt _ hp) ?_
+    cases hf with
+    | ens ht he hw => exact .ens ht he (F.termAt he) hw
+    | post h => exact .post (HoldsReadT.of_holds F.termAt _ h)
+    | rhs h => exact .rhs h (F.termAt h)
+  | gives hrhs hens hpost =>
+    exact .gives hrhs (F.termAt hrhs) (fun t ht => ⟨hens t ht, F.termAt (hens t ht)⟩)
+      (HoldsReadT.of_holds F.termAt _ hpost)
+
 /-- **A truth value with its terms' readings is read in I** (`HoldsAt`): each constructor by its
 lemma. Asked of I: the constructors' facts, and the binders' where the condition holds a binder. -/
 theorem HoldsReadT.holdsAt (F : NodeFacts c I) {n : Nat} {σ : Subst} {p : Cond} {b : Bool}

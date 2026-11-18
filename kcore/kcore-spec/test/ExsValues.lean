@@ -96,6 +96,12 @@ example := @CE.exs_values
 /-- info: 'KCore.Faithful.instIs_den4ClPre' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.Faithful.instIs_den4ClPre
 
+/-- info: 'KCore.Faithful.eval_den_exRead' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.Faithful.eval_den_exRead
+
+/-- info: 'KCore.Faithful.eval_den_ex' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.Faithful.eval_den_ex
+
 /-- info: 'KCore.ExsValuesTest.fix_dec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.ExsValuesTest.fix_dec
 
