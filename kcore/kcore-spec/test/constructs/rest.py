@@ -144,6 +144,12 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    `reasons` is not needed; or, for an option that writes no definition (unit
                    "none (scope): option", `shape` "none: ..."), a fixture of the entry whose
                    kompile.txt holds `definition.kore: none written`, and `reasons` is not needed
+      scope        instead of a RefusalReason, on an E8 option row of class R-b or scope (the row's
+                   key the option): `reasons` holds SCOPE_OPTION ("none (scope): option"), and a
+                   fixture of the entry has kompile.txt's `command:` passing the option outside R-12's
+                   option set (an argument other than `--backend haskell`, or `--backend` with another
+                   value); RefusalReason items beside it are checked as above (what the reader answers
+                   on the text the option gives); the item on another entry is missing evidence
       fresh        as above, for a fixture that has an account
       reason       a reason sentence (`reason`, `reader_reason` or `refused_by`)
   independent (a [C3] pair)
@@ -163,6 +169,12 @@ LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
 KLEVEL = {"E1", "E2", "E3", "E7", "E8", "C3"}
 WAVE = re.compile(r"^(e2-unbound|e2-rule|e2-clause-.*|e6-rangemap)$")
 ERASED_FORMS = ["P", "S", "O", "C"]
+# The `reasons` item of an E8 option row refused for scope: the option is outside R-12's option set,
+# whatever the reader answers on the text it gives (closed.py admits it beside the constructors).
+SCOPE_OPTION = "none (scope): option"
+# R-12's option set: `kompile --backend haskell MAIN`; every other option, or another value of this
+# one, is outside it.
+R12_OPTIONS = {"--backend": "haskell"}
 STATUSES = ["supported", "parameter", "inert", "erased", "refused", "independent",
             "pending-fixture", "not-handled"]
 
@@ -589,6 +601,17 @@ def declared(name, files):
 
 # ------------------------------------------------------------------------------------- evidence
 
+def option_passed(fx, x, opt):
+    """The fixture's kompile.txt `command:` line passes the option `opt` outside R-12's option set:
+    `opt` is an argument of the command, with a value other than R-12's where R-12 sets one."""
+    m = re.search(r"^command: kompile (.*?)(?:  \(cwd: [^)]*\))?$", fx.read(x, "kompile.txt") or "", re.M)
+    args = m[1].split() if m else []
+    if opt not in args:
+        return False
+    i = args.index(opt)
+    return opt not in R12_OPTIONS or args[i + 1:i + 2] != [R12_OPTIONS[opt]]
+
+
 def evidence(fx, l, key, e, row):
     """(present, missing): two lists of strings, the items of the entry's form (module docstring)."""
     f = form(l, key, e, row, fx)
@@ -739,15 +762,26 @@ def evidence(fx, l, key, e, row):
         nodef = [x for x in own if re.search(r"^definition\.kore: none written$", fx.read(x, "kompile.txt") or "", re.M)]
         option = (e.get("unit") == "none (scope): option" and isinstance(e.get("shape"), str)
                   and e["shape"].startswith("none: "))
+        scope = SCOPE_OPTION in (e.get("reasons") or [])
         if kompile_refuses:
             have.append(f"kompile refuses ({err[0]})")
         elif option and nodef:
             have.append(f"kompile writes no definition ({nodef[0]})")
+        elif scope and not (l == "E8" and e.get("class") in ("R-b", "scope")):
+            miss.append(f"{SCOPE_OPTION!r} (only on an E8 option row of class R-b or scope)")
         else:
-            item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
+            passed = [x for x in own if option_passed(fx, x, key)] if scope else []
+            if scope:
+                item(bool(passed), f"scope: option {key} outside R-12 ({passed[0] if passed else ''} kompile.txt)",
+                     f"scope: no fixture of the entry whose kompile.txt command passes {key} outside R-12"
+                     + (f" ({', '.join(own)})" if own else " (no fixture)"))
+            else:
+                item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
             accs = [(x, fx.account(x)) for x in own if fx.account(x) is not None]
-            if not accs:
+            if not accs and not scope:
                 miss.append("fixture whose account prints the reason" + ("" if own else " (no fixture)"))
+            elif not accs and rs:
+                miss.append(f"fixture whose account prints {', '.join(rs)}")
             elif rs:
                 hit = [x for x, a in accs if all(r in a[1] for r in rs)]
                 item(bool(hit), f"account {hit[0] if hit else ''} prints the reason",
@@ -1239,6 +1273,16 @@ def self_test():
             "// other_file macros.kore: 9 lines, sha256 0\n  axiom{R} \\equals{SortExp{},R} (\n"
             "    Lblm{}(VarX:SortExp{}),\n    Lblg{}(VarX:SortExp{}))\n  [macro{}()]\n")
         open(os.path.join(fxd, "nodef", "kompile.txt"), "w").write("exit: 0\ndefinition.kore: none written\n")
+        # option fixtures: kompile.txt's command passes --opt, --backend llvm, R-12's set only; one
+        # with --opt whose account refuses (setVariable)
+        for name, args, acc in (("optk", "--backend haskell --opt ref.k", clean),
+                                ("optllvm", "--backend llvm --no-llvm-kompile ref.k", clean),
+                                ("opthask", "--backend haskell ref.k", clean),
+                                ("optref", "--backend haskell --opt ref.k", refusing)):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write(
+                f"command: kompile {args} -o out  (cwd: the fixture directory)\nexit: 0\n")
+            open(os.path.join(fxd, name, "account.txt"), "w").write(acc)
         rows = {"E3": {"U": {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "ok"},
                        "V": {"status": "inert", "inert_class": "use", "fixture": "ok"},
                        "E": {"status": "erased", "fixture": "eq"}}}
@@ -1415,6 +1459,33 @@ def self_test():
                          "reason": "r"}, False),
             ("E8", "A", {"status": "refused", "fixture": "nodef", "class": "scope", "unit": "none (scope): option",
                          "shape": "E8 X", "reason": "r"}, False),
+            # an option outside R-12's set, refused for scope without a RefusalReason
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            ("E8", "--backend", {"status": "refused", "fixture": "optllvm", "class": "R-b",
+                                 "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "scope",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, True),
+            # with the reader's refusal beside it: checked against the account
+            ("E8", "--opt", {"status": "refused", "fixture": "optref", "class": "R-b",
+                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, True),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION, "RefusalReason.setVariable"], "reason": "r"}, False),
+            # R-12's value of --backend; an option the command does not pass; no fixture; no reason
+            ("E8", "--backend", {"status": "refused", "fixture": "opthask", "class": "R-b",
+                                 "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--other", {"status": "refused", "fixture": "optk", "class": "R-b",
+                               "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "none", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION]}, False),
+            # without the item, or off an E8 option row of class R-b or scope
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b", "reason": "r"}, False),
+            ("E2", "--opt", {"status": "refused", "fixture": "optk", "class": "R-b",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
+            ("E8", "--opt", {"status": "refused", "fixture": "optk", "class": "R-a",
+                             "reasons": [SCOPE_OPTION], "reason": "r"}, False),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "simplification", "tie": [tie],
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "claim", "tie": [tie],
