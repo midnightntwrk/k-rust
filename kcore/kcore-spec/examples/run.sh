@@ -74,7 +74,11 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # inverted (User.EvalInversion: `KK.eval_app_inv`); FnDet at HookParams.none (User.FnSolves:
 # `KK.fnDet`); PrioDecided with `leq`'s Bool results (User.PrioDecided: `KK.prioDecided`,
 # `KK.leq_result`); CoDefined (User.CoDefined: `KK.coDefined`); FnSolves and Consistent at
-# HookParams.none by consistent_of (User.Consistent: `KK.fnSolves`, `KK.consistent`)
+# HookParams.none by consistent_of (User.Consistent: `KK.fnSolves`, `KK.consistent`); the cascade
+# text's kit and symbol facts (User.KkKit, User.KkFacts), the text gen/kkcascade.py emits for `app`,
+# `lookup` and `mkInj` (User.KkCascade), and the same functions' text by hand and as written for the
+# measurement (User.SpikeBase, User.SpikeHand, User.SpikeCascade)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
-  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent; fi
+  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade; fi
 echo "all built"

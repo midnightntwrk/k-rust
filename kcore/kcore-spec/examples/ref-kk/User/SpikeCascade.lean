@@ -23,7 +23,7 @@ set_option Elab.async false
 
 namespace KK.Spike.Cascade
 
-open KCore KCore.Det RefKk KK KK.Spike
+open KCore KCore.Det RefKk KK KK.Kit KK.Spike
 
 /-! ## `app` -/
 
