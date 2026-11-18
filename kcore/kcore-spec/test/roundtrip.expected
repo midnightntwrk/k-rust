@@ -95,6 +95,7 @@ differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
+differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore

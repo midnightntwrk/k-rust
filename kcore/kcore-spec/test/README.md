@@ -1928,6 +1928,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   `InertEvUser.EqnU.entailed`), from `f(n) = n` at every integer (`eval_all`) and a value table that
   takes `isKResult`'s value at each K, which it has for every H (`isKResult_total`, the sort predicates'
   totality); both sides are n whatever the `requires` is.
+- `test/InertE3Setvar.lean`: the C2 evidence of the inert simplification over a set variable
+  `rule f(@S) => @S [simplification]` (fixture e3-setvar): Γ entails it for every H, at every
+  valuation (`lem_entailed`). Γ entails f's equation `f(X) => X` (`eq_entailed`, by the kernel shape
+  check of Γ's function items against the text), so in a model `f` at an inhabitant x of Int holds,
+  among the inhabitants of Int, exactly x (`eqn_at`); the sentence's guard puts `@S` inside Int's
+  inhabitants, and application is pointwise, so both sides hold exactly `@S` there.
 - `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
   and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
   every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`
