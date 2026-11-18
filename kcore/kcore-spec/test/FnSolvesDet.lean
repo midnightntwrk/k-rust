@@ -298,7 +298,7 @@ theorem sortsOf_of_match {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl 
   simp only [Bool.and_eq_true, List.all_eq_true] at hf
   have hcs := hf.1.2 fn hfn cl hcl
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hcs
-  exact Det.patVals_sortedAll (matchCtxO h) hσ hm ((ovlOK_of_core h).nfs_bridge hcs.1.1.1.1.1.1)
+  exact Det.patVals_sortedAll (matchCtxO h) hσ hm hcs.1.1.1.1.1.1
 
 include hpreTop in
 theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}

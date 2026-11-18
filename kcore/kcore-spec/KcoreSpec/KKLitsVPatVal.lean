@@ -120,7 +120,7 @@ theorem clause_patSorts_kpv {c : Semantics} (hok : c.sortedOK = true) {fn : Fn}
     simp only [Bool.and_eq_true, List.all_eq_true] at h'
     have := h'.1.2 fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
-    exact this.1.1.1.1.1.1
+    exact sortsOfTerms_all_of_nf this.1.1.1.1.1.1
   · exact sortsOfTerms_heads _ _ _ _ (sortPreds_ctx hfn cl hcl).1
 
 /-- A substitution that gives a variable of a sort other than `Float` a value of its sort gives it a

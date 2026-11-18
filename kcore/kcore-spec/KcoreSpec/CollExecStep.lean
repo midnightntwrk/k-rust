@@ -30,7 +30,7 @@ theorem clausePats_sorted (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.al
     have := hok.1.2 fn hfn' cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
     replace this := this.1
-    exact this.1.1.1.1.1
+    exact sortsOfTerms_all_of_nf this.1.1.1.1.1
   · exact sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats (sortPreds_ctx hfn' cl hcl).1
 
 /-- The left-hand side of every rule has the configuration sort over a left-hand side's context. -/

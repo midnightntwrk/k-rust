@@ -1145,8 +1145,8 @@ theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
   replace hc1 := hc1.1
   replace hc2 := hc2.1
-  have hn1 := sortsOfTerms_to_nf _ hc1.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))
-  have hn2 := sortsOfTerms_to_nf _ hc2.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))
+  have hn1 := hc1.1.1.1.1.1
+  have hn2 := hc2.1.1.1.1.1
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((hne | ho) | ⟨hfx, hx⟩) | ha
   · exact (not_compete (by revert hne; simp) hprio).elim
@@ -1179,7 +1179,8 @@ theorem clausesAgree_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srRead
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
         (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_okM hok)).2.1
           (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl)
-        (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl))
+        (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl)
+        (noFnOvlInL_of_ovlFree (matchCtx_of hmr) _ (ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)))
       ((clauseCtx_of_okM hok).fnsNoExs fn hfn) hx).agree
       ((clauseCtx_of_okM hok).fnsNoExs fn hfn)
   · refine hob fn.label ?_ fn ?_
