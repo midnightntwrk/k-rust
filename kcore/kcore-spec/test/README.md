@@ -1773,6 +1773,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   interprets, and name no symbol of Γ (the reading has no parameter symbol); the library's
   equation of `dividesInt` (274, domains.md 1454) applies it, the one head it applies that Γ lacks.
   Axioms printed.
+- `test/LibEvDeclsStrBuf.lean`: the declarations of `f2-examples/e6sb.kompile.kore` (the fixture
+  e6-string-buffer) in the direction E, for every H: each sort declaration without sort
+  parameters (`decls_entailed`) and STRING-BUFFER-IN-K's three symbol declarations
+  (`lib_decls_entailed`), which the rule applies and the reading has as parameter symbols
+  (`params_sb`). Axioms printed.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
