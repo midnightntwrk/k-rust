@@ -178,19 +178,40 @@ def isRewrite : Kore.Pattern → Bool
 def ctors (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)
 
+/-- A law sentence: an equation without premise between terms, marked `assoc`, `comm`, `unit` or
+`idem`, that states no priority (no `owise`, no `priority`). It states a law of the symbol at its
+head, and is no equation of it. -/
+def isLaw (a : Kore.Axiom) : Bool :=
+  (has a.attributes "assoc" || has a.attributes "comm" || has a.attributes "unit" || has a.attributes "idem") &&
+    !has a.attributes "owise" && !has a.attributes "priority" &&
+  match a.pattern with
+  | .equals _ _ (.app _ _ _) _ => true
+  | _ => false
+
+/-- The text's equations of the symbol `n`: the axioms with `n` at the head of their left side
+that are no law sentence (`isLaw`). -/
+def eqnsOf (k : Kore.Definition) (n : String) : List Kore.Axiom :=
+  (k.axiomDecls.map (·.ax)).filter fun a => eqnHead a.pattern == some n && !isLaw a
+
 /-- A function of the semantics is declared `function{}` without a hook, and a symbol declared so
 that the theory has as a constructor, function, parameter or overloading symbol is a function of
-the semantics. Two kinds of symbol declared so are not compared here: one the theory does not have
-(its sentences have no direction), and one the registry interprets (`hookSigs`), which `hooks`
-admits only where the registry holds it under no hook name (a library function such as `freshInt`,
-which the text defines by an equation and the theory states by its graph; the equation is a
-library sentence of the tie, entailed at values). -/
+the semantics, or a function without equations: a symbol the theory has only as a parameter that
+no registry hook interprets (`impl = none`) and that is no open generator (`raw = false`), of
+which the text states no equation (`eqnsOf`; a law sentence is no equation). Such a parameter's
+value is the interpretation's, as is the value of a function where no clause applies, which with
+no clause is everywhere. Two kinds of symbol declared so are not compared here: one the theory does
+not have (its sentences have no direction), and one the registry interprets (`hookSigs`), which
+`hooks` admits only where the registry holds it under no hook name (a library function such as
+`freshInt`, which the text defines by an equation and the theory states by its graph; the equation
+is a library sentence of the tie, entailed at values). -/
 def fns (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all fun (n, as) =>
     let fn := has as "function" && !has as "hook"
     let isFn := c.allFns.any (c.symName ·.label == n)
     let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
-    (!isFn || fn) && (!(fn && own) || isFn)
+    let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
+      (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
+    (!isFn || fn) && (!(fn && own) || isFn || par)
 
 /-- The interpreted hooked symbol `g` is one the registry holds under no hook name
 (`regHookNames`): a function of the library's text with equations and no `hook` attribute. -/
@@ -198,8 +219,12 @@ def libFn (g : CtorSig) : Bool := !regHookNames.any (·.1 == g.name)
 
 /-- A symbol declared with `hook{}("h")` that the theory has is an interpreted hooked symbol whose
 registry hook is `h`'s (`regHookOf`), or a parameter symbol whose `impl` is `h`'s registry hook.
-A symbol declared without a hook is no parameter symbol, and is an interpreted hooked symbol only
-where the registry holds it under no hook name (`libFn`) and the text declares it `function{}`. -/
+A symbol declared without a hook is an interpreted hooked symbol only where the registry holds it
+under no hook name (`libFn`) and the text declares it `function{}`; it is a parameter symbol only
+where no registry hook interprets the parameter (`impl = none`), the text states no equation of it
+(`eqnsOf`), and it is an open generator (`raw`) exactly where the text does not declare it
+`function{}`: an open generator is a parameter declared without hook and without function, and a
+parameter declared `function{}` without hook is a function without equations. -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
   (symDecls k).all (fun (n, as) =>
     match strArg as "hook" with
@@ -208,7 +233,8 @@ def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
       (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
     | none =>
       (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
-      c.params.all fun p => c.symName p.sig.name != n)
+      c.params.all fun p => c.symName p.sig.name != n ||
+        (p.impl.isNone && (p.raw != has as "function") && (eqnsOf k n).isEmpty))
 
 /-- A sort declared with `unit`, `element` and `concat` is a collection sort of the semantics with
 those three symbols, and each of the semantics' own collection sorts is declared so. -/
@@ -233,9 +259,10 @@ def rewritePrioOf (k : Kore.Definition) (u : String) : Option Nat :=
 /-- Each rule's priority is the priority of the text's rewrite axiom it is read from, the axiom
 whose id the rule's presentation holds (`RulePres.info`; the rules a reading makes of one axiom,
 `orSplit`'s, each hold that axiom's id), and every rewrite axiom of the text is read as some rule.
-For each function of the semantics, the priorities of the text's equations with the function at
-the head of their left side, less the `simplification` ones, are its clauses' priorities, as lists
-up to order. The semantics need not hold a function's clauses in text order, so which equation has
+For each function of the semantics, the priorities of the text's equations of the function
+(`eqnsOf`: with the function at the head of their left side, and no law sentence, which states a
+law and no priority), less the `simplification` ones, are its clauses' priorities, as lists up to
+order. The semantics need not hold a function's clauses in text order, so which equation has
 which priority is not compared here. It is decided where a tie pairs each clause's item with its
 sentence: for an `owise` equation by the pattern, which states the exclusion; for two equations of
 one function with distinct `priority{}` numbers, where the text states the attribute only, by the
@@ -247,8 +274,7 @@ def prios (k : Kore.Definition) (d : Definition) : Bool :=
   ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
   ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
   c.allFns.all fun f =>
-    let n := c.symName f.label
-    ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
+    (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
         (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
 
 end AttrsAgree

@@ -8,9 +8,8 @@
   Every statement is on the literal `defn`, for every interpretation H; nothing reads `Parse.parse`
   or `emit`.
 
-  Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree_parts` (constructors, collections,
-  priorities; `attrsAgree` itself is false here, `attrsAgree_p`: `p`, a function without equations,
-  is read as a parameter symbol, which `attrsAgree` does not admit); `account`: the function equations and
+  Layer 1. `wf_defn`, `coreOK` (kernel); `defs_attrsAgree` (the attributes agree: `p`, a function
+  without equations, is read as a parameter symbol, which `attrsAgree` admits); `account`: the function equations and
   the constructor sentences are sentences of the user module, apart, with the count of the rest.
 
   Layer 2, the function equations (`fnText`, in `fnItems`'s order; written out, since `f`'s
@@ -71,18 +70,13 @@ theorem wf_defn : wf defn = true := by decide_cheap
 theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
-/-- The attributes of the text agree with `defn` on constructors, collection symbols and
-priorities (`AttrsAgree.ctors`, `colls`, `prios`: each equation's priority, `[owise]` as 200, is its
-clause's). -/
-theorem defs_attrsAgree_parts : AttrsAgree.ctors kore c = true ∧ AttrsAgree.colls kore c = true ∧
-    AttrsAgree.prios kore defn = true := by decide +kernel
-
-/-- `attrsAgree` is false on this text, by `p(Int, Int) [function]`, declared a function without
-`hook` and with no equation: the reader reads it as a parameter symbol (its value the
-interpretation's), and `AttrsAgree.fns` and `AttrsAgree.hooks` ask a function symbol without a hook to be
-a function of the definition and no parameter. -/
-theorem attrsAgree_p : attrsAgree kore defn = false ∧ c.params.any (c.symName ·.sig.name == "Lblp") = true ∧
-    c.allFns.all (c.symName ·.label != "Lblp") = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities (each equation's priority, `[owise]` as 200, is its clause's).
+`p(Int, Int) [function]`, declared a function without `hook` and with no equation, is read as a
+parameter symbol (its value the interpretation's) that no registry hook interprets and that is no
+open generator, which `AttrsAgree.fns` and `AttrsAgree.hooks` admit of a function without
+equations. -/
+theorem defs_attrsAgree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The function equations -/
 
@@ -395,8 +389,7 @@ theorem h_4 (H : HookParams) : Pre H ⊧ (at1 H h 4 ≡ den (cH H) (int 4)) :=
 end KCore.NoteEqPrio
 
 #print axioms KCore.NoteEqPrio.wf_defn
-#print axioms KCore.NoteEqPrio.defs_attrsAgree_parts
-#print axioms KCore.NoteEqPrio.attrsAgree_p
+#print axioms KCore.NoteEqPrio.defs_attrsAgree
 #print axioms KCore.NoteEqPrio.account
 #print axioms KCore.NoteEqPrio.shape
 #print axioms KCore.NoteEqPrio.w0

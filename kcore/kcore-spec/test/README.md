@@ -1721,9 +1721,9 @@ table above, on the tree before String and Bytes). Not investigated here.
   Γ's items under the negation of those siblings' clauses: each sentence entails its item (`w0`,
   `w2`, `w3`, `w8`) and is the item without that premise. The `[owise]` sentence and Γ's item agree
   up to the order of the exclusion's disjuncts and variable names (`ow_same`, `TieAlpha.acEqB`).
-  `fns_entailed`, `fns_from_text`, `cons_entailed`, `account`, `consistent`; `attrsAgree` is false
-  on this text (`attrsAgree_p`: `p`, a function without equations, is read as a parameter symbol),
-  its constructor, collection and priority parts hold (`defs_attrsAgree_parts`). Expectations from
+  `fns_entailed`, `fns_from_text`, `cons_entailed`, `account`, `consistent`; `attrsAgree` holds
+  on this text (`defs_attrsAgree`; `p`, a function without equations, is read as a parameter symbol
+  that no registry hook interprets). Expectations from
   `Pre H`: `f_1`, `f_3`, `f_5` (`f(5) = 9`, the `[owise]` equation), `h_4`. About 3 minutes.
 - `test/NoteProjDom.lean`: the tie (C14) of the reading note `projectionDomainAsClause` on krust's
   `f2-examples/projapp.kore` (fixture kore-projapp), for every H. `project:Int`'s selector-domain

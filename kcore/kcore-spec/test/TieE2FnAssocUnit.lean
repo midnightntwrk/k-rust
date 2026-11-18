@@ -3,17 +3,16 @@
   (`test/constructs/fixtures/e2-fn-assoc-unit`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e2-fn-assoc-unit` with the refusal for the attributes lifted and the law sentences classed by hand; the attribute and law sections by hand; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
+  `test/constructs/tiegen.py e2-fn-assoc-unit` with the law sentences classed by hand; the law section by hand; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
   - The account: the class lists partition the 257 sentences of the user module E2-FN-ASSOC-UNIT, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
-  - The attributes: `attrsAgree` is false (`not_attrs_agree`), by its priority check alone, which
-    takes the law sentences (101, 102, 103) for equations of `Lblpu`; the other four checks hold
-    (`attrs_agree_but_prios`), and the priority check over the text less the law sentences holds
-    (`prios_but_laws`).
+  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the law
+    sentences (101, 102, 103) are no equations of `Lblpu` (`AttrsAgree.isLaw`), so the priorities
+    compared are those of its equations.
   - `sig_origin_but_next`: each of the 205 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -169,35 +168,11 @@ theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2)
 /-- The law sentences of the text: the associativity of `pu` and its right and left unit `zero`. -/
 def lawIdx : List Nat := [101, 102, 103]
 
-/-- **The attributes of the text do not agree with `defn` as `attrsAgree` reads them**: its check of
-the priorities (`AttrsAgree.prios`) takes every axiom whose left side is headed by a function, and
-that is not a `simplification`, for one of the function's equations, and each law sentence (101, 102, 103)
-is such an axiom, of `Lblpu`, which has one clause. -/
-theorem not_attrs_agree : attrsAgree kore defn = false ∧ AttrsAgree.prios kore defn = false := by decide +kernel
-
-/-- **The four other checks of `attrsAgree` hold**: constructors, functions, hooks, collection
-symbols. -/
-theorem attrs_agree_but_prios :
-    (AttrsAgree.ctors kore c && AttrsAgree.fns kore c && AttrsAgree.hooks kore c && AttrsAgree.colls kore c) = true := by
-  decide +kernel
-
-/-- `AttrsAgree.prios` over the text's axioms less those whose index is in `skip`. -/
-def priosBut (k : Kore.Definition) (d : Definition) (skip : List Nat) : Bool :=
-  let c := d.sem
-  let axs := (k.axiomDecls.filter (fun ad => !skip.contains ad.index)).map (·.ax)
-  d.pres.rules.length == c.rules.length &&
-  ((c.rules.zip d.pres.rules).all fun (r, rp) => AttrsAgree.rewritePrioOf k rp.info.uid == some r.prio) &&
-  ((axs.filter (AttrsAgree.isRewrite ·.pattern)).all fun a =>
-    d.pres.rules.any fun rp => AttrsAgree.uidOf a.attributes == some rp.info.uid) &&
-  c.allFns.all fun f =>
-    let n := c.symName f.label
-    ((axs.filter fun a => AttrsAgree.eqnHead a.pattern == some n && !AttrsAgree.has a.attributes "simplification").map
-        (AttrsAgree.prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
-
-/-- **The priorities agree once the law sentences are left out** (`priosBut` with `lawIdx`): with
-`fn_prios`, which pairs each clause with its sentence, the priorities the text states are the
-clauses'. -/
-theorem prios_but_laws : priosBut kore defn lawIdx = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities. The law sentences (`lawIdx`) are no equations of `Lblpu`
+(`AttrsAgree.isLaw`, `AttrsAgree.eqnsOf`), so its priorities are those of its equations, which
+`fn_prios` pairs with its clauses. -/
+theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/
 
@@ -791,9 +766,7 @@ end KCore.TieE2FnAssocUnit
 #check @KCore.TieE2FnAssocUnit.lib166_at_values
 #check @KCore.TieE2FnAssocUnit.gamma_origin
 #check @KCore.TieE2FnAssocUnit.gamma_from
-#check @KCore.TieE2FnAssocUnit.not_attrs_agree
-#check @KCore.TieE2FnAssocUnit.attrs_agree_but_prios
-#check @KCore.TieE2FnAssocUnit.prios_but_laws
+#check @KCore.TieE2FnAssocUnit.attrs_agree
 #check @KCore.TieE2FnAssocUnit.law_indices
 #check @KCore.TieE2FnAssocUnit.law_text
 #check @KCore.TieE2FnAssocUnit.law_not_item
@@ -827,9 +800,7 @@ end KCore.TieE2FnAssocUnit
 #print axioms KCore.TieE2FnAssocUnit.lib166_at_values
 #print axioms KCore.TieE2FnAssocUnit.gamma_origin
 #print axioms KCore.TieE2FnAssocUnit.gamma_from
-#print axioms KCore.TieE2FnAssocUnit.not_attrs_agree
-#print axioms KCore.TieE2FnAssocUnit.attrs_agree_but_prios
-#print axioms KCore.TieE2FnAssocUnit.prios_but_laws
+#print axioms KCore.TieE2FnAssocUnit.attrs_agree
 #print axioms KCore.TieE2FnAssocUnit.law_indices
 #print axioms KCore.TieE2FnAssocUnit.law_text
 #print axioms KCore.TieE2FnAssocUnit.law_not_item

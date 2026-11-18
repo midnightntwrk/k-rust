@@ -3,17 +3,16 @@
   (`test/constructs/fixtures/c3-ctor-assoc`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py c3-ctor-assoc` with the refusals for the open generator and the attributes lifted and `plus`'s sentences classed by hand; the open-generator, attribute, consistency and Exp no-junk sections by hand; run from the package root: `lake env lean -j1 test/TieC3CtorAssoc.lean`.
+  `test/constructs/tiegen.py c3-ctor-assoc` with the refusal for the open generator lifted and `plus`'s sentences classed by hand; the open-generator, consistency and Exp no-junk sections by hand; run from the package root: `lake env lean -j1 test/TieC3CtorAssoc.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
   - The account: the class lists partition the 143 sentences of the user module C3-CTOR-ASSOC, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
-  - The attributes: `attrsAgree` is false (`not_attrs_agree`), by its hook check alone, which asks
-    that a symbol declared without `hook` be no parameter, and `plus` is one; the other four checks
-    hold (`attrs_agree_but_hooks`), and the hook check of the semantics less its open generators
-    holds (`hooks_but_raw`).
+  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the open
+    generator `plus` is a parameter declared without `hook` and without `function`, of which the
+    text states no equation.
   - `sig_origin_but_next`: each of the 208 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -170,19 +169,11 @@ theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2)
 
 /-! ## The attributes -/
 
-/-- **The attributes of the text do not agree with `defn` as `attrsAgree` reads them**: its check of
-the hooks (`AttrsAgree.hooks`) asks that a symbol declared without `hook` be no parameter of the
-semantics, and the open generator `plus` is a parameter (`raw`) declared without one. -/
-theorem not_attrs_agree : attrsAgree kore defn = false ∧ AttrsAgree.hooks kore c = false := by decide +kernel
-
-/-- **The four other checks of `attrsAgree` hold**: constructors, functions, collection symbols,
-priorities. -/
-theorem attrs_agree_but_hooks :
-    (AttrsAgree.ctors kore c && AttrsAgree.fns kore c && AttrsAgree.colls kore c && AttrsAgree.prios kore defn) = true := by
-  decide +kernel
-
-/-- **The hook check holds of the semantics less its open generators**. -/
-theorem hooks_but_raw : AttrsAgree.hooks kore { c with params := c.params.filter (!·.raw) } = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities. The open generator `plus` is a parameter (`raw`) that no
+registry hook interprets, declared without `hook` and without `function`, and the text states
+no equation of it (`AttrsAgree.eqnsOf`), which `AttrsAgree.hooks` admits. -/
+theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/
 
@@ -698,9 +689,7 @@ end KCore.TieC3CtorAssoc
 #check @KCore.TieC3CtorAssoc.gamma_origin
 #check @KCore.TieC3CtorAssoc.gamma_from
 #check @KCore.TieC3CtorAssoc.names
-#check @KCore.TieC3CtorAssoc.not_attrs_agree
-#check @KCore.TieC3CtorAssoc.attrs_agree_but_hooks
-#check @KCore.TieC3CtorAssoc.hooks_but_raw
+#check @KCore.TieC3CtorAssoc.attrs_agree
 #check @KCore.TieC3CtorAssoc.facts
 #check @KCore.TieC3CtorAssoc.lawHooks_laws
 #check @KCore.TieC3CtorAssoc.consistent_lawHooks
@@ -741,9 +730,7 @@ end KCore.TieC3CtorAssoc
 #print axioms KCore.TieC3CtorAssoc.gamma_origin
 #print axioms KCore.TieC3CtorAssoc.gamma_from
 #print axioms KCore.TieC3CtorAssoc.names
-#print axioms KCore.TieC3CtorAssoc.not_attrs_agree
-#print axioms KCore.TieC3CtorAssoc.attrs_agree_but_hooks
-#print axioms KCore.TieC3CtorAssoc.hooks_but_raw
+#print axioms KCore.TieC3CtorAssoc.attrs_agree
 #print axioms KCore.TieC3CtorAssoc.facts
 #print axioms KCore.TieC3CtorAssoc.lawHooks_laws
 #print axioms KCore.TieC3CtorAssoc.consistent_lawHooks
