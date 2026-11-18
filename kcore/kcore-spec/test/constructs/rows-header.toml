@@ -138,8 +138,9 @@
 #             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
 #   each checked (kfix.py check, rest.py; K-coverage.md prints their letters beside the status):
-#   pair      P: the fixture whose kompile.txt records the entry's `same_as OTHER: equal after
-#             stripping` (without it, the first of the entry's fixtures recording one).
+#   pair      P: the fixture (or a list of them, each checked) whose kompile.txt records the entry's
+#             `same_as OTHER: equal after stripping` (without it, the first of the entry's fixtures
+#             recording one).
 #   absent    S: a pattern, or a list of them, that no attribute list of a kompiled text in scope
 #             (every fixture's kompiled text and the corpus of the reference cache, parsed by `kcore
 #             sentence-heads`) matches: "[KIND ]attribute HEAD[ without OTHER]" (HEAD as KORE writes

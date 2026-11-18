@@ -64,8 +64,8 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       reason       a reason sentence (`reason`): C1's class use
   erased (findings/work/decision-fixrest-erased-forms.md section 4): at least one of the forms
   ERASED_FORMS, each the entry carries checked (conjoined)
-      P pair       the fixture `pair` names, else the first of the entry's fixtures recording one,
-                   has kompile.txt `same_as OTHER: equal after stripping`
+      P pair       each fixture `pair` names (one or a list), else the first of the entry's fixtures
+                   recording one, has kompile.txt `same_as OTHER: equal after stripping`
       S absent     each pattern found in no kompiled text in scope (kfix.check_absent: the native
                    scan of every fixture's kompiled text and of the corpus; a text held nowhere fails)
       O other_file the entry's fixture keeps that file's lines in other.txt, each `witness` there and
@@ -512,7 +512,7 @@ def evidence(fx, l, key, e, row):
 def erased_forms(fx, l, key, e, have, miss):
     """The forms of erased (findings/work/decision-fixrest-erased-forms.md section 2) the entry
     carries, each checked, its item appended to have or miss; returns the letters of the forms
-    carried. P: the fixture `pair` names (else the first of the entry's own fixtures recording one)
+    carried. P: each fixture `pair` names (else the first of the entry's own fixtures recording one)
     records `same_as OTHER: equal after stripping`; S: each `absent` pattern is found in no text in
     scope (kfix.check_absent); O: `other_file` and `witness` (kfix.check_other); C: `carried_by`
     names a row that is not erased and has its own evidence, and the entry's `sentence` occurs in
@@ -522,10 +522,10 @@ def erased_forms(fx, l, key, e, have, miss):
     pair_rx = r"^same_as (\S+): equal after stripping$"
     if "pair" in e:
         letters.append("P")
-        x = e["pair"]
-        m = re.search(pair_rx, fx.read(x, "kompile.txt") or "", re.M) if fx.exists(x) else None
-        (have if m else miss).append(f"P: pair {x} same_as {m[1]} equal" if m else
-                                     f"P: pair {x!r} records no same_as equal after stripping")
+        for x in e["pair"] if isinstance(e["pair"], list) else [e["pair"]]:
+            m = re.search(pair_rx, fx.read(x, "kompile.txt") or "", re.M) if fx.exists(x) else None
+            (have if m else miss).append(f"P: pair {x} same_as {m[1]} equal" if m else
+                                         f"P: pair {x!r} records no same_as equal after stripping")
     else:
         for x in own:
             m = re.search(pair_rx, fx.read(x, "kompile.txt") or "", re.M)
@@ -745,6 +745,7 @@ def self_test():
             ("E2", "A", {"status": "erased", "fixture": "ok"}, False),
             ("E2", "A", {"status": "erased", "fixture": "ok", "pair": "eq"}, True),
             ("E2", "A", {"status": "erased", "fixture": "eq", "pair": "ok"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "pair": ["eq", "ok"]}, False),
             # S: a pattern found nowhere; found (a head, a source range, a module); of no known form
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "attribute cellSort"}, True),
             ("E2", "A", {"status": "erased", "fixture": "ok", "absent": ["axiom attribute comm",

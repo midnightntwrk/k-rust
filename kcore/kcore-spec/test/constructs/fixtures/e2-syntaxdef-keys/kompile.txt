@@ -1,0 +1,18 @@
+command: kompile --backend haskell e1-priority.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.7
+definition.kore bytes: 208742
+definition.kore sha256: 2895925a65de085f37eacd18dd6f0471c4856ea5bd6f78e5a01031000ae0d8fa
+stripped sha256: 10a9f327461a2bb8a9dedb7d75abc315d363238b05b454a9a972150732b68968
+main module: 417 sentences, 0 not in e1-priority's, in kore.txt
+other_file syntaxDefinition.kore: 232 lines, sha256 66a0b7404335ed26bb6aaafe24e2074752a750bcab8daa23a9d39b447b941489; the 128 matching other_keep
+output:
+  [Warning] Compiler: Symbols mul and plus are in the same associativity group,
+  but have different priorities.
+  	Source(FIXTURE/e1-priority.k)
+  	Location(9,3,9,23)
+  	9 |	  syntax left mul plus
+  	  .	  ^~~~~~~~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-PRIORITY-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E1-PRIORITY as default.

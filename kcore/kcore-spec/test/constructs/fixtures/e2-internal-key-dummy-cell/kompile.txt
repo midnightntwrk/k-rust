@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-internal-key-dummy-cell.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.8
+output:
+  [Error] Outer Parser: Lexical error at line 2, column 43.  Encountered: "_"
+  (95), after : "" (TokenMgrException: Lexical error at line 2, column 43. 
+  Encountered: "_" (95), after : "")
+  	Source(FIXTURE/e2-internal-key-dummy-cell.k)
+  	Location(2,43,2,44)
+  	2 |	  syntax Foo ::= foo() [symbol(foo), dummy_cell]
+  	  .	                                          ^
