@@ -868,7 +868,7 @@ interpretation; RANGEMAP's other sentences over Γ's symbols with a variable of 
 `functional` sentences of `lookupOrDefault`, `-RangeMap`, `<=RangeMap`, `in_keys`, `keys`, `size`
 and `updateRangeMap`, and the two unit laws) hold in every reading. -/
 def expectedAll : Summary :=
-  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 43, 38, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
+  [(9, 110, 81, 72, 0, 9, 0), (15, 12, 12, 11, 0, 1, 0), (17, 63, 45, 40, 0, 4, 1), (18, 114, 113, 113, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkAll : IO Unit := do
