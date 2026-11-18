@@ -119,11 +119,13 @@ def SortDen (I : Interpretation KoreAML.Sym M) (tbl : VarTable) (e : Valuation M
   ∃ τ, IsSort I τ ∧ ∀ a, (trSort tbl s).interpret I e a ↔ a = τ
 
 mutual
-  /-- The pattern is of the sort s where it states its sort (`\or`, `\and`, `\equals`), and so are
-  the operands of its `\or`s and `\and`s: the sorting rule of KORE at those connectives. -/
+  /-- The pattern is of the sort s where it states its sort (`\or`, `\and`, `\exists`, `\equals`),
+  and so are the operands of its `\or`s and `\and`s and the body of its `\exists`: the sorting
+  rule of KORE at those connectives. -/
   def sortIs (s : Kore.KSort) : Kore.Pattern → Bool
     | .or s' ps => decide (s' = s) && sortIsList s ps
     | .and s' ps => decide (s' = s) && sortIsList s ps
+    | .exist s' _ p => decide (s' = s) && sortIs s p
     | .equals _ s' _ _ => decide (s' = s)
     | _ => true
     termination_by structural p => p
@@ -166,6 +168,7 @@ theorem rhsOpSort_eq_sortIs (s : Kore.KSort) (p : Kore.Pattern) : Parse.rhsOpSor
     (motive_2 := fun ps => Parse.rhsOpSortList s ps = sortIsList s ps) with
   | or s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
   | and s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
+  | exist s' x q ih => rw [Parse.rhsOpSort, sortIs, ih]
   | nil => rw [Parse.rhsOpSortList, sortIsList]
   | cons q qs ih1 ih2 => rw [Parse.rhsOpSortList, sortIsList, ih1, ih2]
   | _ => simp [Parse.rhsOpSort, sortIs]

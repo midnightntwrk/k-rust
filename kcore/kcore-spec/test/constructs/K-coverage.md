@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 7 | 3 | 0 | 0 | 0 | 4 | 0 | 0 |
 | E2 | 58 | 7 | 0 | 1 | 0 | 50 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
-| E4 | 50 | 20 | 0 | 4 | 0 | 26 | 0 | 0 |
+| E4 | 51 | 20 | 0 | 4 | 0 | 27 | 0 | 0 |
 | E5 | 59 | 36 | 1 | 2 | 0 | 20 | 0 | 0 |
 | E6 | 30 | 9 | 0 | 0 | 0 | 21 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 329 | 126 | 2 | 11 | 1 | 189 | 0 | 0 |
+| all | 330 | 126 | 2 | 11 | 1 | 190 | 0 | 0 |
 
 Refused rows by class:
 
@@ -62,13 +62,13 @@ Refused nested entries by class:
 | E1 | 4 | 0 | 0 | 1 | 3 |
 | E2 | 50 | 3 | 0 | 3 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
-| E4 | 26 | 14 | 6 | 0 | 6 |
+| E4 | 27 | 14 | 7 | 0 | 6 |
 | E5 | 20 | 10 | 1 | 4 | 5 |
 | E6 | 21 | 2 | 1 | 2 | 16 |
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 189 | 49 | 14 | 44 | 82 |
+| all | 190 | 49 | 15 | 44 | 82 |
 
 ## Entries of class R-c (56)
 
@@ -777,12 +777,13 @@ Not core:
 | `grammar:<matching-logic-pattern>::="\bottom" "{" <sort> "}" "(" ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\bottom |
 | `grammar:<matching-logic-pattern>::="\not" "{" <sort> "}" "(" <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\not |
 | `grammar:<matching-logic-pattern>::="\and" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\and |
-| cases[0]: an operand of \\and{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\and{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\` or \`\\or\` of another sort, or an \`\\equals{S1,S2}\` whose result sort S2 is not s. In a val… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
+| cases[0]: an operand of \\and{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\and{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\` or \`\\exists\` of another sort, an \`\\exists{s}\` whose body states another sort than… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
 | `grammar:<matching-logic-pattern>::="\or" "{" <sort> "}" "(" <patterns> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\or |
-| cases[0]: an operand of \\or{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\or{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\` or \`\\or\` of another sort, or an \`\\equals{S1,S2}\` whose result sort S2 is not s. In a vali… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
+| cases[0]: an operand of \\or{s} of another sort on an equation's or a rewrite axiom's right side | refused | R-b | An equation's or a rewrite axiom's right side (under its \`\\exists\` binders) with an operand of \`\\or{s}\` (under applications, conjunctions and disjunctions) that states a sort other than s at its head: an \`\\and\`, \`\\or\` or \`\\exists\` of another sort, an \`\\exists{s}\` whose body states another sort than… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:330: "In any matching logic pattern, the sort of pattern arguments agrees with the specified argument sort parameter."; test/RhsSortCheck.lean refused\_hand (\`\\and{SortInt{}}(f(X), \\equals{SortBool{},SortFoo{}}(X >Int 0, true))\` an… |
 | `grammar:<matching-logic-pattern>::="\implies" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
 | `grammar:<matching-logic-pattern>::="\iff" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-iff/account.txt: \`unkompiledForm (\\iff)\`; fixtures/hw-scope-iff-top/account.txt: \`1 refused unkompiledForm [user]\` (\\iff at the axiom's top, classif… |
 | `grammar:<matching-logic-pattern>::="\exists" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\exists |
+| cases[0]: an \\exists{s} on an equation's or a rewrite axiom's right side, as an operand of \\and{s'} or \\or{s'} with s not s', or w… | refused | R-b | The pattern argument of \\exists{s} is of the sort s, and an operand of \\and{s'} or \\or{s'} is of the sort s' (kore-syntax.md:195, 330), so the sentence is no valid KORE axiom and has no meaning to read. rhsOpSort reads an \\exists at its head as it reads an \\and: its sort, then its body's (Parse.rhsS… |  | none (R-b): no shape (ill-formed) |  |  |  | k/haskell-backend/src/main/native/haskell-backend/docs/kore-syntax.md:195 (\\exists{&lt;sort>}(&lt;element-variable>, &lt;pattern>)), :330 (rule 4); test/RhsSortCheck.lean exOp\_hand: \\and{SortInt{}}(\\exists{SortFoo{}}(Y, f(Y)), \\bottom{SortInt{}}()) and \\and{SortInt{}}(\\exists{SortInt{}}(Y, \\and{SortFoo{}}(f(… |
 | `grammar:<matching-logic-pattern>::="\forall" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | refused | R-a | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body. Both are predicate patterns: they denote every element or none. Over a term of a sort the text leaves unconfined, whether they hold at given values depends on which elements the sort has, which no sentence states, so no St… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  | no | no | Parse.term (its \\forall and \\floor arms): either of a term over a sort other than Bool refused openExtent with the sort, over Bool patternConnective; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\`, fixtures/e3-ml-rule-lhs-forall-exp/account.txt: \`openExtent (Exp)\`; in a requires, fix… |
 | cases[0]: in a requires or ensures, of predicates (the predicate equated with true) | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-forall/account.txt: \`1 read predicateAtBool [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` (requires #Forall Y:Int. {f(Y) #Equals Y}) |
 | `grammar:<matching-logic-pattern>::="\mu" "{" "}" "(" <set-variable> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-mu/account.txt: \`unkompiledForm (\\mu)\` |
