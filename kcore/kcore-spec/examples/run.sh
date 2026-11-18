@@ -62,9 +62,10 @@ if on ref-fprio; then gen f2-examples/fprio.kompile.kore ref-fprio RefFprio --wf
 # `sum-N` (imp-simple-spec.k), the whole program from the empty store (User.SumN); each step `fire i`
 # the statement of `sum-spec` written from its text and from its KORE sentence (User.SumSpecStmt), and
 # the one `k2lean kcore-claims` writes from that sentence (User.SumSpecGen); both statements proved for
-# every interpretation of the hooks, with no hypothesis on the functions (User.SumSpecHolds)
+# every interpretation of the hooks, with no hypothesis on the functions (User.SumSpecHolds), and
+# what that says in matching logic through sound_at and complete_at (User.SumSpecML)
 if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
-  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.SumSpecGen User.RunInstance User.SumSpecHolds; fi
+  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.SumSpecGen User.RunInstance User.SumSpecHolds User.SumSpecML; fi
 # kore.k (krs/semantics/kore), read from K 7.1.337 kompile's KORE of it (test/kk-kompile.toml records
 # the command), with `--core`: `coreOK_defn`, its conjuncts each decided on its own and those that
 # read names on the names' codes, and from it `sound_hyp` and `complete_hyp`. With `--wf` one module
