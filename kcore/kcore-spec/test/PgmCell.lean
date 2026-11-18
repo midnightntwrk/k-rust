@@ -110,6 +110,7 @@ def withContent (d : Definition) (s : Srt) : Definition :=
   let rec go : Cell → Cell
     | .leaf n t i => if d.pres.pgmCell == some n then .leaf n s i else .leaf n t i
     | .node n cs i => .node n (cs.attach.map fun ⟨x, _⟩ => go x) i
+    | .coll s => .coll s
   let lbl := ((Cell.all (Cell.top d.pres.config)).find? (some ·.name == d.pres.pgmCell)).map Cell.label
   { d with pres := { d.pres with config := d.pres.config.map go }
            sem := { d.sem with ctors := d.sem.ctors.map fun k => if some k.name == lbl then { k with args := [s] } else k } }

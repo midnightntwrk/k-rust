@@ -108,9 +108,14 @@ ALLOWANCE = [
     # with its fixture.
     # 34 -> 30 with ROWS-1.refresh-kore: the four E4 \forall and \floor rows are R-a openExtent
     # with their unit (CN-3 section 5), the predicate in a condition a supported case.
-    ("ROWS-1.unit-rc", 30, "entries of class R-c without unit",
+    # 30 -> 31 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
+    # collection (fixture e2-initial-coll), refused R-c by the reader's initializer decision, with no
+    # ticket that reads it yet.
+    ("ROWS-1.unit-rc", 31, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
-    ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
+    # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
+    # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).
+    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
 ]
 

@@ -12,7 +12,7 @@ set_option Elab.async false
 
 namespace KK.Spike.Hand
 
-open KCore KCore.Det RefKk KK KK.Spike
+open KCore KCore.Det RefKk KK KK.Kit KK.Spike
 
 /-- A result of a function of kore.k is its only one. -/
 theorem iff_of_eval {f : Sym} {vs : List GroundTerm} {v r : Option GroundTerm} (h : Eval c₀ f vs v) :

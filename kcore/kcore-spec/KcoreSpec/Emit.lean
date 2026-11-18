@@ -414,10 +414,11 @@ def uidsOf (c : Semantics) (p : Presentation) (X : Srt) : SortUids :=
 namespace Cell
 
 mutual
-  /-- A cell and its descendants. -/
+  /-- A cell and its descendants (not the cell collections among them, which are no cells). -/
   def all : Cell → List Cell
     | .leaf n s i => [.leaf n s i]
     | .node n cs i => .node n cs i :: allList cs
+    | .coll _ => []
     termination_by structural x => x
   def allList : List Cell → List Cell
     | [] => []
@@ -435,9 +436,12 @@ def readsInit (p : Presentation) (x : Cell) : Bool := x.all.any fun
 /-- `initXCell`: not a function of the semantics, named from the cell's sort. -/
 def initLabel (c : Semantics) (x : Cell) : String := "Lblinit" ++ c.sortName x.sort
 
-/-- `initX(Init)` or `initX()`. -/
+/-- `initX(Init)` or `initX()`; for a cell collection, its unit `.XCellSet()` (no cell of a
+multiplicity `*` cell at the start). -/
 def initCall (c : Semantics) (p : Presentation) (x : Cell) : Kore.Pattern :=
-  ap (x.initLabel c) (if x.readsInit p then [ev "VarInit" (srt "Map")] else [])
+  match x with
+  | .coll s => ap (c.symName (((c.colls.find? (·.sort == s)).map (·.unit)).getD default)) []
+  | _ => ap (x.initLabel c) (if x.readsInit p then [ev "VarInit" (srt "Map")] else [])
 
 end Cell
 
@@ -464,7 +468,7 @@ def initTotal (c : Semantics) (p : Presentation) (x : Cell) : Bool :=
   !x.readsInit p && x.all.all fun
     | .leaf "generatedCounter" _ _ => true
     | .leaf n _ _ => ((p.cellValues.lookup n).map (Term.total c)).getD false
-    | .node .. => true
+    | _ => true
 
 /-- The generated cells (the top cell and the counter) carry no location; the user's carry the
 configuration's. -/
@@ -478,6 +482,7 @@ def cellSymbols (c : Semantics) (p : Presentation) (x : Cell) : List Kore.Senten
   let args := match x with
     | .leaf _ s _ => [s]
     | .node _ cs _ => cs.map Cell.sort
+    | .coll _ => []
   [symbolDecl (c.symName x.label) (args.map c.sortName) (c.sortName x.sort)
     ([attr "cell"] ++ ctorAttrs ++ (if gen then [] else [locAttr p.configLoc, srcAttr p.configSource]))] ++
   (match x with
@@ -485,7 +490,7 @@ def cellSymbols (c : Semantics) (p : Presentation) (x : Cell) : List Kore.Senten
       let cs := if x.name == "generatedTop" && !Cell.counterOpt p.config then cs.dropLast else cs
       (Cell.fragCtor cs i).toList.map fun k =>
         symbolDecl (c.symName k.name) (k.args.map c.sortName) (c.sortName k.result) ctorAttrs
-    | .leaf _ _ _ => []) ++
+    | _ => []) ++
   (if x.name == "generatedCounter" && !Cell.counterOpt p.config then []
    else x.noCtor.toList.map fun k => symbolDecl (c.symName k.name) [] (c.sortName k.result) ctorAttrs) ++
   [if x.readsInit p then symbolDecl (x.initLabel c) ["Map"] (c.sortName x.sort) [attr "function"]
@@ -514,6 +519,7 @@ def initAx (c : Semantics) (p : Presentation) (x : Cell) : Kore.Sentence :=
       else ap (c.symName x.label)
         [((p.cellValues.lookup n).map (Term.kore c [⟨"Init", "Map"⟩])).getD (.top (srt "K"))]
     | .node _ cs _ => ap (c.symName x.label) (cs.map (Cell.initCall c p))
+    | .coll _ => .top (srt "K")
   if x.readsInit p then
     equationAx (x.initLabel c) ["Map"] (c.sortName x.sort) (KoreAML.premise ["Map"] [ev "VarInit" (srt "Map")]) body
       (.top (srt (c.sortName x.sort))) [uid]

@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C: 757 sentences
+  1 inert import [generated]
+  479 read [generated]
+  183 read [builtin]
+  12 read [user]
+  6 unread cellCollectionInjection [generated]
+  20 inert injectivity [generated]
+  18 inert collectionLaw [generated]
+  2 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  33 inert noJunk [generated]
+  2 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 generatedEquation
+      sentence 436 (LblinitLsCell): generatedEquation (LblinitLsCell: functional axiom of a cell's initializer whose equation's right side the definition does not give exactly one value at every argument)
+        [generated] (no label) at :0: axiom{R} \exists{R}(Val:SortLsCell{}, \equals{SortLsCell{}, R}(Val:SortLsCell{}, LblinitLsCell{}())) [functional{}()]
+finish: sentence 436 (LblinitLsCell): generatedEquation (LblinitLsCell: functional axiom of a cell's initializer whose equation's right side the definition does not give exactly one value at every argument)
+(exit 0)

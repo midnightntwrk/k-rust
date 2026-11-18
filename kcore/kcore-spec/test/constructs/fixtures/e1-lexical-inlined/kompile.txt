@@ -1,0 +1,12 @@
+command: kompile --backend haskell e1-lexical-inlined.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 16.7
+definition.kore bytes: 205595
+definition.kore sha256: 0897b3672c011d29a862c3efab014a0e5f2f89d36cf907501a30392e5f5930b9
+stripped sha256: 2a56dd4ca4fe57626d16558952f6eeb047ae5c8e15ffad1168f97c1d8a31c8f9
+main module: 400 sentences, 44 not in base's, in kore.txt
+same_as e1-lexical: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-LEXICAL-INLINED-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E1-LEXICAL-INLINED as default.

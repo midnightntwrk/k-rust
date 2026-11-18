@@ -1,4 +1,7 @@
+# --cache-file: kompiled twice with the same cache file; `pre` writes c.bin, and the compared text is
+# the second run's, the one that reads the cached bubbles.
 main = "ref.k"
 text_from = "e8-ref"
 extra = ["--cache-file", "c.bin"]
+pre = ["--backend", "haskell", "--cache-file", "c.bin", "ref.k", "-o", "out"]
 same_as = "e8-ref"
