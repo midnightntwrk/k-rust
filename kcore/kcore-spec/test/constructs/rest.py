@@ -779,7 +779,12 @@ READER_OWED = [
     ("RDR.read-hook-assoc", ["rdr-hook-assoc"]),
     ("RDR.read-keq-only", ["rdr-keq-only"]),
     ("RDR.read-pred-rule", ["rdr-pred-rule"]),
-    ("RDR.builtin-own-reading", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
+    ("RDR.builtin-own-reading", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar",
+        "E6 hook:UNIFICATION.metaVariables:Lbl'Hash'metaKVariables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K",
+        "E6 hook:UNIFICATION.renameVariables:Lbl'Hash'renameVariables'LParUndsRParUnds'UNIFICATION'Unds'K'Unds'K",
+        "E6 hook:UNIFICATION.unifiable:Lbl'Hash'unifiable'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Bool'Unds'K'Unds'K",
+        "E6 hook:UNIFICATION.variables:Lbl'Hash'variables'LParUndsRParUnds'UNIFICATION'Unds'Set'Unds'K",
+        "E6 hook:UNIFICATION.variablesMap:Lbl'Hash'variablesMap'LParUndsRParUnds'UNIFICATION'Unds'KItem'Unds'K"]),
 ]
 OWED_STATUSES = ("supported", "parameter", "inert")
 
