@@ -63,7 +63,7 @@ def ovlCutVerdict (path : String) : IO String := do
         coreOK {c.coreOK}"
 
 /--
-info: read; [[[G, 'Unds'DotVar0, Ovl0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj[Pgm,KItem](Lblrun(Ovl0)), dotk())), 'Unds'DotVar0) pre in[Gas](Ovl0, LblcapGas(G))]; fnOvlSyms [LblcapGas]; cut [LblcapGas]; ovlPatsOK true; functionInPattern []; coreOK false
+info: read; [[[G, 'Unds'DotVar0, Ovl0]] Lbl'-LT-'generatedTop'-GT-'(Lbl'-LT-'k'-GT-'(kseq(inj[Pgm,KItem](Lblrun(Ovl0)), dotk())), 'Unds'DotVar0) pre in[Gas](Ovl0, LblcapGas(G))]; fnOvlSyms [LblcapGas]; cut [LblcapGas]; ovlPatsOK true; functionInPattern []; coreOK true
 openRequires (Var'Unds'Gen0:Exp: in a condition with a variable the left side binds (V ∈ LbldblExp(…)), under LbldblExp, of a sort the text leaves unconfined)
 openRequires (VarG:Gas: in a condition with a variable the left side binds (V ∈ LblcapGas(…)), under LblcapGas, of a sort the text leaves unconfined, in a rule of a priority below another's)
 -/

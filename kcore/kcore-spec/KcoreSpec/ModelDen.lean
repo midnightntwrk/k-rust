@@ -889,7 +889,7 @@ theorem den_val (h : HypModelCore c) : ∀ (v : GroundTerm) {s : Srt}, c.sortOf 
       intro m
       rw [hd, interp_symList _ _ _ (den_list h ts hts' e) m, ← hkn,
         symE_vals h.namesK hks (sortsOf_length hts'), result_ctor hc]
-    · -- a raw overloading application: the symbol's normal form, which is itself (`norm_fixed`)
+    · -- a raw overloading application: the symbol's normal form, which is itself (`norm_fixed_ovlF`)
       have H := h.ovlHyp
       obtain ⟨hom, hon, hio, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts ho
       have hks : o.sig ∈ kernelSyms c := List.mem_append_right _ (List.mem_map_of_mem hom)

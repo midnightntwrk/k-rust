@@ -577,7 +577,7 @@ theorem ovl_at (hok : c.overloadsOK = true) {o : OvlSig} (ho : o ∈ c.ovls) :
   simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
   simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none, List.all_eq_true] at hoi
-  obtain ⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩ := hoi
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨-, h2⟩, h3⟩, -⟩, -⟩, -⟩, h7⟩, -⟩, -⟩ := hoi
   exact ⟨h2, h3, h7⟩
 
 theorem ovlSig_ite (h : c.coreOK = true) {k : CtorSig} (hk : k ∈ c.ovlSigs) : iteSort? (c.symName k.name) = none := by
@@ -681,12 +681,13 @@ theorem lowerBounds_sub {a b C : Srt} (h : C ∈ c.lowerBounds a b) :
 theorem over_ok (h : c.coreOK = true) {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) :
     kg ∈ kernelSyms c ∧ iteSort? (c.symName kg.name) = none := by
   have hok := Semantics.coreOK_ovls h
-  have hk := OvlLaws.ovlOver_known_of_ok hok (ovl_at hok ho).1 hkg
-  unfold OvlLaws.KnownSig at hk
-  rw [lookupSig_eq] at hk
-  rcases List.mem_append.mp (List.mem_of_find?_eq_some hk) with hm | hm
-  · exact ⟨ks_ctor hm, ctor_ite h hm⟩
-  · exact ⟨ks_ovl hm, ovlSig_ite h hm⟩
+  obtain ⟨g, -, hg⟩ := List.mem_filterMap.mp hkg
+  rcases List.mem_append.mp (lookupSig_spec hg).1 with hm | hm
+  · rcases List.mem_append.mp hm with hm | hm
+    · exact ⟨ks_ctor hm, ctor_ite h hm⟩
+    · exact ⟨ks_ovl hm, ovlSig_ite h hm⟩
+  · obtain ⟨fn, hfn, rfl⟩ := List.mem_map.mp hm
+    exact ⟨ks_fn (List.mem_append_left _ hfn), fn_ite h (List.mem_append_left _ hfn)⟩
 
 /-- **The constructors' items apply Γ's heads only**, under `coreOK`. -/
 theorem consItemsK_inGH (h : c.coreOK = true) : ∀ it ∈ consItemsK c, InGH c it.pat := by

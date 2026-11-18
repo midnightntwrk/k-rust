@@ -131,7 +131,7 @@ theorem same_sym (hn : NamesApartK c) {k k' : CtorSig} (hk : k ∈ kernelSyms c)
 
 /-- **What a symbol gives on values of its argument sorts is a value of its result sort**: a
 constructor term has its constructor's sort, an overloading symbol's normal form its result sort
-(`sortOf_norm`), and the hooks', the parameters' and the functions' results have their declared
+(`sortOf_norm_ovlF`), and the hooks', the parameters' and the functions' results have their declared
 sorts. -/
 theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms c) {vs : List GroundTerm}
     (hvs : c.sortsOf vs = some k.args) {x : Elem} (hx : result c k vs x) : InSort c k.result x := by

@@ -776,7 +776,7 @@ pattern"). 20 of the 343 texts hold a `symbol-overload` axiom; the one of them t
 ## The executable step reads overloading symbols (kcore-theory, 2026-11-14)
 
 `CExec` (CollExec.lean) matches a pattern headed by an overloading symbol at the one argument list
-its normal form determines (`ovlArgs`, complete by `ovlArgs_complete` from `OvlLaws.norm_decomp`)
+its normal form determines (`ovlArgs`, complete by `ovlArgs_complete` from `OvlLaws.norm_decomp_ovlF`)
 and evaluates such a symbol to `norm`; `execReady` holds `matchReadyO` (`overloadsOK` in place of
 `ovls.isEmpty`); `CExec.step_iff` keeps its statement (designs/OV-0-overloads.md, "OV-6").
 `kcore exec-ready` over the 343 coreOK corpus texts: 343 meet `execReady` (324 before), no

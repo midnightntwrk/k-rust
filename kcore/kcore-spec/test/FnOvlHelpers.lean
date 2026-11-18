@@ -1,7 +1,6 @@
 /-
   The helpers of the function-overload conjunct (FaithOK.lean, Core.lean), kernel-checked
-  (`decide +kernel`) on hand-built terms, conditions and semantics; `overloadsOK` does not read
-  them yet. Run from the package root: `lake env lean -j1 test/FnOvlHelpers.lean`.
+  (`decide +kernel`) on hand-built terms, conditions and semantics. Run from the package root: `lake env lean -j1 test/FnOvlHelpers.lean`.
 
   - `Semantics.fnOvlSyms`: the overloading symbols one of whose own overloads is a function. Of the
     chain `plusBig over [plusExp]`, `plusExp over [plusInt]`, `plusInt` a function, only `plusExp`

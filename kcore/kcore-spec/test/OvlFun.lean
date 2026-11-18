@@ -6,8 +6,12 @@
 
   Each semantics has the configuration `<generatedTop>(<k>(K), C)`, its own sorts numbered from
   `nRegSorts` and its own symbols from `nRegSyms` (the sort predicates first, then constructors,
-  not yet admit an overload by a function, holds of it now (`others_…`); `lhs` fails `sortedOK` too.
-  not yet admit an overload by a function, holds of it now (`others_…`).
+  functions and overloading symbols). Every condition of `coreOK` but `overloadsOK` holds of each
+  but `lhs` (`others_…`), and so does `overloadsOK`, which admits an overload by a function
+  (`Admit.ovls_…`), hence `coreOK` (`Admit.coreOK_…`); `lhs` fails `sortedOK` and `ovlPatsOK`.
+  `overloadsOK` refuses the chain whose larger symbol does not list the function it reaches
+  (`Admit.chain_false`: every other leaf holds) and two functions meeting under one overloading
+  symbol (`Admit.two_refused`: `ovlCoherent` alone fails).
 
   - `e5` (test/constructs/fixtures/e5-ovl-fun): `plusExp : Exp Exp → Exp` (`anywhere`, sentence
     `symbol LblplusExp`), the function `plusInt : Int Int → Int` (`function`, not total) with the
@@ -699,5 +703,99 @@ theorem fnFacts_ovlfun : OvlLaws.OvlFnFacts ovlfun where
 #guard_msgs in #print axioms model_capZ
 
 end Cap
+
+/-! ## `overloadsOK` and `coreOK` of the semantics above -/
+
+namespace Admit
+
+open Faithful.OvlLibCtorWitness (ov1 ov2 ov3 ov4 ov5 ov6 ov7 ov8 ov9)
+
+theorem coreOK_of {c : Semantics} (h : others c = true) (ho : c.overloadsOK = true) : c.coreOK = true := by
+  show (others c && c.overloadsOK) = true
+  rw [h, ho]; rfl
+
+/-- `overloadsOK` admits the overload of `plusExp` by the function `plusInt`. -/
+theorem ovls_e5 : E5.c.overloadsOK = true := by decide +kernel
+theorem coreOK_e5 : E5.c.coreOK = true := coreOK_of E5.others_ok ovls_e5
+
+/-- `overloadsOK` admits the overload of `capGas` by the function `capN`. -/
+theorem ovls_ovlfun : Cap.ovlfun.overloadsOK = true := by decide +kernel
+theorem coreOK_ovlfun : Cap.ovlfun.coreOK = true := coreOK_of Cap.others_ovlfun ovls_ovlfun
+
+/-- A left side applying the function-overloaded `capGas` is refused, by `sortedOK` and by
+`overloadsOK` (`ovlPatsOK`). -/
+theorem ovls_lhs : Cap.lhs.overloadsOK = false := by decide +kernel
+theorem coreOK_lhs : Cap.expectLhs := by
+  show Cap.lhs.coreOK = false
+  simp [Semantics.coreOK, Cap.sorted_lhs]
+
+/-- `overloadsOK` admits the overload that keeps the result sort. -/
+theorem ovls_keep : Keep.c.overloadsOK = true := by decide +kernel
+theorem coreOK_keep : Keep.c.coreOK = true := coreOK_of Keep.others_ok ovls_keep
+
+/-- The chain whose larger symbol lists the function. -/
+theorem ovls_chain : (Chain.c true).overloadsOK = true := by decide +kernel
+theorem coreOK_chain : (Chain.c true).coreOK = true := coreOK_of Chain.others_true ovls_chain
+
+/-- **The chain whose larger symbol does not list the function it reaches is refused, by that
+conjunct alone**: `plusBig` reaches `plusInt` through `plusExp` and does not list it; every other
+leaf of `overloadsOK` holds, and every other condition of `coreOK` (`Chain.others_false`). So the
+conjunct is implied by no other. -/
+theorem chain_false : (Chain.c false).overloadsOK = false ∧ ov9 (Chain.c false) = false ∧
+    ov1 (Chain.c false) = true ∧ ov2 (Chain.c false) = true ∧ ov3 (Chain.c false) = true ∧
+    ov4 (Chain.c false) = true ∧ ov5 (Chain.c false) = true ∧ ov6 (Chain.c false) = true ∧
+    ov7 (Chain.c false) = true ∧ ov8 (Chain.c false) = true ∧ (Chain.c false).ovlPatsOK = true := by
+  decide +kernel
+
+theorem coreOK_chain_false : (Chain.c false).coreOK = false := by
+  show (others (Chain.c false) && (Chain.c false).overloadsOK) = false
+  rw [chain_false.1, Bool.and_false]
+
+/-- The overload of `fS` by the result-keeping function `fB`. -/
+theorem ovls_conf : (Conf.c [Conf.fB]).overloadsOK = true := by decide +kernel
+theorem coreOK_conf : Conf.expect :=
+  ⟨coreOK_of Conf.others_ok ovls_conf, Conf.confined_S.1⟩
+
+/-- `E5.c` with a second function `Int Int → Int` among the overloads of `plusExp`. -/
+def two : Semantics :=
+  { E5.c with
+    fns := [E5.plusIntFn, { E5.plusIntFn with label := E5.plusExp + 1 }]
+    ovls := [⟨⟨E5.plusExp, [E5.expS, E5.expS], E5.expS⟩, [E5.plusInt, E5.plusExp + 1]⟩] }
+
+/-- **Two functions that cover one argument list under one overloading symbol are refused, by
+`ovlCoherent` alone**: a function's signature has nothing below it along the overloads but
+itself, so no symbol covers the arguments lying in both. Every other leaf of `overloadsOK`
+holds. -/
+theorem two_refused : two.overloadsOK = false ∧ ov8 two = false ∧
+    ov1 two = true ∧ ov2 two = true ∧ ov3 two = true ∧ ov4 two = true ∧ ov5 two = true ∧
+    ov6 two = true ∧ ov7 two = true ∧ ov9 two = true ∧ two.ovlPatsOK = true := by
+  decide +kernel
+
+/-- What the laws of the normal forms read (`OvlFnFacts`), from `coreOK`, at a semantics with a
+function among the overloads. -/
+theorem fnFacts_e5 : OvlLaws.OvlFnFacts E5.c :=
+  ((ovlOK_of_core coreOK_e5).hyp
+    (NamesApart.subsorts_trans_of (Semantics.coreOK_parts coreOK_e5).2.2.2.2 (Semantics.coreOK_parts coreOK_e5).1)).fnFacts
+
+/-- info: 'OvlFun.Admit.coreOK_e5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_e5
+/-- info: 'OvlFun.Admit.coreOK_ovlfun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_ovlfun
+/-- info: 'OvlFun.Admit.coreOK_lhs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_lhs
+/-- info: 'OvlFun.Admit.coreOK_keep' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_keep
+/-- info: 'OvlFun.Admit.coreOK_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_chain
+/-- info: 'OvlFun.Admit.chain_false' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms chain_false
+/-- info: 'OvlFun.Admit.coreOK_conf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms coreOK_conf
+/-- info: 'OvlFun.Admit.two_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms two_refused
+/-- info: 'OvlFun.Admit.fnFacts_e5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnFacts_e5
+
+end Admit
 
 end OvlFun

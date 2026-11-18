@@ -670,7 +670,7 @@ theorem floatShapeOK_of_coreOK {c : Semantics} (h : c.coreOK = true) : c.floatSh
       rw [List.mem_iff_getElem]
       exact ⟨i, by simpa using hi.1, by simp [List.getElem_zipIdx, hi.2]⟩)
     simp only [Bool.and_eq_true] at this
-    exact consSorts_not_float hg this.1.1.1.1.2
+    exact consSorts_not_float hg this.1.1.1.1.1.2
   · cases hraw : k.raw
     · rfl
     · have := hg'.1.2 k hk

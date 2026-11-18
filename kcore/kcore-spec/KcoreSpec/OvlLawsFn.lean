@@ -49,25 +49,6 @@ structure OvlFnFacts (c : Semantics) : Prop where
   closed : ∀ o ∈ c.ovls, ∀ kg ∈ c.ovlOver o, ∀ o', c.lookupOvl kg.name = some o' →
     ∀ kg' ∈ c.ovlOver o', c.ovlByFn kg' = true → kg' ∈ c.ovlOver o
 
-/-- The facts hold where each overloaded symbol is a constructor or an overloading symbol
-(`overloadsOK`). -/
-theorem OvlHyp.fnFacts (H : OvlHyp c) : OvlFnFacts c where
-  isOvl := fun o ho => by
-    have := (ovl_facts H (lookupOvl_of_mem H ho)).2.1
-    exact this
-  over := fun o ho kg hkg => by
-    have hlo := lookupOvl_of_mem H ho
-    obtain ⟨-, -, -, -, hpos, hover, -⟩ := ovl_facts H hlo
-    obtain ⟨-, hp, hr⟩ := hover kg hkg
-    refine ⟨hp, ?_⟩
-    rcases hr with h | h
-    · rw [rank_of_none h]; exact hpos
-    · exact h
-  coh := fun o ho => (ovl_facts H (lookupOvl_of_mem H ho)).2.2.2.2.2.2
-  closed := fun o ho kg hkg o' ho' kg' hkg' hb => by
-    rw [ovlByFn_of_known (ovlOver_known H ho' hkg')] at hb
-    cases hb
-
 /-! ## The declarations -/
 
 theorem mem_of_lookupOvl {f : Sym} {o : OvlSig} (h : c.lookupOvl f = some o) : o ∈ c.ovls := by
@@ -131,6 +112,48 @@ theorem byFn_fn {o : OvlSig} {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) (hb : c.o
   refine ⟨fn, List.mem_of_find?_eq_some hfn', ?_, hsig.symm⟩
   rw [c.lookupFn_eq, Semantics.allFns, List.find?_append, hfn']
   rfl
+
+/-- **The facts hold of the overloading symbols `overloadsOK` accepts**, a function among the
+overloads or not: a function's signature among them is of no overloading symbol, so its rank is
+0; any other is a constructor's or that of an overloading symbol listed before; and an
+overloading symbol lists the functions it reaches in two steps, being among those it reaches
+along the overloads. -/
+theorem OvlHyp.fnFacts (H : OvlHyp c) : OvlFnFacts c where
+  isOvl := fun o ho => by
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ho
+    exact (ovl_leaves_fad H.ok hi).1
+  over := fun o ho kg hkg => by
+    obtain ⟨-, j, hj, hje, hr⟩ := lookupOvl_spec (lookupOvl_of_mem H ho)
+    obtain ⟨-, -, h5, h7, -, -⟩ := ovl_leaves_fad H.ok (i := j) (by rw [List.getElem?_eq_getElem hj, hje])
+    refine ⟨h7 kg hkg, ?_⟩
+    by_cases hb : c.ovlByFn kg = true
+    · rw [rank_of_none (lookupOvl_none_of_byFn hb)]; omega
+    · have hk := known_of_not_byFn hkg (by simpa using hb)
+      rcases knownSig_cases H hk with ⟨-, hn'⟩ | ⟨hc', o', ho', -⟩
+      · rw [rank_of_none hn']; omega
+      · rcases h5 kg.name (mem_ovlOver hkg) with h | h | h
+        · rw [hc'] at h; cases h
+        · exact rank_of_take hr h
+        · exfalso
+          obtain ⟨fn, hfn, hl⟩ := List.any_eq_true.mp h
+          have hnf := (c.isOvl_parts (ovl_parts H.ok ho').2.2.1).2.2.2.1
+          rw [c.lookupFn_eq, List.find?_eq_none] at hnf
+          exact hnf fn (List.mem_append_left _ hfn) hl
+  coh := fun o ho => by
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ho
+    exact (ovl_leaves_fad H.ok hi).2.2.2.2.1
+  closed := fun o ho kg hkg o' ho' kg' hkg' hb => by
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ho
+    obtain ⟨-, hlo, -, -, -, h9⟩ := ovl_leaves_fad H.ok hi
+    obtain ⟨fn, hfn, -, hsig⟩ := byFn_fn hkg' hb
+    have hin : kg'.name ∈ o.over :=
+      h9 kg'.name (ovlClosure_over2_fad ho hlo (mem_ovlOver hkg) ho' (mem_ovlOver hkg'))
+        (List.any_eq_true.mpr ⟨fn, hfn, by rw [hsig]; simp⟩)
+    obtain ⟨g, -, hgk⟩ := List.mem_filterMap.mp hkg'
+    have hkn : kg'.name = g := by
+      rw [lookupSig_eq] at hgk
+      simpa using List.find?_some hgk
+    exact List.mem_filterMap.mpr ⟨g, hkn ▸ hin, hgk⟩
 
 /-- An overloading symbol with a function's signature among its overloads is function-overloaded. -/
 theorem fnOvlSyms_of_byFn {o : OvlSig} (ho : o ∈ c.ovls) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o)

@@ -48,17 +48,20 @@ def c0 : Semantics := { c with lib := {} }
 theorem c0_coreOK : c0.coreOK = true := by decide +kernel
 
 /-- The leaves of `overloadsOK`, each over every overloading symbol (test/witnesses.toml's
-overloadsOK.1 to overloadsOK.8). -/
+overloadsOK.1 to overloadsOK.9). -/
 def ov1 (c : Semantics) : Bool := c.ovls.all fun o => c.isOvl o.sig.name
 def ov2 (c : Semantics) : Bool := c.ovls.all fun o => c.lookupOvl o.sig.name == some o
 def ov3 (c : Semantics) : Bool := c.ovls.all fun o => (iteSort? (c.symName o.sig.name)).isNone
 def ov4 (c : Semantics) : Bool := c.ovls.all fun o => (consSorts c).contains o.sig.result
 def ov5 (c : Semantics) : Bool := c.ovls.zipIdx.all fun (o, i) =>
-  o.over.all fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)
+  o.over.all fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
+    c.fns.any (·.label == g)
 def ov6 (c : Semantics) : Bool := c.ovls.all fun o => (c.ovlOver o).length == o.over.length
 def ov7 (c : Semantics) : Bool := c.ovls.all fun o => (c.ovlOver o).all (c.ovlPairOK o)
 def ov8 (c : Semantics) : Bool := c.ovls.all fun o => (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 =>
   c.ovlCoherent k1 k2
+def ov9 (c : Semantics) : Bool := c.ovls.all fun o =>
+  (c.ovlClosure o.sig.name).all fun g => !c.fns.any (·.label == g) || o.over.contains g
 
 theorem sortedOK : c.sortedOK = true := by decide +kernel
 
@@ -76,6 +79,9 @@ theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApa
   ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, fnHyp⟩
+
+/-- It lists every function it reaches along the overloads: it reaches none. -/
+theorem meets_ov9 : ov9 c = true := by decide +kernel
 
 theorem not_ov1 : ov1 c = false := by decide +kernel
 theorem not_overloadsOK : c.overloadsOK = false := by decide +kernel

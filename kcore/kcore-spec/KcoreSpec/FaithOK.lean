@@ -508,23 +508,6 @@ def ovlCoherent (k1 k2 : CtorSig) : Bool :=
     h.args.length == k1.args.length &&
       ((h.args.zip k1.args).zip k2.args).all fun ((H, A1), A2) => (lower A1 A2).all fun C => c.le C H
 
-/-- **The overloading symbols are well formed**: each is an overloading symbol of no other kind
-(`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
-right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor or an
-overloading symbol listed before it (so the overloads are acyclic and `norm`'s steps suffice), of
-its arity, with argument and result sorts at most its own (`ovlPairOK`); any two overloads of
-one symbol agree (`ovlCoherent`); and no pattern applies a function-overloaded symbol (`ovlPatsOK`).
-Decidable on the data. -/
-def overloadsOK : Bool :=
-  (c.ovls.zipIdx.all fun (o, i) =>
-    c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (iteSort? (c.symName o.sig.name)).isNone &&
-    (Faithful.consSorts c).contains o.sig.result &&
-    o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) &&
-    (c.ovlOver o).length == o.over.length &&
-    (c.ovlOver o).all (c.ovlPairOK o) &&
-    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
-  c.ovlPatsOK
-
 /-- The symbols f reaches along the overloads, f among them, in at most `n` steps. -/
 def ovlReach : Nat → Sym → List Sym
   | 0, f => [f]
@@ -535,6 +518,27 @@ def ovlReach : Nat → Sym → List Sym
 /-- The symbols f reaches along the overloads, f among them (f alone for a symbol that overloads
 none). -/
 def ovlClosure (f : Sym) : List Sym := c.ovlReach (c.ovls.length + 1) f
+
+/-- **The overloading symbols are well formed**: each is an overloading symbol of no other kind
+(`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
+right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor, an
+overloading symbol listed before it (so the overloads are acyclic and `norm`'s steps suffice) or a
+function of the definition, of its arity, with argument and result sorts at most its own
+(`ovlPairOK`); any two overloads of one symbol agree (`ovlCoherent`); it lists every function among
+the symbols it reaches along the overloads (`ovlClosure`), so that the symbols overloading a
+function are those listing one; and no pattern applies a function-overloaded symbol (`ovlPatsOK`).
+Decidable on the data. -/
+def overloadsOK : Bool :=
+  (c.ovls.zipIdx.all fun (o, i) =>
+    c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (iteSort? (c.symName o.sig.name)).isNone &&
+    (Faithful.consSorts c).contains o.sig.result &&
+    o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g) ||
+      c.fns.any (·.label == g)) &&
+    (c.ovlOver o).length == o.over.length &&
+    (c.ovlOver o).all (c.ovlPairOK o) &&
+    ((c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
+    (c.ovlClosure o.sig.name).all fun g => !c.fns.any (·.label == g) || o.over.contains g) &&
+  c.ovlPatsOK
 
 end Semantics
 

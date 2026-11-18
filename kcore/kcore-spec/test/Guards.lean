@@ -2179,7 +2179,7 @@ def readingNote : ReadingNote → GuardEntry
     { status := .pending "GUARD.final",
       guard := [.decl ``KCore.Faithful.funUncItem_of_funItem, .decl ``KCore.Faithful.injUncItem_of_injItem,
         .test "test/Overloads.lean" "overloadFunction", .test "test/OvlFun.lean" "cons_items"],
-      note := "each sentence entails the item read of it (the item is the sentence at fewer arguments), in every interpretation; that the functional, injectivity and distinctness items of a function-overloaded symbol are the uncovered ones is kernel-checked on two hand-built semantics; no statement over c.withHooks H: coreOK admits no function overload yet" }
+      note := "each sentence entails the item read of it (the item is the sentence at fewer arguments), in every interpretation; that the functional, injectivity and distinctness items of a function-overloaded symbol are the uncovered ones is kernel-checked on two hand-built semantics; no statement over c.withHooks H (coreOK admits a function overload: test/OvlFun.lean, Admit.coreOK_e5)" }
   | .tokKItem =>
     { status := .guarded,
       guard := [.decl ``KCore.Faithful.noJunk_omitted_refuted, .test "test/TokKItem.lean" "tok_refuted",

@@ -1,17 +1,17 @@
 /-
-  The laws of the overloading symbols' normal forms (`Semantics.norm`, Value.lean), over a
-  semantics whose overloading symbols are well formed (`overloadsOK`) and whose subsorts are
+  What the laws of the overloading symbols' normal forms (`Semantics.norm`, Value.lean) read, over
+  a semantics whose overloading symbols are well formed (`overloadsOK`) and whose subsorts are
   transitive and irreflexive (`OvlHyp`):
 
-  - `norm` does not depend on the fuel past the symbol's rank (its place in `ovls`, `ovlRank`), so
-    it unfolds by one overload step (`norm_find_none`, `norm_find_some`);
-  - a normal form is a value of the symbol's result sort (`sortOf_norm`);
-  - **coherence**: every overload covering the arguments gives the same value
-    (`norm_coherent`), hence each overload equation `f(lift ā) = lift (g(ā))` (`norm_ovlEq`);
-  - a normal form is the lift of a raw application `h(ū)` of a symbol h at most f along the
-    overloads, whose arguments lift to f's (`norm_decomp`); so `norm f` is injective on argument
-    lists of f's sorts (`norm_inj`), and `norm f v̄ = f(v̄)` exactly when v̄ is uncovered
-    (`norm_eq_raw_iff`), in particular for a value `f(v̄)` (`norm_fixed`).
+  - lifting and stripping along the subsorts, on values and on argument lists;
+  - the overloads' data: an overloading symbol's rank (its place in `ovls`, `ovlRank`), the
+    signatures found among the constructors and the overloading symbols (`KnownSig`), and what
+    `overloadsOK` says of each overloading symbol (`ovl_leaves_fad`, `ovl_parts`);
+  - `norm` at a symbol that is no overloading symbol and at arguments no overload covers
+    (`norm_none`, `norm_find_none`).
+
+  The laws themselves, which hold at the arguments no function overload covers, are in
+  OvlLawsFn.lean.
 -/
 import KcoreSpec.FaithOK
 
@@ -543,36 +543,6 @@ theorem rank_of_take {f g : Sym} {i : Nat} (hr : ovlRank c f = i + 1) (ht : (c.o
 theorem find_ovlSigs (f : Sym) : c.ovlSigs.find? (·.name == f) = (c.lookupOvl f).map (·.sig) := by
   simp [Semantics.ovlSigs, Semantics.lookupOvl, List.find?_map, Function.comp_def]
 
-/-- Under `overloadsOK` a signature among the symbols an overloading symbol overloads is the one its
-name has among the constructors and the overloading symbols. -/
-theorem ovlOver_known_of_ok (hok : c.overloadsOK = true) {f : Sym} {o : OvlSig}
-    (ho : c.lookupOvl f = some o) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := by
-  obtain ⟨-, i, hi, he, -⟩ := lookupOvl_spec ho
-  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
-  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
-  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
-  obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
-  have hfound : (lookupSig (c.ctorSigs ++ c.ovlSigs) g).isSome = true := by
-    rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
-    · rw [lookupSig_append_of_isSome h1]; exact h1
-    · obtain ⟨o', ho', hn'⟩ := List.any_eq_true.mp h2
-      rw [lookupSig_eq, List.find?_isSome]
-      exact ⟨o'.sig, List.mem_append_right _ (List.mem_map_of_mem (List.mem_of_mem_take ho')), hn'⟩
-  rw [lookupSig_append_of_isSome hfound] at hgk
-  have hkn : kg.name = g := by
-    rw [lookupSig_eq] at hgk
-    simpa using List.find?_some hgk
-  unfold KnownSig; rw [hkn]; exact hgk
-
-/-- No function overload covers anything where the overloading symbols are well formed
-(`overloadsOK`): each overloaded symbol is a constructor or an overloading symbol. -/
-theorem fnCover_none_of_ok (hok : c.overloadsOK = true) (f : Sym) (vs : List GroundTerm) :
-    c.fnCover f vs = none := by
-  rw [Semantics.fnCover_eq_none_iff]
-  intro o ho kg hkg hb
-  rw [ovlByFn_of_known (ovlOver_known_of_ok hok ho hkg)] at hb
-  cases hb
-
 /-- No function overload covers anything in a semantics without an overloading symbol. -/
 theorem fnCover_none_of_nil (h : c.ovls = []) (f : Sym) (vs : List GroundTerm) : c.fnCover f vs = none :=
   c.fnCover_of_lookupOvl_none (by simp [Semantics.lookupOvl, h]) vs
@@ -606,7 +576,7 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
       simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
       have := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
       simp only [Bool.and_eq_true] at this
-      have hio := this.1.1.1.1.1.1.1
+      have hio := this.1.1.1.1.1.1.1.1
       rw [hn] at hio
       have := (c.isOvl_parts hio).1
       simp [Semantics.isCtor, lookupSig_eq, hc] at this
@@ -618,45 +588,6 @@ theorem knownSig_cases {k : CtorSig} (hk : KnownSig c k) :
       rw [ho] at hk; cases hk
       exact .inr ⟨by rw [lookupSig_eq, hc], o, rfl, rfl⟩
 
-/-- A symbol an overloading symbol overloads is a constructor or an overloading symbol
-(`overloadsOK`), and `ovlOver` holds its signature among those. -/
-theorem ovlOver_known {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {kg : CtorSig}
-    (hkg : kg ∈ c.ovlOver o) : KnownSig c kg := ovlOver_known_of_ok H.ok ho hkg
-
-/-- What `overloadsOK` gives of an overloading symbol's declaration. -/
-theorem ovl_facts {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
-    o.sig.name = f ∧ c.isOvl f = true ∧ lookupSig c.ctorSigs f = none ∧ KnownSig c o.sig ∧
-      0 < ovlRank c f ∧
-      (∀ kg ∈ c.ovlOver o, KnownSig c kg ∧ c.ovlPairOK o kg = true ∧
-        (c.lookupOvl kg.name = none ∨ ovlRank c kg.name < ovlRank c f)) ∧
-      (∀ k1 ∈ c.ovlOver o, ∀ k2 ∈ c.ovlOver o, c.ovlCoherent k1 k2 = true) := by
-  obtain ⟨hn, i, hi, he, hr⟩ := lookupOvl_spec ho
-  have hok := H.ok
-  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
-  have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
-  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
-  obtain ⟨⟨⟨⟨⟨⟨⟨hio, -⟩, -⟩, -⟩, hover⟩, -⟩, hpair⟩, hcoh⟩ := hoi
-  rw [hn] at hio
-  have hct : lookupSig c.ctorSigs f = none := by
-    have := (c.isOvl_parts hio).1
-    simpa [Semantics.isCtor] using this
-  have hks : KnownSig c o.sig := by
-    unfold KnownSig
-    rw [hn, lookupSig_eq, List.find?_append, ← lookupSig_eq, hct, Option.none_or, find_ovlSigs, ho]
-    rfl
-  refine ⟨hn, hio, hct, hks, by omega, fun kg hkg => ?_, hcoh⟩
-  obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
-  have hkn : kg.name = g := by
-    rw [lookupSig_eq] at hgk
-    simpa using List.find?_some hgk
-  have hkk : KnownSig c kg := ovlOver_known H ho hkg
-  refine ⟨hkk, hpair kg hkg, ?_⟩
-  rcases knownSig_cases H hkk with ⟨-, hn'⟩ | ⟨hc', -⟩
-  · exact .inl hn'
-  · have := hover g hg
-    rw [Bool.or_eq_true, ← hkn, hc'] at this
-    exact .inr (rank_of_take hr (this.resolve_left (by simp)))
-
 end
 
 /-- An overloading symbol's declaration is the one its name finds. -/
@@ -666,7 +597,7 @@ theorem lookupOvl_of_mem (H : OvlHyp c) {o : OvlSig} (ho : o ∈ c.ovls) : c.loo
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, beq_iff_eq] at hoi
-  exact hoi.1.1.1.1.1.1.2
+  exact hoi.1.1.1.1.1.1.1.2
 
 /-- An overloading symbol's result sort is a constructor sort. -/
 theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) :
@@ -676,7 +607,7 @@ theorem ovl_result_cons (H : OvlHyp c) {f : Sym} {o : OvlSig} (ho : c.lookupOvl 
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true] at hoi
-  exact List.contains_iff_mem.mp hoi.1.1.1.1.2
+  exact List.contains_iff_mem.mp hoi.1.1.1.1.1.2
 
 /-- What `overloadsOK` alone gives of an overloading symbol's declaration: it is one of the list,
 an overloading symbol of no other kind, named plainly (not like `ite` at a sort), of a constructor
@@ -688,19 +619,60 @@ theorem ovl_parts {f : Sym} {o : OvlSig} (hok : c.overloadsOK = true) (ho : c.lo
   simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
   have hoi := hok (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
   simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
-  refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.2⟩
-  · rw [← hn]; exact hoi.1.1.1.1.1.1.1
-  · rw [← hn]; exact hoi.1.1.1.1.1.2
+  refine ⟨he ▸ List.getElem_mem hi, hn, ?_, ?_, List.contains_iff_mem.mp hoi.1.1.1.1.1.2⟩
+  · rw [← hn]; exact hoi.1.1.1.1.1.1.1.1
+  · rw [← hn]; exact hoi.1.1.1.1.1.1.2
 
-/-- A constructor is no overloading symbol. -/
+/-- A constructor is no overloading symbol (`overloadsOK`: an overloading symbol is of no other
+kind). -/
 theorem lookupOvl_none_of_ctor (H : OvlHyp c) {k : CtorSig} (hk : k ∈ c.ctorSigs) :
     c.lookupOvl k.name = none := by
   cases ho : c.lookupOvl k.name with
   | none => rfl
   | some o =>
-    obtain ⟨-, -, hct, -⟩ := ovl_facts H ho
-    rw [lookupSig_eq] at hct
-    exact absurd (List.find?_eq_none.mp hct k hk) (by simp)
+    have hct := (c.isOvl_parts (ovl_parts H.ok ho).2.2.1).1
+    rw [Semantics.isCtor, lookupSig_eq] at hct
+    have hnone : c.ctorSigs.find? (·.name == k.name) = none := by simpa using hct
+    exact absurd (List.find?_eq_none.mp hnone k hk) (by simp)
+
+/-- **What `overloadsOK` says of the overloading symbol listed at place `i`**: it is an overloading
+symbol of no other kind, found by its name; each symbol it overloads is a constructor, an
+overloading symbol listed before place `i`, or a function of the definition, with argument and
+result sorts at most its own; any two of its overloads agree; and it lists every function among
+the symbols it reaches along the overloads. -/
+theorem ovl_leaves_fad (hok : c.overloadsOK = true) {o : OvlSig} {i : Nat} (hi : c.ovls[i]? = some o) :
+    c.isOvl o.sig.name = true ∧ c.lookupOvl o.sig.name = some o ∧
+      (∀ g ∈ o.over, (lookupSig c.ctorSigs g).isSome = true ∨ (c.ovls.take i).any (·.sig.name == g) = true ∨
+        c.fns.any (·.label == g) = true) ∧
+      (∀ kg ∈ c.ovlOver o, c.ovlPairOK o kg = true) ∧
+      (∀ k1 ∈ c.ovlOver o, ∀ k2 ∈ c.ovlOver o, c.ovlCoherent k1 k2 = true) ∧
+      (∀ g ∈ c.ovlClosure o.sig.name, c.fns.any (·.label == g) = true → g ∈ o.over) := by
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok; replace hok := hok.1; simp only [List.all_eq_true] at hok
+  have hoi := hok (o, i) (List.mem_zipIdx_iff_getElem?.mpr hi)
+  simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq, Bool.or_eq_true] at hoi
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, -⟩, -⟩, h5⟩, -⟩, h7⟩, h8⟩, h9⟩ := hoi
+  refine ⟨h1, h2, fun g hg => or_assoc.mp (h5 g hg), h7, h8, fun g hg hf => ?_⟩
+  rcases h9 g hg with h | h
+  · rw [hf] at h; cases h
+  · exact List.contains_iff_mem.mp h
+
+theorem ovlReach_head (m : Nat) (f : Sym) : f ∈ c.ovlReach m f := by
+  cases m <;> simp [Semantics.ovlReach]
+
+/-- A symbol reached in two steps along the overloads is in the closure. -/
+theorem ovlClosure_over2_fad {f g g' : Sym} {o o' : OvlSig} (hm : o ∈ c.ovls) (ho : c.lookupOvl f = some o)
+    (hg : g ∈ o.over) (ho' : c.lookupOvl g = some o') (hg' : g' ∈ o'.over) : g' ∈ c.ovlClosure f := by
+  obtain ⟨n, hn⟩ : ∃ n, c.ovls.length = n + 1 :=
+    ⟨c.ovls.length - 1, by have := List.length_pos_of_mem hm; omega⟩
+  have h1 : c.ovlReach (n + 1 + 1) f = f :: o.over.flatMap (c.ovlReach (n + 1)) := by
+    rw [Semantics.ovlReach, ho]
+  have h2 : c.ovlReach (n + 1) g = g :: o'.over.flatMap (c.ovlReach n) := by
+    rw [Semantics.ovlReach, ho']
+  unfold Semantics.ovlClosure
+  rw [hn, h1]
+  refine List.mem_cons_of_mem _ (List.mem_flatMap.mpr ⟨g, hg, ?_⟩)
+  rw [h2]
+  exact List.mem_cons_of_mem _ (List.mem_flatMap.mpr ⟨g', hg', ovlReach_head _ g'⟩)
 
 theorem rank_of_none {f : Sym} (h : c.lookupOvl f = none) : ovlRank c f = 0 := by
   unfold Semantics.lookupOvl at h
@@ -737,9 +709,6 @@ theorem uncovered_of_none {f : Sym} (h : c.lookupOvl f = none) (vs : List Ground
     c.uncovered f vs = true := by
   simp [Semantics.uncovered, h]
 
-theorem ovlReach_head (m : Nat) (f : Sym) : f ∈ c.ovlReach m f := by
-  cases m <;> simp [Semantics.ovlReach]
-
 theorem mem_ovlOver {o : OvlSig} {kg : CtorSig} (hkg : kg ∈ c.ovlOver o) : kg.name ∈ o.over := by
   obtain ⟨g, hg, hgk⟩ := List.mem_filterMap.mp hkg
   rw [lookupSig_eq] at hgk
@@ -767,49 +736,10 @@ section
 variable (H : OvlHyp c)
 include H
 
-/-- `normN` is stable from the symbol's rank on. -/
-theorem normN_stable : ∀ n f, ovlRank c f ≤ n → ∀ m, n ≤ m → ∀ vs, c.normN m f vs = c.normN n f vs
-  | 0, f, hr, m, _, vs => by
-    have hn := lookupOvl_none_of_rank (c := c) (f := f) (by omega)
-    rw [normN_none hn, normN_none hn]
-  | n + 1, f, hr, m, hm, vs => by
-    cases ho : c.lookupOvl f with
-    | none => rw [normN_none ho, normN_none ho]
-    | some o =>
-      obtain ⟨-, -, -, -, hpos, hover, -⟩ := ovl_facts H ho
-      obtain ⟨m, rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
-      cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
-      | none => simp only [Semantics.normN, ho, hf]
-      | some kg =>
-        obtain ⟨hkk, -, hr'⟩ := hover kg (List.mem_of_find?_eq_some hf)
-        simp only [Semantics.normN, ho, hf, ovlByFn_of_known hkk, Bool.false_eq_true, ↓reduceIte]
-        have hrk : ovlRank c kg.name ≤ n := by
-          rcases hr' with h | h
-          · rw [rank_of_none h]; omega
-          · omega
-        rw [normN_stable n kg.name hrk m (by omega)]
-
 omit H in
 theorem norm_find_none {f : Sym} {o : OvlSig} {vs : List GroundTerm} (ho : c.lookupOvl f = some o)
     (hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) = none) : c.norm f vs = .ctor f vs := by
   simp [Semantics.norm, Semantics.normN, ho, hf]
-
-/-- **One overload step**: where the first overload covering the arguments is that of kg, f's
-normal form is kg's at the stripped arguments, lifted. -/
-theorem norm_find_some {f : Sym} {o : OvlSig} {vs : List GroundTerm} {kg : CtorSig} (ho : c.lookupOvl f = some o)
-    (hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) = some kg) :
-    c.norm f vs = lift kg.result o.sig.result (c.norm kg.name (stripAll kg.args o.sig.args vs)) := by
-  have hr := ovlRank_le (c := c) kg.name
-  have e1 : ∀ xs, c.normN c.ovls.length kg.name xs = c.norm kg.name xs := by
-    intro xs
-    unfold Semantics.norm
-    rw [normN_stable H _ _ (Nat.le_refl _) c.ovls.length hr,
-      normN_stable H _ _ (Nat.le_refl _) (c.ovls.length + 1) (by omega)]
-  unfold Semantics.norm
-  simp only [Semantics.normN, ho, hf, ovlByFn_of_known (ovlOver_known H ho (List.mem_of_find?_eq_some hf)),
-    Bool.false_eq_true, ↓reduceIte]
-  rw [e1]
-  rfl
 
 /-! ## Values -/
 
@@ -819,67 +749,7 @@ theorem known_ctor_parts {k : CtorSig} (hk : KnownSig c k) (hn : c.lookupOvl k.n
   · exact hc
   · rw [hn] at ho; cases ho
 
-/-- **A normal form is a value** of the symbol's result sort. -/
-theorem sortOf_norm_known : ∀ n k, KnownSig c k → ovlRank c k.name ≤ n → ∀ vs,
-    c.sortsOf vs = some k.args → c.sortOf (c.norm k.name vs) = some k.result
-  | n, k, hk, hr, vs, hvs => by
-    cases hn : c.lookupOvl k.name with
-    | none =>
-      rw [norm_none hn]
-      exact c.sortOf_ctor_iff.mpr (.inl ⟨k, known_ctor_parts H hk hn, hvs, rfl⟩)
-    | some o =>
-      rcases knownSig_cases H hk with ⟨-, hn'⟩ | ⟨hct, o', ho', hos⟩
-      · rw [hn'] at hn; cases hn
-      rw [hn] at ho'; cases ho'; subst hos
-      obtain ⟨-, -, -, -, hpos, hover, -⟩ := ovl_facts H hn
-      cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
-      | none =>
-        rw [norm_find_none hn hf]
-        exact c.sortOf_ctor_iff.mpr (.inr (.inl ⟨hct, o, hn, hvs, uncovered_of_find_none hn hf, rfl⟩))
-      | some kg =>
-        rw [norm_find_some H hn hf]
-        have hkg := List.mem_of_find?_eq_some hf
-        have hcv := List.find?_some hf
-        obtain ⟨hkk, hpair, hr'⟩ := hover kg hkg
-        obtain ⟨hl, hle, hres⟩ := pairOK_parts hpair
-        obtain ⟨-, -, hlies⟩ := covers_iff.mp hcv
-        match n with
-        | 0 => omega
-        | n + 1 =>
-          have hrk : ovlRank c kg.name ≤ n := by
-            rcases hr' with h | h
-            · rw [rank_of_none h]; omega
-            · omega
-          exact sortOf_lift H (sortOf_norm_known n kg hkk hrk _ (sortsOf_stripAll hl hvs hlies)) hres
-
-theorem sortOf_norm {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs : List GroundTerm}
-    (hvs : c.sortsOf vs = some o.sig.args) : c.sortOf (c.norm f vs) = some o.sig.result := by
-  obtain ⟨hn, -, -, hks, -⟩ := ovl_facts H ho
-  have := sortOf_norm_known H _ o.sig hks (ovlRank_le _) vs hvs
-  rwa [hn] at this
-
 /-! ## Coherence -/
-
-/-- A symbol of `ovlDown k`: k, or one that k overloads. -/
-theorem down_parts {k h : CtorSig} (hk : KnownSig c k) (hh : h ∈ c.ovlDown k) :
-    KnownSig c h ∧ h.args.length = k.args.length ∧ (h.args.zip k.args).all (fun (A, B) => c.le A B) = true ∧
-      c.le h.result k.result = true ∧
-      (h = k ∨ ∃ ok, c.lookupOvl k.name = some ok ∧ ok.sig = k ∧ h ∈ c.ovlOver ok) := by
-  unfold Semantics.ovlDown at hh
-  rcases List.mem_cons.mp hh with rfl | hh
-  · exact ⟨hk, rfl, le_all_self _, OvlLaws.le_refl _, .inl rfl⟩
-  · cases hn : c.lookupOvl k.name with
-    | none => rw [hn] at hh; cases hh
-    | some ok =>
-      rw [hn] at hh
-      rcases knownSig_cases H hk with ⟨-, hn'⟩ | ⟨-, o', ho', hos⟩
-      · rw [hn'] at hn; cases hn
-      rw [hn] at ho'; cases ho'
-      obtain ⟨-, -, -, -, -, hover, -⟩ := ovl_facts H hn
-      obtain ⟨hkh, hpair, -⟩ := hover h hh
-      obtain ⟨hl, hle, hres⟩ := pairOK_parts hpair
-      rw [hos] at hl hle hres
-      exact ⟨hkh, hl, hle, hres, .inr ⟨ok, rfl, hos, hh⟩⟩
 
 /-- A value lying in two sorts lies in each sort above a common lower sort of the two that the
 value's position names: its injection's source, or its own sort. -/
@@ -907,168 +777,7 @@ theorem pos_lower {A1 A2 B : Srt} {v : GroundTerm} (hv : c.sortOf v = some B) (h
     rw [le_antisymm H hXB hBX]
     exact lies_self _ _
 
-/-- Two overloads of one symbol that cover the same arguments have a common symbol below both,
-among `ovlDown`, that covers them too (`ovlCoherent`). -/
-theorem coherent_common {o : OvlSig} {k1 k2 : CtorSig} (hk1 : KnownSig c k1) (hp1 : c.ovlPairOK o k1 = true)
-    (hcoh : c.ovlCoherent k1 k2 = true) {vs : List GroundTerm} (hvs : c.sortsOf vs = some o.sig.args)
-    (hc1 : c.ovlCovers o.sig k1 vs = true) (hc2 : c.ovlCovers o.sig k2 vs = true) :
-    ∃ h, h ∈ c.ovlDown k1 ∧ h ∈ c.ovlDown k2 ∧ c.ovlCovers o.sig h vs = true := by
-  obtain ⟨hl1, hvl, hli1⟩ := covers_iff.mp hc1
-  obtain ⟨hl2, -, hli2⟩ := covers_iff.mp hc2
-  obtain ⟨-, hvi⟩ := sortsOf_iff.mp hvs
-  have hli1 := zip3_all_iff.mp hli1
-  have hli2 := zip3_all_iff.mp hli2
-  have hpos : ∀ i (h1 : i < k1.args.length) (h2 : i < k2.args.length),
-      ∃ C, C ∈ (k1.args[i] :: k2.args[i] :: c.subsorts.map (·.1)).filter
-          (fun C => c.le C k1.args[i] && c.le C k2.args[i]) ∧
-        ∀ X, c.le X (o.sig.args[i]'(by omega)) = true → c.le C X = true →
-          c.lies X (o.sig.args[i]'(by omega)) (vs[i]'(by omega)) = true :=
-    fun i h1 h2 => pos_lower H (hvi i (by omega) (by omega)) (hli1 i h1 (by omega) (by omega))
-      (hli2 i h2 (by omega) (by omega))
-  simp only [Semantics.ovlCoherent, Bool.or_eq_true] at hcoh
-  rcases hcoh with hany | hall
-  · exfalso
-    obtain ⟨x, hmem, hemp⟩ := List.any_eq_true.mp hany
-    obtain ⟨i, hi, hie⟩ := List.getElem_of_mem hmem
-    subst hie
-    simp only [List.length_zip] at hi
-    obtain ⟨C, hC, -⟩ := hpos i (by omega) (by omega)
-    have : C ∈ ([] : List Srt) := by
-      rw [← List.isEmpty_iff.mp hemp]
-      simpa only [List.getElem_zip] using hC
-    simp at this
-  · obtain ⟨h, hmem, hb⟩ := List.any_eq_true.mp hall
-    obtain ⟨hd1, hd2⟩ := List.mem_filter.mp hmem
-    simp only [Bool.and_eq_true, beq_iff_eq] at hb
-    obtain ⟨hhl, hb⟩ := hb
-    obtain ⟨-, hhl', hhle, -, -⟩ := down_parts H hk1 hd1
-    obtain ⟨-, hle1, -⟩ := pairOK_parts hp1
-    have hhle := zip2_all_iff.mp hhle
-    have hle1 := zip2_all_iff.mp hle1
-    refine ⟨h, hd1, List.contains_iff_mem.mp hd2, covers_iff.mpr ⟨by omega, hvl,
-      zip3_all_iff.mpr fun i hi1 hi2 hi3 => ?_⟩⟩
-    obtain ⟨C, hC, hX⟩ := hpos i (by omega) (by omega)
-    have hmem3 : ((h.args[i], k1.args[i]'(by omega)), k2.args[i]'(by omega)) ∈ (h.args.zip k1.args).zip k2.args := by
-      have := List.getElem_mem (show i < ((h.args.zip k1.args).zip k2.args).length by simp; omega)
-      simpa only [List.getElem_zip] using this
-    have hb' := List.all_eq_true.mp hb _ hmem3
-    have hCH := List.all_eq_true.mp hb' C hC
-    exact hX _ (le_trans H (hhle i hi1 (by omega)) (hle1 i (by omega) hi2)) hCH
-
-/-- **Coherence**: every overload of f covering the arguments gives f's normal form, that of the
-overloaded symbol at the stripped arguments, lifted. -/
-theorem norm_coherent : ∀ n f o, c.lookupOvl f = some o → ovlRank c f ≤ n → ∀ vs,
-    c.sortsOf vs = some o.sig.args → ∀ kg ∈ c.ovlOver o, c.ovlCovers o.sig kg vs = true →
-    c.norm f vs = lift kg.result o.sig.result (c.norm kg.name (stripAll kg.args o.sig.args vs))
-  | 0, f, o, ho, hr, _, _, _, _, _ => by
-    obtain ⟨-, -, -, -, hpos, -⟩ := ovl_facts H ho
-    omega
-  | n + 1, f, o, ho, hr, vs, hvs, kg, hkg, hcv => by
-    obtain ⟨-, -, -, -, hpos, hover, hcoh⟩ := ovl_facts H ho
-    have hvl := (sortsOf_iff.mp hvs).1
-    -- the step from an overload k to a symbol h below it, both covering
-    have down : ∀ k ∈ c.ovlOver o, c.ovlCovers o.sig k vs = true → ∀ h ∈ c.ovlDown k,
-        c.ovlCovers o.sig h vs = true →
-        lift k.result o.sig.result (c.norm k.name (stripAll k.args o.sig.args vs)) =
-          lift h.result o.sig.result (c.norm h.name (stripAll h.args o.sig.args vs)) := by
-      intro k hk hck h hh hch
-      obtain ⟨hkk, hpk, hrk⟩ := hover k hk
-      obtain ⟨hlk, hlek, hresk⟩ := pairOK_parts hpk
-      obtain ⟨-, hlh, hleh, hresh, hor⟩ := down_parts H hkk hh
-      rcases hor with rfl | ⟨ok, hok, hos, hmem⟩
-      · rfl
-      subst hos
-      have hrk' : ovlRank c ok.sig.name ≤ n := by
-        rcases hrk with h' | h'
-        · rw [hok] at h'; cases h'
-        · omega
-      obtain ⟨-, -, hlies⟩ := covers_iff.mp hck
-      obtain ⟨-, -, hliesh⟩ := covers_iff.mp hch
-      have hcov' : c.ovlCovers ok.sig h (stripAll ok.sig.args o.sig.args vs) = true :=
-        covers_iff.mpr ⟨hlh, by simp [length_stripAll]; omega,
-          lies_stripAll H hlh hlk (by omega) hleh hlek hliesh⟩
-      rw [norm_coherent n ok.sig.name ok hok hrk' _ (sortsOf_stripAll hlk hvs hlies) h hmem hcov',
-        lift_trans H hresh hresk, stripAll_trans H hlh hlk (by omega) hleh hlek hliesh]
-    cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
-    | none => exact absurd hcv (by simpa using List.find?_eq_none.mp hf kg hkg)
-    | some k1 =>
-      rw [norm_find_some H ho hf]
-      have hk1 := List.mem_of_find?_eq_some hf
-      have hc1 := List.find?_some hf
-      obtain ⟨hkk1, hp1, -⟩ := hover k1 hk1
-      obtain ⟨h, hd1, hd2, hch⟩ := coherent_common H hkk1 hp1 (hcoh k1 hk1 kg hkg) hvs hc1 hcv
-      rw [down k1 hk1 hc1 h hd1 hch, down kg hkg hcv h hd2 hch]
-
-/-- **The overload equations**: for each symbol g that f overloads, `f(lift ā) = lift (g(ā))` at
-arguments ā of g's sorts. -/
-theorem norm_ovlEq {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {kg : CtorSig} (hkg : kg ∈ c.ovlOver o)
-    {as : List GroundTerm} (has : c.sortsOf as = some kg.args) :
-    c.norm f (liftAll kg.args o.sig.args as) = lift kg.result o.sig.result (c.norm kg.name as) := by
-  obtain ⟨-, -, -, -, -, hover, -⟩ := ovl_facts H ho
-  obtain ⟨-, hpair, -⟩ := hover kg hkg
-  obtain ⟨hl, hle, -⟩ := pairOK_parts hpair
-  have hal := (sortsOf_iff.mp has).1
-  rw [norm_coherent H _ f o ho (ovlRank_le f) _ (sortsOf_liftAll H hl has hle) kg hkg
-      (covers_iff.mpr ⟨hl, by simp [length_liftAll]; omega, lies_liftAll hl has⟩),
-    stripAll_liftAll H hl has]
-
 /-! ## Normal forms -/
-
-/-- **A normal form is the lift of a raw application** `h(ū)`: of f itself at f's arguments where
-they are uncovered, otherwise of a symbol of smaller rank; ū lifts to f's arguments. -/
-theorem norm_decomp : ∀ n k, KnownSig c k → ovlRank c k.name ≤ n → ∀ vs, c.sortsOf vs = some k.args →
-    ∃ h us, KnownSig c h ∧ h.args.length = k.args.length ∧
-      (h.args.zip k.args).all (fun (A, B) => c.le A B) = true ∧ c.le h.result k.result = true ∧
-      c.norm k.name vs = lift h.result k.result (.ctor h.name us) ∧ vs = liftAll h.args k.args us ∧
-      us.length = h.args.length ∧
-      ((c.uncovered k.name vs = true ∧ h = k ∧ us = vs) ∨
-        (c.uncovered k.name vs = false ∧ ovlRank c h.name < ovlRank c k.name)) ∧
-      ∀ m, ovlRank c k.name ≤ m → h.name ∈ c.ovlReach m k.name
-  | n, k, hk, hr, vs, hvs => by
-    have hvl := (sortsOf_iff.mp hvs).1
-    have raw : c.norm k.name vs = .ctor k.name vs → c.uncovered k.name vs = true →
-        ∃ h us, KnownSig c h ∧ h.args.length = k.args.length ∧
-          (h.args.zip k.args).all (fun (A, B) => c.le A B) = true ∧ c.le h.result k.result = true ∧
-          c.norm k.name vs = lift h.result k.result (.ctor h.name us) ∧ vs = liftAll h.args k.args us ∧
-          us.length = h.args.length ∧
-          ((c.uncovered k.name vs = true ∧ h = k ∧ us = vs) ∨
-            (c.uncovered k.name vs = false ∧ ovlRank c h.name < ovlRank c k.name)) ∧
-          ∀ m, ovlRank c k.name ≤ m → h.name ∈ c.ovlReach m k.name :=
-      fun he hu => ⟨k, vs, hk, rfl, le_all_self _, OvlLaws.le_refl _, by rw [he, lift_self],
-        (liftAll_self _ hvl).symm, hvl, .inl ⟨hu, rfl, rfl⟩, fun m _ => ovlReach_head m _⟩
-    cases hn : c.lookupOvl k.name with
-    | none => exact raw (norm_none hn vs) (uncovered_of_none hn vs)
-    | some o =>
-      rcases knownSig_cases H hk with ⟨-, hn'⟩ | ⟨hct, o', ho', hos⟩
-      · rw [hn'] at hn; cases hn
-      rw [hn] at ho'; cases ho'; subst hos
-      obtain ⟨-, -, -, -, hpos, hover, -⟩ := ovl_facts H hn
-      cases hf : (c.ovlOver o).find? (fun kg => c.ovlCovers o.sig kg vs) with
-      | none => exact raw (norm_find_none hn hf) (uncovered_of_find_none hn hf)
-      | some kg =>
-        have hkg := List.mem_of_find?_eq_some hf
-        have hcv := List.find?_some hf
-        obtain ⟨hkk, hpair, hr'⟩ := hover kg hkg
-        obtain ⟨hl, hle, hres⟩ := pairOK_parts hpair
-        obtain ⟨-, -, hlies⟩ := covers_iff.mp hcv
-        have hrk : ovlRank c kg.name < ovlRank c o.sig.name := by
-          rcases hr' with h' | h'
-          · rw [rank_of_none h']; omega
-          · exact h'
-        match n with
-        | 0 => omega
-        | n + 1 =>
-          obtain ⟨h, us, hkh, hlh, hleh, hresh, hne, hvs', hul, hor, hreach⟩ :=
-            norm_decomp n kg hkk (by omega) _ (sortsOf_stripAll hl hvs hlies)
-          refine ⟨h, us, hkh, by omega, le_all_trans H hlh hl hleh hle, le_trans H hresh hres, ?_, ?_, hul,
-            .inr ⟨covered_of_mem hn hkg hcv, ?_⟩, fun m hm => ?_⟩
-          · rw [norm_find_some H hn hf, hne, lift_trans H hresh hres]
-          · rw [← liftAll_trans H hlh hl hul hleh hle, ← hvs', liftAll_stripAll hl hvs hlies]
-          · rcases hor with ⟨-, rfl, -⟩ | ⟨-, h'⟩ <;> omega
-          · obtain ⟨m, rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
-            have hin := hreach m (by omega)
-            simp only [Semantics.ovlReach, hn, List.mem_cons, List.mem_flatMap]
-            exact .inr ⟨kg.name, mem_ovlOver hkg, hin⟩
 
 omit H in
 theorem knownSig_inj {h h' : CtorSig} (hh : KnownSig c h) (hh' : KnownSig c h') (he : h.name = h'.name) :
@@ -1087,56 +796,6 @@ theorem lift_ctor_inj {A A' B : Srt} {f f' : Sym} {us us' : List GroundTerm}
   · subst h2; simp [lift_self, lift_ne h1, injNormal] at he
   · simp only [lift_ne h1, lift_ne h2, injNormal, GroundTerm.inj.injEq, GroundTerm.ctor.injEq] at he
     exact he.2.2
-
-/-- **`norm` is injective** on argument lists of the symbol's sorts. -/
-theorem norm_inj_known {k : CtorSig} (hk : KnownSig c k) {vs ws : List GroundTerm}
-    (hvs : c.sortsOf vs = some k.args) (hws : c.sortsOf ws = some k.args)
-    (he : c.norm k.name vs = c.norm k.name ws) : vs = ws := by
-  obtain ⟨h, us, hkh, -, -, -, hne, hv, -⟩ := norm_decomp H _ k hk (ovlRank_le _) vs hvs
-  obtain ⟨h', us', hkh', -, -, -, hne', hw, -⟩ := norm_decomp H _ k hk (ovlRank_le _) ws hws
-  rw [hne, hne'] at he
-  obtain ⟨hn, rfl⟩ := lift_ctor_inj he
-  rw [hv, hw, knownSig_inj hkh hkh' hn]
-
-theorem norm_inj {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs ws : List GroundTerm}
-    (hvs : c.sortsOf vs = some o.sig.args) (hws : c.sortsOf ws = some o.sig.args)
-    (he : c.norm f vs = c.norm f ws) : vs = ws := by
-  obtain ⟨hn, -, -, hks, -⟩ := ovl_facts H ho
-  exact norm_inj_known H hks hvs hws (by rw [hn]; exact he)
-
-/-- **A normal form is the raw application exactly where no overload covers the arguments.** -/
-theorem norm_eq_raw_iff {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs : List GroundTerm}
-    (hvs : c.sortsOf vs = some o.sig.args) : c.norm f vs = .ctor f vs ↔ c.uncovered f vs = true := by
-  obtain ⟨hn, -, -, hks, -⟩ := ovl_facts H ho
-  obtain ⟨h, us, -, -, -, -, hne, -, -, hor, -⟩ := norm_decomp H _ o.sig hks (ovlRank_le _) vs hvs
-  rw [hn] at hne hor
-  constructor
-  · intro he
-    rcases hor with ⟨hu, -⟩ | ⟨-, hlt⟩
-    · exact hu
-    · rw [he, ← lift_self o.sig.result (.ctor f vs)] at hne
-      obtain ⟨rfl, -⟩ := lift_ctor_inj hne
-      omega
-  · intro hu
-    rcases hor with ⟨-, rfl, rfl⟩ | ⟨hu', -⟩
-    · rw [hne, lift_self, hn]
-    · rw [hu] at hu'; cases hu'
-
-/-- **A value is its own normal form.** -/
-theorem norm_fixed {f : Sym} {o : OvlSig} (ho : c.lookupOvl f = some o) {vs : List GroundTerm} {s : Srt}
-    (hv : c.sortOf (.ctor f vs) = some s) : c.norm f vs = .ctor f vs := by
-  obtain ⟨-, -, hct, -⟩ := ovl_facts H ho
-  rcases c.sortOf_ctor_iff.mp hv with ⟨k, hk, -⟩ | ⟨-, o', ho', hvs, hu, -⟩ | ⟨-, ho', -⟩
-  · rw [hct] at hk; cases hk
-  · rw [ho] at ho'; cases ho'
-    exact (norm_eq_raw_iff H ho hvs).mpr hu
-  · rw [ho] at ho'; cases ho'
-
-/-- **A normal form's raw application is of a symbol in the overload closure.** -/
-theorem norm_head {k : CtorSig} (hk : KnownSig c k) {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.args) :
-    ∃ A f us, c.norm k.name vs = lift A k.result (.ctor f us) ∧ f ∈ c.ovlClosure k.name := by
-  obtain ⟨h, us, -, -, -, -, hne, -, -, -, hreach⟩ := norm_decomp H _ k hk (ovlRank_le _) vs hvs
-  exact ⟨h.result, h.name, us, hne, hreach _ (by have := ovlRank_le (c := c) k.name; omega)⟩
 
 end
 
@@ -1157,7 +816,7 @@ theorem fnOver_of_apart {c : Semantics} (hok : c.overloadsOK = true)
     obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
     have hoi := hok' (o', i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
     simp only [Bool.and_eq_true, beq_iff_eq] at hoi
-    exact ⟨hoi.1.1.1.1.1.1.1, hoi.1.1.1.1.1.1.2⟩
+    exact ⟨hoi.1.1.1.1.1.1.1.1, hoi.1.1.1.1.1.1.1.2⟩
   unfold Semantics.fnOvlSyms at hm
   obtain ⟨o', ho', hn⟩ := List.mem_map.mp hm
   obtain ⟨ho'm, hany⟩ := List.mem_filter.mp ho'

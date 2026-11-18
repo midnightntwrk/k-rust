@@ -203,14 +203,14 @@ evidence = "test/WitRestOvlA.lean"
 
 [[conjunct]]
 key = "overloadsOK.5"
-text = "(KCore.lookupSig c.ctorSigs g).isSome || (List.take i c.ovls).any fun x => x.sig.name == g"
-witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> K overloading itself meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): against the semantics overloading nothing Γ adds the valid equation f(x) = f(x), f's applications are covered and no values (kernel-checked), and f's distinctness from the other generators of K is stated at uncovered arguments only, none at Int, so a model of that theory is one of Γ; the conjunct is asked for the acyclicity of the overloads that norm reads; not examined: a cycle through two overloading symbols"
+text = "((KCore.lookupSig c.ctorSigs g).isSome || (List.take i c.ovls).any fun x => x.sig.name == g) || c.fns.any fun x => x.label == g"
+witness = "none: not found; the conjunct is not implied by the others (kernel-checked: an overloading symbol f : Int -> K overloading itself meets every other leaf of coreOK and FnHyp; overloading nothing, coreOK holds); Γ has a model (argued): against the semantics overloading nothing Γ adds the valid equation f(x) = f(x), f's applications are covered and no values (kernel-checked), and f's distinctness from the other generators of K is stated at uncovered arguments only, none at Int, so a model of that theory is one of Γ; the conjunct is asked for the acyclicity of the overloads that norm reads and for each overloaded symbol to be a constructor, an overloading symbol or a function; not examined: a cycle through two overloading symbols"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
 key = "overloadsOK.6"
 text = "(c.ovlOver o).length == o.over.length"
-witness = "none: no witness exists: implied by overloadsOK.5 at the same overloading symbol, for every semantics (kernel-checked: ov6_of_ov5): a symbol found among the constructors or the overloading symbols listed before is found by ovlOver's lookup in the constructors and every overloading symbol"
+witness = "none: no witness exists: implied by overloadsOK.5 at the same overloading symbol, for every semantics (kernel-checked: ov6_of_ov5): a symbol found among the constructors, the overloading symbols listed before or the functions is found by ovlOver's lookup in the constructors, every overloading symbol and the functions"
 evidence = "test/WitRestOvlB.lean"
 
 [[conjunct]]
@@ -227,10 +227,15 @@ note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the
 
 [[conjunct]]
 key = "overloadsOK.9"
+text = "(!c.fns.any fun x => x.label == g) || o.over.contains g"
+witness = "none: not kernel-checked in the no-model form; the conjunct is not implied by the others (kernel-checked: the chain plusBig over plusExp over the function plusInt, Int < Exp < Big, with plusBig not listing plusInt, meets every other leaf of coreOK, Admit.chain_false and Chain.others_false; listing it, coreOK holds); Γ has no model (argued): plusBig lists no function, so it is not function-overloaded and Γ states its injectivity at every argument, while the two overload equations give plusBig(inj inj 1, inj inj 2) = inj inj (1 +Int 2) = plusBig(inj inj 2, inj inj 1), against that injectivity and the injections' own; not examined: FnHyp of the chain, and the witness as a module"
+evidence = "test/OvlFun.lean"
+
+[[conjunct]]
+key = "overloadsOK.10"
 text = "c.ovlPatsOK"
 witness = "none: no witness exists: implied by sortedOK.2, sortedOK.3 and sortedOK.5, for every semantics (kernel-checked: Semantics.ovlPatsOK_of_sortedOK): ruleSorted sorts a rule's left side, clauseSorted a clause's patterns and condOK each exMatch pattern of a rule's pre and post and of a clause's pre over patCtxNF, which holds no function-overloaded symbol, and clausesPlain asks that a clause's right side hold no predicate (post.isTop), so it holds no pattern"
 evidence = "test/SortedNF.lean"
-note = "also implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart) while overloadsOK.5 admits no function among the overloaded symbols (kernel-checked: ov9_of_ov15, test/WitRestOvlB.lean)"
 
 [[conjunct]]
 key = "FnDet"

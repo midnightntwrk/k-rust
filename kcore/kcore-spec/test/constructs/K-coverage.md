@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 58 | 7 | 0 | 1 | 0 | 50 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
-| E5 | 57 | 31 | 1 | 5 | 0 | 20 | 0 | 0 |
+| E5 | 57 | 32 | 1 | 5 | 0 | 19 | 0 | 0 |
 | E6 | 30 | 8 | 0 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 9 | 4 | 1 | 1 | 0 | 3 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 325 | 118 | 2 | 17 | 1 | 187 | 0 | 0 |
+| all | 325 | 119 | 2 | 17 | 1 | 186 | 0 | 0 |
 
 Refused rows by class:
 
@@ -63,14 +63,14 @@ Refused nested entries by class:
 | E2 | 50 | 3 | 0 | 3 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
-| E5 | 20 | 10 | 0 | 5 | 5 |
+| E5 | 19 | 10 | 0 | 4 | 5 |
 | E6 | 22 | 2 | 1 | 3 | 16 |
 | E7 | 3 | 0 | 0 | 0 | 3 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 187 | 49 | 11 | 46 | 81 |
+| all | 186 | 49 | 11 | 45 | 81 |
 
-## Entries of class R-c (58)
+## Entries of class R-c (57)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -125,7 +125,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
 | E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |
-| E5 | `convertRule:axiom#2` | cases[11] | refused |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit |  |
 | E5 | `convertRule:axiom#2` | cases[13] | refused |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip |  |
 | E6 | `hook:LIST.update:LblList'Coln'set` | cases[0] | refused | matching a left side through a function's inverse (the arguments at which an interpreted hooked symbol takes a value) | KCore.PatVal and KCore.Semantics.patCtxAll (KCore.Semantics.ruleSorted): a hooked symbol the registry interprets (LIST.update) in a left side matched through its inverse; or the cut of designs/CN-4b-rc-units.md section 3.1 (Rule.pre holding V = List:set(L, I, J) with L existential), which is built f… | no unit |  |
 | E6 | `hook:KEQUAL.ite:Lblite` | cases[2] | refused |  | KCore.Faithful.NamesNumbered, KCore.Faithful.namesNumbered: a function named like ite at a sort, its equations written as Term.kore writes its application | no unit |  |
@@ -178,7 +177,7 @@ The layers of `core-manifest.toml` in their order, each with its `teaches` field
 | 8 | `matching-logic` | stable | patterns, models and Γ ⊧ φ of applicative matching logic, as much as the statements use | ML.Pattern, ML.Interpretation, the entailment Γ ⊧ φ, definedness, KoreAML.sNext, KoreAML.allNext |
 | 9 | `theory` | stable | the theory Γ a definition denotes, built from the Lean value: sorts and subsorts, constructors (no confusion, no junk), collections (four map axioms, five list axioms, four set axioms, as for maps, with concatenation defined on disjoint sets), overloading symbols (each overload as an equation, and distinctness of uncovered applications), function equations in priority form with the closure axiom, rule axioms; and the denotation of a configuration | KCore.Faithful.Γ, KCore.Faithful.Γstep, KCore.den (KcoreSpec/Statements.lean), ΓSig, ΓCons, ΓColls, ΓFns, ΓRules |
 | 10 | `statements` | stable | SoundC: Γ with the step closure has a model and every step is entailed. CompleteC: every successor the theory forces is a step. The two theorems, with their two hypotheses | KCore.SoundC, KCore.CompleteC, KCore.StepIs, KCore.StepFn, KCore.sound\_hyp, KCore.complete\_hyp |
-| 11 | `well-formedness` | stable | coreOK, the decidable check on the semantics, as six conjuncts, each in words with its Lean text. sortedOK: subsorts a strict partial order whose upper sorts are user sorts or library constructor sorts, every clause and every rule well sorted; a token sort of the definition has its literals as values and no constructors. faithCoreOK: twelve naming and numbering conditions, each closing a way the theory Γ would otherwise have no model. hooksApart, predsApart, idsOK: names apart and numbering. overloadsOK: each overloading symbol is declared once, plainly named, over constructors or earlier overloading symbols, with coherent overloads. What coreOK does not ask, because no proof of either theorem reads it: that every sort has a value, that signatures are over declared sorts, that a map pattern has one frame, that a function without clauses is never applied | KCore.Semantics.coreOK, sortedOK, subsortsOK, libConsSorts, clauseSorted, ruleSorted, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK |
+| 11 | `well-formedness` | stable | coreOK, the decidable check on the semantics, as six conjuncts, each in words with its Lean text. sortedOK: subsorts a strict partial order whose upper sorts are user sorts or library constructor sorts, every clause and every rule well sorted; a token sort of the definition has its literals as values and no constructors. faithCoreOK: twelve naming and numbering conditions, each closing a way the theory Γ would otherwise have no model. hooksApart, predsApart, idsOK: names apart and numbering. overloadsOK: each overloading symbol is declared once, plainly named, over constructors, earlier overloading symbols or functions of the definition, with coherent overloads, and lists every function it reaches along the overloads; no pattern applies a symbol that overloads a function. What coreOK does not ask, because no proof of either theorem reads it: that every sort has a value, that signatures are over declared sorts, that a map pattern has one frame, that a function without clauses is never applied | KCore.Semantics.coreOK, sortedOK, subsortsOK, libConsSorts, clauseSorted, ruleSorted, faithCoreOK, hooksApart, predsApart, idsOK, overloadsOK |
 
 Exceptions inside the layers:
 
@@ -949,7 +948,7 @@ Not core:
 | cases[8]: #Or in a left side (e7-guardors: orSplit) | supported |  | named here because the site writes it; row E3 ML-SYNTAX:Sort::=Sort "#Or" Sort decides it: fixtures/e7-guardors/account.txt \`1 read orSplit [user]\`, \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` (findings/C3-unbound-rulings.md sect… |  |  |  |  |  |  |
 | cases[9]: a right side that is not \\and(rhs, ens), under \\exists binders or without them | refused | scope | the syntax admits any pattern as the right side of \\rewrites, so the form has a meaning; nothing excludes it. The one site that writes a rewrite axiom writes its right side as the \\exists binders around \\and(rhs, ens), so no text kompile writes holds another form, and the reader reads that form only… |  | none (scope): never written | hw-ex-body |  |  | k/k-frontend/src/main/java/org/kframework/backend/kore/ModuleToKORE.java:1362-1380: the site writes each \\exists binder (:1362-1367) and then \\and of the right side and the ensures (:1369-1380), in the other order under --enable-kore-antileft; no other site writes a \\rewrites axiom of a rule; 0 of t… |
 | cases[10]: a left side that is an alias application (rule&lt;N>LHS), with or without \\exists binders on the right side | refused | scope | kompile writes a rule's left side as an application of a generated alias only under --enable-kore-antileft, an option value outside R-12; the alias declaration is refused (aliasDeclaration), so its application is refused by name. A right side under \\exists does not change the refusal: the left side… |  | none (scope): option | hw-ex-left-alias |  |  | fixtures/e8-enable-kore-antileft/kompile.txt: kompile --backend haskell --enable-kore-antileft ref.k -o out; exit 0, and its two rewrite axioms have the left sides rule29LHS and rule30LHS (findings/work/existentialRhs/scan.out: left-not-and, the only 2 of 295), written by k/k-frontend/src/main/java/… |
-| cases[11]: an application of a function-overloaded symbol in a rule's left side | refused | R-c |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit | e5-ovl-fun-lhs |  |  | fixtures/e5-ovl-fun-lhs/account.txt and fixtures/e5-ovl-fun-keep-run/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying a function symbol in their left side: 0\`, \`parse: ok; wf false; failing: [overloading symbols (overloadsOK)]\`, \`coreOK: false; failing: [o… |
+| cases[11]: an application of a function-overloaded symbol in a rule's left side | supported |  |  | KCore.Semantics.overloadsOK (an overloading symbol over a function of the definition) | F3.admit | e5-ovl-fun-lhs |  |  | fixtures/e5-ovl-fun-lhs/account.txt and fixtures/e5-ovl-fun-keep-run/account.txt: \`stage refusals (of sentences classified read): 0\`, \`rules and clauses applying a function symbol in their left side: 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; test/OvlCutRule.lean |
 | cases[12]: the same with a variable under the symbol whose covering function takes an argument of an unconfined sort | refused | R-a |  |  | none (R-a): an element outside the values can be covered to a value, so two models agreeing at the values disagree on whether the rule applies (designs/CN-4b section 3.2, openRequires) | e5-ovl-fun-lhs-int |  |  | fixtures/e5-ovl-fun-lhs-int/account.txt: \`openRequires (Var'Unds'Gen0:Exp: in a condition with a variable the left side binds (V ∈ LbldblExp(…)), under LbldblExp, of a sort the text leaves unconfined)\` |
 | cases[13]: the same with confined covering sorts, in a rule below an [owise] rule | refused | R-c |  | KCore.Semantics.rulesPlain (a variable held by memHeld through the cut, designs/CN-4b section 3.3) | R4.ho2-flip | e5-ovl-fun-lhs-owise |  |  | fixtures/e5-ovl-fun-lhs-owise/account.txt: \`openRequires (VarG:Gas: in a condition with a variable the left side binds (V ∈ LblcapGas(…)), under LblcapGas, of a sort the text leaves unconfined, in a rule of a priority below another's)\` |
 | `convertRule:claim#2` | inert |  | DONE-0 C1, class use: a claim is a proof task, a use of a definition and not part of its meaning (InertReason.claim); kompile writes no claim into a definition (fixtures/e1-claim/kompile.txt: \`Claims are not allowed in the definition.\`) |  |  |  |  |  | K-coverage.md Part B rows 56 |
