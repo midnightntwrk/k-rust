@@ -111,9 +111,15 @@ ALLOWANCE = [
     # 30 -> 31 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
     # collection (fixture e2-initial-coll), refused R-c by the reader's initializer decision, with no
     # ticket that reads it yet.
-    # 31 -> 30: that case is supported, the reader computing
-    # the enclosing cell's initializer through the collection's initializer of no argument.
-    ("ROWS-1.unit-rc", 30, "entries of class R-c without unit",
+    # 31 -> 33: E6 hook:KEQUAL.ite's cases of the text's own one-sort Lblite
+    # with an equation of an instance (NamesNumbered) and hooked to KEQUAL.ite (as E2
+    # SYMBOL(symbol)@symbol's registry-name case), R-c with no ticket that reads them.
+    # 33 -> 32: E5 translateSorts:hooked-#2's case of a user sort hooked under its own name to a
+    # library carrier is supported (scanCarrier, fixture e5-hooked-int); the user's hooked sort
+    # whose hook no library sort has is its own case, R-a with its reason.
+    # 32 -> 31: E2 INITIAL(initial)@frontend's case on a cell collection is supported, the reader
+    # computing the enclosing cell's initializer through the collection's initializer of no argument.
+    ("ROWS-1.unit-rc", 31, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
     # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).

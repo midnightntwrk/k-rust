@@ -352,6 +352,7 @@ import KcoreSpec.TieHeads
 import KcoreSpec.TieHeadsWalk
 import KcoreSpec.TieHeadsKore
 import KcoreSpec.TieHeadsComplete
+import KcoreSpec.TieParamLemma
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
@@ -372,7 +373,16 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
+import KcoreSpec.HypModelCoreEx
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreOKExFacts
 import KcoreSpec.OpenClauseDenQ
 import KcoreSpec.ClauseExDenCEx
+import KcoreSpec.StepExRuleSSx
+import KcoreSpec.StepSuccessorExCEx
+import KcoreSpec.TermSoundCEx
+import KcoreSpec.FamExCEx
+import KcoreSpec.CompleteCEx
+import KcoreSpec.SoundCEx
+import KcoreSpec.SoundCE
+import KcoreSpec.FnModelCEx

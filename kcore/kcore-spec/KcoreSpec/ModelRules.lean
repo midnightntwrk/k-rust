@@ -103,8 +103,8 @@ theorem rhs_next (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) (hpre : r.
     (KoreAML.sNext (KoreAML.tr ⟨tbl, []⟩ (.and (srtOf c topCellSort)
       [Term.kore c (canonVars c r.vars) r.rhs,
         reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c (canonVars c r.vars)))]))).interpret (stdI c) e (.val x) := by
-  have hys := rhs_sorted_coreCl h.hyp.1 h.hyp.2.1 h.ovlCase hr hσ hy
-  have hensS := rule_ctx_ensCl h.hyp.1 hr
+  have hys := rhs_sorted_coreClEx h.hyp.1 h.hyp.2.1 h.ovlCase hr hσ hy
+  have hensS := rule_ctx_ensClEx h.hyp.1 hr
   rw [sNext_iff]
   refine ⟨y, ?_, hx, hys, r, hr, σ, hσ, hmatch, hreq, hpre ▸ .top, hy, hens, hpost ▸ .top, hprio⟩
   rw [tr_and2, KoreAML.interp_sAnd]

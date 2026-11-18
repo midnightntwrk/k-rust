@@ -300,7 +300,8 @@ inductive TieDir where
   (`EntailsAtValues`). -/
   | atValues
   /-- `Γ` does not hold `s`: it is owed as a hypothesis (`FnHyp` for a function's `functional`
-  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence). -/
+  sentence, `FnLaws` for a law, `OpenTotal` for an open generator's `functional` sentence, and for
+  a parameter lemma the sentence itself at the member, `Γ (c.withHooks H) ⊧ tr s`). -/
   | hypothesis
   /-- `Γ` with `s` has no model. -/
   | refuted
@@ -328,6 +329,9 @@ sentences under these names, in this order.
 - open generator law: the `assoc` or `idem` sentence of an open generator, of which `Γ`'s law item
   is the translation;
 - open generator functional: the `functional` sentence of an open generator, owed as `OpenTotal`;
+- parameter lemma: a sentence the reader leaves out of `Γ` (a lemma) that applies a parameter
+  symbol no registry hook interprets (`impl = none`), whose value the interpretation gives: owed as
+  a hypothesis on `H`, the sentence itself at the member (`Γ (c.withHooks H) ⊧ tr s`);
 - no direction: a sentence that applies a symbol `Γ` does not have. -/
 def tieClasses : List (String × TieDir) :=
   [("function equation", .equal), ("rewrite rule", .weaker), ("priority equation", .weaker),
@@ -335,7 +339,8 @@ def tieClasses : List (String × TieDir) :=
    ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
    ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
    ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
-   ("open generator law", .equal), ("open generator functional", .hypothesis), ("no direction", .none)]
+   ("open generator law", .equal), ("open generator functional", .hypothesis),
+   ("parameter lemma", .hypothesis), ("no direction", .none)]
 
 /-! ## The no-direction class is closed -/
 

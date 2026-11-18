@@ -155,7 +155,7 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
     obtain ⟨hkm, hkn⟩ := lookupSig_spec hk'
     have := same_sym hn hk (kernel_hook hkm) hkn.symm
     subst this
-    exact hookRes_sorted (fun _ => (sortCtx_of_allCl h.sound.1 h.sound.2.1 h.ovlCase).range) hk' hvs hv
+    exact hookRes_sorted (fun _ => (sortCtx_of_allClEx h.sound.1 h.sound.2.1 h.ovlCase).range) hk' hvs hv
   rw [if_neg hh] at hx
   by_cases hp : c.isParam k.name = true
   · rw [if_pos hp] at hx
@@ -193,7 +193,7 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
       obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
       have hsv : c.sortOf v = some kg.result := by
         subst hsig
-        exact Eval.sorted (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase) hv hfn
+        exact Eval.sorted (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase) hv hfn
           (OvlLaws.sortsOf_stripAll hl hvs hlies) rfl
       exact OvlLaws.sortOf_lift H hsv hres
   rw [if_neg ho] at hx
@@ -208,7 +208,7 @@ theorem result_sorted (h : HypModelCore c) {k : CtorSig} (hk : k ∈ kernelSyms 
   have hvs' : c.sortsOf vs = some fn.args := by rw [hvs, heq]; rfl
   show c.sortOf v = some k.result
   rw [heq]
-  exact Eval.sorted (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase) hv hfn hvs' rfl
+  exact Eval.sorted (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase) hv hfn hvs' rfl
 
 /-! ## Guards -/
 

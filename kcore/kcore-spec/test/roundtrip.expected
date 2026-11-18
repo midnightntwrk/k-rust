@@ -1,4 +1,4 @@
-cannot f2-examples/allbuiltins.kompile.kore
+differs f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
@@ -14,8 +14,10 @@ differs f2-examples/c3-eq-ens-prio.kompile.kore
 differs f2-examples/c3-eq-ens-total-holds.kompile.kore
 differs f2-examples/c3-eq-ens-total.kompile.kore
 differs f2-examples/c3-eq-nonexec-prio-below.kompile.kore
+differs f2-examples/c3-eq-owise-owise-diff.kompile.kore
 differs f2-examples/c3-eq-owise-owise.kompile.kore
 differs f2-examples/c3-eq-owise-total.kompile.kore
+differs f2-examples/c3-eq-prio-nonexec.kompile.kore
 differs f2-examples/c3-eq-prio-owise.kompile.kore
 differs f2-examples/c3-eq-prio-total-comp.kompile.kore
 differs f2-examples/c3-eq-prio-total.kompile.kore
@@ -59,9 +61,11 @@ differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
+differs f2-examples/e1-starinit.kompile.kore
 differs f2-examples/e1-syntax.kompile.kore
 differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
+differs f2-examples/e2-clause-genless-wit.kompile.kore
 differs f2-examples/e2-fn-assoc-bad.kompile.kore
 differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
@@ -106,6 +110,7 @@ differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
 differs f2-examples/e7-guardors.kompile.kore
 differs f2-examples/e7-implicitk.kompile.kore
+differs f2-examples/e7-projuser.kompile.kore
 differs f2-examples/e7-removeunit.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
@@ -229,6 +234,8 @@ differs f2-examples/projapp.kore
 differs f2-examples/projuser.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
+differs f2-examples/rdr-ite-own.kompile.kore
+differs f2-examples/rdr-ite-two-eq.kompile.kore
 differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
 cannot f2-examples/regeq.kompile.kore

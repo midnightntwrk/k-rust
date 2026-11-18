@@ -1,0 +1,12 @@
+command: kompile --backend haskell starinit.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 263580
+definition.kore sha256: 631889e061a2037632c667b0fb983571bb65fe2d562f96096259836ebe3aa48d
+stripped sha256: 59d356102b7356ea03eb4846d1d8d381ec9988e9b28c86075400b22167697816
+main module: 575 sentences, 231 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Configuration variable found in declaration of collection
+  cell <t>. Implicitly, this causes the initial configuration to start with one
+  <t> element instead of zero. Add the `initial=""` attribute to make that
+  behavior explicit.

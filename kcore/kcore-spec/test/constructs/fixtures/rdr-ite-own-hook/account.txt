@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-ITE-OWN-HOOK: 294 sentences
+  1 inert import [generated]
+  167 read [generated]
+  95 read [builtin]
+  5 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 registrySymbolName
+      sentence 94 (Lblite): registrySymbolName (Lblite)
+        [user] (no label) at rdr-ite-own-hook.k:5: hooked-symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), hook{}("KEQUAL.ite"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,20,5,78)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/rdr-ite-own-hook.k)"), symbol'Kywd'{}("ite")]
+finish: sentence 94 (Lblite): registrySymbolName (Lblite)
+(exit 0)

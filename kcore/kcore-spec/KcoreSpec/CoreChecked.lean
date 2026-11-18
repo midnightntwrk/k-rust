@@ -97,7 +97,8 @@ theorem Semantics.ruleRowsSortedT_all {n : Nat} (hn : c.rules.length = n) (h : c
 
 /-- `sortedOK` from the tables: the declared subsorts, every function's clauses and every rule; and
 the rules, clauses and parameters plain, and no pattern applying a function-overloaded symbol
-(`ovlPatsOK`: the rows sort a rule's left side over `patCtxAll`), by the kernel unless given. -/
+(`ovlPatsOK`: the rows sort a rule's left side and a clause's patterns over `patCtxAll`), by the
+kernel unless given. -/
 theorem Semantics.sortedOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true)
     (hf : c.fnRowsSortedT T 0 c.fns.length = true) (hr : c.ruleRowsSortedT T 0 c.rules.length = true)
     (hpl : (c.rulesPlain && c.clausesPlain && c.paramsPlain) = true := by decide +kernel)
@@ -117,8 +118,17 @@ theorem Semantics.sortedOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true
     simp only [Semantics.ruleSorted, Bool.and_eq_true]
     exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨beq_iff_eq.mpr (sortOfTerm_to_nf r.lhs h1' (Semantics.ovlPats_lhs hov hr0)), h2⟩, h3⟩, h4⟩,
       h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩
+  have hf'' : c.fns.all (fun f => f.clauses.all (c.clauseSorted f (c.fns.map Fn.sig))) = true :=
+    List.all_eq_true.mpr fun f hf0 => List.all_eq_true.mpr fun cl hcl => by
+      have h0 := List.all_eq_true.mp (List.all_eq_true.mp hf' f hf0) cl hcl
+      simp only [Semantics.clauseSortedT, Bool.and_eq_true] at h0
+      obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩ := h0
+      have h1' : sortsOfTerms c.patCtxAll cl.vars cl.pats = some f.args := beq_iff_eq.mp h1
+      simp only [Semantics.clauseSorted, Bool.and_eq_true]
+      exact ⟨⟨⟨⟨⟨⟨beq_iff_eq.mpr (sortsOfTerms_to_nf cl.pats h1' (Semantics.ovlPats_pats hov hf0 hcl)), h2⟩, h3⟩,
+        h4⟩, h5⟩, h6⟩, h7⟩
   simp only [Semantics.sortedOK, subsortsOK_of_T hs, Bool.true_and, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨hf', hr''⟩, hpl.1.1⟩, hpl.1.2⟩, hpl.2⟩
+  exact ⟨⟨⟨⟨hf'', hr''⟩, hpl.1.1⟩, hpl.1.2⟩, hpl.2⟩
 
 open Faithful Faithful.Model in
 /-- `faithCoreOK` from its conjuncts, the names' apartness by sorted codes (`namesApartFast`): each

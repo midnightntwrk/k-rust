@@ -1,0 +1,2 @@
+# rows E7 17:generateSortProjections1, 22:generateSortProjections2, case "a read sentence applies the projection": f2-examples/projuser.k (test/UserProjection.lean's text), a rule applying the user sort's projection project:Exp. Predicted: kompile exit 0, project:Exp declared a function with its one equation, the rule's right side applying it; account refuses nothing, coreOK true, nothing owed; the equation of class function equation in the tie
+main = "projuser.k"

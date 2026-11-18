@@ -1,0 +1,2 @@
+out/definition.kore: refused: sentence 94 (Lblite): registrySymbolName (Lblite)
+(exit 1)

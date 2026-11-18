@@ -2710,12 +2710,19 @@ def clipSegs : Nat → List (List Char × Bool) → List Char × Bool
       (cs ++ r.1, r.2)
     else (cs.take n, true)
 
+/-- The account's class of a lemma applying a parameter symbol without `impl` (`isParamLemma`): the
+tie class `parameter lemma` (`tieClasses`), in place of the reader's class `inert simplification`. -/
+def paramLemmaClass : String := "parameter lemma"
+
 /-- What the account says after a class line beyond the class: for a sentence of the user's text
 classed `inert simplification`, that the class claims `Γ ⊧ tr s` and the reader does not decide it:
-the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails. -/
+the sentence is owed, entailed by Γ, and the tie on the text (C14) proves it or fails; for a
+parameter lemma, that it is owed as a hypothesis on `H`, the sentence at the member. -/
 def classLineOwed (c o : String) : String :=
   if c == "inert simplification" && o == "user" then
     ": owed, entailed by Γ (the tie on the text proves it or fails), not decided by the reader"
+  else if c == paramLemmaClass then
+    ": owed as a hypothesis on H, the sentence itself at the member (Γ (c.withHooks H) ⊧ tr s; the tie shows an H at which the text's hypotheses hold), not decided by the reader"
   else ""
 
 /-- `s` cut after its first `n` characters, a `Source(PATH)`'s PATH counted as none and never cut
@@ -2744,7 +2751,14 @@ def account (koreFile : String) : IO UInt32 := do
   IO.println s!"{koreFile}: {k.modules.length} modules; prelude {if k.modules.dropLast = preludeModules then "agrees" else "differs: " ++ (Parse.preludeRefusal k).toText}"
   IO.println s!"user module {m.name.ident.name}: {m.sentences.length} sentences"
   let N := Parse.namesOf k
-  let cls := m.sentences.map fun s => ((Parse.classify N s).name, origin s, s)
+  -- a lemma applying a parameter symbol without `impl` of the reading is a parameter lemma
+  let dRead := match Parse.finish m (Parse.scan m.sentences) with
+    | .ok d => some d
+    | .error _ => none
+  let clsName := fun (s : Kore.Sentence) =>
+    let cl := Parse.classify N s
+    if dRead.any (fun d => isParamLemma d.sem cl s) then paramLemmaClass else cl.name
+  let cls := m.sentences.map fun s => (clsName s, origin s, s)
   let keys := (cls.map fun (c, o, _) => (c, o)).eraseDups
   for (c, o) in keys do
     let these := cls.filter fun (c', o', _) => c' == c && o' == o

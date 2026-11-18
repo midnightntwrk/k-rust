@@ -65,7 +65,7 @@ theorem varOccsCond_numCN (h : HypModelCore c) : ∀ (p : Cond) {vars : List Srt
       have hlt : i < vars.length := by simpa using hlt
       have hs'' : (vars ++ ys)[i]? = some s' := by rw [List.getElem?_append_left hlt]; exact hs'
       rcases List.mem_append.mp hi with hi | hi
-      · exact varOccs_num h p hp hn i hi s' hs''
+      · exact varOccs_num h p (sortOfTerm_all_of_nf hp) hn i hi s' hs''
       · have hi' : i ∈ varOccsCond (vars ++ ys).length body := by rw [List.length_append]; exact hi
         exact varOccsCond_numCN h body hb i hi' s' hs''
   | .ex s body, vars, hok, i, hi, s', hs' | .all s body, vars, hok, i, hi, s', hs' => by
