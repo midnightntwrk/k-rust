@@ -1600,9 +1600,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   417, 418, 419, 426, 434, 439, 441, 444, 445, 835, 836, 854 in both argument orders, 855, 864 in
   both, 865, 876) and with one (`LibEv.EqnE`, `EqnE.entailed`; 425, 432, 437, 837, 839, 841, 843,
   857 in both, 867 in both, 871, 877, 886, 888); entailed at set values over a set variable
-  (`LibEv.SvEqn`; 449, 450). The header lists the twelve not tied and why (a `requires` applying
-  `==K` or `=/=K` to KItem variables, `#Not` over set variables, `#Ceil` of a partial symbol over
-  set variables). Axioms guarded.
+  (`LibEv.SvEqn`; 449, 450); with a `requires` applying `=/=K` or `==K` to two KItem variables
+  (`LibEv.EqnK`, `KcoreSpec/LibEvCollSymK.lean`; 422, 429, 433, 435, 438, 440, 446, 447). The header
+  lists the four not tied and why (`#Not` over set variables, `#Ceil` of a partial symbol over set
+  variables). Axioms guarded.
 - `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
   is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
   section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting

@@ -12,10 +12,12 @@
 
   - Over a set variable (`LibEv.SvEqn`), entailed at set values (`EntailsAtSetValues`): 449, 450.
 
-  Not here: the sentences whose `requires` applies `==K` or `=/=K` to two KItem variables (422,
-  429, 433, 435, 438, 440, 446, 447: `kseq(K, dotk())`, which no library term form covers); 451
-  and 452, whose right side has `#Not`, which `LibEv.SvPred` has not; 411 and 830, `#Ceil` of a
-  partial symbol over set variables, which take the form of `LibEv.ceilMap_refuted_at`.
+  - With a `requires` comparing two KItem variables, `K1 =/=K K2` or `K1 ==K K2 orBool ...`
+    (`LibEv.EqnK`, KcoreSpec/LibEvCollSymK.lean), entailed at values: 422, 429, 433, 435, 438,
+    440, 446, 447 (433 and 438 with an `ensures`).
+
+  Not here: 451 and 452, whose right side has `#Not`, which `LibEv.SvPred` has not; 411 and 830,
+  `#Ceil` of a partial symbol over set variables, which take the form of `LibEv.ceilMap_refuted_at`.
 -/
 import KcoreSpec
 
@@ -215,6 +217,48 @@ theorem ev148 (H : HookParams) : EntailsAtSetValues (cH H) U.ax148 (trS U.ax148)
   rw [(by decide +kernel : (trS U.ax148).pat = (trAxiom [] [] U.ax148).pat)]
   exact LibEv.msInKeysUnitSv_ev (coreOKH H) true U.ax148 (by decide +kernel) (by decide +kernel)
 
+/-! ## A `requires` comparing two KItem variables with `=/=K` or `==K` (`LibEv.EqnK`) -/
+
+/-- domains.md 435 (`LibEv.msLookupUpdNe`). -/
+theorem ev168 (H : HookParams) : EntailsAtValues (cH H) U.ax168 (trS U.ax168).pat := by
+  rw [(by decide +kernel : (trS U.ax168).pat = (trAxiom [] [] U.ax168).pat)]
+  exact LibEv.msLookupUpdNe_ev (coreOKH H) (shapesOKH H) U.ax168 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 440 (`LibEv.msLookupDefUpdNe`). -/
+theorem ev173 (H : HookParams) : EntailsAtValues (cH H) U.ax173 (trS U.ax173).pat := by
+  rw [(by decide +kernel : (trS U.ax173).pat = (trAxiom [] [] U.ax173).pat)]
+  exact LibEv.msLookupDefUpdNe_ev (coreOKH H) (shapesOKH H) U.ax173 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 433 (`LibEv.msLookupConcatNe`). -/
+theorem ev171 (H : HookParams) : EntailsAtValues (cH H) U.ax171 (trS U.ax171).pat := by
+  rw [(by decide +kernel : (trS U.ax171).pat = (trAxiom [] [] U.ax171).pat)]
+  exact LibEv.msLookupConcatNe_ev (coreOKH H) (shapesOKH H) U.ax171 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 438 (`LibEv.msLookupDefConcatNe`). -/
+theorem ev176 (H : HookParams) : EntailsAtValues (cH H) U.ax176 (trS U.ax176).pat := by
+  rw [(by decide +kernel : (trS U.ax176).pat = (trAxiom [] [] U.ax176).pat)]
+  exact LibEv.msLookupDefConcatNe_ev (coreOKH H) (shapesOKH H) U.ax176 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 422 (`LibEv.msUpdConcatNe`). -/
+theorem ev180 (H : HookParams) : EntailsAtValues (cH H) U.ax180 (trS U.ax180).pat := by
+  rw [(by decide +kernel : (trS U.ax180).pat = (trAxiom [] [] U.ax180).pat)]
+  exact LibEv.msUpdConcatNe_ev (coreOKH H) (shapesOKH H) U.ax180 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 429 (`LibEv.msRemConcatNe`). -/
+theorem ev217 (H : HookParams) : EntailsAtValues (cH H) U.ax217 (trS U.ax217).pat := by
+  rw [(by decide +kernel : (trS U.ax217).pat = (trAxiom [] [] U.ax217).pat)]
+  exact LibEv.msRemConcatNe_ev (coreOKH H) (shapesOKH H) U.ax217 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 447 (`LibEv.msInKeysUpdNe`). -/
+theorem ev234 (H : HookParams) : EntailsAtValues (cH H) U.ax234 (trS U.ax234).pat := by
+  rw [(by decide +kernel : (trS U.ax234).pat = (trAxiom [] [] U.ax234).pat)]
+  exact LibEv.msInKeysUpdNe_ev (coreOKH H) (shapesOKH H) U.ax234 (by decide +kernel) (by decide +kernel)
+
+/-- domains.md 446 (`LibEv.msInKeysUpdOr`). -/
+theorem ev235 (H : HookParams) : EntailsAtValues (cH H) U.ax235 (trS U.ax235).pat := by
+  rw [(by decide +kernel : (trS U.ax235).pat = (trAxiom [] [] U.ax235).pat)]
+  exact LibEv.msInKeysUpdOr_ev (coreOKH H) (shapesOKH H) U.ax235 (by decide +kernel) (by decide +kernel)
+
 end KCore.LibEvCollSym
 
 /-- info: 'KCore.LibEvCollSym.ev179' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -287,3 +331,19 @@ end KCore.LibEvCollSym
 #guard_msgs in #print axioms KCore.LibEvCollSym.ev157
 /-- info: 'KCore.LibEvCollSym.ev148' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvCollSym.ev148
+/-- info: 'KCore.LibEvCollSym.ev168' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev168
+/-- info: 'KCore.LibEvCollSym.ev173' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev173
+/-- info: 'KCore.LibEvCollSym.ev171' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev171
+/-- info: 'KCore.LibEvCollSym.ev176' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev176
+/-- info: 'KCore.LibEvCollSym.ev180' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev180
+/-- info: 'KCore.LibEvCollSym.ev217' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev217
+/-- info: 'KCore.LibEvCollSym.ev234' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev234
+/-- info: 'KCore.LibEvCollSym.ev235' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvCollSym.ev235

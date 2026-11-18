@@ -342,3 +342,4 @@ import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.LibEvCollSym
+import KcoreSpec.LibEvCollSymK
