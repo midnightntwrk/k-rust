@@ -900,8 +900,9 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
   value or both none (no value at a negative index or length, the sign extension also at length
   0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
-  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥) and is silent
-  everywhere else. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥), the remainder
+  `(A ^Int B) %Int C` at a non-negative exponent where the power is not negative or the modulus
+  divides it (Γ's statement under every interpretation), and is silent at the other points. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
   interpretation; silent at a negative one (`2 ^Int -1`).
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
@@ -1631,6 +1632,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
+  `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
+  (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
+  417, 418, 419, 426, 434, 439, 441, 444, 445, 835, 836, 854 in both argument orders, 855, 864 in
+  both, 865, 876) and with one (`LibEv.EqnE`, `EqnE.entailed`; 425, 432, 437, 837, 839, 841, 843,
+  857 in both, 867 in both, 871, 877, 886, 888); entailed at set values over a set variable
+  (`LibEv.SvEqn`; 449, 450); with a `requires` applying `=/=K` or `==K` to two KItem variables
+  (`LibEv.EqnK`, `KcoreSpec/LibEvCollSymK.lean`; 422, 429, 433, 435, 438, 440, 446, 447). Refuted at
+  values over set variables, with the companions at sets of at most one value: 411, 830, 451, 452
+  (`sn_at`, `sn_refuted`, `sn_one`). Axioms guarded.
 - `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
   is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
   section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting
