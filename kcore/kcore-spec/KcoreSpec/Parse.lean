@@ -249,8 +249,9 @@ inductive RefusalReason where
   the symbol, S and the reason. A rule's left side is read through the cut (`ovlCut`), the
   application a fresh variable and its membership in the application a conjunct of `pre`: there
   the reason is printed where S is not confined and a variable of the arguments is held by no other
-  part of the left side (`openCutRefusal`); the account's row remains for a clause's pattern and
-  for an application whose arguments hold `#as`, which is not cut. -/
+  part of the left side (`openCutRefusal`); a clause's argument patterns are read the same way
+  (`ovlCutList`, `openCutRefusalCl`); the account's row remains for an application whose arguments
+  hold `#as`, which is not cut. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -1425,6 +1426,35 @@ def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Co
         acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
       let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
       pure (lhs', vs', ovlCutConj mems)
+
+/-- A clause's argument patterns `pats` and its variables `vs`, read with each application of a
+function-overloaded symbol or of an open generator cut, as `ovlCut` reads a rule's left side
+(`cutOvlAppsList`, the fresh variables named the same way): the patterns, the variables with the
+fresh ones after them, and the conjunction of the memberships, `\top` where nothing is cut.
+
+A function's equation is `req ∧ X₁ ∈ p₁ ∧ … ∧ Xₙ ∈ pₙ → f(X̄) = rhs ∧ ens`, the Xᵢ variables. Its
+premise `Xᵢ ∈ C[g(P̄)]`, the hole under applications, is `∃V. Xᵢ ∈ C[V] ∧ V ∈ g(P̄)` in every
+interpretation, V fresh of g's sort (the cut, `KCore.cut_identity`: an application is pointwise
+over the elements its arguments hold, and `Xᵢ ∈ _` distributes over the union), and
+`(∃V. φ) → ψ` is `∀V. (φ → ψ)` for V not in ψ. So the equation read with V a variable of the
+clause, the application a fresh variable of the pattern and the membership a conjunct of the
+clause's premise predicate (`Clause.pre`, whose term is evaluated, not matched) is the text's
+equation, with no premise. The variables of P̄ that the other patterns do not hold are then
+variables the arguments do not bind, in a condition with one they bind (V): decided as any such
+(`clausesPlain`, `clauseRefusal`). -/
+def ovlCutList (N : Names) (pats : List Term) (vs : List Var) : Rd (List Term × List Var × Cond) :=
+  match N.ovlCutSyms ++ N.openCutSyms with
+  | [] => pure (pats, vs, .top)
+  | cs => match cutOvlAppsList cs vs.length pats with
+    | (_, _, []) => pure (pats, vs, .top)
+    | (pats', _, xs) => do
+      let pfx := fun (app : Term) => match app with
+        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+        | _ => "Ovl"
+      let vs' := xs.foldl (fun acc (_, X, app) =>
+        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
+      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
+      pure (pats', vs', ovlCutConj mems)
 
 /-! ## Connectives with a term's reading
 
@@ -2624,7 +2654,11 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
   -- a `non-executable` equation: a clause that no `[owise]` premise negates (`Clause.aside`)
   let aside := nonExec e
   match excl with
-  | none => pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside },
+  | none =>
+    -- an application of a function-overloaded symbol or of an open generator in the patterns: a
+    -- fresh variable, its membership in the application a conjunct of `pre` (`ovlCutList`)
+    let (pats, vs, pre) ← ovlCutList N pats vs
+    pure ({ vars := ← varSorts N vs, pats, req, rhs, ens, prio, aside, pre },
       ⟨vs.map (·.name), m, vs.map (·.name), attrStr? e.attrs "label", srcOver msrc e.attrs, explicit.isSome,
        (overloadSyms? e.attrs).map (·.2)⟩)
   | some ex =>
@@ -2646,10 +2680,15 @@ def clauseBody (N : Names) (msrc : String) (e : RawEqn) (excl : Option Kore.Patt
     -- `ensures` holds, at their places (`inv` keeps an index past the disjunct's), in the names of
     -- both the clause and its exclusion
     let vs' := π.map (vs.getD · default) ++ vs.drop evs.length
-    let vars ← varSorts N vs'
-    pure ({ vars, pats := Term.reindexList inv pats, req := req.map (Term.reindex inv),
-            rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside },
-          ⟨vs'.map (·.name), m, π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name),
+    -- the cut of the patterns (`ovlCutList`), in the clause's order of variables: the fresh
+    -- variables are after every other, under their own names in the exclusion's too
+    let (pats, vsC, pre) ← ovlCutList N (Term.reindexList inv pats) vs'
+    let cutNames := (vsC.drop vs'.length).map (·.name)
+    let vars ← varSorts N vsC
+    pure ({ vars, pats, req := req.map (Term.reindex inv),
+            rhs := Term.reindex inv rhs, ens := ens.map (Term.reindex inv), prio, aside, pre },
+          ⟨vsC.map (·.name), m,
+           π.map (fun i => (evs.getD i default).name) ++ (vs.drop evs.length).map (·.name) ++ cutNames,
            attrStr? e.attrs "label",
            srcOver msrc e.attrs, explicit.isSome, (overloadSyms? e.attrs).map (·.2)⟩)
 
@@ -5323,14 +5362,19 @@ are not closed over such a variable of a sort that is not confined (`Clause.need
 `clausesPlain` refuses beside a predicate, with `openRequires`). One held only by the right side or the `ensures` is read at every
 sort: it is universal over the elements of its sort, so on values the clause has an instance for
 each value of the sort and none where the sort has no value; the function is then named
-(`Semantics.heldObligations`) where the sort has no exhibited value. -/
+(`Semantics.heldObligations`) where the sort has no exhibited value. For a variable in the term of
+a membership `V ∈ f(…)` of `pre`, V bound by the arguments (a cut, `ovlCutList`), the detail names
+the symbol f (`openRefusalCutSym`). -/
 def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
   let conf := fun i => (cl.vars[i]?.map c.confined).getD false
   let what := fun i => s!"Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}"
+  let cut := fun i => match openRefusalCutSym (varOccsList cl.pats) i cl.pre with
+    | some f => s!" (V ∈ {c.symName f}(…)), under {c.symName f}"
+    | none => ""
   if !(!cl.reqOpen || cl.reqClosed || cl.openCondVars.all conf) then
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
-      s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
+      s!"{what i}: in a condition with a variable the arguments bind{cut i}, not bound by the arguments, of a sort the text leaves unconfined")
   else if !cl.pre.isTop && cl.needsWitness c then
     let i := (cl.openCondVars.find? (fun i => !conf i)).getD 0
     some (.openRequires,
@@ -5360,6 +5404,24 @@ def openCutRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Re
         ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
           let sn := c.sortName k.sig.result
           (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}, under {c.symName g}, held by no other part of the left side)")
+      else none
+    | none => none
+
+/-- Why a clause read through the cut of an open generator (`ovlCutList`) is not read, or `none`:
+`openCutRefusal`'s case on a clause, the arguments' patterns in the left side's place. A membership
+`V ∈ g(P̄)` of `pre`, V bound by the patterns and g an open generator whose sort is not confined,
+whose arguments hold a variable that no pattern holds (`openGeneratorPattern`): the equation is
+stated of every element, and at an element of g's sort that is no value's which arguments are sent
+to it the text does not say. -/
+def openCutRefusalCl (c : Semantics) (cl : Clause) (names : List String) : Option (RefusalReason × String) :=
+  let held := varOccsList cl.pats
+  (openCutMemsOf cl.pre).findSome? fun (v, g, as) =>
+    match c.params.find? (fun k => k.raw && k.sig.name == g) with
+    | some k =>
+      if held.contains v && !c.confined k.sig.result then
+        ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
+          let sn := c.sortName k.sig.result
+          (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (cl.vars.getD i 0)}, under {c.symName g}, held by no other part of the arguments' patterns)")
       else none
     | none => none
 
@@ -5631,7 +5693,7 @@ constructors and subsorts of it, before the user's (`Cell.topSorts`, `Cell.topSi
 `Cell.topSubs` of the cell tree). The definition's token sorts (`Env.tokenSorts`) are token sorts
 of the semantics after the imported modules' (`Lib.tokenSorts`): their values are their literals.
 A rule that is not read (`ruleRefusal`) is refused at its axiom; then the first clause of a
-function that is not read (`clauseRefusal`), at its equation; then the first equation of a sort's
+function that is not read (`openCutRefusalCl`, then `clauseRefusal`), at its equation; then the first equation of a sort's
 predicate or projection that the core does not state (`predEqnFaults`), at that equation: the core
 defines the sort predicates from the sorts (`Semantics.sortPreds`), so a text whose equations of
 one are others is a text one of whose sentences the core would not state. -/
@@ -5665,7 +5727,8 @@ def coreOf (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RuleP
   | some (a, reason, detail) => Rd.within (.sentence (.axiom a)) (fail reason detail)
   | none =>
     let fnCls := prods.flatMap fun | .fn f fp => withPres f.clauses fp.clauses | _ => []
-    match fnCls.findSome? (fun (cl, cp) => (clauseRefusal core cl cp.names).map (cp, ·)) with
+    match fnCls.findSome? (fun (cl, cp) =>
+        ((openCutRefusalCl core cl cp.names).orElse fun _ => clauseRefusal core cl cp.names).map (cp, ·)) with
     | some (cp, reason, detail) =>
       -- the equation the clause is read from, found by its id
       match S.eqs.find? (fun e => (eqnInfo? e.attrs).any (·.uid == cp.info.uid)) with
