@@ -431,7 +431,7 @@ theorem clauseFixedL_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt}
   · rename_i D hD
     simp only [List.all_eq_true, List.contains_iff_mem, List.mem_range] at hfx
     have hag : ∀ i, i < cl.vars.length → σ.lookup i = σ'.lookup i := fun i hi =>
-      uniqArgs_sound hmc hσ hσ' _ cl.pats hD
+      uniqArgs_sound hmc ((wellSortedAt_univ hx).mp hσ) ((wellSortedAt_univ hx).mp hσ') _ cl.pats hD
         (fun p hp => ⟨patVals_pairs hm hm' p hp, sortsOfTerms_each hpt p hp⟩) (fun _ h => by cases h) i (hfx i hi)
     refine .inl ⟨hx, hx, rfl, rfl, fun i hi => hag i (sortOfTerm_vars hrt i hi), fun t ht i hi => ?_⟩
     rw [ht] at hens

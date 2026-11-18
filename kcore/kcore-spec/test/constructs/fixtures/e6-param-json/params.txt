@@ -1,0 +1,3 @@
+param	LblJSON2String	args=[JSON]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblString2JSON	args=[String]	result=JSON	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

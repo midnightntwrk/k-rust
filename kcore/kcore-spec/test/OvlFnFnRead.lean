@@ -273,6 +273,11 @@ theorem qO : clO.req = none := rfl
 theorem rO : clO.rhs = .app eS [] := rfl
 theorem eO : clO.ens = none := rfl
 theorem preO : clO.pre = .top := rfl
+theorem exsO : clO.exs = [] := rfl
+theorem exsV : clV.exs = [] := rfl
+theorem exsU : clU.exs = [] := rfl
+theorem postO : clO.post = .top := rfl
+theorem postV : clV.post = .top := rfl
 theorem ptU : clU.pats = [.as (.app eS []) 0] := rfl
 theorem eV : clV.ens = none := rfl
 theorem eU : clU.ens = none := rfl
@@ -317,7 +322,7 @@ theorem userCl_fails_i3 (H : HookParams) : Fails (cH H) [i3] clU := .intro fun �
     | as h' _ => exact absurd (patVal_e h') i3_ne_ve
 
 theorem appliesO (H : HookParams) : clO.AppliesAt (cH H) [(0, i3)] [i3] :=
-  ⟨by rw [vO]; exact ws1 (sort_i3H H),
+  ⟨by rw [vO]; exact (ws1 (sort_i3H H)).at _,
    by rw [ptO]; exact .cons (.var rfl) .nil,
    (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
 
@@ -335,8 +340,9 @@ theorem lowerO (H : HookParams) :
 /-- At `inj 3`: `e`, by the `[owise]` clause, for every H. -/
 theorem eval_owise (H : HookParams) : Eval (cH H) negExp [i3] (some ve) :=
   .clause (cl := clO) (σ := [(0, i3)]) (hfnH H) (by rw [fn_clauses]; simp)
-    (appliesO H).1 (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
-    (by rw [rO]; exact .ctor (isCtor_eH H) .nil) (fun t ht => by rw [eO] at ht; cases ht)
+    ((wellSortedAt_univ exsO).mp (appliesO H).1) (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
+    exsO (by rw [rO]; exact .ctor (isCtor_eH H) .nil) (fun t ht => by rw [eO] at ht; cases ht)
+    (Clause.holds_postTop postO _)
 
 /-- **Not `FnDet`**, for every H: two results at `inj 3`. -/
 theorem not_fnDet (H : HookParams) : ¬ FnDet (cH H) :=
@@ -361,13 +367,13 @@ theorem rhsV (H : HookParams) : ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTer
       ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTerm (cH H) σ clV.rhs (some im3) := by
     intro r h hr
     cases h with
-    | clause hfn' hmem hσ hmatch hreq hpre _ hrhs _ =>
+    | clause hfn' hmem hσ hmatch hreq hpre _ _ hrhs _ _ =>
       rw [hfnH H] at hfn'; cases hfn'
       subst hr
       rw [fn_clauses] at hmem
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
       rcases hmem with rfl | rfl | rfl
-      · exact ⟨_, ⟨hσ, hmatch, hreq, hpre⟩, hrhs⟩
+      · exact ⟨_, ⟨hσ.at _, hmatch, hreq, hpre⟩, hrhs⟩
       · rw [ptU] at hmatch
         cases hmatch with
         | cons h1 _ =>
@@ -379,7 +385,7 @@ theorem rhsV (H : HookParams) : ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTer
       rw [hfnH H] at hfn'; cases hfn'
       exact (not_fails_noReq qO preO (by rw [vO]; exact (ws1 (sort_i3H H)).at _)
         (by rw [ptO]; exact .cons (.var rfl) .nil) (hnone clO (by rw [fn_clauses]; simp))).elim
-    | ensFails hfn' hmem _ _ _ _ _ ht _ _ =>
+    | ensFails hfn' hmem _ _ _ _ _ _ ht _ _ =>
       rw [hfnH H] at hfn'; cases hfn'
       rw [fn_clauses] at hmem
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -387,6 +393,15 @@ theorem rhsV (H : HookParams) : ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTer
       · rw [eV] at ht; cases ht
       · rw [eU] at ht; cases ht
       · rw [eO] at ht; cases ht
+    | clauseEx hfn' hmem _ _ _ _ _ hne =>
+      rw [hfnH H] at hfn'; cases hfn'
+      rw [fn_clauses] at hmem
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl | rfl
+      · exact absurd exsV hne
+      · exact absurd exsU hne
+      · exact absurd exsO hne
+    | exNone => cases hr
   exact key _ (eval_ovl H) rfl
 
 /-- **Not `ClausesAgree` of `negExp`** (the owed fact is false), for every H: the `[owise]` clause
@@ -408,13 +423,14 @@ theorem not_agree (H : HookParams) : ¬ ClausesAgree (cH H) fn := fun h => by
   have hdecV : clV.Decides (cH H) fn σV [i3] :=
     ⟨hapV, fun _ _ _ hlt => absurd hlt (by rw [pV]; exact Nat.not_lt_zero _)⟩
   rcases hco [i3] [(0, i3)] σV (appliesO H) hapV (fun t ht => by rw [qO] at ht; cases ht)
-      (fun _ => hdet) (fun t ht => by rw [eO] at ht; cases ht)
+      (fun _ _ => hdet) (fun _ t ht => by rw [eO] at ht; cases ht) (fun hne => absurd exsO hne)
       ⟨negExp, fn, hfnH H, by rw [fn_clauses]; simp, by rw [fn_clauses]; simp, hdecO, hdecV⟩ with
-    ⟨hrhs, -⟩ | hr
+    ⟨-, -, hrhs, -⟩ | hr
   · rw [rO, rV] at hrhs; cases hrhs
   · exact im3_ne_ve (Option.some.inj (hr (some ve) (some im3)
-      (.inl ⟨(fun t ht => by rw [eO] at ht; cases ht), by rw [rO]; exact .ctor (isCtor_eH H) .nil⟩)
-      (.inl ⟨(fun t ht => by rw [eV] at ht; cases ht), hrV⟩))).symm
+      (.inl ⟨exsO, .inl ⟨(fun t ht => by rw [eO] at ht; cases ht), Clause.holds_postTop postO _,
+        by rw [rO]; exact .ctor (isCtor_eH H) .nil⟩⟩)
+      (.inl ⟨exsV, .inl ⟨(fun t ht => by rw [eV] at ht; cases ht), Clause.holds_postTop postV _, hrV⟩⟩))).symm
 
 /-! ### Γ has no model, for every H -/
 

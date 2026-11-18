@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-ispred-mint/hw-ispred-mint.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-ispred-mint/hw-ispred-mint.kore` (cwd: kcore-spec)
+definition.kore bytes: 247580
+definition.kore sha256: 7441a9fc1b357e2bf1060a507098a460c95b62da5f4ede1d086ecc16487e7083

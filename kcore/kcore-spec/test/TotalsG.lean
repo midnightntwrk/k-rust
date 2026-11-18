@@ -142,7 +142,11 @@ theorem tg_B_not_total : ¬ Total tg B := by
   intro h
   obtain ⟨v, hv⟩ := h fnB tg_B_lookup [.dv Srt.int (.int 0)] (by decide +kernel)
   cases hv with
-  | @clause _ _ _ _ σ _ hfn hmem hσ hm hreq hprio hrhs =>
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [tg_B_lookup] at hfn; cases hfn
+    simp only [fnB, List.mem_singleton] at hmem
+    subst hmem; exact absurd rfl hne
+  | @clause _ _ _ _ σ _ hfn hmem hσ hm hreq =>
     rw [tg_B_lookup] at hfn; cases hfn
     simp only [fnB, List.mem_singleton] at hmem
     subst hmem

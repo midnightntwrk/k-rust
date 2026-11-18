@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-pred-rule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 126997
+definition.kore sha256: 04056d168dc9372b01c9aed39b6e1a2196c73b89fc67919c82f870b7d4e6db18
+stripped sha256: 8f358d94139d84b96611a1e5550c6a6e2209722d164bd97845c33a348a8ed203
+main module: 296 sentences, 28 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-PRED-RULE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-PRED-RULE as default.

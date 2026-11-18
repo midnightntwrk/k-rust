@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-json.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 283912
+definition.kore sha256: eeb3a15092c4c17067faa2e08a408b0339c682d97d06cbd774197fc7e607d4d2
+stripped sha256: ecc31b27f0cd89ebd47821e7423aff4da14f3628354a1d9dc5444393daab09e6
+main module: 535 sentences, 118 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-JSON-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-JSON as default.

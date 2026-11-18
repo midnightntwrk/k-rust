@@ -1,0 +1,7 @@
+# initial (FrontendOnly, onlyon[Production]): c3-cells-opt's text with initial="" on the optional cell
+# <one>, which holds no configuration variable; differs_from c3-cells-opt, the text without the key.
+# GenerateSentencesFromConfigDecl.optionalCellInitializer: for an optional or collection cell without
+# a configuration variable, the cell's initializer is the initialised cell with the key, the empty
+# cell without it. Predicted: exit 0, the texts differ in the initializer equation of <one>
+main = "c.k"
+differs_from = "c3-cells-opt"

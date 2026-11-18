@@ -77,14 +77,15 @@ theorem sNext_iff_T (T : GroundTerm → GroundTerm → Prop) (φ : KoreAML.P) (e
 
 /-- **The value model at any transition `T` satisfies the parts of `Γ` and `Γcl` that do not read
 the step**: the signature, the constructors (with the open generators' law sentences, where the
-interpretation satisfies the laws: `OpenLaws`), the domains, the collections, the functions, the
-interpretation's values at silent points, and Bool's closure where Bool holds only its literals. -/
+interpretation satisfies the laws: `OpenLaws`), the domains, the collections, the
+interpretation's values at silent points, and Bool's closure where Bool holds only its literals;
+with them the functions' equations, where the model satisfies them (`hFns`). -/
 theorem model_parts_T (h : HypModelCore c) (hc : c.coreOK = true) (hl : OpenLaws c)
-    (T : GroundTerm → GroundTerm → Prop) :
+    (T : GroundTerm → GroundTerm → Prop) (hFns : stdI_T c T ⊧ᴵP ΓFns c) :
     (stdI_T c T ⊧ᴵP ΓSig c) ∧ (stdI_T c T ⊧ᴵP ΓCons c) ∧ (stdI_T c T ⊧ᴵP ΓDomains c) ∧
     (stdI_T c T ⊧ᴵP ΓColls c) ∧ (stdI_T c T ⊧ᴵP ΓFns c) ∧ (stdI_T c T ⊧ᴵP ΓFallback c) ∧
     (c.litSort Srt.bool = true → (stdI_T c T ⊧ᴵ boolClosed c)) :=
-  ⟨AtT.satSigGoal h, AtT.satConsGoal h hl, AtT.satDomainsGoal h, AtT.satCollsGoal h, AtT.satFnsGoal h,
+  ⟨AtT.satSigGoal h, AtT.satConsGoal h hl, AtT.satDomainsGoal h, AtT.satCollsGoal h, hFns,
    AtT.satFallbackGoal h, AtT.boolClosed_model h hc⟩
 
 /-- A rule's right side with a `\top` `post` is `∃ē. (rhs ∧ ens)`. -/

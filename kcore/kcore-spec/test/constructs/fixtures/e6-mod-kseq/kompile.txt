@@ -1,0 +1,9 @@
+command: kompile --backend haskell e6-mod-kseq.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.7
+output:
+  [Error] Compiler: Expected to find exactly one production for KLabel: #EmptyK
+  found: 2
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-KSEQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-KSEQ as default.

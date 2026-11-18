@@ -4,7 +4,8 @@
   update, removal, lookup, `in_keys`, size, `keys`, `removeAll`) and finite sets (`.Set`,
   `SetItem`, `_Set_` and `|Set` (union), `intersectSet`, `Set:difference`, `Set:in`, `<=Set`,
   `size`) and finite lists (`.List`, `ListItem`, `_List_`, `pushList`, `L[I]`, `range`, `inList`,
-  `size`), and FLOAT's operations where K's text states their value (FloatDomain.lean): `+ - * / %Float`, `--Float`,
+  `size`, and `L[I <- V]`, `makeList`, `updateList`, `fillList` on the ranges the text describes),
+  and FLOAT's operations where K's text states their value (FloatDomain.lean): `+ - * / %Float`, `--Float`,
   `absFloat`, floor, ceil, trunc, `sqrtFloat`, `roundFloat`, `Int2Float`, the comparisons, `isNaN`,
   `isInfinite`, precision, exponent width, `maxValueFloat`, `minValueFloat`; STRING's operations on
   Strings (StringDomain.lean): `+String`, `lengthString`, `ordChar`, `substrString`, `findString`,
@@ -17,8 +18,7 @@
   `find_range`, update, `[_ <- undef]`, `-RangeMap`, `updateRangeMap`, `removeAll`, `in_keys`,
   `size`, `<=RangeMap`, `keys`. Every other builtin hook
   is a parameter (Builtins.lean): `Set:choice` (an unspecified element), RANGEMAP's
-  `keys_list`, `values` and `choice`, `L[I <- V]`, `makeList`,
-  `updateList`, `fillList`, the K-IO hooks; STRING's and BYTES' where K's documentation leaves the
+  `keys_list`, `values` and `choice`, the K-IO hooks; STRING's and BYTES' where K's documentation leaves the
   value open (`Float2String`, `String2Float`, `FloatFormat`, `Base2String`, `Bytes2String`, `String2Bytes`, `Bytes2Hex`,
   `decodeBytes`, `encodeBytes`, `Int2Bytes` without a length, the deprecated `categoryChar`,
   `directionalityChar`, `newUUID`); and FLOAT's where K's documentation
@@ -45,7 +45,10 @@
   (domains.md:1233-1237: t-division and Euclidean division, "Division by zero is `#False`"),
   `X <<Int N` the product X · 2^N and `X >>Int N` the arithmetic right shift, the floor of X / 2^N,
   both undefined at a negative N (domains.md 1238-1242), `log2Int(X)` the index of the highest bit
-  set of a positive X, undefined at X ≤ 0 (1298-1301);
+  set of a positive X, undefined at X ≤ 0 (1298-1301), `bitRangeInt` and `signExtendBitRangeInt`
+  the right sides of their equations (1438, 1440), which apply the shifts, so undefined at a
+  negative index or length and the second also at length 0, `A ^%Int B C` undefined at C = 0
+  (equal in value to `(A ^Int B) %Int C`, 1229-1231), `A ^Int B` the power at B ≥ 0 (1228);
   a Float is a datum of its format (represented as IEEE 754 represents it, domains.md 1481-1490), an
   arithmetic result the exact result rounded to nearest, ties to even, where the text states it
   (FloatDomain.lean; no value at an infinity, NaN or zero divisor, at a zero result the text gives
@@ -56,7 +59,8 @@
   from KItem to KItem, `_Map_` the union of two maps with disjoint keys.
 
   Where `hook` gives no value, the text says either that there is none (`#False`, `#Bottom`: division
-  by zero, a shift by a negative amount, `log2Int` of a number not above 0, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
+  by zero, a shift by a negative amount, `log2Int` of a number not above 0, a bit range at a
+  negative index or length, `^%Int` at a zero modulus, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
   `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
   states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
   formats, a Float operation off the region the text states, a format without a model, a string off
@@ -139,6 +143,22 @@ def bool2 (vs : List GroundTerm) (f : Bool → Bool → Bool) : Option GroundTer
 
 def nonzero (y : Int) (r : Int) : Option GroundTerm := if y = 0 then none else some (int r)
 
+/-- A hook of three Int arguments. -/
+def intArgs3 (vs : List GroundTerm) (f : Int → Int → Int → Option GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a, b, c] => (asInt a).bind fun x => (asInt b).bind fun y => (asInt c).bind fun z => f x y z
+  | _ => none
+
+/-- `bitRangeInt(x, idx, len)` at `idx ≥ 0` and `len ≥ 0`: the right side of its equation
+(domains.md 1438), `(x >>Int idx) modInt (1 <<Int len)`, with the shifts' values. -/
+def bitRangeVal (x i l : Int) : Int := (x.fdiv (2 ^ i.toNat)).emod (2 ^ l.toNat)
+
+/-- `signExtendBitRangeInt(x, idx, len)` at `idx ≥ 0` and `len ≥ 1`: the right side of its equation
+(domains.md 1440), `(bitRangeInt(x, idx, len) +Int (1 <<Int (len -Int 1))) modInt (1 <<Int len)
+-Int (1 <<Int (len -Int 1))`. -/
+def signExtVal (x i l : Int) : Int :=
+  (bitRangeVal x i l + 2 ^ (l - 1).toNat).emod (2 ^ l.toNat) - 2 ^ (l - 1).toNat
+
 def boolHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(boolNot, fun vs => match vs with | [a] => (asBool a).map fun x => bool !x | _ => none),
    (boolAnd, fun vs => bool2 vs (· && ·)), (boolAndThen, fun vs => bool2 vs (· && ·)),
@@ -171,7 +191,12 @@ def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
    (intShl, fun vs => int2 vs fun x n => if n < 0 then none else some (int (x * 2 ^ n.toNat))),
    (intLog2, fun vs => match vs with
      | [a] => (asInt a).bind fun x => if 0 < x then some (int x.toNat.log2) else none
-     | _ => none)]
+     | _ => none),
+   (intPowMod, fun _ => none),
+   (intBitRange, fun vs => intArgs3 vs fun x i l => if i < 0 ∨ l < 0 then none else some (int (bitRangeVal x i l))),
+   (intSignExtBitRange, fun vs =>
+     intArgs3 vs fun x i l => if i < 0 ∨ l < 1 then none else some (int (signExtVal x i l))),
+   (intPow, fun vs => int2 vs fun a b => if b < 0 then none else some (int (a ^ b.toNat)))]
 
 def kHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(kEq, fun vs => match vs with | [a, b] => some (bool (GroundTerm.cmp a b == .eq)) | _ => none),
@@ -233,7 +258,11 @@ def listRangeOf (es : List GroundTerm) (a b : Int) : Option (List GroundTerm) :=
   else none
 
 /-- Lists: `.List`, `ListItem`, `_List_` (concatenation, total), `pushList`, `L[I]`, `range`,
-`inList`, `size`. -/
+`inList`, `size`, and where the text describes them (domains.md 974-975, 984-985, 993-995,
+1003-1004) `L[I <- V]` at an index `0 ≤ I < size` (the list with `V` at `I`), `makeList(N, V)` at
+`N ≥ 0` (`N` copies of `V`), `updateList(D, I, S)` at `0 ≤ I` and `I + size(S) ≤ size(D)` (`D` with
+the elements from `I` replaced by `S`'s) and `fillList(D, I, N, V)` at `0 ≤ I`, `0 ≤ N` and
+`I + N ≤ size(D)` (`D` with the `N` elements from `I` replaced by `V`). -/
 def listHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
   [(listConcat, fun vs => match vs with
      | [.list _ a, .list _ b] => some (.list Srt.list (a ++ b)) | _ => none),
@@ -249,7 +278,26 @@ def listHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
      | _ => none),
    (listIn, fun vs => match vs with
      | [k, .list _ a] => some (bool (a.any fun e => GroundTerm.cmp k e == .eq)) | _ => none),
-   (listSize, fun vs => match vs with | [.list _ a] => some (int a.length) | _ => none)]
+   (listSize, fun vs => match vs with | [.list _ a] => some (int a.length) | _ => none),
+   (listSet, fun vs => match vs with
+     | [.list _ a, i, v] => (asInt i).bind fun i =>
+         if 0 ≤ i ∧ i < a.length then some (.list Srt.list (a.set i.toNat v)) else none
+     | _ => none),
+   (listMake, fun vs => match vs with
+     | [n, v] => (asInt n).bind fun n => if 0 ≤ n then some (.list Srt.list (List.replicate n.toNat v)) else none
+     | _ => none),
+   (listUpdateAll, fun vs => match vs with
+     | [.list _ d, i, .list _ s] => (asInt i).bind fun i =>
+         if 0 ≤ i ∧ i + s.length ≤ d.length then
+           some (.list Srt.list (d.take i.toNat ++ s ++ d.drop (i.toNat + s.length)))
+         else none
+     | _ => none),
+   (listFill, fun vs => match vs with
+     | [.list _ d, i, n, v] => (asInt i).bind fun i => (asInt n).bind fun n =>
+         if 0 ≤ i ∧ 0 ≤ n ∧ i + n ≤ d.length then
+           some (.list Srt.list (d.take i.toNat ++ List.replicate n.toNat v ++ d.drop (i.toNat + n.toNat)))
+         else none
+     | _ => none)]
 
 /-! ## Floats -/
 
@@ -737,7 +785,23 @@ interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are dom
   not what it is off them, as "only defined on valid indices" of `substrString`.
 - RANGEMAP's `[_ <- undef]` and `removeAll` at a proper range no part of which is in the map: the
   sentences speak of a range of which "all or any part" is present (575-576, 611-613), neither
-  operation is declared `total` (579, 616), and of another range nothing is said. -/
+  operation is declared `total` (579, 616), and of another range nothing is said.
+- `^%Int` at a modulus other than 0: "equal in value to `(A ^Int B) %Int C`" (1229-1231), where
+  `%Int` truncates (1233-1234), and `smt-hook((mod (^ #1 #2) #3))` (1251), the Euclidean remainder:
+  the two differ at a negative power the modulus does not divide, and of a negative exponent the
+  text says nothing (1228). `hook` gives no value at any point, so every point off a zero modulus is
+  silent; at a zero modulus `(A ^Int B) %Int 0` has none (1233-1234).
+- `^Int` at a negative exponent: "the exponentiation `^Int` of two integers" (1228) names no
+  integer there and writes no `#False`.
+- `L[I <- V]` off `0 ≤ I < size`: "a new `List` with a new value at a particular index" (974-975);
+  of an index that is none of the list's nothing is said, and whether a negative one counts from
+  the back, as the index of `L[I]` does (961-963), is not said either.
+- `makeList` at a negative length: "a list with `length` elements" (984-985) names none.
+- `updateList` off `0 ≤ index` and `index + N ≤ K`: `index + N > K` "yields an exception"
+  (993-995), of a run, and no `#False` (the reading taken for `memsetBytes`); of a negative index
+  nothing is said.
+- `fillList` off `0 ≤ index`, `0 ≤ length` and `index + length ≤ size`: "the `length` elements
+  starting at `index`" (1003-1004) name no elements of the list there. -/
 def silentTable : List (Sym × (List GroundTerm → Bool)) :=
   [(listGet, fun _ => true), (listRange, fun _ => true),
    (floatAdd, fun _ => true), (floatSub, fun _ => true), (floatMul, fun _ => true),
@@ -759,7 +823,10 @@ def silentTable : List (Sym × (List GroundTerm → Bool)) :=
    (floatIsNaN, fun _ => true), (floatIsInfinite, fun _ => true),
    (rmElem, fun _ => true), (rmConcat, fun _ => true), (rmLookup, fun _ => true),
    (rmFindRange, fun _ => true), (rmUpdate, fun _ => true), (rmRemove, fun _ => true),
-   (rmRemoveAll, fun _ => true)]
+   (rmRemoveAll, fun _ => true),
+   (intPowMod, fun vs => match vs with | [_, _, m] => (asInt m).any (· != 0) | _ => false),
+   (intPow, fun _ => true),
+   (listSet, fun _ => true), (listMake, fun _ => true), (listUpdateAll, fun _ => true), (listFill, fun _ => true)]
 
 /-- `vs` is a silent point of the interpreted symbol `f` (`silentTable`). -/
 def silent (f : Sym) (vs : List GroundTerm) : Bool :=

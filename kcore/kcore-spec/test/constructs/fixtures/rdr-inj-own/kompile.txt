@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-inj-own.k -o out  (cwd: the fixture directory)
+exit: 1
+seconds: 3.0
+output:
+  [Error] Internal: Uncaught exception thrown of type IndexOutOfBoundsException.
+  Please rerun your program with the --debug flag to generate a stack trace, and
+  file a bug report at https://github.com/runtimeverification/k/issues
+  (IndexOutOfBoundsException: 1)
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-INJ-OWN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-INJ-OWN as default.

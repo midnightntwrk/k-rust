@@ -3,7 +3,10 @@
   the reader (their kompiled texts in f2-examples, the fixtures' under test/constructs/fixtures).
   The generated packages of the same texts, which state each statement of a model or of the
   semantics for every H with `OpenLaws` and `OpenTotal` and its instance at `lawHooks`, are
-  generated and built by test/open-gen.sh. Run from the package root:
+  generated and built by test/open-gen.sh, with the statements that read the text's `FnHyp` (the
+  package's `fnHyp_defn`) in user modules built against them (test/open-gen/NS/User.lean):
+  e2-comm-ctor's `ExactC` and e2-open-rule's one successor of `<k> go </k>`, for every H with the
+  obligations, and their instances at `lawHooks`. Run from the package root:
   `lake env lean -j1 test/OpenKompiled.lean`. Kernel-checked.
 
   - `Comm` (e2-comm-ctor, `f2-examples/commctor.kompile.kore`): `and` raw without a law, `or` raw

@@ -1,0 +1,8 @@
+command: kompile --backend haskell e6-mod-k.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.8
+output:
+  [Error] Compiler: Expected to find exactly one production for KLabel: #EmptyK
+  found: 2
+  [Warning] Compiler: Could not find main syntax module with name E6-MOD-K-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E6-MOD-K as default.

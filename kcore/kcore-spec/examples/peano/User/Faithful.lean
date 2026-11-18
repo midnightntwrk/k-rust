@@ -85,6 +85,13 @@ theorem callable_of {f : Sym} (h : calledOK f = true) : Callable2 c f := by
   · intro fn hfn; rw [h] at hfn; cases hfn
   · exact pred_callable
 
+/-- Peano has no overloading symbol, so a symbol `calledOK` reads is callable together with the
+functions it overloads (`CallsAll`). -/
+theorem callsAll_of {f : Sym} (h : calledOK f = true) : CallsAll c (Callable2 c) f := by
+  refine ⟨callable_of h, fun o ho => ?_⟩
+  have hn : c.ovls = [] := by decide +kernel
+  simp [Semantics.lookupOvl, hn] at ho
+
 theorem rules_ok : c.rules.all (fun r => plainPat c r.lhs &&
     (Term.heads r.rhs ++ (r.req.map Term.heads).getD [] ++ (r.ens.map Term.heads).getD []).all calledOK) = true := by
   decide +kernel
@@ -143,11 +150,11 @@ theorem stage2 : Stage2 c := by
   refine ⟨genWf_ok, fun r hr => ?_, fun fn hfn cl hcl => ?_⟩
   · have := List.all_eq_true.mp rules_ok r hr
     simp only [Bool.and_eq_true] at this
-    exact ⟨this.1, fun f hf => callable_of (List.all_eq_true.mp this.2 f hf)⟩
+    exact ⟨this.1, fun f hf => callsAll_of (List.all_eq_true.mp this.2 f hf)⟩
   · have := List.all_eq_true.mp fns_ok fn hfn
     have h := List.all_eq_true.mp this cl hcl
     simp only [Bool.and_eq_true] at h
-    exact ⟨h.1, fun f hf => callable_of (List.all_eq_true.mp h.2 f hf)⟩
+    exact ⟨h.1, fun f hf => callsAll_of (List.all_eq_true.mp h.2 f hf)⟩
 
 /-- **Every step of peano is a theorem of `Γ`**: in every model of `Γ c`, a configuration has each
 of its `Step` successors as a successor. -/

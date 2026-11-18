@@ -315,9 +315,10 @@ theorem Apart.coherent {c : Semantics} {cl cl' : Clause} (h : Apart c cl cl') :
   ⟨fun vs σ σ' ha ha' _ _ _ _ => (h vs σ σ' ha ha').elim,
    fun vs σ σ' ha ha' _ _ _ _ => (h vs σ' σ ha' ha).elim⟩
 
-/-- A function's equations agree where each pair is one `fnExclusiveI` accepts or one no argument
-list satisfies both of. -/
+/-- A function's equations without existential variables agree where each pair is one
+`fnExclusiveI` accepts or one no argument list satisfies both of. -/
 theorem clausesAgree_of_apart {c : Semantics} (hmc : Exec.MatchCtxO c) {heads : List CtorSig} {f : Fn}
+    (hx : ∀ cl ∈ f.clauses, cl.exs = [])
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true)
     (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true)
     (h : ∀ p ∈ pairs f.clauses, (c.pairAgreeL heads p.1 p.2 ||
@@ -332,10 +333,15 @@ theorem clausesAgree_of_apart {c : Semantics} (hmc : Exec.MatchCtxO c) {heads : 
   · simp only [Bool.or_eq_true, Bool.and_eq_true] at hpair
     have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
+    replace hc1' := hc1'.1
+    replace hc2' := hc2'.1
     rcases hpair with hl | ⟨-, hi | hi⟩
-    · exact pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 hl hprio
-    · exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
-    · exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi).symm
+    · have := pairAgreeL_sound hmc (hfr cl h1) (hfr cl' h2) hc1 hc2 (hx cl h1) (hx cl' h2) hl hprio
+      exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.1, Coherent.of_plain (hx cl' h2) (hx cl h1) this.2⟩
+    · have := instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 (hx cl h1) (hx cl' h2) hi
+      exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.1, Coherent.of_plain (hx cl' h2) (hx cl h1) this.2⟩
+    · have := instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 (hx cl' h2) (hx cl h1) hi
+      exact ⟨Coherent.of_plain (hx cl h1) (hx cl' h2) this.2, Coherent.of_plain (hx cl' h2) (hx cl h1) this.1⟩
   · exact ha.coherent
 
 /-! ## `isElem` -/
@@ -363,24 +369,27 @@ theorem isElem_true {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool true))) 
     ∃ σ, elemEl.AppliesAt c₀ σ [v] ∨ elemKv.AppliesAt c₀ σ [v] := by
   generalize hr : some (bool true) = r at h
   cases h with
-  | clause hfn hmem hσ hmatch hreq hpre _ hrhs _ =>
+  | clause hfn hmem hσ hmatch hreq hpre _ _ hrhs _ _ =>
     rw [lookup_isElem, Option.some.injEq] at hfn
     subst hfn
     simp only [fnIsElem, List.mem_cons, List.not_mem_nil, or_false] at hmem
     rcases hmem with rfl | rfl | rfl
-    · exact ⟨_, .inl ⟨hσ, hmatch, hreq, hpre⟩⟩
-    · exact ⟨_, .inr ⟨hσ, hmatch, hreq, hpre⟩⟩
+    · exact ⟨_, .inl ⟨hσ.at _, hmatch, hreq, hpre⟩⟩
+    · exact ⟨_, .inr ⟨hσ.at _, hmatch, hreq, hpre⟩⟩
     · rw [EvalTerm.dv_inv hrhs] at hr
       cases hr
   | rest _ _ => rw [fnRest_none] at hr; cases hr
   | ensFails => cases hr
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+  | exNone => cases hr
 
 /-- Where `isElem` is `false`, its equations of priority 50 fail. -/
 theorem isElem_false {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool false))) :
     Fails c₀ [v] elemEl ∧ Fails c₀ [v] elemKv := by
   generalize hr : some (bool false) = r at h
   cases h with
-  | clause hfn hmem _ _ _ _ hprio hrhs _ =>
+  | clause hfn hmem _ _ _ _ hprio _ hrhs _ _ =>
     rw [lookup_isElem, Option.some.injEq] at hfn
     subst hfn
     simp only [fnIsElem, List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -390,13 +399,18 @@ theorem isElem_false {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool false))
     · exact ⟨hprio _ (by simp [fnIsElem]) rfl (by decide), hprio _ (by simp [fnIsElem]) rfl (by decide)⟩
   | rest _ _ => rw [fnRest_none] at hr; cases hr
   | ensFails => cases hr
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    exact absurd ((Semantics.fnsNoExs_of_sortedOK hsorted).lookup hfn hmem) hne
+  | exNone => cases hr
 
-/-- A clause without a `requires` and with the predicate `\top` that applies does not fail. -/
+/-- A clause without a `requires`, with the predicate `\top` and without existential variables that
+applies does not fail. -/
 theorem not_fails {c : Semantics} {vs : List GroundTerm} {cl : Clause} {σ : Subst}
-    (hq : cl.req = none) (hp : cl.pre = .top) (ha : cl.AppliesAt c σ vs) (hf : Fails c vs cl) : False := by
+    (hq : cl.req = none) (hp : cl.pre = .top) (hx : cl.exs = []) (ha : cl.AppliesAt c σ vs)
+    (hf : Fails c vs cl) : False := by
   cases hf with
   | intro h =>
-    cases h σ (ha.1.at _) ha.2.1 with
+    cases h σ (((wellSortedAt_univ hx).mp ha.1).at _) ha.2.1 with
     | intro ht _ _ => rw [hq] at ht; cases ht
     | pre hf => rw [hp] at hf; cases hf
 
@@ -404,8 +418,8 @@ theorem not_fails {c : Semantics} {vs : List GroundTerm} {cl : Clause} {σ : Sub
 theorem isElem_det {v : GroundTerm} (h : Eval c₀ 478 [v] (some (bool true)))
     (h' : Eval c₀ 478 [v] (some (bool false))) : False := by
   obtain ⟨σ, ha | ha⟩ := isElem_true h
-  · exact not_fails rfl rfl ha (isElem_false h').1
-  · exact not_fails rfl rfl ha (isElem_false h').2
+  · exact not_fails rfl rfl rfl ha (isElem_false h').1
+  · exact not_fails rfl rfl rfl ha (isElem_false h').2
 
 /-- `isElem` is not `true` at a collection value `co(K, C, Es)`. -/
 theorem isElem_co {us : List GroundTerm} (h : Eval c₀ 478 [.ctor 416 us] (some (bool true))) : False := by
@@ -592,7 +606,7 @@ theorem hfr (fn : Fn) : ∀ cl ∈ fn.clauses, c₀.ovlFreeList cl.pats = true :
   fun _ _ => ovlFreeList_of_nil hovls _
 
 theorem agree_cmpI : ClausesAgree c₀ fnCmpI := by
-  refine clausesAgree_of_apart hmc (hfr _) (hcls mem_cmpI) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_cmpI) (hfr _) (hcls mem_cmpI) fun p hp => ?_
   simp only [fnCmpI, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl
@@ -601,7 +615,7 @@ theorem agree_cmpI : ClausesAgree c₀ fnCmpI := by
   · exact .inr apart_eq_gt
 
 theorem agree_join : ClausesAgree c₀ fnJoin := by
-  refine clausesAgree_of_apart hmc (hfr _) (hcls mem_join) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_join) (hfr _) (hcls mem_join) fun p hp => ?_
   simp only [fnJoin, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
@@ -617,7 +631,7 @@ theorem agree_join : ClausesAgree c₀ fnJoin := by
   · exact .inr apart_list_elem
 
 theorem agree_matchCol : ClausesAgree c₀ fnMatchCol := by
-  refine clausesAgree_of_apart hmc (hfr _) (hcls mem_matchCol) fun p hp => ?_
+  refine clausesAgree_of_apart hmc (Semantics.fnsNoExs_of_sortedOK hsorted _ mem_matchCol) (hfr _) (hcls mem_matchCol) fun p hp => ?_
   simp only [fnMatchCol, pairs, List.map_cons, List.map_nil, List.cons_append, List.nil_append,
     List.mem_cons, List.not_mem_nil, or_false] at hp
   rcases hp with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl

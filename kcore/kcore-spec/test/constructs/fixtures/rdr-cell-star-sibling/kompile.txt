@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-cell-star-sibling.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.0
+definition.kore bytes: 223548
+definition.kore sha256: 1d2de17ffb37f5a83c4348a789c9f48cc4997144bc7e26afff03bb64f4aceff5
+stripped sha256: 884d243bf5795e8c8be0deb3fae45c0e6b7a27956f09f6d1ec433cf71312aa5d
+main module: 459 sentences, 114 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-CELL-STAR-SIBLING-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using RDR-CELL-STAR-SIBLING as default.

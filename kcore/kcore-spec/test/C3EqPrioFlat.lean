@@ -98,20 +98,21 @@ theorem hdet (t : Term) (h : flat.plainTerm t = true) : HDet flat σ5 t :=
   fun _ hu => plain_fun (plain_subterms h hu)
 
 theorem appA : clA.AppliesAt flat σ5 [v5] :=
-  ⟨ws5 clA rfl, pv5 clA rfl, (fun t ht => by cases ht; exact gt5), .top⟩
-theorem appT : clT.AppliesAt flat σ5 [v5] := ⟨ws5 clT rfl, pv5 clT rfl, (fun _ ht => by cases ht), .top⟩
-theorem appB : clB.AppliesAt flat σ5 [v5] := ⟨ws5 clB rfl, pv5 clB rfl, (fun _ ht => by cases ht), .top⟩
+  ⟨(ws5 clA rfl).at _, pv5 clA rfl, (fun t ht => by cases ht; exact gt5), .top⟩
+theorem appT : clT.AppliesAt flat σ5 [v5] := ⟨(ws5 clT rfl).at _, pv5 clT rfl, (fun _ ht => by cases ht), .top⟩
+theorem appB : clB.AppliesAt flat σ5 [v5] := ⟨(ws5 clB rfl).at _, pv5 clB rfl, (fun _ ht => by cases ht), .top⟩
 
 /-- **Without the attribute, `ClausesAgree` of c3-eq-req-prio-comp's function is false**: at 5 both
 clauses decide, `f(X) = X requires X >Int 0` with 5 and `f(_) = 0` with 0. -/
 theorem not_agree_req : ¬ ClausesAgree flat fnR := by
   intro h
   rcases (h clA clB (by simp [fnR, pairs]) (.inl rfl)).2 [v5] _ _ appB appA
-      (fun _ ht => by cases ht) (fun _ => hdet _ (by decide +kernel)) (fun _ ht => by cases ht)
+      (fun _ ht => by cases ht) (fun _ _ => hdet _ (by decide +kernel)) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨fR, fnR, rfl, by simp [fnR], by simp [fnR], ⟨appB, nolow fnR rfl clB rfl⟩, ⟨appA, nolow fnR rfl clA rfl⟩⟩
-    with ⟨hr, -⟩ | hr
+    with ⟨-, -, hr, -⟩ | hr
   · simp [clA, clB] at hr
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .dv⟩) (.inl ⟨(fun _ ht => by cases ht), .var⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
     simp [σ5, v5] at this
 
 /-- **Without the attribute, `ClausesAgree` of c3-eq-prio-total-comp's function is false**: at 5
@@ -119,12 +120,13 @@ theorem not_agree_req : ¬ ClausesAgree flat fnR := by
 theorem not_agree_tot : ¬ ClausesAgree flat fnT := by
   intro h
   rcases (h clT clB (by simp [fnT, pairs]) (.inl rfl)).1 [v5] _ _ appT appB
-      (fun _ ht => by cases ht) (fun _ => hdet _ (by decide +kernel))
-      (fun _ ht => by cases ht)
+      (fun _ ht => by cases ht) (fun _ _ => hdet _ (by decide +kernel))
+      (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨fT, fnT, rfl, by simp [fnT], by simp [fnT], ⟨appT, nolow fnT rfl clT rfl⟩, ⟨appB, nolow fnT rfl clB rfl⟩⟩
-    with ⟨hr, -⟩ | hr
+    with ⟨-, -, hr, -⟩ | hr
   · simp [clT, clB] at hr
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .var⟩) (.inl ⟨(fun _ ht => by cases ht), .dv⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
     simp [σ5, v5] at this
 
 /-- The same functions with the first clause of priority 40, as the fixtures write it. -/

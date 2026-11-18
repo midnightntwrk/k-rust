@@ -126,41 +126,13 @@ UNSHOWN = ("R2-release.C4", 7)
 # R2-release.C4 owes each constructor that no ticket of PROGRESS names: the criterion is not met while
 # one stands here.
 PINNED = [
-    ("RefusalReason.noModule", "R2-release.C4"),
-    ("RefusalReason.axiomShape", "R2-release.C4"),
-    ("RefusalReason.preludeDiffers", "R2-release.C4"),
-    ("RefusalReason.moduleSource", "R2-release.C4"),
-    ("RefusalReason.moduleLocation", "R2-release.C4"),
-    ("RefusalReason.configuration", "R2-release.C4"),
-    ("RefusalReason.cellShape", "R2-release.C4"),
-    ("RefusalReason.missingEquation", "R2-release.C4"),
-    ("RefusalReason.counterShape", "R2-release.C4"),
-    ("RefusalReason.pgmSort", "R2-release.C4"),
-    ("RefusalReason.builtinModule", "R2-release.C4"),
-    ("RefusalReason.builtinIncomplete", "R2-release.C4"),
-    ("RefusalReason.inertMismatch", "R2-release.C4"),
-    ("RefusalReason.cellCollectionInjection", "R2-release.C4"),
-    ("RefusalReason.injShape", "R2-release.C4"),
-    ("RefusalReason.iteShape", "R2-release.C4"),
-    ("RefusalReason.variableName", "R2-release.C4"),
-    ("RefusalReason.variableSort", "R2-release.C4"),
-    ("RefusalReason.requiresShape", "R2-release.C4"),
-    ("RefusalReason.exclusionShape", "R2-release.C4"),
-    ("RefusalReason.sentenceInfo", "R2-release.C4"),
-    ("RefusalReason.location", "R2-release.C4"),
-    ("RefusalReason.hookAttribute", "R2-release.C4"),
-    ("RefusalReason.collectionShape", "R2-release.C4"),
-    ("RefusalReason.projectionDomainShape", "R2-release.C4"),
-    ("RefusalReason.existentialEquation", "R2-release.C4"),
-    ("RefusalReason.lawAxiom", "R2-release.C4"),
-    ("RefusalReason.unaccounted", "R2-release.C4"),
+    # no stage of the reader produces it yet (ReadFns.hoistExists, its producer, has no caller there)
+    ("RefusalReason.existentialEquation", "CE.reader-wire"),
     ("RefusalReason.openLaw", "P3.rows"),
-    ("RefusalReason.constructorEquation", "R2-release.C4"),
-    ("RefusalReason.existentialAxiom", "R2-release.C4"),
-    ("RefusalReason.ctorResultSort", "R2-release.C4"),
-    ("RefusalReason.hookEqualityUnstated", "R2-release.C4"),
-    ("InertReason.claim", "R2-release.C4"),
-    ("UnreadReason.noSortPredicate", "R2-release.C4"),
+    # printed by fixtures hw-h1-*, hw-h8 and hw-h12-ctor; the rows of those shapes are owed
+    ("RefusalReason.constructorEquation", "KPROV.apply"),
+    ("RefusalReason.existentialAxiom", "KPROV.apply"),
+    ("RefusalReason.ctorResultSort", "KPROV.apply"),
 ]
 
 

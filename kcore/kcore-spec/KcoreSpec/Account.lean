@@ -671,6 +671,84 @@ def fnLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String 
   | some m => (fnLawAxioms d.sem m.sentences).map fun (i, a) =>
     (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
 
+/-! ## What a law of a function reads of the interpretation
+
+`LawAt c l` compares the results `EvalTerm` gives the two sides at values. Those results depend on
+the interpretation `c.hooks` only through a function's rest (`Semantics.fnRest`: where every clause
+fails), a parameter symbol no hook implements (`paramVal`), and a library hook at a point its text
+leaves open (`hookRes` at a `silent` point, also as a parameter's hook). Where evaluating the law's
+sides reaches none of these, `LawAt` is one fact, the same at every interpretation: true at every
+one or at none. -/
+
+/-- The symbols the terms of a condition apply. -/
+def condSymOccsFL : Cond → List Sym
+  | .ceil _ t => symOccs t
+  | .equals _ t u | .mem _ t u => symOccs t ++ symOccs u
+  | .exMatch _ _ p t b => symOccs p ++ symOccs t ++ condSymOccsFL b
+  | .not p | .ex _ p | .all _ p => condSymOccsFL p
+  | .and p q | .or p q | .implies p q => condSymOccsFL p ++ condSymOccsFL q
+  | .top | .bot => []
+
+/-- The symbols a clause applies: in its patterns, right side, `requires`, `ensures` and
+predicates. -/
+def clauseSymOccsFL (cl : Clause) : List Sym :=
+  symOccsList cl.pats ++ symOccs cl.rhs ++ (cl.req.toList ++ cl.ens.toList).flatMap symOccs ++
+    condSymOccsFL cl.pre ++ condSymOccsFL cl.post
+
+/-- Some clause of `f` applies at every argument list of its sorts: the clauses without a
+`requires`, without a predicate `pre` and without a repeated pattern variable cover `f`'s argument
+sorts (`covers`). Such a clause does not fail where its patterns match (`Fails` asks a `requires`
+or a `pre` that fails), so the clauses of `f` never all fail at values and its rest (`Eval.rest`)
+is never read. A function this does not confirm is taken to read its rest. -/
+def fnCoveredFL (c : Semantics) (f : Fn) : Bool :=
+  c.covers (Semantics.coverFuel f) f.args
+    ((f.clauses.filter fun cl => cl.req.isNone && cl.pre.isTop && nodup (varOccsList cl.pats)).map (·.pats))
+
+/-- What the symbols `gs` read of the interpretation, `seen` those already searched. Each symbol is
+taken as `EvalTerm` takes its application: a constructor reads nothing; a library hook reads the
+interpretation where it has points its text leaves open (`silentKey`); a parameter reads it where
+no hook implements it, else where its hook has such points (`paramVal`); an overloading symbol
+reads what the functions it overloads read (`ovlFn`); a function (`lookupFn`) reads its rest where
+it is not `fnCoveredFL`, and otherwise what its clauses apply. `none` where none is reached. Each
+step uses one unit of the fuel; with none left the search has not ruled the interpretation out,
+and the answer says so. -/
+def lawReadsFL (c : Semantics) : Nat → List Sym → List Sym → Option String
+  | 0, _, _ => some "what a search that stopped did not rule out"
+  | _, _, [] => none
+  | n + 1, seen, g :: gs =>
+    if seen.contains g || c.isCtor g then lawReadsFL c n seen gs
+    else if isHook g then
+      if silentKey g then some s!"{c.symName g} at the points its hook's text leaves open"
+      else lawReadsFL c n (g :: seen) gs
+    else match c.lookupParam g with
+    | some k => match k.impl with
+      | none => some s!"the parameter {c.symName g}: its value is the interpretation's"
+      | some h =>
+        if silentKey h then some s!"the parameter {c.symName g} at the points its hook's text leaves open"
+        else lawReadsFL c n (g :: seen) gs
+    | none =>
+      if c.isOvl g then lawReadsFL c n (g :: seen) (gs ++ ((c.lookupOvl g).map (·.over)).getD [])
+      else match c.lookupFn g with
+      | some f =>
+        if fnCoveredFL c f then lawReadsFL c n (g :: seen) (gs ++ f.clauses.flatMap clauseSymOccsFL)
+        else some s!"the rest of {c.symName g}: its value where its clauses are not shown to apply is the interpretation's"
+      | none => lawReadsFL c n (g :: seen) gs
+
+/-- What the law reads of the interpretation (`lawReadsFL` from the symbols of its two sides);
+`none` where it reads nothing of it. -/
+def lawReads (c : Semantics) (l : LawEq) : Option String :=
+  lawReadsFL c 100000 [] (symOccs l.lhs ++ symOccs l.rhs)
+
+/-- The account's entry for a law under `FnLaws`. Where the law reads the interpretation it is a
+condition on the interpretation, met by some and not by others, and `HookParams.none` does not
+discharge it. Otherwise it is owed and open: one fact at every interpretation, not decided here.
+It is never printed false: where one side has no result and the other the result `none`, `LawAt`
+is false though both sides are empty and the law holds. -/
+def fnLawEntry (c : Semantics) (l : LawEq) : String :=
+  match lawReads c l with
+  | some r => s!"FnLaws owed: a condition on the interpretation (the law reads {r}); not discharged at HookParams.none"
+  | none => "FnLaws owed, open: no term of the law reads the interpretation, so it is one fact at every interpretation, not decided here"
+
 /-- The `functional` axioms of the open generators of `d` (`ParamSig.raw`): the sentence's index and
 the symbol. Each is stated at values under `OpenTotal` (the interpretation gives the generator a
 value at every argument list of its sorts), owed: `Γ` holds no functionality item for an open

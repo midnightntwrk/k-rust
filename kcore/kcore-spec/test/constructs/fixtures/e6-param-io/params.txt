@@ -1,0 +1,22 @@
+param	Lbl'Hash'accept'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int	args=[Int]	result=IOInt	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'close'LParUndsRParUnds'K-IO'Unds'K'Unds'Int	args=[Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'getc'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int	args=[Int]	result=IOInt	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'lock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int	args=[Int, Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'log	args=[String]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'logToFile	args=[String, String]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'mkstemp'LParUndsRParUnds'K-IO'Unds'IOFile'Unds'String	args=[String]	result=IOFile	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'open'LParUndsCommUndsRParUnds'K-IO'Unds'IOInt'Unds'String'Unds'String	args=[String, String]	result=IOInt	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'putc'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int	args=[Int, Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'read'LParUndsCommUndsRParUnds'K-IO'Unds'IOString'Unds'Int'Unds'Int	args=[Int, Int]	result=IOString	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'remove'LParUndsRParUnds'K-IO'Unds'K'Unds'String	args=[String]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'seek'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int	args=[Int, Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'seekEnd'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int	args=[Int, Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'shutdownWrite'LParUndsRParUnds'K-IO'Unds'K'Unds'Int	args=[Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'system'LParUndsRParUnds'K-IO'Unds'KItem'Unds'String	args=[String]	result=KItem	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'tell'LParUndsRParUnds'K-IO'Unds'IOInt'Unds'Int	args=[Int]	result=IOInt	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'time'LParRParUnds'K-IO'Unds'Int	args=[]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'trace	args=[KItem]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'traceK	args=[K]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'unlock'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'Int	args=[Int, Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Hash'write'LParUndsCommUndsRParUnds'K-IO'Unds'K'Unds'Int'Unds'String	args=[Int, String]	result=K	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

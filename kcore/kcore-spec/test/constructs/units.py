@@ -97,7 +97,14 @@ ALLOWANCE = [
     # unit) is replaced by one case per shape, each R-c with its ticket or R-a with its reason.
     # 37 -> 38 with R2-release.rdr-corpus-rows: E6 hook:LIST.update's case of List:set in a rule's
     # left side (the corpus text list-set), R-c with no ticket that reads a parameter symbol there.
-    ("ROWS-1.unit-rc", 38, "entries of class R-c without unit",
+    # 38 -> 34 with P3.rows-setvar-cut: the four set-variable rows of E4 are R-a with their reason,
+    # each shape a case with its fixture, class and unit.
+    # 34 -> 33 with P3.rows-ksym-setvar: E3's KSEQ-SYMBOLIC #set-@ row, R-c without unit, is R-a
+    # with its reason and the E4 rows' cases.
+    # 33 -> 35 with R2-release.fixrest-pending-rows: E2 ML_BINDER(mlBinder)@frontend and
+    # ML_OP(mlOp)@frontend take, by rule S1, the status and class of the E3 rows of #Exists and #Ceil
+    # (refused R-c without unit), the productions whose KORE their fixture's sentences show.
+    ("ROWS-1.unit-rc", 35, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     ("ROWS-1.unit-refused", 119, "refused entries of class R-a, R-b or scope without unit",
      lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),

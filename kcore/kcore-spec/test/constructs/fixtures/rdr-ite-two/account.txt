@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module RDR-ITE-TWO: 291 sentences
+  1 inert import [generated]
+  166 read [generated]
+  95 read [builtin]
+  3 read [user]
+  1 unread parametricUnused [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 iteShape
+      sentence 254 (Lblf): iteShape
+        [user] (no label) at rdr-ite-two.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortFoo{}, R}(X0:SortFoo{}, VarX:SortFoo{}), \top{R}())), \equals{SortFoo{}, R}(Lblf{}(X0:SortFoo{}), \and{SortFoo{}}(Lblite{SortFoo{}, SortFoo{}}(VarX:SortFoo{}), \top{SortFoo{}}()))) [UNIQUE'Unds'ID{}("4e1c37fff15e131ea8128b42ee9e55e2f4716091a2211eded7e72ffba4e38d43"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,23)"), o …
+finish: sentence 254 (Lblf): iteShape
+(exit 0)

@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-requires-shape/hw-requires-shape.kore: 5 modules; prelude agrees
+user module HW-BASE: 426 sentences
+  1 inert import [generated]
+  196 read [generated]
+  183 read [builtin]
+  13 read [user]
+  8 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 requiresShape
+      sentence 324 (HW-BASE.go): requiresShape
+        [user] HW-BASE.go at hw-base.k:22: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblrun{}(VarN:SortInt{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'Unds-GT-Eqls'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")))), \and{SortGeneratedTopC …
+finish: sentence 324 (HW-BASE.go): requiresShape
+(exit 0)
