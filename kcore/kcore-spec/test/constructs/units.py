@@ -135,7 +135,14 @@ ALLOWANCE = [
     # ensures) and E2 ML_OP(mlOp)@frontend, which takes #Ceil's status; E5
     # genOverloadedAxiom:axiom#1's constructor-with-function overload and overloadForm cases; E6
     # hook:LIST.update's List:set in a left side; C3 'hook x equation', its row and two cases.
-    ("ROWS-1.unit-rc", 24, "entries of class R-c without unit",
+    # 24 -> 26 with ROWS.rc-done-units: E2 HYBRID(hybrid)@frontend and C3 'strict x hybrid' named
+    # the design of reading a sort predicate's equations as a function's clauses, which is done and
+    # which no ticket implements (its two measured forms await the owner's choice); they join the
+    # entries above. The five other entries that named a landed ticket name the pending one that
+    # supports their shape: E3 #And's \ceil-of-a-conjunction case, #Or's and #Exists' cases of a
+    # binder in an alternative and #Exists' case of a binder beside a term name CE.reader-wire,
+    # #Exists' case of a binder under applications F2.E1-after-hoist.
+    ("ROWS-1.unit-rc", 26, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 46: the entries of class R-b without unit, each of which findings/KPROV-citations.md,
     # KPROV-scope.md and KPROV-reopen-decision.md decide and KPROV.apply writes: most become

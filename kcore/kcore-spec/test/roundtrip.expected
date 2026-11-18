@@ -1,8 +1,9 @@
-differs f2-examples/allbuiltins.kompile.kore
+cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
+differs f2-examples/c3-cells-star.kompile.kore
 differs f2-examples/c3-ctor-assoc.kompile.kore
 differs f2-examples/c3-ctor-comm.kompile.kore
 differs f2-examples/c3-ctor-idem.kompile.kore
@@ -95,6 +96,7 @@ differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
+differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore

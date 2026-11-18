@@ -104,7 +104,7 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 
 ## Cases
 
-52 cases, each a small object definition for one point of the reading above; beside them, 124 text entries under `texts/`, each a ruling on a K text, a KORE text or a quoted declaration (`SCHEMA.md`, section 3), on which the cases' rulings rest.
+52 cases, each a small object definition for one point of the reading above; beside them, 125 text entries under `texts/`, each a ruling on a K text, a KORE text or a quoted declaration (`SCHEMA.md`, section 3), on which the cases' rulings rest.
 A case's ruling is its final configurations, derived in its `entry.toml` from the K text and the entries it rests on; where the text does not settle a point, the case is unsettled, names the entry whose question it is, gives one reading per answer, and names the reading `kore.k` computes.
 The last column gives, for a settled case, the implementations whose result is not the ruling (`differs`); for an unsettled one, the reading each implementation's result is (`reading:<name>`), `coincides:<name>` where its finals equal a reading's by a route the text does not admit, or `differs` where it is no reading. `kore.k` is named there only where its result is not the ruling or the reading the ruling column names for it. The reason of each is the `[[disposition]]` of the case's `entry.toml`.
 
@@ -163,7 +163,7 @@ The last column gives, for a settled case, the implementations whose result is n
 | c51-fn-ensures-owise | c50 beside `half(_) => 0 [owise]`: the first equation decides at -4, so the `[owise]` one does not apply and `half(-4)` has no value, not 0 | unsettled | on `kk:t03-applied-rule-blocks`: readings `applied-blocks`, `undefined-rhs-does-not-block`; `kore.k` computes `applied-blocks` | haskell reading:applied-blocks, llvm differs |
 | c52-subsort-one-entry | one stated subsort `Int < Val` and a sort `Other` with none: an `Int` matches `V:Val` through the subsort and not `X:Other`, a walk of the subsort table as long as the table | settled | `done(3)` | none |
 
-Counted by `tools/check.py` on this tree: 176 entries, 136 settled and 40 unsettled; of the 52 cases 45 are settled and 7 unsettled, of the 124 text entries 91 settled and 33 unsettled.
+Counted by `tools/check.py` on this tree: 177 entries, 137 settled and 40 unsettled; of the 52 cases 45 are settled and 7 unsettled, of the 125 text entries 86 settled and 33 unsettled.
 Recorded differences: llvm 21 (14 settled cases, where it aborts, does not evaluate an `ensures`, or gives `_Set_` a value on a common element (c28), and 7 unsettled ones, where its result is no reading), haskell 1 (c33, where its search stops with an error), and, counted apart, `kore.k` 1 (c42: its finals are those of `value-false`, reached by giving the `total` function no value, which the text excludes). No `kcore` row is recorded.
 Both backends' results are kept in each case's `evidence.json`, labelled with the K release and backend that produced them.
 
@@ -189,7 +189,7 @@ An entry passes when its record is consistent with itself (`SCHEMA.md`, section 
 An implementation that differs from the ruling under a disposition is not a failure, whichever implementation it is.
 It prints one line per entry, its status and how each implementation stands (`=`, `reading:<name>`, `coincides:<name>`, `differs`), and a `PASS` or `FAIL` summary that counts the entries, settled and unsettled, and the recorded differences per implementation, `kore.k`'s apart; it exits 0 only when every entry passes.
 
-Measured in this tree: 176 of 176 entries pass (136 settled, 40 unsettled); recorded differences haskell 1, llvm 21, `kore.k` 1; each `krust krun` process takes 45 to 125 ms, the whole command about 4 s warm.
+Measured in this tree: 177 of 177 entries pass (137 settled, 40 unsettled); recorded differences haskell 1, llvm 21, `kore.k` 1; each `krust krun` process takes 45 to 125 ms, the whole command about 4 s warm.
 
 ## The kink corpus
 
@@ -285,7 +285,7 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder, with configurations of several cells and `Map` cell collections, `==K`, token sorts, sort predicates, `ensures` and `String` values; 52 cases and 124 text entries, each with its ruling and its evidence; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which checks each entry's record and runs `kore.k` on every case.
+Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder, with configurations of several cells and `Map` cell collections, `==K`, token sorts, sort predicates, `ensures` and `String` values; 52 cases and 125 text entries, each with its ruling and its evidence; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which checks each entry's record and runs `kore.k` on every case.
 
 Not verified here: `kore.k` is checked against the rulings of these 52 cases, with the two backends' results recorded beside them; that a ruling follows from the sentences it quotes is a reader's check, and `tools/case.py --verify-quotes` checks only that each quote stands at its locator; no case exercises a definition outside the fragment, so the encoder's refusals are untested; this tree's encoder was rerun on every case from its kompiled text and reproduces every committed `kore.pgm` and `symbols.json` (c41's were re-encoded: the committed ones came from the encoder before the `ensures` change and differed only in the numbers of two symbols); a `Map` or `Set` value's canonical order is `cmp`'s, which the decoders replace by the order of the elements' texts, so the order itself is checked only through `kore.k`'s own equalities (c25); kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
 
