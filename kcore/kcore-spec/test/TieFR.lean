@@ -22,6 +22,13 @@
     predicate of an alternative (no `ensures`), so the last clause's right side `f(X) ∧
     ⌈false = true⌉` is empty where `¬⌈f(X)⌉` holds, whatever Bool's elements are
     (`noneEmpty_of_sub`).
+  - `readingsG`, `text_of_gammaG`, `gamma_of_textG`: the same two directions with the readings the
+    general lemmas of KcoreSpec/TieFRRead.lean derive (`readings_of_fr`, `rhs_of_reader`,
+    `inSort_of_terms`) and the last clause's right side empty from `noneEmpty_of_apart`, in a
+    model with `NodeFacts c I` and `TermsInSort c I`. The literal facts they read are kernel
+    decisions (`gamma_shapeG`, `lit_facts`, `norm_facts`): `Γ`'s premises are `clauseQ` and
+    `lastQ` over `Γ`'s table `tblG`, the text's alternatives translate as `Γ`'s, and the reader
+    reads `f(X) ∨ g(X)` as the alternatives `f(X)`, `g(X)` with no condition.
 -/
 import KcoreSpec
 
@@ -247,6 +254,181 @@ theorem text_of_gamma {σI : M} (B : Bg I σI)
 
 end
 
+/-! ## The readings from the reader's output (KcoreSpec/TieFRRead.lean)
+
+The same tie with the readings derived by the general lemmas: `Readings` from `readings_of_fr`
+(the clauses' premises read from `NodeFacts`, the alternatives in Int from `TermsInSort`, the
+right side from `rhs_of_reader`), and the last clause's right side empty from `NodeFacts.apart`
+(`noneEmpty_of_apart`). What is read of the model is `NodeFacts c I` and `TermsInSort c I`. -/
+
+section General
+open KCore.TieFRRead
+
+/-- The clauses' variables, the table of `Γ`'s items for h, and the alternatives `frRead` gives
+`frClauses`: `f(X)` and `g(X)` with no condition. -/
+def vsC : List KoreAML.Var := Faithful.canonVars c [Srt.int]
+def tblG : VarTable := [.sortVar "R", .evar "X0" (srt "Int"), .evar "VarV0" (srt "Int")]
+def xsC : List (Term × List Term) := [(fX, []), (gX, [])]
+
+/-- The text's right side `f(X) ∨ g(X)` and its `ensures` part `\top`. -/
+def fK : Kore.Pattern := ap "Lblf" [ev "VarX" iS]
+def gK : Kore.Pattern := ap "Lblg" [ev "VarX" iS]
+def pT : Kore.Pattern := .or iS [fK, gK]
+def enT : Kore.Pattern := .top iS
+
+theorem hFn_clauses : hFn.clauses = Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false (frAltsOf xsC) := rfl
+
+/-- The last clause's right side `f(X) ∧ (false = true)`. -/
+def BNG : P := sAnd (altP c tblG vsC (fX, []))
+  (tr ⟨tblG, []⟩ (reqPat (srtOf c Srt.int) (some (Term.kore c vsC (Parse.boolT false)))))
+
+/-- `Γ`'s items for h, with the premises `clauseQ`, `lastQ` of the general lemmas. -/
+theorem gamma_shapeG : (Faithful.kernelItems (Faithful.fnEquationsK c hFn)).map (·.pat) =
+    [eqnPat ws r (clauseQ c tblG vsC Srt.int prem (fX, [])) IntP Fh (sAnd (altP c tblG vsC (fX, [])) (sTop IntP)),
+     eqnPat ws r (clauseQ c tblG vsC Srt.int prem (gX, [])) IntP Fh (sAnd (altP c tblG vsC (gX, [])) (sTop IntP)),
+     eqnPat ws r (lastQ c tblG vsC Srt.int prem xsC) IntP Fh BNG] := by decide +kernel
+
+/-- The facts of the literals the general lemmas read: the tables agree on R and on the
+variable, the text's alternatives translate as `Γ`'s, and the reader's normalisation of `pT`. -/
+theorem lit_facts :
+    tblG.ev (sortVarKey Rv) = r ∧ trSort tblG (srtOf c Srt.int) = IntP ∧
+    tr ⟨tbl, []⟩ fK = altP c tblG vsC (fX, []) ∧ tr ⟨tbl, []⟩ gK = altP c tblG vsC (gX, []) ∧
+    rhsT = sAnd (tr ctx pT) (tr ctx enT) ∧ Parse.orAlts pT = [fK, gK] ∧
+    tblG.ev (Faithful.canonKey c [Srt.int] 0) = xv ∧ c.sortName Srt.int = "Int" ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [Srt.int] fX = some Srt.int ∧
+    sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) [Srt.int] gX = some Srt.int ∧ varOccs fX = [0] ∧ varOccs gX = [0] := by
+  decide +kernel
+
+/-- The reader's normalisation of `pT`: nothing to drop or lift, the alternatives `f(X)` and
+`g(X)`, none empty, no condition. -/
+theorem norm_facts : Parse.hoist (Parse.dropEmptyAlts pT) = (pT, [], false) ∧
+    keptAlts pT = [(fK, []), (gK, [])] ∧ (Parse.hoist fK).2.1 = [] ∧ (Parse.hoist gK).2.1 = [] :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+end General
+
+section GeneralModel
+open KCore.TieFRRead
+variable {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+
+/-- The readings of the general lemmas, in a model with `NodeFacts c I` and `TermsInSort c I`. -/
+theorem readingsG (F : HoldsShape.NodeFacts c I) (hTS : Faithful.TermsInSort c I) :
+    ∃ σI, SortAt I IntP σI ∧ (∀ (e : Valuation M) a, (trSort tblG (srtOf c Srt.int)).interpret I e a ↔ a = σI) ∧
+      Readings I ws r σI prem rhsT xsC (altP c tblG vsC) (altG I c tblG vsC)
+        (clauseQ c tblG vsC Srt.int prem) (lastQ c tblG vsC Srt.int prem xsC) := by
+  obtain ⟨hr0, hS0, hA1, hA2, hrhs0, hor0, hk0, hn0, hty1, hty2, hv1, hv2⟩ := lit_facts
+  obtain ⟨hh0, hkept0, hal1, hal2⟩ := norm_facts
+  obtain ⟨-, -, -, -, -, hr, -, hxv, hIntP, -⟩ := idx_facts
+  obtain ⟨σI, hσS, hσ⟩ := F.sort (s := Srt.int) (by decide)
+  have hσ' : ∀ (e : Valuation M) a, (trSort tblG (srtOf c Srt.int)).interpret I e a ↔ a = σI := fun e a => hσ tblG e a
+  have hSA : SortAt I IntP σI := ⟨fun e a => by rw [← hS0]; exact hσ' e a, hσS, by rw [hIntP]; rfl⟩
+  have hD := F.defOK
+  have hB : BoolDen I := boolDen_of F
+  -- the alternatives lie in Int
+  have hin : ∀ e m, At I ws r e m → ∀ x ∈ xsC, ∀ a, (altP c tblG vsC x).interpret I e a → Inh I σI a := by
+    refine inSort_of_terms hTS (vars := [Srt.int]) (by decide) hσ' ?_ ?_
+    · intro x hx
+      simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl
+      · exact hty1
+      · exact hty2
+    · intro e m hat x hx i hi
+      have hi0 : i = 0 := by
+        simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
+        rcases hx with rfl | rfl
+        · rw [hv1] at hi; simpa using hi
+        · rw [hv2] at hi; simpa using hi
+      subst hi0
+      have := hat.1 _ hxv
+      rw [interp_member hD] at this
+      rw [List.getD_cons_zero, hn0, hk0, ← Faithful.inS_iff e]
+      rw [hIntP] at this
+      exact this
+  -- the right side, from the reader
+  have hrhs : ∀ e m, At I ws r e m → ∀ a, Inh I σI a →
+      (rhsT.interpret I e a ↔ ∃ x ∈ xsC, (altP c tblG vsC x).interpret I e a ∧ altG I c tblG vsC x e) := by
+    rw [hrhs0]
+    refine rhs_of_reader hD F.ceilDef hB (Ens := fun _ => True) (cs := []) (r0 := pT) ?_ hh0 (by simp [AllTrue]) ?_ ?_ ?_
+    · intro e m hat
+      refine ⟨fun q hq => ?_, ?_⟩
+      · simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
+        refine ⟨by rcases hq with rfl | rfl <;> rfl, fun a ha => ?_⟩
+        have hIn : Inh I σI a := by
+          rcases hq with rfl | rfl
+          · rw [hA1] at ha; exact hin e m hat _ (List.mem_cons_self ..) a ha
+          · rw [hA2] at ha; exact hin e m hat _ (List.mem_cons_of_mem _ (List.mem_cons_self ..)) a ha
+        show (inhOf IntP).interpret I e a
+        rw [interp_inhOf_of (hSA.den e)]
+        exact hIn
+      · exact ⟨⟨trivial, trivial⟩, ⟨trivial, trivial⟩, trivial⟩
+    · intro a ha
+      rw [hor0] at ha
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+      rcases ha with rfl | rfl
+      · rw [hal1]; simp [AllTrue]
+      · rw [hal2]; simp [AllTrue]
+    · intro e m _ a ha
+      rw [enT, tr_top_iff hD (hSA.den e)]
+      exact iff_of_true ha trivial
+    · rw [hkept0]
+      refine .cons ⟨fun e m _ a => by rw [hA1], fun e m _ => ?_⟩
+        (.cons ⟨fun e m _ a => by rw [hA2], fun e m _ => ?_⟩ .nil)
+      · simp [altG, holdsSC_nil]
+      · simp [altG, holdsSC_nil]
+  have hr' : sortGuard (tblG.ev (sortVarKey Rv)) ∈ ws := by rw [hr0]; exact hr
+  have R := readings_of_fr F (prem := prem) hr' hσ' hσS (by rw [hr0]; exact hin) (by rw [hr0]; exact hrhs)
+  rw [hr0] at R
+  exact ⟨σI, hSA, hσ', R⟩
+
+/-- **`Γ`'s three items for h give the sentence**, from `NodeFacts c I` and `TermsInSort c I`,
+the last clause's right side empty because `false` and `true` are two elements of Bool. -/
+theorem text_of_gammaG (F : HoldsShape.NodeFacts c I) (hTS : Faithful.TermsInSort c I)
+    (h : ∀ it ∈ Faithful.kernelItems (Faithful.fnEquationsK c hFn), I ⊧ᴵ it.pat) : I ⊧ᴵ textItem.pat := by
+  have hs : ∀ φ ∈ (Faithful.kernelItems (Faithful.fnEquationsK c hFn)).map (·.pat), I ⊧ᴵ φ := by
+    intro φ hφ
+    obtain ⟨it, hit, rfl⟩ := List.mem_map.mp hφ
+    exact h it hit
+  rw [gamma_shapeG] at hs
+  rw [text_shape]
+  obtain ⟨σI, hSA, hσ', R⟩ := readingsG F hTS
+  obtain ⟨-, -, -, -, -, hr, -, -, -, -⟩ := idx_facts
+  refine text_of_split (BN := BNG) F.defOK F.ceilDef hSA hr (guardsOf_pred F.defOK ax344) R
+    (fun x hx => ?_) (hs _ (by simp)) (noneEmpty_of_apart F hσ' hSA.isSort)
+  simp only [xsC, List.mem_cons, List.not_mem_nil, or_false] at hx
+  rcases hx with rfl | rfl
+  · exact hs _ (by simp)
+  · exact hs _ (by simp)
+
+/-- **The sentence with h's functional sentence gives each of `Γ`'s three items for h**, from
+`NodeFacts c I` and `TermsInSort c I`. -/
+theorem gamma_of_textG (F : HoldsShape.NodeFacts c I) (hTS : Faithful.TermsInSort c I)
+    (hT : I ⊧ᴵ textItem.pat) (hF : I ⊧ᴵ fnlItem.pat) :
+    ∀ it ∈ Faithful.kernelItems (Faithful.fnEquationsK c hFn), I ⊧ᴵ it.pat := by
+  intro it hit
+  have hmem : it.pat ∈ (Faithful.kernelItems (Faithful.fnEquationsK c hFn)).map (·.pat) :=
+    List.mem_map.mpr ⟨it, hit, rfl⟩
+  rw [gamma_shapeG] at hmem
+  rw [text_shape] at hT
+  rw [fnl_shape] at hF
+  obtain ⟨σI, hSA, -, R⟩ := readingsG F hTS
+  obtain ⟨hFh, hnd, hrk, hvk, hvr, hr, hx0, -, hIntP, -⟩ := idx_facts
+  have hG := guardsOf_pred F.defOK ax344
+  have hone : ∀ e m, At I ws r e m → ∃ y, Inh I σI y ∧ ∀ a, Inh I σI a → (Fh.interpret I e a ↔ a = y) := by
+    intro e m hat
+    rw [hFh]
+    exact one_of_fnl F.defOK F.ceilDef hSA.den hSA.isSort hr hF (Closed.sym _) hnd hrk hvk hvr rfl
+      (fun t ht => by
+        simp only [tsF, List.mem_singleton] at ht
+        subst ht
+        exact ⟨hx0, by rw [hIntP]; exact Closed.sym _⟩) hat
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with h | h | h <;> rw [h]
+  · exact clause_of_text F.defOK F.ceilDef hSA hr hG R hT hone (List.mem_cons_self ..)
+  · exact clause_of_text F.defOK F.ceilDef hSA hr hG R hT hone (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+  · exact none_of_text F.defOK F.ceilDef hSA hr hG R hT hone BNG
+
+end GeneralModel
+
 end KCore.TieFRTest
 
 #check @KCore.TieFRTest.gamma_of_text
@@ -263,3 +445,15 @@ end KCore.TieFRTest
 #guard_msgs in #print axioms KoreAML.TieFR.text_of_split
 /-- info: 'KoreAML.TieFR.one_of_fnl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KoreAML.TieFR.one_of_fnl
+#check @KCore.TieFRTest.gamma_of_textG
+#check @KCore.TieFRTest.text_of_gammaG
+/-- info: 'KCore.TieFRTest.gamma_of_textG' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRTest.gamma_of_textG
+/-- info: 'KCore.TieFRTest.text_of_gammaG' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRTest.text_of_gammaG
+/-- info: 'KCore.TieFRRead.rhs_sem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRRead.rhs_sem
+/-- info: 'KCore.TieFRRead.readings_of_fr' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRRead.readings_of_fr
+/-- info: 'KCore.TieFRRead.noneEmpty_of_apart' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.TieFRRead.noneEmpty_of_apart
