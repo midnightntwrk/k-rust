@@ -18,9 +18,9 @@
 
   The `param_undetermined` shape at a point of each (DONE-0 C2, row `parameter`; C7 form (c)): over
   all interpretations H, Γ entails neither that the application has no value nor that it is a given
-  value of its result sort (`param_undeterminedPK`). The pair of models: under `HookParams.none` the
-  application is ⊥ in every model of Γ, under `constHPK v` it is `v` in every model, and both
-  theories have models (`sound_hyp`; `FnHyp` holds under every H, each text's functions owing no
+  value of its result sort (`param_undetermined_const`, KcoreSpec/ParamSchema.lean). The pair of
+  models: under `HookParams.none` the application is ⊥ in every model of Γ, under `constH v` it is
+  `v` in every model, and both theories have models (`sound_hyp`; `FnHyp` holds under every H, each text's functions owing no
   fact: `fnHyp`). The points: `pick{Int}` at `(true, 0, 0)` with `0`, `isZeroOf{Exp}` at `(a(0), 0)`
   with `true`, `fh` at `0` with `0`. Each value is the one the K prose would suggest, and none is
   entailed: the text states no sentence of these instances' graphs.
@@ -34,89 +34,7 @@ set_option maxRecDepth 1000000
 
 namespace KCore.ParamKLevel
 
-open KCore ML Faithful
-
-/-! ## The schema, at a parameter no hook implements -/
-
-/-- The symbol `f` applied to the values `vs`, as Γ writes it. -/
-abbrev appPK (c : Semantics) (f : Sym) (vs : List GroundTerm) : KoreAML.P :=
-  KoreAML.den (symApp c f (GroundTerm.koreList c vs))
-
-/-- Γ holds the graph of every parameter symbol at values of its argument sorts. -/
-theorem gamma_paramPK (c : Semantics) {k : ParamSig} (hk : k ∈ c.params) {vs : List GroundTerm}
-    (hvs : c.sortsOf vs = some k.sig.args) :
-    Γ c (appPK c k.sig.name vs ≡ (match c.paramVal k.sig.name vs with
-      | some v => den c v
-      | none => ⊥)) :=
-  Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inr (Or.inl ⟨k, vs, hk, hvs, rfl⟩))))))
-
-/-- The interpretation that gives `v` everywhere. -/
-def constHPK (v : GroundTerm) : HookParams := ⟨fun _ _ => some v⟩
-
-/-- At a parameter no hook implements and no open generator, the value under H is H's answer,
-kept where it has the result sort. -/
-theorem paramVal_implNonePK (c : Semantics) (hr : ∀ k ∈ c.params, k.raw = false) (H : HookParams)
-    {k : ParamSig} (hlk : c.lookupParam k.sig.name = some k) (hi : k.impl = none)
-    (vs : List GroundTerm) :
-    (c.withHooks H).paramVal k.sig.name vs = (H.app k.sig.name vs).filter
-      fun v => c.sortOf v == some k.sig.result := by
-  have hk : k ∈ c.params := by
-    rw [Semantics.lookupParam_eq] at hlk; exact List.mem_of_find?_eq_some hlk
-  have hl : (c.withHooks H).lookupParam k.sig.name = some k := hlk
-  unfold Semantics.paramVal
-  rw [hl]
-  simp only [hi, hr k hk, Bool.false_eq_true, ite_false, Semantics.sortOf_withHooks c H hr]
-  rfl
-
-/-- **The `param_undetermined` shape** at a parameter no hook implements. Over all
-interpretations, Γ entails neither that the application has no value nor that it is `v`: under
-`HookParams.none` it is ⊥ in every model, under `constHPK v` it is `v` in every model, and both
-theories have models (`sound_hyp`). -/
-theorem param_undeterminedPK (c : Semantics) (hok : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
-    {k : ParamSig} (hlk : c.lookupParam k.sig.name = some k) (hi : k.impl = none)
-    {vs : List GroundTerm} (hvs : c.sortsOf vs = some k.sig.args)
-    {v : GroundTerm} (hv : c.sortOf v = some k.sig.result)
-    (hfn₀ : FnHyp (c.withHooks HookParams.none)) (hfnv : FnHyp (c.withHooks (constHPK v))) :
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appPK (c.withHooks H) k.sig.name vs ≡ ⊥)) ∧
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) k.sig.name vs ≡ den (c.withHooks H) v)) := by
-  have hk : k ∈ c.params := by
-    have h := hlk
-    rw [Semantics.lookupParam_eq] at h; exact List.mem_of_find?_eq_some h
-  have hvsH : ∀ H : HookParams, (c.withHooks H).sortsOf vs = some k.sig.args := fun H => by
-    rw [Semantics.sortsOf_withHooks c _ hr]; exact hvs
-  have hpv : (c.withHooks (constHPK v)).paramVal k.sig.name vs = some v := by
-    rw [paramVal_implNonePK c hr _ hlk hi]
-    simp [constHPK, Option.filter, hv]
-  have hp0 : (c.withHooks HookParams.none).paramVal k.sig.name vs = none := by
-    rw [paramVal_implNonePK c hr _ hlk hi]; rfl
-  constructor
-  · -- under `constHPK v` the application is `v`'s element, so not ⊥
-    intro hall
-    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks (constHPK v)) ((Semantics.coreOK_withHooks c _).trans hok) hfnv).1
-    have hIΓ : I ⊧ᴵP Γ (c.withHooks (constHPK v)) := fun φ h => hI φ (Or.inl (Or.inl h))
-    have hD := defOK hIΓ
-    have hg := hIΓ _ (gamma_paramPK (c.withHooks (constHPK v)) (k := k) hk (hvsH _))
-    rw [hpv] at hg
-    have hbot := hall (constHPK v) hIΓ
-    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks (constHPK v))
-      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
-    have h1 := (KoreAML.interp_equal hD).mp (hg KoreAML.val0 default) a
-    have h2 := (KoreAML.interp_equal hD).mp (hbot KoreAML.val0 default) a
-    exact absurd ((h2.mp (h1.mpr ((ha a).mpr rfl)))) (by simp [Pattern.interpret])
-  · -- under `HookParams.none` the application is ⊥, so not `v`
-    intro hall
-    obtain ⟨M, _, I, hI⟩ := (sound_hyp (c.withHooks HookParams.none) ((Semantics.coreOK_withHooks c _).trans hok) hfn₀).1
-    have hIΓ : I ⊧ᴵP Γ (c.withHooks HookParams.none) := fun φ h => hI φ (Or.inl (Or.inl h))
-    have hD := defOK hIΓ
-    have hg := hIΓ _ (gamma_paramPK (c.withHooks HookParams.none) (k := k) hk (hvsH _))
-    rw [hp0] at hg
-    have hval := hall HookParams.none hIΓ
-    obtain ⟨a, ha, -⟩ := den_single hIΓ (c := c.withHooks HookParams.none)
-      (by rw [Semantics.sortOf_withHooks c _ hr]; exact hv) KoreAML.val0
-    have h1 := (KoreAML.interp_equal hD).mp (hg KoreAML.val0 default) a
-    have h2 := (KoreAML.interp_equal hD).mp (hval KoreAML.val0 default) a
-    exact absurd (h1.mp (h2.mpr ((ha a).mpr rfl))) (by simp [Pattern.interpret])
+open KCore ML Faithful ParamSchema
 
 /-! ## e3-param-cases: `pick{Int}` and `isZeroOf{Exp}` -/
 
@@ -176,20 +94,20 @@ theorem params_ok :
 it has no value nor that it is `0`. -/
 theorem pickInt_undetermined :
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) pickK.sig.name [bool true, int 0, int 0] ≡ ⊥)) ∧
+      (paramApp (c.withHooks H) pickK.sig.name [bool true, int 0, int 0] ≡ ⊥)) ∧
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) pickK.sig.name [bool true, int 0, int 0] ≡ den (c.withHooks H) (int 0))) :=
-  param_undeterminedPK c coreOK noRaw params_ok.2.2.1 params_ok.2.2.2.2.1 params_ok.2.2.2.2.2.2.1
+      (paramApp (c.withHooks H) pickK.sig.name [bool true, int 0, int 0] ≡ den (c.withHooks H) (int 0))) :=
+  param_undetermined_const c coreOK noRaw params_ok.2.2.1 params_ok.2.2.2.2.1 params_ok.2.2.2.2.2.2.1
     params_ok.2.2.2.2.2.2.2.2.1 (fnHyp _) (fnHyp _)
 
 /-- **`isZeroOf{Exp}(a(0), 0)` is not determined by the text**: over all H, Γ entails neither that
 it has no value nor that it is `true`. -/
 theorem isZeroOfExp_undetermined :
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) isZeroOfK.sig.name [a0, int 0] ≡ ⊥)) ∧
+      (paramApp (c.withHooks H) isZeroOfK.sig.name [a0, int 0] ≡ ⊥)) ∧
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) isZeroOfK.sig.name [a0, int 0] ≡ den (c.withHooks H) (bool true))) :=
-  param_undeterminedPK c coreOK noRaw params_ok.2.2.2.1 params_ok.2.2.2.2.2.1 params_ok.2.2.2.2.2.2.2.1
+      (paramApp (c.withHooks H) isZeroOfK.sig.name [a0, int 0] ≡ den (c.withHooks H) (bool true))) :=
+  param_undetermined_const c coreOK noRaw params_ok.2.2.2.1 params_ok.2.2.2.2.2.1 params_ok.2.2.2.2.2.2.2.1
     params_ok.2.2.2.2.2.2.2.2.2 (fnHyp _) (fnHyp _)
 
 end E3Cases
@@ -240,10 +158,10 @@ theorem params_ok :
 /-- **`fh(0)` is not determined by the text**: over all H, Γ entails neither that it has no value
 nor that it is `0`. -/
 theorem fh_undetermined :
-    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (appPK (c.withHooks H) fhK.sig.name [int 0] ≡ ⊥)) ∧
+    ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧ (paramApp (c.withHooks H) fhK.sig.name [int 0] ≡ ⊥)) ∧
     ¬ (∀ H : HookParams, Γ (c.withHooks H) ⊧
-      (appPK (c.withHooks H) fhK.sig.name [int 0] ≡ den (c.withHooks H) (int 0))) :=
-  param_undeterminedPK c coreOK noRaw params_ok.2.1 params_ok.2.2.1 params_ok.2.2.2.1
+      (paramApp (c.withHooks H) fhK.sig.name [int 0] ≡ den (c.withHooks H) (int 0))) :=
+  param_undetermined_const c coreOK noRaw params_ok.2.1 params_ok.2.2.1 params_ok.2.2.2.1
     params_ok.2.2.2.2 (fnHyp _) (fnHyp _)
 
 end E8HookNs

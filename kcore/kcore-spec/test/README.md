@@ -1578,7 +1578,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   e6-param-rangemap), RANGEMAP's `choice`, `keys_list` and `values`, parameters no hook implements:
   over all H, Γ entails neither that each has no value at `[0, 3) ↦ 7` nor that it is a given value
   of its result sort (`choice_undetermined`, `keysList_undetermined`, `values_undetermined`, from the
-  schema `param_undeterminedPR`: ⊥ under `HookParams.none`, the value under the interpretation that
+  schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`: ⊥ under `HookParams.none`, the value under the interpretation that
   gives it, both theories with models).
 - `test/ParamKLevel.lean`: on `f2-examples/e3-param-cases.kompile.kore` (fixture e3-param-cases)
   and `f2-examples/e8-hook-namespaces.kompile.kore` (fixture e8-hook-namespaces), the instances
@@ -1586,7 +1586,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   hooked to `FOO.bar`, which no registry entry names: parameters no hook implements. Over all H, Γ
   entails neither that each has no value at a point nor that it is a given value of its result sort
   (`E3Cases.pickInt_undetermined`, `E3Cases.isZeroOfExp_undetermined`, `E8HookNs.fh_undetermined`,
-  from the schema `param_undeterminedPK`; `FnHyp` for every H, the texts' functions owing no fact).
+  from the schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`; `FnHyp` for every H, the texts' functions owing no fact).
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
@@ -1596,14 +1596,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   e6-param-map, e6-param-bytes, e6-param-set and e6-param-int (`f2-examples/e6-param-*.kompile.kore`),
   every hooked function of FLOAT, STRING, MAP, BYTES, SET and INT the reader reads as a parameter no
   hook implements (45): over all H, Γ entails neither that it has no value at a point nor that it is
-  a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undeterminedPL`).
+  a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undetermined_const` of `KcoreSpec/ParamSchema.lean`).
   `FnHyp` for every H: five texts have no function; INT's has K's `append`, declared total, which
-  the totality decider confirms, and the deciders name no fact (`fnHyp_decidedPL`). Axioms guarded.
+  the totality decider confirms, and the deciders name no fact (`fnHyp_decided`). Axioms guarded.
 - `test/ParamE6Sys.lean`: the same on the fixtures e6-param-io, e6-param-ffi, e6-param-kreflection,
   e6-param-timer, e6-param-unification and e6-param-json, every parameter of K-IO, FFI, K-REFLECTION,
-  TIMER, UNIFICATION and JSON (45; schema `param_undeterminedPS`). `FnHyp` for every H: JSON's text
+  TIMER, UNIFICATION and JSON (45; the same schema). `FnHyp` for every H: JSON's text
   has no function; the other five have K's `append`, total by the decider, and the deciders name no
-  fact (`fnHyp_decidedPS`). Axioms guarded.
+  fact (`fnHyp_decided`). Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's

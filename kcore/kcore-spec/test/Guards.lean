@@ -41,7 +41,7 @@
     `fnRest_nil_eq_paramVal_everyH`, at `c.withHooks H` for every H). That value is not the text's:
     at a parameter symbol no hook implements, over all interpretations `Γ` entails neither that the
     application has no value nor that it is a given value of its result sort (`param_undetermined`
-    of test/GuardsParam.lean, every semantics `coreOK` accepts with no open generator, from
+    of KcoreSpec/ParamSchema.lean, every semantics `coreOK` accepts with no open generator, from
     `HookParams.none` and an interpretation giving the value). Between two definitions, one
     holding a function with no clause and one a parameter of its name and signature:
     `fnRest_eq_hooks` and `paramVal_eq_hooks` state each value as one expression in H.
@@ -93,7 +93,7 @@
     `#configuration` is H's answer, kept where it is of sort K (`conf_value`, with G6); the point
     is reached: under `Hk` `go` steps to `wrap(.K)` (`go_step_Hk`), under `HookParams.none` it has
     no successor (test/Configuration.lean). The statement in `Γ`'s models that over all H it entails
-    neither is the schema `param_undetermined` (test/GuardsParam.lean); its instance at
+    neither is the schema `param_undetermined` (KcoreSpec/ParamSchema.lean); its instance at
     `#configuration` is not written here.
   - `keyFunctionAsMember` (`DevKey`, `keyfn-partial`'s text): for every H `look(1)` steps to the
     entry of `k(1)`, `kf(1)` being `k(1)` by its equation (`key_steps`); the point is reached:
@@ -2048,9 +2048,9 @@ def readingNote : ReadingNote → GuardEntry
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevRefl.conf_value, .decl ``KCore.Guards.fnRest_nil_eq_paramVal_everyH],
       companion := [.decl ``KCore.Guards.DevRefl.go_step_Hk, .test "test/Configuration.lean" "stuck_go",
-        .test "test/GuardsParam.lean" "theorem param_undetermined "],
+        .decl ``KCore.ParamSchema.param_undetermined],
       invariant := [``KCore.Semantics.paramVal],
-      note := "on e6-configuration's text, every H: #configuration's value is H's answer, kept where it is of sort K (conf_value), as a function with no clause (G6); the point is reached: under Hk go steps to wrap(.K), under HookParams.none it has no successor (stuck_go), so the text fixes neither; the statement in Γ's models (REVIEW-RN section 3: over all H, Γ entails neither ⊥ nor a value) is the schema param_undetermined of test/GuardsParam.lean, at every parameter no hook implements; its instance at #configuration is not written" }
+      note := "on e6-configuration's text, every H: #configuration's value is H's answer, kept where it is of sort K (conf_value), as a function with no clause (G6); the point is reached: under Hk go steps to wrap(.K), under HookParams.none it has no successor (stuck_go), so the text fixes neither; the statement in Γ's models (REVIEW-RN section 3: over all H, Γ entails neither ⊥ nor a value) is the schema param_undetermined of KcoreSpec/ParamSchema.lean, at every parameter no hook implements; its instance at #configuration is not written" }
   | .streamRule =>
     { status := .readerTest,
       guard := [.test "test/StreamIO.lean" "#guard_msgs"],
