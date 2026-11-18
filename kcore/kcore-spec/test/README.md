@@ -818,7 +818,10 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   binder `\exists Z:s` that binds nothing, with the definedness axioms, entails the axiom without
   the binder, with no premise on the sort s (`existsDropped_weaker`, under five premises on the
   numbering of the two sentences' variables that a computation decides; `existsDropped_empty`, its
-  instance at a sort without a constructor). REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
+  instance at a sort without a constructor). G1 for a clause with existential variables
+  (`eval_noValue_of_exs_none`, every semantics; on a hand-built clause for every H,
+  `G1Ex.g1x_noValue_everyH`, with `G1Ex.g1x_reached_everyH` where one instance gives a value).
+  REVIEW-RN §3's minimum is the list `Table.minimum` (G1, G2, G3,
   G5, G6, G7, `rest_undetermined`), each guard checked to be stated about `c.withHooks H` for every
   H: G6 and G7 have that form (`fnRest_nil_eq_paramVal_everyH`; `setIdem_gamma`, `Γ` holds
   `_Set_(S₁, S₂) = ⊥` where `hook` gives no value, in every semantics under every H), and
@@ -1055,20 +1058,27 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
   (`GenEqs.sortPredEqn_in_Γ`), the `[owise]` one's disjunct read back as the clause it negates
-  (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
-  `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
-  `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
-  Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every semantics'
-  lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by a symbol
-  of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s model
-  follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
-  argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
-  `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
-  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`. A
+  (`GenEqs.predEqnOK_clause`). A constructor argument's projections on a hand-built semantics
+  (`HandArg`). Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every
+  semantics' lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by
+  a symbol of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s
+  model follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A
   registry-numbered projection (`RegProj`, a hand-built semantics with a parameter numbered as the
   registry's `project:Int`): `coreOK`, `predProjOK?` accepts `project:Int`'s selector-domain axiom,
   a premise of the theory names the symbol (`GenEqs.kernelSym_named`), and the arm refuses it
-  (`Parse.predProjAcc`).
+  (`Parse.predProjAcc`). The instances on the texts of f2-examples are in three files beside it,
+  each run alone:
+  - `test/GenEqsLemmasNx.lean`: registry projections (`Nx`, `f2-examples/owisenx.kompile.kore`):
+    `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
+    `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`), and
+    one model of the theory holds the three projections' equations at the item of `0`.
+  - `test/GenEqsLemmasPrio.lean`: names the semantics does not number and the kconfig equation
+    (`Prio`, `f2-examples/prio.kore`): one model of the theory whose steps are the semantics' holds
+    the four equations.
+  - `test/GenEqsLemmasNamedArg.lean`: a named argument's projections on a kompiled text
+    (`NamedArg`, `f2-examples/namedarg.kompile.kore`): `coreOK`, the arm's conditions on
+    `project:pair:fst` and `project:pair:snd`, and one model of the theory whose steps are the
+    semantics' in which both equations hold at `pair(leaf, leaf)`.
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,

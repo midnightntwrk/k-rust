@@ -11,7 +11,14 @@
   - G1, a function equation's `ensures` (`Clause.ens`, in place of `ensuresAsRequires`): where a
     clause decides and its `ensures` has a result other than `true`, the function has no value
     (`eval_noValue_of_ens_fails`, every semantics). On `f2-examples/ens.kompile.kore`, for every H:
-    `half(-4)` has no value and `Γ` entails `half(-4) = ⊥` (`Ens.half_neg4_gamma`).
+    `half(-4)` has no value and `Γ` entails `half(-4) = ⊥` (`Ens.half_neg4_gamma`). For a clause with
+    existential variables (`eval_noValue_of_exs_none`, every semantics): where it decides, has an
+    instance and every instance is decided and gives nothing (its `ensures` not `true`, its `post`
+    false or its right side without a value), the function has no value. On a hand-built
+    `g1x() => ?B ensures ?B` with `post := ?B ∈ false`, for every H: no value
+    (`G1Ex.g1x_noValue_everyH`); without the `post`, the instance at `B := true` gives `true`
+    (`G1Ex.g1x_reached_everyH`). The reader reads no function equation with existential variables
+    (`Parse.clauseBody` refuses an `\exists` on the right side), so no kompiled text gives one.
   - G2, the same beside an `[owise]` equation (in place of the refusal `ensuresPriority`):
     `f2-examples/ens-owise.kompile.kore`, for every H (`EnsOwise.half_neg4_gamma`).
   - G3, `projectionDomainAsClause`: krust's texts hold, for every sort X, the selector-domain axiom
@@ -212,6 +219,25 @@ theorem eval_noValue_of_ens_fails {c : Semantics} {f : Sym} {fn : Fn} {vs : List
     ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
   nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio hex he hev hr)
 
+/-- **G1 for a clause with existential variables**, in every semantics whose clauses of one
+priority are coherent: a clause with existential variables that decides at `vs` (its patterns
+denote `vs` under a σ well sorted on the variables its right side does not bind, its `requires`
+and predicate `pre` hold, every clause of a smaller priority fails), with an instance of its right
+side, and every instance decided and giving nothing (`InstIs … none`: its predicate `post` has a
+truth value, and its `ensures` is not `true`, its `post` is false or its right-hand side has no
+value), leaves its function without a value there. -/
+theorem eval_noValue_of_exs_none {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
+    {σ : Subst} (hco : CoherentAll c)
+    (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hne : cl.exs ≠ [])
+    (hσ : c.WellSortedAt cl.vars cl.univ σ) (hmatch : PatVals c σ cl.pats vs)
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
+    (hpre : Holds c cl.vars.length σ cl.pre true)
+    (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
+    (hsome : ∃ σ', AgreeOff cl.exsFree σ σ' ∧ c.WellSorted cl.vars σ')
+    (hall : ∀ σ', AgreeOff cl.exsFree σ σ' → c.WellSorted cl.vars σ' → InstIs c σ' cl none) :
+    ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
+  nomatch Eval.functional hco h (.exNone hfn hmem hne hσ hmatch hreq hpre hprio hsome hall)
+
 /-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` on the
 data (`coreOK` does not read the interpretation). -/
 theorem gamma_bot_everyH {c : Semantics} (hcore : c.coreOK = true) (hr : ∀ k ∈ c.params, k.raw = false)
@@ -251,6 +277,183 @@ theorem half_neg4_gamma (H : HookParams) :
   gamma_bot_everyH coreOK noRaw (by decide +kernel) hfn (by decide +kernel) H (half_neg4_none H)
 
 end Ens
+
+/-! ### G1 on clauses with existential variables, for every interpretation
+
+The definition of one function `g1x()` of sort Bool, beside the cell sorts, with one clause:
+- `clNone`, `g1x() => ?B ensures ?B` with the right side's predicate `post := ?B ∈ false`: the
+  instance at `B := false` has the `ensures` `false`, the one at `B := true` the `post` false, so
+  every instance gives nothing (`exNone`); `g1x()` has no value (`g1x_none_everyH`,
+  `g1x_noValue_everyH`, the latter by `eval_noValue_of_exs_none`).
+- `clSome`, `g1x() => ?B ensures ?B`: the instance at `B := true` has the `ensures` `true` and
+  gives `true`, so the hypothesis "every instance gives nothing" is the one that decides
+  (`g1x_reached_everyH`: the value `true`, by `clauseEx`). -/
+
+namespace G1Ex
+
+open GroundTerm
+
+def cellSorts : List Srt := [Srt.top, Srt.topFrag, nRegSorts, nRegSorts + 1, Srt.counter, Srt.counterOpt]
+def cellCtors : List CtorSig :=
+  [⟨topLabel, [nRegSorts, Srt.counter], Srt.top⟩, ⟨topFragLabel, [nRegSorts + 1, Srt.counterOpt], Srt.topFrag⟩,
+   ⟨nRegSyms + 2, [Srt.k], nRegSorts⟩, ⟨nRegSyms + 3, [], nRegSorts + 1⟩,
+   ⟨counterLabel, [Srt.int], Srt.counter⟩, ⟨noCounter, [], Srt.counterOpt⟩]
+def cellSubsorts : List (Srt × Srt) := [(nRegSorts, nRegSorts + 1), (Srt.counter, Srt.counterOpt)]
+
+def g1x : Sym := nRegSyms + 4
+
+/-- The definition with the one function `g1x` and its clauses `cls`. -/
+def cF (cls : List Clause) : Semantics :=
+  { lib := { sortsBelowKItem := [Srt.int] }
+    sortNames := ["KCell", "KCellOpt"]
+    symNames := ["LblisKCell", "LblisKCellOpt", "Lbl'-LT-'k'-GT-'", "LblnoKCell", "Lblg1x"]
+    userSorts := cellSorts
+    ctors := cellCtors
+    fns := [{ label := g1x, args := [], result := Srt.bool, clauses := cls }]
+    userSubsorts := cellSubsorts
+    pgmSort := Srt.k
+    rules := [] }
+
+def clNone : Clause :=
+  { vars := [Srt.bool], pats := [], req := none, rhs := .var 0, ens := some (.var 0), exs := [0],
+    post := .mem Srt.bool (.var 0) (.dv Srt.bool (.bool false)) }
+def clSome : Clause := { vars := [Srt.bool], pats := [], req := none, rhs := .var 0, ens := some (.var 0), exs := [0] }
+
+theorem lookup_g1x (cls : List Clause) (H : HookParams) :
+    ((cF cls).withHooks H).lookupFn g1x = some { label := g1x, args := [], result := Srt.bool, clauses := cls } := by
+  rw [Semantics.lookupFn_withHooks, Semantics.lookupFn_eq]; rfl
+
+/-- The extension of σ that gives the variable 0 the Bool b. -/
+def ext (b : Bool) (σ : Subst) : Subst := (0, bool b) :: σ
+
+theorem ext_sorted (c : Semantics) (b : Bool) (σ : Subst) : c.WellSorted [Srt.bool] (ext b σ) := by
+  intro i s h
+  match i, h with
+  | 0, h => cases h; exact ⟨_, by simp [ext], sortOf_bool b⟩
+
+theorem ext_agree (b : Bool) (σ : Subst) : AgreeOff [0] σ (ext b σ) := by
+  intro i hi
+  have hb : (i == 0) = false := by simp; intro h; exact hi (by simp [h])
+  simp [ext, List.lookup, hb]
+
+theorem clNone_free : clNone.exsFree = [0] := by decide
+theorem clSome_free : clSome.exsFree = [0] := by decide
+
+/-- `true` and `false` are two results. -/
+theorem sameResult_tf : sameResult (some (bool true)) (some (bool false)) = false := by decide
+
+/-- Every instance of `clNone` at a Bool value is decided and gives nothing. -/
+theorem clNone_inst (c : Semantics) (σ' : Subst) (hσ' : c.WellSorted clNone.vars σ') : InstIs c σ' clNone none := by
+  obtain ⟨v, hv, -⟩ := hσ' 0 Srt.bool rfl
+  have e : EvalTerm c σ' (.var 0) (some v) := hv ▸ .var (i := 0)
+  have hp : Holds c clNone.vars.length σ' clNone.post ((some v).isSome && sameResult (some v) (some (bool false))) :=
+    .mem e .dv
+  by_cases hvt : v = bool true
+  · subst hvt
+    exact .fails hp (.post (by rw [sameResult_tf] at hp; simpa using hp))
+  · exact .fails hp (.ens (t := .var 0) rfl e (by intro h; exact hvt (Option.some.inj h)))
+
+/-- Every instance of `clSome` at a Bool value is decided and gives `true` or nothing. -/
+theorem clSome_inst (c : Semantics) (σ' : Subst) (hσ' : c.WellSorted clSome.vars σ') :
+    InstIs c σ' clSome (some (bool true)) := by
+  obtain ⟨v, hv, -⟩ := hσ' 0 Srt.bool rfl
+  have e : EvalTerm c σ' (.var 0) (some v) := hv ▸ .var (i := 0)
+  by_cases hvt : v = bool true
+  · subst hvt
+    exact .gives e (fun t ht => by cases ht; exact e) .top
+  · exact .fails .top (.ens (t := .var 0) rfl e (by intro h; exact hvt (Option.some.inj h)))
+
+/-- A `post` `?B ∈ false` that holds gives `B := false`. -/
+theorem clNone_post_true {c : Semantics} {σ : Subst} {v : GroundTerm} (hv : EvalTerm c σ (.var 0) (some v))
+    (h : Holds c clNone.vars.length σ clNone.post true) : v ≠ bool true := by
+  rintro rfl
+  generalize hq : clNone.post = q at h
+  generalize hb : true = b at h
+  cases h with
+  | mem h1 h2 =>
+    cases hq
+    have e1 := (EvalTerm.var_inv h1).trans (EvalTerm.var_inv hv).symm
+    rw [e1, EvalTerm.dv_inv h2] at hb
+    revert hb; decide
+  | _ => cases hq
+
+/-- Every result of `clNone` at every match is none. -/
+theorem clNone_res (c : Semantics) (σ : Subst) (r : Option GroundTerm) (h : clNone.Res c σ r) : r = none := by
+  rcases h with ⟨hex, -⟩ | ⟨-, ⟨σ₁, v, -, -, ⟨grhs, gens, gpost⟩, -, rfl⟩ | ⟨rfl, -, -⟩⟩
+  · exact absurd hex (by decide)
+  · exact absurd (Option.some.inj ((EvalTerm.var_inv grhs).trans (EvalTerm.var_inv (gens _ rfl)).symm))
+      (clNone_post_true grhs gpost)
+  · rfl
+
+/-- A clause without existential variables or an `ensures` whose right side holds no variable is
+coherent with itself: the same instance. -/
+theorem coherent_self_closed {c : Semantics} {cl : Clause} (hx : cl.exs = [])
+    (hn : cl.ens = none) (hv : varOccs cl.rhs = []) : Coherent c cl cl := by
+  intro vs σ σ' _ _ _ _ _ _ _
+  exact .inl ⟨hx, hx, rfl, rfl, (fun i hi => by rw [hv] at hi; cases hi), (fun t ht => by rw [hn] at ht; cases ht)⟩
+
+/-- The generated sort predicates' clauses that compete are coherent, in every semantics. -/
+theorem sortPreds_coherent {c : Semantics} {fn : Fn} (hfn : fn ∈ c.sortPreds) {cl cl' : Clause}
+    (hm : cl ∈ fn.clauses) (hm' : cl' ∈ fn.clauses)
+    (hc : cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨ (cl'.aside = true ∧ cl'.prio < cl.prio)) :
+    Coherent c cl cl' := by
+  simp only [Semantics.sortPreds, List.mem_append, List.mem_cons, List.mem_filterMap, List.not_mem_nil,
+    or_false, Option.map_eq_some_iff] at hfn
+  rcases hfn with (rfl | rfl) | ⟨X, -, p, -, rfl⟩
+  · simp only [List.mem_singleton] at hm hm'
+    subst hm hm'
+    exact coherent_self_closed rfl rfl rfl
+  all_goals
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hm hm'
+    rcases hm with rfl | rfl <;> rcases hm' with rfl | rfl
+    · exact coherent_self_closed rfl rfl rfl
+    · rcases hc with h | ⟨h, -⟩ | ⟨h, -⟩ <;> simp at h
+    · rcases hc with h | ⟨h, -⟩ | ⟨h, -⟩ <;> simp at h
+    · exact coherent_self_closed rfl rfl rfl
+
+/-- The clauses of `cF [cl]` that compete are coherent where `cl` is coherent with itself. -/
+theorem coherentAll_one {cl : Clause} (H : HookParams) (hc : Coherent ((cF [cl]).withHooks H) cl cl) :
+    CoherentAll ((cF [cl]).withHooks H) := by
+  intro f fn hfn c1 hm c2 hm' hp
+  rw [Semantics.lookupFn_eq] at hfn
+  have hmem := List.mem_of_find?_eq_some hfn
+  rcases List.mem_append.mp hmem with h | h
+  · have h' : fn = { label := g1x, args := [], result := Srt.bool, clauses := [cl] } := by
+      simpa [Semantics.withHooks, cF] using h
+    subst h'
+    simp only [List.mem_singleton] at hm hm'
+    subst hm hm'
+    exact hc
+  · exact sortPreds_coherent h hm hm' hp
+
+theorem coherentAll_none (H : HookParams) : CoherentAll ((cF [clNone]).withHooks H) :=
+  coherentAll_one H fun _ σ σ' _ _ _ _ _ _ _ =>
+    .inr fun r r' h1 h2 => (clNone_res _ σ r h1).trans (clNone_res _ σ' r' h2).symm
+
+/-- **`g1x()` has no value under every interpretation**, by `exNone`. -/
+theorem g1x_none_everyH (H : HookParams) : Eval ((cF [clNone]).withHooks H) g1x [] none := by
+  refine .exNone (cl := clNone) (σ := []) (lookup_g1x _ H) (by simp) (by decide) (fun i hi => by cases hi) .nil
+    (fun t ht => by cases ht) .top (fun cl' hm _ hlt => ?_) ⟨ext true [], clNone_free ▸ ext_agree true [], ext_sorted _ _ _⟩
+    (fun σ' _ hσ' => clNone_inst _ σ' hσ')
+  simp at hm; subst hm; exact absurd hlt (by decide)
+
+/-- **G1 for a clause with existential variables, for every interpretation**: `g1x()` has no
+value, by `eval_noValue_of_exs_none`. -/
+theorem g1x_noValue_everyH (H : HookParams) : ¬ ∃ v, Eval ((cF [clNone]).withHooks H) g1x [] (some v) :=
+  eval_noValue_of_exs_none (coherentAll_none H) (lookup_g1x _ H) (by simp) (by decide) (σ := [])
+    (fun i hi => by cases hi) .nil (fun t ht => by cases ht) .top
+    (fun cl' hm _ hlt => by simp at hm; subst hm; exact absurd hlt (by decide))
+    ⟨ext true [], clNone_free ▸ ext_agree true [], ext_sorted _ _ _⟩ (fun σ' _ hσ' => clNone_inst _ σ' hσ')
+
+/-- **The point is reached**: with one instance whose `ensures` is `true`, `g1x()` is `true` under
+every interpretation, by `clauseEx`. -/
+theorem g1x_reached_everyH (H : HookParams) : Eval ((cF [clSome]).withHooks H) g1x [] (some (bool true)) := by
+  refine .clauseEx (cl := clSome) (σ := ext true []) (lookup_g1x _ H) (by simp) (ext_sorted _ _ _) .nil
+    (fun t ht => by cases ht) .top (fun cl' hm _ hlt => ?_) (by decide) (.var (i := 0))
+    (fun t ht => by cases ht; exact .var (i := 0)) .top (fun σ' _ hσ' => clSome_inst _ σ' hσ')
+  simp at hm; subst hm; exact absurd hlt (by decide)
+
+end G1Ex
 
 /-! ## G2: the same beside an `[owise]` equation -/
 
@@ -1681,6 +1884,9 @@ end KCore.Guards
 #print axioms KCore.Guards.g0_refuted
 #print axioms KCore.Guards.eval_noValue_of_ens_fails
 #print axioms KCore.Guards.Ens.half_neg4_gamma
+#print axioms KCore.Guards.eval_noValue_of_exs_none
+#print axioms KCore.Guards.G1Ex.g1x_noValue_everyH
+#print axioms KCore.Guards.G1Ex.g1x_reached_everyH
 #print axioms KCore.Guards.EnsOwise.half_neg4_gamma
 #print axioms KCore.Guards.Proj.projInt_dotk_open
 #print axioms KCore.Guards.ProjK.projInt_none_off
@@ -2072,7 +2278,8 @@ of this file stated about `c.withHooks H` for every `H : HookParams` (the `run_c
 one's form). G3 is not void: krust's text holds the selector-domain axiom (`ProjK`), K 7.1.337's
 does not (`Proj.projInt_dotk_open`). G4 is per inert class (`inertReason`). -/
 def minimum : List (String × List Name) :=
-  [("G1", [``KCore.Guards.Ens.half_neg4_none, ``KCore.Guards.Ens.half_neg4_gamma]),
+  [("G1", [``KCore.Guards.Ens.half_neg4_none, ``KCore.Guards.Ens.half_neg4_gamma,
+      ``KCore.Guards.G1Ex.g1x_noValue_everyH, ``KCore.Guards.G1Ex.g1x_reached_everyH]),
    ("G2", [``KCore.Guards.EnsOwise.half_neg4_none, ``KCore.Guards.EnsOwise.half_neg4_gamma]),
    ("G3", [``KCore.Guards.ProjK.projInt_none_off, ``KCore.Guards.ProjK.projInt_off_gamma]),
    ("G5", [``KCore.Guards.total_of_restTotal]),
