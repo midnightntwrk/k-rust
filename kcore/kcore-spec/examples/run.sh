@@ -61,9 +61,12 @@ if on ref-fprio; then gen f2-examples/fprio.kompile.kore ref-fprio RefFprio --wf
 # loop's run by induction, all-path through determinism, entailed by Γ through soundness (User.SumSpec);
 # `sum-N` (imp-simple-spec.k), the whole program from the empty store (User.SumN); each step `fire i`
 # the statement of `sum-spec` written from its text and from its KORE sentence (User.SumSpecStmt), and
-# the one `k2lean kcore-claims` writes from that sentence (User.SumSpecGen)
+# the one `k2lean kcore-claims` writes from that sentence (User.SumSpecGen); both statements proved for
+# every interpretation of the hooks, with no hypothesis on the functions (User.SumSpecHolds), and
+# what that says in matching logic through sound_at and complete_at (User.SumSpecML); the claim at
+# N = 3, S = 0, .K, counter 0 (User.SumSpecInstance)
 if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
-  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.SumSpecGen User.RunInstance; fi
+  step gen/build.sh examples/ref-kimp User.SumSpec User.SumN User.SumSpecStmt User.SumSpecGen User.RunInstance User.SumSpecHolds User.SumSpecML User.SumSpecInstance; fi
 # kore.k (krs/semantics/kore), read from K 7.1.337 kompile's KORE of it (test/kk-kompile.toml records
 # the command), with `--core`: `coreOK_defn`, its conjuncts each decided on its own and those that
 # read names on the names' codes, and from it `sound_hyp` and `complete_hyp`. With `--wf` one module
@@ -73,7 +76,11 @@ if on ref-kimp; then gen f2-examples/ref-kimp.kore ref-kimp RefKimp --wf
 # inverted (User.EvalInversion: `KK.eval_app_inv`); FnDet at HookParams.none (User.FnSolves:
 # `KK.fnDet`); PrioDecided with `leq`'s Bool results (User.PrioDecided: `KK.prioDecided`,
 # `KK.leq_result`); CoDefined (User.CoDefined: `KK.coDefined`); FnSolves and Consistent at
-# HookParams.none by consistent_of (User.Consistent: `KK.fnSolves`, `KK.consistent`)
+# HookParams.none by consistent_of (User.Consistent: `KK.fnSolves`, `KK.consistent`); the cascade
+# text's kit and symbol facts (User.KkKit, User.KkFacts), the text gen/kkcascade.py emits for `app`,
+# `lookup` and `mkInj` (User.KkCascade), and the same functions' text by hand and as written for the
+# measurement (User.SpikeBase, User.SpikeHand, User.SpikeCascade)
 if on ref-kk; then gen examples/ref-kk/RefKk/definition.kore ref-kk RefKk --core
-  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent; fi
+  step gen/build.sh examples/ref-kk User.Coherent User.EvalInversion User.FnSolves User.PrioDecided User.CoDefined User.Consistent \
+    User.KkKit User.KkFacts User.KkCascade User.SpikeBase User.SpikeHand User.SpikeCascade; fi
 echo "all built"
