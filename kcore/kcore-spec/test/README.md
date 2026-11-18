@@ -1052,7 +1052,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
   argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
   `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
-  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`.
+  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`. A
+  registry-numbered projection (`RegProj`, a hand-built semantics with a parameter numbered as the
+  registry's `project:Int`): `coreOK`, `predProjOK?` accepts `project:Int`'s selector-domain axiom,
+  a premise of the theory names the symbol (`GenEqs.kernelSym_named`), and the arm refuses it
+  (`Parse.predProjAcc`).
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
