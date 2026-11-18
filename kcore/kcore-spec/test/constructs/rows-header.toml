@@ -171,8 +171,10 @@
 #             that file's account, account_absent and absent_closed, every index is in its
 #             no-direction class, every sentence `sentence` locates there is listed, and a `derived`
 #             table of form (a), kind "in a model", has exactly these indices as its sentences; it
-#             refuses a supported entry whose every sentence `sentence` locates is of that class and
-#             that has no such field and table.
+#             refuses a supported entry of which a sentence `sentence` locates is of that class and
+#             that has no such field and table. A declaration is no axiom and has no class: a
+#             `sentence` locating no axiom counts neither way; one not in the tie's text is refused
+#             (its class is not read).
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
 #   each checked (kfix.py check, rest.py; K-coverage.md prints their letters beside the status):
 #   pair      P: the fixture (or a list of them, each checked) whose kompile.txt records the entry's

@@ -48,15 +48,17 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    `stage refusals ...: 0`, `refused by the account: 0`, no line `sentence I (...): R`
       fresh        the account equals a fresh one (--fresh)
       no direction (owed-sentence rule item 7, rows-header.toml; also on supported E4, E5) on an
-                   entry with `no_direction`, or whose every sentence `sentence` locates is of the
+                   entry with `no_direction`, or where a sentence `sentence` locates is of the
                    no-direction class: the class of a sentence is the one the fixture's tie gives
-                   it (`classes` of the file of
-                   `tie`, else of test/, that reads f2-examples/FIXTURE.kompile.kore; the indices
-                   AxiomDecl.index, a `// rule` comment locating the axiom after it), never whether
-                   a sentence applies a symbol. `no_direction` a non-empty list of indices of that
-                   class holding each one `sentence` locates there; that tie file in `tie`; its
-                   account, account_absent and absent_closed among tie_theorems; a `derived` table
-                   of form (a), kind "in a model", whose sentences are the no_direction indices
+                   it (`classes` of the file of `tie`, else of test/, that reads
+                   f2-examples/FIXTURE.kompile.kore; the indices AxiomDecl.index, a `// rule`
+                   comment locating the axiom after it), never whether a sentence applies a symbol.
+                   A declaration is no axiom and has no class: a `sentence` that locates no axiom
+                   counts neither way, one that does not occur in that text is missing (its class
+                   is not read). `no_direction` a non-empty list of indices of that class holding
+                   each one `sentence` locates there; that tie file in `tie`; its account,
+                   account_absent and absent_closed among tie_theorems; a `derived` table of form
+                   (a), kind "in a model", whose sentences are the no_direction indices
       tie          `tie` lists the C14 tie modules: files test/X.lean that test/integration.sh
                    builds (not in its skip list)
       theorems     the theorems the entry names, `tie_theorems` (full names, each declared in a
@@ -309,16 +311,19 @@ class Fixtures:
         return next((f for f in nodir_tie_files() if nodir_classes(f)[0] == want), None)
 
     def located(self, path, ss):
-        """The indices of the user module's axioms of the text at path that the substrings locate
-        (in an axiom's text, or in the `//` comment lines just before it), or None where one of them
-        locates no axiom (a declaration, a line of kompile.txt)."""
-        out = set()
+        """(the indices of the user module's axioms of the text at path that the substrings locate,
+        in an axiom's text or in the `//` comment lines just before it; the substrings that do not
+        occur in that text). A substring of the text that locates no axiom (a declaration, a module's
+        attributes) adds no index: a declaration is no axiom and has no class."""
+        p = os.path.join(K, path)
+        body = open(p).read() if os.path.isfile(p) else ""
+        out, absent = set(), []
         for s in ss:
-            hit = [i for i, text, notes in nodir_axioms(path) if s in text or any(s in n for n in notes)]
-            if not hit:
-                return None
-            out |= set(hit)
-        return out
+            if s not in body:
+                absent.append(s)
+                continue
+            out |= {i for i, text, notes in nodir_axioms(path) if s in text or any(s in n for n in notes)}
+        return out, absent
 
     def fresh_equal(self, name):
         """True / False: the account against a fresh one; otherwise why it was not compared: "not
@@ -496,16 +501,18 @@ def nodir_items(fx, e, x, have, miss):
     text, cls = nodir_classes(tf) if tf else (None, {})
     ss = e.get("sentence")
     ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
-    loc = fx.located(text, ss) if tf and ss else None
-    loc_nd = {i for i in (loc or ()) if cls.get(i) == "no direction"}
-    if nd is None and not (loc and loc_nd == loc):
+    loc, absent = fx.located(text, ss) if tf and ss else (set(), [])
+    loc_nd = {i for i in loc if cls.get(i) == "no direction"}
+    if absent:
+        miss.append(f"sentence {absent[0][:50]!r} not in {text}, the text of {tf}: its class is not read")
+    if nd is None and not loc_nd:
         return
     if tf is None:
         miss.append(f"no-direction class (no file test/X.lean reads f2-examples/{x}.kompile.kore with its classes)")
         return
     if nd is None:
-        miss.append(f"no_direction (each sentence `sentence` locates is of the no-direction class of {tf}:"
-                    f" {sorted(loc)})")
+        miss.append(f"no_direction (sentences `sentence` locates are of the no-direction class of {tf}:"
+                    f" {sorted(loc_nd)})")
         nd = []
     elif not (isinstance(nd, list) and nd and all(isinstance(i, int) and not isinstance(i, bool) for i in nd)):
         miss.append("no_direction (not a non-empty list of sentence indices)")
@@ -1204,8 +1211,12 @@ def self_test():
         # of class function equation in test/TieE1Starinit.lean, applied only by 283, of no direction)
         nd_k = '// rule initKCell(Init)=>`<k>`(`project:KItem`(`Map:lookup`(Init,inj{KConfigVar,KItem}(#token("$PGM","KConfigVar")))))'
         nd_kd = "symbol LblinitKCell{}(SortMap{}) : SortKCell{}"
+        # isBool's [owise] equation (94, a function equation), and a path of the fixture's kore.txt that
+        # the tie's text writes otherwise
+        nd_f, nd_src = "\\exists{R} (Var'Unds'Gen0:SortBool{},", 'Source(FIXTURE/base.k)'
         nd_t = "// rule initTCell(Init)=>`TCellSetItem`(`<t>`(initVCell(Init),initPCell(Init)))"
-        for name, kore in (("base", f"//@ 30\n  {nd_kd} [function{{}}()]\n//@ 99\n{nd_k}\n  axiom{{R}} x\n"),
+        for name, kore in (("base", f"//@ 30\n  {nd_kd} [function{{}}()]\n//@ 99\n{nd_k}\n  axiom{{R}} x\n"
+                                    f"//@ 100\n  axiom{{R}} {nd_f} [{nd_src}]\n"),
                            ("e1-starinit", f"//@ 300\n{nd_t}\n  axiom{{R}} x\n")):
             os.makedirs(os.path.join(fxd, name))
             open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
@@ -1260,9 +1271,25 @@ def self_test():
             ("E7", "A", nd(tie_theorems=acc3("TieBase")[:2]), False),
             ("E7", "A", nd(tie=[tie], tie_theorems=acc3("TieBase")), False),
             ("E7", "A", nd(tie=[tbase, "test/TieE1Module.lean", tie], tie_theorems=acc3("TieE1Module")), False),
-            # a sentence `sentence` locates that is no axiom (a declaration): not every one is of the class
+            # a declaration is no axiom and counts neither way: beside a no-direction sentence the entry
+            # needs no_direction, alone it needs nothing
             ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_kd, nd_k], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_kd, nd_k]), True),
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_kd], "tie": [tbase],
                          "tie_theorems": ["KCore.TieBase.account"]}, True),
+            # a no-direction sentence beside one of another class: no_direction is needed all the same
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_f, nd_k], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_f, nd_k]), True),
+            ("E7", "A", nd(sentence=[nd_f, nd_k], no_direction=[93, 94], derived=[model([93, 94])]), False),
+            # the string narrowed to the sentence of the other class: no_direction is not needed
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_f], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, True),
+            # a sentence of kore.txt that the tie's text does not hold: its class is not read
+            ("E7", "A", {"status": "supported", "fixture": "base", "sentence": [nd_src], "tie": [tbase],
+                         "tie_theorems": ["KCore.TieBase.account"]}, False),
+            ("E7", "A", nd(sentence=[nd_k, nd_src]), False),
             # the class is the tie's: initTCell's equation, applied only by a no-direction sentence, is a
             # function equation
             ("E1", "A", {"status": "supported", "fixture": "e1-starinit", "sentence": [nd_t], "tie": [ts_],
