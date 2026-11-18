@@ -34,7 +34,11 @@ differs f2-examples/colls.kore
 differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
+differs f2-examples/e2-fn-assoc-bad.kompile.kore
+differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
+differs f2-examples/e2-fn-assoc.kompile.kore
+differs f2-examples/e2-fn-idem.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
