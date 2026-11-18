@@ -410,3 +410,4 @@ import KcoreSpec.TieEX
 import KcoreSpec.TieFRGamma
 import KcoreSpec.TieFRVars
 import KcoreSpec.KKMatchTsComplete
+import KcoreSpec.TieConsHd

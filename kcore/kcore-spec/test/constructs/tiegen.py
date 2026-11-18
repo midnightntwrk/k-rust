@@ -3,7 +3,8 @@
 
 Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
-                                               [--hand consistency=FILE] [--out DIR] [--print]
+                                               [--hand consistency=FILE] [--cons-head] [--wf-parts]
+                                               [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
   python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
@@ -16,6 +17,15 @@ For FIXTURE (a directory of test/constructs/fixtures with a kompiled text), it w
 With --out DIR it writes the test into DIR and leaves f2-examples alone. --chunk N cuts the
 decisions over the whole user module (`account_absent`) and over the constructor sentences
 (`cons_checked`, `cons_trS`) into ranges of N, each its own kernel decision (default: one each).
+--cons-head decides the constructor sentences with `tchConsB` (KcoreSpec/TieConsHd.lean), in the
+probe and in the test (`cons_checked_hd`, and `cons_checked` from it by `tchConsB_all`), in place of
+`tieConsB`, whose search over pairs of generators and scans of `consItemsK` are quadratic in a sort's
+generators: for a text with a sort of many generators (KItem over the cell sorts of a deep
+configuration). It accepts only what `tieConsB` accepts (`tchConsB_sound`); a sentence `tieConsB`
+accepts and it does not is left to the classes the probe gives otherwise.
+--wf-parts states `wf_defn` from its conjuncts (`wf_of_parts_all`), each a decision of its own, the
+names' distinctness by their codes (`KoreAML.Distinct`): `namesOK`'s `nodup` over the emitted
+declarations compares every pair of names, which for a text of many symbols exceeds a 12 GiB scope.
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
 agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
 `owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
@@ -440,9 +450,6 @@ def tgFreeEV {𝕊 : Type} : List EVar → Pattern 𝕊 → List EVar
   | bound, .implication p q => tgFreeEV bound p ++ tgFreeEV bound q
   | bound, .existential x p => tgFreeEV (x :: bound) p
   | bound, .mu _ p => tgFreeEV bound p
-def tgFreeMap {𝕊 : Type} (φ ψ : Pattern 𝕊) : List (EVar × EVar) :=
-  (tgFreeEV [] φ).eraseDups.zip (tgFreeEV [] ψ).eraseDups
-def tgAlpha2 (p q : P) : Bool := tgAlphaB (tgFreeMap p q) p q && tgAlphaB (tgFreeMap q p) q p
 partial def tgPerms : List Nat → List (List Nat)
   | [] => [[]]
   | l => l.flatMap fun x => (tgPerms (l.erase x)).map (x :: ·)
@@ -511,8 +518,9 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
   IO.println s!"H fnPrios {(afs.flatMap (fun f => f.clauses.map (·.prio)))}"
   let us := k.axiomDecls.filter (·.module == "@MOD@")
+  let usP := us.map fun ad => let q := (trS ad).pat; (ad, q, (tgFreeEV [] q).eraseDups)
   let nmK := Parse.namesOf k
-  let ixOf := fun (q : P) => (us.filter fun ad => (trS ad).pat == q).map (·.index)
+  let ixOf := fun (q : P) => (usP.filter fun (_, p, _) => p == q).map (·.1.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
   IO.println s!"H attrsParts {AttrsAgree.ctors k c} {AttrsAgree.fns k c} {AttrsAgree.hooks k c} {AttrsAgree.colls k c} {AttrsAgree.prios k d}"
@@ -549,7 +557,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   for kp in c.params.filter (·.raw) do
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
-    IO.println s!"F {j}\t{(us.filter fun ad => tgAlpha2 it.pat (trS ad).pat).map (·.index)}"
+    let fp := (tgFreeEV [] it.pat).eraseDups
+    IO.println s!"F {j}\t{(usP.filter fun (_, q, fq) => tgAlphaB (fp.zip fq) it.pat q && tgAlphaB (fq.zip fp) q it.pat).map (·.1.index)}"
   let pairText := TiePair.fnTextOf c us
   let fax := tgFnAxioms c
   for (it, j) in fis.zip (List.range fis.length) do
@@ -568,13 +577,12 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     let ok := (tgRuleParts p).isSome && decide (tableOf [] p = tableOf [] (tgDropThird p)) &&
       decide ((freeOf [] p).eraseDups = (freeOf [] (tgDropThird p)).eraseDups)
     let tgt := (trAxiom [] [] ⟨0, "kernel", ⟨[], tgDropThird p, []⟩⟩).pat
-    let is := (us.filter (fun ad => (trS ad).pat == tgt)).map (·.index)
+    let is := (usP.filter (fun (_, q, _) => q == tgt)).map (·.1.index)
     IO.println s!"R {j}\t{ok}\t{is}"
-  for ad in us do
-    let p := (trS ad).pat
+  for (ad, p, _) in usP do
     let absent := !(appHeadsOf ad.ax.pattern).all hasHead
     let fnJ := ((fis.zip (List.range fis.length)).filter (fun (it, _) => it.pat == p)).map (·.2)
-    let cons := tieConsB c ad.ax
+    let cons := @CONS@ c ad.ax
     let plain := decide (p = (trAxiom [] [] ad).pat)
     let consItem := ci.any (·.pat == p)
     let triv := (k.sortDecls.filter fun sd => p == tgOrTopBot (sym (.sort sd.name))).map (·.name)
@@ -597,11 +605,12 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
 '''
 
 
-def probe(name, path, um, order="[]"):
+def probe(name, path, um, order="[]", cons_head=False):
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         f = os.path.join(d, "Probe.lean")
         open(f, "w").write(PROBE.replace("@PATH@", os.path.abspath(path)).replace("@MOD@", um)
-                           .replace("@ORDER@", f"({order} : List Nat)"))
+                           .replace("@ORDER@", f"({order} : List Nat)")
+                           .replace("@CONS@", "tchConsB" if cons_head else "tieConsB"))
         env = dict(os.environ, LEAN_NUM_THREADS="1")
         r = run(WRAP + ["timeout", os.environ.get("TIEGEN_PROBE_TIMEOUT", "900"), "lake", "env", "lean", "-j1", f], cwd=KS, env=env)
     if r.returncode != 0:
@@ -777,7 +786,7 @@ def by_ranges(prefix, lst, pred, rs, lem="tieAllE", named=False):
 
 
 def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing, ob, chunks, raws=None,
-             hand=None, chunk=0):
+             hand=None, chunk=0, cons_head=False, wf_parts=None):
     """The Lean text of the tie. `ob`: what `obligations` read; `raws`: each sentence's text as
     written; `hand`: hand-written sections by name (`consistency`), each in place of the generated
     one; `chunk`: the length of the ranges the decisions over the whole user module are cut into
@@ -1166,7 +1175,25 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("theorem coreOK : c.coreOK = true := by decide_cheap")
     w("theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK")
     w("")
-    if wf_ok:
+    if wf_ok and wf_parts:
+        w("/-! `wf defn` conjunct by conjunct (`wf_of_parts_all`), each a decision of its own; the names")
+        w("declared once by their codes (`KoreAML.Distinct.codesDistinct`), sorted in as many passes as the")
+        w("bits of the text's number of declarations. -/")
+        w(f"theorem sorts_distinct : KoreAML.Distinct.codesDistinct {wf_parts[0]} (defn.emit.sortDecls.map (·.name)) = true := by")
+        w("  decide +kernel")
+        w(f"theorem syms_distinct :")
+        w(f"    KoreAML.Distinct.codesDistinct {wf_parts[1]} (defn.emit.symbolDecls.map (·.name) ++ defn.emit.aliasNames) = true := by")
+        w("  decide +kernel")
+        w("theorem names_rest : (c.hooksApart && c.predsApart && c.idsOK) = true := by decide_cheap")
+        w("theorem okAll_c : c.okAll = true := by decide_cheap")
+        w("theorem cert_ok : defn.cert.ok c = true := by decide +kernel")
+        w("theorem pres_ok : defn.pres.ok c = true := by decide +kernel")
+        w("theorem params_ok : defn.paramsOK = true := by decide +kernel")
+        w("theorem faith_ok : c.faithOK = true := by unfold Semantics.faithOK; decide_cheap")
+        w("theorem overloads_ok : c.overloadsOK = true := by decide +kernel")
+        w("theorem wf_defn : wf defn = true :=")
+        w("  wf_of_parts_all sorts_distinct syms_distinct names_rest okAll_c cert_ok pres_ok params_ok faith_ok overloads_ok")
+    elif wf_ok:
         w("set_option maxHeartbeats 1000000 in")
         w("theorem wf_defn : wf defn = true := by decide_cheap")
     else:
@@ -1656,17 +1683,22 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if cons_text:
         w("/-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/")
         w("")
-        w("/-- The constructor sentences `tieConsB` decides, in text order. -/")
+        dec = "tchConsB" if cons_head else "tieConsB"
+        w(f"/-- The constructor sentences `{dec}` decides, in text order. -/")
         w("noncomputable def consText : List AxiomDecl :=")
         w("  " + ax_list(cons_text))
         w("")
+        checked = "cons_checked_hd" if cons_head else "cons_checked"
         if chunk and len(cons_text) > chunk:
-            thms, body = by_ranges("consE", "consText", "(fun ad => tieConsB c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll", True)
+            thms, body = by_ranges("consE", "consText", f"(fun ad => {dec} c ad.ax)", ranges(len(cons_text), 0, chunk), "tieAll", True)
             w(thms)
-            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true :=")
+            w(f"theorem {checked} : consText.all (fun ad => {dec} c ad.ax) = true :=")
             w("  " + body)
         else:
-            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true := by decide +kernel")
+            w(f"theorem {checked} : consText.all (fun ad => {dec} c ad.ax) = true := by decide +kernel")
+        if cons_head:
+            w("")
+            w("theorem cons_checked : consText.all (fun ad => tieConsB c ad.ax) = true := tchConsB_all cons_checked_hd")
         w("")
         if chunk and len(cons_text) > chunk:
             pr = "(fun ad => decide ((trS ad).pat = (trAxiom [] [] ad).pat))"
@@ -2502,7 +2534,13 @@ def main(argv):
     wf_ok, failing = account_check(name, path)
     ob = obligations(name, path, "consistency" in hand)
     um0, ua = user_axioms(text)
-    head, sents = probe(name, path, um0, ob["order_list"])
+    cons_head = "--cons-head" in argv
+    wf_parts = None
+    if "--wf-parts" in argv:
+        nsorts = len(re.findall(r"^\s*(?:hooked-)?sort ", text, re.M))
+        nsyms = len(re.findall(r"^\s*(?:(?:hooked-)?symbol|alias) ", text, re.M))
+        wf_parts = (nsorts.bit_length() + 1, nsyms.bit_length() + 1)
+    head, sents = probe(name, path, um0, ob["order_list"], cons_head)
     if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
         raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
                       f"condition")
@@ -2527,7 +2565,7 @@ def main(argv):
         if sents[i]["fnJ"] or (i in law_set and sents[i]["consItem"]):
             raise Refused(f"{name}: law sentence {i} is a function equation's item or a constructor item of Γ")
     ns, lean, summary = generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, failing,
-                                 ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk)
+                                 ob, chunks, {i: raw for i, _, _, raw in ua}, hand, chunk, cons_head, wf_parts)
     outdir = argv[argv.index("--out") + 1] if "--out" in argv else None
     if outdir is None and (not os.path.exists(final) or open(final).read() != text):
         open(final, "w").write(text)
