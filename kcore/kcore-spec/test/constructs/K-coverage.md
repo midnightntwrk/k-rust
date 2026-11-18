@@ -15,7 +15,7 @@ Rows by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
-| E2 | 182 | 51 | 0 | 45 | 68 | 18 | 0 | 0 |
+| E2 | 182 | 52 | 0 | 44 | 68 | 18 | 0 | 0 |
 | E3 | 98 | 65 | 2 | 11 | 3 | 17 | 0 | 0 |
 | E4 | 123 | 89 | 0 | 8 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 9 | 1 | 8 | 2 | 2 | 0 | 0 |
@@ -23,7 +23,7 @@ Rows by status:
 | E7 | 42 | 32 | 0 | 4 | 4 | 2 | 0 | 0 |
 | E8 | 63 | 3 | 1 | 0 | 48 | 11 | 0 | 0 |
 | C3 | 44 | 30 | 0 | 8 | 2 | 4 | 0 | 0 |
-| all | 1458 | 830 | 102 | 201 | 185 | 140 | 0 | 0 |
+| all | 1458 | 831 | 102 | 200 | 185 | 140 | 0 | 0 |
 
 Nested entries by status:
 
@@ -70,7 +70,7 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 1 | 4 |
 | all | 198 | 54 | 18 | 36 | 90 |
 
-Supported entries (rows and nested): 960; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 946 have no owed fact.
+Supported entries (rows and nested): 961; 14 of them have an owed fact and are counted by their best fixture: **13 proved** (the owed fact proved on a fixture the entry names: these count as supported under the headline statements), 0 open and 1 false (counted apart: the headline statements' hypothesis is not shown on their fixtures). The other 947 have no owed fact.
 
 ## Entries of class R-c (48)
 
@@ -404,7 +404,7 @@ Not core:
 | `STRICT(strict)@frontend` | supported |  | Rule S1. The KORE is freezer constructors and heating and cooling rewrite axioms whose \`requires\` apply isKResult (or the result sort's predicate): sentences of classes the reader reads as written (rewrite rule, constructor). The isKResult equation hybrid adds is the row HYBRID(hybrid)@frontend's, r… | none (reader only) |  | c3-strict-base | yes | no | fixtures/e1-sentences/account.txt and fixtures/c3-strict-base/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\` in each; the rows' sentence fields. fixtures/e2-frontend-effect, cited here befor… |
 | `SYMBOL(symbol)@symbol` | inert |  |  |  |  | e2-symbol | no | no | K-coverage.md A.3 ..., symbol'Kywd' (presentation), ... (symbols) |
 | cases[0]: a symbol declared under an interpreted hook's KORE name without its module: a constructor of the text's own sort Num, \`s… | refused | R-c | the builtin library's names are reserved: every theory Γ c holds K's interpreted library, whether or not the text imports its module (the registry family; findings/TIE-ens-2-conservativity-decision.md §0, option (c), as amended by findings/REVIEW-TIE-cons.md), so a library name always denotes the li… | under option (c), taken: none. Lifting the refusal needs the Γ-only form of option (b), as the sort case | REGN.design | e2-registry-symbol-name |  |  | fixtures/e2-registry-symbol-name: kompile.txt exit 0, K 7.1.337 accepts the text and writes the constructor \`symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{}\` with its no-confusion and no-junk axioms (kore.txt); account.txt \`sentence 52 (Lbl'UndsPlus'Int'Unds'): registrySymbolName (… |
-| `TERMINATOR_SYMBOL(terminator-symbol)@frontend` | inert |  | Rule S1: the effect is the name of the list terminator's symbol (\`Lbl'Stop'exps\`). Γ and Step are invariant under renaming a symbol apart from the others. | none |  | e1-syntax | no | no | FX/e1-syntax: the row's sentence. |
+| `TERMINATOR_SYMBOL(terminator-symbol)@frontend` | supported |  | Rule S1: the key's only trace in the text is the name of the user list's terminator, a nullary constructor of the list sort. In FX/e1-syntax, \`List{Exp, ","}\` with the key declares the terminator \`Lbl'Stop'exps\` (\`symbol'Kywd'{}(".exps")\`), and \`NeList{Exp, ";"}\` without it declares \`Lbl'Stop'List'L… | none (reader already reads it) |  | e1-syntax | no | no | FX/e1-syntax: kore.txt line 14 \`symbol Lbl'Stop'exps{}() : SortExps{}\` (the terminator the key names, of \`List{Exp, ","}\`), line 12 \`symbol Lbl'Stop'List'LBraQuot'neexps'QuotRBra'{}() : SortNeExps{}\` (the terminator of \`NeList{Exp, ";"}\`, written without the key), and the terminator's functional, no… |
 | `SYMBOLIC(symbolic)@module` | erased (P) |  | Under R-12 (--backend haskell) the tag is not written. A module tagged symbolic or haskell is kept and its text is the untagged module's; a module tagged concrete is removed with its sentences, so the text is that of the definition without the module. In each case the kompiled text is a text the con… | none |  | e2-module-att | no | no | FX/e2-module-att: E2-CONC's f has no sentence, E2-SYMB's g and E2-HASK's h are declared; as main module kompile refuses a concrete one (the row's no\_sentence). fixtures/e2-module-att is same\_as c3-module-att-noconc (its text with E2-CONC [concrete] and its import deleted: equal after stripping) and… |
 | `SYMBOLIC(symbolic)@symbol` | inert |  | The kompiled text differs from the text without the key in the attribute list of one sentence only; the sentence's pattern (for a declaration: its sorts and its constructor, function, total, hook attributes) is the same. An attribute list is not part of the pattern \`tr s\` translates, and K's text gi… | none (reader only) |  | e2-sym-concrete | no | no | FX/e2-comm-rule kore.txt line 37 (\`[comm{}(), ]\` on the rewrite axiom of a symbol that is not comm); FX/e2-comm-eq line 84; FX/e2-sym-concrete lines 4, 6 (fc, fs; their equations at 82, 100 carry no key); FX/e2-symbol (klabel{}("k1"), label{}("flabel"), priority{}("30")); e2-sym-concrete differs\_fro… |
 | `SYMBOLIC(symbolic)@rule` | inert |  | inertRuleAttrs (DefinitionWf.lean:1008) leaves symbolic out, with the comment 'the rule never fires on ground terms', and FX/e2-symbolic-rule/account.txt is \`parse: ok; wf false\` (Presentation.ok). Two readings. (A) inert: the text states the rewrite axiom; which terms a prover applies it to is no s… |  |  | e2-symbolic-rule | no | no | K-coverage.md A.3 concrete, symbolic (axioms); fixtures/e2-symbolic-rule: account.txt today \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` (the reason's \`wf false\` is the account before inertRuleAttrs followed the decision); differs\_from c3-attr-rule-base, the text without the key; t… |
