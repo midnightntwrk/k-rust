@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-kreflection.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 737211
+definition.kore sha256: d6e41d852a7f19c1e414cb9c37c7d11b3a7e44a8e664f83f2a543e6605f7446d
+stripped sha256: 2b6de512412aa360ad4af60953f8b68685f620a68075e7e07071ff9d91fb5a9c
+main module: 3238 sentences, 2715 not in base's (475333 bytes, over 200000): kore.txt holds the 9 with a Source in the fixture
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-KREFLECTION-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-PARAM-KREFLECTION as default.

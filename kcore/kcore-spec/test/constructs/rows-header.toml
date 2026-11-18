@@ -138,3 +138,9 @@
 #             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
 #   A parameter entry's param_undetermined instance is a `derived` table of form (c); a supported
 #   hook's in-domain value a `derived` table of form (a).
+# Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
+# checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
+#   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
+#             (test/TieEns*, TieKimp*, TieKk*, LibEv*) that entail the row's sentence, axiom N of the
+#             tied text TEXT; or "refuted: MODULE; ..." where they only refute it or hold it where its
+#             set variables hold one value at most; or "uncovered: MODULE; why".

@@ -307,6 +307,7 @@ import KcoreSpec.InertEv
 import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
+import KcoreSpec.ClauseExDen
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -337,3 +338,4 @@ import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
+import KcoreSpec.FloatUnpack

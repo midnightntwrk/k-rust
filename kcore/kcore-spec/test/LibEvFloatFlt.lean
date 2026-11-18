@@ -14,14 +14,18 @@
     `floorFloat` 119, `truncFloat` 173, `isInfinite` 134, `isNaN` 143, symbols of
     `totalSilentKeys`, for every H meeting `silentTotal`; `exponentBitsFloat` 117 and
     `precisionFloat` 159, of `floatResInt`, for every H (`floatShapeOK`, from `coreOK`).
+  - 321 (`isInfinite(F) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool
+    F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`, domains.md 1673):
+    `ev321`, for every H meeting `isInfiniteEq` (`LibEv.fnIsInfinite_ev`); `ev321_lib` under
+    `HookParams.lib`. Its value is the same under both readings of the naming of IEEE 754 (argued
+    from section 2 of the rulings, not proved: it reads `precisionFloat`, `exponentBitsFloat`,
+    `maxValueFloat`, `--Float` of a finite nonzero datum and the comparisons, each stated alike).
+    At a Float of a format with a model, both sides are `hook`'s and agree for every format: a datum is infinite exactly when it is above the format's largest finite value or
+    below its negation (`KFloat.isInf_unpack`, KcoreSpec/FloatUnpack.lean). At a format with a
+    field of 1, which has no model, `isInfinite` is at a silent point and the condition is the
+    sentence there.
 
-  Not tied here: 321 (`isInfinite`, domains.md 1673), whose value is the same under both readings
-  (argued from section 2 of the rulings, not proved: it reads `precisionFloat`,
-  `exponentBitsFloat`, `maxValueFloat`, `--Float` of a finite nonzero datum and the comparisons,
-  each stated alike), but whose statement needs that every finite datum of a format lies between
-  `--Float maxValueFloat` and `maxValueFloat`, which the float model does not state, and reads
-  `maxValueFloat` at the formats with a field of 1, where the text states no largest value at
-  (1, 1); and 380 (`sqrtFloat(F) => rootFloat(F, 2)`, 1671), whose right side is `rootFloat`, a
+  Not tied here: 380 (`sqrtFloat(F) => rootFloat(F, 2)`, 1671), whose right side is `rootFloat`, a
   parameter symbol no FLOAT sentence gives a value, and whose sides are the standard's square root
   and root only if the naming of IEEE 754 incorporates its operations (rulings section 7, G12),
   which the text leaves open.
@@ -56,6 +60,13 @@ theorem ev254 (H : HookParams) (hc : (cH H).neFloatEq) : EntailsAtValues (cH H) 
 
 theorem ev254_lib : EntailsAtValues (cH HookParams.lib) U.ax254 (trS U.ax254).pat :=
   ev254 HookParams.lib (neFloatEq_lib c)
+
+theorem ev321 (H : HookParams) (hc : (cH H).isInfiniteEq) : EntailsAtValues (cH H) U.ax321 (trS U.ax321).pat := by
+  rw [(by decide +kernel : (trS U.ax321).pat = (trAxiom [] [] U.ax321).pat)]
+  exact LibEv.fnIsInfinite_ev (coreOKH H) hc U.ax321 (by decide +kernel) (by decide +kernel)
+
+theorem ev321_lib : EntailsAtValues (cH HookParams.lib) U.ax321 (trS U.ax321).pat :=
+  ev321 HookParams.lib (isInfiniteEq_lib c (floatShapeOK_of_coreOK coreOK))
 
 theorem fun25 (H : HookParams) (hst : (cH H).silentTotal) : EntailsAtValues (cH H) U.ax25 (trS U.ax25).pat := by
   rw [(by decide +kernel : (trS U.ax25).pat = (trAxiom [] [] U.ax25).pat)]
@@ -108,6 +119,10 @@ end KCore.LibEvFloatFlt
 #guard_msgs in #print axioms KCore.LibEvFloatFlt.ev254
 /-- info: 'KCore.LibEvFloatFlt.ev254_lib' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvFloatFlt.ev254_lib
+/-- info: 'KCore.LibEvFloatFlt.ev321' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvFloatFlt.ev321
+/-- info: 'KCore.LibEvFloatFlt.ev321_lib' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvFloatFlt.ev321_lib
 /-- info: 'KCore.LibEvFloatFlt.fun25' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvFloatFlt.fun25
 /-- info: 'KCore.LibEvFloatFlt.fun103' depends on axioms: [propext, Classical.choice, Quot.sound] -/

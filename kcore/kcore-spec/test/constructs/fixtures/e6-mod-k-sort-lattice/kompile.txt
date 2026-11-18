@@ -1,0 +1,24 @@
+command: kompile --backend haskell e6-mod-k-sort-lattice.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 3.6
+output:
+  kore-exec: [35278] Error (ErrorVerify):
+      Error:
+        module 'E6-MOD-K-SORT-LATTICE':
+        axiom declaration:
+        \exists 'Val' (definition.kore 184:20):
+        (definition.kore 184:28):
+          Sort variable SortSort not declared.
+  Error:
+    module 'E6-MOD-K-SORT-LATTICE':
+    axiom declaration:
+    \exists 'Val' (definition.kore 184:20):
+    (definition.kore 184:28):
+      Sort variable SortSort not declared.
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-K-SORT-LATTICE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-K-SORT-LATTICE as default.

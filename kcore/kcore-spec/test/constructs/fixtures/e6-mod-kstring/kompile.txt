@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-kstring.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.5
+definition.kore bytes: 81410
+definition.kore sha256: 98d2b48e373463280151dd30541a3c46073050e0c35d4983a7c49199cde26475
+stripped sha256: 2b9cc4754178257c169e0c04542e39a7118cbc192826fcb1fa7dafd0b81fa2fe
+main module: 234 sentences, 8 not in base's, in kore.txt
+differs_from base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-KSTRING-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-KSTRING as default.

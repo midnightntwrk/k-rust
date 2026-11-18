@@ -115,11 +115,11 @@ def classes : List (String × List Nat) :=
    ("library", [676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693,
       694, 695, 696, 697, 698, 699, 779, 781, 782, 783, 784, 785, 786, 787, 788, 789, 790, 791, 792, 793, 794, 795, 796,
       797, 798, 799, 800, 801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 813, 814, 815, 816, 817, 818, 819, 820,
-      821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 832, 877, 878, 879, 880, 881, 882, 902]),
+      821, 822, 823, 824, 825, 826, 827, 828, 829, 830, 831, 832, 877, 878, 879, 880, 881, 882, 902, 903]),
    ("set idempotence", [573]),
    ("set-variable lemma", [671, 672, 673, 674, 675, 904]),
-   ("no direction", [477, 502, 521, 592, 594, 611, 645, 654, 780, 812, 831, 833, 834, 835, 836,
-      837, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901, 903])]
+   ("no direction", [477, 502, 521, 592, 594, 611, 645, 654, 780, 812, 833, 834, 835, 836,
+      837, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -138,8 +138,8 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
     [("function equation", 39), ("rewrite rule", 79), ("priority equation", 0), ("constructor functional",
-     54), ("subsort", 25), ("injectivity", 49), ("distinctness", 437), ("no junk", 16), ("function functional", 20), ("hooked functional", 48), ("collection law", 9), ("library", 82), ("set idempotence",
-     1), ("set-variable lemma", 6), ("no direction", 36)] := by
+     54), ("subsort", 25), ("injectivity", 49), ("distinctness", 437), ("no junk", 16), ("function functional", 20), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence",
+     1), ("set-variable lemma", 6), ("no direction", 34)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -150,7 +150,7 @@ aside, which Γ's constructor items apply), and each sentence of that class appl
 theorem account_absent : userAxioms.all (fun ad =>
     (classOf "no direction").contains ad.index !=
       (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
-  rw [userAxioms_eq]; decide +kernel
+  rw [userAxioms_eq]; decide_cheap 100
 
 /-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
 so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
@@ -166,7 +166,8 @@ theorem absent_closed :
 
 /-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
 hooks, collection symbols, priorities. -/
-theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
+theorem attrs_agree : attrsAgree kore defn = true := by
+  rw [attrsAgree, AttrsAgree.ctors, AttrsAgree.fns, AttrsAgree.hooks]; decide_cheap 40
 
 /-! ## Function equations (39 sentences) -/
 
@@ -192,7 +193,7 @@ noncomputable def fnText : List AxiomDecl :=
 of `fnItems` and the translation of `fnText[j]` (one kernel decision). -/
 theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by
   rw [fnItems_eq, List.map_map]
-  exact (by decide +kernel :
+  exact (by decide_map_blocks 10 3 :
     ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kernel", a⟩).pat) = fnText.map (trS · |>.pat))
 
 /-- Each member of `fnText` is the sentence of the user module with its index. -/

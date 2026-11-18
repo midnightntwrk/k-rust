@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-builtin-id-tokens.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.0
+definition.kore bytes: 83824
+definition.kore sha256: f6eb7619dd26ed92e473c29f46a8c7a9431cd9940ab45de0c919f2bd7da275b4
+stripped sha256: 79980f2e26678d9c82f67d3241cd500f5c3ab72d3e81de0ca10bac5372585174
+main module: 240 sentences, 14 not in base's, in kore.txt
+differs_from base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-BUILTIN-ID-TOKENS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-BUILTIN-ID-TOKENS as default.

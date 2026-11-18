@@ -1,0 +1,17 @@
+param	Lbl'UndsXor-'Float'UndsUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float	args=[Float, Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblFloat2Int'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float	args=[Float]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	LblacosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblasinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	Lblatan2Float'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float	args=[Float, Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblatanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblcosFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblexpFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblexponentFloat'LParUndsRParUnds'FLOAT'Unds'Int'Unds'Float	args=[Float]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	LbllogFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblmaxFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float	args=[Float, Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblminFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Float	args=[Float, Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblrootFloat'LParUndsCommUndsRParUnds'FLOAT'Unds'Float'Unds'Float'Unds'Int	args=[Float, Int]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LblsignFloat'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float	args=[Float]	result=Bool	impl=none	raw=false	assoc=false	idem=false
+param	LblsinFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+param	LbltanFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float	args=[Float]	result=Float	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
