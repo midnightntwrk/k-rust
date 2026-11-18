@@ -390,16 +390,17 @@ inductive RefusalReason where
   declaration with it dropped states no more than the text cannot be shown (`attrFault?`). The
   detail names the attribute. -/
   | symbolAttrUnkeyed
-  /-- An equation whose right side holds, under applications, conjunctions and disjunctions, an
-  `\and{s}` or `\or{s}` with an operand that states a sort other than s at its head
-  (`rhsSorted`): an `\and` or `\or` at another sort, or an `\equals{S1,S2}` whose result sort S2
-  is not s. In a valid KORE pattern the sort of each argument of a connective is the connective's
-  sort parameter (kore-syntax.md:330: "In any matching logic pattern, the sort of pattern
-  arguments agrees with the specified argument sort parameter"), so the sentence is no valid KORE
-  axiom. The reader drops these sorts when it lifts a conjunct `\equals(B, true)` out of a
-  conjunction and distributes a disjunction over applications, and that keeps the right side's
-  elements only where they agree; it checks them before it reads the right side. The detail names
-  the connective, its sort and the operand's. -/
+  /-- An equation or a rewrite axiom whose right side (under its `\exists` binders) holds, under
+  applications, conjunctions and disjunctions, an `\and{s}` or `\or{s}` with an operand that
+  states a sort other than s at its head (`rhsSorted`): an `\and` or `\or` at another sort, or an
+  `\equals{S1,S2}` whose result sort S2 is not s. In a valid KORE pattern the sort of each
+  argument of a connective is the connective's sort parameter (kore-syntax.md:330: "In any
+  matching logic pattern, the sort of pattern arguments agrees with the specified argument sort
+  parameter"), so the sentence is no valid KORE axiom. The reader drops these sorts when it lifts
+  a conjunct `\equals(B, true)` out of a conjunction, distributes a disjunction over applications,
+  or reads a conjunction or a disjunction of terms as a fresh variable, and that keeps the right
+  side's elements only where they agree; it checks them before it reads the right side. The detail
+  names the connective, its sort and the operand's. -/
   | rhsOperandSort
   deriving Repr, DecidableEq, Inhabited
 
@@ -2863,9 +2864,12 @@ def ruleEqTrueCnj (ts : List Term) : Cond :=
   ovlCutConj (ts.map fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true)))
 
 /-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty and
-renamed apart from the names the left side and the `requires` hold (`rhsApart`). -/
+renamed apart from the names the left side and the `requires` hold (`rhsApart`). Refused
+`rhsOperandSort` where rhs is not `rhsSorted`. -/
 def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Pattern) (xs : List Kore.EVar)
     (r en : Kore.Pattern) : Rd (Rule × RulePres) := do
+    -- `hoist` lifts conjuncts out of the right side's conjunctions, dropping their sorts
+    rhsSortGuard r
     let ens ← need (req? en) .ruleShape
     if let some d := ruleAttrFault? a.attributes then fail .ruleAttribute d
     if let some d := ruleOwisePrioFault? a.attributes then fail .ruleAttribute d
@@ -2927,6 +2931,13 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
                    "org'Stop'kframework'Stop'attributes'Stop'Source"].contains n then none else some (n, v)
              | _, _ => none),
            srcOver msrc a.attributes⟩)
+
+/-- A rule is read by `ruleBodyAnd` only from a right side that is `rhsSorted`. -/
+theorem ruleBodyAnd_rhsSorted {N : Names} {msrc : String} {a : Kore.Axiom} {l r0 : Kore.Pattern}
+    {xs : List Kore.EVar} {r en : Kore.Pattern} {x : Rule × RulePres}
+    (h : ruleBodyAnd N msrc a l r0 xs r en = .ok x) : rhsSorted r = true := by
+  obtain ⟨u, hu⟩ := rhsSortGuard_bind (p := r) h
+  exact rhsSortGuard_ok hu
 
 /-- A rewrite axiom's rule: its left side, its `requires`, its right side and its `ensures` as
 written, `\rewrites(lhs ∧ req, ∃x̄. (rhs ∧ ens))` with `req` and `ens` each `\top` (none) or
