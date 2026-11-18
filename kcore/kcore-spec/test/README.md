@@ -1670,3 +1670,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
   `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
   `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.
+- `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
+  inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
+  `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,
+  for every H (`simp_ev`, `InertEvUser.EqnU.entailed`), from the function's value at every argument
+  (`eval_all`); the first two also show their text's semantics equal to their companion's
+  (`sem_eq`, `withHooks_eq`: c3-simp-prio, c3-simp-comm-base).
+- `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
+  and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
+  every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`
+  (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
+  by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
+  translation of an axiom does not read its attributes.
