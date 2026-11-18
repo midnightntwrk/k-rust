@@ -4841,13 +4841,99 @@ def predProjOK? (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) 
       (c.sortPreds.find? (c.symName ·.label == e.fn)).map (predEqnOK N msrc eqs · e)
     else none
 
+mutual
+  /-- A constructor pattern of `c`: a variable, or a constructor of `c` (`Semantics.isCtor`)
+  applied to constructor patterns. In every model of `Γ c` it denotes, at every valuation of its
+  variables, elements of its sort only: no function is applied, so no point is left undefined
+  by a function's equations. -/
+  def predInstCtorPat (c : Semantics) : Term → Bool
+    | .var _ => true
+    | .app g ts => c.isCtor g && predInstCtorPatList c ts
+    | _ => false
+    termination_by structural t => t
+  def predInstCtorPatList (c : Semantics) : List Term → Bool
+    | [] => true
+    | t :: ts => predInstCtorPat c t && predInstCtorPatList c ts
+    termination_by structural ts => ts
+end
+
+/-- The clause `cl` is the clause `cl0` of a sort predicate, `isX(kseq(inj{X,KItem}(V), dotk)) =
+r` (V the one variable, of sort X, with no condition, r a domain value), at a constructor pattern p
+of the sort X in V's place (`predInstCtorPat`) that holds every variable of `cl`: its one pattern
+`kseq(inj{X,KItem}(p), dotk)`, no `requires`, no `ensures`, no existential variable, no
+predicate, and the right side, priority and `aside` of `cl0`. -/
+def predInstOfClause (c : Semantics) (cl0 cl : Clause) : Bool :=
+  match cl0.vars, cl0.pats, cl.pats with
+  | [X], [.app k [.inj X' K (.var 0), .app d []]], [.app k' [.inj Y K' p, .app d' []]] =>
+    match cl0.rhs with
+    | .dv _ _ =>
+      k == kseq && d == dotk && K == Srt.kitem && X' == X &&
+      cl0.req.isNone && cl0.ens.isNone && cl0.exs.isEmpty && cl0.pre.isTop && cl0.post.isTop &&
+      k' == kseq && d' == dotk && K' == Srt.kitem && Y == X &&
+      predInstCtorPat c p && sortOfTerm c.patCtxAll cl.vars p == some X &&
+      binds cl.vars.length (varOccs p) &&
+      cl.req.isNone && cl.ens.isNone && cl.exs.isEmpty && cl.pre.isTop && cl.post.isTop &&
+      Term.beq cl.rhs cl0.rhs && cl.prio == cl0.prio && cl.aside == cl0.aside
+    | _ => false
+  | _, _, _ => false
+
+/-- The equation `e` of the text, of a sort predicate `isX` (a function `fn` of
+`Semantics.sortPreds`), is an instance of a clause of `fn` at a constructor pattern
+(`predInstOfClause`): no `requires`, `ensures`, exclusion or selector-domain form, and read as a
+clause (`clause?` without an exclusion) it is `fn`'s clause `isX(kseq(inj{X,KItem}(V), dotk)) =
+true` with a constructor pattern of the sort X in V's place. The clause's equation states its
+value at every element of X; the instance's premise holds only at elements of the pattern's
+denotation, which are elements of X, so `Γ` entails the instance's equation. The pattern is a
+constructor pattern: an application of a function of sort X in its place denotes nothing where
+the function has no value, and the sentence `isX(g(…)) = true` then also states that the
+application is defined, which the clause does not. -/
+def predInstOK (N : Names) (msrc : String) (c : Semantics) (e : RawEqn) : Bool :=
+  (dropPrefix? "Lblis" e.fn).isSome && e.req.isNone && e.ens.isNone && !e.dom && e.competitors.isNone &&
+  match c.sortPreds.find? (c.symName ·.label == e.fn), (clause? N msrc e none).toOption with
+  | some fn, some (cl, _) => fn.args == [Srt.k] && fn.clauses.any fun cl0 =>
+      predInstOfClause c cl0 cl && sortsOfTerms c.patCtxAll cl0.vars cl0.pats == some fn.args &&
+        fn.clauses.all fun cl' => cl'.aside || !decide (cl'.prio < cl0.prio)
+  | _, _ => false
+
+/-- The disjuncts `ds` without, for each equation of `es`, the first disjunct not yet taken that
+excludes it (`excludes`); none where some equation of `es` has no such disjunct. -/
+def predInstDrop (es : List RawEqn) (ds : List Kore.Pattern) : Option (List Kore.Pattern) :=
+  match es with
+  | [] => some ds
+  | e :: es => match ds.findIdx? (excludes e) with
+    | some i => predInstDrop es (ds.eraseIdx i)
+    | none => none
+
+/-- The `[owise]` equation `e` of the sort predicate `fn` (a function of `Semantics.sortPreds`)
+whose exclusion holds a disjunct for each equation of the text that `predInstOK` accepts as an
+instance of a clause of `fn` and that is no clause of `fn` (`predEqnOK`): without those disjuncts (`predInstDrop`) it is an equation
+`predEqnOK` accepts, `fn`'s `[owise]` clause with one disjunct for each clause before it. The
+text's premise negates the instances' patterns too; each is inside the pattern of the clause it is
+an instance of, which the premise already negates, so the premise is the clause's. -/
+def predOwiseInstOK (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (fn : Fn) (e : RawEqn) : Bool :=
+  let insts := eqs.filter fun e' => e'.fn == e.fn && predInstOK N msrc c e' && !predEqnOK N msrc eqs fn e'
+  match e.competitors with
+  | none => false
+  | some ds => !insts.isEmpty && match predInstDrop insts ds with
+    | some ds' => predEqnOK N msrc eqs fn { e with competitors := some ds' }
+    | none => false
+
+/-- An equation of a sort predicate that is an instance of a clause of it at a constructor pattern
+(`predInstOK`), or that predicate's `[owise]` equation whose exclusion names such instances too
+(`predOwiseInstOK`). -/
+def predInstAcc (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (e : RawEqn) : Bool :=
+  predInstOK N msrc c e ||
+    ((dropPrefix? "Lblis" e.fn).isSome &&
+      (c.sortPreds.find? (c.symName ·.label == e.fn)).any (predOwiseInstOK N msrc eqs c · e))
+
 /-- The equations of the text of a sort's predicate or projection that the core `c` does not
 state: no function of `c` holds the equation as a clause and it is none of the sentences
-`predProjOK?` accepts. Each is a failure at the equation: `generatedEquation` with the symbol and
-the shape (`eqnShape`), or `unaccounted` for an equation written in a user's file. -/
+`predProjOK?` or `predInstAcc` accepts. Each is a failure at the equation: `generatedEquation` with
+the symbol and the shape (`eqnShape`), or `unaccounted` for an equation written in a user's file. -/
 def predEqnFaults (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) : List Fault :=
   eqs.filterMap fun e =>
-    if predProjOK? N msrc eqs c e == some false && !c.fns.any (c.symName ·.label == e.fn) then
+    if predProjOK? N msrc eqs c e == some false && !predInstAcc N msrc eqs c e &&
+        !c.fns.any (c.symName ·.label == e.fn) then
       some (if isUserSource e.attrs then
           ⟨.unaccounted, s!"equation of {e.fn}, which the definition reads from its sorts: {eqnShape e}", .attrs e.attrs⟩
         else ⟨.generatedEquation, s!"{e.fn}: {eqnShape e}", .attrs e.attrs⟩)

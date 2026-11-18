@@ -344,3 +344,4 @@ import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
 import KcoreSpec.EvalCallsInduct
+import KcoreSpec.GenEqsInst
