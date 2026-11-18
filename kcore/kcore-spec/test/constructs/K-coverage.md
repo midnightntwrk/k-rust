@@ -19,11 +19,11 @@ Rows by status:
 | E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
-| E6 | 826 | 518 | 95 | 116 | 42 | 55 | 0 | 0 |
+| E6 | 826 | 520 | 95 | 116 | 40 | 55 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 29 | 0 | 9 | 2 | 4 | 0 | 0 |
-| all | 1458 | 823 | 102 | 209 | 194 | 130 | 0 | 0 |
+| all | 1458 | 825 | 102 | 209 | 192 | 130 | 0 | 0 |
 
 Nested entries by status:
 
@@ -949,8 +949,8 @@ Not core:
 | `module:JSON` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
 | `module:SORT-K` | erased |  | A module of kast.md that holds productions of K's own term and rule syntax. Imported, it adds no sentence with a builtin Source to the kompiled text: what a rule written in its syntax becomes is E3's rows, and the symbols it stands for (kseq, dotk, inj, the sort K) are the prelude's, compared as tex… |  |  | e6-mod-sort-k |  |  | all-builtins definition.kore: 0 sentences of these modules (each is imported by all-builtins.k) |
 | `module:BASIC-K` | supported |  |  |  |  |  |  |  | BuiltinData.lean modules: the module's text is library data |
-| `module:KSTRING` | erased |  | A module of kast.md that holds productions of K's own term and rule syntax. Imported, it adds no sentence with a builtin Source to the kompiled text: what a rule written in its syntax becomes is E3's rows, and the symbols it stands for (kseq, dotk, inj, the sort K) are the prelude's, compared as tex… |  |  | e6-mod-kstring |  |  | all-builtins definition.kore: 0 sentences of these modules (each is imported by all-builtins.k) |
-| `module:BUILTIN-ID-TOKENS` | erased |  | A module of kast.md that holds productions of K's own term and rule syntax. Imported, it adds no sentence with a builtin Source to the kompiled text: what a rule written in its syntax becomes is E3's rows, and the symbols it stands for (kseq, dotk, inj, the sort K) are the prelude's, compared as tex… |  |  | e6-mod-builtin-id-tokens |  |  | all-builtins definition.kore: 0 sentences of these modules (each is imported by all-builtins.k) |
+| `module:KSTRING` | supported |  | The module adds sentences to the kompiled text: the token sort KString (a sort with domain values, no Source attribute) and kompile's generated sort predicates isKString. A row's status is that of what its text gives (ruling findings/work/am-frB-followups.md): the reader reads these sentences, the n… |  |  | e6-mod-kstring |  |  | fixtures/e6-mod-kstring: the kompiled text of a module importing the module (kast.md:58), which imports nothing, differs from base's (fixture.toml differs\_from base) by the token sort KString, the sort predicates isKString (declaration, functional axiom, two equations) and each sort's no-junk axiom;… |
+| `module:BUILTIN-ID-TOKENS` | supported |  | The module adds sentences to the kompiled text: the token sorts #LowerId and #UpperId (a sort with domain values, no Source attribute) and kompile's generated sort predicates is#LowerId and is#UpperId. A row's status is that of what its text gives (ruling findings/work/am-frB-followups.md): the read… |  |  | e6-mod-builtin-id-tokens |  |  | fixtures/e6-mod-builtin-id-tokens: the kompiled text of a module importing the module (kast.md:63), which imports nothing, differs from base's (fixture.toml differs\_from base) by the token sorts #LowerId and #UpperId, the sort predicates is#LowerId and is#UpperId (declaration, functional axiom, two… |
 | `module:SORT-KBOTT` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  |  |  | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `module:KAST` | erased |  | kompile 7.1.337 rejects a definition that imports the module (kompile-e6.sh's header gives each error), so under R-12 no kompiled text carries it as an import. The rule and configuration grammars import these modules by themselves; their productions are E3's rows. |  |  | e6-mod-kast |  |  | test/constructs/kompile-e6.sh:8-19 |
 | `module:KSEQ` | erased |  | kompile 7.1.337 rejects a definition that imports the module (kompile-e6.sh's header gives each error), so under R-12 no kompiled text carries it as an import. The rule and configuration grammars import these modules by themselves; their productions are E3's rows. |  |  | e6-mod-kseq |  |  | test/constructs/kompile-e6.sh:8-19 |
