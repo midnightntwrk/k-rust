@@ -133,14 +133,14 @@ indices = ["law_indices"]
 name = "library"
 count = 82
 direction = "atValues"
-at_values = 76
+at_values = 80
 file = "test/TieKimpAtValues.lean"
 theorems = ["lib_entailed", "libSet_entailed", "pred_entailed", "ev_entailed", "pred_indices", "lib_indices"]
 indices = ["lib_indices"]
-note = "68 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 52 term and function equations); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
-remainder = 6
-remainder_indices = [794, 795, 801, 802, 877, 878]
-reason = "794, 795, 801, 802: the shift simplifications X <<Int 0 = X, 0 <<Int Y = 0 requires 0 <=Int Y, X >>Int 0 = X, 0 >>Int Y = 0 requires 0 <=Int Y (domains.md 1380 to 1383), of which the library states no equation; 877, 878: ite{SortK}(C, B1, B2) at a condition C true or false, ite at the sort K, of which the library states no equation"
+note = "72 entailed at values (lib_entailed: the 16 predicate equations of ==Int, =/=Int, ==K, =/=K and 56 term and function equations, the shift simplifications 794, 795, 801, 802 among them); 8, the Bool predicate sentences over set variables (684 to 687, 692, 693, 698, 699), entailed at set values (libSet_entailed, EntailsAtSetValues: each free set variable at a set of values of its sort)"
+remainder = 2
+remainder_indices = [877, 878]
+reason = "877, 878: ite{SortK}(C, B1, B2) at a condition C true or false, ite at the sort K, of which the library states no equation"
 
 [[class]]
 name = "set idempotence"
