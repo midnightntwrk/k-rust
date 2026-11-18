@@ -35,7 +35,7 @@ theorem termsInSort_stdI (h : HypModelCore c) : TermsInSort c (stdI_T c T) := by
   intro vars tbl e t s ht hs hin a ha
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := h.sound
   haveI : OvlOK c := hno
-  have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
+  have hsc := sortCtx_of_allClEx hok hsr (OvlOK.ovlCase hno)
   have hlt : ∀ i ∈ varOccs t, i < vars.length := varOccs_lt t ht
   have hget : ∀ i ∈ varOccs t, vars[i]? = some (vars.getD i 0) := fun i hi => by
     rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (hlt i hi)]; rfl

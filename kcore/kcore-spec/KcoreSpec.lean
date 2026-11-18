@@ -159,6 +159,7 @@ import KcoreSpec.ModelFunctional
 import KcoreSpec.ModelStrict
 import KcoreSpec.ModelJunkNonemptyWitness
 import KcoreSpec.ModelFnSolvesWitness
+import KcoreSpec.ModelFnDetWitness
 import KcoreSpec.ModelLibIntWitness
 import KcoreSpec.ModelCollUnitWitness
 import KcoreSpec.ModelLitsWitness
@@ -371,3 +372,7 @@ import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
 import KcoreSpec.ModelHasEx
+import KcoreSpec.CoreOKEx
+import KcoreSpec.CoreOKExFacts
+import KcoreSpec.OpenClauseDenQ
+import KcoreSpec.ClauseExDenCEx

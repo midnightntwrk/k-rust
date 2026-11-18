@@ -1,6 +1,7 @@
 /-
-  `ruleSorted` sorts a rule's left side over `patCtxNF`, the context of the patterns that apply no
-  function-overloaded symbol. Stated here against the text it replaces:
+  `ruleSorted` sorts a rule's left side, `clauseSorted` a clause's patterns and `condOK` the pattern
+  of an `exMatch` over `patCtxNF`, the context of the patterns that apply no function-overloaded
+  symbol. Stated here against the texts they replace:
 
   - `ruleSorted_iff_all`: `ruleSorted r` holds exactly when `ruleSortedAll r` does (the same
     conjuncts with the left side sorted over `patCtxAll`) and the left side applies no
@@ -9,6 +10,13 @@
     left side.
   - `ruleSorted_of_all_ovlPats`: and a rule of a semantics with `ovlPatsOK` has `ruleSorted` as soon
     as it has `ruleSortedAll`: on the rules of a semantics `overloadsOK` accepts the two texts agree.
+  - `clauseSorted_iff_all`, `pats_noFnOvl_of_sortedOK`, `clauseSorted_of_all_ovlPats`: the same of
+    `clauseSorted`, `clauseSortedAll` (the patterns sorted over `patCtxAll`) and `NoFnOvlInL` of the
+    clause's patterns.
+  - `condOK_exMatch_iff_all`: `condOK` of an `exMatch` holds exactly when its `patCtxAll` text does
+    and the pattern applies no function-overloaded symbol.
+  - `Semantics.ovlPatsOK_of_sortedOK` (Tie): so `sortedOK` gives `ovlPatsOK`, for every semantics;
+    its axioms are guarded here.
 
   Run from the package root: `lake env lean -j1 test/SortedNF.lean`.
 -/
@@ -48,6 +56,53 @@ theorem ruleSorted_of_all_ovlPats {c : Semantics} (hov : c.ovlPatsOK = true) {r 
     (h : ruleSortedAll c r = true) : c.ruleSorted r = true :=
   (ruleSorted_iff_all c r).mpr ⟨h, Semantics.ovlPats_lhs hov hr⟩
 
+/-- `clauseSorted` with the patterns sorted over `patCtxAll`. -/
+def clauseSortedAll (c : Semantics) (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
+  sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
+  binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
+    (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
+  sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
+  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) &&
+  c.condOK cl.vars cl.pre
+
+theorem sortsOfTerms_nf_iff' (c : Semantics) {vars : List Srt} {ts : List Term} {ss : List Srt} :
+    sortsOfTerms c.patCtxNF vars ts = some ss ↔ sortsOfTerms c.patCtxAll vars ts = some ss ∧ c.NoFnOvlInL ts :=
+  ⟨sortsOfTerms_of_nf ts, fun h => sortsOfTerms_to_nf ts h.1 h.2⟩
+
+theorem clauseSorted_iff_all (c : Semantics) (f : Fn) (H : List CtorSig) (cl : Clause) :
+    c.clauseSorted f H cl = true ↔ clauseSortedAll c f H cl = true ∧ c.NoFnOvlInL cl.pats := by
+  simp only [Semantics.clauseSorted, clauseSortedAll, Bool.and_eq_true, beq_iff_eq, sortsOfTerms_nf_iff']
+  constructor
+  · rintro ⟨⟨⟨⟨⟨⟨⟨h1, hn⟩, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩
+    exact ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, hn⟩
+  · rintro ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, hn⟩
+    exact ⟨⟨⟨⟨⟨⟨⟨h1, hn⟩, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩
+
+theorem pats_noFnOvl_of_sortedOK {c : Semantics} (h : c.sortedOK = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) : c.NoFnOvlInL cl.pats := by
+  have hs := Semantics.sortedOK_sorted h
+  simp only [Bool.and_eq_true, List.all_eq_true] at hs
+  exact ((clauseSorted_iff_all c f _ cl).mp (hs.1.2 f hf cl hcl)).2
+
+theorem clauseSorted_of_all_ovlPats {c : Semantics} (hov : c.ovlPatsOK = true) {f : Fn} (hf : f ∈ c.fns)
+    {cl : Clause} (hcl : cl ∈ f.clauses) {H : List CtorSig} (h : clauseSortedAll c f H cl = true) :
+    c.clauseSorted f H cl = true :=
+  (clauseSorted_iff_all c f H cl).mpr ⟨h, Semantics.ovlPats_pats hov hf hcl⟩
+
+theorem condOK_exMatch_iff_all (c : Semantics) (vars ys : List Srt) (s : Srt) (p t : Term) (body : Cond) :
+    c.condOK vars (.exMatch ys s p t body) = true ↔
+      ((sortOfTerm c.patCtxAll (vars ++ ys) p = some s ∧
+        sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) vars t = some s ∧ c.condOK (vars ++ ys) body = true) ∧
+        s < nRegSorts + c.sortNames.length) ∧ c.NoFnOvlIn p := by
+  simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, sortOfTerm_nf_iff]
+  constructor
+  · rintro ⟨⟨⟨⟨h1, hn⟩, h2⟩, h3⟩, h4⟩
+    exact ⟨⟨⟨h1, h2, h3⟩, h4⟩, hn⟩
+  · rintro ⟨⟨⟨h1, h2, h3⟩, h4⟩, hn⟩
+    exact ⟨⟨⟨⟨h1, hn⟩, h2⟩, h3⟩, h4⟩
+
 /-- info: 'KCore.SortedNF.ruleSorted_iff_all' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms ruleSorted_iff_all
@@ -57,5 +112,20 @@ theorem ruleSorted_of_all_ovlPats {c : Semantics} (hov : c.ovlPatsOK = true) {r 
 /-- info: 'KCore.SortedNF.ruleSorted_of_all_ovlPats' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms ruleSorted_of_all_ovlPats
+/-- info: 'KCore.SortedNF.clauseSorted_iff_all' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms clauseSorted_iff_all
+/-- info: 'KCore.SortedNF.pats_noFnOvl_of_sortedOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms pats_noFnOvl_of_sortedOK
+/-- info: 'KCore.SortedNF.clauseSorted_of_all_ovlPats' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms clauseSorted_of_all_ovlPats
+/-- info: 'KCore.SortedNF.condOK_exMatch_iff_all' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms condOK_exMatch_iff_all
+/-- info: 'KCore.Semantics.ovlPatsOK_of_sortedOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Semantics.ovlPatsOK_of_sortedOK
 
 end KCore.SortedNF

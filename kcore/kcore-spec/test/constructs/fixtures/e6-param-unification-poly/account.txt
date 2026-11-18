@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-PARAM-UNIFICATION-POLY: 406 sentences
+  1 inert import [generated]
+  184 read [generated]
+  184 read [builtin]
+  6 read [own builtin]
+  2 unread parametricUnused [own builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 parametricSymbol
+      sentence 309 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'Hash'freezeKVariables'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Sort'Unds'Sort'Unds'K)
+        [user] (no label) at e6-param-unification-poly.k:10: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1"), VarX1:SortK{}, VarX2:SortK{}, Var'Unds'Gen0:SortSet{}), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(app …
+      sentence 310 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'Hash'renameMetaKVariables'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Sort'Unds'Sort'Unds'Set)
+        [user] (no label) at e6-param-unification-poly.k:11: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2"), VarX1:SortK{}, Var'Unds'Gen0:SortK{}, VarS:SortSet{}), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(appe …
+finish: sentence 309 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'Hash'freezeKVariables'LParUndsCommUndsRParUnds'UNIFICATION'Unds'Sort'Unds'Sort'Unds'K)
+(exit 0)

@@ -151,7 +151,7 @@ theorem termSoundAt_stdI (h : HypModelCore c) : HoldsShape.TermSoundAt c (stdI_T
   intro σ t r he vars P tbl e s hP hr ht m
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := h.sound
   haveI : OvlOK c := hno
-  have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
+  have hsc := sortCtx_of_allClEx hok hsr (OvlOK.ovlCase hno)
   have hvar : ∀ i, P i → ∀ m, (KoreAML.tr ⟨tbl, []⟩ (KoreAML.varAt (canonVars c vars) i)).interpret (stdI_T c T) e m ↔
       ∃ v, σ.lookup i = some v ∧ m = .val v := by
     intro i hi m
@@ -189,7 +189,7 @@ theorem atomFacts_stdI (h : HypModelCore c) : HoldsShape.AtomFacts c (stdI_T c T
   haveI : OvlOK c := hno
   refine ⟨AtT.defOK_std, AtT.sat_ceilDef, fun {s} hs => ⟨.srt s, isSort_stdI hs, fun tbl e a => srtOf_den_stdI h hs e a⟩,
     fun {v s} hv tbl e => ⟨.val v, den_val_T h T v hv e, (inhOf_srtOf_stdI h (sortOf_numbered h hv) e _).mpr hv⟩,
-    fun {v w s} hv hw e a h1 h2 => ?_, termSoundAt_stdI h, sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno),
+    fun {v w s} hv hw e a h1 h2 => ?_, termSoundAt_stdI h, sortCtx_of_allClEx hok hsr (OvlOK.ovlCase hno),
     fun {vars t s} ht hv => sortOfTerm_numStdI h (fun k hk => rhsHead_kernel fns_headsOK hk) (fun _ _ h' => h') rfl t ht hv,
     fun hv => sortOf_numbered h hv⟩
   have e1 := (den_val_T h T v hv e a).mp h1
@@ -300,7 +300,7 @@ theorem term_readStdI (h : HypModelCore c) {vars : List Srt} {P : Nat → Prop} 
       ∀ v, EvalTerm c σ t (some v) → c.sortOf v = some s := by
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := h.sound
   haveI : OvlOK c := hno
-  have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
+  have hsc := sortCtx_of_allClEx hok hsr (OvlOK.ovlCase hno)
   refine ⟨sortOfTerm_numStdI h (fun k hk => rhsHead_kernel fns_headsOK hk) (fun _ _ h' => h') rfl t ht
       fun i hi s' hs' => ?_,
     AtT.tr_term h hr.hvar ((termOK_of_sorted h fns_headsOK ht).monoOpen hP),
