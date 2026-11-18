@@ -17,8 +17,10 @@
   - 321 (`isInfinite(F) => F >Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F)) orBool
     F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`, domains.md 1673):
     `ev321`, for every H meeting `isInfiniteEq` (`LibEv.fnIsInfinite_ev`); `ev321_lib` under
-    `HookParams.lib`. At a Float of a format with a model, both sides are `hook`'s and agree for
-    every format: a datum is infinite exactly when it is above the format's largest finite value or
+    `HookParams.lib`. Its value is the same under both readings of the naming of IEEE 754 (argued
+    from section 2 of the rulings, not proved: it reads `precisionFloat`, `exponentBitsFloat`,
+    `maxValueFloat`, `--Float` of a finite nonzero datum and the comparisons, each stated alike).
+    At a Float of a format with a model, both sides are `hook`'s and agree for every format: a datum is infinite exactly when it is above the format's largest finite value or
     below its negation (`KFloat.isInf_unpack`, KcoreSpec/FloatUnpack.lean). At a format with a
     field of 1, which has no model, `isInfinite` is at a silent point and the condition is the
     sentence there.

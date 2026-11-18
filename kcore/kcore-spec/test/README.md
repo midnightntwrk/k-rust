@@ -1564,7 +1564,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
   `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
   (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
-  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. Axioms guarded.
+  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. 2.0 GiB, 8 s. Axioms guarded.
 - `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
   (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
   format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there

@@ -9,6 +9,16 @@
   text takes from IEEE 754 by name. Where `hook` gives `=/=Float` a value it gives `==Float` one
   too, and the first is the negation of the second (`flCmp` at complementary tests). Where it gives
   `=/=Float` none, the left side is at a silent point and `neFloatEq` is the sentence there.
+
+  FLOAT's sentence 1673, `isInfinite(F) => F >Float maxValueFloat(precisionFloat(F),
+  exponentBitsFloat(F)) orBool F <Float --Float maxValueFloat(precisionFloat(F), exponentBitsFloat(F))`
+  (`fnIsInfinite`), entailed at values in the same way for every interpretation meeting
+  `Semantics.isInfiniteEq`. At a Float of a format with a model, both sides are `hook`'s and agree
+  at every format: a datum is infinite exactly when it is above the format's largest finite value
+  or below its negation (`KFloat.isInf_unpack`, FloatUnpack.lean), and the literals of
+  `maxValueFloat` and its negation read back as those data (`KFloat.unpackBits_packBits`). At a
+  format with a field of 1, which has no model, `isInfinite` is at a silent point and
+  `isInfiniteEq` is the sentence there.
 -/
 import KcoreSpec.LibEvStr
 import KcoreSpec.FloatUnpack
