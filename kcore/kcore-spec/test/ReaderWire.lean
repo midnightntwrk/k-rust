@@ -40,8 +40,9 @@
 
   The stages of a package (`Stages`), on `f2-examples/mleqort` (the kompiled text of
   `e3-ml-eq-rhs-or-total`), as `kcore gen` writes them for a function whose clauses are checked in
-  blocks: `Parse.clauseOf` on h's pair by the kernel (three clauses of one equation), `fnClauses`
-  from the block, and the productions with that table (`symProdT_eq`).
+  blocks: `Parse.clauseOf` on h's pair by the kernel (three clauses of one equation, those
+  `Parse.frClauses` gives for `f(X)`, `g(X)`: `cls2_frClauses`), `fnClauses` from the block, and the
+  productions with that table (`symProdT_eq`).
 
   `coreOf`'s check of Bool on the built definition (`CoreOfBool`): `coreOf` refuses, with
   `existentialEquation` naming Bool, an equation `exRead` reads (`exCases`) in a definition whose
@@ -488,6 +489,14 @@ theorem cls2 : fnClauses stage.env.N stage.env.src scanAll.eqs "Lblh" = .ok stag
 
 /-- The one equation gives three clauses. -/
 theorem cls2_lengths : stage.cls2_0.map (·.length) = [3] := by decide +kernel
+
+/-- **They are `frClauses`', by the kernel**: the alternatives `f(X)`, `g(X)` with no condition, f
+and g the symbols `nRegSyms + 4` and `nRegSyms + 5` of the text (test/EqRhsOr.lean's `F`, `G`,
+whose `frClauses_h` gives these clauses as `hCl1`, `hCl2`, `hCl3`). -/
+theorem cls2_frClauses : stage.cls2_0.map (·.map (·.1)) =
+    [Parse.frClauses Srt.int [Srt.int] [.var 0] none 50 false
+      [(.app (nRegSyms + 4) [.var 0], []), (.app (nRegSyms + 5) [.var 0], [])]] := by
+  kernel_rfl
 
 /-- **The productions, h's clauses from the block.** -/
 theorem prodsIs0 : MapIs (symProd stage.env scanAll.eqs) (prodSyms scanAll stage.env) 0 3 stage.prods0 := by
