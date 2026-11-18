@@ -244,24 +244,29 @@
 #      never a reason for not-handled;
 #   5. sem_eq with a companion text is a reader test (reader_tests), evidence of nothing about the text.
 #   7. (findings/work/decision-dec4.md section 5 as amended by findings/work/decision-nodir-applied.md
-#      section 5; Kore-in-K entry t231-generated-symbol-definition) A sentence that applies a symbol
-#      Γ does not have is not owed: it defines that symbol and no statement of Γ is it. Its class is
-#      no direction; the tie on the text states which sentences those are (`account_absent`) and
-#      that no sentence with a direction applies such a symbol (`absent_closed`). Which generated symbols
-#      Γ lacks is the reader's numbering, not whether a sentence applies them: the counter's getter,
-#      and an initializer of the top cell tree that no user sentence and no equation of a function
-#      of Γ applies. A projection is lacked where no user sentence and no equation of a function of
-#      Γ applies it. Every other generated function with an equation (an initializer of a cell below
-#      a cell collection) is Γ's with the text's equation, applied or not, and is not under this
-#      item. The defining equation's right side may apply Γ's symbols, its functions included: it
-#      gives the lacked symbol's value from theirs. A `functional` axiom of the lacked symbol states
-#      with the equation that this right side is defined; the account takes it only where that
-#      follows from Γ's constructors and total interpreted symbols and from the `functional` axioms
-#      of the initializers below, and refuses it otherwise (`initFunctionalOK`). A supported row
-#      whose sentence it is also names a model of Γ with `Step`'s steps in which the text's
-#      sentences of those symbols hold together at values (DONE-0 C2's floor; field no_direction, a
-#      `derived` table of kind "in a model"). Where no such model exists the sentences contradict Γ
-#      or one another: the text is not tied.
+#      section 5 and findings/work/decision-lacked-projection.md section 5; Kore-in-K entry
+#      t231-generated-symbol-definition) A sentence that applies a symbol Γ does not have is not owed:
+#      it defines that symbol and no statement of Γ is it. Its class is no direction; the tie on the
+#      text states which sentences those are (`account_absent`) and that no sentence with a direction
+#      applies such a symbol (`absent_closed`). Which generated symbols Γ lacks is the reader's
+#      numbering, not whether a sentence applies them: the counter's getter, and an initializer of the
+#      top cell tree that no user sentence and no equation of a function of Γ applies. A projection is
+#      lacked where no user sentence and no equation of a function of Γ applies it. Every other
+#      generated function with an equation (an initializer of a cell below a cell collection) is Γ's
+#      with the text's equation, applied or not, and is not under this item. The defining equation's
+#      right side may apply Γ's symbols, its functions included: it gives the lacked symbol's value
+#      from theirs. Where the left side is at a constructor pattern (a projection's
+#      kseq(inj{X,KItem}(K), dotk), the getter's top cell), the equation also states that the pattern
+#      builds no element at two values of its variables. Γ entails that from Cons-Fun and Cons-Inj of
+#      the pattern's generators (kseq, inj{X,KItem}, the top cell's constructor), so it is not owed
+#      either. For a projection this holds where its sort X is K, KItem or below KItem in Γ. A
+#      `functional` axiom of the lacked symbol states with the equation that this right side is
+#      defined; the account takes it only where that follows from Γ's constructors and total
+#      interpreted symbols and from the `functional` axioms of the initializers below, and refuses it
+#      otherwise (`initFunctionalOK`). A supported row whose sentence it is also names a model of Γ
+#      with `Step`'s steps in which the text's sentences of those symbols hold together at values
+#      (DONE-0 C2's floor; field no_direction, a `derived` table of kind "in a model"). Where no such
+#      model exists the sentences contradict Γ or one another: the text is not tied.
 #   Its scope is the sentences the reader leaves out of Γ; item 7's are not owed. A sentence the
 #   reader reads into Γ (a function equation, a rule) is Γ's own; a text whose read sentences have no
 #   model is form (r) (findings/work/decision-nomodel-form.md), status supported. Not recorded:
