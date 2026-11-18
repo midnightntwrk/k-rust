@@ -8,9 +8,10 @@ The document holds, in this order:
              class met); then the supported entries (rows and nested) with an owed fact, counted
              in three groups by their best fixture (below), the first, proved, named apart: the
              entries of status supported whose owed fact the headline statements' hypothesis
-             holds on a listed fixture. Nested entries are the tables of a row's `cases` (recursively),
-             `also_refused` and `split`, walked as test/constructs/units.py walks them, so the class
-             counts are units.py's.
+             holds on a listed fixture; then the E6 library rows by their `e6_tie`: tied, of no
+             direction (counted apart), refuted, uncovered. Nested entries are the tables of a
+             row's `cases` (recursively), `also_refused` and `split`, walked as
+             test/constructs/units.py walks them, so the class counts are units.py's.
   R-c        every entry (row or nested) of class R-c: its notion, the cone declaration that
              changes (`cone`), the ticket or unit that supports it (`unit`) and the planned lane.
   undecided  the rows of status pending-fixture and not-handled, by list.
@@ -158,6 +159,16 @@ def erased_letters(e):
                             ("O", "other_file" in e or "witness" in e), ("C", "carried_by" in e)] if ok]
 
 
+def e6_state(v):
+    """An E6 row's `e6_tie` as one of tied, no direction, refuted, uncovered."""
+    if isinstance(v, list):
+        return "tied"
+    for s in ("no direction", "refuted"):
+        if isinstance(v, str) and v.startswith(s + ":"):
+            return s
+    return "uncovered"
+
+
 def generate(rows_path, manifest_path):
     t = tomllib.load(open(rows_path, "rb"))
     m = tomllib.load(open(manifest_path, "rb"))
@@ -232,6 +243,11 @@ def generate(rows_path, manifest_path):
           "fixture the entry names: these count as supported under the headline statements), "
           f"{sg['open']} open and {sg['false']} false (counted apart: the headline statements' hypothesis "
           f"is not shown on their fixtures). The other {sup - sum(sg.values())} have no owed fact."]
+    e6t = collections.Counter(e6_state(r.get("e6_tie")) for r in t.get("E6", {}).values() if "e6_tie" in r)
+    o += ["", f"E6 library rows by their `e6_tie` (test/constructs/e6map.py; rows-header.toml): {sum(e6t.values())}, "
+          f"of which {e6t['tied']} tied, {e6t['no direction']} of no direction (the tie's no-direction class, "
+          f"owed-sentence rule item 7: never tied, counted apart), {e6t['refuted']} refuted and "
+          f"{e6t['uncovered']} uncovered."]
 
     o += ["", f"## Entries of class R-c ({len(rc)})", "",
           "Each names the notion the kernel lacks, the cone declaration that would change, and the "
