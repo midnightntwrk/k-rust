@@ -194,18 +194,18 @@ theorem g0_refuted : ¬ ∀ (c : Semantics) (f : Sym) (fn : Fn) (vs : List Groun
 
 /-! ## G1: an `ensures` that is not `true` where its clause decides gives no value -/
 
-/-- **G1**, in every semantics whose clauses of one priority are coherent: a clause that decides at
-`vs` (it applies, every clause of a smaller priority fails) and whose `ensures` has a result other
-than `true` leaves its function without a value there. -/
+/-- **G1**, in every semantics whose clauses of one priority are coherent: a clause without
+existential variables that decides at `vs` (it applies, every clause of a smaller priority fails)
+and whose `ensures` has a result other than `true` leaves its function without a value there. -/
 theorem eval_noValue_of_ens_fails {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {e : Term} {r : Option GroundTerm} (hco : CoherentAll c)
     (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hσ : c.WellSorted cl.vars σ)
     (hmatch : PatVals c σ cl.pats vs) (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
     (hpre : Holds c cl.vars.length σ cl.pre true)
     (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (he : cl.ens = some e) (hev : EvalTerm c σ e r) (hr : r ≠ some (bool true)) :
+    (hex : cl.exs = []) (he : cl.ens = some e) (hev : EvalTerm c σ e r) (hr : r ≠ some (bool true)) :
     ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
-  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio he hev hr)
+  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio hex he hev hr)
 
 /-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` on the
 data (`coreOK` does not read the interpretation). -/

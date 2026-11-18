@@ -1598,3 +1598,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `refuses`: `CoherentAll` fails at both. `coherent_iff_prem`: for a first clause without
   existential variables `Coherent` is `CoherentPrem`. `clB_coherent`: `f() => ?B ensures ?B` is
   coherent with itself in every semantics.
+- `test/ExClauses.lean`: clauses with existential variables on the evaluation block, hand-built and
+  kernel-checked. `fl() => ?B ensures ?B` is `true` by `clauseEx` and has no other result
+  (`f1_some`, `f1_not_none`, `f1_fnDet`), is match independent and `FnSolves` holds (`f1_solves`);
+  `fl() => ?B` has no result (`f2_none`); `fl() => ?B ensures false` is `none` by `exNone`
+  (`f3_none`); `f() => g(?Z:Int)` with `post := Z ∈ lp()`, `lp() => lp()`, has no result at all
+  (`fC_none`); `fl() => true` beside `fl() => ?B`: coherent, the second clause not match independent,
+  `FnSolves` false (`k2_*`); `fl() => true` beside `fl() => false` with `post := ⊥`: match
+  independent, `FnSolves` false (`q_*`); `fl() => Y` with `post := ⊥`: no result, coherent with itself
+  (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
+  `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
+  `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.
