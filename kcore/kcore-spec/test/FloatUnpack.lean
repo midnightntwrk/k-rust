@@ -33,6 +33,12 @@ example (s : Format) (sg : Sign) (m : Nat) (q : Int) (hm : 0 < m)
     (ht : s.targetExponent (totalExponent m q) = q) : round s sg m q = .finite sg m q hm :=
   round_of_target s sg hm ht
 
+example (s : Format) (b : BitVec s.numBits) :
+    isInf (UnpackedFloat.unpack s b) =
+      (cmpExact (UnpackedFloat.unpack s b) (maxValue s) == some .gt ||
+        cmpExact (UnpackedFloat.unpack s b) (maxValue s).neg == some .lt) :=
+  isInf_unpack s b
+
 end KCore.KFloat
 
 /-- info: 'KCore.KFloat.datum_unpack' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -49,3 +55,5 @@ end KCore.KFloat
 #guard_msgs in #print axioms KCore.KFloat.maxValue_eq
 /-- info: 'KCore.KFloat.exact_maxValue' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms KCore.KFloat.exact_maxValue
+/-- info: 'KCore.KFloat.isInf_unpack' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.KFloat.isInf_unpack

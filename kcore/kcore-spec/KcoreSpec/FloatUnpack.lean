@@ -12,6 +12,8 @@
     encoding as a number).
   - `round_of_target`: `round` leaves `m·2^q` unchanged where `q` is already the exponent the format
     gives it (`targetExponent`); so `maxValue s` is `(2^p − 1)·2^(B − w)` (`maxValue_eq`, `exact_maxValue`).
+  - `isInf_unpack`: a datum of the format is infinite exactly when it is above `maxValue s` or below
+    its negation by the exact comparison (`cmpExact`): every finite datum lies within them.
 -/
 import KcoreSpec.FloatDomain
 
@@ -306,5 +308,81 @@ theorem datum_maxValue (s : Format) : Datum s (maxValue s) := by
   have hB := fu_one_le_exponentBias s
   left
   refine ⟨by omega, by omega, by omega, Int.le_refl _⟩
+
+/-! ## The finite data lie within `±maxValue` -/
+
+theorem fu_two_pow_nonneg (n : Nat) : (0 : Int) ≤ 2 ^ n := Int.pow_nonneg (by decide)
+
+theorem fu_one_le_two_pow (n : Nat) : (1 : Int) ≤ 2 ^ n := by
+  have : ((2 ^ n : Nat) : Int) = (2 : Int) ^ n := by simp
+  have h : 1 ≤ 2 ^ n := Nat.one_le_two_pow
+  omega
+
+/-- `a·2^q` with `|a| ≤ M` and `q ≤ Q` is not above `M·2^Q` and not below `−M·2^Q`. -/
+theorem fu_cmpScaled_within {a q : Int} {M : Nat} {Q : Int} (hq : q ≤ Q) (ha : -(M : Int) ≤ a ∧ a ≤ M) :
+    cmpScaled a q M Q ≠ .gt ∧ cmpScaled a q (-(M : Int)) Q ≠ .lt := by
+  unfold cmpScaled
+  dsimp only
+  rw [Int.min_eq_left hq, Int.sub_self, Int.toNat_zero, Int.pow_zero, Int.mul_one]
+  have hX := fu_one_le_two_pow (Q - q).toNat
+  generalize (2 : Int) ^ (Q - q).toNat = X at hX ⊢
+  have hM : (M : Int) * 1 ≤ M * X := Int.mul_le_mul_of_nonneg_left hX (by omega)
+  rw [Int.neg_mul]
+  constructor
+  · intro h; rw [Int.compare_eq_gt] at h; omega
+  · intro h; rw [Int.compare_eq_lt] at h; omega
+
+/-- A zero is not above `M·2^Q` and not below `−M·2^Q`. -/
+theorem fu_cmpScaled_zero (M : Nat) (Q : Int) :
+    cmpScaled 0 0 M Q ≠ .gt ∧ cmpScaled 0 0 (-(M : Int)) Q ≠ .lt := by
+  unfold cmpScaled
+  dsimp only
+  rw [Int.zero_mul]
+  have hX := fu_two_pow_nonneg (Q - min 0 Q).toNat
+  generalize (2 : Int) ^ (Q - min 0 Q).toNat = X at hX ⊢
+  have hM : 0 ≤ (M : Int) * X := Int.mul_nonneg (by omega) hX
+  rw [Int.neg_mul]
+  constructor
+  · intro h; rw [Int.compare_eq_gt] at h; omega
+  · intro h; rw [Int.compare_eq_lt] at h; omega
+
+theorem fu_within_false {X Y : Ordering} (h1 : X ≠ .gt) (h2 : Y ≠ .lt) :
+    false = (some X == some .gt || some Y == some .lt) := by
+  cases X <;> cases Y <;> simp_all
+
+/-- **Every datum of the format is infinite exactly when it is above `maxValue s` or below its
+negation** (`cmpExact`): an infinity is above or below every finite value, NaN is in no order, and
+a zero or a finite datum `m·2^q` has `m ≤ 2^p − 1` and `q ≤ B − w` (`Datum`), so it lies within. -/
+theorem isInf_datum (s : Format) (u : UnpackedFloat) (hd : Datum s u) :
+    isInf u = (cmpExact u (maxValue s) == some .gt || cmpExact u (maxValue s).neg == some .lt) := by
+  have hB := fu_one_le_exponentBias s
+  rw [maxValue_eq]
+  match u, hd with
+  | .notANumber, _ => rfl
+  | .infinity .positive, _ => rfl
+  | .infinity .negative, _ => rfl
+  | .zero sg, _ =>
+    obtain ⟨h1, h2⟩ := fu_cmpScaled_zero (2 ^ s.mantissaBits - 1)
+      ((s.exponentBias : Int) - s.mantissaBitsWithoutImplicit)
+    exact fu_within_false h1 h2
+  | .finite sg m q hm, hd =>
+    have hm1 : m ≤ 2 ^ s.mantissaBits - 1 := by
+      have hp : 2 ^ s.mantissaBits = 2 * 2 ^ s.mantissaBitsWithoutImplicit := by
+        rw [fu_mantissaBits]; exact Nat.pow_succ'
+      rcases hd with ⟨-, h, -, -⟩ | ⟨h, -⟩ <;> omega
+    have hq : q ≤ (s.exponentBias : Int) - s.mantissaBitsWithoutImplicit := by
+      rcases hd with ⟨-, -, -, h⟩ | ⟨-, h⟩ <;> omega
+    have ha : -((2 ^ s.mantissaBits - 1 : Nat) : Int) ≤ sg.apply m ∧
+        sg.apply m ≤ ((2 ^ s.mantissaBits - 1 : Nat) : Int) := by
+      cases sg <;> simp only [Sign.apply] <;> omega
+    obtain ⟨h1, h2⟩ := fu_cmpScaled_within hq ha
+    exact fu_within_false h1 h2
+
+/-- `isInf_datum` at the datum of an encoding (`datum_unpack`). -/
+theorem isInf_unpack (s : Format) (b : BitVec s.numBits) :
+    isInf (UnpackedFloat.unpack s b) =
+      (cmpExact (UnpackedFloat.unpack s b) (maxValue s) == some .gt ||
+        cmpExact (UnpackedFloat.unpack s b) (maxValue s).neg == some .lt) :=
+  isInf_datum s _ (datum_unpack s b)
 
 end KCore.KFloat
