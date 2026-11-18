@@ -2,7 +2,8 @@
   Overloads by functions: semantics built by hand from the fixtures' kompiled sentences, the facts
   that hold of them now, and the expectations the function-overload construct meets, as
   propositions (`expect`, `expectOvlfun`, `expectLhs` in each namespace), each proved here
-  (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
+  (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`,
+  `Admit.coreOK_conf`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
 
   Each semantics has the configuration `<generatedTop>(<k>(K), C)`, its own sorts numbered from
   `nRegSorts` and its own symbols from `nRegSyms` (the sort predicates first, then constructors,
@@ -51,7 +52,7 @@
     and the rules `x => y requires p(H)` (H of S, not bound by the left side) and `x => z` with
     priority 200. S is not confined (`confined_S`), by the conjunct of `confinedAt` on a generator
     that overloads a function: with `fS` overloading nothing, S is confined (`confined_S_control`).
-    Expected: `coreOK`.
+    Expected: `coreOK`, and S not confined (`Admit.coreOK_conf`).
 -/
 import KcoreSpec
 
