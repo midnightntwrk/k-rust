@@ -19,7 +19,10 @@
   What `totalTermG` accepts beyond `totalTerm`: calls of every function declared `[total]` (and
   the sort predicates); the parameters an interpretation is total on (`ParamsTotal`); `ite{S}`
   implemented by the registry's `kIte`; a map collection's element symbol implemented by the
-  registry's map element (`mapItemHead`, the generated `init…Cell` functions' cell-map items); the Int divisions (`/Int`, `%Int`, `divInt`, `modInt`)
+  registry's map element (`mapItemHead`, the generated `init…Cell` functions' cell-map items); a
+  set or list collection's element symbol implemented by the registry's set or list element
+  (`setListItemHead`, the generated `init…Cell` functions' cell-set and cell-list items); the Int
+  divisions (`/Int`, `%Int`, `divInt`, `modInt`)
   where the divisor is a non-zero Int literal or the clause's `requires` asserts it non-zero
   (`nonzeroIn`: `D =/=Int 0`, `notBool (D ==Int 0)`, a bound on D away from 0).
 
@@ -84,18 +87,31 @@ def mapItemHead (f : Sym) : Bool :=
       | _, _ => false
     | none => false
 
+/-- A collection's element symbol for sets and lists, `ThCellSetItem`, `LtCellListItem`: a
+parameter symbol implemented by the set element hook (`setElem`) whose result sort is a set
+collection sort, or by the list element hook (`listElem`) whose result sort is a list collection
+sort, with the collection's element sort as its one argument sort. Its value at an element of that
+sort is the one-element set or list of its result sort. -/
+def setListItemHead (f : Sym) : Bool :=
+  !isHook f && match c.lookupParam f with
+    | some k => match k.sig.args, c.collOf k.sig.result with
+      | [a], some co => co.key == a &&
+          ((k.impl == some setElem && co.kind == .set) || (k.impl == some listElem && co.kind == .list))
+      | _, _ => false
+    | none => false
+
 /-- A head whose application to values of its argument sorts has a value, the literals `fs`
 holding and the functions of `tot` total: a constructor, an interpreted symbol other than
 `partialHooks`, an Int division by a term `nonzeroIn fs`, `ite{S}`, a parameter of `tp` no registry
 hook implements (`totalParam`), a function of `tot`, a map collection's element symbol
-(`mapItemHead`), an overloading symbol that is not function-overloaded (its normal form is defined
+(`mapItemHead`), a set or list collection's element symbol (`setListItemHead`), an overloading symbol that is not function-overloaded (its normal form is defined
 at every argument list; a function-overloaded one has, at arguments a function it overloads covers,
 that function's value, which may be undefined). -/
 def headTotalG (tot tp : List Sym) (fs : List (Term × Bool)) (f : Sym) (ts : List Term) : Bool :=
   c.isCtor f || (isHook f && !partialHooks.contains f) ||
   (divHooks.contains f && divArgOK fs ts) ||
   c.iteHead f || c.totalParam tp f ||
-  (!isHook f && !c.isParam f && tot.contains f) || c.mapItemHead f ||
+  (!isHook f && !c.isParam f && tot.contains f) || c.mapItemHead f || c.setListItemHead f ||
   ((c.lookupOvl f).isSome && c.isOvl f && !c.fnOvlSyms.contains f)
 
 mutual
@@ -337,9 +353,9 @@ theorem headTotalG_cases {tot tp : List Sym} {fs : List (Term × Bool)} {f : Sym
     (divHooks.contains f = true ∧ Semantics.divArgOK fs ts = true) ∨
     c.iteHead f = true ∨ c.totalParam tp f = true ∨
     (isHook f = false ∧ c.isParam f = false ∧ tot.contains f = true) ∨ c.mapItemHead f = true ∨
-    c.isOvl f = true := by
+    c.setListItemHead f = true ∨ c.isOvl f = true := by
   simp only [Semantics.headTotalG, Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
-  rcases h with ((((((h | h) | h) | h) | h) | h) | h) | h
+  rcases h with (((((((h | h) | h) | h) | h) | h) | h) | h) | h
   · exact .inl h
   · exact .inr (.inl h)
   · exact .inr (.inr (.inl h))
@@ -347,7 +363,8 @@ theorem headTotalG_cases {tot tp : List Sym} {fs : List (Term × Bool)} {f : Sym
   · exact .inr (.inr (.inr (.inr (.inl h))))
   · exact .inr (.inr (.inr (.inr (.inr (.inl ⟨h.1.1, h.1.2, h.2⟩)))))
   · exact .inr (.inr (.inr (.inr (.inr (.inr (.inl h))))))
-  · exact .inr (.inr (.inr (.inr (.inr (.inr (.inr h.1.2))))))
+  · exact .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inl h)))))))
+  · exact .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr h.1.2)))))))
 
 /-- No label of `totalLabels` is the number of a symbol `lookupFn` finds no function under. -/
 theorem totalLabels_of_lookupFn_none {f : Sym} (h : c.lookupFn f = none) : c.totalLabels.contains f = false := by
@@ -372,7 +389,7 @@ theorem headTotalG_ovl {tp : List Sym} {fs : List (Term × Bool)} {f : Sym} {ts 
   obtain ⟨hct, hhk, hp, hfn, -⟩ := c.isOvl_parts ho
   have htl := totalLabels_of_lookupFn_none hfn
   simp only [Semantics.headTotalG, Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h
-  rcases h with ((((((h | h) | h) | h) | h) | h) | h) | h
+  rcases h with (((((((h | h) | h) | h) | h) | h) | h) | h) | h
   · rw [hct] at h; cases h
   · rw [hhk] at h; cases h.1
   · rw [divHooks_isHook h.1] at hhk; cases hhk
@@ -386,6 +403,10 @@ theorem headTotalG_ovl {tp : List Sym} {fs : List (Term × Bool)} {f : Sym} {ts 
     | some _ => simp [Semantics.isParam, hl] at hp
   · rw [htl] at h; cases h.2
   · simp only [Semantics.mapItemHead, hhk, Bool.not_false, Bool.true_and] at h
+    cases hl : c.lookupParam f with
+    | none => rw [hl] at h; cases h
+    | some _ => simp [Semantics.isParam, hl] at hp
+  · simp only [Semantics.setListItemHead, hhk, Bool.not_false, Bool.true_and] at h
     cases hl : c.lookupParam f with
     | none => rw [hl] at h; cases h
     | some _ => simp [Semantics.isParam, hl] at hp
@@ -408,6 +429,37 @@ theorem paramVal_mapItem {f : Sym} {kp : ParamSig} (hp : c.lookupParam f = some 
   have hh : hook mapElem [x, y] = some (some (.map Srt.map [(x, y)])) := rfl
   rw [Semantics.hookRes_of_value hh]
   simp [Option.filter, GroundTerm.asSort, GroundTerm.withSort, hs]
+
+/-- A set or list collection's element symbol at an element of the collection's sort: the
+one-element set or list of its result sort. -/
+theorem paramVal_setListItem {f : Sym} {kp : ParamSig} (hp : c.lookupParam f = some kp)
+    {co : CollSig} (hco : c.collOf kp.sig.result = some co)
+    (hk : (kp.impl = some setElem ∧ co.kind = .set) ∨ (kp.impl = some listElem ∧ co.kind = .list))
+    {x : GroundTerm} (hx : c.sortOf x = some co.key) :
+    ∃ v, c.paramVal f [x] = some v := by
+  have hx' : ∀ e ∈ [x], c.sortOf e = some co.key := fun e he => by
+    rw [List.mem_singleton.mp he]; exact hx
+  rcases hk with ⟨hi, hkind⟩ | ⟨hi, hkind⟩
+  · have hs : c.sortOf (.set kp.sig.result [x]) = some kp.sig.result :=
+      sortOf_setS.mpr ⟨co, hco, hkind, rfl, hx', rfl⟩
+    refine ⟨.set kp.sig.result [x], ?_⟩
+    unfold Semantics.paramVal
+    rw [hp]
+    simp only [hi]
+    rw [Semantics.libArgs_coll c (by decide)]
+    have hh : hook setElem [x] = some (some (.set Srt.set [x])) := rfl
+    rw [Semantics.hookRes_of_value hh]
+    simp [Option.filter, GroundTerm.asSort, GroundTerm.withSort, hs]
+  · have hs : c.sortOf (.list kp.sig.result [x]) = some kp.sig.result :=
+      sortOf_listS.mpr ⟨co, hco, hkind, hx', rfl⟩
+    refine ⟨.list kp.sig.result [x], ?_⟩
+    unfold Semantics.paramVal
+    rw [hp]
+    simp only [hi]
+    rw [Semantics.libArgs_coll c (by decide)]
+    have hh : hook listElem [x] = some (some (.list Srt.list [x])) := rfl
+    rw [Semantics.hookRes_of_value hh]
+    simp [Option.filter, GroundTerm.asSort, GroundTerm.withSort, hs]
 
 /-! ## Rows -/
 
@@ -566,7 +618,7 @@ theorem tot_callN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
   have hsrt := EvalTerms.sorted hc.sort hts hL hσ hargs (allSome_map_some vs)
   obtain ⟨fn, hlook, hfa⟩ := fn_of_head hc.sort hL hk' hct hhk hp hev.isOvl_false
   have htl : c.totalLabels.contains f = true := by
-    rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h
+    rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h | h
     · rw [hct] at h; cases h
     · rw [hhk] at h; cases h.1
     · rw [divHooks_isHook h.1] at hhk; cases hhk
@@ -580,6 +632,10 @@ theorem tot_callN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
       | some _ => simp [Semantics.isParam, hl] at hp
     · exact h.2.2
     · simp only [Semantics.mapItemHead, hhk, Bool.not_false, Bool.true_and] at h
+      cases hl : c.lookupParam f with
+      | none => rw [hl] at h; cases h
+      | some _ => simp [Semantics.isParam, hl] at hp
+    · simp only [Semantics.setListItemHead, hhk, Bool.not_false, Bool.true_and] at h
       cases hl : c.lookupParam f with
       | none => rw [hl] at h; cases h
       | some _ => simp [Semantics.isParam, hl] at hp
@@ -602,7 +658,7 @@ theorem tot_hookN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
   obtain ⟨k₀, hk₀⟩ := lookupSig_hookSigs_of_isHook hhk
   have hkk := hook_of_head hk' hct k₀ hk₀
   subst hkk
-  rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h
+  rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h | h
   · rw [hct] at h; cases h
   · obtain ⟨hmem, hname⟩ := lookupSig_spec hk₀
     obtain ⟨v, hv⟩ := hook_total hs k hmem (hname ▸ h.2) ws hsrt
@@ -633,6 +689,7 @@ theorem tot_hookN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gro
     exact absurd h.1.1 (by simp)
   · rw [hhk] at h; cases h.1
   · simp [Semantics.mapItemHead, hhk] at h
+  · simp [Semantics.setListItemHead, hhk] at h
   · rw [(c.isOvl_parts h).2.1] at hhk; cases hhk
 
 include hc hs hH in
@@ -653,7 +710,7 @@ theorem tot_paramN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gr
   | some kp =>
     have hkk := param_of_head hk' hct hhk hlk
     subst hkk
-    rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h
+    rcases headTotalG_cases hhead with h | h | h | h | h | h | h | h | h
     · rw [hct] at h; cases h
     · rw [hhk] at h; cases h.1
     · rw [divHooks_isHook h.1] at hhk; cases hhk
@@ -690,6 +747,17 @@ theorem tot_paramN {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option Gr
         rw [hargs] at hsrt
         obtain ⟨w₁, w₂, rfl, h1, h2⟩ := sortsOf_two hsrt
         rw [paramVal_mapItem hlk himpl hco hkind hval (hkey ▸ h1) h2] at hr
+        exact ⟨_, hr⟩
+      · cases h
+    · simp only [Semantics.setListItemHead, hhk, hlk, Bool.not_false, Bool.true_and] at h
+      split at h
+      · rename_i a co hargs hco
+        simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at h
+        obtain ⟨hkey, hk⟩ := h
+        rw [hargs] at hsrt
+        obtain ⟨w, rfl, h1⟩ := sortsOf_one hsrt
+        obtain ⟨v, hv⟩ := paramVal_setListItem hlk hco hk (hkey ▸ h1)
+        rw [hv] at hr
         exact ⟨_, hr⟩
       · cases h
     · rw [(c.isOvl_parts h).2.2.1] at hp; cases hp
