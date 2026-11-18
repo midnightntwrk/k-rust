@@ -16,12 +16,14 @@ With --out DIR it writes the test into DIR and leaves f2-examples alone. --chunk
 decisions over the whole user module (`account_absent`) and over the constructor sentences
 (`cons_checked`, `cons_trS`) into ranges of N, each its own kernel decision (default: one each).
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
-agreement: FILE proves it (`ClausesAgree`) and states `facts` and `consistent` for every H.
+agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
+`owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
+agreement, and `owed_rules`, `owed_clauses` and `openDecidedH` (`OpenDecided` for every H) otherwise.
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
-states in a form not in OBL_FORMS, or which owes a fact other than an agreement (termination,
-totality, match independence), a rule's or clause's condition, or a held-named function's fact;
+states in a form not in OBL_FORMS, or which owes termination, totality or a held-named function's
+fact, or, without --hand consistency, a match independence or a rule's or clause's condition;
 a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
 written.
 
@@ -298,10 +300,13 @@ def named_list(src, thm):
     return [] if m[1].startswith("(") else [int(x) for x in re.findall(r"\d+", re.sub(r"/-.*?-/", "", m[1]))]
 
 
-def obligations(name, path):
-    """What `kcore gen --core` names of the text: the obligation form, the call order, and the
-    functions its agreement list names. Refused: a form not in OBL_FORMS, a named fact other than
-    an agreement (`agreeObligationsI`), an owed condition (`Owed`), a held-named function (`Held`)."""
+def obligations(name, path, hand=False):
+    """What `kcore gen --core` names of the text: the obligation form, the call order, the
+    functions its agreement list names, whether it names a clause's match independence (`match`) and
+    whether it owes a rule's or clause's condition (`owed`). Refused: a form not in OBL_FORMS,
+    termination or totality named, a held-named function (`Held`); without `hand` (a consistency
+    section written by hand that proves them), a match independence named or an owed condition
+    (`Owed`)."""
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         g = run([KCORE, "gen", path, d, "TieGenProbe", "--core"], cwd=KS)
         if g.returncode != 0:
@@ -319,21 +324,28 @@ def obligations(name, path):
     if form is None:
         m = re.search(r"^abbrev Obl.*$", fh, re.M)
         raise Refused(f"{name}: the obligations are in a form tiegen does not state ({m[0] if m else 'no Obl'})")
-    if re.search(r"^abbrev (Owed|Held)\b", fh, re.M):
-        raise Refused(f"{name}: an owed condition or a held-named function (`kcore gen --core` states `Owed` or `Held`)")
+    if re.search(r"^abbrev Held\b", fh, re.M):
+        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`)")
+    if re.search(r"^abbrev Owed\b", fh, re.M) and not hand:
+        raise Refused(f"{name}: an owed condition (`kcore gen --core` states `Owed`): its proof goes in "
+                      f"--hand consistency")
     lists = {k: named_list(mods[m], k) for k, m in (("term_named", "Term"), ("total_named", "Total"),
                                                    ("agree_named", "Agree"), ("match_named", "Match"))}
     if any(v is None for v in lists.values()):
         raise Refused(f"{name}: `kcore gen --core` states no list of {[k for k, v in lists.items() if v is None]}")
-    others = [k for k in ("term_named", "total_named", "match_named") if lists[k]]
+    others = [k for k in ("term_named", "total_named") + (() if hand else ("match_named",)) if lists[k]]
     if others:
-        raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)")
+        raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)"
+                      + ("" if hand or others != ["match_named"] else ": its proof goes in --hand consistency"))
+    form["match"] = bool(lists["match_named"])
     form["agree"] = lists["agree_named"]
     am = re.search(r"^theorem agree_named : .*?=\s*(\[.*?\])", mods["Agree"], re.M | re.S)
     form["agree_names"] = re.findall(r"\d+ /- (.*?) -/", am[1]) if am else []
-    if form["kind"] == "FnFacts" and (named_list(mods["Owed"], "owed_rules") != [] or
-                                      named_list(mods["Owed"], "owed_clauses") != []):
-        raise Refused(f"{name}: a rule's or clause's condition is owed (owed_rules, owed_clauses)")
+    form["owed"] = form["kind"] == "FnFacts" and (named_list(mods["Owed"], "owed_rules") != [] or
+                                                  named_list(mods["Owed"], "owed_clauses") != [])
+    if form["owed"] and not hand:
+        raise Refused(f"{name}: a rule's or clause's condition is owed (owed_rules, owed_clauses): its proof goes "
+                      f"in --hand consistency")
     co = re.search(r"def callOrder : List Nat := (\[[^\]]*\])", order)
     form["call_order"] = re.sub(r"/-.*?-/", "", co[1]).replace(" ", "")
     form["order_list"] = "[" + ", ".join(re.findall(r"\d+", form["call_order"])) + "]"
@@ -826,6 +838,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         else:
             w("    Under every H where it holds (`AgreeOwed`), Γ with the step's closure has a model (`facts`,")
             w("    `consistent`): the proof of `AgreeOwed` is owed.")
+    elif ob["match"] or ob["owed"]:
+        th = "`Γc`" if confined else "Γ"
+        owes = (["the match independence of a clause (`match_named`)"] if ob["match"] else []) + \
+            (["the condition of a rule or clause (`owed_rules`, `owed_clauses`)"] if ob["owed"] else [])
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator")
+        w(f"    (`noRaw`). It owes {' and '.join(owes)}.")
+        w("    The consistency section, written by hand, proves what it owes for every H"
+          + (" (`openDecidedH`)" if facts_kind == "FnFacts" else "") + ",")
+        w(f"    so {th} with the step's closure has a model for every H (`consistent`).")
     elif facts_kind == "FnFacts":
         th = "`Γc`" if confined else "Γ"
         w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`), has no open generator (`noRaw`), owes")
@@ -2070,11 +2091,12 @@ def main(argv):
     path = os.path.join(tmpd.name, f"{name}.kompile.kore")
     open(path, "w").write(text)
     wf_ok, failing = account_check(name, path)
-    ob = obligations(name, path)
+    ob = obligations(name, path, "consistency" in hand)
     um0, ua = user_axioms(text)
     head, sents = probe(name, path, um0, ob["order_list"])
-    if "consistency" in hand and not ob["agree"]:
-        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement")
+    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
+        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
+                      f"condition")
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")

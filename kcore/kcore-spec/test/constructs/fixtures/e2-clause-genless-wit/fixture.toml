@@ -1,0 +1,3 @@
+# unboundVariables x requires variable, the case of an equation with a witness: e2-clause-genless-arg's text with the
+# production "d" of S and isC(d) => true. S keeps the generator c(Empty) over a sort without a value, so the clause
+# f(_) => 1 requires isC(H:S) still owes its CondDecided over H:S, and H := d witnesses it

@@ -62,6 +62,7 @@ differs f2-examples/e1-sentences.kompile.kore
 differs f2-examples/e1-syntax.kompile.kore
 differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
+differs f2-examples/e2-clause-genless-wit.kompile.kore
 differs f2-examples/e2-fn-assoc-bad.kompile.kore
 differs f2-examples/e2-fn-assoc-rest.kompile.kore
 differs f2-examples/e2-fn-assoc-unit.kompile.kore
