@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-bool.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.1
+definition.kore bytes: 121001
+definition.kore sha256: 696bdbce4f9475ce86dfae439952fcced50d0395f5789e2f1f5c19271ce80296
+stripped sha256: afebcb551e2de660290acd5d0bb42c162b4efbc5c88dde9898de7001ffc81330
+main module: 280 sentences, 11 not in base's, in kore.txt
+same_as e6-mod-bool-imports: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-BOOL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-BOOL as default.

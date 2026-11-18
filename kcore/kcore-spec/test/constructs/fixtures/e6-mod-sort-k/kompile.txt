@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-sort-k.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.9
+definition.kore bytes: 79207
+definition.kore sha256: 300f77de373e5203e1fc92092fd65697bc88facb425dc11adf79271373e81aa8
+stripped sha256: 7c6cb5820c63ac4a731fe3d1def551fa278977b244d10bd349578cb2de858506
+main module: 228 sentences, 2 not in base's, in kore.txt
+same_as base: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-SORT-K-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-MOD-SORT-K as default.

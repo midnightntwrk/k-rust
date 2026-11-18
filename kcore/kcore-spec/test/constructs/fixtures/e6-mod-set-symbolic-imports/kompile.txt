@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-set-symbolic-imports.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 160370
+definition.kore sha256: 9e274e95ca28518c5630bd85973d852159abef7eeee5faf417863e53834a78b7
+stripped sha256: 26e6c9a739c344c4bad1c4751ec0ae04e0945c5a3b32cd1159567cc47bf649e9
+main module: 320 sentences, 14 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-SET-SYMBOLIC-IMPORTS-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E6-MOD-SET-SYMBOLIC-IMPORTS as default.
