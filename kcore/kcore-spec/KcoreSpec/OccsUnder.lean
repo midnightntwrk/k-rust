@@ -17,7 +17,7 @@
     `Semantics.holds` names (`holds_eq_collHeld`). Such a symbol is no overloading symbol
     (`collHeld_not_ovl`), a right side's context gives it the signature a left side's context gives
     it (`held_lookup`), and it has `HeldBack` (`collHeld_back`).
-  - `ovl_backR`: an overloading symbol has `HeldBack`.
+  - `ovl_backR`: an overloading symbol with no function among its overloads has `HeldBack`.
   - `mem_elem`: where `V ∈ t` holds at some element, the valuation's element at V is in t's
     translation.
 -/
@@ -324,17 +324,19 @@ theorem collHeld_back (hph : patHooksApart c = true) (hcs : collsOK c = true) (h
   obtain ⟨ws, hws, hb, -⟩ := head_back hI hg htr hR hw hbl hbs hm
   exact ⟨ws, hws, hb⟩
 
-/-- **An overloading symbol has `HeldBack`**: by `ovl_back`, with no hypothesis on the sorts. -/
+/-- **An overloading symbol with no function among its overloads has `HeldBack`**: by `ovl_back`,
+with no hypothesis on the sorts. -/
 theorem ovl_backR (hsc : SortCtx c) {L : List CtorSig} (hL : HeadsOK c L) {f : Sym} {k : CtorSig}
-    (ho : c.isOvl f = true) (hk : lookupSig (c.rhsCtx L).heads f = some k) : HeldBack c I f k := by
+    (ho : c.isOvl f = true) (hnf : OvlLaws.NoFnOver c f)
+    (hk : lookupSig (c.rhsCtx L).heads f = some k) : HeldBack c I f k := by
   obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk ho
   obtain ⟨hom, hn, -, hit, -⟩ := OvlLaws.ovl_parts (OvlOK.ok (c := c)) hlo
   have H := (inferInstance : OvlOK c).hyp htr
   obtain ⟨-, -, -, -, hks, -⟩ := OvlLaws.ovl_facts_ovlF H.fnFacts hlo
   refine ⟨hit, fun {w} hw {bs} hbl hbs hm => ?_⟩
   obtain ⟨a, ha, hm⟩ := hm
-  obtain ⟨ws, hws, hb, -⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _) (OvlOK.noFnOver _) hw hbl hbs
-    ⟨a, by rw [← hn] at ha; exact ha, hm⟩
+  obtain ⟨ws, hws, hb, -⟩ := ovl_back hI htr hg _ o.sig hks (OvlLaws.ovlRank_le _)
+    (by rw [hn]; exact hnf) hw hbl hbs ⟨a, by rw [← hn] at ha; exact ha, hm⟩
   exact ⟨ws, hws, hb⟩
 
 end Kinds
