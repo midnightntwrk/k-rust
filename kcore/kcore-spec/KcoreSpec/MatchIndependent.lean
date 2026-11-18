@@ -19,7 +19,7 @@ open KCore.Exec
 variable {c : Semantics}
 
 /-- A clause without existential variables that `clauseFixed` accepts is match independent: its patterns, well sorted in a
-left-hand side's context (`patCtxAll`), fix all of its variables, and its right-hand side's and
+left-hand side's context without function-overloaded symbols (`patCtxNF`), fix all of its variables, and its right-hand side's and
 its `ensures`' are among them. -/
 theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} (hmc : MatchCtxO c)
     (hpt : sortsOfTerms c.patCtxNF cl.vars cl.pats = some ss)

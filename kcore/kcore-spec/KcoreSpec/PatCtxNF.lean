@@ -7,7 +7,7 @@
   without those symbols. A pattern is well sorted over it exactly when it is well sorted over
   `patCtxAll` and applies none of them (`sortOfTerm_nf_iff`), so a theorem about patterns that
   reads a pattern's sort over `patCtxNF` holds of the patterns of a definition `overloadsOK`
-  accepts (`Semantics.lhs_nf`, `Semantics.pats_nf`, `Semantics.ruleCond_nf`, `Semantics.clauseCond_nf`) and
+  accepts (`Semantics.lhs_nf`, `Semantics.pats_nf`) and
   reads that the head of an application is not function-overloaded off its signature
   (`patCtxNF_lookup`).
 -/

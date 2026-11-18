@@ -493,7 +493,8 @@ mutual
 end
 
 mutual
-  /-- A pattern well sorted in a left-hand side's context denotes values of its sort. -/
+  /-- A pattern well sorted in a left-hand side's context that applies no function-overloaded
+  symbol (`patCtxNF`) denotes values of its sort. -/
   theorem patVal_sortedAllO (hc : MatchCtxO c) {τ : Subst} {vars : List Srt}
       (hτ : c.WellSorted vars τ) : ∀ {p : Term} {v : GroundTerm} {s : Srt},
       PatVal c τ p v → sortOfTerm c.patCtxNF vars p = some s → c.sortOf v = some s
