@@ -764,7 +764,7 @@ theorem eval_den_ex (h : c.coreOK = true) (hrc : c.readsConfined = true) (hIc : 
     EvalTerm.sorted hsc (hgive0 v hv).1 fns_headsOK hσ₀ hrhss rfl
   have holdsAt : ∀ {n : Nat} {σ' : Subst} {p : Cond} {b : Bool}, Holds c n σ' p b → HoldsAt c I n σ' p b :=
     by
-      intro n σ' p b hH vars P tbl e S hn _ hok' hbd ho hrd hk hS' a ha
+      intro n σ' p b hH vars P tbl e S hn hok' hbd ho hrd hk hS' a ha
       subst hn
       exact HD _ hok' hbd ho hrd hk hS' hH a ha
   -- the keys of the right side's predicate are keys of the body

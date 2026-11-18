@@ -141,9 +141,9 @@ mutual
       have hr : ∀ v, _ = some v → c.sortOf v = some fn'.result := fun v hv => EvalTerm.sorted hsc hrhs hL hσ' hrhss hv
       exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hexs hocc hreqs hrhss
         henss hr (fun tbl e' hag => right_iff hI hnn hmem hr
-          (fun m' => evalTerm_den4ClPre hrhs hL hσ' (canonVars_length c cl.vars) hag hrhss m')
-          (fun t ht m' => evalTerm_den4ClPre (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
-        (fun t ht tbl e' hag m' => evalTerm_den4ClPre (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
+          (fun m' => evalTerm_den4ClPreOcc hrhs hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) hrhss m')
+          (fun t ht m' => evalTerm_den4ClPreOcc (hens t ht) hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (henss t ht) m'))
+        (fun t ht tbl e' hag m' => evalTerm_den4ClPreOcc (hreq t ht) hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (hreqs t ht) m')
         (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
           have hR := hpreR fn' hmem cl hcl (HoldsShape.ne_top_of_isTop_false hpt)
           (preRead_agreesCl hR hpre (holds_den4ClPre hpreH hR.node hR.binder) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
@@ -157,8 +157,8 @@ mutual
       exact clause_den4Cl hI hnn hsc hph hfn hcl hws hσ' hmatch hpats hpre hpost hexs hocc hreqs hrhss
         henss (fun v hv => by cases hv) (fun tbl e' hag => right_empty hI hnn hmem ht hw
           (fun v hv => EvalTerm.sorted hsc he hL hσ' (henss t ht) hv)
-          (fun m' => evalTerm_den4ClPre he hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
-        (fun t ht tbl e' hag m' => evalTerm_den4ClPre (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
+          (fun m' => evalTerm_den4ClPreOcc he hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (henss t ht) m'))
+        (fun t ht tbl e' hag m' => evalTerm_den4ClPreOcc (hreq t ht) hL (hσ'.at _) (canonVars_length c cl.vars) (Agrees.on hag _) (hreqs t ht) m')
         (fun hpt tbl e' σr m0 hag hkp hRk hRv hσr hm0 =>
           have hR := hpreR fn' hmem cl hcl (HoldsShape.ne_top_of_isTop_false hpt)
           (preRead_agreesCl hR hpre (holds_den4ClPre hpreH hR.node hR.binder) hσ' hag hkp hRk hRv hσr hm0).mpr rfl)
@@ -200,10 +200,10 @@ mutual
       have htS : sortOfTerm (c.rhsCtx L) vars t = some Srt.bool := by
         rw [sortOfTerm_congr t fun i hi => hagl i (Clause.req_leftVars ht i hi)]; exact hreqs t ht
       exact ⟨t, r, ht, hr, fun v hv => EvalTerm.sorted hsc he hL hσ htS hv,
-        evalTerm_den4ClPre he hL hσ (by rw [canonVars_length, hlen]) hag htS⟩
+        evalTerm_den4ClPreOcc he hL (hσ.at _) (by rw [canonVars_length, hlen]) (Agrees.on hag _) htS⟩
   termination_by structural _ _ h => h
   /-- **The Holds lemma along an evaluation.** A truth value `Holds` gives a condition is read in
-  the model (`HoldsAt`): each term the derivation evaluates is read by `evalTerm_den4ClPre` at that
+  the model (`HoldsAt`): each term the derivation evaluates is read by `evalTerm_den4ClPreOcc` at that
   evaluation, and each constructor of `Holds` by its lemma (HoldsNode.lean). Asked of the model:
   the constructors' facts, and the binders' where the condition holds a binder. -/
   theorem holds_den4ClPre : ∀ {n : Nat} {σ : Subst} {p : Cond} {b : Bool}, Holds c n σ p b →
@@ -222,21 +222,21 @@ mutual
         (holds_den4ClPre h F fun hp => G (by rw [HoldsShape.hasBinder, hp, Bool.true_or]))
         (holds_den4ClPre h' F fun hq => G (by rw [HoldsShape.hasBinder, hq, Bool.or_true]))
     | _, _, _, _, .ceil h, F, _ => HoldsShape.holdsAt_ceil F h (HoldsShape.termAt_of_all hI
-        fun hσ hag ht m => evalTerm_den4ClPre h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
     | _, _, _, _, .equals h h', F, _ => HoldsShape.holdsAt_equals F
         h (HoldsShape.termAt_of_all hI
-          fun hσ hag ht m => evalTerm_den4ClPre h fns_headsOK hσ (canonVars_length c _) hag ht m)
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
         h' (HoldsShape.termAt_of_all hI
-          fun hσ hag ht m => evalTerm_den4ClPre h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h' fns_headsOK hσ (canonVars_length c _) hag ht m)
     | _, _, _, _, .mem h h', F, _ => HoldsShape.holdsAt_mem F
         h (HoldsShape.termAt_of_all hI
-          fun hσ hag ht m => evalTerm_den4ClPre h fns_headsOK hσ (canonVars_length c _) hag ht m)
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
         h' (HoldsShape.termAt_of_all hI
-          fun hσ hag ht m => evalTerm_den4ClPre h' fns_headsOK hσ (canonVars_length c _) hag ht m)
+          fun hσ hag ht m => evalTerm_den4ClPreOcc h' fns_headsOK hσ (canonVars_length c _) hag ht m)
     | _, _, _, _, .exNone h, F, G => HoldsShape.holdsAt_exMatch F (G rfl) h (HoldsShape.termAt_of_all hI
-        fun hσ hag ht m => evalTerm_den4ClPre h fns_headsOK hσ (canonVars_length c _) hag ht m) (Or.inl ⟨rfl, rfl⟩)
+        fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m) (Or.inl ⟨rfl, rfl⟩)
     | _, _, _, _, .exSome g h hb hr, F, G => HoldsShape.holdsAt_exMatch F (G rfl) h (HoldsShape.termAt_of_all hI
-        fun hσ hag ht m => evalTerm_den4ClPre h fns_headsOK hσ (canonVars_length c _) hag ht m)
+        fun hσ hag ht m => evalTerm_den4ClPreOcc h fns_headsOK hσ (canonVars_length c _) hag ht m)
         (Or.inr ⟨_, g, rfl, fun σ' hx hpv => holds_den4ClPre (hb σ' hx hpv) F fun _ => G rfl, hr⟩)
     | _, _, _, _, .ex g hb hr, F, G => HoldsShape.holdsAt_ex F (G rfl) g
         (fun σ' hx => holds_den4ClPre (hb σ' hx) F fun _ => G rfl) hr
@@ -244,33 +244,36 @@ mutual
         (fun σ' hx => holds_den4ClPre (hb σ' hx) F fun _ => G rfl) hr
   termination_by structural _ _ _ _ h => h
   /-- **L3, terms, fourth stage.** A well-sorted right-hand side or `requires`, at a valuation that
-  agrees with a well-sorted σ, translates to what its result under σ denotes: the value's element,
-  or nothing where it is undefined. -/
-  theorem evalTerm_den4ClPre : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm c σ t r →
+  agrees with σ on the term's variables, σ well sorted on them, translates to what its result under
+  σ denotes: the value's element, or nothing where it is undefined. -/
+  theorem evalTerm_den4ClPreOcc : ∀ {σ : Subst} {t : Term} {r : Option GroundTerm}, EvalTerm c σ t r →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {s : Srt},
-      HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
+      HeadsOK c L → c.WellSortedAt vars (varOccs t) σ → vs.length = vars.length →
+      AgreesOn c I tbl vs (varOccs t) σ e →
       sortOfTerm (c.rhsCtx L) vars t = some s →
       ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e m ↔ Res c I e r m
     | _, _, _, .var (i := i), L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       have hi := sortOfTerm_var.mp ht
       have hlt : i < vs.length := by rw [hvs]; exact (List.getElem?_eq_some_iff.mp hi).1
-      obtain ⟨v, hv, -⟩ := hσ i s hi
+      have hmem : i ∈ varOccs (.var i) := by rw [varOccs]; exact List.mem_singleton_self i
+      obtain ⟨v, hv, -⟩ := hσ i hmem s hi
       rw [hv, tr_var]
-      exact hag i v hlt hv m
+      exact hag i hmem v hlt hv m
     | _, _, _, .dv (s := s') (lit := lit), _, _, vs, tbl, e, _, _, _, _, _, _, m => by
       show _ ↔ (den c (.dv s' lit)).interpret I e m
       rw [Term.kore]; unfold den KoreAML.den; rw [GroundTerm.kore]; unfold srtOf
       rw [KoreAML.tr_dv, KoreAML.tr_dv]
     | _, _, _, .inj (a := a) (b := b) (t := t) (r := r) h', L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨hab, ht', -⟩ := sortOfTerm_inj.mp ht
-      have ih := evalTerm_den4ClPre h' hL hσ hvs hag ht'
+      rw [varOccs] at hσ hag
+      have ih := evalTerm_den4ClPreOcc h' hL hσ hvs hag ht'
       rw [Term.kore, KoreAML.tr_injP]
       cases r with
       | none =>
         simp only [Option.map_none, Res, iff_false]
         exact injApp_empty (fun m h => ((ih m).mp h)) m
       | some w =>
-        have hw := EvalTerm.sorted hsc h' hL hσ ht' rfl
+        have hw := EvalTerm.sorted_at hsc h' hL hσ ht' rfl
         simp only [Option.map_some, Res]
         rcases injNormal_cases a b w with ⟨a', a'', w', rfl, hn⟩ | hn
         · rw [hn]
@@ -285,7 +288,8 @@ mutual
     | _, _, _, .ctor (f := f) (ts := ts) (rs := rs) hk hts, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨k0, hk0⟩ := Option.isSome_iff_exists.mp hk
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
       rw [kore_app_plain hnn.1 hk0]
       cases hall : allSome rs with
       | none =>
@@ -298,7 +302,8 @@ mutual
     | _, _, _, .hook (f := f) (rs := rs) (r := r) hk hhk hts hh hund, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨hks, hkn⟩ := rhs_lookup_hook hk hhk hk'
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
@@ -307,7 +312,7 @@ mutual
         exact ih.2 hall _ m
       | some ws =>
         have hv := hh ws hall
-        have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
+        have hws := EvalTerms.sorted_at hsc hts hL hσ hargs hall
         have hax := sat_hookRes hI hks hws (by rw [hkn]; exact hv)
         have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax e default) m
         rw [hkn] at hgr
@@ -320,7 +325,8 @@ mutual
     | _, _, _, .param (f := f) (rs := rs) (r := r) hk hhk hp hts hr, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨kp, hkp, rfl, hkn⟩ := rhs_lookup_param hk hhk hp hk'
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
@@ -328,7 +334,7 @@ mutual
         simp only [Option.bind_none, Res, iff_false]
         exact ih.2 hall _ m
       | some ws =>
-        have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
+        have hws := EvalTerms.sorted_at hsc hts hL hσ hargs hall
         have hax := sat_dom hI (Or.inr (Or.inl ⟨kp, ws, hkp, hws, rfl⟩))
         have hgr := (KoreAML.interp_equal (defOK hI)).mp (hax e default) m
         rw [hkn] at hgr
@@ -342,8 +348,9 @@ mutual
     | _, _, _, .call (f := f) (rs := rs) (vs := ws) hk hh hts hvs' hf hp, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨fn, hfnm, rfl, hlook⟩ := rhs_lookup_call hsc hL hk hh hp (Eval.lookupFn_ne hf) hk'
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
-      have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
+      have hws := EvalTerms.sorted_at hsc hts hL hσ hargs hvs'
       rw [kore_app, tr_symApp, ih.1 ws hvs' _ _ (fun _ => Iff.rfl) m]
       have := eval_den4ClPre hf hlook hws e m
       unfold KoreAML.den at this
@@ -351,7 +358,8 @@ mutual
       exact this
     | _, _, _, .callUndef (f := f) (rs := rs) hk hh hts hvs' hp, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
@@ -360,8 +368,9 @@ mutual
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       rw [hlo] at hlo'; cases hlo'
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
-      have hws := EvalTerms.sorted hsc hts hL hσ hargs hvs'
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
+      have hws := EvalTerms.sorted_at hsc hts hL hσ hargs hvs'
       obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ :=
         OvlLaws.fnCover_fn_ovlF ((inferInstance : OvlOK c).hyp hsc.trans).fnFacts hlo hws hcov
       have hname : kg.name = fn.label := by rw [hsig]
@@ -376,14 +385,15 @@ mutual
     | _, _, _, .ovl (f := f) (rs := rs) hk ho hts hnf, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
-      have ih := evalTerms_den4ClPre hts hL hσ hvs hag hargs
+      rw [varOccs] at hσ hag
+      have ih := evalTerms_den4ClPreOcc hts hL hσ hvs hag hargs
       rw [kore_app, tr_symApp]
       cases hall : allSome rs with
       | none =>
         simp only [Option.map_none, Res, iff_false]
         exact ih.2 hall _ m
       | some ws =>
-        have hws := EvalTerms.sorted hsc hts hL hσ hargs hall
+        have hws := EvalTerms.sorted_at hsc hts hL hσ hargs hall
         simp only [Option.map_some, Res]
         rw [ih.1 ws hall _ _ (fun _ => Iff.rfl) m]
         have := (normDen_of hI hsc.trans).1 hlo hws (hnf ws hall) e m
@@ -391,9 +401,10 @@ mutual
         rw [tr_symApp] at this
         exact this
   termination_by structural _ _ _ h => h
-  theorem evalTerms_den4ClPre : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
+  theorem evalTerms_den4ClPreOcc : ∀ {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)}, EvalTerms c σ ts rs →
       ∀ {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {ss : List Srt},
-      HeadsOK c L → c.WellSorted vars σ → vs.length = vars.length → Agrees c I tbl vs σ e →
+      HeadsOK c L → c.WellSortedAt vars (varOccsList ts) σ → vs.length = vars.length →
+      AgreesOn c I tbl vs (varOccsList ts) σ e →
       sortsOfTerms (c.rhsCtx L) vars ts = some ss →
       (∀ ws, allSome rs = some ws → ∀ (acc acc' : KoreAML.P), (∀ m, acc.interpret I e m ↔ acc'.interpret I e m) →
         ∀ m, (KoreAML.trArgs ⟨tbl, []⟩ acc (Term.koreList c vs ts)).interpret I e m ↔
@@ -407,8 +418,11 @@ mutual
       exact hacc m
     | _, _, _, .cons (t := t) (ts := ts) (r := r) (rs := rs) h hs, L, vars, vs, tbl, e, ss, hL, hσ, hvs, hag, ht => by
       obtain ⟨s, ss', h1, h2, -⟩ := sortsOfTerms_cons.mp ht
-      have ih1 := evalTerm_den4ClPre h hL hσ hvs hag h1
-      have ih2 := evalTerms_den4ClPre hs hL hσ hvs hag h2
+      rw [varOccsList] at hσ hag
+      have ih1 := evalTerm_den4ClPreOcc h hL (hσ.mono fun i hi => List.mem_append_left _ hi) hvs
+        (hag.mono fun i hi => List.mem_append_left _ hi) h1
+      have ih2 := evalTerms_den4ClPreOcc hs hL (hσ.mono fun i hi => List.mem_append_right _ hi) hvs
+        (hag.mono fun i hi => List.mem_append_right _ hi) h2
       constructor
       · intro ws hws acc acc' hacc m
         simp only [allSome, Option.bind_eq_some_iff, Option.map_eq_some_iff] at hws
@@ -428,6 +442,25 @@ mutual
           | some ws' => simp [allSome, hrs] at hn
   termination_by structural _ _ _ h => h
 end
+
+/-- **L3, terms, fourth stage** (`evalTerm_den4ClPreOcc`), at a valuation that agrees with a σ
+well sorted on every variable in scope. -/
+theorem evalTerm_den4ClPre {σ : Subst} {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r)
+    {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {s : Srt}
+    (hL : HeadsOK c L) (hσ : c.WellSorted vars σ) (hvs : vs.length = vars.length) (hag : Agrees c I tbl vs σ e)
+    (ht : sortOfTerm (c.rhsCtx L) vars t = some s) :
+    ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c vs t)).interpret I e m ↔ Res c I e r m :=
+  evalTerm_den4ClPreOcc hI hnn hsc hph hcls hneg hpreR h hL (hσ.at _) hvs (Agrees.on hag _) ht
+
+theorem evalTerms_den4ClPre {σ : Subst} {ts : List Term} {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs)
+    {L : List CtorSig} {vars : List Srt} {vs : List KoreAML.Var} {tbl : VarTable} {e : Valuation M} {ss : List Srt}
+    (hL : HeadsOK c L) (hσ : c.WellSorted vars σ) (hvs : vs.length = vars.length) (hag : Agrees c I tbl vs σ e)
+    (hts : sortsOfTerms (c.rhsCtx L) vars ts = some ss) :
+    (∀ ws, allSome rs = some ws → ∀ (acc acc' : KoreAML.P), (∀ m, acc.interpret I e m ↔ acc'.interpret I e m) →
+      ∀ m, (KoreAML.trArgs ⟨tbl, []⟩ acc (Term.koreList c vs ts)).interpret I e m ↔
+        (KoreAML.trArgs ⟨[], []⟩ acc' (GroundTerm.koreList c ws)).interpret I e m) ∧
+    (allSome rs = none → ∀ (acc : KoreAML.P) m, ¬ (KoreAML.trArgs ⟨tbl, []⟩ acc (Term.koreList c vs ts)).interpret I e m) :=
+  evalTerms_den4ClPreOcc hI hnn hsc hph hcls hneg hpreR h hL (hσ.at _) hvs (Agrees.on hag _) hts
 
 end
 
