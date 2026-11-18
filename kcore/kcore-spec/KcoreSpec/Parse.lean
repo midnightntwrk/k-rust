@@ -340,8 +340,8 @@ inductive RefusalReason where
   for the obligation that the graph satisfies it. The detail names the symbol and which it is. -/
   | hookEquation
   /-- A rule or equation whose read `requires` or `ensures` holds an equality `_==K_` or `_==Int_`
-  that the reader writes for what the text states (a strict conjunction, `conjTerms`; `t ∧ u` on a
-  right side, `sideConds`), in a text that declares that hooked
+  that the reader writes for what the text states (an equation's strict conjunction, `conjTerms`;
+  `t ∧ u` on a rule's right side, `sideConds`), in a text that declares that hooked
   symbol without its `functional` axiom or without the sentence `((K1 σ K2) = true) = (K1 = K2)`
   over two distinct variables of its sort (`hookEqSentence`). The reading's sentence is the text's
   only with both: the first makes `K1 σ K2` one element, the second makes `true` its value exactly
@@ -586,8 +586,9 @@ inductive ReadingNote where
   a predicate P, `σ(…, φ ∧ P, …) = σ(…, φ, …) ∧ P`, so it is t with the `ensures` B, an equality in
   every model. A rule's right side holding `t ∧ u` of two terms is `andTermsWeaker`. An equation's
   `t ∧ u` of two terms is refused (`clauseBody`): it is `t ∩ u`, which `t` with the `ensures`
-  `t ==K u` is not where t or u has two elements. Several `ensures` are one strict conjunction
-  (`conjTerms`). The `ensures` written are the text's under the `functional` axiom and the sentence
+  `t ==K u` is not where t or u has two elements. Several `ensures` of an equation are one strict
+  conjunction (`conjTerms`); of a rule the first is its `ensures` and each other a conjunct `B = true`
+  of `post` (`andAtBool`). The `ensures` written are the text's under the `functional` axiom and the sentence
   `((K1 σ K2) = true) = (K1 = K2)` of each hooked equality σ written (`_==Int_`, `_==K_`), which a
   text declaring σ must hold (`hookEqualityUnstated`). -/
   | andAsEnsures
@@ -616,16 +617,23 @@ inductive ReadingNote where
   condition never holds; it is read as the literal `false`. -/
   | predicateAtBool
   /-- A `requires` or `ensures` `\equals{SortBool{},S}(\and{SortBool{}}(B₁, …, Bₙ), true)` of terms:
-  `\and{SortBool{}}` is an intersection, `B₁ ∩ … ∩ Bₙ = {true}`; where each Bᵢ has at most one
-  element, it is `true` exactly where every Bᵢ is `true`, which is the strict conjunction of the Bᵢ
-  (`conjTerms`). Where a Bᵢ has `true` and a second element the intersection can be `{true}` and the
-  strict conjunction not. The strict conjunction holds at no more points than the intersection,
-  which is all a rule's `requires` and `ensures` ask; an equation's `ensures`, and its `requires`
-  under the negation of an `[owise]` or larger-priority equation, ask the converse too, so an
-  equation reads it only where every Bᵢ is `singleValued` (`eqnCondTerm`). The strict conjunction
-  is the K sequence of the Bᵢ `_==K_` that of as many `true`, which is `⌈B₁ = true⌉ ∧ … ∧
-  ⌈Bₙ = true⌉` under `_==K_`'s `functional` axiom and its sentence `((K1 ==K K2) = true) =
-  (K1 = K2)`, which a text declaring `_==K_` must hold (`hookEqualityUnstated`). -/
+  `\and{SortBool{}}` is an intersection, `B₁ ∩ … ∩ Bₙ = {true}`. The conjunction `⌈B₁ = true⌉ ∧ … ∧
+  ⌈Bₙ = true⌉` entails it with no premise (each Bᵢ is `{true}`, and so is their intersection) and is
+  it where each Bᵢ has at most one element; where a Bᵢ has `true` and a second element the
+  intersection can be `{true}` and the conjunction not.
+  On a rule the conjunction is read conjunct by conjunct, with no hooked symbol
+  (`ruleCondTermsCnj`): of the `requires`, B₁ is `req` and each other Bᵢ the conjunct `Bᵢ = true` of
+  `pre`; of the right side's conditions (the `ensures`' conjuncts, then those `hoist` lifts), the
+  first is `ens` and each other the conjunct `B = true` of `post`. So the read left side (the
+  `requires` and `pre`) is the text's or inside it, and so is the read right side (the `ensures`
+  and `post`); both are the text's where each Bᵢ has at most one element.
+  An equation reads the conjunction as the strict conjunction of the Bᵢ (`conjTerms`), the K
+  sequence of the Bᵢ `_==K_` that of as many `true`, which is `⌈B₁ = true⌉ ∧ … ∧ ⌈Bₙ = true⌉` under
+  `_==K_`'s `functional` axiom and its sentence `((K1 ==K K2) = true) = (K1 = K2)`, which a text
+  declaring `_==K_` must hold (`hookEqualityUnstated`). An equation's `ensures`, and its `requires`
+  under the negation of an `[owise]` or larger-priority equation, ask the converse of the
+  entailment too, so an equation reads the conjunction only where every Bᵢ is `singleValued`
+  (`eqnCondTerm`). -/
   | andAtBool
   /-- A `requires` `\equals{SortBool{},S}(\and{SortBool{}}(\or{SortBool{}}(A₁, …, Aₙ), G), true)`,
   kompile's `requires A₁ #Or … #Or Aₙ` with G a Bool variable that occurs nowhere else
@@ -1402,7 +1410,8 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   t or u has two elements, which no sentence of the text excludes for a function it leaves open;
   `⊥` anywhere under applications makes the right side empty, which is the `ensures` false
   (the rule or equation still applies there: it blocks larger priorities and gives no successor or
-  value); and `t ∨ ⊥ = t`. Several `ensures` are one strict conjunction (`conjTerms`). `t ∧ X` of a
+  value); and `t ∨ ⊥ = t`. Several `ensures` of an equation are one strict conjunction (`conjTerms`),
+  of a rule the first its `ensures` and the others conjuncts `B = true` of `post`. `t ∧ X` of a
   term and a variable is the second case (a right side binds nothing, so it is not `t #as X`).
   An equation's right side holding `\or`, `\top`, `\not` or `\exists` under applications is
   refused (`manyValuedRightSide`).
@@ -1422,10 +1431,12 @@ reader reads those so, each with its note (`ReadingNote`), and refuses the other
   true)`: where B is a predicate at sort Bool it is `\top{SortBool{}}` or `\bottom{SortBool{}}`,
   and neither equals `true`: the first holds `false`, which is apart from `true`, the second holds
   nothing. So the condition never holds, and it is read as the literal `false`. Where B is
-  `\and{SortBool{}}(B₁, …, Bₙ)` of terms, B is the intersection of the Bᵢ; for Bᵢ with at most one
-  element each, it is `true` exactly where every Bᵢ is, which is the strict conjunction of the Bᵢ
-  (`B ∧ X` of a variable among them). An equation's is read so only where every Bᵢ is
-  `singleValued` (`eqnCondTerm`), refused `patternConnective` (`\and`) otherwise. A conjunction
+  `\and{SortBool{}}(B₁, …, Bₙ)` of terms, B is the intersection of the Bᵢ (`B ∧ X` of a variable
+  among them), which `⌈B₁ = true⌉ ∧ … ∧ ⌈Bₙ = true⌉` entails and is where each Bᵢ has at most one
+  element. A rule's is read so conjunct by conjunct, B₁ its `requires` (`ensures`) and the others
+  conjuncts `Bᵢ = true` of `pre` (`post`); an equation's as the strict conjunction of the Bᵢ, and
+  only where every Bᵢ is `singleValued` (`eqnCondTerm`), refused `patternConnective` (`\and`)
+  otherwise. A conjunction
   under an application of a condition is refused (`patternConnective`).
 
 A quantifier `\forall` or `\floor` of a term over a sort other than Bool is refused `openExtent`
@@ -1842,7 +1853,8 @@ mutual
     termination_by structural ps => ps
 end
 
-/-- A `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) as a Bool term: `false` where B is
+/-- An equation's `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) as a Bool term (a
+rule's is `ruleCondTermsCnj`): `false` where B is
 a predicate (`predicateAtBool`), the strict conjunction of B's conjuncts where B is `\and{SortBool{}}`
 of several (`andAtBool`), else B. A conjunction under an application of a conjunct is refused
 (`patternConnective`): `term` reads `\and(t, X)` as `t #as X`, a binding, which only a left side
@@ -2684,6 +2696,35 @@ def exIndices (vs : List Var) (n0 : Nat) (xs : List Kore.EVar) : List Nat :=
       | none => none
     | _, _ => none
 
+/-- A rule's `requires` or `ensures` B (`\equals{SortBool{},S}(B, true)`) as the list of its
+conjuncts, Bool terms: `[false]` where B is a predicate (`predicateAtBool`), each conjunct of B
+where B is `\and{SortBool{}}` of several (`andAtBool`), else `[B]`. A conjunction under an
+application of a conjunct is refused (`patternConnective`), as by `condTerm`. -/
+def ruleCondTermsCnj (N : Names) (vs : List Var) (b : Kore.Pattern) : Rd (List Term × List Var) :=
+  if isPred b then pure ([.dv Srt.bool (.bool false)], vs)
+  else if (boolConj b).any hasAnd then fail .patternConnective "\\and"
+  else do
+    let (ts, vs) ← terms N vs (boolConj b)
+    pure (if ts.isEmpty then [.dv Srt.bool (.bool true)] else ts, vs)
+
+/-- The conditions `hoist` lifted out of a rule's right side, as Bool terms: each conjunct of a
+`{B #Equals true}` (`ruleCondTermsCnj`), and the term `sideConds` writes for a `t ∧ u` of two terms
+(`.same`). -/
+def ruleSideCondsCnj (N : Names) : List Var → List SideCond → Rd (List Term × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, .isTrue b :: cs => do
+    let (ts, vs) ← ruleCondTermsCnj N vs b
+    let (us, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, vs)
+  | vs, c :: cs => do
+    let (ts, vs) ← sideConds N vs [c]
+    let (us, vs) ← ruleSideCondsCnj N vs cs
+    pure (ts ++ us, vs)
+
+/-- The conjunction of the conditions `B = true`, one per term B, `\top` for none. -/
+def ruleEqTrueCnj (ts : List Term) : Cond :=
+  ovlCutConj (ts.map fun t => Cond.equals Srt.bool t (.dv Srt.bool (.bool true)))
+
 /-- A rewrite axiom `\rewrites(\and(lhs, req), \exists(x̄, \and(rhs, ens)))`, x̄ possibly empty and
 renamed apart from the names the left side and the `requires` hold (`rhsApart`). -/
 def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Pattern) (xs : List Kore.EVar)
@@ -2696,25 +2737,28 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- a variable the left side does not bind (in the `requires`, the `ensures` or the right side)
     -- is read after the left side's; where the values do not decide the rule it is refused once
     -- the definition is built (`openRefusal`)
-    let (req, vs) ← match ← need (req? r0) .requiresShape with
-      | none => pure (none, vs)
-      | some q => do let (t, vs) ← condTerm N vs q; pure (some t, vs)
+    -- the `requires`' conjuncts: the first is `req`, each other `B = true` a conjunct of `pre`
+    let (reqs, vs) ← match ← need (req? r0) .requiresShape with
+      | none => pure ([], vs)
+      | some q => ruleCondTermsCnj N vs q
     let n0 := vs.length
-    let (ens, vs) ← match ens with
-      | none => pure (none, vs)
-      | some e => do let (t, vs) ← condTerm N vs e; pure (some t, vs)
+    let (enss, vs) ← match ens with
+      | none => pure ([], vs)
+      | some e => ruleCondTermsCnj N vs e
     -- the right side's binders that bind something
     let kept := exKept xs r en
-    -- the right side's conjunctions as `ensures`, and an empty right side as the `ensures` false
-    -- (`hoist`), the left side without `#as` in its place (after `keyCut`)
+    -- the right side's conjunctions as conditions, and an empty right side as the `ensures` false
+    -- (`hoist`), the left side without `#as` in its place (after `keyCut`); of the right side's
+    -- conditions (the `ensures`' conjuncts, then the lifted ones) the first is `ens`, each other
+    -- `B = true` a conjunct of `post`
     let (r, conds, empty) := hoist r
-    let (rhs, ens, vs) ← if empty then
-        pure (stripAs lhs, some (Term.dv Srt.bool (.bool false)), vs)
+    let (rhs, ens, post, vs) ← if empty then
+        pure (stripAs lhs, some (Term.dv Srt.bool (.bool false)), Cond.top, vs)
       else do
         let (rhs, vs) ← term N vs r
-        let (cs, vs) ← sideConds N vs conds
-        if ens.toList.length + cs.length > 1 then N.hookEqE kEq
-        pure (rhs, if cs.isEmpty then ens else conjTerms (ens.toList ++ cs), vs)
+        let (cs, vs) ← ruleSideCondsCnj N vs conds
+        let es := enss ++ cs
+        pure (rhs, es.head?, ruleEqTrueCnj es.tail, vs)
     -- the right side's existential variables, in the text's order of nesting: the binders that
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
@@ -2724,7 +2768,9 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- an application of a function-overloaded symbol in the left side: a fresh variable, its
     -- membership in the application a conjunct of `pre` (`ovlCut`)
     let (lhs, vs, pre) ← ovlCut N lhs vs
-    let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]))
+    let pre := ovlCutConj (keys ++ (if pre.isTop then [] else [pre]) ++
+      (if reqs.length ≤ 1 then [] else [ruleEqTrueCnj reqs.tail]))
+    let req := reqs.head?
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
@@ -2734,7 +2780,7 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     let prio := match explicit with
       | some n => n
       | none => if plain.contains "owise" then 200 else 50
-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
+    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre, post },
           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
            plain.filter (· != "owise"), explicit.isSome,
            a.attributes.filterMap (fun ap => match ap.sorts, ap.args with

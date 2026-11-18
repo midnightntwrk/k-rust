@@ -1786,11 +1786,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   kompiled text (`f2-examples/mlreqv`, e3-ml-req-and-var), for every H, in the same form. Sentence
   113 (`requires \and{SortBool{}}(true, B) = true`) is entailed at values (`EntailsAtValues`,
   `rule113_at_values`): where B is `false` its left side holds nothing; where B is `true` it is in
-  Γ's (`ltext_sub`: Γ's `true ~> B ~> . ==K true ~> true ~> .` denotes `true` by the graph of `==K`,
-  and `⌈r⌉` holds, the right side denoting a value's element, `TieReqBool.substAt_iff`), and Γ's
-  item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`: `and_true`
-  (`go(true)` steps to `done`), `and_false` (`go(false)` has no successor, with `Γstep`). About 5
-  minutes.
+  Γ's (`ltext_sub`: Γ's `requires` `true = true` and its `pre` `B = true` hold, B's element being
+  `true`'s, and `⌈r⌉` holds, the right side denoting a value's element, `TieReqBool.substAt_iff`),
+  and Γ's item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`, by the
+  executable step under `execReady`: `and_true` (`go(true)` steps to `done`), `and_false`
+  (`go(false)` has no successor, with `Γstep`). About 5 minutes.
 - `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
   each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
   `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for
