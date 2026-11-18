@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E6-PARAM-SUBST-POLY: 491 sentences
+  1 inert import [generated]
+  215 read [generated]
+  237 read [builtin]
+  4 read [own builtin]
+  2 unread parametricUnused [own builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  12 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 parametricSymbol
+      sentence 367 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'UndsLSqBUndsSlshUndsRSqBUnds'SUBSTITUTION'Unds'Sort'Unds'Sort'Unds'KItem'Unds'KItem)
+        [user] (no label) at e6-param-subst-poly.k:10: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("1"), VarX:SortK{}, VarA:SortKItem{}, VarB:SortKItem{}, Var'Unds'Gen0:SortMap{}), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lb …
+      sentence 368 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'UndsLSqBUndsRSqBUnds'SUBSTITUTION'Unds'Sort'Unds'Sort'Unds'Map)
+        [user] (no label) at e6-param-subst-poly.k:11: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblgo{}(\dv{SortInt{}}("2"), VarX:SortK{}, Var'Unds'Gen0:SortKItem{}, Var'Unds'Gen1:SortKItem{}, VarM:SortMap{}), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'- …
+finish: sentence 367 (Lbl'-LT-'generatedTop'-GT-'): parametricSymbol (Lbl'UndsLSqBUndsSlshUndsRSqBUnds'SUBSTITUTION'Unds'Sort'Unds'Sort'Unds'KItem'Unds'KItem)
+(exit 0)

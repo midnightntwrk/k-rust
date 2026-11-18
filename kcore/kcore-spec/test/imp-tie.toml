@@ -178,6 +178,12 @@ direction = "hypothesis"
 note = "the text has no open generator"
 
 [[class]]
+name = "parameter lemma"
+count = 0
+direction = "hypothesis"
+note = "the text has no lemma applying a parameter symbol without impl"
+
+[[class]]
 name = "no direction"
 count = 37
 direction = "none"

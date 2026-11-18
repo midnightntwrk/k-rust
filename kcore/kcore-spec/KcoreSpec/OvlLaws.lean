@@ -1142,62 +1142,82 @@ end
 
 end OvlLaws
 
-/-- No overloading symbol overloads a function, where the overloading symbols are well formed and
-no function is named like a constructor (`fnsApart`): each overloaded symbol is a constructor or an
-overloading symbol, and neither is a function's label. -/
-theorem fnOvlSyms_nil_of_apart {c : Semantics} (hok : c.overloadsOK = true)
-    (hfa : Faithful.Model.fnsApart c = true) : c.fnOvlSyms = [] := by
-  unfold Semantics.fnOvlSyms
-  rw [List.map_eq_nil_iff, List.filter_eq_nil_iff]
-  intro o ho hany
+/-- **A function-overloaded symbol has a function's signature among its overloads**, where the
+overloading symbols are well formed (`overloadsOK`: each is found by its name and is no function's
+label) and no function is named like a constructor (`fnsApart`): the function's label an overload
+names is then neither a constructor nor an overloading symbol, so the signature `ovlOver` finds for
+it is the function's. -/
+theorem fnOver_of_apart {c : Semantics} (hok : c.overloadsOK = true)
+    (hfa : Faithful.Model.fnsApart c = true) :
+    ∀ o ∈ c.ovls, o.sig.name ∈ c.fnOvlSyms → ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true := by
+  intro o ho hm
+  have hok' := hok
+  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok'; replace hok' := hok'.1; simp only [List.all_eq_true] at hok'
+  have hat : ∀ o' ∈ c.ovls, c.isOvl o'.sig.name = true ∧ c.lookupOvl o'.sig.name = some o' := fun o' ho' => by
+    obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
+    have hoi := hok' (o', i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he)
+    simp only [Bool.and_eq_true, beq_iff_eq] at hoi
+    exact ⟨hoi.1.1.1.1.1.1.1, hoi.1.1.1.1.1.1.2⟩
+  unfold Semantics.fnOvlSyms at hm
+  obtain ⟨o', ho', hn⟩ := List.mem_map.mp hm
+  obtain ⟨ho'm, hany⟩ := List.mem_filter.mp ho'
+  have heq : o' = o := by
+    have h1 := (hat o' ho'm).2
+    rw [hn, (hat o ho).2] at h1
+    exact (Option.some.inj h1).symm
+  subst heq
   obtain ⟨g, hg, hfn⟩ := List.any_eq_true.mp hany
   obtain ⟨fn, hfnm, hl⟩ := List.any_eq_true.mp hfn
   have hl : fn.label = g := by simpa using hl
   have hmem : fn ∈ c.allFns := List.mem_append_left _ hfnm
-  have hok' := hok
-  simp only [Semantics.overloadsOK, Bool.and_eq_true] at hok'; replace hok' := hok'.1; simp only [List.all_eq_true] at hok'
-  have hat : ∀ o' ∈ c.ovls, ∃ i, (o', i) ∈ c.ovls.zipIdx := fun o' ho' => by
-    obtain ⟨i, hi, he⟩ := List.getElem_of_mem ho'
-    exact ⟨i, by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hi] using he⟩
-  obtain ⟨i, hi⟩ := hat o ho
-  have hoi := hok' (o, i) hi
-  simp only [Bool.and_eq_true, List.all_eq_true] at hoi
-  rcases Bool.or_eq_true _ _ |>.mp (hoi.1.1.1.2 g hg) with h1 | h2
-  · have := List.all_eq_true.mp hfa fn hmem
+  have hc : c.ctorSigs.find? (·.name == g) = none := by
+    have := List.all_eq_true.mp hfa fn hmem
     simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
     have hc := this.1.1
-    rw [hl, Semantics.isCtor, h1] at hc
-    cases hc
-  · obtain ⟨o', ho', hn⟩ := List.any_eq_true.mp h2
-    obtain ⟨j, hj⟩ := hat o' (List.mem_of_mem_take ho')
-    have hoj := hok' (o', j) hj
-    simp only [Bool.and_eq_true] at hoj
-    have hnf := (c.isOvl_parts hoj.1.1.1.1.1.1.1).2.2.2.1
+    rw [hl, Semantics.isCtor, lookupSig_eq] at hc
+    simpa using hc
+  have hov : c.ovlSigs.find? (·.name == g) = none := by
+    rw [List.find?_eq_none]
+    intro k hk hkn
+    obtain ⟨o2, ho2, rfl⟩ := List.mem_map.mp hk
+    have hnf := (c.isOvl_parts (hat o2 ho2).1).2.2.2.1
     rw [c.lookupFn_eq, List.find?_eq_none] at hnf
     have := hnf fn hmem
-    rw [hl, beq_iff_eq.mp hn] at this
+    rw [hl, beq_iff_eq.mp hkn] at this
     simp at this
+  obtain ⟨kg, hkg, hkn⟩ : ∃ kg, (c.fns.map fun fn => (⟨fn.label, fn.args, fn.result⟩ : CtorSig)).find? (·.name == g) = some kg ∧
+      kg.name = g := by
+    cases hf : (c.fns.map fun fn => (⟨fn.label, fn.args, fn.result⟩ : CtorSig)).find? (·.name == g) with
+    | none =>
+      have := List.find?_eq_none.mp hf ⟨fn.label, fn.args, fn.result⟩ (List.mem_map.mpr ⟨fn, hfnm, rfl⟩)
+      simp [hl] at this
+    | some kg => exact ⟨kg, rfl, by simpa using List.find?_some hf⟩
+  refine ⟨kg, List.mem_filterMap.mpr ⟨g, hg, ?_⟩, ?_⟩
+  · rw [lookupSig_eq, List.find?_append, List.find?_append, hc, hov]
+    exact hkg
+  · simp only [Semantics.ovlByFn, Option.isNone_iff_eq_none]
+    rw [hkn, lookupSig_eq, List.find?_append, hc, hov]
+    rfl
 
 /-- **What the readings of `Γ` over every model take of the overloading symbols**: their
 declarations are well formed (`overloadsOK`), the subsorts are irreflexive, a sort of an
 overloading symbol and a sort of a symbol it overloads have distinct names unless they are one sort,
-so that the overload's items tell them apart (`namesApartK` and `sortsNumbered` give it), and no
-overloading symbol overloads a function (`fnOvlSyms`: `Γ` states the functionality and the
-injectivity of a function-overloaded symbol at uncovered arguments only, and these readings take
-them at every argument; `overloadsOK` and `fnsApart` give it). Found by instance resolution in the
-proofs that read `Γ`. -/
+so that the overload's items tell them apart (`namesApartK` and `sortsNumbered` give it), and a
+function-overloaded symbol (`fnOvlSyms`, which reads the functions' labels) has a function's
+signature among its overloads (`ovlByFn`, which reads the signature `ovlOver` finds; `overloadsOK`
+and `fnsApart` give it). Found by instance resolution in the proofs that read `Γ`. -/
 class OvlOK (c : Semantics) : Prop where
   ok : c.overloadsOK = true
   irrefl : ∀ a, (a, a) ∉ c.subsorts
   names : ∀ o ∈ c.ovls, ∀ kg ∈ c.ovlOver o, ∀ A ∈ kg.result :: kg.args, ∀ B ∈ o.sig.result :: o.sig.args,
     c.sortName A = c.sortName B → A = B
-  noFn : c.fnOvlSyms = []
+  fnOver : ∀ o ∈ c.ovls, o.sig.name ∈ c.fnOvlSyms → ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true
 
 /-- `OvlOK` of a semantics without overloading symbols and with irreflexive subsorts. -/
 theorem OvlOK.of_nil {c : Semantics} (hno : c.ovls = []) (hirr : c.subsorts.all (fun p => p.1 != p.2) = true) :
     OvlOK c :=
   ⟨by simp [Semantics.overloadsOK, Semantics.ovlPatsOK, Semantics.fnOvlSyms, hno], fun a ha => by have := List.all_eq_true.mp hirr _ ha; simp at this,
-    fun o ho => (by rw [hno] at ho; cases ho), by simp [Semantics.fnOvlSyms, hno]⟩
+    fun o ho => (by rw [hno] at ho; cases ho), fun o ho => (by rw [hno] at ho; cases ho)⟩
 
 /-- `idsOK` numbers each overloading symbol once: their names are without repetition. -/
 theorem ovlsOnce_of_ids {c : Semantics} (h : c.idsOK = true) : (c.ovls.map (·.sig.name)).Nodup := by

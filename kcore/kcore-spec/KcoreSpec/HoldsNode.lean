@@ -655,7 +655,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
           rw [(ha0 _).mp ((hd _).mp rfl)]
           exact hin
         · exact ⟨hBk i h1 h2, hinB i h1 h2⟩
-      obtain ⟨σp, hpvp, hwp⟩ := (G.pat (sortOfTerm_all_of_nf hpS) hsv hpin m hmv).mp hpm
+      obtain ⟨σp, hpvp, hwp⟩ := (G.pat hpS hsv hpin m hmv).mp hpm
       have hval : ∀ i, ∃ w : GroundTerm, vars.length ≤ i → i < vars.length + ys.length →
           c.sortOf w = some ((vars ++ ys).getD i 0) ∧
             ∀ m', (den c w).interpret I e' m' ↔ m' = e'.evalEvar (tbl.ev (canonKey c (vars ++ ys) i)) := by
@@ -756,7 +756,7 @@ theorem holdsAt_exMatch (F : NodeFacts c I) (G : BinderFacts c I) {n : Nat} {σ 
           exact (this.trans Iff.rfl).symm.trans ((den_closed c w).interp e e' m')
       obtain ⟨m0, hm0, -⟩ := F.val hsv tbl e'
       have hpm : (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c (vars ++ ys)) p)).interpret I e' m0 := by
-        refine (G.pat (sortOfTerm_all_of_nf hpS) hsv (fun i hi => ⟨(hr'' i (hPp i hi)).2.1, Reads.inSortN F hr'' (hPp i hi)⟩) m0
+        refine (G.pat hpS hsv (fun i hi => ⟨(hr'' i (hPp i hi)).2.1, Reads.inSortN F hr'' (hPp i hi)⟩) m0
           ((hm0 m0).mpr rfl)).mpr ⟨σ', hpv, fun i hi => ?_⟩
         obtain ⟨-, -, u, hu, hsu, hdu⟩ := hr'' i (hPp i hi)
         exact ⟨u, hu, hsu, fun m' => (hdu m').symm⟩

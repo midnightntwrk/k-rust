@@ -1,4 +1,4 @@
-cannot f2-examples/allbuiltins.kompile.kore
+differs f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
@@ -61,6 +61,7 @@ differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
+differs f2-examples/e1-starinit.kompile.kore
 differs f2-examples/e1-syntax.kompile.kore
 differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
@@ -87,6 +88,7 @@ differs f2-examples/e3-k-unify.kompile.kore
 differs f2-examples/e3-k.kompile.kore
 differs f2-examples/e3-kast.kompile.kore
 differs f2-examples/e3-kseq.kompile.kore
+differs f2-examples/e3-param-cases.kompile.kore
 differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
@@ -109,8 +111,10 @@ differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
 differs f2-examples/e7-guardors.kompile.kore
 differs f2-examples/e7-implicitk.kompile.kore
+differs f2-examples/e7-projuser.kompile.kore
 differs f2-examples/e7-removeunit.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
+differs f2-examples/e8-hook-namespaces.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
 differs f2-examples/e8-md.kompile.kore
 differs f2-examples/e8-ref.kompile.kore

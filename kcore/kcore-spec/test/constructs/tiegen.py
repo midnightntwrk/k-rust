@@ -65,6 +65,9 @@ What it states where the text:
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
+- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
+  lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitness`, one H at which
+  `FnObligations` and every parameter lemma hold, stated and owed (`owed` in the summary);
 - has a parameter symbol no hook implements (the H form): `total_named` and `obl_nil` at `[]`, which
   holds where no `[total]` function owes a parameter's totality (otherwise refused);
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
@@ -97,17 +100,26 @@ What the test states (each a kernel decision or a proof from one):
   (`cons_entailed`), the no-junk sentences (`nojunk_trivial_entailed`, `nojunk_items`,
   `nojunk_kitem_entailed`), set idempotence (`idem_refuted`) and the library sample `I -Int 0 = I`
   (`lib166`, `lib166_at_values`) where the text holds that sentence, and `gamma_origin` where
-  every premise of Γ has its origin here.
+  every premise of Γ has its origin here;
+- the idempotence sentence of each other set collection (a definition's own, hooked to SET.concat):
+  `own_idem_refuted_<i>` from `Faithful.setColl_idem_refuted_text`, its shape and the collection's
+  key value one kernel decision (`own_idem_ok_<i>`).
 
 The classes. A sentence whose text equals one of f2-examples/ens.kompile.kore's user module (up to
 `Location`, `Source` and `UNIQUE'Unds'ID` attributes and whitespace) takes that sentence's class in
 test/TieEns.lean's account. Any other sentence (`unmapped` in the test) takes its class from what a
 probe evaluates of it (a run of the Lean definitions on the text: the heads it applies, each a symbol
 with its sort arguments (`appHeadsOf`), against Γ's (`gammaHasHead`),
-its place among Γ's function items, `tieConsB`, the constructor items) and from its form (kompile's
+its place among Γ's function items, `tieConsB`, the constructor items; a symbol the registry interprets
+is a registry hook or a parameter symbol a registry hook implements, `MtCellMap:in_keys` with
+`MAP.in_keys`) and from its form (kompile's
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
+Whether a sentence applies a head Γ lacks is a fact of the text's Γ, not of ens's: a sentence equal
+to one of ens's that is in the no-direction class in one of the two texts and not in the other (a
+projection that no read sentence of ens applies and a read sentence here does) is not mapped; it
+takes its class from the probe and its form.
 A sentence of a class with a theorem in test/TieEns.lean that no theorem here holds of is listed in
 `uncovered`, with its class: the part of the tie that is left to write by hand.
 
@@ -139,7 +151,7 @@ WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "
 CLASSES = ["function equation", "rewrite rule", "priority equation", "constructor functional", "subsort",
            "injectivity", "distinctness", "no junk", "function functional", "hooked functional",
            "collection law", "library", "set idempotence", "set-variable lemma", "function law",
-           "open generator law", "open generator functional", "no direction"]
+           "open generator law", "open generator functional", "parameter lemma", "no direction"]
 # the classes test/TieEns.lean states a theorem of, sentence by sentence
 THEOREM_CLASSES = {"function equation", "rewrite rule", "priority equation", "constructor functional",
                    "subsort", "injectivity", "distinctness", "no junk", "set idempotence"}
@@ -151,6 +163,12 @@ CONS_CLASSES = ["constructor functional", "subsort", "injectivity", "distinctnes
 LAW_FN_CLASS = "function law"
 LAW_OPEN_CLASS = "open generator law"
 OPEN_FUNCTIONAL_CLASS = "open generator functional"
+# The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
+# interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
+# on H, the sentence itself at the member (direction hypothesis); the tie of a text with one owes one
+# H at which `FnObligations` and every one of them hold (`ParamLemmaWitness`), since a hypothesis no
+# H satisfies would tie a text without a model.
+PARAM_LEMMA_CLASS = "parameter lemma"
 
 
 class Refused(Exception):
@@ -461,7 +479,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   let isFn := fun (n : String) => afs.any (c.symName ·.label == n)
   let isCtor := fun (n : String) => css.any (c.symName ·.name == n)
   let isHook := fun (n : String) => hookSigs.any (c.symName ·.name == n)
-  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n then "hook" else if has n then "other" else "absent"
+  let isImplParam := fun (n : String) => c.params.any fun k => c.symName k.sig.name == n && k.impl.isSome && !k.raw
+  let kind := fun (n : String) => if isFn n then "fn" else if isCtor n then "ctor" else if isHook n || isImplParam n then "hook" else if has n then "other" else "absent"
   let kg := (gensInOrder c d.pres Srt.kitem).map (Gen.toK c)
   let kitemPat := (KoreAML.Cons.noJunkItem (c.sortName Srt.kitem) kg).pat
   let tsig := (Theory.ofDefinition k).signature
@@ -492,6 +511,7 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
   IO.println s!"H fnPrios {(afs.flatMap (fun f => f.clauses.map (·.prio)))}"
   let us := k.axiomDecls.filter (·.module == "@MOD@")
+  let nmK := Parse.namesOf k
   let ixOf := fun (q : P) => (us.filter fun ad => (trS ad).pat == q).map (·.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
@@ -564,7 +584,8 @@ def tgMinusNeg (a : Kore.Axiom) : P :=
     let fh := match ad.ax.pattern with
       | .exist _ _ (.equals _ _ _ (.app h _ _)) => h.ident.name
       | _ => ""
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}"
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax)
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}"
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -620,7 +641,7 @@ def probe(name, path, um, order="[]"):
             sents[int(f[0])] = dict(idx=int(f[0]), absent=f[1] == "true", fnJ=nums(f[2]), cons=f[3] == "true", plain=f[4] == "true",
                                     consItem=f[5] == "true", triv=re.findall(r"Sort[^,\]\s]+", f[6]),
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
-                                    fhk=f[12], prio=int(f[13]))
+                                    fhk=f[12], prio=int(f[13]), pl=f[14] == "true")
     return head, sents
 
 
@@ -643,6 +664,8 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=()):
         return "function equation"
     if s["rw"]:
         return "rewrite rule"
+    if s["pl"]:
+        return PARAM_LEMMA_CLASS
     if s["triv"] or s["consItem"] or s["kitem"] or "// no junk" in raw:
         return "no junk"
     if "[subsort{" in raw:
@@ -679,15 +702,17 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
         fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names)
-        if pool.get(s):
+        # whether a sentence applies a head Γ lacks is a fact of this text's Γ: a sentence equal to one
+        # of ens's that is in the no-direction class in one text and not in the other takes no class
+        # from ens's and is unmapped
+        if pool.get(s) and (ecls[pool[s][0]] == "no direction") == sents[i]["absent"]:
             j = pool[s].pop(0)
             mapped[i] = j
-            ec = ecls[j]
+            # a lemma over a parameter symbol of this text's reading without `impl` is a parameter
+            # lemma whatever ens's class of the same sentence (the parameters are the text's)
+            ec = PARAM_LEMMA_CLASS if fc == PARAM_LEMMA_CLASS else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
-            if (ec == "no direction") != sents[i]["absent"]:
-                raise Refused(f"{name}: sentence {i} is ens's {j} (class {ec}), but here it applies "
-                              f"{'a head Γ lacks' if sents[i]['absent'] else 'only heads Γ has'}")
             if decided and decided != ec:
                 raise Refused(f"{name}: sentence {i} is ens's {j} (class {ec}), but the probe gives {decided}")
             cls[i] = ec
@@ -839,6 +864,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             nj_sort_new[e["srt"]] = e["sort"]
     inv = {j: i for i, j in mapped.items()}
     idem = inv.get(61) if cls.get(inv.get(61)) == "set idempotence" else None
+    # the idempotence sentences of the other set collections (the definition's own, hooked to
+    # SET.concat), each `(index, concatenation symbol, variable)`; refuted by
+    # `setColl_idem_refuted_text`, which decides in the kernel that the collection is a set
+    # collection with a value of its key sort and that the sentence is its idempotence sentence
+    own_idem = [(i,) + m for i in by_class["set idempotence"] if i != idem
+                for m in [own_idem_shape(raws.get(i, ""))] if m]
     lib166 = inv.get(166) if cls.get(inv.get(166)) == "library" else None
     rule_map = [(j, ix[0]) for j, ok, ix in head["rules"] if ok and len(ix) == 1]
     rules_full = (len(rule_map) == nrules and sorted(i for _, i in rule_map) == by_class["rewrite rule"])
@@ -847,12 +878,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     covered |= {i for i, _ in nj_sorts}
     if fn_pair:
         covered |= set(pair_text)
+    covered |= {i for i, _, _ in own_idem}
     if idem is not None:
         covered.add(idem)
     uncovered = [(i, cls[i]) for i in idx if cls[i] in THEOREM_CLASSES and i not in covered]
     gamma = (fn_full and rules_full) or (fn_align and nrules == 0)
     fn_any = fn_full or fn_align
     open_fun = [i for i in idx if cls[i] == OPEN_FUNCTIONAL_CLASS and sents[i]["fh"] in {k["name"] for k in raw}]
+    param_lem = by_class[PARAM_LEMMA_CLASS]
     if tp_params:
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
                       f"(`totalObligationsRP callOrder []` not empty): tiegen does not state `ParamsTotal`")
@@ -998,6 +1031,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     w("    order, `nojunk_kitem_entailed`).")
     if idem is not None:
         w(f"  - Set idempotence ({idem}): Γ with it has no model (`idem_refuted`).")
+    for i, f, _ in own_idem:
+        w(f"  - Set idempotence of the set collection of `{f}` ({i}): Γ with it has no model")
+        w(f"    (`own_idem_refuted_{i}`, from `setColl_idem_refuted_text`).")
     if lib166 is not None:
         w(f"  - Library sample, {lib166} (`I -Int 0 = I`): holds at values (`lib166`, `lib166_at_values`).")
     if gamma and fn_align:
@@ -1020,6 +1056,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += "; open generator functional: owed as `OpenTotal`\n    (`open_functional_not_item`)"
     if open_law:
         owed_more += "; open generator law: Γ's law item (`openlaw_item`,\n    `openlaw_account`)"
+    if param_lem:
+        owed_more += "; parameter lemma: owed as a hypothesis on H\n    (`paramlemma_account`, `ParamLemmaWitness`)"
     w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
     w(f"    owed as `FnHyp` (no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
@@ -1050,6 +1088,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                             break_on_hyphens=False, break_long_words=False))
             w("")
+    if param_lem:
+        w(f"  The parameter lemmas ({', '.join(map(str, param_lem))}) apply a parameter symbol no registry hook interprets,")
+        w("  whose value the interpretation gives: each is owed as a hypothesis on H, the sentence itself at the")
+        w(f"  member (`Γ (cH H) ⊧ (trS ad).pat`). The account holds them in the class `{PARAM_LEMMA_CLASS}`, of the")
+        w("  direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes")
+        w("  one H at which the functions' obligations and every parameter lemma hold (`ParamLemmaWitness`,")
+        w("  stated here and proved by hand: owed).")
+        w("")
     w(f"  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` ({len(unmapped)});")
     w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
     w("-/")
@@ -1447,6 +1493,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def fnText : List AxiomDecl :=")
         w("  " + ax_list(fn_text))
         w("")
+        w("set_option maxHeartbeats 1000000 in")
         w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel")
         w("decision). -/")
         w("theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by")
@@ -1649,6 +1696,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                     raise Refused(f"test/TieEns.lean has changed: no {a[:60]!r} in its idempotence section")
                 sec = sec.replace(a, b)
         w(sec)
+    if own_idem:
+        w(own_idem_section(own_idem))
     if lib166 is not None:
         w(ens_section("/-! ## Library sample: sentence 166", "/-! ## Symbols the text's sentences apply").replace("@I@", str(lib166)))
         w(ens_section("theorem shapesOK_c", "/-- The symbols the rule's sentence applies. -/").replace("@I@", str(lib166)))
@@ -1658,6 +1707,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(openlaw_section(open_law, rnames, need_rfl=not nj_items))
     if open_fun:
         w(open_functional_section(open_fun, rnames))
+    if param_lem:
+        w(param_lemma_section(param_lem))
     if fn_pair:
         wi = pair_text[pair_w]
         w(pair_section(pair_w, wi, sents[wi]["prio"], "non-executable{}()" in raws.get(wi, ""),
@@ -1666,7 +1717,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
     cnames = []
     if confined:
-        sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem)
+        sec, cnames = gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem,
+                                      own_idem)
         w(sec)
     w(f"end KCore.{ns}")
     w("")
@@ -1689,6 +1741,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["rules_account", "rule_from_text"]
     if idem is not None:
         names.append("idem_refuted")
+    names += [f"own_idem_refuted_{i}" for i, _, _ in own_idem]
     if lib166 is not None:
         names += ["lib166", "lib166_at_values"]
     if gamma and not fn_align:
@@ -1710,6 +1763,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["openlaw_item", "openlaw_cons", "openlaw_entailed", "openlaw_account"]
     if open_fun:
         names.append("open_functional_not_item")
+    if param_lem:
+        names += ["paramlemma_account", "ParamLemmaWitness"]
     if facts_kind == "FnFacts" and not agree and not raw:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
@@ -1728,11 +1783,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         b = lean.index("\n/-! ## ", a) + 1
         lean = lean[:a] + text.rstrip("\n") + "\n\n" + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
+    if param_lem:
+        owed.append(f"one H at which FnObligations and the parameter lemmas {', '.join(map(str, param_lem))} hold "
+                    f"(ParamLemmaWitness)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
                    fn_pair=fn_pair,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
-                   idem=idem, lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
+                   idem=idem, own_idem=[i for i, _, _ in own_idem], lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
                    law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
                                for r in head["lawRef"]])
@@ -2037,6 +2095,27 @@ theorem law_account : lawText.map (·.index) = classOf "{LAW_FN_CLASS}" := by
 """
 
 
+def param_lemma_section(param_lem):
+    il = ", ".join(map(str, param_lem))
+    lt = ", ".join(f"U.ax{i}" for i in param_lem)
+    return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
+
+/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`). -/
+noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
+
+/-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
+(Γ does not hold the sentence; at the member `cH H` it is owed as itself). -/
+theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "{PARAM_LEMMA_CLASS}" := by
+  decide +kernel
+
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
+obligations hold and Γ entails every parameter lemma, so that the text with its hypotheses has a
+model. Stated, not proved here: the proof is owed. -/
+def ParamLemmaWitness : Prop :=
+  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText, Γ (cH H) ⊧ (trS ad).pat
+"""
+
+
 def openlaw_section(open_law, rnames, need_rfl):
     i = open_law[0]
     rfl = ("kernel_rfl consItemsK_withHooks : ∀ (c : Semantics) (H : HookParams), consItemsK (c.withHooks H) = consItemsK c\n\n"
@@ -2086,7 +2165,7 @@ theorem open_functional_not_item : {ax_list(open_fun, 4)}.all (fun ad => !(consI
 """
 
 
-def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem):
+def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem, cons_text, idem, own_idem=()):
     """The statements over `Γc = Γ ∪ Γcl`, the theory of a definition that reads a confined sort: each
     entailment over Γ holds over `Γc`; `Γcl` holds `boolClosed` alone; the origin of `Γc`'s premises."""
     L = ["/-! ## Over `Γc`, the theory the statements are about -/", "",
@@ -2153,7 +2232,49 @@ def gamma_c_section(gamma, fn_align, nrules, fn_any, nj_triv, nj_items, nj_kitem
               f"    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax{idem}).pat) :=",
               "  fun M hM I hI => idem_refuted H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
         names.append("idem_refuted_c")
+    for i, _, _ in own_idem:
+        L += [f"/-- **Sentence {i} is refuted over `Γc`, for every H**: a model of `Γc` is one of Γ. -/",
+              f"theorem own_idem_refuted_{i}_c (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),",
+              f"    I ⊧ᴵP Γc (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) :=",
+              f"  fun M hM I hI => own_idem_refuted_{i} H M hM I fun φ hφ => hI φ (Γ_sub_Γc _ hφ)"]
+        names.append(f"own_idem_refuted_{i}_c")
     return "\n".join(L) + "\n", names
+
+
+OWN_IDEM_RE = re.compile(r"axiom ?\{R\} ?\\equals\{Sort([\w']+)\{\}, ?R\} ?\(([^\s{}(),]+)\{\}\("
+                         r"(\w+):Sort\1\{\}, ?\3:Sort\1\{\}\), ?\3:Sort\1\{\}\) ?\[idem\{\}\(\)\]")
+
+
+def own_idem_shape(raw):
+    """`(concatenation symbol, variable)` of an idempotence sentence `\\equals{S, R}(f(K, K), K)`
+    with nothing but `idem` among its attributes, or None."""
+    m = OWN_IDEM_RE.match(raw.strip())
+    return (m.group(2), m.group(3)) if m else None
+
+
+def own_idem_section(own_idem):
+    """The refutation of each idempotence sentence of a set collection other than the library's
+    `Set` (`Faithful.setColl_idem_refuted_text`)."""
+    L = ["/-! ## Set idempotence of the definition's own set collections: refuted",
+         "",
+         "Each sentence is the idempotence sentence of a set collection of the definition, whose key sort",
+         "has a value the search exhibits (`setIdemTextOK`, a kernel decision). At the element `x` of a",
+         "one-member set `{w}` the sentence says `concat(x, x)` holds `x`; `ΓColls` (`setElemAtomAx`) then",
+         "makes `x` the unit's, which `setElemNotUnitAx` denies (`Faithful.setColl_idem_refuted_text`). -/",
+         ""]
+    for i, f, v in own_idem:
+        L += [f"theorem own_idem_ok_{i} : setIdemTextOK c \"{f}\" \"{v}\" U.ax{i} = true := by decide +kernel",
+              f"theorem own_idem_trS_{i} : (trS U.ax{i}).pat = (trAxiom [] [] U.ax{i}).pat := by decide +kernel",
+              "",
+              f"/-- **Sentence {i} is refuted, for every H**: Γ with it has no model. -/",
+              f"theorem own_idem_refuted_{i} (H : HookParams) : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M),",
+              f"    I ⊧ᴵP Γ (cH H) → ¬ (I ⊧ᴵ (trS U.ax{i}).pat) := by",
+              "  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)",
+              "  intro M hM I hI hax",
+              f"  rw [own_idem_trS_{i}] at hax",
+              f"  exact setColl_idem_refuted_text c H own_idem_ok_{i} M hM I hI hax",
+              ""]
+    return "\n".join(L)
 
 
 

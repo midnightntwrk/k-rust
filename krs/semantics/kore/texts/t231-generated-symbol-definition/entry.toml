@@ -1,0 +1,207 @@
+id = "t231-generated-symbol-definition"
+kind = "text"
+subject = "The symbols kompile generates for a configuration and for the sorts, on configuration <top> <k> $PGM:Cmd </k> <ts> <t multiplicity=\"*\" type=\"Set\"> <v> $V:Int </v> <p> $P:Cmd </p> </t> </ts> </top> with one rule: the initializer initXCell of each cell, the projection project:S of each sort, and the getter of the generated counter. What the text states of such a symbol (its declaration, its equation, its functional axiom), what those sentences state of the other symbols, and whether the text decides which of these symbols belong to the theory of the rules and the functions."
+origin = "kcore-spec fixture e1-starinit (starinit.k), the module names and the first comment changed"
+rests_on = ["kk:t11-eq-applies"]
+
+[text]
+files = ["t231-generated-symbol-definition.k"]
+kompile = "accepts"
+frontend = "manual-silent"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The K text names none of these symbols. It states that at the start of rewriting a cell holds what the configuration declaration writes in it, a configuration variable standing for its value, and that K generates for every sort S a function {_}:>S that gives back a term of sort S. The one rule, go, is written over the contents of <k> and applies no function; no sentence of the K text applies an initializer, a projection or the counter's getter. What the generated symbols are is stated by the KORE sentences alone, and is ruled in [ruling.kore]."
+reason = """
+(1) A configuration declaration declares the cells and that, at the start of rewriting, the contents of a cell are initialized with the value of the configuration variable written in it (15_configurations/README.md:27-32). The text's declaration writes $PGM:Cmd in <k>, $V:Int in <v> and $P:Cmd in <p>.
+(2) K generates, for every sort of the definition, a predicate and a projection function; the projection {F}:>Foo is given by the rule { F:Foo }:>Foo => F (user_manual.md:1350-1373). The text declares the sort Cmd and no function.
+(3) The rule go is <k> go() => done() </k>: its two sides are built of the cell <k> and the constructors go and done. The text has no other rule and no function declaration, so no sentence the user wrote applies a function, generated or not.
+(4) The manual names no initializer function and no getter of the generated counter: these are symbols of the kompiled text only. What the kompiled sentences state of them is [ruling.kore]."""
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/15_configurations/README.md:27-32 (K 7.1.337)"
+quote = "This configuration declaration declares a single cell, the `<k>` cell. It also declares that at the start of rewriting, the contents of that cell should be initialized with the value of the `$PGM` **configuration variable**. Configuration variables function as inputs to `krun`."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1350-1351 (K 7.1.337)"
+quote = "K automatically generates certain predicate and projection functions from the syntax you declare."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1359-1373 (K 7.1.337)"
+quote = '''syntax Foo ::= "{" K "}" ":>Foo" [function] ... rule { F:Foo }:>Foo => F ... The first two types of functions are generated automatically for every sort in your K definition'''
+
+[ruling.kore]
+statement = '''
+(1) Declaration. Each generated symbol is declared without a source and with function{}(): symbol LblinitTsCell{}(SortMap{}) : SortTsCell{} [function{}()] (kore.txt:66), and in the same form LblinitTCell (kore.txt:62) and Lblproject'Coln'TsCell (kore.txt:124). The declaration puts the symbol in the signature; a model interprets it by a function from elements to sets of elements (introduction-to-matching-logic.tex:704-710).
+
+(2) Equation. Each generated symbol f is the applied symbol of the left side of exactly one axiom, of the form \implies(\and(\top, \and(\in(X0, P), \top)), \equals(f(X0), \and(t, \top))) (kk:t11-eq-applies; an initializer without argument has no \in). An axiom holds in a model when it denotes the whole carrier at every valuation (:767-768), \in holds exactly where the variable's element is in the pattern's denotation (:897-902), and \equals exactly where the two denotations are the same set (:880-885). So:
+ (a) An initializer's P is the variable Init (initTsCell, kore.txt:472-487: X0 in VarInit, right side <ts>(initTCell(VarInit))). The premise holds exactly where X0 is Init, so the axiom states that at every map m the set f denotes at m is the set t denotes at m, whichever set that is. Given the interpretations of the symbols t applies, exactly one interpretation of f satisfies the axiom.
+ (b) A projection's and the getter's P is a constructor pattern: kseq(inj{S,KItem}(K), dotk) with right side K (project:TsCell, kore.txt:1426-1441), <generatedTop>(_DotVar0, Cell) with right side Cell (the getter, kore.txt:364-379). The axiom states f(a) = v at each element a that P denotes at a valuation where the right side is v, and nothing at another element (kk:t11-eq-applies). Given the interpretations of the symbols of P, an interpretation of f satisfies it exactly where no element is denoted by P at two valuations with different right sides; f is then fixed on the elements P denotes and free elsewhere. For the getter that condition is what the no-confusion axiom of <generatedTop> states (kore.txt:174; :1017-1024). For a projection it is that kseq(inj{S,KItem}(K), dotk) denotes no element at two values of K, and no axiom of the text states it: kseq is declared with the attributes constructor, functional and injective, and inj with sortInjection (prelude.kore:8, 50); an attribute is a hint whose semantic content should correspond to axioms declared explicitly (kore-syntax.md:222-228), and the text has no no-confusion axiom of kseq and none that makes inj injective. So a projection's equation states that condition itself, of kseq and inj.
+
+(3) A definition outside the theory. Call a set G of generated symbols closed when a member is applied only by the left side of its own equation, by its own functional axiom, and by right sides of equations of members. In this text the one rule applies no generated symbol, and closed sets are, for instance: initGeneratedTopCell alone; that with initTopCell and initGeneratedCounterCell, which its equation alone applies (kore.txt:395); that with initKCell and initTsCell, which initTopCell's equation alone applies (kore.txt:467); any of these with the getter and a projection no equation applies (project:TsCell); and that with initTCell, which initTsCell's equation alone applies (kore.txt:485). Let the theory be the text without the declarations, equations and functional axioms of a closed G. The right side of a member's equation applies symbols of the theory, functions among them: with initTCell in the theory, initTsCell's applies it (kore.txt:485), and initKCell's applies the projection project:Cmd and Map:lookup (kore.txt:413). By (2), over any model of the theory the equations of G are satisfied by interpreting the members in the order in which their equations apply one another, uniquely in case (a), and in case (b) under its condition, which is a statement about the symbols of P, symbols of the theory. Conversely a model of the text is a model of the theory when the members' interpretations are forgotten. So the equations of G define G from the theory's symbols: beyond the condition of (b) they state nothing of the theory's symbols, and the theory states nothing of G. That an equation of G applies a function of the theory does not change this: the equation takes that function's value, whatever the theory makes it, and states none.
+
+(4) Functional axiom. \exists Val. Val = f(...) states that f denotes exactly one element at every argument (:960-964). With the equation of case (a) it states that t denotes exactly one element at every argument: a statement about the symbols t applies. Where the theory's sentences already give t exactly one element at every argument, the pair adds nothing to the theory; where they do not, the pair states of the theory's symbols something the theory does not, and (3) does not cover it. In this text the five initializers kore.txt declares (kore.txt:60-68, those of <p>, <t>, <top>, <ts> and <v>) take Init, are declared with function{}() alone, and have no functional axiom. In the text of e2-cells, initTsCell() = <ts>(.ThCellSet()) has one (e2-cells kore.txt:1022, 594, 164): the pair states that <ts>(.ThCellSet()) is one element, which holds in a theory where <ts> is a total function (its own functional axiom, e2-cells kore.txt:488) and .ThCellSet, the unit of a sort hooked SET.Set, is one set (e2-cells kore.txt:76).
+
+(5) The text does not say which generated functions are the theory's. initTCell (kore.txt:62, 436-451) and initTsCell (kore.txt:66, 472-487) are declared in the same form and each has one equation of form (a); in the text of e2-cells initThCell is declared and has its equation and its functional axiom (e2-cells kore.txt:162, 1007-1009, 592) and no other sentence applies it. By (3), a reading that keeps a generated function with an equation of form (a) in the theory and a reading that leaves symbol and equation out have the same models up to the interpretation of that function, which the equation determines. The same holds of the getter, determined on the elements <generatedTop> builds, since the theory states the condition of (2)(b) for it. A reading that leaves a projection out also leaves out what its equation states of kseq and inj ((2)(b)), and loses nothing only where its theory gives that condition otherwise. With that, either is a reading of the text, and whether some other sentence applies the symbol decides neither. What a reading must keep fixed: the set of symbols it leaves out is closed, so no sentence it keeps applies one of them, and a functional axiom of a symbol left out is accounted as in (4).'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:66"
+quote = '''symbol LblinitTsCell{}(SortMap{}) : SortTsCell{} [function{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:62"
+quote = '''symbol LblinitTCell{}(SortMap{}) : SortTCellSet{} [function{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:472-487"
+quote = '''\in{SortMap{}, R} ( X0:SortMap{}, VarInit:SortMap{} ), \top{R} () )), \equals{SortTsCell{},R} ( LblinitTsCell{}(X0:SortMap{}), \and{SortTsCell{}} ( Lbl'-LT-'ts'-GT-'{}(LblinitTCell{}(VarInit:SortMap{})), \top{SortTsCell{}}())))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:436-451"
+quote = '''LblinitTCell{}(X0:SortMap{}), \and{SortTCellSet{}} ( LblTCellSetItem{}(Lbl'-LT-'t'-GT-'{}(LblinitVCell{}(VarInit:SortMap{}),LblinitPCell{}(VarInit:SortMap{}))),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:395"
+quote = '''Lbl'-LT-'generatedTop'-GT-'{}(LblinitTopCell{}(VarInit:SortMap{}),LblinitGeneratedCounterCell{}()),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:467"
+quote = '''Lbl'-LT-'top'-GT-'{}(LblinitKCell{}(VarInit:SortMap{}),LblinitTsCell{}(VarInit:SortMap{})),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:413"
+quote = '''Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortCmd{}, SortKItem{}}(Lblproject'Coln'Cmd{}(kseq{}(LblMap'Coln'lookup{}(VarInit:SortMap{},inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$PGM"))),dotk{}()))),dotk{}())),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:1426-1441"
+quote = '''\in{SortK{}, R} ( X0:SortK{}, kseq{}(inj{SortTsCell{}, SortKItem{}}(VarK:SortTsCell{}),dotk{}()) ), \top{R} () )), \equals{SortTsCell{},R} ( Lblproject'Coln'TsCell{}(X0:SortK{}), \and{SortTsCell{}} ( VarK:SortTsCell{},'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:364-379"
+quote = '''\in{SortGeneratedTopCell{}, R} ( X0:SortGeneratedTopCell{}, Lbl'-LT-'generatedTop'-GT-'{}(Var'Unds'DotVar0:SortTopCell{},VarCell:SortGeneratedCounterCell{}) ), \top{R} () )), \equals{SortGeneratedCounterCell{},R} ( LblgetGeneratedCounterCell{}(X0:SortGeneratedTopCell{}), \and{SortGeneratedCounterCell{}} ( VarCell:SortGeneratedCounterCell{},'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:174"
+quote = '''axiom{}\implies{SortGeneratedTopCell{}} (\and{SortGeneratedTopCell{}} (Lbl'-LT-'generatedTop'-GT-'{}(X0:SortTopCell{}, X1:SortGeneratedCounterCell{}), Lbl'-LT-'generatedTop'-GT-'{}(Y0:SortTopCell{}, Y1:SortGeneratedCounterCell{})), Lbl'-LT-'generatedTop'-GT-'{}(\and{SortTopCell{}} (X0:SortTopCell{}, Y0:SortTopCell{}), \and{SortGeneratedCounterCell{}} (X1:SortGeneratedCounterCell{}, Y1:SortGeneratedCounterCell{})))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:1012-1024"
+quote = '''\equals{SortTsCell{},R} ( LblinitTsCell{}(), \and{SortTsCell{}} ( Lbl'-LT-'ts'-GT-'{}(Lbl'Stop'ThCellSet{}()),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:594"
+quote = '''axiom{R} \exists{R} (Val:SortTsCell{}, \equals{SortTsCell{}, R} (Val:SortTsCell{}, LblinitTsCell{}())) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:488"
+quote = '''axiom{R} \exists{R} (Val:SortTsCell{}, \equals{SortTsCell{}, R} (Val:SortTsCell{}, Lbl'-LT-'ts'-GT-'{}(K0:SortThCellSet{}))) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:76"
+quote = '''hooked-symbol Lbl'Stop'ThCellSet{}() : SortThCellSet{} [function{}(), hook{}("SET.unit")]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:162"
+quote = '''symbol LblinitThCell{}() : SortThCellSet{} [function{}(), functional{}(), total{}()]'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:1007-1009"
+quote = '''LblinitThCell{}(), \and{SortThCellSet{}} ( LblThCellSetItem{}(Lbl'-LT-'th'-GT-'{}(LblinitIdCell{}())),'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/test/constructs/fixtures/e2-cells/kore.txt:592"
+quote = '''axiom{R} \exists{R} (Val:SortThCellSet{}, \equals{SortThCellSet{}, R} (Val:SortThCellSet{}, LblinitThCell{}())) [functional{}()] // functional'''
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:8 (K 7.1.337)"
+quote = "symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), functional{}(), injective{}()]"
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:50 (K 7.1.337)"
+quote = "symbol inj{From, To}(From) : To [sortInjection{}()]"
+
+[[ruling.kore.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:222-228 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly."
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-710 (K 7.1.337)"
+quote = '''A \emph{matching logic $(S,\Sigma)$-model} $M$ consists of: An $S$-sorted set $\{M_s\}_{s\in S}$, where each set $M_s$, called the \emph{carrier of sort $s$ of $M$}, is assumed non-empty; and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = '''Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:880-885 (K 7.1.337)"
+quote = '''Equality is also a predicate. if $\varphi,\varphi' \in \Pattern_{s_1}$ and $\rho : \Var \ra M$ then $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = \emptyset$ iff $\overline{\rho}(\varphi) \neq \overline{\rho}(\varphi')$, and $\overline{\rho}(\varphi =_{s_1}^{s_2} \varphi') = M_{s_2}$ iff $\overline{\rho}(\varphi) = \overline{\rho}(\varphi')$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:897-902 (K 7.1.337)"
+quote = '''Membership is also a predicate. Specifically, for any $\rho:\Var\ra M$, $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = \emptyset$ iff $\rho(x) \not\in \overline{\rho}(\varphi)$, and $\overline{\rho}(x \in_{s_1}^{s_2} \varphi) = M_{s_2}$ iff $\rho(x) \in \overline{\rho}(\varphi)$.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:960-964 (K 7.1.337)"
+quote = '''For example, if $f$ is a unary symbol, then the pattern equation ``$\forall x\,.\,\exists y\,.\,f(x) = y$'' (the convention for free variables allows us to drop the universal quantifier) states that in any model $M$, the set $f_M(a)$ contains precisely one element for any $a\in M$; i.e. $f$ is a total function.'''
+
+[[ruling.kore.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1017-1024 (K 7.1.337)"
+quote = '''\item[No confusion, same constructor:] For any $1\leq i\leq n$, $A$ contains or entails $$ c_i(x_i^1,\dots,x_i^{m_i}) \wedge c_i(y_i^1,\dots,y_i^{m_i}) \ra c_i(x_i^1 \wedge y_i^1,\dots,x_i^{m_i}\wedge y_i^{m_i}) $$ This states that each element is constructed in a unique way.'''
+
+[[observe]]
+file = "kore.txt"
+contains = "symbol LblinitTsCell{}(SortMap{}) : SortTsCell{} [function{}()]"
+
+[[observe]]
+file = "kore.txt"
+contains = "Lbl'-LT-'ts'-GT-'{}(LblinitTCell{}(VarInit:SortMap{})),"
+
+[[observe]]
+file = "kore.txt"
+absent = "Val:SortTsCell{}, LblinitTsCell{}("
+
+[[note]]
+implementation = "kcore"
+text = "Which generated symbols KCore's theory has is the reader's numbering (Parse.envOf), not whether a sentence applies the symbol. A function of the theory, with the text's equation as its clause, applied or not: every symbol declared without a source that has an equation and is no sort predicate, projection, counter getter, initializer of the top cell tree, cell of the configuration or registry symbol (envOf's genSyms over its test known; treeInits are the initializers of the cells of the numbered cell tree, which stops at a cell collection, and of GeneratedTopCell and GeneratedCounterCell). On the two texts read below those are the initializers of cells below a cell collection, a Map collection's XCellMapKey, and getExitCode. An initializer of the top cell tree is a function of the theory only where a user sentence applies it or the equation of one so numbered does (treeFns); a projection only where a user sentence or the equation of a function initializer applies it (projNames); the counter's getter under no arm of envOf. The theory lacks every other projection and top-tree initializer, and the getter. Sort predicates isX are not this entry's subject."
+
+[[note]]
+implementation = "kcore"
+text = "On the text of fixture e1-starinit, this entry's K text but for the module names (kcore-spec f2-examples/e1-starinit.kompile.kore; kcore sem-fields): the theory's functions are initTCell, initVCell, initPCell, project:Cmd and project:Int. initTCell is applied by one sentence, initTsCell's equation, whose symbol the theory lacks; the theory lacks initTsCell, initTopCell, initKCell, initGeneratedTopCell, initGeneratedCounterCell, the getter and the other projections, although initTopCell's equation applies initTsCell and initKCell. On e2-cells' text (f2-examples/cells.kompile.kore) initThCell, initLtCell, initMtCell, initIdCell, initKeyCell, initVCell, MtCellMapKey and getExitCode are the theory's generated functions; LblinitThCell occurs three times in that text (declaration, functional axiom, left side of its own equation). kcore account refuses no sentence of either text."
+
+[[note]]
+implementation = "kcore"
+text = "The equation of a symbol the theory lacks is accounted where it is the symbol's only equation, without requires, ensures or exclusion, over distinct variables (Parse.initEqnOK; the getter's by getterEqnOK, over the top cell's constructor at distinct variables; a projection's by predProjOK?, by its shape project:X(P) = V), its right side applying symbols of the registry or of the theory (its functions included), initializers of cells below, and projections whose equations are accounted. A functional axiom of an initializer the theory lacks is taken only where the right side has exactly one value by the theory's constructors, total interpreted symbols and the initializers of cells strictly below that have their own functional axiom, or is ground and computed (Parse.initFunctionalOK: initTotalOK or initGroundOK); otherwise the account refuses the text at that axiom (initFaults, generatedEquation). Neither fixture text has an axiom refused there. Whether KCore's theory entails the condition of [ruling.kore] (2)(b) for a projection it lacks was not checked for this entry: predProjOK? reads the equation's shape."
+
+[[note]]
+implementation = "kcore"
+text = "In a tie file a sentence that applies a symbol the theory lacks is of the class 'no direction'; account_absent states per text, decided by the kernel, that the class is exactly those sentences, and absent_closed that no sentence of another class applies such a symbol (kcore-spec test/TieE1Starinit.lean). That is the closure of G in [ruling.kore] (3). GenEqs.model_with_inits_step and model_with_eqns_step state a model of the theory with Step's steps in which names outside the theory denote given partial functions; reading an equation's right side into such a function, GenEqs.armHead reads a name, a constructor of the theory or an interpreted hook, and no function of the theory. So for a right side that applies a function of the theory (initTsCell's, initKCell's here) the extension of (3) is argued in this entry and is not yet a Lean statement."

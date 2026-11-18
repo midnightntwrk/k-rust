@@ -26,6 +26,14 @@ read. An E5 site is recognised by the form ModuleToKORE.java writes there:
                                \\exists (ModuleToKORE.java:1588)
   genIdemAxiom:axiom#1         an axiom with the attribute idem whose body is an \\equals
                                (ModuleToKORE.java's genIdemAxiom: `f(K, K) = K` of a symbol with idem)
+  genAssocAxiom:axiom#1        an axiom with the attribute assoc whose body is an \\equals
+                               (`f(f(K1, K2), K3) = f(K1, f(K2, K3))` of a symbol with assoc)
+
+An entry with `node_sentence` (rows-header.toml) is looked up in its fixture's kompiled definition
+instead: the text kompile.txt's `definition.kore sha256` names, from kfix.py's cache (this tree's
+.lake/kfix, else $KCORE_KFIX_CACHE), parsed whole; the node must be held by a sentence whose first
+line contains the string. It is for a sentence kore.txt leaves out (a builtin file's, whose Source
+is K's), and it locates the one sentence, since every kompiled definition holds the library's.
 
 Usage (from kcore-spec):
   python3 -I test/constructs/e4e5.py find [--write] [ROWS.toml]
@@ -34,7 +42,8 @@ Usage (from kcore-spec):
       row's fixture and sentence, and the rows no fixture holds; --write records them in rows.toml
       (fields fixture and sentence, the sentence the first line of the sentence holding the node)
   python3 -I test/constructs/e4e5.py check [ROWS.toml]
-      each E4 and E5 row naming a fixture: the fixture's text holds its node; exit 1 otherwise
+      each supported E4 and E5 row and `cases` entry naming a fixture: the fixture's text (or, with
+      node_sentence, the sentence of its kompiled definition) holds the row's node; exit 1 otherwise
   python3 -I test/constructs/e4e5.py --self-test
       the parse of small texts, each node found or not as expected
 The order of the fixtures for find: those the FIX-rest tie tickets tie first (PREFER, in that
@@ -394,6 +403,8 @@ def e5_sites(kw, heads, body, nvars):
             out.add("functionalPattern:axiom#1")
         elif body == "\\equals" and "idem" in names:
             out.add("genIdemAxiom:axiom#1")
+        elif body == "\\equals" and "assoc" in names:
+            out.add("genAssocAxiom:axiom#1")
     return out
 
 
@@ -488,8 +499,62 @@ def fixture_nodes(name, fxdir=FXDIR):
     return res
 
 
-def holds(fx, l, key, name):
-    """(held, how) for rest.py: whether fixture NAME's text holds the E4/E5 row's node."""
+def kompiled_text(name, fxdir=FXDIR):
+    """(text, None): the kompiled definition fixture NAME's kompile.txt records (its
+    `definition.kore sha256`), from kfix.py's cache; or (None, why there is none)."""
+    sys.dont_write_bytecode = True  # no __pycache__ in the tree
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import kfix
+    kt = os.path.join(fxdir, name, "kompile.txt")
+    m = re.search(r"^definition\.kore sha256: (\w+)$", open(kt).read() if os.path.isfile(kt) else "", re.M)
+    if not m:
+        return None, "no definition.kore sha256 in kompile.txt"
+    p = os.path.join(kfix.WORK, name, "definition.norm.kore")
+    if os.path.isfile(p):
+        kore = open(p).read()
+        if kfix.sha(kore) == m[1]:
+            return kore, None
+    kore = kfix.cache_get(m[1])
+    return (kore, None) if kore is not None else (None, f"its kompiled text {m[1][:12]} is in no cache ({kfix.CACHE})")
+
+
+def sentence_nodes(name, s, fxdir=FXDIR, text=None):
+    """{key: (sentence index, first line)} of the sentences of fixture NAME's kompiled definition
+    (or of TEXT) whose first line contains S; or a string (why there is none)."""
+    given = text is not None
+    if not given and (fxdir, name, s) in _cache:
+        return _cache[(fxdir, name, s)]
+    why = None
+    if not given:
+        text, why = kompiled_text(name, fxdir)
+    if why is not None:
+        res = why
+    else:
+        try:
+            nodes = {}
+            for idx, first, keys in parse_definition(text):
+                if idx is not None and s in first:
+                    for k in keys:
+                        nodes.setdefault(k, (idx, first))
+            res = nodes or f"no sentence of its kompiled definition has {s!r} in its first line"
+        except ParseError as err:
+            res = f"its kompiled definition does not parse: {err}"
+    if not given:
+        _cache[(fxdir, name, s)] = res
+    return res
+
+
+def holds(fx, l, key, name, node_sentence=None):
+    """(held, how) for rest.py: whether fixture NAME's text holds the E4/E5 row's node; with
+    node_sentence, the sentence of its kompiled definition that the string locates."""
+    if node_sentence is not None:
+        n = sentence_nodes(name, node_sentence, fx.fx)
+        if isinstance(n, str):
+            return False, f"{name}: {n}"
+        if key not in n:
+            return False, f"{name}'s kompiled sentence {node_sentence!r} does not hold it (e4e5.py)"
+        return True, f"{name}'s kompiled definition, sentence {node_sentence!r} (e4e5.py)"
     n = fixture_nodes(name, fx.fx)
     if isinstance(n, str):
         return False, f"{name}: {n}"
@@ -607,19 +672,24 @@ def check(rows):
     t = tomllib.load(open(rows, "rb"))
     bad, n = [], 0
     for l in ("E4", "E5"):
-        for k, r in t[l].items():
-            x = r.get("fixture")
-            if not isinstance(x, str) or x == "none" or r.get("status") != "supported":
-                continue
-            n += 1
-            if not os.path.isdir(os.path.join(FXDIR, x)):
-                bad.append(f"{l} {k!r}: no fixture {x}"); continue
-            nodes = fixture_nodes(x)
-            if isinstance(nodes, str):
-                bad.append(f"{l} {k!r}: {x}: {nodes}")
-            elif k not in nodes:
-                bad.append(f"{l} {k!r}: {x}'s text does not hold the node")
-    print(f"e4e5 check: {n} supported E4 and E5 rows naming a fixture, {len(bad)} failing")
+        for k, row in t[l].items():
+            entries = [(f"{l} {k!r}", row)] + [(f"{l} {k!r} cases[{i}]", c) for i, c in enumerate(row.get("cases") or [])
+                                               if isinstance(c, dict)]
+            for at, r in entries:
+                x = r.get("fixture")
+                if not isinstance(x, str) or x == "none" or r.get("status") != "supported":
+                    continue
+                n += 1
+                if not os.path.isdir(os.path.join(FXDIR, x)):
+                    bad.append(f"{at}: no fixture {x}"); continue
+                ns = r.get("node_sentence")
+                nodes = fixture_nodes(x) if ns is None else sentence_nodes(x, ns)
+                if isinstance(nodes, str):
+                    bad.append(f"{at}: {x}: {nodes}")
+                elif k not in nodes:
+                    bad.append(f"{at}: {x}'s " + ("text" if ns is None else f"kompiled sentence {ns!r}")
+                               + " does not hold the node")
+    print(f"e4e5 check: {n} supported E4 and E5 rows and cases naming a fixture, {len(bad)} failing")
     for b in bad:
         print(f"  {b}")
     return 1 if bad else 0
@@ -631,7 +701,8 @@ def self_test():
             '  symbol Lbla{}() : SortA{} [constructor{}()]\n'
             '  axiom{R} \\exists{R} (Val:SortA{}, \\equals{SortA{}, R} (Val:SortA{}, Lbla{}())) [functional{}()]\n'
             '  axiom{} \\rewrites{SortA{}} (Lbla{}(), \\and{SortA{}}(Lbla{}(), \\top{SortA{}}())) '
-            '[UNIQUE\'Unds\'ID{}("x\\"y")]\nendmodule []\n')
+            '[UNIQUE\'Unds\'ID{}("x\\"y")]\n'
+            '  axiom{R} \\equals{SortA{}, R} (Lbla{}(), Lbla{}()) [assoc{}()]\nendmodule []\n')
     bad = []
     try:
         res = parse_definition(tiny)
@@ -643,10 +714,21 @@ def self_test():
                 "tree:Pattern.exist", "tree:Pattern.rewrites", "tree:KSort.var", ML["\\top"],
                 "translateSorts:hooked-#1", "translateSorts:hooked-#2", "translateSorts:sort#1",
                 "translateSymbol:symbol#1", "functionalPattern:axiom#1", "convertRule:axiom#2", K_["sep1-more"],
+                "genAssocAxiom:axiom#1",
                 K_["sep-empty"], "tree:Sentence.import"}
         not_want = {"tree:Pattern.or", "convertRule:axiom#1", "tree:Sentence.hookedSymbol", "tree:Pattern.dv"}
         bad += [f"not found: {k}" for k in sorted(want - keys)]
         bad += [f"found, not in the text: {k}" for k in sorted(not_want & keys)]
+    # node_sentence: the sentence its string locates, not the definition's first holding the key
+    for s, key, want_held in [('hooked-sort SortI{}', "translateSorts:hooked-#2", True),
+                              ('hooked-sort SortI{}', "translateSorts:hooked-#1", False),
+                              ('hooked-sort SortS{}', "translateSorts:hooked-#2", False),
+                              ('symbol Lbla{}', "translateSorts:hooked-#2", False)]:
+        n = sentence_nodes("tiny", s, text=tiny)
+        if isinstance(n, str) or (key in n) != want_held:
+            bad.append(f"node_sentence {s!r}: {key} " + ("not held" if want_held else "held"))
+    if not isinstance(sentence_nodes("tiny", "hooked-sort SortZ{}", text=tiny), str):
+        bad.append("node_sentence 'hooked-sort SortZ{}': a sentence found, the text has none")
     for txt in ["module M\n  axiom{R} \\and{R}(\n", "[] module M axiom{} \\top{S{}}() endmodule []"]:
         try:
             parse_definition(txt); bad.append(f"parses, should not: {txt!r}")

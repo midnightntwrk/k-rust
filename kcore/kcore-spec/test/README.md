@@ -1580,6 +1580,13 @@ table above, on the tree before String and Bytes). Not investigated here.
   of its result sort (`choice_undetermined`, `keysList_undetermined`, `values_undetermined`, from the
   schema `param_undeterminedPR`: ⊥ under `HookParams.none`, the value under the interpretation that
   gives it, both theories with models).
+- `test/ParamKLevel.lean`: on `f2-examples/e3-param-cases.kompile.kore` (fixture e3-param-cases)
+  and `f2-examples/e8-hook-namespaces.kompile.kore` (fixture e8-hook-namespaces), the instances
+  `pick{Int}` and `isZeroOf{Exp}` of sort-parametric functions the text gives no equation, and `fh`,
+  hooked to `FOO.bar`, which no registry entry names: parameters no hook implements. Over all H, Γ
+  entails neither that each has no value at a point nor that it is a given value of its result sort
+  (`E3Cases.pickInt_undetermined`, `E3Cases.isZeroOfExp_undetermined`, `E8HookNs.fh_undetermined`,
+  from the schema `param_undeterminedPK`; `FnHyp` for every H, the texts' functions owing no fact).
 - `test/LibEvEns.lean`: five library equations of `f2-examples/ens.kompile.kore` (sentences 156, 158,
   159, 165, 166: domains.md 1377, 1415, 1373, 1416, 1374) entailed at values (`EntailsAtValues`) for
   every H, each from the library's one statement of the equation for every semantics meeting `coreOK`
@@ -1897,3 +1904,7 @@ table above, on the tree before String and Bytes). Not investigated here.
   (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
   by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
   translation of an axiom does not read its attributes.
+- `test/InertBaseLaws.lean`: the collection laws of `_List_` in construct fixture base (axioms 38, 39,
+  40 of `f2-examples/base.kompile.kore`: associativity, right unit, left unit), each left inert by the
+  reader (`collectionLaw`) and entailed by Γ at values for every H (`list_laws_base`,
+  `InertEv.listLaw_ev`).

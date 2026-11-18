@@ -11,7 +11,8 @@
     distinct element variables as patterns (I3), the right side's variables among them (I4), the
     right side over `inj`, the definition's symbols, initializers strictly below and accounted
     projections (I5); for its `functional` axiom a right side of constructors, total interpreted
-    symbols and initializers below that have the axiom (I6).
+    symbols and initializers below that have the axiom, or a ground right side whose value is
+    computed, a function without argument read as its one unconditional clause's right side (I6).
   - By evaluation, on K 7.1.337 kompile's text of fixture e2-cells (`f2-examples/cells.kompile.kore`)
     and six edits of it, each stating something the definition's theory refutes or does not state:
     the unedited text is read with nothing refused or unaccounted; each edit is refused
@@ -156,6 +157,21 @@ example : initTotalOK [] c kCell initK = false := by decide +kernel
 example : initTotalOK ["LblinitKCell", "LblinitXCell"] c topCell initTop = false := by decide +kernel
 example : initTotalOK ["LblinitKCell", "LblinitXCell", "LblinitGeneratedCounterCell"] c topCell initTop = true := by
   decide +kernel
+
+/-- `c` with `f` a function without argument of the one clause `cl`. -/
+def cConst (cls : List Clause) : Semantics :=
+  { c with fns := [{ label := fL, args := [], result := Srt.int, clauses := cls }] }
+def fZero : Clause := { vars := [], pats := [], req := none, rhs := .dv Srt.int (.int 0), ens := none }
+def initXf : RawEqn := { initX with rhs := ap "Lbl'-LT-'x'-GT-'" [ap "Lblf" []] }
+
+/-- I6, a function without argument: where its one clause has no pattern and no condition, its
+right side is computed in place of `f()`; with a `requires`, a second clause, or no clause, it is
+not. -/
+example : initGroundOK N (cConst [fZero]) initXf = true := by decide +kernel
+example : initGroundOK N (cConst [{ fZero with req := some (.dv Srt.bool (.bool true)) }]) initXf = false := by
+  decide +kernel
+example : initGroundOK N (cConst [fZero, fZero]) initXf = false := by decide +kernel
+example : initGroundOK N (cConst []) initXf = false := by decide +kernel
 /-- A `functional` axiom of `initKCell`, whose equation's right side applies a projection, is a failure. -/
 example : ((initFaults N "" [] eqs ["LblinitKCell"] c topCell).map (·.detail)) =
     ["LblinitKCell: functional axiom of a cell's initializer whose equation's right side the definition does not give exactly one value at every argument"] := by

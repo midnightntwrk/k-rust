@@ -55,7 +55,7 @@ open condition variable, and needs no witness. -/
 theorem gCl1_facts :
     gCl1.pre ≠ .top ∧ c.condOK gCl1.vars gCl1.pre = true ∧ hasBinder gCl1.pre = false ∧
     Cond.bound c gCl1.vars.length gCl1.pre = true ∧
-    sortsOfTerms c.patCtxAll gCl1.vars gCl1.pats = some gFn.args ∧ gCl1.req = none ∧
+    sortsOfTerms c.patCtxNF gCl1.vars gCl1.pats = some gFn.args ∧ gCl1.req = none ∧
     gCl1.openCondVars = [] ∧ gCl1.needsWitness c = false ∧
     (!gCl1.reqOpen || gCl1.reqClosed ||
       gCl1.openCondVars.all fun i => (gCl1.vars[i]?.map c.confined).getD false) = true := by

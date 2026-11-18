@@ -6,10 +6,13 @@
   So in every model of `Γc` the clause has `ClauseExRead` (`clauseExRead_of_coreEx`) and every clause
   `ClauseOpenFactsQ`: the hypotheses of OpenClauseDenQ.lean's block hold of a clause with an
   existential variable.
+  The value model's sortedness `sortedOKClEx`, which `HypModelCore` holds, accepts the semantics, and
+  `sortedOKCl` does not: `consistent_ce` is stated over a sortedness this clause passes.
 -/
 import KcoreSpec.CoreOKEx
 import KcoreSpec.CoreDecide
 import KcoreSpec.ClauseExDenCEx
+import KcoreSpec.ModelHasEx
 
 set_option autoImplicit false
 
@@ -83,5 +86,19 @@ theorem cCeG_clauseExRead {M : Type} [Inhabited M] {I : ML.Interpretation KoreAM
 theorem cCeG_factsQ : ∀ fn ∈ cCeG.allFns, ∀ cl ∈ fn.clauses,
     ∃ L, HeadsOK cCeG L ∧ Faithful.ClauseOpenFactsQ cCeG fn L cl :=
   Faithful.clauseOpenFactsQ_of_sortedOKEx (Semantics.coreOKEx_parts cCeG_coreOKEx).1
+
+/-- **`HypModelCore`'s sortedness of the clauses, `sortedOKClEx`, accepts the semantics of
+`f() => g(?Z:Int)` with `post := Z ∈ lp()`**; `sortedOKCl` refuses it. -/
+theorem cCeG_sortedOKClEx : cCeG.sortedOKClEx = true ∧ cCeG.clausePlainOpenEx clCf = true ∧
+    cCeG.sortedOKCl = false := by decide +kernel
+
+example (hm : Faithful.Model.HypModelCore cCeG) : cCeG.sortedOKClEx = true := hm.hyp.1
+
+example (hm : Faithful.Model.HypModelCore cCeG) (hp : ClausePreDecided cCeG)
+    (hq : ClausePostDecided cCeG) (hl : OpenLaws cCeG) : Consistent cCeG :=
+  Faithful.Model.consistent_ce cCeG hm hp hq hl
+
+/-- info: 'KCore.CoreOKExTest.cCeG_sortedOKClEx' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms cCeG_sortedOKClEx
 
 end KCore.CoreOKExTest

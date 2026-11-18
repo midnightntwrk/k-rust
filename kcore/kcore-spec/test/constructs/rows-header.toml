@@ -124,8 +124,11 @@
 #   derived   the row's evidence theorems, a list of tables: form ("a", "b", "c" or "r": a Lean
 #             proof from the translated text, a derivation written by hand, the pair of models
 #             showing the text entails no value, or a Lean proof that the text's sentences have no
-#             model), for form (a) kind ("from sentences" or "through the reading"; the second with
-#             family, the family it goes through) and sentences (the indices of the sentences that
+#             model), for form (a) kind ("from sentences", "through the reading" or "in a model"; the
+#             second with family, the family it goes through; the third for sentences of the
+#             no-direction class, `no_direction` below: the theorem states, for every H, an
+#             interpretation that satisfies the theory, whose steps are Step's, in which those
+#             sentences hold at values) and sentences (the indices of the sentences that
 #             determine it), theorem (full name) and file (relative to kcore-spec) for forms (a), (c)
 #             and (r), derivation (a file) for form (b). The theorem's statement mentions H (a name of
 #             type HookParams) and no AtNone file or namespace holds it.
@@ -149,8 +152,27 @@
 #   tie_theorems  the theorems of those modules the entry rests on (C14's statement for its class,
 #             the tie of its sentence), full names, each declared in a file of `tie`; with the
 #             `theorem` of each `derived` table, the theorems the entry names.
+#   node_sentence  on a supported E4 or E5 row or `cases` entry whose node is a sentence kore.txt
+#             leaves out (a builtin file's sentence, whose Source is K's): a substring of the first
+#             line of that sentence in the fixture's kompiled definition (the text kompile.txt's
+#             `definition.kore sha256` names, read from kfix.py's cache). The node check (e4e5.py
+#             check, rest.py's item node) then parses that definition and requires the sentence
+#             the string locates to hold the row's node, instead of looking in kore.txt; absent,
+#             the node is looked up in kore.txt (or the `kore` fixture's text). Only an entry whose
+#             sentence kore.txt leaves out carries it: every kompiled definition holds the library's
+#             sentences, so the definition alone would hold most nodes on any fixture.
 #   inert_class  for inert: the constructor of InertReason (KcoreSpec/Parse.lean) its sentence is
 #             classed under, or "use" (DONE-0 C1's class use, with `reason` C1's reason).
+#   no_direction  on a supported row or nested table: the indices (AxiomDecl.index, the numbering of
+#             the tie's classes) of the entry's sentences that are of the no-direction class of its
+#             fixture's tie (owed-sentence rule item 7). The class is read from the tie's `classes`
+#             (the file of tie that reads f2-examples/FIXTURE.kompile.kore), never from whether a
+#             sentence applies a symbol. rest.py accepts such an entry only where tie_theorems names
+#             that file's account, account_absent and absent_closed, every index is in its
+#             no-direction class, every sentence `sentence` locates there is listed, and a `derived`
+#             table of form (a), kind "in a model", has exactly these indices as its sentences; it
+#             refuses a supported entry whose every sentence `sentence` locates is of that class and
+#             that has no such field and table.
 #   For erased, the forms of findings/work/decision-fixrest-erased-forms.md section 2, at least one,
 #   each checked (kfix.py check, rest.py; K-coverage.md prints their letters beside the status):
 #   pair      P: the fixture (or a list of them, each checked) whose kompile.txt records the entry's
@@ -182,9 +204,14 @@
 #             every attribute of that head is removed (and kfix.py's stripped applied to both).
 #   reader_tests  theorems that test the reader on the entry (a pair's sem_eq: the reader builds one
 #             semantics from both texts); evidence of nothing about the text, never counted as such.
-#   removed   on a row whose option removes sentences of a reference text: per sentence (its index in
-#             the reference text's user module), its tie class and direction there, the theorem and
-#             its companion, and the file.
+#   removed   on a row whose option removes sentences of a reference text: per sentence (its index,
+#             counted from 1 over the reference text's axioms as AxiomDecl.index counts them, of a
+#             sentence of its user module), its tie class and direction there, the theorem and its
+#             companion, and the file. rest.py checks it against f2-examples/REFERENCE.kompile.kore
+#             (the fixture's differs_from) and the fixture's own text: each sentence is in the
+#             reference and absent from the fixture's text, every axiom of the reference the
+#             fixture's text lacks is listed, and the theorems are declared in a file reading the
+#             reference.
 # Field of an owed CondDecided (checked by test/constructs/rest.py check; DONE-0 C2, C7):
 #   owed_state  on a row or a nested table: a table from a fixture directory to the state of the
 #             CondDecided its account.txt prints as owed (`CondDecided open, over V`, for each clause
@@ -217,22 +244,49 @@
 # The rule for a sentence of the text that the reader does not put in Γ (decision owed-sentence,
 # findings/work/review-no-fable-window.md section 15 items 1 to 5; DONE-0 C2, C6, C8, C14):
 #   1. it is owed: entailed by Γ (the inert lemma classes, C14 direction entailed or at values) or a
-#      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law;
-#      direction hypothesis);
+#      hypothesis on the definition (FnHyp for a functional sentence, FnLaws for a function's law,
+#      and, for a lemma that applies a parameter symbol without impl (class parameter lemma), the
+#      sentence itself at the member, Γ (c.withHooks H) ⊧ tr s; direction hypothesis);
 #   2. the reader neither claims it true nor refuses it for being false (in general it can decide
 #      neither); the account's word for it is "owed";
-#   3. the tie on the text (C14, per text, for every H) proves it or fails on it; a failure on a
-#      user's sentence means the text has no model: the text is not tied and nothing is stated of it.
-#      Only trusted base (4)'s refuted library sentences are recorded instead of failing;
+#   3. a user's sentence that applies no symbol whose value H gives is proved for every H, or Γ with
+#      it has no model and the text is not tied; one that applies a parameter without impl is a
+#      hypothesis on H (class parameter lemma), and the tie shows an H at which the text's hypotheses
+#      hold. Only trusted base (4)'s refuted library sentences are recorded instead of failing;
 #   4. a row's status is shown on a fixture where the owed sentence holds; a fixture where it fails is
 #      a test of the check (DONE-0 C8), named so (note, reader_tests), never the row's evidence and
 #      never a reason for not-handled;
 #   5. sem_eq with a companion text is a reader test (reader_tests), evidence of nothing about the text.
-#   Its scope is the sentences the reader leaves out of Γ. A sentence the reader reads into Γ (a
-#   function equation, a rule) is Γ's own; a text whose read sentences have no model is form (r)
-#   (findings/work/decision-nomodel-form.md), status supported. Not recorded: refusing a sentence the
-#   reader can decide contradicts what the semantics states of a generated symbol (section 15 item 6,
-#   proposed R-a); until it is recorded, such a case keeps the status it has and claims no class.
+#   7. (findings/work/decision-dec4.md section 5 as amended by findings/work/decision-nodir-applied.md
+#      section 5 and findings/work/decision-lacked-projection.md section 5; Kore-in-K entry
+#      t231-generated-symbol-definition) A sentence that applies a symbol Γ does not have is not owed:
+#      it defines that symbol and no statement of Γ is it. Its class is no direction; the tie on the
+#      text states which sentences those are (`account_absent`) and that no sentence with a direction
+#      applies such a symbol (`absent_closed`). Which generated symbols Γ lacks is the reader's
+#      numbering, not whether a sentence applies them: the counter's getter, and an initializer of the
+#      top cell tree that no user sentence and no equation of a function of Γ applies. A projection is
+#      lacked where no user sentence and no equation of a function of Γ applies it. Every other
+#      generated function with an equation (an initializer of a cell below a cell collection) is Γ's
+#      with the text's equation, applied or not, and is not under this item. The defining equation's
+#      right side may apply Γ's symbols, its functions included: it gives the lacked symbol's value
+#      from theirs. Where the left side is at a constructor pattern (a projection's
+#      kseq(inj{X,KItem}(K), dotk), the getter's top cell), the equation also states that the pattern
+#      builds no element at two values of its variables. Γ entails that from Cons-Fun and Cons-Inj of
+#      the pattern's generators (kseq, inj{X,KItem}, the top cell's constructor), so it is not owed
+#      either. For a projection this holds where its sort X is K, KItem or below KItem in Γ. A
+#      `functional` axiom of the lacked symbol states with the equation that this right side is
+#      defined; the account takes it only where that follows from Γ's constructors and total
+#      interpreted symbols and from the `functional` axioms of the initializers below, and refuses it
+#      otherwise (`initFunctionalOK`). A supported row whose sentence it is also names a model of Γ
+#      with `Step`'s steps in which the text's sentences of those symbols hold together at values
+#      (DONE-0 C2's floor; field no_direction, a `derived` table of kind "in a model"). Where no such
+#      model exists the sentences contradict Γ or one another: the text is not tied.
+#   Its scope is the sentences the reader leaves out of Γ; item 7's are not owed. A sentence the
+#   reader reads into Γ (a function equation, a rule) is Γ's own; a text whose read sentences have no
+#   model is form (r) (findings/work/decision-nomodel-form.md), status supported. Not recorded:
+#   refusing a sentence the reader can decide contradicts what the semantics states of a generated
+#   symbol (section 15 item 6, proposed R-a); until it is recorded, such a case keeps the status it
+#   has and claims no class.
 # Field of the E6 library rows (supported axiom, module, sort, symbol, token; inert lemma), written and
 # checked by test/constructs/e6map.py (--write, --check; its docstring states the forms it reads):
 #   e6_tie    a list of "THEOREM (FILE; TEXT axiom N)": the theorems of the tie files
