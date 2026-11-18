@@ -409,6 +409,17 @@ theorem eqns :
 
 end HandArg
 
+/-! ## Without kernel decisions of the theory's lists
+
+`GenEqs.rootedListsB_holds` gives rootedness of every semantics. -/
+
+namespace General
+
+/-- Every semantics' lists are rooted. -/
+example (c : Semantics) : rootedListsB c = true := rootedListsB_holds c
+
+end General
+
 /-- info: 'GenEqsLemmas.Hand.std_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.std_in_Γ
 /-- info: 'GenEqsLemmas.Hand.ow_in_Γ' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -434,5 +445,8 @@ end HandArg
 
 /-- info: 'GenEqsLemmas.HandArg.eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandArg.eqns
+
+/-- info: 'KCore.GenEqs.rootedListsB_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms rootedListsB_holds
 
 end GenEqsLemmas
