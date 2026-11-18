@@ -39,7 +39,7 @@
     `plusBig : Big Big → Big` over `plusExp` (and `plusInt` where `b`), Int < Exp < Big. Without
     `plusInt` in `plusBig`'s list, `plusBig` is not function-overloaded (`fnOvlSyms`); with it,
     it is, and a left side applying it is refused (`ruleSorted`, `ovlPatsOK`). Expected: `coreOK` false without
-    it; `coreOK`, `FnHyp`, `Consistent` with it.
+    it; `coreOK`, `FnHyp`, `Consistent` with it (`Chain.expect_chain`).
   - `conf over` (REVIEW-CN4 finding A): `fS : A → S` overloads the result-keeping function
     `fB : B → S`, B < A, `fB(X) = fB(X)` (no value at `b`), the total `p : S → Bool`, `p(_) = true`,
     and the rules `x => y requires p(H)` (H of S, not bound by the left side) and `x => z` with
@@ -877,4 +877,45 @@ theorem expect_e5 : expect := ⟨Admit.coreOK_e5, fnHyp_e5, consistent_e5, evalT
 #guard_msgs in #print axioms expect_e5
 
 end E5
+/-! ## The three-level chain: the functions' hypotheses, and what was expected -/
+
+namespace Chain
+
+open Det
+
+theorem noRaw_chain : ∀ k ∈ (c true).params, k.raw = false := by decide +kernel
+theorem confined_chain : (c true).readsConfined = false := by decide +kernel
+theorem valued_chain : (c true).rightValued = true := by decide +kernel
+theorem term_chain : (c true).rankObligations [plusInt] ++ (c true).decObligationsL = [] := by decide +kernel
+theorem total_chain : (c true).totalObligationsRP [plusInt] [] = [] := by decide +kernel
+theorem agree_chain : (c true).agreeObligationsI = [] := by decide +kernel
+theorem match_chain : (c true).matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+
+/-- **`FnHyp` of the chain whose larger symbol lists the function**: no fact is named. -/
+theorem fnHyp_chain : FnHyp (c true) :=
+  fnHyp_of_fnObligations (ord := [plusInt]) (tp := []) Admit.coreOK_chain
+    (Semantics.rightHeld_of_valued valued_chain) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_chain] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_chain] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [agree_chain] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_chain] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_readsConfined confined_chain, openLaws_of_plain noRaw_chain⟩
+
+/-- **`Consistent`** of that chain. -/
+theorem consistent_chain : Consistent (c true) := consistent_of_fnHyp _ Admit.coreOK_chain fnHyp_chain
+
+/-- **What was expected of the chain**: refused without the function in the larger symbol's list;
+with it, `coreOK`, `FnHyp` and `Consistent`, and the larger symbol refused in a left side. -/
+theorem expect_chain : expect :=
+  ⟨Admit.coreOK_chain_false, Admit.coreOK_chain, fnHyp_chain, consistent_chain, fnOvl_facts.2.2.2.2.2⟩
+
+/-- info: 'OvlFun.Chain.fnHyp_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fnHyp_chain
+/-- info: 'OvlFun.Chain.consistent_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms consistent_chain
+/-- info: 'OvlFun.Chain.expect_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms expect_chain
+
+end Chain
+
 end OvlFun
