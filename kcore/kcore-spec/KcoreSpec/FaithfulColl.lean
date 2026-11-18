@@ -978,7 +978,7 @@ theorem step_sound_stage4 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hpreTop := Semantics.preTop_of_okAll hy.1
-  have hy : HypCore c := hy.core
+  have hy : HypCore c := hy.core (Semantics.overloadsOK_pats OvlOK.ok)
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
   intro x y hstep M _ I hI e m hm

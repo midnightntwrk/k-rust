@@ -158,7 +158,7 @@ theorem applies_iff_T_pp (h : HypModelCore c) {T : GroundTerm → GroundTerm →
   have hPk : ∀ i, P i → i < r.vars.length ∧ canonKey c r.vars i ∈ tbl := fun i hi =>
     ⟨hi.1, hkeys i hi.1 hi.2⟩
   have hpat : PatOK c P r.lhs :=
-    (patOK_of_sorted h (h.ovlOKI.nf_bridge hlhs)).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
+    (patOK_of_sorted h (Semantics.ruleSorted_lhs_nf c hs)).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqS t ht)).monoOpen (hreqLt t ht)
   rw [applies_eqPP r]

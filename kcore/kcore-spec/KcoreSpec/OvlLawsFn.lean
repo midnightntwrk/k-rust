@@ -751,68 +751,8 @@ theorem OvlOK.fnCover_none {c : Semantics} [OvlOK c] (f : Sym) (vs : List Ground
 
 /-! ## Patterns that apply no function-overloaded symbol -/
 
-/-- No symbol applied in `p` is function-overloaded: what `ovlPatsOK` holds of a rule's left side,
-a clause's patterns and the pattern of an `exMatch`. -/
-abbrev Semantics.NoFnOvlIn (c : Semantics) (p : Term) : Prop := (symOccs p).any c.fnOvlSyms.contains = false
-
-/-- `NoFnOvlIn` of each term of a list. -/
-abbrev Semantics.NoFnOvlInL (c : Semantics) (ps : List Term) : Prop :=
-  (symOccsList ps).any c.fnOvlSyms.contains = false
-
 namespace NoFnOvlIn
 variable {c : Semantics}
-
-theorem app {f : Sym} {ps : List Term} (h : c.NoFnOvlIn (.app f ps)) : f ∉ c.fnOvlSyms ∧ c.NoFnOvlInL ps := by
-  unfold Semantics.NoFnOvlIn at h
-  rw [symOccs, List.any_cons, Bool.or_eq_false_iff] at h
-  exact ⟨fun hm => (by rw [List.contains_iff_mem.mpr hm] at h; exact Bool.noConfusion h.1), h.2⟩
-
-theorem inj {a b : Srt} {p : Term} (h : c.NoFnOvlIn (.inj a b p)) : c.NoFnOvlIn p := by
-  unfold Semantics.NoFnOvlIn at h; rw [symOccs] at h; exact h
-
-theorem as {p : Term} {i : Nat} (h : c.NoFnOvlIn (.as p i)) : c.NoFnOvlIn p := by
-  unfold Semantics.NoFnOvlIn at h; rw [symOccs] at h; exact h
-
-theorem cons {p : Term} {ps : List Term} (h : c.NoFnOvlInL (p :: ps)) : c.NoFnOvlIn p ∧ c.NoFnOvlInL ps := by
-  unfold Semantics.NoFnOvlInL at h
-  rw [symOccsList, List.any_append, Bool.or_eq_false_iff] at h
-  exact h
-
-theorem nil : c.NoFnOvlInL [] := by
-  unfold Semantics.NoFnOvlInL; rw [symOccsList]; rfl
-
-theorem mk_cons {p : Term} {ps : List Term} (h : c.NoFnOvlIn p) (hs : c.NoFnOvlInL ps) : c.NoFnOvlInL (p :: ps) := by
-  unfold Semantics.NoFnOvlInL
-  rw [symOccsList, List.any_append, Bool.or_eq_false_iff]
-  exact ⟨h, hs⟩
-
-theorem mk_app {f : Sym} {ps : List Term} (hf : f ∉ c.fnOvlSyms) (hs : c.NoFnOvlInL ps) : c.NoFnOvlIn (.app f ps) := by
-  unfold Semantics.NoFnOvlIn
-  rw [symOccs, List.any_cons, Bool.or_eq_false_iff]
-  refine ⟨?_, hs⟩
-  cases hc : c.fnOvlSyms.contains f with
-  | false => rfl
-  | true => exact absurd (List.contains_iff_mem.mp hc) hf
-
-theorem mem : ∀ {ps : List Term}, c.NoFnOvlInL ps → ∀ p ∈ ps, c.NoFnOvlIn p
-  | _ :: _, h, p, hp => by
-    rcases List.mem_cons.mp hp with rfl | hp
-    · exact (cons h).1
-    · exact mem (cons h).2 p hp
-
-theorem of_each : ∀ {ps : List Term}, (∀ p ∈ ps, c.NoFnOvlIn p) → c.NoFnOvlInL ps
-  | [], _ => nil
-  | p :: ps, h => mk_cons (h p (List.mem_cons_self ..)) (of_each fun q hq => h q (List.mem_cons_of_mem _ hq))
-
-theorem append {ps qs : List Term} (h : c.NoFnOvlInL ps) (h' : c.NoFnOvlInL qs) : c.NoFnOvlInL (ps ++ qs) :=
-  of_each fun p hp => (List.mem_append.mp hp).elim (mem h p) (mem h' p)
-
-/-- No term applies a function-overloaded symbol where there is none. -/
-theorem of_nil (h : c.fnOvlSyms = []) (p : Term) : c.NoFnOvlIn p := by
-  unfold Semantics.NoFnOvlIn; rw [h]; simp
-
-theorem ofL_nil (h : c.fnOvlSyms = []) (ps : List Term) : c.NoFnOvlInL ps := by
-  unfold Semantics.NoFnOvlInL; rw [h]; simp
 
 /-- No function overload covers an application of a symbol a pattern without function-overloaded
 symbols applies. -/
@@ -820,38 +760,5 @@ theorem fnCover_none {f : Sym} {ps : List Term} (h : c.NoFnOvlIn (.app f ps)) (v
     c.fnCover f vs = none := OvlLaws.fnCover_none_of_not_fnOvl (app h).1 vs
 
 end NoFnOvlIn
-
-namespace Semantics
-variable {c : Semantics}
-
-/-- `overloadsOK`'s condition on the patterns. -/
-theorem overloadsOK_pats (h : c.overloadsOK = true) : c.ovlPatsOK = true := by
-  unfold overloadsOK at h; exact (Bool.and_eq_true_iff.mp h).2
-
-/-- A rule's left side applies no function-overloaded symbol. -/
-theorem ovlPats_lhs (h : c.ovlPatsOK = true) {r : Rule} (hr : r ∈ c.rules) : c.NoFnOvlIn r.lhs := by
-  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  exact (h.1 r hr).1
-
-/-- The pattern of an `exMatch` of a rule's `pre` or `post` applies no function-overloaded symbol. -/
-theorem ovlPats_ruleCond (h : c.ovlPatsOK = true) {r : Rule} (hr : r ∈ c.rules) {p : Term}
-    (hp : p ∈ condPats r.pre ++ condPats r.post) : c.NoFnOvlIn p := by
-  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  exact (h.1 r hr).2 p hp
-
-/-- A clause's patterns apply no function-overloaded symbol. -/
-theorem ovlPats_pats (h : c.ovlPatsOK = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause} (hcl : cl ∈ f.clauses) :
-    c.NoFnOvlInL cl.pats := by
-  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  exact NoFnOvlIn.of_each (h.2 f hf cl hcl).1
-
-/-- The pattern of an `exMatch` of a clause's `pre` or `post` applies no function-overloaded
-symbol. -/
-theorem ovlPats_clauseCond (h : c.ovlPatsOK = true) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
-    (hcl : cl ∈ f.clauses) {p : Term} (hp : p ∈ condPats cl.pre ++ condPats cl.post) : c.NoFnOvlIn p := by
-  simp only [ovlPatsOK, Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at h
-  exact (h.2 f hf cl hcl).2 p hp
-
-end Semantics
 
 end KCore

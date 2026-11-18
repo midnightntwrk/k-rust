@@ -1358,54 +1358,6 @@ theorem hookRes_sorted {f : Sym} {k : CtorSig} {ws : List GroundTerm} {v : Groun
   · exact hook_sorted hr hk hws hh
   · exact Semantics.fallback_sorted hk hf.symm
 
-section Terms
-variable {x : TermCtx} {vars : List Srt}
-
-theorem sortOfTerm_var {i : Nat} {s : Srt} :
-    sortOfTerm x vars (.var i) = some s ↔ vars[i]? = some s := by
-  simp [sortOfTerm]
-
-theorem sortOfTerm_dv {t s : Srt} {lit : Lit} :
-    sortOfTerm x vars (.dv t lit) = some s ↔ dvOK x.lib t lit = true ∧ s = t := by
-  simp only [sortOfTerm]
-  by_cases h : dvOK x.lib t lit = true <;> simp [h, eq_comm]
-
-theorem sortOfTerm_app {f : Sym} {ts : List Term} {s : Srt} :
-    sortOfTerm x vars (.app f ts) = some s ↔
-      ∃ k, lookupSig x.heads f = some k ∧ sortsOfTerms x vars ts = some k.args ∧ s = k.result := by
-  simp only [sortOfTerm]
-  cases hk : lookupSig x.heads f with
-  | none => simp
-  | some k =>
-    by_cases he : sortsOfTerms x vars ts = some k.args
-    · simp [he, eq_comm]
-    · simp [he]
-
-theorem sortOfTerm_inj {a b : Srt} {t : Term} {s : Srt} :
-    sortOfTerm x vars (.inj a b t) = some s ↔
-      (a, b) ∈ x.subs ∧ sortOfTerm x vars t = some a ∧ s = b := by
-  simp only [sortOfTerm]
-  constructor
-  · intro h
-    split at h
-    · rename_i hc
-      simp only [Bool.and_eq_true, List.contains_iff_mem, beq_iff_eq] at hc
-      exact ⟨hc.1, hc.2, (Option.some.inj h).symm⟩
-    · cases h
-  · rintro ⟨h1, h2, rfl⟩
-    simp [h1, h2]
-
-theorem sortsOfTerms_cons {t : Term} {ts : List Term} {ss : List Srt} :
-    sortsOfTerms x vars (t :: ts) = some ss ↔
-      ∃ s ss', sortOfTerm x vars t = some s ∧ sortsOfTerms x vars ts = some ss' ∧ ss = s :: ss' := by
-  simp only [sortsOfTerms]
-  cases h1 : sortOfTerm x vars t <;> cases h2 : sortsOfTerms x vars ts <;> simp [eq_comm]
-
-theorem sortsOfTerms_nil {ss : List Srt} : sortsOfTerms x vars [] = some ss ↔ ss = [] := by
-  simp only [sortsOfTerms, Option.some.injEq]; exact eq_comm
-
-end Terms
-
 /-! ## Evaluation keeps sorts -/
 
 /-- The function signatures a right-hand side may call: signatures of functions of `c` (the
@@ -1523,6 +1475,13 @@ def Semantics.srReady (c : Semantics) : Bool :=
 formed and the subsorts irreflexive (so the normal form of an overloading symbol's application is a
 value of its result sort, `OvlLaws.sortOf_norm`). -/
 def Semantics.OvlCase (c : Semantics) : Prop := c.ovls = [] ∨ (c.overloadsOK = true ∧ ∀ a, (a, a) ∉ c.subsorts)
+
+/-- With `OvlCase` no pattern applies a function-overloaded symbol: there is none, or
+`overloadsOK` says it. -/
+theorem Semantics.ovlPatsOK_of_ovlCase {c : Semantics} (h : c.OvlCase) : c.ovlPatsOK = true := by
+  rcases h with hno | ⟨hok, -⟩
+  · exact Semantics.ovlPatsOK_of_fnOvlSyms_nil (by simp [Semantics.fnOvlSyms, hno])
+  · exact Semantics.overloadsOK_pats hok
 
 /-- What the laws read of the overloading symbols' declarations (`OvlLaws.OvlFnFacts`), with
 `OvlCase` and transitive subsorts. -/
@@ -1992,7 +1951,7 @@ theorem sortCtx_of_all {c : Semantics} (hok : c.sortedOK = true) (hr : c.srReady
       exact this.1.1.2
 
 theorem sortCtx_of_okM {c : Semantics} (hok : c.okM = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
-  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hr hov
+  sortCtx_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok) (Semantics.ovlPatsOK_of_ovlCase hov)) hr hov
 
 theorem sortCtx_of {c : Semantics} (hok : c.ok = true) (hr : c.srReady = true) (hov : c.OvlCase) : SortCtx c :=
   sortCtx_of_okM (Semantics.okM_of_ok hok) hr hov
@@ -2016,7 +1975,7 @@ theorem rhs_sorted_core {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srRea
 theorem rhs_sorted_all {c : Semantics} (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
     (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
     (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
-  rhs_sorted_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ he
+  rhs_sorted_core (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hr hσ he
 
 /-- `rhs_sorted_all` in a core that `okM` accepts. -/
 theorem rhs_sorted_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
@@ -2054,7 +2013,7 @@ theorem step_of_apply_all {c : Semantics} (hok : c.okAll = true) (hsr : c.srRead
     (hpost : Holds c r.vars.length σ r.post true)
     (hprio : ∀ r' ∈ c.rules, r'.prio < r.prio → NotApplies c r' x.val) :
     Step c x ⟨v, rhs_sorted_all hok hsr hov hr hσ he⟩ :=
-  step_of_apply_core (Semantics.sortedOK_of_okAll hok) hsr hov hr hσ hm hreq hpre he hens hpost hprio
+  step_of_apply_core (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hr hσ hm hreq hpre he hens hpost hprio
 
 /-- `step_of_apply_all` in a core that `ok` accepts: its rules' predicates are `\top` (`ok_rule`). -/
 theorem step_of_apply {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {r : Rule}
@@ -2080,7 +2039,7 @@ theorem Eval.sorted_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady
     {vs : List GroundTerm} {v : GroundTerm} (h : Eval c f vs (some v)) {fn : Fn}
     (hfn : c.lookupFn f = some fn) (hvs : c.sortsOf vs = some fn.args) :
     c.sortOf v = some fn.result :=
-  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok)) hsr hov h hfn hvs
+  Eval.sorted_of_all (Semantics.sortedOK_of_okAll (Semantics.okAll_of_okM hok) (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov h hfn hvs
 
 /-- `Eval.sorted_of_all` in a core that `ok` accepts. -/
 theorem Eval.sorted_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true) (hov : c.OvlCase) {f : Sym}

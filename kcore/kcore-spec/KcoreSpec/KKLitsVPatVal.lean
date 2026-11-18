@@ -155,7 +155,7 @@ theorem rule_patVar_sort_kpv {d : Semantics} (hx : CExec.execReady d = true)
   have hs := h'.2 r hr
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs
   exact varOccs_sort_kpv (patCtxAll_heads_kpv hc) (patCtxAll_subs_kpv hc)
-    hs.1.1.1.1.1.1.1.1.1.1 (by decide) i hi
+    (sortOfTerm_all_of_nf hs.1.1.1.1.1.1.1.1.1.1) (by decide) i hi
 
 /-- **What a clause's match binds is `litsV`.** A substitution that gives the variables `is` values
 of their sorts gives each variable of a clause's patterns among them a value whose literals have a

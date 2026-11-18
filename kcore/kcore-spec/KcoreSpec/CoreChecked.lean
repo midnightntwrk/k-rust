@@ -96,10 +96,12 @@ theorem Semantics.ruleRowsSortedT_all {n : Nat} (hn : c.rules.length = n) (h : c
     c.ruleRowsSortedT T 0 c.rules.length = true := hn ▸ h
 
 /-- `sortedOK` from the tables: the declared subsorts, every function's clauses and every rule; and
-the rules, clauses and parameters plain, by the kernel unless given. -/
+the rules, clauses and parameters plain, and no pattern applying a function-overloaded symbol
+(`ovlPatsOK`: the rows sort a rule's left side over `patCtxAll`), by the kernel unless given. -/
 theorem Semantics.sortedOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true)
     (hf : c.fnRowsSortedT T 0 c.fns.length = true) (hr : c.ruleRowsSortedT T 0 c.rules.length = true)
-    (hpl : (c.rulesPlain && c.clausesPlain && c.paramsPlain) = true := by decide +kernel) :
+    (hpl : (c.rulesPlain && c.clausesPlain && c.paramsPlain) = true := by decide +kernel)
+    (hov : c.ovlPatsOK = true := by decide +kernel) :
     c.sortedOK = true := by
   subst hT
   unfold Semantics.fnRowsSortedT at hf
@@ -107,8 +109,16 @@ theorem Semantics.sortedOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true
   have hf' := all_of_rowsAll hf
   have hr' := all_of_rowsAll hr
   simp only [Bool.and_eq_true] at hpl
+  have hr'' : c.rules.all c.ruleSorted = true := List.all_eq_true.mpr fun r hr0 => by
+    have h0 := List.all_eq_true.mp hr' r hr0
+    simp only [Semantics.ruleSortedT, Bool.and_eq_true] at h0
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩ := h0
+    have h1' : sortOfTerm c.patCtxAll r.vars r.lhs = some topCellSort := beq_iff_eq.mp h1
+    simp only [Semantics.ruleSorted, Bool.and_eq_true]
+    exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨beq_iff_eq.mpr (sortOfTerm_to_nf r.lhs h1' (Semantics.ovlPats_lhs hov hr0)), h2⟩, h3⟩, h4⟩,
+      h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩
   simp only [Semantics.sortedOK, subsortsOK_of_T hs, Bool.true_and, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨hf', hr'⟩, hpl.1.1⟩, hpl.1.2⟩, hpl.2⟩
+  exact ⟨⟨⟨⟨hf', hr''⟩, hpl.1.1⟩, hpl.1.2⟩, hpl.2⟩
 
 open Faithful Faithful.Model in
 /-- `faithCoreOK` from its conjuncts, the names' apartness by sorted codes (`namesApartFast`): each
@@ -127,7 +137,7 @@ theorem Semantics.coreOK_of_T (hT : T = tables c) (hs : c.subsortsOKT T = true)
     (hfa : c.faithCoreOK = true) (hha : c.hooksApart = true) (hpa : c.predsApart = true)
     (hids : c.idsOK = true) (hov : c.overloadsOK = true)
     (hpl : (c.rulesPlain && c.clausesPlain && c.paramsPlain) = true := by decide +kernel) : c.coreOK = true := by
-  simp only [Semantics.coreOK, Semantics.sortedOK_of_T hT hs hf hr hpl, hfa, hha, hpa, hids, hov, Bool.and_self]
+  simp only [Semantics.coreOK, Semantics.sortedOK_of_T hT hs hf hr hpl (Semantics.overloadsOK_pats hov), hfa, hha, hpa, hids, hov, Bool.and_self]
 
 end
 

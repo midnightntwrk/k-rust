@@ -3,8 +3,9 @@ user module E2-BINDER: 498 sentences
   1 inert import [generated]
   225 read [generated]
   237 read [builtin]
-  4 refused builtinText [builtin]
+  1 refused userHookedSort [own builtin]
       e.g. hooked-sort SortKVar{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), token{}()]
+  3 read [own builtin]
   1 read [user]
   5 inert injectivity [generated]
   9 inert collectionLaw [generated]
@@ -14,7 +15,7 @@ user module E2-BINDER: 498 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 unknownSort
-      sentence 150 (Lbllam): unknownSort (KVar)
-        [user] (no label) at e2-binder.k:5: symbol Lbllam{}(SortKVar{}, SortExp{}) : SortExp{} [binder{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,31,5,75)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-binder.k)"), symbol'Kywd'{}("lam")]
-finish: sentence 150 (Lbllam): unknownSort (KVar)
+      sentence 63 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
+        [own builtin] (no label) at substitution.md:51: hooked-symbol LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String{}(SortString{}) : SortKVar{} [function{}(), functional{}(), hook{}("STRING.string2token"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,19,51,84)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), total{}()]
+finish: sentence 63 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
 (exit 0)

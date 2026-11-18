@@ -159,6 +159,7 @@ import KcoreSpec.ModelFunctional
 import KcoreSpec.ModelStrict
 import KcoreSpec.ModelJunkNonemptyWitness
 import KcoreSpec.ModelFnSolvesWitness
+import KcoreSpec.ModelFnDetWitness
 import KcoreSpec.ModelLibIntWitness
 import KcoreSpec.ModelCollUnitWitness
 import KcoreSpec.ModelLitsWitness
@@ -260,6 +261,7 @@ import KcoreSpec.TieTokKItem
 import KcoreSpec.TieRule
 import KcoreSpec.AxiomsCheck
 import KcoreSpec.MemHeldValues
+import KcoreSpec.MemHeldClause
 import KcoreSpec.StepValuesHeld
 import KcoreSpec.CompeteHeld
 import KcoreSpec.SatRuleHeld
@@ -316,6 +318,7 @@ import KcoreSpec.ExsValues
 import KcoreSpec.ClauseExDen
 import KcoreSpec.ClauseExModel
 import KcoreSpec.ModelFnsEx
+import KcoreSpec.ModelFnsExGoal
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -368,3 +371,4 @@ import KcoreSpec.ModelEmptyInhabited
 import KcoreSpec.KKLitsVPatVal
 import KcoreSpec.GenEqsInitArm
 import KcoreSpec.ValueModelApp
+import KcoreSpec.ModelHasEx

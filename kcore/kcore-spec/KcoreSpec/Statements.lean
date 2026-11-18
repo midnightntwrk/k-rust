@@ -289,7 +289,7 @@ theorem Semantics.coreOK_ovls {c : Semantics} (h : c.coreOK = true) : c.overload
 theorem Semantics.coreOK_of_okAll {c : Semantics} (hok : c.okAll = true) (hfa : c.faithOK = true)
     (hha : c.hooksApart = true) (hpa : c.predsApart = true) (hids : c.idsOK = true)
     (hov : c.overloadsOK = true) : c.coreOK = true := by
-  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok, Semantics.faithCoreOK_of_faithOK hfa, hha,
+  simp only [Semantics.coreOK, Semantics.sortedOK_of_okAll hok (Semantics.overloadsOK_pats hov), Semantics.faithCoreOK_of_faithOK hfa, hha,
     hpa, hids, hov, Bool.and_self]
 
 /-- A well-formed definition's semantics meets `coreOK`: `wf` checks each of its conditions. -/
