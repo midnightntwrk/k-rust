@@ -180,11 +180,11 @@ theorem not_agree : ¬ ClausesAgree c fn := fun h => by
     .inr (.inl ⟨aside_b.1, by rw [pB, pO]; decide⟩)
   have hco := (h clB clO hp hcomp).1
   have hapB : clB.AppliesAt c [(0, va)] [vb, va] :=
-    ⟨by rw [vB]; exact ws1 sort_a,
+    ⟨by rw [vB]; exact (ws1 sort_a).at _,
      by rw [ptB]; exact .cons (.ctor isCtor_b .nil) (.cons (.var rfl) .nil),
      (fun t ht => by rw [qB] at ht; cases ht), Clause.holds_preTop preB _⟩
   have hapO : clO.AppliesAt c [(0, vb), (1, va)] [vb, va] :=
-    ⟨by rw [vO]; exact ws2 sort_b sort_a,
+    ⟨by rw [vO]; exact (ws2 sort_b sort_a).at _,
      by rw [ptO]; exact .cons (.var rfl) (.cons (.var rfl) .nil),
      (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
   have hdecB : clB.Decides c fn [(0, va)] [vb, va] := ⟨hapB, fun cl' h ha hlt => by
@@ -359,8 +359,8 @@ theorem not_fnDet : ¬ FnDet c := fun h => by
 `Eval.clause` reads deciding, with different results. -/
 theorem not_agree : ¬ ClausesAgree c gfn := fun h => by
   have hco := (h C E (by simp [gfn, pairs]) (.inr (.inl ⟨rfl, by decide⟩))).1
-  have hapC : C.AppliesAt c [] [] := ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
-  have hapE : E.AppliesAt c [] [] := ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
+  have hapC : C.AppliesAt c [] [] := ⟨ws_nil.at _, .nil, (fun t h => by cases h), .top⟩
+  have hapE : E.AppliesAt c [] [] := ⟨ws_nil.at _, .nil, (fun t h => by cases h), .top⟩
   have hdecC : C.Decides c gfn [] [] := ⟨hapC, fun cl' h _ hlt => by
     simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at h
     rcases h with rfl | rfl | rfl <;> simp [C, D, E] at hlt⟩
@@ -532,7 +532,7 @@ theorem fnSolves_c : FnSolves c' := by
   subst hv
   simp only [gfn, List.mem_cons, List.not_mem_nil, or_false] at hcl
   rcases hcl with rfl | rfl | rfl
-  · refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := C) rfl rfl hdec.1.1 v).symm
+  · refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := C) rfl rfl ((wellSortedAt_univ rfl).mp hdec.1.1) v).symm
     constructor
     · intro h
       cases only_false _ h
@@ -540,7 +540,7 @@ theorem fnSolves_c : FnSolves c' := by
     · rintro ⟨h, -⟩
       cases h
       exact g_false
-  · exact (no_U_σ hdec.1.1).elim
+  · exact (no_U_σ ((wellSortedAt_univ rfl).mp hdec.1.1)).elim
   · exact (E_not_decides σ hdec).elim
 
 end U

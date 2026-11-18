@@ -39,26 +39,26 @@ example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks 
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks))
     (hm : Model.HypModelCore c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hraw : ∀ p ∈ c.params, p.raw = false) {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
+    {φ : KoreAML.P} (h : RegistryItem c (DetachedB.names c ss ks) φ) :
     extModel c (DetachedB.names c ss ks) I ⊧ᴵ φ :=
-  sat_registry hd hI hm hg htr hraw h
+  sat_registry hd hI hm hg htr h
 
 example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks = true)
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γown c (DetachedB.names c ss ks))
     (hm : Model.HypModelCore c) (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hraw : ∀ p ∈ c.params, p.raw = false) {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
     (e : Valuation (Ext M)) (x : Ext M) :
     (den c v).interpret (extModel c (DetachedB.names c ss ks) I) e x ↔ ElemOf c (DetachedB.names c ss ks) I v x :=
-  den_val_rs hd hI hm hg htr hraw v hv e x
+  den_val_rs hd hI hm hg htr v hv e x
 
 example {c : Semantics} {ss : List Srt} {ks : List Sym} (hd : detachedB c ss ks = true)
-    (hraw : ∀ p ∈ c.params, p.raw = false) {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
     (hs : DSort c (DetachedB.names c ss ks) s) :
     (∃ lit, v = .dv s lit) ∨
       (s = Srt.rangeMap ∧ c.collOf s = some (builtinColl .rangeMap) ∧ ∃ es, v = .map s es ∧
         rangesOK es = true ∧ ∀ e ∈ es, c.sortOf e.1 = some Srt.range ∧ c.sortOf e.2 = some Srt.kitem) :=
-  detVal_shape_rs hd hraw hv hs
+  detVal_shape_rs hd hv hs
 
 /-- info: 'KCore.Cons.sat_registry' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sat_registry

@@ -79,7 +79,7 @@
     is reached: under `Hk` `go` steps to `wrap(.K)` (`go_step_Hk`), under `HookParams.none` it has
     no successor (test/Configuration.lean). That `Γ` over all H entails neither is not stated in
     `Γ`'s models here.
-  - `keyFunctionAsRequires` (`DevKey`, `keyfn-partial`'s text): for every H `look(1)` steps to the
+  - `keyFunctionAsMember` (`DevKey`, `keyfn-partial`'s text): for every H `look(1)` steps to the
     entry of `k(1)`, `kf(1)` being `k(1)` by its equation (`key_steps`); the point is reached:
     `kf(2)` is the interpretation's, and under `Hk` `look(2)` steps to that entry (`look2_Hk`). The
     bridge between the text's rule, whose left side applies the function, and the read one is not
@@ -194,18 +194,18 @@ theorem g0_refuted : ¬ ∀ (c : Semantics) (f : Sym) (fn : Fn) (vs : List Groun
 
 /-! ## G1: an `ensures` that is not `true` where its clause decides gives no value -/
 
-/-- **G1**, in every semantics whose clauses of one priority are coherent: a clause that decides at
-`vs` (it applies, every clause of a smaller priority fails) and whose `ensures` has a result other
-than `true` leaves its function without a value there. -/
+/-- **G1**, in every semantics whose clauses of one priority are coherent: a clause without
+existential variables that decides at `vs` (it applies, every clause of a smaller priority fails)
+and whose `ensures` has a result other than `true` leaves its function without a value there. -/
 theorem eval_noValue_of_ens_fails {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {e : Term} {r : Option GroundTerm} (hco : CoherentAll c)
     (hfn : c.lookupFn f = some fn) (hmem : cl ∈ fn.clauses) (hσ : c.WellSorted cl.vars σ)
     (hmatch : PatVals c σ cl.pats vs) (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true)))
     (hpre : Holds c cl.vars.length σ cl.pre true)
     (hprio : ∀ cl' ∈ fn.clauses, cl'.aside = false → cl'.prio < cl.prio → Fails c vs cl')
-    (he : cl.ens = some e) (hev : EvalTerm c σ e r) (hr : r ≠ some (bool true)) :
+    (hex : cl.exs = []) (he : cl.ens = some e) (hev : EvalTerm c σ e r) (hr : r ≠ some (bool true)) :
     ¬ ∃ v, Eval c f vs (some v) := fun ⟨_, h⟩ =>
-  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio he hev hr)
+  nomatch Eval.functional hco h (.ensFails hfn hmem hσ hmatch hreq hpre hprio hex he hev hr)
 
 /-- `Γ` entails `f(vs) = ⊥` where `f` has no value, for every interpretation, from `coreOK` on the
 data (`coreOK` does not read the interpretation). -/
@@ -422,7 +422,7 @@ theorem projInt_none_off (H : HookParams) (K : GroundTerm) (hK : c.sortOf K = so
     Eval (c.withHooks H) projInt [K] none := by
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   refine Eval.ensFails (cl := domCl) (σ := [(0, K)]) hfnH (by rw [fn_clauses]; simp) ?_ ?_
-    (fun t ht => nomatch ht) .top ?_ rfl .dv (by decide)
+    (fun t ht => nomatch ht) .top ?_ rfl rfl .dv (by decide)
   · intro i s hs
     cases i with
     | zero => cases hs; exact ⟨K, rfl, by rw [Semantics.sortOf_withHooks _ _ noRaw]; exact hK⟩
@@ -458,7 +458,7 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
   have hfnH : (c.withHooks H).lookupFn projInt = some fn := by rw [Semantics.lookupFn_withHooks]; exact hfn
   generalize hr : (some v : Option GroundTerm) = r at hE
   cases hE with
-  | clause hf hmem _ hmatch _ _ _ hrhs hens =>
+  | clause hf hmem _ hmatch _ _ _ _ hrhs hens _ =>
     rw [hfnH] at hf; cases hf
     rw [fn_clauses] at hmem
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
@@ -481,6 +481,12 @@ theorem inverse_holds (H : HookParams) (K v : GroundTerm) (hK : c.sortOf K = som
       | intro ht => cases ht
       | pre h => exact absurd (Holds.top_eq h) (by simp)
   | ensFails => cases hr
+  | clauseEx hf hmem _ _ _ _ _ hne =>
+    rw [hfnH] at hf; cases hf
+    rw [fn_clauses] at hmem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+    rcases hmem with rfl | rfl <;> exact absurd rfl hne
+  | exNone => cases hr
 
 end ProjK
 
@@ -1401,7 +1407,7 @@ theorem orBot_unread_H7 : Eval (c1.withHooks H7) f [int 3] (some (int 7)) :=
 
 end DevOrBot
 
-/-! ## The other notes: `reflectionAsOwn`, `keyFunctionAsRequires`, `equationPriority`, `owiseAsPriority` -/
+/-! ## The other notes: `reflectionAsOwn`, `keyFunctionAsMember`, `equationPriority`, `owiseAsPriority` -/
 
 /-! ### `reflectionAsOwn`: a K-REFLECTION symbol is a parameter symbol -/
 
@@ -1459,7 +1465,7 @@ theorem go_step_Hk : Step (c.withHooks Hk) (cfgH noRaw Go Hk) (cfgH noRaw WrapK 
 
 end DevRefl
 
-/-! ### `keyFunctionAsRequires`: a function applied as a map key in a left side -/
+/-! ### `keyFunctionAsMember`: a function applied as a map key in a left side -/
 
 -- `<k> look(I) => V ... </k> <tab> kf(I) |-> V ... </tab>`, `kf(1) => k(1)` its one equation
 -- (`f2-examples/keyfn-partial.k`).
@@ -1479,9 +1485,7 @@ def key : Srt := 38
 theorem names_ok : c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧ c.symName baseCell = "Lbl'-LT-'base'-GT-'" ∧
     c.symName memCell = "Lbl'-LT-'mem'-GT-'" ∧ c.symName tabCell = "Lbl'-LT-'tab'-GT-'" ∧ c.symName kk = "Lblk" ∧
     c.symName look = "Lbllook" ∧ c.symName kf = "Lblkf" ∧ c.sortName key = "Key" := by decide +kernel
-private theorem hok : c.ok = true := by decide +kernel
-private theorem hsr : c.srReady = true := by decide +kernel
-private theorem hmr : c.matchReady = true := by decide +kernel
+private theorem hready : CExec.execReady c = true := by decide +kernel
 /-- The table `k(1) |-> 3`. -/
 def tab : GroundTerm := .map Srt.map [(.inj key Srt.kitem (.ctor kk [int 1]), .inj Srt.int Srt.kitem (int 3))]
 def cfg (pgm : GroundTerm) : GroundTerm :=
@@ -1491,10 +1495,19 @@ def Look1 : Config c := ⟨cfg (.ctor look [int 1]), by decide +kernel⟩
 def Look2 : Config c := ⟨cfg (.ctor look [int 2]), by decide +kernel⟩
 def Three : Config c := ⟨cfg (.inj Srt.int Srt.kitem (int 3)), by decide +kernel⟩
 
-/-- **`keyFunctionAsRequires`, for every interpretation**: with the table `k(1) |-> 3`, `look(1)`
+-- The executable step at `look(1)` reads no interpretation of the parameters: the rule's `pre`
+-- `Key0 ∈ kf(1)` is decided by `kf`'s equation, and no other rule matches.
+kernel_rfl look1_withHooks : ∀ H : HookParams,
+  CExec.successorsN (c.withHooks H) 50 Look1.val = CExec.successorsN c 50 Look1.val
+
+/-- **`keyFunctionAsMember`, for every interpretation**: with the table `k(1) |-> 3`, `look(1)`
 steps to 3: `kf(1)` is `k(1)` by its equation, a key of the table. -/
-theorem key_steps (H : HookParams) : Step (c.withHooks H) (cfgH noRaw Look1 H) (cfgH noRaw Three H) :=
-  step_everyH hok hsr hmr noRaw (n := 50) (by decide +kernel) H
+theorem key_steps (H : HookParams) : Step (c.withHooks H) (cfgH noRaw Look1 H) (cfgH noRaw Three H) := by
+  have hy : Three.val ∈ CExec.successorsN (c.withHooks H) 50 Look1.val := by
+    rw [look1_withHooks]; decide +kernel
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready ((CExec.execReady_withHooks c H).trans hready)
+    (x := cfgH noRaw Look1 H) hy
+  exact h
 
 /-- The interpretation that gives `kf(2)` the value `k(1)` and nothing else. -/
 def Hk : HookParams := ⟨fun f vs => if f = kf ∧ vs = [int 2] then some (.ctor kk [int 1]) else none⟩
@@ -1502,8 +1515,10 @@ def Hk : HookParams := ⟨fun f vs => if f = kf ∧ vs = [int 2] then some (.cto
 /-- **The point is reached**: no equation of `kf` applies at 2, so `kf(2)` is the interpretation's.
 Under `Hk` it is `k(1)`, a key of the table, and `look(2)` steps to 3; under `HookParams.none` it
 has no value and `look(2)` has no successor (test/KeyFunction.lean, the compiled step). -/
-theorem look2_Hk : Step (c.withHooks Hk) (cfgH noRaw Look2 Hk) (cfgH noRaw Three Hk) :=
-  step_atH hok hsr hmr noRaw Hk (n := 50) (by decide +kernel)
+theorem look2_Hk : Step (c.withHooks Hk) (cfgH noRaw Look2 Hk) (cfgH noRaw Three Hk) := by
+  obtain ⟨_, h⟩ := CExec.successorsN_step_ready ((CExec.execReady_withHooks c Hk).trans hready)
+    (x := cfgH noRaw Look2 Hk) (n := 50) (y := Three.val) (by decide +kernel)
+  exact h
 
 end DevKey
 
@@ -1860,11 +1875,11 @@ def readingNote : ReadingNote → GuardEntry
     { status := .pending "GUARD.final",
       guard := [.decl ``KCore.setvar_in_drop, .test "test/SetVarOwise.lean" "f_one"],
       note := "setvar_in_drop is the entailment on the translated sentence, f_one an evaluation at the parsed semantics; no statement over c.withHooks H, no companion; no GUARD ticket names this constructor" }
-  | .keyFunctionAsRequires =>
+  | .keyFunctionAsMember =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevKey.key_steps, .test "test/KeyFunction.lean" "#guard_msgs"],
       companion := [.decl ``KCore.Guards.DevKey.look2_Hk, .test "test/KeyFunction.lean" "look(2): []"],
-      invariant := [``KCore.Cert.checkStep_withHooks, ``KCore.Semantics.fnRest],
+      invariant := [``KCore.CExec.successorsN_step_ready, ``KCore.CExec.execReady_withHooks, ``KCore.Semantics.fnRest],
       note := "on keyfn-partial's text, every H: look(1) steps to the entry of k(1), kf(1) being k(1) by its equation; the point is reached: kf(2) is a point where no equation applies, under Hk it is k(1) and look(2) steps to that entry, under HookParams.none look(2) has no successor (the compiled step, AtNone.steps); the bridge between the text's rule and the read one (REVIEW-RN RN12) is not written: the kernel has no pattern applying a function (functionInPattern)" }
   | .equationPriority =>
     { status := .guarded,
@@ -1991,7 +2006,7 @@ def unreadReason : UnreadReason → GuardEntry
 def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
    .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
-   .requiresOrSplit, .setVarInDropped, .keyFunctionAsRequires, .equationPriority, .owiseAsPriority,
+   .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem]
 
@@ -2006,7 +2021,7 @@ def unreadReasons : List UnreadReason :=
 /-- REVIEW-RN finding 7's readings without a note, and the constructor each has now. -/
 def unnoted : List (String × ReadingNote) :=
   [("the rule axiom's premise ⌈rhs ∧ ens⌉", .ruleRightDefined),
-   ("a key function read as a requires", .keyFunctionAsRequires),
+   ("a key function read as a requires", .keyFunctionAsMember),
    ("the priority form of a function's equations", .equationPriority),
    ("[owise] as priority 200", .owiseAsPriority)]
 

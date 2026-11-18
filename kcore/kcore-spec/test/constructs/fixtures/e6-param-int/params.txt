@@ -1,0 +1,7 @@
+param	Lbl'Tild'Int'Unds'	args=[Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'Unds'xorInt'Unds'	args=[Int, Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'UndsAnd-'Int'Unds'	args=[Int, Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	Lbl'UndsPipe'Int'Unds'	args=[Int, Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	LblrandInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int	args=[Int]	result=Int	impl=none	raw=false	assoc=false	idem=false
+param	LblsrandInt'LParUndsRParUnds'INT-COMMON'Unds'K'Unds'Int	args=[Int]	result=K	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

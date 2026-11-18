@@ -1,0 +1,2 @@
+//@ 3161
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,1,14,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-domains-imports.k)")]

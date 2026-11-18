@@ -155,7 +155,7 @@ theorem gapDec_matchIndependent : MatchIndependent gapDec clDec := by
   | cons v vs =>
     cases vs with
     | cons _ _ => cases hm with | cons _ h => cases h
-    | nil => rw [match_dec hσ hm, match_dec hσ' hm']
+    | nil => rw [match_dec ((wellSortedAt_univ rfl).mp hσ) hm, match_dec ((wellSortedAt_univ rfl).mp hσ') hm']
 
 theorem wellSorted_m0 : gapDec.WellSorted [Srt.map] [(0, m0)] := by
   intro i s h

@@ -22,7 +22,7 @@
 -/
 import KcoreSpec.OpenRuleStepCl
 import KcoreSpec.CondTwoTables
-import KcoreSpec.HoldsFactsCore
+import KcoreSpec.ClausePreCore
 import KcoreSpec.HoldsDecided
 import KcoreSpec.OpenSplit
 import KcoreSpec.PredPlain
@@ -131,8 +131,8 @@ theorem rule_step_of_witnessed_pp (h : c.coreOK = true) (hft : FnTerminates c) (
     fun t ht => evalTrue_of_model h hft hI hcw hσ hag (hensS t ht) (hens t ht),
     holds_of_conjPP h hft hI hcw hokQ hbdQ hrcQ hσ hag hkeys hkQ (inh_top_PP hIΓ y tbl e) hpostm⟩
   obtain ⟨v, hv⟩ := Model.evalTerm_total (hypSound_of_core h) hft fns_headsOK hσ hrhs
-  have hbR := (evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
-    (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw) hv fns_headsOK
+  have hbR := (evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok))
+    (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI)) (HoldsShape.preReadAll_of_core h hI) hv fns_headsOK
     hσ (canonVars_length c r.vars) hag hrhs _).mp hy
   cases v with
   | none => exact hbR.elim

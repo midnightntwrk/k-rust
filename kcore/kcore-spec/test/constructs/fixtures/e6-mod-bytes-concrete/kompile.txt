@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-bytes-concrete.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.4
+definition.kore bytes: 79231
+definition.kore sha256: 214c7ef5341889dc3848b26bb7da1d88fc36f65c307acade5f5f25b369038be5
+stripped sha256: 7c6cb5820c63ac4a731fe3d1def551fa278977b244d10bd349578cb2de858506
+main module: 228 sentences, 2 not in base's, in kore.txt
+same_as base: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-BYTES-CONCRETE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-BYTES-CONCRETE as default.

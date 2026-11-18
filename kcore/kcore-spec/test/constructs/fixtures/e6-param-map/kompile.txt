@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-map.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.9
+definition.kore bytes: 211138
+definition.kore sha256: 4aee9cea0a1d2c66e3d7bb3b44a1815e6d14f208f2a6eb33a65e03bdbc08794b
+stripped sha256: f64c5736e05406b06a77e7615f0fbe528f3816dd4c8ed7019c30d6ecad968aa6
+main module: 398 sentences, 42 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-MAP-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-MAP as default.

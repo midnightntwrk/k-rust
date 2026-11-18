@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-string-buffer-imports.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 272716
+definition.kore sha256: 3d31b53266c337809d6129d544ac9895b4b84636b5780eeb53a13cb2c0c6ff85
+stripped sha256: 1459c12918c84502c23d094307ede8ee8ac5e51ec8fa6fd17f48aa365e7f06cd
+main module: 492 sentences, 77 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-STRING-BUFFER-IMPORTS-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E6-MOD-STRING-BUFFER-IMPORTS as default.

@@ -1,0 +1,128 @@
+//@ 0
+module E6-MOD-BUILTIN-ID-TOKENS
+//@ 4
+  sort Sort'Hash'UpperId{} [hasDomainValues{}()]
+//@ 10
+  sort Sort'Hash'LowerId{} [hasDomainValues{}()]
+//@ 55
+  symbol Lblis'Hash'LowerId{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 56
+  symbol Lblis'Hash'UpperId{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 150
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis'Hash'LowerId{}(K0:SortK{}))) [functional{}()] // functional
+//@ 151
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lblis'Hash'UpperId{}(K0:SortK{}))) [functional{}()] // functional
+//@ 175
+  axiom{} \or{Sort'Hash'LowerId{}} (\top{Sort'Hash'LowerId{}}(), \bottom{Sort'Hash'LowerId{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 176
+  axiom{} \or{Sort'Hash'UpperId{}} (\top{Sort'Hash'UpperId{}}(), \bottom{Sort'Hash'UpperId{}}()) [constructor{}()] // no junk (TODO: fix bug with \dv)
+//@ 193
+// rule `is#LowerId`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c3e3902c11610717a0700d4646ce109585e0a10abf1e3253d088c42887b9ad1e), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort'Hash'LowerId{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort'Hash'LowerId{}, SortKItem{}}(Var'Unds'Gen1:Sort'Hash'LowerId{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'LowerId{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("c3e3902c11610717a0700d4646ce109585e0a10abf1e3253d088c42887b9ad1e"), owise{}()]
+//@ 194
+// rule `is#LowerId`(inj{#LowerId,KItem}(#LowerId))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(49f0e69de3837715d7cb6926427906ae68fe696bc8eed6a42d33257b756d959e)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort'Hash'LowerId{}, SortKItem{}}(Var'Hash'LowerId:Sort'Hash'LowerId{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'LowerId{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("49f0e69de3837715d7cb6926427906ae68fe696bc8eed6a42d33257b756d959e")]
+//@ 195
+// rule `is#UpperId`(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(cb3458c54dcb3487cb4d9da15511443641afdaacdc2cbc55ab2f256cfb28a297), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:Sort'Hash'UpperId{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{Sort'Hash'UpperId{}, SortKItem{}}(Var'Unds'Gen1:Sort'Hash'UpperId{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'UpperId{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("cb3458c54dcb3487cb4d9da15511443641afdaacdc2cbc55ab2f256cfb28a297"), owise{}()]
+//@ 196
+// rule `is#UpperId`(inj{#UpperId,KItem}(#UpperId))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8730d91ff47871b1ebed24f0564cbc44e3ee182c626f7969f8845eda3bd7822d)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{Sort'Hash'UpperId{}, SortKItem{}}(Var'Hash'UpperId:Sort'Hash'UpperId{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblis'Hash'UpperId{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("8730d91ff47871b1ebed24f0564cbc44e3ee182c626f7969f8845eda3bd7822d")]
+//@ 239
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,1,4,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-mod-builtin-id-tokens.k)")]

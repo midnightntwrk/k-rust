@@ -1,0 +1,2 @@
+# a token sort of the text that also has a constructor: kompile refuses the text
+expect = "error"

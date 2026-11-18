@@ -155,9 +155,9 @@ theorem ls_S_split (a b : GroundTerm) (h : ls.collVal listConcat [a, b] = some l
 theorem ls_S_not_independent : ¬ MatchIndependent ls clS := by
   intro h
   have ha : clS.AppliesAt ls [(0, l1), (1, l0)] [l1] :=
-    ⟨ls_wellSorted sort_l1 sort_l0, ls_S_split l1 l0 rfl, (fun _ ht => by cases ht), .top⟩
+    ⟨(ls_wellSorted sort_l1 sort_l0).at _, ls_S_split l1 l0 rfl, (fun _ ht => by cases ht), .top⟩
   have hb : clS.AppliesAt ls [(0, l0), (1, l1)] [l1] :=
-    ⟨ls_wellSorted sort_l0 sort_l1, ls_S_split l0 l1 rfl, (fun _ ht => by cases ht), .top⟩
+    ⟨(ls_wellSorted sort_l0 sort_l1).at _, ls_S_split l0 l1 rfl, (fun _ ht => by cases ht), .top⟩
   have hdet : HDet ls [(0, l1), (1, l0)] clS.rhs := by
     intro u hu r r' h1 h2
     have hu : u = .var 0 := by simpa [clS, subterms] using hu
@@ -165,12 +165,13 @@ theorem ls_S_not_independent : ¬ MatchIndependent ls clS := by
     cases h1; cases h2; rfl
   have hlow : ∀ cl' ∈ [clS], cl'.aside = false → cl'.prio < clS.prio → Fails ls [l1] cl' :=
     fun cl' h _ hlt => absurd hlt (by simp at h; subst h; decide)
-  rcases h [l1] _ _ ha hb (fun _ ht => by cases ht) (fun _ => hdet) (fun _ ht => by cases ht)
+  rcases h.1 [l1] _ _ ha hb (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨S, ⟨S, [Srt.list], Srt.list, [clS], false⟩, rfl, by simp, by simp, ⟨ha, hlow⟩, ⟨hb, hlow⟩⟩ with
-    ⟨-, -, hv, -⟩ | hr
+    ⟨-, -, -, -, hv, -⟩ | hr
   · have := hv 0 (by simp [clS, varOccs])
     simp [l1, l0] at this
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .var⟩) (.inl ⟨(fun _ ht => by cases ht), .var⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .var⟩⟩)
     simp [l1, l0] at this
 
 /-! ## 4. Agreement: list patterns apart, and not apart -/
@@ -239,12 +240,13 @@ theorem ag_B_disagree : ¬ ClausesAgree ag fnB := by
       Fails ag [l1] cl' := fun cl hc cl' h _ hlt => absurd hlt (by
     have : cl'.prio = 50 := by simp [fnB, clB0, clB1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
-  rcases (h clB0 clB1 hp (.inl rfl)).1 [l1] _ _ ⟨hws0, hm0, (fun _ ht => by cases ht), .top⟩
-      ⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ => hdet) (fun _ ht => by cases ht)
-      ⟨B, fnB, rfl, by simp [fnB], by simp [fnB], ⟨⟨hws0, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
-        ⟨⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩⟩ with ⟨hr, -⟩ | hr
+  rcases (h clB0 clB1 hp (.inl rfl)).1 [l1] _ _ ⟨hws0.at _, hm0, (fun _ ht => by cases ht), .top⟩
+      ⟨hws1.at _, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
+      ⟨B, fnB, rfl, by simp [fnB], by simp [fnB], ⟨⟨hws0.at _, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
+        ⟨⟨hws1.at _, hm1, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
   · simp [clB0, clB1] at hr
-  · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .dv⟩) (.inl ⟨(fun _ ht => by cases ht), .dv⟩)
+  · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun _ ht => by cases ht), .top, .dv⟩⟩)
     simp at this
 
 def Cc : Sym := nRegSyms + 111

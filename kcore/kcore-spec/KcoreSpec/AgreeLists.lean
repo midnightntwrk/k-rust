@@ -539,27 +539,34 @@ theorem negConjApart_sound (hmc : MatchCtxO c) {cl cl' : Clause} {ss : List Srt}
 orders: `fnExclusiveOK`'s three cases, the `requires` exclusive in either order, or an argument
 whose list patterns are apart. -/
 theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
-    (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true) (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveL heads f = true) :
+    (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true) (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true)
+    (hxs : ∀ cl ∈ f.clauses, cl.exs = []) (h : c.fnExclusiveL heads f = true) :
     ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
   have hc1 := hcls cl h1
   have hc2 := hcls cl' h2
+  have hw1 : ∀ {σ : Subst}, c.WellSortedAt cl.vars cl.univ σ → c.WellSorted cl.vars σ :=
+    (wellSortedAt_univ (hxs cl h1)).mp
+  have hw2 : ∀ {σ : Subst}, c.WellSortedAt cl'.vars cl'.univ σ → c.WellSorted cl'.vars σ :=
+    (wellSortedAt_univ (hxs cl' h2)).mp
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
+  replace hc1 := hc1.1
+  replace hc2 := hc2.1
   have hn1 := sortsOfTerms_to_nf _ hc1.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))
   have hn2 := sortsOfTerms_to_nf _ hc2.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with (((((((hne | ho) | ⟨hfx, hx | hx⟩) | ha) | hl) | hg) | hg) | ⟨hfx, hn⟩)
   · exact (not_compete (by revert hne; simp) hprio).elim
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim,
+        (overlap_soundF hmc (hw1 hσ) (hw2 hσ') cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim⟩
+        (overlap_soundF hmc (hw1 hσ) (hw2 hσ') cl.pats (hfr cl h1) (hfr cl' h2) hn1 hn2 ho hm hm').elim⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
+        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inl hd)).elim,
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
+        (clausesExclusive_sound hmc hn1 hfx hc2.1.1.1.2 hx (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inr hd)).elim⟩
   · -- the second clause's literals against the first's: one variable list and one pattern list,
     -- so the second clause is fixed too
     simp only [Semantics.clausesExclusive, Bool.and_eq_true, beq_iff_eq] at hx
@@ -575,23 +582,23 @@ theorem fnExclusiveL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
       rw [← hpp] at hpb' ⊢
       exact hpb'
     exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 hσ' hm' hq' hσ hm hq (.inr hd)).elim,
+        (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 (hw2 hσ') hm' hq' (hw1 hσ) hm hq (.inr hd)).elim,
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 hσ' hm' hq' hσ hm hq (.inl hd)).elim⟩
+        (clausesExclusive_sound hmc hpt' hfx' hc1.1.1.1.2 hx2 (hw2 hσ') hm' hq' (hw1 hσ) hm hq (.inl hd)).elim⟩
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
-        (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hn1 hn2 hl hσ hσ' hm hm').elim,
+        (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hn1 hn2 hl (hw1 hσ) (hw2 hσ') hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
-        (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hn1 hn2 hl hσ hσ' hm hm').elim⟩
+        (clausesListApart_sound hmc (hfr cl h1) (hfr cl' h2) hn1 hn2 hl (hw1 hσ) (hw2 hσ') hm hm').elim⟩
   · exact ⟨fun vs σ σ' ⟨_, hm, _⟩ ⟨_, hm', hq', _⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim,
       fun vs σ' σ ⟨_, hm', hq', _⟩ ⟨_, hm, _⟩ _ _ _ _ => (guardApart_sound hg hm hm' hq').elim⟩
   · exact ⟨fun vs σ σ' ⟨_, hm, hq, _⟩ ⟨_, hm', _⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim,
       fun vs σ' σ ⟨_, hm', _⟩ ⟨_, hm, hq, _⟩ _ _ _ _ => (guardApart_sound hg hm' hm hq).elim⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
-        (negConjApart_sound hmc hn1 hfx hc2.1.1.1.2 hn hσ hm hq hσ' hm' hq' (.inl hd)).elim,
+        (negConjApart_sound hmc hn1 hfx hc2.1.1.1.2 hn (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inl hd)).elim,
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
-        (negConjApart_sound hmc hn1 hfx hc2.1.1.1.2 hn hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
+        (negConjApart_sound hmc hn1 hfx hc2.1.1.1.2 hn (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inr hd)).elim⟩
 
 /-- In a core that `sortedOK`, `srReady` and `matchReady` accept, each two equations of one
 priority of each function are coherent: by `fnExclusiveL_sound` where `fnExclusiveL` confirms it,
@@ -607,7 +614,7 @@ theorem clausesAgree_of_L {c : Semantics} (hok : c.sortedOK = true) (hsr : c.srR
     replace hf := Semantics.sortedOK_sorted hf
     simp only [Bool.and_eq_true, List.all_eq_true] at hf
     exact (fnExclusiveL_sound (Exec.matchCtx_of hmr) (fun _ _ => ovlFreeList_of_nil (Exec.matchCtx_of hmr).noOvl _)
-      (hf.1.2 fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
+      (hf.1.2 fn hfn) (Semantics.fnsNoExs_of_sortedOK hok fn hfn) hx).agree (Semantics.fnsNoExs_of_sortedOK hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligationsL, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa using hx⟩, rfl⟩

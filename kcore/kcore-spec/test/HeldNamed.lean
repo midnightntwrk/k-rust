@@ -7,15 +7,16 @@
   The semantics `cS` is the reader's for `f2-examples/opencl.kompile.kore` (`opencl.k`: Int, Bool,
   the function `g(Int)` with `g(_) => 0 [owise]`, the total predicate `isC`, the rule
   `<k> go => g(f()) </k>`), with `f` made a function of the clauses
-  - `clS`, `f() => 0 requires false ensures Y:String ==String Y`: Y is of String, which has values
-    (`""`) but is not Int, Bool or the result of a constructor without arguments, so `valued` does
-    not accept it, and neither the patterns nor the `requires` hold it: `rightValued` fails and
-    `f` is held-named (`Semantics.heldObligations`);
+  - `clS`, `f() => 0 requires false ensures Y:Float ==Float Y`: Y is of Float, which has values
+    (`0.0`) but is not Int, Bool, the result of a constructor without arguments, or a sort of which
+    the search exhibits a value (`Parse.exhibit?` seeds no Float literal), so `valued` does not
+    accept it, and neither the patterns nor the `requires` hold it: `rightValued` fails and `f` is
+    held-named (`Semantics.heldObligations`);
   - `clOne`, `f() => 1`, at the same priority.
   `cS` is `coreOK`.
 
   - `heldS`: what is owed of `f` (`HeldOwed`) by its first fact, `HeldFn`: Y's sort has the value
-    `""`. No result of `f` is shown by hand.
+    `0.0`. No result of `f` is shown by hand.
   - `oblS`: the rank and the totality decider name no function; `f`'s agreement and `clS`'s match
     independence are named and shown by hand (`clS` applies nowhere, its `requires` being `false`).
   - `fnHypS`: `FnHyp cS` from `fnHyp_of_fnObligationsN`. The termination of `f` there is the
@@ -44,10 +45,10 @@ noncomputable abbrev c : Semantics := defn.sem
 example : c.symName 391 = "Lblf" ∧ c.symName 389 = "Lblg" ∧ c.symName 390 = "LblisC" := by
   decide +kernel
 
-/-- `f() => 0 requires false ensures Y:String ==String Y` -/
+/-- `f() => 0 requires false ensures Y:Float ==Float Y` -/
 def clS : Clause :=
-  { vars := [Srt.string], pats := [], req := some (.dv Srt.bool (.bool false)), rhs := .dv Srt.int (.int 0),
-    ens := some (.app stringEq [.var 0, .var 0]) }
+  { vars := [Srt.float], pats := [], req := some (.dv Srt.bool (.bool false)), rhs := .dv Srt.int (.int 0),
+    ens := some (.app floatEq [.var 0, .var 0]) }
 /-- `f() => 1` -/
 def clOne : Clause := { vars := [], pats := [], req := none, rhs := .dv Srt.int (.int 1), ens := none }
 
@@ -57,13 +58,24 @@ def fS : Fn := { label := 391, args := [], result := Srt.int, clauses := [clS, c
 /-- `c` with `f` a function of the clauses `clS` and `clOne`. -/
 noncomputable def cS : Semantics := { c with fns := c.fns ++ [fS], params := c.params.filter (·.sig.name != 391) }
 
-/-- String is not `valued`; `clS`'s variable is outside its patterns and conditions, so
+/-- Float is not `valued`; `clS`'s variable is outside its patterns and conditions, so
 `rightValued` fails and `f` is the one held-named function; `coreOK` holds at `cS`. -/
-theorem shape : cS.valued Srt.string = false ∧ clS.leftVars = [] ∧ cS.rightValued = false ∧
+theorem shape : cS.valued Srt.float = false ∧ clS.leftVars = [] ∧ cS.rightValued = false ∧
     cS.heldObligations = [391] ∧ cS.coreOK = true := by
   decide_cheap
 
 theorem coreS : cS.coreOK = true := shape.2.2.2.2
+
+/-- The Float `+0.0` at double precision (significand 53 bits, exponent 11 bits). -/
+def fltV : GroundTerm := .dv Srt.float (.float 53 11 0)
+
+/-- `fltV` is a value of Float. -/
+theorem sortOf_fltV0 : cS.sortOf fltV = some Srt.float := by decide +kernel
+
+/-- `fltV` is a value of Float under every interpretation of the parameters: `sortOf` of a literal
+reads no parameter. -/
+theorem sortOf_fltV (H : HookParams) : (cS.withHooks H).sortOf fltV = some Srt.float :=
+  (Semantics.sortOf_withHooks_rawFree cS H (v := fltV) rfl).trans sortOf_fltV0
 
 /-- A rank of `cS`'s functions: `isC`, `g`, `f`. -/
 def ordS : List Sym := [390, 389, 391]
@@ -81,14 +93,14 @@ theorem fS_mem : fS ∈ cS.fns := List.mem_append_right _ (List.mem_singleton_se
 theorem lookupF {fn : Fn} (h : cS.lookupFn 391 = some fn) : fn = fS :=
   Option.some.inj (h.symm.trans (lookupFn_of_core coreS fS_mem))
 
-/-- **The variables of `f`'s clauses are held**: `clS`'s Y is of String, which has the value `""`;
+/-- **The variables of `f`'s clauses are held**: `clS`'s Y is of Float, which has the value `0.0`;
 `clOne` has no variable. -/
 theorem heldFnS : cS.HeldFn fS := by
   intro cl hcl i s hs
   simp only [fS, List.mem_cons, List.not_mem_nil, or_false] at hcl
   rcases hcl with rfl | rfl
   · cases i with
-    | zero => cases hs; exact .inr ⟨strV [], sortOf_strV []⟩
+    | zero => cases hs; exact .inr ⟨fltV, sortOf_fltV0⟩
     | succ i => simp [clS] at hs
   · simp [clOne] at hs
 
@@ -132,7 +144,7 @@ theorem oblS : FnObligations cS ordS [] := by
     subst e
     have e : cl = clS := by simpa [fS] using hcl.symm
     subst e
-    exact fun vs σ _ ha => absurd ha (clS_not_applies σ vs)
+    exact (matchIndependent_iff_noExs rfl).mpr fun vs σ _ ha => absurd ha (clS_not_applies σ vs)
 
 /-- **`FnHyp cS` from the held-named form**: `coreOK`, the owed fact of `f` (its variables are
 held) and the deciders. -/
@@ -159,7 +171,7 @@ theorem heldSH (H : HookParams) : ∀ f ∈ cS.heldObligations, HeldOwed (cS.wit
   simp only [fS, List.mem_cons, List.not_mem_nil, or_false] at hcl
   rcases hcl with rfl | rfl
   · cases i with
-    | zero => cases hs; exact .inr ⟨strV [], sortOf_strV []⟩
+    | zero => cases hs; exact .inr ⟨fltV, sortOf_fltV H⟩
     | succ i => simp [clS] at hs
   · simp [clOne] at hs
 

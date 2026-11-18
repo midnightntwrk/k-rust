@@ -334,7 +334,7 @@ theorem no_E (v : GroundTerm) : c3.sortOf v ≠ some 33 := by
 /-- `clYE` applies under no substitution: Y is of Empty. -/
 theorem clYE_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesAt c3 σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 rfl
+  obtain ⟨v, -, hv⟩ := (wellSortedAt_univ rfl).mp h 0 33 rfl
   exact no_E v hv
 
 /-- A clause without `ensures` whose right side is a literal is coherent with itself. -/
@@ -883,7 +883,7 @@ theorem no_E5 (v : GroundTerm) : c5.sortOf v ≠ some 33 := by
 
 theorem clYE_not_applies5 (σ : Subst) (vs : List GroundTerm) : ¬ clYE.AppliesAt c5 σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 rfl
+  obtain ⟨v, -, hv⟩ := (wellSortedAt_univ rfl).mp h 0 33 rfl
   exact no_E5 v hv
 
 theorem coherent_dv5 {cl : Clause} (hx : cl.exs = []) (hn : cl.ens = none) {s : Srt} {l : Lit}

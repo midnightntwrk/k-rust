@@ -462,7 +462,7 @@ theorem sat_clauseEq {cl : Clause} (hcl : cl ∈ fn.clauses) (hlow : lowerClause
   obtain ⟨hσ, hvar⟩ := substE_ok (T := T) hEq.vin
   obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
     (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hprem
-  refine eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
+  refine eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt => ?_⟩
   have : cl' ∈ lowerClauses fn cl := by simp [lowerClauses, hcl', hna, hlt]
   rw [hlow] at this
   exact absurd this List.not_mem_nil
@@ -529,7 +529,7 @@ theorem fails_of_not_excl {cls : List Clause} (hcls : ∀ cl ∈ cls, cl ∈ fn.
       (cls.map fun cl => exclusion c fn cl (canonClausePres cl))))).interpret (stdI c) e a) :
     KoreAML.Inh (stdI c) (e.evalEvar (tbl.ev (.sortVar "R"))) a ∧ ∀ cl ∈ cls, ∀ σ, ¬ cl.AppliesAt c σ ws :=
   let ⟨hi, hf⟩ := fails_of_not_exclCl h hfn hcls hEqR hXk hRs hX (fun cl hcl i hi _ => hkeys cl hcl i hi) hnot
-  ⟨hi, fun cl hcl σ hap => hf cl hcl σ ⟨hap.1.at _, hap.2.1, hap.2.2.1⟩⟩
+  ⟨hi, fun cl hcl σ hap => hf cl hcl σ ⟨((wellSortedAt_univ (clause_exsCl h hfn (hcls cl hcl))).mp hap.1).at _, hap.2.1, hap.2.2.1⟩⟩
 
 omit h hfn in
 theorem varsOf_not_exclCl {cls : List Clause} {cl : Clause} (hcl : cl ∈ cls) (_hpre : cl.pre = .top) {i : Nat}
@@ -575,7 +575,7 @@ theorem sat_competingEq {cl : Clause} (hcl : cl ∈ fn.clauses) :
         exact varsOf_and_mem (List.mem_cons_self ..) (varsOf_not_exclCl hcl' (clause_preCl h hfn (hdl cl' hcl')) hi hil))) hnot
     obtain ⟨-, hq, hpv⟩ := (premise_iff h (R_read e) hEq.Rs hvar (fun t ht => termOK_of_sorted h hL (hreqs t ht))
       (patOKs_of_sorted h (h.pats_nf hfn hcl hpats)) hlen hEq.args a).mp hp
-    exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
+    exact eval_of_decides h hfn hcl hEq.args.sorts ⟨⟨hσ.at _, hpv, hq, Clause.holds_preTop (clause_preCl h hfn hcl) _⟩, fun cl' hcl' hna hlt σ' hw hp' hq' =>
       hfails cl' (List.mem_filter.mpr ⟨hcl', by simp [hna, hlt]⟩) σ' ⟨hw, hp', hq'.1⟩⟩
 
 end AtT

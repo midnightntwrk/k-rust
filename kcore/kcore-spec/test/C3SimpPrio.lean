@@ -35,7 +35,7 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 theorem hok : c.ok = true := by decide +kernel
 theorem hokH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans hok
@@ -99,8 +99,8 @@ theorem eval_all (H : HookParams) (n : Int) : Eval (cH H) f [int n] (some (int n
     rw [cl0_rhs]; exact .var
   exact .clause (cl := cl0) (σ := [(0, int n)]) (hfnH H) (List.getElem_mem _) hσ hm
     (fun t ht => by rw [cl0_req] at ht; cases ht) (by rw [cl0_pre]; exact .top)
-    (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl0_least cl' hcl')) hr
-    (fun t ht => by rw [cl0_ens] at ht; cases ht)
+    (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl0_least cl' hcl')) (by rfl) hr
+    (fun t ht => by rw [cl0_ens] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
 
 /-- The value table of `f`: `f(n) = n`. -/
 def fTable : InertEvUser.ValTable := fun s =>

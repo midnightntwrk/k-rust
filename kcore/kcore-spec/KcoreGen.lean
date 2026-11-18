@@ -464,11 +464,17 @@ theorem obligations_nil : Obligations defn :=
     match_obligations lazy_obligations" else ""
   let faithParts := ["namesNumbered", "genWf", "collSortsOK", "collsOK", "patHeadsOK", "namesApartFast",
     "LitsApart", "sortsNumbered", "collsNotCtors", "itesApart", "kindsApart", "ctorsOnce", "fnsApart"]
-  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel, the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
+  -- the conjuncts that read the names at every symbol, decided on the names' codes (each name
+  -- encoded once) rather than on the names' strings
+  let faithProof := fun (n : String) => match n with
+    | "namesNumbered" => "namesNumbered_of_codesCD (by decide +kernel)"
+    | "itesApart" => "itesApart_of_codesCD (by decide +kernel)"
+    | _ => "by decide +kernel"
+  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport KcoreSpec.CoreDecide\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel: `namesNumbered` and `itesApart` on the names' codes (`namesNumberedC`, `itesApartC`), the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
 namespace {ns}
 open KCore KCore.Faithful KCore.Faithful.Model
 " ++ String.join (faithParts.map fun n => s!"
-theorem faith_{n} : {n} defn.sem = true := by decide +kernel
+theorem faith_{n} : {n} defn.sem = true := {faithProof n}
 ") ++ s!"
 theorem faith_ok : defn.sem.faithOK = true :=
   Semantics.faithOK_of_parts {" ".intercalate (faithParts.map (s!"faith_{·}"))}
@@ -1217,9 +1223,13 @@ def {nm}_lawHooks{pre} (H : HookParams) :=
     s!"
 /-! ## The interpretation `lawHooks`
 
-`lawHooks defn.sem H` is H everywhere but at the open generators, where it is the free application
-of their laws. It shows that the interpretations the statements are about exist; it is not the
-meaning of a generator, and no statement above is stated only there. -/
+`lawHooks defn.sem H` is H everywhere but at the open generators, where it applies their laws: at a
+generator with no law or one law it is the free interpretation of its laws; at one with both `assoc`
+and `idem` it keeps each flattened argument at its first occurrence (`Band.nf`), so that
+`f(x, f(y, x))` is `f(x, y)` there, which the two laws do not state. It shows that the
+interpretations the statements are about exist; it is not the meaning of a generator, and no
+statement above is stated only there. A fact that holds at `lawHooks` and that the text does not
+state holds at `lawHooks`, not for every H. -/
 
 /-- The open generators' laws hold under `lawHooks defn.sem H`, for every H
 (`KCore.openLaws_lawHooks`). -/
@@ -2810,7 +2820,11 @@ def account (koreFile : String) : IO UInt32 := do
     let fl := Parse.fnLawSentences k d
     unless fl.isEmpty do
       IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
-      for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
+      -- each sentence is one law of `Definition.laws`, in the same order (`fnLawAxioms`)
+      for ((i, h, ls), l) in fl.zip d.laws do
+        IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): {Parse.fnLawEntry d.sem l}"
+      unless fl.length == d.laws.length do
+        IO.println s!"      the laws read are {d.laws.length}, not one per sentence: the entries above pair them by position"
     -- printed only when a constructor or an open generator carries a unit attribute
     let ui := Parse.unitIgnored k d
     unless ui.isEmpty do
@@ -2832,9 +2846,9 @@ def account (koreFile : String) : IO UInt32 := do
       IO.println s!"rules and clauses applying an open generator in their left side: {gp.length}"
       for r in gp.take 10 do IO.println s!"      {r.toText}"
     -- printed only when some rule is read so
-    let kr := Parse.keysAsRequires k
+    let kr := Parse.keysAsMember k
     unless kr.isEmpty do
-      IO.println s!"rules read with a map key applying a function as a `requires` conjunct (keyFunctionAsRequires): {kr.length}"
+      IO.println s!"rules read with a map key applying a function as a membership conjunct of pre (keyFunctionAsMember): {kr.length}"
       for (i, fs) in kr.take 10 do IO.println s!"      sentence {i}: {fs}"
     -- printed only when some rule's `CondDecided` is owed
     let ow := Parse.owedCondDecided d.sem
@@ -3295,7 +3309,7 @@ sentences the text lacks (module by module, as `roundtrip` finds them), each cla
 (the section's stages), with counts: the pairs by stage (stage 4 by the attributes not shared), then
 what no stage pairs by kind and origin. Then every text sentence of a kind with a direction that no
 stage but `same name` pairs: what `d` does not hold as written, each with the reading notes the
-account gives it (`Parse.connReadings`, `keysAsRequires`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
+account gives it (`Parse.connReadings`, `keysAsMember`, `owiseNarrowed`, `tokKItemOmitted`, a `readAs`, `unread` or `inert` class; an
 inert constructor axiom that `d`'s constructors induce, `Parse.uninduced` not naming it): a sentence
 read in another form under a note is a named reading (C14's weaker or more, with its note); one
 without a note is a candidate reader defect, each to be decided. Exit 0 when there is none of the second kind, 1 when there is one, 3 when
@@ -3366,7 +3380,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
   let userName := (k.modules.getLast?.map (·.name.ident.name)).getD ""
   let off := Parse.preludeLength k
   let conn := Parse.connReadings k
-  let keys := Parse.keysAsRequires k
+  let keys := Parse.keysAsMember k
   -- the `[owise]` equations read with a premise narrower than the text's
   let narrowed := (Parse.owiseNarrowed k d).map (·.1)
   -- KItem's no-junk axioms read with a generator they do not list
@@ -3383,7 +3397,7 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
         | .unread r => [s!"unread {r.name}"]
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
-      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsRequires"] else []) ++
+      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsMember"] else []) ++
       (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
       (if tokOmitted.contains n then ["tokKItem"] else [])
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
@@ -4129,10 +4143,11 @@ def readyWhy (c : Semantics) (vars : List Srt) : Nat → Term → Option (String
         else some (s!"{noRoleKind c f} in a pattern", decodeK (c.symName f))
 
 /-- `kcore exec-ready definition.kore`: `coreOK`, the conditions the executable matcher of Exec.lean
-reads (`ok`, `srReady`, `matchReady`), `CExec.execReady` and `ok`'s conjuncts, as `name 0|1` pairs on one
-line; then,
+reads (`ok`, `srReady`, `matchReady`), `CExec.execReady`, `ok`'s conjuncts and `readsConfined`, as `name 0|1`
+pairs on one line; then,
 for each clause and rule whose left-hand side `execReady` does not accept, and each rule with a
-predicate other than `\top`, a tab-separated line `why`, the reason, its detail, the place. A line `mismatch` where `readyWhy` and `readyP` disagree. -/
+predicate other than a conjunction of `\in` and `\equals` atoms (`CExec.predAtoms`), a
+tab-separated line `why`, the reason, its detail, the place. A line `mismatch` where `readyWhy` and `readyP` disagree. -/
 def execReadyCmd (koreFile : String) : IO UInt32 := do
   let out := fun (s : String) => do IO.println s; (← IO.getStdout).flush
   let .ok k := Kore.parseDefinition (← IO.FS.readFile koreFile) | IO.eprintln s!"{koreFile}: KORE read error"; return 1
@@ -4142,7 +4157,7 @@ def execReadyCmd (koreFile : String) : IO UInt32 := do
   let c := d.sem
   let b := fun (x : Bool) => if x then "1" else "0"
   let core := ((coreParts c (tables c)).filter (!·.2)).isEmpty
-  out s!"coreOK {b core} ok {b c.ok} srReady {b c.srReady} matchReady {b c.matchReady} sortedOK {b c.sortedOK} execReady {b (CExec.execReady c)} ok.declsOK {b c.declsOK} ok.subsortsOK {b c.subsortsOK} ok.fnsOK {b c.fnsOK} ok.rulesOK {b (c.rules.all c.ruleOK)} matchReadyO {b c.matchReadyO}"
+  out s!"coreOK {b core} ok {b c.ok} srReady {b c.srReady} matchReady {b c.matchReady} sortedOK {b c.sortedOK} execReady {b (CExec.execReady c)} ok.declsOK {b c.declsOK} ok.subsortsOK {b c.subsortsOK} ok.fnsOK {b c.fnsOK} ok.rulesOK {b (c.rules.all c.ruleOK)} matchReadyO {b c.matchReadyO} readsConfined {b c.readsConfined}"
   let check := fun (vars : List Srt) (ps : List Term) (at_ : String) => do
     for p in ps do
       let r := readyWhy c vars (Exec.termSize p) p
@@ -4158,7 +4173,8 @@ def execReadyCmd (koreFile : String) : IO UInt32 := do
   for (r, rp) in withPres c.rules d.pres.rules do
     let at_ := s!"rule {rp.label.getD "(no label)"} at {(rp.src.getD d.pres.source).splitOn "/" |>.getLast!}:{rp.info.loc.l1}"
     check r.vars [r.lhs] at_
-    unless r.pre.isTop && r.post.isTop do out s!"why\ta predicate of the rule (pre or post) other than \\top\t\t{at_}"
+    unless CExec.predAtoms r.pre && CExec.predAtoms r.post do
+      out s!"why\ta predicate of the rule (pre or post) other than a conjunction of \\in and \\equals atoms\t\t{at_}"
   return 0
 
 /-- `kcore exec definition.kore config.kore [--steps N] [--fuel F]`: the executable step of

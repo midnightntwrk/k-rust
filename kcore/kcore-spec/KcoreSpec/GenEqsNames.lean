@@ -424,7 +424,7 @@ theorem model_with_eqns_choice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp
   have hrules := Semantics.ruleFactsHeld_of_core h
   have hsr : ∀ r ∈ c.rules, c.ruleSorted r = true := fun r hr => (hrules r hr).1
   have hI : stdI_T c (liftT_ex c T) ⊧ᴵP (Γc c ∪ Γstep c) := by
-    refine stdI_T_model_held c h hm hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
+    refine stdI_T_model_held c h hm (clausePreDecided_of_fnHyp h hf) hf.2.2.2.2.2 hrules (liftT_ex c T) ?_ ?_ ?_
     · intro x y hx hy hT
       obtain ⟨r, σ, hb⟩ := step_iff_by.mp (hsub ⟨x, hx⟩ ⟨y, hy⟩ (hT hx hy))
       exact ⟨r, σ, stepVBy_of_stepBy hfd hb⟩
@@ -455,6 +455,57 @@ theorem model_with_eqns_step (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c
   model_with_eqns_choice c h hf N G hr hfree hsym (Step c) (fun _ _ hs => hs)
     (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
     (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+
+/-! ## A name no symbol bears -/
+
+/-- A nonempty name that is no registry symbol's and none of the semantics' own is the name of no
+numbered symbol. -/
+theorem getD_mem_of_ne {l : List String} {i : Nat} {n : String} (h : l.getD i "" = n) (he : n ≠ "") :
+    n ∈ l := by
+  rw [List.getD_eq_getElem?_getD] at h
+  cases hg : l[i]? with
+  | none => rw [hg] at h; exact absurd h.symm he
+  | some x =>
+    rw [hg, Option.getD_some] at h
+    subst h
+    exact List.mem_of_getElem? hg
+
+theorem symName_ne_of_unnumbered (c : Semantics) {n : String}
+    (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (f : Sym) : c.symName f ≠ n := by
+  intro h
+  have hm : n ∈ regSymNames ++ c.symNames := by
+    unfold Semantics.symName at h
+    split at h
+    · exact List.mem_append_left _ (getD_mem_of_ne h he)
+    · exact List.mem_append_right _ (getD_mem_of_ne h he)
+  rw [List.contains_iff_mem.mpr hm] at hn
+  cases hn
+
+/-- **A name no symbol bears resolves to no constant** (`spareSymB`): it is not `inj`'s, and no
+symbol of `kernelSyms` has it. -/
+theorem spareSymB_of_unnumbered (c : Semantics) {n : String}
+    (hn : (regSymNames ++ c.symNames).contains n = false) (he : n ≠ "") (hi : n ≠ "inj") :
+    spareSymB c n = true := by
+  have hres : resolve c n [] = none := by
+    unfold resolve
+    split
+    · rename_i h; cases h
+    · rw [Option.map_eq_none_iff, List.find?_eq_none]
+      intro k _ hk
+      exact symName_ne_of_unnumbered c hn he k.name (beq_iff_eq.mp hk)
+  simp only [spareSymB, hres, Bool.and_true]
+  exact bne_iff_ne.mpr hi
+
+/-- **A constructor argument's projection that the account's arm accepts resolves to no
+constant**: a name with the prefix `Lblproject'Coln` that is no registry symbol's and none of the
+semantics' own (the conditions `Account.genEqClassOK` checks of it) meets `spareSymB`, the premise
+`hsym` of `model_with_eqns_choice` and `model_with_eqns_step`. -/
+theorem spareSymB_of_argProj (c : Semantics) {n : String}
+    (hp : (KoreAML.Parse.dropPrefix? "Lblproject'Coln" n).isSome = true)
+    (hr : regSymNames.contains n = false) (hs : c.symNames.contains n = false) : spareSymB c n = true := by
+  refine spareSymB_of_unnumbered c (by rw [List.contains_append, hr, hs]; rfl) ?_ ?_
+  · rintro rfl; revert hp; decide
+  · rintro rfl; revert hp; decide
 
 end GenEqs
 

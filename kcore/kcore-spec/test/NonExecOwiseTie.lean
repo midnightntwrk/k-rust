@@ -511,26 +511,26 @@ theorem lowerO (H : HookParams) (w : GroundTerm) :
     · exact absurd hlt (Nat.lt_irrefl _)
 
 theorem appliesB (H : HookParams) : clB.AppliesAt (cH H) [(0, va)] [vb, va] :=
-  ⟨by rw [vB]; exact ws1 (sort_a H),
+  ⟨by rw [vB]; exact (ws1 (sort_a H)).at _,
    by rw [ptB]; exact .cons (.ctor (isCtor_b H) .nil) (.cons (.var rfl) .nil),
    (fun t ht => by rw [qB] at ht; cases ht), Clause.holds_preTop preB _⟩
 
 theorem appliesO (H : HookParams) : clO.AppliesAt (cH H) [(0, vb), (1, va)] [vb, va] :=
-  ⟨by rw [vO]; exact ws2 (sort_b H) (sort_a H),
+  ⟨by rw [vO]; exact (ws2 (sort_b H) (sort_a H)).at _,
    by rw [ptO]; exact .cons (.var rfl) (.cons (.var rfl) .nil),
    (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
 
 /-- At (b, a): `a`, by the `aside` clause (no clause of a smaller priority is not `aside`). -/
 theorem eval_ba_a (H : HookParams) : Eval (cH H) choose [vb, va] (some va) :=
   .clause (cl := clB) (σ := [(0, va)]) (hfnH H) (by rw [fn_clauses]; simp)
-    (appliesB H).1 (appliesB H).2.1 (appliesB H).2.2.1 (appliesB H).2.2.2 (lowerB H)
+    ((wellSortedAt_univ rfl).mp (appliesB H).1) (appliesB H).2.1 (appliesB H).2.2.1 (appliesB H).2.2.2 (lowerB H)
     rfl (by rw [rB]; exact .var) (fun t ht => by rw [eB] at ht; cases ht) (Clause.holds_postTop rfl _)
 
 /-- At (b, a): `b`, by the `[owise]` clause (its one smaller clause that is not `aside`, the first,
 fails). -/
 theorem eval_ba_b (H : HookParams) : Eval (cH H) choose [vb, va] (some vb) :=
   .clause (cl := clO) (σ := [(0, vb), (1, va)]) (hfnH H) (by rw [fn_clauses]; simp)
-    (appliesO H).1 (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H va)
+    ((wellSortedAt_univ rfl).mp (appliesO H).1) (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H va)
     rfl (by rw [rO]; exact .var) (fun t ht => by rw [eO] at ht; cases ht) (Clause.holds_postTop rfl _)
 
 theorem va_ne_vb : va ≠ vb := by simp [va, vb, a, b]
@@ -582,7 +582,7 @@ theorem not_fnSolves (H : HookParams) : ¬ FnSolves (cH H) := fun h => by
     · rw [pO, pB] at hlt; exact absurd hlt (by decide)⟩
   have hiff := h fn (fn_memH H) [vb, va] (sorts_ba H) clB (by rw [fn_clauses]; simp) [(0, va)] hdec vb
   rw [fn_label] at hiff
-  obtain ⟨hr, -⟩ := (Clause.gives_iff_noExs (cl := clB) rfl rfl hdec.1.1 vb).mp (hiff.mp (eval_ba_b H))
+  obtain ⟨hr, -⟩ := (Clause.gives_iff_noExs (cl := clB) rfl rfl ((wellSortedAt_univ rfl).mp hdec.1.1) vb).mp (hiff.mp (eval_ba_b H))
   rw [rB] at hr
   cases hr
 

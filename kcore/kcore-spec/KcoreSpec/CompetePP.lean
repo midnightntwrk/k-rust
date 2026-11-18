@@ -229,7 +229,7 @@ theorem applies_of_values_pp (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c)
   have hlx4 := ((patVal_den4 hIΓ hnn.1 hph hsc.trans hσ' hvsl hag hpv' (OvlOK.nf_bridge inferInstance hlhs')).2 _).mpr ((hxs.1 _).mpr rfl)
   obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
   have hreq4 := reqPat_holds hIΓ (vs := vs) (q := r.req) (fun t ht b =>
-    evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw) (hreq' t ht) fns_headsOK hσ' hvsl hag (hreqS' t ht) b)
+    evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI)) (HoldsShape.preReadAll_of_core h hI) (hreq' t ht) fns_headsOK hσ' hvsl hag (hreqS' t ht) b)
     (by have := hxs.2; unfold srtOf; rw [trSort_srt]; exact this)
   -- e3 agrees with e4 at the left side's and conditions' variables, and with e off the binders
   have h34 : ∀ i < n, i ∈ r.leftVars → e4.evalEvar (tbl.ev (keyAt vs i)) = e3.evalEvar (tbl.ev (keyAt vs i)) :=
@@ -442,12 +442,12 @@ theorem not_applies_of_notApplies_pp (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c
           exact ⟨hlt, hkeys i hlt hil, v, hv, hsv⟩
         exact Bool.noConfusion ((conj_iff_holdsPP h hI hcw hokP hbdP hrcP hreads hkP (inh_top_PP hIΓ x tbl e2) hf).mp
           hpre2)
-    have hden := evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw) he fns_headsOK hσ2 hvsl hag2 (hreqS' t ht)
+    have hden := evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI)) (HoldsShape.preReadAll_of_core h hI) he fns_headsOK hσ2 hvsl hag2 (hreqS' t ht)
     rcases hr2 t ht with hm2 | htrue
     · obtain ⟨σC, hσC1, hσC2⟩ := sortSing hIΓ (top_numbered (c := c))
       exact reqFalse_empty hIΓ (S' := C) (fun a => by unfold C srtOf; rw [trSort_srt]; exact hσC1 a) hσC2 hv
         (fun u hu => EvalTerm.sorted hsc he fns_headsOK hσ2 (hreqS' t ht) hu) hden _ hm2
-    · have hdenT := evalTerm_den4Cl hIΓ hnn hsc hph (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw) htrue fns_headsOK hσ2 hvsl hag2
+    · have hdenT := evalTerm_den4ClPre hIΓ hnn hsc hph (clauseOpenFactsP_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) (neg_of_coreCl hI (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hcw (HoldsShape.preReadAll_of_core h hI)) (HoldsShape.preReadAll_of_core h hI) htrue fns_headsOK hσ2 hvsl hag2
         (hreqS' t ht)
       have hTm : Res c I e2 (some (bool true)) (elemOf c I (bool true)) :=
         ((elemOf_spec hIΓ (sortOf_bool true) e2).1 _).mpr rfl

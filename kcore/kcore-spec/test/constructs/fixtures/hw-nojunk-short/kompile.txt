@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-nojunk-short/hw-nojunk-short.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-nojunk-short/hw-nojunk-short.kore` (cwd: kcore-spec)
+definition.kore bytes: 247436
+definition.kore sha256: 33ac855d4d3bec1c23795a1c510768c363be7bc5848f093e6f4a6333abff82d2

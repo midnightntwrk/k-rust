@@ -203,6 +203,7 @@ kernel_rfl fnRest_withRulesE : ∀ (c : Semantics) (rs : List Rule), (withRulesE
 kernel_rfl hookRes_withRulesE : ∀ (c : Semantics) (rs : List Rule), (withRulesE c rs).hookRes = c.hookRes
 kernel_rfl paramVal_withRulesE : ∀ (c : Semantics) (rs : List Rule), (withRulesE c rs).paramVal = c.paramVal
 kernel_rfl extends_withRulesE : ∀ (c : Semantics) (rs : List Rule), Extends (withRulesE c rs) = Extends c
+kernel_rfl fnCover_withRulesE : ∀ (c : Semantics) (rs : List Rule), (withRulesE c rs).fnCover = c.fnCover
 
 section
 variable (c : Semantics) (rs : List Rule)
@@ -241,11 +242,21 @@ theorem fails_withRulesE {vs : List GroundTerm} {cl : Clause} (h : Fails c vs cl
     (motive_4 := fun σ t r _ => EvalTerm (withRulesE c rs) σ t r)
     (motive_5 := fun σ ts rs' _ => EvalTerms (withRulesE c rs) σ ts rs')
     (motive_6 := fun n σ p b _ => Holds (withRulesE c rs) n σ p b)
-    (fun hfn hmem hσ hmatch _ _ _ _ _ ihreq ihpre ihprio ihrhs ihens =>
-      .clause hfn hmem ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hσ) (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio ihrhs ihens)
+    (motive_7 := fun σ cl _ => InstFails (withRulesE c rs) σ cl)
+    (motive_8 := fun σ cl r _ => InstIs (withRulesE c rs) σ cl r)
+    (fun hfn hmem hσ hmatch _ _ _ hex _ _ _ ihreq ihpre ihprio ihrhs ihens ihpost =>
+      .clause hfn hmem ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hσ) (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio hex ihrhs ihens ihpost)
     (fun hfn _ ihnone => fnRest_withRulesE c rs ▸ Eval.rest (c := withRulesE c rs) hfn ihnone)
-    (fun hfn hmem hσ hmatch _ _ _ ht _ hw ihreq ihpre ihprio ihe =>
-      .ensFails hfn hmem ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hσ) (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio ht ihe hw)
+    (fun hfn hmem hσ hmatch _ _ _ hex ht _ hw ihreq ihpre ihprio ihe =>
+      .ensFails hfn hmem ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hσ) (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio hex ht ihe hw)
+    (fun hfn hmem hσ hmatch _ _ _ hne _ _ _ _ ihreq ihpre ihprio ihrhs ihens ihpost ihall =>
+      .clauseEx hfn hmem ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hσ) (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio hne ihrhs
+        ihens ihpost (fun σ' ha hw => ihall σ' ha ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mp hw)))
+    (fun hfn hmem hne hσ hmatch _ _ _ hsome _ ihreq ihpre ihprio ihall =>
+      .exNone hfn hmem hne ((congrFun (congrFun (congrFun (wellSortedAt_withRulesE c rs) _) _) _).mpr hσ)
+        (patVals_withRulesE c rs hmatch) ihreq ihpre ihprio
+        (let ⟨σ', ha, hw⟩ := hsome; ⟨σ', ha, (congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mpr hw⟩)
+        (fun σ' ha hw => ihall σ' ha ((congrFun (congrFun (wellSorted_withRulesE c rs) _) _).mp hw)))
     (fun _ ih => .intro fun σ hw hp =>
       ih σ ((congrFun (congrFun (congrFun (wellSortedAt_withRulesE c rs) _) _) _).mp hw) (patVals_withRulesE_back c rs hp))
     (fun ht _ hr ihe => .intro ht ihe hr)
@@ -258,7 +269,9 @@ theorem fails_withRulesE {vs : List GroundTerm} {cl : Clause} (h : Fails c vs cl
     (fun hk hhk hp _ hr ihts => .param hk hhk hp ihts (by rw [paramVal_withRulesE]; exact hr))
     (fun hk hhk _ hvs _ hp ihts ihf => .call hk hhk ihts hvs ihf hp)
     (fun hk hhk _ hvs hp ihts => .callUndef hk hhk ihts hvs hp)
-    (fun hk ho _ ihts => norm_withRulesE c rs ▸ EvalTerm.ovl (c := withRulesE c rs) hk ho ihts)
+    (fun hk ho _ hnf ihts => norm_withRulesE c rs ▸ EvalTerm.ovl (c := withRulesE c rs) hk ho ihts
+      (fun vs hv => by rw [fnCover_withRulesE]; exact hnf vs hv))
+    (fun hk ho _ hvs hlo hcov _ ihts ihf => .ovlFn hk ho ihts hvs hlo (by rw [fnCover_withRulesE]; exact hcov) ihf)
     .nil
     (fun _ _ ih ihs => .cons ih ihs)
     .top .bot
@@ -278,6 +291,8 @@ theorem fails_withRulesE {vs : List GroundTerm} {cl : Clause} (h : Fails c vs cl
       (by rw [extends_withRulesE]; exact hr))
     (fun g _ hr ihb => .all g (fun σ' he => ihb σ' (by rw [extends_withRulesE] at he; exact he))
       (by rw [extends_withRulesE]; exact hr))
+    (fun ht _ hw ihe => .ens ht ihe hw) (fun _ ih => .post ih) (fun _ ih => .rhs ih)
+    (fun _ _ ihp ih => .fails ihp ih) (fun _ _ _ ihr ihe ihp => .gives ihr ihe ihp)
     h
 
 end

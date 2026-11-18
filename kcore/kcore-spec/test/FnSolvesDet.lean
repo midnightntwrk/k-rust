@@ -279,7 +279,7 @@ theorem sortsOf_of_match {fn : Fn} (hfn : fn ∈ c.fns) {cl : Clause} (hcl : cl 
   simp only [Bool.and_eq_true, List.all_eq_true] at hf
   have hcs := hf.1.2 fn hfn cl hcl
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hcs
-  exact Det.patVals_sortedAll (matchCtxO h) hσ hm hcs.1.1.1.1.1
+  exact Det.patVals_sortedAll (matchCtxO h) hσ hm hcs.1.1.1.1.1.1
 
 theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
     {σ : Subst} {r : Option GroundTerm}
@@ -293,7 +293,7 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   rcases List.mem_append.mp hall with hu | hp
   · -- a user function: the clause decides as the model reads it, and `FnSolves` applies
     have hdec : cl.DecidesAt c fn σ vs :=
-      ⟨⟨hσ, hmatch, hreq, hpre⟩,
+      ⟨⟨hσ.at _, hmatch, hreq, hpre⟩,
         fun cl' h1 h2 h3 σ' hw hp' hq => ihprio cl' h1 h2 h3 σ' hw hp' hq.1 (hT cl' h1)⟩
     cases r' with
     | none => cases hsm
@@ -341,7 +341,7 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   obtain ⟨hall, hlab⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hall with hu | hp
   · have hdec : cl.DecidesAt c fn σ vs :=
-      ⟨⟨hσ, hmatch, hreq, hpre⟩, fun cl' h1 h2 h3 σ' hw' hp' hq =>
+      ⟨⟨hσ.at _, hmatch, hreq, hpre⟩, fun cl' h1 h2 h3 σ' hw' hp' hq =>
         ihprio cl' h1 h2 h3 σ' hw' hp' hq.1
           (Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 fn hall cl' h1)⟩
     cases r' with
@@ -434,9 +434,9 @@ theorem fnDet_of_fnSolves (h : c.coreOK = true) (hs : FnSolves c) : FnDet c := b
 /-! ## The statements that read `FnDet` beside `FnSolves` -/
 
 /-- `consistent_open` with its `FnDet` from its other hypotheses. -/
-example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hl : OpenLaws c)
+example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  consistent_open c h (fnDet_of_fnSolves h hs) hs hl hrules
+  consistent_open c h (fnDet_of_fnSolves h hs) hs hp hl hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
 example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :

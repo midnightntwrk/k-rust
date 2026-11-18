@@ -9,7 +9,7 @@
   `nodeFacts_of_core`: every model of `Γc` of a definition `coreOK` accepts has the constructors'
   facts.
 -/
-import KcoreSpec.CondResort
+import KcoreSpec.CondCross
 import KcoreSpec.ClausePreRead
 
 set_option autoImplicit false

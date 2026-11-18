@@ -253,7 +253,7 @@ theorem not_fnSolves : ¬ FnSolves c := by
     | 0, hi => simp only [cl2, List.getElem?_cons_zero, Option.some.injEq] at hi; subst hi; exact ⟨i0, rfl, i0_int⟩
     | _ + 1, hi => simp [cl2] at hi
   have hdec : cl2.DecidesAt c fF σ [i0] := by
-    refine ⟨⟨hσ, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
+    refine ⟨⟨hσ.at _, .cons (.var rfl) .nil, (fun _ ht => by cases ht), .top⟩, fun cl' hcl' _ hlt σ' _ hm hq => ?_⟩
     simp only [fF, List.mem_cons, List.not_mem_nil, or_false] at hcl'
     rcases hcl' with rfl | rfl
     · cases hm with

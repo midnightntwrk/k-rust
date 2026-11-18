@@ -129,6 +129,18 @@ structure CtorSig where
 @[match_pattern, reducible] def intShr : Sym := 211
 @[match_pattern, reducible] def intShl : Sym := 212
 @[match_pattern, reducible] def intLog2 : Sym := 216
+/-- INT's `^%Int`, `bitRangeInt` and `signExtendBitRangeInt`: library symbols with fixed numbers
+(BuiltinNames.lean). -/
+@[match_pattern, reducible] def intPowMod : Sym := 210
+@[match_pattern, reducible] def intBitRange : Sym := 217
+@[match_pattern, reducible] def intSignExtBitRange : Sym := 218
+/-- INT's `^Int` and LIST's `L[I <- V]`, `makeList`, `updateList`, `fillList`: library symbols with
+fixed numbers (BuiltinNames.lean). -/
+@[match_pattern, reducible] def intPow : Sym := 209
+@[match_pattern, reducible] def listSet : Sym := 199
+@[match_pattern, reducible] def listMake : Sym := 200
+@[match_pattern, reducible] def listUpdateAll : Sym := 201
+@[match_pattern, reducible] def listFill : Sym := 202
 @[match_pattern, reducible] def kEq : Sym := 29
 @[match_pattern, reducible] def kNe : Sym := 30
 @[match_pattern, reducible] def mapUnit : Sym := 31
@@ -567,6 +579,8 @@ def hookSigs : List CtorSig :=
   ([intLt, intLe, intGt, intGe, intEq, intNe].map fun f => ⟨f, [Srt.int, Srt.int], Srt.bool⟩) ++
   [⟨intAbs, [Srt.int], Srt.int⟩, ⟨freshInt, [Srt.int], Srt.int⟩,
    ⟨intShr, [Srt.int, Srt.int], Srt.int⟩, ⟨intShl, [Srt.int, Srt.int], Srt.int⟩, ⟨intLog2, [Srt.int], Srt.int⟩,
+   ⟨intPowMod, [Srt.int, Srt.int, Srt.int], Srt.int⟩, ⟨intBitRange, [Srt.int, Srt.int, Srt.int], Srt.int⟩,
+   ⟨intSignExtBitRange, [Srt.int, Srt.int, Srt.int], Srt.int⟩, ⟨intPow, [Srt.int, Srt.int], Srt.int⟩,
    ⟨kEq, [Srt.k, Srt.k], Srt.bool⟩, ⟨kNe, [Srt.k, Srt.k], Srt.bool⟩,
    ⟨mapUnit, [], Srt.map⟩, ⟨mapElem, [Srt.kitem, Srt.kitem], Srt.map⟩, ⟨mapConcat, [Srt.map, Srt.map], Srt.map⟩,
    ⟨mapUpdate, [Srt.map, Srt.kitem, Srt.kitem], Srt.map⟩, ⟨mapRemove, [Srt.map, Srt.kitem], Srt.map⟩,
@@ -580,7 +594,10 @@ def hookSigs : List CtorSig :=
    ⟨listConcat, [Srt.list, Srt.list], Srt.list⟩, ⟨listUnit, [], Srt.list⟩,
    ⟨listElem, [Srt.kitem], Srt.list⟩, ⟨listPush, [Srt.kitem, Srt.list], Srt.list⟩,
    ⟨listGet, [Srt.list, Srt.int], Srt.kitem⟩, ⟨listRange, [Srt.list, Srt.int, Srt.int], Srt.list⟩,
-   ⟨listIn, [Srt.kitem, Srt.list], Srt.bool⟩, ⟨listSize, [Srt.list], Srt.int⟩] ++
+   ⟨listIn, [Srt.kitem, Srt.list], Srt.bool⟩, ⟨listSize, [Srt.list], Srt.int⟩,
+   ⟨listSet, [Srt.list, Srt.int, Srt.kitem], Srt.list⟩, ⟨listMake, [Srt.int, Srt.kitem], Srt.list⟩,
+   ⟨listUpdateAll, [Srt.list, Srt.int, Srt.list], Srt.list⟩,
+   ⟨listFill, [Srt.list, Srt.int, Srt.int, Srt.kitem], Srt.list⟩] ++
   ([floatAdd, floatSub, floatMul, floatDiv, floatRem].map fun f => ⟨f, [Srt.float, Srt.float], Srt.float⟩) ++
   ([floatNeg, floatAbs, floatFloor, floatCeil, floatTrunc, floatSqrt].map fun f => ⟨f, [Srt.float], Srt.float⟩) ++
   ([floatLe, floatLt, floatGe, floatGt, floatEq, floatNe].map fun f => ⟨f, [Srt.float, Srt.float], Srt.bool⟩) ++
@@ -647,6 +664,10 @@ def bytesPartial : List Sym :=
 
 /-- The interpreted symbols not known total here (`hook` can be undefined): division and modulo,
 the two shifts (undefined at a negative amount) and `log2Int` (undefined at a number not above 0),
+`^%Int` (no value at a zero modulus, the interpretation's elsewhere), `bitRangeInt` and
+`signExtendBitRangeInt` (undefined at a negative index or length, the second also at length 0),
+`^Int` (the interpretation's at a negative exponent), `L[I <- V]`, `makeList`, `updateList` and
+`fillList` (the interpretation's off the ranges the text describes),
 `_Map_` and `_Set_` (undefined where the two collections share a key or a member), `Map:lookup`,
 `List:get` and `List:range`, and FLOAT's (undefined on two formats or at a format without a model;
 those FLOAT declares `total` are listed too, so no check counts on their totality: the seven of
@@ -661,7 +682,8 @@ The library's text declares every other one `total` (KCORE-AUDIT.md). -/
 def partialHooks : List Sym :=
   [intTDiv, intTMod, intEDiv, intEMod, mapConcat, setConcat, mapLookup, listGet, listRange] ++ floatResFloat ++
     floatResBool ++ floatResInt ++ stringPartial ++ bytesPartial ++
-    [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll] ++ [intShr, intShl, intLog2]
+    [rmElem, rmConcat, rmLookup, rmFindRange, rmUpdate, rmRemove, rmRemoveAll] ++ [intShr, intShl, intLog2] ++
+    [intPowMod, intBitRange, intSignExtBitRange] ++ [intPow, listSet, listMake, listUpdateAll, listFill]
 
 /-- The `hook{}` attribute of each interpreted hooked symbol, as the builtin texts declare it
 (checked against them by test/Member.lean). A hooked symbol whose hook is one of these
@@ -697,6 +719,10 @@ def regHookNames : List (Sym × String) :=
    (intShr, "INT.shr"),
    (intShl, "INT.shl"),
    (intLog2, "INT.log2"),
+   (intPowMod, "INT.powmod"),
+   (intBitRange, "INT.bitRange"),
+   (intSignExtBitRange, "INT.signExtendBitRange"),
+   (intPow, "INT.pow"),
    (kEq, "KEQUAL.eq"),
    (kNe, "KEQUAL.ne"),
    (mapUnit, "MAP.unit"),
@@ -727,6 +753,10 @@ def regHookNames : List (Sym × String) :=
    (listRange, "LIST.range"),
    (listIn, "LIST.in"),
    (listSize, "LIST.size"),
+   (listSet, "LIST.update"),
+   (listMake, "LIST.make"),
+   (listUpdateAll, "LIST.updateAll"),
+   (listFill, "LIST.fill"),
    (floatAdd, "FLOAT.add"),
    (floatSub, "FLOAT.sub"),
    (floatMul, "FLOAT.mul"),

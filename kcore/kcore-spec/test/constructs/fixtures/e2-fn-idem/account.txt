@@ -16,7 +16,7 @@ inert constructor axioms not induced by the constructors: 0
 cell collection injections not of a collection of the definition: 0
 law axioms of no collection's concatenation: 0
 law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): 1
-      sentence 249 (Lblpm): fnLaw (idem): FnLaws owed
+      sentence 249 (Lblpm): fnLaw (idem): FnLaws owed, open: no term of the law reads the interpretation, so it is one fact at every interpretation, not decided here
 rules with an `ensures`: 0
 rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
 rules and clauses applying a function symbol in their left side: 0

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-set.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.2
+definition.kore bytes: 207496
+definition.kore sha256: 68538fa3cfb4eefba23ce773f97ff5cd8f320d1881520672f12231b9afd10196
+stripped sha256: b77e768569f4a64d2994471111642ae46dc1ad4f41c689b76a23b7b50e10b2a4
+main module: 399 sentences, 41 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-SET-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-SET as default.

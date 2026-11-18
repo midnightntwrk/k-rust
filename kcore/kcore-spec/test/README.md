@@ -401,7 +401,7 @@ declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating d
 What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
 (declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
 that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
-connective reading, `keysAsRequires`, `owiseDisjunctNarrower`, `tokKItem`, a `readAs`, `unread` or `inert` class, an inert constructor
+connective reading, `keysAsMember`, `owiseDisjunctNarrower`, `tokKItem`, a `readAs`, `unread` or `inert` class, an inert constructor
 axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
 `--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
 by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
@@ -833,7 +833,7 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `DevOrBot`; the checks on the data read no interpretation), and a companion: the same text read
   without the device, where the result differs (at a named H where that reading makes the point
   one where every clause fails, under every H where no function is at the point). `reflectionAsOwn`
-  (`DevRefl`), `keyFunctionAsRequires` (`DevKey`), `equationPriority` (`DevPrio`, on
+  (`DevRefl`), `keyFunctionAsMember` (`DevKey`), `equationPriority` (`DevPrio`, on
   `PrioTextWitness.c`) and `owiseAsPriority` (`DevOwise`) have theirs, the companion an
   interpretation at which the point is reached (`go_step_Hk`, `look2_Hk`, `owise_unread_H9`) or
   the text's theory without a model (`not_model_text`); `streamRule` names its reader test.
@@ -884,7 +884,7 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
   `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
   under `HookParams.totals`.
-- `test/HooksInt.lean`: the 20 supported hook rows of INT (the sort, sixteen operations and, in the last section, three more) against
+- `test/HooksInt.lean`: the 24 supported hook rows of INT (the sort, sixteen operations and, in the last three sections, seven more) against
   domains.md's prose, cited by line: one hand-derived value per operation that `hook` gives, the
   result and Γ's statement under every interpretation in every semantics; `/Int`, `%Int` and
   `divInt`, `modInt` by the properties the prose names (rounding towards zero; a non-negative
@@ -896,6 +896,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   highest set bit, each by a property with one solution; at a negative amount and at x ≤ 0 the
   prose says `#False`, `hook` gives no value, the point is not silent and Γ states ⊥ under every
   interpretation; none of the three is a parameter symbol of a library module.
+  The three rows `INT.bitRange`, `INT.signExtendBitRange`, `INT.powmod`: the equations of the bit
+  ranges (domains.md 1438, 1440) hold of `hook` at every three integers, both sides with the same
+  value or both none (no value at a negative index or length, the sign extension also at length
+  0, through the shifts' `#False`); hand-derived points, and points without a value where Γ states
+  ⊥ under every interpretation; `^%Int` has no value at a zero modulus (Γ states ⊥) and is silent
+  everywhere else. The row `INT.pow`: the power at a non-negative exponent, Γ's statement under every
+  interpretation; silent at a negative one (`2 ^Int -1`).
 - `test/HooksBool.lean`: the 14 supported hook rows of BOOL (the sort and nine operations), KEQUAL
   (`==K`, `=/=K`, `ite`) and KVAR (the sort) against the prose of domains.md and substitution.md,
   cited by line: the whole truth table of each BOOL operation, the result and Γ's statement under
@@ -1032,6 +1039,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   texts against their fixtures (sha256, account) and generates both packages (`--core`) into
   `.lake/nonexec-owise`: `agree_named`, `namedFacts`, `Obl`, no `obl_nil`, every statement of a model
   or of the semantics taking `hob`, and builds them.
+- `test/GenEqsInits.lean`: instances of `KcoreSpec/GenEqsInit.lean`, the equations of the cell
+  tree's initializers and of the counter's getter on two kompiled texts. Nested cells
+  (`Cells`, `f2-examples/cellsplain.kompile.kore`, `<t> <k> $PGM:Exp </k> <one> 0 </one> <ec> 0 </ec> </t>`):
+  none of the initializers, `project:Exp` or the getter is a symbol the semantics numbers, and one
+  model of the theory whose steps are the semantics' (`GenEqs.model_with_inits_step`) holds the
+  constants' equations and `functional` axioms, each initializer's equation with the text's right side
+  at the map `$PGM ↦ a()` (the initial configuration its value) and at the empty map (both sides
+  without a value, `initGeneratedTopCell(.Map) = ⊥`), and the getter at the initial configuration.
+  Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
+  `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
+  configuration, the counter's initial value 1.
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
@@ -1039,6 +1057,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
   `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
   `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
+  Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every semantics'
+  lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by a symbol
+  of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s model
+  follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
+  argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
+  `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
+  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`. A
+  registry-numbered projection (`RegProj`, a hand-built semantics with a parameter numbered as the
+  registry's `project:Int`): `coreOK`, `predProjOK?` accepts `project:Int`'s selector-domain axiom,
+  a premise of the theory names the symbol (`GenEqs.kernelSym_named`), and the arm refuses it
+  (`Parse.predProjAcc`).
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
@@ -1089,7 +1118,11 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   elements than the list has), where over all interpretations Γ entails neither ⊥ nor a value
   (the schema of test/SilentPoints.lean, at points of a semantics with `coreOK`). `range` at more
   elements than the list has is written with two readings in its header (unstated, taken; or the
-  removal's `.List`).
+  removal's `.List`). The four rows `LIST.update`, `LIST.make`, `LIST.updateAll`, `LIST.fill` (last
+  section): `hook` at every argument list, the one value the prose names on its region (by the
+  elements of the result for `L[I <- V]` and `updateList`) and Γ's statement of it under every
+  interpretation; off the region no value and silent (a negative index of `L[I <- V]` among them);
+  `HookParams.lib` gives none of them a value.
 - `test/HooksRangeMap.lean`: the 16 interpreted hook rows of RANGEMAP (the sort and the fifteen
   operations of `regHookNames`) against domains.md's prose, cited by line: each operation at every
   argument list by the function of its result (a range map is its partial function from Int to
@@ -1307,6 +1340,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieUnbound.lean`: the tie on `f2-examples/unbound.kompile.kore` (fixture e2-unbound, the rule
+  `<k> a() => b(X) ... </k> [unboundVariables(X)]`), whose theory is `Γc` (`readsConfined_c`): layer 1
+  (`wf_defn`, `not_reordered`: 430 emitted user-module sentences against the text's 402), the 29
+  sort-predicate equations (`fn_shape`, `fns_entailed`, `fns_from_text`; isExp's `[owise]` binder
+  `_Gen1` gives an equal pattern), no junk (`nojunk_trivial_entailed`, `nojunk_items`,
+  `nojunk_kitem_entailed`), the 29 constructor sentences (`cons_entailed`), set idempotence refuted
+  (`idem_refuted`), the account of the 261 sentences (`account`, `account_absent`), `attrs_agree`;
+  each over Γ for every H and over `Γc` by `Γ_sub_Γc` (the `_c` forms). About 80 s, 6.1 GiB.
 - `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
   (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
   of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
@@ -1314,6 +1355,51 @@ table above, on the tree before String and Bytes). Not investigated here.
   pattern (`fn_shape`), the sentences being the account's class (`fnText_mem`, `fns_account`); Γ
   entails each for every H (`fns_entailed`) and each item is a consequence of its sentence
   (`fns_from_text`). 7.6 GiB, 73 s.
+- `test/TieUnboundRule.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the rule
+  with the open variable X and the theory `Γc` it is read in, for every H: Γ's rule item is a
+  consequence of sentence 154 (`rule_from_text`: the item is the sentence with `⌈rhs⌉` added to its
+  left side, one variable table and free-variable list, X free in both); each premise of `Γc` is a
+  function sentence's translation, the rule's item, definedness, a family, or `boolClosed`, the one
+  item of `Γcl` (`gamma_origin`, `gammaCl_eq`, `gamma_from`); `Pre` (those premises as written)
+  has a model with the step's closure (`pre_model`, `consistent` by `FnHyp`); `a()` steps to `b(i)`
+  for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
+  `c.withHooks H`; the expectations `b_step` (from sentences: 154 through Γ's item and its W1
+  theorem) and `a_succs` (through the step's closure), both from `Pre`, which has a model.
+  About 14 s, 2.6 GiB.
+- `test/TieUnboundAtValues.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the
+  classes test/TieKimpAtValues.lean and the set-variable section of test/TieKimpRefuted.lean tie on
+  kimp, over this text's indices, for every H: hooked functional 47 of 48 (`fun_entailed`), the 9
+  collection laws (`laws_entailed`) and library 80 of 84 (`lib_entailed`, `libSet_entailed`) at
+  values; the 6 set-variable lemmas refuted (`sN_refuted`) and held at sets of at most one value
+  (`sN_one`); the accounts against TieUnbound's class lists, owed 100 (`ite`'s functional) and 242,
+  243 (`ite{SortK}`) and 207, 263 (the equations of `bitRangeInt` and `signExtendBitRangeInt`); the `_c`
+  forms over `Γc`. 51 s, 3.4 GiB.
+- `test/TieRuleCoolText.lean`, `TieRuleCoolWf.lean`, `TieRuleCoolCons.lean`, `TieRuleCoolAttrs.lean`,
+  `TieRuleCoolAccount.lean`, `TieRuleCoolAtValues.lean`: the tie on `f2-examples/rulecool.kompile.kore`
+  (fixture e2-rule) beside test/TieRuleCool.lean's rules and steps, ported from test/TieUnbound.lean
+  and test/TieUnboundAtValues.lean over the axiom index maps, for every H: `wf_defn` and
+  `not_reordered` (Wf, 3.4 GiB); the 31 function equations (`shape`), no junk (the trivial three,
+  nine over generators, KItem's in another order), set idempotence refuted, the `_c` forms (Text,
+  2.9 GiB); the 37 constructor sentences (Cons, 3.5 GiB); `attrs_agree`, `fn_prios` (Attrs, 6.2
+  GiB: `attrsAgree` on the whole text); the account of the 282 sentences and the closed
+  no-direction class (Account, 4.1 GiB); hooked functional 47 of 48, collection laws, library 80
+  of 84 at values, the 6 set-variable lemmas refuted, owed 109, 225, 262, 263, 284 (AtValues, 3.5
+  GiB).
+  243 (`ite{SortK}`); the `_c` forms over `Γc`. 37 s, 3.4 GiB.
+  `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
+  (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
+- `test/TieRuleCool.lean`: on `f2-examples/rulecool.kompile.kore` (fixture e2-rule: nine rules over
+  `a(Int)`, `b(Int)`, `c(Int)` with a label, priorities 10, 50, 60, `[owise]`, `preserves-definedness`,
+  and the `[cool]` and `[heat]` rules whose `requires` hold HOLE, bound by no side), for every H:
+  the function equations (`shape`) and the nine rule sentences 164 to 172 (`rules_tie`,
+  `rules_from_text`, W1) tied; `Γc`'s one closure item `boolClosed` (`gammaCl_eq`); the two owed
+  conditions `Witnessed` at `c.withHooks H` (`witnessed6H`, `witnessed7H`), so `FnHyp`
+  (`fnHypH`), `consistent` and `pre_model`; the steps by hand (`stepA5` ... `stepC2`, the priority
+  premise by `NotApplies`), their inversions over the nine rules (`succ_A5`, `succ_B5`, `succ_B0`,
+  `succ_C5`); the expectations from `Pre`: `a5_step`, `a5_succs`, `b5_step`, `b5_succs`, `b0_step`,
+  `b0_succs`, `c5_step`, `c5_succs`, `c1_step`, `c2_step`, and at `c(1)`, `c(2)` the successor sets
+  with the `[cool]` and `[heat]` rules' families (`c1_succs`, `c2_succs`, `complete_at` with `Outcome.fam`).
+  About 20 s, 3.1 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
@@ -1345,10 +1431,19 @@ table above, on the tree before String and Bytes). Not investigated here.
 - `test/imp-tie.toml`, `test/imp-tie.sh`: row imp's tie, per class of the account of kimp's user
   module: the count, the direction, how many are kernel-checked in it on kimp's text (proved, at
   values, refuted, without direction) with the theorems, and the remainder with its reason (the
-  classes stated at values and the refuted ones are checked on other texts only; the function
-  `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
+  function `functional` sentences are owed as `FnHyp`); `Consistent` at every H (the package's
   `consistent`). The script checks the record by text against test/TieKimp.lean's `account_sizes`,
-  `tieClasses` and the files of the theorems it names.
+  `tieClasses` and `classes` (the indices a class ties and its remainder partition the class) and
+  the files of the theorems it names.
+- `test/imp-tie-atvalues.sh`: builds a copy of the committed package examples/ref-kimp in
+  .lake/pins/kimp-tie and checks against it the three files that import it, on kimp's text, for
+  every H, with `coreOK` from the package's `RefKimp.coreOK_defn`:
+  `test/TieKimpAtValues.lean` (hooked functional 47 of 48, collection law 9, library 80 of 82 at
+  values or, for the 8 over set variables, at set values; 3.8 GiB, 42 s),
+  `test/TieKimpRefuted.lean` (set idempotence 573 and the set-variable lemmas 671 to 675, 904,
+  refuted; 2.1 GiB, 11 s), `test/TieKimpReach.lean` (no point where every clause of a function
+  fails, so every premise of `ΓFallback` is at a silent point; no rule or clause applies a symbol of
+  `silentTable`; 1.9 GiB, 2 s). Peaks are the process's maximum RSS.
 - `test/TieKimpRules.lean`: kimp's 79 rewrite rules (sentences 700 to 778, `rules_account`), each
   read with its rule of `defn` (`ruleTieB`, by four ranges joined by `tieAll_range`): Γ's axiom is
   the sentence with the premise `⌈r⌉` more on its left side (`rules_text`); the sentence entails it
@@ -1429,6 +1524,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
   `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
   answering 1 the right unit law fails (`cOne_not_unitR`).
+- `test/FnLawFixtures.lean`: the law axioms of functions in the kompiled texts of the fixtures
+  e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest, e2-fn-idem and e2-fn-assoc-unit
+  (`f2-examples/NAME.kompile.kore`), through the reader: the account's `fnLaw` lines of each, no law
+  sentence left unmatched; for the first four, `defn.laws` is the text's law, `lawSorted`, and the
+  account's entry is "owed, open" (assoc, bad, idem) or "a condition on the interpretation" (rest,
+  whose `pk` is a parameter no hook implements). On e2-fn-assoc, `FnLaws` of `defn.laws` and
+  `consistent_with_laws` under every H (`Assoc.consistent`); on e2-fn-assoc-bad, `LawAt` fails at
+  (1, 2, 3) under every H (`Bad.not_lawAt`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
@@ -1467,6 +1570,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   the rule of default priority at its listed match, `Cert.stepBy_of_checkStep`), `guard_an1` (the
   guard `RuleGuard` there, `TieRulePair.ruleGuard_of_stepBy`: the rule of priority 40 does not apply
   and the right side is defined), `w2_an1` (sentence 159 as written holds there in every model of Γ).
+- `test/C3SimpEnsRefuted.lean`, `test/InertE2SimpRefuted.lean`: simplification sentences that are
+  not inert: c3-simp-ens's `f(f(X)) => f(X) ensures X >=Int 0` beside `f(X) => X` (`ens_refuted`),
+  and e2-simplification's `f(X) -Int 1 => X` and `sl(X) >=Int 0 => true` beside `f(X) => X`,
+  `sl(X) => X` (`s170_refuted`, `s178_refuted`, from `eqn1_fails`): each fails at X = -1 in every
+  model of Γ, for every H, so Γ with it has no model.
 - `test/C3SimpPrio.lean`, `test/C3OwiseSimp.lean`: the C2 evidence of the inert pairs
   `simplification` x `priority` and `[owise]` x `simplification` on their fixtures: the
   simplification sentence `f(f(X)) => f(X)` is entailed by Γ at values, for every H (`simp_ev`,
@@ -1518,6 +1626,21 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvFloatFlt.lean`: FLOAT's sentences of `f2-examples/silentflt.kompile.kore` whose value
+  is the same under both readings of the naming of IEEE 754 (findings/FLOAT-BYTES-rulings.md
+  section 2), entailed at values: 254 (`=/=Float`, domains.md 1648) for every H meeting
+  `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
+  `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
+  `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
+  `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
+  (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
+  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. 2.0 GiB, 8 s. Axioms guarded.
+- `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
+  (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
+  format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there
+  (`unpack_pack`), `round` keeps a value at its target exponent (`round_of_target`), `maxValue` is
+  `(2^p − 1)·2^(bias − (p − 1))` (`maxValue_eq`, `exact_maxValue`), and a datum is infinite exactly
+  when it lies above `maxValue` or below its negation (`isInf_unpack`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
@@ -1569,6 +1692,23 @@ table above, on the tree before String and Bytes). Not investigated here.
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
   `attrsAgree` holds (`defs_attrsAgree`): each of the two rules holds the priority of the one axiom
   it is read from. About 4 minutes each.
+- `test/NoteOrVar.lean`: the tie (C14) of the reading note `ruleRightDefined` on its construct
+  fixture's kompiled text (`f2-examples/mlorvar`, e3-ml-rule-lhs-or: `d(X, a()) #Or d(a(), X) => X`,
+  the disjuncts holding the variable the right side reads), for every H, in the form of
+  `NoteOrSplit`: each of Γ's two rule items has the conjunct `⌈r⌉` more on its left side, and
+  `rule_from_text` derives it from the sentence with `ΓSig` and `ΓDomains` (`d_inh`: the arity of
+  `d` puts `d(X, a())` in Exp, from the guard of X and the value `a()`). Expectations `or_ba`,
+  `or_ab`, `or_aa` (steps from `Pre H`). About 4 minutes.
+- `test/NoteEqPrio.lean`: the tie (C14) of the reading notes `equationPriority` and
+  `owiseAsPriority` on e2-equation's kompiled text (`f2-examples/eqprio`), for every H. The four
+  equations with a sibling of a smaller priority (`f(0)`, `f(2)`, `f(3)`, `h`'s aside one) are
+  Γ's items under the negation of those siblings' clauses: each sentence entails its item (`w0`,
+  `w2`, `w3`, `w8`) and is the item without that premise. The `[owise]` sentence and Γ's item agree
+  up to the order of the exclusion's disjuncts and variable names (`ow_same`, `TieAlpha.acEqB`).
+  `fns_entailed`, `fns_from_text`, `cons_entailed`, `account`, `consistent`; `attrsAgree` is false
+  on this text (`attrsAgree_p`: `p`, a function without equations, is read as a parameter symbol),
+  its constructor, collection and priority parts hold (`defs_attrsAgree_parts`). Expectations from
+  `Pre H`: `f_1`, `f_3`, `f_5` (`f(5) = 9`, the `[owise]` equation), `h_4`. About 3 minutes.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
@@ -1598,3 +1738,26 @@ table above, on the tree before String and Bytes). Not investigated here.
   `refuses`: `CoherentAll` fails at both. `coherent_iff_prem`: for a first clause without
   existential variables `Coherent` is `CoherentPrem`. `clB_coherent`: `f() => ?B ensures ?B` is
   coherent with itself in every semantics.
+- `test/ExClauses.lean`: clauses with existential variables on the evaluation block, hand-built and
+  kernel-checked. `fl() => ?B ensures ?B` is `true` by `clauseEx` and has no other result
+  (`f1_some`, `f1_not_none`, `f1_fnDet`), is match independent and `FnSolves` holds (`f1_solves`);
+  `fl() => ?B` has no result (`f2_none`); `fl() => ?B ensures false` is `none` by `exNone`
+  (`f3_none`); `f() => g(?Z:Int)` with `post := Z ∈ lp()`, `lp() => lp()`, has no result at all
+  (`fC_none`); `fl() => true` beside `fl() => ?B`: coherent, the second clause not match independent,
+  `FnSolves` false (`k2_*`); `fl() => true` beside `fl() => false` with `post := ⊥`: match
+  independent, `FnSolves` false (`q_*`); `fl() => Y` with `post := ⊥`: no result, coherent with itself
+  (`p_*`); a variable fixed under a confined variable (`c_*`), under a binder (`s_*`, which
+  `clausePlainEx` refuses), a binder over a sort without a value (`vac_*`), and `h(K) => ?Z` with
+  `inj{Int,KItem}(Z) = K` (`h_some` by `clauseEx`, `h_none` by `exNone`). About 25 s.
+- `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
+  inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
+  `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,
+  for every H (`simp_ev`, `InertEvUser.EqnU.entailed`), from the function's value at every argument
+  (`eval_all`); the first two also show their text's semantics equal to their companion's
+  (`sem_eq`, `withHooks_eq`: c3-simp-prio, c3-simp-comm-base).
+- `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
+  and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
+  every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`
+  (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
+  by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
+  translation of an axiom does not read its attributes.

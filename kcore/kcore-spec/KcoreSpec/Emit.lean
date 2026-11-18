@@ -302,22 +302,50 @@ theorem clauseAx_top {c : Semantics} {p : Presentation} {f : Fn} {fp : FnPres} {
          (Term.kore c vs cl.rhs) (reqPat (srtOf c f.result) (cl.ens.map (Term.kore c vs))) (clauseAttrs c p f cl cp)) := by
   unfold clauseAx; simp only [withPre_top h]
 
-/-- `\rewrites{C}(\and{C}(lhs, req), \exists{C}(?ē, \and{C}(rhs, ens)))`, `ens` being `\top{C}()`
-without an `ensures`, the existential variables bound in the order of `exs` (the first outermost)
-under the presentation's names; with no existential variable, `\and{C}(rhs, ens)` alone. -/
+/-- A rule's condition `q` (its `requires` or its `ensures`) with a predicate of the rule, at the
+sort `C`, `vs` the rule's variables: `\and{C}(q, p)`, and `q` alone where the predicate is `\top`. -/
+def rulePredPat (c : Semantics) (vs : List KoreAML.Var) (C : Kore.KSort) (p : Cond) (q : Kore.Pattern) :
+    Kore.Pattern :=
+  if p.isTop then q else .and C [q, Cond.kore c vs C p]
+
+/-- `rulePredPat` at the predicate `\top` is the condition alone. -/
+theorem rulePredPat_top {c : Semantics} {vs : List KoreAML.Var} {C : Kore.KSort} {p : Cond}
+    {q : Kore.Pattern} (h : p = .top) : rulePredPat c vs C p q = q := by
+  subst h; rfl
+
+/-- `\rewrites{C}(\and{C}(lhs, \and{C}(req, pre)), \exists{C}(?ē, \and{C}(rhs, \and{C}(ens, post))))`,
+`req` and `ens` being `\top{C}()` without a `requires` or an `ensures`, `pre` (the predicate of the
+left side) beside the `requires` and `post` (the predicate of the right side, under the binders of
+the existential variables) beside the `ensures`, each left out where it is `\top` (`rulePredPat`); the
+existential variables bound in the order of `exs` (the first outermost) under the presentation's
+names; with no existential variable, the right side's `\and{C}` alone. -/
 def rulePattern (c : Semantics) (vs : List KoreAML.Var) (r : Rule) : Kore.Pattern :=
   let C := srtOf c topCellSort
-  .rewrites C (.and C [Term.kore c vs r.lhs, reqPat C (r.req.map (Term.kore c vs))])
+  .rewrites C (.and C [Term.kore c vs r.lhs, rulePredPat c vs C r.pre (reqPat C (r.req.map (Term.kore c vs)))])
     ((r.exs.filterMap (vs[·]?)).foldr (fun v p => .exist C v.kore p)
-      (.and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]))
+      (.and C [Term.kore c vs r.rhs, rulePredPat c vs C r.post (reqPat C (r.ens.map (Term.kore c vs)))]))
 
-/-- A rule with no existential variable is emitted as `\rewrites{C}(\and{C}(lhs, req),
-\and{C}(rhs, ens))`. -/
-theorem rulePattern_noExs (c : Semantics) (vs : List KoreAML.Var) (r : Rule) (h : r.exs = []) :
+/-- A rule whose predicates `pre` and `post` are `\top` is emitted as
+`\rewrites{C}(\and{C}(lhs, req), \exists{C}(?ē, \and{C}(rhs, ens)))`: the predicates add nothing to
+its text. -/
+theorem rulePattern_top (c : Semantics) (vs : List KoreAML.Var) (r : Rule) (hpre : r.pre = .top)
+    (hpost : r.post = .top) :
     rulePattern c vs r =
       .rewrites (srtOf c topCellSort)
         (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))])
-        (.and (srtOf c topCellSort) [Term.kore c vs r.rhs, reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs))]) := by
+        ((r.exs.filterMap (vs[·]?)).foldr (fun v p => .exist (srtOf c topCellSort) v.kore p)
+          (.and (srtOf c topCellSort) [Term.kore c vs r.rhs, reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs))])) := by
+  simp only [rulePattern, rulePredPat_top hpre, rulePredPat_top hpost]
+
+/-- A rule with no existential variable is emitted as `\rewrites{C}(\and{C}(lhs, \and{C}(req, pre)),
+\and{C}(rhs, \and{C}(ens, post)))`, each predicate left out where it is `\top`. -/
+theorem rulePattern_noExs (c : Semantics) (vs : List KoreAML.Var) (r : Rule) (h : r.exs = []) :
+    rulePattern c vs r =
+      .rewrites (srtOf c topCellSort)
+        (.and (srtOf c topCellSort) [Term.kore c vs r.lhs,
+          rulePredPat c vs (srtOf c topCellSort) r.pre (reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs)))])
+        (.and (srtOf c topCellSort) [Term.kore c vs r.rhs,
+          rulePredPat c vs (srtOf c topCellSort) r.post (reqPat (srtOf c topCellSort) (r.ens.map (Term.kore c vs)))]) := by
   simp [rulePattern, h]
 
 def ruleAttrs (p : Presentation) (rp : RulePres) : List Kore.AppPattern :=
@@ -401,7 +429,7 @@ end
 (`pgmCell`), or a leaf whose initial value reads `Init`, as `<env> $ENV:Map </env>` does), so its
 initializer reads `Init`. -/
 def readsInit (p : Presentation) (x : Cell) : Bool := x.all.any fun
-  | .leaf n _ _ => n == p.pgmCell || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
+  | .leaf n _ _ => p.pgmCell == some n || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
   | _ => false
 
 /-- `initXCell`: not a function of the semantics, named from the cell's sort. -/
@@ -474,7 +502,7 @@ def initAx (c : Semantics) (p : Presentation) (x : Cell) : Kore.Sentence :=
   let uid := uidAttr ((p.cellInits.lookup x.name).getD "")
   let body : Kore.Pattern := match x with
     | .leaf n s _ =>
-      if n == p.pgmCell then
+      if p.pgmCell == some n then
         let S := c.pgmSort
         let pgm := ap "LblMap'Coln'lookup" [ev "VarInit" (srt "Map"),
           injP "KConfigVar" "KItem" (.dv (srt "KConfigVar") "$PGM")]
@@ -600,7 +628,7 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ [U.map (fun X => Kore.Sentence.sort { sort := ⟨⟨"Sort" ++ c.sortName X⟩⟩, sortVars := [], attributes := userSortAttrs c p X })]
   ++ (prods c p).map (prodSymbol c p)
   ++ [paramDecls c p, U.flatMap (fun X => (helperDecls c X).1),
-      (U.filter (!p.libProjs.contains ·)).map (fun X => (helperDecls c X).2)]
+      (U.filter fun X => !p.libProjs.contains X && (uidsOf c p X).proj != "").map (fun X => (helperDecls c X).2)]
   ++ prodAxiomBlocks c (prods c p)
   ++ [U.flatMap (predFunctionalAx c),
       U.map (fun X => subsortAx (c.sortName X) "KItem")]
@@ -609,7 +637,8 @@ def userBlocks (c : Semantics) (p : Presentation) : List (List Kore.Sentence) :=
   ++ ((withPres c.fns p.fns).filter fun (f, _) => !p.generatedFns.contains f.label).flatMap
       (fun (f, fp) => (fnEquations c p f fp).map (fun s => [s]))
   ++ (ruleSentences c p).map (fun s => [s])
-  ++ U.map (fun X => if p.libProjs.contains X then [] else projEquations p.simpArg (c.sortName X) (uidsOf c p X).proj)
+  ++ U.map (fun X => let u := (uidsOf c p X).proj
+      if p.libProjs.contains X || u == "" then [] else projEquations p.simpArg (c.sortName X) u)
   ++ U.map (fun X => let u := uidsOf c p X; isEquations c X u.isTrue u.isFalse)
 
 def userModule (c : Semantics) (p : Presentation) : Kore.Module :=

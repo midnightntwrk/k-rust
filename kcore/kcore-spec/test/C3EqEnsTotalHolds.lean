@@ -196,8 +196,8 @@ theorem eval_all (H : HookParams) (n : Int) : Eval (cH H) f [int n] (some (int n
     rw [cl0_rhs]; exact .var
   refine .clause (cl := cl0) (σ := [(0, int n)]) (hfnH H) (List.getElem_mem _) hσ hm
     (fun t ht => by rw [cl0_req] at ht; cases ht) (by rw [cl0_pre]; exact .top)
-    (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl0_least cl' hcl')) hr
-    (fun t ht => ?_)
+    (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl0_least cl' hcl')) (by rfl) hr
+    (fun t ht => ?_) (Clause.holds_postTop (by rfl) _)
   rw [cl0_ens] at ht
   cases ht
   refine .hook (rs := [some (int n), some (int n)]) (show (cH H).isCtor intEq = false from (by decide +kernel : c.isCtor intEq = false)) rfl

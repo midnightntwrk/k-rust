@@ -1,7 +1,7 @@
 /-
   KCore. Every model of `Γc` of a definition `coreOK` accepts has the facts the Holds lemma reads:
   the atoms' facts given the soundness of `EvalTerm` (`atomFacts_of_core`), which holds under the
-  clause hypothesis of `sound_at` (`termSound_of_core`), and the binders' fact where the definition
+  clause hypothesis of `sound_at` (`termSound_of_core`, ClausePreCore.lean), and the binders' fact where the definition
   reads confined sorts (`binderFacts_of_core`; the reading of a pattern, `patReading_of_core`, asks
   `coreOK` alone).
 -/
@@ -140,28 +140,6 @@ theorem binderFacts_of_core (h : c.coreOK = true) (hrc : c.readsConfined = true)
   ⟨fun {s} hs tbl e a ha => confined_value h hrc hIc hs e a (by
     unfold srtOf at ha; rw [trSort_srt] at ha; exact ha),
    fun hs => confinedAt_numbered_ids (Semantics.coreOK_parts h).2.2.2.2 _ hs, patReading_of_core h hIc⟩
-
-/-- `TermSound` holds in every model of `Γc` of a semantics `coreOK` accepts, under the clause
-hypothesis of `sound_at`. -/
-theorem termSound_of_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c) :
-    TermSound c I := by
-  have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
-  obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := hypSound_of_core h
-  haveI : OvlOK c := hno
-  have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  have hneg := neg_of_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts h).2.1 hph hc
-  intro σ t r he vars vs tbl e s hσ hvs hag ht m
-  exact evalTerm_den4Cl hI hnn hsc hph
-    (clauseOpenFacts_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok)) hneg he fns_headsOK hσ hvs hag ht m
-
-/-- **The Holds lemma in every model of `Γc`**: for a definition `coreOK` accepts, under the clause
-hypothesis of `sound_at`, and `readsConfined` where the condition holds a binder. -/
-theorem holds_entails (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c)
-    (hc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
-    (p : Cond) (hrc : hasBinder p = true → c.readsConfined = true) : HoldsDen' c I p :=
-  holds_den_binders' (atomFacts_of_core h hIc (termSound_of_core h hIc hc)) p
-    fun hb => binderFacts_of_core h (hrc hb) hIc
 
 /-- `ceil` in every model of `Γc`, from the proof for every interpretation with the facts. -/
 theorem holds_ceil_core (h : c.coreOK = true) (hIc : I ⊧ᴵP Γc c) (hT : TermSound c I)
