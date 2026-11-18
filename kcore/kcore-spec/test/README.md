@@ -1622,6 +1622,23 @@ table above, on the tree before String and Bytes). Not investigated here.
   `top_b`, `top_d`, `ex_a`, `ex_b`, and `ex_x` (no successor, with `Γstep`). On the `orSplit` text
   `attrsAgree` holds (`defs_attrsAgree`): each of the two rules holds the priority of the one axiom
   it is read from. About 4 minutes each.
+- `test/NoteOrVar.lean`: the tie (C14) of the reading note `ruleRightDefined` on its construct
+  fixture's kompiled text (`f2-examples/mlorvar`, e3-ml-rule-lhs-or: `d(X, a()) #Or d(a(), X) => X`,
+  the disjuncts holding the variable the right side reads), for every H, in the form of
+  `NoteOrSplit`: each of Γ's two rule items has the conjunct `⌈r⌉` more on its left side, and
+  `rule_from_text` derives it from the sentence with `ΓSig` and `ΓDomains` (`d_inh`: the arity of
+  `d` puts `d(X, a())` in Exp, from the guard of X and the value `a()`). Expectations `or_ba`,
+  `or_ab`, `or_aa` (steps from `Pre H`). About 4 minutes.
+- `test/NoteEqPrio.lean`: the tie (C14) of the reading notes `equationPriority` and
+  `owiseAsPriority` on e2-equation's kompiled text (`f2-examples/eqprio`), for every H. The four
+  equations with a sibling of a smaller priority (`f(0)`, `f(2)`, `f(3)`, `h`'s aside one) are
+  Γ's items under the negation of those siblings' clauses: each sentence entails its item (`w0`,
+  `w2`, `w3`, `w8`) and is the item without that premise. The `[owise]` sentence and Γ's item agree
+  up to the order of the exclusion's disjuncts and variable names (`ow_same`, `TieAlpha.acEqB`).
+  `fns_entailed`, `fns_from_text`, `cons_entailed`, `account`, `consistent`; `attrsAgree` is false
+  on this text (`attrsAgree_p`: `p`, a function without equations, is read as a parameter symbol),
+  its constructor, collection and priority parts hold (`defs_attrsAgree_parts`). Expectations from
+  `Pre H`: `f_1`, `f_3`, `f_5` (`f(5) = 9`, the `[owise]` equation), `h_4`. About 3 minutes.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
