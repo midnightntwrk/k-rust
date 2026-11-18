@@ -1897,3 +1897,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   (E8), `unit` on a constructor, `strict` through a context alias, a macro use against its expansion
   by hand, `cool-like` (against a text with the attribute removed by hand); `trS_attrs`: the
   translation of an axiom does not read its attributes.
+- `test/ClassNamesNotes.lean`: the two notes of a rule that the class reads from the names
+  (`Parse.classify` at `Parse.namesOf`), each against the rule read: on mlandt, mlandc, mlandv and
+  mlorand the notes hold `andTermsCut` exactly where a rule read (`ruleOf`) is not the one read
+  without the cut (`ruleBodyUncut`), all four taking it; on keyfn, its edit with the key's argument
+  bound only inside the key, keyfn-both and keyfn-partial the class is `read keyFunctionAsMember`
+  exactly where the rule read holds the fresh variable of a cut key (`keyCutFns`), and the account's
+  line (`keysAsMember`) lists those axioms.
