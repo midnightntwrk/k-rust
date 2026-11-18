@@ -275,6 +275,7 @@ import KcoreSpec.LibEvFnBoolInt
 import KcoreSpec.TieChunks
 import KcoreSpec.LibEvFnColl
 import KcoreSpec.LibEvLaw
+import KcoreSpec.LibEvLawRm
 import KcoreSpec.LibEvFnKNe
 import KcoreSpec.LibEvFnOwise
 import KcoreSpec.TieCmd

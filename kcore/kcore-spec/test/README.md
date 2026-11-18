@@ -1467,6 +1467,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
   (`KcoreSpec/LibEvLaw.lean`, through `LibEv.Law.entailed_reg`). Axioms guarded.
+- `test/LibEvRangeMapEns.lean`: on `f2-examples/e6rm.kompile.kore` (fixture e6-rangemap), the
+  collection laws of `_RangeMap_` (sentences 67 to 69) entailed at values from the library's
+  statements (`KcoreSpec/LibEvLawRm.lean`): the two units for every H (`law68`, `law69`), the
+  associativity for every H meeting `rangeMapAssocEq` (`law67`; `_RangeMap_` is silent at two maps
+  with a key in common), at `HookParams.none` and `HookParams.lib` (`law67_none`, `law67_lib`); and
+  Range's no-junk sentence (152), Γ's no-junk item of Range, entailed (`nojunk152_entailed`).
 - `test/ParamRangeMap.lean`: on `f2-examples/e6-param-rangemap.kompile.kore` (fixture
   e6-param-rangemap), RANGEMAP's `choice`, `keys_list` and `values`, parameters no hook implements:
   over all H, Γ entails neither that each has no value at `[0, 3) ↦ 7` nor that it is a given value
