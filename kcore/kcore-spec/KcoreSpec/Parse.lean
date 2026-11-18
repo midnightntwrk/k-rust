@@ -112,7 +112,9 @@ inductive RefusalReason where
   | parametricSymbol
   /-- `inj` not applied to two sorts and one argument. -/
   | injShape
-  /-- `ite` not applied to one sort. -/
+  /-- `ite` applied to one sort in a text that declares its own sort-parametric function `Lblite`
+  at one sort: the instance `Lblite{X}` of that function and K's `ite` at X have one name
+  (`instName`, `iteName`), and the reader cannot keep the two apart. -/
   | iteShape
   /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
   `\exists`, … (the others are `unkompiledForm`). -/
@@ -1117,13 +1119,14 @@ mutual
         let (ts, vs) ← terms N vs ps
         pure (.app (← N.symE h.ident.name) ts, vs)
       else if preludeAliases.contains h.ident.name then fail .aliasApplication h.ident.name
-      else if h.ident.name == "Lblite" then match ss with
+      else if h.ident.name == "Lblite" && ss.length == 1 then match ss with
         | [S] => do
           let (ts, vs) ← terms N vs ps
           pure (.app (← N.symE (iteName (← sortNameE S))) ts, vs)
         | _ => fail .iteShape
       -- an instance of a sort-parametric symbol at sorts of the definition (`instName`): a symbol of
-      -- the definition's own when `envOf` numbered it, refused otherwise
+      -- the definition's own when `envOf` numbered it, refused otherwise; `Lblite` at several sorts
+      -- is such an instance, not `ite`, which takes one sort
       else match (ss.mapM sortName?).bind fun xs => N.sym? (instName h.ident.name xs) with
         | some f => do
           let (ts, vs) ← terms N vs ps
@@ -3440,7 +3443,7 @@ mutual
   /-- The names of `Scan.heads` a pattern applies. -/
   def extraHeads : Kore.Pattern → List String
     | .app h ss ps =>
-      (if h.ident.name == "Lblite" then (match ss with
+      (if h.ident.name == "Lblite" && ss.length == 1 then (match ss with
           | [S] => (sortName? S).toList.map iteName
           | _ => [])
        else if ss.isEmpty then (if isGenFn h.ident.name then [h.ident.name] else [])
@@ -4444,7 +4447,12 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   -- the names applied that are numbered from their use: `ite` at its sorts, and the generated
   -- functions the KORE declares that have no number yet
   let extra := (heads.flatten).eraseDups.filter fun n => (N₀.sym? n).isNone
-  let iteNames := extra.filter fun n => (dropPrefix? "Lblite{" n).isSome
+  let iteNames := extra.filter fun n => (iteSort? n).isSome
+  -- a text that declares its own sort-parametric function `Lblite` at one sort and applies a name
+  -- of `ite` at a sort: the application is that function's instance or K's `ite`, under one name
+  if S.paramDecls.any (fun d => d.symbol.ident.ident.name == "Lblite" && d.symbol.sortVars.length == 1) &&
+      (heads.flatten).any (fun n => (iteSort? n).isSome) then
+    fail .iteShape
   -- a generated function's argument and result sort names: its declaration's, or K's for
   -- `append`, which the kernel module declares
   let genDecls := (extra.filter (!iteNames.contains ·)).filterMap fun n =>
@@ -5149,7 +5157,7 @@ def initEqnOK (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (x
     hs.all fun (h, ss) =>
       if h == "inj" then true
       else if !ss.isEmpty then match ss.mapM sortName? with
-        | some ns => symOfDefn c (if h == "Lblite" then (ns.head?.map iteName).getD "" else instName h ns)
+        | some ns => symOfDefn c (if h == "Lblite" && ns.length == 1 then (ns.head?.map iteName).getD "" else instName h ns)
         | none => false
       else symOfDefn c h || (initsBelow c x).contains h ||
         ((dropPrefix? "Lblproject'Coln'" h).isSome &&
