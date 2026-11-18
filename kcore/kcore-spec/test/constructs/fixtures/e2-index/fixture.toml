@@ -1,0 +1,5 @@
+# index (FrontendOnly, onlyon[Production], a required parameter): e2-cells-plain's text with index(0) on
+# the production a(); same_as e2-cells-plain, the text without the key. Predicted: exit 0, equal after
+# stripping (no step of the pipeline reads the key)
+main = "c.k"
+same_as = "e2-cells-plain"

@@ -277,13 +277,13 @@ def kCtor (f : Sym) := fr { sortsBelowKItem := bI, ctors := [⟨f, [], Srt.kitem
 /-- RANGEMAP's shape: Range and RangeMap below KItem, the Range constructor. -/
 def kBelow := fr { sortsBelowKItem := bI ++ [Srt.range, Srt.rangeMap], ctors := [⟨rangeCtor, [Srt.kitem, Srt.kitem], Srt.range⟩] }
 
-example : kTok.coreOK = false ∧ collSortsOK kTok = false := by decide +kernel
-example : kCons.coreOK = false ∧ genWf kCons = false := by decide +kernel
+example : kTok.coreOK = false ∧ collSortsOK kTok = false := by decide_cheap
+example : kCons.coreOK = false ∧ genWf kCons = false := by decide_cheap
 example : (wAt Srt.rangeMap .map).coreOK = false ∧ collsOK (wAt Srt.rangeMap .map) = false ∧
     (wAt S .map).coreOK = true := by decide_cheap
 example : (kCtor rmUnit).coreOK = false ∧ kindsApart (kCtor rmUnit) = false ∧
     (fr { sortsBelowKItem := bI }).coreOK = true := by
-  decide +kernel
+  decide_cheap
 example : kBelow.coreOK = true := by decide_cheap
 
 end RowWitnesses

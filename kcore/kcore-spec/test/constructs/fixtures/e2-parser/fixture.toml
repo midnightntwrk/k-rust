@@ -1,0 +1,6 @@
+# parser (FrontendOnly, onlyon[Production]): e2-cells-plain's text with the cell property parser="PGM, C"
+# on <k>, which kompile puts on the cell's production; same_as e2-cells-plain, the text without it.
+# Predicted: exit 0, equal after stripping (the key names the module that parses the program bound to
+# $PGM: kompile writes it into configVars.sh and, with a bison option, a parser; no sentence)
+main = "c.k"
+same_as = "e2-cells-plain"

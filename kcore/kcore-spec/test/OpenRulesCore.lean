@@ -257,7 +257,8 @@ example (hf : FnHyp cO) (x y : Config cO) (r : Rule) (σ : Subst) (hs : StepBy c
   have hr := hopenO
   have := sound_at_open cO coreO.1 hr x y r σ hs (fun r' hr' _ hw _ => hwO r' hr' hw) hcO
   have := @complete_at_open cO coreO.1 hr x hd os hval hfam hcO
-  have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2 hf.2.2.2.2.2 hr
+  have := consistent_open cO coreO.1 (fnModel_of_fnHyp coreO.1 hf).1 (fnModel_of_fnHyp coreO.1 hf).2
+    (clausePreDecided_of_fnHyp coreO.1 hf) hf.2.2.2.2.2 hr
   have := has_model_choice_open cO coreO.1 hf hr (Step cO)
   have := exact_open cO coreO.1 hf hr
   have := @famOpen_values_open cO coreO.1 hf x okB mB facts.2.1.1 facts.2.1.2.1 σ' hu
@@ -510,7 +511,7 @@ theorem factsOW : cOW.rightValued = true ∧ cOW.rankObligations [] ++ cOW.decOb
 
 /-- **`clW` is match independent**: its right side is the literal `1` under every match. -/
 theorem miW : MatchIndependent cOW clW :=
-  Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
+  (matchIndependent_iff_noExs rfl).mpr <| Coherent.of_rhs rfl rfl fun _ _ _ _ _ _ _ _ => .inr fun r r' h h' => by
     change EvalTerm _ _ (.dv Srt.int (.int 1)) _ at h h'
     cases h; cases h'; rfl
 

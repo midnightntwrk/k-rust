@@ -464,11 +464,17 @@ theorem obligations_nil : Obligations defn :=
     match_obligations lazy_obligations" else ""
   let faithParts := ["namesNumbered", "genWf", "collSortsOK", "collsOK", "patHeadsOK", "namesApartFast",
     "LitsApart", "sortsNumbered", "collsNotCtors", "itesApart", "kindsApart", "ctorsOnce", "fnsApart"]
-  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel, the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
+  -- the conjuncts that read the names at every symbol, decided on the names' codes (each name
+  -- encoded once) rather than on the names' strings
+  let faithProof := fun (n : String) => match n with
+    | "namesNumbered" => "namesNumbered_of_codesCD (by decide +kernel)"
+    | "itesApart" => "itesApart_of_codesCD (by decide +kernel)"
+    | _ => "by decide +kernel"
+  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport KcoreSpec.CoreDecide\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel: `namesNumbered` and `itesApart` on the names' codes (`namesNumberedC`, `itesApartC`), the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
 namespace {ns}
 open KCore KCore.Faithful KCore.Faithful.Model
 " ++ String.join (faithParts.map fun n => s!"
-theorem faith_{n} : {n} defn.sem = true := by decide +kernel
+theorem faith_{n} : {n} defn.sem = true := {faithProof n}
 ") ++ s!"
 theorem faith_ok : defn.sem.faithOK = true :=
   Semantics.faithOK_of_parts {" ".intercalate (faithParts.map (s!"faith_{·}"))}
@@ -951,7 +957,9 @@ end {ns}
   let fnName := fun (i : Nat) => match c.fns[i]? with | some f => nm f.label | _ => "?"
   -- the named facts with each function's source location
   let entries : List String :=
-    (c.rankObligations ord).map (fun f => s!"termination (a call not ranked below it) {nm f} {locOf f}") ++
+    (c.rankObligations ord).map (fun f =>
+      if c.fnOvlCallers.contains f then s!"termination (it applies a function-overloaded symbol) {nm f} {locOf f}"
+      else s!"termination (a call not ranked below it) {nm f} {locOf f}") ++
     c.decObligationsL.map (fun f => s!"termination (a self call not decreasing) {nm f} {locOf f}") ++
     totL.map (fun f => s!"totality {nm f} {locOf f}") ++
     agrL.map (fun f => s!"agreement {nm f} {locOf f}") ++
@@ -1215,9 +1223,13 @@ def {nm}_lawHooks{pre} (H : HookParams) :=
     s!"
 /-! ## The interpretation `lawHooks`
 
-`lawHooks defn.sem H` is H everywhere but at the open generators, where it is the free application
-of their laws. It shows that the interpretations the statements are about exist; it is not the
-meaning of a generator, and no statement above is stated only there. -/
+`lawHooks defn.sem H` is H everywhere but at the open generators, where it applies their laws: at a
+generator with no law or one law it is the free interpretation of its laws; at one with both `assoc`
+and `idem` it keeps each flattened argument at its first occurrence (`Band.nf`), so that
+`f(x, f(y, x))` is `f(x, y)` there, which the two laws do not state. It shows that the
+interpretations the statements are about exist; it is not the meaning of a generator, and no
+statement above is stated only there. A fact that holds at `lawHooks` and that the text does not
+state holds at `lawHooks`, not for every H. -/
 
 /-- The open generators' laws hold under `lawHooks defn.sem H`, for every H
 (`KCore.openLaws_lawHooks`). -/
@@ -2808,7 +2820,11 @@ def account (koreFile : String) : IO UInt32 := do
     let fl := Parse.fnLawSentences k d
     unless fl.isEmpty do
       IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
-      for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
+      -- each sentence is one law of `Definition.laws`, in the same order (`fnLawAxioms`)
+      for ((i, h, ls), l) in fl.zip d.laws do
+        IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): {Parse.fnLawEntry d.sem l}"
+      unless fl.length == d.laws.length do
+        IO.println s!"      the laws read are {d.laws.length}, not one per sentence: the entries above pair them by position"
     -- printed only when a constructor or an open generator carries a unit attribute
     let ui := Parse.unitIgnored k d
     unless ui.isEmpty do

@@ -1059,6 +1059,7 @@ theorem clause_ctxOccE (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFn
     simp only [Bool.and_eq_true, List.all_eq_true] at hok
     have h2 := hok.1.2 fn hu cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at h2
+    replace h2 := h2.1
     obtain ⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩ := h2
     refine ⟨hpats, fun i hi => ?_, c.fns.map Fn.sig, fun k hk => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
     · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb

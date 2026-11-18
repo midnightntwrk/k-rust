@@ -1,0 +1,14 @@
+command: kompile --backend haskell rdr-token-ctor.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.6
+output:
+  [Error] Compiler: Sort Tok was declared as a token. Productions of this sort
+  can only contain [function] or [token] labels.
+  	Source(FIXTURE/rdr-token-ctor.k)
+  	Location(4,38,4,58)
+  	4 |	  syntax Tok ::= r"[a-z]+" [token] | mk(Int) [symbol(mk)]
+  	  .	                                     ^~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-TOKEN-CTOR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-TOKEN-CTOR as default.

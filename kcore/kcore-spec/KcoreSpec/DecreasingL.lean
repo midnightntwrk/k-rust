@@ -572,7 +572,8 @@ read of this function alone (`hb`). -/
 theorem terminates_of_decreasingLN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
     {dec : Option Nat}
     (hdec : c.decreasingOKL fn dec = true)
-    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label := by
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g)
+    (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) : Terminates c fn.label := by
   have hlook := lookupFn_of_memN hc hfn
   intro fn' hfn' vs hvs
   rw [hlook] at hfn'
@@ -584,7 +585,7 @@ theorem terminates_of_decreasingLN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.a
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_of_callsN hc hfn hb hvs (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
+    refine eval_of_callsN hc hfn hb hvs hovl (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
     by_cases hgl : g = fn.label
     · subst hgl
       rw [hlook] at hg
@@ -604,8 +605,9 @@ theorem terminates_of_decreasingLN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.a
 terminates**: by induction on the weight of the argument at the decreasing position. -/
 theorem terminates_of_decreasingL (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {dec : Option Nat}
     (hdec : c.decreasingOKL fn dec = true)
-    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label :=
-  terminates_of_decreasingLN hc.toN hfn (hc.binds fn hfn) hdec hcall
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g)
+    (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) : Terminates c fn.label :=
+  terminates_of_decreasingLN hc.toN hfn (hc.binds fn hfn) hdec hcall hovl
 
 /-! ## Int counters -/
 
@@ -699,7 +701,8 @@ held variables are read of this function alone (`hb`). -/
 theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.isCtor intSub = false)
     (hdiv : c.isCtor intTDiv = false) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
     {i : Nat} (hctr : ctrOK fn i = true)
-    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label := by
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g)
+    (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) : Terminates c fn.label := by
   have hlook := lookupFn_of_memN hc hfn
   obtain ⟨L, hL, hrs⟩ := hc.sort.fns fn hfn
   obtain ⟨L', hL', hreqs⟩ := hc.reqs fn hfn
@@ -724,14 +727,15 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
       have hnoself := (hcls cl hcl).1.1
       rw [ht] at hnoself
       simp only [Option.map_some, Option.getD_some, List.isEmpty_iff] at hnoself
-      exact evalTerm_result hc.sort hL' hσ t hq fun g ts hts gfn hg _ vs' _ _ hsrt => by
+      exact evalTerm_result hc.sort hL' hσ t hq (fun g hg => hovl g (heads_req_callees hcl ht hg)) fun g ts hts gfn hg _ vs' _ _ hsrt => by
         have hgl : g ≠ fn.label := by
           rintro rfl
           rw [hnoself] at hts
           cases hts
         exact hcall g (heads_req_callees hcl ht (mem_heads_of_callsOf t hts)) hgl gfn hg vs' hsrt
     · obtain ⟨hσ, hm, hq, -⟩ := ha
-      exact evalTerm_result hc.sort hL hσ cl.rhs (hrs cl hcl) fun g ts hts gfn hg rs vs' hrs' hall hsrt => by
+      replace hσ := (wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp hσ
+      exact evalTerm_result hc.sort hL hσ cl.rhs (hrs cl hcl) (fun g hg => hovl g (heads_rhs_callees hcl hg)) fun g ts hts gfn hg rs vs' hrs' hall hsrt => by
         by_cases hgl : g = fn.label
         · subst hgl
           rw [hlook] at hg
@@ -851,7 +855,7 @@ theorem terminates_of_ctrN (hc : EvalCtxN c) (hs : c.shapesOK = true) (hsub : c.
       have hnoself := (hcls cl hcl).1.2
       rw [ht] at hnoself
       simp only [Option.map_some, Option.getD_some, List.isEmpty_iff] at hnoself
-      exact evalTerm_result hc.sort hL'' ha.1 t hq fun g ts hts gfn hg _ vs' _ _ hsrt => by
+      exact evalTerm_result hc.sort hL'' ((wellSortedAt_univ (hc.plain fn hfn cl hcl).1).mp ha.1) t hq (fun g hg => hovl g (heads_ens_callees hcl ht hg)) fun g ts hts gfn hg _ vs' _ _ hsrt => by
         have hgl : g ≠ fn.label := by
           rintro rfl
           rw [hnoself] at hts
@@ -864,8 +868,9 @@ call's `requires` holds where its right-hand side is evaluated, so the bound app
 theorem terminates_of_ctr (hc : EvalCtx c) (hs : c.shapesOK = true) (hsub : c.isCtor intSub = false)
     (hdiv : c.isCtor intTDiv = false) {fn : Fn} (hfn : fn ∈ c.allFns)
     {i : Nat} (hctr : ctrOK fn i = true)
-    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label :=
-  terminates_of_ctrN hc.toN hs hsub hdiv hfn (hc.binds fn hfn) hctr hcall
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g)
+    (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) : Terminates c fn.label :=
+  terminates_of_ctrN hc.toN hs hsub hdiv hfn (hc.binds fn hfn) hctr hcall hovl
 
 kernel_rfl Semantics.decObligationsL_withHooks :
   ∀ (c : Semantics) (H : HookParams), (c.withHooks H).decObligationsL = c.decObligationsL

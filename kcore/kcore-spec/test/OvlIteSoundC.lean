@@ -142,6 +142,9 @@ theorem model2 : stdI c2 ⊧ᴵP (Γc c2 ∪ Γstep c2) :=
   stdI_modelOpen c2 c2_core
     (hypModel_of_fn c2_core (fnModel_of_fnHyp c2_core c2_fnHyp).1 (fnModel_of_fnHyp c2_core c2_fnHyp).2)
     c2_fnHyp.2.2.2.2.2 (fun _ h => absurd h List.not_mem_nil)
+    (satFnsGoal_decided
+      (hypModel_of_fn c2_core (fnModel_of_fnHyp c2_core c2_fnHyp).1 (fnModel_of_fnHyp c2_core c2_fnHyp).2)
+      (clausePreDecided_of_fnHyp c2_core c2_fnHyp))
 
 theorem inΓ2 {φ : KoreAML.P} (h : φ ∈ Γ c2) : stdI c2 ⊧ᴵ φ := model2 φ (Or.inl (Or.inl h))
 
@@ -393,7 +396,7 @@ theorem arity_sat : I ⊧ᴵ (symArityItem c fSig).pat := by
 set_option maxHeartbeats 1000000 in
 theorem sig_align : (sigItems c).map (fun it => if it.pat = (symArityItem c fSig).pat then (symArityItem c2 fSig).pat
     else ren it.pat) = (sigItems c2).map (·.pat) := by
-  decide_map_blocks 25 8
+  decide_map_blocks 25 20
 
 theorem satI_sig {φ : KoreAML.P} (h : ΓSig c φ) : I ⊧ᴵ φ := by
   rcases h with (⟨it, hit, rfl⟩ | ⟨x, rfl⟩) | ⟨lit, rfl⟩
@@ -452,7 +455,7 @@ theorem satI_colls {φ : KoreAML.P} (h : ΓColls c φ) : I ⊧ᴵ φ := by
 
 theorem hooks_dec : hookSigs.all (fun k => decide (k.name < nRegSyms) &&
     (iteSort? (regSymNames.getD k.name "")).isNone) = true := by
-  decide +kernel
+  decide_cheap 20
 
 theorem hook_names {k : CtorSig} (hk : k ∈ hookSigs) :
     iteSort? (c.symName k.name) = none ∧ iteSort? (c2.symName k.name) = none := by

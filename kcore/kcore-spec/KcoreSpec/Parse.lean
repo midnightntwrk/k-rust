@@ -216,9 +216,14 @@ inductive RefusalReason where
   condition's truth at given values differs between models of the text. The detail names the
   variable and its sort. -/
   | openRequires
-  /-- An equation whose right side is under `\exists`, the variable of a sort the text leaves
-  unconfined: the value the function takes differs between models of the text. The detail names
-  the variable and its sort. -/
+  /-- An `\exists` on an equation's right side in an alternative of an `\or`, at a sort that the
+  test of a value given to `hoistExists` does not accept (`hoistEx`, ReadFns.lean). Moving the
+  binder over the `\or`, `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)`, is an equality only where s has an
+  element, which a value of s shows; without one, the alternative ranges over elements of s that
+  no value names, and models of the text that differ there can give the function different values.
+  The detail names the variable and its sort. Only `hoistExists` refuses with it, and no stage of
+  the reader calls `hoistExists` (`clauseBody` calls none of the reading functions of ReadFns.lean):
+  no account prints it. -/
   | existentialEquation
   /-- An open generator (a symbol the text declares total, lists among its result sort's
   generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
@@ -229,7 +234,11 @@ inductive RefusalReason where
   generator's image of other such elements, so the arguments that match depend on elements the
   text does not name; where S is confined, the arguments that match are values, the value's
   preimage under the interpretation's graph, which the semantics does not build. The detail names
-  the symbol, S and the reason. -/
+  the symbol, S and the reason. A rule's left side is read through the cut (`ovlCut`), the
+  application a fresh variable and its membership in the application a conjunct of `pre`: there
+  the reason is printed where S is not confined and a variable of the arguments is held by no other
+  part of the left side (`openCutRefusal`); the account's row remains for a clause's pattern and
+  for an application whose arguments hold `#as`, which is not cut. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -494,11 +503,13 @@ inductive UnreadReason where
   axiom what remains beside it, the distinctness at uncovered arguments only
   (`KoreAML.Cons.distUncItem`). Stated by the text and not read (`Parse.overloadConfusions`). -/
   | overloadConfusion
-  /-- The sort predicate `isX` of a library sort X to which the registry gives no predicate
-  symbol (`predOf X = none`, and `isX` no registry symbol): RANGEMAP's `isRange` and `isRangeMap`.
-  Its declaration, its `functional` axiom and its equations are stated by the text and not read:
-  the theory has no such symbol (`Semantics.sortPreds` writes `isX` only for a sort with a
-  predicate), so it says nothing of `isX(t)`, less than the text (`isNoPredSentence`). -/
+  /-- The sort predicate `isX` of a registry sort X to which the registry gives no predicate
+  symbol (`predOf X = none`) and that is itself no registry symbol (`isNoPredName`). K and KItem
+  have no `predOf` symbol but `isK` and `isKItem` are registry symbols, and every other registry
+  sort but MInt has a predicate, so the one such name is `isMInt`. Its declaration, its
+  `functional` axiom and its equations are stated by the text and not read: the theory has no
+  such symbol (`Semantics.sortPreds` writes `isX` only for a sort with a predicate), so it says
+  nothing of `isX(t)`, less than the text (`isNoPredSentence`). -/
   | noSortPredicate
   deriving Repr, DecidableEq, Inhabited
 
@@ -844,6 +855,10 @@ structure Names where
   /-- the overloading symbols one of whose own overloads is a function of the definition, each with
   its result sort's name: a rule's left side applying one is read through the cut (`ovlCut`) -/
   ovlCutSyms : List (Sym × String) := []
+  /-- the open generators (`isOpenGenerator`, read as `raw` parameters), each with its result
+  sort's name: a rule's left side applying one is read through the cut (`ovlCut`), which
+  `openCutRefusal` refuses where the generator's sort is not confined -/
+  openCutSyms : List (Sym × String) := []
 
 /-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
 axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
@@ -1291,7 +1306,17 @@ Outermost applications are cut, left to right; an inner one stays in the term. A
 arguments hold `#as` is not cut, since an `#as` names a matched subterm and the cut's term is not
 matched: it stays in the left side, refused (`functionInPattern`). The variables of P̄ that the rest of
 the left side does not hold are then variables the left side does not bind, decided as any such
-(`rulesPlain`; `openRefusal` names the symbol). -/
+(`rulesPlain`; `openRefusal` names the symbol).
+
+An open generator g (`Names.openCutSyms`, a `raw` parameter) is cut the same way: `C[g(P̄)]` is
+`∃V. C[V] ∧ V ∈ g(P̄)` in every interpretation, and the membership's term is evaluated through the
+interpretation's value of g (`Semantics.paramVal`), where matching `g(P̄)` would need the preimage
+of a value under that interpretation. Where g's sort is confined, every argument sort of g is
+confined (`Semantics.confinedAt`: the generators of a confined sort take arguments of confined
+sorts), so the variables the cut leaves open are of confined sorts and `rulesPlain` reads them.
+Where it is not, a variable of P̄ that the rest of the left side does not hold may be matched by an
+element that is no value's which the interpretation sends to a value, and which elements those are
+the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`). -/
 
 mutual
   /-- `t` with each outermost application of a symbol of `cs` whose arguments hold no `#as`
@@ -1324,17 +1349,22 @@ def ovlCutConj : List Cond → Cond
   | p :: ps => .and p (ovlCutConj ps)
 
 /-- A rule's left side `lhs` and its variables `vs`, read with each application of a
-function-overloaded symbol (`Names.ovlCutSyms`) cut (`cutOvlApps`): the left side, the variables with
-the fresh ones after them (`Ovl0`, `Ovl1`, …, primed until new), and the conjunction of the
-memberships `V ∈ g(P̄)` of the fresh variables in their applications, `\top` where nothing is cut. -/
+function-overloaded symbol (`Names.ovlCutSyms`) or of an open generator (`Names.openCutSyms`) cut
+(`cutOvlApps`): the left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for
+the first, `Open0`, `Open1`, … for the second, numbered by position among the fresh ones, primed until
+new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
+applications, `\top` where nothing is cut. -/
 def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
-  match N.ovlCutSyms with
+  match N.ovlCutSyms ++ N.openCutSyms with
   | [] => pure (lhs, vs, .top)
   | cs => match cutOvlApps cs vs.length lhs with
     | (_, _, []) => pure (lhs, vs, .top)
     | (lhs', _, xs) => do
-      let vs' := xs.foldl (fun acc (_, X, _) =>
-        acc ++ [⟨freshName acc (acc.length + 1) ("Ovl" ++ toString (acc.length - vs.length)), X⟩]) vs
+      let pfx := fun (app : Term) => match app with
+        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+        | _ => "Ovl"
+      let vs' := xs.foldl (fun acc (_, X, app) =>
+        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
       let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
       pure (lhs', vs', ovlCutConj mems)
 
@@ -1961,7 +1991,7 @@ set variable `@S` there (`f(@S, @S)`), the value at every set's elements (refuse
 the patterns', which no clause read from the memberships states (not read as an equation). -/
 def lhsArgsOK_lhs (ls : List Kore.Pattern) (args : Kore.Pattern) : Bool :=
   match memberVars_lhs eqnFuel args with
-  | some xs => xs.eraseDups.length == xs.length && decide (ls = xs.map fun x => .var (.evar x))
+  | some xs => decide xs.Nodup && decide (ls = xs.map fun x => .var (.evar x))
   | none => false
 
 def rawEqn? (a : Kore.Axiom) : Option RawEqn :=
@@ -2226,11 +2256,21 @@ def pairExcl : List RawEqn → List Kore.Pattern → List (RawEqn × Option Kore
       | some (i, d) => (e, some d) :: pairExcl es (ds.eraseIdx i)
       | none => (e, some unexcluded) :: pairExcl es ds
 
+/-- The two symbols of a symbol-overload axiom. -/
+def overloadSyms? (as : List Kore.AppPattern) : Option (String × String) :=
+  match as with
+  | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app g [] []]⟩] => some (f.ident.name, g.ident.name)
+  | _ => none
+
 /-- An equation that no premise of the text negates, read as an `aside` clause: one declared
 `non-executable`, which kompile's `[owise]` premise does not negate, or a symbol-overload axiom
 (`overloadEqn?`), which states its equation with no premise and which no `[owise]` premise
-negates (the premise's disjuncts are as many as the other equations, `fnFrom`). -/
-def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || hasAttr e.attrs "symbol-overload"
+negates (the premise's disjuncts are as many as the other equations, `fnFrom`). A symbol-overload
+axiom is an equation whose one attribute is `symbol-overload{}(f(), g())` (`overloadSyms?`), as
+`overloadEqn?` reads it and `ClausePres.overload` records it; an equation `P → f(p̄) = r` that
+carries the attribute beside others states its equation under its premise as any equation does,
+and the attribute adds no sentence. -/
+def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || (overloadSyms? e.attrs).isSome
 
 /-- As `pairExcl`, the equations declared `non-executable` (`nonExec`) with no disjunct: no
 disjunct of an `[owise]` equation's exclusion excludes them. -/
@@ -2285,12 +2325,6 @@ def overloadEqn? (a : Kore.Axiom) : Option RawEqn :=
     if h.ident.name == f.ident.name then some ⟨f.ident.name, varNamedList args, none, none, varNamed rhs, a.attributes, none, false⟩
     else none
   | _, _ => none
-
-/-- The two symbols of a symbol-overload axiom. -/
-def overloadSyms? (as : List Kore.AppPattern) : Option (String × String) :=
-  match as with
-  | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app g [] []]⟩] => some (f.ident.name, g.ident.name)
-  | _ => none
 
 /-- The argument `lift A B x` of an overload equation's left side, x a variable of sort A: the variable
 itself when A = B, `inj{A,B}(x)` otherwise; the variable's name. -/
@@ -2360,12 +2394,13 @@ def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
 
 /-- An equation's priority, with it where the text writes it `priority{}("n")`
 (`ClausePres.prioAttr`): `priority{}("n")`'s n; otherwise 0 for a symbol-overload axiom
-(`overloadEqn?`, whose `symbol-overload` attribute `emit` writes back, `ClausePres.overload`), 200
+(`overloadEqn?`, `overloadSyms?`: the attribute is its one attribute, which `emit` writes back,
+`ClausePres.overload`), 200
 for an `[owise]` equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
   let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
-  (explicit, explicit.getD (if hasAttr e.attrs "symbol-overload" then 0
+  (explicit, explicit.getD (if (overloadSyms? e.attrs).isSome then 0
     else if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
@@ -3664,7 +3699,7 @@ def openIdemAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
 
 /-- The axiom `a` is the law sentence `ax` with the attribute `key`. -/
 def lawSentenceIs (key : String) (ax : Kore.Axiom) (a : Kore.Axiom) : Bool :=
-  hasAttr a.attributes key && { a with attributes := [] } == ax
+  hasAttr a.attributes key && decide ({ a with attributes := [] } = ax)
 
 /-- The sentences `ss` hold the law sentence `ax` with the attribute `key`. -/
 def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :=
@@ -3865,6 +3900,28 @@ def sortAttrOK (a : Kore.AppPattern) : Bool :=
   | .inert _ => true
   | .read => isPlaceAttr a || isTokenSortAttr a
 
+/-- Why `assoc` or `comm` on the declaration of a function is refused: kompile writes neither key
+on a function's declaration. It writes a function production's `assoc` as the associativity axiom,
+which the reader reads as a law of the function (`fnLaw`, owed as `FnLaws`), and its `comm` as no
+sentence (e2-fn-assoc/kore.txt:4, 62; c3-fn-comm/kore.txt:4). -/
+def fnDeclLawWhy : String :=
+  "kompile writes the key on no function's declaration: a function production's assoc is the associativity axiom it writes beside the declaration, which the reader reads as a law of the function (fnLaw, owed as FnLaws), and its comm no sentence (e2-fn-assoc/kore.txt:4, 62; c3-fn-comm/kore.txt:4); only a KORE text written by hand carries it, and no text gives it a meaning on the declaration"
+
+/-- The first attribute of a symbol or hooked-symbol declaration the reader refuses, as the reason
+and the attribute's name with why: `attrFault?` at class `symbol`, except that on the declaration
+of a function (`function{}()`) `assoc` and `comm` are refused `attrOutsideE2` (`fnDeclLawWhy`).
+`attrVerdict` refuses them `openGenerator`, which is the case of a symbol that is no function: a
+generator under a law. -/
+def symAttrFault? (as : List Kore.AppPattern) : Option (RefusalReason × String) :=
+  if hasKey as .function then
+    as.findSome? fun ap =>
+      let n := ap.head.ident.name
+      if n == AttrKeyE2.assoc.kore || n == AttrKeyE2.comm.kore then some (.attrOutsideE2, s!"{n}: {fnDeclLawWhy}")
+      else match attrVerdictOf .symbol .symbolAttribute n with
+        | .refused r' w => some (r'.reason, s!"{n}: {w}")
+        | _ => none
+  else attrFault? .symbol .symbolAttribute as
+
 /-- The class of a sentence of the user module, from the sentence alone. -/
 def classify : Kore.Sentence → SentenceClass
   | .import _ => .inert .import
@@ -3879,12 +3936,12 @@ def classify : Kore.Sentence → SentenceClass
       -- that is a generator of its sort (`ParamSig.raw`)
       else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
       else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
-      else match attrFault? .symbol .symbolAttribute s.attributes with
+      else match symAttrFault? s.attributes with
         | some (r, _) => .refused r
         | none => .read
   | .hookedSymbol s => if isMacroDecl s.attributes then .unread .macroUnused
       else if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s)
-      else match attrFault? .symbol .symbolAttribute s.attributes with
+      else match symAttrFault? s.attributes with
         | some (r, _) => .refused r
         | none => .read
   | .sort s => if isKBuiltin s.attributes then classifyKBuiltin (.sort s)
@@ -4359,7 +4416,13 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
         sortName? d.sort with
     | true, some g, some X => some (g, X)
     | _, _, _ => none
-  let N : Names := { N with ovlCutSyms := ovlCutSyms }
+  -- the open generators (the `raw` parameters below), with their result sorts (`ovlCut`)
+  let openCutSyms := ((S.userSyms ++ collCells ++ instSyms).filter fun h =>
+      clauseless.contains h.symbol.ident.ident.name && isOpenGenerator h).filterMap fun h =>
+    match N.sym? h.symbol.ident.ident.name, sortName? h.sort with
+    | some g, some X => some (g, X)
+    | _, _ => none
+  let N : Names := { N with ovlCutSyms := ovlCutSyms, openCutSyms := openCutSyms }
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))
@@ -4609,10 +4672,37 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
       s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
   else none
 
-/-- Why a rule is not read (`unheldRefusal`, then `openRefusal`), or `none`. -/
+/-- The memberships `V ∈ g(P̄)` among the top-level conjuncts of a condition, V a variable: each
+with V, g and P̄. -/
+def openCutMemsOf : Cond → List (Nat × Sym × List Term)
+  | .and p q => openCutMemsOf p ++ openCutMemsOf q
+  | .mem _ (.var v) (.app g as) => [(v, g, as)]
+  | _ => []
+
+/-- Why a rule read through the cut of an open generator (`ovlCut`) is not read, or `none`: a
+membership `V ∈ g(P̄)` of `pre`, V bound by the left side and g an open generator whose sort is not
+confined, whose arguments hold a variable that no other part of the left side holds
+(`openGeneratorPattern`). Such a variable ranges over elements of g's argument sorts that the
+interpretation may send to a value, elements that are no value's among them, and which those are
+the text does not say. Where every variable of P̄ is held elsewhere in the left side, the
+membership is a condition over bound variables and the rule is decided as any other. -/
+def openCutRefusal (c : Semantics) (r : Rule) (names : List String) : Option (RefusalReason × String) :=
+  let held := varOccs r.lhs
+  (openCutMemsOf r.pre).findSome? fun (v, g, as) =>
+    match c.params.find? (fun k => k.raw && k.sig.name == g) with
+    | some k =>
+      if held.contains v && !c.confined k.sig.result then
+        ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
+          let sn := c.sortName k.sig.result
+          (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}, under {c.symName g}, held by no other part of the left side)")
+      else none
+    | none => none
+
+/-- Why a rule is not read (`unheldRefusal`, then `openCutRefusal`, then `openRefusal`), or
+`none`. -/
 def ruleRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) (r : Rule) (names : List String) :
     Option (RefusalReason × String) :=
-  (unheldRefusal c N a).orElse fun _ => openRefusal c r names
+  ((unheldRefusal c N a).orElse fun _ => openCutRefusal c r names).orElse fun _ => openRefusal c r names
 
 /-- The core from the productions and the rules, before the rules are checked (`coreOf`). -/
 def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) : Rd Semantics := do
@@ -4630,11 +4720,26 @@ def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × Rul
          colls := E.colls, ovls := E.ovls }
   pure core
 
+/-- The character `c` as it is written inside a string literal: `\n`, `\t`, `\\` and `\"` escaped,
+another character below 32 and DEL as `\x` and two hexadecimal digits, any other as itself. -/
+def charLit_skel (c : Char) : String :=
+  if c = '\n' then "\\n"
+  else if c = '\t' then "\\t"
+  else if c = '\\' then "\\\\"
+  else if c = '\"' then "\\\""
+  else if c.toNat ≤ 31 ∨ c = '\x7f' then "\\x" ++ hexDigitRepr (c.toNat / 16) ++ hexDigitRepr (c.toNat % 16)
+  else String.singleton c
+
+/-- The string `s` as a string literal: in double quotes, each character as `charLit_skel` writes
+it (the text `String.quote` gives, by functions the kernel unfolds). -/
+def strLit_skel (s : String) : String :=
+  "\"" ++ String.join (s.toList.map charLit_skel) ++ "\""
+
 /-- A pattern's symbols, variables as `_` and domain values as their text, `fuel` levels deep. -/
 def eqnSkel : Nat → Kore.Pattern → String
   | 0, _ => "…"
   | _, .var (.evar _) => "_"
-  | _, .dv _ v => v.quote
+  | _, .dv _ v => strLit_skel v
   | n + 1, .app h _ ps => h.ident.name ++ (if ps.isEmpty then "" else "(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")")
   | n + 1, .and _ ps => "\\and(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")"
   | n + 1, .equals _ _ p q => "\\equals(" ++ eqnSkel n p ++ ", " ++ eqnSkel n q ++ ")"
@@ -5238,23 +5343,26 @@ def Fault.toRefusal (off : Nat) (m : Kore.Module) (f : Fault) : Refusal :=
   ⟨i, h, f.reason, f.detail⟩
 
 /-- The detail of a refusal `classify` gives the sentence `s` of the user module `m`: for an open
-generator (`openGenerator`), the law axioms `m` states of the symbol (kompile writes none for `comm`);
+generator (`openGenerator`, `isOpenGenerator`), the law axioms `m` states of the symbol (kompile
+writes none for `comm`);
 for a set variable on an equation's left side (`setVariable`, `lhsSetVar?`), the variable, the
-function and why; for an attribute of a declaration or a claim (`attrFault?`), the attribute and
+function and why; for an attribute of a declaration (`symAttrFault?`, also an `openGenerator`
+refusal of a symbol that is no open generator) or of a claim (`attrFault?`), the attribute and
 why; "" for the other reasons. -/
 def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : String :=
   match r, s with
   | .openGenerator, .symbol x =>
     let n := x.symbol.ident.ident.name
+    if !isOpenGenerator x then ((symAttrFault? x.attributes).map fun (_, d) => s!"{n}: {d}").getD "" else
     let laws := (m.sentences.filterMap fun t => match t with
       | .axiom a => if isCollectionLaw a && lawHead? a == some n then some (lawKeys a) else none
       | _ => none).flatten.eraseDups
     s!"{n}: neither function nor constructor; law axioms: {if laws.isEmpty then "none" else ", ".intercalate laws}"
   | .sortAttribute, .sort x =>
     s!"{x.sort.ident.name}: {", ".intercalate ((x.attributes.filter (!sortAttrOK ·)).map (·.head.ident.name))}"
-  | _, .symbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+  | _, .symbol x => ((symAttrFault? x.attributes).map fun (_, d) =>
       s!"{x.symbol.ident.ident.name}: {d}").getD ""
-  | _, .hookedSymbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+  | _, .hookedSymbol x => ((symAttrFault? x.attributes).map fun (_, d) =>
       s!"{x.symbol.ident.ident.name}: {d}").getD ""
   | _, .claim c => ((attrFault? .claim .outsideE2 c.attributes).map (·.2)).getD ""
   | .userHookedSort, .hookedSort x => s!"{x.sort.ident.name}: hook {(attrStr? x.attributes "hook").getD "(none)"}"

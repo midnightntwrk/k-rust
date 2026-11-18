@@ -29,6 +29,7 @@ theorem clausePats_sorted (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.al
     simp only [Bool.and_eq_true, List.all_eq_true] at hok
     have := hok.1.2 fn hfn' cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+    replace this := this.1
     exact this.1.1.1.1.1
   · exact sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats (sortPreds_ctx hfn' cl hcl).1
 
@@ -42,6 +43,7 @@ theorem rulePat_sorted (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules)
 /-- **The clauses' matcher is complete** where `execReady` holds. -/
 theorem clauseComplete_of_ready (hr : execReady c = true) : ClauseComplete c := by
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  replace hr := hr.1
   obtain ⟨⟨⟨⟨⟨hok, -⟩, hmr⟩, hfns⟩, -⟩, -⟩ := hr
   intro fn hfn cl hcl vs τ _ hτ hpv
   have h1 := hfns fn hfn cl hcl
@@ -50,12 +52,14 @@ theorem clauseComplete_of_ready (hr : execReady c = true) : ClauseComplete c := 
 /-- No clause is `aside` where `execReady` holds. -/
 theorem asideFree_of_ready (hr : execReady c = true) : c.AsideFree := by
   simp only [execReady, Bool.and_eq_true] at hr
-  exact Semantics.asideFree_spec hr.2
+  have h2 : c.asideFree = true := hr.1.2
+  exact @Semantics.asideFree_spec c h2
 
 /-- **The rules' matcher is complete** where `execReady` holds. -/
 theorem ruleComplete_of_ready (hr : execReady c = true) : RuleComplete c := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  replace hr := hr.1
   obtain ⟨⟨⟨⟨⟨hok, -⟩, hmr⟩, -⟩, hrules⟩, -⟩ := hr
   intro r hr x τ _ hτ hpv
   have h1 := hrules r hr
@@ -70,6 +74,7 @@ theorem successorsN_step_ready (hr : execReady c = true) {n : Nat} {x : Config c
     (hy : y ∈ successorsN c n x.val) : ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
+  replace hr' := hr'.1
   exact successorsN_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase
     (clauseComplete_of_ready hr) (ruleComplete_of_ready hr) hy
 

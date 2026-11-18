@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-config-deep.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 5.9
+definition.kore bytes: 887604
+definition.kore sha256: 9e6d2a0a0eb39da20d05e560e98391ee9a64716ba7412acd2b1d7dbc4b610df3
+stripped sha256: 5a8e8fdef2746ce441e51ce64d24953bbe3b46d43c62ac5e3ba639001b131b21
+main module: 2622 sentences, 2408 not in base's (831951 bytes, over 200000): kore.txt holds the 65 with a Source in the fixture
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-CONFIG-DEEP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-CONFIG-DEEP as default.

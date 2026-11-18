@@ -17,6 +17,10 @@
   - 170 (`(C -Int I2) -Int I3 => C -Int (I2 +Int I3)`, domains.md 1426): `ev170`.
   - 194 (`I1 modInt I2 => ((I1 %Int absInt(I2)) +Int absInt(I2)) %Int absInt(I2) requires I2 =/=Int 0`, domains.md 1445): `ev194`.
   - 195 (`X modInt N => X requires 0 <=Int X andBool X <Int N`, domains.md 1376): `ev195`.
+  - 171 (`X <<Int 0 => X`, domains.md 1380): `ev171`.
+  - 172 (`0 <<Int Y => 0 requires 0 <=Int Y`, domains.md 1381): `ev172`.
+  - 178 (`X >>Int 0 => X`, domains.md 1382): `ev178`.
+  - 179 (`0 >>Int Y => 0 requires 0 <=Int Y`, domains.md 1383): `ev179`.
 -/
 import KcoreSpec
 
@@ -85,6 +89,22 @@ theorem ev195 (H : HookParams) : EntailsAtValues (cH H) U.ax195 (trS U.ax195).pa
   rw [(by decide +kernel : (trS U.ax195).pat = (trAxiom [] [] U.ax195).pat)]
   exact LibEv.emodSmall_ev (coreOKH H) (shapesOKH H) U.ax195 (by decide +kernel) (by decide +kernel)
 
+theorem ev171 (H : HookParams) : EntailsAtValues (cH H) U.ax171 (trS U.ax171).pat := by
+  rw [(by decide +kernel : (trS U.ax171).pat = (trAxiom [] [] U.ax171).pat)]
+  exact LibEv.shlZero_ev (coreOKH H) (shapesOKH H) U.ax171 (by decide +kernel) (by decide +kernel)
+
+theorem ev172 (H : HookParams) : EntailsAtValues (cH H) U.ax172 (trS U.ax172).pat := by
+  rw [(by decide +kernel : (trS U.ax172).pat = (trAxiom [] [] U.ax172).pat)]
+  exact LibEv.zeroShl_ev (coreOKH H) (shapesOKH H) U.ax172 (by decide +kernel) (by decide +kernel)
+
+theorem ev178 (H : HookParams) : EntailsAtValues (cH H) U.ax178 (trS U.ax178).pat := by
+  rw [(by decide +kernel : (trS U.ax178).pat = (trAxiom [] [] U.ax178).pat)]
+  exact LibEv.shrZero_ev (coreOKH H) (shapesOKH H) U.ax178 (by decide +kernel) (by decide +kernel)
+
+theorem ev179 (H : HookParams) : EntailsAtValues (cH H) U.ax179 (trS U.ax179).pat := by
+  rw [(by decide +kernel : (trS U.ax179).pat = (trAxiom [] [] U.ax179).pat)]
+  exact LibEv.zeroShr_ev (coreOKH H) (shapesOKH H) U.ax179 (by decide +kernel) (by decide +kernel)
+
 end KCore.LibEvIntEns
 
 /-- info: 'KCore.LibEvIntEns.ev160' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -109,3 +129,11 @@ end KCore.LibEvIntEns
 #guard_msgs in #print axioms KCore.LibEvIntEns.ev194
 /-- info: 'KCore.LibEvIntEns.ev195' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.LibEvIntEns.ev195
+/-- info: 'KCore.LibEvIntEns.ev171' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvIntEns.ev171
+/-- info: 'KCore.LibEvIntEns.ev172' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvIntEns.ev172
+/-- info: 'KCore.LibEvIntEns.ev178' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvIntEns.ev178
+/-- info: 'KCore.LibEvIntEns.ev179' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms KCore.LibEvIntEns.ev179

@@ -1,8 +1,9 @@
 /-
   The extension of a model of the theory without the detached names (`extModel`,
   ConsExtModel.lean) satisfies the premises of the constructors (`ΓCons`) that name nothing of `D`
-  (`sat_own_cons`), for names `D` that are sort constants and symbols of the definition and a
-  definition without an open generator written raw (whose law sentences are then absent); with
+  (`sat_own_cons`), for names `D` that are sort constants and symbols of the definition and open
+  generators whose symbol and result sort are outside `D` (their law sentences, associativity and
+  idempotence, are transferred as written: `transfer_assoc`, `transfer_idem`); with
   `sat_own_sig` and `sat_own_colls` (ConsTransferSig.lean) every premise of `ΓSig`, `ΓCons` and
   `ΓColls` that names nothing of `D` (`sat_own_sig_cons`).
 
@@ -450,7 +451,10 @@ theorem sat_noJunk_cs (hDI : DefOK I) (N : String) (gs : List KoreAML.Gen)
     exact .impPP .top_pred (.equal_ex (own_trNoJunk_cs N gs _) (.inhOf (.sortC id)))
   exact transfer0_sg hD hDI hb (.inl rfl) hn h
 
-theorem sat_consItem_cs (hraw : ∀ p ∈ c.params, p.raw = false) (hDI : DefOK I) {it : KoreAML.Item}
+theorem sat_consItem_cs (hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ D (.sort ("Sort" ++ c.sortName p.sig.result)) ∧ ¬ D (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ)
+    (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (hDI : DefOK I) {it : KoreAML.Item}
     (hit : it ∈ consItemsK c) (hn : ∀ σ ∈ psyms it.pat, ¬ D σ) (h : I ⊧ᴵ it.pat) :
     extModel c D I ⊧ᴵ it.pat := by
   unfold consItemsK at hit
@@ -482,29 +486,48 @@ theorem sat_consItem_cs (hraw : ∀ p ∈ c.params, p.raw = false) (hDI : DefOK 
   · exact sat_ovlEq_cs hD hDI _ _
   · simp only [lawItemsK, List.mem_flatMap] at hit
     obtain ⟨p, hp, hit⟩ := hit
-    simp [hraw p hp] at hit
+    split at hit
+    · rename_i hr
+      obtain ⟨hns, hnf, hSs⟩ := hlaw p hp hr
+      rcases List.mem_append.mp hit with hit | hit
+      · split at hit
+        · obtain rfl := List.mem_singleton.mp hit
+          exact fun _ h => transfer_assoc hD hDI hc p hns hnf hSs h
+        · exact absurd hit List.not_mem_nil
+      · split at hit
+        · obtain rfl := List.mem_singleton.mp hit
+          exact fun _ h => transfer_idem hD hDI hc p hns hnf hSs h
+        · exact absurd hit List.not_mem_nil
+    · exact absurd hit List.not_mem_nil
 
 
 /-- **The extension satisfies every premise of `ΓCons` that names nothing of `D`**, for a model of
-`Γown c D`, names `D` that are sort constants and symbols of the definition, and a definition
-without an open generator written raw. -/
-theorem sat_own_cons (hraw : ∀ p ∈ c.params, p.raw = false) (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P}
+`Γown c D`, names `D` that are sort constants and symbols of the definition, and open generators
+whose symbol and result sort are outside `D`, the sort denoting one sort of the model (`hlaw`:
+their law sentences are transferred as written). -/
+theorem sat_own_cons (hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ D (.sort ("Sort" ++ c.sortName p.sig.result)) ∧ ¬ D (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ) (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P}
     (hφ : ΓCons c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ := by
   have hDI := defOK_own_sg hD hI
   have hI' : I ⊧ᴵ φ := hI _ ⟨.inl (.inl (.inl (.inl (.inl (.inl (.inl (.inr hφ))))))), hn⟩
   rcases hφ with ⟨it, hit, rfl⟩ | ⟨x, rfl⟩
-  · exact sat_consItem_cs hD hraw hDI hit hn hI'
+  · exact sat_consItem_cs hD hlaw (hI _ (own_of_sig_sg
+      (.inl (.inl ⟨KoreAML.ceilDefItem, by unfold sigItems; simp, rfl⟩))
+      (clean_of_plain_sg hD (noPlain_of_sg (by decide))))) hDI hit hn hI'
   · exact sat_definedness_sg x
 
 /-- **The extension satisfies every premise of `ΓSig`, `ΓCons` and `ΓColls` that names nothing of
 `D`** (the definedness schema and `dvArityAll` among them), for a model of `Γown c D`, names `D`
-that are sort constants and symbols of the definition, and a definition without an open generator
-written raw. -/
-theorem sat_own_sig_cons (hraw : ∀ p ∈ c.params, p.raw = false) (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P}
+that are sort constants and symbols of the definition, and open generators whose symbol and
+result sort are outside `D`, the sort denoting one sort of the model. -/
+theorem sat_own_sig_cons (hlaw : ∀ p ∈ c.params, p.raw = true →
+      ¬ D (.sort ("Sort" ++ c.sortName p.sig.result)) ∧ ¬ D (.symbol (c.symName p.sig.name)) ∧
+      ∃ σ, IsSort I σ ∧ ∀ a, I.evalSymb (.sort ("Sort" ++ c.sortName p.sig.result)) a ↔ a = σ) (hI : I ⊧ᴵP Γown c D) {φ : KoreAML.P}
     (hφ : ΓSig c φ ∨ ΓCons c φ ∨ ΓColls c φ) (hn : ∀ σ ∈ psyms φ, ¬ D σ) : extModel c D I ⊧ᴵ φ := by
   rcases hφ with hφ | hφ | hφ
   · exact sat_own_sig hD hI hφ hn
-  · exact sat_own_cons hD hraw hI hφ hn
+  · exact sat_own_cons hD hlaw hI hφ hn
   · exact sat_own_colls hD hI hφ hn
 
 end

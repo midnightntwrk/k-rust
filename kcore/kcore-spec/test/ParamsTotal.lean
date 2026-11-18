@@ -80,7 +80,11 @@ theorem pt_Fp_not_total : ¬ Total pt Fp := by
   have hl := pt_lookup
   obtain ⟨v, hv⟩ := h fnFp hl [.dv Srt.int (.int 0)] (by decide +kernel)
   cases hv with
-  | clause hfn hmem hσ hm hreq _ hprio hrhs =>
+  | clauseEx hfn hmem _ _ _ _ _ hne =>
+    rw [hl] at hfn; cases hfn
+    simp only [fnFp, List.mem_singleton] at hmem
+    subst hmem; exact absurd rfl hne
+  | clause hfn hmem hσ hm hreq _ hprio _ hrhs =>
     rw [hl] at hfn; cases hfn
     simp only [fnFp, List.mem_singleton] at hmem
     subst hmem

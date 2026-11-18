@@ -21,7 +21,8 @@ namespace KCore
 its variables": its patterns have the argument sorts in a left-hand side's context, each variable
 occurs in its patterns, its conditions, its right-hand side, its `ensures` or its right side's
 predicate, its `requires` is a Bool, its right-hand side has the result sort, its `ensures` is a
-Bool, and each binder of its predicates ranges where values and elements agree. -/
+Bool, each binder of its predicates ranges where values and elements agree, and its premise's
+predicate is well sorted. -/
 def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
   sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
   binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
@@ -29,7 +30,8 @@ def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
   sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
-  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post)
+  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) &&
+  c.condOK cl.vars cl.pre
 
 /-- What `clausesPlain` asks of one clause, with the conjunct on its open condition variables: no
 variable bound by `\exists`, `\top` predicates, and no open condition variable, or closed
@@ -47,7 +49,7 @@ theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List Ctor
       sortOfTerm (c.rhsCtx H) cl.vars cl.rhs = some f.result ∧
       (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx H) cl.vars t = some Srt.bool) := by
   simp only [Semantics.clauseSortedOpen, Bool.and_eq_true, beq_iff_eq] at h
-  obtain ⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩, -⟩ := h
   refine ⟨hpats, fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
   · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
     exact hb i hi
@@ -60,6 +62,22 @@ theorem Semantics.clausePlainOpen_parts {c : Semantics} {cl : Clause} (h : c.cla
   simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
   obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
   exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost, hrest⟩
+
+/-- What `clausePlainOpen` gives of a clause without reading its predicate as `\top`: no existential
+variable, the right side's predicate `\top`, the conjunct on its open condition variables, and
+where its predicate is not `\top`, conditions that need no witness (`needsWitness`). -/
+theorem Semantics.clausePlainOpen_partsP {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
+    cl.exs = [] ∧ cl.post = .top ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true ∧
+      (cl.pre ≠ .top → cl.needsWitness c = false) := by
+  obtain ⟨hex, hpre, hpost, hrest⟩ := Semantics.clausePlainOpen_parts h
+  exact ⟨hex, hpost, hrest, fun hne => absurd hpre hne⟩
+
+/-- A clause with `clauseSortedOpen` has a well-sorted predicate in its premise. -/
+theorem Semantics.clauseSortedOpen_preOK {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
+    (h : c.clauseSortedOpen f H cl = true) : c.condOK cl.vars cl.pre = true := by
+  simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at h
+  exact h.2
 
 /-- `clauseSorted` asks what `clauseSortedOpen` asks. -/
 theorem Semantics.clauseSortedOpen_of_sorted {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}

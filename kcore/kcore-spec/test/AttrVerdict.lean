@@ -249,3 +249,26 @@ example : sortAttrOK (KoreAML.attr "token") ∧ sortAttrOK (KoreAML.attr "hasDom
 example : classify (.claim ⟨[], .string "p", [KoreAML.attr "owise"]⟩) = .refused .attrOutsideE2 ∧
     classify (.claim ⟨[], .string "p", [KoreAML.attr "trusted", KoreAML.attrStr "label" "c"]⟩) = .inert .claim ∧
     classify (.claim ⟨[], .string "p", [KoreAML.attr "foo"]⟩) = .refused .attrOutsideE2 := by decide +kernel
+
+-- a symbol declaration (`symAttrFault?`): `assoc` and `comm` on a function's declaration are
+-- refused attrOutsideE2 (kompile writes neither there), on another symbol's openGenerator as the
+-- verdict gives; the other keys as `attrFault?` at class symbol
+example : (symAttrFault? [KoreAML.attr "function", KoreAML.attr "assoc"]).map (·.1) = some .attrOutsideE2 ∧
+    (symAttrFault? [KoreAML.attr "comm", KoreAML.attr "function"]).map (·.1) = some .attrOutsideE2 ∧
+    (symAttrFault? [KoreAML.attr "function", KoreAML.attr "bracket"]).map (·.1) = some .attrOutsideE2 ∧
+    (symAttrFault? [KoreAML.attr "function", KoreAML.attr "foo"]).map (·.1) = some .symbolAttrUnkeyed ∧
+    symAttrFault? [KoreAML.attr "function", KoreAML.attr "total"] = none ∧
+    (symAttrFault? [KoreAML.attr "constructor", KoreAML.attr "assoc"]).map (·.1) = some .openGenerator ∧
+    (symAttrFault? [KoreAML.attr "functional", KoreAML.attr "comm"]).map (·.1) = some .openGenerator := by
+  decide +kernel
+
+-- `symbol-overload` gives an equation priority 0 and `aside` only as the one attribute of a
+-- symbol-overload axiom (`overloadSyms?`, which `ClausePres.overload` records); beside another
+-- attribute the equation is read as any other
+example :
+    let ovl : Kore.AppPattern := ⟨⟨⟨"symbol-overload"⟩⟩, [], [.app ⟨⟨"Lblf"⟩⟩ [] [], .app ⟨⟨"Lblg"⟩⟩ [] []]⟩
+    let e := fun (as : List Kore.AppPattern) => (⟨"Lblf", [], none, none, .top KoreAML.R, as, none, false⟩ : RawEqn)
+    (eqnPrio (e [ovl]), nonExec (e [ovl]), (overloadSyms? [ovl]).isSome) = ((none, 0), true, true) ∧
+    (eqnPrio (e [ovl, KoreAML.attrStr "UNIQUE'Unds'ID" "x"]), nonExec (e [ovl, KoreAML.attrStr "UNIQUE'Unds'ID" "x"]),
+      (overloadSyms? [ovl, KoreAML.attrStr "UNIQUE'Unds'ID" "x"]).isSome) = ((none, 50), false, false) := by
+  decide +kernel

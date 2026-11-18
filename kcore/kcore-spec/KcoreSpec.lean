@@ -308,6 +308,7 @@ import KcoreSpec.InertEv
 import KcoreSpec.HoldsBinderFixed
 import KcoreSpec.LibEvBoolK
 import KcoreSpec.ExsValues
+import KcoreSpec.ClauseExDen
 import KcoreSpec.LawModelChoice
 import KcoreSpec.GenEqsConservative
 import KcoreSpec.GenEqsModel
@@ -324,12 +325,19 @@ import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
 import KcoreSpec.LibEvStr
+import KcoreSpec.LibEvFloat
 import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
 import KcoreSpec.TieReqBool
 import KcoreSpec.TieAlphaOr
 import KcoreSpec.GenEqsNames
+import KcoreSpec.GenEqsWalk
 import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
+import KcoreSpec.CondPredAt
+import KcoreSpec.CondCross
+import KcoreSpec.ClausePreCore
+import KcoreSpec.ModelFnsDecided
+import KcoreSpec.FloatUnpack

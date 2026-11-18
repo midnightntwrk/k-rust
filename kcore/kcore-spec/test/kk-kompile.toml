@@ -6,7 +6,7 @@
 # (test/relsource.py): ${kk} is written `krs/semantics/kore`.
 k_version = "7.1.337"
 source = "krs/semantics/kore/kore.k"
-source_sha256 = "f582210514c6d56e44cfc687e5d35ef7ec05220a070af966452409f3e5348bd6"
+source_sha256 = "8a00fadf27317e52333cc4fbdabfd04b0259a6cb4131bc83773099c75b84863b"
 argv = [
   "kompile", "${kk}/kore.k",
   "--backend", "haskell",

@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-record-productions.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.3
+definition.kore bytes: 79243
+definition.kore sha256: e0d24f988728b859ff226bf13855ec2a4c749538b65a6cfd6976318439c67ec3
+stripped sha256: 7c6cb5820c63ac4a731fe3d1def551fa278977b244d10bd349578cb2de858506
+main module: 228 sentences, 2 not in base's, in kore.txt
+same_as base: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-RECORD-PRODUCTIONS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-RECORD-PRODUCTIONS as default.

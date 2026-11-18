@@ -90,8 +90,8 @@ theorem eval4 : Eval c4 389 [.dv Srt.int (.int 1)] (some (.dv Srt.int (.int 0)))
   have hO : clO ∈ gF4.clauses := by rw [gF4_clauses]; exact List.mem_cons_of_mem _ (List.mem_singleton_self _)
   have hrhs : clO.rhs = .dv Srt.int (.int 0) := clO_rhs
   refine Eval.clause (σ := [(0, .dv Srt.int (.int 1))]) hfn4 hO (fun i s hs => ?_) ?_
-    (fun t ht => by rw [clO_req] at ht; cases ht) (Clause.holds_preTop clO_pre _) (fun cl' hcl' _ hlt => ?_) ?_
-    (fun t ht => by rw [clO_ens] at ht; cases ht)
+    (fun t ht => by rw [clO_req] at ht; cases ht) (Clause.holds_preTop clO_pre _) (fun cl' hcl' _ hlt => ?_)
+    (by rfl) ?_ (fun t ht => by rw [clO_ens] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
   · rw [shapeO.2.2.1] at hs
     cases i with
     | zero => cases hs; exact ⟨_, rfl, one_int⟩
@@ -113,6 +113,7 @@ example {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M} (hI : I �
       Faithful.Res c4 I e (some (.dv Srt.int (.int 0))) m :=
   Faithful.eval_den4_coreCl hI decided.1 decided.2.1 decided.2.2.2.2.1 decided.2.2.2.2.2.1
     (fun fn hfn cl hcl hw => absurd hw (by rw [decided.2.2.2.2.2.2 fn hfn cl hcl]; decide))
+    (Faithful.preRead_of_allTop (Faithful.clauseOpenFacts_of_sortedOKCl decided.1))
     eval4 hfn4 (by decide +kernel) e m
 
 /-- info: 'KCore.Faithful.eval_den4_coreCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/

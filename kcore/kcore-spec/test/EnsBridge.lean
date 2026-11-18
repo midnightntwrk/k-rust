@@ -634,13 +634,23 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (motive_4 := fun σ t r _ => EvalTerm (withRules c rs) σ t r)
     (motive_5 := fun σ ts rs' _ => EvalTerms (withRules c rs) σ ts rs')
     (motive_6 := fun n σ p b _ => Holds (withRules c rs) n σ p b)
-    (fun hfn hmem hσ hmatch _ _ _ _ _ ihreq ihpre ihprio ihrhs ihens =>
-      .clause hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio ihrhs ihens)
+    (motive_7 := fun σ cl _ => InstFails (withRules c rs) σ cl)
+    (motive_8 := fun σ cl r _ => InstIs (withRules c rs) σ cl r)
+    (fun hfn hmem hσ hmatch _ _ _ hex _ _ _ ihreq ihpre ihprio ihrhs ihens ihpost =>
+      .clause hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio hex ihrhs ihens ihpost)
     (fun hfn _ ihnone => by
       have := Eval.rest (c := withRules c rs) hfn ihnone
       rwa [fnRest_withRules] at this)
-    (fun hfn hmem hσ hmatch _ _ _ ht _ hw ihreq ihpre ihprio ihe =>
-      .ensFails hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio ht ihe hw)
+    (fun hfn hmem hσ hmatch _ _ _ hex ht _ hw ihreq ihpre ihprio ihe =>
+      .ensFails hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio hex ht ihe hw)
+    (fun hfn hmem hσ hmatch _ _ _ hne _ _ _ _ ihreq ihpre ihprio ihrhs ihens ihpost ihall =>
+      .clauseEx hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihpre ihprio hne ihrhs ihens
+        ihpost (fun σ' ha hw => ihall σ' ha (wellSorted_rules.mp hw)))
+    (fun hfn hmem hne hσ hmatch _ _ _ hsome _ ihreq ihpre ihprio ihall =>
+      .exNone hfn hmem hne (by unfold Semantics.WellSortedAt at hσ ⊢; rw [sortOf_withRules]; exact hσ)
+        (patVals_rules rs hmatch) ihreq ihpre ihprio
+        (let ⟨σ', ha, hw⟩ := hsome; ⟨σ', ha, wellSorted_rules.mpr hw⟩)
+        (fun σ' ha hw => ihall σ' ha (wellSorted_rules.mp hw)))
     (fun _ ih => .intro fun σ hσ hp => ih σ (by unfold Semantics.WellSortedAt at hσ ⊢; rwa [sortOf_withRules] at hσ) (patVals_rules_back rs hp))
     (fun ht _ hr ihe => .intro ht ihe hr)
     (fun _ ih => .pre ih)
@@ -669,6 +679,8 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
       .all g (fun σ' he => ihb σ' ((extends_rules rs).mp he))
         (hr.trans ⟨fun H σ' he => H σ' ((extends_rules rs).mp he),
           fun H σ' he => H σ' ((extends_rules rs).mpr he)⟩))
+    (fun ht _ hw ihe => .ens ht ihe hw) (fun _ ih => .post ih) (fun _ ih => .rhs ih)
+    (fun _ _ ihp ih => .fails ihp ih) (fun _ _ _ ihr ihe ihp => .gives ihr ihe ihp)
     h
 
 theorem evalTerm_rules_back {t : Term} {r : Option GroundTerm} (h : EvalTerm (withRules c rs) σ t r) :
@@ -1058,8 +1070,8 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
   have key : fApp ≠ fApp :=
     EvalTerm.rec (motive_1 := fun f vs _ _ => f ≠ F ∨ vs ≠ [int 0]) (motive_2 := fun _ _ _ => True)
       (motive_3 := fun _ _ _ => True) (motive_4 := fun _ t _ _ => t ≠ fApp) (motive_5 := fun _ _ _ _ => True)
-      (motive_6 := fun _ _ _ _ _ => True)
-      (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ _ _ _ _ _ ihrhs _ => by
+      (motive_6 := fun _ _ _ _ _ => True) (motive_7 := fun _ _ _ => True) (motive_8 := fun _ _ _ _ => True)
+      (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ _ _ _ _ _ _ _ ihrhs _ _ => by
         refine Or.inl fun hf => ?_
         subst hf
         rw [hfn] at hfn'; cases hfn'
@@ -1082,13 +1094,27 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
           (.cons (.var rfl) .nil) with
         | intro ht _ _ => cases ht
         | pre hp => exact absurd (Holds.top_eq hp) (by simp))
-      (fun {f fn vs cl _ _ _} hfn' hmem _ _ _ _ _ ht _ _ _ _ _ _ => by
+      (fun {f fn vs cl _ _ _} hfn' hmem _ _ _ _ _ _ ht _ _ _ _ _ _ => by
         refine Or.inl fun hf => ?_
         subst hf
         rw [hfn] at hfn'; cases hfn'
         simp only [fnF, List.mem_singleton] at hmem
         subst hmem
         cases ht)
+      (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ hne _ _ _ _ _ _ _ _ _ _ _ => by
+        refine Or.inl fun hf => ?_
+        subst hf
+        rw [hfn] at hfn'; cases hfn'
+        simp only [fnF, List.mem_singleton] at hmem
+        subst hmem
+        exact hne rfl)
+      (fun {f fn vs cl _} hfn' hmem hne _ _ _ _ _ _ _ _ _ _ _ => by
+        refine Or.inl fun hf => ?_
+        subst hf
+        rw [hfn] at hfn'; cases hfn'
+        simp only [fnF, List.mem_singleton] at hmem
+        subst hmem
+        exact hne rfl)
       (fun _ _ => trivial) (fun _ _ _ _ => trivial) (fun _ _ => trivial)
       (fun h => by simp [fApp] at h) (fun h => by simp [fApp] at h) (fun _ _ h => by simp [fApp] at h)
       (fun {_ f _ _} hk' _ _ h => by
@@ -1131,6 +1157,7 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
       (by intros; trivial)
       (by intros; trivial)
       (by intros; trivial)
+      (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial) (by intros; trivial)
       h
   exact key rfl
 

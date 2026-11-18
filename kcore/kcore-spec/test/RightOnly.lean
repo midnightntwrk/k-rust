@@ -389,19 +389,20 @@ theorem ws_nil : cEA.WellSorted [] [] := fun i s h => by simp at h
 
 /-- A clause with a variable of a sort without a value applies under no substitution. -/
 theorem not_appliesAt {c : Semantics} {cl : Clause} {i : Nat} {s : Srt} (hi : cl.vars[i]? = some s)
-    (hno : ∀ v, c.sortOf v ≠ some s) (σ : Subst) (vs : List GroundTerm) : ¬ cl.AppliesAt c σ vs := by
+    (hno : ∀ v, c.sortOf v ≠ some s) (σ : Subst) (vs : List GroundTerm) (hx : cl.exs = [] := by rfl) :
+    ¬ cl.AppliesAt c σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h i s hi
+  obtain ⟨v, -, hv⟩ := (wellSortedAt_univ hx).mp h i s hi
   exact hno v hv
 
 /-- Such a clause is coherent with every clause, on either side, and so match independent. -/
 theorem coherent_left {c : Semantics} {cl : Clause} {i : Nat} {s : Srt} (hi : cl.vars[i]? = some s)
-    (hno : ∀ v, c.sortOf v ≠ some s) (cl' : Clause) : Coherent c cl cl' :=
-  fun vs σ _ ha => absurd ha (not_appliesAt hi hno σ vs)
+    (hno : ∀ v, c.sortOf v ≠ some s) (cl' : Clause) (hx : cl.exs = [] := by rfl) : Coherent c cl cl' :=
+  fun vs σ _ ha => absurd ha (not_appliesAt hi hno σ vs hx)
 
 theorem coherent_right {c : Semantics} {cl : Clause} {i : Nat} {s : Srt} (hi : cl.vars[i]? = some s)
-    (hno : ∀ v, c.sortOf v ≠ some s) (cl' : Clause) : Coherent c cl' cl :=
-  fun vs _ σ' _ ha => absurd ha (not_appliesAt hi hno σ' vs)
+    (hno : ∀ v, c.sortOf v ≠ some s) (cl' : Clause) (hx : cl.exs = [] := by rfl) : Coherent c cl' cl :=
+  fun vs _ σ' _ ha => absurd ha (not_appliesAt hi hno σ' vs hx)
 
 /-- **A matched clause with a valueless variable does not stop a clause of the same or a smaller
 priority from deciding**: `Eval.clause` of the other clause reads `Fails` only of the clauses of a
@@ -412,14 +413,14 @@ theorem peer_decides {c : Semantics} {f : Sym} {fn : Fn} {vs : List GroundTerm} 
     (hprio : ∀ cl'' ∈ fn.clauses, cl''.aside = false → cl''.prio < cl'.prio → Fails c vs cl'')
     (hens : cl'.ens = none) (hrhs : EvalTerm c σ cl'.rhs r) (hx : cl'.exs = [] := by rfl)
     (hpost : Holds c cl'.vars.length σ cl'.post true := by exact .top) : Eval c f vs r :=
-  Eval.clause hfn hmem ha.1 ha.2.1 ha.2.2.1 ha.2.2.2 hprio hx hrhs (fun t ht => by rw [hens] at ht; cases ht) hpost
+  Eval.clause hfn hmem ((wellSortedAt_univ hx).mp ha.1) ha.2.1 ha.2.2.1 ha.2.2.2 hprio hx hrhs (fun t ht => by rw [hens] at ht; cases ht) hpost
 
 theorem eval_aTerm : EvalTerm cEA [] clA.rhs (some (.ctor aL [])) :=
   EvalTerm.ctor (rs := []) (by decide +kernel) .nil
 
 /-- **`fEA()` is `a`**: `clA` decides, no clause being of a smaller priority. -/
 theorem fEA_a : Eval cEA fEAL [] (some (.ctor aL [])) :=
-  peer_decides hfnEA (List.Mem.tail _ (List.Mem.head _)) ⟨ws_nil, .nil, (fun t h => by cases h), .top⟩
+  peer_decides hfnEA (List.Mem.tail _ (List.Mem.head _)) ⟨ws_nil.at _, .nil, (fun t h => by cases h), .top⟩
     (fun cl' h _ hlt => by
       simp only [fEA, List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with rfl | rfl <;> simp [clE, clA] at hlt)
@@ -485,7 +486,7 @@ theorem ws_u : c.WellSorted clU.vars σu := fun i s hs => by
 
 /-- **`fU()` is `h(u)`.** -/
 theorem fU_hu : Eval c fUL [] (some (.ctor hL [.ctor uL []])) :=
-  peer_decides (σ := σu) hfnU (List.Mem.head _) ⟨ws_u, .nil, (fun t h => by cases h), .top⟩
+  peer_decides (σ := σu) hfnU (List.Mem.head _) ⟨ws_u.at _, .nil, (fun t h => by cases h), .top⟩
     (fun cl' h _ hlt => by simp only [fU, List.mem_singleton] at h; subst h; simp at hlt)
     rfl (EvalTerm.ctor (rs := [some (.ctor uL [])]) (by decide +kernel) (.cons .var .nil))
 
@@ -497,8 +498,8 @@ theorem matchIndependent_U : MatchIndependent c clU := by
   refine .inl ⟨rfl, rfl, rfl, rfl, fun i hi => ?_, fun t ht => by cases ht⟩
   simp only [clU, varOccs, varOccsList, List.append_nil, List.mem_singleton] at hi
   subst hi
-  obtain ⟨v, hv, hs⟩ := ha.1 0 U rfl
-  obtain ⟨v', hv', hs'⟩ := ha'.1 0 U rfl
+  obtain ⟨v, hv, hs⟩ := (wellSortedAt_univ rfl).mp ha.1 0 U rfl
+  obtain ⟨v', hv', hs'⟩ := (wellSortedAt_univ rfl).mp ha'.1 0 U rfl
   rw [hv, hv', u_only hs, u_only hs']
 
 /-! ## `fI() = k(Y:Int)`: two values of Int, two results -/
@@ -555,7 +556,7 @@ theorem eval_k (n : Int) :
 and `k(1)`. -/
 theorem not_matchIndependent_I : ¬ MatchIndependent c clI := fun h => by
   have ha : ∀ n : Int, clI.AppliesAt c [(0, .dv Srt.int (.int n))] [] :=
-    fun n => ⟨ws_int n, .nil, (fun t h => by cases h), .top⟩
+    fun n => ⟨(ws_int n).at _, .nil, (fun t h => by cases h), .top⟩
   have hdec : ∀ n : Int, clI.Decides c fI [(0, .dv Srt.int (.int n))] [] := fun n =>
     ⟨ha n, fun cl' h _ hlt => by simp only [fI, List.mem_singleton] at h; subst h; simp at hlt⟩
   rcases h.1 [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ _ => hdet_k σ0) (fun _ t h => by cases h)
