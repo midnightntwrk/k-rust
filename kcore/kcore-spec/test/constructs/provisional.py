@@ -2,7 +2,7 @@
 
 Every table of the manifest is read, the inline tables of its arrays (a layer's `except`) among
 them. Fails on:
-- an entry with status = "provisional": none is admitted;
+- an entry with status = "provisional", outside the allowance;
 - an entry with `relabelled` (stable though what it describes is not resolved: the field says why)
   whose status is not "stable", or whose `leaves` is neither the sentence
   "no construct depends on it" nor a non-empty list of references "<list> <row key>[, case <name>]"
@@ -13,11 +13,18 @@ them. Fails on:
   "<list> <row key>[, case <name>]" to entries of ROWS.toml.
 The sentence is checked here for its presence only; whether it is true is the gate's to judge.
 
+The allowance (ALLOWANCE below): a provisional entry, named by its declaration, that a pending ticket
+of PROGRESS owes, as units.py's and closed.py's allowances are owed. It holds only while the entry is
+provisional, its `ticket` field names the ticket, and the ticket is in PROGRESS with a status other
+than done; an allowance whose entry is missing or no longer provisional, or whose ticket is missing
+or done, fails. Every run prints each allowance. DONE-0 C5 part 4 is not met while one is listed.
+  PROGRESS  as units.py: KCORE_PROGRESS, else ../progress, else the main checkout's.
+
 Usage (from kcore-spec): python3 -I test/constructs/provisional.py [MANIFEST [ROWS.toml]]
   MANIFEST   default ../core-manifest.toml
   ROWS.toml  default test/constructs/rows.toml
 Prints each relabelled entry with what it leaves, then each failure. Exit 1 on a failure."""
-import os, re, sys, tomllib
+import glob, os, re, sys, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 man = sys.argv[1] if len(sys.argv) > 1 else os.path.join(K, "../core-manifest.toml")
@@ -28,6 +35,20 @@ LEFT = {"refused", "parameter"}
 
 m = tomllib.load(open(man, "rb"))
 t = tomllib.load(open(rows, "rb"))
+KR = os.environ.get("K_RUST", os.path.expanduser(
+    "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
+prog = os.environ.get("KCORE_PROGRESS") or next(
+    (d for d in (os.path.join(K, "../progress"),
+                 os.path.join(KR, "draft-personal/k-semantics-core-2026-11/progress"))
+     if os.path.isdir(d)), os.path.join(K, "../progress"))
+
+# Provisional entries owed by a ticket of PROGRESS: (the entry's declaration, ticket).
+# WIT.manifest makes the entry name its witness or WIT.decide's decision (DONE-0 C5 part 4); until
+# then the conjunct has neither (test/witnesses.toml itesApart.1).
+ALLOWANCE = [
+    ("inside faithCoreOK: the first half of itesApart (every symbol named like ite is named at a "
+     "numbered sort)", "WIT.manifest"),
+]
 
 
 def entries(v, where):
@@ -65,11 +86,33 @@ def status_of(ref):
     return hit[0].get("status", row.get("status")), None
 
 
+tstatus = {}
+for f in sorted(glob.glob(os.path.join(prog, "tickets-*.toml"))):
+    for tid, tk in tomllib.load(open(f, "rb")).get("ticket", {}).items():
+        tstatus[tid] = tk.get("status")
+allowed = dict(ALLOWANCE)
+seen = set()
+
 bad, shown = [], 0
+if not tstatus:
+    bad.append(f"no progress/tickets-*.toml under {prog} (set KCORE_PROGRESS)")
 for where, e in entries(m, ""):
     n = name(where, e)
     if e.get("status") == "provisional":
-        bad.append(f"{n}: status provisional")
+        d = e.get("declaration")
+        tid = allowed.get(d)
+        if tid is None:
+            bad.append(f"{n}: status provisional")
+        else:
+            seen.add(d)
+            st = tstatus.get(tid)
+            why = ("" if st not in (None, "done") and tid in str(e.get("ticket", "")) else
+                   f"its ticket field does not name {tid}" if st not in (None, "done") else
+                   f"ticket {tid} is not in {prog}/tickets-*.toml" if st is None else
+                   f"ticket {tid} is done, so it owes nothing")
+            print(f"allowance {n}: provisional, owed by {tid} (status {st})")
+            if why:
+                bad.append(f"{n}: allowance: {why}")
     if "rows" in e:
         rs = e["rows"]
         if not isinstance(rs, list) or not rs:
@@ -103,7 +146,11 @@ for where, e in entries(m, ""):
         print(f"relabelled {n}: leaves {len(lv)} rows.toml entries refused or parameter")
     shown += 1
 
-print(f"provisional: {shown} relabelled entries; {len(bad)} failures")
+for d, tid in ALLOWANCE:
+    if d not in seen:
+        bad.append(f"allowance {d[:60]!r} ({tid}): no provisional entry has this declaration; remove it")
+
+print(f"provisional: {shown} relabelled entries; {len(seen)} allowed provisional; {len(bad)} failures")
 for b in bad:
     print(f"  {b}")
 sys.exit(1 if bad else 0)
