@@ -95,21 +95,21 @@ def classes : List (String × List Nat) :=
    ("no junk", [120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130]),
    ("function functional", [91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105]),
    ("hooked functional", [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 81, 88, 90, 106, 107, 108, 109, 112, 113,
-      114, 115, 116, 117]),
+      56, 64, 65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 81, 88, 90, 107, 108, 109, 112, 113, 114,
+      115, 116, 117]),
    ("collection law", [53, 54, 55, 57, 58, 59, 60, 62, 63]),
    ("library", [136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
       154, 155, 156, 157, 158, 159, 164, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176,
       177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194,
       195, 196, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213,
-      214, 215, 216, 217, 251, 252, 253, 254, 255, 256, 271, 272]),
+      214, 215, 216, 217, 253, 254, 255, 256, 271, 272]),
    ("set idempotence", [61]),
    ("set-variable lemma", [131, 132, 133, 134, 135, 273]),
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
-   ("no direction", [36, 40, 42, 73, 75, 89, 118, 119, 165, 197, 218, 219, 220, 221, 257, 258, 259, 260, 261, 262,
-      263, 264, 265, 266, 267, 268, 269, 270])]
+   ("no direction", [36, 40, 42, 73, 75, 89, 106, 118, 119, 165, 197, 218, 219, 220, 221, 251, 252, 257, 258, 259,
+      260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -123,24 +123,26 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 4), ("priority equation", 0), ("constructor functional", 10), ("subsort", 15), ("injectivity", 4), ("distinctness", 6), ("no junk", 11), ("function functional", 15), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 28)] := by
+    [("function equation", 29), ("rewrite rule", 4), ("priority equation", 0), ("constructor functional", 10), ("subsort", 15), ("injectivity", 4), ("distinctness", 6), ("no junk", 11), ("function functional", 15), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 31)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
-aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
-/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has. -/
+/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
+so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
+`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it
+(`gammaHeads`). -/
 theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
-      (fun ad => (symbolsOf ad.ax.pattern).all
-        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
