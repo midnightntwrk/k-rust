@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-EQ-RHS-OR-NEST: 398 sentences
+  1 inert import [generated]
+  180 read [generated]
+  184 read [builtin]
+  7 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 read andAsEnsures [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 359: andAsEnsures, orBottom
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 359 (Lblh): manyValuedRightSide (\or)
+        [user] (no label) at e3-ml-eq-rhs-or-nest.k:8: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblh{}(X0:SortInt{}), \and{SortInt{}}(\and{SortInt{}}(\or{SortInt{}}(Lblk{}(\or{SortInt{}}(Lblf{}(VarX:SortInt{}), Lblg{}(VarX:SortInt{}))), \bottom{SortInt{}}()), \equals{SortBool{}, SortInt{}}(Lbl'Unds-GT-Eqls'Int'Unds'{}(Lbl'UndsStar'Int'Unds'{}(VarX:SortInt{}, Var …
+finish: sentence 359 (Lblh): manyValuedRightSide (\or)
+(exit 0)
