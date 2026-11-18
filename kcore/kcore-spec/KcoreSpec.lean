@@ -380,3 +380,4 @@ import KcoreSpec.ClauseExDenCEx
 import KcoreSpec.StepExTermSSx
 import KcoreSpec.StepExRuleSSx
 import KcoreSpec.StepSuccessorExCEx
+import KcoreSpec.TieFR
