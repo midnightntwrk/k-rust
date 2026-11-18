@@ -213,7 +213,7 @@ theorem patReading_stdI (h : HypModelCore c) : HoldsShape.PatReading c (stdI_T c
     have hnum := varOccs_num h p hpS hsn i hi _ (List.getElem?_eq_getElem hl)
     rw [← hg] at hnum
     exact inSort_val ((inhOf_srtOf_stdI h hnum e _).mp (hin i hi).2)
-  have hPO := (patOK_of_sorted h hpS).monoOpen (Q := (· ∈ varOccs p)) fun i hi => hi
+  have hPO := (patOK_of_sorted h (h.ovlOKI.nf_bridge hpS)).monoOpen (Q := (· ∈ varOccs p)) fun i hi => hi
   constructor
   · intro hp
     let σ' : Subst := (varOccs p).map fun i => (i, toVal (e.evalEvar (tbl.ev (canonKey c vars i))))

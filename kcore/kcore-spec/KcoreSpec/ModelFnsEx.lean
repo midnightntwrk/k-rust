@@ -230,7 +230,7 @@ theorem withPre_readEx (h : HypModelCore c) {fn : Fn} {cl : Clause} (F : ExclFac
   obtain ⟨-, hq, hpv⟩ := (premise_iffCl h (P := P) (R_read e) hRs hvar
     (fun t ht => (termOK_of_sorted h hL (hreqs t ht)).monoOpen fun i hi =>
       hleftP i (Clause.req_leftVars ht i hi) (varOccs_lt t (hreqs t ht) i hi))
-    (fun p hp => (patOKs_of_sorted h F.pats p hp).monoOpen fun i hi =>
+    (fun p hp => (patOKs_of_sorted h (h.ovlOKI.nfs_bridge F.pats) p hp).monoOpen fun i hi =>
       have hil : i ∈ varOccsList cl.pats := varOccsList_of_memOpen hp hi
       hleftP i (List.mem_append_left _ hil) (varOccsList_lt cl.pats F.pats i hil))
     hlen hargs a).mp hsplit.1

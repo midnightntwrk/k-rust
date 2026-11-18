@@ -226,6 +226,12 @@ witness = "KcoreSpec.ModelOvlIncohWitness"
 note = "two constructors g, h : Int -> KCell overloaded by f : Int -> KCell: the overload equations give g(x) = f(x) = h(x), against Cons-Dist of g and h"
 
 [[conjunct]]
+key = "overloadsOK.9"
+text = "c.ovlPatsOK"
+witness = "none: no witness exists: implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart), for every semantics (kernel-checked: ov9_of_ov15): each symbol an overloading symbol overloads is a constructor or an overloading symbol, neither of which is a function's label, so no symbol is function-overloaded (fnOvlSyms is empty) and no pattern applies one; the implication holds while overloadsOK.5 admits no function among the overloaded symbols"
+evidence = "test/WitRestOvlB.lean"
+
+[[conjunct]]
 key = "FnDet"
 text = "KCore.FnDet"
 witness = "none: derivable from coreOK and FnSolves at the current Eval block (test/FnSolvesDet.lean), reopened after CE.flip"

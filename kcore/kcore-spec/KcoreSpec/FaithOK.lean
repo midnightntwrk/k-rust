@@ -507,8 +507,9 @@ def ovlCoherent (k1 k2 : CtorSig) : Bool :=
 (`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
 right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor or an
 overloading symbol listed before it (so the overloads are acyclic and `norm`'s steps suffice), of
-its arity, with argument and result sorts at most its own (`ovlPairOK`); and any two overloads of
-one symbol agree (`ovlCoherent`). Decidable on the data. -/
+its arity, with argument and result sorts at most its own (`ovlPairOK`); any two overloads of
+one symbol agree (`ovlCoherent`); and no pattern applies a function-overloaded symbol (`ovlPatsOK`).
+Decidable on the data. -/
 def overloadsOK : Bool :=
   (c.ovls.zipIdx.all fun (o, i) =>
     c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (iteSort? (c.symName o.sig.name)).isNone &&
@@ -516,7 +517,8 @@ def overloadsOK : Bool :=
     o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) &&
     (c.ovlOver o).length == o.over.length &&
     (c.ovlOver o).all (c.ovlPairOK o) &&
-    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2)
+    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2) &&
+  c.ovlPatsOK
 
 /-- The symbols f reaches along the overloads, f among them, in at most `n` steps. -/
 def ovlReach : Nat → Sym → List Sym

@@ -72,7 +72,7 @@ theorem rule_witnessed (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {r : Rule} (
   obtain ⟨hlhs, -, -, hrhs⟩ := Semantics.ruleSorted_parts c hs
   rcases harm with hL | hAB
   · obtain ⟨-, hwit⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-      (collPat_of_sorted hph' hlhs) hlhs x.property hl
+      (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
     exact hwit i (List.contains_iff_mem.mp hL)
   simp only [Rule.armAB, Bool.or_eq_true] at hAB
   rcases hAB with hA | hB
@@ -107,7 +107,7 @@ theorem rule_subst_AB (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {r : Rule} (h
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   obtain ⟨hlhs, -, -, -⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨hmatch, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) hlhs x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   have hwit : ∀ i < r.vars.length, Witnessed c I tbl (canonVars c r.vars) r.vars e i := by
     intro i hi
     by_cases hL : (varOccs r.lhs).contains i = true
@@ -212,7 +212,8 @@ theorem neg_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn
   intro fn hfn cl hcl _
   obtain ⟨hp', hb', -⟩ := clause_ctx hok hbc hfn hcl
   exact fun hws _ hkeys hXkeys hRkey _ hX _ hR hσR hfail m =>
-    exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl) hp' hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
+    exclusion_emptyC hIΓ hph hcs hcso hg hsc.trans hnn.1 (clause_preTop hok hfn hcl)
+        (Semantics.pats_nf (OvlOK.hyp inferInstance hsc.trans) hfn hcl hp') hb' (collPats_of_sorted hph' hp') hws hkeys hXkeys
       hRkey hX hR hσR hfail m
 
 /-- Each variable is held by the left side or open: where each open variable is given the element
@@ -230,7 +231,7 @@ theorem rule_witnessed_all (h : c.coreOK = true) (hIΓ : I ⊧ᴵP Γ c) {r : Ru
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
   obtain ⟨hlhs, -, -, -⟩ := Semantics.ruleSorted_parts c hs
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) hlhs x.property hl
+    (collPat_of_sorted hph' hlhs) (OvlOK.nf_bridge inferInstance hlhs) x.property hl
   intro i hi
   by_cases hL : (varOccs r.lhs).contains i = true
   · exact hwitL i (List.contains_iff_mem.mp hL)
