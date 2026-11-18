@@ -126,6 +126,10 @@ statement = "A cell the claim does not mention is unconstrained on the right sid
 answer = "The generated counter is C on the left and any value on the right of sum-spec."
 consequence = "The right side is a set over every counter value; the statement is weaker than counter-unchanged's."
 
+[[observe]]
+file = "kompile.txt"
+contains = "Claims are not allowed in the definition."
+
 [[note]]
 implementation = "kompile"
 text = "kompile refuses a claim in a definition: kcore-spec fixture e1-claim's kompile.txt reads 'Claims are not allowed in the definition.', exit 113."
