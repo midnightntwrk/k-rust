@@ -44,6 +44,15 @@
     those values);
   - by `ExactC`, a value is a successor of x in some model of `Γc` with the step's closure exactly
     where it is some `Y k` with k other than 1 (`exact_y`).
+
+  ## e3-vars-update and e3-vars-rangemap (`Update`, `RangeMap`)
+  The reader refuses both texts, so `definition_of` has no semantics of them; `held_base_of` binds the
+  reader's semantics of each before its rules are checked (`heldBaseOf`), its one rule `r0` included,
+  as the sentence writes it (`r0_rhs`). In every semantics `_[_<-_]` and the range map's unit,
+  element and concatenation symbols are not held (`not_held_fxv`). In each text V (variable 3) is
+  existential, of Int, which the text leaves unconfined, and held only under `_[_<-_]`, resp. the
+  range map's element symbol, neither a constructor: `heldOccs` does not hold V, `rulePlainHO1` fails
+  and `openRefusal` is `openRight` (`refused`).
 -/
 import KcoreSpec
 
@@ -772,5 +781,101 @@ theorem exact_y (y : Config c) :
 #guard_msgs in #print axioms exact_y
 
 end MapRest
+
+section Refused
+
+open Lean Elab Command in
+/-- `held_base_of NAME from "file.kore"`: `def NAME : Semantics :=` the reader's semantics of the text
+before its rules are checked (`heldBaseOf`), its rules included; for a text without parameter
+symbols (its interpretation is the default). -/
+elab "held_base_of " id:ident " from " path:str : command => do
+  let k ← match Kore.parseDefinition (← IO.FS.readFile path.getString) with
+    | .error e => throwError "held_base_of: {path.getString}: KORE read error {e}"
+    | .ok k => pure k
+  let c ← match heldBaseOf k with
+    | .error e => throwError "held_base_of: {path.getString}: {e}"
+    | .ok (c, _) => pure c
+  unless c.params.isEmpty do throwError "held_base_of: {path.getString}: the text has parameter symbols"
+  let name := (← getCurrNamespace) ++ id.getId
+  liftCoreM <| addDecl <| .defnDecl {
+    name, levelParams := [], type := mkConst ``Semantics, value := semanticsExpr c,
+    hints := .regular 0, safety := .safe }
+
+/-- In every semantics, `_[_<-_]` and the unit, element and concatenation symbols of the range map
+are not held: each is an interpreted hooked symbol and neither a pattern hook of a map nor a
+collection pattern hook of a list or a set. -/
+theorem not_held_fxv (c : Semantics) :
+    c.holds mapUpdate = false ∧ c.holds rmUnit = false ∧ c.holds rmElem = false ∧ c.holds rmConcat = false :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+/-- info: 'HeldFixtures.not_held_fxv' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms not_held_fxv
+
+end Refused
+
+namespace Update
+
+held_base_of c from "f2-examples/heldupdate.kompile.kore"
+
+def mCell : Sym := 387
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem rules_eq : c.rules = [r0] := by
+  have h : c.rules.length = 1 := by decide +kernel
+  match hr : c.rules, h with
+  | [r], _ => simp only [r0, hr, List.getElem_cons_zero]
+
+/-- The right side `<m> M [ 0 <- ?V ] [ 0 <- 1 ] </m>`, as the sentence writes it. -/
+theorem r0_rhs : r0.rhs = .app topLabel [.app 385 [.var 0],
+    .app mCell [.app mapUpdate [.app mapUpdate [.var 1, .inj Srt.int Srt.kitem (.dv Srt.int (.int 0)),
+      .inj Srt.int Srt.kitem (.var 3)], .inj Srt.int Srt.kitem (.dv Srt.int (.int 0)),
+      .inj Srt.int Srt.kitem (.dv Srt.int (.int 1))]], .var 2] := rfl
+
+/-- **The rule is refused `openRight` at Int**: V (variable 3) is existential, of Int, which the text
+leaves unconfined, and the right side holds it under `_[_<-_]` only, a hooked function that is no
+constructor and is not held; so `heldOccs` does not hold it and the rule's conjunct
+`rulePlainHO1` fails, and the reader's `openRefusal` is `openRight`. -/
+theorem refused : r0.exs = [3] ∧ r0.vars[3]? = some Srt.int ∧ (heldOccs c r0.rhs).contains 3 = false ∧
+    (r0.vars[3]?.map c.confined).getD false = false ∧ c.isCtor mapUpdate = false ∧ c.holds mapUpdate = false ∧
+    c.rulePlainHO1 r0 = false ∧ (Parse.openRefusal c r0 []).map Prod.fst = some .openRight := by
+  decide +kernel
+
+/-- info: 'HeldFixtures.Update.refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms refused
+
+end Update
+
+namespace RangeMap
+
+held_base_of c from "f2-examples/heldrangemap.kompile.kore"
+
+def rCell : Sym := 387
+def symRange : Sym := 356
+
+noncomputable def r0 : Rule := c.rules[0]'(by decide +kernel)
+
+theorem rules_eq : c.rules = [r0] := by
+  have h : c.rules.length = 1 := by decide +kernel
+  match hr : c.rules, h with
+  | [r], _ => simp only [r0, hr, List.getElem_cons_zero]
+
+/-- The right side `<r> [0, 1) r|-> ?V </r>`, as the sentence writes it. -/
+theorem r0_rhs : r0.rhs = .app topLabel [.app 385 [.var 0],
+    .app rCell [.app rmElem [.app symRange [.inj Srt.int Srt.kitem (.dv Srt.int (.int 0)),
+      .inj Srt.int Srt.kitem (.dv Srt.int (.int 1))], .inj Srt.int Srt.kitem (.var 3)]], .var 2] := rfl
+
+/-- **The rule is refused `openRight` at Int**: V (variable 3) is existential, of the unconfined
+sort Int, and the right side holds it under the range map's element symbol only, which is no
+constructor and is not held; `rulePlainHO1` fails and the reader's `openRefusal` is `openRight`. -/
+theorem refused : r0.exs = [3] ∧ r0.vars[3]? = some Srt.int ∧ (heldOccs c r0.rhs).contains 3 = false ∧
+    (r0.vars[3]?.map c.confined).getD false = false ∧ c.isCtor rmElem = false ∧ c.holds rmElem = false ∧
+    c.rulePlainHO1 r0 = false ∧ (Parse.openRefusal c r0 []).map Prod.fst = some .openRight := by
+  decide +kernel
+
+/-- info: 'HeldFixtures.RangeMap.refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms refused
+
+end RangeMap
 
 end HeldFixtures
