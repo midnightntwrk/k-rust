@@ -318,7 +318,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     (hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x)
     {fn : Fn} {cl : Clause} {L : List CtorSig}
-    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpatsN : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args)
     (hpreOK : c.condOK cl.vars cl.pre = true)
     (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ cl.needsWitness c = false)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
@@ -326,6 +326,7 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
       cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true)
     (hrc : cl.openCondVars.any (fun i => (cl.vars[i]?.map c.confined).getD false) = true → c.readsConfined = true)
     (hw : cl.needsWitness c = true → cl.CondDecided c) : ExclEmptyCl c I fn cl := by
+  have hpats := sortsOfTerms_all_of_nf hpatsN
   intro ws hws hf hmf tbl hkeys hpkeys hXkeys hRkey e hX σR hR hσR m hm
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   have hD := defOK hIΓ
@@ -444,8 +445,10 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
       (hpL i (mem_varOccsList_of_getCl hq hi))).symm) _).mp hj
   have hpats' : sortsOfTerms c.patCtxAll cl.leftSortsB cl.pats = some fn.args := by
     rw [sortsOfTerms_congr cl.pats (fun i hi => Clause.leftSortsB_getElem? (hpl i hi) (hpL i hi))]; exact hpats
+  have hpatsN' : sortsOfTerms c.patCtxNF cl.leftSortsB cl.pats = some fn.args := by
+    rw [sortsOfTerms_congr cl.pats (fun i hi => Clause.leftSortsB_getElem? (hpl i hi) (hpL i hi))]; exact hpatsN
   obtain ⟨hpv, hwitP⟩ := patVals_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPats_of_sorted hph' hpats')
-    (OvlOK.nfs_bridge inferInstance hpats') hws hall
+    hpatsN' hws hall
   -- the `requires`, at e1
   have hreq1 : ∀ t, cl.req = some t →
       (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (some (Term.kore c vs t)))).interpret I e1 m := fun t ht => by
@@ -608,7 +611,8 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
     obtain ⟨v, hv, hden⟩ := confined_value h hr hI hs' KoreAML.val0 x ((inS_iff KoreAML.val0).mpr hx)
     exact ⟨v, hv, (hden _).mp (((elemOf_spec hIΓ hv KoreAML.val0).1 _).mpr rfl)⟩
   intro ws
-  exact exclEmptyCl_ofCl hI hnn hg (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hph hcso hcs hph' hcv hpats
+  exact exclEmptyCl_ofCl hI hnn hg (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hph hcso hcs hph' hcv
+    (Semantics.clauseSortedOpen_pats_nf hs)
     (by rw [hpre, Semantics.condOK]) (fun hne => absurd hpre hne) hreqS hconj hrc hw
 
 /-- **For a semantics `coreOK` accepts, a clause that fails fails in the model at the

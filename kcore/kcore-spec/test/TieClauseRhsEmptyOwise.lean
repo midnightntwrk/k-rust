@@ -69,6 +69,7 @@ theorem sortOfH (H : HookParams) : (cH H).sortOf = c.sortOf := Semantics.sortOf_
 theorem sortsOfH (H : HookParams) : (cH H).sortsOf = c.sortsOf := Semantics.sortsOf_withHooks c H noRaw
 
 theorem wh_patCtxAll (H : HookParams) : (cH H).patCtxAll = c.patCtxAll := rfl
+theorem wh_patCtxNF (H : HookParams) : (cH H).patCtxNF = c.patCtxNF := rfl
 theorem wh_isCtor (H : HookParams) : (cH H).isCtor = c.isCtor := rfl
 
 noncomputable def fF : Fn := c.fns[0]'(by decide +kernel)
@@ -511,7 +512,7 @@ theorem low_X : lowerClauses fF clX = [cl0] := by
   simp [lowerClauses, clauses_eq, h0, hX, a0, aX]
 
 theorem pats_sorts0 : sortsOfTerms c.patCtxAll cl0.vars cl0.pats = some fF.args := by decide +kernel
-theorem pats_sortsX : sortsOfTerms c.patCtxAll clX.vars clX.pats = some fF.args := by decide +kernel
+theorem pats_sortsXN : sortsOfTerms c.patCtxNF clX.vars clX.pats = some fF.args := by decide +kernel
 
 theorem occX : ∀ i < clX.vars.length, i ∈ varOccsList clX.pats ++ clX.condVars ++
     varOccs clX.rhs ++ (clX.ens.map varOccs).getD [] ++ varOccsCond clX.vars.length clX.post := by
@@ -576,7 +577,7 @@ theorem f1_is_a (H : HookParams) : Pre H ⊧ (TiePair.app (cH H) fS [one] ≡ de
   have haV : (cH H).sortOf aV = some fF.result := by rw [sortOfH]; exact aV_sort
   have key := compete_eq4Cl hΓ hnn hph htr (lookupFH H)
     (competingEquation_mem clX_mem (by rw [low_X]; simp)) hws hothers hσ
-    (by rw [clX_pats]; exact .cons (.var rfl) .nil) (by rw [wh_patCtxAll]; exact pats_sortsX)
+    (by rw [clX_pats]; exact .cons (.var rfl) .nil) (by rw [wh_patCtxNF]; exact pats_sortsXN)
     (by rw [condOKX_withHooks]; exact hokX) clX_post shape.2.2.2.2.2.2.2.2.2.1 occX
     (fun t h => by rw [clX_req] at h; cases h) (fun i hi => by rw [clX_rhs] at hi; simp [varOccs, varOccsList] at hi)
     (fun t h => by rw [clX_ens] at h; cases h) (r := some aV) (fun v hv => by cases hv; exact haV)

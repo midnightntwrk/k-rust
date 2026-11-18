@@ -92,24 +92,20 @@ theorem pats_nf (H : OvlLaws.OvlHyp c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : C
     (h : sortsOfTerms c.patCtxAll vars cl.pats = some ss) : sortsOfTerms c.patCtxNF vars cl.pats = some ss :=
   sortsOfTerms_to_nf _ h (pats_noFnOvl H hfn hcl)
 
+/-- The patterns of a sort predicate's clause have its argument sorts over `patCtxNF`: they are
+sorted over the matcher's context, which holds no function-overloaded symbol. -/
+theorem sortPredPats_nf (H : OvlLaws.OvlFnFacts c) {fn : Fn} (hp : fn ∈ c.sortPreds) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) : sortsOfTerms c.patCtxNF cl.vars cl.pats = some fn.args :=
+  have h := (sortPreds_ctx hp cl hcl).1
+  have hA : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args :=
+    sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats h
+  sortsOfTerms_to_nf _ hA (noFnOvlInL_of_sorted (fun _ _ => patCtx_not_fnOvl H) _ h)
+
 /-- A rule's left side is sorted over `patCtxNF` as it is over `patCtxAll` (`ovlPatsOK`). -/
 theorem lhs_nf (hok : c.overloadsOK = true) {r : Rule} (hr : r ∈ c.rules) {vars : List Srt} {s : Srt}
     (h : sortOfTerm c.patCtxAll vars r.lhs = some s) : sortOfTerm c.patCtxNF vars r.lhs = some s :=
   sortOfTerm_to_nf _ h (ovlPats_lhs (overloadsOK_pats hok) hr)
 
 end Semantics
-
-/-- A term sorted over `patCtxAll` is sorted over `patCtxNF` where no overloading symbol overloads
-a function (`OvlOK.noFn`). Read where the term is not at hand as a clause's pattern of the
-definition: the pattern of an `exMatch` in the Holds lemmas, and the clauses of the statements that
-take a sorted clause that need not be the definition's. A rule's left side is sorted over
-`patCtxNF` by `ruleSorted` itself (`Semantics.ruleSorted_lhs_nf`). -/
-theorem OvlOK.nf_bridge (h : OvlOK c) {vars : List Srt} {t : Term} {s : Srt}
-    (ht : sortOfTerm c.patCtxAll vars t = some s) : sortOfTerm c.patCtxNF vars t = some s :=
-  sortOfTerm_nf_of_nil h.noFn ht
-
-theorem OvlOK.nfs_bridge (h : OvlOK c) {vars : List Srt} {ts : List Term} {ss : List Srt}
-    (ht : sortsOfTerms c.patCtxAll vars ts = some ss) : sortsOfTerms c.patCtxNF vars ts = some ss :=
-  sortsOfTerms_nf_of_nil h.noFn ht
 
 end KCore

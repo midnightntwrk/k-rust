@@ -735,20 +735,6 @@ theorem fnCover_fn_ovlF (F : OvlFnFacts c) {f : Sym} {o : OvlSig} (ho : c.lookup
 
 end OvlLaws
 
-/-- A function-overloaded symbol (`fnOvlSyms`, which reads the functions' labels) has a function's
-signature among its overloads (`ovlByFn`). -/
-theorem OvlOK.fnOver {c : Semantics} [h : OvlOK c] :
-    ∀ o ∈ c.ovls, o.sig.name ∈ c.fnOvlSyms → ∃ kg ∈ c.ovlOver o, c.ovlByFn kg = true :=
-  fun o _ hm => by rw [h.noFn] at hm; cases hm
-
-/-- No overload of a symbol is a function's, where no overloading symbol overloads a function. -/
-theorem OvlOK.noFnOver {c : Semantics} [h : OvlOK c] (f : Sym) : OvlLaws.NoFnOver c f :=
-  OvlLaws.noFnOver_of_not_fnOvl (by rw [h.noFn]; exact List.not_mem_nil)
-
-/-- No function overload covers anything, where no overloading symbol overloads a function. -/
-theorem OvlOK.fnCover_none {c : Semantics} [OvlOK c] (f : Sym) (vs : List GroundTerm) : c.fnCover f vs = none :=
-  (OvlOK.noFnOver f).fnCover_none vs
-
 /-! ## Patterns that apply no function-overloaded symbol -/
 
 namespace NoFnOvlIn

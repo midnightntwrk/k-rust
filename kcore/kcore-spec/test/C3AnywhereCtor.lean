@@ -226,6 +226,10 @@ kernel_rfl toKEI_wh : ∀ H : HookParams, Gen.toK (cH H) (.ctor kEI) = Gen.toK c
 kernel_rfl sortNameE_wh : ∀ H : HookParams, (cH H).sortName exp = c.sortName exp
 kernel_rfl sortNameI_wh : ∀ H : HookParams, (cH H).sortName Srt.int = c.sortName Srt.int
 kernel_rfl subsorts_wh : ∀ H : HookParams, (cH H).subsorts = c.subsorts
+kernel_rfl fnOvlSyms_wh : ∀ H : HookParams, (cH H).fnOvlSyms = c.fnOvlSyms
+
+/-- No overloading symbol of this semantics overloads a function. -/
+theorem fnOvlSyms_nil : c.fnOvlSyms = [] := by decide +kernel
 
 /-- The valuation of the refutation: Y1 to the element `y2`, every other variable to `y0`. -/
 noncomputable def ncVal {M : Type} (y0 y2 : M) : Valuation M :=
@@ -254,12 +258,12 @@ theorem nc_refuted (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation
   have hEE := (Faithful.norm_gs hI htrH 1 kEE (by
       show lookupSig ((cH H).ctorSigs ++ (cH H).ovlSigs) sumEE = some kEE
       rw [lookupEE_wh H]; exact hkEE)
-    (by show OvlLaws.ovlRank (cH H) sumEE ≤ 1; rw [rankEE_wh H]; exact hrEE) [i5, i5] (by rw [hsos]; exact hsEE) (OvlOK.fnCover_none _ _) (elemOf (cH H) I y5)).mpr
+    (by show OvlLaws.ovlRank (cH H) sumEE ≤ 1; rw [rankEE_wh H]; exact hrEE) [i5, i5] (by rw [hsos]; exact hsEE) (OvlLaws.fnCover_none_of_noFnOvl ((fnOvlSyms_wh H).trans fnOvlSyms_nil) _ _) (elemOf (cH H) I y5)).mpr
     (by show elemOf (cH H) I y5 = elemOf (cH H) I ((cH H).norm sumEE [i5, i5]); rw [normEE_wh H, hnEE])
   have hEI := (Faithful.norm_gs hI htrH 1 kEI (by
       show lookupSig ((cH H).ctorSigs ++ (cH H).ovlSigs) sumEI = some kEI
       rw [lookupEI_wh H]; exact hkEI)
-    (by show OvlLaws.ovlRank (cH H) sumEI ≤ 1; rw [rankEI_wh H]; exact hrEI) [i5, int 5] (by rw [hsos]; exact hsEI) (OvlOK.fnCover_none _ _) (elemOf (cH H) I y5)).mpr
+    (by show OvlLaws.ovlRank (cH H) sumEI ≤ 1; rw [rankEI_wh H]; exact hrEI) [i5, int 5] (by rw [hsos]; exact hsEI) (OvlLaws.fnCover_none_of_noFnOvl ((fnOvlSyms_wh H).trans fnOvlSyms_nil) _ _) (elemOf (cH H) I y5)).mpr
     (by show elemOf (cH H) I y5 = elemOf (cH H) I ((cH H).norm sumEI [i5, int 5]); rw [normEI_wh H, hnEI])
   have hres : kEE.result = exp := rfl
   have hres' : kEI.result = exp := rfl
