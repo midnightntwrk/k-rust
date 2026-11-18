@@ -44,7 +44,8 @@ theorem matchIndependentAll_of_sortedOK {c : Semantics} (hok : c.sortedOK = true
   obtain ⟨hpt, -, L, -, -, hrt, hens⟩ := Faithful.clause_ctxOccE hok hmem hcl
   cases hfx : c.clauseFixed cl with
   | true =>
-    refine clauseFixed_sound (Exec.matchCtx_of hmr) hpt hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
+    refine clauseFixed_sound (Exec.matchCtx_of hmr)
+      (sortsOfTerms_nf_of_nil (Semantics.fnOvlSyms_of_noOvl (Exec.matchCtx_of hmr).noOvl) hpt) hrt ?_ hfx (Semantics.sortedOK_plainCl hok fn hmem cl hcl).1
     cases he : cl.ens with
     | none => rfl
     | some t => simpa [reqOK, he] using hens t he

@@ -141,7 +141,7 @@ theorem lhs_req_hold4Cl (hpreTop : c.clausesPreTop = true) {r : Rule} (hr : r �
   have haC : Inh I σC (elemOf c I x.val) := by
     have := hxs.2
     exact (KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσC1).mp this
-  refine ⟨(patVal_den4 hI hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch hlhs).2 _ |>.mpr
+  refine ⟨(patVal_den4 hI hnn.1 hph hsc.trans hσ (canonVars_length c r.vars) hag hmatch (Semantics.lhs_nf OvlOK.ok hr hlhs)).2 _ |>.mpr
     ((hxs.1 _).mpr rfl), ?_⟩
   cases hq : r.req with
   | none =>
@@ -374,7 +374,7 @@ theorem step_successor_atCl (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK
     rw [canonKey_eq c hi]
     exact this
   obtain ⟨hmatch, hwit⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 (canonVars_length c r.vars) hin
-    (collPat_of_sorted hph' hlhs) hlhs x.property hl
+    (collPat_of_sorted hph' hlhs) (Semantics.lhs_nf OvlOK.ok hr hlhs) x.property hl
   obtain ⟨hσ, hag⟩ := substOf_ok hIΓ hg hsc.trans (canonVars_length c r.vars) (fun i hi => hwit i (hbinds i hi))
   -- no rule of a smaller priority applies, in the sense of `RuleApplies`: the disjunct's negated
   -- competitors hold at the element of x

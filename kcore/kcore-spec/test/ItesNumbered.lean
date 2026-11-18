@@ -122,7 +122,8 @@ theorem iteNamed_param {c : Semantics} (hn : namesNumbered c = true) (ho : c.ove
   · rw [hooks_plain c hk] at hi; cases hi
   · obtain ⟨o, hmem, rfl⟩ := List.mem_map.mp hk
     obtain ⟨i, hlt, he⟩ := List.getElem_of_mem hmem
-    simp only [Semantics.overloadsOK, List.all_eq_true] at ho
+    simp only [Semantics.overloadsOK, Bool.and_eq_true] at ho
+    replace ho := ho.1; simp only [List.all_eq_true] at ho
     have hoi := ho (o, i) (by simpa [List.mem_zipIdx_iff_getElem?, List.getElem?_eq_getElem hlt] using he)
     simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hoi
     rw [hoi.1.1.1.1.1.2] at hi; cases hi

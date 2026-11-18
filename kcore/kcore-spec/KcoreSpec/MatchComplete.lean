@@ -82,7 +82,7 @@ theorem matchCtxO_of {c : Semantics} (h : c.matchReadyO = true) : MatchCtxO c :=
 
 /-- Without overloading symbols, `MatchCtx` gives `MatchCtxO`. -/
 theorem MatchCtx.o {c : Semantics} (h : MatchCtx c) : MatchCtxO c :=
-  ⟨h.trans, h.irrefl, h.patHooks, by simp [Semantics.overloadsOK, h.noOvl]⟩
+  ⟨h.trans, h.irrefl, h.patHooks, by simp [Semantics.overloadsOK, Semantics.ovlPatsOK, Semantics.fnOvlSyms, h.noOvl]⟩
 
 /-- A lemma over `MatchCtxO` applies where `MatchCtx` holds. -/
 instance {c : Semantics} : Coe (MatchCtx c) (MatchCtxO c) := ⟨MatchCtx.o⟩

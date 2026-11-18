@@ -21,6 +21,7 @@
 import KcoreSpec.ModelRead
 import KcoreSpec.Terminates
 import KcoreSpec.ModelConsFn
+import KcoreSpec.PatCtxNF
 
 set_option autoImplicit false
 
@@ -369,6 +370,19 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
 
 theorem HypModelCore.patHeads (h : HypModelCore c) : patHeadsOK c = true := h.sound.2.2.2.2.2.2.2.1
 
+theorem HypModelCore.ovlOKI (h : HypModelCore c) : OvlOK c := h.sound.2.2.2.2.2.2.2.2
+
+/-- A rule's left side is sorted over `patCtxNF` as it is over `patCtxAll`. -/
+theorem HypModelCore.lhs_nf (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) {vars : List Srt} {s : Srt}
+    (hl : sortOfTerm c.patCtxAll vars r.lhs = some s) : sortOfTerm c.patCtxNF vars r.lhs = some s :=
+  Semantics.lhs_nf h.ovlOKI.ok hr hl
+
+/-- A clause's patterns are sorted over `patCtxNF` as they are over `patCtxAll`. -/
+theorem HypModelCore.pats_nf (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause}
+    (hcl : cl ∈ fn.clauses) {vars : List Srt} {ss : List Srt}
+    (hp : sortsOfTerms c.patCtxAll vars cl.pats = some ss) : sortsOfTerms c.patCtxNF vars cl.pats = some ss :=
+  Semantics.pats_nf (h.ovlOKI.hyp h.trans) hfn hcl hp
+
 theorem patHead_kernel {k : CtorSig} (hk : k ∈ c.patCtxAll.heads) : k ∈ kernelSyms c := by
   simp only [Semantics.patCtxAll, Semantics.patCtx, Semantics.collPatSigs, List.mem_append] at hk
   rcases hk with (hk | hk) | (hk | hk) | hk
@@ -381,17 +395,19 @@ theorem patHead_kernel {k : CtorSig} (hk : k ∈ c.patCtxAll.heads) : k ∈ kern
 
 mutual
   theorem patOK_of_sorted (h : HypModelCore c) : ∀ {vars : List Srt} {p : Term} {s : Srt},
-      sortOfTerm c.patCtxAll vars p = some s → PatOK c (· < vars.length) p
+      sortOfTerm c.patCtxNF vars p = some s → PatOK c (· < vars.length) p
     | _, .var _, _, ht => .var (List.getElem?_eq_some_iff.mp (sortOfTerm_var.mp ht)).1
     | _, .dv _ _, _, ht => .dv (sortOfTerm_dv.mp ht).1
     | _, .app f ts, _, ht => by
       obtain ⟨k, hk, hargs, -⟩ := sortOfTerm_app.mp ht
+      have hnfo := (patCtxNF_lookup.mp hk).2
+      replace hk := (patCtxNF_lookup.mp hk).1
       obtain ⟨hkm, hkn⟩ := lookupSig_spec hk
       have hh := List.all_eq_true.mp h.patHeads k hkm
       simp only [downHead, Bool.or_eq_true] at hh
       rw [hkn] at hh
       refine .app (patHead_kernel hkm) hkn (sortsOfTerms_length hargs) ?_
-        (by rw [(h.sound.2.2.2.2.2.2.2.2 : OvlOK c).noFn]; exact List.not_mem_nil) (patOKs_of_sorted h hargs)
+        hnfo (patOKs_of_sorted h hargs)
       rcases hh with h1 | (h1 | h1) | h1
       · exact Or.inl h1
       · exact Or.inr (Or.inl h1)
@@ -405,7 +421,7 @@ mutual
       exact .as (patOK_of_sorted h ht') (List.getElem?_eq_some_iff.mp hi).1
     termination_by structural _ p _ _ => p
   theorem patOKs_of_sorted (h : HypModelCore c) : ∀ {vars : List Srt} {ps : List Term} {ss : List Srt},
-      sortsOfTerms c.patCtxAll vars ps = some ss → ∀ t ∈ ps, PatOK c (· < vars.length) t
+      sortsOfTerms c.patCtxNF vars ps = some ss → ∀ t ∈ ps, PatOK c (· < vars.length) t
     | _, [], _, _ => fun _ ht => absurd ht List.not_mem_nil
     | _, p :: ps, _, hs => by
       obtain ⟨s, ss', h1, h2, -⟩ := sortsOfTerms_cons.mp hs
