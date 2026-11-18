@@ -1854,7 +1854,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   seven hooked ones are parameters of no registry hook (`refl_hooks`, `refl_params`); expectation
   form (c), `refl_value`. The eight stream rules are the definition's rules at their sentences'
   priorities (`rule_texts`, `rule_prios`), each sentence the item of Γ's rule with the first two
-  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). About 40 s, 4.1 GiB.
+  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). `consistent` (the
+  semantics is `plain`, no fact named). Expectation from `Pre H` (the function equations as written,
+  `shape`, `append`'s two from the module KSEQ), by the executable step under `execReady`:
+  `out5_steps` (the rule `stdoutBufferInt` moves 5 from the `<out>` list into its buffer). About
+  2.5 minutes, 7.4 GiB.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`

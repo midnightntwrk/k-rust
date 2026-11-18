@@ -36,6 +36,12 @@
   `\rewrites{C}(Ltext, r)` at the table of Γ's axiom, `Ltext` the first two conjuncts of Γ's left
   side (`rules_tied`, kernel), so the sentence entails Γ's item (`rules_from_text`, W1,
   `TieRuleLhs.rule_w1`), for every H.
+
+  `consistent` for every H (no fact named; the semantics is `plain`). The expectation (C7 form (a),
+  by the executable step under `execReady`), from `Pre H` (the function equations as written, Γ's
+  items pattern for pattern, `shape`, `append`'s two from the module KSEQ; Γ's rule items; the
+  families; it has a model, `pre_model`): `out5_steps`, with the `<out>` list `#ostream(1) "off" #buffer("") 5` the rule `stdoutBufferInt`
+  steps to `#ostream(1) "off" #buffer("5")`.
 -/
 import KcoreSpec
 
@@ -63,6 +69,7 @@ theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map tr
 /-! ## Layer 1 -/
 
 theorem coreOK : c.coreOK = true := by decide_cheap
+theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-! ## `reflectionAsOwn` -/
 
@@ -228,6 +235,113 @@ theorem rules_from_text (H : HookParams) :
     exact w1_of_tieB (List.all_eq_true.mp rules_tied _ hp) (TiePair.defOK_texts hI)
       (hI _ (Or.inl (List.mem_singleton_self _)))
 
+/-! ## `consistent`, and a stream rule's step (C7 form (a)) -/
+
+/-- The text sentences of Γ's equations, in `fnItems`'s order (`TiePair.fnTextOf`): `append`'s two
+are the module KSEQ's (sentences 1 and 2), the others the user module's. -/
+noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c kore.axiomDecls
+
+theorem fnText_index : fnText.map (·.index) = [2976, 1, 2, 2925, 2933, 2932, 2931, 2930, 2937, 2936, 2943, 2942, 2935,
+    2934, 2898, 2897, 2924, 2923, 2902, 2901, 2947, 2946, 2912, 2911, 2914, 2913, 2916, 2915, 2918, 2917, 2945, 2944,
+    2908, 2907, 2910, 2909, 2949, 2948, 2953, 2952, 2951, 2950, 2927, 2926, 2929, 2928, 2920, 2919, 2922, 2921, 2939,
+    2938, 2941, 2940, 2904, 2903, 2906, 2905, 2900, 2899] := by
+  decide +kernel
+
+/-- The function equations as written. -/
+noncomputable def textPats : List P := fnText.map (trS · |>.pat)
+
+/-- **Each of Γ's equations is the translation of its text sentence** (kernel). -/
+theorem shape : TiePair.shapeB (TiePair.gammaPats c) textPats = true := by decide +kernel
+
+theorem shapeH (H : HookParams) : TiePair.shapeB (TiePair.gammaPats (cH H)) textPats = true := by
+  rw [TiePair.gammaPats_withHooks]; exact shape
+
+def callOrder : List Nat := []
+
+theorem term_named : c.rankObligations callOrder ++ c.decObligationsL = [] := by decide +kernel
+theorem agree_named : c.agreeObligationsI = [] := by decide +kernel
+theorem match_named : c.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+theorem total_named : c.totalObligationsRP callOrder [] = [] := by decide +kernel
+
+/-- None named, and the semantics is `plain`; no parameter (the seven K-REFLECTION symbols) is
+claimed total. -/
+theorem obl_nil (H : HookParams) : FnObligations (cH H) callOrder [] :=
+  FnObligations.of_nil
+    (by rw [Semantics.rankObligations_withHooks, Semantics.decObligationsL_withHooks]; exact term_named)
+    ((Semantics.totalObligationsRP_withHooks _ H _ _).trans total_named)
+    ((Det.Semantics.agreeObligationsI_withHooks _ H).trans agree_named)
+    ((Det.Semantics.matchObligationsL_withHooks _ H).trans match_named)
+
+theorem fnHypH (H : HookParams) : FnHyp (cH H) :=
+  fnHyp_withHooks coreOK (Semantics.rightHeld_of_valued (by decide +kernel)) H ParamsTotal.nil (obl_nil H)
+
+/-- **Γ with the step's closure has a model, for every H** (C14 closure (a)). -/
+theorem consistent (H : HookParams) : Consistent (cH H) := consistent_of_fnHyp _ (coreOKH H) (fnHypH H)
+
+/-- **The premises of the derivations**: every function equation as written, Γ's rule items (each
+a consequence of its stream rule's sentence, `rules_from_text`), and the families. -/
+noncomputable abbrev Pre (H : HookParams) : Premises KoreAML.Sym := TiePair.Pre (cH H) textPats
+
+/-- **`Pre` with the step's closure has a model, for every H.** -/
+theorem pre_model (H : HookParams) :
+    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) :=
+  TiePair.pre_model (shapeH H) (consistent H)
+
+theorem readsConfined_c : c.readsConfined = false := by decide +kernel
+theorem hrcH (H : HookParams) : (cH H).readsConfined = false := (Semantics.readsConfined_withHooks c H).trans readsConfined_c
+
+def tCell : Sym := 390
+def kCell : Sym := 393
+def inCell : Sym := 395
+def outCell : Sym := 397
+def bufferL : Sym := 147
+def ostreamL : Sym := 150
+def stream : Srt := 16
+
+theorem names : c.symName tCell = "Lbl'-LT-'t'-GT-'" ∧ c.symName kCell = "Lbl'-LT-'k'-GT-'" ∧
+    c.symName inCell = "Lbl'-LT-'in'-GT-'" ∧ c.symName outCell = "Lbl'-LT-'out'-GT-'" ∧
+    c.symName bufferL = "Lbl'Hash'buffer'LParUndsRParUnds'K-IO'Unds'Stream'Unds'K" ∧
+    c.symName ostreamL = "Lbl'Hash'ostream'LParUndsRParUnds'K-IO'Unds'Stream'Unds'Int" ∧
+    c.sortName stream = "Stream" ∧ c.sortName Srt.list = "List" ∧ c.sortName Srt.string = "String" := by
+  decide +kernel
+
+private theorem hready : CExec.execReady c = true := by decide +kernel
+theorem hreadyH (H : HookParams) : CExec.execReady (cH H) = true := (CExec.execReady_withHooks c H).trans hready
+
+def sstr (x : String) : GroundTerm := .dv Srt.string (.tok x)
+
+/-- `#buffer(s)`, as a list element. -/
+def buf (x : String) : GroundTerm :=
+  .inj stream Srt.kitem (.ctor bufferL [.ctor kseq [.inj Srt.string Srt.kitem (sstr x), .ctor dotk []]])
+
+/-- The `<out>` cell's list: `#ostream(1)`, `"off"`, then `tail`. -/
+def outL (tail : List GroundTerm) : GroundTerm :=
+  .list Srt.list ([.inj stream Srt.kitem (.ctor ostreamL [int 1]), .inj Srt.string Srt.kitem (sstr "off")] ++ tail)
+
+/-- The configuration with an empty k cell, an empty `<in>` and the `<out>` cell `out`. -/
+def cfg (out : GroundTerm) : GroundTerm :=
+  .ctor topLabel [.ctor tCell [.ctor kCell [.ctor dotk []], .ctor inCell [.list Srt.list []], .ctor outCell [out]],
+    .ctor counterLabel [int 0]]
+
+def Out5 : Config c := ⟨cfg (outL [buf "", .inj Srt.int Srt.kitem (int 5)]), by decide +kernel⟩
+def Buf5 : Config c := ⟨cfg (outL [buf "5"]), by decide +kernel⟩
+
+-- The executable step at `Out5` reads no interpretation of the parameters: the rules
+-- that apply call `Int2String` and `+String`, hooks of the registry.
+kernel_rfl out5_withHooks : ∀ H : HookParams,
+  CExec.successorsN (cH H) 50 Out5.val = CExec.successorsN c 50 Out5.val
+/-- The step of `STDOUT-STREAM.stdoutBufferInt`, for every H: the executable step lists it. -/
+theorem out5_step (H : HookParams) : Step (cH H) (TieRuleLhs.cfgH noRaw Out5 H) (TieRuleLhs.cfgH noRaw Buf5 H) := by
+  have hy : Buf5.val ∈ CExec.successorsN (cH H) 50 Out5.val := by rw [out5_withHooks]; decide +kernel
+  obtain ⟨_, hs⟩ := CExec.successorsN_step_ready (hreadyH H) (x := TieRuleLhs.cfgH noRaw Out5 H) hy
+  exact hs
+
+/-- **A stream rule's step, derived from `Pre`**, for every H: with the `<out>` list
+`#ostream(1) "off" #buffer("") 5`, the rule `stdoutBufferInt` (priority 25) moves 5 into the buffer,
+`#ostream(1) "off" #buffer("5")`. -/
+theorem out5_steps (H : HookParams) : Pre H ⊧ (den (cH H) Out5.val ⇒ KoreAML.sNext (den (cH H) Buf5.val)) :=
+  TiePair.cut (shapeH H) (sound_at_step _ (coreOKH H) (hrcH H) _ _ (out5_step H))
+
 end KCore.NoteStream
 
 #print axioms KCore.NoteStream.coreOK
@@ -240,3 +354,7 @@ end KCore.NoteStream
 #print axioms KCore.NoteStream.rule_prios
 #print axioms KCore.NoteStream.rules_tied
 #print axioms KCore.NoteStream.rules_from_text
+#print axioms KCore.NoteStream.shape
+#print axioms KCore.NoteStream.consistent
+#print axioms KCore.NoteStream.pre_model
+#print axioms KCore.NoteStream.out5_steps
