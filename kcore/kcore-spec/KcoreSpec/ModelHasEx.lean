@@ -64,4 +64,29 @@ theorem consistent_of_modelEx (c : Semantics) (hm : HypModelCore c)
     exact boolClosed_modelClT hm hlit
   · exact stdI_V_model_coreEx hm hcls hp hq hl φ (Or.inr hφ)
 
+
+namespace Faithful
+
+namespace Model
+
+/-- What `consistent_of_modelEx` asks of each clause, from `HypModelCore`: `sortedOKClEx` holds
+`clauseSortedOpen` and `clausePlainOpenEx` of every clause, and `clausePlainOpenEx` gives
+`clauseExOK` and a `\top` right-side predicate where the clause has no existential variable. -/
+theorem hypModelCore_clsFactsCe {c : Semantics} (h : HypModelCore c) :
+    ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.clauseSortedOpen fn (c.fns.map Fn.sig) cl = true ∧
+      c.clauseExOK cl = true ∧ (cl.exs = [] → cl.post = .top) := fun fn hfn cl hcl =>
+  have hp := (Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hfn cl hcl
+  ⟨hp.1, (Semantics.clausePlainOpenEx_parts hp.2).1, (Semantics.clausePlainOpenEx_parts hp.2).2.1⟩
+
+/-- **The theory is consistent where a clause may hold existential variables**, under
+`HypModelCore` (whose sortedness of the clauses is `sortedOKClEx`), `ClausePreDecided`,
+`ClausePostDecided` and `OpenLaws`. -/
+theorem consistent_ce (c : Semantics) (hm : HypModelCore c) (hp : ClausePreDecided c)
+    (hq : ClausePostDecided c) (hl : OpenLaws c) : Consistent c :=
+  consistent_of_modelEx c hm (hypModelCore_clsFactsCe hm) hp hq hl
+
+end Model
+
+end Faithful
+
 end KCore
