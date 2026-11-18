@@ -1,9 +1,9 @@
 /-
   Overloads by functions: semantics built by hand from the fixtures' kompiled sentences, the facts
   that hold of them now, and the expectations the function-overload construct meets, as
-  propositions (`expect`, `expectOvlfun`, `expectLhs`, `expectCut` in each namespace), each proved
+  propositions (`expect`, `expectOvlfun`, `expectLhs`, `expectCut`, `expectOw` in each namespace), each proved
   here (`E5.expect_e5`, `Cap.expect_ovlfun`, `Admit.coreOK_lhs`, `Keep.expect_keep`, `Chain.expect_chain`,
-  `Admit.coreOK_conf`, `Cap.expect_cut`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
+  `Admit.coreOK_conf`, `Cap.expect_cut`, `Cap.expect_ow`). Run from the package root: `lake env lean -j1 test/OvlFun.lean`.
 
   Each semantics has the configuration `<generatedTop>(<k>(K), C)`, its own sorts numbered from
   `nRegSorts` and its own symbols from `nRegSyms` (the sort predicates first, then constructors,
@@ -62,6 +62,16 @@
     `[owise]` rule it still fails the arms (`Dbl.zeroAlone_refused`). Alone and with `=> done(E)`
     (`done` taking Exp, built by hand: no fixture has this text) it is admitted by arm A, and
     `coreOK` holds (`Dbl.alone_admitted`, `Dbl.coreOK_alone`).
+  - `owSem` (e5-ovl-fun-lhs-owise as the reader reads it, test/OvlCutRule.lean): `cutSem`'s rule
+    beside `run(_) => done(inf)` `[owise]`. Below the `[owise]` rule's priority, G is an open
+    condition variable of the unconfined sort Gas, so without the cut counted the rule fails
+    (`rulePlainHO1` false); `capGas`'s one function overload `capN` takes the confined sort N, so
+    `capGas` is `ovlHeld` and the cut holds G (`memHeld`), and `rulesPlain` admits the rule
+    (`Semantics.rulesPlain_iff_memHeld`, `Cap.ow_rulesPlain`). Expected (`Cap.expect_ow`): `coreOK`,
+    `FnHyp`, `CompleteC`; `run(inj z)` steps to `done(inj z)` only (the cut rule applies, so the
+    `[owise]` rule is blocked, and only G := `inj z` has `capGas(G)` equal to `inj z`), and `run(inf)`
+    steps to `done(inf)` only (no value of G has `capGas(G)` equal to `inf`, so the cut rule does not
+    apply and the `[owise]` rule does).
   - `chain b` (REVIEW-CN4 finding B): `plusExp : Exp Exp → Exp` over the function `plusInt`,
     `plusBig : Big Big → Big` over `plusExp` (and `plusInt` where `b`), Int < Exp < Big. Without
     `plusInt` in `plusBig`'s list, `plusBig` is not function-overloaded (`fnOvlSyms`); with it,
@@ -1624,6 +1634,446 @@ theorem coreOK_alone : alone.coreOK = true := Admit.coreOK_of others_alone ovls_
 
 end Dbl
 
+/-! ## e5-ovl-fun-lhs-owise: the cut rule beside an `[owise]` rule -/
+
+namespace Cap
+
+open Det
+
+/-- `<k> run(_:Gas) => done(inf) </k> [owise]` as the reader reads e5-ovl-fun-lhs-owise
+(test/OvlCutRule.lean prints it): its variables `_Gen0` and the counter cell. -/
+def rOwInf : Rule :=
+  { vars := [gasS, Srt.counter], lhs := cfg kl pgmS (.app run [.var 0]) 1, req := none,
+    rhs := cfg kl pgmS (.app done [.app inf []]) 1, ens := none, prio := 200 }
+
+/-- e5-ovl-fun-lhs-owise as the reader reads it: the `[owise]` rule, then the cut rule. -/
+def owSem : Semantics := { cutSem with rules := [rOwInf, rCut] }
+
+/-- The cut holds G: `capGas`'s one function overload `capN` takes the confined sort N, so `capGas`
+is `ovlHeld` and among the symbols `holds` names, and the cut `V ∈ capGas(G)` has V bound by the
+left side. G is the cut rule's one open variable, a condition variable of the unconfined sort Gas,
+and the conditions are not closed. -/
+theorem ow_held : owSem.fnOvlSyms = [capGas] ∧ owSem.ovlPatsOK = true ∧ owSem.confined nS = true ∧
+    owSem.confined gasS = false ∧ owSem.ovlHeld capGas = true ∧ owSem.holds capGas = true ∧
+    varOccs rCut.lhs = [2, 1] ∧ rCut.opens = [0] ∧ rCut.openCondVars = [0] ∧ rCut.reqClosed = false ∧
+    memHeld owSem (varOccs rCut.lhs) rCut.pre 0 = true := by
+  decide +kernel
+
+/-- **Beside the `[owise]` rule, the cut rule is admitted by the cut**: below the `[owise]` rule's
+priority, its open condition variable G is of an unconfined sort and the conditions are not
+closed, so the competition conjunct fails where no variable is counted as held by a cut
+(`rulePlainHO1` false); counting the cut (`memHeld`), it holds (`rulePlainHO2`). The `[owise]`
+rule's left side binds its variables. -/
+theorem ow_plain : owSem.rulePlainHO1 rCut = false ∧
+    (!rCut.reqOpen || !owSem.rules.any (fun r' => rCut.prio < r'.prio) ||
+      rCut.openCondVars.all (fun i => (rCut.vars[i]?.map owSem.confined).getD false) || rCut.reqClosed) = false ∧
+    owSem.rulePlainHO2 rCut = true ∧ rOwInf.opens = [] ∧ owSem.rulePlainPP rOwInf = true := by
+  decide +kernel
+
+/-- `rulesPlain` holds: each rule has `rulePlainHO2`, the cut rule through `memHeld`. -/
+theorem ow_rulesPlain : owSem.rulesPlain = true :=
+  Semantics.rulesPlain_iff_memHeld.mpr fun r hr => by
+    rcases List.mem_cons.mp hr with rfl | hr
+    · exact Semantics.rulePlainHO2_of_HO1 (Semantics.rulePlainHO1_of_pp ow_plain.2.2.2.2)
+    · rw [List.mem_singleton.mp hr]; exact ow_plain.2.2.1
+
+theorem light_ow : light owSem = true := by rw [light]; decide_cheap
+
+open Faithful.Model in
+theorem names_ow : namesApartFast owSem = true := by decide +kernel
+
+open Faithful.Model in
+theorem ites_ow : itesApart owSem = true := by decide_cheap
+
+theorem others_ow : others owSem = true := others_of light_ow names_ow ites_ow
+
+theorem ovls_ow : owSem.overloadsOK = true := by decide +kernel
+
+/-- **`coreOK` admits e5-ovl-fun-lhs-owise as the reader reads it.** -/
+theorem coreOK_ow : owSem.coreOK = true := Admit.coreOK_of others_ow ovls_ow
+
+theorem noRaw_ow : ∀ k ∈ owSem.params, k.raw = false := by decide +kernel
+theorem valued_ow : owSem.rightValued = true := by decide +kernel
+theorem term_ow : owSem.rankObligations [capN] ++ owSem.decObligationsL = [] := by decide +kernel
+theorem total_ow : owSem.totalObligationsRP [capN] [] = [capN] := by decide +kernel
+theorem agree_ow : owSem.agreeObligationsI = [] := by decide +kernel
+theorem match_ow : owSem.matchObligationsL = ([] : List (Nat × Nat)) := by decide +kernel
+theorem witness_ow : (∀ r ∈ owSem.rules, r.needsWitness owSem = false) ∧
+    (∀ fn ∈ owSem.fns, ∀ cl ∈ fn.clauses, cl.needsWitness owSem = false) := by
+  decide +kernel
+
+theorem eval_capN_z_ow : Eval owSem capN [.ctor z []] (some (.ctor z [])) :=
+  .clause (fn := capNFn) (cl := capNCl) (σ := [(0, .ctor z [])])
+    (by rw [Semantics.lookupFn_eq]; rfl) (List.mem_cons_self ..)
+    (fun i s' h => by
+      cases i with
+      | zero => cases h; exact ⟨.ctor z [], rfl, by decide +kernel⟩
+      | succ i => simp [capNCl] at h)
+    (.cons (.as (.ctor (by decide +kernel) .nil) rfl) .nil) (fun t ht => by cases ht) .top
+    (fun cl' h _ hlt => by
+      have : cl' = capNCl := by simpa [capNFn, capNCl] using h
+      subst this
+      exact absurd hlt (Nat.lt_irrefl _))
+    rfl .var (fun t ht => by cases ht) .top
+
+/-- N holds `z` only. -/
+theorem val_N_ow {v : GroundTerm} (h : owSem.sortOf v = some nS) : v = .ctor z [] :=
+  onlyConst_ftf (k0 := ⟨z, [], nS⟩) rfl (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (noLit_ftf (by decide +kernel)) (by decide +kernel) h
+
+theorem total_capN_ow : Total owSem capN := fun fn' hfn' vs hvs => by
+  have hfn : owSem.lookupFn capN = some capNFn := by rw [Semantics.lookupFn_eq]; rfl
+  obtain rfl : fn' = capNFn := Option.some.inj (hfn'.symm.trans hfn)
+  obtain ⟨w, ws', rfl, hw, hws⟩ := sortsOf_inv_cons (show owSem.sortsOf vs = some [nS] from hvs)
+  cases sortsOf_inv_nil hws
+  cases val_N_ow hw
+  exact ⟨_, eval_capN_z_ow⟩
+
+/-- **`FnHyp` of e5-ovl-fun-lhs-owise**: the one fact named is the totality of `capN`. -/
+theorem fnHyp_ow : FnHyp owSem :=
+  fnHyp_of_fnObligations (ord := [capN]) (tp := []) coreOK_ow
+    (Semantics.rightHeld_of_valued valued_ow) ParamsTotal.nil
+    ⟨fun f hf => by rw [term_ow] at hf; exact absurd hf List.not_mem_nil,
+     fun f hf => by rw [total_ow] at hf; rw [List.mem_singleton.mp hf]; exact total_capN_ow,
+     fun f hf => by rw [agree_ow] at hf; exact absurd hf List.not_mem_nil,
+     fun p hp => by rw [match_ow] at hp; exact absurd hp List.not_mem_nil,
+     openDecided_of_plain witness_ow.1 witness_ow.2,
+     openLaws_of_plain noRaw_ow⟩
+
+/-- **`complete_hyp`'s conclusion holds of e5-ovl-fun-lhs-owise.** -/
+theorem complete_ow (ref : OutFn) : CompleteC owSem ref := complete_hyp owSem ref coreOK_ow fnHyp_ow
+
+theorem sound_ow : SoundC owSem := sound_hyp owSem coreOK_ow fnHyp_ow
+
+/-- Clauses of one priority are coherent, so a term has one result. -/
+theorem coherent_ow : CoherentAll owSem := Faithful.CoherentAll_of (hyp_of_fnHyp coreOK_ow fnHyp_ow)
+
+/-! ### The steps -/
+
+def runZO : Config owSem := ⟨cfgV (.ctor run [injZ]), by decide +kernel⟩
+def doneZO : Config owSem := ⟨cfgV (.ctor done [injZ]), by decide +kernel⟩
+def runInfO : Config owSem := ⟨cfgV (.ctor run [.ctor inf []]), by decide +kernel⟩
+def doneInfO : Config owSem := ⟨cfgV (.ctor done [.ctor inf []]), by decide +kernel⟩
+
+theorem syms_ow : owSem.isCtor topLabel = true ∧ owSem.isCtor kl = true ∧ owSem.isCtor kseq = true ∧
+    owSem.isCtor dotk = true ∧ owSem.isCtor run = true ∧ owSem.isCtor done = true ∧
+    owSem.isCtor capGas = false ∧ owSem.isOvl capGas = true ∧ isHook capGas = false ∧ owSem.isParam capGas = false ∧
+    patternHooks.contains topLabel = false ∧ patternHooks.contains kl = false ∧
+    patternHooks.contains kseq = false ∧ patternHooks.contains run = false := by
+  decide +kernel
+
+theorem inf_ow : owSem.isCtor inf = true := by decide +kernel
+
+theorem mem_rCut_ow : rCut ∈ owSem.rules := List.mem_cons_of_mem _ (List.mem_singleton_self _)
+
+/-- σ gives each variable of the cut rule a value of its sort. -/
+theorem wellSorted_ow {g v : GroundTerm} (hg : owSem.sortOf g = some gasS) (hv : owSem.sortOf v = some gasS) :
+    owSem.WellSorted rCut.vars [(0, g), (1, cnt0), (2, v)] := fun j s hs => by
+  rw [rCut_vars] at hs
+  match j, hs with
+  | 0, hs => cases hs; exact ⟨_, rfl, hg⟩
+  | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+  | 2, hs => cases hs; exact ⟨_, rfl, hv⟩
+  | j + 3, hs => simp at hs
+
+/-- The left side `run(Vi)` of either rule, at `run(w)`: the counter cell is `cnt0` and Vi is w. -/
+theorem lhs_inv_ow {σ : Subst} {i : Nat} {w : GroundTerm}
+    (h : PatVal owSem σ (cfg kl pgmS (.app run [.var i]) 1) (cfgV (.ctor run [w]))) :
+    σ.lookup 1 = some cnt0 ∧ σ.lookup i = some w := by
+  obtain ⟨-, vs, he, hs⟩ := PatVal.app_inv syms_ow.2.2.2.2.2.2.2.2.2.2.1 h syms_ow.1
+  simp only [cfgV, GroundTerm.ctor.injEq, true_and] at he
+  subst he
+  obtain ⟨a1, as1, he1, h1, hr1⟩ := PatVals.cons_inv hs
+  simp only [List.cons.injEq] at he1
+  obtain ⟨rfl, rfl⟩ := he1
+  obtain ⟨a1', as1', he1', h1', -⟩ := PatVals.cons_inv hr1
+  simp only [List.cons.injEq] at he1'
+  obtain ⟨rfl, rfl⟩ := he1'
+  refine ⟨PatVal.var_inv h1', ?_⟩
+  obtain ⟨-, vs2, he2, hs2⟩ := PatVal.app_inv syms_ow.2.2.2.2.2.2.2.2.2.2.2.1 h1 syms_ow.2.1
+  simp only [GroundTerm.ctor.injEq, true_and] at he2
+  subst he2
+  obtain ⟨a2, as2, he3, h2, -⟩ := PatVals.cons_inv hs2
+  simp only [List.cons.injEq] at he3
+  obtain ⟨rfl, rfl⟩ := he3
+  obtain ⟨-, vs3, he4, hs3⟩ := PatVal.app_inv syms_ow.2.2.2.2.2.2.2.2.2.2.2.2.1 h2 syms_ow.2.2.1
+  simp only [GroundTerm.ctor.injEq, true_and] at he4
+  subst he4
+  obtain ⟨a3, as3, he5, h3, -⟩ := PatVals.cons_inv hs3
+  simp only [List.cons.injEq] at he5
+  obtain ⟨rfl, rfl⟩ := he5
+  obtain ⟨w', hw', he6⟩ := PatVal.inj_inv h3
+  obtain ⟨-, vs4, rfl, hs4⟩ := PatVal.app_inv syms_ow.2.2.2.2.2.2.2.2.2.2.2.2.2 hw' syms_ow.2.2.2.2.1
+  simp only [injNormal, GroundTerm.inj.injEq, GroundTerm.ctor.injEq, true_and] at he6
+  subst he6
+  obtain ⟨a4, as4, he7, h4, -⟩ := PatVals.cons_inv hs4
+  simp only [List.cons.injEq] at he7
+  obtain ⟨rfl, rfl⟩ := he7
+  exact PatVal.var_inv h4
+
+/-- The left side `run(Vi)` of either rule denotes `run(w)` where Vi is w and the counter cell
+`cnt0`. -/
+theorem lhs_match_ow {σ : Subst} {i : Nat} {w : GroundTerm} (h1 : σ.lookup 1 = some cnt0)
+    (hi : σ.lookup i = some w) :
+    PatVal owSem σ (cfg kl pgmS (.app run [.var i]) 1) (cfgV (.ctor run [w])) :=
+  .ctor syms_ow.1 (.cons (.ctor syms_ow.2.1 (.cons (.ctor syms_ow.2.2.1
+    (.cons (.inj (.ctor syms_ow.2.2.2.2.1 (.cons (.var hi) .nil))) (.cons (.ctor syms_ow.2.2.2.1 .nil) .nil))) .nil))
+    (.cons (.var h1) .nil))
+
+/-- The cut rule's right side evaluates to `done(g)` where G is g. -/
+theorem eval_rhs_ow {σ : Subst} {g : GroundTerm} (hg : σ.lookup 0 = some g) (h1 : σ.lookup 1 = some cnt0) :
+    EvalTerm owSem σ rCut.rhs (some (cfgV (.ctor done [g]))) := by
+  have e0 : EvalTerm owSem σ (.var 0) (some g) := hg ▸ EvalTerm.var
+  have e1 : EvalTerm owSem σ (.var 1) (some cnt0) := h1 ▸ EvalTerm.var
+  exact .ctor syms_ow.1 (.cons (.ctor syms_ow.2.1 (.cons (.ctor syms_ow.2.2.1
+    (.cons (.inj (.ctor syms_ow.2.2.2.2.2.1 (.cons e0 .nil))) (.cons (.ctor syms_ow.2.2.2.1 .nil) .nil))) .nil))
+    (.cons e1 .nil))
+
+/-- The `[owise]` rule's right side evaluates to `done(inf)`. -/
+theorem eval_rhsOw_ow {σ : Subst} (h1 : σ.lookup 1 = some cnt0) :
+    EvalTerm owSem σ rOwInf.rhs (some (cfgV (.ctor done [.ctor inf []]))) := by
+  have e1 : EvalTerm owSem σ (.var 1) (some cnt0) := h1 ▸ EvalTerm.var
+  exact .ctor syms_ow.1 (.cons (.ctor syms_ow.2.1 (.cons (.ctor syms_ow.2.2.1
+    (.cons (.inj (.ctor syms_ow.2.2.2.2.2.1 (.cons (.ctor (f := inf) (rs := []) inf_ow .nil)
+      .nil))) (.cons (.ctor syms_ow.2.2.2.1 .nil) .nil))) .nil))
+    (.cons e1 .nil))
+
+/-- `capGas(inj{N,Gas}(z))`, covered by `capN`, evaluates to `inj{N,Gas}(capN(z))`. -/
+theorem evalTerm_capG_z_ow :
+    EvalTerm owSem [(0, injZ), (1, cnt0), (2, injZ)] (.app capGas [.var 0]) (some injZ) :=
+  EvalTerm.ovlFn (rs := [some injZ]) (vs := [injZ]) (o := capGasO) (kg := capNSig) (r := some (.ctor z []))
+    syms_ow.2.2.2.2.2.2.1 syms_ow.2.2.2.2.2.2.2.1 (.cons .var .nil) rfl
+    (by decide +kernel) (by decide +kernel) eval_capN_z_ow
+
+theorem lookupOvl_ow : owSem.lookupOvl capGas = some capGasO := by decide +kernel
+theorem ovlOver_ow : owSem.ovlOver capGasO = [capNSig] := by decide +kernel
+
+/-- `capGas`'s one overload is the function `capN`'s, so its normal form is its raw application. -/
+theorem norm_capGas_ow (vs : List GroundTerm) : owSem.norm capGas vs = .ctor capGas vs := by
+  have hfn : owSem.ovlByFn capNSig = true := by decide +kernel
+  show owSem.normN 2 capGas vs = _
+  simp only [Semantics.normN, lookupOvl_ow, ovlOver_ow, List.find?_cons, List.find?_nil]
+  split
+  · rfl
+  · rename_i kg hkg
+    split at hkg
+    · cases hkg; simp [hfn]
+    · cases hkg
+
+/-- `capN` covers only an injection: it takes N, below Gas. -/
+theorem isInj_of_fnCover_ow {g : GroundTerm} {kg : CtorSig} (h : owSem.fnCover capGas [g] = some kg) :
+    g.isInj = true := by
+  unfold Semantics.fnCover at h
+  rw [lookupOvl_ow, Option.bind_some, ovlOver_ow] at h
+  have hp := List.find?_some h
+  obtain rfl := List.mem_singleton.mp (List.mem_of_find?_eq_some h)
+  simp only [Bool.and_eq_true] at hp
+  have hc := hp.2
+  cases g with
+  | inj a b t => rfl
+  | _ => exact absurd hc (by simp [Semantics.ovlCovers, Semantics.lies, capNSig, capGasO, nS, gasS])
+
+/-- A value of Gas that is an injection is `inj{N,Gas}(z)`: N is the one sort below Gas. -/
+theorem gas_inj_ow {g : GroundTerm} (hg : owSem.sortOf g = some gasS) (hi : g.isInj = true) : g = injZ := by
+  cases g with
+  | inj a b t =>
+    obtain ⟨hab, -, ht, rfl⟩ := OvlLaws.sortOf_inj_iff.mp hg
+    have ha : a = nS := by
+      have hall : ∀ p ∈ owSem.subsorts, p.2 = gasS → p.1 = nS := by decide +kernel
+      exact hall (a, gasS) hab rfl
+    subst ha
+    rw [val_N_ow ht]; rfl
+  | _ => simp [GroundTerm.isInj] at hi
+
+/-- `capGas(G)` at a value g of Gas evaluates to `inj{N,Gas}(z)` only where g is `inj{N,Gas}(z)`:
+elsewhere no function overload covers g, and the result is the raw application. -/
+theorem capG_eq_z_ow {σ : Subst} {g : GroundTerm} {r' : Option GroundTerm}
+    (h : EvalTerm owSem σ (.app capGas [.var 0]) r') (hg : σ.lookup 0 = some g) (hgs : owSem.sortOf g = some gasS)
+    (hb : true = ((some injZ).isSome && sameResult (some injZ) r')) : g = injZ := by
+  generalize ht : Term.app capGas [.var 0] = t at h
+  cases h with
+  | ctor hc _ => cases ht; rw [syms_ow.2.2.2.2.2.2.1] at hc; cases hc
+  | hook _ hhk _ _ _ => cases ht; rw [syms_ow.2.2.2.2.2.2.2.2.1] at hhk; cases hhk
+  | param _ _ hp _ _ => cases ht; rw [syms_ow.2.2.2.2.2.2.2.2.2.1] at hp; cases hp
+  | call _ _ _ _ hf _ =>
+    cases ht
+    have h' := hf.isOvl_false
+    rw [syms_ow.2.2.2.2.2.2.2.1] at h'
+    cases h'
+  | callUndef => cases ht; simp [sameResult] at hb
+  | ovl _ _ hts _ =>
+    cases ht
+    obtain ⟨r0, rs', rfl, h0, hn⟩ := EvalTerms.cons_inv hts
+    cases EvalTerms.nil_inv hn
+    rw [EvalTerm.var_inv h0, hg] at hb
+    have hb' : true = (true && sameResult (some injZ) (some (owSem.norm capGas [g]))) := hb
+    rw [Bool.true_and, norm_capGas_ow] at hb'
+    have he := sameResult_some_pto hb'.symm
+    simp [injZ] at he
+  | ovlFn _ _ hts hvs _ hcov _ =>
+    cases ht
+    obtain ⟨r0, rs', rfl, h0, hn⟩ := EvalTerms.cons_inv hts
+    cases EvalTerms.nil_inv hn
+    rw [EvalTerm.var_inv h0, hg] at hvs
+    cases hvs
+    exact gas_inj_ow hgs (isInj_of_fnCover_ow hcov)
+  | _ => cases ht
+
+/-- `capGas(G)` at a value of G never evaluates to `inf`. -/
+theorem capG_ne_inf_ow {σ : Subst} {g : GroundTerm} {r' : Option GroundTerm}
+    (h : EvalTerm owSem σ (.app capGas [.var 0]) r') (hg : σ.lookup 0 = some g)
+    (hb : true = ((some (GroundTerm.ctor inf [])).isSome && sameResult (some (.ctor inf [])) r')) : False := by
+  generalize ht : Term.app capGas [.var 0] = t at h
+  cases h with
+  | ctor hc _ => cases ht; rw [syms_ow.2.2.2.2.2.2.1] at hc; cases hc
+  | hook _ hhk _ _ _ => cases ht; rw [syms_ow.2.2.2.2.2.2.2.2.1] at hhk; cases hhk
+  | param _ _ hp _ _ => cases ht; rw [syms_ow.2.2.2.2.2.2.2.2.2.1] at hp; cases hp
+  | call _ _ _ _ hf _ =>
+    cases ht
+    have h' := hf.isOvl_false
+    rw [syms_ow.2.2.2.2.2.2.2.1] at h'
+    cases h'
+  | callUndef => cases ht; simp [sameResult] at hb
+  | ovl _ _ hts _ =>
+    cases ht
+    obtain ⟨r0, rs', rfl, h0, hn⟩ := EvalTerms.cons_inv hts
+    cases EvalTerms.nil_inv hn
+    rw [EvalTerm.var_inv h0, hg] at hb
+    have hb' : true = (true && sameResult (some (.ctor inf [])) (some (owSem.norm capGas [g]))) := hb
+    rw [Bool.true_and, norm_capGas_ow] at hb'
+    have he := sameResult_some_pto hb'.symm
+    exact absurd (GroundTerm.ctor.inj he).1 (by decide)
+  | @ovlFn _ _ _ _ _ o kg r _ _ _ _ hlo hcov _ =>
+    cases ht
+    rw [lookupOvl_ow] at hlo
+    cases hlo
+    have hkg : kg = capNSig := by
+      unfold Semantics.fnCover at hcov
+      rw [lookupOvl_ow, Option.bind_some, ovlOver_ow] at hcov
+      exact List.mem_singleton.mp (List.mem_of_find?_eq_some hcov)
+    cases hkg
+    cases r with
+    | none => simp [sameResult] at hb
+    | some w =>
+      have hb' : true = (true && sameResult (some (.ctor inf [])) (some (injNormal nS gasS w))) := hb
+      rw [Bool.true_and] at hb'
+      have he := sameResult_some_pto hb'.symm
+      cases w <;> simp [injNormal] at he
+  | _ => cases ht
+
+/-- The substitution of the step from `run(inj{N,Gas}(z))`: G and V are `inj{N,Gas}(z)`. -/
+def σZ : Subst := [(0, injZ), (1, cnt0), (2, injZ)]
+
+/-- The cut rule's premises at `run(inj{N,Gas}(z))`. -/
+theorem pre_z_ow : Holds owSem rCut.vars.length σZ rCut.pre true :=
+  holds_mem_pto (.var : EvalTerm owSem _ (.var 2) _) evalTerm_capG_z_ow
+
+/-- **`run(inj{N,Gas}(z))` steps to `done(inj{N,Gas}(z))`** by the cut rule: G := `inj{N,Gas}(z)`,
+covered, and `capGas(inj{N,Gas}(z)) = inj{N,Gas}(capN(z)) = inj{N,Gas}(z)`; no rule has a smaller
+priority than the cut rule's. -/
+theorem step_z_ow : Step owSem runZO doneZO :=
+  step_iff_by.mpr ⟨rCut, σZ,
+    { mem := mem_rCut_ow
+      hσ := wellSorted_ow (by decide +kernel) (by decide +kernel)
+      hmatch := lhs_match_ow (i := 2) rfl rfl
+      hreq := fun t ht => by simp [rCut] at ht
+      hpre := pre_z_ow
+      heval := eval_rhs_ow (g := injZ) rfl rfl
+      hens := fun t ht => by simp [rCut] at ht
+      hpost := .top
+      hprio := fun r' hr' hlt => by
+        rcases List.mem_cons.mp hr' with rfl | hr'
+        · exact absurd hlt (by decide)
+        · rw [List.mem_singleton.mp hr'] at hlt; exact absurd hlt (Nat.lt_irrefl _) }⟩
+
+/-- **`run(inj{N,Gas}(z))` steps to `done(inj{N,Gas}(z))` only**: the cut rule applies there, so
+the `[owise]` rule is blocked, and the cut rule's G is `inj{N,Gas}(z)` (`capG_eq_z_ow`). -/
+theorem step_z_only_ow (y : Config owSem) (h : Step owSem runZO y) : y = doneZO := by
+  obtain ⟨r, σ, hb⟩ := step_iff_by.mp h
+  rcases List.mem_cons.mp hb.mem with rfl | hr
+  · exact (not_notApplies coherent_ow (wellSorted_ow (g := injZ) (v := injZ) (by decide +kernel) (by decide +kernel))
+      (lhs_match_ow (i := 2) rfl rfl) (fun t ht => by simp [rCut] at ht) pre_z_ow
+      (hb.hprio rCut mem_rCut_ow (by decide))).elim
+  · obtain rfl : r = rCut := List.mem_singleton.mp hr
+    obtain ⟨h1, h2⟩ := lhs_inv_ow (i := 2) hb.hmatch
+    obtain ⟨g, hg, hgs⟩ := hb.hσ 0 gasS rfl
+    obtain ⟨r1, r2, e1, e2, hb2⟩ := holds_mem_inv_pto (show Holds owSem 3 σ (.mem gasS (.var 2) (.app capGas [.var 0])) true
+      from hb.hpre)
+    rw [EvalTerm.var_inv e1, h2] at hb2
+    obtain rfl := capG_eq_z_ow e2 hg hgs hb2
+    exact Subtype.ext (Option.some.inj (evalTerm_det coherent_ow hb.heval (eval_rhs_ow hg h1)))
+
+/-- The cut rule does not apply at `run(inf)`: V is `inf`, and no value of G has `capGas(G)` equal
+to `inf`. The cut's truth value exists (`stepDecided_of_fnHyp`; no rule has a smaller priority). -/
+theorem notApplies_inf_ow : NotApplies owSem rCut runInfO.val := fun σ hσ hm => by
+  obtain ⟨b, hb⟩ := ((stepDecided_of_fnHyp coreOK_ow fnHyp_ow runInfO) rCut mem_rCut_ow
+    (fun r' hr' hlt => by
+      rcases List.mem_cons.mp hr' with rfl | hr'
+      · exact absurd hlt (by decide)
+      · rw [List.mem_singleton.mp hr'] at hlt; exact absurd hlt (Nat.lt_irrefl _))).1 σ hσ hm |>.2
+  cases b
+  · exact .pre hb
+  · exfalso
+    obtain ⟨-, hV⟩ := lhs_inv_ow (i := 2) hm
+    obtain ⟨r1, r2, h1, h2, hb2⟩ := holds_mem_inv_pto (show Holds owSem 3 σ (.mem gasS (.var 2) (.app capGas [.var 0])) true
+      from hb)
+    rw [EvalTerm.var_inv h1, hV] at hb2
+    obtain ⟨g, hg, -⟩ := hσ 0 (by decide +kernel) gasS rfl
+    exact capG_ne_inf_ow h2 hg hb2
+
+/-- **`run(inf)` steps to `done(inf)`** by the `[owise]` rule: the cut rule does not apply there. -/
+theorem step_inf_ow : Step owSem runInfO doneInfO :=
+  step_iff_by.mpr ⟨rOwInf, [(0, .ctor inf []), (1, cnt0)],
+    { mem := List.mem_cons_self ..
+      hσ := fun j s hs => by
+        rw [show rOwInf.vars = [gasS, Srt.counter] from rfl] at hs
+        match j, hs with
+        | 0, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+        | 1, hs => cases hs; exact ⟨_, rfl, by decide +kernel⟩
+        | j + 2, hs => simp at hs
+      hmatch := lhs_match_ow rfl rfl
+      hreq := fun t ht => by simp [rOwInf] at ht
+      hpre := .top
+      heval := eval_rhsOw_ow rfl
+      hens := fun t ht => by simp [rOwInf] at ht
+      hpost := .top
+      hprio := fun r' hr' hlt => by
+        rcases List.mem_cons.mp hr' with rfl | hr'
+        · exact absurd hlt (Nat.lt_irrefl _)
+        · rw [List.mem_singleton.mp hr']; exact notApplies_inf_ow }⟩
+
+/-- **`run(inf)` steps to `done(inf)` only**: the cut rule does not apply there, and the `[owise]`
+rule's right side is `done(inf)`. -/
+theorem step_inf_only_ow (y : Config owSem) (h : Step owSem runInfO y) : y = doneInfO := by
+  obtain ⟨r, σ, hb⟩ := step_iff_by.mp h
+  rcases List.mem_cons.mp hb.mem with rfl | hr
+  · obtain ⟨h1, -⟩ := lhs_inv_ow (i := 0) hb.hmatch
+    exact Subtype.ext (Option.some.inj (evalTerm_det coherent_ow hb.heval (eval_rhsOw_ow h1)))
+  · obtain rfl : r = rCut := List.mem_singleton.mp hr
+    obtain ⟨-, hV⟩ := lhs_inv_ow (i := 2) hb.hmatch
+    obtain ⟨r1, r2, h1, h2, hb2⟩ := holds_mem_inv_pto (show Holds owSem 3 σ (.mem gasS (.var 2) (.app capGas [.var 0])) true
+      from hb.hpre)
+    rw [EvalTerm.var_inv h1, hV] at hb2
+    obtain ⟨g, hg, -⟩ := hb.hσ 0 gasS rfl
+    exact (capG_ne_inf_ow h2 hg hb2).elim
+
+/-- **What was expected of e5-ovl-fun-lhs-owise as the reader reads it**: admitted (`coreOK`), the
+cut rule through the cut (`memHeld`, `capGas` being `ovlHeld`) and not without it
+(`rulePlainHO1` false); `FnHyp`, `complete_hyp`'s conclusion; `run(inj{N,Gas}(z))` steps to
+`done(inj{N,Gas}(z))` only and `run(inf)` to `done(inf)` only. -/
+def expectOw : Prop :=
+  owSem.coreOK = true ∧ owSem.ovlHeld capGas = true ∧ memHeld owSem (varOccs rCut.lhs) rCut.pre 0 = true ∧
+    owSem.rulePlainHO1 rCut = false ∧ owSem.rulePlainHO2 rCut = true ∧ owSem.rulesPlain = true ∧
+    FnHyp owSem ∧ (∀ ref, CompleteC owSem ref) ∧
+    Step owSem runZO doneZO ∧ (∀ y, Step owSem runZO y → y = doneZO) ∧
+    Step owSem runInfO doneInfO ∧ (∀ y, Step owSem runInfO y → y = doneInfO)
+
+theorem expect_ow : expectOw :=
+  ⟨coreOK_ow, ow_held.2.2.2.2.1, ow_held.2.2.2.2.2.2.2.2.2.2, ow_plain.1, ow_plain.2.2.1, ow_rulesPlain,
+    fnHyp_ow, complete_ow, step_z_ow, step_z_only_ow, step_inf_ow, step_inf_only_ow⟩
+
+end Cap
+
 /-- info: 'OvlFun.Cap.cut_facts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Cap.cut_facts
 /-- info: 'OvlFun.Cap.coreOK_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -1656,5 +2106,29 @@ end Dbl
 #guard_msgs in #print axioms Dbl.alone_admitted
 /-- info: 'OvlFun.Dbl.coreOK_alone' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Dbl.coreOK_alone
+/-- info: 'OvlFun.Cap.ow_held' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.ow_held
+/-- info: 'OvlFun.Cap.ow_plain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.ow_plain
+/-- info: 'OvlFun.Cap.ow_rulesPlain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.ow_rulesPlain
+/-- info: 'OvlFun.Cap.coreOK_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.coreOK_ow
+/-- info: 'OvlFun.Cap.fnHyp_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.fnHyp_ow
+/-- info: 'OvlFun.Cap.complete_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.complete_ow
+/-- info: 'OvlFun.Cap.sound_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.sound_ow
+/-- info: 'OvlFun.Cap.step_z_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_z_ow
+/-- info: 'OvlFun.Cap.step_z_only_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_z_only_ow
+/-- info: 'OvlFun.Cap.step_inf_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_inf_ow
+/-- info: 'OvlFun.Cap.step_inf_only_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.step_inf_only_ow
+/-- info: 'OvlFun.Cap.expect_ow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Cap.expect_ow
 
 end OvlFun
