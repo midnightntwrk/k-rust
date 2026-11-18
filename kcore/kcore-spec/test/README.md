@@ -1307,6 +1307,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieUnbound.lean`: the tie on `f2-examples/unbound.kompile.kore` (fixture e2-unbound, the rule
+  `<k> a() => b(X) ... </k> [unboundVariables(X)]`), whose theory is `Γc` (`readsConfined_c`): layer 1
+  (`wf_defn`, `not_reordered`: 430 emitted user-module sentences against the text's 402), the 29
+  sort-predicate equations (`fn_shape`, `fns_entailed`, `fns_from_text`; isExp's `[owise]` binder
+  `_Gen1` gives an equal pattern), no junk (`nojunk_trivial_entailed`, `nojunk_items`,
+  `nojunk_kitem_entailed`), the 29 constructor sentences (`cons_entailed`), set idempotence refuted
+  (`idem_refuted`), the account of the 261 sentences (`account`, `account_absent`), `attrs_agree`;
+  each over Γ for every H and over `Γc` by `Γ_sub_Γc` (the `_c` forms). About 80 s, 6.1 GiB.
 - `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
   (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
   of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
