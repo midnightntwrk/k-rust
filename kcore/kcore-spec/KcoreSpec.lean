@@ -397,6 +397,8 @@ import KcoreSpec.GenEqsProjInj
 import KcoreSpec.ExChoiceCEx
 import KcoreSpec.GenEqsNodir
 import KcoreSpec.TieFRRead
+import KcoreSpec.TermRoundTrip
+import KcoreSpec.TieFRTermRT
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.ParamSchema
 import KcoreSpec.InjApart
