@@ -23,7 +23,11 @@
     #Configuration) = <id>(0)`, an initializer of two arguments whose right side is total. The
     text holds no `functional` axiom of it; `initFunctionalOK` takes one (at the `functional`
     symbols `[initIdCell]`), and its instance `∃y:IdCell. y = initIdCell(ws)` holds at all values
-    `ws` of a sort.
+    `ws` of a sort. That axiom, and the `functional` symbols it is taken at, are supplied by hand:
+    no kompiled text here declares an initializer of positive arity `functional` or `total`.
+
+  The equations here are the user module's axioms read with empty `Names` and source, not the
+  account's scan and names; `test/GenEqsInitNested.lean` instances the arm through those.
 -/
 import KcoreSpec
 
