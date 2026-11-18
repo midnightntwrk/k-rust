@@ -416,7 +416,7 @@ theorem sat_clauseEqPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
     (clause_keys_freePre hlen F.occ fun _ hk => hk) (clause_keys_varsPre hlen F.occ fun _ hk => hk)
     fun tbl e ws a hEq hvT ha hprem => ?_
   obtain ⟨hσ, hpv, hq, hpre⟩ := withPre_readPre h F hdec hEq hvT ha hprem
-  exact hsolve _ ws hEq.args.sorts ⟨hσ, hpv, hq, hpre⟩
+  exact hsolve _ ws hEq.args.sorts ⟨hσ.at _, hpv, hq, hpre⟩
 
 /-- **The equation of a clause with a predicate under the negation of its competitors holds**:
 where they all fail with their predicates (`fails_of_not_exclPre`) and it applies, its applying
@@ -457,7 +457,7 @@ theorem sat_competingEqPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
   obtain ⟨-, hfails⟩ := fails_of_not_exclPre (T := T) h hfn hF hEq.R hEq.Xk hEq.Rs hEq.args
     (fun cl' hcl' i hi hil => hvN _ (varsOf_not_exclPre hcl' hi hil))
     (fun cl' hcl' hpt k hk => hvN _ (varsOf_not_excl_prePre hcl' hpt hk)) hnot
-  exact hsolve _ ws hEq.args.sorts ⟨hσ, hpv, hq, hpre⟩ fun cl' hcl' σ' hw hp' hqh =>
+  exact hsolve _ ws hEq.args.sorts ⟨hσ.at _, hpv, hq, hpre⟩ fun cl' hcl' σ' hw hp' hqh =>
     hfails cl' hcl' σ' ⟨hw, hp', hqh.1, hqh.2⟩
 
 end AtT

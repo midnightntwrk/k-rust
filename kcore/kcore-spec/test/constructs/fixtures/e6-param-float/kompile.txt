@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-float.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.9
+definition.kore bytes: 251689
+definition.kore sha256: 853dab8d94689f5422340bdcda9948e703de97642aee10db573039cb8b2cad8e
+stripped sha256: 593e7d8112c6699010a72bc74978061229a2ffc2218c47d8e08b98e8a71e10c3
+main module: 477 sentences, 76 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-FLOAT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-FLOAT as default.

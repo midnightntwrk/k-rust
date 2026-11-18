@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-domains-syntax-imports.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.7
+definition.kore bytes: 85940
+definition.kore sha256: faa32dbc55d45495e156e50d1226da4efa0381c6b618ba5fbe94127071637a28
+stripped sha256: e66dbfd611a73e4a0b9e7f7d1bf70c3c6c61ad5ffd8226e0e98be5ffffb97672
+main module: 246 sentences, 19 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-DOMAINS-SYNTAX-IMPORTS-SYNTAX in definition.  Use --syntax-module to
+  specify one. Using E6-MOD-DOMAINS-SYNTAX-IMPORTS as default.

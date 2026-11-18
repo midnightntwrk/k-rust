@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "80109d49f24d87d130757ecd74f35b0a35a95f6ab82d5b7a7a91912639758688",
+  "imp-sum-spec.k": "2a50652404c6d27799296ade7c5dc9639833b822fee51713f43a276ee82815d1"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell imp-sum-spec.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Claims are not allowed in the definition.\n\tSource(imp-sum-spec.k)\n\tLocation(168,7,181,21)\n\t    .\t      v~~\n\t168 |\t      <k>\n\t    |\t\t...\n\t181 |\t  requires N >=Int 0\n\t    .\t  ~~~~~~~~~~~~~~~~~^\n[Error] Compiler: Claims are not allowed in the definition.\n\tSource(imp-sum-spec.k)\n\tLocation(185,7,205,21)\n\t    .\t      v~~\n\t185 |\t      <k>\n\t    |\t\t...\n\t205 |\t   andBool M >=Int 0\n\t    .\t   ~~~~~~~~~~~~~~~~^\n[Error] Compiler: Had 2 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nIMP-SUM-SPEC-SYNTAX in definition.  Use --syntax-module to specify one. Using\nIMP-SUM-SPEC as default.",
+  "release": "K v7.1.337"
+ }
+}

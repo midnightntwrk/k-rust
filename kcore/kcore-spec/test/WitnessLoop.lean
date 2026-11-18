@@ -386,11 +386,21 @@ theorem hc6 : ∀ fn ∈ c6.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c6 = tru
     · rw [dec6.2.2.2.2.2.2.2.2.2.2.2.1] at hw; cases hw
   · rw [dec6.2.2.2.2.2.2.2.2.2.2.2.2.1 fn hfn cl hcl] at hw; cases hw
 
+/-- Every clause of `c6`, the sort predicates' included, has the predicate `\top`: `neg_of_coreCl`'s
+reading of the predicates asks nothing of the model. -/
+theorem pre6 : ∀ fn ∈ c6.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
+  have h : (c6.fns.all fun f => f.clauses.all fun cl => cl.pre.isTop) = true := by decide_cheap
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · exact Cond.eq_top_of_isTop (List.all_eq_true.mp (List.all_eq_true.mp h fn hu) cl hcl)
+  · exact Semantics.sortPreds_pre hp cl hcl
+
 /-- **`neg_of_coreCl` at `c6`**, whose clause `clW` has `needsWitness`: in every model of `Γc c6`,
 each negated clause's exclusion is empty where it fails, nothing assumed of the model. -/
 theorem neg6 {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP Γc c6) :
     ∀ fn ∈ c6.allFns, ∀ cl ∈ fn.clauses, ClauseNeg c6 fn cl → ExclEmptyCl c6 I fn cl :=
-  neg_of_coreCl hI dec6.1 dec6.2.1 dec6.2.2.2.2.1 dec6.2.2.2.2.2.1 hc6
+  neg_of_coreCl hI dec6.1 dec6.2.1 dec6.2.2.2.2.1 dec6.2.2.2.2.2.1 hc6 fun fn hfn cl hcl hne =>
+    absurd (pre6 fn hfn cl hcl) hne
 
 /-- info: 'WitnessLoop.not_fnDet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms not_fnDet

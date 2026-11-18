@@ -236,14 +236,14 @@ theorem gAt2 : OnlyResult G 2 (some (iv 1)) := by
 
 /-- `gCl2` decides at `[0]`: `gCl1`, the one clause of a smaller priority, does not apply there. -/
 theorem decides0 : gCl2.DecidesAt c gFn (sg 0) [iv 0] := by
-  refine ⟨⟨sg_sorted 0, sg_match 0, (fun _ h => nomatch h), .top⟩, fun cl' hcl' _ hlt σ' _ hp' h => ?_⟩
+  refine ⟨⟨(sg_sorted 0).at _, sg_match 0, (fun _ h => nomatch h), .top⟩, fun cl' hcl' _ hlt σ' _ hp' h => ?_⟩
   rcases mem_g hcl' with rfl | rfl
   · exact absurd (Holds.functional_of_fnDet fnDet h.2 (preAt0 (match_at hp'))) (by simp)
   · exact absurd hlt (Nat.lt_irrefl _)
 
 /-- `gCl1` decides at `[2]`: its predicate is true there, and no clause is of a smaller priority. -/
 theorem decides2 : gCl1.DecidesAt c gFn (sg 2) [iv 2] := by
-  refine ⟨⟨sg_sorted 2, sg_match 2, (fun _ h => nomatch h), preAt2 (σ := sg 2) rfl⟩, fun cl' hcl' _ hlt => ?_⟩
+  refine ⟨⟨(sg_sorted 2).at _, sg_match 2, (fun _ h => nomatch h), preAt2 (σ := sg 2) rfl⟩, fun cl' hcl' _ hlt => ?_⟩
   rcases mem_g hcl' with rfl | rfl
   · exact absurd hlt (Nat.lt_irrefl _)
   · exact absurd hlt (by decide)

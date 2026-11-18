@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-bytes-kore.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 231845
+definition.kore sha256: a9d7aac0bc21dd44b936796668f2404cec9884cae8f307c1022180a15e5f97a8
+stripped sha256: 10bb7e9d435ff96d3447f40ff0771e61207ce8ec4aa8f8f3c7fa92cb35548a02
+main module: 474 sentences, 84 not in base's, in kore.txt
+same_as e6-mod-bytes-kore-imports: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-BYTES-KORE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-BYTES-KORE as default.

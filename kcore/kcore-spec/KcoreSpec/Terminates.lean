@@ -200,7 +200,8 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
     induction n with
     | zero => intro p hp; omega
     | succ n ih =>
-      intro p hp ⟨cl, hcl, hpr, σ, hσ, hm, hq, hp'⟩
+      intro p hp ⟨cl, hcl, hpr, σ, hσu, hm, hq, hp'⟩
+      have hσ : c.WellSorted cl.vars σ := (wellSortedAt_univ (hx cl hcl).1).mp hσu
       by_cases hlow : ∃ cl' ∈ fn.clauses, cl'.prio < p ∧ ∃ σ', cl'.AppliesAt c σ' vs
       · obtain ⟨cl', hcl', hlt, ha⟩ := hlow
         exact ih cl'.prio (by omega) ⟨cl', hcl', rfl, ha⟩
@@ -208,14 +209,14 @@ theorem eval_resultRH {f : Sym} {fn : Fn} (hfn : c.lookupFn f = some fn) {vs : L
           hfail cl' hcl' fun ha => hlow ⟨cl', hcl', by omega, ha⟩
         cases he : cl.ens with
         | none =>
-          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+          obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσu, hm, hq, hp'⟩
           exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 hr
             (fun t ht => by rw [he] at ht; cases ht) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
         | some t =>
-          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσ, hm, hq, hp'⟩ t he
+          obtain ⟨w, hw⟩ := hens cl hcl σ ⟨hσu, hm, hq, hp'⟩ t he
           by_cases hb : w = some (bool true)
           · subst hb
-            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσ, hm, hq, hp'⟩
+            obtain ⟨r, hr⟩ := hrhs cl hcl σ ⟨hσu, hm, hq, hp'⟩
             exact ⟨r, Eval.clause hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 hr
               (fun t' ht' => by rw [he] at ht'; cases ht'; exact hw) (Clause.holds_postTop (hx cl hcl).2 σ)⟩
           · exact ⟨none, Eval.ensFails hfn hcl hσ hm hq hp' (fun cl' h _ hlt => hlowF cl' h hlt) (hx cl hcl).1 he hw hb⟩
@@ -342,12 +343,12 @@ theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb :
     simp only [reqOK, beq_iff_eq] at hq
     exact evalTerm_result hc.sort hL' hσ t hq (fun g hg => hovl g (heads_req_callees hcl' ht hg))
       (hcl cl hcl' σ hm t (Or.inr (Or.inl ht)))
-  · exact evalTerm_result hc.sort hL ha.1 cl.rhs (hrs cl hcl') (fun g hg => hovl g (heads_rhs_callees hcl' hg))
+  · exact evalTerm_result hc.sort hL ((wellSortedAt_univ (hc.plain fn hfn cl hcl').1).mp ha.1) cl.rhs (hrs cl hcl') (fun g hg => hovl g (heads_rhs_callees hcl' hg))
       (hcl cl hcl' σ ha.2.1 _ (Or.inl rfl))
   · have hq := hens cl hcl'
     rw [ht] at hq
     simp only [reqOK, beq_iff_eq] at hq
-    exact evalTerm_result hc.sort hL'' ha.1 t hq (fun g hg => hovl g (heads_ens_callees hcl' ht hg))
+    exact evalTerm_result hc.sort hL'' ((wellSortedAt_univ (hc.plain fn hfn cl hcl').1).mp ha.1) t hq (fun g hg => hovl g (heads_ens_callees hcl' ht hg))
       (hcl cl hcl' σ ha.2.1 t (Or.inr (Or.inr ht)))
 
 /-- A function has a result at an argument list of its argument sorts where each call in its

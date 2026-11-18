@@ -3,7 +3,7 @@
   `kore` and `defn`. Nothing here reads `Parse.parse` or `emit`.
   Run from the package root: `lake env lean test/TieEnsSig.lean`.
 
-  - `sig_origin`: each of the 195 items of `sigItems c` is the item of a declaration of the text
+  - `sig_origin`: each of the 208 items of `sigItems c` is the item of a declaration of the text
     (`Theory.ofDefinition kore`'s signature), or is about a registry name the text does not declare
     at that shape (`surplusItem`).
   - `decls_entailed`: the item of each sort declaration without sort parameters, and of each symbol
@@ -15,9 +15,17 @@
   list, each its own decision, joined by `tieAllE_range`. The items of `sigItems c`: definedness
   (0), the sort constants of the 33 sorts (1 to 33; the registry sorts 8 to 16 and 21 to 29, at 9 to
   17 and 22 to 30, are surplus, `SortMInt` among them since the text declares it with a sort
-  parameter), the arities of the 10 constructors and 16 functions (34 to 59), of the 132 interpreted
-  hooked symbols (60 to 191; those the text does not declare are surplus), and `⌈_⌉`'s arity and
-  definition and next's arity (192 to 194).
+  parameter), the arities of the 10 constructors and 16 functions (34 to 59), of the 145 interpreted
+  hooked symbols (60 to 204; those the text does not declare are surplus), and `⌈_⌉`'s arity and
+  definition and next's arity (205 to 207).
+
+  The counts (`sig_sizes`, `decl_counts`) follow the registry's interpreted symbols (`hookSigs`):
+  among the 145 are INT's `>>Int`, `<<Int`, `log2Int`, `^%Int`, `bitRangeInt`,
+  `signExtendBitRangeInt`, `^Int` and LIST's `L[I <- V]`, `makeList`, `updateList`, `fillList`,
+  which the text declares (so their declarations are among the 93 of `plainSyms`), and STRING's
+  `countAllOccurrences` and `replaceAll`, which it does not (surplus items). No other statement of
+  this file reads a count: the ranges of `sig_origin` and `decls_in_sig` cover the lists whatever
+  their length, the last range running to the end.
 -/
 import KcoreSpec
 
@@ -66,7 +74,7 @@ theorem sigE_164 : (((sigItems c).drop 164).take 13).all sigFrom = true := by de
 theorem sigE_177 : (((sigItems c).drop 177).take 13).all sigFrom = true := by decide +kernel
 theorem sigE_190 : ((sigItems c).drop 190).all sigFrom = true := by decide +kernel
 
-theorem sig_sizes : (sigItems c).length = 195 := by decide +kernel
+theorem sig_sizes : (sigItems c).length = 208 := by decide +kernel
 
 /-- **Every item of Γ's signature has its origin**: it is the item of a declaration of the text
 (the G-sort item of a sort declaration, the G-arity item of a symbol declaration, definedness, the
@@ -107,13 +115,14 @@ noncomputable def declItems : List Item := plainSorts.map sortConstantItem ++ pl
 noncomputable def inSigItems (it : Item) : Bool := (sigItems c).any (·.pat == it.pat)
 
 /-- **The account of the declarations** (all modules of the text): of the 16 sort declarations, 15
-have no sort parameter (the other is `SortMInt{Width}`); of the 131 symbol declarations, 82 have no
-sort parameter and name a symbol Γ has, 5 have sort parameters, and 44 name a symbol Γ does not
-have (no direction, as the sentences that apply them). -/
+have no sort parameter (the other is `SortMInt{Width}`); of the 131 symbol declarations, 93 have no
+sort parameter and name a symbol Γ has (the eleven INT and LIST symbols the header names among
+them), 5 have sort parameters, and 33 name a symbol Γ does not have (no direction, as the sentences
+that apply them). -/
 theorem decl_counts :
     (kore.sortDecls.length, plainSorts.length, kore.symbolDecls.length, plainSyms.length,
       (kore.symbolDecls.filter fun sd => !sd.params.isEmpty).length,
-      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = (16, 15, 131, 82, 5, 44) := by
+      (kore.symbolDecls.filter fun sd => sd.params.isEmpty && !hasSym sd.name).length) = (16, 15, 131, 93, 5, 33) := by
   decide +kernel
 
 theorem decl_params : (kore.sortDecls.filter fun sd => !sd.params.isEmpty).map (·.name) = ["SortMInt"] ∧
