@@ -344,6 +344,7 @@ import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
+import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
 import KcoreSpec.KKEnc
 import KcoreSpec.KKEncDef
