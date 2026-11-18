@@ -114,6 +114,7 @@ differs f2-examples/e6-param-kreflection.kompile.kore
 differs f2-examples/e6-param-kvar.kompile.kore
 differs f2-examples/e6-param-map.kompile.kore
 differs f2-examples/e6-param-rangemap.kompile.kore
+differs f2-examples/e6-param-rat.kompile.kore
 differs f2-examples/e6-param-set.kompile.kore
 differs f2-examples/e6-param-string.kompile.kore
 differs f2-examples/e6-param-timer.kompile.kore
