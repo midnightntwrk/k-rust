@@ -256,6 +256,7 @@ differs f2-examples/rdr-ite-own.kompile.kore
 differs f2-examples/rdr-ite-two-eq.kompile.kore
 differs f2-examples/rdr-ite-two.kompile.kore
 differs f2-examples/rdr-nopgm.kompile.kore
+differs f2-examples/rdr-pred-rule.kompile.kore
 differs f2-examples/rdr-proj-norule.kompile.kore
 differs f2-examples/ref-kimp.kore
 differs f2-examples/ref-peano.kore
