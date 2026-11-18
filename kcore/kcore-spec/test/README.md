@@ -1582,6 +1582,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   `LibEvFnBoolInt.lean`, `LibEvFnColl.lean`): sentences 174, 180, 246, 247; 173, 183, 184, 187, 188,
   192, 193, 198, 199, 202, 203, 204, 206, 209, 248, 249 (BOOL and INT); 207, 264 (`|Set`,
   `pushList`). Axioms guarded.
+- `test/LibEvFnBitRangeEns.lean`: the equations of `bitRangeInt` and `signExtendBitRangeInt`
+  (domains.md 1438, 1440) of `f2-examples/ens.kompile.kore`, sentences 208 and 265, entailed at
+  values for every H (`ev208`, `ev265`), from `LibEv.fnBitRange_ev` and `LibEv.fnSignExt_ev`
+  (`KcoreSpec/LibEvFnBitRange.lean`, through `LibEv.FnEqn.entailed_reg`). Axioms guarded.
 - `test/LibEvLawEns.lean`: the nine collection laws of `f2-examples/ens.kompile.kore` (sentences 53,
   54, 55, 57, 58, 59, 60, 62, 63: associativity and the two units of `_List_`, `_Map_`, `_Set_`)
   entailed at values for every H, each from the library's one statement of the law
@@ -1856,19 +1860,26 @@ table above, on the tree before String and Bytes). Not investigated here.
   `f2-examples/projapp.kore` (fixture kore-projapp), for every H. `project:Int`'s selector-domain
   axiom (sentence 179) with the signature entails Γ's item of the clause read from it (`w1`: where
   X0 is no injected Int the axiom's right side is empty, so `project:Int(X0)` holds no element of
-  Int); the other function equations are Γ's items (`shape`, `fns_entailed`, `fns_from_text`);
+  Int), and Γ entails the axiom (`dom_entailed`: where `⌈project:Int(K)⌉` holds, the arity of
+  `project:Int` and `w1`'s item put K in the form `kseq(inj(V), dotk)`, one element by Cons-Fun;
+  conversely sentence 178 gives the value V); the other function equations are Γ's items (`shape`,
+  `fns_entailed`, `fns_from_text`);
   `cons_entailed`; `account`, with the 13 other selector-domain axioms about projections that are
   no symbol of the definition (`other_domains`). `attrsAgree` is false here by its priorities part
   (`prios_read_clause`: no equation states the read clause's 200). `Consistent` is not derived: the
   deciders name `project:Int`'s termination (`dec_named`). Derivations from `Pre H`: `proj_5`,
-  `proj_dotk`. About 2.5 minutes, 6.3 GiB.
+  `proj_dotk`. About 2.5 minutes, 6.6 GiB.
 - `test/NoteStream.lean`: the tie (C14) of the reading notes `reflectionAsOwn` and `streamRule` on
   e2-cells-stream's kompiled text (`f2-examples/cellsstream`), for every H. The eight K-REFLECTION
   declarations are of symbols of Γ whose arity items are Γ's (`refl_arity`, `refl_entailed`); the
   seven hooked ones are parameters of no registry hook (`refl_hooks`, `refl_params`); expectation
   form (c), `refl_value`. The eight stream rules are the definition's rules at their sentences'
   priorities (`rule_texts`, `rule_prios`), each sentence the item of Γ's rule with the first two
-  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). About 40 s, 4.1 GiB.
+  conjuncts of its left side (`rules_tied`), so W1 (`rules_from_text`). `consistent` (the
+  semantics is `plain`, no fact named). Expectation from `Pre H` (the function equations as written,
+  `shape`, `append`'s two from the module KSEQ), by the executable step under `execReady`:
+  `out5_steps` (the rule `stdoutBufferInt` moves 5 from the `<out>` list into its buffer). About
+  2.5 minutes, 7.4 GiB.
 - `test/NotePredBool.lean`: the tie (C14) of the reading note `predicateAtBool` on its construct
   fixture's kompiled text (`f2-examples/mlceil`), for every H, in the same form. Sentence 158
   (priority 60) entails Γ's item (two conjuncts more, `left1`). Sentence 157's `requires`
@@ -1889,6 +1900,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   and Γ's item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`, by the
   executable step under `execReady`: `and_true` (`go(true)` steps to `done`), `and_false`
   (`go(false)` has no successor, with `Γstep`). About 5 minutes.
+- `test/NoteMapKeyFn.lean`: the tie (C14) of the reading note `keyFunctionAsMember` on its construct
+  fixture's kompiled text (`f2-examples/mapkeyfn`, e3-map-key-fn: `<m> key(X) |-> V ... </m>`, `key`
+  a total function), for every H. Γ's rule item is the sentence with a variable K of Int in the
+  place of `key(X)` and the conjuncts `K ∈ key(X)` and `⌈r⌉` more (`rule_text`, the variables after
+  K renamed down by one); every element of its left side is one of the sentence's (`left_sub`: the
+  conjunct puts K's value in `key(X)`, and application contexts and conjunctions are monotone), so
+  the sentence with `ΓSig` entails it (`rule_from_text`). `defs_attrsAgree`, `fns_entailed`,
+  `cons_entailed`, `account`, `consistent`. Expectations from `Pre H`: `get_steps` (with the map
+  `2 |-> 7`, `get(1)` steps to 7) and `get_absent` (`get(0)` has no successor, with `Γstep`). About
+  2 minutes, 6.5 GiB.
 - `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
   each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
   `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for
@@ -1936,6 +1957,18 @@ table above, on the tree before String and Bytes). Not investigated here.
   for every H (`simp_ev`, `InertEvUser.EqnU.entailed`), from the function's value at every argument
   (`eval_all`); the first two also show their text's semantics equal to their companion's
   (`sem_eq`, `withHooks_eq`: c3-simp-prio, c3-simp-comm-base).
+- `test/C3SimpCoolReq.lean`: the C2 evidence of the inert simplification of the pair `cool` x
+  `requires` (fixture c3-simp-cool-req), whose `requires` kompile conjoins `isKResult(HOLE)` to, HOLE of
+  sort K in no side: the sentence is entailed by Γ at values, for every H (`simp_ev`,
+  `InertEvUser.EqnU.entailed`), from `f(n) = n` at every integer (`eval_all`) and a value table that
+  takes `isKResult`'s value at each K, which it has for every H (`isKResult_total`, the sort predicates'
+  totality); both sides are n whatever the `requires` is.
+- `test/InertE3Setvar.lean`: the C2 evidence of the inert simplification over a set variable
+  `rule f(@S) => @S [simplification]` (fixture e3-setvar): Γ entails it for every H, at every
+  valuation (`lem_entailed`). Γ entails f's equation `f(X) => X` (`eq_entailed`, by the kernel shape
+  check of Γ's function items against the text), so in a model `f` at an inhabitant x of Int holds,
+  among the inhabitants of Int, exactly x (`eqn_at`); the sentence's guard puts `@S` inside Int's
+  inhabitants, and application is pointwise, so both sides hold exactly `@S` there.
 - `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
   and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
   every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`

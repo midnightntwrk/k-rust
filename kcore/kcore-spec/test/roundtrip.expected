@@ -1,8 +1,9 @@
-differs f2-examples/allbuiltins.kompile.kore
+cannot f2-examples/allbuiltins.kompile.kore
 cannot f2-examples/antileft.kompile.kore
 differs f2-examples/bandctor.kompile.kore
 differs f2-examples/base.kompile.kore
 differs f2-examples/c3-anywhere-ctor.kompile.kore
+differs f2-examples/c3-cells-star.kompile.kore
 differs f2-examples/c3-ctor-assoc.kompile.kore
 differs f2-examples/c3-ctor-comm.kompile.kore
 differs f2-examples/c3-ctor-idem.kompile.kore
@@ -40,6 +41,7 @@ differs f2-examples/c3-rule-req-prio.kompile.kore
 differs f2-examples/c3-seqstrict-order.kompile.kore
 differs f2-examples/c3-simp-comm-base.kompile.kore
 differs f2-examples/c3-simp-comm.kompile.kore
+differs f2-examples/c3-simp-cool-req.kompile.kore
 differs f2-examples/c3-simp-ens-true.kompile.kore
 differs f2-examples/c3-simp-ens.kompile.kore
 differs f2-examples/c3-simp-prio.kompile.kore
@@ -94,6 +96,7 @@ differs f2-examples/e3-reqens.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
+differs f2-examples/e3-setvar.kompile.kore
 differs f2-examples/e3-userlist.kompile.kore
 differs f2-examples/e3-vars.kompile.kore
 differs f2-examples/e3-withconfig.kompile.kore
@@ -122,6 +125,7 @@ differs f2-examples/e6-param-unification.kompile.kore
 differs f2-examples/e6cfg.kompile.kore
 differs f2-examples/e6rm.kompile.kore
 differs f2-examples/e6rmkeys.kompile.kore
+differs f2-examples/e6rmrest.kompile.kore
 differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
 differs f2-examples/e7-guardors.kompile.kore
@@ -184,6 +188,7 @@ differs f2-examples/lawfn.kompile.kore
 exact f2-examples/lazy.kore
 differs f2-examples/libsub.kompile.kore
 differs f2-examples/lset.kompile.kore
+differs f2-examples/mapkeyfn.kompile.kore
 differs f2-examples/mapl.kompile.kore
 cannot f2-examples/mlag.kompile.kore
 cannot f2-examples/mlallexp.kompile.kore
@@ -250,6 +255,7 @@ exact f2-examples/ph.kore
 exact f2-examples/prio.kore
 differs f2-examples/projapp.kore
 differs f2-examples/projuser.kompile.kore
+differs f2-examples/rdr-cell-star-sibling.kompile.kore
 differs f2-examples/rdr-hook-assoc-sub.kompile.kore
 differs f2-examples/rdr-hook-assoc.kompile.kore
 differs f2-examples/rdr-ite-own-hook.kompile.kore

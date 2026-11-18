@@ -360,6 +360,9 @@ import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
 import KcoreSpec.ModelFnsDecided
 import KcoreSpec.FloatUnpack
+import KcoreSpec.FloatThin
+import KcoreSpec.FloatThinLaws
+import KcoreSpec.FloatThinRound
 import KcoreSpec.ClauseEqOpen
 import KcoreSpec.EvalCallsInduct
 import KcoreSpec.GenEqsInst
@@ -411,3 +414,5 @@ import KcoreSpec.TieFRGamma
 import KcoreSpec.TieFRVars
 import KcoreSpec.KKMatchTsComplete
 import KcoreSpec.TieConsHd
+import KcoreSpec.FreeNames
+import KcoreSpec.LibEvFnBitRange

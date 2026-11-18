@@ -121,12 +121,38 @@ ALLOWANCE = [
     # computing the enclosing cell's initializer through the collection's initializer of no argument.
     # 31 -> 30: E6 hook:KEQUAL.ite's case of the text's own one-sort Lblite hooked to KEQUAL.ite
     # is supported, the declaration being the registry's ite declared again (Parse.regIteDeclIoh).
-    ("ROWS-1.unit-rc", 29, "entries of class R-c without unit",
+    # 29 -> 27 with P3.rows: E3 #Top's and #Not's case of an equation's right side are R-a
+    # manyValuedRightSide with their reason (designs/CN-4b-rc-units.md section 13).
+    # 27 -> 24 with ROWS-1.unit-rc. Three entries name the ticket or unit that supports them: E3
+    # #Exists and E2 ML_BINDER(mlBinder)@frontend, which takes its status, the unit CE (each R-c
+    # case of the row names its CE or RDR ticket); E6 hook:KEQUAL.ite's equation of the text's own
+    # ite at one sort, RDR.ite-own-fn-eqn (findings/work/decision-ite-own.md, case 1). The 24 left
+    # have no pending ticket that supports their shape: E1 Sentence:kw:syntax and E2
+    # SYMBOL(symbol)@symbol, the registry-name cases (the Γ-only form of option (b)); E3's rule-side
+    # connectives (rows #Top, #Not, #Ceil, #Equals, #And, #Implies; their cases on a rule's left
+    # side, #Not, #Ceil of constructors, #Equals, #And, #Implies; on a rule's right side, #Top and
+    # #Or; a requires #Not(B) of a term B; a conjunction under an application in a requires or
+    # ensures) and E2 ML_OP(mlOp)@frontend, which takes #Ceil's status; E5
+    # genOverloadedAxiom:axiom#1's constructor-with-function overload and overloadForm cases; E6
+    # hook:LIST.update's List:set in a left side; C3 'hook x equation', its row and two cases.
+    # 24 -> 26 with ROWS.rc-done-units: E2 HYBRID(hybrid)@frontend and C3 'strict x hybrid' named
+    # the design of reading a sort predicate's equations as a function's clauses, which is done and
+    # which no ticket implements (its two measured forms await the owner's choice); they join the
+    # entries above. The five other entries that named a landed ticket name the pending one that
+    # supports their shape: E3 #And's \ceil-of-a-conjunction case, #Or's and #Exists' cases of a
+    # binder in an alternative and #Exists' case of a binder beside a term name CE.reader-wire,
+    # #Exists' case of a binder under applications F2.E1-after-hoist.
+    ("ROWS-1.unit-rc", 26, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
-    # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
-    # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).
-    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
-     lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
+    # 46: the entries of class R-b without unit, each of which findings/KPROV-citations.md,
+    # KPROV-scope.md and KPROV-reopen-decision.md decide and KPROV.apply writes: most become
+    # scope (rejected, never written, not delivered or option), a class change with its fields,
+    # so no `none (R-b)` unit is theirs; BAG(bag)@frontend and TYPE(type)=Bag@frontend take the
+    # third R-b spelling of KPROV-citations section 8 R1; SMT_LEMMA(smt-lemma)@rule's `shape at`
+    # names a key KPROV.apply creates. E7 26:genCoverage and 30:removeAnywhereRules carry the
+    # status and class of their E8 rows --coverage and --allow-anywhere-haskell.
+    ("KPROV.apply", 46, "entries of class R-b without unit, relabelled or spelled by the ticket",
+     lambda l, e, k: k == "nounit" and e.get("class") == "R-b"),
 ]
 
 
