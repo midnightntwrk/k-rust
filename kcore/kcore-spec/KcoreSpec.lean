@@ -341,6 +341,7 @@ import KcoreSpec.TieRuleGuard
 import KcoreSpec.ModelFnsPre
 import KcoreSpec.CoreDecide
 import KcoreSpec.TieHeads
+import KcoreSpec.TieHeadsWalk
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore
