@@ -1032,6 +1032,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   from the two witnesses and `sound_fn` (`Cool.owed`, `Cool.sound`, `Cool.fnHyp`); at
   e2-open-genless `Consistent` by `consistent_of_fnFacts`, the rule 0 not `Witnessed`, and `Owed`
   exactly where the theory refutes its condition (`Genless.owed_iff_refuted`).
+- `test/OwedGenlessFalse.lean`: at e2-open-genless, the rule 0's owed `CondDecided` is false
+  (`Genless.owed_false`, `Genless.not_owed`): not `Witnessed`, and not `Refuted` in the model of
+  `KCore.EmptyInh` in which Empty holds an element e, where `isMk(mk(e))` is true. Over all H the
+  theory with the step's closure entails neither that `<k> b() </k>` is a successor of
+  `<k> a() </k>` nor that it is not (`Genless.succ_undetermined`: soundness at `EmptyInh.plus` and
+  the value model of c). The same proof at hw-ex-unused-empty's text (`HwEmpty`).
+- `test/OwedReqOrWitness.lean`: at e3-ml-req-or-unheld, the rule of the disjunct `Y >Int 2` is
+  `Witnessed` at Y := 3 (`witnessed1`), so `OpenDecided` holds (`owed`) and with it the pinned
+  `sound_at` (`sound_at_owed`) and `SoundC` (`sound`).
 - `test/NonExecOwiseTie.lean`, `test/nonexec-owise-gen.sh`: the tie on the two texts of a
   `non-executable` equation beside an `[owise]` one, their own kompiled texts
   (`f2-examples/owisenx.kompile.kore`, `owisenxagree.kompile.kore`), for every H. e5-owise-nonexec:
@@ -1056,6 +1065,17 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   Two arguments (`Fresh`, `f2-examples/freshcfg.kompile.kore`, `<k> $PGM:Exp </k> <id> !N:Int </id>`):
   `initIdCell(Init, #Configuration)` and `initGeneratedTopCell(Init, #Configuration)` at a map and a
   configuration, the counter's initial value 1.
+- `test/GenEqsInitAcctSortLabel.lean`, `test/GenEqsInitAcctVars.lean`, `test/GenEqsInitAcctFresh.lean`:
+  the texts of `test/GenEqsInitArm.lean`'s `SortLabel`, `Vars` and `Fresh` through the same arm, read
+  as the account reads each text: the user module's scan `S = scan m.sentences` and names `E`
+  (`envOf m S = .ok E`), computed by `parse_stages` and checked by the kernel (`scan_eq` in
+  `ScanIs` blocks, `env_eq`); the arm, the names (`armNameB`, the registry's `project:KItem` and
+  `project:Int` through `predProjAcc`) and the right sides at `E.N`, `E.src`, `S.eqs` and the text's
+  `functional` symbols `functionalSyms S.events`. Each `eqns` holds, in one model of the theory whose
+  steps are the semantics' (`GenEqs.model_of_arm`), the equations of `GenEqsInitArm.lean`'s instance
+  and the counter's equation and `functional` axiom (which the text holds). In `Fresh`, the text
+  holds no `functional` axiom of `initIdCell` (`noIdFunctional`, a conjunct of `eqns`); the one
+  instanced is supplied, taken by `initFunctionalOK` at the text's own `functional` symbols.
 - `test/GenEqsInitArm.lean`: instances of `KcoreSpec/GenEqsInitArm.lean`, the account's arm for the
   cell tree's initializers (`Parse.initEqnOK`, `Parse.initFunctionalOK`) against the model of
   `GenEqsInit.lean`, with nothing written by hand: the equations are `Parse.rawEqn?` of the user
@@ -1071,7 +1091,24 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`f2-examples/freshcfg.kompile.kore`): `initIdCell(Init, #Configuration) = <id>(0)` and
   `initGeneratedTopCell` at two arguments, and the instance of a `functional` axiom of `initIdCell`
   (which the text does not hold; `initFunctionalOK` takes one) at all values of a sort
-  (`GenEqs.init_arm_functional`).
+  (`GenEqs.init_arm_functional`). That axiom and the `functional` symbols `[initIdCell]` it is taken
+  at are supplied by hand: no kompiled text here or in kfix's cache declares an initializer of
+  positive arity `functional` or `total` (the texts' `functional` initializers are the constants).
+  The equations are the user module's axioms read with empty `Names` and source, not the account's
+  scan and names; `test/GenEqsInitNested.lean` instances the arm through those.
+- `test/GenEqsInitNested.lean`: the nested cell tree of `f2-examples/cellsplain.kompile.kore`
+  (`<t> <k> $PGM:Exp </k> <one> 0 </one> <ec> 0 </ec> </t>`) through `GenEqs.init_arm_at` and
+  `GenEqs.init_arm_functional`, read as the account reads the text: the user module's scan
+  `S = scan m.sentences` and names `E` (`envOf m S = .ok E`), computed by `parse_stages` and checked
+  by the kernel (`scan_eq` in eight `ScanIs` blocks, `env_eq`); the arm at `E.N`, `E.src`, `S.eqs`
+  and the text's `functional` symbols `functionalSyms S.events`. No right side or `G` is written by
+  hand. One model of the theory whose steps are the semantics' (`GenEqs.model_of_arm`) holds the
+  constants' equations and the text's `functional` axioms of `initOneCell` and `initEcCell`, the
+  equations of `initKCell`, `initTCell` and `initGeneratedTopCell` at `$PGM ↦ a()` (the initial
+  configuration their value, the getter at it) and at the empty map (no value,
+  `initGeneratedTopCell(.Map) = ⊥`). Against `GenEqsInits.Cells.eqns`, whose right sides are written
+  by hand: each equation is the text's (`TextEqn`: its right side translated, and `G`'s value), and
+  the getter is stated at the initial configuration's value rather than at `initGeneratedTopCell(w1)`.
 - `test/GenEqsLemmas.lean`: instances of `KcoreSpec/GenEqsConservative.lean`. Sort predicates (the
   hand-written `isFoo` equations of `test/PredContent.lean`): `predProjOK?` accepts both, and each is
   read as a clause of `isFoo`'s `sortPreds` function whose equation is a premise of `Γ`
@@ -1837,7 +1874,19 @@ table above, on the tree before String and Bytes). Not investigated here.
   `exvarslist`): the
   reader's verdict, and on its reading before the rules are checked (`Parse.coreBase`) each rule's
   `openRefusal` against `rulePlainHO1` (`agree true`). Map, set and list are read; the map update
-  (a hooked function) and the range map are refused `openRight` at Int.
+  (a hooked function) and the range map are refused `openRight` at Int. `Map` (e3-vars-map):
+  `coreOK` and `FnHyp` by the kernel; from `<k> set(5) </k> <m> .Map </m>` `Step` reaches exactly the
+  `5 |-> i`, i an Int; `Γc ⊧ den x ⇒ •famEx` by `sound_at`; by `ExactC` no other value is a successor
+  in any model of `Γc` with the step's closure. `MapRest` (e3-vars-map-rest,
+  `f2-examples/heldmaprest`): from `<m> 1 |-> 0 </m>` `Step` reaches `(k |-> 0) (1 |-> 0)` exactly for
+  the Ints k other than 1; at the key the right side has no value, and in every model of `Γc`
+  `_Map_(1 |-> 0, 1 |-> 0)` is empty (its `ΓDomains` axiom); by `ExactC` no other successor.
+  `Update`, `RangeMap`: on the reader's semantics before the rules are checked (`held_base_of`), V
+  is not in `heldOccs`, Int is not confined, `rulePlainHO1` fails and `openRefusal` is `openRight`;
+  `_[_<-_]` and the range map's symbols are not held in any semantics. `VarsSet`, `VarsList`
+  (e3-vars-set, e3-vars-list), as `MapRest` and `Map`: from the collection holding 1, `Step` reaches
+  `SetItem(k) S` exactly for k other than 1 (`_Set_` empty at the shared element in every model of
+  `Γc`) and `ListItem(k) L` for every Int k; `sound_at` and `ExactC` at each.
 - `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
   inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
   `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,

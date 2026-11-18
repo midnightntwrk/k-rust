@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-timer.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 204954
+definition.kore sha256: d0b328bc3b399dc192f9c39e5535e8083a50f6105554e8164548b33024af5c00
+stripped sha256: 49e9c9fb6af896d3a9ece8a170bce2d9b2afa2edb0f378f293ca28b2e59fb8a8
+main module: 396 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-TIMER-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-TIMER as default.

@@ -281,7 +281,7 @@ theorem sat_eqnPremEx (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl
   obtain ⟨L', hL', hreqs⟩ := F.req
   obtain ⟨hok, hsr, -, -, -, -, -, -, hno⟩ := h.sound
   haveI : OvlOK c := hno
-  have hsc := sortCtx_of_allCl hok hsr (OvlOK.ovlCase hno)
+  have hsc := sortCtx_of_allClEx hok hsr (OvlOK.ovlCase hno)
   have hreqv : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length := fun t ht =>
     varOccs_lt t (hreqs t ht)
   have hVv := clause_keys_inAxEx (c := c) (prem := prem) F.pats hreqv F.occ hPv

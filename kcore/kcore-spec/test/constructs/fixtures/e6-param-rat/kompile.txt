@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-rat.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 4.0
+definition.kore bytes: 304574
+definition.kore sha256: 03952111e11dbbe2d6b4a73c024060e69133ec7ed685d34ef8176cf7e2c5d715
+stripped sha256: 2673fe233feeae214938071d46f3ea8db72adddd6f0285ac17f0dd6d1337a6bd
+main module: 550 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-RAT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-PARAM-RAT as default.

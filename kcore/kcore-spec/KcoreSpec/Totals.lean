@@ -878,7 +878,7 @@ theorem total_of_totalOK (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK = 
   · have := hfok cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
     replace this := this.1
-    exact ⟨this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfn hcl⟩
+    exact ⟨sortsOfTerms_all_of_nf this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfn hcl⟩
   · simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
     rcases hg with (hg | ⟨p, hp, rfl⟩) | hg
     · exact htot g hg
@@ -942,7 +942,7 @@ theorem totals_of_order (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   have hpreTop := Semantics.preTop_of_okAll hok
-  totals_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok) hsr hov hrh hterm hnamed
+  totals_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hrh hterm hnamed
 
 /-- With no `[total]` function named, every one is total. -/
 theorem totals_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)

@@ -3,7 +3,7 @@
   (`test/constructs/fixtures/e2-fn-assoc-unit`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e2-fn-assoc-unit` with the law sentences classed by hand; the law section by hand; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
+  `test/constructs/tiegen.py e2-fn-assoc-unit`; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
@@ -102,21 +102,21 @@ def classes : List (String × List Nat) :=
    ("no junk", [113, 114, 115, 116, 117, 118, 119, 120, 121, 122]),
    ("function functional", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 104, 111]),
    ("hooked functional", [18, 19, 20, 29, 30, 31, 32, 33, 34, 36, 37, 38, 40, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
-      55, 63, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 79, 94, 95, 96, 97, 100, 105, 106,
-      107, 108, 109]),
+      55, 63, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 79, 95, 96, 97, 100, 105, 106, 107,
+      108, 109]),
    ("collection law", [52, 53, 54, 56, 57, 58, 59, 61, 62]),
    ("library", [128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
       146, 147, 148, 149, 150, 151, 152, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164,
       165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182,
       183, 184, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201,
-      202, 203, 204, 205, 237, 238, 239, 240, 241, 242, 257, 258]),
+      202, 203, 204, 205, 239, 240, 241, 242, 257, 258]),
    ("set idempotence", [60]),
    ("set-variable lemma", [123, 124, 125, 126, 127, 260]),
    ("function law", [101, 102, 103]),
    ("open generator law", []),
    ("open generator functional", []),
-   ("no direction", [35, 39, 41, 72, 74, 78, 110, 112, 153, 185, 206, 207, 208, 209, 243, 244, 245, 246, 247, 248,
-      249, 250, 251, 252, 253, 254, 255])]
+   ("no direction", [35, 39, 41, 72, 74, 78, 94, 110, 112, 153, 185, 206, 207, 208, 209, 237, 238, 243, 244, 245,
+      246, 247, 248, 249, 250, 251, 252, 253, 254, 255])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -130,24 +130,26 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 16), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 3), ("open generator law", 0), ("open generator functional", 0), ("no direction", 27)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 16), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 3), ("open generator law", 0), ("open generator functional", 0), ("no direction", 30)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
-aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
-/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has. -/
+/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
+so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
+`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it
+(`gammaHeads`). -/
 theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
-      (fun ad => (symbolsOf ad.ax.pattern).all
-        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
@@ -750,6 +752,7 @@ end KCore.TieE2FnAssocUnit
 #check @KCore.TieE2FnAssocUnit.account_absent
 #check @KCore.TieE2FnAssocUnit.absent_closed
 #check @KCore.TieE2FnAssocUnit.lists_in_account
+#check @KCore.TieE2FnAssocUnit.attrs_agree
 #check @KCore.TieE2FnAssocUnit.sig_origin_but_next
 #check @KCore.TieE2FnAssocUnit.decls_entailed
 #check @KCore.TieE2FnAssocUnit.consistent
@@ -768,7 +771,6 @@ end KCore.TieE2FnAssocUnit
 #check @KCore.TieE2FnAssocUnit.lib166_at_values
 #check @KCore.TieE2FnAssocUnit.gamma_origin
 #check @KCore.TieE2FnAssocUnit.gamma_from
-#check @KCore.TieE2FnAssocUnit.attrs_agree
 #check @KCore.TieE2FnAssocUnit.law_indices
 #check @KCore.TieE2FnAssocUnit.law_text
 #check @KCore.TieE2FnAssocUnit.law_not_item
@@ -784,6 +786,7 @@ end KCore.TieE2FnAssocUnit
 #print axioms KCore.TieE2FnAssocUnit.account_absent
 #print axioms KCore.TieE2FnAssocUnit.absent_closed
 #print axioms KCore.TieE2FnAssocUnit.lists_in_account
+#print axioms KCore.TieE2FnAssocUnit.attrs_agree
 #print axioms KCore.TieE2FnAssocUnit.sig_origin_but_next
 #print axioms KCore.TieE2FnAssocUnit.decls_entailed
 #print axioms KCore.TieE2FnAssocUnit.consistent
@@ -802,7 +805,6 @@ end KCore.TieE2FnAssocUnit
 #print axioms KCore.TieE2FnAssocUnit.lib166_at_values
 #print axioms KCore.TieE2FnAssocUnit.gamma_origin
 #print axioms KCore.TieE2FnAssocUnit.gamma_from
-#print axioms KCore.TieE2FnAssocUnit.attrs_agree
 #print axioms KCore.TieE2FnAssocUnit.law_indices
 #print axioms KCore.TieE2FnAssocUnit.law_text
 #print axioms KCore.TieE2FnAssocUnit.law_not_item

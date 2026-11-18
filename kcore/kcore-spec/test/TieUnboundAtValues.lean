@@ -13,18 +13,19 @@
 
   - Hooked functional (`fun_entailed`, `fun_indices`): the 47 sentences
     `\exists{R}(Val:s, \equals{s, R}(Val:s, f(K0:s0, …)))` whose symbol is an interpreted hooked
-    symbol that is not partial (`LibEv.functional_ev`). Owed: 100, the sentence of `ite`, which the
-    text states once over a sort variable (`axiom{R, SortSort}`): it is not the functional sentence
-    of a signature of `hookSigs`, whose sorts are the registry's, and the library states none of it.
+    symbol that is not partial (`LibEv.functional_ev`), the whole class. The sentence of `ite`
+    (100), which the text states once over a sort variable (`axiom{R, SortSort}`), is not of this
+    class: Γ applies `ite` at no sort argument, so the sentence is of the class no direction
+    (test/TieUnbound.lean, `ite_absent`).
   - Collection law (`laws_entailed`, `law_indices`): associativity and the two units of `_List_`,
     `_Map_`, `_Set_` (53 to 55, 57 to 60, 62, 63), the nine sentences of the class.
-  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): 80 of the class's 84. The sixteen
+  - Library (`lib_entailed`, `libSet_entailed`, `lib_indices`): 80 of the class's 82. The sixteen
     predicate equations of `==Int`, `=/=Int`, `==K`, `=/=K` (`pred_entailed`); 56 term and function
     equations, each by its own theorem (`evN`); the eight Bool predicate sentences over set
     variables, entailed at set values (`EntailsAtSetValues`), which `libSet_entailed` states. Owed:
-    242, 243 (`ite{SortK}` at a condition `true` or `false`), `ite` at the sort K, of which the
-    library states no equation; 207, 263, the equations of `bitRangeInt` and
-    `signExtendBitRangeInt`, interpreted symbols of which the library states no equation.
+    207, 263, the equations of `bitRangeInt` and `signExtendBitRangeInt`, interpreted symbols of
+    which the library states no equation. The two equations of `ite{SortK}` (242, 243) apply `ite`
+    at the sort K, which Γ does not apply, and are of the class no direction (`ite_absent`).
   - Set-variable lemmas (`sN_refuted`, `sN_one`, `setvar_indices`): 125 (`%Int`), 126 (`/Int`),
     129 (`modInt`) at `@I1 = {0}`, `@I2 = {1, 0}`; 127 (`<<Int`), 128 (`>>Int`) at `@I1 = {0}`,
     `@I2 = {0, -1}`; 264, kompile's `#Ceil(@K0 |-> @K1 @Rest)` lemma, at `@K0 = @K1 = {0}`,
@@ -72,7 +73,7 @@ theorem boolBelowH (H : HookParams) : Srt.bool ∈ (cH H).sortsBelowKItem :=
 theorem intBelowH (H : HookParams) : Srt.int ∈ (cH H).sortsBelowKItem :=
   List.contains_iff_mem.mp (by decide +kernel : c.sortsBelowKItem.contains Srt.int = true)
 
-/-! ## Hooked functional (47 of 48; 100, `ite`'s, owed) -/
+/-! ## Hooked functional (the 47 of the class) -/
 
 /-- The indices of the sentences. -/
 def funIdx : List Nat :=
@@ -647,24 +648,23 @@ theorem setvar_indices : [U.ax125, U.ax126, U.ax127, U.ax128, U.ax129, U.ax264].
 /-- The class lists of test/TieUnbound.lean (`classes`), as written there. -/
 def hookedClass : List Nat :=
   [19, 20, 21, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 56, 64,
-   65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 79, 82, 84, 100, 101, 102, 103, 106, 107, 108, 109, 110, 111]
+   65, 66, 67, 68, 69, 70, 71, 72, 74, 76, 79, 82, 84, 101, 102, 103, 106, 107, 108, 109, 110, 111]
 def lawClass : List Nat := [53, 54, 55, 57, 58, 59, 60, 62, 63]
 def libraryClass : List Nat :=
   [130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
    150, 151, 152, 153, 155, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171,
    172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 189, 190, 191, 192,
-   193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 242, 243, 244, 245,
-   246, 247, 262, 263]
+   193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 244, 245, 246, 247,
+   262, 263]
 def setvarClass : List Nat := [125, 126, 127, 128, 129, 264]
 
-/-- Hooked functional: the 47 tied and 100 (`ite`'s, owed) are the class. -/
-theorem hooked_account : (funText.map (fun ad : AxiomDecl => ad.index) ++ [100]).isPerm hookedClass = true := by
+/-- Hooked functional: the 47 tied are the class. -/
+theorem hooked_account : (funText.map (fun ad : AxiomDecl => ad.index)).isPerm hookedClass = true := by
   rw [fun_indices]; decide
 /-- Collection law: the nine tied are the class. -/
 theorem law_account : lawText.map (·.index) = lawClass := law_indices
-/-- Library: the 80 tied, and 207, 263 (`bitRangeInt`, `signExtendBitRangeInt`) and 242, 243 (`ite{SortK}`),
-owed, are the class. -/
-theorem library_account : ((predText ++ evText ++ setText).map (fun ad : AxiomDecl => ad.index) ++ [207, 242, 243, 263]).isPerm libraryClass = true := by
+/-- Library: the 80 tied, and 207, 263 (`bitRangeInt`, `signExtendBitRangeInt`), owed, are the class. -/
+theorem library_account : ((predText ++ evText ++ setText).map (fun ad : AxiomDecl => ad.index) ++ [207, 263]).isPerm libraryClass = true := by
   rw [lib_indices]; decide
 /-- Set-variable lemma: the six refuted are the class. -/
 theorem setvar_account : [U.ax125, U.ax126, U.ax127, U.ax128, U.ax129, U.ax264].map (·.index) = setvarClass :=

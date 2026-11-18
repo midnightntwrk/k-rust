@@ -2,10 +2,8 @@
   The tie (C14) on `f2-examples/e3-vars.kompile.kore`, the kompiled text of construct fixture e3-vars
   (`test/constructs/fixtures/e3-vars`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
-  every interpretation H. Nothing here reads `Parse.parse` or `emit`. The output of
-  `test/constructs/tiegen.py e3-vars` with its refusal of a definition that reads a confined sort
-  lifted, finished by hand where that reading changes it (`readsConfined_c`, the obligations, the
-  section over `Γc`); run from the package root: `lake env lean -j1 test/TieE3Vars.lean`.
+  every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
+  `test/constructs/tiegen.py e3-vars`; run from the package root: `lake env lean -j1 test/TieE3Vars.lean`.
 
   The rule `<k> c(_, _Y) => d(?Z:Int) ... </k>` has a variable its left side does not bind (`?Z`,
   an existential of its right side), which is what `Semantics.readsConfined` asks of a rule; so
@@ -105,21 +103,21 @@ def classes : List (String × List Nat) :=
    ("no junk", [127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138]),
    ("function functional", [97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112]),
    ("hooked functional", [20, 21, 22, 33, 34, 35, 36, 37, 38, 40, 41, 42, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
-      59, 67, 68, 69, 70, 71, 72, 73, 74, 75, 77, 79, 85, 94, 96, 113, 114, 115, 116, 119, 120,
-      121, 122, 123, 124]),
+      59, 67, 68, 69, 70, 71, 72, 73, 74, 75, 77, 79, 85, 94, 96, 114, 115, 116, 119, 120, 121,
+      122, 123, 124]),
    ("collection law", [56, 57, 58, 60, 61, 62, 63, 65, 66]),
    ("library", [144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
       162, 163, 164, 165, 166, 167, 171, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
       184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201,
       202, 203, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220,
-      221, 222, 223, 224, 261, 262, 263, 264, 265, 266, 282, 283]),
+      221, 222, 223, 224, 263, 264, 265, 266, 282, 283]),
    ("set idempotence", [64]),
    ("set-variable lemma", [139, 140, 141, 142, 143, 284]),
    ("function law", []),
    ("open generator law", []),
    ("open generator functional", []),
-   ("no direction", [39, 43, 45, 76, 78, 95, 125, 126, 172, 204, 225, 226, 227, 228, 229, 267, 268, 269, 270, 271,
-      272, 273, 274, 275, 276, 277, 278, 279, 280, 281])]
+   ("no direction", [39, 43, 45, 76, 78, 95, 113, 125, 126, 172, 204, 225, 226, 227, 228, 229, 261, 262, 267, 268,
+      269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281])]
 
 /-- The indices of a class. -/
 def classOf (n : String) : List Nat := (classes.filter (·.1 == n)).flatMap (·.2)
@@ -133,24 +131,26 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 31), ("rewrite rule", 3), ("priority equation", 0), ("constructor functional", 11), ("subsort", 16), ("injectivity", 8), ("distinctness", 6), ("no junk", 12), ("function functional", 16), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 30)] := by
+    [("function equation", 31), ("rewrite rule", 3), ("priority equation", 0), ("constructor functional", 11), ("subsort", 16), ("injectivity", 8), ("distinctness", 6), ("no junk", 12), ("function functional", 16), ("hooked functional", 47), ("collection law", 9), ("library", 82), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 0), ("open generator law", 0), ("open generator functional", 0), ("no direction", 33)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
 theorem account_classes : classes.map (·.1) = tieClasses.map (·.1) := by decide +kernel
 
-/-- **A sentence outside the no-direction class applies only symbols Γ has** (the injection `inj`
-aside, which Γ's constructor items apply), and each sentence of that class applies one Γ lacks. -/
+/-- **A sentence outside the no-direction class applies only symbols Γ has**, each a head with its
+sort arguments (`appHeadsOf`) among Γ's (`gammaHeads`), and each sentence of that class applies one
+Γ lacks. -/
 theorem account_absent : userAxioms.all (fun ad =>
-    (classOf "no direction").contains ad.index !=
-      (symbolsOf ad.ax.pattern).all (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true := by
+    (classOf "no direction").contains ad.index != (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true := by
   rw [userAxioms_eq]; decide +kernel
 
-/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has. -/
+/-- **The no-direction class is closed**: every sentence outside it applies only symbols Γ has,
+so no sentence with a direction applies a symbol Γ lacks. The injection `inj` is no member of
+`kernelSyms` and is Γ's all the same at each subsort pair, where the constructor items state it
+(`gammaHeads`). -/
 theorem absent_closed :
     (userAxioms.filter (fun ad => !(classOf "no direction").contains ad.index)).all
-      (fun ad => (symbolsOf ad.ax.pattern).all
-        (fun n => n == "inj" || (kernelSyms c).any (fun k => c.symName k.name == n))) = true :=
+      (fun ad => (appHeadsOf ad.ax.pattern).all (gammaHasHead c)) = true :=
   tieAbsent_of_account userAxioms _ _ account_absent
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
@@ -930,6 +930,19 @@ end KCore.TieE3Vars
 #check @KCore.TieE3Vars.lib166_at_values
 #check @KCore.TieE3Vars.gamma_origin
 #check @KCore.TieE3Vars.gamma_from
+#check @KCore.TieE3Vars.owed_rules
+#check @KCore.TieE3Vars.owed_clauses
+#check @KCore.TieE3Vars.openDecidedH
+#check @KCore.TieE3Vars.gammaCl_eq
+#check @KCore.TieE3Vars.gamma_origin_c
+#check @KCore.TieE3Vars.gamma_from_c
+#check @KCore.TieE3Vars.decls_entailed_c
+#check @KCore.TieE3Vars.fns_entailed_c
+#check @KCore.TieE3Vars.nojunk_trivial_entailed_c
+#check @KCore.TieE3Vars.nojunk_items_entailed_c
+#check @KCore.TieE3Vars.nojunk_kitem_entailed_c
+#check @KCore.TieE3Vars.cons_entailed_c
+#check @KCore.TieE3Vars.idem_refuted_c
 #print axioms KCore.TieE3Vars.noRaw
 #print axioms KCore.TieE3Vars.readsConfined_c
 #print axioms KCore.TieE3Vars.userAxioms_eq
@@ -961,19 +974,6 @@ end KCore.TieE3Vars
 #print axioms KCore.TieE3Vars.lib166_at_values
 #print axioms KCore.TieE3Vars.gamma_origin
 #print axioms KCore.TieE3Vars.gamma_from
-#check @KCore.TieE3Vars.owed_rules
-#check @KCore.TieE3Vars.owed_clauses
-#check @KCore.TieE3Vars.openDecidedH
-#check @KCore.TieE3Vars.gammaCl_eq
-#check @KCore.TieE3Vars.gamma_origin_c
-#check @KCore.TieE3Vars.gamma_from_c
-#check @KCore.TieE3Vars.decls_entailed_c
-#check @KCore.TieE3Vars.fns_entailed_c
-#check @KCore.TieE3Vars.nojunk_trivial_entailed_c
-#check @KCore.TieE3Vars.nojunk_items_entailed_c
-#check @KCore.TieE3Vars.nojunk_kitem_entailed_c
-#check @KCore.TieE3Vars.cons_entailed_c
-#check @KCore.TieE3Vars.idem_refuted_c
 #print axioms KCore.TieE3Vars.owed_rules
 #print axioms KCore.TieE3Vars.owed_clauses
 #print axioms KCore.TieE3Vars.openDecidedH

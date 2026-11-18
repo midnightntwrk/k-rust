@@ -21,8 +21,11 @@
     rule `a() => b() requires isMk(X:S)`, S a sort of which every value is `k()`. `Consistent c`
     holds with no owed condition read (`consistent`, by `consistent_of_fnFacts`). The rule 0 is not
     `Witnessed` (`not_witnessed0`: at the one value of S, `isMk` is `false` only), so `Owed` holds
-    exactly where the theory refutes the condition (`owed_iff_refuted`). Neither `Owed` nor its
-    negation is shown: no model of `Γc` with an element of S at which `isMk` is true is built.
+    exactly where the theory refutes the condition (`owed_iff_refuted`). It does not: `Owed` is
+    false at this text (test/OwedGenlessFalse.lean, `OwedGenlessFalse.Genless.owed_false` and
+    `not_owed`), since in the model of `KCore.EmptyInh` in which Empty holds an element e,
+    `isMk(mk(e))` is true. So the generated `sound_defn`, `complete_defn` and `fnHyp_defn` state
+    nothing of this text.
   The witnesses and the values of S are those of `test/OpenFixtures.lean` (sections `Cool`,
   `Genless`), repeated here since a test file imports the library only.
 -/

@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-clause-genless-wit.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 217932
+definition.kore sha256: 794c33bd9a6a5a60ffce5eed7eebda4c00c15b9bb273eac7b3088e5b35404468
+stripped sha256: 1f639ab2a27eea6789fe38675556df47242032727e1a25d69761ca2f2aaaf541
+main module: 427 sentences, 71 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-genless-wit.k)
+  	Location(11,31,11,32)
+  	11 |	  rule f(_) => 1 requires isC(H:S) [unboundVariables(H)]
+  	   .	                              ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-GENLESS-WIT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E2-CLAUSE-GENLESS-WIT as default.

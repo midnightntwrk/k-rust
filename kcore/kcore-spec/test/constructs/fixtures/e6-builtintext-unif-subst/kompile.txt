@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-builtintext-unif-subst.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 275877
+definition.kore sha256: d0fe9ce12f4d36337d09462000182615d24fb4393e6a2fcebe06917fdcb7a555
+stripped sha256: d575f883093deafd8d179702440787b7184fc5ec49aba05e43ec93bde27fb7ba
+main module: 504 sentences, 81 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-BUILTINTEXT-UNIF-SUBST-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-BUILTINTEXT-UNIF-SUBST as default.

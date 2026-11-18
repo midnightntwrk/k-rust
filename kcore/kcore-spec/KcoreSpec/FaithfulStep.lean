@@ -1061,7 +1061,7 @@ theorem clause_ctxOccE (hok : c.sortedOK = true) {fn : Fn} (hfn : fn ∈ c.allFn
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at h2
     replace h2 := h2.1
     obtain ⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩ := h2
-    refine ⟨hpats, fun i hi => ?_, c.fns.map Fn.sig, fun k hk => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
+    refine ⟨sortsOfTerms_all_of_nf hpats, fun i hi => ?_, c.fns.map Fn.sig, fun k hk => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
     · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
       exact hb i hi
     · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
@@ -1515,6 +1515,7 @@ theorem rule_ctx (hok : c.sortedOK = true) {r : Rule} (hr : r ∈ c.rules) :
   have h := hok.2 r hr
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, -⟩, -⟩, -⟩, hreq⟩, -⟩, -⟩, -⟩, -⟩, -⟩, hrhs⟩ := h
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun t ht => ?_, hrhs⟩
   · rw [ht] at hreq
     simpa [reqOK] using hreq

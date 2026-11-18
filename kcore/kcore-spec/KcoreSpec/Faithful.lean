@@ -850,7 +850,9 @@ def HypCore (c : Semantics) : Prop :=
   (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, MatchIndependent c cl) ∧
   NamesNumbered c
 
-theorem Hyp.core {c : Semantics} (h : Hyp c) : HypCore c := ⟨Semantics.sortedOK_of_okAll h.1, h.2⟩
+/-- `Hyp` gives `HypCore` where no pattern applies a function-overloaded symbol (`ovlPatsOK`). -/
+theorem Hyp.core {c : Semantics} (h : Hyp c) (hov : c.ovlPatsOK = true) : HypCore c :=
+  ⟨Semantics.sortedOK_of_okAll h.1 hov, h.2⟩
 
 /-- **Step soundness**: every step is a theorem of `Γ`, `⟦x⟧ → •⟦y⟧`: in every model of `Γ`, the
 configuration x has the configuration y as a successor. -/

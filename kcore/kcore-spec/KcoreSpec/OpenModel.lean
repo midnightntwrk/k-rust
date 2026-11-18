@@ -90,6 +90,7 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
   have hs' := hs
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, -⟩, -⟩, hreq⟩, -⟩, hens⟩, -⟩, -⟩, -⟩, hrhs⟩ := hs'
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs⟩
   · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)
     simp only [Rule.condVars, hpre, hpost, varOccsCond, List.append_nil, List.contains_iff_mem,
@@ -110,7 +111,7 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
 left aside: `ruleSorted` and `rulePlainHO1`. -/
 theorem HypModelCore.ruleFactsHO1 (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
     c.ruleSorted r = true ∧ c.rulePlainHO1 r = true := by
-  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
+  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKClEx_parts h.hyp.1
   exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_held.mp hrp r hr⟩
 
 /-- Where every rule has `rulePlainEx` (a decidable fact of the rules), `HypModelCore` gives
@@ -181,7 +182,7 @@ well-sorted σ is, when defined, a configuration. -/
 theorem rhs_sorted_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true) {σ : Subst}
     (hσ : c.WellSorted r.vars σ) {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v)) :
     c.sortOf v = some topCellSort :=
-  EvalTerm.sorted (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase) he
+  EvalTerm.sorted (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase) he
     (fun k hk => by
       obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk; exact ⟨g, List.mem_append_left _ hg, rfl⟩) hσ
     (Semantics.ruleSorted_parts c hs).2.2.2 rfl
@@ -258,6 +259,7 @@ theorem ruleSorted_partsEx {r : Rule} (hs : c.ruleSorted r = true) (hp : c.ruleP
   have hs' := hs
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at hs'
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, hb⟩, hnd⟩, hex⟩, hreq⟩, -⟩, hens⟩, -⟩, -⟩, -⟩, hrhs⟩ := hs'
+  replace hl := sortOfTerm_all_of_nf hl
   refine ⟨hl, fun i hi => ?_, fun t ht => ?_, fun t ht => ?_, hrhs, (NamesApart.nodupB_iff _).mp hnd,
     fun i hi => ?_⟩
   · have := List.all_eq_true.mp hb i (List.mem_range.mpr hi)
@@ -355,7 +357,7 @@ theorem applies_iff_T (h : HypModelCore c) {T : GroundTerm → GroundTerm → Pr
     ⟨varOccs_lt t (hreqS t ht) i hi, Rule.req_leftVars ht i hi⟩
   let P : Nat → Prop := fun i => i < n ∧ i ∈ r.leftVars
   have hpat : PatOK c P r.lhs :=
-    (patOK_of_sorted h (h.ovlOKI.nf_bridge hlhs)).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
+    (patOK_of_sorted h (Semantics.ruleSorted_lhs_nf c hs)).monoOpen fun i hi => ⟨hltL i hi, List.mem_append_left _ hi⟩
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqS t ht)).monoOpen (hreqLt t ht)
   rw [applies_eqOpen hpre]
@@ -528,7 +530,7 @@ theorem rule_premise_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r =
           ∃ y, EvalTerm c σ r.rhs (some y) ∧ ∀ t, r.ens = some t → EvalTerm c σ t (some (bool true))) := by
   obtain ⟨hlhs, -, hreqs, hensS, hrhss⟩ := ruleSorted_partsOpen hs hp
   obtain ⟨hex₀, hpre₀, hpost₀⟩ := Semantics.rulePlainOpen_top hp
-  have hpat := patOK_of_sorted h (h.ovlOKI.nf_bridge hlhs)
+  have hpat := patOK_of_sorted h (Semantics.ruleSorted_lhs_nf c hs)
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let comps := (c.rules.filter (·.prio < r.prio)).map fun r' => applies c r' (canonRulePres r')

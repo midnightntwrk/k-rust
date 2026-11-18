@@ -1,0 +1,3 @@
+param	LbltimerStart'LParRParUnds'TIMER'Unds'K	args=[]	result=K	impl=none	raw=false	assoc=false	idem=false
+param	LbltimerStop'LParRParUnds'TIMER'Unds'K	args=[]	result=K	impl=none	raw=false	assoc=false	idem=false
+(exit 0)

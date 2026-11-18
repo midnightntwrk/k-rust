@@ -1,0 +1,2 @@
+param	Lbl'Hash'Rat2Float'LParUndsCommUndsCommUndsCommUndsRParUnds'RAT'Unds'Float'Unds'Int'Unds'Int'Unds'Int'Unds'Int	args=[Int, Int, Int, Int]	result=Float	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
