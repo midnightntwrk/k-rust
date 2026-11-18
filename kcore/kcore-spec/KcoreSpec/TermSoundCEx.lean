@@ -88,14 +88,15 @@ theorem neg_of_coreClEx (hI : I ⊧ᴵP Γc c) (hok : c.sortedOKClEx = true) (hs
   · obtain ⟨hs, hpl⟩ := (Semantics.sortedOKClEx_parts hok).2.1 fn hu cl hcl
     obtain ⟨hpats, -, hreqS, -, -⟩ := Semantics.clauseSortedOpen_parts hs
     obtain ⟨-, -, hconj, hnw⟩ := Semantics.clausePlainOpenEx_parts hpl
-    exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv hpats
+    exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv
+      (Semantics.clauseSortedOpen_pats_nf hs)
       (Semantics.clauseSortedOpen_preOK hs) (fun hne => ⟨hpreR fn hfn cl hcl hne, hnw hne⟩) hreqS hconj
       (readsConfined_of_openCl hu hcl) (hc fn hu cl hcl)
   · obtain ⟨hpats, -, hb, hreq, -, -⟩ := sortPreds_ctx hp cl hcl
     have hoc := openCondVars_of_bindsCl hb
     have hnw : cl.needsWitness c = false := by simp [Clause.needsWitness, Clause.reqOpen, hoc]
     exact exclEmptyCl_ofCl hI (namesNumbered_spec hnn) hg hsc hph hcso hcs hph' hcv (L := [])
-      (sortsOfTerms_heads c.patCtx (c.collPatSigs ++ c.ovlSigs) cl.vars cl.pats hpats)
+      (Semantics.sortPredPats_nf (hov.hyp hsc.trans).fnFacts hp hcl)
       (by rw [(sortPreds_topCl hp cl hcl).1, Semantics.condOK]) (fun hne => absurd (sortPreds_topCl hp cl hcl).1 hne)
       (fun t ht => by rw [ht] at hreq; simpa [reqOK] using hreq) (by simp [Clause.reqOpen, hoc])
       (fun h' => by simp [hoc] at h') (fun h' => by rw [hnw] at h'; cases h')
