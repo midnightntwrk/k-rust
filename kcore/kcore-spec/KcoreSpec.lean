@@ -323,6 +323,7 @@ import KcoreSpec.LibEvSetVar
 import KcoreSpec.LibEvCeil
 import KcoreSpec.LibEvBoolSet
 import KcoreSpec.LibEvStr
+import KcoreSpec.LibEvFloat
 import KcoreSpec.TieRulePair
 import KcoreSpec.InertEvUser
 import KcoreSpec.TieOvlConf
