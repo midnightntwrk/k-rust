@@ -411,3 +411,4 @@ import KcoreSpec.TieFRGamma
 import KcoreSpec.TieFRVars
 import KcoreSpec.KKMatchTsComplete
 import KcoreSpec.TieConsHd
+import KcoreSpec.LibEvFnBitRange
