@@ -454,7 +454,14 @@ impl<'a> Lower<'a> {
                     node(n)
                 ));
             }
-            let kl = self.at(k, "KCore.Srt.kitem")?;
+            // a key is lowered without the fold: a function's value is no constructor term, and
+            // two keys of different texts could then be equal
+            let closed = Lower {
+                table: self.table,
+                env: self.env,
+                int_fold: None,
+            };
+            let kl = closed.at(k, "KCore.Srt.kitem")?;
             let vl = self.at(v, "KCore.Srt.kitem")?;
             if keys.contains(&kl.text) {
                 return Err(format!("{}: a map key that occurs twice", node(k)));

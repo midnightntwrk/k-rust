@@ -1,7 +1,7 @@
 //! `k2lean`: a Lean 4 library from a K definition compiled to KORE by krust (`k2lean/README.md`).
 //!
 //! Commands: `gen` (the library), `open-from-log`, `goldens`, `cases`, `configs`, `survey`,
-//! `relate`, `soundness`, `claims`, `new-invariant` and `diff`; `k2lean/docs/design.md` describes them.
+//! `relate`, `soundness`, `claims`, `kcore-claims`, `new-invariant` and `diff`; `k2lean/docs/design.md` describes them.
 
 mod agree;
 mod casediff;
@@ -24,7 +24,7 @@ mod index;
 mod init;
 mod invariants;
 mod ir;
-#[allow(dead_code)] // read by the tests until `kcore-claims` uses it
+mod kcore_claims;
 mod kcore_terms;
 mod lower;
 mod measure;
@@ -268,6 +268,9 @@ fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     if raw.first().map(|s| s.as_str()) == Some("claims") {
         return claims::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("kcore-claims") {
+        return kcore_claims::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("relate") {
         return relate::main(&raw[1..]);
