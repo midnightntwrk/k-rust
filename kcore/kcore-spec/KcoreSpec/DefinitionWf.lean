@@ -1153,15 +1153,17 @@ def sortedNat : List Nat → Bool
   | _ => true
 
 /-- The configuration's cell tree: its cells named apart (from each other and the generated ones),
-alphanumerically, the leaf holding `$PGM` (`pgmCell`) a leaf of content K or `$PGM`'s sort (the
-two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
+alphanumerically, the leaf holding `$PGM` (`pgmCell`, where one does) a leaf of content K or
+`$PGM`'s sort (the two contents `emit` writes `$PGM`'s projection into), each with the sorts and symbols of its kind
 (`cellIdsShaped`); and the sorts, constructors and subsorts it derives (`Presentation.cellSorts`,
 `cellCtors`, `cellSubsorts`) are the first of the core's (`userSorts`, `ctors`, `userSubsorts`),
 which `emit` writes from the tree and the rest from the core. -/
 def Presentation.cellsOK (p : Presentation) (c : Semantics) : Bool :=
   let ns := Semantics.cellNamesList p.config
   nodup (ns ++ ["generatedTop", "generatedCounter"]) && ns.all Semantics.cellNameOK &&
-  (Semantics.cellLeavesList p.config).any (fun l => l.1 == p.pgmCell && (l.2 == Srt.k || l.2 == c.pgmSort)) &&
+  (match p.pgmCell with
+   | some n => (Semantics.cellLeavesList p.config).any (fun l => l.1 == n && (l.2 == Srt.k || l.2 == c.pgmSort))
+   | none => true) &&
   !p.config.isEmpty &&
   Semantics.cellIdsShapedList p.config &&
   p.cellSorts.isPrefixOf c.userSorts && p.cellCtors.isPrefixOf c.ctors &&

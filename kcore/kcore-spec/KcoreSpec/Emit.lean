@@ -429,7 +429,7 @@ end
 (`pgmCell`), or a leaf whose initial value reads `Init`, as `<env> $ENV:Map </env>` does), so its
 initializer reads `Init`. -/
 def readsInit (p : Presentation) (x : Cell) : Bool := x.all.any fun
-  | .leaf n _ _ => n == p.pgmCell || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
+  | .leaf n _ _ => p.pgmCell == some n || ((p.cellValues.lookup n).map fun t => !(varOccs t).isEmpty).getD false
   | _ => false
 
 /-- `initXCell`: not a function of the semantics, named from the cell's sort. -/
@@ -502,7 +502,7 @@ def initAx (c : Semantics) (p : Presentation) (x : Cell) : Kore.Sentence :=
   let uid := uidAttr ((p.cellInits.lookup x.name).getD "")
   let body : Kore.Pattern := match x with
     | .leaf n s _ =>
-      if n == p.pgmCell then
+      if p.pgmCell == some n then
         let S := c.pgmSort
         let pgm := ap "LblMap'Coln'lookup" [ev "VarInit" (srt "Map"),
           injP "KConfigVar" "KItem" (.dv (srt "KConfigVar") "$PGM")]

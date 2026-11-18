@@ -3089,12 +3089,15 @@ def pgmIn : Nat → Kore.Pattern → Option String
 /-- The sort of `$PGM`: the text's initializer equations (`Lblinit…`) state which cell holds which
 configuration variable, and the one whose right-hand side projects `$PGM` states its sort
 (`pgmIn`), whichever cell it initializes (`<k>`, or another: K does not require `$PGM` in `<k>`).
-Refused (`pgmSort`) where no initializer projects `$PGM`, or two project it to different sorts. -/
+Where no initializer holds `$PGM` (`configuration <k> foo </k>`) the text states no such sort and
+no cell holds it (`Presentation.pgmCell` is `none`): the sort is K, which no sentence `emit` writes
+reads. Refused (`pgmSort`) where an initializer holds `$PGM` and none projects it, or two project it
+to different sorts. -/
 def pgmSortOf (N : Names) (eqs : List RawEqn) : Rd Srt := do
-  let found := eqs.filterMap fun e =>
-    if (dropPrefix? "Lblinit" e.fn).isSome then (pgmIn 16 e.rhs).map (e, ·) else none
+  let inits := eqs.filter fun e => (dropPrefix? "Lblinit" e.fn).isSome
+  let found := inits.filterMap fun e => (pgmIn 16 e.rhs).map (e, ·)
   match found with
-  | [] => fail .pgmSort "no cell initializer projects $PGM"
+  | [] => if inits.any (holdsPgm 16 ·.rhs) then fail .pgmSort "no cell initializer projects $PGM" else pure Srt.k
   | (e, S) :: rest => Rd.within (.attrs e.attrs) do
     if rest.all (·.2 == S) then N.srtE S else fail .pgmSort "$PGM projected to several sorts"
 
@@ -5235,7 +5238,7 @@ structure CellParts where
   cellUids : List (Srt × SortUids)
   cellInits : List (String × String)
   cellValues : List (String × Term)
-  pgmCell : String
+  pgmCell : Option String
   deriving Repr
 
 /-- The presentation's per-sort and per-cell parts. -/
@@ -5245,12 +5248,12 @@ def cellPartsOf (S : Scan) (E : Env) (core : Semantics) : Rd CellParts := do
   -- the leaf whose initializer's right-hand side holds `$PGM` (`pgmSortOf` reads its sort there)
   let pgmCell := (cells.findSome? fun x => match x with
     | .leaf n _ _ => if (eqs.find? (·.fn == x.initLabel core)).any (holdsPgm 16 ·.rhs) then some n else none
-    | .node .. => none).getD "k"
+    | .node .. => none)
   pure { sortUids := ← E.userSortNames.mapM (sortUidOf S.syms eqs)
          cellUids := ← (Cell.topSorts E.config).mapM fun X => do pure (X, ← sortUidOf S.syms eqs (core.sortName X))
          cellInits := ← cells.mapM fun x => do pure (x.name, ← initUidOf eqs (x.initLabel core))
          cellValues := cells.filterMap fun x => match x with
-           | .leaf n _ _ => if n == pgmCell || n == "generatedCounter" then none
+           | .leaf n _ _ => if pgmCell == some n || n == "generatedCounter" then none
                             else (valueOf E.N eqs (x.initLabel core)).map (n, ·)
            | .node .. => none
          pgmCell }

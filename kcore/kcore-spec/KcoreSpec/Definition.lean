@@ -276,7 +276,7 @@ structure Presentation where
   cellUids : List (Srt × SortUids)
   /-- the initializer equation's id of each cell, by cell name -/
   cellInits : List (String × String)
-  /-- the initial value of each leaf cell other than the one holding `$PGM` (`pgmCell`) and the
+  /-- the initial value of each leaf cell other than the one holding `$PGM` (`pgmCell`, if any) and the
   counter, by cell name -/
   cellValues : List (String × Term)
   /-- the id of `getGeneratedCounterCell`'s equation -/
@@ -303,8 +303,10 @@ structure Presentation where
   production and no equation of them, which the prelude and the cells' sentences hold -/
   generatedFns : List Sym := []
   /-- the leaf cell whose initializer holds `$PGM` projected to `Semantics.pgmSort`, by name: the
-  text's initializer equations state which cell it is (`<k>`, or another) -/
-  pgmCell : String := "k"
+  text's initializer equations state which cell it is (`<k>`, or another); `none` where no
+  initializer holds `$PGM` (`configuration <k> foo </k>`): every leaf's initial value is then one
+  of `cellValues`, and no sentence `emit` writes reads `Semantics.pgmSort` -/
+  pgmCell : Option String := some "k"
   /-- the laws the text writes for its functions, each an equation it states for every element;
   `Semantics` holds none of them: the statements about the definition take them at values
   (`FnLaws`). `Parse.presOf` reads them from the text's law axioms on its functions (`Parse.fnLawOf`). -/
