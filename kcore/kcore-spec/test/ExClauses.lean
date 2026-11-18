@@ -360,7 +360,7 @@ theorem k2_coherent : ∀ cl ∈ [clT, clN], ∀ cl' ∈ [clT, clN], Coherent cK
   · exact absurd h1 (clN_noRes _ _ _)
 
 theorem appliesN (c : Semantics) (b : Bool) : clN.AppliesAt c (ext b []) [] :=
-  ⟨ext_sorted _ _ _, .nil, (fun t ht => by cases ht), .top⟩
+  ⟨(ext_sorted _ _ _).at _, .nil, (fun t ht => by cases ht), .top⟩
 
 theorem k2_decidesN (b : Bool) : Clause.Decides cK (fnOf [clT, clN]) clN (ext b []) [] :=
   ⟨appliesN _ b, noPrioK rfl⟩
@@ -416,7 +416,7 @@ theorem q_matchIndependent : ∀ cl ∈ (fnOf [clT, clQ]).clauses, MatchIndepend
 /-- **`FnSolves` is false in `cQ`**: its clauses' predicates are not all `\top`. -/
 theorem q_not_solves : ¬ FnSolves cQ := by
   intro h
-  have hap : clQ.AppliesAt cQ [] [] := ⟨nil_sorted _ _, .nil, (fun t ht => by cases ht), .top⟩
+  have hap : clQ.AppliesAt cQ [] [] := ⟨(nil_sorted _ _).at _, .nil, (fun t ht => by cases ht), .top⟩
   have hdec : Clause.DecidesAt cQ (fnOf [clT, clQ]) clQ [] [] :=
     ⟨hap, fun cl' hm _ hlt => by
       simp [fnOf] at hm

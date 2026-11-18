@@ -240,8 +240,8 @@ theorem ag_B_disagree : ¬ ClausesAgree ag fnB := by
       Fails ag [l1] cl' := fun cl hc cl' h _ hlt => absurd hlt (by
     have : cl'.prio = 50 := by simp [fnB, clB0, clB1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
-  rcases (h clB0 clB1 hp (.inl rfl)).1 [l1] _ _ ⟨hws0, hm0, (fun _ ht => by cases ht), .top⟩
-      ⟨hws1, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
+  rcases (h clB0 clB1 hp (.inl rfl)).1 [l1] _ _ ⟨hws0.at _, hm0, (fun _ ht => by cases ht), .top⟩
+      ⟨hws1.at _, hm1, (fun _ ht => by cases ht), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet) (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨B, fnB, rfl, by simp [fnB], by simp [fnB], ⟨⟨hws0.at _, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
         ⟨⟨hws1.at _, hm1, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
   · simp [clB0, clB1] at hr

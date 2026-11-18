@@ -151,8 +151,8 @@ theorem ws_disagree : ¬ ClausesAgree ws fnWs := by
       Fails ws [vNil, vM1] cl' := fun cl hc cl' h _ hlt => absurd hlt (by
     have : cl'.prio = 50 := by simp [fnWs, clW0, clW1] at h ⊢; rcases h with rfl | rfl <;> rfl
     rw [hc, this]; decide)
-  rcases (h clW0 clW1 hp (.inl rfl)).1 [vNil, vM1] _ _ ⟨hws, hm0, (fun _ ht => by cases ht), .top⟩
-      ⟨hws, hm1, (fun t ht => by cases ht; exact hreq), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet)
+  rcases (h clW0 clW1 hp (.inl rfl)).1 [vNil, vM1] _ _ ⟨hws.at _, hm0, (fun _ ht => by cases ht), .top⟩
+      ⟨hws.at _, hm1, (fun t ht => by cases ht; exact hreq), .top⟩ (fun _ ht => by cases ht) (fun _ _ => hdet)
       (fun _ _ ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨Ws, fnWs, rfl, by simp [fnWs], by simp [fnWs], ⟨⟨hws.at _, hm0, (fun _ ht => by cases ht), .top⟩, hlow _ rfl⟩,
         ⟨⟨hws.at _, hm1, (fun t ht => by cases ht; exact hreq), .top⟩, hlow _ rfl⟩⟩ with ⟨-, -, hr, -⟩ | hr
@@ -301,6 +301,7 @@ theorem pa_agree : ClausesAgree pa fnPa :=
       have := Semantics.sortedOK_sorted pa_sorted.1
       simp only [Bool.and_eq_true, List.all_eq_true] at this
       exact this.1.2 fnPa (by simp [pa, core]) cl h)
+    (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
     (by decide +kernel)).agree (Semantics.fnsNoExs_of_sortedOK pa_sorted.1 fnPa (by simp [pa, core]))
 
 end KCore.AgreeInstTest
