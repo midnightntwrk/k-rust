@@ -175,7 +175,7 @@ theorem nod_instance_fun (c : Semantics) (hc : c.coreOK = true) (hf : FnHyp c) (
             cases hs'
             have : s0 = s := of_decide_eq_true hsr
             subst this
-            exact nod_const_functional hM hk hR hchk hn hl hx har hR0 y
+            exact nod_const_functional hM hc hk hR hchk hn hl hx har hR0 y
           · cases hsr
   · have h := List.all_eq_true.mp hat i hi
     unfold nodSentFunAtB at h
