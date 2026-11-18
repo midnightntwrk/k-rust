@@ -31,14 +31,14 @@ Nested entries by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 4 | 0 | 0 | 0 | 0 | 4 | 0 | 0 |
-| E3 | 69 | 27 | 0 | 1 | 0 | 41 | 0 | 0 |
+| E3 | 75 | 29 | 0 | 2 | 0 | 44 | 0 | 0 |
 | E4 | 33 | 12 | 0 | 4 | 0 | 17 | 0 | 0 |
 | E5 | 50 | 29 | 1 | 5 | 0 | 15 | 0 | 0 |
 | E6 | 7 | 4 | 0 | 0 | 0 | 3 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 198 | 86 | 1 | 12 | 1 | 98 | 0 | 0 |
+| all | 204 | 88 | 1 | 13 | 1 | 101 | 0 | 0 |
 
 Refused rows by class:
 
@@ -46,14 +46,14 @@ Refused rows by class:
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
 | E2 | 16 | 1 | 12 | 3 | 0 |
-| E3 | 18 | 7 | 2 | 9 | 0 |
+| E3 | 18 | 8 | 2 | 8 | 0 |
 | E4 | 26 | 4 | 18 | 4 | 0 |
 | E5 | 2 | 0 | 2 | 0 | 0 |
 | E6 | 55 | 55 | 0 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 7 | 0 | 7 | 0 | 0 |
 | C3 | 4 | 2 | 0 | 2 | 0 |
-| all | 128 | 69 | 41 | 18 | 0 |
+| all | 128 | 70 | 41 | 17 | 0 |
 
 Refused nested entries by class:
 
@@ -61,16 +61,16 @@ Refused nested entries by class:
 |---|---|---|---|---|---|
 | E1 | 1 | 0 | 0 | 1 | 0 |
 | E2 | 4 | 2 | 0 | 1 | 1 |
-| E3 | 41 | 7 | 2 | 32 | 0 |
+| E3 | 44 | 10 | 2 | 32 | 0 |
 | E4 | 17 | 14 | 3 | 0 | 0 |
 | E5 | 15 | 7 | 0 | 6 | 2 |
 | E6 | 3 | 1 | 1 | 1 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 98 | 39 | 10 | 43 | 6 |
+| all | 101 | 42 | 10 | 43 | 6 |
 
-## Entries of class R-c (61)
+## Entries of class R-c (60)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -121,7 +121,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[18] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[20] | refused |  |  | RDR.eq-binders |  |
-| E3 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#set-@` | row | refused |  | Term.var with the substitutions Eval and Step use, which give a variable one value; a set variable stands for a set of values | no unit | CN-3 P2 (the fixture for a non-linear \`@S\` outside \`[simplification]\`); Reading SV-1 (linear \`@S\` read as an element variable, reader only); F2 (a non-linear \`@S\`, with its fixture) |
 | E4 | `grammar:<matching-logic-pattern>::="\forall" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 4.5 d4 (\`Cond.all\` over a confined sort) |
 | E4 | `grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 R3 (e2) and e3: the floor of a predicate is the predicate (\`Cond\`) |
 | E4 | `tree:Pattern.forall` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 4.5 d4 (\`Cond.all\` over a confined sort) |
@@ -553,7 +552,13 @@ Not core:
 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#plain` | supported |  | a variable is a KORE element variable of its sort; \`\_\` and \`\_X\` are fresh named ones. Term.var. | none (reader already reads it) |  | e3-vars | yes | yes | fixtures/e1-param kore.txt:26 \`\_Gen0\`; fixtures/e3-vars kore.txt \`inj{Exp,KItem}(a(X))\~>\_DotVar1\` |
 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#fresh-!` | supported |  | \`!X:Int\` becomes a read of the generated counter cell, \`freshInt(#Fresh +Int 0)\` in the right side and the counter rewritten to \`#Fresh +Int 1\`: the text states an ordinary rule over a cell and the hooked freshInt (FixedSignature.hookSigs). | none (reader already reads it) |  | e3-fresh | no | no | fixtures/e3-fresh: account \`parse: ok; wf true\`; kore.txt \`freshInt(\_)\_INT\_Int\_Int\` |
 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#existential-?` | supported |  | \`?Z\` on a right side gives \`\\rewrites(lhs ∧ req, \\exists Z. rhs ∧ ens)\`: the text states that some instance of the right side satisfying ens follows, not which. The reader reads the binders as Rule.exs in the text's order of nesting (each a variable of the right side or the ensures that the left sid… | KCore.Semantics.rulesPlain (R2.flip: its conjunct r.exs.isEmpty removed; cone (v) against 6f6e2dd6: that declaration only); Rule.exs, the right side's binders, read by Step |  | e3-vars | no | no | at INT-A1 58c87766 (lane R: R2.reader-exists 41e16682, R2.flip 90988178): fixtures/e3-vars/account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; the same three lines in e3-vars-bool and e3-vars-two (e2-frontend-effect printed… |
-| `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#set-@` | refused | R-c | in a read sentence \`@S\` ranges over patterns, not values. | Term.var with the substitutions Eval and Step use, which give a variable one value; a set variable stands for a set of values |  | e3-setvar-read | no | no | fixtures/e3-setvar-read: account \`setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; …)\` (kompile writes the argument-abstracted form Lblw{}(X0:SortExp{}) with \\in{SortExp{}, R}(X0, @VarS)); fi… |
+| `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#set-@` | refused | R-a | A set variable ranges over sets of values. A sentence holding one is read through its instances at single elements where they entail it: a function equation of the \\in form whose set variable is in no right side, requires or ensures (its memberships dropped: some set holds the arguments), and a rewr… | none (reader only): Rule.exs and Rule.post, which the kernel has, carry the reading of the rewrite axiom | none (R-a): the sentence at a larger set is not entailed by its instance at a smaller one, so its truth reads every subset of the sort (designs/CN-4b section 13, setVariable) | e3-setvar-read | no | no | fixtures/e3-setvar-read/account.txt: \`setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; …)\` (kompile writes the argument-abstracted form Lblw{}(X0:SortExp{}) with \\in{SortExp{}, R}(X0, @VarS))… |
+| cases[0]: a rewrite axiom whose one set variable stands under applications only, in its left side and in its right side or not | supported |  |  |  | P3.svr-reader | e3-setvar-rewrite |  |  | fixtures/e3-setvar-rewrite/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`; test/SvRewriteRead.lean |
+| cases[1]: the same with a right occurrence under a function | refused | R-a |  |  | none (R-a): the existential variable is held under no constructor, so the successor is a value through an element that is no value's (designs/CN-4b section 13, openRight) | e3-setvar-rewrite-fn |  |  | fixtures/e3-setvar-rewrite-fn/account.txt: \`openRight (VarS'Hash'R0:Exp: bound by \\exists on the right side, held there or in the ensures under no constructor, …)\` |
+| cases[2]: a rewrite axiom with the set variable in its requires, its ensures, or under a connective that is no application | refused | R-a |  |  | none (R-a): the instance at a larger set is not entailed by the instance at a smaller one, so the sentence reads every subset of the sort (designs/CN-4b section 13, setVariable (ii)) | e3-setvar-rewrite-req |  |  | fixtures/e3-setvar-rewrite-req/account.txt: \`setVariable (VarS: in the requires: its truth at a larger set is not entailed by its truth at a smaller one, so the sentence reads every subset of the sort)\` |
+| cases[3]: a function equation of the \\in form, the set variable in no right side, requires or ensures | supported |  |  |  | P3.sv1-reader | e3-setvar-nonlinear |  |  | fixtures/e3-setvar-nonlinear/account.txt: \`1 read setVarInDropped [user]\`, \`coreOK: true; failing: []\` |
+| cases[4]: a function equation of the \\in form, the set variable on the right side or in the requires or the ensures | refused | R-a |  |  | none (R-a): the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort (designs/CN-4b section 13, setVariable (i)) | e3-setvar-read |  |  | fixtures/e3-setvar-read/account.txt: \`setVariable (VarS: in the right side, the requires, the ensures or an exclusion: …)\` |
+| cases[5]: an axiom carrying simplification | inert |  |  |  |  | e3-setvar |  |  | fixtures/e3-setvar/account.txt: \`1 inert simplification [user]\` |
 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#anonymous-_` | supported |  | a variable is a KORE element variable of its sort; \`\_\` and \`\_X\` are fresh named ones. Term.var. | none (reader already reads it) |  | e3-vars | yes | yes | fixtures/e1-param kore.txt:26 \`\_Gen0\`; fixtures/e3-vars kore.txt \`inj{Exp,KItem}(a(X))\~>\_DotVar1\` |
 | `KSEQ-SYMBOLIC:#KVariable::=r"(\\!\|\\?\|@)?([A-Z][A-Za-z0-9'_]*\|_\|_[A-Z][A-Za-z0-9'_]*)"#named-anonymous-_X` | supported |  | a variable is a KORE element variable of its sort; \`\_\` and \`\_X\` are fresh named ones. Term.var. | none (reader already reads it) |  | e3-vars | no | no | fixtures/e1-param kore.txt:26 \`\_Gen0\`; fixtures/e3-vars kore.txt \`inj{Exp,KItem}(a(X))\~>\_DotVar1\` |
 | `KSEQ-SYMBOLIC:#KVariable::=#UpperId` | supported |  | subsort crossings become inj{S,T} (Term.inj), sequences kseq/dotk (the fixed constructors), parentheses nothing, a rewrite inside a term the two sides of the sentence's \\rewrites or equation. The reader reads each as written. | none (reader already reads it) |  | e3-vars |  |  | fixtures/e3-kseq, e3-casts, e3-cells: account \`parse: ok; wf true\` |
