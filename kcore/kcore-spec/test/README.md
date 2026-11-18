@@ -1307,6 +1307,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   interpretations (`Faithful.sat_renamed`). Γ entails each of the 31 sentences for every H
   (`fns_entailed`) and each item is a consequence of its sentence (`fns_from_text`); `account`
   partitions the 264 sentences of the user module.
+- `test/TieUnboundRule.lean`: on `f2-examples/unbound.kompile.kore` (fixture e2-unbound), the rule
+  with the open variable X and the theory `Γc` it is read in, for every H: Γ's rule item is a
+  consequence of sentence 154 (`rule_from_text`: the item is the sentence with `⌈rhs⌉` added to its
+  left side, one variable table and free-variable list, X free in both); each premise of `Γc` is a
+  function sentence's translation, the rule's item, definedness, a family, or `boolClosed`, the one
+  item of `Γcl` (`gamma_origin`, `gammaCl_eq`, `gamma_from`); `Pre` (those premises as written)
+  has a model with the step's closure (`pre_model`, `consistent` by `FnHyp`); `a()` steps to `b(i)`
+  for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
+  `c.withHooks H`. About 10 s, 2.9 GiB.
 - `test/TieKimp.lean`: the tie on kimp's text as kompile wrote it
   (`examples/ref-kimp/RefKimp/definition.kore`). Layer 1: `account` partitions the 901 sentences
   of the user module into the tie's classes, `absent_closed`, `attrs_agree`. The function
