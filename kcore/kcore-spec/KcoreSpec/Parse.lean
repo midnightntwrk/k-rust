@@ -5603,13 +5603,45 @@ mutual
     termination_by structural ts => ts
 end
 
+/-- The right side of the one clause of the function `f` of `c` where `f` takes no argument and
+the clause has no variable, no pattern, no `requires`, no `ensures`, no predicate and no
+existential variable: the clause applies at the one argument list (no other clause has a smaller
+priority), so `f()`'s value is the right side's. -/
+def initConstFn? (c : Semantics) (f : Sym) : Option Term :=
+  match c.lookupFn f with
+  | some fn => match fn.clauses with
+    | [k] =>
+      if fn.args.isEmpty && k.vars.isEmpty && k.pats.isEmpty && k.req.isNone && k.ens.isNone &&
+        k.pre.isTop && k.post.isTop && k.exs.isEmpty then some k.rhs else none
+    | _ => none
+  | none => none
+
+mutual
+  /-- The term with each application `f()` of a function `f` of `c` that `initConstFn?` gives a
+  right side replaced by that right side, which is not itself looked into. -/
+  def initInline (c : Semantics) : Term → Term
+    | .app f [] => (initConstFn? c f).getD (.app f [])
+    | .app f (t :: ts) => .app f (initInlines c (t :: ts))
+    | .inj a b t => .inj a b (initInline c t)
+    | t => t
+    termination_by structural t => t
+  /-- `initInline` of each term. -/
+  def initInlines (c : Semantics) : List Term → List Term
+    | [] => []
+    | t :: ts => initInline c t :: initInlines c ts
+    termination_by structural ts => ts
+end
+
 /-- The right side of the equation `e` has exactly one value because it is ground and its value is
 computed: literals, injections, constructors, and interpreted symbols each applied to values where
-its meaning gives a value (a partial hook among them, `<s> SetItem(1) SetItem(2) </s>`). `Γ` states
-each interpreted symbol's graph on values, so the term denotes that value. -/
+its meaning gives a value (a partial hook among them, `<s> SetItem(1) SetItem(2) </s>`), and
+functions of `c` without argument whose one clause always applies, each read as its clause's right
+side (`initInline`: the initializer of a cell collection, `initLtCell() = LtCellListItem(<lt>(0))`
+in `initLsCell() = <ls>(initLtCell())`). `Γ` states each interpreted symbol's graph on values, and
+the function's value is its clause's, so the term denotes that value. -/
 def initGroundOK (N : Names) (c : Semantics) (e : RawEqn) : Bool :=
   match term N [] e.rhs with
-  | .ok (t, []) => (initGroundVal c t).isSome
+  | .ok (t, []) => (initGroundVal c (initInline c t)).isSome
   | _ => false
 
 /-- The `functional` axiom of the initializer of `x` is one the account takes: the initializer's

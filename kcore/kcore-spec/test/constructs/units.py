@@ -111,7 +111,9 @@ ALLOWANCE = [
     # 30 -> 31 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
     # collection (fixture e2-initial-coll), refused R-c by the reader's initializer decision, with no
     # ticket that reads it yet.
-    ("ROWS-1.unit-rc", 31, "entries of class R-c without unit",
+    # 31 -> 30: that case is supported, the reader computing
+    # the enclosing cell's initializer through the collection's initializer of no argument.
+    ("ROWS-1.unit-rc", 30, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
     # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).
