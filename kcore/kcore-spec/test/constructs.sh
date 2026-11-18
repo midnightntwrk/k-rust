@@ -36,6 +36,7 @@
 # (test/constructs/kompile-e6.sh; exit 77 without it).
 set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
+mkdir -p .lake/constructs
 [ -f .lake/constructs-e6/all-builtins-kompiled/definition.kore ] || { echo "constructs: no E6 text (test/constructs/kompile-e6.sh)"; exit 77; }
 test/constructs/extract.sh > .lake/constructs/extract.out 2>&1; rc=$?
 cat .lake/constructs/recount.txt
