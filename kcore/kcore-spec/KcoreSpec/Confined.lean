@@ -321,11 +321,41 @@ theorem knownSig_of_mem (hn : Model.NamesApartK c) {k : CtorSig} (hk : k ∈ c.c
     have h2 : k'.name = k.name := by simpa using List.find?_some hf
     rw [hn.1 k' (kern _ h1) k (kern _ hk) (by rw [h2])]
 
+/-- A generator that passes `confinedAt`'s text on overloads ("no overloading symbol of its name
+overloads a function") is not function-overloaded. -/
+theorem not_fnOvl_of_confinedGen {c : Semantics} {g : Gen}
+    (h : (match g with
+      | .ctor kg => c.ovls.all fun o => o.sig.name != kg.name || o.over.all fun f => c.fns.all (·.label != f)
+      | .inj _ => true) = true) {k : CtorSig} (hg : g = .ctor k) : k.name ∉ c.fnOvlSyms := by
+  subst hg
+  intro hmem
+  unfold Semantics.fnOvlSyms at hmem
+  obtain ⟨o, ho, hname⟩ := List.mem_map.mp hmem
+  obtain ⟨hom, hany⟩ := List.mem_filter.mp ho
+  obtain ⟨f, hf, hfn⟩ := List.any_eq_true.mp hany
+  obtain ⟨fn, hfnm, hlab⟩ := List.any_eq_true.mp hfn
+  have ho' := List.all_eq_true.mp h o hom
+  rw [hname] at ho'
+  simp only [bne_self_eq_false, Bool.false_or] at ho'
+  have := List.all_eq_true.mp (List.all_eq_true.mp ho' f hf) fn hfnm
+  rw [bne_iff_ne] at this
+  exact this (by simpa using hlab)
+
+/-- No function overload covers any arguments of such a generator. -/
+theorem fnCover_none_of_confinedGen {c : Semantics} {g : Gen}
+    (h : (match g with
+      | .ctor kg => c.ovls.all fun o => o.sig.name != kg.name || o.over.all fun f => c.fns.all (·.label != f)
+      | .inj _ => true) = true) (ws : List GroundTerm) :
+    ∀ k : CtorSig, g = .ctor k → c.fnCover k.name ws = none :=
+  fun _ hg => OvlLaws.fnCover_none_of_not_fnOvl (not_fnOvl_of_confinedGen h hg) ws
+
 variable (hI : I ⊧ᴵP Γ c) [hO : OvlOK c]
   (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
 include hI htr
 
-/-- **A generator applied to values' elements builds a value's element**: a constructor or an
+/-- **A generator applied to values' elements builds a value's element**, at arguments no function
+overload of the generator covers (`hnf`: covered, the application is a function's value, which
+need not be a value's): a constructor or an
 overloading symbol the element of the normal form of the application (`norm_gs`), an injection
 the element of the injected value (through Cons-Coh where the argument is itself an injection),
 an open generator the element of its parameter graph's value (`ΓDomains`), none where the graph
@@ -335,7 +365,8 @@ the generator's own head; the two are one symbol where the generator's name is n
 theorem gen_value (hn : Model.NamesApartK c)
     (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
     {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm}
-    (hws : c.sortsOf ws = some g.argSorts) {m : M}
+    (hws : c.sortsOf ws = some g.argSorts)
+    (hnf : ∀ k : CtorSig, g = .ctor k → c.fnCover k.name ws = none) {m : M}
     (hm : GS I (c.sortName N) (Gen.toK c g) (ws.map (elemOf c I)) m) :
     ∃ v, c.sortOf v = some N ∧ elemOf c I v = m := by
   have sig : ∀ k : CtorSig, k ∈ c.ctorSigs ++ c.ovlSigs → k.result = N → g = .ctor k →
@@ -344,7 +375,7 @@ theorem gen_value (hn : Model.NamesApartK c)
     subst hg hkr
     have hks := knownSig_of_mem hn hk
     have hr := OvlLaws.ovlRank_le (c := c) k.name
-    have hnf := OvlOK.fnCover_none (c := c) k.name ws
+    have hnf := hnf k rfl
     refine ⟨c.norm k.name ws, OvlLaws.sortOf_norm_known_ovlF (hO.hyp htr) (hO.hyp htr).fnFacts _ k hks hr ws hws hnf, ?_⟩
     exact ((norm_gs hI htr _ k hks hr ws hws hnf m).mp hm).symm
   rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, hres, rfl⟩
@@ -408,8 +439,10 @@ omit hI in
 that reads a confined sort: at depth 0 Bool, by `boolClosed`; deeper, a constructor sort, whose
 no-junk sentence makes each element a generator applied to elements of its argument sorts
 (`noJunk_elim`); those are values' elements by the depth below, and the generator applied to
-values' elements is a value's element (`gen_value`). From the subsorts' transitivity, `OvlOK` and
-`NamesApartK`, and that no open generator is named like `ite` (`hite`, which `gen_value` reads). -/
+values' elements is a value's element (`gen_value`: no function overload covers the arguments,
+because a confined sort's generator overloads no function, `fnCover_none_of_confinedGen`). From the
+subsorts' transitivity, `OvlOK` and `NamesApartK`, and that no open generator is named like `ite`
+(`hite`, which `gen_value` reads). -/
 theorem confinedAt_valueCl (hn : Model.NamesApartK c)
     (hite : ∀ k ∈ c.params, k.raw = true → iteSort? (c.symName k.sig.name) = none)
     (hr : c.readsConfined = true) (hI : I ⊧ᴵP Γc c) :
@@ -449,7 +482,7 @@ theorem confinedAt_valueCl (hn : Model.NamesApartK c)
     rw [List.length_map] at hlen
     obtain ⟨ws, hws, rfl⟩ := values_of_elems (c := c) (I := I) g.argSorts xs hlen.symm (fun j y b hy hb =>
       ih b ((hgs g hg).1 b (List.mem_of_getElem? hb)) y (all2_map_get (R := fun s y => InS I s y) hxs hy hb))
-    exact gen_value hIΓ htr hn hite hg hws hm
+    exact gen_value hIΓ htr hn hite hg hws (fnCover_none_of_confinedGen (hgs g hg).2 ws) hm
 
 
 omit hI hO htr in
@@ -489,7 +522,8 @@ theorem values_of_each {c : Semantics} : ∀ (ss : List Srt), (∀ b ∈ ss, ∃
     obtain ⟨ws, hws⟩ := values_of_each ss fun b hb => h b (List.mem_cons_of_mem _ hb)
     exact ⟨w :: ws, OvlLaws.sortsOf_cons_iff.mpr ⟨hw, hws⟩⟩
 
-/-- A generator of N applied to values of its argument sorts gives a value of N: a constructor or
+/-- A generator of N applied to values of its argument sorts that no function overload of it covers
+(`hnf`: covered, the application has a value only where the function has one) gives a value of N: a constructor or
 an overloading symbol its normal form, an injection the injected value (or the core of an injected
 one, injected into N), an open generator the value the interpretation gives it there (`OpenTotal`:
 its application is itself a value only where the interpretation leaves it raw), which has its
@@ -498,14 +532,15 @@ theorem gen_hasValue {c : Semantics} [hO : OvlOK c] (hn : Model.NamesApartK c)
     (hopen : ∀ k ∈ c.params, k.raw = true → c.lookupParam k.sig.name = some k ∧ k.impl = none)
     (ht : OpenTotal c)
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm} (hws : c.sortsOf ws = some g.argSorts) :
+    {N : Srt} {g : Gen} (hgm : g ∈ c.gens N) {ws : List GroundTerm} (hws : c.sortsOf ws = some g.argSorts)
+    (hnf : ∀ k : CtorSig, g = .ctor k → c.fnCover k.name ws = none) :
     ∃ v, c.sortOf v = some N := by
   have sig : ∀ k : CtorSig, k ∈ c.ctorSigs ++ c.ovlSigs → k.result = N → g = .ctor k →
       ∃ v, c.sortOf v = some N := by
     intro k hk hkr hg
     subst hg hkr
     exact ⟨_, OvlLaws.sortOf_norm_known_ovlF (hO.hyp htr) (hO.hyp htr).fnFacts _ k (knownSig_of_mem hn hk)
-      (OvlLaws.ovlRank_le (c := c) k.name) ws hws (OvlOK.fnCover_none k.name ws)⟩
+      (OvlLaws.ovlRank_le (c := c) k.name) ws hws (hnf k rfl)⟩
   rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, hres, rfl⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl
@@ -560,5 +595,6 @@ theorem confined_has_value {c : Semantics} (h : c.coreOK = true) {s : Srt}
     exact gen_hasValue hn (fun k hk hkr =>
       ⟨(Semantics.raw_lookup (Semantics.coreOK_parts h).2.2.2.2 hk hkr (Semantics.raw_of_core h hk hkr).2.2.1).1,
         (Semantics.raw_of_core h hk hkr).1⟩) ht htr hg hws
+      (fnCover_none_of_confinedGen (hgs g hg).2 ws)
 
 end KCore
