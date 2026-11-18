@@ -21,7 +21,9 @@
     (`notApplies_of_not_appliesSSx`).
 -/
 import KcoreSpec.TermSoundCEx
-import KcoreSpec.OpenRuleStepCl
+import KcoreSpec.OpenCompete
+import KcoreSpec.OpenClauseFn
+import KcoreSpec.ClausePreCore
 import KcoreSpec.RightHeldStep
 
 set_option autoImplicit false

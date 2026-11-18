@@ -298,9 +298,7 @@ theorem sat_eqnPremEx (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl
     unfold eqConclEx
     rw [KoreAML.varsOf]
     refine List.mem_append_left _ (List.mem_append_right _ ?_)
-    unfold KoreAML.ap
-    rw [KoreAML.varsOf]
-    refine List.mem_append_right _ ?_
+    refine mem_varsOf_symApp _ _ ?_
     have := X_mem_varsOf_call _ 0 j s hj
     rwa [Nat.zero_add] at this
   have hkP : ∀ k ∈ KoreAML.varsOf prem, k ∈ tbl := fun k hk' =>

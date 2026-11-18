@@ -1711,6 +1711,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(f"  · rw [nj{i}]; exact orTopBot_valid hD rfl")
         w("")
     if nj_items:
+        w("set_option maxHeartbeats 1000000 in")
         w("/-- **No junk of the sorts with generators**: the translation of each sentence is the pattern of")
         w("one of Γ's constructor items. -/")
         w(f"theorem nojunk_items : ∀ ad ∈ {ax_list(nj_items, 6)},")

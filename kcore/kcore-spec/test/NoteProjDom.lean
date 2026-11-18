@@ -22,7 +22,12 @@
   `¬(∃V:Int. X0 ∈ kseq(inj(V), dotk)) ∧ X0 ∈ W → project:Int(X0) = project:Int(W) ∧ ⌈false = true⌉`.
   **W1** (`w1`): the selector-domain axiom, with the signature, entails it, for every H: where X0
   is no injected Int in `kseq(…, dotk)`, the axiom's right side holds nothing, so
-  `project:Int(X0)` holds no element of Int, and the item's two sides agree there. The other
+  `project:Int(X0)` holds no element of Int, and the item's two sides agree there. **E**
+  (`dom_entailed`): Γ entails the selector-domain axiom, for every H, so the class is *equal*: where
+  `⌈project:Int(K)⌉` holds, `project:Int(K)` holds an element of Int (its arity, `proj_arity`), and
+  were K no `kseq(inj(V), dotk)` the item `g1` would leave it none (its `ensures` false); so K is
+  one, and `kseq(inj(V), dotk)` denotes one element (Cons-Fun, `GenEqs.projPat_fun`); conversely
+  the projection's equation (sentence 178) gives `project:Int(kseq(inj(V), dotk)) = V`. The other
   function equations (the projection's equation 178 and the sort predicates') are Γ's items
   (`shape`, `fns_entailed`, `fns_from_text`). Constructor sentences: `cons_entailed`. `consistent`
   is not derived: the deciders name `project:Int`'s termination (`dec_named`).
@@ -373,6 +378,302 @@ theorem fns_from_text (H : HookParams) :
     cases ht
     exact ⟨ad, rfl, fun {M} _ {I} hI => hent (fun φ hφ => hI φ (Or.inl hφ))⟩
 
+/-! ### E for the selector-domain axiom -/
+
+/-- `project:Int`'s signature. -/
+def kp : CtorSig := ⟨387, [Srt.k], Srt.int⟩
+
+theorem kp_mem : kp ∈ kernelSyms c := by decide +kernel
+theorem iteSort_p : iteSort? (c.symName 387) = none := by decide +kernel
+theorem name_p : c.symName 387 = "Lblproject'Coln'Int" := by decide +kernel
+
+/-- **The arity of `project:Int` from `ΓSig`**: at an element of K it holds only elements of Int. -/
+theorem proj_arity {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hD : DefOK I)
+    (hS : I ⊧ᴵP ΓSig c) {e : Valuation M} {i : EVar} (hi : InS I "K" (e.evalEvar i)) {m : M}
+    (hm : (projP i).interpret I e m) : InS I "Int" m := by
+  have hit : I ⊧ᴵ (symArityItem c kp).pat := hS _ (Or.inl (Or.inl ⟨_, sig_arity kp_mem, rfl⟩))
+  unfold symArityItem at hit
+  rw [show kp.name = 387 from rfl, iteSort_p, name_p] at hit
+  dsimp only at hit
+  unfold KoreAML.arityItem at hit
+  dsimp only [KoreAML.paramTable, List.map_nil] at hit
+  have hinc := (KoreAML.interp_included hD).mp (hit KoreAML.val0 default) m
+  unfold srtOf at hinc
+  rw [trSort_srt] at hinc
+  have hres : c.sortName kp.result = "Int" := by decide +kernel
+  rw [hres] at hinc
+  apply (inS_iff (I := I) (s := "Int") (a := m) KoreAML.val0).mp
+  apply hinc
+  unfold projP at hm
+  obtain ⟨a, b, ha, hb, hab⟩ := interp_app.mp hm
+  rw [interp_evar] at hb
+  rw [interp_appList]
+  refine ⟨a, ((Closed.sym _).interp e KoreAML.val0 a).mp ha, [b], ?_, ⟨m, hab, rfl⟩⟩
+  have hn : c.sortName Srt.k = "K" := by decide +kernel
+  simp only [kp, List.map_cons, List.map_nil, trSort_srt, hn]
+  exact .cons ((inS_iff _).mpr (hb ▸ hi)) .nil
+
+-- `kseq(inj{Int,KItem}(i), dotk)` as `tr` writes it is the projection's pattern of the library.
+kernel_rfl kiP_eq : ∀ (H : HookParams) (i : EVar),
+  kiP i = GenEqs.projInjPat (cH H) ((cH H).sortName Srt.int) (.evar i)
+
+theorem int_sub (H : HookParams) : (Srt.int, Srt.kitem) ∈ (cH H).subsorts :=
+  (by decide +kernel : (Srt.int, Srt.kitem) ∈ c.subsorts)
+theorem k_cons (H : HookParams) : Srt.k ∈ consSorts (cH H) := (by decide +kernel : Srt.k ∈ consSorts c)
+theorem kitem_cons (H : HookParams) : Srt.kitem ∈ consSorts (cH H) := (by decide +kernel : Srt.kitem ∈ consSorts c)
+
+/-- `trS` of the selector-domain axiom is its translation without the text's declarations. -/
+theorem trS179 : (trS U.ax179).pat = (trAxiom [] [] ⟨U.ax179.index, U.ax179.module, U.ax179.ax⟩).pat := by
+  decide +kernel
+
+theorem trS0_eq : tr ⟨tS, []⟩ U.ax179.ax.pattern =
+    sImp (.evar (tS.ev (.sortVar "R"))) (sTop (.evar (tS.ev (.sortVar "R"))))
+      (sEquals (.evar (tS.ev (.sortVar "R"))) (.evar (tS.ev (.sortVar "R")))
+        (sCeil sInt (.evar (tS.ev (.sortVar "R"))) (projP (tS.ev (evarKey si))))
+        (sExists (tS.ev (evarKey vk)) sInt
+          (sEquals sK (.evar (tS.ev (.sortVar "R"))) (.evar (tS.ev (evarKey si))) (kiP (tS.ev (evarKey vk)))))) := by
+  decide +kernel
+
+theorem sortS0 : sortOf [] U.ax179.ax.pattern = some KoreAML.R := by rw [dom_pattern]; rfl
+
+/-- The projection's equation, sentence 178. -/
+noncomputable abbrev t0 : VarTable := tableOf U.ax178.ax.sortVars U.ax178.ax.pattern
+
+theorem free0 : (U.ax178.ax.sortVars.map sortVarKey ++ freeOf [] U.ax178.ax.pattern).eraseDups =
+    [.sortVar "R", evarKey x0, evarKey vk] := by decide +kernel
+
+theorem tr0_eq : tr ⟨t0, kore.aliasNames⟩ U.ax178.ax.pattern =
+    sImp (.evar (t0.ev (.sortVar "R")))
+      (sAnd (sTop (.evar (t0.ev (.sortVar "R"))))
+        (sAnd (sIn sK (.evar (t0.ev (.sortVar "R"))) (.evar (t0.ev (evarKey x0))) (kiP (t0.ev (evarKey vk))))
+          (sTop (.evar (t0.ev (.sortVar "R"))))))
+      (sEquals sInt (.evar (t0.ev (.sortVar "R"))) (projP (t0.ev (evarKey x0)))
+        (sAnd (.evar (t0.ev (evarKey vk))) (sTop sInt))) := by
+  decide +kernel
+
+theorem sort0 : sortOf kore.symbolDecls U.ax178.ax.pattern = some KoreAML.R := by decide +kernel
+
+theorem apart0 : t0.ev (.sortVar "R") ≠ t0.ev (evarKey x0) ∧ t0.ev (.sortVar "R") ≠ t0.ev (evarKey vk) ∧
+    t0.ev (evarKey x0) ≠ t0.ev (evarKey vk) := by decide +kernel
+theorem apart1R : t1.ev (.sortVar "R") ≠ t1.ev (evarKey x0) ∧ t1.ev (.sortVar "R") ≠ t1.ev (evarKey v0k) := by
+  decide +kernel
+
+theorem ensF_tr : tr ⟨t1, []⟩ (TieRhs.ensFalse (srt "Int")) =
+    sEquals (sym (.sort "SortBool")) sInt (sym (.dv "false") ⬝ sym (.sort "SortBool"))
+      (sym (.dv "true") ⬝ sym (.sort "SortBool")) := by
+  decide +kernel
+
+theorem sortOf_false (H : HookParams) : (cH H).sortOf (KCore.bool false) = some Srt.bool := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+theorem sortOf_true (H : HookParams) : (cH H).sortOf (KCore.bool true) = some Srt.bool := by
+  rw [Semantics.sortOf_withHooks _ _ noRaw]; decide +kernel
+theorem den_false (H : HookParams) : den (cH H) (KCore.bool false) = KoreAML.sym (.dv "false") ⬝ KoreAML.sym (.sort "SortBool") := by
+  show den c (KCore.bool false) = _; decide +kernel
+theorem den_true (H : HookParams) : den (cH H) (KCore.bool true) = KoreAML.sym (.dv "true") ⬝ KoreAML.sym (.sort "SortBool") := by
+  show den c (KCore.bool true) = _; decide +kernel
+
+theorem g1_mem : g1 ∈ textPats := by
+  unfold textPats
+  exact List.mem_of_getElem? (List.getElem?_set_self (by rw [List.length_map, fnText_length]; decide))
+
+/-- **E for the selector-domain axiom**: Γ entails sentence 179, for every H. Where
+`⌈project:Int(K)⌉` holds, `project:Int(K)` holds an element of Int (its arity); were K no
+`kseq(inj(V), dotk)` with V of Int, Γ's item of the read clause (`g1`) would leave
+`project:Int(K)` no element of Int (its `ensures` is false: `false` and `true` are two elements);
+so K is one, and `kseq(inj(V), dotk)` denotes one element (Cons-Fun of `kseq`, `inj`, `dotk`), K.
+Conversely, where K is `kseq(inj(V), dotk)`, the projection's equation (sentence 178) gives
+`project:Int(K) = V`, defined. -/
+theorem dom_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax179).pat := by
+  intro M _ I hI
+  have hD : DefOK I := defOK hI
+  have hSigH : I ⊧ᴵP ΓSig (cH H) := fun φ hφ => sat_sig hI hφ
+  have hSig : I ⊧ᴵP ΓSig c := fun φ hφ => sat_sig hI (by unfold ΓSig at hφ ⊢; rw [sigItems_withHooks]; exact hφ)
+  have hDom : I ⊧ᴵP ΓDomains (cH H) := fun φ hφ => sat_dom hI hφ
+  have h178 : I ⊧ᴵ (trS U.ax178).pat := fns_entailed H 0 U.ax178 rfl (by decide) hI
+  have hg1 : I ⊧ᴵ (trAxiom [] [] ⟨0, "kernel", a1⟩).pat := TiePair.entailed (shapeH H) g1 g1_mem hI
+  have hc : I ⊧ᴵ ceilDefItem.pat := hSigH _ (Or.inl (Or.inl ⟨_, sig_ceilDef, rfl⟩))
+  haveI : OvlOK (cH H) := ovlOK_of_core (coreOKH H)
+  obtain ⟨σI, hσI1, hσI2⟩ := TieRhs.sortSing_sig hD hSigH (int_numbered H)
+  obtain ⟨σK, hσK1, hσK2⟩ := TieRhs.sortSing_sig hD hSigH (k_numbered H)
+  rw [int_name] at hσI1
+  rw [k_name] at hσK1
+  have hInt : ∀ (e : Valuation M) a, sInt.interpret I e a ↔ a = σI := fun _ a => hσI1 a
+  have hK : ∀ (e : Valuation M) a, sK.interpret I e a ↔ a = σK := fun _ a => hσK1 a
+  have inK : ∀ a, InS I "K" a ↔ Inh I σK a := fun a =>
+    (inS_iff (I := I) (s := "K") (a := a) KoreAML.val0).symm.trans (interp_inhOf_of (hK KoreAML.val0))
+  have inI : ∀ a, InS I "Int" a ↔ Inh I σI a := fun a =>
+    (inS_iff (I := I) (s := "Int") (a := a) KoreAML.val0).symm.trans (interp_inhOf_of (hInt KoreAML.val0))
+  rw [trS179]
+  refine tieAxiom_intro hD fun e hg x => ?_
+  rw [freeS] at hg
+  have hR : IsSort I (e.evalEvar (tS.ev (.sortVar "R"))) :=
+    (interp_guard_sortVar hD).mp (hg _ (List.mem_cons_self ..) default)
+  generalize hσR : e.evalEvar (tS.ev (.sortVar "R")) = σR at hR
+  have hRv : ∀ a, (Pattern.evar (tS.ev (.sortVar "R")) : P).interpret I e a ↔ a = σR := fun a => by
+    rw [interp_evar, hσR]
+  have hs : Inh I σK (e.evalEvar (tS.ev (evarKey si))) := by
+    have h := hg (evarKey si) (by simp) default
+    change ((tS.ev (evarKey si)) ∈∈ inhOf (trSort tS si.sort) : P).interpret I e default at h
+    rw [interp_member hD, show si.sort = srt "K" from rfl, trSort_srt] at h
+    exact (interp_inhOf_of (hK e)).mp h
+  generalize hsv : e.evalEvar (tS.ev (evarKey si)) = s at hs
+  rw [sortS0]
+  dsimp only
+  rw [trS0_eq, trSort_R, interp_sImp]
+  refine ⟨fun h => h.1, fun hx => ⟨hx, fun _ => ?_⟩⟩
+  have hxR : Inh I σR x := (interp_inhOf_of hRv).mp hx
+  rw [interp_sEquals hD hc hRv hRv hR hR]
+  refine ⟨hxR, fun y hyR => ⟨fun hceil => ?_, fun hex => ?_⟩⟩
+  · -- `⌈project:Int(K)⌉` gives K's form
+    obtain ⟨σ1, σ2, a, -, -, hpa, -⟩ := interp_sCeil_raw.mp hceil
+    have haI : Inh I σI a :=
+      (inI a).mp (proj_arity hD hSig (i := tS.ev (evarKey si)) (by rw [hsv]; exact (inK s).mpr hs) hpa)
+    by_cases hno : ∃ w, Inh I σI w ∧ (kiP (tS.ev (evarKey vk))).interpret I
+        ⟨Function.update e.evalEvar (tS.ev (evarKey vk)) w, e.evalSvar⟩ s
+    · obtain ⟨w, hwI, hkw⟩ := hno
+      rw [interp_sExists]
+      refine ⟨w, ?_, ?_⟩
+      · rw [interp_member hD]; simp only [Function.update_same]; exact (interp_inhOf_of (hInt _)).mpr hwI
+      · have hRS' : ∀ a, (Pattern.evar (tS.ev (.sortVar "R")) : P).interpret I
+            ⟨Function.update e.evalEvar (tS.ev (evarKey vk)) w, e.evalSvar⟩ a ↔ a = σR := fun a => by
+          rw [interp_evar]; simp only [Function.update_noteq apartS.2.1.symm, hσR]
+        rw [interp_sEquals hD hc (hK _) hRS' hσK2 hR]
+        have hwS : InS I ((cH H).sortName Srt.int) w := by rw [int_name]; exact (inI w).mpr hwI
+        obtain ⟨y0, -, hy0⟩ := GenEqs.projPat_fun hI (int_sub H) (k_cons H) (kitem_cons H)
+          (e := ⟨Function.update e.evalEvar (tS.ev (evarKey vk)) w, e.evalSvar⟩)
+          (φ := .evar (tS.ev (evarKey vk))) (v := w)
+          (fun m => by rw [interp_evar]; simp only [Function.update_same]) hwS
+        have hs0 := (hy0 s).mp (by rw [← kiP_eq H]; exact hkw)
+        refine ⟨hyR, fun k _ => ⟨fun hks => ?_, fun hkk => ?_⟩⟩
+        · rw [interp_evar] at hks; simp only [Function.update_noteq apartS.2.2.symm, hsv] at hks
+          rw [hks]; exact hkw
+        · have hk0 := (hy0 k).mp (by rw [← kiP_eq H]; exact hkk)
+          rw [interp_evar]; simp only [Function.update_noteq apartS.2.2.symm, hsv]
+          rw [hk0, hs0]
+    · -- otherwise Γ's item of the read clause leaves `project:Int(K)` no element of Int
+      exfalso
+      let e1 : Valuation M := ⟨fun i => if i = t1.ev (.sortVar "R") then σR else s, e.evalSvar⟩
+      have e1R : e1.evalEvar (t1.ev (.sortVar "R")) = σR := by
+        show (if t1.ev (.sortVar "R") = t1.ev (.sortVar "R") then σR else s) = σR
+        rw [if_pos rfl]
+      have e1X : e1.evalEvar (t1.ev (evarKey x0)) = s := by
+        show (if t1.ev (evarKey x0) = t1.ev (.sortVar "R") then σR else s) = s
+        rw [if_neg apart1R.1.symm]
+      have e1V : e1.evalEvar (t1.ev (evarKey v0k)) = s := by
+        show (if t1.ev (evarKey v0k) = t1.ev (.sortVar "R") then σR else s) = s
+        rw [if_neg apart1R.2.symm]
+      have hR1 : ∀ a, (Pattern.evar (t1.ev (.sortVar "R")) : P).interpret I e1 a ↔ a = σR := fun a => by
+        rw [interp_evar, e1R]
+      have hg1g : ∀ k ∈ (a1.sortVars.map sortVarKey ++ freeOf [] a1.pattern).eraseDups, ∀ m,
+          (guardOf t1 k).interpret I e1 m := by
+        rw [free1]
+        intro k hk m
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+        rcases hk with rfl | rfl | rfl
+        · rw [interp_guard_sortVar hD, e1R]; exact hR
+        · change ((t1.ev (evarKey x0)) ∈∈ inhOf (trSort t1 x0.sort) : P).interpret I e1 m
+          rw [interp_member hD, show x0.sort = srt "K" from rfl, trSort_srt, e1X]
+          exact (interp_inhOf_of (hK e1)).mpr hs
+        · change ((t1.ev (evarKey v0k)) ∈∈ inhOf (trSort t1 v0k.sort) : P).interpret I e1 m
+          rw [interp_member hD, show v0k.sort = srt "K" from rfl, trSort_srt, e1V]
+          exact (interp_inhOf_of (hK e1)).mpr hs
+      have hax := trAxiom_at hD hg1 e1 hg1g y
+      rw [sort1] at hax
+      dsimp only at hax
+      rw [tr1_eq, trSort_R, interp_sImp] at hax
+      have hy1 : (inhOf (Pattern.evar (t1.ev (.sortVar "R")))).interpret I e1 y := (interp_inhOf_of hR1).mpr hyR
+      have hconc := (hax.mpr hy1).2 (by
+        rw [interp_sAnd, interp_sNot]
+        refine ⟨⟨fun hor => ?_, hy1⟩, ?_⟩
+        · rw [interp_sOr] at hor
+          rcases hor.2 with hex | hbot
+          · rw [interp_sExists] at hex
+            obtain ⟨w, hw1, hw2⟩ := hex
+            rw [interp_member hD] at hw1
+            simp only [Function.update_same] at hw1
+            have hwI : Inh I σI w := (interp_inhOf_of (hInt _)).mp hw1
+            have hR1' : ∀ a, (Pattern.evar (t1.ev (.sortVar "R")) : P).interpret I
+                ⟨Function.update e1.evalEvar (t1.ev (evarKey v0i)) w, e1.evalSvar⟩ a ↔ a = σR := fun a => by
+              rw [interp_evar]; simp only [Function.update_noteq apart1.1, e1R]
+            rw [interp_sAnd, interp_sAnd] at hw2
+            obtain ⟨-, hin, -⟩ := hw2
+            rw [interp_sIn hD hc (hK _) hR1' hσK2 hR (fun b hb => by
+              rw [interp_evar] at hb; simp only [Function.update_noteq apart1.2, e1X] at hb; rw [hb]; exact hs)] at hin
+            obtain ⟨⟨k, hk1, hk2⟩, -⟩ := hin
+            rw [interp_evar] at hk1; simp only [Function.update_noteq apart1.2, e1X] at hk1
+            rw [hk1] at hk2
+            exact hno ⟨w, hwI, (kiP_iff (by simp only [Function.update_same]) s).mp hk2⟩
+          · unfold sBot at hbot
+            rw [interp_sNot] at hbot
+            exact hbot.1 ((interp_sTop hD isFree_R y).mpr hbot.2)
+        · rw [interp_sAnd, interp_sAnd]
+          refine ⟨(interp_sTop hD isFree_R y).mpr hy1, ?_, (interp_sTop hD isFree_R y).mpr hy1⟩
+          rw [interp_sIn hD hc (hK e1) hR1 hσK2 hR (fun b hb => by rw [interp_evar, e1X] at hb; rw [hb]; exact hs)]
+          exact ⟨⟨s, by rw [interp_evar, e1X], by rw [interp_evar, e1V]⟩, hyR⟩)
+      rw [interp_sEquals hD hc (hInt e1) hR1 hσI2 hR] at hconc
+      have hboth := (hconc.2 a haI).mp ((projP_iff (by rw [e1X, hsv]) a).mpr hpa)
+      rw [interp_sAnd] at hboth
+      exact TieRhs.ensFalse_empty hD hSigH hDom (sortOf_false H) (sortOf_true H) (den_false H) (den_true H)
+        (t := t1) (s := srt "Int") (e := e1) (fun a => by rw [trSort_srt]; exact hσI1 a) hσI2 a
+        (by rw [ensF_tr]; exact hboth.2)
+  · -- K's form gives `⌈project:Int(K)⌉`, by the projection's equation
+    rw [interp_sExists] at hex
+    obtain ⟨v, hv1, hv2⟩ := hex
+    rw [interp_member hD] at hv1
+    simp only [Function.update_same] at hv1
+    have hvI : Inh I σI v := (interp_inhOf_of (hInt _)).mp hv1
+    have hRS' : ∀ a, (Pattern.evar (tS.ev (.sortVar "R")) : P).interpret I
+        ⟨Function.update e.evalEvar (tS.ev (evarKey vk)) v, e.evalSvar⟩ a ↔ a = σR := fun a => by
+      rw [interp_evar]; simp only [Function.update_noteq apartS.2.1.symm, hσR]
+    rw [interp_sEquals hD hc (hK _) hRS' hσK2 hR] at hv2
+    have hki := (hv2.2 s hs).mp (by
+      rw [interp_evar]; simp only [Function.update_noteq apartS.2.2.symm, hsv])
+    let e0 : Valuation M := ⟨fun i => if i = t0.ev (.sortVar "R") then σR else
+      if i = t0.ev (evarKey x0) then s else v, e.evalSvar⟩
+    have e0R : e0.evalEvar (t0.ev (.sortVar "R")) = σR := by
+      show (if t0.ev (.sortVar "R") = t0.ev (.sortVar "R") then σR else
+        if t0.ev (.sortVar "R") = t0.ev (evarKey x0) then s else v) = σR
+      rw [if_pos rfl]
+    have e0X : e0.evalEvar (t0.ev (evarKey x0)) = s := by
+      show (if t0.ev (evarKey x0) = t0.ev (.sortVar "R") then σR else
+        if t0.ev (evarKey x0) = t0.ev (evarKey x0) then s else v) = s
+      rw [if_neg apart0.1.symm, if_pos rfl]
+    have e0V : e0.evalEvar (t0.ev (evarKey vk)) = v := by
+      show (if t0.ev (evarKey vk) = t0.ev (.sortVar "R") then σR else
+        if t0.ev (evarKey vk) = t0.ev (evarKey x0) then s else v) = v
+      rw [if_neg apart0.2.1.symm, if_neg apart0.2.2.symm]
+    have hR0 : ∀ a, (Pattern.evar (t0.ev (.sortVar "R")) : P).interpret I e0 a ↔ a = σR := fun a => by
+      rw [interp_evar, e0R]
+    have hg0 : ∀ k ∈ (U.ax178.ax.sortVars.map sortVarKey ++ freeOf [] U.ax178.ax.pattern).eraseDups, ∀ m,
+        (guardOf t0 k).interpret I e0 m := by
+      rw [free0]
+      intro k hk m
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+      rcases hk with rfl | rfl | rfl
+      · rw [interp_guard_sortVar hD, e0R]; exact hR
+      · change ((t0.ev (evarKey x0)) ∈∈ inhOf (trSort t0 x0.sort) : P).interpret I e0 m
+        rw [interp_member hD, show x0.sort = srt "K" from rfl, trSort_srt, e0X]
+        exact (interp_inhOf_of (hK e0)).mpr hs
+      · change ((t0.ev (evarKey vk)) ∈∈ inhOf (trSort t0 vk.sort) : P).interpret I e0 m
+        rw [interp_member hD, show vk.sort = srt "Int" from rfl, trSort_srt, e0V]
+        exact (interp_inhOf_of (hInt e0)).mpr hvI
+    have hax := trAxiom_at hD h178 e0 hg0 y
+    rw [sort0] at hax
+    dsimp only at hax
+    rw [tr0_eq, trSort_R, interp_sImp] at hax
+    have hy0 : (inhOf (Pattern.evar (t0.ev (.sortVar "R")))).interpret I e0 y := (interp_inhOf_of hR0).mpr hyR
+    have hconc := (hax.mpr hy0).2 (by
+      rw [interp_sAnd, interp_sAnd]
+      refine ⟨(interp_sTop hD isFree_R y).mpr hy0, ?_, (interp_sTop hD isFree_R y).mpr hy0⟩
+      rw [interp_sIn hD hc (hK e0) hR0 hσK2 hR (fun b hb => by rw [interp_evar, e0X] at hb; rw [hb]; exact hs)]
+      exact ⟨⟨s, by rw [interp_evar, e0X], (kiP_iff (by rw [e0V]; simp only [Function.update_same]) s).mpr hki⟩, hyR⟩)
+    rw [interp_sEquals hD hc (hInt e0) hR0 hσI2 hR] at hconc
+    have hpv := (hconc.2 v hvI).mpr (by
+      rw [interp_sAnd, interp_evar, e0V]
+      exact ⟨rfl, (interp_sTop hD rfl v).mpr ((interp_inhOf_of (hInt e0)).mpr hvI)⟩)
+    exact interp_sCeil_raw.mpr ⟨σI, σR, v, (hInt e σI).mpr rfl, (hRv σR).mpr rfl,
+      (projP_iff (by rw [e0X, hsv]) v).mp hpv, (ceilE_of hD hc hσI2 hR hvI y).mpr hyR⟩
+
 /-! ## The constructor sentences -/
 
 noncomputable def consText : List AxiomDecl := U.all.filter fun ad => tieConsB c ad.ax
@@ -489,6 +790,8 @@ end KCore.NoteProjDom
 #print axioms KCore.NoteProjDom.w1
 #print axioms KCore.NoteProjDom.fns_entailed
 #print axioms KCore.NoteProjDom.fns_from_text
+#print axioms KCore.NoteProjDom.proj_arity
+#print axioms KCore.NoteProjDom.dom_entailed
 #print axioms KCore.NoteProjDom.cons_entailed
 #print axioms KCore.NoteProjDom.dec_named
 #print axioms KCore.NoteProjDom.proj_5

@@ -546,9 +546,20 @@ def ΓColls (c : Semantics) : Premises KoreAML.Sym := fun φ =>
 
 /-! ## 5. The functions -/
 
-/-- `premise → f(X̄) = rhs ∧ ens` as an axiom over the sort variable `R` (`equationAx`, no attributes). -/
+/-- `premise → f(X̄) = rhs ∧ ens` as an axiom over the sort variable `R` (`equationAt`, no
+attributes). The left side is `f` applied to the formal arguments as `symApp` writes an application
+of `f`, so a function's equations speak of the head its applications are written at. -/
 def eqnSentence (c : Semantics) (f : Fn) (prem rhs ens : Kore.Pattern) : Kore.Sentence :=
-  KoreAML.equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result) prem rhs ens []
+  KoreAML.equationAt (symApp c f.label (KoreAML.vars (KoreAML.numbered "X" 0 (f.args.map c.sortName))))
+    (c.sortName f.result) prem rhs ens []
+
+/-- For a function that is not named like `ite` at a sort, the equation is `equationAx`'s at the
+function's name. -/
+theorem eqnSentence_plain {c : Semantics} {f : Fn} (h : iteSort? (c.symName f.label) = none)
+    (prem rhs ens : Kore.Pattern) :
+    eqnSentence c f prem rhs ens =
+      KoreAML.equationAx (c.symName f.label) (f.args.map c.sortName) (c.sortName f.result) prem rhs ens [] := by
+  unfold eqnSentence symApp; rw [h]; rfl
 
 /-- The premise of an equation that competes with other clauses: none of them applies, its own
 `requires` holds and its patterns match, `¬ ⋁ competitors ∧ ⌈req = true⌉ ∧ X̄ ∈ p̄`: the premise
@@ -804,12 +815,15 @@ def famOpen (c : Semantics) (r : Rule) (σ : Subst) : KoreAML.P :=
 then write a constructor's application alike. -/
 def NamesPlain (c : Semantics) : Prop := ∀ k ∈ c.ctorSigs, iteSort? (c.symName k.name) = none
 
-/-- The well-formedness of names and sort numbers that the soundness proof reads: no constructor or
-function is named like `ite` at a sort (so `Term.kore`, the KORE of a value and a function's
-equations write its applications alike), and the sorts of every function are numbered sorts (so
-`ΓSig` says that each denotes one sort). -/
+/-- The well-formedness of names and sort numbers that the soundness proof reads: no constructor
+is named like `ite` at a sort (so `Term.kore` and the KORE of a value write its applications
+alike), no symbol that an overloading symbol overloads is (an overload's equation, `ovlEqItem`,
+writes the overloaded symbol under its name with no sort argument, which is how `symApp` writes it
+then), and the sorts of every function are numbered sorts (so `ΓSig` says that each denotes one
+sort). A function no symbol overloads may be named like `ite` at a sort: its equations
+(`eqnSentence`) and its applications are both written by `symApp`. -/
 def NamesNumbered (c : Semantics) : Prop :=
-  NamesPlain c ∧ (∀ fn ∈ c.allFns, iteSort? (c.symName fn.label) = none) ∧
+  NamesPlain c ∧ (∀ o ∈ c.ovls, ∀ g ∈ o.over, iteSort? (c.symName g) = none) ∧
   ∀ fn ∈ c.allFns, ∀ s ∈ fn.result :: fn.args, s < nRegSorts + c.sortNames.length
 
 theorem namesNumbered_spec {c : Semantics} (h : namesNumbered c = true) : NamesNumbered c := by

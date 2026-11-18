@@ -1,7 +1,7 @@
 /-
   KCore. Every model of `Γc` of a definition `coreOK` accepts has the facts the Holds lemma reads:
   the atoms' facts given the soundness of `EvalTerm` (`atomFacts_of_core`), which holds under the
-  clause hypothesis of `sound_at` (`termSound_of_core`, ClausePreCore.lean), and the binders' fact where the definition
+  clause hypothesis of `sound_at` (`termSoundEx`, TermSoundCEx.lean), and the binders' fact where the definition
   reads confined sorts (`binderFacts_of_core`; the reading of a pattern, `patReading_of_core`, asks
   `coreOK` alone).
 -/

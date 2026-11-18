@@ -4,8 +4,9 @@
   library's one statement of the equation (`KcoreSpec/LibEvFnBoolInt.lean`). With
   `test/LibEvFnEns.lean`'s 174, 180, 246, 247 these are the twenty sentences of ens from
   domains.md 1138 to 1170 and 1438 to 1457 that are read, are no `simplification` and apply only
-  symbols Γ has. The other three of those lines that ens holds apply a symbol Γ does not have:
-  189 (1454, `dividesInt`), 208 (1438, `>>Int`, `<<Int`), 265 (1440, `<<Int`).
+  symbols Γ has. Of the other three of those lines that ens holds, 189 (1454, `dividesInt`)
+  applies a symbol Γ does not have; 208 and 265 (1438, 1440, the bit ranges) are
+  `test/LibEvFnBitRangeEns.lean`'s.
   Run from the package root: `lake env lean test/LibEvFnBoolIntEns.lean`.
 
   - 173 (`B1 =/=Bool B2 => notBool (B1 ==Bool B2)`, domains.md 1170): `fn173`.

@@ -15,8 +15,12 @@
     `coreOKEx` (`Semantics.heldFacts_of_coreEx`,
     `Semantics.ruleFactsHO2_of_coreEx`).
 -/
-import KcoreSpec.FamExValuesHeld
-import KcoreSpec.FamOpenValuesPP
+import KcoreSpec.FamExValuesPP
+import KcoreSpec.ModelChoiceHeld
+import KcoreSpec.HeldBackAll
+import KcoreSpec.CompletePP
+import KcoreSpec.ExComplete
+import KcoreSpec.OpenSplit
 import KcoreSpec.SoundCE
 import KcoreSpec.FnModelCEx
 import KcoreSpec.HypModelCoreEx

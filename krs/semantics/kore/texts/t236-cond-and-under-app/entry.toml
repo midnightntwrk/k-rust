@@ -1,0 +1,62 @@
+id = "t236-cond-and-under-app"
+kind = "text"
+subject = "A conjunction #And of two Int terms under a function application in a requires: go(X, Y) => done requires f(X #And Y) ==Int 0, with f(X) => X -Int 1. Where the condition holds."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t123-req-and", "kk:t233-rule-conn-cut"]
+
+[text]
+files = ["t236-cond-and-under-app.k"]
+kompile = "accepts"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "X #And Y denotes, at a valuation, X's value where X and Y have the same value and nothing where they differ; f of nothing denotes nothing, and so does f(X #And Y) ==Int 0, which is then not true. So the condition holds exactly where X and Y are one integer x and f(x) ==Int 0 is true: go(i, j) has the successor done exactly at i = j = 1, and the rule states nothing of go(i, j) elsewhere. In general, for terms t and u with at most one value each, a condition holding t #And u under applications holds exactly where t and u have one and the same value and the condition with that value in the conjunction's place holds: the cut of kk:t233-rule-conn-cut with the memberships of that value in t and in u."
+reason = '''
+(1) The requires clause holds where it evaluates to true (kk:t01-rule-applies), and the requires is the predicate {f(X #And Y) ==Int 0 #Equals true}, as for a conjunction at the top of a requires (kk:t123-req-and, points (1) and (2)).
+(2) #And is the conjunction of ML-SYNTAX (kast.md:148), the intersection of what its sides denote (introduction-to-matching-logic.tex:734-736). A variable denotes the one element of its valuation (:727). So X #And Y at a valuation is {x} where X and Y are both x, and empty where they differ.
+(3) An application to an argument that denotes nothing denotes nothing (kk:t10-fn-innermost, point (2)). So where X and Y differ, f(X #And Y) and f(X #And Y) ==Int 0 denote nothing, which is not {true}: the condition does not hold.
+(4) Where both are x, f(x) is x -Int 1 by f's one equation (kk:t11-eq-applies; -Int is the difference of two integers, domains.md:1238), and x -Int 1 ==Int 0 is true exactly at x = 1 (domains.md:1324-1325). So the rule applies at go(1, 1) alone, which has the successor done (kk:t02-step-successors, point (4)).
+(5) The general form: f(t #And u) is f(Z) with Z in (t #And u) under an existential binder (kk:t233-rule-conn-cut, point (1)); Z in (t #And u) holds where Z is in t and in u, which, t and u denoting at most one element each, is where both denote Z's element.'''
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:148 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= Sort "#And" Sort [symbol(#And), assoc, left, comm, unit(#Top), mlOp, group(mlAnd, mlOp), format(%i%1%d%n%2%n%i%3%d)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:727 (K 7.1.337)"
+quote = '\item $\overline{\rho}(x) = \{\rho(x)\}$, for all $x\in\Var_s$'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:734-736 (K 7.1.337)"
+quote = '\item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ for all $\varphi_1, \varphi_2$ patterns of the same sort'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1238 (K 7.1.337)"
+quote = "Compute the sum `+Int` or difference `-Int` of two integers."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[ruling.kore]
+statement = '''The requires is written \equals{Bool,GeneratedTopCell}(f(\and{Int}(X, Y)) ==Int 0, \dv{Bool}("true")) conjoined with the left side go(X, Y) (kore.txt:93-96): the conjunction stands under f, at sort Int, as in the K text. f's equation is written with the premise X0 in X and the right side X -Int 1 (kore.txt:102-116). X and Y are free in the axiom, bound by the left side, so the axiom holds at every valuation of them and states what the ruling states.'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:93-96"
+quote = '''Lblgo{}(VarX:SortInt{},VarY:SortInt{}) ... \equals{SortBool{},SortGeneratedTopCell{}}( Lbl'UndsEqlsEqls'Int'Unds'{}(Lblf{}(\and{SortInt{}}(VarX:SortInt{},VarY:SortInt{})),\dv{SortInt{}}("0")), \dv{SortBool{}}("true")))'''
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:112-115"
+quote = '''\equals{SortInt{},R} ( Lblf{}(X0:SortInt{}), \and{SortInt{}} ( Lbl'Unds'-Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("1")),'''
+
+[[observe]]
+file = "kore.txt"
+contains = '''Lblf{}(\and{SortInt{}}(VarX:SortInt{},VarY:SortInt{}))'''

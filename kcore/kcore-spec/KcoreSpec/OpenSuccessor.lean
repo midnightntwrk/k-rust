@@ -16,13 +16,13 @@
   A translated term reads the valuation at its own variables only, through any table
   (`tr_kore_congr`, `tr_reqPat_congr`). So, with x's element also in `⌈req = true⌉` and y's in
   `⌈ens = true⌉`, a σ of values has every premise of `Step.rule` but the rule's membership and
-  `hprio` (`rule_step_values`, and `stepBy_of_values` for a rule of the definition under `FnHyp`):
-  - arms A and B: the valuation's own substitution (`rule_step_AB`);
+  `hprio` (`rule_step_valuesSSx`, StepExRuleSSx.lean):
+  - arms A and B: the valuation's own substitution (`rule_step_ABSSx`);
   - arm C, a variable held by closed conditions no variable of which the left side, the right side
     or the `ensures` holds: `needsWitness` holds, so the conditions are decided. `Refuted` fails at
     the valuation, which satisfies `∃ō. ⌈req = true⌉` (`cond_not_refuted`); `Witnessed` gives the
     conditions' variables values, which the valuation takes in place of its own without changing
-    what the left side, the right side or the `ensures` denote (`rule_step_C`).
+    what the left side, the right side or the `ensures` denote (`rule_step_CSSx`).
   This file holds the valuations at values (`rule_witnessed`, `rule_subst_AB`, `rule_witnessed_all`)
   and `cond_not_refuted`; the step lemmas read the functions' clauses through `neg_of_coreCl` and
   are in OpenRuleStepCl.lean.

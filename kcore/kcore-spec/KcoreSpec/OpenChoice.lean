@@ -1,19 +1,16 @@
 /-
   KCore. The choice among instances, for a definition whose rules' left sides need not bind every
-  variable: the value model.
+  variable: the step of the value model.
 
-  A rule with `rulePlainOpen` has no existential variable, so a relation T that holds only steps of
-  `Step` and every step of a rule without existential variables is `Step`. The value model (`stdI`)
-  is a model of `Γc` with the step's closure (`stdI_modelOpen`), and its transition at values is
-  `StepM`: `Step` with "no rule of a smaller priority applies" (`RuleApplies`) in place of
-  `NotApplies`. The two agree:
+  The transition of the value model (`stdI`) at values is `StepM`: `Step` with "no rule of a
+  smaller priority applies" (`RuleApplies`) in place of `NotApplies`. The two agree:
   - a competitor that does not apply (`NotApplies`), its premise predicate `\top`, has no match
     under which its `requires` evaluates to `true`, where a term has at most one result
     (`FnDet`): `not_ruleApplies_ofChoice`;
   - a competitor with no such match, where its conditions have results at its matches (the first
     conjunct of `StepDecided`), does not apply: `notApplies_ofChoice`.
   So in the value model x has y's element as a successor exactly where `Step c x y`
-  (`step_iff_stdIChoice`), and `has_model_choice_open` is `has_model_choice`'s conclusion.
+  (`step_iff_stdIChoice`).
 -/
 import KcoreSpec.OpenConsistent
 import KcoreSpec.ModelFnsDecided
@@ -87,26 +84,5 @@ theorem step_iff_stdIChoice (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
     obtain ⟨-, -, r, hr, σ, hσ, hpv, hreq, hpre, hev, hens, hpost, hno⟩ := hst
     exact .rule r hr σ hσ hpv hreq hpre hev hens hpost fun r' hr' hlt =>
       notApplies_ofChoice (hd r' hr' fun r'' hr'' hlt' => hno r'' hr'' (Nat.lt_trans hlt' hlt)).1 (hno r' hr' hlt)
-
-/-- **The choice among instances is free, for a definition whose rules' left sides need not bind
-every variable**: `has_model_choice`'s conclusion, for a semantics that `coreOK` accepts whose
-functions meet `FnHyp` and whose rules have `ruleSorted` and `rulePlainOpen`. Its rules have no
-existential variable, so T is `Step`; the value model's transition at values is `Step`
-(`step_iff_stdIChoice`). -/
-theorem has_model_choice_open (c : Semantics) (h : c.coreOK = true) (hf : FnHyp c)
-    (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true)
-    (T : Config c → Config c → Prop)
-    (hsub : ∀ x y, T x y → Step c x y)
-    (hall : ∀ x y r σ, StepBy c r σ x y → r.exs = [] → T x y)
-    (_hsome : ∀ x y r σ, StepBy c r σ x y → ∃ y' σ',
-       (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y' ∧ T x y') :
-    ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), (I ⊧ᴵP (Γc c ∪ Γstep c)) ∧
-      ∀ x y : Config c, T x y ↔ ¬ (I ⊧ᴵ (den c x.val ⇒ ∼ KoreAML.sNext (den c y.val))) := by
-  refine ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hrules
-    (satFnsGoal_decided (hypModel_of_fnHyp h hf) (Semantics.fnsNoExs_of_coreOK h) (clausePreDecided_of_fnHyp h hf)), fun x y => ?_⟩
-  rw [← step_iff_stdIChoice c h hf hrules x y]
-  refine ⟨hsub x y, fun hs => ?_⟩
-  obtain ⟨r, σ, hb⟩ := step_iff_by.mp hs
-  exact hall x y r σ hb (Semantics.rulePlainOpen_top (hrules r hb.mem).2).1
 
 end KCore

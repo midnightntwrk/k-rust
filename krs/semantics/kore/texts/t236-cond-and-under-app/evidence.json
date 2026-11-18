@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t236-cond-and-under-app.k": "7d23c18c0ccd0e6301bea68379948a012377768180be3ee665d82abca5bd5973"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t236-cond-and-under-app.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "7cf8a2b5be3ce65f8d557672399d545848457b4aa1ced4fb1f397fc34d8cf683",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

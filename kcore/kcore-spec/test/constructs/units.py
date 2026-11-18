@@ -88,45 +88,15 @@ t = tomllib.load(open(rows, "rb"))
 # class is outside CLASSES); every other failure is of kind "other" and is never allowed. A failure
 # is counted under the first allowance whose test holds.
 ALLOWANCE = [
-    # 62 -> 40 with FIX-core.rangemap-silent: the 22 RANGEMAP entries (E6's 21 rows, E5
-    # translateSorts:hooked-#2 case RANGEMAP.RangeMap) were refused R-c without unit and are what
-    # the reader does (supported, or parameter), the carrier and the module having landed.
-    # 40 -> 38 with C3.rows-unit-ctor: E2 ASSOC(assoc)@symbol and COMM(comm)@symbol name the ticket
-    # whose completion is their fixture read, P2.d2-kompiled (findings/C3-unbound-rulings.md 8.2).
-    # 38 -> 37 with CE.rows-partition: the #Exists row's case "an equation's right side" (R-c, no
-    # unit) is replaced by one case per shape, each R-c with its ticket or R-a with its reason.
-    # 37 -> 38 with R2-release.rdr-corpus-rows: E6 hook:LIST.update's case of List:set in a rule's
-    # left side (the corpus text list-set), R-c with no ticket that reads a parameter symbol there.
-    # 38 -> 34 with P3.rows-setvar-cut: the four set-variable rows of E4 are R-a with their reason,
-    # each shape a case with its fixture, class and unit.
-    # 34 -> 33 with P3.rows-ksym-setvar: E3's KSEQ-SYMBOLIC #set-@ row, R-c without unit, is R-a
-    # with its reason and the E4 rows' cases.
-    # 33 -> 35 with R2-release.fixrest-pending-rows: E2 ML_BINDER(mlBinder)@frontend and
-    # ML_OP(mlOp)@frontend take, by rule S1, the status and class of the E3 rows of #Exists and #Ceil
-    # (refused R-c without unit), the productions whose KORE their fixture's sentences show.
-    # 35 -> 34 with ROWS-1.refresh-k: E3 #Bottom is supported, every shape of it read or inert
-    # with its fixture.
-    # 34 -> 30 with ROWS-1.refresh-kore: the four E4 \forall and \floor rows are R-a openExtent
-    # with their unit (CN-3 section 5), the predicate in a condition a supported case.
-    # 30 -> 31 with ROWS.initial-collection-cell: E2 INITIAL(initial)@frontend's case on a cell
-    # collection (fixture e2-initial-coll), refused R-c by the reader's initializer decision, with no
-    # ticket that reads it yet.
-    # 31 -> 33: E6 hook:KEQUAL.ite's cases of the text's own one-sort Lblite
-    # with an equation of an instance (NamesNumbered) and hooked to KEQUAL.ite (as E2
-    # SYMBOL(symbol)@symbol's registry-name case), R-c with no ticket that reads them.
-    # 33 -> 32: E5 translateSorts:hooked-#2's case of a user sort hooked under its own name to a
-    # library carrier is supported (scanCarrier, fixture e5-hooked-int); the user's hooked sort
-    # whose hook no library sort has is its own case, R-a with its reason.
-    # 32 -> 31: E2 INITIAL(initial)@frontend's case on a cell collection is supported, the reader
-    # computing the enclosing cell's initializer through the collection's initializer of no argument.
-    # 31 -> 30: E6 hook:KEQUAL.ite's case of the text's own one-sort Lblite hooked to KEQUAL.ite
-    # is supported, the declaration being the registry's ite declared again (Parse.regIteDeclIoh).
-    ("ROWS-1.unit-rc", 29, "entries of class R-c without unit",
-     lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
-    # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
-    # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).
-    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
-     lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
+    # 46: the entries of class R-b without unit, each of which findings/KPROV-citations.md,
+    # KPROV-scope.md and KPROV-reopen-decision.md decide and KPROV.apply writes: most become
+    # scope (rejected, never written, not delivered or option), a class change with its fields,
+    # so no `none (R-b)` unit is theirs; BAG(bag)@frontend and TYPE(type)=Bag@frontend take the
+    # third R-b spelling of KPROV-citations section 8 R1; SMT_LEMMA(smt-lemma)@rule's `shape at`
+    # names a key KPROV.apply creates. E7 26:genCoverage and 30:removeAnywhereRules carry the
+    # status and class of their E8 rows --coverage and --allow-anywhere-haskell.
+    ("KPROV.apply", 46, "entries of class R-b without unit, relabelled or spelled by the ticket",
+     lambda l, e, k: k == "nounit" and e.get("class") == "R-b"),
 ]
 
 

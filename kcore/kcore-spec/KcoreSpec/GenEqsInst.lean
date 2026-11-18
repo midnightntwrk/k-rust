@@ -102,8 +102,8 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
     unfold clauseConcl
     rw [KoreAML.freeOf]
     refine List.mem_append_left _ ?_
-    rw [hargs]
-    simp [KoreAML.ap, KoreAML.vars, KoreAML.numbered, KoreAML.freeOf, KoreAML.freeOfList, X0k]
+    rw [hargs, freeOf_symApp]
+    simp [KoreAML.vars, KoreAML.numbered, KoreAML.freeOf, KoreAML.freeOfList, X0k]
     rfl
   have hKn : Srt.k < nRegSorts + c.sortNames.length := Nat.lt_of_lt_of_le (by decide) (Nat.le_add_right _ _)
   obtain ⟨σK, hσK1, hσK2⟩ := sortSing hI hKn
@@ -222,7 +222,7 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
         · unfold clauseConcl at hk
           rw [KoreAML.freeOf] at hk
           rcases List.mem_append.mp hk with hk | hk
-          · unfold KoreAML.ap at hk; rw [KoreAML.freeOf] at hk
+          · rw [freeOf_symApp] at hk
             obtain ⟨n, s', hn, rfl⟩ := freeOf_callX _ 0 hk
             rw [hargs] at hn
             cases n with
@@ -277,17 +277,16 @@ theorem predInst_core (hc : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {fn : Fn} (hf
   rw [KoreAML.interp_sEquals hD hcd (hSr t e) hRv hσr2 hR]
   refine ⟨hc0.1, fun a ha => ?_⟩
   have hca := hc0.2 a ha
-  have hap : ∀ a, (KoreAML.tr ⟨tg, []⟩ (KoreAML.ap (c.symName fn.label)
+  have hap : ∀ a, (KoreAML.tr ⟨tg, []⟩ (symApp c fn.label
         (KoreAML.vars (KoreAML.numbered "X" 0 (List.map c.sortName fn.args))))).interpret I e' a ↔
-      (KoreAML.tr ⟨t, []⟩ (KoreAML.ap (c.symName fn.label)
+      (KoreAML.tr ⟨t, []⟩ (symApp c fn.label
         (KoreAML.vars (KoreAML.numbered "X" 0 (List.map c.sortName fn.args))))).interpret I e a := by
     intro a
     rw [hargs]
-    simp only [List.map, KoreAML.numbered, KoreAML.vars, KoreAML.ap]
-    rw [KoreAML.tr, KoreAML.tr]
-    simp only [List.contains_nil, Bool.false_eq_true, ↓reduceIte, KoreAML.trSortApp, KoreAML.trArgs_cons,
-      KoreAML.trArgs_nil, Function.comp_apply]
-    refine KoreAML.interp_app_congr (e := e') (e' := e) (fun _ => Iff.rfl) (fun m => ?_) a
+    simp only [List.map, KoreAML.numbered, KoreAML.vars]
+    rw [tr_symApp, tr_symApp]
+    simp only [KoreAML.trArgs_cons, KoreAML.trArgs_nil, Function.comp_apply]
+    refine KoreAML.interp_app_congr (e := e') (e' := e) (fun m => symHead_congr _ m) (fun m => ?_) a
     rw [KoreAML.tr, KoreAML.tr]
     show m = e'.evalEvar (tg.ev X0k) ↔ m = e.evalEvar (t.ev X0k)
     rw [heX]
@@ -1304,7 +1303,7 @@ theorem owi_eqn_narrower (hD : DefOK I) {fn : Fn} {prem prem' rhs ens : Kore.Pat
     (h : ∀ it ∈ kernelItems [eqnSentence c fn prem rhs ens], I ⊧ᴵ it.pat) :
     ∀ it ∈ kernelItems [eqnSentence c fn prem' rhs ens], I ⊧ᴵ it.pat := by
   intro it hit
-  simp only [kernelItems, eqnSentence, equationAx, axiomR, List.filterMap_cons, List.filterMap_nil,
+  simp only [kernelItems, eqnSentence, equationAt, axiomR, List.filterMap_cons, List.filterMap_nil,
     List.mem_singleton] at hit h
   subst hit
   exact owi_sat_narrower (a := ⟨[Rv], .implies R prem _, []⟩) hD rfl rfl rfl hvars hfree hprem (h _ rfl)
