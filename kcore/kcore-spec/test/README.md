@@ -1486,7 +1486,8 @@ table above, on the tree before String and Bytes). Not investigated here.
   text's associativity law and its two unit laws (`laws_eq`), each `lawSorted`; by `pu`'s and
   `zero`'s clauses, `LawAt` holds of each (`unitR_lawAt`, `unitL_lawAt`, `assoc_lawAt`), so
   `FnLaws` of the text's laws (`fnLaws`), the fact the account lists as owed. With `zero`'s clause
-  answering 1 the right unit law fails (`cOne_not_unitR`).
+  answering 1 the right unit law fails (`cOne_not_unitR`). The theory with the laws' sentences has
+  a model under every H (`consistent`, `consistent_with_laws`).
 - `test/FnLawFixtures.lean`: the law axioms of functions in the kompiled texts of the fixtures
   e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest, e2-fn-idem and e2-fn-assoc-unit
   (`f2-examples/NAME.kompile.kore`), through the reader: the account's `fnLaw` lines of each, no law
@@ -1495,6 +1496,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   whose `pk` is a parameter no hook implements). On e2-fn-assoc, `FnLaws` of `defn.laws` and
   `consistent_with_laws` under every H (`Assoc.consistent`); on e2-fn-assoc-bad, `LawAt` fails at
   (1, 2, 3) under every H (`Bad.not_lawAt`).
+- `test/FnLawFixturesAt.lean`: the laws at values on the reader's semantics of e2-fn-assoc-rest and
+  e2-fn-idem's kompiled texts. On e2-fn-assoc-rest `pk` is a parameter no hook implements, its value
+  the interpretation's (`Rest.paramVal_pk`): the law holds at `HookParams.none` and where `pk` is Int
+  addition, and fails where it is Int subtraction (`Rest.lawAt_none`, `Rest.lawAt_add`,
+  `Rest.not_lawAt_sub`). On e2-fn-idem, `FnLaws` of `defn.laws` and `consistent_with_laws` under
+  every H (`Idem.fnLaws`, `Idem.consistent`).
 - `test/C3EqReqEns.lean`, `C3EqEnsPrio.lean`, `C3EqEnsPrioComp.lean`, `C3EqEnsOwise.lean`,
   `C3EqEnsTotal.lean`, `C3EqEnsTotalHolds.lean`: the tie (C14) of the four equation pairs of DONE-0
   C3 that hold `ensures`, one file per fixture of `test/constructs/fixtures/` (its kompiled text
