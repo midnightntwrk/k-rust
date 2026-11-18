@@ -385,3 +385,4 @@ import KcoreSpec.FamExCEx
 import KcoreSpec.CompleteCEx
 import KcoreSpec.SoundCEx
 import KcoreSpec.SoundCE
+import KcoreSpec.FnModelCEx
