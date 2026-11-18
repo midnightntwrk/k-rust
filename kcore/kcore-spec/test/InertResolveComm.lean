@@ -59,7 +59,7 @@ def E : LibEv.Eqn :=
   ⟨[("VarY", Srt.int), ("VarX", Srt.int)], Srt.int, none, .app g [.var 0, .var 1], .app g [.var 0, .var 1]⟩
 
 /-- The reader's class of the sentence. -/
-theorem simp_class : Parse.classify (.axiom U.ax216.ax) = .inert .simplification := by decide +kernel
+theorem simp_class : Parse.classifyShape (.axiom U.ax216.ax) = .inert .simplification := by decide +kernel
 
 /-- **The sentence is `E`'s pattern**, over the one sort variable `R`, `VarY` and `VarX` free. -/
 theorem simp_text : U.ax216.ax.pattern = E.pattern c ∧ U.ax216.ax.sortVars = [Rv] ∧

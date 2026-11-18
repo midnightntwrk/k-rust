@@ -472,7 +472,7 @@ refuted, out of scope) is probed as the control that the probe finds a counterex
 symbol's `functional` sentence is row 9 whatever its reading (the sort-parametric `ite{S}`'s is
 inert `parametricFunctional`, and applies `ite{S}`, a symbol Γ does not have). -/
 def rowOf (k : Kore.Definition) (a : Kore.Axiom) : Option Nat :=
-  let cls := classify (.axiom a)
+  let cls := classifyShape (.axiom a)
   match cls with
   | .inert .collectionLaw => some 15
   | .inert .simplification => some 18

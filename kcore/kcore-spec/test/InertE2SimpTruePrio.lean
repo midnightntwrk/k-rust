@@ -62,7 +62,7 @@ noncomputable abbrev simpPairs : List (AxiomDecl × Sym) :=
 noncomputable abbrev simpAxs : List AxiomDecl := simpPairs.map (·.1)
 
 /-- The reader's class of each sentence. -/
-theorem simp_class : simpAxs.map (fun ad => Parse.classify (.axiom ad.ax)) =
+theorem simp_class : simpAxs.map (fun ad => Parse.classifyShape (.axiom ad.ax)) =
     List.replicate 5 (.inert .simplification) := by decide +kernel
 
 /-- **The written forms of the key**: the `simplification` attribute of each sentence carries no

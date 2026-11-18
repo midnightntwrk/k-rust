@@ -440,6 +440,16 @@ example (s : Kore.KSort) (p q : Kore.Pattern) :
     isRewrite (.rewrites s p q) = true ∧ isRewrite (.implies s p q) = false ∧ isRewrite (.equals s s p q) = false :=
   ⟨rfl, rfl, rfl⟩
 
+example (a : Kore.Axiom) : isLaw a =
+    ((has a.attributes "assoc" || has a.attributes "comm" || has a.attributes "unit" || has a.attributes "idem") &&
+      !has a.attributes "owise" && !has a.attributes "priority" &&
+    match a.pattern with
+    | .equals _ _ (.app _ _ _) _ => true
+    | _ => false) := rfl
+
+example (k : Kore.Definition) (n : String) : eqnsOf k n =
+    (k.axiomDecls.map (·.ax)).filter (fun a => eqnHead a.pattern == some n && !isLaw a) := rfl
+
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
     ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
 
@@ -448,7 +458,9 @@ example (k : Kore.Definition) (c : Semantics) : fns k c =
       let fn := has as "function" && !has as "hook"
       let isFn := c.allFns.any (c.symName ·.label == n)
       let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
-      (!isFn || fn) && (!(fn && own) || isFn)) := rfl
+      let par := !(c.ctorSigs ++ c.ovlSigs).any (c.symName ·.name == n) &&
+        (c.params.all fun p => c.symName p.sig.name != n || (p.impl.isNone && !p.raw)) && (eqnsOf k n).isEmpty
+      (!isFn || fn) && (!(fn && own) || isFn || par)) := rfl
 
 example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 
@@ -460,7 +472,8 @@ example (k : Kore.Definition) (c : Semantics) : hooks k c =
         (c.params.all fun p => c.symName p.sig.name != n || p.impl == regHookOf h)
       | none =>
         (hookSigs.all fun g => c.symName g.name != n || (libFn g && has as "function")) &&
-        c.params.all fun p => c.symName p.sig.name != n)) := rfl
+        c.params.all fun p => c.symName p.sig.name != n ||
+          (p.impl.isNone && (p.raw != has as "function") && (eqnsOf k n).isEmpty))) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : colls k c =
     (let declared := (AttrsAgree.sortDecls k).filterMap fun (n, as) =>
@@ -485,8 +498,7 @@ example (k : Kore.Definition) (d : Definition) : prios k d =
      ((c.rules.zip d.pres.rules).all fun (r, rp) => rewritePrioOf k rp.info.uid == some r.prio) &&
      ((axs.filter (isRewrite ·.pattern)).all fun a => d.pres.rules.any fun rp => uidOf a.attributes == some rp.info.uid) &&
      c.allFns.all fun f =>
-       let n := c.symName f.label
-       ((axs.filter fun a => eqnHead a.pattern == some n && !has a.attributes "simplification").map
+       (((eqnsOf k (c.symName f.label)).filter (!has ·.attributes "simplification")).map
            (prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))) := rfl
 
 end AttrsAgreePins
@@ -496,7 +508,8 @@ example : tieClasses =
      ("constructor functional", .entailed), ("subsort", .entailed), ("injectivity", .entailed),
      ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
      ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
-     ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("no direction", .none)] := rfl
+     ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
+     ("open generator law", .equal), ("open generator functional", .hypothesis), ("no direction", .none)] := rfl
 
 /-- The directions, by their constructors: seven, in this order. -/
 example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx, TieDir.atValues.ctorIdx,

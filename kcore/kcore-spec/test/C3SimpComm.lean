@@ -66,7 +66,7 @@ def E0 : LibEv.Eqn := ⟨[("VarX", Srt.int)], Srt.int, none, .app g [.var 0, .dv
 def E1 : LibEv.Eqn := ⟨[("VarX", Srt.int)], Srt.int, none, .app g [.dv Srt.int (.int 0), .var 0], .var 0⟩
 
 /-- The reader's class of the two sentences. -/
-theorem simp_class : [U.ax203, U.ax204].map (fun ad => Parse.classify (.axiom ad.ax)) =
+theorem simp_class : [U.ax203, U.ax204].map (fun ad => Parse.classifyShape (.axiom ad.ax)) =
     [.inert .simplification, .inert .simplification] := by decide +kernel
 
 /-- **The sentences are `E0`'s and `E1`'s patterns**, over the one sort variable `R`, `VarX` free. -/

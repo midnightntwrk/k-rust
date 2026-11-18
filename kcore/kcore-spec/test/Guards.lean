@@ -42,7 +42,9 @@
     at a parameter symbol no hook implements, over all interpretations `Γ` entails neither that the
     application has no value nor that it is a given value of its result sort (`param_undetermined`
     of test/GuardsParam.lean, every semantics `coreOK` accepts with no open generator, from
-    `HookParams.none` and an interpretation giving the value).
+    `HookParams.none` and an interpretation giving the value). Between two definitions, one
+    holding a function with no clause and one a parameter of its name and signature:
+    `fnRest_eq_hooks` and `paramVal_eq_hooks` state each value as one expression in H.
   - G7, `setIdempotence`: `_Set_` at a common member is no silent point, and `hook` gives it no value
     (`setIdem_bot`); in every semantics and under every H, `Γ` holds `_Set_(S₁, S₂) = ⊥` at sets
     where `hook` gives the concatenation no value (`setIdem_gamma`; at `{1} {1}`, `setIdem_everyH`).
@@ -744,6 +746,28 @@ theorem fnRest_nil_eq_paramVal_everyH (c : Semantics) (H : HookParams) (fn : Fn)
     (hvs : (c.withHooks H).sortsOf vs = some fn.args) :
     (c.withHooks H).fnRest fn vs = (c.withHooks H).paramVal fn.label vs :=
   fnRest_nil_eq_paramVal (c.withHooks H) fn k hn ha hr hi hraw hk vs hvs
+
+/-- **A function's rest, as an expression in the interpretation**: at argument lists of the
+function's sorts, its value where every clause fails is the interpretation's, kept where it has the
+result sort. Stated of one semantics, so that two definitions, one holding `fn` as a function with
+no clause and one holding a parameter of its name, can be compared through it
+(`paramVal_eq_hooks`). -/
+theorem fnRest_eq_hooks (c : Semantics) (fn : Fn) (vs : List GroundTerm) (hvs : c.sortsOf vs = some fn.args) :
+    c.fnRest fn vs = (c.hooks.app fn.label vs).filter (c.sortOf · == some fn.result) := by
+  unfold Semantics.fnRest
+  simp only [hvs, beq_self_eq_true, Bool.true_and]
+
+/-- **A parameter's value, as an expression in the interpretation**: for a parameter that no registry
+hook interprets and that is no open generator, its value at every argument list is the
+interpretation's, kept where it has the result sort. With `fnRest_eq_hooks`, the value `ΓFallback`
+states of a function without clauses and the value `ΓDomains` states of such a parameter of its
+signature are one expression in the interpretation. -/
+theorem paramVal_eq_hooks (c : Semantics) (f : Sym) (k : ParamSig) (hk : c.lookupParam f = some k)
+    (hi : k.impl = none) (hraw : k.raw = false) (vs : List GroundTerm) :
+    c.paramVal f vs = (c.hooks.app f vs).filter (c.sortOf · == some k.sig.result) := by
+  unfold Semantics.paramVal
+  rw [hk]
+  simp only [hi, hraw, Bool.false_eq_true, ↓reduceIte]
 
 /-! ## G7: `_Set_` at a common member -/
 
@@ -1915,6 +1939,8 @@ end KCore.Guards
 #print axioms KCore.Guards.fnRest_nil_eq_paramVal
 #print axioms KCore.Guards.setIdem_bot
 #print axioms KCore.Guards.fnRest_nil_eq_paramVal_everyH
+#print axioms KCore.Guards.fnRest_eq_hooks
+#print axioms KCore.Guards.paramVal_eq_hooks
 #print axioms KCore.Guards.rest_undetermined
 #print axioms KCore.Guards.RestOpen.F0_undetermined
 #print axioms KCore.Guards.setIdem_gamma
@@ -2071,6 +2097,11 @@ def readingNote : ReadingNote → GuardEntry
     { status := .pending "GUARD.final",
       guard := [.test "test/Connectives.lean" "andTermsWeaker"],
       note := "a CE reader device (CE.note-rule-and-weaker); reader tests at the parsed semantics only; the entailment of the read rule by the text's sentence (its docstring) is stated by no theorem, no statement over c.withHooks H, no companion" }
+  | .andTermsCut =>
+    { status := .pending "GUARD.final",
+      guard := [.test "test/PredFixtures.lean" "parsed", .test "test/Connectives.lean" "andTermsCut",
+        .decl ``KoreAML.rule_and_in, .decl ``KoreAML.rule_and_var],
+      note := "a rule's right side's conjunction of terms read through the cut where the test at reading time holds (Parse.andCutOK); the steps at the parsed semantics are test/PredFixtures.lean's (RhsAnd), the read right side is the text's under the cut's premises (KoreAML.rule_and_in, rule_and_var); no statement over c.withHooks H, no companion" }
   | .bottomAsEnsures =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.DevBot.bot_values, .test "test/Connectives.lean" "bottomAsEnsures"],
@@ -2237,7 +2268,7 @@ def unreadReason : UnreadReason → GuardEntry
 
 def readingNotes : List ReadingNote :=
   [.reflectionAsOwn, .streamRule, .ruleRightDefined, .projectionDomainAsClause, .orSplit, .topAsVariable,
-   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
+   .existsAsVariable, .andAsEnsures, .andTermsWeaker, .andTermsCut, .bottomAsEnsures, .orBottom, .predicateAtBool, .andAtBool,
    .requiresOrSplit, .setVarInDropped, .keyFunctionAsMember, .equationPriority, .owiseAsPriority,
    .owiseDisjunctNarrower, .identityAlias, .existsRenamedApart, .existsDropped,
    .overloadFunction, .tokKItem]

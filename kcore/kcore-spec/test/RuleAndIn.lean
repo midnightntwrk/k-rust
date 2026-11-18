@@ -4,13 +4,14 @@
   `lake env lean -j1 test/RuleAndIn.lean`.
 
   - `Fresh` (e3-ml-rule-rhs-and-term, `go(X) => f(X) #And g(X)`, f2-examples/mlandt): `rz` is the
-    rule with the position cut by a fresh existential variable Z:Int, `post := Z ∈ f(X) ∧ Z ∈ g(X)`.
+    rule with the position cut by a fresh existential variable Z:Int, `post := Z ∈ f(X) ∧ Z ∈ g(X)`,
+    the rule the reader reads (`read`: `andTermsCut`).
     `left_eq`: `ruleRight c rz` is the theorem's left pattern (the context K of the position, the
     `ensures` `\top`). `right_text`: the theorem's right pattern, its canonical names spelled as the
     text spells them, is the right argument of the text's `\rewrites`; `right_tie`: so the two have
     one translation under their own tables (`tr_occurrence_order`). `tie`: `rule_and_in` at these.
   - `Var` (e3-ml-rule-rhs-and-ctor, `c(X) => X #And a`, f2-examples/mlandc): `rv` is the rule with
-    the position holding X and `post := X ∈ a`; `left_eq`, `right_text`, `right_tie`, `tie` for
+    the position holding X and `post := X ∈ a`, the rule the reader reads (`read`); `left_eq`, `right_text`, `right_tie`, `tie` for
     `rule_and_var`.
   - The two theorems are stated at one table for both patterns. `Fresh.tables`: in the rule's
     sentence (`prioRuleK c rz`) every variable of the text's right side is met in the left side,
@@ -66,6 +67,9 @@ def rz : Rule :=
   { vars := [3, 0, 19, 3], lhs := cfg 32 (.app 386 [.var 0]), req := none, rhs := cfg 3 (.var 3), ens := none,
     prio := 50, exs := [3],
     post := .and (.mem 3 (.var 3) (.app 388 [.var 0])) (.mem 3 (.var 3) (.app 389 [.var 0])) }
+
+/-- The reader reads the text's rule as `rz` (`Parse.ruleBody` through the cut). -/
+theorem read : c.rules = [rz] := rfl
 
 def S : Kore.KSort := srt "Int"
 def z : Kore.EVar := evar "VarV3" S
@@ -138,6 +142,9 @@ def cfg (x : Term) : Term := .app 71 [.app 383 [.app 0 [.inj 32 1 x, .var 1]], .
 def rv : Rule :=
   { vars := [32, 0, 19], lhs := cfg (.app 387 [.var 0]), req := none, rhs := cfg (.var 0), ens := none,
     prio := 50, post := .mem 32 (.var 0) (.app 385 []) }
+
+/-- The reader reads the text's rule as `rv` (`Parse.ruleBody` through the cut). -/
+theorem read : c.rules = [rv] := rfl
 
 def S : Kore.KSort := srt "Exp"
 def v : Kore.EVar := evar "VarV0" S

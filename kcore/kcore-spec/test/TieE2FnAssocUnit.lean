@@ -3,17 +3,16 @@
   (`test/constructs/fixtures/e2-fn-assoc-unit`), sentence by sentence, against the translation of the text as
   written (`trS ad := trAxiom k.symbolDecls k.aliasNames ad`), on the literals `kore` and `defn`, for
   every interpretation H. Nothing here reads `Parse.parse` or `emit`. Written by
-  `test/constructs/tiegen.py e2-fn-assoc-unit` with the refusal for the attributes lifted and the law sentences classed by hand; the attribute and law sections by hand; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
+  `test/constructs/tiegen.py e2-fn-assoc-unit` with the law sentences classed by hand; the law section by hand; run from the package root: `lake env lean -j1 test/TieE2FnAssocUnit.lean`.
 
   Layer 1.
   - `wf_defn`: `wf defn = true`.
   - The account: the class lists partition the 257 sentences of the user module E2-FN-ASSOC-UNIT, in
     `tieClasses`' order (`account`, `account_sizes`, `account_classes`); the no-direction class holds
     exactly the sentences that apply a symbol Γ lacks (`account_absent`, `absent_closed`).
-  - The attributes: `attrsAgree` is false (`not_attrs_agree`), by its priority check alone, which
-    takes the law sentences (101, 102, 103) for equations of `Lblpu`; the other four checks hold
-    (`attrs_agree_but_prios`), and the priority check over the text less the law sentences holds
-    (`prios_but_laws`).
+  - `attrs_agree`: the attributes the translation does not read agree with `defn`; the law
+    sentences (101, 102, 103) are no equations of `Lblpu` (`AttrsAgree.isLaw`), so the priorities
+    compared are those of its equations.
   - `sig_origin_but_next`: each of the 205 items of `sigItems c` but one is a declaration's item
     of the text or a surplus one; the one is next's arity at the configuration sort, which Γ states
     and the text, having no `\rewrites` (`text_nextless`), does not. `decls_entailed`: Γ entails
@@ -35,14 +34,13 @@
   - The converse over Γ's content: each premise is a function sentence's translation, one of the
     five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
-    owed as `FnHyp` (no theorem), the law sentences as `FnLaws` (`law_account`); no direction: `absent_closed`.
+    owed as `FnHyp` (no theorem); function law: owed as `FnLaws` (`law_account`); no direction: `absent_closed`.
 
   The law sentences (101, 102, 103; the associativity of `pu` and its right and left unit `zero`) are neither a function equation's item nor a constructor item of Γ
   (`law_not_item`): the reader reads each as a
   law of the function stated at values (`Definition.laws`, `law_text`: the sentence as written is the
-  law's `lawPattern`), owed as `FnLaws`. The account holds them in the class `function functional`,
-  the one class of the direction `hypothesis` (Γ does not hold the sentence; it is owed): `tieClasses`
-  has no class for a law of a function.
+  law's `lawPattern`), owed as `FnLaws`. The account holds them in the class `function law`, of the
+  direction `hypothesis` (Γ does not hold the sentence; it is owed).
 
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (9);
   the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
@@ -102,7 +100,7 @@ def classes : List (String × List Nat) :=
    ("injectivity", [22, 24, 26, 28]),
    ("distinctness", []),
    ("no junk", [113, 114, 115, 116, 117, 118, 119, 120, 121, 122]),
-   ("function functional", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 101, 102, 103, 104, 111]),
+   ("function functional", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 104, 111]),
    ("hooked functional", [18, 19, 20, 29, 30, 31, 32, 33, 34, 36, 37, 38, 40, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
       55, 63, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 79, 94, 95, 96, 97, 100, 105, 106,
       107, 108, 109]),
@@ -114,6 +112,9 @@ def classes : List (String × List Nat) :=
       202, 203, 204, 205, 237, 238, 239, 240, 241, 242, 257, 258]),
    ("set idempotence", [60]),
    ("set-variable lemma", [123, 124, 125, 126, 127, 260]),
+   ("function law", [101, 102, 103]),
+   ("open generator law", []),
+   ("open generator functional", []),
    ("no direction", [35, 39, 41, 72, 74, 78, 110, 112, 153, 185, 206, 207, 208, 209, 243, 244, 245, 246, 247, 248,
       249, 250, 251, 252, 253, 254, 255])]
 
@@ -129,7 +130,7 @@ theorem account : (classes.flatMap (·.2)).isPerm (userAxioms.map (·.index)) = 
 
 /-- The class sizes. -/
 theorem account_sizes : classes.map (fun cl => (cl.1, cl.2.length)) =
-    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 19), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("no direction", 27)] := by
+    [("function equation", 29), ("rewrite rule", 0), ("priority equation", 0), ("constructor functional", 6), ("subsort", 14), ("injectivity", 4), ("distinctness", 0), ("no junk", 10), ("function functional", 16), ("hooked functional", 48), ("collection law", 9), ("library", 84), ("set idempotence", 1), ("set-variable lemma", 6), ("function law", 3), ("open generator law", 0), ("open generator functional", 0), ("no direction", 27)] := by
   decide +kernel
 
 /-- The classes are the tie's (`tieClasses`, which gives each its direction), in its order. -/
@@ -151,7 +152,7 @@ theorem absent_closed :
 
 /-- The sentences whose text is none of f2-examples/ens.kompile.kore's user module, with their class. -/
 def unmapped : List (Nat × String) :=
-  [(101, "function functional"), (102, "function functional"), (103, "function functional"),
+  [(101, "function law"), (102, "function law"), (103, "function law"),
    (104, "function functional"), (111, "function functional"), (122, "no junk"),
    (209, "no direction"), (256, "function equation"), (259, "function equation")]
 
@@ -169,35 +170,11 @@ theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2)
 /-- The law sentences of the text: the associativity of `pu` and its right and left unit `zero`. -/
 def lawIdx : List Nat := [101, 102, 103]
 
-/-- **The attributes of the text do not agree with `defn` as `attrsAgree` reads them**: its check of
-the priorities (`AttrsAgree.prios`) takes every axiom whose left side is headed by a function, and
-that is not a `simplification`, for one of the function's equations, and each law sentence (101, 102, 103)
-is such an axiom, of `Lblpu`, which has one clause. -/
-theorem not_attrs_agree : attrsAgree kore defn = false ∧ AttrsAgree.prios kore defn = false := by decide +kernel
-
-/-- **The four other checks of `attrsAgree` hold**: constructors, functions, hooks, collection
-symbols. -/
-theorem attrs_agree_but_prios :
-    (AttrsAgree.ctors kore c && AttrsAgree.fns kore c && AttrsAgree.hooks kore c && AttrsAgree.colls kore c) = true := by
-  decide +kernel
-
-/-- `AttrsAgree.prios` over the text's axioms less those whose index is in `skip`. -/
-def priosBut (k : Kore.Definition) (d : Definition) (skip : List Nat) : Bool :=
-  let c := d.sem
-  let axs := (k.axiomDecls.filter (fun ad => !skip.contains ad.index)).map (·.ax)
-  d.pres.rules.length == c.rules.length &&
-  ((c.rules.zip d.pres.rules).all fun (r, rp) => AttrsAgree.rewritePrioOf k rp.info.uid == some r.prio) &&
-  ((axs.filter (AttrsAgree.isRewrite ·.pattern)).all fun a =>
-    d.pres.rules.any fun rp => AttrsAgree.uidOf a.attributes == some rp.info.uid) &&
-  c.allFns.all fun f =>
-    let n := c.symName f.label
-    ((axs.filter fun a => AttrsAgree.eqnHead a.pattern == some n && !AttrsAgree.has a.attributes "simplification").map
-        (AttrsAgree.prioOf ·.attributes)).isPerm (f.clauses.map (·.prio))
-
-/-- **The priorities agree once the law sentences are left out** (`priosBut` with `lawIdx`): with
-`fn_prios`, which pairs each clause with its sentence, the priorities the text states are the
-clauses'. -/
-theorem prios_but_laws : priosBut kore defn lawIdx = true := by decide +kernel
+/-- **The attributes of the text agree with `defn`** (`attrsAgree`): constructors, functions,
+hooks, collection symbols, priorities. The law sentences (`lawIdx`) are no equations of `Lblpu`
+(`AttrsAgree.isLaw`, `AttrsAgree.eqnsOf`), so its priorities are those of its equations, which
+`fn_prios` pairs with its clauses. -/
+theorem attrs_agree : attrsAgree kore defn = true := by decide +kernel
 
 /-! ## The declarations: `sig_origin` and `decls_entailed`, by ranges -/
 
@@ -713,9 +690,9 @@ theorem law_text : lawText.map (trS · |>.pat) = defn.laws.map (lawPattern c) :=
 theorem law_not_item : lawText.all (fun ad => !(fnItems c).any (·.pat == (trS ad).pat) &&
     !(consItemsK c).any (·.pat == (trS ad).pat)) = true := by decide +kernel
 
-/-- The law sentences are in the account's class of the direction `hypothesis` (Γ does not hold the
-sentence; it is owed, here as `FnLaws`). -/
-theorem law_account : lawText.all (fun ad => (classOf "function functional").contains ad.index) = true := by
+/-- The law sentences are the account's class `function law`, of the direction `hypothesis` (Γ does
+not hold the sentence; it is owed as `FnLaws`). -/
+theorem law_account : lawText.map (·.index) = classOf "function law" := by
   decide +kernel
 
 /-! ## The converse over Γ's content -/
@@ -791,9 +768,7 @@ end KCore.TieE2FnAssocUnit
 #check @KCore.TieE2FnAssocUnit.lib166_at_values
 #check @KCore.TieE2FnAssocUnit.gamma_origin
 #check @KCore.TieE2FnAssocUnit.gamma_from
-#check @KCore.TieE2FnAssocUnit.not_attrs_agree
-#check @KCore.TieE2FnAssocUnit.attrs_agree_but_prios
-#check @KCore.TieE2FnAssocUnit.prios_but_laws
+#check @KCore.TieE2FnAssocUnit.attrs_agree
 #check @KCore.TieE2FnAssocUnit.law_indices
 #check @KCore.TieE2FnAssocUnit.law_text
 #check @KCore.TieE2FnAssocUnit.law_not_item
@@ -827,9 +802,7 @@ end KCore.TieE2FnAssocUnit
 #print axioms KCore.TieE2FnAssocUnit.lib166_at_values
 #print axioms KCore.TieE2FnAssocUnit.gamma_origin
 #print axioms KCore.TieE2FnAssocUnit.gamma_from
-#print axioms KCore.TieE2FnAssocUnit.not_attrs_agree
-#print axioms KCore.TieE2FnAssocUnit.attrs_agree_but_prios
-#print axioms KCore.TieE2FnAssocUnit.prios_but_laws
+#print axioms KCore.TieE2FnAssocUnit.attrs_agree
 #print axioms KCore.TieE2FnAssocUnit.law_indices
 #print axioms KCore.TieE2FnAssocUnit.law_text
 #print axioms KCore.TieE2FnAssocUnit.law_not_item

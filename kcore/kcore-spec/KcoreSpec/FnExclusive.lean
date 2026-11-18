@@ -1161,32 +1161,52 @@ theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
 
-/-- In a core that `ok` and `srReady` accept, each function's equations agree: by
+/-- In a core that `okM` and `srReady` accept, each function's equations agree: by
 `fnExclusiveOK_sound` where `fnExclusiveOK` confirms it, and by the named obligation for the
 functions it does not (`agreeObligations`). -/
-theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
+theorem clausesAgree_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
     (hmr : c.matchReady = true)
     (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
     ∀ fn ∈ c.fns, ClausesAgree c fn := by
   intro fn hfn
-  have hsc := sortCtx_of hok hsr (Exec.ovlCase_of hmr)
+  have hsc := sortCtx_of_okM hok hsr (Exec.ovlCase_of hmr)
   by_cases hx : c.fnExclusiveOK (c.fns.map Fn.sig) fn = true
   · have hf := hok
-    simp only [Semantics.ok, Bool.and_eq_true, Semantics.fnsOK, List.all_eq_true] at hf
-    have hfo := hf.1.2 fn hfn
+    simp only [Semantics.okM, Bool.and_eq_true, Semantics.fnsOK, List.all_eq_true] at hf
+    have hfo := hf.1.1.2 fn hfn
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
     exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1
-          (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) hfn hcl)
-        (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_ok hok)) hfn hcl))
-      (Semantics.fnsNoExs_of_ok hok fn hfn) hx).agree
-      (Semantics.fnsNoExs_of_ok hok fn hfn)
+        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_okM hok)).2.1
+          (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl)
+        (c.clausePreOK_of_plain (Semantics.preTop_of_okAll (Semantics.okAll_of_okM hok)) hfn hcl))
+      ((clauseCtx_of_okM hok).fnsNoExs fn hfn) hx).agree
+      ((clauseCtx_of_okM hok).fnsNoExs fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]
       exact ⟨fn, ⟨hfn, by simpa [(matchCtx_of hmr).noOvl] using hx⟩, rfl⟩
     · rw [Semantics.lookupFn_eq]
       exact find?_label hsc.nodupFns (List.mem_append_left _ hfn)
+
+/-- In a core that `ok` and `srReady` accept, each function's equations agree
+(`clausesAgree_of_okM`). -/
+theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true)
+    (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) :
+    ∀ fn ∈ c.fns, ClausesAgree c fn :=
+  clausesAgree_of_okM (Semantics.okM_of_ok hok) hsr hmr hob
+
+/-- **Coherence** in a core that `okM`, `srReady` and `matchReady` accept, given the named
+obligations: match independence of the clauses `clauseFixed` does not confirm, and agreement of the
+functions `fnExclusiveOK` does not. -/
+theorem coherentAll_of_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hmo : MatchObligations c)
+    (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) : CoherentAll c :=
+  coherentAll_of_parts (matchIndependentAll_of_okM hok hmr hmo) fun f fn hfn => by
+    obtain ⟨hmem, -⟩ := lookupFn_spec hfn
+    rcases List.mem_append.mp hmem with h | h
+    · exact clausesAgree_of_okM hok hsr hmr hob fn h
+    · exact sortPreds_agree h
 
 /-- **Coherence** in a core that `ok`, `srReady` and `matchReady` accept, given the named
 obligations: match independence of the clauses `clauseFixed` does not confirm, and agreement of the
@@ -1194,22 +1214,30 @@ functions `fnExclusiveOK` does not. -/
 theorem coherentAll_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
     (hmr : c.matchReady = true) (hmo : MatchObligations c)
     (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) : CoherentAll c :=
-  coherentAll_of_parts (matchIndependentAll_of hok hmr hmo) fun f fn hfn => by
-    obtain ⟨hmem, -⟩ := lookupFn_spec hfn
-    rcases List.mem_append.mp hmem with h | h
-    · exact clausesAgree_of hok hsr hmr hob fn h
-    · exact sortPreds_agree h
+  coherentAll_of_okM (Semantics.okM_of_ok hok) hsr hmr hmo hob
+
+/-- Coherence where every clause is fixed, given the named agreements, in a core `okM` accepts. -/
+theorem coherentAll_of_fixed_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hcf : c.clausesFixed = true)
+    (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) : CoherentAll c :=
+  coherentAll_of_okM hok hsr hmr (.of_fixed hcf (matchCtx_of hmr).noOvl) hob
 
 /-- Coherence where every clause is fixed, given the named agreements. -/
 theorem coherentAll_of_fixed {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
     (hmr : c.matchReady = true) (hcf : c.clausesFixed = true)
     (hob : ∀ f ∈ c.agreeObligations, ∀ fn, c.lookupFn f = some fn → ClausesAgree c fn) : CoherentAll c :=
-  coherentAll_of hok hsr hmr (.of_fixed hcf (matchCtx_of hmr).noOvl) hob
+  coherentAll_of_fixed_okM (Semantics.okM_of_ok hok) hsr hmr hcf hob
+
+/-- Coherence where every clause is fixed and no agreement is named, in a core `okM` accepts. -/
+theorem coherentAll_of_nil_okM {c : Semantics} (hok : c.okM = true) (hsr : c.srReady = true)
+    (hmr : c.matchReady = true) (hcf : c.clausesFixed = true) (hag : c.agreeObligations = []) :
+    CoherentAll c :=
+  coherentAll_of_okM hok hsr hmr (.of_fixed hcf (matchCtx_of hmr).noOvl) fun f hf => by rw [hag] at hf; nomatch hf
 
 /-- Coherence where every clause is fixed and no agreement is named. -/
 theorem coherentAll_of_nil {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = true)
     (hmr : c.matchReady = true) (hcf : c.clausesFixed = true) (hag : c.agreeObligations = []) :
     CoherentAll c :=
-  coherentAll_of hok hsr hmr (.of_fixed hcf (matchCtx_of hmr).noOvl) fun f hf => by rw [hag] at hf; nomatch hf
+  coherentAll_of_nil_okM (Semantics.okM_of_ok hok) hsr hmr hcf hag
 
 end KCore.Det

@@ -108,7 +108,7 @@ theorem table_ok (H : HookParams) : InertEvUser.TableOK (cH H) fTable := by
 noncomputable abbrev ensAx : AxiomDecl := U.ax201
 
 /-- The reader's class of the sentence. -/
-theorem ens_class : Parse.classify (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
+theorem ens_class : Parse.classifyShape (.axiom ensAx.ax) = .inert .simplification := by decide +kernel
 
 def vars : LibEv.Vars := [("VarX", Srt.int)]
 def tL : Term := .app f [.app f [.var 0]]

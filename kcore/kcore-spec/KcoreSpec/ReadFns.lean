@@ -31,12 +31,6 @@ open KoreAML (Var)
 
 /-! ## Shared -/
 
-/-- The conjunction of the conditions, `\top` for none. -/
-def conjC : List Cond → Cond
-  | [] => .top
-  | [p] => p
-  | p :: ps => .and p (conjC ps)
-
 /-- The Bool literal `b`. -/
 def boolT (b : Bool) : Term := .dv Srt.bool (.bool b)
 
@@ -205,18 +199,6 @@ mutual
     | p :: ps => substVal x v p :: substValList x v ps
     termination_by structural ps => ps
 end
-
-/-- A term of a right side or of a predicate's operand, read where it holds no conjunction under
-applications (`patternConnective` otherwise): `term` reads `\and(p, X)` as the left-side pattern
-`p #as X`, which a right side does not have; there the conjunction is the elements both hold. -/
-def termNoAnd (N : Names) (vs : List Var) (p : Kore.Pattern) : Rd (Term × List Var) :=
-  if hasAnd p then fail .patternConnective "\\and" else term N vs p
-
-/-- The disjunction of the conditions, `\bottom` for none. -/
-def disjC : List Cond → Cond
-  | [] => .bot
-  | [p] => p
-  | p :: ps => .or p (disjC ps)
 
 mutual
   /-- A predicate pattern as a condition: `\equals`, `\in` and `\ceil` of terms, at the sort of

@@ -73,15 +73,15 @@ theorem clausesFixed_of_nil (h : c.matchObligations = []) : c.clausesFixed = tru
 theorem MatchObligations.of_fixed (h : c.clausesFixed = true) (hno : c.ovls = []) : MatchObligations c :=
   .of_nil (matchObligations_nil_of_fixed h hno)
 
-/-- **Every clause is match independent** in a core that `ok` and `matchReady` accept, given the
+/-- **Every clause is match independent** in a core that `okM` and `matchReady` accept, given the
 named obligations: a clause `clauseFixed` confirms by `clauseFixed_sound` (its patterns sorted as
-`ok` checks them), the others by their obligation. The sort predicates' clauses are fixed
+`okM` checks them), the others by their obligation. The sort predicates' clauses are fixed
 (`sortPreds_fixed`). -/
-theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
+theorem matchIndependentAll_of_okM (hok : c.okM = true) (hmr : c.matchReady = true)
     (hob : MatchObligations c) : MatchIndependentAll c := by
   intro f fn hfn cl hcl
   obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
-  obtain ⟨L, _, hclk⟩ := clauseCtx_of hok fn hmem
+  obtain ⟨L, _, hclk⟩ := clauseCtx_of_okM hok fn hmem
   obtain ⟨hpt, _, _, _, hrt, hens, _, hx, _⟩ := hclk cl hcl
   cases hfx : c.clauseFixed cl with
   | true => exact clauseFixed_sound (matchCtx_of hmr) (sortsOfTerms_nf_of_nil
@@ -96,5 +96,11 @@ theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
       refine ⟨fn, hf, i, ⟨hi, ?_⟩, rfl, rfl⟩
       simp [List.getElem?_eq_getElem hi, hfx, (matchCtx_of hmr).noOvl]
     · exact absurd (sortPreds_fixed hp cl hcl) (by rw [hfx]; decide)
+
+/-- **Every clause is match independent** in a core that `ok` and `matchReady` accept, given the
+named obligations (`matchIndependentAll_of_okM`). -/
+theorem matchIndependentAll_of (hok : c.ok = true) (hmr : c.matchReady = true)
+    (hob : MatchObligations c) : MatchIndependentAll c :=
+  matchIndependentAll_of_okM (Semantics.okM_of_ok hok) hmr hob
 
 end KCore

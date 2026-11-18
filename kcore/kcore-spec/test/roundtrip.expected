@@ -111,7 +111,7 @@ cannot f2-examples/exensfree.kompile.kore
 differs f2-examples/exensunsat.kompile.kore
 differs f2-examples/exrhs.kompile.kore
 differs f2-examples/exvarsbool.kompile.kore
-cannot f2-examples/exvarslist.kompile.kore
+differs f2-examples/exvarslist.kompile.kore
 differs f2-examples/exvarstwo.kompile.kore
 differs f2-examples/flt-lit.kompile.kore
 differs f2-examples/flt.kompile.kore
@@ -122,6 +122,10 @@ differs f2-examples/fprio.kompile.kore
 exact f2-examples/fprio.kore
 differs f2-examples/freshcfg.kompile.kore
 differs f2-examples/hashsort.kompile.kore
+differs f2-examples/heldmap.kompile.kore
+cannot f2-examples/heldrangemap.kompile.kore
+differs f2-examples/heldset.kompile.kore
+cannot f2-examples/heldupdate.kompile.kore
 differs f2-examples/idemctor.kompile.kore
 cannot f2-examples/imp-programs.kore
 exact f2-examples/imp-sec-leaky.kore
