@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-mod-kvariable-syntax.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.0
+definition.kore bytes: 81544
+definition.kore sha256: 39c77cc28508ccc897f23feaa3303b80263d63553af0f4e5b3eda3459daa1f6b
+stripped sha256: 73c59cf95b0f2a1b5fc8de754098ca6bdee2808c4f95176ca342e18b283b9a52
+main module: 233 sentences, 6 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-KVARIABLE-SYNTAX-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-KVARIABLE-SYNTAX as default.
