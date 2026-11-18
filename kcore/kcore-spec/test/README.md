@@ -1039,6 +1039,13 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   (`GenEqs.predEqnOK_clause`). Registry projections (`f2-examples/owisenx.kompile.kore`):
   `GenEqs.freeB` holds of every registry `projectSym X` named `project:X`, so no premise of
   `Γc c ∪ Γstep c` applies `project:Int`, `project:K` or `project:KItem` (`GenEqs.sym_free`).
+  Without decisions of the theory's lists (`General`, KcoreSpec/GenEqsWalk.lean): every semantics'
+  lists are rooted (`GenEqs.rootedListsB_holds`), every symbol a premise holds is named by a symbol
+  of the semantics, or is `inj` or `Lblite` (`GenEqs.premise_symbols`), and `HandArg`'s model
+  follows from the arm's conditions on the two names (`GenEqs.model_with_eqns_argProj`). A named
+  argument's projections on a kompiled text (`NamedArg`, `f2-examples/namedarg.kompile.kore`):
+  `coreOK`, the arm's conditions on `project:pair:fst` and `project:pair:snd`, and one model of the
+  theory whose steps are the semantics' in which both equations hold at `pair(leaf, leaf)`.
 - `test/RuleAndSame.lean`: the reading of `t #And u` on a rule's right side with the ensures
   `t == u` and the exact reading give the same steps. `step_fresh_int`: for a semantics whose one
   rule has the ensures `t ==Int u`, no `requires` and `\top` predicates, with coherent functions,
