@@ -13,20 +13,32 @@
   hypothesis on the functions (`FnHyp`) is among them. It is a definition, not a theorem: this
   module shows that the statement can be written over the package's `Step`, not that it holds.
 
-  - The claim has neither `one-path` nor `all-path`, and is read all-path (`Reachability.AllPath`:
-    a run that never ends is not constrained; a path ending elsewhere without meeting the target
-    falsifies it).
-  - The variables of the claim, the rest of the k cell and the cell the claim does not mention are
-    bound outside `AllPath`: each has one value on both sides.
+  - The claim has neither `one-path` nor `all-path`, and the K text leaves the modality of such a
+    claim open (`kk:t230-claim-reading` (d)). The statement takes the reading
+    `kk:t230-claim-reading#claim-all-path` (`Reachability.AllPath`: a run that never ends is not
+    constrained; a path ending elsewhere without meeting the target falsifies it).
+  - The variables of the claim and the rest of the k cell are bound outside `AllPath`: each has one
+    value on both sides (the frame `...` of the k cell is one variable of sort K on both sides,
+    `kk:t230-claim-reading` (c)). The K text leaves open what the claim states of the cell it does
+    not mention, the generated counter (`kk:t230-claim-reading` (e)). The statement takes the
+    reading `kk:t230-claim-reading#counter-unchanged`: the counter is bound outside `AllPath` too,
+    one value on both sides.
   - `requires N >=Int 0` is the fact `N ≥ 0` (`>=Int` is total and is `≥` on the integers).
   - `S +Int ((N +Int 1) *Int N /Int 2)`: `*Int` and `/Int` associate to the left and `/Int`
     truncates, so the term's one value is `S + ((N + 1) * N).tdiv 2`.
-  - `-1` is written as the integer token; whether the claim's parse is that token or unary minus
-    applied to `1` is not settled here.
+  - `-1` is the integer token (the lexer prefers the longer token, `kk:t230-claim-reading` (b)).
 
-  `used` is the list of the constants the proposition mentions, as elaborated (the coercions
-  written out), checked against the list below. `instSorted` shows the left side inhabited: at
-  `N = 3`, `S = 0`, the rest `.K` and the counter `0` it is a configuration under every `H`.
+  `ExpectedKore.«sum-spec»` is the statement of the claim's KORE sentence
+  (examples/ref-kimp/claims/imp-sum-spec/spec.kore, the frontend's command in kprove.txt beside it):
+  there the modality is all-path's alias `weakAlwaysFinally` and the counter of the right side is
+  bound by `\exists` (`kk:t230-claim-reading`, the ruling on the KORE sentence). It is
+  `Expected.«sum-spec»` with the target's counter existential, inside the target predicate, and
+  nothing else changed; `Expected.«sum-spec»` implies it (the target's counter taken to be `C`).
+
+  `used` is the list of the constants each of the two propositions mentions, as elaborated (the
+  coercions written out), checked against the list below. `instSorted` shows the left side
+  inhabited: at `N = 3`, `S = 0`, the rest `.K` and the counter `0` it is a configuration under
+  every `H`.
 -/
 import RefKimp.Core
 import RefKimp.Syntax
@@ -60,6 +72,26 @@ def Expected.«sum-spec» : Prop :=
             (Tm.ident "$s", Tm.int (S + ((N + 1) * N).tdiv 2))]))
           («<generatedCounter>» (Tm.int C))).val)
 
+def ExpectedKore.«sum-spec» : Prop :=
+  ∀ (H : HookParams) (N S : Int) (K : Tm Srt.k) (C : Int) (_hreq : N ≥ 0),
+    AllPath (Step (RefKimp.defn.sem.withHooks H))
+      (fun x => x.val =
+        («<generatedTop>»
+          («<k>» (Tm.kseq
+            («while(_)_» («!_» («_<=_» (Tm.ident "$n") (Tm.int 0)))
+              («{_}» («__»
+                («_=_;» (Tm.ident "$s") («_+_» (Tm.ident "$s") (Tm.ident "$n")))
+                («_=_;» (Tm.ident "$n") («_+_» (Tm.ident "$n") (Tm.int (-1)))))))
+            K))
+          («<env>» (Tm.map [(Tm.ident "$n", Tm.int N), (Tm.ident "$s", Tm.int S)]))
+          («<generatedCounter>» (Tm.int C))).val)
+      (fun z => ∃ C' : Int, z.val =
+        («<generatedTop>»
+          («<k>» K)
+          («<env>» (Tm.map [(Tm.ident "$n", Tm.int 0),
+            (Tm.ident "$s", Tm.int (S + ((N + 1) * N).tdiv 2))]))
+          («<generatedCounter>» (Tm.int C'))).val)
+
 /-- The left side at `N = 3`, `S = 0`, the rest `.K`, the counter `0`. -/
 def inst : Tm Srt.top :=
   «<generatedTop>»
@@ -78,9 +110,9 @@ theorem instSorted (H : HookParams) :
     (RefKimp.defn.sem.withHooks H).sortOf inst.val = some topCellSort :=
   (Semantics.sortOf_withHooks_rawFree _ H (by decide +kernel)).trans (by decide +kernel)
 
-/-- The constants of the library and of the package that the proposition mentions; the others
+/-- The constants of the library and of the package that each proposition mentions; the others
 are Lean's own (`Int` with `+`, `*`, `-`, `≥` and `Int.tdiv`, lists, pairs, `Option`, `Eq`,
-`Subtype.val`). -/
+`Exists`, `Subtype.val`). -/
 def used : List String := [
   "KCore.Config", "KCore.Definition.sem", "KCore.GroundTerm", "KCore.HookParams",
   "KCore.Reachability.AllPath", "KCore.Semantics.sortOf", "KCore.Semantics.withHooks", "KCore.Srt",
@@ -94,12 +126,13 @@ def used : List String := [
 
 open Lean in
 #eval show CoreM Unit from do
-  let some v := (← getEnv).find? ``Expected.«sum-spec» | throwError "no statement"
-  let cs := (v.value!.getUsedConstants.toList.map (·.toString)).filter fun n =>
-    n.startsWith "KCore." || n.startsWith "RefKimp."
-  let cs := cs.mergeSort (· ≤ ·)
-  unless cs == used do throwError "the statement mentions {cs}"
-  if cs.any (· == "KCore.FnHyp") then throwError "the statement mentions FnHyp"
+  for d in [``Expected.«sum-spec», ``ExpectedKore.«sum-spec»] do
+    let some v := (← getEnv).find? d | throwError "no statement {d}"
+    let cs := (v.value!.getUsedConstants.toList.map (·.toString)).filter fun n =>
+      n.startsWith "KCore." || n.startsWith "RefKimp."
+    let cs := cs.mergeSort (· ≤ ·)
+    unless cs == used do throwError "{d} mentions {cs}"
+    if cs.any (· == "KCore.FnHyp") then throwError "{d} mentions FnHyp"
   let axs ← collectAxioms ``instSorted
   unless axs.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do
     throwError "instSorted: axioms {axs}"
