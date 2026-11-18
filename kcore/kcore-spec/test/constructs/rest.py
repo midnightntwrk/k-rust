@@ -7,13 +7,19 @@ Usage (from kcore-spec):
       the entries FIX-core does not hold (below), grouped by list, status and evidence form, each
       with the evidence present and missing; prints the count per group, and every entry when no
       FILE is given (with FILE, the entries go there)
+  python3 -I test/constructs/rest.py check [--report] [--fresh] [--list LFILE] [--out FILE] [ROWS.toml]
+      DONE-0 C2's check of every entry, FIX-core's included: an entry fails when an item its form
+      needs is missing; prints per list and form how many entries have their evidence, and the
+      failures (all of them into FILE, the first 40 on the output); with --list, also the list
+      above (its entries into LFILE); exit 1 on a failure, exit 0 with --report (failures listed,
+      not failing: test/constructs.sh's mode until the closing check of FIX-rest)
   python3 -I test/constructs/rest.py --self-test
-      the evidence of entries and fixtures written to a scratch directory, each accepted or refused
+      the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
   --fresh  `kcore account` of each fixture an entry names, from kfix.py's cache of its kompiled text
            (kfix.account_of: no kompile; the built .lake/build/bin/kcore, or $KCORE_BIN), compared
            with its account.txt. Without it the item `fresh account` is reported as not run and is
-           missing.
+           missing (a check without --fresh fails on every entry that needs it).
 
 The entries FIX-core holds (DONE-0 2.2 row FIX-core; the rest are FIX-rest's), with their nested
 entries: a [C3] pair with `core = true`; a row with `notes`; a supported row of E6 keyed `hook:`; a
@@ -501,25 +507,51 @@ def print_list(res, fresh, out):
         print("\n".join(lines))
 
 
+def print_check(res, fresh, report, out):
+    """The check of every entry; returns the exit code."""
+    fails = [r for r in res if r[6]]
+    by = collections.Counter((r[0], r[2]) for r in fails)
+    tot = collections.Counter((r[0], r[2]) for r in res)
+    print(f"c2-evidence: {len(res)} entries with a status, {len(fails)} missing evidence"
+          + (" (report mode: not failing)" if report else "") + ("" if fresh else "; fresh accounts not run"))
+    for l in LISTS:
+        ks = sorted({f for (x, f) in tot if x == l})
+        if ks:
+            print(f"  {l}: " + ", ".join(f"{f} {tot[(l, f)] - by[(l, f)]}/{tot[(l, f)]}" for f in ks))
+    flines = [line(r) for r in sorted(fails, key=order)]
+    if out:
+        open(out, "w").write("\n".join(flines) + "\n")
+        print(f"c2-evidence: each failure in {out}")
+    for ln in flines[:40]:
+        print(ln)
+    if len(flines) > 40:
+        print(f"    ... and {len(flines) - 40} more")
+    return 0 if report or not fails else 1
+
+
 def main(argv):
-    if argv[:1] == ["list"]:
-        argv.pop(0)
+    mode = argv.pop(0) if argv[:1] in (["list"], ["check"]) else "list"
     opt = {}
-    for o in ("--out",):
+    for o in ("--out", "--list"):
         if o in argv:
             i = argv.index(o); opt[o] = argv[i + 1]; del argv[i:i + 2]
-    fresh = "--fresh" in argv
-    argv = [a for a in argv if a != "--fresh"]
+    report, fresh = "--report" in argv, "--fresh" in argv
+    argv = [a for a in argv if a not in ("--report", "--fresh")]
     t = tomllib.load(open(argv[0] if argv else os.path.join(HERE, "rows.toml"), "rb"))
     fx = Fixtures(os.path.join(HERE, "fixtures"), fresh)
-    print_list([r for r in run(t, fx) if not r[4]], fresh, opt.get("--out"))
-    return 0
+    res = run(t, fx)
+    if mode == "list":
+        print_list([r for r in res if not r[4]], fresh, opt.get("--out"))
+        return 0
+    if "--list" in opt:
+        print_list([r for r in res if not r[4]], fresh, opt["--list"])
+    return print_check(res, fresh, report, opt.get("--out"))
 
 
 # ------------------------------------------------------------------------------------ self-test
 
 def self_test():
-    """The evidence of written entries and fixtures: each complete or not as expected."""
+    """The check on written entries and fixtures: each accepted or refused as expected."""
     d = tempfile.mkdtemp(prefix="rest-self-test-", dir=os.path.join(K, ".lake"))
     try:
         fxd = os.path.join(d, "fixtures"); os.makedirs(fxd)
@@ -592,6 +624,13 @@ def self_test():
         held = {k for l, k, _, _, r in entries(t) if core(t, l, k, r)}
         if held != {"p", "hook:Y", "N", "W", "R"}:
             bad.append(f"core: {sorted(held)}")
+        res = [("E2", "pending-fixture", "pending-fixture", "E2 'A'", None, [], ["a status"])]
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()):
+            codes = (print_check(res, True, False, None), print_check(res, True, True, None),
+                     print_check([], True, False, None))
+        if codes != (1, 0, 0):
+            bad.append(f"check exit codes (failing, --report, none failing): {codes}, expected (1, 0, 0)")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
         print(f"rest self-test: {len(cases)} entries and the core predicate, {len(bad)} failing")
