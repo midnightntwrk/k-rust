@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-param-unification-poly.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.6
+definition.kore bytes: 211140
+definition.kore sha256: bd8fff57face243611201f4674b9ac336e08f4f746908f91e6291c4065eb475a
+stripped sha256: 0b3c07eff635a7b9dcbbc256b197efebd3dc3fd87c1a8c4ee2301534bd4295e7
+main module: 409 sentences, 45 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-PARAM-UNIFICATION-POLY-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-PARAM-UNIFICATION-POLY as default.

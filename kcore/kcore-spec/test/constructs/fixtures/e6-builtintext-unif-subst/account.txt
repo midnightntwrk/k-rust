@@ -3,51 +3,19 @@ user module E6-BUILTINTEXT-UNIF-SUBST: 501 sentences
   1 inert import [generated]
   221 read [generated]
   237 read [builtin]
-  14 refused builtinText [builtin]
-      e.g. sort SortMetaVariable{} [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,20,22)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/unification.k)")]
+  9 read [own builtin]
+  1 refused userHookedSort [own builtin]
+      e.g. hooked-sort SortKVar{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), token{}()]
+  4 unread parametricUnused [own builtin]
   4 inert injectivity [generated]
   9 inert collectionLaw [generated]
   1 unread setIdempotence [generated]
   1 inert parametricFunctional [generated]
   12 inert noJunk [generated]
   1 inert simplification [generated]
-stage refusals (of sentences classified read): 0
-read and not accounted for: 14
-  2 symbol declaration
-      sentence 150 (LblisKVar): unaccounted (symbol declaration)
-      sentence 153 (LblisMetaVariable): unaccounted (symbol declaration)
-  2 subsort axiom
-      sentence 214 (inj): unaccounted (subsort axiom)
-      sentence 217 (inj): unaccounted (subsort axiom)
-  4 functional axiom
-      sentence 243 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unaccounted (functional axiom)
-      sentence 295 (LblfreshKVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'Int): unaccounted (functional axiom)
-  1 LblisKVar: LblisKVar(_) = "false" [owise]
-      sentence 471 (LblisKVar): generatedEquation (LblisKVar: LblisKVar(_) = "false" [owise])
-  1 LblisKVar: LblisKVar(kseq(inj(_), dotk)) = "true"
-      sentence 472 (LblisKVar): generatedEquation (LblisKVar: LblisKVar(kseq(inj(_), dotk)) = "true")
-  1 LblisMetaVariable: LblisMetaVariable(_) = "false" [owise]
-      sentence 477 (LblisMetaVariable): generatedEquation (LblisMetaVariable: LblisMetaVariable(_) = "false" [owise])
-  1 LblisMetaVariable: LblisMetaVariable(kseq(inj(_), dotk)) = "true"
-      sentence 478 (LblisMetaVariable): generatedEquation (LblisMetaVariable: LblisMetaVariable(kseq(inj(_), dotk)) = "true")
-  1 Lblproject'Coln'KVar: Lblproject'Coln'KVar(kseq(inj(_), dotk)) = _
-      sentence 500 (Lblproject'Coln'KVar): generatedEquation (Lblproject'Coln'KVar: Lblproject'Coln'KVar(kseq(inj(_), dotk)) = _)
-  1 Lblproject'Coln'MetaVariable: Lblproject'Coln'MetaVariable(kseq(inj(_), dotk)) = _
-      sentence 503 (Lblproject'Coln'MetaVariable): generatedEquation (Lblproject'Coln'MetaVariable: Lblproject'Coln'MetaVariable(kseq(inj(_), dotk)) = _)
-inert constructor axioms not induced by the constructors: 1
-    1 noJunk of \or
-      sentence 345 (\or): inertMismatch (noJunk)
-        axiom{} \or{SortKVar{}}(\top{SortKVar{}}(), \bottom{SortKVar{}}()) [constructor{}()]
-cell collection injections not of a collection of the definition: 0
-law axioms of no collection's concatenation: 0
-rules with an `ensures`: 0
-rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
-rules and clauses applying a function symbol in their left side: 0
-sentences the library's data induces that the text does not hold: 0
-library sentences of the modules held that the text does not hold: 0
-sentences every definition holds (kernelText) that the text does not: 4
-      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{})))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain")]
-      axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
-      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
-      axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
+stage refusals (of sentences classified read): 1
+  1 unknownSort
+      sentence 70 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
+        [own builtin] (no label) at substitution.md:51: hooked-symbol LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String{}(SortString{}) : SortKVar{} [function{}(), functional{}(), hook{}("STRING.string2token"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,19,51,84)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), total{}()]
+finish: sentence 70 (LblString2KVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'String): unknownSort (KVar)
 (exit 0)
