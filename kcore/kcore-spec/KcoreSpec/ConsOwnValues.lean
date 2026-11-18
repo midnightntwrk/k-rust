@@ -2,12 +2,15 @@
   What a model of the theory without the registry family (`Γown c D`, RegistryOwn.lean) says of
   the values of the sorts outside `D`: each denotes one element of its sort (`own_single`), and
   distinct values of one such sort denote distinct elements (`own_apart`), where the definition
-  has no open generator.
+  has no open generator or `_==K_` is none of the names.
 
   The proof reads definedness, the constructors' items (`consItemsK`), and, at the sorts outside
   `D`, that a value is one element and that distinct values of a sort of `distinctSorts` are
-  distinct elements (`OwnVals`). It reads no graph of a hooked symbol: at a constructor sort two
-  values are told apart by their generators (Cons-Inj, Cons-Dist), not by the graph of `_==K_`.
+  distinct elements (`OwnVals`). Without an open generator it reads no graph of a hooked symbol:
+  at a constructor sort two values are told apart by their generators (Cons-Inj, Cons-Dist). With
+  one, the generators do not tell a raw application apart, and the graph of `_==K_` does where the
+  theory without the names keeps it (`values_apart_own`): every constructor sort is K, KItem or a
+  sort below KItem, whose values `wrapK` takes to values of K.
 
   `OwnVals` is given for the decided form of `Detached` (`ownVals_of_decided`, at
   `DetachedB.names`).
@@ -777,6 +780,110 @@ theorem own_apart_at (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.su
 
 end
 
+/-! ## Distinct values by the graph of `_==K_` -/
+
+section
+variable {c : Semantics} {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} {O : Srt → Prop}
+  (hI : OwnVals c I O) [OvlOK c]
+include hI
+
+/-- An injection of a value, normalised, builds the element the injection builds from the
+value's element. -/
+theorem den_injNormal_gs_own {s b : Srt} (hsb : (s, b) ∈ c.subsorts) {v : GroundTerm}
+    (hv : c.sortOf v = some s) (e : Valuation M) (m : M) :
+    (den c (injNormal s b v)).interpret I e m ↔ GS I (c.sortName b) (.inj (c.sortName s)) [elemOf c I v] m := by
+  have hOs := (hI.sub hsb).1
+  cases hvi : v.isInj
+  · rw [injNormal_of_not hvi]; exact den_inj_gs_own hI hv hOs e m
+  · cases v with
+    | inj a0 s' v0 =>
+      obtain ⟨has0, hni, hv0, rfl⟩ := sortOf_inj.mp hv
+      have hOa := (hI.sub has0).1
+      show (den c (.inj a0 b v0)).interpret I e m ↔ _
+      rw [den_inj_gs_own hI hv0 hOa]
+      have hx0 : InS I (c.sortName a0) (elemOf c I v0) := (inS_iff _).mp (elemOf_spec_own hI hv0 hOa KoreAML.val0).2
+      exact (coh_gs_own hI has0 hsb hx0 (fun m => by
+        rw [← den_inj_gs_own hI hv0 hOa KoreAML.val0 m]; exact (elemOf_spec_own hI hv hOs KoreAML.val0).1 m) m).symm
+    | _ => cases hvi
+
+/-- Two values of one sort with one element have `wrapK` forms that hold of the same elements. -/
+theorem den_wrapK_congr_own {s : Srt} (hs : BelowK c s) (hO : O s) {v w : GroundTerm}
+    (hv : c.sortOf v = some s) (hw : c.sortOf w = some s)
+    (he : elemOf c I v = elemOf c I w) (e : Valuation M) (m : M) :
+    (den c (wrapK s v)).interpret I e m ↔ (den c (wrapK s w)).interpret I e m := by
+  have hvw : ∀ m, (den c v).interpret I e m ↔ (den c w).interpret I e m := fun m => by
+    rw [(elemOf_spec_own hI hv hO e).1, (elemOf_spec_own hI hw hO e).1, he]
+  unfold wrapK
+  split
+  · exact hvw m
+  · rename_i hk
+    rw [den_ctor, den_ctor]
+    simp only [GroundTerm.koreList, KoreAML.trArgs_cons, KoreAML.trArgs_nil]
+    refine KoreAML.interp_app_congr (KoreAML.interp_app_congr (fun _ => Iff.rfl) (fun m => ?_)) (fun _ => Iff.rfl) m
+    show (den c _).interpret I e m ↔ (den c _).interpret I e m
+    split
+    · exact hvw m
+    · rename_i hki
+      have hb : s ∈ c.sortsBelowKItem := by
+        rcases hs with h | h | h
+        · exact absurd h hk
+        · exact absurd h hki
+        · exact h
+      rw [den_injNormal_gs_own hI (kitem_sub hb) hv, den_injNormal_gs_own hI (kitem_sub hb) hw, he]
+
+/-- **Distinct values of a sort of `O` are distinct elements**, in a model that holds the graph of
+`_==K_` at values of K (`hkeq`), with K and Bool among `O`: at K, KItem and a sort below KItem,
+two values with one element have `wrapK` forms with one element, at which `_==K_` would be both
+`true` and `false`; at a sort of `distinctSorts`, by the distinctness of its values. It asks
+nothing of the parameters: a raw application of an open generator is a value like another. -/
+theorem values_apart_own (hg : genWf c = true)
+    (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
+    (hOb : O Srt.bool)
+    (hkeq : ∀ {u u' : GroundTerm}, c.sortOf u = some Srt.k → c.sortOf u' = some Srt.k → ∀ m,
+      (KoreAML.den (symApp c kEq (GroundTerm.koreList c [u, u']))).interpret I KoreAML.val0 m ↔
+        (den c (bool (GroundTerm.cmp u u' == .eq))).interpret I KoreAML.val0 m)
+    {s : Srt} (hO : O s) {v w : GroundTerm} (hv : c.sortOf v = some s) (hw : c.sortOf w = some s)
+    (he : elemOf c I v = elemOf c I w) : v = w := by
+  refine Classical.byContradiction fun hne => ?_
+  have key : BelowK c s → False := by
+    intro hs
+    have hwv := sortOf_wrapK htr hs hv
+    have hww := sortOf_wrapK htr hs hw
+    have hne' : GroundTerm.cmp (wrapK s v) (wrapK s w) ≠ .eq := fun h =>
+      hne (wrapK_inj hg hv hw (GroundTerm.cmp_eq _ _ h))
+    have hset := den_wrapK_congr_own hI hs hO hv hw he KoreAML.val0
+    have h3 : (GroundTerm.cmp (wrapK s v) (wrapK s w) == .eq) = false := by
+      cases h : GroundTerm.cmp (wrapK s v) (wrapK s w) with
+      | eq => exact absurd h hne'
+      | lt => rfl
+      | gt => rfl
+    have hb : ∀ m, (den c (bool false)).interpret I KoreAML.val0 m ↔
+        (den c (bool true)).interpret I KoreAML.val0 m := by
+      intro m
+      have h1 := hkeq hwv hww m
+      have h2 := hkeq hwv hwv m
+      rw [GroundTerm.cmp_refl] at h2
+      have h2 : _ ↔ (den c (bool true)).interpret I KoreAML.val0 m := h2
+      rw [h3] at h1
+      rw [← h1, ← h2]
+      exact eqK_congr hset m
+    have ht := elemOf_spec_own hI (sortOf_bool (c := c) true) hOb KoreAML.val0
+    have hax := hI.apart (List.contains_iff_mem.mpr bool_distinct) hOb (sortOf_bool (c := c) false)
+      (sortOf_bool true) (fun h => by have := GroundTerm.cmp_eq _ _ h; cases this) KoreAML.val0
+      (elemOf c I (bool true))
+    rw [interpret_neg, interpret_conj] at hax
+    exact hax ⟨(hb _).mpr ((ht.1 _).mpr rfl), (ht.1 _).mpr rfl⟩
+  have hap := apartSort_of_sorted hg hv
+  unfold apartSort at hap
+  simp only [Bool.or_eq_true, beq_iff_eq] at hap
+  rcases hap with ((hK | hKI) | hB) | hD'
+  · exact key (Or.inl hK)
+  · exact key (Or.inr (Or.inl hKI))
+  · exact key (Or.inr (Or.inr (List.contains_iff_mem.mp hB)))
+  · exact hne (apart_distinct_own hI (List.contains_iff_mem.mp hD') hv hw hO he)
+
+end
+
 /-! ## At the decided form of `Detached` -/
 
 section
@@ -792,17 +899,55 @@ theorem own_single {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s) (hs : s
     ∃ a, (∀ m, (den c v).interpret I e m ↔ m = a) ∧ (KoreAML.inhOf (sortP (c.sortName s))).interpret I e a :=
   den_single_own (ownVals_of_decided hd hI) hv hs e
 
+omit hI in
+/-- Where `_==K_` is none of the names, neither are K, Bool and its application's head. -/
+theorem kEq_ok_own (hk : kOK c ss ks kEq = true) :
+    appOK c ss ks kEq = true ∧ sOK c ss ks Srt.k = true ∧ sOK c ss ks Srt.bool = true := by
+  simp only [detachedB, Bool.and_eq_true] at hd
+  have hG := hd.2
+  simp only [graphsB, Bool.and_eq_true, List.all_eq_true] at hG
+  have hmem : (⟨kEq, [Srt.k, Srt.k], Srt.bool⟩ : CtorSig) ∈ hookSigs := by decide
+  have := hG.1.1 _ hmem
+  simp only [hk, Bool.not_true, Bool.false_or, Bool.and_eq_true, List.all_cons, List.all_nil] at this
+  exact ⟨this.1, this.2.2.1, this.2.1⟩
+
+/-- **The graph of `_==K_` at two values of K**, in a model of the theory without the detached
+names, where `_==K_` is none of them. -/
+theorem eqK_den_own (hk : kOK c ss ks kEq = true) {u u' : GroundTerm} (hu : c.sortOf u = some Srt.k)
+    (hu' : c.sortOf u' = some Srt.k) (e : Valuation M) (m : M) :
+    (KoreAML.den (symApp c kEq (GroundTerm.koreList c [u, u']))).interpret I e m ↔
+      (den c (bool (GroundTerm.cmp u u' == .eq))).interpret I e m := by
+  obtain ⟨hf, hsk, hsb⟩ := kEq_ok_own hd hk
+  have hV : valuesB c ss ks = true := by
+    simp only [detachedB, Bool.and_eq_true] at hd
+    exact hd.1.2
+  have hmem : (⟨kEq, [Srt.k, Srt.k], Srt.bool⟩ : CtorSig) ∈ hookSigs := by decide
+  have hvs : c.sortsOf [u, u'] = some [Srt.k, Srt.k] :=
+    sortsOf_cons.mpr ⟨_, _, hu, sortsOf_cons.mpr ⟨_, _, hu', sortsOf_nil, rfl⟩, rfl⟩
+  have hax := hI _ ⟨Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr (Or.inl
+      ⟨_, [u, u'], some (bool (GroundTerm.cmp u u' == .eq)), hmem, hvs, rfl, (by intro h; cases h), rfl⟩))))))),
+    fun σ hσ hn => clean_spec (clean_graph hV hf hvs (fun s hs => by
+        simp only [List.mem_cons, List.not_mem_nil, or_false, or_self] at hs; rw [hs]; exact hsk)
+      (clean_val hV _ Srt.bool (sortOf_bool _) hsb)) ⟨σ, hσ, hn⟩⟩
+  exact (KoreAML.interp_equal (ownVals_of_decided hd hI).defOK).mp (hax e default) m
+
 /-- **Distinct values of a sort without a detached name denote distinct elements**, in a model of
-the theory without the detached names, for a definition without an open generator: two values of
-the sort whose patterns hold of the same elements are equal. -/
+the theory without the detached names: two values of the sort whose patterns hold of the same
+elements are equal. For a definition without an open generator, by the generators; where `_==K_`
+is none of the names, by its graph. -/
 theorem own_apart (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hraw : ∀ p ∈ c.params, p.raw = false) {v w : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    (hra : (∀ p ∈ c.params, p.raw = false) ∨ kOK c ss ks kEq = true) {v w : GroundTerm} {s : Srt}
+    (hv : c.sortOf v = some s)
     (hw : c.sortOf w = some s) (hs : sOK c ss ks s = true) (e : Valuation M)
     (h : ∀ m, (den c v).interpret I e m ↔ (den c w).interpret I e m) : v = w := by
   have H := ownVals_of_decided hd hI
-  exact own_apart_at H hg htr hraw v hv hw hs
-    (((elemOf_spec_own H hw hs e).1 _).mp ((h _).mp (((elemOf_spec_own H hv hs e).1 _).mpr rfl)))
+  have he : elemOf c I v = elemOf c I w :=
+    ((elemOf_spec_own H hw hs e).1 _).mp ((h _).mp (((elemOf_spec_own H hv hs e).1 _).mpr rfl))
+  rcases hra with hraw | hk
+  · exact own_apart_at H hg htr hraw v hv hw hs he
+  · exact values_apart_own H hg htr (kEq_ok_own hd hk).2.2
+      (fun hu hu' m => eqK_den_own hd hI hk hu hu' KoreAML.val0 m) hs hv hw he
 
 omit hd hI in
 theorem sOK_of_not_DSort {s : Srt} (hs : ¬ DSort c (DetachedB.names c ss ks) s) : sOK c ss ks s = true := by
@@ -819,10 +964,10 @@ theorem elemOf_total {v : GroundTerm} {s : Srt} (hv : c.sortOf v = some s) :
     exact ⟨.inl a, .inr ⟨s, a, hv, hs, rfl, ha⟩⟩
 
 /-- Two values of one sort with the same element in the extension (`ElemOf`) are equal, for a
-definition without an open generator. -/
+definition without an open generator or where `_==K_` is none of the names. -/
 theorem elemOf_inj (hg : genWf c = true) [OvlOK c]
     (htr : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts)
-    (hraw : ∀ p ∈ c.params, p.raw = false) {v w : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
+    (hra : (∀ p ∈ c.params, p.raw = false) ∨ kOK c ss ks kEq = true) {v w : GroundTerm} {s : Srt} (hv : c.sortOf v = some s)
     (hw : c.sortOf w = some s) {x : Ext M} (h1 : ElemOf c (DetachedB.names c ss ks) I v x)
     (h2 : ElemOf c (DetachedB.names c ss ks) I w x) : v = w := by
   rcases h1 with ⟨s1, hv1, hs1, rfl⟩ | ⟨s1, m1, hv1, hs1, rfl, hm1⟩
@@ -833,7 +978,7 @@ theorem elemOf_inj (hg : genWf c = true) [OvlOK c]
     · cases h
     · cases h
       rw [hv] at hv1; cases hv1
-      exact own_apart hd hI hg htr hraw hv hw (sOK_of_not_DSort hs1) KoreAML.val0
+      exact own_apart hd hI hg htr hra hv hw (sOK_of_not_DSort hs1) KoreAML.val0
         (fun m => by rw [hm1, hm2])
 
 end
