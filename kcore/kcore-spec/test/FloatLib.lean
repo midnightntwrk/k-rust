@@ -140,6 +140,108 @@ example : Parse.floatLit? "+.5" = none ∧ Parse.floatLit? "-.5" = none ∧ Pars
     Parse.floatLit? "1.0p24" = none ∧ Parse.floatLit? "1.0x8" = none := by
   decide +kernel
 
+/-! ### Reading a decimal text by its parts
+
+`Parse.floatLit?` on the text of the least subnormal binary64 datum (763 characters) is read through
+the lemmas below rather than by one kernel decision: the suffix `p53x11` after a body without `p`
+or `P` names binary64, and digits then `e-` then digits are the decimal `m·10^(-k)`; what is left
+to decide is the rounding of that decimal. -/
+
+namespace KCore.FloatLibRead
+
+/-- After a body with no `p` or `P`, the suffix `p53x11` names binary64 and leaves the body. -/
+theorem floatSuffix_p53x11 {body : List Char} (h : ∀ c ∈ body, c ≠ 'p' ∧ c ≠ 'P') :
+    Parse.floatSuffix (body ++ ['p', '5', '3', 'x', '1', '1']) = some (body, 53, 11) := by
+  have hall : ∀ c ∈ body, (!(c == 'p' || c == 'P')) = true := by
+    intro c hc; obtain ⟨h1, h2⟩ := h c hc; simp [h1, h2]
+  have hany : (body ++ ['p', '5', '3', 'x', '1', '1']).any (fun c => c == 'p' || c == 'P') = true := by
+    simp
+  unfold Parse.floatSuffix
+  simp only [List.reverse_append, List.reverse_cons, List.reverse_nil, List.nil_append, List.cons_append]
+  simp only [hany, ↓reduceIte]
+  rw [List.takeWhile_append_of_pos hall, List.dropWhile_append_of_pos hall]
+  have ht : List.takeWhile (fun a => !(a == 'p' || a == 'P')) ['p', '5', '3', 'x', '1', '1'] = [] := by decide
+  rw [ht, List.append_nil]
+  rfl
+
+/-- The digits of `m`, `e-`, the digits of `k`: the decimal `m·10^(-k)`. -/
+theorem decimal?_digits_exp (M k : Nat) :
+    Parse.decimal? (Nat.toDigits 10 M ++ 'e' :: '-' :: Nat.toDigits 10 k) = some (M, -(k : Int)) := by
+  obtain ⟨h1, h2⟩ := KFloat.takeWhile_digits M 'e' ('-' :: Nat.toDigits 10 k) (by decide)
+  obtain ⟨d, ds, hd, -, -⟩ := toDigits_head M
+  obtain ⟨d', ds', hd', -, -⟩ := toDigits_head k
+  unfold Parse.decimal?
+  simp only [h1, h2]
+  simp only [hd, List.isEmpty_cons, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
+  split
+  · rename_i heq; simp at heq
+  · rw [← hd, List.append_nil, digitsVal_toDigits]
+    simp only [Option.bind_some, Parse.expPart?, Parse.expDigits?, hd', List.isEmpty_cons]
+    simp [← hd', digitsVal_toDigits]
+
+/-- A text that is the digits of `m`, `e-`, the digits of `k`, then `p53x11` reads as binary64's
+rounding of `m·10^(-k)` (unsigned: the body starts with a digit). -/
+theorem floatLit?_dec53 {t : String} {M k : Nat}
+    (h : t.toList = (Nat.toDigits 10 M ++ 'e' :: '-' :: Nat.toDigits 10 k) ++ ['p', '5', '3', 'x', '1', '1']) :
+    Parse.floatLit? t = (do
+      let s ← KFloat.spec? 53 11
+      let s' ← KFloat.spec? 54 11
+      let u ← KFloat.ofDecimal? s s' M (-(k : Int))
+      pure (.float 53 11 (KFloat.packBits s u))) := by
+  have hb : ∀ c ∈ Nat.toDigits 10 M ++ 'e' :: '-' :: Nat.toDigits 10 k, c ≠ 'p' ∧ c ≠ 'P' := by
+    intro c hc
+    simp only [List.mem_append, List.mem_cons] at hc
+    rcases hc with hc | rfl | rfl | hc
+    · have := KFloat.digit_of_mem hc; constructor <;> (rintro rfl; cases this)
+    · decide
+    · decide
+    · have := KFloat.digit_of_mem hc; constructor <;> (rintro rfl; cases this)
+  unfold Parse.floatLit?
+  rw [h, floatSuffix_p53x11 hb]
+  obtain ⟨d, r, hdr, hd⟩ := KFloat.digits_head M ('e' :: '-' :: Nat.toDigits 10 k)
+  have hm1 : d ≠ '-' := by rintro rfl; cases hd
+  have hm2 : d ≠ '+' := by rintro rfl; cases hd
+  have hn : (d :: r == "NaN".toList) = false := by
+    simp only [beq_eq_false_iff_ne]; rintro ⟨⟩; cases hd
+  have hi : (d :: r == "Infinity".toList) = false := by
+    simp only [beq_eq_false_iff_ne]; rintro ⟨⟩; cases hd
+  have hdec := decimal?_digits_exp M k
+  rw [hdr] at hdec ⊢
+  obtain ⟨s0, hs0⟩ : ∃ s, KFloat.spec? 53 11 = some s := ⟨_, rfl⟩
+  obtain ⟨s1, hs1⟩ : ∃ s, KFloat.spec? 54 11 = some s := ⟨_, rfl⟩
+  -- the sign split of `floatLit?` (its compiled matcher is `expDigits?`'s, which has the same patterns)
+  have hq : Parse.expDigits?.match_1 (fun _ => Bool × List Char) (d :: r) (fun r => (true, r))
+      (fun r => (false, r)) (fun r => (false, r)) = (false, d :: r) := by
+    split
+    · rename_i heq; simp only [List.cons.injEq] at heq; exact absurd heq.1 hm1
+    · rename_i heq; simp only [List.cons.injEq] at heq; exact absurd heq.1 hm2
+    · rfl
+  simp only [Option.bind_eq_bind, Option.bind_some, hs0, show 53 + 1 = 54 from rfl, hs1, hn, hi, hq, hdec,
+    Bool.false_eq_true, ↓reduceIte, bne_self_eq_false, Bool.false_and]
+
+/-- The text of the least subnormal binary64 datum (encoding 1): `5^1074` written out, `e-1074`,
+`p53x11` (`KFloat.text`: significand 1, exponent field 0 read as 1, shift 1075). -/
+theorem text_least_subnormal :
+    (Lit.text (.float 53 11 1)).toList =
+      (Nat.toDigits 10 (1 * 5 ^ 1074) ++ 'e' :: '-' :: Nat.toDigits 10 1074) ++ ['p', '5', '3', 'x', '1', '1'] := by
+  show (KFloat.text 53 11 1).toList = _
+  rw [KFloat.text_eq]
+  have hf : KFloat.fields 53 11 1 = (0, 0, 1) := by decide
+  have hb : (KFloat.body 53 11 1).toList = (KFloat.magText 53 11 0 1).toList := by
+    unfold KFloat.body
+    rw [hf]
+    simp
+  rw [hb, KFloat.magText_toList]
+  have hs : KFloat.sig 53 0 1 = 1 := by decide
+  have hsh : KFloat.shift 53 11 = 1075 := by decide
+  have he : KFloat.expo 0 = 1 := by decide
+  have h53 : Nat.toDigits 10 53 = ['5', '3'] := by decide
+  have h11 : Nat.toDigits 10 11 = ['1', '1'] := by decide
+  simp only [hs, hsh, he, h53, h11, Nat.reduceSub, Nat.reduceLeDiff, Nat.one_ne_zero, ↓reduceIte,
+    List.append_assoc, List.cons_append, List.nil_append]
+
+end KCore.FloatLibRead
+
 /-- The text of a literal is its exact decimal value with its format (`m·5^k` then `e-k`, or an
 integer of the format's top binade with `.0`), and reads back to it. -/
 example : Lit.text (.float 53 11 0x3FB999999999999A) =
@@ -153,6 +255,7 @@ example : Lit.text (.float 53 11 0x3FB999999999999A) =
     Lit.text (.float 53 11 0x7FF8000000000000) = "NaNp53x11" ∧
     Parse.floatLit? (Lit.text (.float 53 11 1)) = some (.float 53 11 1) ∧
     Parse.floatLit? (Lit.text (.float 53 11 0x4084D00000000000)) = some (.float 53 11 0x4084D00000000000) := by
+  rw [KCore.FloatLibRead.floatLit?_dec53 KCore.FloatLibRead.text_least_subnormal]
   decide_cheap
 
 /-- A NaN other than the canonical one is no value; a pattern beyond the format's bits neither. -/
