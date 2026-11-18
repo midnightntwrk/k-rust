@@ -4540,9 +4540,10 @@ def openRefusalCutSym (bound : List Nat) (i : Nat) : Cond → Option Sym
 
 /-- Why a rule whose left side leaves a variable open is not read, with the variable, its sort and
 where it occurs; `none` where it is read. A variable the left side does not bind is read where the
-values decide it (`rulesPlain`, Tie.lean): held by the right side under constructors, of a confined
-sort, or held by closed conditions no variable of which the right side, the `ensures` or `post`
-holds; and a rule that competes with a larger one has open condition variables of confined sorts,
+values decide it (`rulesPlain`, Tie.lean): held by the right side under constructors, injections
+and the unit, element and concatenation symbols of a map, list or set collection (`heldOccs`), of a
+confined sort, or held by closed conditions no variable of which the right side, the `ensures` or
+`post` holds; and a rule that competes with a larger one has open condition variables of confined sorts,
 or closed conditions. Otherwise the truth of a condition (`openRequires`) or the successor
 (`openRight`) at given values differs between models of the text. For a variable in closed
 conditions the detail names the first variable of the conditions that the rest of the rule holds;
@@ -4556,7 +4557,7 @@ def openRefusal (c : Semantics) (r : Rule) (names : List String) : Option (Refus
   let cut := fun i => match openRefusalCutSym (varOccs r.lhs) i r.pre with
     | some f => s!" (V ∈ {c.symName f}(…)), under {c.symName f}"
     | none => ""
-  match r.opens.find? (fun i => !((ctorOccs c r.rhs).contains i || conf i ||
+  match r.opens.find? (fun i => !((heldOccs c r.rhs).contains i || conf i ||
       (r.condVars.contains i && condApart))) with
   | some i =>
     if r.condVars.contains i then
