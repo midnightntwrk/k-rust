@@ -1598,13 +1598,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   hook implements (45): over all H, Γ entails neither that it has no value at a point nor that it is
   a given value of its result sort (`NS.NAME_undetermined`, from the schema `param_undeterminedPL`).
   `FnHyp` for every H: five texts have no function; INT's has K's `append`, declared total, which
-  the totality decider does not confirm (its cover check does not split K) and `fnHyp_appendPL`
-  shows total from the values of K being `kseq` and `dotk` terms. Axioms guarded.
+  the totality decider confirms, and the deciders name no fact (`fnHyp_decidedPL`). Axioms guarded.
 - `test/ParamE6Sys.lean`: the same on the fixtures e6-param-io, e6-param-ffi, e6-param-kreflection,
   e6-param-timer, e6-param-unification and e6-param-json, every parameter of K-IO, FFI, K-REFLECTION,
   TIMER, UNIFICATION and JSON (45; schema `param_undeterminedPS`). `FnHyp` for every H: JSON's text
-  has no function; the other five have K's `append`, shown total by `fnHyp_appendPS` as in
-  `test/ParamE6Lib.lean`. Axioms guarded.
+  has no function; the other five have K's `append`, total by the decider, and the deciders name no
+  fact (`fnHyp_decidedPS`). Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
