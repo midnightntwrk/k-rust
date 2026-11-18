@@ -352,6 +352,7 @@ import KcoreSpec.TieHeads
 import KcoreSpec.TieHeadsWalk
 import KcoreSpec.TieHeadsKore
 import KcoreSpec.TieHeadsComplete
+import KcoreSpec.TieParamLemma
 import KcoreSpec.CondPredAt
 import KcoreSpec.CondCross
 import KcoreSpec.ClausePreCore

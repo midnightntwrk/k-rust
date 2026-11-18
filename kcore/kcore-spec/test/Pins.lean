@@ -509,7 +509,8 @@ example : tieClasses =
      ("distinctness", .entailed), ("no junk", .entailed), ("function functional", .hypothesis),
      ("hooked functional", .atValues), ("collection law", .atValues), ("library", .atValues),
      ("set idempotence", .refuted), ("set-variable lemma", .refuted), ("function law", .hypothesis),
-     ("open generator law", .equal), ("open generator functional", .hypothesis), ("no direction", .none)] := rfl
+     ("open generator law", .equal), ("open generator functional", .hypothesis),
+     ("parameter lemma", .hypothesis), ("no direction", .none)] := rfl
 
 /-- The directions, by their constructors: seven, in this order. -/
 example : (TieDir.equal.ctorIdx, TieDir.entailed.ctorIdx, TieDir.weaker.ctorIdx, TieDir.atValues.ctorIdx,

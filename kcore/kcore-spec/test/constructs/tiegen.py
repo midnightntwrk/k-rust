@@ -63,6 +63,9 @@ What it states where the text:
   functional`);
 - states a law of a function (`Definition.laws`): `law_text` (the sentence as written is `lawPattern`),
   `law_not_item`, `law_account` (the class `function law`);
+- has a lemma applying a parameter symbol no hook implements (`isParamLemma`, the class `parameter
+  lemma`, direction hypothesis): `paramlemma_account`, and `ParamLemmaWitness`, one H at which
+  `FnObligations` and every parameter lemma hold, stated and owed (`owed` in the summary);
 - has a parameter symbol no hook implements (the H form): `total_named` and `obl_nil` at `[]`, which
   holds where no `[total]` function owes a parameter's totality (otherwise refused);
 - is not plain (`FnFacts`): `owed_rules`, `owed_clauses`, `openDecidedH`;
@@ -128,7 +131,7 @@ WRAP = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=12G", "-p", "
 CLASSES = ["function equation", "rewrite rule", "priority equation", "constructor functional", "subsort",
            "injectivity", "distinctness", "no junk", "function functional", "hooked functional",
            "collection law", "library", "set idempotence", "set-variable lemma", "function law",
-           "open generator law", "open generator functional", "no direction"]
+           "open generator law", "open generator functional", "parameter lemma", "no direction"]
 # the classes test/TieEns.lean states a theorem of, sentence by sentence
 THEOREM_CLASSES = {"function equation", "rewrite rule", "priority equation", "constructor functional",
                    "subsort", "injectivity", "distinctness", "no junk", "set idempotence"}
@@ -140,6 +143,12 @@ CONS_CLASSES = ["constructor functional", "subsort", "injectivity", "distinctnes
 LAW_FN_CLASS = "function law"
 LAW_OPEN_CLASS = "open generator law"
 OPEN_FUNCTIONAL_CLASS = "open generator functional"
+# The class of a lemma the reader leaves out of Γ that applies a parameter symbol no registry hook
+# interprets (`isParamLemma`): its truth depends on the interpretation, so it is owed as a hypothesis
+# on H, the sentence itself at the member (direction hypothesis); the tie of a text with one owes one
+# H at which `FnObligations` and every one of them hold (`ParamLemmaWitness`), since a hypothesis no
+# H satisfies would tie a text without a model.
+PARAM_LEMMA_CLASS = "parameter lemma"
 
 
 class Refused(Exception):
@@ -460,6 +469,7 @@ partial def tgPerms : List Nat → List (List Nat)
   IO.println s!"H kitemPerm {kg.isPerm ((c.gens Srt.kitem).map (Gen.toK c))} {decide ((c.gens Srt.kitem).map (Gen.toK c) ≠ kg)}"
   IO.println s!"H fnPrios {(afs.flatMap (fun f => f.clauses.map (·.prio)))}"
   let us := k.axiomDecls.filter (·.module == "@MOD@")
+  let nmK := Parse.namesOf k
   let ixOf := fun (q : P) => (us.filter fun ad => (trS ad).pat == q).map (·.index)
   IO.println s!"H hasParams {c.params.any (·.impl.isNone)}"
   IO.println s!"H totalNil {decide (c.totalObligationsRP @ORDER@ [] = [])}"
@@ -523,7 +533,8 @@ partial def tgPerms : List Nat → List (List Nat)
     let fh := match ad.ax.pattern with
       | .exist _ _ (.equals _ _ _ (.app h _ _)) => h.ident.name
       | _ => ""
-    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}"
+    let pl := isParamLemma c (Parse.classify nmK (.axiom ad.ax)) (.axiom ad.ax)
+    IO.println s!"S {ad.index}\t{absent}\t{fnJ}\t{cons}\t{plain}\t{consItem}\t{triv}\t{kitem}\t{rw}\t{eh}\t{kind eh}\t{fh}\t{kind fh}\t{AttrsAgree.prioOf ad.ax.attributes}\t{pl}"
     if !consItem && triv.isEmpty && !kitem then
       match njCands.find? (fun (_, o, _) => o == p) with
       | some (s, _, _) => IO.println s!"N {ad.index}\t{s}\t{c.sortName s}\torder\t[]\t{(c.gens s).length}"
@@ -575,7 +586,7 @@ def probe(name, path, um, order="[]"):
             sents[int(f[0])] = dict(idx=int(f[0]), absent=f[1] == "true", fnJ=nums(f[2]), cons=f[3] == "true", plain=f[4] == "true",
                                     consItem=f[5] == "true", triv=re.findall(r"Sort[^,\]\s]+", f[6]),
                                     kitem=f[7] == "true", rw=f[8] == "true", eh=f[9], ehk=f[10], fh=f[11],
-                                    fhk=f[12], prio=int(f[13]))
+                                    fhk=f[12], prio=int(f[13]), pl=f[14] == "true")
     return head, sents
 
 
@@ -598,6 +609,8 @@ def form_class(s, raw, builtin, laws=(), open_laws=(), raw_names=()):
         return "function equation"
     if s["rw"]:
         return "rewrite rule"
+    if s["pl"]:
+        return PARAM_LEMMA_CLASS
     if s["triv"] or s["consItem"] or s["kitem"] or "// no junk" in raw:
         return "no junk"
     if "[subsort{" in raw:
@@ -637,7 +650,9 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
         if pool.get(s):
             j = pool[s].pop(0)
             mapped[i] = j
-            ec = ecls[j]
+            # a lemma over a parameter symbol of this text's reading without `impl` is a parameter
+            # lemma whatever ens's class of the same sentence (the parameters are the text's)
+            ec = PARAM_LEMMA_CLASS if fc == PARAM_LEMMA_CLASS else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
             if (ec == "no direction") != sents[i]["absent"]:
@@ -790,6 +805,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     gamma = (fn_full and rules_full) or (fn_align and nrules == 0)
     fn_any = fn_full or fn_align
     open_fun = [i for i in idx if cls[i] == OPEN_FUNCTIONAL_CLASS and sents[i]["fh"] in {k["name"] for k in raw}]
+    param_lem = by_class[PARAM_LEMMA_CLASS]
     if tp_params:
         raise Refused(f"{name}: a `[total]` function owes the totality of a parameter the text declares total "
                       f"(`totalObligationsRP callOrder []` not empty): tiegen does not state `ParamsTotal`")
@@ -931,6 +947,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         owed_more += "; open generator functional: owed as `OpenTotal`\n    (`open_functional_not_item`)"
     if open_law:
         owed_more += "; open generator law: Γ's law item (`openlaw_item`,\n    `openlaw_account`)"
+    if param_lem:
+        owed_more += "; parameter lemma: owed as a hypothesis on H\n    (`paramlemma_account`, `ParamLemmaWitness`)"
     w("  - Hooked functional, collection law, library: at values (no theorem here); function functional:")
     w(f"    owed as `FnHyp` (no theorem){owed_more}; no direction: `absent_closed`.")
     w("")
@@ -961,6 +979,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
             w(textwrap.fill(" ".join(para), width=100, initial_indent="  ", subsequent_indent="  ",
                             break_on_hyphens=False, break_long_words=False))
             w("")
+    if param_lem:
+        w(f"  The parameter lemmas ({', '.join(map(str, param_lem))}) apply a parameter symbol no registry hook interprets,")
+        w("  whose value the interpretation gives: each is owed as a hypothesis on H, the sentence itself at the")
+        w(f"  member (`Γ (cH H) ⊧ (trS ad).pat`). The account holds them in the class `{PARAM_LEMMA_CLASS}`, of the")
+        w("  direction `hypothesis`. A hypothesis no H satisfies would tie a text without a model, so the tie owes")
+        w("  one H at which the functions' obligations and every parameter lemma hold (`ParamLemmaWitness`,")
+        w("  stated here and proved by hand: owed).")
+        w("")
     w(f"  The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` ({len(unmapped)});")
     w(f"  the sentences of a class with a theorem that no theorem here holds of are `uncovered` ({len(uncovered)}).")
     w("-/")
@@ -1569,6 +1595,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(openlaw_section(open_law, rnames, need_rfl=not nj_items))
     if open_fun:
         w(open_functional_section(open_fun, rnames))
+    if param_lem:
+        w(param_lemma_section(param_lem))
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
     cnames = []
@@ -1617,6 +1645,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         names += ["openlaw_item", "openlaw_cons", "openlaw_entailed", "openlaw_account"]
     if open_fun:
         names.append("open_functional_not_item")
+    if param_lem:
+        names += ["paramlemma_account", "ParamLemmaWitness"]
     if facts_kind == "FnFacts" and not agree and not raw:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
@@ -1631,6 +1661,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         b = lean.index("\n/-! ## ", a) + 1
         lean = lean[:a] + text.rstrip("\n") + "\n\n" + lean[b:]
     owed = ([f"the agreement of {', '.join(ob['agree_names'])} (AgreeOwed)"] if agree and "consistency" not in hand else [])
+    if param_lem:
+        owed.append(f"one H at which FnObligations and the parameter lemmas {', '.join(map(str, param_lem))} hold "
+                    f"(ParamLemmaWitness)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
@@ -1827,6 +1860,27 @@ theorem law_not_item : lawText.all (fun ad => !(fnItems c).any (·.pat == (trS a
 not hold the sentence; it is owed as `FnLaws`). -/
 theorem law_account : lawText.map (·.index) = classOf "{LAW_FN_CLASS}" := by
   decide +kernel
+"""
+
+
+def param_lemma_section(param_lem):
+    il = ", ".join(map(str, param_lem))
+    lt = ", ".join(f"U.ax{i}" for i in param_lem)
+    return f"""/-! ## The parameter lemmas ({il}): owed as a hypothesis on H -/
+
+/-- The text's lemmas that apply a parameter symbol no registry hook interprets (`isParamLemma`). -/
+noncomputable def paramLemmaText : List AxiomDecl := [{lt}]
+
+/-- The parameter lemmas are the account's class `{PARAM_LEMMA_CLASS}`, of the direction `hypothesis`
+(Γ does not hold the sentence; at the member `cH H` it is owed as itself). -/
+theorem paramlemma_account : paramLemmaText.map (·.index) = classOf "{PARAM_LEMMA_CLASS}" := by
+  decide +kernel
+
+/-- **What the tie owes of the parameter lemmas**: one interpretation `H` at which the functions'
+obligations hold and Γ entails every parameter lemma, so that the text with its hypotheses has a
+model. Stated, not proved here: the proof is owed. -/
+def ParamLemmaWitness : Prop :=
+  ∃ H : HookParams, FnObligations (cH H) callOrder [] ∧ ∀ ad ∈ paramLemmaText, Γ (cH H) ⊧ (trS ad).pat
 """
 
 
