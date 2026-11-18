@@ -1608,6 +1608,14 @@ table above, on the tree before String and Bytes). Not investigated here.
   TIMER, UNIFICATION and JSON (45; the same schema). `FnHyp` for every H: JSON's text
   has no function; the other five have K's `append`, total by the decider, and the deciders name no
   fact (`fnHyp_decided`). Axioms guarded.
+- `test/RatNoModel.lean`: on the kompiled text of the fixture e6-param-rat
+  (`f2-examples/e6-param-rat.kompile.kore`), for every H: `Eval` gives maxRat at `(<1,1>Rat, 1)`
+  both arguments (`maxRat_first`, `maxRat_second`; RAT's two equations, of one priority, both
+  decide there), and minRat likewise (`minRat_first`, `minRat_second`). Each result is a theorem
+  of Γ and the two are distinct values of Rat, so Γ has no model (`no_model`, and `no_model_min`
+  by minRat alone); `not_consistent`, `not_fnHyp`, `not_fnDet`, `not_coherentAll`. `coreOK` holds;
+  the symbol numbers are checked by name (`names`). `both_at_2`: the `requires` hold both ways at
+  `(<2,2>Rat, 1)` and `(<3,3>Rat, 1)` too. Axioms guarded.
 - `test/FnLawAt.lean`: the laws of functions at values (`LawAt`, `FnLaws`) on semantics built by
   hand from the sentences of e2-fn-assoc, e2-fn-assoc-bad, e2-fn-assoc-rest and of `mx` with
   `[idem]`; `coreOK` accepts each. Where the law holds at values the theory with the law's
