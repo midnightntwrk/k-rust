@@ -16,14 +16,14 @@ Rows by status:
 |---|---|---|---|---|---|---|---|---|
 | E1 | 58 | 36 | 3 | 1 | 18 | 0 | 0 | 0 |
 | E2 | 182 | 49 | 0 | 49 | 68 | 16 | 0 | 0 |
-| E3 | 98 | 64 | 2 | 9 | 5 | 18 | 0 | 0 |
+| E3 | 98 | 65 | 2 | 9 | 5 | 17 | 0 | 0 |
 | E4 | 123 | 87 | 0 | 10 | 0 | 26 | 0 | 0 |
 | E5 | 22 | 8 | 1 | 10 | 1 | 2 | 0 | 0 |
 | E6 | 826 | 520 | 95 | 116 | 40 | 55 | 0 | 0 |
 | E7 | 42 | 32 | 0 | 4 | 6 | 0 | 0 | 0 |
 | E8 | 63 | 2 | 1 | 1 | 52 | 7 | 0 | 0 |
 | C3 | 44 | 29 | 0 | 9 | 2 | 4 | 0 | 0 |
-| all | 1458 | 827 | 102 | 209 | 192 | 128 | 0 | 0 |
+| all | 1458 | 828 | 102 | 209 | 192 | 127 | 0 | 0 |
 
 Nested entries by status:
 
@@ -32,13 +32,13 @@ Nested entries by status:
 | E1 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 |
 | E2 | 18 | 3 | 0 | 1 | 0 | 14 | 0 | 0 |
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
-| E4 | 40 | 12 | 0 | 4 | 0 | 24 | 0 | 0 |
+| E4 | 44 | 16 | 0 | 4 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
 | E6 | 10 | 5 | 0 | 0 | 0 | 4 | 0 | 1 |
 | E7 | 6 | 1 | 1 | 2 | 0 | 2 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 243 | 96 | 2 | 16 | 1 | 127 | 0 | 1 |
+| all | 247 | 100 | 2 | 16 | 1 | 127 | 0 | 1 |
 
 Refused rows by class:
 
@@ -46,14 +46,14 @@ Refused rows by class:
 |---|---|---|---|---|---|
 | E1 | 0 | 0 | 0 | 0 | 0 |
 | E2 | 16 | 1 | 12 | 3 | 0 |
-| E3 | 18 | 8 | 2 | 8 | 0 |
-| E4 | 26 | 4 | 18 | 4 | 0 |
+| E3 | 17 | 8 | 2 | 7 | 0 |
+| E4 | 26 | 8 | 18 | 0 | 0 |
 | E5 | 2 | 0 | 2 | 0 | 0 |
 | E6 | 55 | 55 | 0 | 0 | 0 |
 | E7 | 0 | 0 | 0 | 0 | 0 |
 | E8 | 7 | 0 | 7 | 0 | 0 |
 | C3 | 4 | 2 | 0 | 2 | 0 |
-| all | 128 | 70 | 41 | 17 | 0 |
+| all | 127 | 74 | 41 | 12 | 0 |
 
 Refused nested entries by class:
 
@@ -70,7 +70,7 @@ Refused nested entries by class:
 | C3 | 17 | 8 | 4 | 2 | 3 |
 | all | 127 | 45 | 11 | 44 | 27 |
 
-## Entries of class R-c (61)
+## Entries of class R-c (56)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -85,7 +85,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort::="#Top"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e0, e1: L-2, an anonymous variable, reader only); R3 (e2: R-5, a right side as \`?Z\` with \`post\`) |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[2] | refused |  |  | no unit | R-5 |
 | E3 | `ML-SYNTAX:Sort::="#Top"` | cases[3] | refused |  |  | no unit |  |
-| E3 | `ML-SYNTAX:Sort::="#Bottom"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 P1 (e0, e1: L-4 inert vacuousLeft; R-3, FR-3 \`ens := false\`, reader only) |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | row | refused |  | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms | no unit | CN-3 R3 (e2: L-7, \`pre := not (exMatch ..)\`; R-5 as \`?Z\` with \`post\`); e3 (\`Clause.pre\`) |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | cases[0] | refused |  |  | no unit | L-7 |
 | E3 | `ML-SYNTAX:Sort::="#Not" "(" Sort ")"` | cases[1] | refused |  |  | no unit |  |
@@ -122,10 +121,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[18] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[20] | refused |  |  | RDR.eq-binders |  |
-| E4 | `grammar:<matching-logic-pattern>::="\forall" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 4.5 d4 (\`Cond.all\` over a confined sort) |
-| E4 | `grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 R3 (e2) and e3: the floor of a predicate is the predicate (\`Cond\`) |
-| E4 | `tree:Pattern.forall` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 4.5 d4 (\`Cond.all\` over a confined sort) |
-| E4 | `tree:Pattern.floor` | row | refused | a predicate pattern in term position | KCore.Term, KCore.EvalTerm | no unit | CN-3 R3 (e2) and e3: the floor of a predicate is the predicate (\`Cond\`) |
 | E5 | `translateSorts:hooked-#2` | cases[5] | refused | a second sort with a builtin carrier | KCore.dvOK (an Int literal is a value of Srt.int only), KCore.intHooks and the other hook tables (results at Srt.int) | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
@@ -463,7 +458,7 @@ Not core:
 | cases[1]: a requires or ensures \\equals{SortBool{},S}(\\top{SortBool{}}, true) | supported |  |  |  |  |  |  |  | Parse.isPred; fixtures/e3-ml-req-ceil, -req-forall (other predicates at Bool) |
 | cases[2]: a rule's right side | refused | R-c |  |  |  |  |  |  | fixtures/e3-ml-rule-rhs-top |
 | cases[3]: an equation's right side | refused | R-c |  |  |  |  |  |  | Parse.manyValued? (no fixture of #Top there) |
-| `ML-SYNTAX:Sort::="#Bottom"` | refused | R-c | in a rule or a function equation a connective makes the side a matching-logic pattern that is not a term: a set of values given by definedness, negation or quantification. The kernel's sides are terms with one value under a substitution. | Term (Core.lean:58): a term has variables, applications, injections, \`as\` and domain values, no connective; and with it Rule.lhs/rhs/req/ens, Clause.pats/req/rhs, Eval and Step, which read terms |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-bottom: account \`1 inert vacuousLeft [user]\`; fixtures/e3-ml-rule-rhs-bottom, e3-ml-rule-rhs-bottom-fn, e3-ml-eq-rhs-bottom, e3-ml-eq-rhs-bottom-ctor, e3-ml-eq-rhs-bottom-noval: account \`1 read bottomAsEnsures [user]\`, \`parse: ok; wf true\`; fixtures/e3-ml-eq-rhs-or-bottom: \`1… |
+| `ML-SYNTAX:Sort::="#Bottom"` | supported |  | #Bottom denotes no element. A rule's left side holding it denotes nothing, so the rule applies to no configuration and states nothing: inert (vacuousLeft). A right side holding it under applications and conjunctions denotes nothing, so the axiom states that the instance has no successor or result: r… | none (reader only: the shapes are read as an ensures false, the right side's other disjunct, or the literal false, or are inert) |  | e3-ml | no | no | fixtures/e3-ml-rule-lhs-bottom: account \`1 inert vacuousLeft [user]\`; fixtures/e3-ml-rule-rhs-bottom, e3-ml-rule-rhs-bottom-fn, e3-ml-eq-rhs-bottom, e3-ml-eq-rhs-bottom-ctor, e3-ml-eq-rhs-bottom-noval: account \`1 read bottomAsEnsures [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing… |
 | cases[0]: a rule's left side (empty) | inert |  |  |  |  |  |  |  | fixtures/e3-ml-rule-lhs-bottom |
 | cases[1]: a rule's or an equation's right side, under applications and conjunctions | supported |  |  |  |  |  |  |  | fixtures/e3-ml-rule-rhs-bottom, -rhs-bottom-fn, e3-ml-eq-rhs-bottom, -bottom-ctor, -bottom-noval |
 | cases[2]: t #Or #Bottom on a right side | supported |  |  |  |  |  |  |  | fixtures/e3-ml-eq-rhs-or-bottom |
@@ -713,11 +708,13 @@ Not core:
 | `grammar:<matching-logic-pattern>::="\implies" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
 | `grammar:<matching-logic-pattern>::="\iff" "{" <sort> "}" "(" <pattern> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-iff/account.txt: \`unkompiledForm (\\iff)\`; fixtures/hw-scope-iff-top/account.txt: \`1 refused unkompiledForm [user]\` (\\iff at the axiom's top, classif… |
 | `grammar:<matching-logic-pattern>::="\exists" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\exists |
-| `grammar:<matching-logic-pattern>::="\forall" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | refused | R-c | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body (ModuleToKORE.java:1964,1969). Both are predicate patterns: they denote everything or nothing, not a value. A KCore term evaluates to at most one ground value (EvalTerm), and a requires/ensures must be \`\\equals(B, true)\` (r… | KCore.Term, KCore.EvalTerm |  |  | no | no | Parse.lean:510,514,557; req? at Parse.lean:717-720; fixture e3-ml sentence \`\\floor{...}(\\forall{...}\`; e3-ml-floor-lhs/kompile.txt; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\` |
+| `grammar:<matching-logic-pattern>::="\forall" "{" <sort> "}" "(" <element-variable> "," <pattern> ")"` | refused | R-a | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body. Both are predicate patterns: they denote every element or none. Over a term of a sort the text leaves unconfined, whether they hold at given values depends on which elements the sort has, which no sentence states, so no St… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  | no | no | Parse.term (its \\forall and \\floor arms): either of a term over a sort other than Bool refused openExtent with the sort, over Bool patternConnective; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\`, fixtures/e3-ml-rule-lhs-forall-exp/account.txt: \`openExtent (Exp)\`; in a requires, fix… |
+| cases[0]: in a requires or ensures, of predicates (the predicate equated with true) | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-forall/account.txt: \`1 read predicateAtBool [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` (requires #Forall Y:Int. {f(Y) #Equals Y}) |
 | `grammar:<matching-logic-pattern>::="\mu" "{" "}" "(" <set-variable> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-mu/account.txt: \`unkompiledForm (\\mu)\` |
 | `grammar:<matching-logic-pattern>::="\nu" "{" "}" "(" <set-variable> "," <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-nu/account.txt: \`unkompiledForm (\\nu)\` |
 | `grammar:<matching-logic-pattern>::="\ceil" "{" <sort> "," <sort> "}" "(" <pattern> ")"` | inert |  |  |  |  |  | yes | yes | K-coverage.md A.2 \\ceil |
-| `grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"` | refused | R-c | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body (ModuleToKORE.java:1964,1969). Both are predicate patterns: they denote everything or nothing, not a value. A KCore term evaluates to at most one ground value (EvalTerm), and a requires/ensures must be \`\\equals(B, true)\` (r… | KCore.Term, KCore.EvalTerm |  |  | no | no | Parse.lean:510,514,557; req? at Parse.lean:717-720; fixture e3-ml sentence \`\\floor{...}(\\forall{...}\`; e3-ml-floor-lhs/kompile.txt |
+| `grammar:<matching-logic-pattern>::="\floor" "{" <sort> "," <sort> "}" "(" <pattern> ")"` | refused | R-a | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body. Both are predicate patterns: they denote every element or none. Over a term of a sort the text leaves unconfined, whether they hold at given values depends on which elements the sort has, which no sentence states, so no St… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  | no | no | Parse.term (its \\forall and \\floor arms): either of a term over a sort other than Bool refused openExtent with the sort, over Bool patternConnective; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\`, fixtures/e3-ml-rule-lhs-forall-exp/account.txt: \`openExtent (Exp)\`; in a requires, fix… |
+| cases[0]: in a requires or ensures, of predicates | supported |  |  |  |  |  |  |  | Parse.isPred: a \\floor of a predicate is a predicate, read at Bool as the literal false where equated with true (predicateAtBool); no fixture holds it (the E3 #Floor row's case) |
 | `grammar:<matching-logic-pattern>::="\equals" "{" <sort> "," <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\equals |
 | `grammar:<matching-logic-pattern>::="\in" "{" <sort> "," <sort> "}" "(" <pattern> "," <pattern> ")"` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\in |
 | `grammar:<matching-logic-pattern>::="\next" "{" <sort> "}" "(" <pattern> ")"` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-next/account.txt: \`unkompiledForm (\\next)\` |
@@ -780,11 +777,13 @@ Not core:
 | `tree:Pattern.implies` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\implies |
 | `tree:Pattern.iff` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-iff/account.txt: \`unkompiledForm (\\iff)\`; fixtures/hw-scope-iff-top/account.txt: \`1 refused unkompiledForm [user]\` (\\iff at the axiom's top, classif… |
 | `tree:Pattern.exist` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\exists |
-| `tree:Pattern.forall` | refused | R-c | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body (ModuleToKORE.java:1964,1969). Both are predicate patterns: they denote everything or nothing, not a value. A KCore term evaluates to at most one ground value (EvalTerm), and a requires/ensures must be \`\\equals(B, true)\` (r… | KCore.Term, KCore.EvalTerm |  |  | no | no | Parse.lean:510,514,557; req? at Parse.lean:717-720; fixture e3-ml sentence \`\\floor{...}(\\forall{...}\`; e3-ml-floor-lhs/kompile.txt; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\` |
+| `tree:Pattern.forall` | refused | R-a | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body. Both are predicate patterns: they denote every element or none. Over a term of a sort the text leaves unconfined, whether they hold at given values depends on which elements the sort has, which no sentence states, so no St… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  | no | no | Parse.term (its \\forall and \\floor arms): either of a term over a sort other than Bool refused openExtent with the sort, over Bool patternConnective; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\`, fixtures/e3-ml-rule-lhs-forall-exp/account.txt: \`openExtent (Exp)\`; in a requires, fix… |
+| cases[0]: in a requires or ensures, of predicates (the predicate equated with true) | supported |  |  |  |  |  |  |  | fixtures/e3-ml-req-forall/account.txt: \`1 read predicateAtBool [user]\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\` (requires #Forall Y:Int. {f(Y) #Equals Y}) |
 | `tree:Pattern.mu` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-mu/account.txt: \`unkompiledForm (\\mu)\` |
 | `tree:Pattern.nu` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-nu/account.txt: \`unkompiledForm (\\nu)\` |
 | `tree:Pattern.ceil` | inert |  |  |  |  |  | yes | yes | K-coverage.md A.2 \\ceil |
-| `tree:Pattern.floor` | refused | R-c | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body (ModuleToKORE.java:1964,1969). Both are predicate patterns: they denote everything or nothing, not a value. A KCore term evaluates to at most one ground value (EvalTerm), and a requires/ensures must be \`\\equals(B, true)\` (r… | KCore.Term, KCore.EvalTerm |  |  | no | no | Parse.lean:510,514,557; req? at Parse.lean:717-720; fixture e3-ml sentence \`\\floor{...}(\\forall{...}\`; e3-ml-floor-lhs/kompile.txt |
+| `tree:Pattern.floor` | refused | R-a | kompile writes \\forall and \\floor only for #Forall and #Floor in a rule body. Both are predicate patterns: they denote every element or none. Over a term of a sort the text leaves unconfined, whether they hold at given values depends on which elements the sort has, which no sentence states, so no St… | none (refused on principle, openExtent) | none (R-a): a quantifier or \\floor of a term over an unconfined sort: its truth at given values depends on which elements the sort has, which no sentence of the text states (designs/CN-3-merged-constructs.md section 5, openExtent) |  | no | no | Parse.term (its \\forall and \\floor arms): either of a term over a sort other than Bool refused openExtent with the sort, over Bool patternConnective; fixtures/e3-ml-rule-lhs-forall/account.txt: \`openExtent (Int)\`, fixtures/e3-ml-rule-lhs-forall-exp/account.txt: \`openExtent (Exp)\`; in a requires, fix… |
+| cases[0]: in a requires or ensures, of predicates | supported |  |  |  |  |  |  |  | Parse.isPred: a \\floor of a predicate is a predicate, read at Bool as the literal false where equated with true (predicateAtBool); no fixture holds it (the E3 #Floor row's case) |
 | `tree:Pattern.equals` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\equals |
 | `tree:Pattern.in` | supported |  |  |  |  | base | yes | yes | K-coverage.md A.2 \\in |
 | `tree:Pattern.next` | refused | R-b | kompile 7.1.337 has no site that writes \\iff, \\mu, \\nu, \\next, \\left-assoc or \\right-assoc into a module (ModuleToKORE.java:1959-1971 is the whole map from K's ML labels to KORE connectives: \\bottom \\top \\or \\and \\not \\floor \\ceil \\equals \\implies \\exists \\forall and three prelude aliases). They occ… |  |  |  | no | no | ModuleToKORE.java:1959-1971; Parse.lean:508-521 and :557. The refused fixture must be hand-written KORE: no K text kompiles to these; fixtures/hw-scope-next/account.txt: \`unkompiledForm (\\next)\` |
