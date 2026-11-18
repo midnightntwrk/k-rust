@@ -627,7 +627,7 @@ symbol states something of that symbol which no reading of the collections state
 /-- The law axioms read by none of the readings, in this order: the concatenation of a
 collection of `d` (an idempotence axiom: of a set), an open generator's associativity or
 idempotence sentence (`openLawRead`, read into `ParamSig.assoc`, `ParamSig.idem`), a function of
-`d` or a parameter no hook implements and no open generator (`fnLawHead`; whose laws `presOf` reads
+`d` or a parameter that is no open generator (`fnLawHead`; whose laws `presOf` reads
 into `Presentation.laws`, `fnLawAxioms`). One refusal for each other: `openLaw` for another law of
 an open generator, `lawAxiom` for the law of any other symbol, the symbol and the law named, with,
 for the idempotence of a symbol that kept `constructor`, that it contradicts the constructor's

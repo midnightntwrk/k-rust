@@ -243,6 +243,7 @@ import KcoreSpec.RangeMapKeys
 import KcoreSpec.LawHooks
 import KcoreSpec.OpenValues
 import KcoreSpec.LawHooksLib
+import KcoreSpec.LawHookAssoc
 import KcoreSpec.ReadFns
 import KcoreSpec.ReadRuleConn
 import KcoreSpec.InjValue

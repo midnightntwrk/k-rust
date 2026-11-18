@@ -185,7 +185,7 @@ inductive RefusalReason where
   | openGenerator
   /-- An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is neither the concatenation
   of a collection of the definition (an `[idem]` axiom: of a set) nor a function of the definition
-  or a parameter no hook implements and no open generator (`fnLawHead`, read into
+  or a parameter that is no open generator (`fnLawHead`, read into
   `Presentation.laws`): the law of another symbol, which no reading of the collections states
   (`Account.lawUnmatched`); or a function's law that is no equation between terms (`fnLawOf`) or
   whose sides are of no one sort of the definition (`fnLawSortedOf`). The detail names the symbol and the law. -/
@@ -5186,20 +5186,28 @@ def initFaults (N : Names) (msrc : String) (sents : List Kore.Sentence) (eqs : L
 
 /-! ## The laws of functions
 
-An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is a function of the definition and
-no collection's concatenation states an equation between applications of the function for every
+An `[assoc]`, `[comm]`, `[unit]` or `[idem]` axiom whose symbol is a function of the definition or a
+parameter that is no open generator, and no collection's concatenation, states an equation between applications of the function for every
 element: `f(f(K1, K2), K3) = f(K1, f(K2, K3))` and the like. The function's value is its clauses'
 where one applies and the interpretation's elsewhere (`Semantics.fnRest`), so the equation reads
 the interpretation. It is read as a `LawEq` of `Presentation.laws`, which `Γ` does not hold: the
 statements take it at values, under `FnLaws`, which the account lists as owed. -/
 
-/-- The symbol named `h` is a function of `c`, or a parameter that no registry hook implements and
-that is no open generator (a `function` production without equations), and no collection's
-concatenation. -/
+/-- The symbol named `h` is a function of `c`, or a parameter that is no open generator (a
+`function` production without equations, with or without a registry hook implementing it), and no
+collection's concatenation. The law of a parameter a hook implements states of the hook's function
+what `FnLaws` asks of it at values: one fact at every interpretation where the hook has no silent
+point, true of some hooks (`hookAssoc_lawAt`, LawHookAssoc.lean) and false of others, and owed like
+the law of a function with clauses. -/
 def fnLawHead (c : Semantics) (h : String) : Bool :=
   (c.fns.any (c.symName ·.label == h) ||
-    c.params.any fun k => k.impl.isNone && !k.raw && c.symName k.sig.name == h) &&
+    c.params.any fun k => !k.raw && c.symName k.sig.name == h) &&
   !c.allColls.any (c.symName ·.concat == h)
+
+/-- `f(f(V0, V1), V2) = f(V0, f(V1, V2))` over three Ints: the law `fnLawOf` reads from the
+associativity sentence (`openAssocAx`) of a symbol of Int. -/
+def hookAssocLawOf (f : Sym) : LawEq :=
+  ⟨[Srt.int, Srt.int, Srt.int], .app f [.app f [.var 0, .var 1], .var 2], .app f [.var 0, .app f [.var 1, .var 2]]⟩
 
 /-- The law axioms of the sentences `ss` whose symbol is a function of `c` and no collection's
 concatenation (`fnLawHead`), each with its position: the axioms classified as a collection's laws
