@@ -2944,16 +2944,19 @@ def cellName? (label : String) : Option String := do
 def cellSym? (syms : List Kore.SentenceSymbol) (X : String) : Option Kore.SentenceSymbol :=
   syms.find? fun s => hasKey s.attributes .cell && sortName? s.sort == some X
 
-/-- A cell as the text names it, before numbering. -/
+/-- A cell as the text names it, before numbering; `coll` a node's child that is a cell collection
+(`Cell.coll`). -/
 inductive RCell where
   | leaf (name content : String)
   | node (name : String) (children : List RCell)
+  | coll (content : String)
   deriving Inhabited
 
 namespace RCell
 def name : RCell → String
   | .leaf n _ => n
   | .node n _ => n
+  | .coll _ => ""
 /-- Each word capitalized, the dashes dropped. -/
 def capList : Bool → List Char → List Char
   | _, [] => []
@@ -2974,6 +2977,7 @@ mutual
   def sorts : RCell → List String
     | .leaf n c => [(RCell.leaf n c).sort, (RCell.leaf n c).optSort]
     | .node n cs => [(RCell.node n cs).sort, (RCell.node n cs).optSort, (RCell.node n cs).fragSort] ++ sortsList cs
+    | .coll _ => []
   def sortsList : List RCell → List String
     | [] => []
     | x :: xs => sorts x ++ sortsList xs
@@ -2984,6 +2988,7 @@ mutual
   def syms : RCell → List String
     | .leaf n c => [(RCell.leaf n c).label, (RCell.leaf n c).noLabel]
     | .node n cs => [(RCell.node n cs).label, (RCell.node n cs).noLabel, (RCell.node n cs).fragLabel] ++ symsList cs
+    | .coll _ => []
   def symsList : List RCell → List String
     | [] => []
     | x :: xs => syms x ++ symsList xs
@@ -3002,6 +3007,7 @@ mutual
       let ids : CellIds := ⟨← N.srtE x.sort, some (← N.srtE x.optSort), some (← N.srtE x.fragSort),
         ← N.symE x.label, some (← N.symE x.noLabel), some (← N.symE x.fragLabel)⟩
       pure (.node n (← numList N cs) ids)
+    | .coll c => do pure (.coll (← N.srtE c))
   def numList (N : Names) : List RCell → Rd (List Cell)
     | [] => pure []
     | x :: xs => do pure ((← num N x) :: (← numList N xs))
@@ -3009,16 +3015,19 @@ end
 end RCell
 
 /-- The cell tree below the cell of sort `X` (fuel: the depth; `cellFuelOfR` for the text's
-configuration). -/
-def cellOf (syms : List Kore.SentenceSymbol) : Nat → String → Rd RCell
+configuration), `colls` the text's collection sorts: a node where the cell's arguments are cell
+sorts, or cell sorts and collection sorts with at least one cell sort (a collection argument is a
+`*` cell's collection beside its siblings: `RCell.coll`); a leaf of one argument otherwise. -/
+def cellOf (syms : List Kore.SentenceSymbol) (colls : List String) : Nat → String → Rd RCell
   | 0, X => fail .configuration X
   | fuel + 1, X => do
     let s ← need (cellSym? syms X) .configuration X
     Rd.within (.sentence (.symbol s)) do
       let n ← need (cellName? s.symbol.ident.ident.name) .cellShape
       let args ← s.sorts.mapM sortNameE
-      if !args.isEmpty && args.all (fun a => (cellSym? syms a).isSome) then
-        pure (.node n (← args.mapM (cellOf syms fuel)))
+      let isCell := fun (a : String) => (cellSym? syms a).isSome
+      if args.any isCell && args.all (fun a => isCell a || colls.contains a) then
+        pure (.node n (← args.mapM fun a => if isCell a then cellOf syms colls fuel a else pure (.coll a)))
       else match args with
         | [a] => pure (.leaf n a)
         | _ => fail .cellShape
@@ -3029,9 +3038,10 @@ is read to its full depth; a cell sort below itself (no tree) exhausts it (`conf
 def cellFuelOfR (syms : List Kore.SentenceSymbol) : Nat :=
   (syms.filter fun s => hasKey s.attributes .cell).length + 1
 
-/-- The user's configuration: the children of `<generatedTop>` before the counter. -/
-def configOf (syms : List Kore.SentenceSymbol) : Rd (List RCell) := do
-  match ← cellOf syms (cellFuelOfR syms) "GeneratedTopCell" with
+/-- The user's configuration: the children of `<generatedTop>` before the counter, `colls` the text's
+collection sorts. -/
+def configOf (syms : List Kore.SentenceSymbol) (colls : List String) : Rd (List RCell) := do
+  match ← cellOf syms colls (cellFuelOfR syms) "GeneratedTopCell" with
   | .node _ cs => match cs.getLast? with
     | some (.leaf "generatedCounter" "Int") => if cs.length ≥ 2 then pure cs.dropLast else fail .configuration
     | _ => fail .configuration "GeneratedCounterCell"
@@ -4245,7 +4255,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let src ← need (source? m.attributes) .moduleSource
   -- the module's attributes, as `attrVerdict` rules them at class `module`
   if let some (r, d) := attrFault? .module .outsideE2 m.attributes then fail r d
-  let rconfig ← configOf S.syms
+  let rconfig ← configOf S.syms (S.colls.map (·.1))
   -- the builtin modules with a sentence in the text, in the library's order
   let mods ← S.builtin.mapM fun (s, l) =>
     Rd.within (.builtin s l) (need (moduleAt s l) .builtinModule s)
@@ -4283,7 +4293,7 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
   let isCtorDecl := fun (s : Kore.SentenceSymbol) => isFreezer s || hasAttr s.attributes "constructor"
   let ownSortNames := cellSortNames ++ userSortNames
   -- the configuration's cells, the generated top and counter cells included
-  let configSyms := match cellOf S.syms (cellFuelOfR S.syms) "GeneratedTopCell" with
+  let configSyms := match cellOf S.syms (S.colls.map (·.1)) (cellFuelOfR S.syms) "GeneratedTopCell" with
     | .ok t => RCell.symsList [t]
     | .error _ => RCell.symsList rconfig
   let collCells := S.syms.filter fun s => hasAttr s.attributes "cell" && isUserSource s.attributes &&
@@ -5231,14 +5241,14 @@ def cellPartsOf (S : Scan) (E : Env) (core : Semantics) : Rd CellParts := do
   -- the leaf whose initializer's right-hand side holds `$PGM` (`pgmSortOf` reads its sort there)
   let pgmCell := (cells.findSome? fun x => match x with
     | .leaf n _ _ => if (eqs.find? (·.fn == x.initLabel core)).any (holdsPgm 16 ·.rhs) then some n else none
-    | .node .. => none)
+    | _ => none)
   pure { sortUids := ← E.userSortNames.mapM (sortUidOf S.syms eqs)
          cellUids := ← (Cell.topSorts E.config).mapM fun X => do pure (X, ← sortUidOf S.syms eqs (core.sortName X))
          cellInits := ← cells.mapM fun x => do pure (x.name, ← initUidOf eqs (x.initLabel core))
          cellValues := cells.filterMap fun x => match x with
            | .leaf n _ _ => if pgmCell == some n || n == "generatedCounter" then none
                             else (valueOf E.N eqs (x.initLabel core)).map (n, ·)
-           | .node .. => none
+           | _ => none
          pgmCell }
 
 /-- The presentation from the productions, the rules, the core and its cell parts. -/

@@ -7,12 +7,17 @@ Usage (from kcore-spec):
       the entries FIX-core does not hold (below), grouped by list, status and evidence form, each
       with the evidence present and missing; prints the count per group, and every entry when no
       FILE is given (with FILE, the entries go there)
-  python3 -I test/constructs/rest.py check [--report] [--fresh] [--list LFILE] [--out FILE] [ROWS.toml]
+  python3 -I test/constructs/rest.py check [--report] [--fresh] [--gate] [--list LFILE] [--out FILE] [ROWS.toml]
       DONE-0 C2's check of every entry, FIX-core's included: an entry fails when an item its form
       needs is missing; prints per list and form how many entries have their evidence, and the
       failures (all of them into FILE, the first 40 on the output); with --list, also the list
       above (its entries into LFILE); exit 1 on a failure, exit 0 with --report (failures listed,
       not failing: test/constructs.sh's mode until the closing check of FIX-rest)
+      Then the entries whose reading is owed (READER_OWED): every entry of status supported,
+      parameter or inert with reader_does_it = false, with the ticket that owes the reading; exit 1
+      (--report or not) on one that names no ticket, or whose ticket is done or not in PROGRESS
+      (KCORE_PROGRESS, else ../progress beside kcore-spec, else the main checkout's, as units.py);
+      with --gate (the completion gate), on every one
   python3 -I test/constructs/rest.py --self-test
       the check on entries and fixtures written to a scratch directory, each accepted or refused
       as expected
@@ -60,6 +65,21 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
                    where the entry has a fixture, its account prints `N inert X` with N above 0
       tie, theorems (C14's statement for the class: Γ c ⊧ tr s); for an E6 row, its e6_tie as above
+  inert of class attribute (`inert_class = "attribute"`): an attribute of a read sentence or
+  declaration to which K gives no meaning
+      attribute    `attribute`, the attribute's head as KORE writes it (UNIQUE'Unds'ID, cool-like, unit)
+      pairs        `attr_pairs`, pairs [TEXT, COMPANION] of texts f2-examples/*.kore: the two differ,
+                   and are equal once every attribute of that head is removed from both (and kfix.py's
+                   stripped applied: Source, Location, comments and module names); at least one
+      tie          `tie` holds a file that reads the fixture's own text (f2-examples/FIXTURE.kompile.kore),
+                   other than test/InertSemPairs.lean
+      theorems     as above, among them KCore.InertSemPairs.trS_attrs (the translation of a sentence
+                   reads none of its attributes); `reader_tests` (a sem_eq of the pair: the reader
+                   builds one semantics from both) are not evidence and are not counted
+      reason       a reason sentence (`reason`): why K gives the attribute no meaning
+  inert of class use: also refused where the entry's fixture differs from its companion (its
+      fixture.toml has `differs_from`, or the entry has `attr_pairs`): class use is DONE-0 C1's
+      (proof tasks, solver encodings, parsing and unparsing of programs), never a text difference
   inert of class use (`inert_class = "use"`)
       reason       a reason sentence (`reason`): C1's class use
   erased (findings/work/decision-fixrest-erased-forms.md section 4): at least one of the forms
@@ -167,6 +187,8 @@ def form(l, key, e):
                 "supported hook" if key.startswith("hook:") else "supported E6")
     if s == "inert" and e.get("inert_class") == "use":
         return "inert (use)"
+    if s == "inert" and e.get("inert_class") == "attribute":
+        return "inert (attribute)"
     return s
 
 
@@ -456,6 +478,16 @@ def evidence(fx, l, key, e, row):
         derived(["c"])
     elif f == "inert (use)":
         reason_sentence(["reason"])
+        comp = [x for x in own if fx.conf(x).get("differs_from")]
+        item(not comp and not e.get("attr_pairs"), "no companion (C1's class use)",
+             "class use on a text difference (" + (f"{comp[0]} differs_from {fx.conf(comp[0])['differs_from']}"
+                                                  if comp else "attr_pairs") + "): use is C1's class only")
+    elif f == "inert (attribute)":
+        attribute_items(fx, e, own, item, miss)
+        ties()
+        if "KCore.InertSemPairs.trS_attrs" not in (e.get("tie_theorems") or []):
+            miss.append("theorems (KCore.InertSemPairs.trS_attrs not named)")
+        reason_sentence(["reason"])
     elif f == "inert":
         cls = [c for c in [e.get("inert_class")] + [x.split(".", 1)[1] for x in (e.get("reasons") or [])
                if isinstance(x, str) and x.startswith("InertReason.")] if isinstance(c, str)]
@@ -662,8 +694,8 @@ def main(argv):
     for o in ("--out", "--list"):
         if o in argv:
             i = argv.index(o); opt[o] = argv[i + 1]; del argv[i:i + 2]
-    report, fresh = "--report" in argv, "--fresh" in argv
-    argv = [a for a in argv if a not in ("--report", "--fresh")]
+    report, fresh, gate = "--report" in argv, "--fresh" in argv, "--gate" in argv
+    argv = [a for a in argv if a not in ("--report", "--fresh", "--gate")]
     t = tomllib.load(open(argv[0] if argv else os.path.join(HERE, "rows.toml"), "rb"))
     fx = Fixtures(os.path.join(HERE, "fixtures"), fresh, t)
     res = run(t, fx)
@@ -672,7 +704,134 @@ def main(argv):
         return 0
     if "--list" in opt:
         print_list([r for r in res if not r[4]], fresh, opt["--list"])
-    return print_check(res, fresh, report, opt.get("--out"))
+    rc = print_check(res, fresh, report, opt.get("--out"))
+    return print_reader_owed(t, gate) or rc
+
+
+# ------------------------------------------------------------------------- inert of class attribute
+
+def without_attribute(kore, head):
+    """The text with every attribute of the head removed from its attribute lists: an application
+    `HEAD{}(...)` standing at the start of a list or after a comma, with the comma that joins it."""
+    rx = re.compile(r"(\[|, ?)" + re.escape(head) + r"\{\}\(")
+    out, i = [], 0
+    while True:
+        m = rx.search(kore, i)
+        if not m:
+            out.append(kore[i:]); return "".join(out)
+        import kfix
+        end = kfix._close(kore, m.end() - 1) + 1
+        if m[1] == "[":
+            out.append(kore[i:m.end(1)])
+            end += 2 if kore[end:end + 2] == ", " else 1 if kore[end:end + 1] == "," else 0
+        else:
+            out.append(kore[i:m.start()])
+        i = end
+
+
+def attr_pair(a, b, head):
+    """(equal, why) for two texts (paths relative to kcore-spec): they differ, and are equal once
+    every attribute of the head is removed and kfix.py's stripped is applied to both."""
+    import kfix
+    pa, pb = os.path.join(K, a), os.path.join(K, b)
+    for p, n in ((pa, a), (pb, b)):
+        if not os.path.isfile(p):
+            return False, f"{n} does not exist"
+    ta, tb = kfix.stripped(open(pa).read()), kfix.stripped(open(pb).read())
+    if ta == tb:
+        return False, f"{a} and {b} are equal: no difference for the attribute to be"
+    if without_attribute(ta, head) != without_attribute(tb, head):
+        return False, f"{a} and {b} differ beyond {head}"
+    return True, f"{a} = {b} without {head}"
+
+
+def attribute_items(fx, e, own, item, miss):
+    """The items of inert of class attribute other than the tie, its theorems and the reason."""
+    head = e.get("attribute")
+    item(isinstance(head, str) and bool(head), f"attribute {head}", "attribute (its KORE head)")
+    ps = e.get("attr_pairs") or []
+    if not ps:
+        miss.append("attr_pairs (a text and its companion, equal without the attribute)")
+    for p in ps:
+        if not (isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)):
+            miss.append(f"attr_pairs item {p!r} is not [TEXT, COMPANION]"); continue
+        if isinstance(head, str):
+            ok, why = attr_pair(p[0], p[1], head)
+            item(ok, f"pair {why}", f"pair ({why})")
+    x = own[0] if own else None
+    ts = e.get("tie") if isinstance(e.get("tie"), list) else []
+    reads = [f for f in ts if f != "test/InertSemPairs.lean" and x and os.path.isfile(os.path.join(K, f))
+             and f"f2-examples/{x}.kompile.kore" in open(os.path.join(K, f)).read()]
+    item(bool(reads), f"tie of the fixture's text ({', '.join(reads)})",
+         "tie of the fixture's text (no file of `tie` other than test/InertSemPairs.lean reads "
+         + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
+
+
+# ------------------------------------------------------------------------------- the reading owed
+
+# The reading an entry's status is owed by, while the reader does not do it (`reader_does_it =
+# false` on an entry of status supported, parameter or inert): the ticket of PROGRESS that makes the
+# reader do it, with the entries it owes, each named by its fixture or by "<list> <row key>". An
+# entry is accepted while its ticket is in PROGRESS and not done; the completion gate (--gate)
+# accepts none.
+READER_OWED = [
+    ("RDR.read-cellcoll-own", ["rdr-cellcoll-own"]),
+    ("RDR.read-hook-assoc", ["rdr-hook-assoc"]),
+    ("RDR.read-keq-only", ["rdr-keq-only"]),
+    ("RDR.read-pred-rule", ["rdr-pred-rule"]),
+    ("RDR.builtin-own-reading", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
+]
+OWED_STATUSES = ("supported", "parameter", "inert")
+
+
+def progress_status():
+    """{ticket id: status} of PROGRESS/tickets-*.toml, PROGRESS as units.py resolves it, or None."""
+    import glob
+    kr = os.environ.get("K_RUST", os.path.expanduser(
+        "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
+    prog = os.environ.get("KCORE_PROGRESS") or next(
+        (d for d in (os.path.join(K, "../progress"),
+                     os.path.join(kr, "draft-personal/k-semantics-core-2026-11/progress"))
+         if os.path.isdir(d)), None)
+    files = sorted(glob.glob(os.path.join(prog, "tickets-*.toml"))) if prog else []
+    if not files:
+        return None
+    st = {}
+    for f in files:
+        st |= {k: v.get("status") for k, v in tomllib.load(open(f, "rb")).get("ticket", {}).items()
+               if isinstance(v, dict)}
+    return st
+
+
+def reader_owed(t, owed, tstatus, gate):
+    """[(where, ticket or None, failure or None)] over the entries of a status in OWED_STATUSES
+    with reader_does_it = false."""
+    out = []
+    for l, key, where, e, row in entries(t):
+        if e.get("status") not in OWED_STATUSES or e.get("reader_does_it") is not False:
+            continue
+        names = {f"{l} {key}"} | ({e["fixture"]} if isinstance(e.get("fixture"), str) else set())
+        tid = next((tid for tid, sel in owed if names & set(sel)), None)
+        st = (tstatus or {}).get(tid)
+        why = ("the completion gate: the reader does not do it" if gate else
+               "names no ticket that owes the reading (READER_OWED)" if tid is None else
+               "PROGRESS has no ticket file" if tstatus is None else
+               f"ticket {tid} is not in PROGRESS" if st is None else
+               f"ticket {tid} is done, and the entry still says the reader does not do it" if st == "done"
+               else None)
+        out.append((where, tid, why))
+    return out
+
+
+def print_reader_owed(t, gate):
+    """The entries whose reading is owed, each with its ticket; returns the exit code."""
+    rs = reader_owed(t, READER_OWED, progress_status(), gate)
+    bad = [r for r in rs if r[2]]
+    print(f"reader-owed: {len(rs)} entries of status {', '.join(OWED_STATUSES)} with reader_does_it = false"
+          + (" (completion gate: none accepted)" if gate else f", {len(rs) - len(bad)} owed by a ticket not done"))
+    for where, tid, why in rs:
+        print(f"    {where}: {tid or 'no ticket'}" + (f"; FAILS: {why}" if why else ""))
+    return 1 if bad else 0
 
 
 # ------------------------------------------------------------------------------------ self-test
@@ -724,6 +883,27 @@ def self_test():
         fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
+        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", "")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
+            if conf:
+                open(os.path.join(fxd, name, "fixture.toml"), "w").write(conf)
+        txt = ("module M\n  axiom{R} f{}() [UNIQUE'Unds'ID{}(\"%s\"), org.kframework.attributes.Location("
+               "Location(%d,1,1,2))]\n  axiom{R} g{}() [%s]\nendmodule []\n")
+        ta, tb, tc = (os.path.relpath(os.path.join(d, n), K) for n in ("a.kore", "b.kore", "c.kore"))
+        for n, args in ((ta, ("a1", 1, "UNIQUE'Unds'ID{}(\"x\")")), (tb, ("b2", 7, "")),
+                        (tc, ("a1", 1, "cool-like{}()"))):
+            open(os.path.join(K, n), "w").write(txt % args)
+        sp = "test/InertSemPairs.lean"
+        attr = {"status": "inert", "inert_class": "attribute", "fixture": "e1-module", "attribute": "UNIQUE'Unds'ID",
+                "attr_pairs": [[ta, tb]], "tie": ["test/TieE1Module.lean", sp],
+                "tie_theorems": ["KCore.TieE1Module.fns_entailed", "KCore.InertSemPairs.trS_attrs"],
+                "reader_tests": ["KCore.InertSemPairs.StrictAlias.sem_eq"], "reason": "an identifier"}
+        if not (without_attribute("[a{}(), u{}(b{}(\"(\")), c{}()] [u{}()] [x{}(), u{}()]", "u")
+                == "[a{}(), c{}()] [] [x{}()]"):
+            print("rest self-test: FAILS: without_attribute")
+            return 1
         cases = [
             # (list, key, entry, accepted)
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} f"], "tie": [tie],
@@ -791,6 +971,15 @@ def self_test():
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, False),
             ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1"}, True),
             ("E3", "A", {"status": "inert", "inert_class": "use"}, False),
+            ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "cmp"}, False),
+            ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1", "attr_pairs": [[ta, tb]]}, False),
+            ("E7", "A", attr, True),
+            ("E7", "A", dict(attr, attr_pairs=[[ta, tc]]), False),
+            ("E7", "A", dict(attr, attr_pairs=[[ta, ta]]), False),
+            ("E7", "A", dict(attr, attribute="cool-like"), False),
+            ("E7", "A", dict(attr, tie=[sp], tie_theorems=["KCore.InertSemPairs.trS_attrs"]), False),
+            ("E7", "A", dict(attr, tie_theorems=["KCore.TieE1Module.fns_entailed"]), False),
+            ("E7", "A", {k: v for k, v in attr.items() if k != "reason"}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "c", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
@@ -830,6 +1019,22 @@ def self_test():
                      print_check([], True, False, None))
         if codes != (1, 0, 0):
             bad.append(f"check exit codes (failing, --report, none failing): {codes}, expected (1, 0, 0)")
+        t = {"E2": {"P": {"status": "supported", "reader_does_it": False, "cases": [
+                 {"case": "c", "status": "inert", "fixture": "rdr-x", "reader_does_it": False},
+                 {"case": "d", "status": "refused", "fixture": "rdr-y", "reader_does_it": False}]},
+                    "Q": {"status": "parameter", "reader_does_it": False},
+                    "R": {"status": "supported", "reader_does_it": True}}}
+        owed = [("T.one", ["rdr-x"]), ("T.two", ["E2 P"]), ("T.done", ["E2 Q"])]
+        st = {"T.one": "running", "T.two": "pending", "T.done": "done"}
+        got = [(w, tid, bool(why)) for w, tid, why in reader_owed(t, owed, st, False)]
+        want = [("E2 'P'", "T.two", False), ("E2 'P' cases[0] ('c')", "T.one", False), ("E2 'Q'", "T.done", True)]
+        if got != want:
+            bad.append(f"reader_owed: {got}, expected {want}")
+        got = [(w, tid, bool(why)) for w, tid, why in reader_owed(t, owed[:1], st, False)]
+        if [x[2] for x in got] != [True, False, True] or got[0][1] is not None:
+            bad.append(f"reader_owed without an owing ticket: {got}")
+        if not all(why for _, _, why in reader_owed(t, owed, st, True)):
+            bad.append("reader_owed --gate accepts an entry")
         for b in bad:
             print(f"rest self-test: FAILS: {b}")
         print(f"rest self-test: {len(cases)} entries and the core predicate, {len(bad)} failing")
