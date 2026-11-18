@@ -229,7 +229,7 @@ theorem stdI_T_model_held (c : Semantics) {H : Sym → Bool} (h : c.coreOK = tru
     (hsome : ∀ r σ x y, StepVBy c r σ x y → r.exs ≠ [] → ∃ y' σ',
        (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepVBy c r σ' x y' ∧ T x y') :
     stdI_T c T ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model_held_fns c h hm hl hrules T (AtT.satFnsGoal_decided hm hp) hsub hall hsome
+  stdI_T_model_held_fns c h hm hl hrules T (AtT.satFnsGoal_decided hm (Semantics.fnsNoExs_of_coreOK h) hp) hsub hall hsome
 
 /-- **The theory of a definition whose rules have `pre` and `post` is consistent**: for a semantics
 that `coreOK` accepts, whose functions have at most one result (`FnDet`), whose evaluation

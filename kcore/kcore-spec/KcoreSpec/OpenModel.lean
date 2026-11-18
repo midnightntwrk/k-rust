@@ -111,7 +111,7 @@ theorem ruleSorted_partsOpen {r : Rule} (hs : c.ruleSorted r = true) (hp : c.rul
 left aside: `ruleSorted` and `rulePlainHO1`. -/
 theorem HypModelCore.ruleFactsHO1 (h : HypModelCore c) {r : Rule} (hr : r ∈ c.rules) :
     c.ruleSorted r = true ∧ c.rulePlainHO1 r = true := by
-  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
+  obtain ⟨-, -, hrs, hrp, -⟩ := Semantics.sortedOKClEx_parts h.hyp.1
   exact ⟨List.all_eq_true.mp hrs r hr, Semantics.rulesPlain_iff_held.mp hrp r hr⟩
 
 /-- Where every rule has `rulePlainEx` (a decidable fact of the rules), `HypModelCore` gives
@@ -182,7 +182,7 @@ well-sorted σ is, when defined, a configuration. -/
 theorem rhs_sorted_open (h : HypModelCore c) {r : Rule} (hs : c.ruleSorted r = true) {σ : Subst}
     (hσ : c.WellSorted r.vars σ) {v : GroundTerm} (he : EvalTerm c σ r.rhs (some v)) :
     c.sortOf v = some topCellSort :=
-  EvalTerm.sorted (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase) he
+  EvalTerm.sorted (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase) he
     (fun k hk => by
       obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk; exact ⟨g, List.mem_append_left _ hg, rfl⟩) hσ
     (Semantics.ruleSorted_parts c hs).2.2.2 rfl

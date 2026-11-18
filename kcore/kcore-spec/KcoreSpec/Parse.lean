@@ -3581,12 +3581,104 @@ def isStreamRule (a : Kore.Axiom) : Bool :=
   | .rewrites _ _ (.and _ [_, .top _]) => true
   | _ => false
 
+/-- The name of the default configuration's cell `<k>` (`defaultConfigCell`). -/
+def ownBuiltinKCellName : String := "Lbl'-LT-'k'-GT-'"
+
+/-- The sort or symbol a declaration declares: its KORE name. -/
+def ownBuiltinDeclName? : Kore.Sentence → Option String
+  | .sort s => some s.sort.ident.name
+  | .hookedSort s => some s.sort.ident.name
+  | .symbol s => some s.symbol.ident.ident.name
+  | .hookedSymbol h => some h.symbol.ident.ident.name
+  | .alias a => some a.alias.ident.ident.name
+  | _ => none
+
+/-- The names of the texts the reader holds for K's builtin files: the registry's sorts and
+symbols, the sorts and symbols the library's text declares (`builtinText`, the `KERNEL` module
+with the modules of `library`), K-REFLECTION's (`reflectionModuleText`) and the default
+configuration's cell (`defaultConfigCell`). Each has the meaning those texts give it. -/
+def ownBuiltinLibNames : List String :=
+  regSortNames.map ("Sort" ++ ·) ++ regSymNames ++
+  ((builtinText false).modules.flatMap (·.sentences) ++ reflectionModuleText).filterMap ownBuiltinDeclName? ++
+  [ownBuiltinKCellName]
+
+/-- The symbol heading a pattern written at a defined head: an application, under `\ceil` or
+`\floor`, or first in a conjunction (a rule's left side, `f(…) ∧ requires`). -/
+def ownBuiltinLhsHead? : Kore.Pattern → Option String
+  | .app h _ _ => some h.ident.name
+  | .ceil _ _ (.app h _ _) => some h.ident.name
+  | .floor _ _ (.app h _ _) => some h.ident.name
+  | .and _ (.app h _ _ :: _) => some h.ident.name
+  | _ => none
+
+/-- The symbol an axiom states something of: the head of a rewrite axiom's left side, of an
+equation's left side (`\implies(req, \equals(f(…), rhs))`, a `\ceil` lemma's `\ceil(f(…))`), or
+the symbol a `functional` axiom applies (`∃v. v = f(…)`); none for any other shape. -/
+def ownBuiltinAxiomHead? (a : Kore.Axiom) : Option String :=
+  let concl := fun (c : Kore.Pattern) => match c with
+    | .equals _ _ l _ => ownBuiltinLhsHead? l
+    | .and _ (.equals _ _ l _ :: _) => ownBuiltinLhsHead? l
+    | .exist _ _ (.equals _ _ _ r) => ownBuiltinLhsHead? r
+    | _ => none
+  match a.pattern with
+  | .rewrites _ l _ => ownBuiltinLhsHead? l
+  | .implies _ _ c => concl c
+  | p => concl p
+
+/-- The sorts and symbols an axiom without a defined head constrains: a subsort axiom's two sorts
+(`subsort{A, B}`), a no-junk axiom's sort and the symbols heading its disjuncts but `inj`
+(`\or{S}(…)`), a no-confusion axiom's two symbols (`¬(f(…) ∧ g(…))`), an injectivity axiom's
+symbol (`f(…) ∧ f(…) → …`); none for any other shape. -/
+def ownBuiltinConstrained? (a : Kore.Axiom) : Option (List String) :=
+  let srtName := fun (s : Kore.KSort) => (sortName? s).map ("Sort" ++ ·)
+  match a.attributes.find? (·.head.ident.name == "subsort"), a.pattern with
+  | some ⟨_, [A, B], _⟩, _ => do pure [← srtName A, ← srtName B]
+  | some _, _ => none
+  | none, .or s ds => do
+    pure ((← srtName s) :: ds.filterMap fun d => match (binders eqnFuel d).2 with
+      | .app h _ _ => if h.ident.name == "inj" then none else some h.ident.name
+      | _ => none)
+  | none, .not _ (.and _ [.app f _ _, .app g _ _]) => some [f.ident.name, g.ident.name]
+  | none, .implies _ (.and _ [.app f _ _, .app g _ _]) _ => some [f.ident.name, g.ident.name]
+  | none, _ => none
+
+/-- A sentence of a K installation's builtin file about names of its own: a declaration of a name
+none of the texts the reader holds for those files declares (`ownBuiltinLibNames`); an axiom
+without a defined head every sort and symbol of which it constrains (`ownBuiltinConstrained?`) is
+no such name (a subsort axiom into a library sort, a no-junk axiom of a library sort are not); any
+other axiom whose head (`ownBuiltinAxiomHead?`) is no such name and not `inj`. -/
+def ownBuiltinNamed (s : Kore.Sentence) : Bool :=
+  let as := match s with
+    | .sort x => x.attributes
+    | .hookedSort x => x.attributes
+    | .symbol x => x.attributes
+    | .hookedSymbol x => x.attributes
+    | .alias x => x.attributes
+    | .axiom x => x.attributes
+    | _ => []
+  isKBuiltin as &&
+  match s with
+  | .axiom a => match ownBuiltinConstrained? a with
+    | some ns => !ns.isEmpty && ns.all (!ownBuiltinLibNames.contains ·)
+    | none => (ownBuiltinAxiomHead? a).any fun h => h != "inj" && !ownBuiltinLibNames.contains h
+  | _ => (ownBuiltinDeclName? s).any (!ownBuiltinLibNames.contains ·)
+
+/-- A sentence of a K installation's builtin file read as the definition's own, as a sentence of a
+user's file is (`classifyKBuiltin`): no sentence of the library's text up to its place
+(`kBuiltinModule?`), and about names of its own (`ownBuiltinNamed`). It states only what it says
+of names to which no text the reader holds gives a meaning. A sentence about a library name is the
+library's sentence, read as the library's, or states something else of the library's name, which
+the reader does not read (`RefusalReason.builtinText`). -/
+def isOwnBuiltin (s : Kore.Sentence) : Bool :=
+  ownBuiltinNamed s && (kBuiltinModule? s).isNone
+
 /-- A sentence of a K installation's builtin file that is read as the definition's own: one of
-K-REFLECTION's (`isReflectionSentence`) or a stream module's rule (`isStreamRule`). -/
+K-REFLECTION's (`isReflectionSentence`), a stream module's rule (`isStreamRule`), or one about
+names of its own (`isOwnBuiltin`). -/
 def isOwnLibrarySentence (s : Kore.Sentence) : Bool :=
   match s with
-  | .axiom a => isStreamRule a
-  | _ => isReflectionSentence s
+  | .axiom a => isStreamRule a || isOwnBuiltin s
+  | _ => isReflectionSentence s || isOwnBuiltin s
 
 /-- A symbol declared as a macro or an alias. -/
 def isMacroDecl (attrs : List Kore.AppPattern) : Bool :=
@@ -3714,7 +3806,7 @@ mutual
 end
 
 def scanHeads : Kore.Sentence → Option (List String)
-  | .axiom a => if isUserSource a.attributes || isStreamRule a then
+  | .axiom a => if isUserSource a.attributes || isStreamRule a || isOwnBuiltin (.axiom a) then
       (match extraHeads a.pattern with | [] => none | hs => some hs) else none
   | _ => none
 
@@ -3730,7 +3822,8 @@ def isLabelAttr (a : Kore.AppPattern) : Bool := a.head.ident.name == "label"
 def sortAttrs (s : Kore.SentenceSort) : List Kore.AppPattern := s.attributes.filter (!isLabelAttr ·)
 
 def scanLocSort : Kore.Sentence → Option (String × KoreAML.Loc × String)
-  | .sort s => if isUserSource s.attributes && ((sortAttrs s).filter (!isPlaceAttr ·)).all isTokenSortAttr &&
+  | .sort s => if (isUserSource s.attributes || isOwnBuiltin (.sort s)) &&
+      ((sortAttrs s).filter (!isPlaceAttr ·)).all isTokenSortAttr &&
       (s.attributes.filter isPlaceAttr).length == 2 then do
       pure (← dropPrefix? "Sort" s.sort.ident.name, ← loc? s.attributes, ← source? s.attributes)
     else none
@@ -3743,10 +3836,11 @@ def carrierOf? : String → Option String
   | "STRING.String" => some "String" | "BYTES.Bytes" => some "Bytes"
   | _ => none
 
-/-- A sort of the user's file hooked under its own name to a library carrier
-(`syntax MyInt [hook(INT.Int)]`): its name and its carrier's. -/
+/-- A sort of the user's file (or of a builtin file, read as the definition's own: `isOwnBuiltin`)
+hooked under its own name to a library carrier (`syntax MyInt [hook(INT.Int)]`): its name and its
+carrier's. -/
 def scanCarrier : Kore.Sentence → Option (String × String)
-  | .hookedSort s => if isUserSource s.attributes then
+  | .hookedSort s => if isUserSource s.attributes || isOwnBuiltin (.hookedSort s) then
       (do pure (← dropPrefix? "Sort" s.sort.ident.name, ← (attrStr? s.attributes "hook").bind carrierOf?))
     else none
   | _ => none
@@ -3763,32 +3857,39 @@ def scanPlainSort : Kore.Sentence → Option String
   | _ => none
 
 /-- A token sort of the definition: a sort declared with domain values (`hasDomainValues`), from
-the user's file (`syntax X [token]`, with its place and `token{}()`) or without a place (a sort K
-infers from a token production, `syntax X ::= r"…" [token]`): its values are its literals. -/
+the user's file (`syntax X [token]`, with its place and `token{}()`; or a builtin file's, read as
+the definition's own: `isOwnBuiltin`) or without a place (a sort K infers from a token production,
+`syntax X ::= r"…" [token]`): its values are its literals. -/
 def scanTokenSort : Kore.Sentence → Option String
-  | .sort s => if hasAttr s.attributes "hasDomainValues" && (isUserSource s.attributes || (sortAttrs s).length == 1) &&
+  | .sort s => if hasAttr s.attributes "hasDomainValues" &&
+      (isUserSource s.attributes || (sortAttrs s).length == 1 || isOwnBuiltin (.sort s)) &&
       ((sortAttrs s).filter (!isPlaceAttr ·)).all isTokenSortAttr then dropPrefix? "Sort" s.sort.ident.name else none
   | _ => none
 
-/-- A constructor or function of the user's files (no cell), a freezer, or a constructor of
-K-REFLECTION (`isReflectionSentence`), read as the user's. -/
+/-- A constructor or function of the user's files (no cell), a freezer, a constructor of
+K-REFLECTION (`isReflectionSentence`), or a constructor or function of a builtin file read as the
+definition's own (`isOwnBuiltin`, no cell), read as the user's. -/
 def scanUserSym : Kore.Sentence → Option Kore.SentenceSymbol
   | .symbol s => if (isUserSource s.attributes && !hasAttr s.attributes "cell") || isFreezer s ||
-      (isKBuiltin s.attributes && isReflectionSentence (.symbol s)) then some s else none
+      (isKBuiltin s.attributes && (isReflectionSentence (.symbol s) ||
+        (isOwnBuiltin (.symbol s) && !hasAttr s.attributes "cell"))) then some s else none
   | _ => none
 
-/-- A hooked symbol of the user's file, one K generates for a collection sort (no source), or one
-of K-REFLECTION (`isReflectionSentence`), read as the user's. -/
+/-- A hooked symbol of the user's file, one K generates for a collection sort (no source), one
+of K-REFLECTION (`isReflectionSentence`), or one of a builtin file read as the definition's own
+(`isOwnBuiltin`), read as the user's. -/
 def scanUserHooked : Kore.Sentence → Option Kore.HookedSymbol
   | .hookedSymbol h => if isUserSource h.attributes || (source? h.attributes).isNone ||
-      (isKBuiltin h.attributes && isReflectionSentence (.hookedSymbol h)) then some h else none
+      (isKBuiltin h.attributes && (isReflectionSentence (.hookedSymbol h) || isOwnBuiltin (.hookedSymbol h)))
+    then some h else none
   | _ => none
 
-/-- A sort-parametric function declared in a user's file (`UnreadReason.parametricUnused`): not a
-macro, not a constructor. -/
+/-- A sort-parametric function declared in a user's file, or in a builtin file read as the
+definition's own (`isOwnBuiltin`) (`UnreadReason.parametricUnused`): not a macro, not a constructor. -/
 def scanParamDecl : Kore.Sentence → Option Kore.SentenceSymbol
-  | .symbol s => if !s.symbol.sortVars.isEmpty && isUserSource s.attributes && !isMacroDecl s.attributes &&
-      hasAttr s.attributes "function" && !hasAttr s.attributes "constructor" then some s else none
+  | .symbol s => if !s.symbol.sortVars.isEmpty && (isUserSource s.attributes || isOwnBuiltin (.symbol s)) &&
+      !isMacroDecl s.attributes && hasAttr s.attributes "function" && !hasAttr s.attributes "constructor"
+    then some s else none
   | _ => none
 
 def sentenceAttrs : Kore.Sentence → List Kore.AppPattern
@@ -3982,12 +4083,14 @@ def lawHead? (a : Kore.Axiom) : Option String :=
 def lawKeys (a : Kore.Axiom) : List String :=
   ["assoc", "comm", "unit", "idem"].filter (hasAttr a.attributes ·)
 
-/-- A symbol of a user's file declared neither `function` nor `constructor`, nor `anywhere` (an
-overloading symbol's mark), nor a cell (`RefusalReason.openGenerator`; macros are classified before):
-an open generator, read as a `raw` parameter where the text declares it `functional`. -/
+/-- A symbol of a user's file (or of a builtin file, read as the definition's own: `isOwnBuiltin`)
+declared neither `function` nor `constructor`, nor `anywhere` (an overloading symbol's mark), nor a
+cell (`RefusalReason.openGenerator`; macros are classified before): an open generator, read as a
+`raw` parameter where the text declares it `functional`. -/
 def isOpenGenerator (s : Kore.SentenceSymbol) : Bool :=
-  isUserSource s.attributes && !hasKey s.attributes .function && !hasKey s.attributes .constructor &&
-    !hasKey s.attributes .anywhere && !hasKey s.attributes .cell
+  !hasKey s.attributes .function && !hasKey s.attributes .constructor &&
+    !hasKey s.attributes .anywhere && !hasKey s.attributes .cell &&
+    (isUserSource s.attributes || isOwnBuiltin (.symbol s))
 
 /-- The associativity sentence of the symbol `f` of sort `s`, as `[assoc]` writes it:
 `axiom{R} \equals{S, R}(f(f(K1, K2), K3), f(K1, f(K2, K3)))`, attributes aside. -/
@@ -4020,15 +4123,19 @@ def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :
 /-- A sentence of a K installation's builtin file: read when it is a sentence of the library's
 text up to its place; read as the definition's own when it is one of K-REFLECTION's
 (`reflectionAsOwn`; the sort-parametric `#unparseKORE`'s declaration not read) or a stream module's
-rule (`streamRule`); refused otherwise. -/
-def classifyKBuiltin (s : Kore.Sentence) : SentenceClass :=
-  if (kBuiltinModule? s).isSome then .read
+rule (`streamRule`); none when it is about names of its own (`ownBuiltinNamed`), which `classify`
+then reads as a sentence of a user's file (a sort-parametric hooked symbol's declaration not read,
+as `#unparseKORE`'s); refused otherwise. -/
+def classifyKBuiltin (s : Kore.Sentence) : Option SentenceClass :=
+  let own := fun (_ : Unit) => if ownBuiltinNamed s then none else some (.refused .builtinText)
+  if (kBuiltinModule? s).isSome then some .read
   else match s with
-    | .axiom a => if isStreamRule a then .readAs .streamRule else .refused .builtinText
-    | .hookedSymbol h => if !isReflectionSentence s then .refused .builtinText
-        else if !h.symbol.sortVars.isEmpty then .unread .parametricUnused
-        else .readAs .reflectionAsOwn
-    | _ => if isReflectionSentence s then .readAs .reflectionAsOwn else .refused .builtinText
+    | .axiom a => if isStreamRule a then some (.readAs .streamRule) else own ()
+    | .hookedSymbol h => if !isReflectionSentence s then
+          (if !h.symbol.sortVars.isEmpty && ownBuiltinNamed s then some (.unread .parametricUnused) else own ())
+        else if !h.symbol.sortVars.isEmpty then some (.unread .parametricUnused)
+        else some (.readAs .reflectionAsOwn)
+    | _ => if isReflectionSentence s then some (.readAs .reflectionAsOwn) else own ()
 
 /-- The cell `<k>` of `kast.md`'s module `DEFAULT-CONFIGURATION` (`configuration <k> $PGM:K </k>`),
 which K imports into a definition that declares no configuration, as kompile declares it, without
@@ -4177,7 +4284,8 @@ def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   let s := Kore.Sentence.axiom a
   if isBuiltinSource a.attributes then .read
   else if isNoPredSentence s then .unread .noSortPredicate
-  else if isKBuiltin a.attributes then classifyKBuiltin s
+  -- a sentence of a K installation's file about names of its own is read as a user's file's
+  else if let some c := (if isKBuiltin a.attributes then classifyKBuiltin s else none) then c
   else if isCellCollAxiom a then .unread .cellCollectionInjection
   -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
   -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
@@ -4250,8 +4358,10 @@ def classify (N : Names) : Kore.Sentence → SentenceClass
       | none => .inert .claim
   | .alias _ => .refused .aliasDeclaration
   | .symbol s => if isMacroDecl s.attributes then .unread .macroUnused
-      else if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then classifyKBuiltin (.symbol s)
-      else if !s.symbol.sortVars.isEmpty && isUserSource s.attributes then .unread .parametricUnused
+      else if let some c := (if isKBuiltin s.attributes && !isDefaultConfig (.symbol s) then
+          classifyKBuiltin (.symbol s) else none) then c
+      else if !s.symbol.sortVars.isEmpty && (isUserSource s.attributes || ownBuiltinNamed (.symbol s)) then
+        .unread .parametricUnused
       -- an open generator is read where the text declares it `functional`: a parameter symbol
       -- that is a generator of its sort (`ParamSig.raw`)
       else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
@@ -4260,13 +4370,13 @@ def classify (N : Names) : Kore.Sentence → SentenceClass
         | some (r, _) => .refused r
         | none => .read
   | .hookedSymbol s => if isMacroDecl s.attributes then .unread .macroUnused
-      else if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s)
+      else if let some c := (if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s) else none) then c
       else match symAttrFault? s.attributes with
         | some (r, _) => .refused r
         | none => .read
-  | .sort s => if isKBuiltin s.attributes then classifyKBuiltin (.sort s)
+  | .sort s => if let some c := (if isKBuiltin s.attributes then classifyKBuiltin (.sort s) else none) then c
       else if (s.attributes.all sortAttrOK) then .read else .refused .sortAttribute
-  | .hookedSort s => if isKBuiltin s.attributes then classifyKBuiltin (.hookedSort s)
+  | .hookedSort s => if let some c := (if isKBuiltin s.attributes then classifyKBuiltin (.hookedSort s) else none) then c
       else if isBuiltinSource s.attributes || ((attrStr? s.attributes "hook").bind collKind?).isSome ||
         (placelessModule? (.hookedSort s)).isSome || (scanCarrier (.hookedSort s)).isSome then .read
       else .refused .userHookedSort

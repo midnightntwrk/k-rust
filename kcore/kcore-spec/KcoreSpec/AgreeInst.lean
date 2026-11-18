@@ -884,14 +884,12 @@ theorem fnExclusiveI_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
     replace hc1' := hc1'.1
     replace hc2' := hc2'.1
-    exact instAgree_sound hmc (sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1)))
-      (sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2))) (hxs cl h1) (hxs cl' h2) hi
+    exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 (hxs cl h1) (hxs cl' h2) hi
   · have hc1' := hc1; have hc2' := hc2
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
     replace hc1' := hc1'.1
     replace hc2' := hc2'.1
-    exact (instAgree_sound hmc (sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl' h2)))
-      (sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (noFnOvlInL_of_ovlFree hmc _ (hfr cl h1))) (hxs cl' h2) (hxs cl h1) hi).symm
+    exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 (hxs cl' h2) (hxs cl h1) hi).symm
 
 theorem ovlClosure_self (f : Sym) : f ∈ c.ovlClosure f := by
   simp [Semantics.ovlClosure, Semantics.ovlReach]
@@ -990,8 +988,8 @@ theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1' hc2'
   replace hc1' := hc1'.1
   replace hc2' := hc2'.1
-  have hn1 := sortsOfTerms_to_nf _ hc1'.1.1.1.1.1 (hnf cl h1)
-  have hn2 := sortsOfTerms_to_nf _ hc2'.1.1.1.1.1 (hnf cl' h2)
+  have hn1 := hc1'.1.1.1.1.1
+  have hn2 := hc2'.1.1.1.1.1
   simp only [Semantics.pairAgreeO, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((((⟨⟨hf1, hf2⟩, hl⟩ | ⟨-, hi | hi⟩) | hne) | ha) | hh)
   · exact pairAgreeL_sound hmc hf1 hf2 hc1 hc2 (hxs cl h1) (hxs cl' h2) hl hprio

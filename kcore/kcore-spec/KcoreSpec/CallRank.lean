@@ -98,7 +98,7 @@ theorem total_of_totalOKR (hpreTop : c.clausesPreTop = true) (hok : c.sortedOK =
   · have := hfok cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
     replace this := this.1
-    exact ⟨this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfn hcl⟩
+    exact ⟨sortsOfTerms_all_of_nf this.1.1.1.1.1, Semantics.clausesPreTop_spec hpreTop hfn hcl⟩
   · simp only [List.mem_append, List.mem_map, List.mem_singleton] at hg
     rcases hg with (hg | ⟨p, hp, rfl⟩) | hg
     · exact htot g hg

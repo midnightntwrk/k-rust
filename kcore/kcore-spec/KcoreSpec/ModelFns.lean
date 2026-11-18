@@ -386,17 +386,17 @@ theorem fails_false {ws : List GroundTerm} {cl : Clause} {σ : Subst} (hmi : FnD
 
 /-- **A clause that decides gives the function's values**: where it applies under σ and no
 clause of a smaller priority applies, the values of the function are those of its right-hand side
-under σ. For a function of the definition this is `FnSolves`, its clauses having no existential
-variable and the right side's predicate `\top`; a sort predicate's clauses have no
+under σ, for a clause without existential variables. For a function of the definition this is
+`FnSolves`, the right side's predicate of such a clause being `\top`; a sort predicate's clauses have no
 `requires` and a literal as right-hand side, so `solves_of_parts`' conditions hold of it. -/
 theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {cl : Clause} (hcl : cl ∈ fn.clauses)
-    {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args) {σ : Subst} (hdec : cl.DecidesAt c fn σ ws) :
+    (hex : cl.exs = []) {ws : List GroundTerm} (hws : c.sortsOf ws = some fn.args) {σ : Subst} (hdec : cl.DecidesAt c fn σ ws) :
     ∀ v, Eval c fn.label ws (some v) ↔
       EvalTerm c σ cl.rhs (some v) ∧ ∀ t, cl.ens = some t → EvalTerm c σ t (some (bool true)) := by
   rcases List.mem_append.mp hfn with hu | hp
   · intro v
-    have hpl := Semantics.clausePlainOpen_partsP ((Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hu cl hcl).2
-    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hpl.1 hpl.2.1 ((wellSortedAt_univ hpl.1).mp hdec.1.1) v)
+    have hpl := Semantics.clausePlainOpenEx_parts ((Semantics.sortedOKClEx_parts h.hyp.1).2.1 fn hu cl hcl).2
+    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hex (hpl.2.1 hex) ((wellSortedAt_univ hex).mp hdec.1.1) v)
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
       (fun cl' hcl' => ⟨Semantics.sortPreds_exs hp cl' hcl', Semantics.sortPreds_post hp cl' hcl'⟩)
@@ -421,7 +421,7 @@ theorem eval_of_decides_ex (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
   rcases List.mem_append.mp hfn with hu | hp
   · exact h.solves fn hu ws hws cl hcl σ hdec
   · intro v
-    exact (eval_of_decides h hfn hcl hws hdec v).trans
+    exact (eval_of_decides h hfn hcl (Semantics.sortPreds_exs hp cl hcl) hws hdec v).trans
       (Clause.gives_iff_noExs (Semantics.sortPreds_exs hp cl hcl) (Semantics.sortPreds_post hp cl hcl)
         ((wellSortedAt_univ (Semantics.sortPreds_exs hp cl hcl)).mp hdec.1.1) v).symm
 
