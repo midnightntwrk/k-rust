@@ -216,9 +216,14 @@ inductive RefusalReason where
   condition's truth at given values differs between models of the text. The detail names the
   variable and its sort. -/
   | openRequires
-  /-- An equation whose right side is under `\exists`, the variable of a sort the text leaves
-  unconfined: the value the function takes differs between models of the text. The detail names
-  the variable and its sort. -/
+  /-- An `\exists` on an equation's right side in an alternative of an `\or`, at a sort that the
+  test of a value given to `hoistExists` does not accept (`hoistEx`, ReadFns.lean). Moving the
+  binder over the `\or`, `(∃x:s. φ) ∨ ψ = ∃x:s. (φ ∨ ψ)`, is an equality only where s has an
+  element, which a value of s shows; without one, the alternative ranges over elements of s that
+  no value names, and models of the text that differ there can give the function different values.
+  The detail names the variable and its sort. Only `hoistExists` refuses with it, and no stage of
+  the reader calls `hoistExists` (`clauseBody` calls none of the reading functions of ReadFns.lean):
+  no account prints it. -/
   | existentialEquation
   /-- An open generator (a symbol the text declares total, lists among its result sort's
   generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
@@ -494,11 +499,13 @@ inductive UnreadReason where
   axiom what remains beside it, the distinctness at uncovered arguments only
   (`KoreAML.Cons.distUncItem`). Stated by the text and not read (`Parse.overloadConfusions`). -/
   | overloadConfusion
-  /-- The sort predicate `isX` of a library sort X to which the registry gives no predicate
-  symbol (`predOf X = none`, and `isX` no registry symbol): RANGEMAP's `isRange` and `isRangeMap`.
-  Its declaration, its `functional` axiom and its equations are stated by the text and not read:
-  the theory has no such symbol (`Semantics.sortPreds` writes `isX` only for a sort with a
-  predicate), so it says nothing of `isX(t)`, less than the text (`isNoPredSentence`). -/
+  /-- The sort predicate `isX` of a registry sort X to which the registry gives no predicate
+  symbol (`predOf X = none`) and that is itself no registry symbol (`isNoPredName`). K and KItem
+  have no `predOf` symbol but `isK` and `isKItem` are registry symbols, and every other registry
+  sort but MInt has a predicate, so the one such name is `isMInt`. Its declaration, its
+  `functional` axiom and its equations are stated by the text and not read: the theory has no
+  such symbol (`Semantics.sortPreds` writes `isX` only for a sort with a predicate), so it says
+  nothing of `isX(t)`, less than the text (`isNoPredSentence`). -/
   | noSortPredicate
   deriving Repr, DecidableEq, Inhabited
 
