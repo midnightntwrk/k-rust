@@ -1922,6 +1922,12 @@ table above, on the tree before String and Bytes). Not investigated here.
   for every H (`simp_ev`, `InertEvUser.EqnU.entailed`), from the function's value at every argument
   (`eval_all`); the first two also show their text's semantics equal to their companion's
   (`sem_eq`, `withHooks_eq`: c3-simp-prio, c3-simp-comm-base).
+- `test/C3SimpCoolReq.lean`: the C2 evidence of the inert simplification of the pair `cool` x
+  `requires` (fixture c3-simp-cool-req), whose `requires` kompile conjoins `isKResult(HOLE)` to, HOLE of
+  sort K in no side: the sentence is entailed by Γ at values, for every H (`simp_ev`,
+  `InertEvUser.EqnU.entailed`), from `f(n) = n` at every integer (`eval_all`) and a value table that
+  takes `isKResult`'s value at each K, which it has for every H (`isKResult_total`, the sort predicates'
+  totality); both sides are n whatever the `requires` is.
 - `test/InertSemPairs.lean`, `test/InertPassAttrs.lean`: inert constructs that leave a mark in the text
   and no sentence the reading states: the fixture's text and its companion's have one semantics, so at
   every H one Γ and one `Step` (`sem_eq`, `withHooks_eq`, `gamma_eq`): `--disable-ceil-simplification-rules`
