@@ -9,8 +9,10 @@
 #              written step by step, by hand; (c) "the text's sentences entail no value here", with
 #              the pair of models that shows it; (r) "the text's sentences have no model": a Lean
 #              proof that the premise set form (a) would use, built the same way, has no model)
-#   kind       form (a): "from sentences" (a defined value, a step that exists) or "through the
-#              reading" (no value where an `ensures` fails, no successor, an exact successor set);
+#   kind       form (a): "from sentences" (a defined value, a step that exists), "through the
+#              reading" (no value where an `ensures` fails, no successor, an exact successor set) or
+#              "in a model" (the sentences of a symbol Γ lacks, of the no-direction class, hold at
+#              values in a model of Γ whose steps are Step's: owed-sentence rule item 7);
 #              form (r), optional: "through the reading" (the refutation is of the reading's theory,
 #              the sentence-level statement owed)
 #   family     kind "through the reading": the family the expectation goes through (`Γstep`, the
@@ -25,7 +27,7 @@
 #   owed_refuted  form (r) only, optional: the full name of a theorem of `file` refuting the fact
 #              the package names as owed for the construct (it is false of this text)
 # The checks, each on the text of the named file (no Lean is run):
-# - `form` is one of the four, `kind` one of the two for form (a) and absent or "through the
+# - `form` is one of the four, `kind` one of the three for form (a) and absent or "through the
 #   reading" for form (r), `family` given for "through the reading" and for form (r), `sentences` a
 #   non-empty list of indices for forms (a) and (r), `derivation` an existing file for form (b),
 #   `theorem` and `file` given for forms (a), (c) and (r), `owed_refuted` on form (r) only;
@@ -38,7 +40,10 @@
 #   type `HookParams` (by a binder, `∀` or `∃`) and used past its binder, or a `variable` of that
 #   type in scope that the statement mentions;
 # - a form (a) statement does not mention `FnShape` (C7: no form (a) theorem is stated under
-#   `FnShape` or a hypothesis of that kind).
+#   `FnShape` or a hypothesis of that kind);
+# - a kind "in a model" statement states an interpretation satisfying the theory with Step's steps:
+#   it has an `∃`, a satisfaction of a theory (`⊧ᴵP`, or `InitModel`, whose field `sat` is one) and
+#   mentions `Step`.
 # Prints the entries by form and kind (the counts C7 asks for: forms (b), (r) and "through the
 # reading" counted apart), the fixtures of the form (r) entries (texts without a model), and every
 # failure. Exit 1 on a failure.
@@ -54,7 +59,7 @@ import os, re, sys, tempfile, tomllib
 
 K, arg = sys.argv[1], sys.argv[2]
 FORMS = {"a", "b", "c", "r"}
-KINDS = {"from sentences", "through the reading"}
+KINDS = {"from sentences", "through the reading", "in a model"}
 HP = r"(?:KCore\.)?HookParams"
 IDENT = r"[^\s(){}\[\]:,.⟨⟩]+"
 
@@ -163,7 +168,7 @@ def check(rows, base):
     t = tomllib.load(open(rows, "rb"))
     cache, bad, counts, nomodel = {}, [], {}, []
 
-    def theorem_ok(at, th, fl, path, what, form):
+    def theorem_ok(at, th, fl, path, what, form, kind=None):
         """The checks on a named theorem of `fl`: declared once, in no AtNone namespace, its statement
         mentioning H (and, for form (a), not FnShape)."""
         if path not in cache:
@@ -179,6 +184,10 @@ def check(rows, base):
             bad.append(f"{at}: the statement of {what}{th} does not mention H (no name of type HookParams it uses)")
         if form == "a" and mentions("FnShape", stmt):
             bad.append(f"{at}: the form (a) theorem {th} is stated under FnShape")
+        if kind == "in a model" and not ("∃" in stmt and ("⊧ᴵP" in stmt or mentions("InitModel", stmt))
+                                         and mentions("Step", stmt)):
+            bad.append(f"{at}: the kind 'in a model' theorem {th} states no interpretation satisfying the"
+                       " theory with Step's steps (an ∃, ⊧ᴵP or InitModel, and Step)")
 
     for where, e in entries(t, ""):
         ds = e["derived"]
@@ -197,7 +206,7 @@ def check(rows, base):
                 nomodel.append((where, e.get("fixture"), d.get("theorem")))
             if form in ("a", "r"):
                 if form == "a" and kind not in KINDS:
-                    bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences' or 'through the reading'")
+                    bad.append(f"{at}: form (a) with kind {kind!r}, not 'from sentences', 'through the reading' or 'in a model'")
                 if form == "r" and kind not in (None, "through the reading"):
                     bad.append(f"{at}: form (r) with kind {kind!r}, not absent or 'through the reading'")
                 if (form == "r" or kind == "through the reading") and not (isinstance(d.get("family"), str) and d["family"].strip()):
@@ -226,7 +235,7 @@ def check(rows, base):
             path = os.path.join(base, fl)
             if not os.path.isfile(path):
                 bad.append(f"{at}: no file {fl}"); continue
-            theorem_ok(at, th, fl, path, "", form)
+            theorem_ok(at, th, fl, path, "", form, kind if form == "a" else None)
             if ow is not None and form == "r":
                 if not isinstance(ow, str):
                     bad.append(f"{at}: `owed_refuted` is not a theorem's full name")
@@ -261,12 +270,17 @@ theorem shape (hs : FnShape) (H : HookParams) : Pre H ⊧ φ := sorry
 theorem pair : ∃ H₁ H₂ : HookParams, Eval (cH H₁) e v ∧ Eval (cH H₂) e w := sorry
 theorem noModel (H : HookParams) : ¬ ∃ (M : Type) (_ : Inhabited M) (I : Interpretation Sym M), I ⊧ᴵP Pre H := sorry
 theorem refuted (H : HookParams) : ¬ MatchIndependent (cH H) cl := sorry
+theorem model (H : HookParams) : ∃ I : Interpretation KoreAML.Sym Elem, (I ⊧ᴵP (Γc (cH H) ∪ Γstep (cH H))) ∧
+    (∀ x y : Config (cH H), Step (cH H) x y ↔ ¬ (I ⊧ᴵ (den x ⇒ ∼ den y))) ∧ I ⊧ᴵ φ := sorry
+theorem modelInit (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x y, Step (cH H) x y ↔ R I x y := sorry
+theorem modelNoStep (H : HookParams) : ∃ I : Interpretation KoreAML.Sym Elem, I ⊧ᴵP (Γc (cH H)) ∧ I ⊧ᴵ φ := sorry
 section S
 variable (H : HookParams)
 theorem viaVar : Eval (cH H) e v := sorry
 end S
 namespace AtNone
 theorem hidden (H : HookParams) : Eval (cH H) e v := sorry
+theorem hiddenModel (H : HookParams) : ∃ I, InitModel (cH H) N ar G I ∧ ∀ x y, Step (cH H) x y ↔ R I x y := sorry
 end AtNone
 end KCore.ProvT
 """
@@ -305,6 +319,16 @@ end KCore.ProvT
           "owed_refuted": "KCore.ProvT.missing"}, "0 theorems named KCore.ProvT.missing"),
         ({"form": "a", "kind": "from sentences", "sentences": [1], "theorem": "KCore.ProvT.good", "file": f,
           "owed_refuted": "KCore.ProvT.refuted"}, "`owed_refuted` on form (a)"),
+        ({"form": "a", "kind": "in a model", "sentences": [281, 283], "theorem": "KCore.ProvT.model", "file": f}, None),
+        ({"form": "a", "kind": "in a model", "sentences": [93], "theorem": "KCore.ProvT.modelInit", "file": f}, None),
+        ({"form": "a", "kind": "in a model", "sentences": [93], "theorem": "KCore.ProvT.modelNoStep", "file": f},
+         "states no interpretation satisfying"),
+        ({"form": "a", "kind": "in a model", "sentences": [93], "theorem": "KCore.ProvT.good", "file": f},
+         "states no interpretation satisfying"),
+        ({"form": "a", "kind": "in a model", "theorem": "KCore.ProvT.model", "file": f}, "without `sentences`"),
+        ({"form": "a", "kind": "in a model", "sentences": [1], "theorem": "KCore.ProvT.AtNone.hiddenModel", "file": f},
+         "namespace named AtNone"),
+        ({"form": "c", "kind": "in a model", "theorem": "KCore.ProvT.pair", "file": f}, "kinds are forms (a) and (r)'s"),
     ]
     ok = True
     for i, (dt, want) in enumerate(cases):
