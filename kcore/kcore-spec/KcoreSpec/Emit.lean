@@ -95,10 +95,13 @@ def reqPat (S : Kore.KSort) : Option Kore.Pattern → Kore.Pattern
 def premise (args : List String) (req : Option Kore.Pattern) (pats : List Kore.Pattern) : Kore.Pattern :=
   .and R [reqPat R req, argsConj 0 (args.zip pats)]
 
-/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`. -/
+/-- The sort X of an own symbol named `ite{X}` (`Parse.iteName`), which K writes `Lblite{SortX{}}`.
+A name `Lblite{…}` holding a comma has none: it is an instance at several sorts of a sort-parametric
+symbol the text names `Lblite` (`Parse.instName`), and `ite` takes one sort. -/
 def iteSort? (n : String) : Option String :=
   match n.toList with
-  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest => some (String.ofList rest.dropLast)
+  | 'L' :: 'b' :: 'l' :: 'i' :: 't' :: 'e' :: '{' :: rest =>
+    if rest.contains ',' then none else some (String.ofList rest.dropLast)
   | _ => none
 
 mutual

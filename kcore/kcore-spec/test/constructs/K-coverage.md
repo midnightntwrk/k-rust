@@ -34,11 +34,11 @@ Nested entries by status:
 | E3 | 76 | 29 | 0 | 2 | 0 | 45 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
 | E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
-| E6 | 25 | 5 | 0 | 0 | 0 | 19 | 0 | 1 |
+| E6 | 26 | 6 | 0 | 0 | 0 | 19 | 0 | 1 |
 | E7 | 7 | 1 | 1 | 2 | 0 | 3 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 309 | 103 | 2 | 18 | 1 | 184 | 0 | 1 |
+| all | 310 | 104 | 2 | 18 | 1 | 184 | 0 | 1 |
 
 Refused rows by class:
 
@@ -1445,7 +1445,8 @@ Not core:
 | `symbol:FLOAT:LblisInfinite'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: FLOAT, read as the library's text |
 | `hook:FLOAT.isNaN:LblisNaN'LParUndsRParUnds'FLOAT'Unds'Bool'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.isNaN |
 | `hook:KEQUAL.ite:Lblite` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: KEQUAL.ite |
-| cases[0]: a function of the text labelled ite at two sort parameters (syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]) | not-handled |  | the reader reads Lblite at one sort as K's #if then else and refuses Lblite at other sorts; kompile writes the text's own symbol under that name |  |  | rdr-ite-two |  |  | fixtures/rdr-ite-two/kompile.txt: exit 0; its account as reader\_today |
+| cases[0]: a function of the text labelled ite at two sort parameters (syntax {S1, S2} S2 ::= cast(S1) [function, symbol(ite)]) | supported |  | the text declares \`symbol Lblite{SortS1, SortS2}(SortS1) : SortS2 [function{}()]\` (kore.txt; no hook) and applies \`Lblite{SortFoo{}, SortFoo{}}(VarX:SortFoo{})\` in f's equation. K's ite has one sort parameter (\`Lblite{SortSort}(SortBool, SortSort, SortSort)\`), and this definition, which imports BOOL… | KCore.iteSort? (Emit): a name Lblite{…} holding a comma has no sort; KCore.itesApart unchanged |  | rdr-ite-two |  |  | fixtures/rdr-ite-two/kompile.txt: exit 0; fixtures/rdr-ite-two/account.txt: \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
+| cases[1]: a function of the text labelled ite at one sort parameter, in a definition that does not import K-EQUAL (syntax {S} S ::… | not-handled |  | the text declares its own sort-parametric function \`symbol Lblite{SortS}(SortBool{}, SortS, SortS) : SortS [function{}()]\` (kore.txt; no hook, no equation) and applies its instance \`Lblite{SortFoo{}}(\\dv{SortBool{}}("false"),VarX:SortFoo{},Lblb{}())\` in f's equation. The reader's name of that instan… |  |  | rdr-ite-own |  |  | fixtures/rdr-ite-own/kompile.txt: exit 0; its account as reader\_today |
 | `hook:MAP.keys:Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: MAP.keys |
 | `hook:RANGEMAP.keys:Lblkeys'LParUndsRParUnds'RANGEMAP'Unds'Set'Unds'RangeMap` | supported |  | FIX-core.rangemap-silent: was refused R-c (E6 group rangemap: no carrier for RangeMap); the carrier (CollKind.rangeMap, rangeMapHooks) and the reader's module landed with c1 and c2, fixtures/e6-rangemap/account.txt reads the text with \`coreOK: true\` and \`refused by the account: 0\`, and test/HooksRan… |  | c1-D.table |  | no | no | FixedSignature.lean regHookNames: RANGEMAP.keys; test/HooksRangeMap.lean rmRows\_registry, vals\_hook |
 | `hook:MAP.keys_list:Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map` | parameter |  |  |  |  | e6-param-map | yes | yes | BuiltinData.lean modules: MAP; Builtins.libParams (no registry hook) |
