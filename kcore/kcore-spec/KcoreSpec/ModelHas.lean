@@ -87,7 +87,7 @@ theorem HypModel.core (h : HypModel c) : HypModelCore c :=
 theorem has_model (h : HypModel c) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
   have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
-  has_model_core h.core (Semantics.fnsNoExs_of_sortedOK hc.1) (clausePreDecided_of_terminates h.sound.core
+  has_model_core h.core (Semantics.fnsNoExs_of_okAll h.hyp.1) (clausePreDecided_of_terminates h.sound.core
     hc.2.2.1) htop hl
 
 end Model

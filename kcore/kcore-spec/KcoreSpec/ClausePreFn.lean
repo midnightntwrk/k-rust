@@ -84,13 +84,13 @@ theorem prioDecided_of_total_pre (hs : HypSoundCore c) (ht : FnTerminates c)
   exact evalTerm_total_atMP hs ht hL hσ' (Clause.req_leftVarsRH hq) (hreqs t hq)
 
 /-- **Evaluation solves the equations** where every function has at most one result and a result
-at arguments of its sorts, and each clause's predicate is well sorted. The predicate is read
-through `condOK` alone. -/
-theorem fnSolves_of_total_pre (hs : HypSoundCore c) (hd : FnDet c) (ht : FnTerminates c)
+at arguments of its sorts, no clause binds a variable by `\exists`, and each clause's predicate is
+well sorted. The predicate is read through `condOK` alone. -/
+theorem fnSolves_of_total_pre (hs : HypSoundCore c) (hnoEx : c.FnsNoExs) (hd : FnDet c) (ht : FnTerminates c)
     (hpre : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, c.condOK cl.vars cl.pre = true) : FnSolves c :=
   fnSolves_of_parts_lookup (fun _ hfn => lookupFn_of_sound hs (List.mem_append_left _ hfn)) hd
-    (fun fn hfn => Semantics.sortedOK_plainCl hs.1 fn (List.mem_append_left _ hfn))
-    (prioDecided_of_total_pre hs ht hpre) (coDefined_of_total hs ht)
+    (fun fn hfn => Semantics.sortedOK_plainCl_of_noExs hs.1 hnoEx fn (List.mem_append_left _ hfn))
+    (prioDecided_of_total_pre hs ht hpre) (coDefined_of_total hs hnoEx ht)
 
 end Model
 

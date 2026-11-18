@@ -84,7 +84,7 @@ theorem rk_wrongRank : rk.rankObligations [F, G] = [F] ∧ rk.totalObligationsR 
 
 /-- So every function of `rk` terminates and is total, nothing named. -/
 theorem rk_terminates : ∀ f, Terminates rk f :=
-  terminates_of_rankL (hpreTop := by decide +kernel) rk_sorted.1 rk_sorted.2 (Semantics.ovlCase_of (by decide +kernel))
+  terminates_of_rankL (hpreTop := by decide +kernel) (hnoEx := Semantics.fnsNoExs_of_all (by decide +kernel)) rk_sorted.1 rk_sorted.2 (Semantics.ovlCase_of (by decide +kernel))
     (Semantics.rightHeld_of_binds (by decide +kernel)) [G, F] fun g hg => by
     rw [show rk.rankObligations [G, F] ++ rk.decObligationsL = [] by decide +kernel] at hg
     exact absurd hg List.not_mem_nil

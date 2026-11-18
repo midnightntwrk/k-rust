@@ -548,6 +548,20 @@ theorem clausesPreTop_of_execReady {c : Semantics} (hr : execReady c = true) : c
   simp only [execReady, Bool.and_eq_true] at hr
   exact hr.2
 
+/-- Every clause of a function of a core `execReady` accepts has no existential variable and the
+right-side predicate `\top`: `execReady` asks a clause's patterns to bind every variable, and an
+existential variable is outside them (`Semantics.clausesPlain_plainCl_of_binds`); a sort predicate's
+clauses by their text. -/
+theorem plainCl_of_execReady {c : Semantics} (hr : execReady c = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.post = .top := by
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+    have hok := hr.1.1.1.1.1.1
+    simp only [Semantics.sortedOK, Bool.and_eq_true] at hok
+    exact Semantics.clausesPlain_plainCl_of_binds hok.1.2 hu hcl (hr.1.1.1.2 fn hfn cl hcl).2
+  · exact ⟨Semantics.sortPreds_exs hp cl hcl, Semantics.sortPreds_post hp cl hcl⟩
+
 /-- Every clause of a function of a core `execReady` accepts has the predicate `\top`: the user's
 by `execReady`, a sort predicate's by its text. -/
 theorem preTop_of_execReady {c : Semantics} (hr : execReady c = true) :

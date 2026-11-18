@@ -346,7 +346,7 @@ theorem no_model_c : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAM
   haveI : OvlOK c := hno
   have hI : I ⊧ᴵP Γ c := fun φ hφ => hIc φ (Or.inl hφ)
   have hden := fun (r : Option GroundTerm) (hev : Eval c A [.dv Srt.int (.int 0)] r) (e : Valuation M) (m : M) =>
-    eval_den4_coreCl hIc (Semantics.sortedOKCl_of_sortedOK hok) hsr (Semantics.coreOK_parts coreOK).2.1 hph
+    eval_den4_coreCl hIc (by decide +kernel : c.sortedOKCl = true) hsr (Semantics.coreOK_parts coreOK).2.1 hph
       noWitness (HoldsShape.preReadAll_of_core coreOK hIc) hev lookups.1 (by decide +kernel) e m
   let e : Valuation M := ⟨fun _ => default, fun _ _ => False⟩
   obtain ⟨hone, -⟩ := elemOf_spec hI (v := one) (s := Srt.int) (by decide +kernel) e

@@ -565,7 +565,10 @@ theorem fnG_coreOK (h : c.coreOK = true) {f : Fn} (hf : f ∈ c.allFns) :
     simp only [Bool.and_eq_true, List.all_eq_true] at hsorted
     exact clauseG_of_sorted
       (fun _ hk => ks_fn (by rw [Semantics.allFns, List.map_append]; exact List.mem_append_left _ hk))
-      (hsorted.1.2 f hu cl hcl) (.inl (Semantics.fnsNoExs_of_coreOK h f hu cl hcl))
+      (hsorted.1.2 f hu cl hcl) (.inr (by
+        have h0 := (Semantics.sortedOK_clauseEx hs hu hcl).1
+        simp only [Semantics.clauseExOK, Bool.and_eq_true] at h0
+        exact h0.2))
   · exact clauseG_sortPreds hp
 
 /-- **Under `coreOK`, every equation of every function applies Γ's heads only.** -/

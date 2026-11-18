@@ -355,7 +355,8 @@ theorem factsH (H : HookParams) : FnFacts (cH H) callOrder [] := by
 condition (`TiePair.fnModel_noTotal`). -/
 theorem fnDetH (H : HookParams) : FnDet (cH H) :=
   (TiePair.fnModel_noTotal (c := cH H)
-    (hpreTop := by simp only [Semantics.clausesPreTop_withHooks]; decide +kernel) (ord := callOrder) (coreOKH H)
+    (hpreTop := by simp only [Semantics.clausesPreTop_withHooks]; decide +kernel)
+    (hnoEx := (Semantics.fnsNoExs_withHooks _ _).mpr (Semantics.fnsNoExs_of_all (by decide +kernel))) (ord := callOrder) (coreOKH H)
     (fun g _ => (Semantics.rightHeld_withHooks (Semantics.rightHeld_of_valued (by decide +kernel)) H noRaw).heldOwed g)
     (factsH H).1 (factsH H).2.2.1 (factsH H).2.2.2.1).1
 
