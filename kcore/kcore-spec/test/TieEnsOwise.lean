@@ -158,7 +158,8 @@ of `f2-examples/ens.kompile.kore` (`tieClasses`), which this text's sentences fo
 `[owise]` equation more (212; the sentences after it one index later than ens's): the definedness
 lemmas over set variables 126 to 130 and 267 (`#Ceil` of `%Int`, `/Int`, `<<Int`, `>>Int`, `modInt`
 and of a map with one entry and a rest) are set-variable lemmas, and the shift equations 171, 172,
-178, 179 library sentences, `<<Int` and `>>Int` being symbols of Γ. -/
+178, 179 and the equations of `bitRangeInt` and `signExtendBitRangeInt` (208, 266) library sentences,
+`<<Int`, `>>Int` and the two bit ranges being symbols of Γ. -/
 def classes : List (String × List Nat) :=
   [("function equation", [211, 212, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231,
       232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244]),
@@ -177,11 +178,11 @@ def classes : List (String × List Nat) :=
    ("library", [131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150,
       151, 152, 153, 154, 156, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
       174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195,
-      196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 209, 247, 248, 249, 250, 265]),
+      196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 247, 248, 249, 250, 265, 266]),
    ("set idempotence", [61]),
    ("set-variable lemma", [126, 127, 128, 129, 130, 267]),
-   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 208, 210, 213, 214, 215, 245, 246, 251, 252,
-      253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 266])]
+   ("no direction", [36, 40, 42, 73, 75, 82, 99, 113, 114, 157, 189, 210, 213, 214, 215, 245, 246, 251, 252,
+      253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264])]
 
 /-- **The account**: the class lists partition the user module's sentences, and the function
 equations' list is `fnText`'s. -/
