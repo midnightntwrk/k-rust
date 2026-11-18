@@ -63,6 +63,12 @@ A fixture directory holds its K text(s) and fixture.toml:
            line its message names)
   expectation, observed  prose read by no tool: what the text's sentences give, and kore.txt lines
            quoted with their line numbers
+  other_file  a file kompile writes beside definition.kore in the kompiled directory
+           (syntaxDefinition.kore, macros.kore): `run` writes other.txt, a first line
+           `// other_file NAME: N lines, sha256 H` (paths replaced, as kompile.txt hashes
+           definition.kore; `// other_file NAME: not written` when kompile leaves none), then the
+           lines of it (paths replaced) that match one of other_keep (regular expressions; every
+           line without it); kompile.txt records the first line
   kore     a KORE text (path relative to kcore-spec) that kompile 7.1.337 does not write, such as
            krust's text of a K file: `run` kompiles nothing and writes account.txt, `kcore account`
            of that text, and kompile.txt, the text's path and sha256; no kore.txt
@@ -87,6 +93,7 @@ memory wrapper, and writes into the fixture directory:
                the one to compare. kore.txt keeps the
                `// rule` comment lines (rows quote them to locate a sentence); `stripped` does not.
   account.txt  `kcore account out/definition.kore` (the workspace's .lake/build/bin/kcore)
+  other.txt    with other_file, the kept lines of that file (above)
 
 The kompiled texts are not committed. `run` also keeps each one, as kompile.txt hashes it (paths
 replaced: definition.norm.kore), in a cache outside the tree keyed by that sha256:
@@ -113,8 +120,25 @@ A row or a `cases` entry of any list E1 to E8 may carry `notes`, a table from a 
 line `N read NOTE [...]` or `sentence I: ... NOTE ...` (the per-sentence readings), or a count line
 `... (NOTE): N`, with N > 0. `check` also fails unless each `notes` entry is so, and every
 constructor of ReadingNote is a key of some `notes` table.
+
+An entry of status erased (a row or a nested `cases` entry of E1 to E8) may carry, beside its pair
+(the fixture's same_as), the other forms findings/work/decision-fixrest-erased-forms.md section 2
+admits; `check` fails unless each one it carries holds (test/constructs/rest.py checks every form,
+and that each erased entry has one):
+  absent   S: a pattern (or a list of them; `absent_form` gives the forms: an attribute head, of a
+           sentence kind or of any list; a builtin file's Source range; a module other than named
+           ones) that no attribute list of any kompiled text in scope matches. The scope is every
+           fixture's kompiled text (the cache) and every text of the reference cache's corpus
+           (test/corpus.py's .lake/corpus/defs); each is parsed natively (`kcore sentence-heads`,
+           whose summary is kept per text and kcore binary in CACHE/scan). A text in scope held
+           nowhere fails the pattern. `check` prints the number of texts scanned.
+  other_file, witness  O: the entry's fixture (fixture, also_fixtures) has other.txt of that file,
+           and each witness (whitespace runs as one space) occurs in it and in no sentence of the
+           fixture's kompiled text (comments removed).
+  carried_by  C: "<list> <row key>", a row of rows.toml that is not erased (rest.py checks that it
+           has its own evidence and that the entry's sentence occurs in its fixture).
 """
-import difflib, hashlib, os, re, shutil, subprocess, sys, time, tomllib
+import difflib, hashlib, json, os, re, shutil, subprocess, sys, time, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(K, "test"))
@@ -531,12 +555,12 @@ def run(name):
     src = os.path.join(w, "src")
     shutil.rmtree(w, ignore_errors=True)
     shutil.copytree(os.path.join(FX, name), src,
-                    ignore=shutil.ignore_patterns("kompile.txt", "kore.txt", "account.txt", "params.txt"))
+                    ignore=shutil.ignore_patterns("kompile.txt", "kore.txt", "account.txt", "params.txt", "other.txt"))
     # each file of src: the file of the tree (or of the k-rust checkout) it is a copy of
     origin = {f: os.path.relpath(os.path.join(FX, name, f), relsource.TREE) for f in os.listdir(src)}
     if "text_from" in c:
         for f in os.listdir(os.path.join(FX, c["text_from"])):
-            if f not in ("kompile.txt", "kore.txt", "account.txt", "params.txt", "fixture.toml"):
+            if f not in ("kompile.txt", "kore.txt", "account.txt", "params.txt", "other.txt", "fixture.toml"):
                 shutil.copy(os.path.join(FX, c["text_from"], f), src)
                 origin[f] = os.path.relpath(os.path.join(FX, c["text_from"], f), relsource.TREE)
     ext = []
@@ -571,7 +595,7 @@ def run(name):
     rep = [*pre, f"command: {' '.join(cmd)}  (cwd: the fixture directory)", f"exit: {p.returncode}",
            f"seconds: {secs:.1f}", *ext]
     kp = os.path.join(src, "out/definition.kore")
-    for f in ("kore.txt", "account.txt", "params.txt"):
+    for f in ("kore.txt", "account.txt", "params.txt", "other.txt"):
         if os.path.exists(os.path.join(FX, name, f)):
             os.remove(os.path.join(FX, name, f))
     ok = p.returncode == 0
@@ -614,6 +638,8 @@ def run(name):
             norm(a.stdout + a.stderr, src) + f"(exit {a.returncode})\n")
         if c.get("params"):
             open(os.path.join(FX, name, "params.txt"), "w").write(sem_params(src))
+        if "other_file" in c:
+            rep.append(other_txt(name, c, src))
         for rel in ("same_as", "differs_from"):
             if rel in c:
                 ot = norm_text(c[rel])
@@ -647,6 +673,24 @@ def run(name):
     print(f"kfix {name}: exit {p.returncode}, {secs:.1f}s" + (
         "" if (c["expect"] == "ok") == ok else "  UNEXPECTED"))
     return secs
+
+
+def other_txt(name, c, src):
+    """Write other.txt of fixture NAME from the file fixture.toml's other_file names in the kompiled
+    directory src/out; returns its first line (kompile.txt records it)."""
+    f = c["other_file"]
+    p = os.path.join(src, "out", f)
+    if not os.path.isfile(p):
+        head, kept = f"// other_file {f}: not written", []
+    else:
+        t = norm(open(p).read(), src)
+        keep = [re.compile(x) for x in c.get("other_keep", [])]
+        lines = t.split("\n")
+        kept = [l for l in lines if not keep or any(r.search(l) for r in keep)]
+        head = (f"// other_file {f}: {len(lines)} lines, sha256 {sha(t)}"
+                + (f"; the {len(kept)} matching other_keep" if keep else ""))
+    open(os.path.join(FX, name, "other.txt"), "w").write("\n".join([head] + kept) + "\n")
+    return head[3:]
 
 
 def recorded_text(name):
@@ -816,6 +860,300 @@ def cache_import(dirs):
     print(f"kfix cache {CACHE}: {have} present, {put} imported, {len(none)} found nowhere"
           + (": " + " ".join(none) if none else ""))
     return 1 if none else 0
+
+
+# ------------------------------------------------------------- the forms S and O of an erased entry
+
+# the summaries of the texts the scan reads (`kcore sentence-heads`), per text and kcore binary
+SCAN = os.path.join(CACHE, "scan")
+SCAN_KINDS = ["definition", "module", "import", "sort", "hooked-sort", "symbol", "hooked-symbol", "alias",
+              "axiom", "claim"]
+BUILTIN_SRC = re.compile(r"^Source\((?:BUILTIN|.*/include/kframework/builtin)/([^/)]+)\)$")
+K_VERSION = "k-7.1.337-"
+_kcore_id, _summaries = None, {}
+
+
+def kcore_id():
+    """The sha256 of the kcore binary the scan runs (a summary is kept per binary)."""
+    global _kcore_id
+    if _kcore_id is None:
+        if not os.path.isfile(KCORE):
+            raise SystemExit(f"kfix: no kcore binary {KCORE} (lake build kcore)")
+        _kcore_id = hashlib.sha256(open(KCORE, "rb").read()).hexdigest()
+    return _kcore_id
+
+
+_scope = None
+
+
+def scope_texts():
+    """The kompiled texts in scope of the scan: (label, path) of each fixture's recorded kompiled text
+    (`run` wrote it with exit 0; not a `kore` fixture, whose text kompile did not write), and of each
+    text of the corpus (test/corpus.py extracts the reference cache's into .lake/corpus/defs); and the
+    texts in scope that are held nowhere (a fixture whose run is in no cache, or the corpus when the
+    reference cache is absent)."""
+    global _scope
+    if _scope is not None:
+        return _scope
+    out, missing = [], []
+    for name in sorted(os.listdir(FX)):
+        h = recorded_sha(name)
+        if not h:
+            continue
+        p, w = os.path.join(CACHE, h + ".kore"), os.path.join(WORK, name, "definition.norm.kore")
+        if os.path.isfile(p):
+            out.append((f"fixture {name}", p))
+        elif os.path.isfile(w) and sha(open(w).read()) == h:
+            out.append((f"fixture {name}", w))
+        else:
+            missing.append(f"fixture {name} (its kompiled text is in no cache)")
+    sys.path.insert(0, os.path.join(K, "test"))
+    import corpus
+    if not os.path.isdir(os.path.join(corpus.CACHE, "entries")):
+        missing.append(f"the corpus ({corpus.CACHE}/entries absent)")
+    else:
+        idx = corpus.extract()
+        if not idx:
+            missing.append(f"the corpus (no definition.kore in {corpus.CACHE})")
+        out += [(f"corpus {h}", os.path.join(corpus.DEFS, h + ".kore")) for h in sorted(idx)]
+    _scope = (out, missing)
+    return _scope
+
+
+def summary_of(path):
+    """What the scan reads of a text, from `kcore sentence-heads` (the parsed text): its module names
+    in order, and per attribute list (the definition's, each module's, each sentence's) its place
+    (module index, sentence index or None), kind, heads, Source and Location. Kept in SCAN per
+    (text sha256, kcore binary sha256)."""
+    if path in _summaries:
+        return _summaries[path]
+    key = hashlib.sha256(open(path, "rb").read()).hexdigest() + "-" + kcore_id()[:16]
+    cp = os.path.join(SCAN, key + ".json")
+    if os.path.isfile(cp):
+        _summaries[path] = json.load(open(cp))
+        return _summaries[path]
+    r = subprocess.run([*WRAP, "timeout", "600", KCORE, "sentence-heads", path], cwd=K, capture_output=True,
+                       text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
+    if r.returncode != 0 or not re.search(r"^sentences \d+$", r.stdout, re.M):
+        raise SystemExit(f"kfix: kcore sentence-heads {path}: exit {r.returncode}: {(r.stdout + r.stderr)[-300:]}")
+    mods, lists = [], []
+    for ln in r.stdout.split("\n"):
+        f = ln.split("\t")
+        if f[0] == "definition":
+            lists.append([None, None, "definition", f[1], f[2], f[3]])
+        elif f[0] == "module":
+            mods.append(f[2]); lists.append([int(f[1]), None, "module", f[3], f[4], f[5]])
+        elif f[0] == "sentence":
+            lists.append([int(f[1]), int(f[2]), f[3], f[4], f[5], f[6]])
+    sm = {"modules": mods, "lists": [x for x in lists if x[3] or x[4] != "-"]}
+    os.makedirs(SCAN, exist_ok=True)
+    tmp = f"{cp}.{os.getpid()}.tmp"
+    json.dump(sm, open(tmp, "w"), separators=(",", ":"))
+    os.replace(tmp, cp)
+    _summaries[path] = sm
+    return sm
+
+
+ABSENT = [
+    (re.compile(r"^(?:(" + "|".join(map(re.escape, SCAN_KINDS)) + r") )?attribute (\S+)(?: without (\S+))?$"),
+     "attribute"),
+    (re.compile(r"^source (\S+) (\d+)-(\d+)$"), "source"),
+    (re.compile(r"^module other than (.+) and the main module$"), "module"),
+]
+
+
+def absent_form(pattern):
+    """The form of an `absent` pattern, (kind, match), or None when it has none of these forms:
+      "[KIND ]attribute HEAD[ without OTHER]"
+                                an attribute list (of a sentence of keyword KIND, or of the module or
+                                the definition: KIND module, definition; any list without KIND)
+                                whose heads include HEAD, the head identifier as KORE writes it (and
+                                not OTHER)
+      "source FILE A-B"         a sentence whose Source is FILE of K's builtin directory and whose
+                                Location starts at a line from A to B; a builtin FILE of another K
+                                installation than 7.1.337's counts as found (its lines are another file's)
+      "module other than M1, M2, ... and the main module"
+                                a module of the text other than its last and the ones named"""
+    for rx, kind in ABSENT:
+        m = rx.match(pattern) if isinstance(pattern, str) else None
+        if m:
+            return kind, m
+    return None
+
+
+def absent_hits(pattern, sm):
+    """The places of a summary the pattern finds: strings "module M sentence J (KIND)"."""
+    kind, m = absent_form(pattern)
+    mods, hits = sm["modules"], []
+
+    def place(x):
+        mi, j, k = x[0], x[1], x[2]
+        return ("the definition" if mi is None else f"module {mods[mi]}"
+                + ("" if j is None else f" sentence {j}") + f" ({k})")
+    if kind == "attribute":
+        for x in sm["lists"]:
+            hs = x[3].split(",")
+            if (m[1] is None or x[2] == m[1]) and m[2] in hs and (m[3] is None or m[3] not in hs):
+                hits.append(place(x))
+    elif kind == "source":
+        a, b = int(m[2]), int(m[3])
+        for x in sm["lists"]:
+            s = BUILTIN_SRC.match(x[4])
+            if not s or s[1] != m[1]:
+                continue
+            if "/nix/store/" in x[4] and K_VERSION not in x[4]:
+                hits.append(place(x) + f" from another K installation: {x[4]}"); continue
+            loc = re.match(r"^Location\((\d+),", x[5])
+            if loc and a <= int(loc[1]) <= b:
+                hits.append(place(x) + f" at {x[5]}")
+            elif not loc:
+                hits.append(place(x) + f" with no Location ({x[5]})")
+    else:
+        names = {n.strip() for n in m[1].split(",")}
+        hits += [f"module {n}" for n in mods[:-1] if n not in names]
+    return hits
+
+
+_scans = {}
+
+
+def scan(patterns):
+    """For each `absent` pattern: (texts scanned, texts in scope held nowhere, places found as
+    "LABEL: PLACE"); a pattern of no known form gives None. Each text's summary is read once for
+    all patterns; the first summaries of a kcore binary run in parallel, as free memory allows."""
+    want = [p for p in dict.fromkeys(patterns) if p not in _scans]
+    for p in [p for p in want if absent_form(p) is None]:
+        _scans[p] = None
+    want = [p for p in want if absent_form(p) is not None]
+    if want:
+        texts, missing = scope_texts()
+        todo = sorted({path for _, path in texts})
+        try:
+            avail = int(re.search(r"^MemAvailable:\s+(\d+)", open("/proc/meminfo").read(), re.M)[1]) // 2 ** 20
+        except (OSError, TypeError):
+            avail = 4
+        jobs = max(1, min((os.cpu_count() or 2) // 4, avail // 4))
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
+            sums = dict(zip(todo, ex.map(summary_of, todo)))
+        n = len(todo)
+        for p in want:
+            _scans[p] = (n, missing, [f"{lab}: {h}" for lab, path in texts for h in absent_hits(p, sums[path])])
+    return {p: _scans[p] for p in patterns}
+
+
+def absent_list(e):
+    v = e.get("absent")
+    return v if isinstance(v, list) else [v] if v is not None else []
+
+
+def check_absent(e, scanner=None):
+    """The S form of an entry: (ok, what), ok when each `absent` pattern finds nothing in a scope with
+    no text missing (scanner: `scan`, or another function of the same results)."""
+    ps = absent_list(e)
+    res = (scanner or scan)(ps)
+    bad, n = [], 0
+    for p in ps:
+        r = res[p]
+        if r is None:
+            bad.append(f"absent {p!r}: no pattern of a known form")
+            continue
+        n = r[0]
+        if r[1]:
+            bad.append(f"absent {p!r}: {len(r[1])} texts in scope held nowhere ({r[1][0]})")
+        if r[2]:
+            bad.append(f"absent {p!r}: found in {len(r[2])} places ({r[2][0][:100]})")
+    if not ps:
+        bad.append("absent: empty")
+    return (not bad, f"absent ({len(ps)} patterns) over {n} texts" if not bad else "; ".join(bad))
+
+
+def wsnorm(t):
+    return " ".join(t.split())
+
+
+def check_other(e, fixtures, read=None, full_text=None):
+    """The O form of an entry: (ok, what). One of the fixtures has other.txt of the file `other_file`
+    names; each `witness` (whitespace runs read as one space) occurs in it and nowhere in that
+    fixture's kompiled text, comments removed (the full text, from this tree's run or the cache).
+    read(FIXTURE, FILE) and full_text(FIXTURE) default to this tree's fixtures and recorded_text."""
+    full_text = full_text or recorded_text
+    read = read or (lambda x, f: open(os.path.join(FX, x, f)).read() if os.path.isfile(os.path.join(FX, x, f)) else None)
+    f, ws = e.get("other_file"), e.get("witness")
+    ws = ws if isinstance(ws, list) else [ws] if isinstance(ws, str) else []
+    if not isinstance(f, str) or not ws:
+        return False, "other_file and witness (a list of strings)"
+    for x in fixtures:
+        o = read(x, "other.txt") or ""
+        if not o.startswith(f"// other_file {f}:"):
+            continue
+        if "not written" in o.split("\n", 1)[0]:
+            return False, f"other_file {f}: {x}'s kompile wrote no {f}"
+        ot = wsnorm(o.split("\n", 1)[1] if "\n" in o else "")
+        kore = full_text(x)
+        if kore is None:
+            return False, f"other_file {f}: {x}'s kompiled text is in no cache"
+        dt = wsnorm(uncommented(kore))
+        out = [w for w in ws if wsnorm(w) not in ot]
+        both = [w for w in ws if wsnorm(w) in dt]
+        if out:
+            return False, f"witness {out[0][:60]!r} not in {x}/other.txt"
+        if both:
+            return False, f"witness {both[0][:60]!r} in a sentence of {x}'s definition.kore"
+        return True, f"other_file {f} of {x}: {len(ws)} witnesses there, none in definition.kore"
+    return False, f"no fixture of the entry ({', '.join(fixtures) or 'none'}) has other.txt of {f}"
+
+
+def erased_entries(rows):
+    """(where, entry) of every entry of status erased of E1 to E8, nested ones included (cases)."""
+    def walk(where, e):
+        yield where, e
+        for fld in ("cases", "also_refused", "split"):
+            v = e.get(fld)
+            for i, c in enumerate(v if isinstance(v, list) else [v]):
+                if isinstance(c, dict):
+                    yield from walk(f"{where} {fld}[{i}]", c)
+    for l in (f"E{i}" for i in range(1, 9)):
+        for key, r in rows.get(l, {}).items():
+            for where, e in walk(f"{l} {key}", r):
+                if e.get("status") == "erased":
+                    yield where, e
+
+
+def check_forms(rows):
+    """The forms S, O and the reference of C on every erased entry naming them (rest.py checks every
+    form and that each erased entry has one): each S pattern found nowhere in scope, each O witness
+    in the fixture's other.txt and not in its definition.kore, each carried_by an existing key of a
+    row that is not erased. Prints the number of texts scanned."""
+    bad, ns, no, nc, n = [], 0, 0, 0, None
+    es = list(erased_entries(rows))
+    pats = [p for _, e in es for p in absent_list(e)]
+    if pats:
+        res = scan(pats)
+        n = next((r[0] for r in res.values() if r), 0)
+    for where, e in es:
+        if "absent" in e:
+            ns += 1
+            ok, what = check_absent(e)
+            if not ok:
+                bad.append(f"{where}: S: {what}")
+        if "other_file" in e or "witness" in e:
+            no += 1
+            fxs = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if isinstance(x, str)]
+            ok, what = check_other(e, fxs)
+            if not ok:
+                bad.append(f"{where}: O: {what}")
+        if "carried_by" in e:
+            nc += 1
+            m = re.match(r"^(E[1-8]|C3) (.+)$", e["carried_by"]) if isinstance(e["carried_by"], str) else None
+            if not m or m[2] not in rows.get(m[1], {}):
+                bad.append(f"{where}: C: carried_by {e['carried_by']!r} is no \"<list> <row key>\" of rows.toml")
+            elif rows[m[1]][m[2]].get("status") in ("erased", None):
+                bad.append(f"{where}: C: carried_by {e['carried_by']!r} is a row of status "
+                           f"{rows[m[1]][m[2]].get('status')!r}")
+    print(f"kfix erased forms: {ns} entries of form S" + (f" (scan over {n} texts)" if pats else "")
+          + f", {no} of form O, {nc} of form C")
+    return bad
 
 
 def reading_notes():
@@ -989,6 +1327,7 @@ def check(lists):
                 bad.append(f"fixture {f}: kompile.txt does not record the present text of kk {c['kk']} "
                            f"({os.path.basename(kf)}): kfix.py run {f}")
     bad += check_notes(rows)
+    bad += check_forms(rows)
     bad += check_stripped()
     ks =[f for f in sorted(os.listdir(FX)) if recorded_sha(f)]
     print(f"kfix cache {CACHE}: {sum(1 for f in ks if cache_get(recorded_sha(f)) is not None)} of "

@@ -62,17 +62,25 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
       tie, theorems (C14's statement for the class: Γ c ⊧ tr s); for an E6 row, its e6_tie as above
   inert of class use (`inert_class = "use"`)
       reason       a reason sentence (`reason`): C1's class use
-  erased
-      pair         its fixture's kompile.txt records `same_as OTHER: equal after stripping`; or its
-                   `no_sentence` class is one of ERASED_FORMS (the classes the decision of
-                   fixrest-erased-forms admits; none until it is written)
+  erased (findings/work/decision-fixrest-erased-forms.md section 4): at least one of the forms
+  ERASED_FORMS, each the entry carries checked (conjoined)
+      P pair       the fixture `pair` names, else the first of the entry's fixtures recording one,
+                   has kompile.txt `same_as OTHER: equal after stripping`
+      S absent     each pattern found in no kompiled text in scope (kfix.check_absent: the native
+                   scan of every fixture's kompiled text and of the corpus; a text held nowhere fails)
+      O other_file the entry's fixture keeps that file's lines in other.txt, each `witness` there and
+                   in no sentence of its definition.kore (kfix.check_other)
+      C carried_by "<list> <row key>": that row is not erased and has its own evidence here, and the
+                   entry's `sentence` occurs in that row's fixture
   refused
       reasons      `reasons` holds RefusalReason.X items
       account      a fixture of the entry (`fixture`, `also_fixtures`) whose account prints each of
                    them (a refusal line or a class line, as closed.py reads accounts); or, for an
                    entry kompile refuses (unit "none (scope): rejected", or class R-b with an error
                    fixture), its fixture is an error fixture (fixture.toml expect = "error") and
-                   `reasons` is not needed
+                   `reasons` is not needed; or, for an option that writes no definition (unit
+                   "none (scope): option", `shape` "none: ..."), a fixture of the entry whose
+                   kompile.txt holds `definition.kore: none written`, and `reasons` is not needed
       fresh        as above, for a fixture that has an account
       reason       a reason sentence (`reason`, `reader_reason` or `refused_by`)
   independent (a [C3] pair)
@@ -91,7 +99,7 @@ sys.path.insert(0, HERE)
 LISTS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "C3"]
 KLEVEL = {"E1", "E2", "E3", "E7", "E8", "C3"}
 WAVE = re.compile(r"^(e2-unbound|e2-rule|e2-clause-.*|e6-rangemap)$")
-ERASED_FORMS = set()
+ERASED_FORMS = ["P", "S", "O", "C"]
 STATUSES = ["supported", "parameter", "inert", "erased", "refused", "independent",
             "pending-fixture", "not-handled"]
 
@@ -168,9 +176,26 @@ class Fixtures:
     """The fixtures of a directory: account.txt as closed.py reads it, kore.txt, kompile.txt,
     fixture.toml, and the fresh accounts (--fresh)."""
 
-    def __init__(self, fx, fresh):
+    def __init__(self, fx, fresh, rows=None):
         self.fx, self.fresh, self._acc, self._fresh, self._text = fx, fresh, {}, {}, {}
         self.ctors = constructors()
+        self.rows = rows
+
+    def check_absent(self, e):
+        """Form S of an erased entry (kfix.check_absent: the scan of the texts in scope)."""
+        try:
+            import kfix
+            return kfix.check_absent(e)
+        except (Exception, SystemExit) as err:
+            return False, f"absent: the scan did not run: {str(err)[:100]}"
+
+    def check_other(self, e, own):
+        """Form O of an erased entry (kfix.check_other) on this directory's fixtures."""
+        try:
+            import kfix
+            return kfix.check_other(e, own, read=self.read)
+        except (Exception, SystemExit) as err:
+            return False, f"other_file: not checked: {str(err)[:100]}"
 
     def exists(self, name):
         return isinstance(name, str) and name != "none" and os.path.isdir(os.path.join(self.fx, name))
@@ -446,27 +471,21 @@ def evidence(fx, l, key, e, row):
                 item(bool(shown), f"account prints inert {cls[0]}", f"account prints inert {cls[0]} ({own[0]})")
         ties()
     elif f == "erased":
-        pair = None
-        for x in own:
-            m = re.search(r"^same_as (\S+): equal after stripping$", fx.read(x, "kompile.txt") or "", re.M)
-            if m:
-                pair = (x, m[1]); break
-        ns = e.get("no_sentence")
-        cls = ns.split(":", 1)[0].strip() if isinstance(ns, str) else None
-        if pair:
-            have.append(f"pair {pair[0]} same_as {pair[1]} equal")
-        elif cls in ERASED_FORMS:
-            have.append(f"form {cls}")
-        else:
-            miss.append("pair (a same_as recorded equal)" + (f"; no_sentence class {cls!r} is no admitted form"
-                                                             if cls else ""))
+        letters = erased_forms(fx, l, key, e, have, miss)
+        if not letters:
+            miss.append("a form of erased (P pair, S absent, O other_file, C carried_by)")
     elif f == "refused":
         rs = [x.split(".", 1)[1] for x in (e.get("reasons") or [])
               if isinstance(x, str) and x.startswith("RefusalReason.")]
         err = [x for x in own if (fx.conf(x).get("expect") == "error")]
         kompile_refuses = bool(err) and (e.get("unit") == "none (scope): rejected" or e.get("class") == "R-b")
+        nodef = [x for x in own if re.search(r"^definition\.kore: none written$", fx.read(x, "kompile.txt") or "", re.M)]
+        option = (e.get("unit") == "none (scope): option" and isinstance(e.get("shape"), str)
+                  and e["shape"].startswith("none: "))
         if kompile_refuses:
             have.append(f"kompile refuses ({err[0]})")
+        elif option and nodef:
+            have.append(f"kompile writes no definition ({nodef[0]})")
         else:
             item(bool(rs), "reasons " + ", ".join(rs), "reasons (RefusalReason)")
             accs = [(x, fx.account(x)) for x in own if fx.account(x) is not None]
@@ -490,6 +509,60 @@ def evidence(fx, l, key, e, row):
     return have, miss
 
 
+def erased_forms(fx, l, key, e, have, miss):
+    """The forms of erased (findings/work/decision-fixrest-erased-forms.md section 2) the entry
+    carries, each checked, its item appended to have or miss; returns the letters of the forms
+    carried. P: the fixture `pair` names (else the first of the entry's own fixtures recording one)
+    records `same_as OTHER: equal after stripping`; S: each `absent` pattern is found in no text in
+    scope (kfix.check_absent); O: `other_file` and `witness` (kfix.check_other); C: `carried_by`
+    names a row that is not erased and has its own evidence, and the entry's `sentence` occurs in
+    that row's fixture."""
+    letters = []
+    own = [x for x in [e.get("fixture")] + list(e.get("also_fixtures") or []) if fx.exists(x)]
+    pair_rx = r"^same_as (\S+): equal after stripping$"
+    if "pair" in e:
+        letters.append("P")
+        x = e["pair"]
+        m = re.search(pair_rx, fx.read(x, "kompile.txt") or "", re.M) if fx.exists(x) else None
+        (have if m else miss).append(f"P: pair {x} same_as {m[1]} equal" if m else
+                                     f"P: pair {x!r} records no same_as equal after stripping")
+    else:
+        for x in own:
+            m = re.search(pair_rx, fx.read(x, "kompile.txt") or "", re.M)
+            if m:
+                letters.append("P"); have.append(f"P: pair {x} same_as {m[1]} equal"); break
+    if "absent" in e:
+        letters.append("S")
+        ok, what = fx.check_absent(e)
+        (have if ok else miss).append(f"S: {what}")
+    if "other_file" in e or "witness" in e:
+        letters.append("O")
+        ok, what = fx.check_other(e, own)
+        (have if ok else miss).append(f"O: {what}")
+    if "carried_by" in e:
+        letters.append("C")
+        c = e["carried_by"]
+        m = re.match(r"^(E[1-8]|C3) (.+)$", c) if isinstance(c, str) else None
+        row = (fx.rows.get(m[1]) or {}).get(m[2]) if m and fx.rows else None
+        if row is None:
+            miss.append(f"C: carried_by {c!r} is no row of rows.toml")
+        elif row.get("status") in ("erased", None):
+            miss.append(f"C: carried_by {c!r} is of status {row.get('status')!r}")
+        else:
+            h2, m2 = evidence(fx, m[1], m[2], row, row)
+            ss = e.get("sentence")
+            ss = ss if isinstance(ss, list) else [ss] if isinstance(ss, str) else []
+            x = row.get("fixture")
+            out = [s for s in ss if not fx.exists(x) or s not in fx.text(x)]
+            if m2:
+                miss.append(f"C: {c} has not its own evidence ({m2[0][:80]})")
+            elif not ss or out:
+                miss.append(f"C: the entry's sentence " + (f"{out[0][:50]!r} not in {x}" if out else "(none)"))
+            else:
+                have.append(f"C: carried by {c} ({row.get('status')}, its evidence; {len(ss)} sentences in {x})")
+    return letters
+
+
 def node_held(fx, l, key, x, e):
     """(held, how) for an E4/E5 row's node in fixture x."""
     try:
@@ -508,6 +581,14 @@ def node_held(fx, l, key, x, e):
 def run(t, fx):
     """[(list, status, form, where, core reason, present, missing)] over the entries with a status."""
     out = []
+    pats = [p for _, _, _, e, _ in entries(t) if e.get("status") == "erased"
+            for p in (e["absent"] if isinstance(e.get("absent"), list) else [e.get("absent")]) if p is not None]
+    if pats:
+        try:
+            import kfix
+            kfix.scan(pats)     # one pass over the texts in scope for every pattern
+        except (Exception, SystemExit):
+            pass                # each entry's check reports it
     for l, key, where, e, row in entries(t):
         c = core(t, l, key, row)
         f = form(l, key, e)
@@ -584,7 +665,7 @@ def main(argv):
     report, fresh = "--report" in argv, "--fresh" in argv
     argv = [a for a in argv if a not in ("--report", "--fresh")]
     t = tomllib.load(open(argv[0] if argv else os.path.join(HERE, "rows.toml"), "rb"))
-    fx = Fixtures(os.path.join(HERE, "fixtures"), fresh)
+    fx = Fixtures(os.path.join(HERE, "fixtures"), fresh, t)
     res = run(t, fx)
     if mode == "list":
         print_list([r for r in res if not r[4]], fresh, opt.get("--out"))
@@ -618,8 +699,28 @@ def self_test():
                 "exit 0\nsame_as ok: equal after stripping\n" if name == "eq" else "exit 0\n")
             if extra:
                 open(os.path.join(fxd, name, "fixture.toml"), "w").write(extra)
-        fx = Fixtures(fxd, False)
+        os.makedirs(os.path.join(fxd, "oth")); os.makedirs(os.path.join(fxd, "nodef"))
+        open(os.path.join(fxd, "oth", "kompile.txt"), "w").write("exit: 0\n")
+        open(os.path.join(fxd, "oth", "other.txt"), "w").write(
+            "// other_file macros.kore: 9 lines, sha256 0\n  axiom{R} \\equals{SortExp{},R} (\n"
+            "    Lblm{}(VarX:SortExp{}),\n    Lblg{}(VarX:SortExp{}))\n  [macro{}()]\n")
+        open(os.path.join(fxd, "nodef", "kompile.txt"), "w").write("exit: 0\ndefinition.kore: none written\n")
+        rows = {"E3": {"U": {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "ok"},
+                       "V": {"status": "inert", "inert_class": "use", "fixture": "ok"},
+                       "E": {"status": "erased", "fixture": "eq"}}}
+        fx = Fixtures(fxd, False, rows)
         fx.fresh_equal = lambda name: True
+        import kfix
+        sm = {"modules": ["BASIC-K", "KSEQ", "INJ", "K", "MAIN"],
+              "lists": [[4, 0, "symbol", "constructor,comm", "Source(BUILTIN/kast.md)", "Location(80,3,80,20)"],
+                        [4, 1, "axiom", "UNIQUE'Unds'ID", "-", "-"], [None, None, "module", "", "-", "-"],
+                        [4, 2, "sort", "", "Source(/nix/store/x-k-6.0.0-y/include/kframework/builtin/domains.md)",
+                         "Location(900,1,900,9)"]]}
+        fake = lambda ps: {p: (1, [], [f"t: {h}" for h in kfix.absent_hits(p, sm)])
+                           if kfix.absent_form(p) else None for p in ps}
+        fx.check_absent = lambda e: kfix.check_absent(e, fake)
+        defn = "module MAIN\n  symbol Lblm{}(SortExp{}) : SortExp{} [macro{}()]\n// rule Lblh{}(VarX:SortExp{})\nendmodule []\n"
+        fx.check_other = lambda e, own: kfix.check_other(e, own, read=fx.read, full_text=lambda x: defn)
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
         cases = [
@@ -642,6 +743,45 @@ def self_test():
             ("E2", "A", {"status": "refused", "fixture": "err", "class": "R-a", "reason": "r"}, False),
             ("E2", "A", {"status": "erased", "fixture": "eq"}, True),
             ("E2", "A", {"status": "erased", "fixture": "ok"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "pair": "eq"}, True),
+            ("E2", "A", {"status": "erased", "fixture": "eq", "pair": "ok"}, False),
+            # S: a pattern found nowhere; found (a head, a source range, a module); of no known form
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "attribute cellSort"}, True),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": ["axiom attribute comm",
+                         "source kast.md 1-79", "module other than BASIC-K, KSEQ, INJ, K and the main module"]}, True),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "attribute comm"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "symbol attribute comm"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source kast.md 70-90"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source kast.md 100-200"}, True),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "source domains.md 1-5"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "module other than BASIC-K, KSEQ, K and the main module"}, False),
+            ("E2", "A", {"status": "erased", "fixture": "ok", "absent": "no sentence holds it"}, False),
+            # O: the witness in other.txt and not in definition.kore
+            ("E5", "A", {"status": "erased", "fixture": "oth", "other_file": "macros.kore",
+                         "witness": ["Lblm{}(VarX:SortExp{}),   Lblg{}(VarX:SortExp{})"]}, True),
+            ("E5", "A", {"status": "erased", "fixture": "oth", "other_file": "macros.kore",
+                         "witness": ["macro{}()"]}, False),
+            ("E5", "A", {"status": "erased", "fixture": "oth", "other_file": "macros.kore",
+                         "witness": ["Lblh{}(VarX:SortExp{})"]}, False),
+            ("E5", "A", {"status": "erased", "fixture": "oth", "other_file": "syntaxDefinition.kore",
+                         "witness": ["Lblm{}(VarX:SortExp{})"]}, False),
+            # C: carried by a row with its evidence, the sentence in its fixture
+            ("E7", "A", {"status": "erased", "carried_by": "E3 U", "sentence": ["axiom{} f"]}, True),
+            ("E7", "A", {"status": "erased", "carried_by": "E3 U", "sentence": ["axiom{} g"]}, False),
+            ("E7", "A", {"status": "erased", "carried_by": "E3 V", "sentence": ["axiom{} f"]}, False),
+            ("E7", "A", {"status": "erased", "carried_by": "E3 E", "sentence": ["axiom{} f"]}, False),
+            ("E7", "A", {"status": "erased", "carried_by": "E3 nothing", "sentence": ["axiom{} f"]}, False),
+            # two forms are conjoined
+            ("E2", "A", {"status": "erased", "fixture": "eq", "absent": "attribute comm"}, False),
+            # an option that writes no definition
+            ("E8", "A", {"status": "refused", "fixture": "nodef", "class": "scope", "unit": "none (scope): option",
+                         "shape": "none: fixtures/nodef/kompile.txt:2: definition.kore: none written",
+                         "reason": "r"}, True),
+            ("E8", "A", {"status": "refused", "fixture": "ok", "class": "scope", "unit": "none (scope): option",
+                         "shape": "none: fixtures/nodef/kompile.txt:2: definition.kore: none written",
+                         "reason": "r"}, False),
+            ("E8", "A", {"status": "refused", "fixture": "nodef", "class": "scope", "unit": "none (scope): option",
+                         "shape": "E8 X", "reason": "r"}, False),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "simplification", "tie": [tie],
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, True),
             ("E2", "A", {"status": "inert", "fixture": "ok", "inert_class": "claim", "tie": [tie],
