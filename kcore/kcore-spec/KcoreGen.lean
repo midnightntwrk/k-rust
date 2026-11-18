@@ -2810,7 +2810,11 @@ def account (koreFile : String) : IO UInt32 := do
     let fl := Parse.fnLawSentences k d
     unless fl.isEmpty do
       IO.println s!"law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): {fl.length}"
-      for (i, h, ls) in fl do IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): FnLaws owed"
+      -- each sentence is one law of `Definition.laws`, in the same order (`fnLawAxioms`)
+      for ((i, h, ls), l) in fl.zip d.laws do
+        IO.println s!"      sentence {i} ({h}): fnLaw ({", ".intercalate ls}): {Parse.fnLawEntry d.sem l}"
+      unless fl.length == d.laws.length do
+        IO.println s!"      the laws read are {d.laws.length}, not one per sentence: the entries above pair them by position"
     -- printed only when a constructor or an open generator carries a unit attribute
     let ui := Parse.unitIgnored k d
     unless ui.isEmpty do
