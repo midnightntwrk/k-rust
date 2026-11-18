@@ -41,6 +41,7 @@ differs f2-examples/cellsub.kompile.kore
 differs f2-examples/clgenless.kompile.kore
 exact f2-examples/colls-list.kore
 differs f2-examples/colls.kore
+differs f2-examples/collsym.kompile.kore
 differs f2-examples/commctor.kompile.kore
 differs f2-examples/cooleq.kompile.kore
 differs f2-examples/defcfg.kompile.kore
