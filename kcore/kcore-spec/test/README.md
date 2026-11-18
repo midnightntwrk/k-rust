@@ -1343,6 +1343,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   for every Int i (`stepBy`), `sound_b`, `step_inv`, `outIs`, `complete_A`, `exact_b` at
   `c.withHooks H`; the expectations `b_step` (from `PreS`, the sentences as written) and `a_succs`
   (through the step's closure, from `Pre`). About 11 s, 2.9 GiB.
+- `test/TieRuleCool.lean`: on `f2-examples/rulecool.kompile.kore` (fixture e2-rule: nine rules over
+  `a(Int)`, `b(Int)`, `c(Int)` with a label, priorities 10, 50, 60, `[owise]`, `preserves-definedness`,
+  and the `[cool]` and `[heat]` rules whose `requires` hold HOLE, bound by no side), for every H:
+  the function equations (`shape`) and the nine rule sentences 164 to 172 (`rules_tie`,
+  `rules_from_text`, W1) tied; `Γc`'s one closure item `boolClosed` (`gammaCl_eq`); the two owed
+  conditions `Witnessed` at `c.withHooks H` (`witnessed6H`, `witnessed7H`), so `FnHyp`
+  (`fnHypH`), `consistent` and `pre_model`; the steps by hand (`stepA5` ... `stepC2`, the priority
+  premise by `NotApplies`), their inversions over the nine rules (`succ_A5`, `succ_B5`, `succ_B0`,
+  `succ_C5`); the expectations from `Pre`: `a5_step`, `a5_succs`, `b5_step`, `b5_succs`, `b0_step`,
+  `b0_succs`, `c5_step`, `c5_succs`, `c1_step`, `c2_step`. About 23 s, 2.8 GiB.
 - `test/TieKimpSig.lean`: `sig_origin` on kimp's text: each of the 255 items of `sigItems c` is a
   declaration's item of the text or a `surplusItem`. One kernel decision exceeds 12 GiB; it is
   decided by thirteen ranges of the items and joined by `tieAll_range` (KcoreSpec/TieChunks.lean).
