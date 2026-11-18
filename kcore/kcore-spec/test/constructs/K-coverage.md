@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 58 | 6 | 0 | 1 | 0 | 51 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
-| E5 | 56 | 30 | 1 | 5 | 0 | 20 | 0 | 0 |
+| E5 | 57 | 31 | 1 | 5 | 0 | 20 | 0 | 0 |
 | E6 | 30 | 8 | 0 | 0 | 0 | 22 | 0 | 0 |
 | E7 | 7 | 2 | 1 | 1 | 0 | 3 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 321 | 113 | 2 | 17 | 1 | 188 | 0 | 0 |
+| all | 322 | 114 | 2 | 17 | 1 | 188 | 0 | 0 |
 
 Refused rows by class:
 
@@ -63,14 +63,14 @@ Refused nested entries by class:
 | E2 | 51 | 3 | 0 | 4 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
-| E5 | 20 | 9 | 0 | 6 | 5 |
+| E5 | 20 | 10 | 0 | 5 | 5 |
 | E6 | 22 | 2 | 1 | 3 | 16 |
 | E7 | 3 | 0 | 0 | 0 | 3 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 188 | 48 | 11 | 48 | 81 |
+| all | 188 | 49 | 11 | 47 | 81 |
 
-## Entries of class R-c (60)
+## Entries of class R-c (59)
 
 Each names the notion the kernel lacks, the cone declaration that would change, and the ticket or unit that supports it (`unit`, checked by `units.py`).
 
@@ -123,7 +123,6 @@ Each names the notion the kernel lacks, the cone declaration that would change, 
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[18] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[19] | refused |  |  | RDR.eq-binders |  |
 | E3 | `ML-SYNTAX:Sort2::="#Exists" Sort1 "." Sort2` | cases[20] | refused |  |  | RDR.eq-binders |  |
-| E5 | `translateSorts:hooked-#2` | cases[5] | refused | a second sort with a builtin carrier | KCore.dvOK (an Int literal is a value of Srt.int only), KCore.intHooks and the other hook tables (results at Srt.int) | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[3] | refused | a constructor that is not free | KCore.OvlSig, KCore.Semantics.ctorSigs | no unit |  |
 | E5 | `genOverloadedAxiom:axiom#1` | cases[4] | refused |  | KCore.OvlSig | no unit |  |
 | E5 | `convertRule:axiom#1` | cases[10] | refused |  | KCore.Semantics.clausesPlain (a clause's cut is a Clause.pre, which it admits from e3.admit; designs/CN-4b-rc-units.md section 3.1) | P3.cut-clause |  |
@@ -889,10 +888,11 @@ Not core:
 | `translateSorts:hooked-#2` | supported |  | The site writes \`hooked-\` before a sort whose hook is not a collection's. A hooked sort's values are the hook namespace's. The reader has the library's (INT.Int, BOOL.Bool, STRING.String, FLOAT.Float, BYTES.Bytes, via the library text), read from a builtin file or redeclared by the user without a pl… | none (reader only) for the supported cases |  | e2-collection |  |  | Parse.lean:1590-1600 (placelessModule?), :1343 (kBuiltinModule?), :1769 (classify); Value.lean:142-147 (dvOK) |
 | cases[0]: library sort from a builtin file, library text | supported |  |  |  |  |  |  |  |  |
 | cases[1]: B4 library sort redeclared by the user, written without place | supported |  |  |  |  |  |  |  |  |
-| cases[2]: KVAR.KVar (substitution.md): a hooked token sort | supported |  |  | none (reader only): a token sort of the definition, Lib.tokenSorts |  | e6-param-kvar |  |  | fixtures/e6-param-kvar/account.txt: the hooked sort SortKVar \`read [own builtin]\` as a token sort (Parse.ownTokenHookedSort?), \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
+| cases[2]: KVAR.KVar declared in the builtin file substitution.md (KVAR-SYNTAX): a hooked token sort of a builtin file, whose hook… | supported |  | the reading is of a builtin file's declaration only: the same declaration in a user's file is the refused case below (fixture e6-user-kvar-hook) | none (reader only): a token sort of the definition, Lib.tokenSorts |  | e6-param-kvar |  |  | fixtures/e6-param-kvar/account.txt: the hooked sort SortKVar \`read [own builtin]\` as a token sort (Parse.ownTokenHookedSort?), \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
 | cases[3]: RANGEMAP.RangeMap | supported |  | FIX-core.rangemap-silent: was refused R-c; the library's sort since c1 and c2 (fixtures/e6-rangemap/account.txt: \`coreOK: true\`) | see E6 hook:RANGEMAP.RangeMap:SortRangeMap |  |  |  |  |  |
 | cases[4]: MINT.MInt{Width} | refused | R-a |  |  |  |  |  |  |  |
-| cases[5]: a user sort hooked to INT.Int, BOOL.Bool, FLOAT.Float, STRING.String or BYTES.Bytes under its own name | refused | R-c |  | KCore.dvOK (an Int literal is a value of Srt.int only), KCore.intHooks and the other hook tables (results at Srt.int) |  |  |  |  |  |
+| cases[5]: a user sort hooked to INT.Int, BOOL.Bool, FLOAT.Float, STRING.String or BYTES.Bytes under its own name | supported |  | the fixture holds INT.Int; scanCarrier gives the other four library carriers the same reading (carrierOf?) | KCore.Lib.carrier (via KCore.dvOK) and KCore.Semantics.carriersOK: a literal of the sort is a value of its carrier's, the sort itself apart from the carrier |  | e5-hooked-int |  |  | Parse.scanCarrier (the sort and its carrier, Lib.carriers), Parse.classify's hooked-sort arm (read where scanCarrier gives a carrier); fixtures/e5-hooked-int/account.txt (\`syntax MyInt [hook(INT.Int)]\`, kore.txt \`hooked-sort SortMyInt{} [hasDomainValues{}(), hook{}("INT.Int"), ...]\`): \`8 read [user]… |
+| cases[6]: a user sort hooked under its own name to a hook that is no collection's and no library carrier's, as KVAR-SYNTAX declare… | refused | R-a | a user's hooked sort whose hook no library sort has is read with no domain, so it is refused rather than read as a sort the hook does not describe |  | none (R-a): the hook says the sort's values are a domain the hook names, and neither the library nor a sentence of the text gives that domain; the token-sort reading of such a hook is a builtin file's declaration's, and a user's hook has none until a ruling on user hooks (findings/work/am-okv-follow… | e6-user-kvar-hook |  |  | fixtures/e6-user-kvar-hook/account.txt: \`1 refused userHookedSort [user]\` (\`hooked-sort SortName{} [hasDomainValues{}(), hook{}("KVAR.KVar"), ... token{}()]\`), then the constructor over the sort \`sentence 98 (Lblgo): unknownSort (Name)\` |
 | `translateSorts:sort#1` | supported |  | The site writes \`sort X{} [atts]\` for every sort (after \`hooked-\` for a hooked one). A sort declaration states that the sort exists; with hasDomainValues it states its values are literals. Both are read: a plain sort (scanPlainSort), a user token sort with or without its place (scanTokenSort, scanLo… | none (reader only) |  | base |  |  | Parse.lean:1521-1546; fixtures e1-syntax (B1), e2-token (B2: a sort with \`hasDomainValues{}()\` and \`token{}()\`), both parse ok, wf true |
 | cases[0]: B1 user sort | supported |  |  |  |  |  |  |  |  |
 | cases[1]: B2 user token sort | supported |  |  |  |  |  |  |  |  |
@@ -1471,7 +1471,7 @@ Not core:
 | `hook:FLOAT.floor:LblfloorFloat'LParUndsRParUnds'FLOAT'Unds'Float'Unds'Float` | supported |  | K-coverage Part C at 57f851ec: not handled |  |  |  | no | no | FixedSignature.lean regHookNames: FLOAT.floor |
 | `symbol:ID-COMMON:LblfreshId'LParUndsRParUnds'ID-COMMON'Unds'Id'Unds'Int` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: ID-COMMON, read as the library's text |
 | `symbol:INT:LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int` | supported |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT, read as the library's text |
-| `symbol:KVAR-COMMON:LblfreshKVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'Int` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
+| `symbol:KVAR-COMMON:LblfreshKVar'LParUndsRParUnds'KVAR-COMMON'Unds'KVar'Unds'Int` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  | e6-param-kvar | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `symbol:RAT:LblgcdInt'LParUndsCommUndsRParUnds'RAT'Unds'Int'Unds'Int'Unds'Int` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `hook:KREFLECTION.getKLabel:Lblgetsymbol'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'K` | parameter |  | The reader already reads them: a K-REFLECTION hooked symbol is the definition's own parameter symbol (ReadingNote.reflectionAsOwn). The text declares each a function and states nothing else of it. The row's evidence ("refused builtinText") is stale. |  |  | e6-param-kreflection | no | no | Parse.lean:266-277, :1693-1701; fixture e2-cells-stream account \`8 read reflectionAsOwn [builtin]\` |
 | `hook:SET.intersection:LblintersectSet'LParUndsCommUndsRParUnds'SET'Unds'Set'Unds'Set'Unds'Set` | supported |  |  |  |  |  | yes | yes | FixedSignature.lean regHookNames: SET.intersection |
@@ -1762,7 +1762,7 @@ Not core:
 | `axiom:STRING-COMMON:1892:8` | supported |  |  |  |  |  | no | yes | BuiltinData.lean modules: STRING-COMMON, read as the library's text |
 | `axiom:ID-COMMON:2299:8` | supported |  |  |  |  |  | no | no | BuiltinData.lean modules: ID-COMMON, read as the library's text |
 | `axiom:INT:1457:8` | supported |  |  |  |  |  | yes | yes | BuiltinData.lean modules: INT, read as the library's text |
-| `axiom:KVAR-COMMON:54:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
+| `axiom:KVAR-COMMON:54:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  | e6-param-kvar | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `axiom:RAT:178:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `axiom:RAT:179:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
 | `axiom:RAT:180:8` | supported |  | Own-reading: a sentence of a K builtin file that is not the library's text is a sentence of the kompiled text like any other, and is read as it is written, as the definition's own (the reading the reader already has for K-REFLECTION, ReadingNote.reflectionAsOwn): a sort as a sort, a constructor as a… | none (reader only) |  |  | no | no | all-builtins definition.kore: sentences with Source rat.md, ffi.md, substitution.md, unification.k, kast.md:70,197,345-348, domains.md:86-185 (ARRAY), :2944-2968 (MINT) |
