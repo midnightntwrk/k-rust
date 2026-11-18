@@ -942,7 +942,7 @@ theorem totals_of_order (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) :
     ∀ f fn, c.lookupFn f = some fn → fn.total = true → Total c f :=
   have hpreTop := Semantics.preTop_of_okAll hok
-  totals_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok) hsr hov hrh hterm hnamed
+  totals_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hrh hterm hnamed
 
 /-- With no `[total]` function named, every one is total. -/
 theorem totals_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase)

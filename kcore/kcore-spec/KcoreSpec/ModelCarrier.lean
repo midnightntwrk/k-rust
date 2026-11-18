@@ -127,7 +127,8 @@ theorem HypModelCore.solves {c : Semantics} (h : HypModelCore c) : FnSolves c :=
 
 /-- `HypModelCore` from its parts other than the functions'. -/
 theorem HypModel.core_of {c : Semantics} (h : HypModel c) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c :=
-  ⟨⟨Semantics.sortedOKCl_of_sortedOK h.hyp.core.1, h.hyp.core.2.1, h.hyp.core.2.2.2.2.2.2, hd, hs⟩,
+  have hc := h.hyp.core (Semantics.overloadsOK_pats h.sound.2.2.2.2.2.2.2.2.ok)
+  ⟨⟨Semantics.sortedOKCl_of_sortedOK hc.1, hc.2.1, hc.2.2.2.2.2.2, hd, hs⟩,
     HypSoundCore.model h.sound.core, h.names, h.lits, h.ids,
     h.sorts, h.collCtors, h.ites, h.kinds, h.ctors, h.fns, h.sound.2.2.2.2.2.2.2.2.ok, ovlsOnce_of_ids h.ids⟩
 

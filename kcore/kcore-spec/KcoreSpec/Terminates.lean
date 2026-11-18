@@ -746,7 +746,7 @@ theorem terminates_of_order (hok : c.okAll = true) (hsr : c.srReady = true) (hov
     (hnamed : ∀ g ∈ c.orderObligations ++ z.obligations c, Terminates c g)
     (hrh : c.RightHeld := by exact Semantics.rightHeld_of_valued (by decide +kernel)) : ∀ f, Terminates c f :=
   have hpreTop := Semantics.preTop_of_okAll hok
-  terminates_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok) hsr hov hrh z hnamed
+  terminates_of_order_core (hpreTop := hpreTop) (Semantics.sortedOK_of_okAll hok (Semantics.ovlPatsOK_of_ovlCase hov)) hsr hov hrh z hnamed
 
 /-- With no function named, every function terminates. -/
 theorem terminates_of_nil (hok : c.okAll = true) (hsr : c.srReady = true) (hov : c.OvlCase) (z : Certificates)

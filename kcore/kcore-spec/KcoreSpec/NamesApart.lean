@@ -462,11 +462,11 @@ theorem subsorts_irrefl_of (hids : c.idsOK = true) (hok : c.sortedOK = true) :
 
 theorem subsorts_trans_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) :
     ∀ a b e, (a, b) ∈ d.sem.subsorts → (b, e) ∈ d.sem.subsorts → (a, e) ∈ d.sem.subsorts :=
-  subsorts_trans_of (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2)
+  subsorts_trans_of (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2 (KCore.ovlPatsOK_of_wf hwf))
 
 theorem subsorts_irrefl_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) :
     ∀ a, (a, a) ∉ d.sem.subsorts :=
-  subsorts_irrefl_of (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2)
+  subsorts_irrefl_of (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2 (KCore.ovlPatsOK_of_wf hwf))
 
 /-! ## No constructor is a map pattern symbol -/
 
@@ -561,7 +561,7 @@ theorem ovlCase_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) : d.sem.O
   exact hwf.2
 
 theorem srReady_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) : d.sem.srReady = true :=
-  srReady_of (wf_parts hwf).2.1 (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2)
+  srReady_of (wf_parts hwf).2.1 (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2 (KCore.ovlPatsOK_of_wf hwf))
     (rangeKeys_genWf_of_faithCore (KCore.Semantics.faithCoreOK_of_faithOK (KCore.faithOK_of_wf hwf)))
     (by unfold KCore.wf at hwf; simp only [Bool.and_eq_true] at hwf; exact hwf.2)
 
@@ -569,6 +569,6 @@ theorem srReady_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) : d.sem.s
 reads none). -/
 theorem matchReady_of_wf {d : KCore.Definition} (hwf : KCore.wf d = true) (hno : d.sem.ovls = []) :
     d.sem.matchReady = true :=
-  matchReady_of (wf_parts hwf).1 (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2) hno
+  matchReady_of (wf_parts hwf).1 (wf_parts hwf).2.2.1 (KCore.Semantics.sortedOK_of_okAll (wf_parts hwf).2.2.2 (KCore.ovlPatsOK_of_wf hwf)) hno
 
 end KCore.NamesApart

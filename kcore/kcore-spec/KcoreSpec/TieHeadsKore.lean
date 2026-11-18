@@ -377,6 +377,7 @@ theorem clauseG_of_sorted {f : Fn} {rhsHeads : List CtorSig} {cl : Clause}
 theorem ruleG_of_sorted {r : Rule} (h : c.ruleSorted r = true) : RuleG c r := by
   simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hlhs, -⟩, -⟩, -⟩, hreq⟩, hpre⟩, hens⟩, hpost⟩, -⟩, -⟩, hrhs⟩ := h
+  replace hlhs := sortOfTerm_all_of_nf hlhs
   exact ⟨fun vs => term ctxG_patCtxAll r.vars vs r.lhs hlhs,
     fun vs t ht => term ctxG_rhsCtx_fns r.vars vs t (reqOK_some_ghk hreq t ht),
     fun vs => term ctxG_rhsCtx_fns r.vars vs r.rhs hrhs,
