@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-ite-two-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 127467
+definition.kore sha256: 68bf79b41d3f288e396b1282f71dd22237af656e724dd8b2f1606aead5b97f06
+stripped sha256: b679771a7baaa465295f006a0a0015c0d36d7561951ca3eadfc7c244fe0312c6
+main module: 298 sentences, 30 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-TWO-EQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  RDR-ITE-TWO-EQ as default.
