@@ -468,11 +468,29 @@ example (k : Kore.Definition) (n : String) : eqnsOf k n =
     (k.axiomDecls.map (·.ax)).filter (fun a =>
       eqnHeadIs n a.pattern && !isLaw a && !has a.attributes "simplification") := rfl
 
+example (k : Kore.Definition) : paramSymDecls k =
+    (k.modules.flatMap fun m => m.sentences.filterMap fun
+      | .symbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | .hookedSymbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+      | _ => none) := rfl
+
+example (m : String) : instBase m =
+    (let l := m.toList
+     if l.getLast? == some '}' then some (String.ofList (l.takeWhile (· != '{'))) else none) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : instDecls k c =
+    (match paramSymDecls k with
+     | [] => []
+     | ps => c.symNames.filterMap fun m =>
+         (instBase m).bind fun f => (ps.find? (·.1 == f)).map fun p => (m, p.2)) := rfl
+
+example (k : Kore.Definition) (c : Semantics) : symDeclsAt k c = symDecls k ++ instDecls k c := rfl
+
 example (k : Kore.Definition) (c : Semantics) : ctors k c =
-    ((symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
+    ((symDeclsAt k c).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : fns k c =
-    ((symDecls k).all fun (n, as) =>
+    ((symDeclsAt k c).all fun (n, as) =>
       let fn := has as "function" && !has as "hook"
       let isFn := c.allFns.any (c.symName ·.label == n)
       let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
@@ -484,7 +502,7 @@ example (k : Kore.Definition) (c : Semantics) : fns k c =
 example (g : CtorSig) : libFn g = !regHookNames.any (·.1 == g.name) := rfl
 
 example (k : Kore.Definition) (c : Semantics) : hooks k c =
-    ((symDecls k).all (fun (n, as) =>
+    ((symDeclsAt k c).all (fun (n, as) =>
       match strArg as "hook" with
       | some h =>
         (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&

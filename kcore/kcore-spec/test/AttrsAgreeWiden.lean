@@ -16,6 +16,14 @@
   - on `f2-examples/ens.kompile.kore` with `half` declared `hooked-symbol … hook{}("INT.rand")`,
     a hook the registry does not have, `half` is a function with its equation and the five parts
     are true.
+  An instance of a sort-parametric declaration that the semantics has is compared at its own name
+  with the declaration's attributes (`AttrsAgree.symDeclsAt`, `instDecls`):
+  - where the semantics names no instance (no own name ends with a brace) the rows are the text's
+    declarations (`symDeclsAt_eq_symDecls`), and the three statements above are stated there
+    (their hypothesis `instDecls k c = []`); an instance adds its own row;
+  - on `parsel` the instances' rows are `sel{K}` and `sel{Int}`, each with the declaration's
+    `function{}`, and a tie's pairing finds the two equations of `sel{K}` by its instance name
+    (`TiePair.findEqn`, `AttrsAgree.eqnHeadIs`).
 -/
 import KcoreSpec
 
@@ -91,21 +99,21 @@ theorem fnRow_mono (i f hk u y z p a b : Bool) (e : a = true → b = true)
   cases a <;> cases b <;> cases i <;> cases f <;> cases hk <;> cases u <;> cases y <;> cases z <;>
     cases p <;> decide
 
-theorem fns_of_hookless {k : Kore.Definition} {c : Semantics} (h : fnsHookless k c = true) :
-    fns k c = true := by
-  simp only [fnsHookless, fns, List.all_eq_true] at h ⊢
+theorem fns_of_hookless {k : Kore.Definition} {c : Semantics} (hI : instDecls k c = [])
+    (h : fnsHookless k c = true) : fns k c = true := by
+  simp only [fnsHookless, fns, symDeclsAt, hI, List.append_nil, List.all_eq_true] at h ⊢
   rintro ⟨n, as⟩ hx
   exact fnRow_mono _ _ _ _ _ _ _ _ _ id (h (n, as) hx)
 
-theorem fns_of_former {k : Kore.Definition} {c : Semantics} (h : formerFns k c = true) :
-    fns k c = true := by
-  simp only [formerFns, fns, List.all_eq_true] at h ⊢
+theorem fns_of_former {k : Kore.Definition} {c : Semantics} (hI : instDecls k c = [])
+    (h : formerFns k c = true) : fns k c = true := by
+  simp only [formerFns, fns, symDeclsAt, hI, List.append_nil, List.all_eq_true] at h ⊢
   rintro ⟨n, as⟩ hx
   exact fnRow_mono _ _ _ _ _ _ _ _ _ (@eqnsOf_isEmpty_of_former k n) (h (n, as) hx)
 
-theorem hooks_of_former {k : Kore.Definition} {c : Semantics} (h : formerHooks k c = true) :
-    hooks k c = true := by
-  simp only [formerHooks, hooks, List.all_eq_true] at h ⊢
+theorem hooks_of_former {k : Kore.Definition} {c : Semantics} (hI : instDecls k c = [])
+    (h : formerHooks k c = true) : hooks k c = true := by
+  simp only [formerHooks, hooks, symDeclsAt, hI, List.append_nil, List.all_eq_true] at h ⊢
   intro x hx
   have hx' := h x hx
   rcases x with ⟨n, as⟩
@@ -145,3 +153,34 @@ info: [true, true, true, true, true]; fns [(Lblhalf, 1)]; params without impl []
   IO.println (← attrsParts "f2-examples/ens.kompile.kore" fun s =>
     s.replace "  symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), "
       "  hooked-symbol Lblhalf{}(SortInt{}) : SortInt{} [function{}(), hook{}(\"INT.rand\"), ")
+
+/-- No own name of the semantics ends with a closing brace: it names no instance. -/
+theorem instDecls_eq_nil {k : Kore.Definition} {c : Semantics}
+    (h : ∀ m ∈ c.symNames, instBase m = none) : instDecls k c = [] := by
+  unfold instDecls
+  split
+  · rfl
+  · rw [List.filterMap_eq_nil_iff]
+    intro m hm; rw [h m hm]; rfl
+
+theorem symDeclsAt_eq_symDecls {k : Kore.Definition} {c : Semantics}
+    (h : ∀ m ∈ c.symNames, instBase m = none) : symDeclsAt k c = symDecls k := by
+  rw [symDeclsAt, instDecls_eq_nil h, List.append_nil]
+
+/-- The kernel reduces an instance's declared name at a literal. -/
+example : instBase "Lblsel{K,Int}" = some "Lblsel" ∧ instBase "Lblsel" = none ∧
+    instBase "Lbl'Unds'andBool'Unds'" = none := by decide +kernel
+
+/--
+info: instances [(Lblsel{K}, true), (Lblsel{Int}, true)]; instance clause keys [(Lblsel{K}, 50), (Lblsel{K}, 50)]; found [true, true]
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  match Kore.parseDefinition (← IO.FS.readFile "f2-examples/parsel.kompile.kore") with
+  | .error e => IO.println s!"KORE read error {e}"
+  | .ok k =>
+    match Parse.parse k with
+    | .error r => IO.println s!"{r.reason.name} {r.detail}"
+    | .ok d =>
+      let keys := (TiePair.clauseKeys d.sem).filter fun key => (instBase key.1).isSome
+      IO.println s!"instances {(instDecls k d.sem).map fun (n, as) => (n, has as "function")}; instance clause keys {keys}; found {keys.map fun key => (TiePair.findEqn k.axiomDecls key).isSome}"

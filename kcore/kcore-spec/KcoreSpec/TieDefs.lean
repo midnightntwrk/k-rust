@@ -174,9 +174,44 @@ def isRewrite : Kore.Pattern → Bool
   | .rewrites _ _ _ => true
   | _ => false
 
-/-- `constructor{}` is on exactly the symbols the semantics has as constructors. -/
+/-- A sort-parametric symbol declaration (`symbol f{S₁,…,Sₙ}(…) : … […]`, n > 0): its name and
+attributes. -/
+def paramSymDecls (k : Kore.Definition) : List (String × List Kore.AppPattern) :=
+  k.modules.flatMap fun m => m.sentences.filterMap fun
+    | .symbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+    | .hookedSymbol s => if s.symbol.sortVars.isEmpty then none else some (s.symbol.ident.ident.name, s.attributes)
+    | _ => none
+
+/-- The declared name of the instance the semantics names `m` (`f` of `f{X₁,…,Xₙ}`, as
+`instHeadName` writes an instance); none where `m` does not end with a closing brace. KORE's
+identifiers hold no brace, so a name with braces is no declared symbol's. -/
+def instBase (m : String) : Option String :=
+  let l := m.toList
+  if l.getLast? == some '}' then some (String.ofList (l.takeWhile (· != '{'))) else none
+
+/-- The instances of sort-parametric symbols among the semantics' own symbols, each as its name in
+the semantics and the attributes of the text's sort-parametric declaration of its declared name
+(`instBase`, `paramSymDecls`). In KORE one sentence `symbol f{S}(…) : … [as]` declares the symbol
+`f{s}` at every sort `s`, and no other sentence declares one of them: the attributes an instance
+is declared with are that sentence's. -/
+def instDecls (k : Kore.Definition) (c : Semantics) : List (String × List Kore.AppPattern) :=
+  match paramSymDecls k with
+  | [] => []
+  | ps => c.symNames.filterMap fun m =>
+      (instBase m).bind fun f => (ps.find? (·.1 == f)).map fun p => (m, p.2)
+
+/-- The symbols the attributes are compared at: each declaration of the text at its declared name
+(`symDecls`), and each instance of a sort-parametric declaration that the semantics has, at the
+instance's name with the declaration's attributes (`instDecls`). The semantics names an own symbol
+of a sort-parametric declaration by its instance, never by the declared name, so no row of
+`symDecls` compares it. -/
+def symDeclsAt (k : Kore.Definition) (c : Semantics) : List (String × List Kore.AppPattern) :=
+  symDecls k ++ instDecls k c
+
+/-- `constructor{}` is on exactly the symbols the semantics has as constructors, at each
+declaration and at each instance of a sort-parametric one (`symDeclsAt`). -/
 def ctors (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)
+  (symDeclsAt k c).all fun (n, as) => has as "constructor" == c.ctorSigs.any (c.symName ·.name == n)
 
 /-- A law sentence: an equation without premise between terms, marked `assoc`, `comm`, `unit` or
 `idem`, that states no priority (no `owise`, no `priority`). It states a law of the symbol at its
@@ -238,9 +273,12 @@ everywhere. Two kinds of symbol declared `function{}` without a hook are not com
 the theory does not have (its sentences have no direction), and one the registry interprets
 (`hookSigs`), which `hooks` admits only where the registry holds it under no hook name (a library
 function such as `freshInt`, which the text defines by an equation and the theory states by its
-graph; the equation is a library sentence of the tie, entailed at values). -/
+graph; the equation is a library sentence of the tie, entailed at values). An instance of a
+sort-parametric declaration is compared at its own name with the declaration's attributes
+(`symDeclsAt`), and its equations are those at its sort arguments (`eqnsOf`): one instance may be
+a function and another a function without equations. -/
 def fns (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all fun (n, as) =>
+  (symDeclsAt k c).all fun (n, as) =>
     let fn := has as "function" && !has as "hook"
     let isFn := c.allFns.any (c.symName ·.label == n)
     let own := (c.ctorSigs ++ c.params.map (·.sig) ++ c.ovlSigs).any (c.symName ·.name == n)
@@ -263,9 +301,11 @@ states no equation of it (`eqnsOf`, which leaves out a `simplification` sentence
 parameter at its head is a parameter lemma of a tie's account, a hypothesis on the
 interpretation), and it is an open generator (`raw`) exactly where the text does not declare it
 `function{}`: an open generator is a parameter declared without hook and without function, and a
-parameter declared `function{}` without hook is a function without equations. -/
+parameter declared `function{}` without hook is a function without equations. An instance of a
+sort-parametric declaration is compared at its own name with the declaration's attributes
+(`symDeclsAt`). -/
 def hooks (k : Kore.Definition) (c : Semantics) : Bool :=
-  (symDecls k).all (fun (n, as) =>
+  (symDeclsAt k c).all (fun (n, as) =>
     match strArg as "hook" with
     | some h =>
       (hookSigs.all fun g => c.symName g.name != n || regHookOf h == some g.name) &&
