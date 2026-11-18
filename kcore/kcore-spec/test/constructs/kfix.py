@@ -43,6 +43,10 @@ A fixture directory holds its K text(s) and fixture.toml:
   external files of the k-rust checkout (K_RUST, paths relative to it) copied beside the text
            before kompiling; kompile.txt records each one's sha256
   kore_txt false: write no kore.txt (a large text no row points into, such as kore.k's)
+  params   true: `run` also writes params.txt, the `param` lines of `kcore sem-fields` of the text
+           (each parameter symbol of the reading: its signature, `impl`, the registry hook that
+           interprets it or none, and raw, assoc, idem), followed by `(exit N)`; `accounts`
+           compares it as it compares account.txt
   keep     regular expressions: when the sentences for kore.txt exceed 200 KB, only those with a
            Source in the fixture or matching one of these are written
   args     the whole command line after kompile instead of `--backend haskell EXTRA MAIN -o out`
@@ -465,12 +469,12 @@ def run(name):
     src = os.path.join(w, "src")
     shutil.rmtree(w, ignore_errors=True)
     shutil.copytree(os.path.join(FX, name), src,
-                    ignore=shutil.ignore_patterns("kompile.txt", "kore.txt", "account.txt"))
+                    ignore=shutil.ignore_patterns("kompile.txt", "kore.txt", "account.txt", "params.txt"))
     # each file of src: the file of the tree (or of the k-rust checkout) it is a copy of
     origin = {f: os.path.relpath(os.path.join(FX, name, f), relsource.TREE) for f in os.listdir(src)}
     if "text_from" in c:
         for f in os.listdir(os.path.join(FX, c["text_from"])):
-            if f not in ("kompile.txt", "kore.txt", "account.txt", "fixture.toml"):
+            if f not in ("kompile.txt", "kore.txt", "account.txt", "params.txt", "fixture.toml"):
                 shutil.copy(os.path.join(FX, c["text_from"], f), src)
                 origin[f] = os.path.relpath(os.path.join(FX, c["text_from"], f), relsource.TREE)
     ext = []
@@ -505,7 +509,7 @@ def run(name):
     rep = [*pre, f"command: {' '.join(cmd)}  (cwd: the fixture directory)", f"exit: {p.returncode}",
            f"seconds: {secs:.1f}", *ext]
     kp = os.path.join(src, "out/definition.kore")
-    for f in ("kore.txt", "account.txt"):
+    for f in ("kore.txt", "account.txt", "params.txt"):
         if os.path.exists(os.path.join(FX, name, f)):
             os.remove(os.path.join(FX, name, f))
     ok = p.returncode == 0
@@ -546,6 +550,8 @@ def run(name):
                            text=True)
         open(os.path.join(FX, name, "account.txt"), "w").write(
             norm(a.stdout + a.stderr, src) + f"(exit {a.returncode})\n")
+        if c.get("params"):
+            open(os.path.join(FX, name, "params.txt"), "w").write(sem_params(src))
         for rel in ("same_as", "differs_from"):
             if rel in c:
                 ot = norm_text(c[rel])
@@ -661,6 +667,15 @@ def account_at(kore, src, bd):
     return norm(a.stdout + a.stderr, src).replace(bd + "/", "BUILTIN/") + f"(exit {a.returncode})\n"
 
 
+def sem_params(src):
+    """The `param` lines of `kcore sem-fields out/definition.kore` read in src, then `(exit N)`
+    (fixture.toml params)."""
+    a = subprocess.run([*WRAP, "timeout", "300", KCORE, "sem-fields", "out/definition.kore"], cwd=src,
+                       capture_output=True, text=True, env={**os.environ, "LEAN_NUM_THREADS": "1"})
+    lines = [l for l in a.stdout.split("\n") if l.startswith("param\t")]
+    return "".join(l + "\n" for l in lines) + norm(a.stderr, src) + f"(exit {a.returncode})\n"
+
+
 def account_deep(kore, name):
     """`kcore account` of a cached text kompiled elsewhere: FIXTURE/ restored twelve directory levels
     below .lake/kfix/NAME/depth and BUILTIN/ as FAKE_BUILTIN, normalised back. It must equal the
@@ -691,9 +706,23 @@ def accounts(names, write):
                 depth.append(name)
                 sys.stdout.writelines(difflib.unified_diff(
                     got.splitlines(True), deep.splitlines(True), f"{name} (here)", f"{name} (deep)"))
-        if got == open(acc).read():
+        pdiff = False
+        if c.get("params") and "kore" not in c:
+            pp = os.path.join(FX, name, "params.txt")
+            pg = sem_params(os.path.join(WORK, name, "account"))
+            old = open(pp).read() if os.path.exists(pp) else ""
+            if pg != old:
+                pdiff = True
+                if write:
+                    open(pp, "w").write(pg)
+                else:
+                    sys.stdout.writelines(difflib.unified_diff(
+                        old.splitlines(True), pg.splitlines(True), f"{name}/params.txt", f"{name} (now)", n=0))
+        if got == open(acc).read() and not pdiff:
             same.append(name); continue
         diff.append(name)
+        if got == open(acc).read():
+            continue
         if write:
             open(acc, "w").write(got)
         else:

@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-array-symbolic.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.6
+definition.kore bytes: 227579
+definition.kore sha256: 1298c2aeac35b8e1c6739055d4e2e3a4c2614619b369a4f0342c5cc8ae404947
+stripped sha256: cd8110f5e4f9715827f33421da97d437c5c39b7bb04ea10640dd869650841ab4
+main module: 420 sentences, 44 not in base's, in kore.txt
+same_as e6-mod-array-symbolic-imports: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-ARRAY-SYMBOLIC-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E6-MOD-ARRAY-SYMBOLIC as default.

@@ -1,0 +1,12 @@
+command: kompile --backend haskell e6-mod-map-symbolic.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.6
+definition.kore bytes: 167625
+definition.kore sha256: f349ee77eb34284a66988f17e1663a5f6cf209ff63419e4737d6a64c5cea962d
+stripped sha256: 6f2f4fc7fae56d3a8e3f0698390f7be646ecc85357d5ac6dfba7c09062a3575c
+main module: 323 sentences, 14 not in base's, in kore.txt
+same_as e6-mod-map-symbolic-imports: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-MOD-MAP-SYMBOLIC-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-MOD-MAP-SYMBOLIC as default.

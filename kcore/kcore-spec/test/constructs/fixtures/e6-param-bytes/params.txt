@@ -1,0 +1,6 @@
+param	LblBytes2Hex'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes	args=[Bytes]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblBytes2String'LParUndsRParUnds'BYTES-HOOKED'Unds'String'Unds'Bytes	args=[Bytes]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String	args=[String]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+param	LbldecodeBytes'LParUndsCommUndsRParUnds'BYTES-STRING-ENCODE'Unds'String'Unds'String'Unds'Bytes	args=[String, Bytes]	result=String	impl=none	raw=false	assoc=false	idem=false
+param	LblencodeBytes'LParUndsCommUndsRParUnds'BYTES-STRING-ENCODE'Unds'Bytes'Unds'String'Unds'String	args=[String, String]	result=Bytes	impl=none	raw=false	assoc=false	idem=false
+(exit 0)
