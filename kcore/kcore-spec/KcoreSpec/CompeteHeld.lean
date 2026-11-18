@@ -116,6 +116,8 @@ theorem not_applies_of_notApplies_held (h : c.coreOK = true) (hI : I ⊧ᴵP Γc
     sortOfTerm_congr t fun i hi => Rule.leftSorts_getElem? (ht i hi).1 (ht i hi).2
   have hlhs' : sortOfTerm c.patCtxAll r.leftSorts r.lhs = some topCellSort := by
     rw [hsortsL r.lhs (fun i hi => ⟨hltL i hi, hlhsL i hi⟩)]; exact hlhs
+  have hlhsN' : sortOfTerm c.patCtxNF r.leftSorts r.lhs = some topCellSort := by
+    rw [hsortsL r.lhs (fun i hi => ⟨hltL i hi, hlhsL i hi⟩)]; exact Semantics.ruleSorted_lhs_nf c hs
   have hreqS' : ∀ t, r.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.leftSorts t = some Srt.bool :=
     fun t ht => by
       rw [hsortsL t (fun i hi => ⟨Exec.sortOfTerm_vars (hreqS t ht) i hi, Rule.req_leftVars ht i hi⟩)]
@@ -134,7 +136,7 @@ theorem not_applies_of_notApplies_held (h : c.coreOK = true) (hI : I ⊧ᴵP Γc
     have hin2 : ∀ i < r.leftSorts.length, InS I (c.sortName (r.leftSorts.getD i 0)) (e2.evalEvar (tbl.ev (keyAt vs i))) :=
       fun i hi => by obtain ⟨v, hv, he⟩ := hwit2 i hi; rw [← he]; exact (inS_iff e2).mp (elemOf_spec hIΓ hv e2).2
     obtain ⟨hpv, -⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin2 (collPat_of_sorted hph' hlhs')
-      (OvlOK.nf_bridge inferInstance hlhs') x.property hl2
+      hlhsN' x.property hl2
     obtain ⟨hσ2, hag2⟩ := substOf_ok hIΓ hg hsc.trans hvsl hwit2
     obtain ⟨t, v, ht, he, hv⟩ : ∃ t v, r.req = some t ∧ EvalTerm c (substOf c I tbl vs r.leftSorts e2) t v ∧
         v ≠ some (bool true) := by
@@ -178,7 +180,7 @@ theorem not_applies_of_notApplies_held (h : c.coreOK = true) (hI : I ⊧ᴵP Γc
     refine List.mem_filter.mpr ⟨?_, by simpa using hcv⟩
     simp only [Rule.opens, List.mem_filter, List.mem_range]; exact ⟨hi, by simpa using hnl⟩
   obtain ⟨-, hwitL⟩ := patVal_backC hIΓ hph hcs hcso hg hsc.trans hnn.1 hvsl hin1 (collPat_of_sorted hph' hlhs')
-    (OvlOK.nf_bridge inferInstance hlhs') x.property hlx1
+    hlhsN' x.property hlx1
   by_cases hconf : ∀ i ∈ r.openCondVars, (r.vars[i]?.map c.confined).getD false = true ∨
       memHeldH c H (varOccs r.lhs) r.pre i = true
   · -- every open condition variable is of a confined sort or held by a cut: it is a value's

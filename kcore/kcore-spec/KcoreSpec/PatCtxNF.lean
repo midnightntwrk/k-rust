@@ -100,9 +100,10 @@ theorem lhs_nf (hok : c.overloadsOK = true) {r : Rule} (hr : r ∈ c.rules) {var
 end Semantics
 
 /-- A term sorted over `patCtxAll` is sorted over `patCtxNF` where no overloading symbol overloads
-a function (`OvlOK.noFn`). Read where the term is not at hand as a rule's left side or a clause's
-pattern: the pattern of an `exMatch` in the Holds lemmas, and the rules and clauses of the
-statements that take a sorted rule or clause that need not be the definition's. -/
+a function (`OvlOK.noFn`). Read where the term is not at hand as a clause's pattern of the
+definition: the pattern of an `exMatch` in the Holds lemmas, and the clauses of the statements that
+take a sorted clause that need not be the definition's. A rule's left side is sorted over
+`patCtxNF` by `ruleSorted` itself (`Semantics.ruleSorted_lhs_nf`). -/
 theorem OvlOK.nf_bridge (h : OvlOK c) {vars : List Srt} {t : Term} {s : Srt}
     (ht : sortOfTerm c.patCtxAll vars t = some s) : sortOfTerm c.patCtxNF vars t = some s :=
   sortOfTerm_nf_of_nil h.noFn ht

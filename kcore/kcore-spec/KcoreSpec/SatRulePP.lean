@@ -383,7 +383,7 @@ theorem rule_premise_pp (h : HypModelCore c)
       (List.mem_append_left _ (by rw [ht]; exact hi))⟩
   have hpreP : ∀ i ∈ varOccsCond r.vars.length r.pre, i < r.vars.length → P i := fun i hi hlt =>
     ⟨hlt, fun hx => (hexs i hx).2.2 (List.mem_append_right _ hi)⟩
-  have hpat : PatOK c P r.lhs := (patOK_of_sorted h (h.ovlOKI.nf_bridge hlhs)).monoOpen hltL
+  have hpat : PatOK c P r.lhs := (patOK_of_sorted h (Semantics.ruleSorted_lhs_nf c hs)).monoOpen hltL
   have hreqT : ∀ t, r.req = some t → TermOK c P t := fun t ht =>
     (termOK_of_sorted h fns_headsOK (hreqs t ht)).monoOpen (hreqP t ht)
   -- the keys of the parts
