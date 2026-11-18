@@ -229,7 +229,11 @@ inductive RefusalReason where
   generator's image of other such elements, so the arguments that match depend on elements the
   text does not name; where S is confined, the arguments that match are values, the value's
   preimage under the interpretation's graph, which the semantics does not build. The detail names
-  the symbol, S and the reason. -/
+  the symbol, S and the reason. A rule's left side is read through the cut (`ovlCut`), the
+  application a fresh variable and its membership in the application a conjunct of `pre`: there
+  the reason is printed where S is not confined and a variable of the arguments is held by no other
+  part of the left side (`openCutRefusal`); the account's row remains for a clause's pattern and
+  for an application whose arguments hold `#as`, which is not cut. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
@@ -846,6 +850,10 @@ structure Names where
   /-- the overloading symbols one of whose own overloads is a function of the definition, each with
   its result sort's name: a rule's left side applying one is read through the cut (`ovlCut`) -/
   ovlCutSyms : List (Sym × String) := []
+  /-- the open generators (`isOpenGenerator`, read as `raw` parameters), each with its result
+  sort's name: a rule's left side applying one is read through the cut (`ovlCut`), which
+  `openCutRefusal` refuses where the generator's sort is not confined -/
+  openCutSyms : List (Sym × String) := []
 
 /-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
 axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
@@ -1299,7 +1307,17 @@ Outermost applications are cut, left to right; an inner one stays in the term. A
 arguments hold `#as` is not cut, since an `#as` names a matched subterm and the cut's term is not
 matched: it stays in the left side, refused (`functionInPattern`). The variables of P̄ that the rest of
 the left side does not hold are then variables the left side does not bind, decided as any such
-(`rulesPlain`; `openRefusal` names the symbol). -/
+(`rulesPlain`; `openRefusal` names the symbol).
+
+An open generator g (`Names.openCutSyms`, a `raw` parameter) is cut the same way: `C[g(P̄)]` is
+`∃V. C[V] ∧ V ∈ g(P̄)` in every interpretation, and the membership's term is evaluated through the
+interpretation's value of g (`Semantics.paramVal`), where matching `g(P̄)` would need the preimage
+of a value under that interpretation. Where g's sort is confined, every argument sort of g is
+confined (`Semantics.confinedAt`: the generators of a confined sort take arguments of confined
+sorts), so the variables the cut leaves open are of confined sorts and `rulesPlain` reads them.
+Where it is not, a variable of P̄ that the rest of the left side does not hold may be matched by an
+element that is no value's which the interpretation sends to a value, and which elements those are
+the text does not say: `openCutRefusal` refuses such a rule (`openGeneratorPattern`). -/
 
 mutual
   /-- `t` with each outermost application of a symbol of `cs` whose arguments hold no `#as`
@@ -1332,17 +1350,22 @@ def ovlCutConj : List Cond → Cond
   | p :: ps => .and p (ovlCutConj ps)
 
 /-- A rule's left side `lhs` and its variables `vs`, read with each application of a
-function-overloaded symbol (`Names.ovlCutSyms`) cut (`cutOvlApps`): the left side, the variables with
-the fresh ones after them (`Ovl0`, `Ovl1`, …, primed until new), and the conjunction of the
-memberships `V ∈ g(P̄)` of the fresh variables in their applications, `\top` where nothing is cut. -/
+function-overloaded symbol (`Names.ovlCutSyms`) or of an open generator (`Names.openCutSyms`) cut
+(`cutOvlApps`): the left side, the variables with the fresh ones after them (`Ovl0`, `Ovl1`, … for
+the first, `Open0`, `Open1`, … for the second, numbered by position among the fresh ones, primed until
+new), and the conjunction of the memberships `V ∈ g(P̄)` of the fresh variables in their
+applications, `\top` where nothing is cut. -/
 def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
-  match N.ovlCutSyms with
+  match N.ovlCutSyms ++ N.openCutSyms with
   | [] => pure (lhs, vs, .top)
   | cs => match cutOvlApps cs vs.length lhs with
     | (_, _, []) => pure (lhs, vs, .top)
     | (lhs', _, xs) => do
-      let vs' := xs.foldl (fun acc (_, X, _) =>
-        acc ++ [⟨freshName acc (acc.length + 1) ("Ovl" ++ toString (acc.length - vs.length)), X⟩]) vs
+      let pfx := fun (app : Term) => match app with
+        | .app f _ => if (N.ovlCutSyms.lookup f).isSome then "Ovl" else "Open"
+        | _ => "Ovl"
+      let vs' := xs.foldl (fun acc (_, X, app) =>
+        acc ++ [⟨freshName acc (acc.length + 1) (pfx app ++ toString (acc.length - vs.length)), X⟩]) vs
       let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
       pure (lhs', vs', ovlCutConj mems)
 
@@ -4366,7 +4389,13 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
         sortName? d.sort with
     | true, some g, some X => some (g, X)
     | _, _, _ => none
-  let N : Names := { N with ovlCutSyms := ovlCutSyms }
+  -- the open generators (the `raw` parameters below), with their result sorts (`ovlCut`)
+  let openCutSyms := ((S.userSyms ++ collCells ++ instSyms).filter fun h =>
+      clauseless.contains h.symbol.ident.ident.name && isOpenGenerator h).filterMap fun h =>
+    match N.sym? h.symbol.ident.ident.name, sortName? h.sort with
+    | some g, some X => some (g, X)
+    | _, _ => none
+  let N : Names := { N with ovlCutSyms := ovlCutSyms, openCutSyms := openCutSyms }
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))
@@ -4689,10 +4718,37 @@ def clauseRefusal (c : Semantics) (cl : Clause) (names : List String) : Option (
       s!"{what i}: in a condition with a variable the arguments bind, not bound by the arguments, of a sort the text leaves unconfined")
   else none
 
-/-- Why a rule is not read (`unheldRefusal`, then `openRefusal`), or `none`. -/
+/-- The memberships `V ∈ g(P̄)` among the top-level conjuncts of a condition, V a variable: each
+with V, g and P̄. -/
+def openCutMemsOf : Cond → List (Nat × Sym × List Term)
+  | .and p q => openCutMemsOf p ++ openCutMemsOf q
+  | .mem _ (.var v) (.app g as) => [(v, g, as)]
+  | _ => []
+
+/-- Why a rule read through the cut of an open generator (`ovlCut`) is not read, or `none`: a
+membership `V ∈ g(P̄)` of `pre`, V bound by the left side and g an open generator whose sort is not
+confined, whose arguments hold a variable that no other part of the left side holds
+(`openGeneratorPattern`). Such a variable ranges over elements of g's argument sorts that the
+interpretation may send to a value, elements that are no value's among them, and which those are
+the text does not say. Where every variable of P̄ is held elsewhere in the left side, the
+membership is a condition over bound variables and the rule is decided as any other. -/
+def openCutRefusal (c : Semantics) (r : Rule) (names : List String) : Option (RefusalReason × String) :=
+  let held := varOccs r.lhs
+  (openCutMemsOf r.pre).findSome? fun (v, g, as) =>
+    match c.params.find? (fun k => k.raw && k.sig.name == g) with
+    | some k =>
+      if held.contains v && !c.confined k.sig.result then
+        ((varOccs (.app g as)).find? (!held.contains ·)).map fun i =>
+          let sn := c.sortName k.sig.result
+          (.openGeneratorPattern, s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name (Var{names.getD i ""}:{c.sortName (r.vars.getD i 0)}, under {c.symName g}, held by no other part of the left side)")
+      else none
+    | none => none
+
+/-- Why a rule is not read (`unheldRefusal`, then `openCutRefusal`, then `openRefusal`), or
+`none`. -/
 def ruleRefusal (c : Semantics) (N : Names) (a : Kore.Axiom) (r : Rule) (names : List String) :
     Option (RefusalReason × String) :=
-  (unheldRefusal c N a).orElse fun _ => openRefusal c r names
+  ((unheldRefusal c N a).orElse fun _ => openCutRefusal c r names).orElse fun _ => openRefusal c r names
 
 /-- The core from the productions and the rules, before the rules are checked (`coreOf`). -/
 def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × RulePres)) : Rd Semantics := do
