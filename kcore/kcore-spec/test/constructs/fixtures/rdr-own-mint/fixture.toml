@@ -1,0 +1,2 @@
+# a sort of the text named MInt (no MINT import): kompile's backend check refuses the text (the prelude declares SortMInt)
+expect = "error"

@@ -170,6 +170,7 @@ theorem cclauseCtx_of (hok : c.sortedOK = true) : CClauseCtx c := by
   · refine ⟨c.fns.map Fn.sig, Exec.headsOK_fns, fun cl hcl => ?_⟩
     have := hfns fn hfn cl hcl
     simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at this
+    replace this := this.1
     exact ⟨this.1.1.1.2, this.1.1.2, this.1.2, htop fn hfn' cl hcl, hpl fn hfn' cl hcl⟩
   · exact ⟨[], fun k hk => (nomatch hk), fun cl h =>
       ⟨(sortPreds_ctx hfn cl h).2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.1, (sortPreds_ctx hfn cl h).2.2.2.2.2,
@@ -302,9 +303,31 @@ mutual
           · have hp' : c.isParam f = false := by simpa using hp
             simp only [hp', Bool.false_eq_true, ↓reduceIte] at hk
             by_cases ho : c.isOvl f = true
-            · simp only [ho, ↓reduceIte, Option.pure_def, Option.some.injEq] at hk
-              subst hk
-              exact .ovl hc' ho hts (fun vs _ => hsc.ovl.fnCover_none f vs)
+            · simp only [ho, ↓reduceIte] at hk
+              cases has : allSome rs with
+              | none =>
+                simp only [has, Option.pure_def, Option.some.injEq] at hk
+                subst hk
+                have := EvalTerm.ovl hc' ho hts (fun vs hv => by rw [has] at hv; cases hv)
+                rw [has] at this
+                exact this
+              | some ws =>
+                simp only [has] at hk
+                cases hcv : c.fnCover f ws with
+                | none =>
+                  simp only [hcv, Option.pure_def, Option.some.injEq] at hk
+                  subst hk
+                  have := EvalTerm.ovl hc' ho hts (fun vs hv => by rw [has] at hv; cases hv; exact hcv)
+                  rw [has] at this
+                  exact this
+                | some kg =>
+                  obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
+                  have hws := EvalTerms.sorted hsc hts hL hσ hargs has
+                  obtain ⟨fn, -, hlook, -, -, -, -, hus⟩ :=
+                    OvlLaws.fnCover_fn_ovlF (hsc.ovl.fnFacts hsc.trans) hlo hws hcv
+                  simp only [hcv, hlo, Option.map_eq_some_iff] at hk
+                  obtain ⟨r₀, hr₀, rfl⟩ := hk
+                  exact .ovlFn hc' ho hts has hlo hcv (evalF_sound n hr₀ hlook hus)
             have ho' : c.isOvl f = false := by simpa using ho
             simp only [ho', Bool.false_eq_true, ↓reduceIte] at hk
             cases hall : allSome rs with
@@ -761,6 +784,7 @@ theorem successors_step_of_ready (hr : execReady c = true) (hcm : ClauseComplete
     ∃ h : c.sortOf y = some topCellSort, Step c x ⟨y, h⟩ := by
   have hr' := hr
   simp only [execReady, Bool.and_eq_true] at hr'
+  replace hr' := hr'.1
   exact successors_step hr'.1.1.1.1.1 hr'.1.1.1.1.2 (matchCtxO_of hr'.1.1.1.2).ovlCase hcm hrc hy
 
 end KCore.CExec

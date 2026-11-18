@@ -124,7 +124,7 @@ theorem eval_all (H : HookParams) (n : Int) : Eval (cH H) f [int n] (some (int (
     refine .clause (cl := cl1) (σ := [(0, int n)]) (hfnH H) (List.getElem_mem _) (wellSorted_at H n v1) hm
       (fun t ht => ?_) (by rw [e1]; exact .top)
       (fun cl' hcl' _ hlt => absurd hlt (by simpa using List.all_eq_true.mp cl1_least cl' hcl'))
-      (by rw [r1]; exact .var) (fun t ht => by rw [s1] at ht; cases ht)
+      (by rfl) (by rw [r1]; exact .var) (fun t ht => by rw [s1] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
     rw [q1] at ht; cases ht
     have := gt_at H (σ := [(0, int n)]) (n := n) rfl
     simpa [hn] using this
@@ -132,7 +132,7 @@ theorem eval_all (H : HookParams) (n : Int) : Eval (cH H) f [int n] (some (int (
     have hm : PatVals (cH H) [(0, int n)] cl0.pats [int n] := by rw [p0]; exact .cons (.var rfl) .nil
     refine .clause (cl := cl0) (σ := [(0, int n)]) (hfnH H) (List.getElem_mem _) (wellSorted_at H n v0) hm
       (fun t ht => by rw [q0] at ht; cases ht) (by rw [e0]; exact .top) (fun cl' hcl' _ hlt => ?_)
-      (by rw [r0]; exact .dv) (fun t ht => by rw [s0] at ht; cases ht)
+      (by rfl) (by rw [r0]; exact .dv) (fun t ht => by rw [s0] at ht; cases ht) (Clause.holds_postTop (by rfl) _)
     obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hcl'
     have hi2 : i = 0 ∨ i = 1 := by rw [clauses_len] at hi; omega
     rcases hi2 with rfl | rfl

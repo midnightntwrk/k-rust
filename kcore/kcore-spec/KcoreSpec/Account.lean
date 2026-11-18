@@ -419,10 +419,11 @@ set's element) are not named here: they are collection patterns, which the patte
 decides (`collPatternHooks`). -/
 
 /-- The rules and clauses that apply a function symbol (a function or sort predicate of `d`, a
-parameter, a hooked symbol of the registry, or an overloading symbol that overloads a function,
-`Semantics.fnOvlSyms`, whose application at covered arguments is that function's value; no
-constructor and no collection's symbol) in their left side: one refusal (`functionInPattern`) for
-each, the symbol named. -/
+parameter that is no open generator, a hooked symbol of the registry, or an overloading symbol that
+overloads a function, `Semantics.fnOvlSyms`, whose application at covered arguments is that
+function's value; no constructor, no collection's symbol and no open generator, which
+`openGeneratorInPattern` names) in their left side: one refusal (`functionInPattern`) for each, the
+symbol named. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -431,7 +432,8 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
     let off := preludeLength k
     let collSyms := c.allColls.flatMap fun cs => [cs.unit, cs.elem, cs.concat]
     let isFn := fun (g : Sym) => !collSyms.contains g && !c.ctorSigs.any (·.name == g) &&
-      (c.fns.any (·.label == g) || c.sortPreds.any (·.label == g) || c.params.any (·.sig.name == g) ||
+      (c.fns.any (·.label == g) || c.sortPreds.any (·.label == g) ||
+        c.params.any (fun k => !k.raw && k.sig.name == g) ||
         hookSigs.any (·.name == g) || c.fnOvlSyms.contains g)
     let named := fun (ts : List Term) => ((Term.headsList ts).filter isFn).eraseDups.map c.symName
     -- the rewrite axioms read, each as many times as it has rules (`scanRewrites`), in the order of
@@ -451,6 +453,59 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
             | some (s, j) => (some (off + j), headOf s)
             | none => (none, c.symName fn.label)
           (⟨i, h, .functionInPattern, f⟩ : Refusal)
+    ruleRs ++ clauseRs
+
+/-! ## An open generator in a left side
+
+An open generator (`ParamSig.raw`: a symbol the text declares total, lists among its result sort's
+generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
+pattern: the pattern matches a value v exactly where some arguments are sent to v by the
+interpretation, which the text leaves open beyond the laws it writes. The pattern context sorts no
+open generator (`patCtxAll`), so such a rule or clause is not sorted. It is refused with a reason
+of its own (`RefusalReason.openGeneratorPattern`), the symbol named with the reason that applies at
+its result sort S:
+- S is not confined (`Semantics.confined`: S is recursive, as through the generator itself, or
+  reaches a sort whose elements the text does not state): an element of S that is no value's may be
+  the generator's image of other such elements, so which arguments match depends on elements of S
+  the text does not name;
+- S is confined: every element of S is a value's and the arguments that match are values, a finite
+  preimage of the value under the interpretation's graph, which the semantics does not build. -/
+
+/-- The rules and clauses whose left side applies an open generator of `d`: one refusal
+(`openGeneratorPattern`) for each, the symbol named with its result sort and the reason that
+applies there (`Semantics.confined`). -/
+def openGeneratorInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let opens := c.params.filter (·.raw)
+    let why := fun (g : Sym) => match opens.find? (·.sig.name == g) with
+      | some k =>
+        let s := k.sig.result
+        let sn := c.sortName s
+        if c.confined s then
+          s!"{c.symName g}: its sort {sn} is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build"
+        else
+          s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name"
+      | none => c.symName g
+    let named := fun (ts : List Term) =>
+      ((Term.headsList ts).filter (fun g => opens.any (·.sig.name == g))).eraseDups.map why
+    let rws := (m.sentences.zipIdx.flatMap fun (s, i) =>
+      if isRead s then (scanRewrites s).map fun _ => (s, i) else []).zip c.rules
+    let ruleRs := rws.flatMap fun ((s, i), r) =>
+      (named [r.lhs]).map fun f => (⟨some (off + i), headOf s, .openGeneratorPattern, f⟩ : Refusal)
+    let locate := fun (uid : String) => m.sentences.zipIdx.find? fun (s, _) => match s with
+      | .axiom a => uid != "" && attrStr? a.attributes "UNIQUE'Unds'ID" == some uid
+      | _ => false
+    let clauseRs := (withPres c.fns d.pres.fns).flatMap fun (fn, fp) =>
+      (withPres fn.clauses fp.clauses).flatMap fun (cl, cp) =>
+        (named cl.pats).map fun f =>
+          let (i, h) := match locate cp.info.uid with
+            | some (s, j) => (some (off + j), headOf s)
+            | none => (none, c.symName fn.label)
+          (⟨i, h, .openGeneratorPattern, f⟩ : Refusal)
     ruleRs ++ clauseRs
 
 /-! ## A range-map symbol binding a variable in a left side
@@ -629,6 +684,40 @@ def openFunctionalSentences (k : Kore.Definition) (d : Definition) : List (Nat �
         | some (.inl f) => if c.params.any (fun k => k.raw && c.symName k.sig.name == f) then some (off + i, f) else none
         | _ => none
       else none
+
+/-- The `unit` attributes the reader ignores: a symbol declaration of the user module carrying
+`unit{}(u)` whose symbol `d` reads as a constructor or an open generator, where no axiom of the
+module with the attribute `unit` states a law of that symbol (`lawHead?`): the sentence's index, the
+symbol and the unit named. A theory is its sentences, and an attribute is no sentence: with no
+sentence `f(K, u) = K` or `f(u, K) = K` the text states no unit law of `f`, so the declaration read
+without the attribute reads the theory the text states. Nothing is added for it (`ParamSig` has no
+unit; `Γ` holds no unit item). Where the text writes the unit sentences (of a function, read into
+`Presentation.laws`; of a collection's concatenation) the attribute is not listed. -/
+def unitIgnored (k : Kore.Definition) (d : Definition) : List (Nat × String × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let named := fun (f : String) =>
+      c.ctors.any (fun g => c.symName g.name == f) ||
+        c.params.any (fun g => g.raw && c.symName g.sig.name == f)
+    let unitSentence := fun (f : String) => m.sentences.any fun s => match s with
+      | .axiom a => hasAttr a.attributes "unit" && lawHead? a == some f
+      | _ => false
+    m.sentences.zipIdx.filterMap fun (s, i) => match s with
+      | .symbol ss =>
+        let f := ss.symbol.ident.ident.name
+        match ss.attributes.find? (·.head.ident.name == "unit") with
+        | some u =>
+          if named f && !unitSentence f then
+            let us := match u.args with
+              | [.app h _ _] => h.ident.name
+              | _ => ""
+            some (off + i, f, us)
+          else none
+        | none => none
+      | _ => none
 
 /-! ## The library's modules in a K installation's text
 
@@ -962,10 +1051,10 @@ def libraryUnstated (k : Kore.Definition) (d : Definition) : List Refusal :=
 /-- The account's refusals of a text the reader reads as `d`: the inert constructor axioms not
 induced, the library modules not whole in the text, the cell collections' injections and the laws
 of no collection of `d`, the library's data the text does not state, the left sides applying a
-function symbol or binding a variable under a range-map symbol. -/
+function symbol or an open generator, or binding a variable under a range-map symbol. -/
 def accountRefusals (k : Kore.Definition) (d : Definition) : List Refusal :=
   uninduced k d ++ missingBuiltin k d ++ cellCollUnmatched k d ++ libraryUnstated k d ++
-    functionInPattern k d ++ lawUnmatched k d ++ rangeMapInPattern k d
+    functionInPattern k d ++ lawUnmatched k d ++ rangeMapInPattern k d ++ openGeneratorInPattern k d
 
 /-! ## Connective readings and `#configuration`
 

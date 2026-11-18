@@ -1,0 +1,11 @@
+command: kompile --backend haskell rdr-cellcoll-own.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.4
+definition.kore bytes: 209083
+definition.kore sha256: 90b8c8d7f0e588fd373bc07f4b5ba26308c3752b7beaad647f4ad6f61c60f682
+stripped sha256: d310ee18ad8ec3f23a8248f88a01abc9842d781af2f95a5c3fc908d23003f6de
+main module: 413 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-CELLCOLL-OWN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-CELLCOLL-OWN as default.

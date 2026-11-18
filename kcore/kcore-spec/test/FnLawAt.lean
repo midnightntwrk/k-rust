@@ -227,8 +227,8 @@ theorem eval_pl {op : Sym} (hr : Ready (fnPl op)) (hk : (mkSem (fnPl op)).isCtor
     (fun cl' hcl' _ hlt => by
       change cl' ∈ [clPl op] at hcl'
       rw [List.mem_singleton] at hcl'; subst hcl'; exact absurd hlt (Nat.lt_irrefl _))
-    (evHook2 (c := (mkSem (fnPl op)).withHooks H) (σ := σ2 a b) (i := 0) (j := 1) hk hh rfl rfl hv)
-    (fun _ h => nomatch h)
+    rfl (evHook2 (c := (mkSem (fnPl op)).withHooks H) (σ := σ2 a b) (i := 0) (j := 1) hk hh rfl rfl hv)
+    (fun _ h => nomatch h) .top
 
 theorem eval_plAdd (H : HookParams) (a b : Int) : Eval (pl.withHooks H) F [int a, int b] (some (int (a + b))) :=
   eval_pl ready_pl (by decide +kernel) (by decide +kernel) H a b rfl
@@ -440,7 +440,8 @@ theorem mkSem_model {fn : Fn} (hc : (mkSem fn).coreOK = true) (hv : (mkSem fn).r
     (h2 : (mkSem fn).totalObligationsRP [] [] = []) (h3 : (mkSem fn).agreeObligationsI = [])
     (h4 : (mkSem fn).matchObligationsL = []) (H : HookParams) :
     ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
-      FnSolves ((mkSem fn).withHooks H) ∧ OpenLaws ((mkSem fn).withHooks H) := by
+      FnSolves ((mkSem fn).withHooks H) ∧ ClausePreDecided ((mkSem fn).withHooks H) ∧
+      OpenLaws ((mkSem fn).withHooks H) := by
   have hcH : ((mkSem fn).withHooks H).coreOK = true := (Semantics.coreOK_withHooks _ H).trans hc
   have hob : FnFacts ((mkSem fn).withHooks H) [] [] :=
     FnFacts.of_nil
@@ -450,17 +451,19 @@ theorem mkSem_model {fn : Fn} (hc : (mkSem fn).coreOK = true) (hv : (mkSem fn).r
       ((Det.Semantics.matchObligationsL_withHooks _ H).trans h4)
       (List.all_eq_true.mpr fun k hk => by rw [mkSem_rawFree fn k hk]; rfl)
   have hm := fnModel_of_fnFacts hcH (Semantics.rightHeld_withHooks_of_valued hv H) hob
-  exact ⟨hcH, hm.1, hm.2, hob.2.2.2.2⟩
+  have hrh := Semantics.rightHeld_withHooks_of_valued hv H
+  exact ⟨hcH, hm.1, hm.2, clausePreDecided_of_fnFactsN hcH (fun f _ => hrh.heldOwed f) hob, hob.2.2.2.2⟩
 
 /-- `consistent_with_laws` at one law of `mkSem fn` under H. -/
 theorem mkSem_consistent_with_laws {fn : Fn} {H : HookParams} {l : LawEq}
     (hm : ((mkSem fn).withHooks H).coreOK = true ∧ FnDet ((mkSem fn).withHooks H) ∧
-      FnSolves ((mkSem fn).withHooks H) ∧ OpenLaws ((mkSem fn).withHooks H))
+      FnSolves ((mkSem fn).withHooks H) ∧ ClausePreDecided ((mkSem fn).withHooks H) ∧
+      OpenLaws ((mkSem fn).withHooks H))
     (hl : LawAt ((mkSem fn).withHooks H) l) (hs : lawSorted (mkSem fn) l = true) :
     ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
       (I ⊧ᴵP (Γc ((mkSem fn).withHooks H) ∪ Γstep ((mkSem fn).withHooks H))) ∧
         ∀ l' ∈ [l], I ⊧ᴵ lawPattern ((mkSem fn).withHooks H) l' :=
-  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2
+  consistent_with_laws hm.1 hm.2.1 hm.2.2.1 hm.2.2.2.1 hm.2.2.2.2
     (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact hl)
     (fun l' hl' => by rw [List.mem_singleton] at hl'; subst hl'; exact (lawSorted_withHooks _ H _).trans hs)
 

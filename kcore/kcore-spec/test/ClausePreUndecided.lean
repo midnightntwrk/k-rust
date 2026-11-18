@@ -254,6 +254,12 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
   | clause hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
     exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
+  | clauseEx hfn hcl hσ hm hreq hpre _ _ _ _ _ _ =>
+    rw [lookups.2] at hfn; cases hfn
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
+  | exNone hfn hcl hne _ _ _ _ _ _ _ =>
+    rw [lookups.2] at hfn; cases hfn
+    exact absurd (hExs hcl) hne
   | rest hfn hnone =>
     rw [lookups.2] at hfn; cases hfn
     cases hnone hCl1 (by simp [hFn]) with
@@ -264,12 +270,6 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
   | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
     exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
-  | clauseEx hfn hcl _ _ _ _ _ hne =>
-    rw [lookups.2] at hfn; cases hfn
-    exact absurd (hExs hcl) hne
-  | exNone hfn hcl hne =>
-    rw [lookups.2] at hfn; cases hfn
-    exact absurd (hExs hcl) hne
 
 /-! ## `FnDet` and `FnSolves` -/
 
@@ -300,6 +300,15 @@ theorem coherent : CoherentAll d :=
         subst this; exact (matchIndependent_iff_noExs rfl).mpr coherent_l
       · exact (matchIndependent_iff_noExs (hExs hcl)).mpr
           fun _ _ _ ha _ _ _ _ _ _ => (not_applies hcl ha).elim)
+
+/-- No clause of `d` has an existential variable. -/
+theorem fnsNoExs : d.FnsNoExs := by
+  intro fn hfn cl hcl
+  rcases mem_fns hfn with rfl | rfl
+  · have : cl = lCl := by simpa [lFn] using hcl
+    subst this; rfl
+  · have hc : cl = hCl1 ∨ cl = hCl2 := by simpa [hFn] using hcl
+    rcases hc with rfl | rfl <;> rfl
 
 /-- **Every function of `d` has at most one result.** -/
 theorem fnDet : FnDet d := fnDet_of_coherent coherent

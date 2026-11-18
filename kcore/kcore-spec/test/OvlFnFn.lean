@@ -167,13 +167,13 @@ theorem eval_negInt3 (hl : Lookups cls) : Eval (sem cls) negInt [v3] (some vm3) 
     (fun cl' h _ hlt => by
       simp only [negIntFn, List.mem_singleton] at h
       subst h; exact absurd hlt (Nat.lt_irrefl _))
-    (.hook (isCtor_intSub cls) rfl (.cons .dv (.cons .var .nil))
+    rfl (.hook (isCtor_intSub cls) rfl (.cons .dv (.cons .var .nil))
       (fun vs hvs => by
         injection hvs with hvs
         subst hvs
         exact hookRes_sub cls)
       (fun h => by cases h))
-    (fun t ht => by cases ht)
+    (fun t ht => by cases ht) .top
 
 /-- The `aside` clause's right side at `K0 := 3` is `inj -3`. -/
 theorem rhs_ovl3 (hl : Lookups cls) : EvalTerm (sem cls) [(0, v3)] ovlCl.rhs (some im3) := by
@@ -190,7 +190,7 @@ theorem match_ovl3 : PatVals (sem cls) [(0, v3)] ovlCl.pats [i3] := by
 theorem eval_ovl3 (hl : Lookups cls) (hmem : ovlCl ∈ cls) : Eval (sem cls) negExp [i3] (some im3) :=
   .clause (cl := ovlCl) (σ := [(0, v3)]) hl.2 hmem (ws1 cls (sort_v3 cls))
     (match_ovl3 cls) (fun t ht => by cases ht) .top (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
-    (rhs_ovl3 cls hl) (fun t ht => by cases ht)
+    rfl (rhs_ovl3 cls hl) (fun t ht => by cases ht) .top
 
 /-- The pattern of `e` denotes `e` only. -/
 theorem patVal_e {σ : Subst} {v : GroundTerm} (h : PatVal (sem cls) σ (.app eS []) v) : v = ve := by
@@ -241,7 +241,7 @@ theorem eval_e : Eval c negExp [ve] (some ve) :=
       rcases h with rfl | rfl
       · cases ha
       · exact absurd hlt (Nat.lt_irrefl _))
-    .var (fun t ht => by cases ht)
+    rfl .var (fun t ht => by cases ht) .top
 
 open Det in
 theorem obligations_c : c.rankObligations [negInt, negExp] ++ c.decObligationsL = [] ∧
@@ -299,7 +299,7 @@ theorem evalC_cl0 : Eval cC negExp [i3] (some ve) :=
   .clause (cl := cl0) (σ := [(0, i3)]) lookups_cC.2 (by simp [negFn])
     ((wellSortedAt_univ rfl).mp appliesC_cl0.1)
     appliesC_cl0.2.1 (fun t ht => by cases ht) .top (fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _))
-    (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht)
+    rfl (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht) .top
 
 /-- Two results at `inj 3`: not `FnDet`. -/
 theorem not_fnDet_C : ¬ FnDet cC := fun h =>
@@ -327,13 +327,13 @@ theorem not_agree_C : ¬ ClausesAgree cC (negFn [ovlCl, userCl, cl0]) := fun h =
   have hdecO : ovlCl.Decides cC (negFn [ovlCl, userCl, cl0]) [(0, v3)] [i3] :=
     ⟨appliesC_ovl, fun _ _ _ hlt => absurd hlt (Nat.not_lt_zero _)⟩
   rcases hco [i3] [(0, i3)] [(0, v3)] appliesC_cl0 appliesC_ovl (fun t ht => by cases ht)
-      (fun _ => hdet) (fun t ht => by cases ht)
+      (fun _ _ => hdet) (fun _ t ht => by cases ht) (fun hne => absurd rfl hne)
       ⟨negExp, _, lookups_cC.2, by simp [negFn], by simp [negFn], hdec0, hdecO⟩ with
-    ⟨hrhs, -⟩ | hr
+    ⟨-, -, hrhs, -⟩ | hr
   · simp only [cl0, ovlCl] at hrhs; cases hrhs
   · exact im3_ne_ve (Option.some.inj (hr (some ve) (some im3)
-      (.inl ⟨(fun t ht => by cases ht), EvalTerm.ctor (isCtor_e _) .nil⟩)
-      (.inl ⟨(fun t ht => by cases ht), rhs_ovl3 _ lookups_cC⟩))).symm
+      (.inl ⟨rfl, .inl ⟨(fun t ht => by cases ht), .top, EvalTerm.ctor (isCtor_e _) .nil⟩⟩)
+      (.inl ⟨rfl, .inl ⟨(fun t ht => by cases ht), .top, rhs_ovl3 _ lookups_cC⟩⟩))).symm
 
 /-! ## e5-ovl-fn-fn-owise -/
 
@@ -362,7 +362,7 @@ theorem eval_owise_inj3 : Eval cO negExp [i3] (some ve) :=
       · cases ha
       · exact userCl_fails_i3 _
       · exact absurd hlt (Nat.lt_irrefl _))
-    (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht)
+    rfl (.ctor (isCtor_e _) .nil) (fun t ht => by cases ht) .top
 
 /-- **Two results at `inj 3`, not `FnDet`.** -/
 theorem not_fnDet_O : ¬ FnDet cO := fun h =>

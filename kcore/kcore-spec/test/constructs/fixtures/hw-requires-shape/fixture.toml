@@ -1,0 +1,3 @@
+# Hand-written KORE: hw-base's kompiled text with the requires of rule [go] written \equals(\dv{SortBool{}}("true"), N >=Int 0),
+# the two sides of kompile's form \equals(C, \dv{SortBool{}}("true")) exchanged. From: test/constructs/kfix.py run hw-base's definition.kore.
+kore = "test/constructs/fixtures/hw-requires-shape/hw-requires-shape.kore"

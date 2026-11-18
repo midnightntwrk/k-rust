@@ -51,7 +51,8 @@ def clauseSortedT (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
   reqOK (c.rhsCtxT T rhsHeads) cl.vars cl.req &&
   sortOfTerm (c.rhsCtxT T rhsHeads) cl.vars cl.rhs == some f.result &&
   reqOK (c.rhsCtxT T rhsHeads) cl.vars cl.ens &&
-  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post)
+  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post) &&
+  c.condOK cl.vars cl.pre
 
 /-- `ruleSorted`, read from the tables. -/
 def ruleSortedT (r : Rule) : Bool :=

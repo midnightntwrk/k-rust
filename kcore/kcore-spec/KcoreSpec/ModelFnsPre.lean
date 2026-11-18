@@ -473,7 +473,7 @@ theorem clause_eqnFactsPre (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
   · obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts h.hyp.1
     obtain ⟨hs, hpl⟩ := hfns fn hu cl hcl
     have hbd : Cond.bound c cl.vars.length cl.pre = true := by
-      simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs; exact hs.2.1
+      simp only [Semantics.clauseSortedOpen, Bool.and_eq_true] at hs; exact hs.1.2.1
     obtain ⟨hpats, hocc, hreq, hrhs, hens⟩ := Semantics.clauseSortedOpen_parts hs
     obtain ⟨hex, -, hpost, -⟩ := Semantics.clausePlainOpen_parts hpl
     refine ⟨⟨hpats, ⟨c.fns.map Fn.sig, fun k hk => ?_, hreq⟩, hpreOK, hbd⟩, hex, fun i hi => ?_,

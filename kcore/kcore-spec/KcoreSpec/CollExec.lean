@@ -74,7 +74,9 @@
     it. The frame's rest equals its value only because values of well-sorted patterns are
     canonical (`canonI_perm`); a defined `_Map_` or `_Set_` of canonical arguments holds their
     items each once (`union_perm`, `concatS_perm`).
-  - Overloading symbols (`PatVal.ovl`, `EvalTerm.ovl`): `patEval` and `evalT` compute `norm`; the
+  - Overloading symbols (`PatVal.ovl`, `EvalTerm.ovl`, `EvalTerm.ovlFn`): `patEval` and `evalT`
+    compute `norm`, and `evalT` the covering function's value, lifted, where a function the symbol
+    overloads covers the arguments (`fnCover`); the
     candidates of `f(p̄)` at v are the argument patterns matched at `ovlArgs c f v`, the one
     argument list at which f's normal form can be v (`ovlArgs_complete`, from
     `OvlLaws.norm_decomp`). The laws of `norm` read `overloadsOK`, which `execReady` holds through
@@ -351,7 +353,12 @@ mutual
         | none => pure none
         | some vs => c.hookRes f vs
       else if c.isParam f then pure ((allSome rs).bind (c.paramVal f))
-      else if c.isOvl f then pure ((allSome rs).map (c.norm f))
+      else if c.isOvl f then match allSome rs with
+        | none => pure none
+        | some vs => (match c.fnCover f vs, c.lookupOvl f with
+          | some kg, some o =>
+            (evalF c n kg.name (stripAll kg.args o.sig.args vs)).map (·.map (lift kg.result o.sig.result))
+          | _, _ => pure (some (c.norm f vs)))
       else match allSome rs with
         | none => pure none
         | some vs => evalF c n f vs
@@ -516,22 +523,34 @@ def readyL (c : Semantics) (vars : List Srt) (ps : List Term) : Bool :=
 core: well sorted (`sortedOK`, under `okAll`), `srReady`, `matchReadyO` (`matchReady` with
 well-formed overloads, `overloadsOK`, in place of none), every clause's and rule's left-hand
 side ready, binding all of its variables, every rule's predicates `\top` or conjunctions of
-`\equals` and `\in` atoms (`predAtoms`, which `predVal` evaluates), and no clause `aside`
-(`asideFree`: the executable evaluation stops at the first clause that applies, `aside` or not). -/
+`\equals` and `\in` atoms (`predAtoms`, which `predVal` evaluates), no clause `aside`
+(`asideFree`: the executable evaluation stops at the first clause that applies, `aside` or not),
+and every clause's predicate `\top` (the executable evaluation reads a clause's `requires` only). -/
 def execReady (c : Semantics) : Bool :=
   c.sortedOK && c.srReady && c.matchReadyO &&
   c.allFns.all (fun fn => fn.clauses.all fun cl =>
     readyL c cl.vars cl.pats && binds cl.vars.length (varOccsList cl.pats)) &&
   c.rules.all (fun r => readyL c r.vars [r.lhs] && binds r.vars.length (varOccs r.lhs) &&
     predAtoms r.pre && predAtoms r.post) &&
-  c.asideFree
+  c.asideFree &&
+  c.fns.all (fun f => f.clauses.all fun cl => cl.pre.isTop)
 
 /-- A rule of a core `execReady` accepts has predicates `predVal` evaluates and a left side that
 binds every variable. -/
 theorem rule_atoms_of_execReady {c : Semantics} (hr : execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
     predAtoms r.pre = true ∧ predAtoms r.post = true ∧ binds r.vars.length (varOccs r.lhs) = true := by
   simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
-  obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.2 r hmem
+  obtain ⟨⟨⟨-, hb⟩, hpre⟩, hpost⟩ := hr.1.1.2 r hmem
   exact ⟨hpre, hpost, hb⟩
+
+/-- Every clause of a function of a core `execReady` accepts has the predicate `\top`: the user's
+by `execReady`, a sort predicate's by its text. -/
+theorem preTop_of_execReady {c : Semantics} (hr : execReady c = true) :
+    ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, cl.pre = .top := by
+  simp only [execReady, Bool.and_eq_true, List.all_eq_true] at hr
+  intro fn hfn cl hcl
+  rcases List.mem_append.mp hfn with hu | hp
+  · exact Cond.eq_top_of_isTop (hr.2 fn hu cl hcl)
+  · exact Semantics.sortPreds_pre hp cl hcl
 
 end KCore.CExec

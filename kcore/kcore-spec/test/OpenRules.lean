@@ -294,9 +294,9 @@ example (hd : FnDet c) (hs : FnSolves c) (hd2 : FnDet c2) (hs2 : FnSolves c2) : 
   have hex2 : ∀ r ∈ c2.rules, r.exs = [] := by decide +kernel
   have hf := (hypModel_of_fn coreOK hd hs).ruleFactsEx_of_all (by decide +kernel)
   have hf2 := (hypModel_of_fn coreOK2 hd2 hs2).ruleFactsEx_of_all (by decide +kernel)
-  exact ⟨consistent_open c coreOK hd hs (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf r hr).1,
+  exact ⟨consistent_open c coreOK hd hs (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf r hr).1,
       Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf r hr).2, hex r hr⟩⟩,
-    consistent_open c2 coreOK2 hd2 hs2 (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf2 r hr).1,
+    consistent_open c2 coreOK2 hd2 hs2 (clausePreDecided_of_isTop (by decide +kernel)) (openLaws_of_plain (by decide +kernel)) fun r hr => ⟨(hf2 r hr).1,
       Semantics.rulePlainOpen_iff_ex.mpr ⟨(hf2 r hr).2, hex2 r hr⟩⟩⟩
 
 /-! ## A successor in two cases: `successor_split_rule`, `step_successor_open` -/
@@ -493,15 +493,15 @@ example : Parse.owedCondDecided c = [] ∧
 
 /-! ## The emitted rule: `rulePattern_noExs` -/
 
-/-- `ok1` has no existential variable: its emitted pattern is `\rewrites(\and(lhs, req),
-\and(rhs, ens))`, under any names. At `exA` (X, index 2, existential) the right side is emitted
-under `\exists` binding X's name. -/
+/-- `ok1` has no existential variable and its predicates are `\top`: its emitted pattern is
+`\rewrites(\and(lhs, req), \and(rhs, ens))`, under any names. At `exA` (X, index 2, existential)
+the right side is emitted under `\exists` binding X's name. -/
 example (vs : List KoreAML.Var) :
     rulePattern c vs ok1 =
       .rewrites (srtOf c topCellSort)
         (.and (srtOf c topCellSort) [Term.kore c vs ok1.lhs, reqPat (srtOf c topCellSort) (ok1.req.map (Term.kore c vs))])
-        (.and (srtOf c topCellSort) [Term.kore c vs ok1.rhs, reqPat (srtOf c topCellSort) (ok1.ens.map (Term.kore c vs))]) :=
-  rulePattern_noExs c vs ok1 rfl
+        (.and (srtOf c topCellSort) [Term.kore c vs ok1.rhs, reqPat (srtOf c topCellSort) (ok1.ens.map (Term.kore c vs))]) := by
+  rw [rulePattern_noExs c vs ok1 rfl, rulePredPat_top (p := ok1.pre) rfl, rulePredPat_top (p := ok1.post) rfl]
 
 example (v0 v1 v2 : KoreAML.Var) :
     (match rulePattern c [v0, v1, v2] exA with
