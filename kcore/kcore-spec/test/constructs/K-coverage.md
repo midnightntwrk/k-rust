@@ -30,7 +30,7 @@ Nested entries by status:
 | list | entries | supported | parameter | inert | erased | refused | pending-fixture | not-handled |
 |---|---|---|---|---|---|---|---|---|
 | E1 | 7 | 3 | 0 | 0 | 0 | 4 | 0 | 0 |
-| E2 | 58 | 7 | 0 | 1 | 0 | 50 | 0 | 0 |
+| E2 | 59 | 7 | 0 | 1 | 0 | 51 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 51 | 20 | 0 | 4 | 0 | 27 | 0 | 0 |
 | E5 | 59 | 36 | 1 | 2 | 0 | 20 | 0 | 0 |
@@ -38,7 +38,7 @@ Nested entries by status:
 | E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 330 | 126 | 2 | 11 | 1 | 190 | 0 | 0 |
+| all | 331 | 126 | 2 | 11 | 1 | 191 | 0 | 0 |
 
 Refused rows by class:
 
@@ -60,7 +60,7 @@ Refused nested entries by class:
 | list | entries | R-a | R-b | R-c | scope |
 |---|---|---|---|---|---|
 | E1 | 4 | 0 | 0 | 1 | 3 |
-| E2 | 50 | 3 | 0 | 3 | 44 |
+| E2 | 51 | 3 | 0 | 3 | 45 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 27 | 14 | 7 | 0 | 6 |
 | E5 | 20 | 10 | 1 | 4 | 5 |
@@ -68,7 +68,7 @@ Refused nested entries by class:
 | E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 190 | 49 | 15 | 44 | 82 |
+| all | 191 | 49 | 15 | 44 | 83 |
 
 ## Entries of class R-c (56)
 
@@ -291,7 +291,8 @@ Not core:
 | `BRACKET(bracket)@symbol` | erased (P) |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | yes | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color).; the key on a symbol declaration of a hand-written text: fixtures/hw-symbol-attr-bracket/account.txt \`1 refused attrOutsideE2 [user]\` (Parse.attrFault? at class symbol… |
 | `CELL(cell)@symbol` | supported |  |  |  |  | e2-cells | no | no | K-coverage.md A.3 cell (symbols) |
 | `CELL_COLLECTION(cellCollection)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
-| cases[0]: sorts of the text named FooCell and FooCellSet, the first a subsort of the second, no cell | supported |  | the text declares FooCell and FooCellSet as ordinary sorts (kore.txt: \`sort SortFooCell{} []\`, \`sort SortFooCellSet{} []\`: no hook, no element, unit or concat attribute), FooCellSet with its constructor dotFoo, and the subsort FooCell &lt; FooCellSet with its no-junk axiom: sentences of the kinds every… | none (reader only: Parse.isCellCollAxiom, isCellCollPair and the account's cellCollectionInjection test decided by the definition's collections instead of by the sorts' names; Semantics.userSubsorts states the subsort as it is) |  | rdr-cellcoll-own |  |  | fixtures/rdr-cellcoll-own/kompile.txt: exit 0; its account as reader\_today |
+| cases[0]: sorts of the text named FooCell and FooCellSet, the first a subsort of the second, no cell | supported |  | the text declares FooCell and FooCellSet as ordinary sorts (kore.txt: \`sort SortFooCell{} []\`, \`sort SortFooCellSet{} []\`: no hook, no element, unit or concat attribute), FooCellSet with its constructor dotFoo, and the subsort FooCell &lt; FooCellSet with its no-junk axiom: sentences of the kinds every… | none (reader only: Parse.cellCollPairs, the pairs Names.cellPairs carries, by which classify (isCellCollAxiom), term, the scan and the account decide a cell collection's injection; Semantics.userSubsorts states the subsort as it is) |  | rdr-cellcoll-own |  |  | fixtures/rdr-cellcoll-own/kompile.txt: exit 0; fixtures/rdr-cellcoll-own/account.txt: \`195 read [generated]\`, \`11 inert noJunk [generated]\`, no \`unread cellCollectionInjection\` line, \`read and not accounted for: 0\`, \`inert constructor axioms not induced by the constructors: 0\`, \`cell collection inje… |
+| cases[1]: a rule applying inj{XCell, XCellMap} where the cell's collection stands (hand-written: f2-examples/colls.kore with bump'… | refused | scope | (AcctCell, AcctCellMap) is a cell-collection pair of the text (Parse.cellCollPairs: AcctCellMap a hooked MAP.Map collection sort whose element symbol AcctCellMapItem takes AcctCell as its value). The reading holds AcctCellMap's elements as maps; inj{AcctCell, AcctCellMap} of a cell would be a second… |  | none (scope): never written |  |  |  | test/CellCollection.lean #guard\_msgs: f2-examples/colls.kore \`read\`, the edited text \`cellCollectionInjection\` (Parse.term refuses inj at a pair of Names.cellPairs) |
 | `CELL_NAME(cellName)@frontend` | supported |  | Rule S1. The KORE is cell constructors (\`cell{}()\`), hooked collection sorts with unit, element, concat, initializer equations, and for exit the function getExitCode with one equation: all read. The cell's subsort into its collection sort is deliberately not read (UnreadReason.cellCollectionInjectio… | none (reader only) |  | e2-cells | no | no | FX/e2-cells/account.txt (parse: ok; wf true; 6 unread cellCollectionInjection); FX/e2-cells-exit/account.txt (ok; getExitCode at kore.txt 36 and 236). |
 | `CIRCULARITY(circularity)@claim` | inert |  | Class \`use\` of R-1: attributes of a proof task. A claim is no axiom of the theory (InertReason.claim, Parse.lean:185; \`classify\` gives \`.claim \_ => .inert .claim\`, Parse.lean:1773), so what its attribute list says changes neither Γ nor Step. | none |  | e1-claim | no | no | FX/e1-claim/kompile.txt ('Claims are not allowed in the definition.'): under R-12 no definition.kore holds a claim; Parse.lean:1773 for a text that does. |
 | `COLOR(color)@frontend` | erased (P) |  | kompile leaves no trace: the text with the keys equals the text without them after removing Source and Location (the rows' own no\_sentence). | none |  | e2-frontend | no | no | FX/e2-frontend same\_as FX/e2-frontend-none (20 keys); FX/e2-cells-attrs same\_as FX/e2-cells-plain (maincell, multiplicity=1, color). |

@@ -74,7 +74,8 @@ def refusals (k : Kore.Definition) : List Refusal :=
   | some m =>
     let off := preludeLength k
     let pre := if k.modules.dropLast = preludeModules then [] else [preludeRefusal k]
-    let cls := m.sentences.zipIdx.filterMap fun (s, i) => match classifyShape s with
+    let P := cellCollPairs m.sentences
+    let cls := m.sentences.zipIdx.filterMap fun (s, i) => match classifyShapeIn P s with
       | .refused r => some (⟨some (off + i), headOf s, r, classDetail m s r⟩ : Refusal)
       | _ => none
     let S := scan m.sentences
@@ -284,8 +285,9 @@ def generatedEqs (k : Kore.Definition) (d : Definition) : List (Nat × String ×
     | .error _ => []
     | .ok E =>
       let off := preludeLength k
+      let P := cellCollPairs m.sentences
       m.sentences.zipIdx.filterMap fun (s, i) =>
-        if isRead s && consumed S E d s && !consumedWith false S E d s then
+        if isReadIn P s && consumed S E d s && !consumedWith false S E d s then
           match s with
           | .axiom a => (((rawEqn? a).orElse fun _ => overloadEqn? a).orElse fun _ => projDomainEqn? a).map
               fun e => (off + i, e.fn, eqnShape e)
@@ -339,8 +341,9 @@ def unconsumed (k : Kore.Definition) (d : Definition) : List Refusal :=
     | .error _ => []
     | .ok E =>
       let off := preludeLength k
+      let P := cellCollPairs m.sentences
       m.sentences.zipIdx.filterMap fun (s, i) =>
-        if isRead s && !consumed S E d s then
+        if isReadIn P s && !consumed S E d s then
           let (r, why) := unconsumedWhy s
           some ⟨some (off + i), headOf s, r, why⟩
         else none
@@ -619,9 +622,10 @@ def keysAsMember (k : Kore.Definition) : List (Nat × List String) :=
 
 /-! ## The cell collections' injections are the definition's
 
-A sentence classified `unread cellCollectionInjection` by the names of its sorts (`XCell`,
-`XCellMap`) is accepted only when the definition has the collection: a collection sort of that
-name whose element (a map's value, a set's or list's element) is that cell sort. -/
+A sentence classified `unread cellCollectionInjection` at the text's cell-collection pairs
+(`cellCollPairs`) is accepted only when the definition has the collection: a collection sort of
+that name whose element (a map's value, a set's or list's element) is that sort, for every pair
+the sentence injects at (a no-junk axiom is so classified where one of its disjuncts is). -/
 
 /-- The sentences classified as a cell collection's injection whose sorts are not a collection of
 `d` and its cell: one refusal (`cellCollectionInjection`) for each. -/
@@ -638,7 +642,8 @@ def cellCollUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
       | _, .or _ ds => ds.filterMap fun dj => injSorts? (binders eqnFuel dj).2
       | _, _ => []
     let off := preludeLength k
-    m.sentences.zipIdx.filterMap fun (s, i) => match s, classifyShape s with
+    let P := cellCollPairs m.sentences
+    m.sentences.zipIdx.filterMap fun (s, i) => match s, classifyShapeIn P s with
       | .axiom a, .unread .cellCollectionInjection =>
         if (sortsOf a).all pairs.contains then none
         else some ⟨some (off + i), headOf s, .cellCollectionInjection, "not a collection of the definition and its cell"⟩
@@ -1016,9 +1021,9 @@ def kernelAbsent (k : Kore.Definition) (d : Definition) : List Kore.Sentence :=
     let held := m.sentences.map alphaKey
     (kernelText d.pres.simpArg (hasKconfig d.sem)).filter fun t => !held.contains (alphaKey t)
 
-/-- An inert constructor axiom's reason. -/
-def ctorInert? (s : Kore.Sentence) : Option InertReason :=
-  match classifyShape s with
+/-- An inert constructor axiom's reason, at the cell-collection pairs `P` (`cellCollPairs`). -/
+def ctorInert? (P : List (String × String)) (s : Kore.Sentence) : Option InertReason :=
+  match classifyShapeIn P s with
   | .inert .distinctCtors => some .distinctCtors
   | .inert .injectivity => some .injectivity
   | .inert .noJunk => some .noJunk
@@ -1100,16 +1105,17 @@ def uninduced (k : Kore.Definition) (d : Definition) : List Refusal :=
     -- the no-junk axiom of an open generator's result sort is `openInduced`'s alone: `emit`'s,
     -- without the open generators, would take a text whose axiom does not list them
     let rawSorts := ((c.params.filter (·.raw)).map (·.sig.result)).map (srtOf c)
-    let emitted := (userModule d.sem d.pres).sentences.filter fun s => match s, ctorInert? s with
+    let P := cellCollPairs m.sentences
+    let emitted := (userModule d.sem d.pres).sentences.filter fun s => match s, ctorInert? P s with
       | .axiom a, some .noJunk => match a.pattern with
         | .or S _ => !rawSorts.any fun T => decide (S = T)
         | _ => true
       | _, _ => true
-    let induced := (emitted ++ mixed ++ cellDist ++ ovlInduced c ++ openInduced c).filterMap fun s => match s, ctorInert? s with
+    let induced := (emitted ++ mixed ++ cellDist ++ ovlInduced c ++ openInduced c).filterMap fun s => match s, ctorInert? P s with
       | .axiom a, some r => some (r.name, canon a.pattern)
       | _, _ => none
     let off := preludeLength k
-    m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? s with
+    m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? P s with
       | .axiom a, some r =>
         if induced.contains (r.name, canon a.pattern) || (r == .distinctCtors && ovlConfused c a) then none
         else some ⟨some (off + i), headOf s, .inertMismatch, r.name⟩
@@ -1123,7 +1129,8 @@ def overloadConfusions (k : Kore.Definition) (d : Definition) : List (Nat × Str
   | none => []
   | some m =>
     let off := preludeLength k
-    m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? s with
+    let P := cellCollPairs m.sentences
+    m.sentences.zipIdx.filterMap fun (s, i) => match s, ctorInert? P s with
       | .axiom a, some .distinctCtors => if ovlConfused d.sem a then some (off + i, headOf s) else none
       | _, _ => none
 

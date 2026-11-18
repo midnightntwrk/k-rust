@@ -418,7 +418,7 @@ patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
 @@ -3870,7 +3870,7 @@
-   else if isCellCollAxiom a then .unread .cellCollectionInjection
+   else if isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
    -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
    -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
 -  else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
@@ -440,7 +440,7 @@ patch = '''
 --- a/KcoreSpec/Parse.lean
 +++ b/KcoreSpec/Parse.lean
 @@ -3870,7 +3870,7 @@
-   else if isCellCollAxiom a then .unread .cellCollectionInjection
+   else if isCellCollAxiom N.cellPairs a then .unread .cellCollectionInjection
    -- a `\rewrites` axiom carrying `simplification` states a step: it is read, and `ruleBody`
    -- refuses it (`ruleAttrFault?`) instead of the step being dropped as an inert lemma
 -  else if hasAttr a.attributes "simplification" && (scanRewrite s).isNone then .inert .simplification
