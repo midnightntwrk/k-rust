@@ -26,7 +26,7 @@
   nothing constrains `==K`, so the sentence is not entailed at every valuation: the class takes
   the weakening at values. `consistent` for every H.
 
-  The expectations (C7 form (a), through the reading; family the priority premise), from `Pre H`
+  The expectations (C7 form (a), through the reading), from `Pre H`
   (the function equations as written, Γ's rule item, the families; it has a model, `pre_model`):
   `and_true`: `go(true)` steps to `done`; `and_false`: `go(false)` has no successor (with the
   step's closure).
