@@ -9,6 +9,7 @@ import KcoreSpec.Parse
 import KcoreSpec.Statements
 import KcoreSpec.UniqLists
 import KcoreSpec.DetachedB
+import KcoreSpec.FreeNames
 
 set_option autoImplicit false
 
@@ -118,10 +119,31 @@ def regProjFree (c : Semantics) (fn : String) : Bool :=
     | none => true
   else true
 
+/-- `regProjFree` with `freeB` read from a set of names `A` (`GenEqs.freeBIdx`), which a check of
+all the sentences of a text computes once, when it first needs it. -/
+def regProjFreeIdx (A : Thunk (Std.HashSet String)) (c : Semantics) (fn : String) : Bool :=
+  if (dropPrefix? "Lblproject'Coln'" fn).isSome then
+    match regSymNames.idxOf? fn with
+    | some i => GenEqs.freeBIdx A.get c [i]
+    | none => true
+  else true
+
+/-- At the set of the theory's names (`GenEqs.freeBlockNames`), `regProjFreeIdx` is `regProjFree`. -/
+theorem regProjFreeIdx_eq (c : Semantics) :
+    regProjFreeIdx (Thunk.mk fun _ => Std.HashSet.ofList (GenEqs.freeBlockNames c)) c = regProjFree c := by
+  funext fn
+  unfold regProjFreeIdx regProjFree
+  split
+  · split
+    · exact GenEqs.freeBIdx_eq c _
+    · rfl
+  · rfl
+
 /-- An equation `predProjOK?` accepts, a registry-numbered sort projection's where its symbol is
-free of `Γ` (`regProjFree`). -/
-def predProjAcc (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (e : RawEqn) : Bool :=
-  predProjOK? N msrc eqs c e == some true && regProjFree c e.fn
+free of `Γ` (`regProjFree`, or `pf` where it is given as `regProjFree c` computed otherwise). -/
+def predProjAcc (N : Names) (msrc : String) (eqs : List RawEqn) (c : Semantics) (e : RawEqn)
+    (pf : String → Bool := regProjFree c) : Bool :=
+  predProjOK? N msrc eqs c e == some true && pf e.fn
 
 /-- The equations that `consumed` accounts for without a function of `d` holding them as clauses,
 by three classes, each checked, `eqs` the text's equations:
@@ -135,8 +157,11 @@ by three classes, each checked, `eqs` the text's equations:
 - a constructor argument's projection `project:c:x(c(x₁, …, xₙ)) = xᵢ`, the projection no symbol
   of the registry or of `d`, c a constructor of the definition (`Semantics.ctorSigs`), the xᵢ
   distinct variables: the symbol is outside `Γ`'s signature, and the equation defines it on c's
-  image, where c is injective. -/
-def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn) : Bool :=
+  image, where c is injective.
+`pf` is `regProjFree d.sem`, given as an argument where a caller computes it once for many
+equations (`regProjFreeIdx_eq`). -/
+def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn)
+    (pf : String → Bool := regProjFree d.sem) : Bool :=
   let c := d.sem
   let noReq := e.req.isNone && e.ens.isNone && !e.dom
   let argProj := (dropPrefix? "Lblproject'Coln" e.fn).isSome && noReq && e.competitors.isNone &&
@@ -147,7 +172,7 @@ def genEqClassOK (E : Env) (d : Definition) (eqs : List RawEqn) (e : RawEqn) : B
       args.all (fun a => match a with | .var (.evar _) => true | _ => false) &&
       args.eraseDups.length == args.length && args.contains (.var (.evar v))
     | _, _ => false
-  predProjAcc E.N E.src eqs c e || argProj
+  predProjAcc E.N E.src eqs c e pf || argProj
 
 /-- A sentence of `kconfigModule`'s text (the kernel text's sentences naming `#KConfigValue` or
 `#unboxKConfigValue`, `namesKconfig`), compared with that text in the form the definition selects
@@ -196,8 +221,11 @@ as `S`, named as `E`) accounts for:
   a sort of `d` below KItem, as every sort is in KCore;
 - KItem's no-junk axiom gives the presentation's place of the fixed constructors; a sort of `d`
   below KItem that it does not list is read below KItem all the same (`ReadingNote.tokKItem`,
-  listed by `tokKItemOmitted`). -/
-def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence) : Bool :=
+  listed by `tokKItemOmitted`).
+`pf` is `regProjFree d.sem`, given as an argument where a caller computes it once for all the
+sentences (`unconsumedIdx`, `regProjFreeIdx_eq`). -/
+def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : Kore.Sentence)
+    (pf : String → Bool := regProjFree d.sem) : Bool :=
   let c := d.sem
   let sortHas := fun (X : String) => regSortNames.contains X || c.sortNames.contains X
   let symHas := fun (f : String) => regSymNames.contains f || c.symNames.contains f
@@ -248,8 +276,8 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
       -- wrote it; or, generated (no user source), a
       -- constructor argument's projection's (`genEqClassOK`) or a sentence of `kconfigModule`'s
       -- text where `d` imports that module (`kconfigOwnSentence`)
-      (generated && (predProjAcc E.N E.src S.eqs c e || predInstAcc E.N E.src S.eqs c e ||
-        (!isUserSource a.attributes && !isOwnBuiltin s && (genEqClassOK E d S.eqs e || kconfigOwnSentence E s))))
+      (generated && (predProjAcc E.N E.src S.eqs c e pf || predInstAcc E.N E.src S.eqs c e ||
+        (!isUserSource a.attributes && !isOwnBuiltin s && (genEqClassOK E d S.eqs e pf || kconfigOwnSentence E s))))
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
@@ -293,6 +321,33 @@ def generatedEqs (k : Kore.Definition) (d : Definition) : List (Nat × String ×
               fun e => (off + i, e.fn, eqnShape e)
           | _ => none
         else none
+
+/-- `generatedEqs` with the registry projections' check (`regProjFree`) read from the theory's
+names, computed once for the text (`regProjFreeIdx_eq`); the compiled code computes `generatedEqs`
+as it (`generatedEqs_eq_idx`). -/
+def generatedEqsIdx (k : Kore.Definition) (d : Definition) : List (Nat × String × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let S := scan m.sentences
+    match envOf m S with
+    | .error _ => []
+    | .ok E =>
+      let off := preludeLength k
+      let P := cellCollPairs m.sentences
+      let pf := regProjFreeIdx (Thunk.mk fun _ => Std.HashSet.ofList (GenEqs.freeBlockNames d.sem)) d.sem
+      m.sentences.zipIdx.filterMap fun (s, i) =>
+        if isReadIn P s && consumedWith true S E d s pf && !consumedWith false S E d s then
+          match s with
+          | .axiom a => (((rawEqn? a).orElse fun _ => overloadEqn? a).orElse fun _ => projDomainEqn? a).map
+              fun e => (off + i, e.fn, eqnShape e)
+          | _ => none
+        else none
+
+@[csimp] theorem generatedEqs_eq_idx : @generatedEqs = @generatedEqsIdx := by
+  funext k d
+  unfold generatedEqs generatedEqsIdx consumed
+  simp only [regProjFreeIdx_eq]
 
 /-- What a sentence classified read is, as `consumed` reads it. -/
 def readKind (s : Kore.Sentence) : String :=
@@ -347,6 +402,32 @@ def unconsumed (k : Kore.Definition) (d : Definition) : List Refusal :=
           let (r, why) := unconsumedWhy s
           some ⟨some (off + i), headOf s, r, why⟩
         else none
+
+/-- `unconsumed` with the registry projections' check (`regProjFree`) read from the theory's names,
+computed once for the text where a sentence first needs it (`regProjFreeIdx_eq`), where `consumed`
+computes `freeB` again at each such sentence; the compiled code computes `unconsumed` as it
+(`unconsumed_eq_idx`). -/
+def unconsumedIdx (k : Kore.Definition) (d : Definition) : List Refusal :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let S := scan m.sentences
+    match envOf m S with
+    | .error _ => []
+    | .ok E =>
+      let off := preludeLength k
+      let P := cellCollPairs m.sentences
+      let pf := regProjFreeIdx (Thunk.mk fun _ => Std.HashSet.ofList (GenEqs.freeBlockNames d.sem)) d.sem
+      m.sentences.zipIdx.filterMap fun (s, i) =>
+        if isReadIn P s && !consumedWith true S E d s pf then
+          let (r, why) := unconsumedWhy s
+          some ⟨some (off + i), headOf s, r, why⟩
+        else none
+
+@[csimp] theorem unconsumed_eq_idx : @unconsumed = @unconsumedIdx := by
+  funext k d
+  unfold unconsumed unconsumedIdx consumed
+  simp only [regProjFreeIdx_eq]
 
 /-! ## Rules with an `ensures`
 
