@@ -1840,7 +1840,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   (a hooked function) and the range map are refused `openRight` at Int. `Map` (e3-vars-map):
   `coreOK` and `FnHyp` by the kernel; from `<k> set(5) </k> <m> .Map </m>` `Step` reaches exactly the
   `5 |-> i`, i an Int; `Γc ⊧ den x ⇒ •famEx` by `sound_at`; by `ExactC` no other value is a successor
-  in any model of `Γc` with the step's closure.
+  in any model of `Γc` with the step's closure. `MapRest` (e3-vars-map-rest,
+  `f2-examples/heldmaprest`): from `<m> 1 |-> 0 </m>` `Step` reaches `(k |-> 0) (1 |-> 0)` exactly for
+  the Ints k other than 1; at the key the right side has no value, and in every model of `Γc`
+  `_Map_(1 |-> 0, 1 |-> 0)` is empty (its `ΓDomains` axiom); by `ExactC` no other successor.
 - `test/C3SimpReq.lean`, `test/C3SimpComm.lean`, `test/InertResolveComm.lean`: the C2 evidence of the
   inert simplifications of the pairs `simplification` x `requires` and simplification `comm` x symbol
   `comm` and of the pass resolveComm (E7), on their fixtures: each sentence is entailed by Γ at values,
