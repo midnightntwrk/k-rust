@@ -136,7 +136,7 @@ theorem termUse_of_atomFacts (F : AtomFacts c I) : TermUse c I False (EvalTerm c
 omit [Inhabited M] in
 /-- An evaluation read in I (`TermAt`) is read where σ is well sorted. -/
 theorem termUse_termAt : TermUse c I True (TermAt c I) :=
-  fun hT _ _ _ _ _ hσ hP hr ht m => hT (fun i s hs => hσ i s trivial hs) hP hr ht m
+  fun hT _ _ _ _ _ _ hP hr ht m => hT hP hr ht m
 
 /-- What `fixesBy` decides: t is the variable i or an injection of it, and `ok` admits every
 variable of u. -/
