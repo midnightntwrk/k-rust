@@ -1,0 +1,9 @@
+# Hand-written KORE: the kompiled text of fixture e2-comm-ctor (K 7.1.337, sha256
+# bdd84cca7641dc3bcc9d5bb92c691612d8ed21dbb8978ea966cc984d99eb3fa3), BUILTIN/ and FIXTURE/ restored as paths,
+# and two attributes added: comm{}() first on the declaration of the open generator Lbland, assoc{}() first
+# on that of Lblor. Kompile writes comm on a production that is no function as nothing and assoc as the
+# associativity axiom, neither as a key on the declaration (e2-comm-ctor/kore.txt lines 6, 10): only a
+# hand-written text carries the keys there.
+# Expected: both declarations refused openGenerator (Parse.attrVerdict at class symbol); Lblor's
+# associativity axiom then the law of no symbol read (lawAxiom).
+kore = "test/constructs/fixtures/hw-open-decl-laws/hw-open-decl-laws.kore"
