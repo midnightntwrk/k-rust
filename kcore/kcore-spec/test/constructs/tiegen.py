@@ -5,6 +5,7 @@ Usage (from anywhere; the library and `kcore` built first):
   python3 -I test/constructs/tiegen.py FIXTURE [--sig-chunk N] [--decl-chunk N] [--chunk N]
                                                [--hand consistency=FILE] [--out DIR] [--print]
   (the probe, a run of the Lean definitions on the text, is stopped after $TIEGEN_PROBE_TIMEOUT seconds, 900 by default)
+  python3 -I test/constructs/tiegen.py --self-test   (the law search below, on three fixtures)
 
 For FIXTURE (a directory of test/constructs/fixtures with a kompiled text), it writes
   f2-examples/FIXTURE.kompile.kore   the kompiled text kompile.txt records (from the cache kfix.py
@@ -23,7 +24,34 @@ the fixture's account.txt, a text the reader refuses, a text whose obligations `
 states in a form not in OBL_FORMS, or which owes a fact other than an agreement (termination,
 totality, match independence), a rule's or clause's condition, or a held-named function's fact;
 a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
-written.
+written; a text with a law of a function that the probe refutes at values (Function laws, below).
+
+Function laws. A law of a function (`Definition.laws`) is owed as `FnLaws`: `LawAt` for each law,
+under every well-sorted substitution its two sides have the same `EvalTerm` results. Where it fails
+at every H the tie, which takes it as a hypothesis, states nothing, and the text is not tied: by the
+owed-sentence rule (test/constructs/rows-header.toml, items 3 and 4) a fixture of it is a test of
+the check (DONE-0 C8). That it fails at every H is not decidable from the text in general: `LawAt`
+quantifies over all values of the law's variables (infinitely many of Int), so no finite evaluation
+settles that it holds, and where it fails one valuation witnesses it, which a search can find but
+whose absence it cannot show. What tiegen decides is such a witness. The probe evaluates both sides
+with `Cert.evalTC` (fuel 4000) at the valuations of the law's variables drawn from 0, 1, 2, 3, -1,
+-2, true, false and the nullary constructors of their sorts (4096 at most). A valuation at which both
+sides have values (`some (some v)`) that differ (`Exec.same`) refutes the law at every H: `evalTC`
+has no result where it would consult the interpretation, so with no open generator its result is
+the one at every H (`Cert.evalTC_withHooks`) and the executable evaluation's (`Cert.evalTC_sound`),
+hence the `EvalTerm` result (`Exec.evalT_sound`, from `ok`, `srReady`, `matchReady`, which no H
+changes, and `lawSorted`); and `EvalTerm` is functional where `CoherentAll` holds
+(`Det.coherentAll_of_nil`: `clausesFixed`, no agreement owed), so `LawAt` would give the right side
+the left side's value. The search runs only where those conditions hold. Only values on both sides
+count: where a side has no result `LawAt` can fail while the sentence holds (`Parse.fnLawEntry`), so
+that is no witness. tiegen refuses such a text, naming the witness (test/FnLawFixtures.lean's
+`Bad.not_lawAt` is the kernel's refutation for e2-fn-assoc-bad). A law the search does not refute
+(no witness among those valuations, a side without a value or reading the interpretation there, or
+the conditions not met) is not shown to hold: tiegen writes the tie with `FnLaws` owed (the
+summary's `law_search`), and before the tie counts as a row's evidence the lane checks the law:
+proves `FnLaws` at some H (as `FnLawFixtures.Assoc.fnLaws`), or refutes it at every H, which makes
+the fixture a C8 test. `--self-test` runs the search on e2-fn-assoc-bad (refused, at var 2 = 1),
+e2-fn-assoc and e2-fn-assoc-rest (both not refuted).
 
 What it states where the text:
 - owes an agreement (`agree_named` not empty): `facts` and `consistent` take it as a hypothesis
@@ -439,6 +467,30 @@ partial def tgPerms : List Nat → List (List Nat)
   let lawIx := d.laws.map fun l => ixOf (lawPattern c l)
   IO.println s!"H lawIx {lawIx}"
   IO.println s!"H openLawIx {(lawItemsK c).map fun it => ixOf it.pat}"
+  let lawGate := c.params.all (!·.raw) && c.ok && c.srReady && c.matchReady && c.clausesFixed &&
+    c.agreeObligations.isEmpty
+  let tgShow := fun (v : GroundTerm) => match v with
+    | .dv _ (.int i) => toString i
+    | .dv _ (.bool b) => toString b
+    | .ctor f [] => c.symName f
+    | v => reprStr v
+  let tgCands := fun (s : Srt) =>
+    ((([0, 1, 2, 3, -1, -2] : List Int).map fun i => GroundTerm.dv Srt.int (.int i)) ++
+      [GroundTerm.dv Srt.bool (.bool true), GroundTerm.dv Srt.bool (.bool false)] ++
+      (c.ctorSigs.filter (·.args.isEmpty)).map (fun g => GroundTerm.ctor g.name [])).filter (c.sortOf · == some s)
+  for (l, j) in d.laws.zipIdx do
+    let gate := lawGate && lawSorted c l
+    let σs : List Subst := (l.vars.zipIdx.foldr (fun (s, i) acc =>
+      (tgCands s).flatMap fun v => acc.map ((i, v) :: ·)) [[]]).take 4096
+    let wit : Option (Subst × GroundTerm × GroundTerm) := if !gate then none else σs.findSome? fun σ =>
+      if !Exec.wellSorted c l.vars σ then none else
+      match Cert.evalTC c 4000 σ l.lhs, Cert.evalTC c 4000 σ l.rhs with
+      | some (some v), some (some w) => if Exec.same v w then none else some (σ, v, w)
+      | _, _ => none
+    let ws := match wit with
+      | some (σ, v, w) => s!"{", ".intercalate (σ.map fun (p : Nat × GroundTerm) => s!"var {p.1} = {tgShow p.2}")}\t{tgShow v}\t{tgShow w}"
+      | none => "none"
+    IO.println s!"L {j}\t{gate}\t{σs.length}\t{ws}"
   IO.println s!"H litBool {c.litSort Srt.bool}"
   IO.println s!"H owedNil {c.owedRules.isEmpty && c.owedClauses.isEmpty}"
   IO.println s!"H fnClauses {afs.map fun f => c.symName f.label ++ "=" ++ toString f.clauses.length}"
@@ -493,12 +545,16 @@ def probe(name, path, um, order="[]"):
     if r.returncode != 0:
         raise Refused(f"{name}: the probe fails: {(r.stdout + r.stderr).strip()[-600:]}")
     head, sents = {}, {}
-    head["rules"], head["raw"], head["fnA"], head["nj"] = [], [], {}, {}
+    head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"] = [], [], {}, {}, []
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
         if l.startswith("H "):
             k, _, v = l[2:].partition(" ")
             head[k] = v
+        elif l.startswith("L "):
+            f = l[2:].split("\t")
+            head["lawRef"].append(dict(j=int(f[0]), searched=f[1] == "true", tried=int(f[2]),
+                                       wit=None if f[3] == "none" else dict(sigma=f[3], lhs=f[4], rhs=f[5])))
         elif l.startswith("R "):
             f = l[2:].split("\t")
             head["rules"].append((int(f[0]), f[1] == "true", [int(x) for x in re.findall(r"\d+", f[2])]))
@@ -1579,7 +1635,9 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
-                   confined=confined, uncovered=uncovered, owed=owed, theorems=names)
+                   confined=confined, uncovered=uncovered, owed=owed, theorems=names,
+                   law_search=[dict(law=law_idx[r["j"]], searched=r["searched"], valuations=r["tried"], refuted=False)
+                               for r in head["lawRef"]])
     return ns, lean, summary
 
 
@@ -2047,7 +2105,51 @@ theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := b
 '''
 
 
+def law_refuted(name, head, laws, raws, sents):
+    """The refusal of a text with a law the probe refutes at values (the module's docstring,
+    Function laws), or None. `laws`: the probe's `lawIx`, in `Definition.laws`' order."""
+    for r in head["lawRef"]:
+        if r["wit"]:
+            i, w = laws[r["j"]][0], r["wit"]
+            return (f"{name}: the law axiom {i} ({law_what([i], raws, sents)}) is false at values under every "
+                    f"interpretation: at {w['sigma']} its left side's value is {w['lhs']} and its right side's "
+                    f"{w['rhs']} (`Cert.evalTC`, which consults no interpretation); `FnLaws` fails at every H, so the "
+                    "text is not tied and a fixture of it is a test of the check (DONE-0 C8; "
+                    "test/constructs/rows-header.toml, owed-sentence rule items 3 and 4)")
+    return None
+
+
+# the law search's expected outcome on fixtures: the refusal's witness, or None where no law is refuted
+SELF_TEST = {"e2-fn-assoc-bad": "at var 0 = 0, var 1 = 0, var 2 = 1 its left side's value is -1 and its right side's 1",
+             "e2-fn-assoc": None, "e2-fn-assoc-rest": None}
+
+
+def self_test():
+    bad = []
+    for name, want in SELF_TEST.items():
+        text = restored_text(name)
+        with tempfile.TemporaryDirectory(prefix="tiegen-self-") as d:
+            path = os.path.join(d, f"{name}.kompile.kore")
+            open(path, "w").write(text)
+            account_check(name, path)
+            ob = obligations(name, path)
+            um0, ua = user_axioms(text)
+            head, sents = probe(name, path, um0, ob["order_list"])
+        laws, lr = nested(head["lawIx"]), head["lawRef"]
+        got = law_refuted(name, head, laws, {i: raw for i, _, _, raw in ua}, sents) if len(lr) == len(laws) else None
+        ok = len(laws) == len(lr) == 1 and lr[0]["searched"] and (got is None if want is None else want in got)
+        print(f"tiegen self-test: {name}: " + (f"refused: {got}" if got else
+              f"{len(lr)} laws, searched {[x['searched'] for x in lr]}, {[x['tried'] for x in lr]} valuations, no witness")
+              + ("" if ok else "  FAILS"))
+        if not ok:
+            bad.append(name)
+    print(f"tiegen self-test: {len(SELF_TEST)} fixtures, {len(bad)} failing")
+    return 1 if bad else 0
+
+
 def main(argv):
+    if argv[:1] == ["--self-test"]:
+        return self_test()
     if not argv or argv[0].startswith("-"):
         raise SystemExit(__doc__)
     name = argv[0]
@@ -2080,6 +2182,11 @@ def main(argv):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")
     if any(len(l) != 1 for l in open_laws) or len(open_laws) > 1:
         raise Refused(f"{name}: Γ's law items (`lawItemsK`) are not one sentence of the user module, as written")
+    if len(head["lawRef"]) != len(laws):
+        raise Refused(f"{name}: the probe's law search does not list the reader's laws")
+    refuted = law_refuted(name, head, laws, {i: raw for i, _, _, raw in ua}, sents)
+    if refuted:
+        raise Refused(refuted)
     if head.get("wf") != ("true" if wf_ok else "false"):
         raise Refused(f"{name}: the probe's wf and the account's differ")
     next_only = head.get("sigBadNext") == "true" and head.get("textNext") == "false"
