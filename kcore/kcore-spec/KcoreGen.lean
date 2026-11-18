@@ -464,11 +464,17 @@ theorem obligations_nil : Obligations defn :=
     match_obligations lazy_obligations" else ""
   let faithParts := ["namesNumbered", "genWf", "collSortsOK", "collsOK", "patHeadsOK", "namesApartFast",
     "LitsApart", "sortsNumbered", "collsNotCtors", "itesApart", "kindsApart", "ctorsOnce", "fnsApart"]
-  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel, the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
+  -- the conjuncts that read the names at every symbol, decided on the names' codes (each name
+  -- encoded once) rather than on the names' strings
+  let faithProof := fun (n : String) => match n with
+    | "namesNumbered" => "namesNumbered_of_codesCD (by decide +kernel)"
+    | "itesApart" => "itesApart_of_codesCD (by decide +kernel)"
+    | _ => "by decide +kernel"
+  o ← o.write s!"{ns}.{pre}.Faith" (s!"import KcoreSpec.Tie\nimport KcoreSpec.CoreDecide\nimport {ns}.Core\n" ++ hdr "`defn.sem.faithOK`, conjunct by conjunct by the kernel: `namesNumbered` and `itesApart` on the names' codes (`namesNumberedC`, `itesApartC`), the names' apartness by sorted codes (`namesApartFast`)." ++ s!"
 namespace {ns}
 open KCore KCore.Faithful KCore.Faithful.Model
 " ++ String.join (faithParts.map fun n => s!"
-theorem faith_{n} : {n} defn.sem = true := by decide +kernel
+theorem faith_{n} : {n} defn.sem = true := {faithProof n}
 ") ++ s!"
 theorem faith_ok : defn.sem.faithOK = true :=
   Semantics.faithOK_of_parts {" ".intercalate (faithParts.map (s!"faith_{·}"))}
