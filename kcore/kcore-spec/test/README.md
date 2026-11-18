@@ -1763,6 +1763,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   `Semantics.libAdmitted`, 374 (`replaceAll`, 1917) and 377 (`rfindChar`, 1893), and so at
   `HookParams.lib` (`_lib`). The header lists the sentences not tied and why (1898, 1891, 2250 to
   2258). Axioms guarded.
+- `test/LibEvDeclsFlt.lean`: the declarations of `f2-examples/silentflt.kompile.kore` in the
+  direction E, for every H: the item of each sort declaration without sort parameters
+  (`decls_entailed`) and of the library's symbol declarations named in `libDeclNames`
+  (BYTES-HOOKED's `bigEndianBytes`, `littleEndianBytes`, `signedBytes`, `unsignedBytes`; FLOAT's
+  `isInfinite`, `sqrtFloat`, `=/=Float`; `lib_decls_entailed`). `dividesInt_absent` and
+  `int2BytesNoLen_absent_decl`: INT-COMMON's `dividesInt` and BYTES-HOOKED's `Int2BytesNoLen` are
+  declared without sort parameters, are parameter symbols of their modules that no hook
+  interprets, and name no symbol of Γ (the reading has no parameter symbol); the library's
+  equation of `dividesInt` (274, domains.md 1454) applies it, the one head it applies that Γ lacks.
+  Axioms printed.
 - `test/LibEvCollSym.lean`: the lemmas of MAP-KORE-SYMBOLIC and SET-KORE-SYMBOLIC of
   `f2-examples/collsym.kompile.kore`, for every H, from the library's statements
   (`KcoreSpec/LibEvCollSym.lean`): entailed at values, without an `ensures` (`LibEv.Eqn`; domains.md
