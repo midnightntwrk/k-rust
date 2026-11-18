@@ -1,0 +1,9 @@
+command: kompile --backend haskell projuser.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 132693
+definition.kore sha256: 720408f9c4985bd35a8725a9f29a697a2d3d1aaf107d7dfbdb9450bd0727e29d
+stripped sha256: ab6cae7198e26e468be62432bae84e154635d241f457225019ffcfc34cf1741b
+main module: 318 sentences, 49 not in base's, in kore.txt
+output:
+  

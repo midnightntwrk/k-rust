@@ -111,6 +111,10 @@ its place among Γ's function items, `tieConsB`, the constructor items) and from
 `// functional`, `// subsort`, `// no confusion` and `// no junk` comments, the `assoc`, `unit`, `idem`,
 `priority` and `owise` attributes, set variables, a builtin `Source`); a sentence that neither gives a
 class is refused by name. A mapped sentence whose probe class differs from ens's is refused too.
+Whether a sentence applies a head Γ lacks is a fact of the text's Γ, not of ens's: a sentence equal
+to one of ens's that is in the no-direction class in one of the two texts and not in the other (a
+projection that no read sentence of ens applies and a read sentence here does) is not mapped; it
+takes its class from the probe and its form.
 A sentence of a class with a theorem in test/TieEns.lean that no theorem here holds of is listed in
 `uncovered`, with its class: the part of the tie that is left to write by hand.
 
@@ -692,7 +696,10 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
     for i, _, s, raw in ua:
         builtin = "/include/kframework/builtin/" in raw
         fc = form_class(sents[i], raw, builtin, laws, open_laws, raw_names)
-        if pool.get(s):
+        # whether a sentence applies a head Γ lacks is a fact of this text's Γ: a sentence equal to one
+        # of ens's that is in the no-direction class in one text and not in the other takes no class
+        # from ens's and is unmapped
+        if pool.get(s) and (ecls[pool[s][0]] == "no direction") == sents[i]["absent"]:
             j = pool[s].pop(0)
             mapped[i] = j
             # a lemma over a parameter symbol of this text's reading without `impl` is a parameter
@@ -700,9 +707,6 @@ def classify(name, text, sents, laws=(), open_laws=(), raw_names=()):
             ec = PARAM_LEMMA_CLASS if fc == PARAM_LEMMA_CLASS else ecls[j]
             # where the probe decides the class (a head Γ lacks, an item of Γ), it must agree with ens's
             decided = fc if fc in ("no direction", "function equation", "rewrite rule") or (fc == "no junk" and ec == "no junk") else None
-            if (ec == "no direction") != sents[i]["absent"]:
-                raise Refused(f"{name}: sentence {i} is ens's {j} (class {ec}), but here it applies "
-                              f"{'a head Γ lacks' if sents[i]['absent'] else 'only heads Γ has'}")
             if decided and decided != ec:
                 raise Refused(f"{name}: sentence {i} is ens's {j} (class {ec}), but the probe gives {decided}")
             cls[i] = ec
@@ -1473,6 +1477,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w("noncomputable def fnText : List AxiomDecl :=")
         w("  " + ax_list(fn_text))
         w("")
+        w("set_option maxHeartbeats 1000000 in")
         w("/-- **Γ's equations are the text's sentences' translations, pattern for pattern** (one kernel")
         w("decision). -/")
         w("theorem fn_shape : (fnItems c).map (·.pat) = fnText.map (trS · |>.pat) := by")
