@@ -396,7 +396,7 @@ theorem eval_of_decides (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns) {
   rcases List.mem_append.mp hfn with hu | hp
   · intro v
     have hpl := Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts h.hyp.1).2.1 fn hu cl hcl).2
-    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hpl.1 hpl.2.2.1 hdec.1.1 v)
+    exact (h.solves fn hu ws hws cl hcl σ hdec v).trans (Clause.gives_iff_noExs hpl.1 hpl.2.2.1 ((wellSortedAt_univ hpl.1).mp hdec.1.1) v)
   · have hsh := sortPreds_shape hp
     exact solves_of_parts (h.lookupFn hfn) h.det
       (fun cl' hcl' => ⟨Semantics.sortPreds_exs hp cl' hcl', Semantics.sortPreds_post hp cl' hcl'⟩)
@@ -422,7 +422,8 @@ theorem eval_of_decides_ex (h : HypModelCore c) {fn : Fn} (hfn : fn ∈ c.allFns
   · exact h.solves fn hu ws hws cl hcl σ hdec
   · intro v
     exact (eval_of_decides h hfn hcl hws hdec v).trans
-      (Clause.gives_iff_noExs (Semantics.sortPreds_exs hp cl hcl) (Semantics.sortPreds_post hp cl hcl) hdec.1.1 v).symm
+      (Clause.gives_iff_noExs (Semantics.sortPreds_exs hp cl hcl) (Semantics.sortPreds_post hp cl hcl)
+        ((wellSortedAt_univ (Semantics.sortPreds_exs hp cl hcl)).mp hdec.1.1) v).symm
 
 /-! ## The variables of an equation -/
 

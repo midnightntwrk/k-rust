@@ -237,9 +237,9 @@ theorem not_applies {cl : Clause} (hcl : cl ∈ hFn.clauses) {σ : Subst} {vs : 
     (ha : cl.AppliesAt d σ vs) : False := by
   have hc : cl = hCl1 ∨ cl = hCl2 := by simpa [hFn] using hcl
   rcases hc with rfl | rfl
-  · obtain ⟨v, hl, hv⟩ := int_of ha.1
+  · obtain ⟨v, hl, hv⟩ := int_of ((wellSortedAt_univ rfl).mp ha.1)
     exact noPre hl hv ha.2.2.2
-  · obtain ⟨v, hl, hv⟩ := int_of ha.1
+  · obtain ⟨v, hl, hv⟩ := int_of ((wellSortedAt_univ rfl).mp ha.1)
     exact noPre hl hv ha.2.2.2
 
 /-- No clause of `h` has an existential variable. -/
@@ -253,14 +253,7 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
   cases h with
   | clause hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
-  | clauseEx hfn hcl hσ hm hreq hpre _ _ _ _ _ _ =>
-    rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
-  | exNone hfn hcl hne _ _ _ _ _ _ _ =>
-    rw [lookups.2] at hfn; cases hfn
-    simp only [hFn, List.mem_cons, List.not_mem_nil, or_false] at hcl
-    rcases hcl with rfl | rfl <;> exact absurd rfl hne
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
   | rest hfn hnone =>
     rw [lookups.2] at hfn; cases hfn
     cases hnone hCl1 (by simp [hFn]) with
@@ -270,7 +263,7 @@ theorem noH {v : GroundTerm} (hv : d.sortOf v = some Srt.int) {r : Option Ground
       | pre hp => exact noPre (σ := sg v) rfl hv hp
   | ensFails hfn hcl hσ hm hreq hpre _ _ _ _ _ =>
     rw [lookups.2] at hfn; cases hfn
-    exact not_applies hcl ⟨hσ, hm, hreq, hpre⟩
+    exact not_applies hcl ⟨hσ.at _, hm, hreq, hpre⟩
   | clauseEx hfn hcl _ _ _ _ _ hne =>
     rw [lookups.2] at hfn; cases hfn
     exact absurd (hExs hcl) hne
@@ -318,10 +311,10 @@ theorem fnSolves : FnSolves d := by
   rcases mem_fns hfn with rfl | rfl
   · have : cl = lCl := by simpa [lFn] using hcl
     subst this
-    obtain ⟨w, hl, hw⟩ := int_of hdec.1.1
+    obtain ⟨w, hl, hw⟩ := int_of ((wellSortedAt_univ rfl).mp hdec.1.1)
     obtain ⟨w', rfl, hl'⟩ := match0 hdec.1.2.1
     rw [hl] at hl'; cases hl'
-    refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := lCl) rfl rfl hdec.1.1 v).symm
+    refine Iff.trans ?_ (Clause.gives_iff_noExs (cl := lCl) rfl rfl ((wellSortedAt_univ rfl).mp hdec.1.1) v).symm
     exact ⟨fun h => (noL h rfl w rfl hw).elim, fun h => (noLT h.1 rfl w hl hw).elim⟩
   · exact (not_applies hcl hdec.1).elim
 

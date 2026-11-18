@@ -317,7 +317,7 @@ theorem userCl_fails_i3 (H : HookParams) : Fails (cH H) [i3] clU := .intro fun �
     | as h' _ => exact absurd (patVal_e h') i3_ne_ve
 
 theorem appliesO (H : HookParams) : clO.AppliesAt (cH H) [(0, i3)] [i3] :=
-  ⟨by rw [vO]; exact ws1 (sort_i3H H),
+  ⟨by rw [vO]; exact (ws1 (sort_i3H H)).at _,
    by rw [ptO]; exact .cons (.var rfl) .nil,
    (fun t ht => by rw [qO] at ht; cases ht), Clause.holds_preTop preO _⟩
 
@@ -335,7 +335,7 @@ theorem lowerO (H : HookParams) :
 /-- At `inj 3`: `e`, by the `[owise]` clause, for every H. -/
 theorem eval_owise (H : HookParams) : Eval (cH H) negExp [i3] (some ve) :=
   .clause (cl := clO) (σ := [(0, i3)]) (hfnH H) (by rw [fn_clauses]; simp)
-    (appliesO H).1 (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
+    ((wellSortedAt_univ rfl).mp (appliesO H).1) (appliesO H).2.1 (appliesO H).2.2.1 (appliesO H).2.2.2 (lowerO H)
     (by rw [rO]; exact .ctor (isCtor_eH H) .nil) (fun t ht => by rw [eO] at ht; cases ht)
 
 /-- **Not `FnDet`**, for every H: two results at `inj 3`. -/
@@ -367,7 +367,7 @@ theorem rhsV (H : HookParams) : ∃ σ, clV.AppliesAt (cH H) σ [i3] ∧ EvalTer
       rw [fn_clauses] at hmem
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
       rcases hmem with rfl | rfl | rfl
-      · exact ⟨_, ⟨hσ, hmatch, hreq, hpre⟩, hrhs⟩
+      · exact ⟨_, ⟨hσ.at _, hmatch, hreq, hpre⟩, hrhs⟩
       · rw [ptU] at hmatch
         cases hmatch with
         | cons h1 _ =>

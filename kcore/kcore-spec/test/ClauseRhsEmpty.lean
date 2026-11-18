@@ -178,7 +178,7 @@ theorem lookupF_eq {fn : Fn} (h : c.lookupFn 388 = some fn) : fn = fF :=
 /-- `f() => g(Y:Empty)` applies under no substitution: Y is of Empty. -/
 theorem clY_not_applies (σ : Subst) (vs : List GroundTerm) : ¬ clY.AppliesAt c σ vs := by
   rintro ⟨h, -⟩
-  obtain ⟨v, -, hv⟩ := h 0 33 (by rw [clY_vars]; rfl)
+  obtain ⟨v, -, hv⟩ := h 0 (by decide +kernel) 33 (by rw [clY_vars]; rfl)
   exact no_E v hv
 
 /-- **`f()` is `a`**, by `f() => a`; the other clause is of the same priority. -/

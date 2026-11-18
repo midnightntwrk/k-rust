@@ -1130,25 +1130,30 @@ clause's coherence gives one result), or their right-hand sides are one closed t
 an `ensures` (`clausesAgree_sound`). -/
 theorem fnExclusiveOK_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
     (hfr : ∀ cl ∈ f.clauses, c.ovlFreeList cl.pats = true)
-    (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true) (h : c.fnExclusiveOK heads f = true) :
+    (hcls : ∀ cl ∈ f.clauses, c.clauseSorted f heads cl = true)
+    (hxs : ∀ cl ∈ f.clauses, cl.exs = []) (h : c.fnExclusiveOK heads f = true) :
     ClausesAgreePlain c f := by
   intro cl cl' hp hprio
   have hpair := List.all_eq_true.mp h _ hp
   obtain ⟨h1, h2⟩ := mem_pairs hp
   have hc1 := hcls cl h1
   have hc2 := hcls cl' h2
+  have hw1 : ∀ {σ : Subst}, c.WellSortedAt cl.vars cl.univ σ → c.WellSorted cl.vars σ :=
+    (wellSortedAt_univ (hxs cl h1)).mp
+  have hw2 : ∀ {σ : Subst}, c.WellSortedAt cl'.vars cl'.univ σ → c.WellSorted cl'.vars σ :=
+    (wellSortedAt_univ (hxs cl' h2)).mp
   simp only [Semantics.clauseSorted, Bool.and_eq_true, beq_iff_eq] at hc1 hc2
   simp only [Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, bne_iff_ne, ne_eq] at hpair
   rcases hpair with ((hne | ho) | ⟨hfx, hx⟩) | ha
   · exact (not_compete (by revert hne; simp) hprio).elim
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim,
+        (overlap_soundF hmc (hw1 hσ) (hw2 hσ') cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim,
       fun vs σ' σ ⟨hσ', hm', _⟩ ⟨hσ, hm, _⟩ _ _ _ _ =>
-        (overlap_soundF hmc hσ hσ' cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim⟩
+        (overlap_soundF hmc (hw1 hσ) (hw2 hσ') cl.pats (hfr cl h1) (hfr cl' h2) hc1.1.1.1.1.1 hc2.1.1.1.1.1 ho hm hm').elim⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, hq, _⟩ ⟨hσ', hm', hq', _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inl hd)).elim,
+        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inl hd)).elim,
       fun vs σ' σ ⟨hσ', hm', hq', _⟩ ⟨hσ, hm, hq, _⟩ hd _ _ _ =>
-        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx hσ hm hq hσ' hm' hq' (.inr hd)).elim⟩
+        (clausesExclusive_sound hmc hc1.1.1.1.1.1 hfx hc2.1.1.1.2 hx (hw1 hσ) hm hq (hw2 hσ') hm' hq' (.inr hd)).elim⟩
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
 
@@ -1168,7 +1173,8 @@ theorem clausesAgree_of {c : Semantics} (hok : c.ok = true) (hsr : c.srReady = t
     simp only [Semantics.fnOK, Bool.and_eq_true, List.all_eq_true] at hfo
     exact (fnExclusiveOK_sound (matchCtx_of hmr) (fun cl _ => ovlFreeList_of_nil (matchCtx_of hmr).noOvl _)
       (fun cl hcl => c.clauseSorted_of_all (c.clauseOKAll_of (hfo.1 cl hcl))
-        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl)) hx).agree
+        (c.clauseBound_of_plain (Semantics.plain_of_okAll (Semantics.okAll_of_ok hok)).2.1 hfn hcl))
+      (Semantics.fnsNoExs_of_ok hok fn hfn) hx).agree
       (Semantics.fnsNoExs_of_ok hok fn hfn)
   · refine hob fn.label ?_ fn ?_
     · simp only [Semantics.agreeObligations, List.mem_map, List.mem_filter]

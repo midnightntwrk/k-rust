@@ -293,7 +293,7 @@ theorem case_clause {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   rcases List.mem_append.mp hall with hu | hp
   · -- a user function: the clause decides as the model reads it, and `FnSolves` applies
     have hdec : cl.DecidesAt c fn σ vs :=
-      ⟨⟨hσ, hmatch, hreq, hpre⟩,
+      ⟨⟨hσ.at _, hmatch, hreq, hpre⟩,
         fun cl' h1 h2 h3 σ' hw hp' hq => ihprio cl' h1 h2 h3 σ' hw hp' hq.1 (hT cl' h1)⟩
     cases r' with
     | none => cases hsm
@@ -341,7 +341,7 @@ theorem case_ensFails {f : Sym} {fn : Fn} {vs : List GroundTerm} {cl : Clause}
   obtain ⟨hall, hlab⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hall with hu | hp
   · have hdec : cl.DecidesAt c fn σ vs :=
-      ⟨⟨hσ, hmatch, hreq, hpre⟩, fun cl' h1 h2 h3 σ' hw' hp' hq =>
+      ⟨⟨hσ.at _, hmatch, hreq, hpre⟩, fun cl' h1 h2 h3 σ' hw' hp' hq =>
         ihprio cl' h1 h2 h3 σ' hw' hp' hq.1
           (Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1 fn hall cl' h1)⟩
     cases r' with

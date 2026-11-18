@@ -248,7 +248,7 @@ theorem eval_app_inv {d f as : GroundTerm} {r : Option GroundTerm}
       | 1, hs => cases hs; exact ⟨f, rfl, hsf⟩
       | 2, hs => cases hs; exact ⟨as, rfl, hsa⟩
     have ha : evApp.AppliesAt c₀ [(0, d), (1, f), (2, as)] [d, .ctor 408 [f, as]] :=
-      ⟨hw, .cons (.var rfl) (.cons (.ctor (by decide +kernel) (.cons (.var rfl) (.cons (.var rfl) .nil))) .nil),
+      ⟨hw.at _, .cons (.var rfl) (.cons (.ctor (by decide +kernel) (.cons (.var rfl) (.cons (.var rfl) .nil))) .nil),
        ⟨fun _ h => absurd h (by simp [evApp]), Holds.top⟩⟩
     exact (not_fails rfl rfl ha (hnone evApp (List.mem_cons_self ..))).elim
   | ensFails hfn hmem _ _ _ _ _ ht =>

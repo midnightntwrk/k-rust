@@ -122,7 +122,9 @@ theorem instRes_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) 
 for a semantics `sortedOKCl` accepts (`instRes_of_totalCl`). -/
 theorem coDefined_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : OvlOK c)
     (ht : FnTerminates c) : CoDefined c :=
-  fun _ hfn _ _ _ _ _ _ hcl' _ hdec' _ => instRes_of_totalCl hok hsr hov ht hfn hcl' hdec'.1.1
+  fun fn hfn _ _ _ cl' _ _ hcl' _ hdec' _ => instRes_of_totalCl hok hsr hov ht hfn hcl'
+    ((wellSortedAt_univ
+      (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl' hcl').2).1).mp hdec'.1.1)
 
 /-- **Evaluation solves the equations** where every function has at most one result and a result
 at arguments of its sorts, for a semantics `sortedOKCl` accepts, and each clause with existential
@@ -138,7 +140,7 @@ theorem fnSolves_of_totalCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true)
       exact find?_label (sortCtx_of_allCl hok hsr (OvlOK.ovlCase hov)).nodupFns (List.mem_append_left _ hfn))
     hd (prioDecided_of_totalCl hok hsr hov ht) fun fn hfn cl hcl vs _ σ hdec => by
       by_cases hx : cl.exs = []
-      · obtain ⟨r, hr⟩ := instRes_of_totalCl hok hsr hov ht hfn hcl hdec.1.1
+      · obtain ⟨r, hr⟩ := instRes_of_totalCl hok hsr hov ht hfn hcl ((wellSortedAt_univ hx).mp hdec.1.1)
         exact ⟨r, Clause.res_of_instRes hx
           (Semantics.clausePlainOpen_parts ((Semantics.sortedOKCl_parts hok).2.1 fn hfn cl hcl).2).2.2.1 hr⟩
       · exact hex fn hfn cl hcl hx vs σ hdec
