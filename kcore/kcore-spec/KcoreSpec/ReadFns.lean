@@ -8,8 +8,8 @@
   - `frRead`: `\or` on the right side of an equation of a function whose `functional` sentence the
     text holds, as n+1 clauses with a premise predicate (`Clause.pre`).
   - `exRead` (`existsAsCases`): `\exists` over one Bool variable on the right side of an equation
-    of such a function, as the clauses of its two instances; `condOf`, a predicate pattern as a
-    `Cond`.
+    of such a function, as the clauses of its two instances and a last clause whose premise keeps
+    the binder (`exClauses`); `condOf`, a predicate pattern as a `Cond`.
   - `ceRead`: `\exists` on an equation's right side as the clause's existential variables
     (`Clause.exs`), the body's predicates as its right-side predicate (`Clause.post`); `cutAnd`, a
     conjunction of terms at a term position as a fresh existential variable with its memberships;
@@ -351,7 +351,9 @@ def cutMems (N : Names) : List Var → List Cut → Rd (List Cond × List Var)
 
 The sentence is `premise → f(X̄) = ∃B:Bool. (t ∧ P)`. Where the elements of Bool are the two
 literals the right side is `(t[true] ∧ P[true]) ∨ (t[false] ∧ P[false])`, an `\or` of two
-alternatives, read as `frRead` reads one.
+alternatives, whose clauses are those `frRead` writes for one. The clause for an empty right side
+keeps the binder: it applies where no element of Bool gives `t ∧ P` an element, which is the
+sentence's own condition and is read over Bool's elements, whatever they are.
 The body is taken after `cutAnd` with B the one bound variable: a predicate under applications
 is among P, and a conjunction of terms with B among its conjuncts is B with `B ∈ u` among P for
 each other conjunct u. A conjunction of terms without B has no such form over B alone (its form
@@ -388,10 +390,53 @@ def exAlts (N : Names) (B : Kore.EVar) (ps : List Kore.Pattern) :
     pure ((a, cs) :: xs, vs)
   termination_by structural _ rest => rest
 
+/-- The clauses of an equation read by cases over the Bool variable B of its right side, at the
+sort `s`: for each alternative `(aₖ, Pₖ)` of the instances (`alts`) the clause `frClauses` writes
+(`pre := ⌈aₖ⌉ ∧ Pₖ`, `rhs := aₖ`); and one more, with the first alternative as its `rhs` and the
+`ensures` false, whose `pre` is `¬∃B:Bool. ⋁ⱼ (⌈bⱼ⌉ ∧ Qⱼ)` over the alternatives `(bⱼ, Qⱼ)` of
+the body with B the binder's variable (`body`, B at the index `vars.length`): it applies where no
+element of Bool gives the right side an element, which is where the sentence's right side is
+empty. -/
+def exClauses (s : Srt) (vars : List Srt) (pats : List Term) (req : Option Term) (prio : Nat) (aside : Bool)
+    (alts body : List (Term × List Cond)) : List Clause :=
+  let pres := alts.map fun a => conjC (Cond.ceil s a.1 :: a.2)
+  let each := (alts.zip pres).map fun x =>
+    ({ vars, pats, req, rhs := x.1.1, ens := none, prio, aside, pre := x.2 } : Clause)
+  each ++ [{ vars, pats, req, rhs := (alts.headD (boolT false, [])).1, ens := some (boolT false), prio, aside,
+             pre := .not (.ex Srt.bool (disjC (body.map fun a => conjC (Cond.ceil s a.1 :: a.2)))) }]
+
+/-- `exClauses` is `frClauses` with its last clause's `pre` the binder's. -/
+theorem exClauses_eq (s : Srt) (vars : List Srt) (pats : List Term) (req : Option Term) (prio : Nat) (aside : Bool)
+    (alts body : List (Term × List Cond)) :
+    exClauses s vars pats req prio aside alts body =
+      (frClauses s vars pats req prio aside alts).dropLast ++
+        [{ vars, pats, req, rhs := (alts.headD (boolT false, [])).1, ens := some (boolT false), prio, aside,
+           pre := .not (.ex Srt.bool (disjC (body.map fun a => conjC (Cond.ceil s a.1 :: a.2)))) }] := by
+  simp only [exClauses, frClauses, List.dropLast_concat]
+
+/-- The binder B read as a variable that the equation's variables `vs` do not name: B's name,
+primed until none of `vs` is it. -/
+def exBinderVar (vs : List Var) (B : Kore.EVar) : Kore.EVar :=
+  KoreAML.evar ("Var" ++ freshIn (vs.map (·.name)) (vs.length + 1)
+    ((KoreAML.Parse.dropPrefix? "Var" B.var.ident.name).getD B.var.ident.name)) B.sort
+
+/-- The alternatives of the body with B a variable: each term with the predicates `ps`, read as
+`exAlts` reads the instances'. -/
+def exBinderAlts (N : Names) (ps : List Kore.Pattern) :
+    List Var → List Kore.Pattern → Rd (List (Term × List Cond) × List Var)
+  | vs, [] => pure ([], vs)
+  | vs, a :: rest => do
+    let (t, vs) ← termNoAnd N vs a
+    let (cs, vs) ← condOfList N vs ps
+    let (xs, vs) ← exBinderAlts N ps vs rest
+    pure ((t, cs) :: xs, vs)
+  termination_by structural _ rest => rest
+
 /-- `existsAsCases`: an equation whose right side is `\exists B:Bool. (t ∧ P)` (`exShape?`), of a
-function whose `functional` sentence the text holds: `frClauses` over the alternatives of
+function whose `functional` sentence the text holds: `exClauses` over the alternatives of
 `t[true]` and of `t[false]` (`orAlts`), alternative k of `t[b]` with the predicates `P[b]` and the
-equation's `ensures`.
+equation's `ensures`, and over the alternatives of `t` with B a variable (`exBinderAlts`, B renamed
+apart from the equation's variables), each with `P` and the `ensures`, for the last clause.
 Refused `rhsOperandSort` where the right side under its `\exists` binders is not `rhsSorted`,
 whether or not it is this function's.
 `none` where the right side is not of that shape or the text does not hold the `functional`
@@ -415,7 +460,11 @@ def exRead (N : Names) (e : RawEqn) : Rd (Option (List Clause × List Var)) := d
     (alts.flatMap (fun a => varOccs a.1 ++ a.2.flatMap (varOccsCond vs.length)) ++ ens.toList.flatMap varOccs)
   let s ← resSort N e
   let alts := alts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
-  pure (some (frClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts, vs))
+  let bv := Kore.Pattern.var (.evar (exBinderVar vs B))
+  let (_, vsB) ← varIndex vs (exBinderVar vs B)
+  let (balts, _) ← exBinderAlts N (substValList B bv ps) vsB (orAlts (substVal B bv t))
+  let balts := balts.map fun a => (a.1, a.2 ++ ens.toList.map isTrueC)
+  pure (some (exClauses s (← varSorts N vs) pats req (eqnPrio e).2 (nonExec e) alts balts, vs))
 
 /-- `exRead` reads only a right side whose body under its `\exists` binders is `rhsSorted`. -/
 theorem exRead_rhsSorted {N : Names} {e : RawEqn} {x : Option (List Clause × List Var)}
