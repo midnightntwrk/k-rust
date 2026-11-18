@@ -396,3 +396,4 @@ import KcoreSpec.GenEqsNodir
 import KcoreSpec.TieFRRead
 import KcoreSpec.GenEqsNodirFun
 import KcoreSpec.ParamSchema
+import KcoreSpec.InjApart
