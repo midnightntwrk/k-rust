@@ -107,8 +107,9 @@ What it states where the text:
   (W1: the sentence entails the item), `shape`, `fns_entailed`, `fns_from_text`, `fn_prios`, and
   the converse over Γ's content `gamma_from` (`TiePair.Pre`). Two or more such items are left
   `uncovered`;
-- has the no-junk sentence of an open generator's sort: the item over its generators in the text's
-  order, a permutation of `Semantics.gens` (`<sort>TextGens`), `nojunk_<sort>_entailed`;
+- has the no-junk sentence of a sort with generators other than KItem that is not Γ's item as
+  written: the item over its generators in the text's order, a permutation of `Semantics.gens`
+  (`<sort>TextGens`), `nojunk_<sort>_entailed` (for an open generator's sort also that it is open);
 - has the `functional` sentence of a parameter symbol no registry hook implements that the text
   declares total (`isParamFunctional`, the class `parameter functional`, direction hypothesis):
   `total_params` (`Definition.totalParams`), `paramfunctional_account`, `paramfunctional_heads`; it is
@@ -921,12 +922,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     kp = head["kitemPerm"].split()
     kitem_ok = kc == ["true", "false"] and kp == ["true", "true"]
     nj_kitem = [i for i in nj if not sents[i]["triv"] and not sents[i]["consItem"] and sents[i]["kitem"] and kitem_ok]
-    # the no-junk sentence of another sort with generators: the item over its generators in the
-    # text's order (`gensInOrder`) or in a permutation of `Semantics.gens`
-    raw_sorts = {k["res"] for k in head["raw"]}
+    # the no-junk sentence of another sort with generators that is not Γ's item as written: the item
+    # over its generators in the text's order (`gensInOrder`) or in a permutation of
+    # `Semantics.gens`, whatever the sort (`noJunkItem_of_subset` reads the generators as a set); the
+    # sort of an open generator also states that generator open
     nj_sorts = [(i, head["nj"][i][0]) for i in nj
-                if not sents[i]["triv"] and not sents[i]["consItem"] and i not in nj_kitem and head["nj"].get(i)
-                and head["nj"][i][0]["form"] == "perm" and head["nj"][i][0]["srt"] in raw_sorts]
+                if not sents[i]["triv"] and not sents[i]["consItem"] and i not in nj_kitem and head["nj"].get(i)]
     nj_sort_new = {}
     for i, e in nj_sorts:
         if e["srt"] not in sn:

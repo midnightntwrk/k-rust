@@ -37,8 +37,11 @@
   - Hooked functional, collection law, library: at values (no theorem here); function functional:
     owed as `FnHyp` (no theorem); no direction: `absent_closed`.
 
+  OptCell's no junk (292) is entailed (`nojunk_optcell_entailed`): its item lists OptCell's
+  generators in another order than `Semantics.gens`.
+
   The sentences with no counterpart in f2-examples/ens.kompile.kore are `unmapped` (313);
-  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (1).
+  the sentences of a class with a theorem that no theorem here holds of are `uncovered` (0).
 -/
 import KcoreSpec
 
@@ -298,7 +301,7 @@ def unmapped : List (Nat × String) :=
 /-- The sentences of a class with a theorem in the tie that no theorem of this file holds of: the
 tie's remainder on this text. -/
 def uncovered : List (Nat × String) :=
-  [(292, "no junk")]
+  []
 
 /-- Each listed sentence is in its class in the account. -/
 theorem lists_in_account : (unmapped ++ uncovered).all (fun ic => (classOf ic.2).contains ic.1) = true := by
@@ -685,6 +688,33 @@ theorem nojunk_kitem_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax276).pat
   exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := Srt.kitem)
     (show Srt.kitem ∈ consSorts c by decide +kernel) (show (c.gens Srt.kitem).isEmpty = false by decide +kernel), rfl⟩)
 
+/-- OptCell, a sort with generators. -/
+def optcell : Srt := 37
+
+theorem optcell_name : c.sortName optcell = "OptCell" := by decide +kernel
+
+/-- OptCell's generators in the order the text's no-junk sentence (292) lists them, a permutation
+of those `Semantics.gens` lists. -/
+noncomputable def optcellTextGens : List KoreAML.Gen :=
+  match (c.gens optcell).map (Gen.toK c) with
+  | [g0, g1] => [g1, g0]
+  | gs => gs
+
+/-- OptCell's no-junk sentence (292) is the item over OptCell's generators in the text's order. -/
+theorem nojunk_optcell_order : (trS U.ax292).pat = (KoreAML.Cons.noJunkItem (c.sortName optcell) optcellTextGens).pat := by
+  decide +kernel
+theorem nojunk_optcell_members : optcellTextGens.isPerm ((c.gens optcell).map (Gen.toK c)) = true := by
+  decide +kernel
+
+/-- **E for OptCell's no junk (292)**, for every H (`noJunkItem_of_subset`). -/
+theorem nojunk_optcell_entailed (H : HookParams) : Γ (cH H) ⊧ (trS U.ax292).pat := by
+  intro M _ I hI
+  rw [nojunk_optcell_order]
+  refine noJunkItem_of_subset (defOK hI) (gs := (c.gens optcell).map (Gen.toK c))
+    (fun g hg => (List.isPerm_iff.mp nojunk_optcell_members).mem_iff.mpr hg) ?_
+  exact sat_cons hI (Or.inl ⟨_, noJunkItem_mem (c := cH H) (N := optcell)
+    (show optcell ∈ consSorts c by decide +kernel) (show (c.gens optcell).isEmpty = false by decide +kernel), rfl⟩)
+
 /-! ## The constructor sentences: functional, subsort, injectivity, distinctness -/
 
 /-- The constructor sentences `tieConsB` decides, in text order. -/
@@ -1037,6 +1067,9 @@ end KCore.TieE2Cells
 #check @KCore.TieE2Cells.lib166_at_values
 #check @KCore.TieE2Cells.gamma_origin
 #check @KCore.TieE2Cells.gamma_from
+#check @KCore.TieE2Cells.nojunk_optcell_order
+#check @KCore.TieE2Cells.nojunk_optcell_members
+#check @KCore.TieE2Cells.nojunk_optcell_entailed
 #print axioms KCore.TieE2Cells.noRaw
 #print axioms KCore.TieE2Cells.readsConfined_c
 #print axioms KCore.TieE2Cells.userAxioms_eq
@@ -1069,3 +1102,6 @@ end KCore.TieE2Cells
 #print axioms KCore.TieE2Cells.lib166_at_values
 #print axioms KCore.TieE2Cells.gamma_origin
 #print axioms KCore.TieE2Cells.gamma_from
+#print axioms KCore.TieE2Cells.nojunk_optcell_order
+#print axioms KCore.TieE2Cells.nojunk_optcell_members
+#print axioms KCore.TieE2Cells.nojunk_optcell_entailed
