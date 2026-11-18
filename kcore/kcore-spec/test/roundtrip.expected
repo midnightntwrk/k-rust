@@ -126,6 +126,7 @@ cannot f2-examples/mlsetv.kompile.kore
 differs f2-examples/mltop.kompile.kore
 differs f2-examples/mlvalue.kompile.kore
 differs f2-examples/myint.kompile.kore
+differs f2-examples/namedarg.kompile.kore
 differs f2-examples/opencl.kompile.kore
 differs f2-examples/opengenless.kompile.kore
 differs f2-examples/openh.kompile.kore
