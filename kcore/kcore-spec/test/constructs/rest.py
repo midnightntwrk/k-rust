@@ -1273,7 +1273,9 @@ def owed_state(t, fx):
             # a fixture whose account owes no CondDecided is admitted only with its owed fact of the
             # clause, MatchIndependent, proved on its own text by a theorem of a named file
             unowed = not owed_open(fx, x)
-            if x not in own and not re.search(rf"(?<![\w-]){re.escape(x)}(?![\w-])", prose):
+            if unowed and fx.read(x, "account.txt") is None:
+                why = f"{x} is no fixture with an account.txt (fixtures/{x})"
+            elif x not in own and not re.search(rf"(?<![\w-]){re.escape(x)}(?![\w-])", prose):
                 why = f"{x} is no fixture of the entry and its text does not name it"
             elif not m:
                 why = (f"state {str(v)[:60]!r} is not 'proved: THEOREM[ (FILE)]', 'refuted: THEOREM[ (FILE)]'"
@@ -1744,6 +1746,8 @@ def self_test():
                      evidence="fixtures/e2-clause-rhs-int"), "B": b}, ["not fixtures/e2-clause-rhs-int's text"]),
             ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "e2-clause-rhs-unit": f"proved: {my} ({uf})"}),
               "B": b}, ["its text does not name it"]),
+            ({"A": a(owed_state={"ow": f"refuted: {f5} ({tie})", "rhsunit": f"proved: {my} ({uf})"},
+                     evidence="f2-examples/rhsunit.kompile.kore"), "B": b}, ["rhsunit is no fixture with an account.txt"]),
         ]
         for i, (rows, want) in enumerate(ocases):
             got = [why for _, _, _, why in owed_state({"E2": rows}, ofix) if why]
