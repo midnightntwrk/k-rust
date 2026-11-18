@@ -230,7 +230,7 @@ key = "overloadsOK.9"
 text = "c.ovlPatsOK"
 witness = "none: no witness exists: implied by overloadsOK.1, overloadsOK.5 and faithCoreOK.11 (fnsApart), for every semantics (kernel-checked: ov9_of_ov15): each symbol an overloading symbol overloads is a constructor or an overloading symbol, neither of which is a function's label, so no symbol is function-overloaded (fnOvlSyms is empty) and no pattern applies one; the implication holds while overloadsOK.5 admits no function among the overloaded symbols"
 evidence = "test/WitRestOvlB.lean"
-note = "sortedOK.3 gives the part on the rules' left sides for every semantics (kernel-checked: lhs_noFnOvl_of_sortedOK, test/SortedNF.lean): ruleSorted sorts a left side over patCtxNF, which holds no function-overloaded symbol. sortedOK does not yet give the parts on the clauses' patterns and the exMatch patterns, which clauseSorted and condOK sort over patCtxAll"
+note = "sortedOK.3 gives the part on the rules' left sides and sortedOK.2 the part on the clauses' patterns, for every semantics (kernel-checked: lhs_noFnOvl_of_sortedOK, pats_noFnOvl_of_sortedOK, test/SortedNF.lean): ruleSorted sorts a left side and clauseSorted a clause's patterns over patCtxNF, which holds no function-overloaded symbol. sortedOK does not yet give the part on the exMatch patterns, which condOK sorts over patCtxAll"
 
 [[conjunct]]
 key = "FnDet"

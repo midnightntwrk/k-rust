@@ -18,13 +18,14 @@ set_option autoImplicit false
 namespace KCore
 
 /-- `clauseSorted` with "each of its variables occurs in it" in place of "its patterns bind each of
-its variables": its patterns have the argument sorts in a left-hand side's context, each variable
+its variables": its patterns have the argument sorts in the context of a pattern that applies no function-overloaded
+symbol (`patCtxNF`), each variable
 occurs in its patterns, its conditions, its right-hand side, its `ensures` or its right side's
 predicate, its `requires` is a Bool, its right-hand side has the result sort, its `ensures` is a
 Bool, each binder of its predicates ranges where values and elements agree, and its premise's
 predicate is well sorted. -/
 def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
-  sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
+  sortsOfTerms c.patCtxNF cl.vars cl.pats == some f.args &&
   binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
     (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) &&
   reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
@@ -51,7 +52,7 @@ theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List Ctor
       (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx H) cl.vars t = some Srt.bool) := by
   simp only [Semantics.clauseSortedOpen, Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩, -⟩ := h
-  refine ⟨hpats, fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
+  refine ⟨sortsOfTerms_all_of_nf hpats, fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
   · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
     exact hb i hi
   · rw [ht] at hreq; simpa [reqOK] using hreq
@@ -70,6 +71,13 @@ theorem Semantics.clausePlainOpen_partsP {c : Semantics} {cl : Clause} (h : c.cl
   rcases Bool.or_eq_true_iff.mp hpre with ht | hn
   · exact absurd (Cond.eq_top_of_isTop ht) hne
   · simpa using hn
+
+/-- The patterns of a clause with `clauseSortedOpen` have the argument sorts over `patCtxNF`: they
+are well sorted and apply no function-overloaded symbol. -/
+theorem Semantics.clauseSortedOpen_pats_nf {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
+    (h : c.clauseSortedOpen f H cl = true) : sortsOfTerms c.patCtxNF cl.vars cl.pats = some f.args := by
+  simp only [Semantics.clauseSortedOpen, Bool.and_eq_true, beq_iff_eq] at h
+  exact h.1.1.1.1.1.1
 
 /-- A clause with `clauseSortedOpen` has a well-sorted predicate in its premise. -/
 theorem Semantics.clauseSortedOpen_preOK {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
