@@ -18,8 +18,10 @@
   Each step drops a restriction to a sort: `\or{s}` holds only elements of s (`sOr`), and so does
   the conjunct `\equals{Bool,s}(B, true)`. That the operands of each `\or{s}` and `\and{s}` lie in
   s (`InSortK`), and that the conjunct's sort is the conjunction's (`sortIs`, the sorting rule of
-  KORE), is `Tight`: a fact of the model at the valuation, which a model of `Γ` has of the terms of
-  a well-sorted text, not something the reader checks. With it the reader's alternatives, each with
+  KORE), is `Tight`. The second part the reader checks: `frRead` reads only a right side that is
+  `rhsSorted` (`frRead_rhsSorted`), which gives `sortIs` at every such connective
+  (`tight_of_rhsSorted`). The first part, `TightSem`, is a fact of the model at the valuation, which
+  a model of `Γ` has of the terms of a well-sorted text. With both the reader's alternatives, each with
   its lifted conditions and the top's, hold exactly the elements of p (`rhs_sem`). The lemmas read
   the translation with no alias (`⟨tbl, []⟩`), as `InertEv.vacuous_none` does.
 
@@ -36,6 +38,8 @@
   alternatives lie in the result sort follows from `TermsInSort` (`inSort_of_terms`). The
   right side's reading is `rhs_of_reader`: the text's right side holds what the reader's
   alternatives hold, where each of `xs` translates as the kept alternative it is read from.
+  `readings_of_fr` takes the equation `frRead` read, the sorts of its right side from the reader
+  and `TightSem` of it; `readings_of_rhs` takes the right side's reading itself.
 
   ## The last clause (`noneEmpty_of_apart`)
 
@@ -154,6 +158,84 @@ theorem tightList_iff {tbl : VarTable} {e : Valuation M} : ∀ {ps : List Kore.P
     TightList I tbl e ps ↔ ∀ p ∈ ps, Tight I tbl e p
   | [] => by simp [TightList]
   | p :: ps => by simp [TightList, tightList_iff (ps := ps)]
+
+/-! ## The sorts the reader checks (`Parse.rhsSorted`) -/
+
+theorem rhsOpSort_eq_sortIs (s : Kore.KSort) (p : Kore.Pattern) : Parse.rhsOpSort s p = sortIs s p := by
+  induction p using Kore.Pattern.rec
+    (motive_2 := fun ps => Parse.rhsOpSortList s ps = sortIsList s ps) with
+  | or s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
+  | and s' ps ih => rw [Parse.rhsOpSort, sortIs, ih]
+  | nil => rw [Parse.rhsOpSortList, sortIsList]
+  | cons q qs ih1 ih2 => rw [Parse.rhsOpSortList, sortIsList, ih1, ih2]
+  | _ => simp [Parse.rhsOpSort, sortIs]
+
+theorem rhsOpSortList_iff_sortIs {s : Kore.KSort} : ∀ {ps : List Kore.Pattern},
+    Parse.rhsOpSortList s ps = true ↔ ∀ p ∈ ps, sortIs s p = true
+  | [] => by simp [Parse.rhsOpSortList]
+  | p :: ps => by
+    simp [Parse.rhsOpSortList, rhsOpSort_eq_sortIs, rhsOpSortList_iff_sortIs (ps := ps)]
+
+theorem rhsSortedList_iff : ∀ {ps : List Kore.Pattern},
+    Parse.rhsSortedList ps = true ↔ ∀ p ∈ ps, Parse.rhsSorted p = true
+  | [] => by simp [Parse.rhsSortedList]
+  | p :: ps => by simp [Parse.rhsSortedList, rhsSortedList_iff (ps := ps)]
+
+mutual
+  /-- `Tight` without its sorting part: the operands of each `\or{s}` and `\and{s}` under
+  applications, conjunctions and disjunctions hold elements of s only (`InSortK`), and the sort of
+  each `\and` denotes a sort. What `Tight` adds, that those operands are of the sort s
+  (`sortIs`), the reader checks (`tight_of_rhsSorted`). -/
+  def TightSem (I : Interpretation KoreAML.Sym M) (tbl : VarTable) (e : Valuation M) : Kore.Pattern → Prop
+    | .app _ _ ps => TightSemList I tbl e ps
+    | .and s ps => SortDen I tbl e s ∧ (∀ q ∈ ps, InSortK I tbl e s q) ∧ TightSemList I tbl e ps
+    | .or s ps => (∀ q ∈ ps, InSortK I tbl e s q) ∧ TightSemList I tbl e ps
+    | _ => True
+    termination_by structural p => p
+  def TightSemList (I : Interpretation KoreAML.Sym M) (tbl : VarTable) (e : Valuation M) : List Kore.Pattern → Prop
+    | [] => True
+    | p :: ps => TightSem I tbl e p ∧ TightSemList I tbl e ps
+    termination_by structural ps => ps
+end
+
+theorem tightSemList_iff {tbl : VarTable} {e : Valuation M} : ∀ {ps : List Kore.Pattern},
+    TightSemList I tbl e ps ↔ ∀ p ∈ ps, TightSem I tbl e p
+  | [] => by simp [TightSemList]
+  | p :: ps => by simp [TightSemList, tightSemList_iff (ps := ps)]
+
+/-- **A right side the reader accepts is `Tight` where its operands lie in their sorts.**
+`rhsSorted p` gives, at each `\and{s}(ps)` and `\or{s}(ps)` under applications, conjunctions and
+disjunctions, `sortIs s q` for every q in ps (`rhsOpSort` has `sortIs`'s clauses,
+`rhsOpSort_eq_sortIs`); with `TightSem` that is `Tight`. -/
+theorem tight_of_rhsSorted {tbl : VarTable} {e : Valuation M} (p : Kore.Pattern) :
+    Parse.rhsSorted p = true → TightSem I tbl e p → Tight I tbl e p := by
+  induction p using Kore.Pattern.rec
+    (motive_2 := fun ps => ∀ p ∈ ps, Parse.rhsSorted p = true → TightSem I tbl e p → Tight I tbl e p) with
+  | app h ss ps ih =>
+    intro hS hT
+    rw [Parse.rhsSorted, rhsSortedList_iff] at hS
+    rw [TightSem, tightSemList_iff] at hT
+    rw [Tight, tightList_iff]
+    exact fun q hq => ih q hq (hS q hq) (hT q hq)
+  | and s ps ih =>
+    intro hS hT
+    rw [Parse.rhsSorted, Bool.and_eq_true, rhsOpSortList_iff_sortIs, rhsSortedList_iff] at hS
+    rw [TightSem, tightSemList_iff] at hT
+    rw [Tight, tightList_iff]
+    exact ⟨hT.1, fun q hq => ⟨hS.1 q hq, hT.2.1 q hq⟩, fun q hq => ih q hq (hS.2 q hq) (hT.2.2 q hq)⟩
+  | or s ps ih =>
+    intro hS hT
+    rw [Parse.rhsSorted, Bool.and_eq_true, rhsOpSortList_iff_sortIs, rhsSortedList_iff] at hS
+    rw [TightSem, tightSemList_iff] at hT
+    rw [Tight, tightList_iff]
+    exact ⟨fun q hq => ⟨hS.1 q hq, hT.1 q hq⟩, fun q hq => ih q hq (hS.2 q hq) (hT.2 q hq)⟩
+  | nil => rename_i hq _ _; cases hq
+  | cons q qs ih1 ih2 =>
+    rename_i x hx hs ht
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact ih1 hs ht
+    · exact ih2 x hx hs ht
+  | _ => intro _ _; simp [Tight]
 
 /-! ## The translation of the connectives -/
 
@@ -1165,8 +1247,8 @@ include F
 `xs` over the variables `vs`, with the premise `prem` of the sentence: each clause's premise
 (`clauseQ`, `lastQ`) reads from `NodeFacts`; that each alternative lies in the result sort σ is
 `hin` (`inSort_of_terms` gives it from `TermsInSort`); the reading of the sentence's right side is
-`hrhs` (`rhs_of_reader` gives it from the reader). -/
-theorem readings_of_fr {tbl : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
+`hrhs` (`readings_of_fr` gives it from the reader). -/
+theorem readings_of_rhs {tbl : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
     {ws : List KoreAML.P} {σ : M} {prem rhsT : KoreAML.P}
     (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
     (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ) (hσS : IsSort I σ)
@@ -1191,6 +1273,40 @@ theorem readings_of_fr {tbl : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : 
     rw [condKore_not, preOf_iff F (hσ e) hσS hrS hat.2 (hin e m hat x hx)]
     exact ⟨fun h => h.1, fun h => ⟨h, hat.2⟩⟩
   rhs := hrhs
+
+/-- **The readings of the clauses `frClauses` writes, from the reader** (`TieFR.Readings`). The
+equation `eq` is one `frRead` reads, its right side `eq.rhs` translated over the text's table
+`tblT`, and its `ensures` part `en` holding where `Ens` does. The sorts of the right side's
+connectives are the reader's: `frRead` reads only a right side that is `rhsSorted`
+(`frRead_rhsSorted`), which with `TightSem` (its operands lie in their sorts) is `Tight`
+(`tight_of_rhsSorted`). The reading of the right side is then `rhs_of_reader`'s, the rest
+`readings_of_rhs`'s. -/
+theorem readings_of_fr {N : Parse.Names} {eq : Parse.RawEqn} {y : Option (List Clause × List KoreAML.Var)}
+    {tbl tblT : VarTable} {vs : List KoreAML.Var} {s : Srt} {xs : List (Term × List Term)}
+    {ws : List KoreAML.P} {σ : M} {prem : KoreAML.P} {en r0 : Kore.Pattern} {cs : List Parse.SideCond}
+    {Ens : Valuation M → Prop}
+    (hrd : Parse.frRead N eq = .ok y)
+    (hr : sortGuard (tbl.ev (sortVarKey Rv)) ∈ ws)
+    (hσ : ∀ (e : Valuation M) a, (trSort tbl (srtOf c s)).interpret I e a ↔ a = σ) (hσS : IsSort I σ)
+    (hin : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ x ∈ xs, ∀ a,
+      (altP c tbl vs x).interpret I e a → Inh I σ a)
+    (hT : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → TightSem I tblT e eq.rhs)
+    (hh : Parse.hoist (Parse.dropEmptyAlts eq.rhs) = (r0, cs, false)) (hcs : AllTrue cs)
+    (halt : ∀ a ∈ Parse.orAlts r0, AllTrue (Parse.hoist a).2.1)
+    (hen : ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ a, Inh I σ a →
+      ((tr ⟨tblT, []⟩ en).interpret I e a ↔ Ens e))
+    (hbr : All2 (fun k x =>
+      (∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m → ∀ a,
+        (altP c tbl vs x).interpret I e a ↔ (tr ⟨tblT, []⟩ k.1).interpret I e a) ∧
+      ∀ e m, TieFR.At I ws (tbl.ev (sortVarKey Rv)) e m →
+        (altG I c tbl vs x e ↔ Ens e ∧ HoldsSC I tblT e cs ∧ HoldsSC I tblT e k.2)) (keptAlts r0) xs) :
+    TieFR.Readings I ws (tbl.ev (sortVarKey Rv)) σ prem
+      (sAnd (tr ⟨tblT, []⟩ eq.rhs) (tr ⟨tblT, []⟩ en)) xs (altP c tbl vs) (altG I c tbl vs)
+      (clauseQ c tbl vs s prem) (lastQ c tbl vs s prem xs) :=
+  readings_of_rhs F hr hσ hσS hin
+    (rhs_of_reader F.defOK F.ceilDef (boolDen_of F)
+      (fun e m hat => tight_of_rhsSorted eq.rhs (Parse.frRead_rhsSorted hrd) (hT e m hat))
+      hh hcs halt hen hbr)
 
 omit F in
 /-- **The alternatives lie in the result sort** where each is a term of it (`TermsInSort`) and the
