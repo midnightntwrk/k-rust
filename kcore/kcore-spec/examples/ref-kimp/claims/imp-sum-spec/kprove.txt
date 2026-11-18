@@ -1,0 +1,37 @@
+Fixture cs-sum-spec-kore: the claims of imp-semantics examples/specs/imp-sum-spec.k (module
+IMP-SUM-SPEC over IMP-VERIFICATION) as K 7.1.337's kprove frontend writes them in KORE.
+
+Why kprove: kompile refuses a claim in a definition (fixture e1-claim, kompile.txt: "Claims are not
+allowed in the definition.", exit 113), so the writer of a claim's KORE is kprove's frontend.
+
+release: K v7.1.337 (k/result/bin of the k-rust checkout)
+inputs (sha256), imp-semantics at commit 683a773418add3bcae8ded47c2b24e94494e1988:
+  examples/specs/imp-sum-spec.k                         4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d
+  src/kimp/kdist/imp-semantics/imp-verification.k       4a53c3c621edf14b7fb81c3c473d5c2bc8f35165432a78a5506ef7418b2d8c04
+  src/kimp/kdist/imp-semantics/imp.k                    4786bda6a993f21b78a7b7b1b4a88d47cfc812e3acc585f0aa3121d272dbfd2b
+  src/kimp/kdist/imp-semantics/calc.k                   7a6535283b8985ac5710f529f8e04b7bf97feefbcde6ef48146441d4c67ee2b8
+  src/kimp/kdist/imp-semantics/expr.k                   8aff9b14929cc0573545beb9724b213623a227c91635b784bab2f27a3799f3a0
+
+step 1, the definition the spec module imports (cwd: a scratch directory holding a copy of
+src/kimp/kdist/imp-semantics/*.k):
+  kompile --backend haskell imp-verification.k --main-module IMP-VERIFICATION --syntax-module IMP-VERIFICATION -o imp-verification-kompiled
+  exit: 0; peak memory 946 MiB
+  (its definition.kore names the scratch copy in its Source attributes, so its sha256 is that
+  directory's and is not recorded; the spec module below reads none of its sentences)
+
+step 2, the spec module (cwd: the same scratch directory; K_RUST the k-rust checkout):
+  kprove K_RUST/imp-semantics/examples/specs/imp-sum-spec.k -I K_RUST/imp-semantics/src/kimp/kdist/imp-semantics --definition imp-verification-kompiled --spec-module IMP-SUM-SPEC --dry-run --temp-dir TMP
+  exit: 0; peak memory 281 MiB; run twice (once with --debug added), the same text both times; a
+  first run on a scratch copy of imp-sum-spec.k wrote the two claims in the other order
+  output: one line, the prover command it does not run:
+    kore-exec .../imp-verification-kompiled/definition.kore --module IMP-VERIFICATION --prove TMP/.kprove-DATE-ID/spec.kore --spec-module IMP-SUM-SPEC --output TMP/.kprove-DATE-ID/result.kore
+  the option that keeps the KORE: --dry-run. kprove writes the spec module to TMP/.kprove-DATE-ID/spec.kore,
+  runs no prover and leaves the directory in place (--temp-dir puts it where it is found).
+
+spec.kore here: TMP/.kprove-DATE-ID/spec.kore with the prefix "K_RUST/" written out of its Source
+attributes (they then name imp-semantics/examples/specs/imp-sum-spec.k, relative to the checkout);
+nothing else changed.
+  spec.kore sha256 as kprove wrote it:   d9e6df18788cce51b08c7645535a8c274e3e2434fcf9e0e9b7da585c85d7b89f
+  spec.kore sha256 here (paths relative): 934ea9718d65a10fbb062258eb832d3baa64e9c89c4f98e3680ce807ac604c87
+It holds the module IMP-SUM-SPEC (one import, IMP-VERIFICATION) with its two claims, two-sum-spec at
+lines 9 to 18 (the `// claim` comment, then the sentence) and sum-spec at lines 20 to 29.

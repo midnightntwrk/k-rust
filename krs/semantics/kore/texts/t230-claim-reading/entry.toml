@@ -1,0 +1,139 @@
+id = "t230-claim-reading"
+kind = "text"
+subject = "The claim sum-spec of imp-semantics examples/specs/imp-sum-spec.k (module IMP-SUM-SPEC over IMP-VERIFICATION): its modality when it carries neither one-path nor all-path, whether $n + -1 holds the integer token -1 or unary minus over 1, what it states of a cell it does not mention (the generated counter), and the frame ... of its k cell."
+origin = "imp-semantics examples/specs/imp-sum-spec.k at commit 683a7734, with the four files it requires (src/kimp/kdist/imp-semantics: imp-verification.k, imp.k, calc.k, expr.k) written before it in the one file of the entry, their requires lines dropped and nothing else changed; the KORE text of its claims is kcore-spec fixture cs-sum-spec-kore (kcore-spec/examples/ref-kimp/claims/imp-sum-spec/spec.kore, the command in kprove.txt beside it)"
+rests_on = ["kk:t224-all-path-alias"]
+
+[text]
+files = ["imp-sum-spec.k"]
+kompile = "rejects"
+frontend = "manual-silent"
+
+[ruling]
+status = "unsettled"
+reason = """
+(a) A claim is a sentence of its module, and a module holds every sentence of the modules it imports, recursively (user_manual.md:272-273, 282-284). IMP-SUM-SPEC imports IMP-VERIFICATION (imp-sum-spec.k:165), which imports IMP (155), which imports CALC (122), which imports EXPR-RULES (91), which imports INT (38). INT imports INT-COMMON, which imports INT-SYNTAX (domains.md:1431-1432, 1218-1219), whose token production is r"[\\+\\-]?[0-9]+" for Int (domains.md:1213-1215); EXPR-SYNTAX also declares the production "-" Expr (imp-sum-spec.k:13).
+
+(b) Point 2, settled: '$n + -1' holds the integer token -1. The lexer always prefers longer tokens to shorter ones (user_manual.md:682-685). At '-1' the token production of (a) matches two characters and the terminal "-" one, so the lexer gives the one Int token -1, and the term is $n + -1 with -1 an Int: no unary minus is applied.
+
+(c) Point 4, settled: the frame '...' of the k cell is one variable of sort K, the same on both sides. '...' before the closing tag of a cell of sort K takes the contents of the cell as the prefix of a K sequence and puts an anonymous variable of sort K at its end, leaving that part unchanged (13_rewrite_rules/README.md:250-259); a rewrite inside a term is lifted to the top by duplicating the surrounding context (240-243), and a claim is written as a rewrite rule is (user_manual.md:2319-2321). So the k cell is while(...){...} ~> F on the left and .K ~> F on the right, F one variable of sort K; .K is the empty K sequence (13_rewrite_rules/README.md:42-56), so the right k cell holds F.
+
+(d) Point 1, unsettled: the modality of a claim that carries neither attribute. The text says that one-path and all-path clarify what kind of claim a rule is, that a module may carry one to give a default claim type to its rules, and that a command line option of the frontend chooses a default type for all claims (user_manual.md:2317-2331). IMP-SUM-SPEC and sum-spec carry neither (imp-sum-spec.k:164-182), and no sentence says which type applies when neither the attribute nor the option is given. Readings claim-all-path and claim-one-path.
+
+(e) Point 3, unsettled: what the claim states of the generated counter, which it does not mention. K completes the cells a rule does not mention from the configuration declaration, and only the cells needed are to be mentioned (15_configurations/README.md:165-168, 183-189). No sentence says whether a completed cell holds one value on both sides of a claim or any value on its right side. Readings counter-unchanged and counter-any.
+
+The ruling on the written KORE sentence is [ruling.kore]: there the modality is the all-path alias and the counter of the right side is existentially bound."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:272-273 (K 7.1.337)"
+quote = "An import tells the compiler that this module should contain all the sentences (recursively) contained by the module being imported."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:282-284 (K 7.1.337)"
+quote = "Following imports, a module can contain zero or more sentences. A sentence can be a syntax declaration, a rule, a configuration declaration, a context, a claim, or a context alias."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1213-1215 (K 7.1.337)"
+quote = 'module INT-SYNTAX imports UNSIGNED-INT-SYNTAX syntax Int ::= r"[\\+\\-]?[0-9]+" [prefer, token, prec(2)]'
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1218-1219 (K 7.1.337)"
+quote = "module INT-COMMON imports INT-SYNTAX"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1431-1432 (K 7.1.337)"
+quote = "module INT imports INT-COMMON"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:682-685 (K 7.1.337)"
+quote = "The lexer will always prefer longer tokens to shorter tokens. However, when it has to choose between two different tokens of equal length, token productions with higher precedence are tried first."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:250-259 (K 7.1.337)"
+quote = "Here we have placed the symbol `...` immediately prior to the `</k>` which ends the cell. What this tells the compiler is to take the contents of the cell, treat it as the prefix of a K sequence, and insert an anonymous variable of sort `K` at the end. Thus we can think of `...` as a way of saying we **don't care** about the part of the K sequence after the beginning, leaving it unchanged."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:240-243 (K 7.1.337)"
+quote = "When you put a rewrite inside a term like this, in essence, you are telling the rule to only rewrite **part** of the left-hand side to the right-hand side. In practice, this is implemented by lifting the rewrite operator to the top of the rule by means of duplicating the surrounding context."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/13_rewrite_rules/README.md:42-56 (K 7.1.337)"
+quote = 'The K cell contains a single term of sort `K`. `K` is a predefined sort in K with two constructors, that can be roughly represented by the following grammar: ``` syntax K ::= KItem "~>" K | "." ``` ... you can write `.K` anywhere you would otherwise write `.` and the meaning is identical.'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2319-2321 (K 7.1.337)"
+quote = "As the Haskell backend can handle both one-path and all-path reachability claims, but both these are encoded as rewrite rules in K, these attributes can be used to clarify what kind of claim a rule is."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2323-2331 (K 7.1.337)"
+quote = "In addition of being able to annotate a rule with one of them (if annotating with more at the same time, only one of them would be chosen), one can also annotate whole modules, to give a default claim type for all rules in that module. Additionally, the Haskell backend introduces an extra command line option for the K frontend, `--default-claim-type`, with possible values `all-path` and `one-path` to allow choosing a default type for all claims."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/15_configurations/README.md:165-168 (K 7.1.337)"
+quote = "K allows you to specify any number of cells in a rule (except zero) in any order you want, and K will compile the rules into a form that matches the structure of the configuration specified by the configuration declaration."
+
+[[ruling.basis]]
+source = "tutorial"
+locator = "k-distribution/k-tutorial/1_basic/15_configurations/README.md:183-189 (K 7.1.337)"
+quote = "In other words, K will complete cells to the top of the configuration by inserting parent cells where appropriate based on the declared structure of the configuration. ... Thus, K follows the principle that you should only mention the cells in a rule that are actually needed in order to accomplish its specific goal."
+
+[ruling.kore]
+statement = "The sentence the frontend writes for sum-spec (spec.kore:21-29) is claim{} \\implies(\\and(\\equals(N >=Int 0, true), L), weakAlwaysFinally(\\exists ?_Gen1. \\and(R, \\top))) at the top cell sort. (1) The modality is written as the prelude's alias weakAlwaysFinally, the one whose name is all-path's (weakExistsFinally is one-path's); the alias is the identity on its argument (kk:t224-all-path-alias), so the claim type is carried by the alias's name and by no other part of the pattern. (2) In L, $n + -1 is _+_ applied to inj{Int,Expr}(\\dv{SortInt}(\"-1\")): the Int literal -1, no unary minus. (3) The counter cell holds the variable _Gen0 in L and the variable ?_Gen1 in R, which \\exists binds inside the right side: the right side admits any counter value. (4) L's k cell is kseq(inj{Stmt,KItem}(while ...), _DotVar1) and R's k cell is _DotVar1, one free variable of sort K on both sides."
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "../../../../../kcore/kcore-spec/examples/ref-kimp/claims/imp-sum-spec/spec.kore:21-29"
+quote = """claim{} \\implies{SortGeneratedTopCell{}} ( \\and{SortGeneratedTopCell{}} ( \\equals{SortBool{},SortGeneratedTopCell{}}( Lbl'Unds-GT-Eqls'Int'Unds'{}(VarN:SortInt{},\\dv{SortInt{}}("0")), \\dv{SortBool{}}("true")), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortStmt{}, SortKItem{}}(Lblwhile ... inj{SortInt{}, SortExpr{}}(\\dv{SortInt{}}("-1")))))))),Var'Unds'DotVar1:SortK{})) ... Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{}))), weakAlwaysFinally{SortGeneratedTopCell{}} ( \\exists{SortGeneratedTopCell{}} (Var'QuesUnds'Gen1:SortInt{}, \\and{SortGeneratedTopCell{}} ( Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}), ... Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \\top{SortGeneratedTopCell{}}()))) ... label{}("IMP-SUM-SPEC.sum-spec")"""
+
+[[ruling.kore.basis]]
+source = "prelude"
+locator = "k-distribution/include/kframework/kore/prelude.kore:57-59 (K 7.1.337)"
+quote = "alias weakExistsFinally{A}(A) : A where weakExistsFinally{A}(@X:A) := @X:A [] alias weakAlwaysFinally{A}(A) : A where weakAlwaysFinally{A}(@X:A) := @X:A [] alias allPathGlobally{A}(A) : A where allPathGlobally{A}(@X:A) := @X:A []"
+
+[[reading]]
+name = "claim-all-path"
+statement = "A claim with neither attribute is an all-path claim: every complete path from a configuration of the left side passes through a configuration of the right side."
+answer = "sum-spec states that every run from the left configuration with N >= 0, completed, reaches the right configuration."
+consequence = "The claim is AllPath of the step relation from the left pattern to the right one."
+
+[[reading]]
+name = "claim-one-path"
+statement = "A claim with neither attribute is a one-path claim: some path from a configuration of the left side reaches a configuration of the right side."
+answer = "sum-spec states that some run from the left configuration with N >= 0 reaches the right configuration."
+consequence = "The claim is the existence of a run; where the step relation branches it asks less than claim-all-path, and on a run that never ends it asks more."
+
+[[reading]]
+name = "counter-unchanged"
+statement = "A cell the claim does not mention holds one value, the same on both sides, as the context the completion adds is the same on the left and the right."
+answer = "The generated counter is one variable C on both sides of sum-spec."
+consequence = "The right side fixes the counter: the target configuration has the counter of the start."
+
+[[reading]]
+name = "counter-any"
+statement = "A cell the claim does not mention is unconstrained on the right side: the target may hold any value there."
+answer = "The generated counter is C on the left and any value on the right of sum-spec."
+consequence = "The right side is a set over every counter value; the statement is weaker than counter-unchanged's."
+
+[[note]]
+implementation = "kompile"
+text = "kompile refuses a claim in a definition: kcore-spec fixture e1-claim's kompile.txt reads 'Claims are not allowed in the definition.', exit 113."
+
+[[note]]
+implementation = "kprove"
+text = "kprove 7.1.337 states its default in its option list, '--default-claim-type ... Default: ALL_PATH', and writes sum-spec with weakAlwaysFinally (kprove.txt beside spec.kore gives the command)."
+
+[[note]]
+implementation = "krust"
+text = "The k-rust snapshot module_to_kore__claims_rewrite_the_generated_counter_to_an_existential.snap writes a claim's generated counter on the right side as an existential, as kprove does."
