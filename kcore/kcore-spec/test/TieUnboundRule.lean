@@ -22,9 +22,14 @@
     successor is some `b(i)` (`step_inv`); `refU` lists the outcomes (`outIs`), one family at
     `<k> a() </k>` (`refU_A`), and `complete_A` is `complete_hyp` there; `exact_b`: y is a successor
     of `<k> a() </k>` in some model of `Γc` with the step's closure exactly where y is some `b(i)`.
-  - The expectations (C7 form (a)), by the cut: `b_step`, `a()` steps to `b(i)` for every i, from
-    `PreS` (the sentences as written, 154 among them, the families and `Γcl`; `gamma_fromS` by W1);
-    `a_succs`, every successor of `a()` is in the rule's family, from `Pre` with the step's closure.
+  - The expectations (C7 form (a)), by the cut, from `Pre` (the function sentences as written, Γ's
+    item of sentence 154 with its W1 theorem `rule_from_text`, the families, and `Γcl`), which has a
+    model with the step's closure (`pre_model`): `b_step`, `a()` steps to `b(i)` for every i (from
+    sentences: 154); `a_succs`, every successor of `a()` is in the rule's family (through the
+    reading: the step's closure). `boolClosed`, the item of `Γcl`, is a family of the reading of a
+    definition that reads a confined sort, not a sentence of the text. `PreS` (sentence 154 as
+    written in place of Γ's item) gives every premise of `Γc` too (`gamma_fromS`, by W1); no model
+    of it is shown here.
 -/
 import KcoreSpec
 
@@ -574,11 +579,12 @@ theorem gamma_fromS (H : HookParams) : ∀ φ, Γc (cH H) φ → PreS H ⊧ φ :
   · exact hI _ (Or.inl (Or.inl (Or.inl (Or.inr hx))))
   · exact hI _ (Or.inr ((gammaCl_eq H φ).mpr hb))
 
-/-- **`a()` steps to `b(i)`, from the rule's sentence as written**, for every H and every Int i:
-derived from `PreS` (sentence 154 among the sentences as written) by the cut from `sound_b`. -/
+/-- **`a()` steps to `b(i)`, from the rule's sentence**, for every H and every Int i: derived from
+`Pre` (Γ's item of sentence 154, a consequence of it by `rule_from_text`) by the cut from `sound_b`;
+`Pre` has a model (`pre_model`). -/
 theorem b_step (H : HookParams) (i : Int) :
-    PreS H ⊧ (den (cH H) (A H).val ⇒ KoreAML.sNext (den (cH H) (B H i).val)) :=
-  cutΓ (gamma_fromS H) (sound_b H i)
+    Pre H ⊧ (den (cH H) (A H).val ⇒ KoreAML.sNext (den (cH H) (B H i).val)) :=
+  cutΓ (gamma_from H) (sound_b H i)
 
 /-- **Every successor of `a()` is in the rule's one family** (some `b(X)`), for every H: derived
 from `Pre` with the step's closure; `Pre` with it has a model (`pre_model`). -/
