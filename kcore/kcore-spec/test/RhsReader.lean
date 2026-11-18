@@ -10,8 +10,8 @@
   before (their accounts are unchanged). Each clause a function gives is put in the definition the
   landed reader builds from the text with that equation's right side replaced by a plain term, and
   printed with `clauseSorted`, `condOK` of its predicates and `clauseE3`, the conjunct CN-4 §4.9
-  gives `clausesPlain` for one clause (the landed `clausesPlain` asks `pre = \top`, so it is false
-  of these clauses).
+  gives `clausesPlain` for one clause (`clausesPlain` asks it, and admits a predicate other than
+  `\top` only where the clause's conditions need no witness).
 
   ## fr: `\or` on an equation's right side
 
@@ -230,7 +230,7 @@ info: e3-ml-eq-rhs-or-total Lblh: functional sentence true; clauses 3
       pre (¬⌈Lblf(X)⌉:Int ∧ ¬⌈Lblg(X)⌉:Int)
       rhs Lblf(X) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
 e3-ml-eq-rhs-or Lblh: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 e3-ml-eq-rhs-or-many Lblk: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: 9 alternatives, more than 8)
 -/
@@ -502,7 +502,7 @@ info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       pre (¬(⌈true⌉:Bool ∧ (true =[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false =[Bool] LblnotBool'Unds'(X))))
       rhs true ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
 e3-eq-exists-bool-ml-loop Lblf: functional sentence true; clauses 3
   [0] vars [] pats [] req none prio 50 aside false
       pre ⌈Lblpick(true)⌉:Int
@@ -516,7 +516,7 @@ e3-eq-exists-bool-ml-loop Lblf: functional sentence true; clauses 3
       pre (¬⌈Lblpick(true)⌉:Int ∧ ¬⌈Lblpick(false)⌉:Int)
       rhs Lblpick(true) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
 e3-eq-exists-partial-ml Lblf: none
 e3-eq-exists-ml-under-app Lblf: none
 -/
@@ -652,7 +652,7 @@ info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       pre (¬(⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X))))
       rhs true ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
 e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
   [0] vars [X:Bool] pats [X] req none prio 50 aside false
       pre (⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X))
@@ -666,7 +666,7 @@ e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
       pre (¬(⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X)) ∧ ¬(⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X)))
       rhs LblnotBool'Unds'(true) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
-  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined false; litSort Bool true
+  sortedOK but clausesPlain true; clausesPlain true; every clause clauseE3 true; readsConfined false; litSort Bool true
 e3-eq-exists-bool-ml Lblf: none
 -/
 #guard_msgs in
