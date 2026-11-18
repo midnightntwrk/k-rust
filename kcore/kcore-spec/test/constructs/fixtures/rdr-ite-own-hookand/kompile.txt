@@ -1,0 +1,22 @@
+command: kompile --backend haskell rdr-ite-own-hookand.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.3
+output:
+  kore-exec: [23761] Error (ErrorVerify):
+      Error:
+        module 'RDR-ITE-OWN-HOOKAND':
+        hooked-symbol 'Lblite' declaration (definition.kore 151:17):
+        In result sort:
+          unexpected sort variable 'SortS'
+  Error:
+    module 'RDR-ITE-OWN-HOOKAND':
+    hooked-symbol 'Lblite' declaration (definition.kore 151:17):
+    In result sort:
+      unexpected sort variable 'SortS'
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  RDR-ITE-OWN-HOOKAND-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using RDR-ITE-OWN-HOOKAND as default.

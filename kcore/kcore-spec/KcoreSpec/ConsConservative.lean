@@ -130,7 +130,7 @@ theorem Cons.clauseFacts_cv {c : Semantics} (hpreTop : c.clausesPreTop = true) (
   have hm : HypModelCore c := hypModel_of_fnHyp h hf
   have hpre := Semantics.allFns_preTop hpreTop
   have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
-    clause_eqnFactsPre hm hfn hcl (by
+    clause_eqnFactsPre hm hfn hcl ((Semantics.fnsNoExs_of_coreOK h).allFns fn hfn cl hcl) (by
       rcases List.mem_append.mp hfn with hu | hp
       · exact hm.preOK fn hu cl hcl
       · rw [Semantics.sortPreds_pre hp cl hcl]; rfl)
@@ -169,7 +169,7 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
         exact hd.2
       simp only [graphsB, Bool.and_eq_true, List.all_eq_true] at hG
       obtain ⟨hap, hso⟩ := hG.1.2 p hp
-      have hite := (Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts hm.hyp.1).2.2.2.2 hp hr).2.2.2.1
+      have hite := (Semantics.raw_of_paramsPlain (Semantics.sortedOKClEx_parts hm.hyp.1).2.2.2.2 hp hr).2.2.2.1
       have hk : kOK c ss ks p.sig.name = true := by
         unfold appOK at hap
         rw [hite] at hap

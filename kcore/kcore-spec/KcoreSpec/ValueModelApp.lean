@@ -84,12 +84,13 @@ theorem vmModelCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady =
     (hd : FnDet c) (hs : FnSolves c) (hp : ClausePreDecided c) (hl : OpenLaws c) :
     stdI_T c (StepV c) ⊧ᴵP (Γc c ∪ Γstep c) := by
   have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
+  have hne := Semantics.fnsNoExs_of_sortedOKCl hok
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
-  · exact stdI_V_model_core hm hp hl φ (Or.inl hφ)
+  · exact stdI_V_model_core hm hne hp hl φ (Or.inl hφ)
   · obtain ⟨-, hlit, rfl⟩ := hφ
     exact boolClosed_modelClT hm hlit
-  · exact stdI_V_model_core hm hp hl φ (Or.inr hφ)
+  · exact stdI_V_model_core hm hne hp hl φ (Or.inr hφ)
 
 /-- **The theory does not entail another value of `f(vs)` than `Eval`'s**: under
 `consistent_ofCl`'s hypotheses, where `Eval` gives `f` the value `v` at `vs` and `w` is another

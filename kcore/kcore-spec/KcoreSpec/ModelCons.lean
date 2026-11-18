@@ -42,7 +42,7 @@ theorem HypModelCore.ctorNames (h : HypModelCore c) : (c.ctorSigs.map (·.name))
 
 theorem HypModelCore.trans (h : HypModelCore c) :
     ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts :=
-  (sortCtx_of_allCl h.hyp.1 h.hyp.2.1 h.ovlCase).trans
+  (sortCtx_of_allClEx h.hyp.1 h.hyp.2.1 h.ovlCase).trans
 
 theorem isCtor_of_mem {k : CtorSig} (hk : k ∈ c.ctorSigs) : c.isCtor k.name = true := by
   unfold Semantics.isCtor
@@ -119,7 +119,7 @@ theorem mem_gens {N : Srt} {g : Gen} (hg : g ∈ c.gens N) :
 theorem HypModelCore.raw_open (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true) :
     c.isOpenGen (.ctor k.sig) = true := by
   show (c.lookupOpen k.sig.name).isSome = true
-  rw [(Semantics.raw_lookup h.ids hk hr (Semantics.raw_of_sortedOKCl h.sound.1 hk hr).2.2.1).2]
+  rw [(Semantics.raw_lookup h.ids hk hr (Semantics.raw_of_sortedOKClEx h.sound.1 hk hr).2.2.1).2]
   rfl
 
 /-- The generators `consItemsK` writes functionality, injectivity and distinctness for (those that
@@ -1878,7 +1878,7 @@ branch (`raw_of_sortedOKCl`: `k.sig.args == [k.sig.result, k.sig.result]` where 
 `idem`). -/
 theorem HypModelCore.law_binary (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true)
     (hl : k.assoc = true ∨ k.idem = true) : k.sig.args = [k.sig.result, k.sig.result] :=
-  (Semantics.raw_of_sortedOKCl h.sound.1 hk hr).2.1 (by rcases hl with hl | hl <;> simp [hl])
+  (Semantics.raw_of_sortedOKClEx h.sound.1 hk hr).2.1 (by rcases hl with hl | hl <;> simp [hl])
 
 namespace AtT
 

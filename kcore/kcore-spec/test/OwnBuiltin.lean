@@ -16,6 +16,10 @@
     equation (hand-written forms, each refused `axiomShape` in a user's file), each classified as
     the same sentence of a user's file; a subsort axiom into a library
     sort, a no-junk axiom of a library sort, an equation of a library symbol refused (`builtinText`).
+  - KVAR-SYNTAX's hooked sort `KVar` (`hasDomainValues`, `token`, `hook(KVAR.KVar)`, a hook no
+    library sort has) is read as a token sort of the definition's own (`Parse.ownTokenHookedSort?`:
+    `scanTokenSort` and `scanLocSort` give it); the same declaration in a user's file, with a
+    library sort's hook (`MINT.MInt`), or without `token` is refused (`userHookedSort`).
   - Fixtures (test/constructs/fixtures): e6-mod-array, e6-mod-kvar, e3-mint, e2-binder and their
     accounts (`read [own builtin]`), and the parameter symbols of e6-param-ffi,
     e6-param-unification, e6-param-timer and e6-param-rat (params.txt).
@@ -75,7 +79,7 @@ info: [(read, true), (read, true), (refused builtinText, false), (unread paramet
 #eval show IO Unit from do
   let ss := [sortDecl "SortArray" (placeAt "domains.md"), arrDecl, sortDecl "SortInt" (placeAt "domains.md"),
     mintDecl, sortDecl "SortArray" userPlace]
-  IO.println (ss.map fun s => ((Parse.classify s).name, Parse.isOwnBuiltin s))
+  IO.println (ss.map fun s => ((Parse.classifyShape s).name, Parse.isOwnBuiltin s))
 
 /-- Axioms of each kind, with the `Source` `src`, in a module of a KORE text. -/
 def axiomsText (src : String) : String :=
@@ -119,4 +123,25 @@ info: 9 sentences
   let u := axiomsOf "/src/u/a.k"
   IO.println s!"{b.length} sentences"
   for (x, y) in b.zip u do
-    IO.println ((Parse.classify x).name, (Parse.classify y).name, Parse.isOwnBuiltin x)
+    IO.println ((Parse.classifyShape x).name, (Parse.classifyShape y).name, Parse.isOwnBuiltin x)
+
+/-- KVAR-SYNTAX's `syntax KVar [token, hook(KVAR.KVar)]` as kompile writes it, with the place `as`
+and the hook `h`; `tok` false drops its `token{}()`. -/
+def kvarDecl (as : List Kore.AppPattern) (h : String := "KVAR.KVar") (tok : Bool := true) : Kore.Sentence :=
+  .hookedSort ⟨⟨⟨"SortKVar"⟩⟩, [],
+    [⟨⟨⟨"hasDomainValues"⟩⟩, [], []⟩, ⟨⟨⟨"hook"⟩⟩, [], [.string h]⟩] ++ as ++
+      (if tok then [⟨⟨⟨"token"⟩⟩, [], []⟩] else [])⟩
+
+/--
+info: (read, (true, ((some KVar), (some KVar))))
+(refused userHookedSort, (false, (none, none)))
+(refused userHookedSort, (true, (none, none)))
+(refused userHookedSort, (true, (none, none)))
+-/
+#guard_msgs in
+#eval show IO Unit from do
+  -- substitution.md's declaration; a user's file's; with a library sort's hook; without `token`
+  for s in [kvarDecl (placeAt "substitution.md"), kvarDecl userPlace, kvarDecl (placeAt "substitution.md") "MINT.MInt",
+      kvarDecl (placeAt "substitution.md") (tok := false)] do
+    IO.println ((Parse.classifyShape s).name, Parse.isOwnBuiltin s, Parse.scanTokenSort s,
+      (Parse.scanLocSort s).map (·.1))

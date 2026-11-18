@@ -251,7 +251,7 @@ theorem sat_hookGraph (h : HypModelCore c) {k : CtorSig} {vs : List GroundTerm} 
     obtain ⟨hk'm, hk'n⟩ := lookupSig_spec hk'
     have := same_sym h.namesK (kernel_hook hk'm) (kernel_hook hk) hk'n
     subst this
-    have hsv := hookRes_sorted (fun _ => (sortCtx_of_allCl h.sound.1 h.sound.2.1 h.ovlCase).range) hk' hvs hr
+    have hsv := hookRes_sorted (fun _ => (sortCtx_of_allClEx h.sound.1 h.sound.2.1 h.ovlCase).range) hk' hvs hr
     dsimp only
     rw [den_val h v hsv e a]
     constructor

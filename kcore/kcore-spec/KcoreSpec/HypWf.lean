@@ -226,7 +226,7 @@ follows from two of them (`collsNotCtors_of`). -/
 theorem hypModel_of_fn (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) : HypModelCore c := by
   obtain ⟨hok, hfa, -, hp, hids⟩ := Semantics.coreOK_parts h
   obtain ⟨hnn, -, -, hcs, -, hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
-  exact ⟨⟨Semantics.sortedOKCl_of_sortedOK hok, NamesApart.srReady_of hp hids hok
+  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKCl (Semantics.sortedOKCl_of_sortedOK hok), NamesApart.srReady_of hp hids hok
     (NamesApart.rangeKeys_genWf_of_faithCore (Semantics.coreOK_parts h).2.1) (Semantics.coreOK_ovls h), namesNumbered_spec hnn, hd, hs⟩,
     HypSoundCore.model (hypSound_of_core h), hn, hl,
     hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', Semantics.coreOK_ovls h, ovlsOnce_of_ids hids⟩
@@ -239,8 +239,8 @@ theorem hypModel_ofCl (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov 
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
     (hd : FnDet c) (hs : FnSolves c) : HypModelCore c := by
   obtain ⟨hnn, hg, hcso, hcs, hph', hn, hl, hs', hi, hk, hc, hf'⟩ := faithCoreOK_parts hfa
-  exact ⟨⟨hok, hsr, namesNumbered_spec hnn, hd, hs⟩,
-    ⟨hok, hsr, namesNumbered_spec hnn, hg, hph, hcso, hcs, hph', hov⟩, hn, hl,
+  exact ⟨⟨Semantics.sortedOKClEx_of_sortedOKCl hok, hsr, namesNumbered_spec hnn, hd, hs⟩,
+    ⟨Semantics.sortedOKClEx_of_sortedOKCl hok, hsr, namesNumbered_spec hnn, hg, hph, hcso, hcs, hph', hov⟩, hn, hl,
     hids, hs', collsNotCtors_of hk hcs, hi, hk, hc, hf', hov.ok, ovlsOnce_of_ids hids⟩
 
 /-- **`FnHyp` gives `FnDet` and `FnSolves`**: the agreement of the equations and the match

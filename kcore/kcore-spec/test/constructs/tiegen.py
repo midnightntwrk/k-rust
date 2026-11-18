@@ -17,12 +17,14 @@ With --out DIR it writes the test into DIR and leaves f2-examples alone. --chunk
 decisions over the whole user module (`account_absent`) and over the constructor sentences
 (`cons_checked`, `cons_trS`) into ranges of N, each its own kernel decision (default: one each).
 --hand consistency=FILE puts FILE in place of the consistency section, for a text that owes an
-agreement: FILE proves it (`ClausesAgree`) and states `facts` and `consistent` for every H.
+agreement, a clause's match independence, or a rule's or clause's condition (`owed_rules`,
+`owed_clauses`): FILE proves the owed facts and states `consistent` for every H, with `facts` for an
+agreement, and `owed_rules`, `owed_clauses` and `openDecidedH` (`OpenDecided` for every H) otherwise.
 
 It refuses, with the reason, a fixture without a kompiled text, a text whose `kcore account` is not
 the fixture's account.txt, a text the reader refuses, a text whose obligations `kcore gen --core`
-states in a form not in OBL_FORMS, or which owes a fact other than an agreement (termination,
-totality, match independence), a rule's or clause's condition, or a held-named function's fact;
+states in a form not in OBL_FORMS, or which owes termination, totality or a held-named function's
+fact, or, without --hand consistency, a match independence or a rule's or clause's condition;
 a text whose `attrsAgree` fails; a law of the reader or a law item of Γ that is not one sentence as
 written; a text with a law of a function that the probe refutes at values (Function laws, below).
 
@@ -75,6 +77,15 @@ What it states where the text:
 - has `[owise]` equations whose items are their sentences up to a renaming of element variables:
   `fn_align` with test/NonExecOwiseTie.lean's `alphaB` section, `fn_shape_but_owise`,
   `owise_not_literal`, the converse up to the renaming;
+- has one function equation whose item is not its sentence because Γ holds it with the premise that
+  the clauses of a smaller priority that are not `aside` do not apply (`prioEquation`; the text
+  neither confined nor with an open generator), every other item its sentence's translation up to a
+  renaming of a free variable (`TiePair.sameB`): `fnText` by head symbol and priority
+  (`TiePair.fnTextOf`), `fns_account` over the function-equation and priority-equation classes,
+  `w_text` (the item without that premise is the sentence, `TiePair.minusNeg`), `w_differs`, `w1`
+  (W1: the sentence entails the item), `shape`, `fns_entailed`, `fns_from_text`, `fn_prios`, and
+  the converse over Γ's content `gamma_from` (`TiePair.Pre`). Two or more such items are left
+  `uncovered`;
 - has the no-junk sentence of an open generator's sort: the item over its generators in the text's
   order, a permutation of `Semantics.gens` (`<sort>TextGens`), `nojunk_<sort>_entailed`.
 
@@ -335,10 +346,13 @@ def named_list(src, thm):
     return [] if m[1].startswith("(") else [int(x) for x in re.findall(r"\d+", re.sub(r"/-.*?-/", "", m[1]))]
 
 
-def obligations(name, path):
-    """What `kcore gen --core` names of the text: the obligation form, the call order, and the
-    functions its agreement list names. Refused: a form not in OBL_FORMS, a named fact other than
-    an agreement (`agreeObligationsI`), an owed condition (`Owed`), a held-named function (`Held`)."""
+def obligations(name, path, hand=False):
+    """What `kcore gen --core` names of the text: the obligation form, the call order, the
+    functions its agreement list names, whether it names a clause's match independence (`match`) and
+    whether it owes a rule's or clause's condition (`owed`). Refused: a form not in OBL_FORMS,
+    termination or totality named, a held-named function (`Held`); without `hand` (a consistency
+    section written by hand that proves them), a match independence named or an owed condition
+    (`Owed`)."""
     with tempfile.TemporaryDirectory(prefix="tiegen-") as d:
         g = run([KCORE, "gen", path, d, "TieGenProbe", "--core"], cwd=KS)
         if g.returncode != 0:
@@ -356,21 +370,28 @@ def obligations(name, path):
     if form is None:
         m = re.search(r"^abbrev Obl.*$", fh, re.M)
         raise Refused(f"{name}: the obligations are in a form tiegen does not state ({m[0] if m else 'no Obl'})")
-    if re.search(r"^abbrev (Owed|Held)\b", fh, re.M):
-        raise Refused(f"{name}: an owed condition or a held-named function (`kcore gen --core` states `Owed` or `Held`)")
+    if re.search(r"^abbrev Held\b", fh, re.M):
+        raise Refused(f"{name}: a held-named function (`kcore gen --core` states `Held`)")
+    if re.search(r"^abbrev Owed\b", fh, re.M) and not hand:
+        raise Refused(f"{name}: an owed condition (`kcore gen --core` states `Owed`): its proof goes in "
+                      f"--hand consistency")
     lists = {k: named_list(mods[m], k) for k, m in (("term_named", "Term"), ("total_named", "Total"),
                                                    ("agree_named", "Agree"), ("match_named", "Match"))}
     if any(v is None for v in lists.values()):
         raise Refused(f"{name}: `kcore gen --core` states no list of {[k for k, v in lists.items() if v is None]}")
-    others = [k for k in ("term_named", "total_named", "match_named") if lists[k]]
+    others = [k for k in ("term_named", "total_named") + (() if hand else ("match_named",)) if lists[k]]
     if others:
-        raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)")
+        raise Refused(f"{name}: an owed fact other than an agreement ({', '.join(others)} not empty)"
+                      + ("" if hand or others != ["match_named"] else ": its proof goes in --hand consistency"))
+    form["match"] = bool(lists["match_named"])
     form["agree"] = lists["agree_named"]
     am = re.search(r"^theorem agree_named : .*?=\s*(\[.*?\])", mods["Agree"], re.M | re.S)
     form["agree_names"] = re.findall(r"\d+ /- (.*?) -/", am[1]) if am else []
-    if form["kind"] == "FnFacts" and (named_list(mods["Owed"], "owed_rules") != [] or
-                                      named_list(mods["Owed"], "owed_clauses") != []):
-        raise Refused(f"{name}: a rule's or clause's condition is owed (owed_rules, owed_clauses)")
+    form["owed"] = form["kind"] == "FnFacts" and (named_list(mods["Owed"], "owed_rules") != [] or
+                                                  named_list(mods["Owed"], "owed_clauses") != [])
+    if form["owed"] and not hand:
+        raise Refused(f"{name}: a rule's or clause's condition is owed (owed_rules, owed_clauses): its proof goes "
+                      f"in --hand consistency")
     co = re.search(r"def callOrder : List Nat := (\[[^\]]*\])", order)
     form["call_order"] = re.sub(r"/-.*?-/", "", co[1]).replace(" ", "")
     form["order_list"] = "[" + ", ".join(re.findall(r"\d+", form["call_order"])) + "]"
@@ -416,6 +437,17 @@ def tgAlpha2 (p q : P) : Bool := tgAlphaB (tgFreeMap p q) p q && tgAlphaB (tgFre
 partial def tgPerms : List Nat → List (List Nat)
   | [] => [[]]
   | l => l.flatMap fun x => (tgPerms (l.erase x)).map (x :: ·)
+def tgFnAxioms (c : Semantics) : List Kore.Axiom :=
+  c.allFns.flatMap fun f => (fnEquationsK c f).filterMap fun
+    | .axiom a => some a
+    | _ => none
+def tgMinusNeg (a : Kore.Axiom) : P :=
+  match TiePair.negParts a.pattern with
+  | some (R, _, prem, concl) =>
+    let t := tableOf a.sortVars a.pattern
+    conjList (((a.sortVars.map sortVarKey ++ freeOf [] a.pattern).eraseDups).map (guardOf t)) ⇒
+      (tr ⟨t, []⟩ (.implies R prem concl) ≡ inhOf (trSort t R))
+  | none => (trAxiom [] [] ⟨0, "kernel", a⟩).pat
 
 #eval show IO Unit from do
   let input ← IO.FS.readFile "@PATH@"
@@ -508,6 +540,15 @@ partial def tgPerms : List Nat → List (List Nat)
     IO.println s!"P {kp.sig.name}\t{c.symName kp.sig.name}\t{kp.sig.args}\t{kp.sig.result}\t{c.sortName kp.sig.result}\t{kp.assoc}\t{kp.idem}\t{c.isOpenGen (.ctor kp.sig)}"
   for (it, j) in fis.zip (List.range fis.length) do
     IO.println s!"F {j}\t{(us.filter fun ad => tgAlpha2 it.pat (trS ad).pat).map (·.index)}"
+  let pairText := TiePair.fnTextOf c us
+  let fax := tgFnAxioms c
+  for (it, j) in fis.zip (List.range fis.length) do
+    match pairText[j]?, fax[j]? with
+    | some ad, some a =>
+      let t := (trS ad).pat
+      IO.println s!"W {j}\t{ad.index}\t{TiePair.sameB it.pat t}\t{(TiePair.negParts a.pattern).isSome}\t{TiePair.sameB (tgMinusNeg a) t}\t{decide (it.pat ≠ t)}"
+    | _, _ => IO.println s!"W {j}\tnone\tfalse\tfalse\tfalse\tfalse"
+  IO.println s!"H pairTextLen {pairText.length}"
   let njCands := ((consSorts c).filter fun s => s != Srt.kitem && !(c.gens s).isEmpty && (c.gens s).length ≤ 5).map fun s =>
     let gs := (c.gens s).map (Gen.toK c)
     (s, (KoreAML.Cons.noJunkItem (c.sortName s) ((gensInOrder c d.pres s).map (Gen.toK c))).pat,
@@ -556,7 +597,7 @@ def probe(name, path, um, order="[]"):
     if r.returncode != 0:
         raise Refused(f"{name}: the probe fails: {(r.stdout + r.stderr).strip()[-600:]}")
     head, sents = {}, {}
-    head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"] = [], [], {}, {}, []
+    head["rules"], head["raw"], head["fnA"], head["nj"], head["lawRef"], head["fnW"] = [], [], {}, {}, [], {}
     nums = lambda s: [int(x) for x in re.findall(r"\d+", s)]
     for l in r.stdout.split("\n"):
         if l.startswith("H "):
@@ -576,6 +617,10 @@ def probe(name, path, um, order="[]"):
         elif l.startswith("F "):
             f = l[2:].split("\t")
             head["fnA"][int(f[0])] = nums(f[1])
+        elif l.startswith("W "):
+            f = l[2:].split("\t")
+            head["fnW"][int(f[0])] = dict(idx=None if f[1] == "none" else int(f[1]), same=f[2] == "true",
+                                          narrowed=f[3] == "true", wtext=f[4] == "true", differs=f[5] == "true")
         elif l.startswith("N "):
             f = l[2:].split("\t")
             head["nj"].setdefault(int(f[0]), []).append(dict(srt=int(f[1]), sort=f[2], form=f[3], perm=nums(f[4]),
@@ -757,6 +802,22 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     law_idx = [l[0] for l in nested(head["lawIx"])]
     open_law = [l[0] for l in nested(head["openLawIx"])]
     confined = head["readsConfined"] == "true"
+    # otherwise each item may be its sentence's translation up to a renaming of one free variable
+    # (`TiePair.sameB`) but one, a priority equation's: Γ's item is its sentence with the premise
+    # that the clauses of a smaller priority that are not `aside` do not apply (`prioEquation`), and
+    # without that premise it is the sentence (`TiePair.minusNeg`), which entails it (W1)
+    fn_pair, pair_text, pair_w = False, [], None
+    fw = head["fnW"]
+    if not fn_full and not fn_align and nfn and not confined and not raw and \
+            sorted(fw) == list(range(nfn)) and int(head.get("pairTextLen", -1)) == nfn and \
+            all(fw[j]["idx"] is not None for j in range(nfn)):
+        txt = [fw[j]["idx"] for j in range(nfn)]
+        ws = [j for j in range(nfn) if not fw[j]["same"]]
+        fn_prio_list = [int(x) for x in re.findall(r"\d+", head["fnPrios"])]
+        if len(ws) == 1 and fw[ws[0]]["narrowed"] and fw[ws[0]]["wtext"] and fw[ws[0]]["differs"] and \
+                sorted(txt) == sorted(by_class["function equation"] + by_class["priority equation"]) and \
+                len(set(txt)) == nfn and [sents[i]["prio"] for i in txt] == fn_prio_list:
+            fn_pair, pair_text, pair_w = True, txt, ws[0]
     agree = ob["agree"]
     facts_kind = ob["kind"]
     tp_params = ob["hform"] and head["totalNil"] != "true"
@@ -799,6 +860,8 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     rule_text = [i for _, i in rule_map] if rules_full else []
     covered = set(fn_text) | set(rule_text) | set(cons_text) | {i for i, _ in nj_triv} | set(nj_items) | set(nj_kitem)
     covered |= {i for i, _ in nj_sorts}
+    if fn_pair:
+        covered |= set(pair_text)
     if idem is not None:
         covered.add(idem)
     uncovered = [(i, cls[i]) for i in idx if cls[i] in THEOREM_CLASSES and i not in covered]
@@ -898,6 +961,15 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         else:
             w("    Under every H where it holds (`AgreeOwed`), Γ with the step's closure has a model (`facts`,")
             w("    `consistent`): the proof of `AgreeOwed` is owed.")
+    elif ob["match"] or ob["owed"]:
+        th = "`Γc`" if confined else "Γ"
+        owes = (["the match independence of a clause (`match_named`)"] if ob["match"] else []) + \
+            (["the condition of a rule or clause (`owed_rules`, `owed_clauses`)"] if ob["owed"] else [])
+        w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`) and has no open generator")
+        w(f"    (`noRaw`). It owes {' and '.join(owes)}.")
+        w("    The consistency section, written by hand, proves what it owes for every H"
+          + (" (`openDecidedH`)" if facts_kind == "FnFacts" else "") + ",")
+        w(f"    so {th} with the step's closure has a model for every H (`consistent`).")
     elif facts_kind == "FnFacts":
         th = "`Γc`" if confined else "Γ"
         w(f"  - The definition reads {'a' if confined else 'no'} confined sort (`readsConfined_c`), has no open generator (`noRaw`), owes")
@@ -922,6 +994,17 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(f"  - Function equations ({len(fn_text)}): each of Γ's items is the translation of one sentence, in the")
         w("    order `fnText` lists them (`fn_shape`); `fns_entailed` (E), `fns_from_text` (the converse),")
         w("    `fn_prios` (the priorities the sentences state are the clauses').")
+    if fn_pair:
+        wi, wj = pair_text[pair_w], pair_w
+        nfe = len(by_class["function equation"])
+        w(textwrap.fill(
+            f"Function equations ({nfe}) and the priority equation ({wi}, of priority {sents[wi]['prio']}), in the "
+            f"order `fnText` lists them (`fns_account`): each of Γ's items but item {wj} is the translation of "
+            f"one sentence (`shape`), so Γ entails it (`fns_entailed`); item {wj} is the clause of {wi} under the "
+            f"negation of the clauses of a smaller priority that are not `aside`, which sentence {wi} entails "
+            f"(`w1`, W1) and is without that premise (`w_text`); `fns_from_text` (the converse), `fn_prios` "
+            f"(the priorities the sentences state are the clauses').",
+            width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     if rules_full and nrules:
         w(f"  - Rewrite rules ({nrules}): each of Γ's rule items (with the premise `⌈rhs ∧ ens⌉`) is a consequence")
         w("    of its text sentence, `ruleText` in `ruleItems`' order (`rule_from_text`, W1, every H).")
@@ -940,6 +1023,12 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     elif gamma:
         w("  - The converse over Γ's content: each premise is a function sentence's translation, one of the")
         w("    five parts Γ defines by predicates, or definedness (`gamma_origin`, `gamma_from`).")
+    if fn_pair:
+        w(textwrap.fill(
+            f"The converse over Γ's content: each premise is a consequence of the function sentences "
+            f"({pair_text[pair_w]} through W1), Γ's rule items, the five parts Γ defines by predicates, or "
+            f"definedness (`gamma_from`).",
+            width=100, initial_indent="  - ", subsequent_indent="    ", break_on_hyphens=False, break_long_words=False))
     owed_more = ""
     if law_idx:
         owed_more += "; function law: owed as `FnLaws` (`law_account`)"
@@ -1597,6 +1686,10 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
         w(open_functional_section(open_fun, rnames))
     if param_lem:
         w(param_lemma_section(param_lem))
+    if fn_pair:
+        wi = pair_text[pair_w]
+        w(pair_section(pair_w, wi, sents[wi]["prio"], "non-executable{}()" in raws.get(wi, ""),
+                       len(by_class["function equation"])))
     if gamma:
         w(GAMMA_ALIGN if fn_align else GAMMA_RULES if nrules else GAMMA)
     cnames = []
@@ -1650,10 +1743,14 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
     if facts_kind == "FnFacts" and not agree and not raw:
         names += ["owed_rules", "owed_clauses", "openDecidedH"]
     names += cnames
-    for n in names:
-        w(f"#check @KCore.{ns}.{n}")
-    for n in names:
-        w(f"#print axioms KCore.{ns}.{n}")
+    pair_names = ["fns_account", "aW_narrowed", "w_text", "w_differs", "w1", "shape", "fns_entailed",
+                  "fns_from_text", "fn_prios", "gamma_from"] if fn_pair else []
+    for block in (names, pair_names):
+        for n in block:
+            w(f"#check @KCore.{ns}.{n}")
+        for n in block:
+            w(f"#print axioms KCore.{ns}.{n}")
+    names = names + pair_names
     lean = "\n".join(L) + "\n"
     for sec, text in hand.items():
         start = HAND_SECTIONS[sec]
@@ -1666,6 +1763,7 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
                     f"(ParamLemmaWitness)")
     summary = dict(fixture=name, sentences=len(idx), mapped=len(mapped), unmapped=len(unmapped),
                    classes={c_: len(by_class[c_]) for c_ in CLASSES}, fn_full=fn_full, fn_align=fn_align,
+                   fn_pair=fn_pair,
                    cons=len(cons_text), nojunk=[len(nj_triv), len(nj_items), len(nj_kitem), len(nj_sorts)],
                    idem=idem, lib166=lib166, gamma=gamma, laws=law_idx, open_generators=[k["name"] for k in raw],
                    confined=confined, uncovered=uncovered, owed=owed, theorems=names,
@@ -1678,6 +1776,115 @@ def generate(name, text_rel, um, cls, mapped, unmapped, sents, head, wf_ok, fail
 HAND_SECTIONS = {"consistency": "/-! ## Consistency for every H"}
 
 NEX_TIE = os.path.join(KS, "test/NonExecOwiseTie.lean")
+
+
+def pair_section(j, i, prio, nonexec, nfe):
+    """The function equations where Γ's item `j` is sentence `i` with the premise that the clauses of
+    a smaller priority that are not `aside` do not apply (W1), and every other item is its sentence's
+    translation (`TiePair.shapeB`), with the converse over Γ's content (`TiePair.gamma_from`)."""
+    nx = ", the `non-executable` one" if nonexec else ""
+    intro = textwrap.fill(
+        f"`fnItems`'s item {j} is the equation of the clause of priority {prio}{nx}: Γ holds it under the "
+        f"negation of the clauses of a smaller priority that are not `aside` (`prioEquation`, "
+        f"`competingEquation`), a premise the sentence does not state. Sentence {i} entails it (`w1`, the "
+        f"direction of the class priority equation) and is the item without that premise (`w_text`); it "
+        f"is not the item (`w_differs`). Every other item is the translation of its function sentence "
+        f"(`shape`). -/", width=100, break_on_hyphens=False, break_long_words=False)
+    return f'''/-! ## Function equations ({nfe} sentences) and the priority equation (sentence {i})
+
+{intro}
+
+/-- The text sentences of Γ's equations, in `fnItems`'s order: found by head symbol and priority
+(`TiePair.fnTextOf`); `shape` is what makes them the equations' sentences. -/
+noncomputable def fnText : List AxiomDecl := TiePair.fnTextOf c U.all
+
+/-- **`fnText` is the account's function-equation and priority-equation classes**: the same
+indices, each once. -/
+theorem fns_account :
+    (classOf "function equation" ++ classOf "priority equation").isPerm (fnText.map (·.index)) = true := by
+  decide +kernel
+
+/-- Γ's axiom of the narrowed equation. -/
+noncomputable def aW : Kore.Axiom := ((TiePair.fnAxioms c)[{j}]?).getD ⟨[], .top KoreAML.R, []⟩
+
+theorem aW_at : (TiePair.fnAxioms c)[{j}]? = some aW := by decide +kernel
+
+/-- Γ's item of it. -/
+noncomputable def gW : P := (trAxiom [] [] ⟨0, "kernel", aW⟩).pat
+
+theorem gW_at : (TiePair.gammaPats c)[{j}]? = some gW := TiePair.gammaPats_at aW_at
+
+kernel_rfl fnText_W : fnText[{j}]? = some U.ax{i}
+
+/-- Its premise has the negated conjunct. -/
+theorem aW_narrowed : (TiePair.negParts aW.pattern).isSome = true := by decide +kernel
+
+/-- **Γ's item without the priority premise is the text's sentence {i}** (`TiePair.minusNeg`, up to
+the indices of its variables: `TiePair.sameB`; kernel). -/
+theorem w_text : TiePair.sameB (TiePair.minusNeg aW) (trS U.ax{i}).pat = true := by decide +kernel
+
+/-- **Γ's item is not the sentence.** -/
+theorem w_differs : gW ≠ (trS U.ax{i}).pat := by decide +kernel
+
+/-- **W1**: the text's sentence {i} entails Γ's item, in every model of definedness. -/
+theorem w1 : TiePair.Texts [(trS U.ax{i}).pat] ⊧ gW :=
+  fun {{M}} _ {{I}} hI => TiePair.item_of_sentence (TiePair.defOK_texts hI) w_text
+    (hI _ (Or.inl (List.mem_singleton_self _)))
+
+/-- The premise set's equations, in `fnItems`'s order: each text sentence's translation, and for
+sentence {i} Γ's item. -/
+noncomputable def textPats : List P := (fnText.map (trS · |>.pat)).set {j} gW
+
+/-- **Each of Γ's equations but item {j} is the translation of its text sentence** (kernel); item
+{j} is `gW`. -/
+theorem shape : TiePair.shapeB (TiePair.gammaPats c) textPats = true := by decide +kernel
+
+theorem shapeH (H : HookParams) : TiePair.shapeB (TiePair.gammaPats (cH H)) textPats = true := by
+  rw [TiePair.gammaPats_withHooks]; exact shape
+
+/-- **E for the function equations**: Γ entails each sentence of `fnText` but sentence {i}, for
+every H. -/
+theorem fns_entailed (H : HookParams) : ∀ (j : Nat) (ad : AxiomDecl), fnText[j]? = some ad → j ≠ {j} →
+    Γ (cH H) ⊧ (trS ad).pat := by
+  intro j ad hj hne
+  refine TiePair.entailed (shapeH H) _ (List.mem_of_getElem? (i := j) ?_)
+  unfold textPats
+  rw [List.getElem?_set_ne (Ne.symm hne), List.getElem?_map, hj]; rfl
+
+/-- **The converse for `fnItems`**: each item is a consequence of a text sentence, the j-th of
+`fnText`; item {j} by W1, the others by their translation. -/
+theorem fns_from_text (H : HookParams) :
+    ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
+      ∃ ad, fnText[j]? = some ad ∧ (TiePair.Texts [(trS ad).pat] ⊧ it.pat) := by
+  intro j it hj
+  by_cases hJ : j = {j}
+  · subst hJ
+    refine ⟨U.ax{i}, fnText_W, ?_⟩
+    have hg : (TiePair.gammaPats (cH H))[{j}]? = some it.pat := by
+      unfold TiePair.gammaPats; rw [List.getElem?_map, hj]; rfl
+    rw [TiePair.gammaPats_withHooks, gW_at] at hg
+    rw [← Option.some.inj hg]
+    intro M _ I hI
+    exact w1 hI
+  · obtain ⟨t, ht, hent⟩ := TiePair.from_text (shapeH H) j it hj
+    unfold textPats at ht
+    rw [List.getElem?_set_ne (Ne.symm hJ), List.getElem?_map] at ht
+    cases hf : fnText[j]? with
+    | none => rw [hf] at ht; cases ht
+    | some ad => rw [hf] at ht; cases ht; exact ⟨ad, rfl, hent⟩
+
+/-- The priority each function sentence's attributes state is the priority of the clause whose
+item it gives, item by item in `fnItems`'s order. -/
+theorem fn_prios : fnText.map (fun ad => AttrsAgree.prioOf ad.ax.attributes) =
+    c.allFns.flatMap (fun f => f.clauses.map (·.prio)) := by decide +kernel
+
+/-! ## The converse over Γ's content -/
+
+/-- **Every premise of Γ is a consequence of the text's function sentences** (sentence {i} through
+W1), Γ's rule items and the five parts Γ defines by predicates (`TiePair.Pre`), for every H. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → TiePair.Pre (cH H) textPats ⊧ φ :=
+  TiePair.gamma_from (shapeH H)
+'''
 
 
 def alpha_block():
@@ -2226,11 +2433,12 @@ def main(argv):
     path = os.path.join(tmpd.name, f"{name}.kompile.kore")
     open(path, "w").write(text)
     wf_ok, failing = account_check(name, path)
-    ob = obligations(name, path)
+    ob = obligations(name, path, "consistency" in hand)
     um0, ua = user_axioms(text)
     head, sents = probe(name, path, um0, ob["order_list"])
-    if "consistency" in hand and not ob["agree"]:
-        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement")
+    if "consistency" in hand and not (ob["agree"] or ob["match"] or ob["owed"]):
+        raise Refused(f"{name}: --hand consistency is for a text that owes an agreement, a match independence or a "
+                      f"condition")
     laws, open_laws = nested(head["lawIx"]), nested(head["openLawIx"])
     if any(len(l) != 1 for l in laws) or len({l[0] for l in laws}) != len(laws):
         raise Refused(f"{name}: a law of the reader (`Definition.laws`) is not, as written, exactly one sentence of the user module")

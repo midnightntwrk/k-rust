@@ -39,11 +39,17 @@ namespace KCore
 
 open ML Faithful HoldsShape
 
-/-- The existential variables of a clause are in scope, apart and in no pattern or condition of
-the left side, and its right-side predicate is sorted. -/
-def Semantics.clauseExOK (c : Semantics) (cl : Clause) : Bool :=
-  cl.exs.all (· < cl.vars.length) && nodup cl.exs && cl.exs.all (fun i => !cl.leftVars.contains i) &&
-    c.condOK cl.vars cl.post
+/-- **`clausePlainEx` with `clauseExOK` and `clausesPlain`'s other two conjuncts gives
+`clausePlainOpenEx`**: the latter is the former without "each existential variable is of a confined
+sort or fixed by the predicate", which the value model does not read. -/
+theorem Semantics.clausePlainOpenEx_of_plainEx {c : Semantics} {cl : Clause}
+    (h : (c.clausePlainEx cl && c.clauseExOK cl && (cl.pre.isTop || !cl.needsWitness c) &&
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)) = true) :
+    c.clausePlainOpenEx cl = true := by
+  simp only [Semantics.clausePlainEx, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨h1, -⟩, h2⟩, h3⟩, h4⟩ := h
+  simp only [Semantics.clausePlainOpenEx, Bool.and_eq_true]
+  exact ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
 
 namespace CE
 

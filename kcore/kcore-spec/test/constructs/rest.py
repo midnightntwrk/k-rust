@@ -793,7 +793,6 @@ READER_OWED = [
     ("RDR.read-hook-assoc", ["rdr-hook-assoc"]),
     ("RDR.read-keq-only", ["rdr-keq-only"]),
     ("RDR.read-pred-rule", ["rdr-pred-rule"]),
-    ("RDR.kvar-token-sort", ["E6 module:KVAR-SYNTAX", "E6 hook:KVAR.KVar:SortKVar", "E6 token:SortKVar"]),
 ]
 OWED_STATUSES = ("supported", "parameter", "inert")
 
