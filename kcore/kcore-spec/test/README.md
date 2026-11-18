@@ -1551,8 +1551,15 @@ table above, on the tree before String and Bytes). Not investigated here.
   `neFloatEq` (`KcoreSpec/LibEvFloat.lean`, `fnNeFloat_ev`), and so at `HookParams.lib`; the
   `functional` sentences of `--Float`, `absFloat`, `ceilFloat`, `floorFloat`, `truncFloat`,
   `isInfinite`, `isNaN` for every H meeting `silentTotal`, of `precisionFloat`,
-  `exponentBitsFloat` for every H. The header lists 321 (1673) and 380 (1671) and why they are not
-  tied. 1.9 GiB, 6 s. Axioms guarded.
+  `exponentBitsFloat` for every H; 321 (`isInfinite`, 1673) for every H meeting `isInfiniteEq`
+  (`fnIsInfinite_ev`, over `KcoreSpec/FloatUnpack.lean`'s `KFloat.isInf_unpack`), and so at
+  `HookParams.lib`. The header lists 380 (1671) and why it is not tied. Axioms guarded.
+- `test/FloatUnpack.lean`: facts of Lean core's float model at every format it covers
+  (`KcoreSpec/FloatUnpack.lean`): the datum of every encoding is a normal or subnormal datum of the
+  format (`datum_unpack`, `unpack_finite_bounds`), `unpack` after `pack` is the identity there
+  (`unpack_pack`), `round` keeps a value at its target exponent (`round_of_target`), `maxValue` is
+  `(2^p − 1)·2^(bias − (p − 1))` (`maxValue_eq`, `exact_maxValue`), and a datum is infinite exactly
+  when it lies above `maxValue` or below its negation (`isInf_unpack`). Axioms guarded.
 - `test/CondResort.lean`: a condition's predicate at the sort variable `R`
   (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
   `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
