@@ -551,3 +551,10 @@ breaks = "the priority premise of the rules (prioRuleK, T1): a rule of priority 
 refutation = ["test/EnsuresRule.lean: EnsRulePrio.stuck_ft"]
 at = "the interpretation the reader gives the text only: no statement at another H is written"
 argument = "on the ensrule-prio text (assume(B, C) => ok() requires C ensures B of priority 50 beside assume(_, _) => stuck() of priority 60) the rule of priority 50 applies at assume(false, true) with its ensures false; the changed Step.rule steps assume(false, true) to stuck() by the rule of priority 60, against stuck_ft. The text applies no function and no parameter symbol, so the evaluation reads no interpretation; the statement for every H is not written (Cert.stuckCheck does not accept a configuration at which a rule applies without a successor, so Cert.stuckCheck_sound does not give it)."
+
+[kernel."step-pre-ignored"]
+summary = "Step.rule loses hpre: a rule steps where its left side matches and its requires is true, whatever its premise predicate pre"
+breaks = "Step.rule's premise hpre: a requires read conjunct by conjunct has its first conjunct as req and each other conjunct in pre, so the rule axiom's left side is lhs ∧ (req = true) ∧ pre and the rule says nothing of a configuration at which pre is false"
+refutation = ["test/Guards.lean: KCore.Guards.DevAndBool.and_steps"]
+at = "every H"
+argument = "on K 7.1.337's mlreqv text (go(B) => done requires true #And B, the text's only rule) the rule's req is true and its pre is B = true; at go(false) the left side matches with B false, req evaluates to true, and only pre is false. The changed Step.rule's premises there are those the kernel as written has on DevAndBool.c1, the same rules with pre read as \\top (evaluation and matching read no rules, test/EnsBridge.lean's evalTerm_rules and patVal_rules), where and_first_steps derives the step from go(false) to done for every H; so the changed kernel steps go(false) to done for every H, against and_steps' second conjunct. Its first conjunct, the step from go(true), holds in both."
