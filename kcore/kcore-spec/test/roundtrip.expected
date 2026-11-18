@@ -59,6 +59,7 @@ differs f2-examples/e2-macro-plain.kompile.kore
 differs f2-examples/e2-simp-true-prio.kompile.kore
 differs f2-examples/e2-simp-true.kompile.kore
 differs f2-examples/e2-simplification.kompile.kore
+differs f2-examples/e2-unit-ctor.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-fn.kompile.kore
 cannot f2-examples/e3-setvar-rewrite-req.kompile.kore
 differs f2-examples/e3-setvar-rewrite.kompile.kore
