@@ -59,6 +59,7 @@ differs f2-examples/defcfg.kompile.kore
 differs f2-examples/e1-module.kompile.kore
 differs f2-examples/e1-sentences-nocoollike.kore
 differs f2-examples/e1-sentences.kompile.kore
+differs f2-examples/e1-starinit.kompile.kore
 differs f2-examples/e1-syntax.kompile.kore
 differs f2-examples/e1-tag.kompile.kore
 differs f2-examples/e2-cells-exit.kompile.kore
@@ -106,6 +107,7 @@ differs f2-examples/e7-constfold.kompile.kore
 differs f2-examples/e7-freshconfig.kompile.kore
 differs f2-examples/e7-guardors.kompile.kore
 differs f2-examples/e7-implicitk.kompile.kore
+differs f2-examples/e7-projuser.kompile.kore
 differs f2-examples/e7-removeunit.kompile.kore
 differs f2-examples/e8-disable-ceil-simplification-rules.kompile.kore
 differs f2-examples/e8-main-module.kompile.kore
