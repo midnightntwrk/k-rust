@@ -411,12 +411,36 @@ end HandArg
 
 /-! ## Without kernel decisions of the theory's lists
 
-`GenEqs.rootedListsB_holds` gives rootedness of every semantics. -/
+`GenEqs.rootedListsB_holds` gives rootedness of every semantics, and `GenEqs.nameFree_of_argProj`
+freeness of a constructor argument's projection from the conditions the account's arm checks of its
+name; `GenEqs.model_with_eqns_argProj` puts them together with `spareSymB_of_argProj`. -/
 
 namespace General
 
 /-- Every semantics' lists are rooted. -/
 example (c : Semantics) : rootedListsB c = true := rootedListsB_holds c
+
+/-- The symbols a premise holds are the semantics' own, `inj` or `Lblite`. -/
+example (c : Semantics) (h : c.coreOK = true) :
+    ∀ φ, (Faithful.Γc c ∪ Faithful.Γstep c) φ → ∀ n, KoreAML.Sym.symbol n ∈ psyms φ →
+      n ∈ regSymNames ++ c.symNames ∨ n = "" ∨ n = "inj" ∨ n = "Lblite" :=
+  premise_symbols c h
+
+/-- `HandArg`'s model, from the arm's conditions on the two names alone. -/
+theorem handArg_eqns :
+    ∃ I : ML.Interpretation KoreAML.Sym Faithful.Model.Elem,
+      (I ⊧ᴵP (Faithful.Γc HandArg.c ∪ Faithful.Γstep HandArg.c)) ∧
+      (I ⊧ᴵ (symP HandArg.left ⬝ den HandArg.c HandArg.pairV ≡ den HandArg.c HandArg.leafV)) ∧
+      ∀ x y : Config HandArg.c, Step HandArg.c x y ↔
+        ¬ (I ⊧ᴵ (den HandArg.c x.val ⇒ ∼ KoreAML.sNext (den HandArg.c y.val))) := by
+  obtain ⟨hl, hp, -⟩ := HandArg.sorts
+  obtain ⟨I, h1, h2, h3⟩ := model_with_eqns_argProj HandArg.c HandArg.coreOK HandArg.fnHyp HandArg.argNames
+    HandArg.argG (fun n hn => by
+      simp only [HandArg.argNames, HandArg.names, List.mem_cons, List.not_mem_nil, or_false] at hn
+      rcases hn with rfl | rfl <;> exact ⟨by decide, by decide +kernel, by decide +kernel⟩)
+  refine ⟨I, h1, h2 _ (by simp [HandArg.argNames, HandArg.names]) _ _ _ _ hp hl ?_, h3⟩
+  simp only [HandArg.argG, ↓reduceIte, HandArg.pairV, argFn_ctor]
+  rfl
 
 end General
 
@@ -448,5 +472,11 @@ end General
 
 /-- info: 'KCore.GenEqs.rootedListsB_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms rootedListsB_holds
+/-- info: 'KCore.GenEqs.premise_symbols' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms premise_symbols
+/-- info: 'KCore.GenEqs.argProj_free_of_genEqClassOK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms argProj_free_of_genEqClassOK
+/-- info: 'GenEqsLemmas.General.handArg_eqns' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms General.handArg_eqns
 
 end GenEqsLemmas
