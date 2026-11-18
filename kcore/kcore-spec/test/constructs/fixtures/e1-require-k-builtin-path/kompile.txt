@@ -1,0 +1,11 @@
+command: kompile --backend haskell e1-require-k-builtin-path.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.5
+definition.kore bytes: 202169
+definition.kore sha256: 96b928e1aec67706d535a21416c0f8248f0b357def845e4a7eab4028d523c075
+stripped sha256: 3a18e85103bd5a088be99e62db5605f7b101b187c622df1739de12eb84b3d077
+main module: 390 sentences, 33 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-REQUIRE-K-BUILTIN-PATH-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E1-REQUIRE-K-BUILTIN-PATH as default.
