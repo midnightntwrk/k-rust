@@ -3425,14 +3425,15 @@ def gapCmd (koreFile : String) (all : Bool) : IO UInt32 := do
     let (mn, j, s) := ts[i]!
     if mn != userName then [] else
       let n := off + j
-      (match Parse.classify N s with
+      ((match Parse.classify N s with
         | .readAs r => [r.name]
         | .unread r => [s!"unread {r.name}"]
         | .inert r => if Parse.ctorInert? s |>.isSome then (if uninduced.contains n then [] else [s!"{r.name} induced"]) else [s!"inert {r.name}"]
         | _ => []) ++
-      ((conn.lookup n).getD []).map (·.name) ++ (if (keys.lookup n).isSome then ["keysAsMember"] else []) ++
+      ((conn.lookup n).getD []).map (·.name) ++
+      (if (keys.lookup n).isSome then [Parse.ReadingNote.keyFunctionAsMember.name] else []) ++
       (if narrowed.contains n then ["owiseDisjunctNarrower"] else []) ++
-      (if tokOmitted.contains n then ["tokKItem"] else [])
+      (if tokOmitted.contains n then ["tokKItem"] else [])).eraseDups
   let notHeld := (List.range ts.size).filter fun i => (gapKind d ts[i]!.2.2).2 && !held i
   let noted := notHeld.filter fun i => !(notesOf i).isEmpty
   let unnoted := notHeld.filter fun i => (notesOf i).isEmpty

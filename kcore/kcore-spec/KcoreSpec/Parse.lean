@@ -12,11 +12,13 @@
 
   Every sentence of the user module has a class (`classify`): read, inert with the reason the
   semantics does not read it, or refused with the reason. The class reads the sentence and the
-  definition's names (`Names`), and the names only for the note of a conjunction of terms on a
-  rule's right side: whether it is read through the cut depends on which symbols are constructors,
-  which the sentence alone does not say (`andCutTaken`). Without the names (`classifyShape`) the
-  class is the same but for that note. `parse` scans the sentences classified read and no other
-  (`scan`, which reads `classifyShape`). A text it does not read gives a `Refusal`: the
+  names the scan builds from the text's declarations (`Names`, `namesOf`), and the names only for
+  two notes of a rule: whether a conjunction of terms on its right side is read through the cut
+  depends on which symbols are constructors (`andCutTaken`), and whether a map key of its left side
+  is read as a fresh variable on which symbols are the definition's functions (`keyCutFns`), which
+  the sentence alone does not say. Without the names (`classifyShape`) the class is the same but for
+  those two notes. `parse` scans the sentences classified read and no other (`scan`, which reads
+  `classifyShape`). A text it does not read gives a `Refusal`: the
   sentence's position in the file, its head, and the reason, one of `RefusalReason`'s.
 -/
 import KcoreSpec.Emit
@@ -685,9 +687,11 @@ inductive ReadingNote where
   with a fresh variable Key in the key's place and the membership `Key ∈ f(t̄)` a conjunct of its
   `pre`, its `requires` and right side as written. The read rule is the text's in every
   interpretation, with no premise: the text's left side is `∃Key. C[Key] ∧ Key ∈ f(t̄)` (the block of
-  `keyCut` says why). No sentence is classified so (`classify` reads one sentence and, of the names,
-  only what decides the cut of a conjunction of terms (`andCutTaken`), not which symbols are the
-  definition's functions): the account lists the rules read so (`keysAsMember`). -/
+  `keyCut` says why). Whether a key is read so is decided by the names, which list the definition's
+  functions (`Names.keyFns`), and the sentence (`keyCutFns`): a rewrite axiom read through no
+  connective note (`connNote?`) is classified so where `keyCutFns` gives a function, and the account
+  lists every rule read so with its functions (`keysAsMember`), a rule read through a connective
+  note too. -/
   | keyFunctionAsMember
   /-- A function equation of priority p (`priority{}("p")`, 50 without the attribute) read in `Γ`
   with the premise that no executable clause of the function of a smaller priority applies
@@ -731,9 +735,12 @@ inductive ReadingNote where
   (`KCore.owise_disjunct_narrower`, stated on the translated sentences with the disjunct as read,
   `svinExcl?`), and `Γ` leaves out what the text's states where the two arguments differ. There the
   text states the `[owise]` equation's value and the excluded equation's; where those differ the
-  text has no model, which `Γ` does not refute. No sentence is classified so (`classify` reads one
-  sentence, and of the names only what decides the cut of a conjunction of terms, and the `[owise]`
-  sentence alone is also the one written beside an equation whose disjunct is exact): the account lists the `[owise]` equations read so (`owiseNarrowed`). -/
+  text has no model, which `Γ` does not refute. No sentence is classified so: whether a disjunct is
+  narrower depends on the equation it excludes, another sentence of the text (an equation read
+  through `setVarInDropped`, or one written with one variable at both arguments, whose disjunct is
+  then exact), and neither the `[owise]` sentence nor the names, which the scan builds from the
+  text's declarations, hold that sentence. The account lists the `[owise]` equations read so
+  (`owiseNarrowed`). -/
   | owiseDisjunctNarrower
   /-- A rewrite axiom whose right side is an application `σ{S}(φ)` of an alias of K's prelude
   (`preludeAliases`; kompile writes `weakAlwaysFinally{S}(\and(rhs, ens))` for a rule of a module
@@ -794,10 +801,11 @@ inductive ReadingNote where
   domain value), `inj{X, KItem}` of it is an element of KItem (Cons-Fun) apart from the image of
   every other generator (Cons-Dist), and the text's sentence says it is in one of them, so the
   text's sentence with `Γ` has no model. The reading keeps the subsort that the text's application
-  of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so
-  (`classify` reads one sentence and, of the names, only what decides the cut of a conjunction of
-  terms, not which sorts the definition has): the account lists the sentences and the sorts
-  (`tokKItemOmitted`). -/
+  of `inj{X, KItem}` needs and leaves out the sentence's exclusion. No sentence is classified so:
+  the sorts below KItem are the definition's own and the library's that the imported builtin modules
+  read below KItem (`Lib.sortsBelowKItem`, from the imports), and the names list the definition's
+  own sorts only (`Names.sorts`), so the sentence and the names do not decide whether it leaves one
+  out. The account lists the sentences and the sorts (`tokKItemOmitted`). -/
   | tokKItem
   deriving Repr, DecidableEq, Inhabited
 
@@ -4083,7 +4091,8 @@ def scanColl : Kore.Sentence → Option (String × CollKind × String × String 
 
 `classify` reads one sentence, and of the definition's names (the scan's, from the text's
 declarations) only what decides the cut of a conjunction of terms on a rule's right side
-(`andCutTaken`, the one test `ruleBody` takes it by). A sentence is read when `parse` reads it: a declaration, a
+(`andCutTaken`, the one test `ruleBody` takes it by) and the map keys of a rule's left side read as
+fresh variables (`keyCutFns`, the keys `keyCut` reads so). A sentence is read when `parse` reads it: a declaration, a
 rewrite axiom, a function equation, a `subsort` or `functional` axiom, KItem's no-junk axiom
 (whose order the presentation keeps), or a sentence of a builtin module (whose source and line
 name the module the definition imports). It is inert when the semantics does not read it, for
@@ -4281,6 +4290,18 @@ def connNotes (N : Names) (a₀ : Kore.Axiom) : List ReadingNote :=
 `connNotes`. -/
 def connNote? (N : Names) (a : Kore.Axiom) : Option ReadingNote := (connNotes N a).head?
 
+/-- The functions of the definition (`Names.keyFns`) applied as a map key that `keyCut` reads as a
+fresh variable in the left side of a rule the rewrite axiom gives (`scanRewrites`), the left side
+read as the rule's (`term` of `lhsBound`, as `ruleBodyAnd` reads it), each function once
+(`ReadingNote.keyFunctionAsMember`). None where the names list no function (`Names.empty`). -/
+def keyCutFns (N : Names) (a : Kore.Axiom) : List Sym :=
+  if N.keyFns.isEmpty then [] else
+  ((scanRewrites (.axiom a)).flatMap fun b => match b.pattern with
+    | .rewrites _ (.and _ [l, _]) _ => match term N [] (lhsBound b.pattern l) with
+      | .ok (lhs, _) => (keyCuts N.keyFns lhs 0).2.2.map (·.2.1)
+      | .error _ => []
+    | _ => []).eraseDups
+
 /-- The symbol and the variable of an axiom `∃B. (φ₁ ∧ … ∧ φₙ)`, n ≥ 2, one of whose conjuncts is
 `f(x̄) = B` or `B = f(x̄)`, with B the variable bound (`existentialAxiom`). A conjunction: a
 `functional` or `subsort` axiom, `∃B. B = f(x̄)`, states that the application has one element. -/
@@ -4345,7 +4366,7 @@ def classifyAxiom (N : Names) (a : Kore.Axiom) : SentenceClass :=
   else if (scanRewrite s).isSome || (scanEqn s).isSome then
     match connNote? N a with
     | some n => .readAs n
-    | none => .read
+    | none => if (keyCutFns N a).isEmpty then .read else .readAs .keyFunctionAsMember
   else if (scanEvent s).isSome || (scanOr s).isSome then .read
   else if (source? a.attributes).isNone && hasAttr a.attributes "constructor" then
     match ctorAxiomClass a with
@@ -4394,7 +4415,9 @@ def symAttrFault? (as : List Kore.AppPattern) : Option (RefusalReason × String)
 
 /-- The class of a sentence of the user module, from the sentence and the definition's names: the
 names decide only whether a conjunction of terms on a rule's right side is read through the cut
-(`andTermsCut`, `andCutTaken`) or with the `ensures` of the conjuncts' equality (`andTermsWeaker`). -/
+(`andTermsCut`, `andCutTaken`) or with the `ensures` of the conjuncts' equality (`andTermsWeaker`),
+and whether a map key of a rule's left side applying a function of the definition is read as a
+fresh variable (`keyFunctionAsMember`, `keyCutFns`). -/
 def classify (N : Names) : Kore.Sentence → SentenceClass
   | .import _ => .inert .import
   | .claim c => match attrFault? .claim .outsideE2 c.attributes with
@@ -4429,8 +4452,9 @@ def classify (N : Names) : Kore.Sentence → SentenceClass
 
 /-- The names of no definition. With them `classify` gives each sentence its class but for the note
 of a conjunction of terms on a rule's right side, which reads the definition's constructors
-(`andCutTaken`): there it gives `andTermsWeaker`. Read, refused, inert and unread do not read the
-names. -/
+(`andCutTaken`): there it gives `andTermsWeaker`; and for the note of a map key applying a function,
+which reads the definition's functions (`keyCutFns`): there it gives `read`. Read, refused, inert and
+unread do not read the names. -/
 def Names.empty : Names := { sorts := [], syms := [] }
 
 /-- A sentence's class without the names (`Names.empty`): what the scan reads to tell the read

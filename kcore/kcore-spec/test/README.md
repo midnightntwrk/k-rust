@@ -1921,3 +1921,10 @@ table above, on the tree before String and Bytes). Not investigated here.
   40 of `f2-examples/base.kompile.kore`: associativity, right unit, left unit), each left inert by the
   reader (`collectionLaw`) and entailed by Γ at values for every H (`list_laws_base`,
   `InertEv.listLaw_ev`).
+- `test/ClassNamesNotes.lean`: the two notes of a rule that the class reads from the names
+  (`Parse.classify` at `Parse.namesOf`), each against the rule read: on mlandt, mlandc, mlandv and
+  mlorand the notes hold `andTermsCut` exactly where a rule read (`ruleOf`) is not the one read
+  without the cut (`ruleBodyUncut`), all four taking it; on keyfn, its edit with the key's argument
+  bound only inside the key, keyfn-both and keyfn-partial the class is `read keyFunctionAsMember`
+  exactly where the rule read holds the fresh variable of a cut key (`keyCutFns`), and the account's
+  line (`keysAsMember`) lists those axioms.
