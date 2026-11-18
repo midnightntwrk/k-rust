@@ -1889,6 +1889,16 @@ table above, on the tree before String and Bytes). Not investigated here.
   and Γ's item gives the sentence (`TieRuleLhs.lhs_entails`). Expectations from `Pre H`, by the
   executable step under `execReady`: `and_true` (`go(true)` steps to `done`), `and_false`
   (`go(false)` has no successor, with `Γstep`). About 5 minutes.
+- `test/NoteMapKeyFn.lean`: the tie (C14) of the reading note `keyFunctionAsMember` on its construct
+  fixture's kompiled text (`f2-examples/mapkeyfn`, e3-map-key-fn: `<m> key(X) |-> V ... </m>`, `key`
+  a total function), for every H. Γ's rule item is the sentence with a variable K of Int in the
+  place of `key(X)` and the conjuncts `K ∈ key(X)` and `⌈r⌉` more (`rule_text`, the variables after
+  K renamed down by one); every element of its left side is one of the sentence's (`left_sub`: the
+  conjunct puts K's value in `key(X)`, and application contexts and conjunctions are monotone), so
+  the sentence with `ΓSig` entails it (`rule_from_text`). `defs_attrsAgree`, `fns_entailed`,
+  `cons_entailed`, `account`, `consistent`. Expectations from `Pre H`: `get_steps` (with the map
+  `2 |-> 7`, `get(1)` steps to 7) and `get_absent` (`get(0)` has no successor, with `Γstep`). About
+  2 minutes, 6.5 GiB.
 - `test/CoherentExs.lean`: why `Coherent` asks, of a first clause with existential variables, that
   each of its instances is decided by terms with one result (`InstDet`). `CoherentPrem` is
   `Coherent` with the premises on the right-hand side and the `ensures` granted at the match for

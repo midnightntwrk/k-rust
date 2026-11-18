@@ -184,6 +184,7 @@ differs f2-examples/lawfn.kompile.kore
 exact f2-examples/lazy.kore
 differs f2-examples/libsub.kompile.kore
 differs f2-examples/lset.kompile.kore
+differs f2-examples/mapkeyfn.kompile.kore
 differs f2-examples/mapl.kompile.kore
 cannot f2-examples/mlag.kompile.kore
 cannot f2-examples/mlallexp.kompile.kore
