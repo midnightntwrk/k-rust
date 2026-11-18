@@ -20,9 +20,18 @@
   - `step_of_successor_exCEx`, `sound_at_ce`, `famEx_closed_ce` and `complete_at_ce` at `cCeV`, at the
     step by `r0` from the counter 1 to the counter 0 (`successor_cfg`, `sound_x1`, `famEx_x1`,
     `complete_x1`) and at every step.
+  - `HypModelCore`, `ClausePreDecided` and `ClausePostDecided` hold of `cCeV` (`cCeV_hypModelCore`,
+    `cCeV_preDecided`, `cCeV_postDecided`), from `coreOKEx` and `FnHyp`; so its theory with the step's
+    closure has a model (`cCeV_consistent`, by `consistent_ce`).
+  - `has_model_choice_exCEx` at `T := Step cCeV` (`cCeV_model_step`): a model of `Γc` with the step's
+    closure in which a configuration has exactly the configuration with the counter 0 as successor.
+    So the models `successor_cfg` speaks of exist (`cCeV_has_model`), and in one of them the
+    configuration with the counter 1 has the one with the counter 0 as successor and not itself
+    (`cCeV_model_x1`).
 -/
 import KcoreSpec.SoundCE
 import KcoreSpec.StepSuccessorExCEx
+import KcoreSpec.ExChoiceCEx
 import KcoreSpec.SubjectReduction
 import KcoreSpec.EvalLemmas
 import KcoreSpec.Invariant
@@ -783,6 +792,52 @@ theorem complete_x1 :
       (den cCeV x1.val ⇒ KoreAML.allNext (KoreAML.disjList ([Outcome.val y0.val].map (Outcome.pat cCeV)))) :=
   complete_cfg x1 _ _ rfl
 
+/-! ## The model -/
+
+theorem cCeV_hypModelCore : Faithful.Model.HypModelCore cCeV :=
+  Faithful.Model.hypModelCore_of_coreEx cCeV_coreOKEx (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).1
+    (fnModel_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp).2
+
+theorem cCeV_preDecided : ClausePreDecided cCeV := clausePreDecided_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp
+
+theorem cCeV_postDecided : ClausePostDecided cCeV := clausePostDecided_of_fnHypCEx cCeV_coreOKEx cCeV_fnHyp
+
+/-- **`consistent_ce` at `cCeV`**: the theory of the text with the rule `r0` has a model. -/
+theorem cCeV_consistent : Consistent cCeV :=
+  Faithful.Model.consistent_ce cCeV cCeV_hypModelCore cCeV_preDecided cCeV_postDecided cCeV_openLaws
+
+/-- **`has_model_choice_exCEx` at `cCeV`, at `T := Step cCeV`**: a model of `Γc` with the step's
+closure in which x has y as a successor exactly where y is x with the counter 0. -/
+theorem cCeV_model_step :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ∀ x y : Config cCeV, (∃ k n, x.val = cfgV k n ∧ y.val = cfgV k i0) ↔
+        ¬ (I ⊧ᴵ (den cCeV x.val ⇒ ∼ KoreAML.sNext (den cCeV y.val))) := by
+  obtain ⟨M, hM, I, hI, hT⟩ := has_model_choice_exCEx cCeV cCeV_coreOKEx cCeV_fnHyp cCeV_rules (Step cCeV)
+    (fun _ _ h => h) (fun _ _ r σ hb _ => step_iff_by.mpr ⟨r, σ, hb⟩)
+    (fun _ y r σ hb => ⟨y, σ, fun _ _ => rfl, hb, step_iff_by.mpr ⟨r, σ, hb⟩⟩)
+  exact ⟨M, hM, I, hI, fun x y => (step_iff x y).symm.trans (hT x y)⟩
+
+/-- The models `successor_cfg` speaks of exist. -/
+theorem cCeV_has_model :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV) := by
+  obtain ⟨M, hM, I, hI, -⟩ := cCeV_model_step
+  exact ⟨M, hM, I, hI⟩
+
+/-- In a model of `Γc` with the step's closure, the configuration with the counter 1 has the one with
+the counter 0 as a successor, and not itself. -/
+theorem cCeV_model_x1 :
+    ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
+      (I ⊧ᴵP (Faithful.Γc cCeV ∪ Faithful.Γstep cCeV)) ∧
+      ¬ (I ⊧ᴵ (den cCeV x1.val ⇒ ∼ KoreAML.sNext (den cCeV y0.val))) ∧
+      (I ⊧ᴵ (den cCeV x1.val ⇒ ∼ KoreAML.sNext (den cCeV x1.val))) := by
+  obtain ⟨M, hM, I, hI, hT⟩ := cCeV_model_step
+  refine ⟨M, hM, I, hI, (hT x1 y0).mp ⟨_, _, rfl, rfl⟩, Classical.byContradiction fun hn => ?_⟩
+  obtain ⟨k, n, -, hy⟩ := (hT x1 x1).mpr hn
+  have hc : cfgV (.ctor dotk []) (.dv Srt.int (.int 1)) = cfgV k i0 := hy
+  simp [cfgV, i0] at hc
+
 end KCore.CeValueTest
 
 #check @KCore.CeValueTest.cCeV
@@ -804,3 +859,12 @@ end KCore.CeValueTest
 #print axioms KCore.CeValueTest.famEx_x1
 #print axioms KCore.CeValueTest.complete_cfg
 #print axioms KCore.CeValueTest.complete_x1
+#check @KCore.has_model_choice_exCEx
+#check @KCore.stdI_T_modelCEx
+#print axioms KCore.has_model_choice_exCEx
+#print axioms KCore.CeValueTest.cCeV_hypModelCore
+#print axioms KCore.CeValueTest.cCeV_postDecided
+#print axioms KCore.CeValueTest.cCeV_consistent
+#print axioms KCore.CeValueTest.cCeV_model_step
+#print axioms KCore.CeValueTest.cCeV_has_model
+#print axioms KCore.CeValueTest.cCeV_model_x1
