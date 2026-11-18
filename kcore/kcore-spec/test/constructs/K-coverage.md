@@ -33,12 +33,12 @@ Nested entries by status:
 | E2 | 58 | 6 | 0 | 1 | 0 | 51 | 0 | 0 |
 | E3 | 82 | 33 | 0 | 2 | 0 | 47 | 0 | 0 |
 | E4 | 48 | 18 | 0 | 6 | 0 | 24 | 0 | 0 |
-| E5 | 57 | 31 | 1 | 5 | 0 | 20 | 0 | 0 |
+| E5 | 58 | 31 | 1 | 5 | 0 | 21 | 0 | 0 |
 | E6 | 30 | 8 | 0 | 0 | 0 | 22 | 0 | 0 |
-| E7 | 9 | 4 | 1 | 1 | 0 | 3 | 0 | 0 |
+| E7 | 9 | 4 | 1 | 0 | 0 | 4 | 0 | 0 |
 | E8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 34 | 14 | 0 | 2 | 1 | 17 | 0 | 0 |
-| all | 325 | 117 | 2 | 17 | 1 | 188 | 0 | 0 |
+| all | 326 | 117 | 2 | 16 | 1 | 190 | 0 | 0 |
 
 Refused rows by class:
 
@@ -63,12 +63,12 @@ Refused nested entries by class:
 | E2 | 51 | 3 | 0 | 4 | 44 |
 | E3 | 47 | 12 | 2 | 32 | 1 |
 | E4 | 24 | 14 | 4 | 0 | 6 |
-| E5 | 20 | 10 | 0 | 5 | 5 |
+| E5 | 21 | 10 | 1 | 5 | 5 |
 | E6 | 22 | 2 | 1 | 3 | 16 |
-| E7 | 3 | 0 | 0 | 0 | 3 |
+| E7 | 4 | 0 | 0 | 0 | 4 |
 | E8 | 0 | 0 | 0 | 0 | 0 |
 | C3 | 17 | 8 | 4 | 2 | 3 |
-| all | 188 | 49 | 11 | 47 | 81 |
+| all | 190 | 49 | 12 | 47 | 82 |
 
 ## Entries of class R-c (59)
 
@@ -906,6 +906,7 @@ Not core:
 | cases[2]: B12 macro/alias symbol | inert |  | the declaration is unread (UnreadReason.macroUnused); an application is refused macroSymbol. kompile has expanded every application, so none remains under R-12 |  |  |  |  |  |  |
 | cases[3]: B13 sort-parametric user symbol | refused | R-a |  |  |  |  |  |  |  |
 | cases[4]: B55 default configuration cell | supported |  |  |  |  |  |  |  |  |
+| cases[5]: the declaration of LblisMInt in a text that declares SortMInt twice | refused | R-b | A text declaring one sort twice is no valid KORE definition (kore-syntax.md:301, :309): the frontend's text for a K sort named MInt without parameters holds \`sort SortMInt{} []\` beside the prelude's \`hooked-sort SortMInt{SortS0}\`, and its declaration of LblisMInt{} is in that text only. The reader's… |  | none (R-b): no shape (ill-formed) | rdr-own-mint |  |  | kore-syntax.md:309: "Every sort, symbol, and alias must have a unique (in the definition) name. No sort, symbol, or alias may be declared more than once."; fixtures/rdr-own-mint/kompile.txt: exit 113, kore-exec 0.1.155 Error (ErrorVerify): Duplicated name: SortMInt (definition.kore 80:15, 72:8); fix… |
 | `genAssocAxiom:axiom#1` | inert |  | B25 inert |  |  | base |  |  | K-coverage.md Part B rows 25 |
 | cases[0]: the associativity axiom of a hooked function the registry interprets (plus [function, total, hook(INT.add), assoc]) | supported |  | the text states plus(plus(K1, K2), K3) = plus(K1, plus(K2, K3)) for every element (the axiom kompile writes for assoc) of a symbol declared [function, total, hook(INT.add)]. The sentence is not in Γ and is owed as the hypothesis FnLaws, as the same axiom of a function with clauses is (e2-fn-assoc).… | none (reader only: Parse.fnLawHead; FnLaws and LawAt read the law at values as they are) |  | rdr-hook-assoc |  |  | fixtures/rdr-hook-assoc/account.txt: \`law axioms of no collection's concatenation: 0\`, \`sentence 249 (Lblplus): fnLaw (assoc): FnLaws owed, open\`, \`coreOK: true\`, \`refused by the account: 0\`; test/HookAssocLaw.lean Add.laws\_eq, Add.entries, Add.fnLaws (FnLaws at every H); KcoreSpec/LawHookAssoc.lean… |
 | cases[1]: the associativity axiom of a symbol that kept constructor (a hand-written text: kompile drops constructor from a product… | refused | R-a | plus(plus(x, x), x) = plus(x, plus(x, x)) with plus injective gives plus(x, x) = x, which the no-confusion axiom of plus and x denies: the text has no model. Nothing is added to Γ for the axiom, and the account refuses it (Account.lawUnmatched). |  | none (R-a): with a second constructor in the sort the axiom contradicts the constructor's no-confusion axioms, so the text has no model (designs/CN-4-constructs.md section 5, lawAxiom (ii)) | hw-law-ctor |  |  | fixtures/hw-law-ctor/account.txt: \`sentence 161 (Lblplus): lawAxiom (Lblplus: assoc)\`, \`sentence 162 (Lblplus): lawAxiom (Lblplus: idem: idempotence of a constructor contradicts its no-confusion axioms)\`, \`refused by the account: 2\` (c3-ctor-law-base's kompiled text, plus a constructor of Exp beside… |
@@ -1846,7 +1847,7 @@ Not core:
 | `14:guardOrs` | supported |  | the pass leaves \`\\or\` on the rule's left side; see E3 group ml-or: the sentence is one rule per disjunct. | none (reader only) |  | e7-guardors |  |  | fixtures/e7-guardors |
 | `15:resolveFreshConfigConstants` | supported |  | the pass's product is ordinary sentences (declarations, equations, rules, subsort axioms) that the reader reads as written; KCore's anchor is the text after the pass, and the pass itself is in the trusted base (DONE-0 section 0, trusted base 3). Cases the passes distinguish: constantFolding writes t… | none (reader already reads it) |  | e7-freshconfig |  |  | each row's fixture: account \`parse: ok; wf true\` (e3-k, e3-withconfig, e1-sentences, e3-casts, e1-module, e7-constfold, e7-freshconfig, e2-macro, e7-implicitk, e3-fresh, e3-cells, e7-removeunit, base, e3-kseq, e2-module-att) |
 | `16:generateSortPredicateSyntax1` | supported |  | the pass's product is ordinary sentences (declarations, equations, rules, subsort axioms) that the reader reads as written; KCore's anchor is the text after the pass, and the pass itself is in the trusted base (DONE-0 section 0, trusted base 3). Cases the passes distinguish: constantFolding writes t… | none (reader already reads it) |  | e1-module |  |  | each row's fixture: account \`parse: ok; wf true\` (e3-k, e3-withconfig, e1-sentences, e3-casts, e1-module, e7-constfold, e7-freshconfig, e2-macro, e7-implicitk, e3-fresh, e3-cells, e7-removeunit, base, e3-kseq, e2-module-att) |
-| cases[0]: the generated predicate isMInt of a sort named MInt without parameters | inert |  | the registry gives MInt (sort-parametric in the prelude) no predicate, so a declaration, functional axiom or equation of isMInt is stated by the text and not read: the theory has no such symbol and says nothing of isMInt(t), less than the text. No kompiled text reaches it: the instances kompile writ… |  |  | hw-ispred-mint |  |  | fixtures/hw-ispred-mint/account.txt: \`1 unread noSortPredicate [generated]\` (hw-base's text with a declaration of LblisMInt); fixtures/rdr-own-mint/kompile.txt: exit 113, kore-exec Error (ErrorVerify): Duplicated name: SortMInt |
+| cases[0]: the generated predicate isMInt of a sort named MInt without parameters | refused | scope | Every kompiled text holds the prelude's sort-parametric \`hooked-sort SortMInt{SortS0}\` (each of f2-examples/\*.kompile.kore; f2-examples/base.kompile.kore:79). The pass writes the predicate without a parameter, \`LblisMInt{}\`, only for a sort the K text names MInt without parameters, and the frontend… |  | none (scope): rejected | rdr-own-mint |  |  | fixtures/rdr-own-mint/kompile.txt: exit 113, kore-exec 0.1.155 Error (ErrorVerify): Duplicated name: SortMInt (definition.kore 80:15, 72:8); fixtures/hw-ispred-mint/account.txt: \`1 unread noSortPredicate [generated]\` |
 | `17:generateSortProjections1` | supported |  | the pass's product is ordinary sentences (declarations, equations, rules, subsort axioms) that the reader reads as written; KCore's anchor is the text after the pass, and the pass itself is in the trusted base (DONE-0 section 0, trusted base 3). Cases the passes distinguish: constantFolding writes t… | none (reader already reads it) |  | e1-module |  |  | each row's fixture: account \`parse: ok; wf true\` (e3-k, e3-withconfig, e1-sentences, e3-casts, e1-module, e7-constfold, e7-freshconfig, e2-macro, e7-implicitk, e3-fresh, e3-cells, e7-removeunit, base, e3-kseq, e2-module-att) |
 | cases[0]: a function of the text under the label of a sort's projection (symbol(project:Exp)), with no rule | parameter |  | the text declares \`symbol Lblproject'Coln'Exp{}(SortK{}) : SortExp{} [function{}()]\` with its source the user's file (pe(K) [function, symbol(project:Exp)]) and states no equation of it (kompile.txt exit 0; kore.txt holds no axiom of the symbol). Of a function with no equation the text states its de… | none (reader and presentation only: Parse.projUidOf and the sort's presentation (SortUids), which then present no projection equation for Exp, and Emit.userBlocks, which writes no generated projection for a sort whose projection id is empty) |  | rdr-proj-norule |  |  | fixtures/rdr-proj-norule/kompile.txt: exit 0 (kompile generates no projection where the label is declared, GenerateSortProjections.java:85-87); fixtures/rdr-proj-norule/account.txt: \`parse: ok; wf true\`, \`coreOK: true\`, \`refused by the account: 0\` |
 | cases[1]: a read sentence applies the projection: a rule applying a user sort's projection (\`rule [go]: &lt;k> run(X) => done(project… | supported |  | the text declares \`symbol Lblproject'Coln'Exp{}(SortK{}) : SortExp{} [function{}()]\` with one equation, \`project:Exp(kseq(inj{Exp,KItem}(V), dotk)) = V\`, and the rule go applies it in its right side. A symbol a read sentence applies is a symbol of Γ, and the equation defining it is Γ's item for it;… | none (reader already reads it) |  | e7-projuser |  |  | fixtures/e7-projuser: kompile.txt exit 0, stripped sha256 ab6cae71… (that of f2-examples/projuser.kompile.kore); account.txt \`stage refusals (of sentences classified read): 0\`, \`parse: ok; wf true; failing: []\`, \`coreOK: true; failing: []\`, \`refused by the account: 0\`, each obligation line 0; test/T… |
