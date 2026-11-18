@@ -140,10 +140,15 @@ theorem norm_facts : Parse.dropEmptyAlts pT ≠ pT ∧ Parse.dropEmptyAlts pT = 
     keptAlts (frSide eqT.rhs) = [(ap "Lblk" [fK], []), (ap "Lblk" [gK], [])] :=
   ⟨by decide +kernel, rfl, rfl, rfl, rfl, rfl⟩
 
-/-- The reader's sort check accepts an operand `\and{Int}(\bottom, \top{Bool})` of an `\or{Int}`: it
-does not look at a `\top`'s sort (`Parse.rhsOpSort`). The operand holds nothing, but `TightSem`
-asks its own operand `\top{Bool}` to lie in Int, so `TightSem` is no consequence of `frRead`. -/
-example : Parse.rhsSorted (.or iS [.and iS [.bottom iS, .top bS], fK, gK]) = true := by decide
+/-- The reader's sort check refuses an operand `\and{Int}(\bottom, \top{Bool})` of an `\or{Int}`:
+`\top{Bool}` states the sort Bool, not its conjunction's Int (`Parse.rhsOpSort`). The operand holds
+nothing, and `TightSem` would ask `\top{Bool}` to lie in Int. -/
+example : Parse.rhsSorted (.or iS [.and iS [.bottom iS, .top bS], fK, gK]) = false := by decide
+
+/-- Of the right side's operands, `tightSem_of_termOps` leaves the terms `k(f(X) ∨ g(X))`, `f(X)` and
+`g(X)` to show in Int: the `\or`, the lifted conjunct and `\bottom` it discharges from the sort
+check. -/
+example : (connOps pT).filter (fun x => opLeaf x.2 && !opStatedK x.2) = [(iS, kOr), (iS, fK), (iS, gK)] := rfl
 
 /-! ## The shapes -/
 
