@@ -1,0 +1,9 @@
+// other_file macros.kore: 8 lines, sha256 1f84f0e5a80211adddcc30c4366ee535873bcc9fe3b9544f8aa15749ac344f43
+// macros
+// rule m(X)=>g(X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(333eaebd1e0fe520eccd1a2923747b7c4427594506e20c4b4205a6601bbd1c0d), macro, org.kframework.attributes.Location(Location(4,8,4,20)), org.kframework.attributes.Source(Source(FIXTURE/c3-macro-rule.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \equals{SortExp{},R} (
+    Lblm{}(VarX:SortExp{}),
+    Lblg{}(VarX:SortExp{}))
+  [UNIQUE'Unds'ID{}("333eaebd1e0fe520eccd1a2923747b7c4427594506e20c4b4205a6601bbd1c0d"), macro{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,20)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/c3-macro-rule.k)"), priority{}("50")]
+
+

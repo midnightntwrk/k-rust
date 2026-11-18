@@ -65,11 +65,14 @@
   value or both none (`bitRange_eq`, `signExt_eq`); the points (`bitVals`, `bitBots`, Γ's statement
   under every interpretation); every argument list of the signature is covered (`covered_bitRange`).
   `A ^%Int B C` is "equal in value to `(A ^Int B) %Int C`" (DOM 1229-1231): at `C = 0` there is no
-  value (DOM 1233-1234), and Γ states ⊥ under every interpretation (`powmod_zero_gamma`); elsewhere
-  `hook` gives none and every point is silent (`powmod_silent`): the prose's truncating `%Int` and
-  the `smt-hook`'s Euclidean `mod` (DOM 1251) differ at a negative power the modulus does not
-  divide, and DOM 1228 says nothing of a negative exponent. None of the three is a parameter symbol
-  of a library module (`bit_not_param`).
+  value (DOM 1233-1234), and Γ states ⊥ under every interpretation (`powmod_zero_gamma`). At
+  `B ≥ 0`, `C ≠ 0`, where `A ^Int B` is not negative or `C` divides it, the value is the remainder
+  `(A ^Int B) %Int C`, the truncating one, which there is also the `smt-hook`'s Euclidean `mod`
+  (DOM 1251): Γ states it under every interpretation (`powmod_at`, `powmod_gamma`, `powmodVals`).
+  At the other points off a zero modulus `hook` gives none and the point is silent
+  (`powmod_silent`): the two remainders differ at a negative power the modulus does not divide, and
+  DOM 1228 says nothing of a negative exponent. None of the three is a parameter symbol of a
+  library module (`bit_not_param`).
 
   The row `INT.pow` (the last section), not declared `total` (DOM 1250): "Compute the
   exponentiation `^Int` of two integers" (DOM 1228). At `b ≥ 0` the one value is `a` to the power
@@ -804,7 +807,16 @@ theorem hook_signExt (x i l : Int) : hook intSignExtBitRange [int x, int i, int 
   rw [show hook intSignExtBitRange [int x, int i, int l] = some (intArgs3 [int x, int i, int l] fun x i l =>
     if i < 0 ∨ l < 1 then none else some (int (signExtVal x i l))) from rfl, intArgs3_at]
 
-theorem hook_powmod (vs : List GroundTerm) : hook intPowMod vs = some none := rfl
+/-- Where `^%Int` has a value: a non-negative exponent, a modulus other than 0, and a power that is
+not negative or that the modulus divides. -/
+def powmodStated (a b m : Int) : Prop := 0 ≤ b ∧ m ≠ 0 ∧ (0 ≤ a ^ b.toNat ∨ (a ^ b.toNat).emod m = 0)
+
+theorem hook_powmod (a b m : Int) : hook intPowMod [int a, int b, int m] =
+    some (if b < 0 ∨ m = 0 ∨ (a ^ b.toNat < 0 ∧ (a ^ b.toNat).emod m ≠ 0) then none
+      else some (int ((a ^ b.toNat).tmod m))) := by
+  rw [show hook intPowMod [int a, int b, int m] = some (intArgs3 [int a, int b, int m] fun a b m =>
+    if b < 0 ∨ m = 0 ∨ (a ^ b.toNat < 0 ∧ (a ^ b.toNat).emod m ≠ 0) then none
+    else some (int ((a ^ b.toNat).tmod m))) from rfl, intArgs3_at]
 
 /-- `hook`'s value of an interpreted symbol at values, none where it has none: what Γ states of the
 application where the point is not silent. -/
@@ -925,19 +937,62 @@ theorem powmod_zero_gamma (c : Semantics) (H : HookParams) (a b : Int) :
     Γ (c.withHooks H) (appP (c.withHooks H) (sig intPowMod) [int a, int b, int 0] ≡ ⊥) := by
   obtain ⟨e, m⟩ := bit_sigs
   have hs : silent intPowMod [int a, int b, int 0] = false := rfl
-  exact gamma_bot _ m (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b, 0]) (by rw [e]; exact hook_powmod _)
-    (by rw [e]; exact hs)
+  exact gamma_bot _ m (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b, 0])
+    (by rw [e]; exact (hook_powmod a b 0).trans (by simp)) (by rw [e]; exact hs)
 
-/-- **Off a zero modulus every point is silent** (`2 ^%Int 3 5` among them): `hook` gives no value
-there, and Γ states the interpretation's. -/
-theorem powmod_silent (a b : Int) {m : Int} (hm : m ≠ 0) :
+/-- Where the power is not negative or the modulus divides it, the truncating remainder of DOM
+1233-1234 and the Euclidean one of the `smt-hook` (DOM 1251) are one value. -/
+theorem powmod_tmod_emod (p m : Int) (h : 0 ≤ p ∨ p.emod m = 0) : p.tmod m = p.emod m := by
+  rcases h with h | h
+  · exact Int.tmod_eq_emod_of_nonneg h
+  · rw [h]; exact Int.tmod_eq_zero_of_dvd (Int.dvd_of_emod_eq_zero h)
+
+/-- **Where the text states the value** (`powmodStated`), `hook` gives `(A ^Int B) %Int C`. -/
+theorem powmod_at {a b m : Int} (h : powmodStated a b m) :
+    hook intPowMod [int a, int b, int m] = some (some (int ((a ^ b.toNat).tmod m))) := by
+  obtain ⟨hb, hm, hp⟩ := h
+  rw [hook_powmod, if_neg (by omega)]
+
+/-- **There Γ of every semantics states that value under every interpretation.** -/
+theorem powmod_gamma (c : Semantics) (H : HookParams) {a b m : Int} (h : powmodStated a b m) :
+    Γ (c.withHooks H) (appP (c.withHooks H) (sig intPowMod) [int a, int b, int m] ≡
+      den (c.withHooks H) (int ((a ^ b.toNat).tmod m))) := by
+  obtain ⟨e, mm⟩ := bit_sigs
+  exact gamma_val _ mm (by rw [e]; exact sortsOf_ints (c.withHooks H) [a, b, m]) (by rw [e]; exact powmod_at h)
+
+/-- **Off a zero modulus, every point where the text does not state the value is silent**: `hook`
+gives no value there, and Γ states the interpretation's. -/
+theorem powmod_silent {a b m : Int} (hm : m ≠ 0) (h : ¬ powmodStated a b m) :
     hook intPowMod [int a, int b, int m] = some none ∧ silent intPowMod [int a, int b, int m] = true := by
-  refine ⟨rfl, ?_⟩
-  show (asInt (int m)).any (· != 0) = true
-  simp [asInt, int, hm]
+  refine ⟨?_, ?_⟩
+  · rw [hook_powmod, if_pos]
+    simp only [powmodStated, not_and, not_or] at h
+    by_cases hb : b < 0
+    · exact Or.inl hb
+    · obtain ⟨h1, h2⟩ := h (by omega) hm
+      exact Or.inr (Or.inr ⟨by omega, h2⟩)
+  · show (asInt (int m)).any (· != 0) = true
+    simp [asInt, int, hm]
 
-example : hook intPowMod [int 2, int 3, int 5] = some none ∧ silent intPowMod [int 2, int 3, int 5] = true := by
+/-- Points, each derived from the sentence: `2 ^%Int 3 5` is 8 %Int 5 = 3; `-2 ^%Int 2 5` is
+4 %Int 5 = 4; `-2 ^%Int 3 4` is -8 %Int 4 = 0 (4 divides -8); `7 ^%Int 2 -5` is 49 %Int -5 = 4;
+`3 ^%Int 0 7` is 1 %Int 7 = 1. -/
+def powmodVals : List SPt :=
+  [⟨intPowMod, [2, 3, 5], int 3⟩, ⟨intPowMod, [-2, 2, 5], int 4⟩, ⟨intPowMod, [-2, 3, 4], int 0⟩,
+   ⟨intPowMod, [7, 2, -5], int 4⟩, ⟨intPowMod, [3, 0, 7], int 1⟩]
+
+theorem powmodVals_ok : powmodVals.all (fun p => decide (sig p.f ∈ hookSigs) && (sig p.f).name == p.f &&
+    (sig p.f).args == p.xs.map (fun _ => Srt.int) && hook p.f (p.xs.map int) == some (some p.v)) = true := by
   decide +kernel
+
+/-- The silent points: `-2 ^%Int 3 5` (-8 %Int 5 is -3, -8 mod 5 is 2) and `2 ^%Int -1 5` (a
+negative exponent). -/
+example : hook intPowMod [int (-2), int 3, int 5] = some none ∧ silent intPowMod [int (-2), int 3, int 5] = true ∧
+    hook intPowMod [int 2, int (-1), int 5] = some none ∧ silent intPowMod [int 2, int (-1), int 5] = true := by
+  decide +kernel
+
+/-- `HookParams.lib` (LibAdmitted.lean) gives `^%Int` no value at any point. -/
+theorem lib_powmod_none (vs : List GroundTerm) : HookParams.lib.app intPowMod vs = none := rfl
 
 /-- **The bit ranges at every argument list of their signature**: three integers, with a value
 where the index and the length are not negative (and, for `signExtendBitRangeInt`, the length not
@@ -959,6 +1014,9 @@ theorem covered_bitRange {c : Semantics} (hs : c.shapesOK = true) {vs : List Gro
 #print axioms bitBots_gamma
 #print axioms powmod_zero_gamma
 #print axioms powmod_silent
+#print axioms powmod_at
+#print axioms powmod_gamma
+#print axioms lib_powmod_none
 #print axioms covered_bitRange
 #print axioms bit_not_param
 

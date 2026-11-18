@@ -65,6 +65,8 @@ roots = [
   "KCore.SetVarsAtMostOne",
   "KCore.attrsAgree",
   "KCore.symbolsOf",
+  "KCore.appHeadsOf",
+  "KCore.gammaHasHead",
   "KCore.surplusItem",
   "KCore.tieClasses",
 ]

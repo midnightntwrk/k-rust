@@ -1943,9 +1943,10 @@ def inertReason : InertReason → GuardEntry
       note := "C1's class use (R-1): a claim is a statement to prove, a use of the definition and no axiom of its theory, so Γ holds nothing for it; kompile refuses a claim in a definition (fixture e1-claim), so no kompiled text holds one" }
   | .simplification =>
     { status := .guarded,
-      guard := [.decl ``KCore.Guards.ProjK.inverse_holds, .test "test/TieEns.lean" "lib166"],
+      guard := [.decl ``KCore.Guards.ProjK.inverse_holds, .test "test/TieEns.lean" "lib166",
+        .test "test/C3SimpEnsTrue.lean" "ens_entailed"],
       invariant := [``KCore.Semantics.coreOK, ``KCore.Faithful.ΓDomains],
-      note := "at values, for every H, on two texts: the selector-inverse lemma of krust's projapp text holds at Eval's values (G4, inverse_holds); ens's sentence 166, I -Int 0 = I, is satisfied at every value of Int in every model of Γ (lib166). One lemma per text, not every simplification of the library: the class's claim (a lemma follows from the other sentences) is checked where a row lists the sentence" }
+      note := "the class claims Γ ⊧ tr s, owed per text: the reader does not decide it, and the tie on each text (C14) proves it or fails (a text with a refuted user lemma has no model and is not tied); the account's line for a user sentence of the class says so. Shown at values, for every H, on three texts: a user's simplification with an ensures (c3-simp-ens-true, ens_entailed); the selector-inverse lemma of krust's projapp text holds at Eval's values (G4, inverse_holds); ens's sentence 166, I -Int 0 = I, is satisfied at every value of Int in every model of Γ (lib166). One lemma per text, not every simplification of the library: the class's claim (a lemma follows from the other sentences) is checked where a row lists the sentence" }
   | .distinctCtors =>
     { status := .guarded,
       guard := [.decl ``KCore.Guards.inertCons_everyH, .test "test/TieEns.lean" "cons_entailed"],
