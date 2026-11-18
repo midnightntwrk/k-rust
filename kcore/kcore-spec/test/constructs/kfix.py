@@ -27,7 +27,9 @@ A fixture directory holds its K text(s) and fixture.toml:
            Location attributes, the comments (whitespace to the KORE lexer, so no sentence holds
            one) and the main module's name (its `module` line, symbol labels and rule labels
            holding it), putting each disjunction's disjuncts in a
-           fixed order (kompile's order changes from run to run; \\or is commutative and associative)
+           fixed order (kompile's order changes from run to run and with the text's path; \\or is
+           commutative and associative), the binders of each disjunct's chain of existentials in a
+           fixed order (kompile's order changes with the text's path; adjacent existentials commute)
            and renumbering the variables kompile generates (their numbers change from run to run)
            (`stripped`) (an option or a construct that changes no
            sentence); differs_from: the same, must differ
@@ -77,9 +79,12 @@ memory wrapper, and writes into the fixture directory:
                sentences (a `// rule` comment kompile writes counts with the axiom it precedes).
                The whole text is not committed (80 to 650 KB each); kompile.txt's command
                regenerates it. Kompile numbers its generated variables differently from run to
-               run, so the text's sha256 can change; the stripped sha256 (Source, Location,
-               comments and module names removed, disjunctions in a fixed order, generated
-               variables renumbered: `stripped`) is the one to compare. kore.txt keeps the
+               run, and orders some disjunctions and the binders of their existentials by the
+               path of the text it kompiles, so the text's sha256 can change from run to run and
+               from tree to tree; the stripped sha256 (Source, Location, comments and module names
+               removed, disjunctions and existential binders in a fixed order, generated variables
+               renumbered: `stripped`) absorbs those differences and reproduces in any tree: it is
+               the one to compare. kore.txt keeps the
                `// rule` comment lines (rows quote them to locate a sentence); `stripped` does not.
   account.txt  `kcore account out/definition.kore` (the workspace's .lake/build/bin/kcore)
 
@@ -268,6 +273,58 @@ def _ws(t):
     return "".join(out).strip()
 
 
+EXISTS = "\\exists{"
+
+
+def _exists_app(t, i):
+    """For the \\exists application at t[i]: its sort parameter (whitespace removed), its binder
+    and body, and its end index; None where t[i:] is no such application."""
+    if not t.startswith(EXISTS, i):
+        return None
+    s_end = _close(t, i + len(EXISTS) - 1)
+    sort = re.sub(r"\s+", "", t[i + len(EXISTS) - 1:s_end + 1])
+    j = s_end + 1
+    while j < len(t) and t[j].isspace():
+        j += 1
+    if j >= len(t) or t[j] != "(":
+        return None
+    args, end = _args(t, j)
+    if len(args) != 2:
+        return None
+    return sort, args[0].strip(), args[1].strip(), end
+
+
+def exists_sorted(d):
+    """d, a pattern whose text starts a chain of \\exists of one sort, \\exists{S}(x1, \\exists{S}(x2,
+    ... BODY)), with the chain's binders in a fixed order: by the first occurrence of each bound
+    variable in BODY, those that do not occur last in their order of sort and text. Two adjacent
+    existential quantifiers commute (\\exists x . \\exists y . P and \\exists y . \\exists x . P denote
+    the same set), so every order of one chain denotes the same pattern; kompile writes the binders
+    of a generated chain (an [owise] equation's negated sibling) in an order that changes with the
+    text's path, and `alpha` numbers the generated variables by first occurrence, the binders
+    first, so the binders' order would fix their numbers. Applied to a disjunct of
+    `disjunctions_sorted`; a text that starts no chain is returned as it is."""
+    d = d.strip()
+    first = _exists_app(d, 0)
+    if first is None or first[3] != len(d):
+        return d
+    sort, binders, body = first[0], [first[1]], first[2]
+    while True:
+        nxt = _exists_app(body, 0)
+        if nxt is None or nxt[0] != sort or nxt[3] != len(body):
+            break
+        binders.append(nxt[1]); body = nxt[2]
+    def key(b):
+        name = b.split(":", 1)[0].strip()
+        m = re.search(re.escape(name) + r"(?![\w'])", body)
+        return (0, m.start(), "") if m else (1, 0, b.split(":", 1)[-1] + b)
+    binders.sort(key=key)
+    out = body
+    for b in reversed(binders):
+        out = f"\\exists{sort} ({b}, {out})"
+    return out
+
+
 def disjunctions_sorted(t):
     """Every maximal chain of \\or applications of one sort, \\or{S}(A, \\or{S}(B, ...)) nested
     either way, rebuilt as the right-nested chain of its disjuncts in a fixed order: the order of
@@ -275,9 +332,11 @@ def disjunctions_sorted(t):
     by position, so their numbers cannot order the disjuncts). \\or is commutative and associative,
     so every arrangement of one set of disjuncts denotes the same pattern; kompile writes some
     disjunctions (the negated left sides of an [owise] equation's siblings, for one) in an order
-    that changes from run to run, so the stripped text fixes one arrangement. Disjuncts are
-    themselves rewritten first; string literals are left as they are. It is applied to a text
-    without comments (`stripped` removes them first)."""
+    that changes from run to run and with the text's path, so the stripped text fixes one
+    arrangement. Disjuncts are themselves rewritten first, and each disjunct's chain of
+    existentials has its binders in a fixed order (exists_sorted) before the disjuncts are
+    ordered; string literals are left as they are. It is applied to a text without comments
+    (`stripped` removes them first)."""
     out, i, n = [], 0, len(t)
     while i < n:
         if t[i] == '"':
@@ -291,7 +350,7 @@ def disjunctions_sorted(t):
                     s2, a2, e2 = _or_app(a, 0)
                     if s2 == sort and not a[e2:].strip():
                         todo.extend(reversed(a2)); continue
-                leaves.append(_ws(disjunctions_sorted(a)))
+                leaves.append(exists_sorted(_ws(disjunctions_sorted(a))))
             leaves.sort(key=lambda d: (alpha(d), d))
             chain = leaves[-1]
             for d in reversed(leaves[:-1]):
@@ -360,9 +419,12 @@ def stripped(kore):
     """The text compared by same_as / differs_from and hashed as `stripped sha256`: Source and
     Location attributes removed, comments removed (uncommented: KCore's KORE parser drops them, so
     no reading depends on one), module names replaced (each `module` line's, and the main
-    module's where a label holds it: unmodule), disjunctions in a fixed order
-    (disjunctions_sorted), and generated variables renumbered (alpha), in that order so that
-    neither the module names nor the generated variables' numbers fix a disjunct's place."""
+    module's where a label holds it: unmodule), disjunctions in a fixed order and each disjunct's
+    chain of existential binders in a fixed order (disjunctions_sorted, exists_sorted), and
+    generated variables renumbered (alpha), in that order so that neither the module names nor the
+    generated variables' numbers fix a disjunct's or a binder's place. What it absorbs is what
+    kompile changes between runs or between the directories it kompiles in without changing a
+    sentence's meaning."""
     t = ATTR.sub("", kore).replace("[, ", "[").replace("[,", "[")
     t = uncommented(t)
     t = unmodule(t, main_name(t))
@@ -807,6 +869,16 @@ D1_TEXT = """module A
 endmodule []
 """
 D1_STRICT = "c3-strict-base"
+# the two disjuncts of a negated disjunction as kompile writes an [owise] equation's: a chain of two
+# existentials, and one existential
+D1_EX1 = ("\\exists{R} (Var'Unds'Gen0:SortA{}, \\exists{R} (Var'Unds'Gen1:SortB{}, \\and{R}(\\in{SortA{}, R}("
+          "X0:SortA{}, Var'Unds'Gen0:SortA{}), \\in{SortB{}, R}(X1:SortB{}, Var'Unds'Gen1:SortB{}))))")
+D1_EX2 = "\\exists{R} (Var'Unds'Gen2:SortA{}, \\in{SortA{}, R}(X0:SortA{}, Lblg{}(Var'Unds'Gen2:SortA{})))"
+
+
+def d1_exists(x, y):
+    return ("module A\n  axiom{R} \\implies{R}(\\not{R}(\\or{R}(\\bottom{R}(), \\or{R}(" + x + ", " + y
+            + "))), \\top{R}()) []\nendmodule []\n")
 
 
 def check_stripped():
@@ -814,7 +886,10 @@ def check_stripped():
     texts differing only in a comment, or only in the main module's name, are equal; two texts
     differing in a sentence, in a string literal holding `//` or `/*`, or in a label naming
     another module are different. On D1_TEXT and, when cached, D1_STRICT's kompiled text (strict
-    productions: a heating and a cooling label per argument)."""
+    productions: a heating and a cooling label per argument). On the text of D1_EX1 and D1_EX2 (d1_exists): it with a chain's
+    two binders in the other order, with the generated variables numbered by that order, and with
+    its two disjuncts in the other order (numbered by position) are equal; the text with the two
+    bound variables exchanged in the body, and with a binder of another sort, are different."""
     t = D1_TEXT
     equal = [
         t.replace("// rule f() => 1 requires true [label(A.r)]", "// rule something else"),
@@ -834,6 +909,18 @@ def check_stripped():
     bad = [f"D1 of stripped: equal case {i} differs" for i, u in enumerate(equal) if stripped(u) != stripped(t)]
     bad += [f"D1 of stripped: different case {i} is equal" for i, u in enumerate(different)
             if stripped(u) == stripped(t)]
+    e, a, b = d1_exists(D1_EX1, D1_EX2), "\\exists{R} (Var'Unds'Gen0:SortA{}, ", "\\exists{R} (Var'Unds'Gen1:SortB{}, "
+    swap = e.replace(a + b, b + a)
+    renum = swap.replace("Gen0", "GenT").replace("Gen1", "Gen0").replace("GenT", "Gen1")
+    ex_equal = [swap, renum, d1_exists(D1_EX2.replace("Gen2", "Gen0"),
+                                        D1_EX1.replace("Gen1", "Gen2").replace("Gen0", "Gen1"))]
+    ex_different = [e.replace("(X0:SortA{}, Var'Unds'Gen0:SortA{})", "(X0:SortA{}, Var'Unds'Gen1:SortA{})")
+                    .replace("(X1:SortB{}, Var'Unds'Gen1:SortB{})", "(X1:SortB{}, Var'Unds'Gen0:SortB{})"),
+                    e.replace("Var'Unds'Gen1:SortB{}, \\and", "Var'Unds'Gen1:SortC{}, \\and")]
+    bad += [f"D1 of stripped: exists equal case {i} differs" for i, u in enumerate(ex_equal)
+            if u == e or stripped(u) != stripped(e)]
+    bad += [f"D1 of stripped: exists different case {i} is equal" for i, u in enumerate(ex_different)
+            if u == e or stripped(u) == stripped(e)]
     if '"1 // one /* two */"' not in stripped(t):
         bad.append("D1 of stripped: a string literal holding // or /* is cut")
     kore = recorded_text(D1_STRICT)
@@ -847,7 +934,8 @@ def check_stripped():
             bad.append(f"D1 of stripped: {D1_STRICT} with one rule label changed is equal")
         if "// rule" not in kore or "// rule" in stripped(kore):
             bad.append(f"D1 of stripped: {D1_STRICT}'s // rule comments not removed")
-    print(f"kfix stripped D1: {len(equal)} equal and {len(different)} different cases on a small text"
+    print(f"kfix stripped D1: {len(equal) + len(ex_equal)} equal and {len(different) + len(ex_different)}"
+          " different cases on small texts"
           + (f", {D1_STRICT} renamed and relabelled" if kore is not None else f"; {D1_STRICT} not cached"))
     return bad
 
