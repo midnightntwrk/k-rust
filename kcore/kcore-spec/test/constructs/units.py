@@ -121,7 +121,7 @@ ALLOWANCE = [
     # computing the enclosing cell's initializer through the collection's initializer of no argument.
     # 31 -> 30: E6 hook:KEQUAL.ite's case of the text's own one-sort Lblite hooked to KEQUAL.ite
     # is supported, the declaration being the registry's ite declared again (Parse.regIteDeclIoh).
-    ("ROWS-1.unit-rc", 30, "entries of class R-c without unit",
+    ("ROWS-1.unit-rc", 29, "entries of class R-c without unit",
      lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
     # 121: E7 26:genCoverage and 30:removeAnywhereRules carry the status, class and missing unit of
     # their E8 rows --coverage and --allow-anywhere-haskell (refused R-b).

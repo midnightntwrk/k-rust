@@ -928,11 +928,22 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   point of each part of it where Γ over all interpretations entails neither ⊥ nor a value;
   `replaceFirst` against its equation; the header's findings (`substrString`'s two readings, code
   points, a search index above the length).
-- `test/RhsReader.lean`: the reading functions of `KcoreSpec/ReadFns.lean` for an equation's right
-  side (`Parse.dropEmptyAlts`: the alternatives of an `\or` that are `\bottom` left out; `Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable, a conjunction of terms with the variable among them read as the variable with its memberships), which `clauseBody` does not call. Each is run on the fixtures'
+- `test/RhsReader.lean`: the reading functions of `KcoreSpec/Parse.lean` for an equation's right
+  side (`Parse.dropEmptyAlts`: the alternatives of an `\or` that are `\bottom` left out; `Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable, a conjunction of terms with the variable among them read as the variable with its memberships), each by itself (the reader calls them through `Parse.clausesBody`, test/ReaderWire.lean). Each is run on the fixtures'
   kompiled texts from `kfix.py`'s cache (so the cache must hold them, as for `kfix.py accounts`) and
   on hand-written equations, the clauses printed with `clauseSorted`, `condOK` and CN-4 §4.9's
   clause conjunct; one instance of each function is checked by the kernel (`kernel_rfl`).
+- `test/ReaderWire.lean`: the reader's clauses of an equation whose right side holds `\or` or
+  `\exists` (`Parse.clausesBody`: the alternatives that are `\bottom` left out, `Parse.exRead`
+  where the text holds the function's `functional` sentence and gives Bool its literals only,
+  `Parse.frRead`, then `Parse.clauseBody`'s one clause). On the fixtures' kompiled texts from
+  `kfix.py`'s cache: the clauses, the notes (`orAsCases`, `existsAsCases`, `orBottom`) and
+  `coreOK` of `e3-ml-eq-rhs-or-total`, `e3-eq-exists-bool-ml` (`exRead`'s clauses though
+  `ceRead` reads the equation too) and `-loop`, the refusal of `e3-ml-eq-rhs-or`, and
+  `e3-eq-exists-bool-ml` with a subsort into Bool added, which `exRead` is not given. On
+  hand-written equations, by the kernel: the clauses are `frRead`'s and `exRead`'s; an equation
+  paired with an `[owise]` disjunct has `pre` over the reordered variables; an `[owise]` equation
+  read by cases; a cut pattern beside the binder clause; `clauseExcl` maps `exs`.
 - `test/PredContent.lean`: the text's equations of a sort's predicate against the clauses the
   reading gives it (`Semantics.sortPreds`): `Parse.predEqnOK`, `Parse.predProjOK?` and
   `Parse.predEqnFaults` on hand-written equations by the kernel (the two standard equations are the

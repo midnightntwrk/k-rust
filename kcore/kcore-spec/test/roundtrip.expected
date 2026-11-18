@@ -200,6 +200,7 @@ differs f2-examples/mleqbotc.kompile.kore
 differs f2-examples/mleqbotn.kompile.kore
 cannot f2-examples/mleqor.kompile.kore
 differs f2-examples/mleqorb.kompile.kore
+differs f2-examples/mleqort.kompile.kore
 differs f2-examples/mlex.kompile.kore
 differs f2-examples/mlmacro.kompile.kore
 cannot f2-examples/mlmixed.kompile.kore
