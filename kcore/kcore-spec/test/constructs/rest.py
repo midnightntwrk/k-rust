@@ -60,6 +60,21 @@ The evidence forms (DONE-0 C2's table), by status and list, and the items each n
                    (an E6 row keyed lemma: is a [simplification] axiom, of class simplification);
                    where the entry has a fixture, its account prints `N inert X` with N above 0
       tie, theorems (C14's statement for the class: Γ c ⊧ tr s); for an E6 row, its e6_tie as above
+  inert of class attribute (`inert_class = "attribute"`): an attribute of a read sentence or
+  declaration to which K gives no meaning
+      attribute    `attribute`, the attribute's head as KORE writes it (UNIQUE'Unds'ID, cool-like, unit)
+      pairs        `attr_pairs`, pairs [TEXT, COMPANION] of texts f2-examples/*.kore: the two differ,
+                   and are equal once every attribute of that head is removed from both (and kfix.py's
+                   stripped applied: Source, Location, comments and module names); at least one
+      tie          `tie` holds a file that reads the fixture's own text (f2-examples/FIXTURE.kompile.kore),
+                   other than test/InertSemPairs.lean
+      theorems     as above, among them KCore.InertSemPairs.trS_attrs (the translation of a sentence
+                   reads none of its attributes); `reader_tests` (a sem_eq of the pair: the reader
+                   builds one semantics from both) are not evidence and are not counted
+      reason       a reason sentence (`reason`): why K gives the attribute no meaning
+  inert of class use: also refused where the entry's fixture differs from its companion (its
+      fixture.toml has `differs_from`, or the entry has `attr_pairs`): class use is DONE-0 C1's
+      (proof tasks, solver encodings, parsing and unparsing of programs), never a text difference
   inert of class use (`inert_class = "use"`)
       reason       a reason sentence (`reason`): C1's class use
   erased
@@ -159,6 +174,8 @@ def form(l, key, e):
                 "supported hook" if key.startswith("hook:") else "supported E6")
     if s == "inert" and e.get("inert_class") == "use":
         return "inert (use)"
+    if s == "inert" and e.get("inert_class") == "attribute":
+        return "inert (attribute)"
     return s
 
 
@@ -431,6 +448,16 @@ def evidence(fx, l, key, e, row):
         derived(["c"])
     elif f == "inert (use)":
         reason_sentence(["reason"])
+        comp = [x for x in own if fx.conf(x).get("differs_from")]
+        item(not comp and not e.get("attr_pairs"), "no companion (C1's class use)",
+             "class use on a text difference (" + (f"{comp[0]} differs_from {fx.conf(comp[0])['differs_from']}"
+                                                  if comp else "attr_pairs") + "): use is C1's class only")
+    elif f == "inert (attribute)":
+        attribute_items(fx, e, own, item, miss)
+        ties()
+        if "KCore.InertSemPairs.trS_attrs" not in (e.get("tie_theorems") or []):
+            miss.append("theorems (KCore.InertSemPairs.trS_attrs not named)")
+        reason_sentence(["reason"])
     elif f == "inert":
         cls = [c for c in [e.get("inert_class")] + [x.split(".", 1)[1] for x in (e.get("reasons") or [])
                if isinstance(x, str) and x.startswith("InertReason.")] if isinstance(c, str)]
@@ -594,6 +621,65 @@ def main(argv):
     return print_check(res, fresh, report, opt.get("--out"))
 
 
+# ------------------------------------------------------------------------- inert of class attribute
+
+def without_attribute(kore, head):
+    """The text with every attribute of the head removed from its attribute lists: an application
+    `HEAD{}(...)` standing at the start of a list or after a comma, with the comma that joins it."""
+    rx = re.compile(r"(\[|, ?)" + re.escape(head) + r"\{\}\(")
+    out, i = [], 0
+    while True:
+        m = rx.search(kore, i)
+        if not m:
+            out.append(kore[i:]); return "".join(out)
+        import kfix
+        end = kfix._close(kore, m.end() - 1) + 1
+        if m[1] == "[":
+            out.append(kore[i:m.end(1)])
+            end += 2 if kore[end:end + 2] == ", " else 1 if kore[end:end + 1] == "," else 0
+        else:
+            out.append(kore[i:m.start()])
+        i = end
+
+
+def attr_pair(a, b, head):
+    """(equal, why) for two texts (paths relative to kcore-spec): they differ, and are equal once
+    every attribute of the head is removed and kfix.py's stripped is applied to both."""
+    import kfix
+    pa, pb = os.path.join(K, a), os.path.join(K, b)
+    for p, n in ((pa, a), (pb, b)):
+        if not os.path.isfile(p):
+            return False, f"{n} does not exist"
+    ta, tb = kfix.stripped(open(pa).read()), kfix.stripped(open(pb).read())
+    if ta == tb:
+        return False, f"{a} and {b} are equal: no difference for the attribute to be"
+    if without_attribute(ta, head) != without_attribute(tb, head):
+        return False, f"{a} and {b} differ beyond {head}"
+    return True, f"{a} = {b} without {head}"
+
+
+def attribute_items(fx, e, own, item, miss):
+    """The items of inert of class attribute other than the tie, its theorems and the reason."""
+    head = e.get("attribute")
+    item(isinstance(head, str) and bool(head), f"attribute {head}", "attribute (its KORE head)")
+    ps = e.get("attr_pairs") or []
+    if not ps:
+        miss.append("attr_pairs (a text and its companion, equal without the attribute)")
+    for p in ps:
+        if not (isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)):
+            miss.append(f"attr_pairs item {p!r} is not [TEXT, COMPANION]"); continue
+        if isinstance(head, str):
+            ok, why = attr_pair(p[0], p[1], head)
+            item(ok, f"pair {why}", f"pair ({why})")
+    x = own[0] if own else None
+    ts = e.get("tie") if isinstance(e.get("tie"), list) else []
+    reads = [f for f in ts if f != "test/InertSemPairs.lean" and x and os.path.isfile(os.path.join(K, f))
+             and f"f2-examples/{x}.kompile.kore" in open(os.path.join(K, f)).read()]
+    item(bool(reads), f"tie of the fixture's text ({', '.join(reads)})",
+         "tie of the fixture's text (no file of `tie` other than test/InertSemPairs.lean reads "
+         + (f"f2-examples/{x}.kompile.kore)" if x else "a fixture's text: no fixture)"))
+
+
 # ------------------------------------------------------------------------------------ self-test
 
 def self_test():
@@ -622,6 +708,27 @@ def self_test():
         fx.fresh_equal = lambda name: True
         tie = "test/C3EqReqEns.lean"
         thm = {"form": "a", "theorem": "KCore.C3EqReqEns.f_5", "file": tie}
+        for name, conf in (("cmp", 'differs_from = "ok"\n'), ("e1-module", "")):
+            os.makedirs(os.path.join(fxd, name))
+            open(os.path.join(fxd, name, "account.txt"), "w").write(clean)
+            open(os.path.join(fxd, name, "kompile.txt"), "w").write("exit 0\n")
+            if conf:
+                open(os.path.join(fxd, name, "fixture.toml"), "w").write(conf)
+        txt = ("module M\n  axiom{R} f{}() [UNIQUE'Unds'ID{}(\"%s\"), org.kframework.attributes.Location("
+               "Location(%d,1,1,2))]\n  axiom{R} g{}() [%s]\nendmodule []\n")
+        ta, tb, tc = (os.path.relpath(os.path.join(d, n), K) for n in ("a.kore", "b.kore", "c.kore"))
+        for n, args in ((ta, ("a1", 1, "UNIQUE'Unds'ID{}(\"x\")")), (tb, ("b2", 7, "")),
+                        (tc, ("a1", 1, "cool-like{}()"))):
+            open(os.path.join(K, n), "w").write(txt % args)
+        sp = "test/InertSemPairs.lean"
+        attr = {"status": "inert", "inert_class": "attribute", "fixture": "e1-module", "attribute": "UNIQUE'Unds'ID",
+                "attr_pairs": [[ta, tb]], "tie": ["test/TieE1Module.lean", sp],
+                "tie_theorems": ["KCore.TieE1Module.fns_entailed", "KCore.InertSemPairs.trS_attrs"],
+                "reader_tests": ["KCore.InertSemPairs.StrictAlias.sem_eq"], "reason": "an identifier"}
+        if not (without_attribute("[a{}(), u{}(b{}(\"(\")), c{}()] [u{}()] [x{}(), u{}()]", "u")
+                == "[a{}(), c{}()] [] [x{}()]"):
+            print("rest self-test: FAILS: without_attribute")
+            return 1
         cases = [
             # (list, key, entry, accepted)
             ("E2", "A", {"status": "supported", "fixture": "ok", "sentence": ["axiom{} f"], "tie": [tie],
@@ -648,6 +755,15 @@ def self_test():
                          "tie_theorems": ["KCore.C3EqReqEns.f_5"]}, False),
             ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1"}, True),
             ("E3", "A", {"status": "inert", "inert_class": "use"}, False),
+            ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1", "fixture": "cmp"}, False),
+            ("E3", "A", {"status": "inert", "inert_class": "use", "reason": "C1", "attr_pairs": [[ta, tb]]}, False),
+            ("E7", "A", attr, True),
+            ("E7", "A", dict(attr, attr_pairs=[[ta, tc]]), False),
+            ("E7", "A", dict(attr, attr_pairs=[[ta, ta]]), False),
+            ("E7", "A", dict(attr, attribute="cool-like"), False),
+            ("E7", "A", dict(attr, tie=[sp], tie_theorems=["KCore.InertSemPairs.trS_attrs"]), False),
+            ("E7", "A", dict(attr, tie_theorems=["KCore.TieE1Module.fns_entailed"]), False),
+            ("E7", "A", {k: v for k, v in attr.items() if k != "reason"}, False),
             ("E6", "x", {"status": "parameter", "derived": [{"form": "c", "theorem": "T", "file": tie}]}, True),
             ("E6", "x", {"status": "parameter", "derived": [thm]}, False),
             ("E6", "hook:X", {"status": "supported", "derived": [thm]}, True),
